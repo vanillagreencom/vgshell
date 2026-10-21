@@ -28,7 +28,7 @@ FocusScope {
     property bool leased: false
     property string localProblem: ""
     readonly property var profiles: shell === null || !shell.status.values.profiles
-        ? Logic.compose(Logic.emptyProfiles("reading"), {}, {}, {}, false, null, "") : shell.status.values.profiles
+        ? Logic.compose(Logic.emptyProfiles("reading"), {}, {}, {}, null, "") : shell.status.values.profiles
     readonly property var profileRows: profiles.rows
     readonly property bool answering: profiles.state === "available"
     readonly property bool listed: answering && profileRows.length > 0
@@ -159,7 +159,6 @@ FocusScope {
                     removable: root.expanded
                     onDetailsOpened: root.readAddress(modelData.uuid)
                     onToggleRequested: wanted => root.act(wanted ? "profile-up" : "profile-down", modelData.uuid, "This VPN profile cannot change now.")
-                    onInstallRequested: root.answered(root.shell.requirements.offer([Logic.OPENVPN_PLUGIN]), "VGS could not offer the OpenVPN plugin.")
                     onRemoveRequested: root.askRemove(modelData)
                 }
             }
@@ -171,15 +170,6 @@ FocusScope {
         width: root.width
         enabled: !root.confirming
         spacing: Theme.stack.group
-        Label {
-            objectName: "vpn-state"
-            width: parent.width
-            visible: !root.expanded && !root.answering
-            role: "body"
-            textFormat: Text.PlainText
-            text: Logic.summary(root.profiles)
-            wrapMode: Text.Wrap
-        }
         Label {
             objectName: "vpn-problem"
             width: parent.width
@@ -209,16 +199,17 @@ FocusScope {
             visible: root.expanded && root.listed
             title: "Profiles"
             infoTitle: "What VGS can connect"
-            info: "Import: WireGuard (.conf) files, and OpenVPN (.ovpn) files once NetworkManager's OpenVPN plugin is installed. VGS offers to install it.\n\n"
+            info: "Import: WireGuard (.conf) files, and OpenVPN (.ovpn) files, which need NetworkManager's OpenVPN plugin.\n\n"
                 + "Connect and disconnect:\n• every WireGuard profile whose private key NetworkManager holds\n"
-                + "• every VPN profile whose NetworkManager plugin is installed and whose passwords NetworkManager holds\n"
-                + "• an OpenVPN, L2TP, PPTP, SSTP or Fortinet SSL profile that asks for one password when it connects\n\n"
+                + "• every VPN profile other than OpenConnect whose NetworkManager plugin is installed and whose passwords NetworkManager holds\n\n"
                 + "Details: the type, the server and, while connected, the address.\n\n"
-                + "Remove: any profile, after you confirm. NetworkManager deletes its saved keys and passwords with it.\n\n"
+                + "Remove: any profile, after you confirm. NetworkManager deletes the profile with the passwords and keys saved in it. "
+                + "Key and certificate files that the profile uses stay on this computer.\n\n"
                 + "Not supported: OpenConnect profiles (Cisco AnyConnect, GlobalProtect, Pulse or Ivanti), a VPN that signs in through a web page, "
                 + "a profile that asks for more than one secret or a one-time code when it connects, a smart card or certificate passphrase, "
                 + "a profile of any other type that asks for a secret when it connects, and making or editing a profile by hand. "
-                + "These profiles still show with their details and Remove profile, and their switch says why it cannot connect."
+                + "These profiles still show with their details and Remove profile. The switch of an OpenConnect profile says why it cannot connect; "
+                + "the switch of another such profile says why after a connect fails."
             description: root.profiles.count > root.profileRows.length
                 ? "Showing " + root.profileRows.length + " of " + root.profiles.count + " profiles." : ""
             Loader {
@@ -294,7 +285,7 @@ FocusScope {
         }
         y: Math.max(0, Math.min(root.height - height, anchorY - height / 2))
         title: root.confirmTarget === null ? "" : "Remove " + root.confirmTarget.name + "?"
-        message: "NetworkManager deletes this profile with the keys and passwords it saved. You cannot undo this."
+        message: "NetworkManager deletes this profile with the passwords and keys saved in it. Key and certificate files that the profile uses stay on this computer. You cannot undo this."
         actions: [{ label: "Cancel", role: "cancel", focused: true }, { label: "Remove", role: "accept", variant: "danger" }]
         onAccepted: root.acceptRemove()
         onRejected: root.cancelRemove()

@@ -49,9 +49,8 @@ Item {
         for (const row of all) details[row[0]] = { service: row[4], server: row[5] };
         const opts = options || {};
         const listing = { state: opts.state || "available", rows: rows, count: rows.length, activeCount: rows.filter(row => row.state === "activated").length };
-        return Logic.compose(listing, details, { [home]: "10.20.0.2" },
-            { [travel]: { kind: "needs-password", service: "" }, [branch]: { kind: "sign-in", service: "" } },
-            opts.openvpnMissing === true, opts.action || null, opts.problem || "");
+        const failures = Object.assign({ [travel]: { kind: "needs-password", service: "" }, [branch]: { kind: "sign-in", service: "" } }, opts.failures || {});
+        return Logic.compose(listing, details, { [home]: "10.20.0.2" }, failures, opts.action || null, opts.problem || "");
     }
     readonly property var standIn: ["Home tunnel", "Office VPN", "Travel L2TP", "Campus AnyConnect", "Branch IPsec"]
 
@@ -160,23 +159,33 @@ Item {
             row(root.office).expanded = true;
             waitForRendering(view);
             verify(named("vpn-address:" + root.office) === null, "an off profile shows no address");
-            verify(named("vpn-install-plugin:" + root.office) === null, "the plugin is installed");
             const remove = named("vpn-remove:" + root.office);
             verify(remove !== null);
             compare(remove.tone, "danger");
             verify(!remove.removesItem, "Remove profile leads its text with the trash mark");
         }
 
-        // With the OpenVPN plugin missing, the Type row offers it.
-        function test_missing_plugin_offers_its_install() {
-            open(paneComponent, root.payload(root.standIn, { openvpnMissing: true }));
-            row(root.office).expanded = true;
+        // A connect that found no OpenVPN plugin disables the switch with its
+        // reason, and the details offer no action but Remove profile.
+        function test_missing_plugin_disables_its_switch() {
+            open(paneComponent, root.payload(root.standIn, { failures: { [root.office]: { kind: "plugin-needed", service: "openvpn" } } }));
+            const shown = row(root.office);
+            compare(Logic.rowView(root.values.profiles.rows.find(entry => entry.uuid === root.office), root.values.profiles).key, "plugin-needed");
+            shown.expanded = true;
             waitForRendering(view);
-            const install = named("vpn-install-plugin:" + root.office);
-            verify(install !== null);
-            verify(named("vpn-profile-toggle:" + root.office).disabledReason !== "");
-            mouseClick(install);
-            compare(root.calls.filter(call => call[0] === "offer"), [["offer", [Logic.OPENVPN_PLUGIN]]]);
+            const toggle = named("vpn-profile-toggle:" + root.office);
+            verify(toggle.disabledReason !== "", "the switch keeps its reason");
+            mouseClick(toggle);
+            compare(lastIpc(), { kind: "profile-details", id: root.office }, "a disabled switch asks for nothing");
+            const actions = [];
+            (function collect(item) {
+                for (const child of item.children) {
+                    if (child.visible && "removesItem" in child) actions.push(child.objectName);
+                    collect(child);
+                }
+            })(shown);
+            compare(actions, ["vpn-remove:" + root.office]);
+            compare(root.calls.filter(call => call[0] === "offer"), []);
         }
 
         // The confirmation asks first, with Cancel focused; Cancel removes
@@ -271,6 +280,11 @@ Item {
             compare(root.calls.filter(call => call[0] === "ipc" && call[1] === "import").length, 1);
             mouseClick(named("vpn-profile-toggle:" + root.office));
             compare(lastIpc(), { kind: "profile-up", id: root.office });
+            // The bar icon hides with no profile and with no NetworkManager.
+            for (const state of ["available", "not-running"]) {
+                publish(root.payload([], { state: state }));
+                verify(named("vpn-empty") === null, state + " draws no empty state");
+            }
         }
     }
 }

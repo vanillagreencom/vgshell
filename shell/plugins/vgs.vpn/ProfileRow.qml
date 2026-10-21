@@ -6,8 +6,7 @@ import "VpnLogic.js" as Logic
 // One saved profile: a Disclosure whose row names it, its type and state
 // (VpnLogic.rowView) and ends with its switch, and a spinner before the
 // switch while a change runs. The switch stays a Tab stop with its reason
-// while it cannot be used. Expanded, it shows the Type row, with Install
-// plugin after the value while the OpenVPN plugin is missing, the Server
+// while it cannot be used. Expanded, it shows the Type row, the Server
 // row when the profile names one, the Address row while connected and,
 // in System Settings, Remove profile at the content edge, `stack.group`
 // under the details: a remove action with no row of its own leads its text
@@ -22,7 +21,6 @@ Disclosure {
     readonly property Item removeAction: remove
 
     signal toggleRequested(bool wanted)
-    signal installRequested()
     signal removeRequested()
     signal detailsOpened()
 
@@ -75,24 +73,12 @@ Disclosure {
                 width: parent.width
                 inline: true
                 label: "Type"
-                Row {
-                    spacing: Theme.rowAction.gap
-                    Label {
-                        id: typeValue
-                        objectName: "vpn-type:" + root.modelData.uuid
-                        role: "value"
-                        textFormat: Text.PlainText
-                        text: root.view.type
-                    }
-                    RowAction {
-                        objectName: "vpn-install-plugin:" + root.modelData.uuid
-                        // On the value's line: a RowAction's box is centred on its
-                        // capitals' centre and holds its underline (RowAction.qml).
-                        y: typeValue.capCentre - height / 2
-                        visible: root.view.installPlugin
-                        text: "Install plugin"
-                        onClicked: root.installRequested()
-                    }
+                Label {
+                    objectName: "vpn-type:" + root.modelData.uuid
+                    width: parent.width
+                    role: "value"
+                    textFormat: Text.PlainText
+                    text: root.view.type
                 }
             }
             Field {

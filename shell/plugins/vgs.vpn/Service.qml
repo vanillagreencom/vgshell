@@ -24,7 +24,6 @@ Item {
         DBUS_SYSTEM_BUS_ADDRESS: Quickshell.env("DBUS_SYSTEM_BUS_ADDRESS") || null,
         DBUS_SESSION_BUS_ADDRESS: Quickshell.env("DBUS_SESSION_BUS_ADDRESS") || null, XDG_RUNTIME_DIR: Quickshell.env("XDG_RUNTIME_DIR") })
     readonly property bool profilesMissing: shell === null || shell.requirements.missing.indexOf("nmcli") !== -1
-    readonly property bool openvpnMissing: shell !== null && shell.requirements.missing.indexOf(Logic.OPENVPN_PLUGIN) !== -1
     property var listing: Logic.emptyProfiles("reading")
     // Per uuid: { service, server } from the one detail read of the
     // current uuid set, the address while activated, and the failure the
@@ -39,7 +38,7 @@ Item {
     property var profileAction: null
     property string profileProblem: ""
     readonly property var profiles: Logic.compose(profilesMissing ? Logic.emptyProfiles("missing") : listing,
-        detailMap, addresses, failures, openvpnMissing, profileAction, profileProblem)
+        detailMap, addresses, failures, profileAction, profileProblem)
 
     readonly property var connection: Logic.connection(profiles)
 
@@ -313,7 +312,7 @@ Item {
     }
     function importFile() {
         if (profiles.state !== "available") return "refused: import=unavailable";
-        const needed = ["nmcli", "gum", "busctl"].filter(command => shell.requirements.missing.indexOf(command) !== -1);
+        const needed = ["nmcli", "gum"].filter(command => shell.requirements.missing.indexOf(command) !== -1);
         // The notice opens the import once it installs what is missing, so
         // a notice that shows is the press's answer.
         if (needed.length > 0)

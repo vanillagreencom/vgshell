@@ -11,7 +11,6 @@ var TEXT_MAX = 64;
 // A host name is at most 253 octets; an endpoint adds brackets and a port.
 var SERVER_MAX = 261;
 var PROFILE_MAX = 32;
-var OPENVPN_PLUGIN = "org.freedesktop.NetworkManager.openvpn";
 var SERVICE_PREFIX = "org.freedesktop.NetworkManager.";
 var UUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
@@ -205,7 +204,7 @@ function typeName(type, service) {
 // The payload the service publishes: the list's rows with their read
 // details, the address while activated, the failure the last `up` left,
 // the change in flight and its problem line.
-function compose(listing, detailMap, addresses, failures, openvpnMissing, action, problem) {
+function compose(listing, detailMap, addresses, failures, action, problem) {
     const rows = listing.rows.map(row => {
         const detail = detailMap[row.uuid];
         const failure = failures[row.uuid];
@@ -218,8 +217,7 @@ function compose(listing, detailMap, addresses, failures, openvpnMissing, action
             failure: failure === undefined ? "" : failure.kind
         };
     });
-    return { state: listing.state, rows: rows, count: listing.count, activeCount: listing.activeCount,
-        openvpnMissing: openvpnMissing, action: action, problem: problem };
+    return { state: listing.state, rows: rows, count: listing.count, activeCount: listing.activeCount, action: action, problem: problem };
 }
 
 var SIGN_IN_REASON = "This VPN asks for sign-in details when it connects, and VGS cannot ask for them. Save them in the profile, or connect it from your VPN provider's app.";
@@ -235,14 +233,16 @@ function motion(row, action) {
 }
 
 // What a profile row shows: its state `key`, the secondary line and its
-// tone, the switch's value and the reason it is disabled, whether a
-// spinner stands in for the switch, and whether the Type row offers the
-// OpenVPN plugin.
+// tone, the switch's value and the reason it is disabled, and whether a
+// spinner stands in for the switch. A missing plugin reads only from the
+// `up` that failed for it: NetworkManager starts a VPN plugin itself from
+// its `.name` file, and an idle plugin owns no bus name
+// (networkmanager-openvpn 1.12.5 ships no D-Bus service file).
 function rowView(row, profiles) {
     const type = typeName(row.type, row.service);
     function view(key, words, extra) {
         return Object.assign({ key: key, type: type, secondary: type + " · " + words, danger: false, busy: false,
-            connected: false, switchOn: false, reason: "", installPlugin: false }, extra || {});
+            connected: false, switchOn: false, reason: "" }, extra || {});
     }
     const moving = motion(row, profiles.action);
     // The switch shows where the change goes and waits for it.
@@ -253,9 +253,6 @@ function rowView(row, profiles) {
     if (row.state === "activated") return view("connected", "Connected", { connected: true, switchOn: true });
     if (row.type === "vpn" && row.service === "openconnect")
         return view("unsupported", "Connects in its own app", { reason: UNSUPPORTED_REASON });
-    if (row.type === "vpn" && row.service === "openvpn" && profiles.openvpnMissing === true)
-        return view("plugin-needed", "Needs the OpenVPN plugin", {
-            reason: "NetworkManager needs its OpenVPN plugin to connect this profile.", installPlugin: true });
     if (row.failure === "plugin-needed")
         return view("plugin-needed", "Needs the " + type + " plugin", { reason: "NetworkManager needs its " + type + " plugin to connect this profile." });
     if (row.failure === "sign-in") return view("sign-in", "Asks for sign-in details VGS cannot ask", { reason: SIGN_IN_REASON });

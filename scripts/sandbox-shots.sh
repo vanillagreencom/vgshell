@@ -57,9 +57,9 @@
 # fakes, each also with the pointer on a list row the selection is not on,
 # then the widget's menu with the pointer on an entry; vpn is the VPN bar
 # icon connected, warning and connecting, its flyout and its System
-# Settings section with a profile expanded, the remove confirmation, the
-# OpenVPN plugin missing and no profile, over the nmcli stand-in and the
-# fixtures of scripts/fixtures/vpn/; vpn-locked, taken only when named, is the
+# Settings section with a profile expanded, the remove confirmation, a
+# connect that found no OpenVPN plugin and no profile, over the nmcli
+# stand-in and the fixtures of scripts/fixtures/vpn/; vpn-locked, taken only when named, is the
 # VPN dropdown while Tailscale's access step is offered: at rest, its
 # header switch under the pointer and under keyboard focus, the switch's
 # unlock mark under keyboard focus, and Sign in under the pointer over a
@@ -6714,27 +6714,23 @@ tailscale_shot_read() { ipc smoke readDescendant window vgs.tailscale TailscaleB
 # stand-in: Home tunnel connected with its server and address, Office VPN,
 # Travel L2TP and Campus AnyConnect off, as the VGS-1937 v2 sheets draw
 # them. A failed connect of Travel L2TP leaves it needing its password; a
-# held connect of Office VPN shows the bar's spinner. NetworkManager's
-# OpenVPN plugin is a D-Bus name on the sandbox system bus, owned by a
-# dbusmock the scene starts and stops, so Office VPN reads the plugin
-# installed and then missing. The bar strip shows the connected, the
-# connecting and the warning icon; the flyout and the System Settings
-# section show a profile expanded, the remove confirmation, the missing
-# plugin and the no-profile state.
+# held connect of Office VPN shows the bar's spinner, and a later connect
+# that NetworkManager answers with its VPN-service-not-found error leaves
+# Office VPN needing the OpenVPN plugin, its switch disabled. The bar strip
+# shows the connected, the connecting and the warning icon; the flyout and
+# the System Settings section show a profile expanded, the remove
+# confirmation, the missing plugin and the no-profile state.
 vpn_shot_home=9d76b882-ead1-4c49-8675-7be6431d5f71
 vpn_shot_office=95ea5c2d-312f-4a84-8fd1-9ebc0a4a7581
 vpn_shot_travel=5b1c0a9e-2f43-4d7a-9a51-0c3e6e1d2b84
 vpn_shot_campus=2e8f4d1a-7c6b-4f3e-8a29-6d5b4c3a2f10
-vpn_shot_plugin_pid=""
 scene_vpn() { # MODE
   local fixtures="$repo/scripts/fixtures/vpn" scroll
   devices_ready vpn-shot || return 0
   vpn_shot_plant || { fail "the VPN stand-in profiles are unreadable"; return; }
-  vpn_shot_plugin start || return
   expect "VPN enables for its shot" ok ipc shell setPluginEnabled vgs.vpn true
-  tree_rescan "the VPN shot reads the OpenVPN plugin installed"
+  tree_rescan "the VPN shot reads the nmcli stand-in"
   expect_poll "VPN reads its stand-in profiles" '[["Home tunnel", "activated", "wireguard", "203.0.113.10:51820", "10.20.0.2", ""], ["Office VPN", "", "openvpn", "vpn.example.com", "", ""], ["Travel L2TP", "", "l2tp", "l2tp.example.net", "", ""], ["Campus AnyConnect", "", "openconnect", "vpn.example.edu", "", ""]]' vpn_shot_rows
-  expect_poll "VPN reads the OpenVPN plugin installed" false vpn_shot_status openvpnMissing
   backend_widget_shots vpn "$1"
 
   device_reply nmcli 4 "$(<"$fixtures/up-secrets-password.txt")" connection up uuid "$vpn_shot_travel"
@@ -6784,10 +6780,10 @@ scene_vpn() { # MODE
     *) fail "the VPN pane end is unreadable: $scroll" ;;
   esac
 
-  vpn_shot_plugin stop || return
-  tree_rescan "the VPN shot reads the OpenVPN plugin missing"
-  expect_poll "VPN reads the OpenVPN plugin missing" true vpn_shot_status openvpnMissing
-  expect_poll "Office VPN offers Install plugin" true vpn_shot_read window RowAction "vpn-install-plugin:$vpn_shot_office" visible
+  device_reply nmcli 4 "$(sed 's/NetworkManager\.vpnc/NetworkManager.openvpn/' "$fixtures/up-service-missing.txt")" connection up uuid "$vpn_shot_office"
+  expect "Office VPN is asked to connect without its plugin" ok ipc vgs.vpn invoke action "{\"kind\":\"profile-up\",\"id\":\"$vpn_shot_office\"}"
+  expect_poll "Office VPN needs the OpenVPN plugin" plugin-needed vpn_shot_failure "$vpn_shot_office"
+  expect_poll "Office VPN's switch says why it cannot connect" true vpn_shot_blocked window "$vpn_shot_office"
   expect "the VPN pane scrolls back to its Profiles heading" shown vpn_shot_top
   park_pointer
   take "vpn-$1-pane-plugin"
@@ -6796,7 +6792,7 @@ scene_vpn() { # MODE
   expect_poll "the VPN widget opens its flyout" shown vpn_shot_panel
   vpn_shot_expand panel "" "Home tunnel" "$vpn_shot_home" false
   vpn_shot_expand panel "" "Office VPN" "$vpn_shot_office" true
-  expect_poll "the flyout offers Install plugin on Office VPN's Type row" true vpn_shot_read panel RowAction "vpn-install-plugin:$vpn_shot_office" visible
+  expect_poll "the flyout's Office VPN switch says why it cannot connect" true vpn_shot_blocked panel "$vpn_shot_office"
   park_pointer
   take "vpn-$1-dropdown-plugin"
   expect "the VPN flyout hides" ok ipc shell hide panel vgs.vpn
@@ -6851,22 +6847,6 @@ with open(path + ".next", "w") as out:
 os.replace(path + ".next", path)
 PY
 }
-# vpn_shot_plugin start|stop: a dbusmock owning NetworkManager's OpenVPN
-# plugin name on the sandbox system bus, started or stopped, read back
-# through the bus.
-vpn_shot_plugin() {
-  local name=org.freedesktop.NetworkManager.openvpn
-  if [[ $1 == start ]]; then
-    spawn "$devices_dir/vpn-openvpn.log" "${shell_env[@]}" python3 -m dbusmock --system "$name" /org/freedesktop/NetworkManager/VPN/Plugin org.freedesktop.NetworkManager.VPN.Plugin
-    vpn_shot_plugin_pid="$spawn_pid"
-    expect_poll "the OpenVPN plugin's name is owned" "(true,)" vpn_shot_owned "$name"
-  else
-    [[ -n $vpn_shot_plugin_pid ]] && kill "$vpn_shot_plugin_pid" 2>/dev/null
-    vpn_shot_plugin_pid=""
-    expect_poll "the OpenVPN plugin's name is released" "(false,)" vpn_shot_owned "$name"
-  fi
-}
-vpn_shot_owned() { "${shell_env[@]}" gdbus call --system --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus --method org.freedesktop.DBus.NameHasOwner "$1" 2>>"$sandbox/ipc.log"; }
 # vpn_shot_expand HOST LOOKUP_SURFACE NAME UUID OPEN: the profile row NAME
 # clicked until its Disclosure reads OPEN; a row already there is left.
 vpn_shot_expand() {
@@ -6877,6 +6857,7 @@ vpn_shot_expand() {
   expect_poll "$3 reads expanded=$5" "$5" vpn_shot_read "$1" ProfileRow "vpn-profile:$4" expanded
 }
 vpn_shot_read() { ipc smoke readMatchingDescendant "$1" vgs.vpn "$2" objectName "$3" "$4"; } # HOST TYPE NAME PROPERTY
+vpn_shot_blocked() { vpn_shot_read "$1" Switch "vpn-profile-toggle:$2" disabledReason | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin) != ""))'; } # HOST UUID
 vpn_shot_status() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=json.load(sys.stdin).get("profiles"); print("unpublished" if v is None else json.dumps(v[sys.argv[1]]))' "$1"; }
 vpn_shot_rows() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=json.load(sys.stdin).get("profiles"); print("unpublished" if v is None else json.dumps([[r["name"], r["state"], r["service"] or r["type"], r["server"], r["address"], r["failure"]] for r in v["rows"]]))'; }
 vpn_shot_failure() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=json.load(sys.stdin).get("profiles") or {"rows": []}; print(next((r["failure"] for r in v["rows"] if r["uuid"] == sys.argv[1]), "absent"))' "$1"; }

@@ -136,38 +136,39 @@ function suite(logic, service = serviceSource) {
     const addresses = { [HOME]: "10.20.0.2", [OFFICE]: "10.9.9.9" };
     const failures = { [TRAVEL]: { kind: "needs-password", service: "" }, [BRANCH]: { kind: "sign-in", service: "" },
         [LAB]: { kind: "plugin-needed", service: "vpnc" } };
-    const profiles = plain(logic.compose(listing, Object.assign({}, details, { [LAB]: undefined }), addresses, failures, false, null, ""));
+    const profiles = plain(logic.compose(listing, Object.assign({}, details, { [LAB]: undefined }), addresses, failures, null, ""));
     holdsNothingPrivate(profiles, "profiles");
     const byUuid = uuid => profiles.rows.find(row => row.uuid === uuid);
     assert.deepEqual(byUuid(HOME), { uuid: HOME, name: "Home tunnel", type: "wireguard", state: "activated", service: "",
         server: "203.0.113.10:51820", address: "10.20.0.2", failure: "" });
     assert.equal(byUuid(OFFICE).address, "", "an address shows only while activated");
     assert.equal(byUuid(LAB).service, "vpnc", "a missing plugin names its service before the details answer");
-    assert.deepEqual(Object.keys(profiles).sort(), ["action", "activeCount", "count", "openvpnMissing", "problem", "rows", "state"]);
-    const missingPlugin = plain(logic.compose(listing, details, {}, {}, true, null, ""));
+    assert.deepEqual(Object.keys(profiles).sort(), ["action", "activeCount", "count", "problem", "rows", "state"]);
+    // A missing OpenVPN plugin reads from the `up` that failed for it.
+    const missingPlugin = plain(logic.compose(listing, details, {}, { [OFFICE]: { kind: "plugin-needed", service: "openvpn" } }, null, ""));
     const viewOf = (payload, uuid) => plain(logic.rowView(payload.rows.find(row => row.uuid === uuid), payload));
-    const flags = view => [view.key, view.connected, view.switchOn, view.busy, view.danger, view.reason !== "", view.installPlugin];
+    const flags = view => [view.key, view.connected, view.switchOn, view.busy, view.danger, view.reason !== ""];
     for (const [payload, uuid, want] of [
-        [profiles, HOME, ["connected", true, true, false, false, false, false]],
-        [profiles, OFFICE, ["off", false, false, false, false, false, false]],
-        [profiles, TRAVEL, ["needs-password", false, false, false, false, false, false]],
-        [profiles, CAMPUS, ["unsupported", false, false, false, false, true, false]],
-        [profiles, BRANCH, ["sign-in", false, false, false, false, true, false]],
-        [profiles, LAB, ["plugin-needed", false, false, false, false, true, false]],
-        [missingPlugin, OFFICE, ["plugin-needed", false, false, false, false, true, true]],
-        [missingPlugin, TRAVEL, ["off", false, false, false, false, false, false]],
-        [plain(logic.compose(listing, details, {}, { [OFFICE]: { kind: "failed", service: "" } }, false, null, "")), OFFICE,
-            ["failed", false, false, false, true, false, false]],
-        [plain(logic.compose(listing, details, {}, { [HOME]: { kind: "failed", service: "" } }, false, null, "")), HOME,
-            ["connected", true, true, false, false, false, false]],
-        [plain(logic.compose(listing, details, {}, {}, false, { kind: "profile-up", uuid: OFFICE, name: "Office VPN" }, "")), OFFICE,
-            ["connecting", false, true, true, false, true, false]],
-        [plain(logic.compose(listing, details, {}, {}, false, { kind: "profile-down", uuid: HOME, name: "Home tunnel" }, "")), HOME,
-            ["disconnecting", true, false, true, false, true, false]],
-        [plain(logic.compose(listing, details, {}, {}, false, { kind: "profile-remove", uuid: OFFICE, name: "Office VPN" }, "")), OFFICE,
-            ["removing", false, false, true, false, true, false]],
-        [plain(logic.compose(logic.list(0, "Office VPN:" + OFFICE + ":vpn:activating"), details, {}, {}, false, null, "")), OFFICE,
-            ["connecting", false, true, true, false, true, false]]
+        [profiles, HOME, ["connected", true, true, false, false, false]],
+        [profiles, OFFICE, ["off", false, false, false, false, false]],
+        [profiles, TRAVEL, ["needs-password", false, false, false, false, false]],
+        [profiles, CAMPUS, ["unsupported", false, false, false, false, true]],
+        [profiles, BRANCH, ["sign-in", false, false, false, false, true]],
+        [profiles, LAB, ["plugin-needed", false, false, false, false, true]],
+        [missingPlugin, OFFICE, ["plugin-needed", false, false, false, false, true]],
+        [missingPlugin, TRAVEL, ["off", false, false, false, false, false]],
+        [plain(logic.compose(listing, details, {}, { [OFFICE]: { kind: "failed", service: "" } }, null, "")), OFFICE,
+            ["failed", false, false, false, true, false]],
+        [plain(logic.compose(listing, details, {}, { [HOME]: { kind: "failed", service: "" } }, null, "")), HOME,
+            ["connected", true, true, false, false, false]],
+        [plain(logic.compose(listing, details, {}, {}, { kind: "profile-up", uuid: OFFICE, name: "Office VPN" }, "")), OFFICE,
+            ["connecting", false, true, true, false, true]],
+        [plain(logic.compose(listing, details, {}, {}, { kind: "profile-down", uuid: HOME, name: "Home tunnel" }, "")), HOME,
+            ["disconnecting", true, false, true, false, true]],
+        [plain(logic.compose(listing, details, {}, {}, { kind: "profile-remove", uuid: OFFICE, name: "Office VPN" }, "")), OFFICE,
+            ["removing", false, false, true, false, true]],
+        [plain(logic.compose(logic.list(0, "Office VPN:" + OFFICE + ":vpn:activating"), details, {}, {}, null, "")), OFFICE,
+            ["connecting", false, true, true, false, true]]
     ]) assert.deepEqual(flags(viewOf(payload, uuid)), want, uuid + " " + want[0]);
     // Each service has its own type name; an unread or unknown one reads as
     // a plain VPN.
@@ -190,28 +191,28 @@ function suite(logic, service = serviceSource) {
         [{ kind: "profile-up", id: BRANCH }, profiles, { refusal: "refused: profile=sign-in" }],
         [{ kind: "profile-up", id: OFFICE }, missingPlugin, { refusal: "refused: profile=plugin-needed" }],
         [{ kind: "profile-up", id: "Office VPN" }, profiles, { refusal: "refused: profile=absent" }],
-        [{ kind: "profile-up", id: OFFICE }, plain(logic.compose(logic.emptyProfiles("not-running"), {}, {}, {}, false, null, "")), { refusal: "refused: profile=unavailable" }],
+        [{ kind: "profile-up", id: OFFICE }, plain(logic.compose(logic.emptyProfiles("not-running"), {}, {}, {}, null, "")), { refusal: "refused: profile=unavailable" }],
         [{ kind: "import" }, profiles, { refusal: "refused: profile=action" }],
         [[], profiles, { refusal: "refused: profile=action" }]
     ]) assert.deepEqual(plain(logic.profileCommand(request, payload)), want, JSON.stringify(request));
 
     // The bar icon and its tooltip's subject.
     const bar = payload => plain(logic.barView(payload));
-    for (const hidden of [null, logic.emptyProfiles("reading"), logic.emptyProfiles("not-running"), logic.compose(logic.list(0, ""), {}, {}, {}, false, null, "")])
+    for (const hidden of [null, logic.emptyProfiles("reading"), logic.emptyProfiles("not-running"), logic.compose(logic.list(0, ""), {}, {}, {}, null, "")])
         assert.equal(bar(hidden).shown, false);
-    const quiet = plain(logic.compose(listing, details, addresses, {}, false, null, ""));
+    const quiet = plain(logic.compose(listing, details, addresses, {}, null, ""));
     assert.deepEqual([bar(quiet).icon, bar(quiet).spinning, bar(quiet).warning], ["shield-check", false, false]);
     assert.ok(bar(quiet).tooltip.includes("Home tunnel"));
-    const two = plain(logic.compose(logic.list(0, text("list.txt").replace("Office VPN:" + OFFICE + ":vpn:", "Office VPN:" + OFFICE + ":vpn:activated")), details, {}, {}, false, null, ""));
+    const two = plain(logic.compose(logic.list(0, text("list.txt").replace("Office VPN:" + OFFICE + ":vpn:", "Office VPN:" + OFFICE + ":vpn:activated")), details, {}, {}, null, ""));
     assert.ok(bar(two).tooltip.includes("2") && !bar(two).tooltip.includes("Home tunnel"));
-    const off = plain(logic.compose(logic.list(0, "Office VPN:" + OFFICE + ":vpn:"), details, {}, {}, false, null, ""));
+    const off = plain(logic.compose(logic.list(0, "Office VPN:" + OFFICE + ":vpn:"), details, {}, {}, null, ""));
     assert.deepEqual([bar(off).shown, bar(off).icon, bar(off).warning], [true, "shield-off", false]);
-    const connecting = plain(logic.compose(listing, details, {}, {}, false, { kind: "profile-up", uuid: OFFICE, name: "Office VPN" }, ""));
+    const connecting = plain(logic.compose(listing, details, {}, {}, { kind: "profile-up", uuid: OFFICE, name: "Office VPN" }, ""));
     assert.deepEqual([bar(connecting).spinning, bar(connecting).warning], [true, false]);
     assert.ok(bar(connecting).tooltip.includes("Office VPN"));
-    assert.equal(bar(plain(logic.compose(listing, details, {}, {}, false, { kind: "profile-remove", uuid: OFFICE, name: "Office VPN" }, ""))).spinning, false);
+    assert.equal(bar(plain(logic.compose(listing, details, {}, {}, { kind: "profile-remove", uuid: OFFICE, name: "Office VPN" }, ""))).spinning, false);
     for (const [kind, warning] of [["needs-password", true], ["failed", true], ["sign-in", false], ["plugin-needed", false]]) {
-        const view = bar(plain(logic.compose(listing, details, {}, { [OFFICE]: { kind, service: "" } }, false, null, "")));
+        const view = bar(plain(logic.compose(listing, details, {}, { [OFFICE]: { kind, service: "" } }, null, "")));
         assert.equal(view.warning, warning, kind);
         assert.equal(view.icon, warning ? "shield-alert" : "shield-check", kind);
         if (warning) assert.ok(view.tooltip.includes("Office VPN"));
@@ -248,6 +249,37 @@ function suite(logic, service = serviceSource) {
         assert.equal(owner.listing.state, state);
         assert.equal(stopped, true);
         assert.deepEqual(console.messages, level === null ? [] : [[level, "vpn: operation=profile-read completion=" + kind + " code=" + code]]);
+    }
+    // A new list reads the details only for a changed uuid set, drops the
+    // failure of a profile now activated and the address of one no longer
+    // activated, and queues the address of each activated profile without
+    // one.
+    const listedBody = /function listed\(next\) \{([\s\S]*?)\n    \}/.exec(service);
+    assert.ok(listedBody);
+    // `with` resolves the body's bare names on the owner, as QML does.
+    const runListed = new Function("Logic", "owner", "next", "with (owner) {" + listedBody[1] + "}");
+    const listedOwner = (fields) => {
+        const owner = Object.assign({ listing: null, failures: {}, addresses: {}, detailsRead: "", reads: 0, queued: [],
+            readDetails() { owner.reads++; }, queueAddress(uuid) { owner.queued.push(uuid); } }, fields);
+        return owner;
+    };
+    for (const [name, next, fields, reads, failureUuids, addressUuids, queued] of [
+        ["an unchanged uuid set reads no details", listing, { detailsRead: key }, 0, [], [], [HOME]],
+        ["a changed uuid set reads once", listing, { detailsRead: [HOME, OFFICE].join(" ") }, 1, [], [], [HOME]],
+        ["failures stay off activated profiles", listing, { detailsRead: key,
+            failures: { [HOME]: { kind: "failed", service: "" }, [OFFICE]: { kind: "failed", service: "" } } }, 0, [OFFICE], [], [HOME]],
+        ["addresses stay on activated profiles", listing, { detailsRead: key, addresses: { [HOME]: "10.20.0.2", [OFFICE]: "10.9.9.9" } },
+            0, [], [HOME], []],
+        ["no answer reads nothing", logic.emptyProfiles("no-answer"), { detailsRead: key,
+            failures: { [OFFICE]: { kind: "failed", service: "" } }, addresses: { [HOME]: "10.20.0.2" } }, 0, [], [], []]
+    ]) {
+        const owner = listedOwner(fields);
+        runListed(logic, owner, next);
+        assert.equal(owner.listing, next, name);
+        assert.equal(owner.reads, reads, name);
+        assert.deepEqual(Object.keys(owner.failures).sort(), failureUuids.slice().sort(), name);
+        assert.deepEqual(Object.keys(owner.addresses).sort(), addressUuids.slice().sort(), name);
+        assert.deepEqual(owner.queued, queued, name);
     }
     // The detail completion keeps a read only when it answered.
     const completeDetails = new Function("running", "completion", "key", "again", "root", "Logic", "detailsText", "detailsDeadline", "console", bodyOf("detailsReader", "details"));
@@ -306,7 +338,6 @@ function suite(logic, service = serviceSource) {
         ["available", [], "ok", undefined, [], 1],
         ["available", ["gum"], "ok", undefined, [[["gum"], "import"]], 0],
         ["available", ["nmcli", "gum"], "ok", undefined, [[["nmcli", "gum"], "import"]], 0],
-        ["available", ["busctl"], "ok", undefined, [[["busctl"], "import"]], 0],
         ["available", ["gum"], "refused: notices=full limit=8", "refused: import=missing-tool", [[["gum"], "import"]], 0],
         ["not-running", [], "ok", "refused: import=unavailable", [], 0]
     ]) {
@@ -321,7 +352,7 @@ function suite(logic, service = serviceSource) {
         if (launched) assert.deepEqual(launches[0], ["import", []]);
     }
     // The import offers every tool its TUI requires.
-    assert.deepEqual(manifest.tui.import.requires.slice().sort(), ["busctl", "gum", "nmcli"]);
+    assert.deepEqual(manifest.tui.import.requires.slice().sort(), ["gum", "nmcli"]);
 
     // Publish bounded profile lists through the production service callback.
     assert.equal(logic.line("a<b>\u0007c\n"), "ab>c");
@@ -332,7 +363,7 @@ function suite(logic, service = serviceSource) {
     const wideListing = logic.list(0, wide);
     const wideDetails = {};
     for (const row of wideListing.rows) wideDetails[row.uuid] = { service: "openvpn", server: "界".repeat(logic.SERVER_MAX) };
-    const crowded = plain(logic.compose(wideListing, wideDetails, {}, {}, false, { kind: "profile-up", uuid: wideListing.rows[0].uuid, name: "界".repeat(logic.TEXT_MAX) }, "界".repeat(200)));
+    const crowded = plain(logic.compose(wideListing, wideDetails, {}, {}, { kind: "profile-up", uuid: wideListing.rows[0].uuid, name: "界".repeat(logic.TEXT_MAX) }, "界".repeat(200)));
     let values = {};
     const shell = { status: { set(key, value) {
         const result = core.statusWrite(manifest, values, key, value);
@@ -341,7 +372,7 @@ function suite(logic, service = serviceSource) {
         assert.ok(Buffer.byteLength(JSON.stringify(values)) <= STATUS_MAX_BYTES);
         return "ok";
     } } };
-    for (const payload of [profiles, crowded, plain(logic.compose(logic.emptyProfiles("missing"), {}, {}, {}, false, null, ""))]) {
+    for (const payload of [profiles, crowded, plain(logic.compose(logic.emptyProfiles("missing"), {}, {}, {}, null, ""))]) {
         const original = JSON.stringify(payload);
         publish(shell, logic.connection(payload), payload, logic);
         assert.equal(JSON.stringify(payload), original);
@@ -350,8 +381,11 @@ function suite(logic, service = serviceSource) {
         assert.ok(values.profiles.rows.length > 0 || payload.rows.length === 0);
         for (const row of values.profiles.rows) assert.deepEqual(row, payload.rows.find(input => input.uuid === row.uuid));
         assert.equal(logic.barView(values.profiles).shown, payload.state === "available" && payload.count > 0);
+        if (payload === crowded) {
+            assert.ok(values.profiles.rows.length < crowded.rows.length, "a list over the status budget drops rows");
+            assert.ok(Buffer.byteLength(JSON.stringify(values.profiles)) <= logic.STATUS_DATA_BYTES);
+        }
     }
-    assert.ok(crowded.rows.length > values.profiles.rows.length || Buffer.byteLength(JSON.stringify(crowded)) <= logic.STATUS_DATA_BYTES);
 }
 
 suite(load(file, commons));
@@ -379,7 +413,7 @@ try {
         ["a missing plugin is classified", 'if (plugin !== null) return', 'if (false) return'],
         ["an unknown delete is no failure", 'UNKNOWN_CONNECTION.test(String(text)) ? "gone"', 'false ? "gone"'],
         ["OpenConnect cannot connect here", 'row.service === "openconnect"', 'false'],
-        ["a missing OpenVPN plugin blocks its profiles", 'profiles.openvpnMissing === true', 'false'],
+        ["a missing plugin blocks its profile", 'if (row.failure === "plugin-needed")', 'if (false)'],
         ["an address shows only while activated", 'row.state === "activated" && typeof addresses', 'typeof addresses'],
         ["a blocked switch refuses its IPC", 'if (view.reason !== "") return', 'if (false) return'],
         ["profile argv names uuid", '"up", "uuid", row.uuid]', '"up", "id", row.name]'],
@@ -388,7 +422,8 @@ try {
         ["a rescan clears a sign-in failure", 'failures[uuid].kind !== "sign-in" && ', ''],
         ["a rescan keeps the bar's failures", 'kept[uuid] = failures[uuid];', '{}'],
         ["a password failure raises the alert", 'row.failure === "needs-password" || row.failure === "failed"', 'row.failure === "failed"'],
-        ["a drawn line holds no markup start", "\\u007f<]/g", "\\u007f]/g"]
+        ["a drawn line holds no markup start", "\\u007f<]/g", "\\u007f]/g"],
+        ["status rows are trimmed to their budget", "profiles.rows.pop();", "break;"]
     ]) {
         assert.equal(source.split(needle).length - 1, 1, name + " mutation must match once");
         const mutant = path.join(scratch, "VpnLogic.js");
@@ -405,7 +440,11 @@ try {
         ["a rescan applies the failure rule", "failures = Logic.afterRescan(failures);", ""],
         ["missing import tools offer setup", "if (needed.length > 0)", "if (false)"],
         ["import availability", 'if (profiles.state !== "available")', 'if (false)'],
-        ["import completion refreshes", '() => root.readProfiles()', '() => {}']
+        ["import completion refreshes", '() => root.readProfiles()', '() => {}'],
+        ["an unchanged uuid set reads no details", "if (Logic.detailsKey(next) !== detailsRead) readDetails();", "readDetails();"],
+        ["an activated profile drops its failure", 'failures = kept(failures, row => row.state !== "activated");', "failures = kept(failures, row => true);"],
+        ["a profile no longer activated drops its address", 'addresses = kept(addresses, row => row.state === "activated");', "addresses = kept(addresses, row => true);"],
+        ["an activated profile with an address queues no read", 'row.state === "activated" && addresses[row.uuid] === undefined', 'row.state === "activated"']
     ]) {
         assert.equal(serviceSource.split(old).length - 1, 1, name);
         assert.throws(() => suite(load(file, commons), serviceSource.replace(old, replacement)), undefined, "control: " + name);
