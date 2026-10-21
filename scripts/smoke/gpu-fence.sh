@@ -246,6 +246,10 @@ fenced() { [[ -n ${VGSHELL_WORLD_ROOT-} && -d $VGSHELL_WORLD_ROOT && -w $VGSHELL
 release() {
   local init="" ns="" path _
   [[ -n ${fence_dir-} ]] || return 0
+  if [[ -n ${proxy_pid:-} ]]; then
+    exec {proxy_read}<&-
+    wait "$proxy_pid" 2>/dev/null || true
+  fi
   if [[ -s $fence_dir/info ]]; then
     init="$(sed -n 's/^ *"child-pid": *\([0-9]*\),*$/\1/p' "$fence_dir/info")" || init=""
     ns="$(sed -n 's/^ *"pid-namespace": *\([0-9]*\),*$/\1/p' "$fence_dir/info")" || ns=""
@@ -256,10 +260,6 @@ release() {
       [[ "$(readlink "/proc/$init/ns/pid" 2>/dev/null)" == "pid:[$ns]" ]] || break
       sleep 0.05
     done
-  fi
-  if [[ -n ${proxy_pid:-} ]]; then
-    kill -TERM "$proxy_pid" 2>/dev/null || true
-    wait "$proxy_pid" 2>/dev/null || true
   fi
   for path in "$fence_dir"/tmp/vgshell-smoke.*/evidence/destination; do
     [[ ! -f $path ]] || python3 "${self%/*}/evidence.py" "$fence_dir" "${path%/evidence/destination}" "${output_roots[@]}" || true
@@ -422,14 +422,19 @@ case "$mode" in
           '--call=org.freedesktop.secrets=org.freedesktop.Secret.Item.GetSecret@/org/freedesktop/secrets/collection/*'
           '--call=org.freedesktop.secrets=org.freedesktop.DBus.Properties.Get@/org/freedesktop/secrets/collection/*')
       fi
-      env -i "$(command -v xdg-dbus-proxy)" "$DBUS_SESSION_BUS_ADDRESS" "$fence_dir/secrets-bus" --filter "${selftest_secrets_rules[@]}" "${copilot_rules[@]}" >"$fence_dir/proxy.log" 2>&1 &
-      proxy_pid=$!
-      for ((attempt=0; attempt<100; attempt++)); do
-        [[ ! -S $fence_dir/secrets-bus ]] || break
-        kill -0 "$proxy_pid" 2>/dev/null || break
-        sleep 0.05
-      done
-      [[ -S $fence_dir/secrets-bus ]] || { note 'refused: selftest=proxy-not-started'; exit 2; }
+      # xdg-dbus-proxy 0.1.9 dbus-proxy.c writes readiness to --fd and
+      # exits on its pipe's ERR/HUP. Bash's coprocess descriptors do not
+      # enter child executions, so only this owner holds the read end.
+      coproc world_proxy {
+        exec env -i "$(command -v xdg-dbus-proxy)" --fd=1 "$DBUS_SESSION_BUS_ADDRESS" "$fence_dir/secrets-bus" --filter "${selftest_secrets_rules[@]}" "${copilot_rules[@]}" 2>"$fence_dir/proxy.log"
+      }
+      proxy_pid=$world_proxy_PID
+      proxy_read=${world_proxy[0]}
+      proxy_input=${world_proxy[1]}
+      exec {proxy_input}>&-
+      if ! read -r -N 1 -t 5 proxy_ready <&"$proxy_read" || [[ $proxy_ready != x ]]; then
+        note 'refused: selftest=proxy-not-started'; exit 2
+      fi
       mounts+=(--ro-bind "$fence_dir/secrets-bus" "$world_runtime/secrets-bus")
     fi
     # With no AMD node nothing under /dev changes, and nothing is proved.
@@ -448,7 +453,11 @@ case "$mode" in
       "${environment[@]}")
     proof=(-- "$BASH" "$self" --inside "${hidden[@]}" -- "${kept[@]}" --)
     status=0
-    probe="$("${fence[@]}" "${proof[@]}" true 2>&1)" || status=$?
+    probe="$(
+      # Bash keeps coprocess descriptors in command substitutions alone.
+      [[ -z ${proxy_read:-} ]] || exec {proxy_read}<&-
+      "${fence[@]}" "${proof[@]}" true 2>&1
+    )" || status=$?
     case "$status" in
       0) ;;
       # The proof inside the probe named its own reason.

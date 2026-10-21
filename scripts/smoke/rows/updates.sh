@@ -505,7 +505,7 @@ expect "control: the failures the row handles fail nothing" 3 grep -c -E -- "^up
 # including their coprocess wrappers. The next row reads their channels,
 # never an already-reaped pid which the host could have reused.
 cat >"$row_plants/updates-abandoned.sh" <<'SH'
-python3 - "$sandbox/row-stand-in.socket" "$sandbox/row-stand-in.ready" <<'PY' &
+python3 - "$rt_dir/row-stand-in.socket" "$sandbox/row-stand-in.ready" <<'PY' &
 import pathlib, socket, sys
 server = socket.socket(socket.AF_UNIX)
 server.bind(sys.argv[1])
@@ -524,7 +524,7 @@ smoke_row_abandon=(updates_abandoned_cleanup)
 false
 SH
 cat >"$row_plants/updates-after-abandoned.sh" <<'SH'
-python3 - "$sandbox/row-stand-in.socket" <<'PY'
+python3 - "$rt_dir/row-stand-in.socket" <<'PY'
 import socket, sys
 client = socket.socket(socket.AF_UNIX)
 try:

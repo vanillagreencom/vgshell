@@ -1410,11 +1410,6 @@ if [[ -z $out ]]; then
   fi
 fi
 
-if [[ -n $suite_name ]]; then
-  selftest_suite "$suite_name"
-  exit $?
-fi
-
 if ((cold_count > 0)); then
   selftest_gpu_fence
   keep=false timeout_s=60
@@ -1521,6 +1516,10 @@ fi
 
 # No process this run starts may open an amdgpu node, so the run goes on
 # only where none is visible: scripts/smoke/gpu-fence.sh.
+if [[ -n $suite_name ]]; then
+  selftest_suite "$suite_name"
+  exit $?
+fi
 selftest_gpu_fence
 
 # The harness puts its command sentinels before this host PATH. Keep the

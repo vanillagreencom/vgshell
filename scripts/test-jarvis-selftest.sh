@@ -1067,7 +1067,100 @@ PY
     proxy_stop || fail "control: $label proxy root remains"
     proxy_start "$repo/scripts/smoke/gpu-fence.sh" || { fail "proxy restart"; return; }
   }
+  proxy_owner_lifetime() { # FENCE
+    local result=0 owner_status=0
+    proxy_start "$1" || return 1
+    python3 - "$proxy_world_pid" <<'PY' || result=$?
+import os
+from pathlib import Path
+import select
+import signal
+import sys
+
+owner = int(sys.argv[1])
+children = list(map(int, Path(f"/proc/{owner}/task/{owner}/children").read_text().split()))
+proxies = []
+for child in children:
+    try:
+        command = Path(f"/proc/{child}/cmdline").read_bytes().split(b"\0")[0]
+    except FileNotFoundError:
+        continue
+    if Path(os.fsdecode(command)).name == "xdg-dbus-proxy":
+        proxies.append(child)
+assert len(proxies) == 1, proxies
+proxy = proxies[0]
+owner_fd, proxy_fd = os.pidfd_open(owner), os.pidfd_open(proxy)
+ended = False
+try:
+    lease = os.readlink(f"/proc/{proxy}/fd/1")
+    pending = children[:]
+    while pending:
+        child = pending.pop()
+        if child == proxy:
+            continue
+        directory = Path(f"/proc/{child}")
+        try:
+            pending.extend(map(int, (directory / f"task/{child}/children").read_text().split()))
+            for descriptor in (directory / "fd").iterdir():
+                try:
+                    assert os.readlink(descriptor) != lease, (child, str(descriptor))
+                except FileNotFoundError:
+                    pass
+        except FileNotFoundError:
+            pass
+    signal.pidfd_send_signal(owner_fd, signal.SIGKILL)
+    ended = bool(select.select([proxy_fd], [], [], 5)[0])
+    print("proxy-owner-kill: proxy=" + ("exited" if ended else "alive"))
+finally:
+    if not select.select([owner_fd], [], [], 0)[0]:
+        signal.pidfd_send_signal(owner_fd, signal.SIGKILL)
+    if not select.select([proxy_fd], [], [], 0)[0]:
+        signal.pidfd_send_signal(proxy_fd, signal.SIGKILL)
+        assert select.select([proxy_fd], [], [], 5)[0], "proxy cleanup"
+    os.close(proxy_fd)
+    os.close(owner_fd)
+sys.exit(0 if ended else 1)
+PY
+    wait "$proxy_world_pid" 2>/dev/null || owner_status=$?
+    [[ $owner_status == 137 && -d $proxy_root ]] || result=1
+    # SIGKILL deliberately leaves this acquired fixture root.
+    chmod -R u+rwX -- "$proxy_root"
+    rm -rf -- "${proxy_root:?}"
+    return "$result"
+  }
+  holds "the outside filtered proxy exits when its world owner is killed" proxy_owner_lifetime "$repo/scripts/smoke/gpu-fence.sh"
+  if ! mutate "$repo/scripts/smoke/gpu-fence.sh" 'exec env -i "$(command -v xdg-dbus-proxy)" --fd=1' \
+    'printf x; exec env -i "$(command -v xdg-dbus-proxy)"' "$tmp/proxy-lease-mutant.sh"; then
+    fail "control: proxy lifetime mutation"
+  elif proxy_owner_lifetime "$tmp/proxy-lease-mutant.sh"; then
+    fail "control: an outside proxy without its lifetime lease stayed green"
+  else
+    ok "control: an outside proxy without its lifetime lease"
+  fi
   proxy_start "$repo/scripts/smoke/gpu-fence.sh" || { fail "world proxy start"; return; }
+
+  suite_account_entry() { # BRAIN VOICE MODEL SIGN_IN
+    local brain_id="$1" selected_voice="$2" selected_model="$3" sign_in_dir="$4" held=0
+    local old_session_bus=("${session_bus[@]}") expected
+    session_bus=(DBUS_SESSION_BUS_ADDRESS="unix:path=$bus")
+    echo 1 >"$tmp/fence-answer"
+    run --suite volume --brain "$brain_id" --voice "$selected_voice" --model "$selected_model" --out "$tmp/suite-entry"
+    expected=check$'\n'"run [--net] [--out] [$tree/tmp/display-record] [--out] [$tree/tmp/selftest-records] [--out] [$tree/tmp/qml-smoke] [--out] [$tmp/suite-entry]"
+    [[ -z $sign_in_dir ]] || expected+=" [--sign-in] [CLAUDE_CONFIG_DIR] [$sign_in_dir]"
+    expected+=" [--secrets] [$tree/scripts/jarvis-selftest.sh] [--suite] [volume] [--brain] [$brain_id] [--voice] [$selected_voice] [--model] [$selected_model] [--out] [$tmp/suite-entry]"
+    [[ $status == 0 && $(<"$tmp/fence.log") == "$expected" && ! -s $tmp/harness.log ]] || held=1
+    echo 0 >"$tmp/fence-answer"
+    session_bus=("${old_session_bus[@]}")
+    return "$held"
+  }
+  suite_entries=("$sign_in|realtime|fixture-model|$world/.claude" "$saved_key|local|fixture-model|" "$local_id|realtime|fixture-model|")
+  for suite_entry in "${suite_entries[@]}"; do
+    IFS='|' read -r suite_brain suite_voice suite_model suite_sign_in <<<"$suite_entry"
+    holds "suite prepares its $suite_voice voice and selected account before world entry" suite_account_entry "$suite_brain" "$suite_voice" "$suite_model" "$suite_sign_in"
+  done
+  control plant "a suite that enters before preparing its selected account" '# node on PATH may be a version manager' \
+    'if [[ -n $suite_name ]]; then selftest_suite "$suite_name"; exit $?; fi
+# node on PATH may be a version manager' suite_account_entry "$sign_in" realtime fixture-model "$world/.claude"
 
   # The two calls the filter must stop, asked of the scratch bus itself
   # first: each reaches the stand-in there.
