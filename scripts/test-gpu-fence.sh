@@ -755,6 +755,9 @@ with tempfile.TemporaryDirectory(prefix="world-control-", dir="/tmp") as mutants
     tcp = socket.socket()
     tcp.bind(("127.0.0.1", 0))
     tcp.listen()
+    named_socket = socket.socket(socket.AF_UNIX)
+    named_socket.bind(str(base / "named.sock"))
+    named_socket.listen()
     probe = base / "probe.py"
     probe.write_text('''import errno, json, os, pathlib, shutil, socket, sys
 fixture, output, runtime, temporary, abstract, port, checkout = sys.argv[1:]
@@ -783,6 +786,15 @@ root = os.environ["VGSHELL_WORLD_ROOT"]
 for name in ("HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "TMPDIR"):
     assert pathlib.Path(os.environ[name]).is_relative_to(root), name
 result["session"] = [name for name in ("WAYLAND_DISPLAY", "WAYLAND_SOCKET", "DISPLAY", "HYPRLAND_INSTANCE_SIGNATURE", "DBUS_SESSION_BUS_ADDRESS", "VGS_WORLD_PLANTED") if name in os.environ]
+result["named"] = "hidden"
+if "WAYLAND_DISPLAY" in os.environ:
+    with socket.socket(socket.AF_UNIX) as client:
+        client.settimeout(1)
+        try:
+            client.connect(os.environ["WAYLAND_DISPLAY"])
+            result["named"] = "connected"
+        except OSError:
+            pass
 assert not os.access(checkout, os.W_OK)
 assert os.access(root, os.W_OK)
 assert pathlib.Path(os.environ["XDG_RUNTIME_DIR"]).stat().st_mode & 0o777 == 0o700
@@ -810,7 +822,7 @@ pathlib.Path(output, "result.json").write_text(json.dumps(result))
         subprocess.run(["git", "-C", str(fixture / "checkout"), "worktree", "add", "-q", "--detach", str(fixture / "sibling"), "HEAD"], check=True)
         (fixture / "home/marker").write_text("retained\n")
         env = {"PATH": os.environ["PATH"], "HOME": str(fixture / "home"), "TMPDIR": str(base), "XDG_RUNTIME_DIR": runtime,
-               "WAYLAND_DISPLAY": "planted", "WAYLAND_SOCKET": "99", "DISPLAY": ":99", "HYPRLAND_INSTANCE_SIGNATURE": "planted",
+               "WAYLAND_DISPLAY": str(base / "named.sock"), "WAYLAND_SOCKET": "99", "DISPLAY": ":99", "HYPRLAND_INSTANCE_SIGNATURE": "planted",
                "DBUS_SESSION_BUS_ADDRESS": "unix:path=" + runtime + "/caller.sock", "VGS_WORLD_PLANTED": "planted"}
         completed = subprocess.run([bash, file, "--checkout", repo, "--out", str(output), "--out", mutants, *extra,
                                     "python3", str(probe), str(fixture), str(output), runtime, temporary, abstract_name[1:], str(tcp.getsockname()[1]), repo],
@@ -821,7 +833,7 @@ pathlib.Path(output, "result.json").write_text(json.dumps(result))
         return result
     def holds(result):
         return all(result[name] == errno.EROFS for name in ("checkout", "sibling", "home")) and \
-            all(result[name] == "hidden" for name in ("runtime", "tmp", "abstract", "tcp")) and not result["session"]
+            all(result[name] == "hidden" for name in ("runtime", "tmp", "abstract", "tcp", "named")) and not result["session"]
     result = run("world")
     assert holds(result), result
     print("world-contract: readonly=checkout,sibling,home sockets=hidden runtime=0700 devices=opened render=" + ",".join(result["render"]))
@@ -853,13 +865,15 @@ pathlib.Path(output, "result.json").write_text(json.dumps(result))
         if name == "writable-host":
             assert all(result[member] == "deleted" for member in ("checkout", "sibling", "home")), result
         if name == "network": assert result["tcp"] == "connected", result
+        if name == "session-pass": assert result["named"] == "connected", result
         print("world-contract: control=" + name + " rejected=" + key)
+        if name == "session-pass": print("world-contract: retained-name-socket=" + result["named"])
     git_dir = subprocess.check_output(["git", "-C", repo, "rev-parse", "--absolute-git-dir"], text=True).strip()
     for name, directory in (("checkout", repo), ("git", git_dir), ("home", str(base / "refuse-home")), ("ancestor", str(Path(repo).parent))):
         completed = subprocess.run([bash, fence, "--out", directory, "true"], env={"PATH": os.environ["PATH"], "HOME": str(base / "refuse-home"), "TMPDIR": str(base)}, capture_output=True, text=True, timeout=10)
         assert completed.returncode == 2 and "refused: output=" in completed.stderr, (name, completed.returncode, completed.stderr)
         print("world-contract: output-refused=" + name)
-    for item in (caller, tmp_socket, abstract, tcp): item.close()
+    for item in (caller, tmp_socket, abstract, tcp, named_socket): item.close()
 PYWORLD
 then
   fail "world contract or disposable controls"
