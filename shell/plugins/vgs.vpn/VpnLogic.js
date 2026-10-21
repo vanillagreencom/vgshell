@@ -144,7 +144,7 @@ function endpointOf(peers) {
 // The detail read: one block per profile, each starting at its
 // `connection.uuid:` line; the value is everything after the line's first
 // colon, unescaped. Answers { uuid: { service, server } } for the uuids
-// asked for, or null when the read failed.
+// asked for, or null when the read failed or omitted a requested profile.
 function details(code, text, key) {
     if (code !== 0) return null;
     const asked = key.split(" ");
@@ -175,7 +175,7 @@ function details(code, text, key) {
         else if (name === "wireguard.peers") peers = value;
     }
     close();
-    return out;
+    return asked.every(uuid => out[uuid] !== undefined) ? out : null;
 }
 
 function addressArgv(uuid) {
@@ -273,11 +273,12 @@ function compose(listing, detailMap, addresses, failures, action, problem) {
     const rows = listing.rows.map(row => {
         const detail = detailMap[row.uuid];
         const failure = failures[row.uuid];
-        let service = detail === undefined ? "" : detail.service;
+        const detailState = detail === undefined ? "reading" : detail === null ? "no-answer" : "available";
+        let service = detailState === "available" ? detail.service : "";
         if (service === "" && failure !== undefined) service = failure.service;
         return {
             uuid: row.uuid, name: row.name, type: row.type, state: row.state, service: service,
-            server: detail === undefined ? "" : detail.server,
+            details: detailState, server: detailState === "available" ? detail.server : "",
             address: row.state === "activated" && typeof addresses[row.uuid] === "string" ? addresses[row.uuid] : "",
             failure: failure === undefined ? "" : failure.kind
         };
@@ -319,6 +320,12 @@ function rowView(row, profiles, missing) {
     if (moving === "removing")
         return view(moving, "Removing…", { busy: true, connected: row.state === "activated", switchOn: row.state === "activated", reason: BUSY_REASON });
     if (row.state === "activated") return view("connected", "Connected", { connected: true, switchOn: true });
+    // The list arrives before its separate detail read. An empty service
+    // from a completed read is distinct from a service not yet identified.
+    if (row.type === "vpn" && row.details === "reading")
+        return view("reading", "Reading…", { reason: "Wait until NetworkManager reads this VPN profile." });
+    if (row.type === "vpn" && row.details === "no-answer")
+        return view("no-answer", "NetworkManager did not answer", { reason: "NetworkManager did not answer, so wait until it reads this VPN profile." });
     if (row.type === "vpn" && row.service === "openconnect")
         return view("unsupported", "Connects in its own app", { reason: UNSUPPORTED_REASON });
     const declaredPlugin = row.type === "vpn" && row.service === "openvpn";

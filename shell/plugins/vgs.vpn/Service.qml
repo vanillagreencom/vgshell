@@ -28,8 +28,10 @@ Item {
         DBUS_SESSION_BUS_ADDRESS: Quickshell.env("DBUS_SESSION_BUS_ADDRESS") || null, XDG_RUNTIME_DIR: Quickshell.env("XDG_RUNTIME_DIR") })
     readonly property bool profilesMissing: shell === null || shell.requirements.missing.indexOf("nmcli") !== -1
     property var listing: Logic.emptyProfiles("reading")
-    // Per uuid: { service, server } from the one detail read of the
-    // current uuid set, the address while activated, and the failure the
+    // Per uuid: { service, server } from the one detail read, or null
+    // after a failed read with no previous metadata. An absent entry
+    // has not answered yet. This is separate from a read's empty service.
+    // The other maps hold the address while activated and the failure the
     // last `up` left, which stays until an `up` succeeds, the profile is
     // seen activated or it leaves the list. An editor handoff clears every
     // failure of its uuid; a requirements rescan clears sign-in and
@@ -224,6 +226,9 @@ Item {
             const code = root.codeOf(completion);
             const read = Logic.details(code, detailsText.text, key);
             if (read === null) {
+                const next = Object.assign({}, root.detailMap);
+                for (const uuid of key.split(" ")) if (next[uuid] === undefined) next[uuid] = null;
+                root.detailMap = next;
                 root.detailsRead = "";
                 console.warn("vpn: operation=profile-details completion=" + root.completionWord(code) + " code=" + code);
             } else {

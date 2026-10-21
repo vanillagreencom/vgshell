@@ -50,7 +50,8 @@ Item {
         const opts = options || {};
         const listing = { state: opts.state || "available", rows: rows, count: rows.length, activeCount: rows.filter(row => row.state === "activated").length };
         const failures = Object.assign({ [travel]: { kind: "needs-password", service: "" }, [branch]: { kind: "sign-in", service: "" } }, opts.failures || {});
-        return Logic.compose(listing, details, { [home]: "10.20.0.2" }, failures, opts.action || null, opts.problem || "");
+        return Logic.compose(listing, opts.details === undefined ? details : opts.details,
+            { [home]: "10.20.0.2" }, failures, opts.action || null, opts.problem || "");
     }
     readonly property var standIn: ["Home tunnel", "Office VPN", "Travel L2TP", "Campus AnyConnect", "Branch IPsec"]
 
@@ -168,14 +169,26 @@ Item {
         // A missing core requirement disables the switch before a connect.
         // Its one Install action raises the core's requirement notice.
         function test_missing_plugin_disables_its_switch() {
-            open(paneComponent, root.payload(root.standIn));
+            open(paneComponent, root.payload(root.standIn, { details: {} }));
             root.missing = ["org.freedesktop.NetworkManager.openvpn"];
             publish(root.values.profiles);
             const shown = row(root.office);
-            compare(shown.view.key, "plugin-needed");
             shown.expanded = true;
             waitForRendering(view);
             const toggle = named("vpn-profile-toggle:" + root.office);
+            // A published list cannot connect until its separate detail
+            // read answers. A failed read keeps a truthful unavailable state.
+            for (const state of ["reading", "no-answer"]) {
+                if (state === "no-answer") publish(root.payload(root.standIn, { details: { [root.office]: null } }));
+                compare(shown.view.key, state);
+                verify(toggle.disabledReason !== "");
+                mouseClick(toggle);
+                compare(lastIpc(), { kind: "profile-details", id: root.office });
+                verify(named("vpn-install-plugin:" + root.office) === null);
+                verify(named("vpn-remove:" + root.office).disabledReason === "");
+            }
+            publish(root.payload(root.standIn));
+            compare(shown.view.key, "plugin-needed");
             verify(toggle.disabledReason !== "", "the switch keeps its reason");
             mouseClick(toggle);
             compare(lastIpc(), { kind: "profile-details", id: root.office }, "a disabled switch asks for nothing");

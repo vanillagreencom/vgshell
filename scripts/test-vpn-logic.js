@@ -49,12 +49,15 @@ function holdsNothingPrivate(value, where) {
 
 function vpnRequirementSuite(logic) {
     const openvpn = "org.freedesktop.NetworkManager.openvpn";
-    const rows = [
+    const sourceRows = [
         { uuid: OFFICE, type: "vpn", service: "openvpn", state: "", failure: "" },
         { uuid: TRAVEL, type: "vpn", service: "l2tp", state: "", failure: "needs-password" },
         { uuid: LAB, type: "vpn", service: "vpnc", state: "", failure: "plugin-needed" }
     ];
-    const profiles = { state: "available", rows, action: null };
+    const metadata = Object.fromEntries(sourceRows.map(row => [row.uuid, { service: row.service, server: "" }]));
+    const failures = Object.fromEntries(sourceRows.map(row => [row.uuid, { kind: row.failure, service: row.service }]));
+    const profiles = plain(logic.compose({ state: "available", rows: sourceRows, count: sourceRows.length, activeCount: 0 }, metadata, {}, failures, null, ""));
+    const rows = profiles.rows;
     const stale = { ...profiles, rows: rows.map(row => row.uuid === OFFICE ? { ...row, failure: "plugin-needed" } : row) };
     const connected = { ...profiles, rows: rows.map(row => row.uuid === OFFICE ? { ...row, state: "activated" } : row) };
     for (const [uuid, payload, missing, key, install, refused] of [
@@ -75,8 +78,43 @@ function vpnRequirementSuite(logic) {
     assert.deepEqual(plain(logic.passwordCommand(OFFICE, password, [openvpn])), { refusal: "refused: profile=state" });
 }
 
+function vpnReadinessSuite(logic) {
+    // Service.listed publishes the real list before its detail child answers.
+    const listing = logic.list(0, text("list.txt"));
+    const metadata = logic.details(0, text("details.txt"), logic.detailsKey(listing));
+    const missing = ["org.freedesktop.NetworkManager.openvpn"];
+    for (const [uuid, details, state, key, refused] of [
+        [OFFICE, {}, "", "reading", true],
+        [OFFICE, { [OFFICE]: null }, "", "no-answer", true],
+        [OFFICE, metadata, "", "plugin-needed", true],
+        [OFFICE, { [OFFICE]: { service: "", server: "" } }, "", "off", false],
+        [OFFICE, {}, "activated", "connected", true],
+        [OFFICE, {}, "activating", "connecting", true],
+        [OFFICE, {}, "deactivating", "disconnecting", true],
+        [LAB, {}, "", "off", false]
+    ]) {
+        const source = { ...listing, rows: listing.rows.map(row => row.uuid === uuid ? { ...row, state } : row) };
+        const payload = plain(logic.compose(source, details, {}, {}, null, ""));
+        const row = payload.rows.find(row => row.uuid === uuid);
+        const view = logic.rowView(row, payload, missing);
+        assert.equal(view.key, key, uuid + " " + key);
+        assert.equal(view.reason !== "", refused && key !== "connected", key);
+        assert.deepEqual(plain(logic.profileCommand({ kind: "profile-up", id: uuid }, payload, missing)),
+            refused ? { refusal: "refused: profile=" + (["connected", "connecting", "disconnecting"].includes(key) ? "state" : key) }
+                : { argv: ["nmcli", "connection", "up", "uuid", uuid] }, key);
+        assert.deepEqual(plain(logic.profileCommand({ kind: "profile-remove", id: uuid }, payload, missing)),
+            { argv: ["nmcli", "connection", "delete", "uuid", uuid] }, key);
+        if (state === "activated" || state === "activating")
+            assert.deepEqual(plain(logic.profileCommand({ kind: "profile-down", id: uuid }, payload, missing)),
+                { argv: ["nmcli", "connection", "down", "uuid", uuid] }, key);
+        if (key === "reading" || key === "no-answer")
+            assert.deepEqual(plain(logic.passwordCommand(uuid, payload, missing)), { refusal: "refused: profile=state" }, key);
+    }
+}
+
 function suite(logic, service = serviceSource) {
     vpnRequirementSuite(logic);
+    vpnReadinessSuite(logic);
     // The list: VPN and WireGuard rows by uuid, other types dropped, every
     // active profile counted.
     const listing = plain(logic.list(0, text("list.txt")));
@@ -120,6 +158,8 @@ function suite(logic, service = serviceSource) {
     assert.deepEqual(plain(logic.details(0, text("details.txt"), [HOME, OFFICE].join(" "))), { [HOME]: details[HOME], [OFFICE]: details[OFFICE] });
     assert.equal(logic.details(10, text("details.txt"), key), null);
     assert.equal(logic.details(-1, "", key), null);
+    assert.equal(logic.details(0, "", key), null);
+    assert.equal(logic.details(0, text("details.txt"), key + " 00000000-0000-4000-8000-000000000000"), null);
     for (const [service, data, server] of [
         ["openvpn", "ca = /home/fixture/a\\, b.pem, remote = vpn.example.com:1194\\, vpn2.example.com:1195", "vpn.example.com:1194"],
         ["openvpn", "remote = vpn.example.com", "vpn.example.com"],
@@ -191,7 +231,7 @@ function suite(logic, service = serviceSource) {
     holdsNothingPrivate(profiles, "profiles");
     const byUuid = uuid => profiles.rows.find(row => row.uuid === uuid);
     assert.deepEqual(byUuid(HOME), { uuid: HOME, name: "Home tunnel", type: "wireguard", state: "activated", service: "",
-        server: "203.0.113.10:51820", address: "10.20.0.2", failure: "" });
+        details: "available", server: "203.0.113.10:51820", address: "10.20.0.2", failure: "" });
     assert.equal(byUuid(OFFICE).address, "", "an address shows only while activated");
     assert.equal(byUuid(LAB).service, "vpnc", "a missing plugin names its service before the details answer");
     assert.deepEqual(Object.keys(profiles).sort(), ["action", "activeCount", "count", "problem", "rows", "state"]);
@@ -437,13 +477,13 @@ function suite(logic, service = serviceSource) {
     }
     // The detail completion keeps a read only when it answered.
     const completeDetails = new Function("running", "completion", "key", "again", "root", "Logic", "detailsText", "detailsDeadline", "console", bodyOf("detailsReader", "details"));
-    for (const [code, output, kept] of [[0, text("details.txt"), true], [10, text("up-failed.txt") + "/home/fixture", false]]) {
+    for (const [code, output, kept] of [[0, text("details.txt"), true], [10, text("up-failed.txt") + "/home/fixture", false], [0, "", false]]) {
         const console = logs();
-        const owner = Object.assign(helpers(), { listing, detailMap: "unread", detailsRead: key, readDetails() { owner.again = true; } });
+        const owner = Object.assign(helpers(), { listing, detailMap: { [HOME]: details[HOME] }, detailsRead: key, readDetails() { owner.again = true; } });
         completeDetails(false, { code, status: 0 }, key, false, owner, logic, { text: output }, { stop() {} }, console);
         assert.equal(owner.detailsRead, kept ? key : "");
-        assert.deepEqual(owner.detailMap === "unread" ? null : plain(owner.detailMap), kept ? details : null);
-        assert.deepEqual(console.messages, kept ? [] : [["warn", "vpn: operation=profile-details completion=failed code=10"]]);
+        assert.deepEqual(plain(owner.detailMap), kept ? details : Object.fromEntries(key.split(" ").map(uuid => [uuid, uuid === HOME ? details[HOME] : null])));
+        assert.deepEqual(console.messages, kept ? [] : [["warn", "vpn: operation=profile-details completion=" + (code === 0 ? "invalid-reply" : "failed") + " code=" + code]]);
     }
     // The action completion records the failure kind on the uuid, clears it
     // on success, leaves a problem line, and logs no nmcli text.
@@ -795,6 +835,16 @@ editorSuite(load(file, commons));
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "vpn-logic-"));
 try {
     const source = fs.readFileSync(file, "utf8");
+    for (const [name, needle, replacement] of [
+        ["pending details block connect", 'row.details === "reading"', 'false'],
+        ["failed details block connect", 'row.details === "no-answer"', 'false']
+    ]) {
+        assert.equal(source.split(needle).length - 1, 1, name);
+        const mutant = path.join(scratch, "VpnLogic.js");
+        fs.writeFileSync(mutant, source.replace(needle, replacement));
+        assert.throws(() => vpnReadinessSuite(load(mutant, commons)), undefined, "control: " + name);
+        console.log("vpn-logic: control=" + name + " red");
+    }
     for (const [name, sourceText, needle, replacement, target] of [
         ["editor create type", source, '"--type=vpn"', '"--type=ethernet"', "logic"],
         ["editor edit uuid", source, '"--edit=" + row.uuid', '"--edit=" + row.name', "logic"],
