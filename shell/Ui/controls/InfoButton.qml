@@ -134,12 +134,29 @@ IconButton {
                         focus: true
                         modal: true
                         title: root.title
-                        message: root.info
+                        Accessible.description: PageReference.plain(root.info)
                         actions: [{ label: "Close", role: "cancel", focused: true }]
                         onRejected: root.closeInfo()
-                        onMessagePageActivated: (page, tab) => {
-                            root.closeInfo();
-                            root.infoPageActivated(page, tab);
+
+                        // Separate LinkText items keep explicit lines while
+                        // StyledText folds line feeds inside one item. Repeater
+                        // inserts its items in the Column (Qt Quick Repeater).
+                        Column {
+                            width: parent.width
+                            Repeater {
+                                model: root.info.split("\n")
+                                LinkText {
+                                    required property string modelData
+                                    width: parent.width
+                                    role: Theme.dialog.bodyRole
+                                    text: modelData
+                                    wrapMode: Text.Wrap
+                                    onPageActivated: (page, tab) => {
+                                        root.closeInfo();
+                                        root.infoPageActivated(page, tab);
+                                    }
+                                }
+                            }
                         }
                     }
                 }

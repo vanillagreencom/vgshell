@@ -577,7 +577,7 @@ function suite(ctx, check) {
         ["a presence list item with an empty hint", "tokens", [{ label: "A", value: "present", hint: "" }], "refused: status=tokens reason=type"],
         ["a presence list item info of 400 characters", "tokens", [{ label: "A", value: "present", info: "x".repeat(400) }], "ok"],
         ["a presence list item info of 401 characters", "tokens", [{ label: "A", value: "present", info: "x".repeat(401) }], "refused: status=tokens reason=type"],
-        ["a presence list item info with a newline", "tokens", [{ label: "A", value: "present", info: "A\nB" }], "refused: status=tokens reason=type"],
+        ["a presence list item info with a newline", "tokens", [{ label: "A", value: "present", info: "A\nB" }], "ok"],
         ["a presence list item with an empty info", "tokens", [{ label: "A", value: "present", info: "" }], "refused: status=tokens reason=type"],
         ["a presence list item info that is no string", "tokens", [{ label: "A", value: "present", info: 7 }], "refused: status=tokens reason=type"],
         ["a presence list item with a key of its own", "tokens", [{ label: "A", value: "present", tone: "success" }], "refused: status=tokens reason=type"],

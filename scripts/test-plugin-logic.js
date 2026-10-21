@@ -59,9 +59,31 @@ function report(name, got, want) {
     console.log("  FAIL  " + name + "\n        got  " + g + "\n        want " + w);
 }
 
+// Manifest writers and status publishers share the info contract.
+function infoLines(ctx, check) {
+    for (const [name, info, accepted] of [
+        ["two lines", "One point.\nAnother point.", true],
+        ["references on both lines", "Open [Appearance](page:vgs.appearance).\nOpen [Themes](page:vgs.themes).", true],
+        ["empty line", "One.\n\nTwo.", false],
+        ["leading line feed", "\nOne.", false],
+        ["trailing line feed", "One.\n", false],
+        ["carriage return", "One.\rTwo.", false],
+        ["tab", "One.\tTwo.", false],
+        ["line feed counts toward limit", "x".repeat(199) + "\n" + "y".repeat(200), true],
+        ["total limit", "x".repeat(200) + "\n" + "y".repeat(200), false],
+        ["control in reference target", "Open [Appearance](page:vgs.\tappearance).\nTwo.", false],
+    ]) {
+        check("info lines: schema: " + name, ctx.schemaError({ a: { type: "boolean", label: "A", info } }, { a: true }, {}) === "", accepted);
+        check("info lines: status declaration: " + name, ctx.statusError({ a: { type: "text", label: "A", info } }, ["status"], {}, {}) === "", accepted);
+        check("info lines: published state: " + name, ctx.statusValueFits("state", { tone: "ok", text: "Ready", info }), accepted);
+        check("info lines: published key list: " + name, ctx.statusListItemFits({ label: "Key", value: "present", info }), accepted);
+    }
+}
+
 // Every row against one loaded judge, `ctx`, and the configuration judge it
 // imports, `configLogic`, each result handed to `check`.
 function suite(ctx, configLogic, check) {
+    infoLines(ctx, check);
     // Published state and key-list hints use the same visible words as their
     // declarations; the encoded target does not draw in either view.
     for (const [name, text, max, accepted] of [
@@ -486,10 +508,10 @@ function suite(ctx, configLogic, check) {
         ["a number bounded on one side", { settings: { a: 8 }, schema: { a: { type: "number", label: "A", min: 0 } } }, null],
         ["a grouped string entry", { settings: { a: "x" }, schema: { a: { type: "string", label: "A", presets: [{ value: "x" }], group: "Look" } } }, null],
         ["a schema entry with info", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", info: "What this switch changes." } } }, null],
-        ["a schema info that is not a string", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", info: 1 } } }, "schema.a.info must be a printable line"],
-        ["an empty schema info", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", info: "" } } }, "schema.a.info must be a printable line"],
-        ["a schema info with a control character", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", info: "A\u001bB" } } }, "schema.a.info must be a printable line"],
-        ["a schema info of 401 characters", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", info: "x".repeat(401) } } }, "schema.a.info must be a printable line"],
+        ["a schema info that is not a string", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", info: 1 } } }, "schema.a.info must be printable lines"],
+        ["an empty schema info", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", info: "" } } }, "schema.a.info must be printable lines"],
+        ["a schema info with a control character", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", info: "A\u001bB" } } }, "schema.a.info must be printable lines"],
+        ["a schema info of 401 characters", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", info: "x".repeat(401) } } }, "schema.a.info must be printable lines"],
         ["a schema info of 400 characters", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", info: "x".repeat(400) } } }, null],
         ["a label of one 17-character word fits", { settings: { a: true }, schema: { a: { type: "boolean", label: "x".repeat(17) } } }, null],
         ["a label word longer than a line is refused", { settings: { a: true }, schema: { a: { type: "boolean", label: "x".repeat(18) } } }, "schema.a.label must fit 2 lines of 17 characters"],
@@ -685,23 +707,23 @@ function suite(ctx, configLogic, check) {
         ["a status hint counts words, not a long encoded target", { capabilities: ["status"], status: { a: { type: "text", label: "A", hint: "Open [notes](file:%2F" + "folder%20".repeat(80) + "notes.md)" } } }, null],
         ["a status info counts words, not a long encoded target", { capabilities: ["status"], status: { a: { type: "text", label: "A", info: "Open [notes](file:%2F" + "folder%20".repeat(80) + "notes.md)." } } }, null],
         ["a status hint refuses excess visible link words", { capabilities: ["status"], status: { a: { type: "text", label: "A", hint: "[" + "x".repeat(201) + "](file:a.md)" } } }, "status.a.hint must be a printable line"],
-        ["a status info refuses excess visible link words", { capabilities: ["status"], status: { a: { type: "text", label: "A", info: "[" + "x".repeat(401) + "](file:a.md)" } } }, "status.a.info must be a printable line"],
+        ["a status info refuses excess visible link words", { capabilities: ["status"], status: { a: { type: "text", label: "A", info: "[" + "x".repeat(401) + "](file:a.md)" } } }, "status.a.info must be printable lines"],
         ["a status hint bounds its whole stored reference", { capabilities: ["status"], status: { a: { type: "text", label: "A", hint: "[notes](file:" + "a".repeat(65536) + ")" } } }, "status.a.hint must be a printable line"],
-        ["a status info bounds its whole stored reference", { capabilities: ["status"], status: { a: { type: "text", label: "A", info: "[notes](file:" + "a".repeat(65536) + ")" } } }, "status.a.info must be a printable line"],
+        ["a status info bounds its whole stored reference", { capabilities: ["status"], status: { a: { type: "text", label: "A", info: "[notes](file:" + "a".repeat(65536) + ")" } } }, "status.a.info must be printable lines"],
         ["a status hint of 201 characters", { capabilities: ["status"], status: { a: { type: "text", label: "A", hint: "x".repeat(201) } } }, "status.a.hint must be a printable line of 1 to 200"],
         ["a status hint of 200 characters", { capabilities: ["status"], status: { a: { type: "text", label: "A", hint: "x".repeat(200) } } }, null],
         ["a status hint of one sentence with a full stop is refused", { capabilities: ["status"], status: { a: { type: "text", label: "A", hint: "Connect the account." } } }, "status.a.hint must end with no full stop"],
         ["a status hint of one sentence without a full stop", { capabilities: ["status"], status: { a: { type: "text", label: "A", hint: "Connect the account" } } }, null],
         ["a status entry with info", { capabilities: ["status"], status: { a: { type: "text", label: "A", info: "What this status means." } } }, null],
-        ["a status info that is not a string", { capabilities: ["status"], status: { a: { type: "text", label: "A", info: 1 } } }, "status.a.info must be a printable line"],
-        ["an empty status info", { capabilities: ["status"], status: { a: { type: "text", label: "A", info: "" } } }, "status.a.info must be a printable line"],
+        ["a status info that is not a string", { capabilities: ["status"], status: { a: { type: "text", label: "A", info: 1 } } }, "status.a.info must be printable lines"],
+        ["an empty status info", { capabilities: ["status"], status: { a: { type: "text", label: "A", info: "" } } }, "status.a.info must be printable lines"],
         ["a status hint link to an https address", { capabilities: ["status"], status: { a: { type: "state", label: "A", hint: "Open GitHub settings", link: { text: "GitHub settings", url: "https://github.com/settings" } } } }, null],
         ["a status hint link text its hint lacks", { capabilities: ["status"], status: { a: { type: "state", label: "A", hint: "Open the settings", link: { text: "GitHub settings", url: "https://github.com/settings" } } } }, "status.a.link.text must be words of its hint"],
         ["a status hint link needs its hint", { capabilities: ["status"], status: { a: { type: "state", label: "A", link: { text: "GitHub settings", url: "https://github.com/settings" } } } }, "status.a.link.text must be words of its hint"],
         ["a status hint link refuses the old pane key", { capabilities: ["status"], status: { a: { type: "state", label: "A", hint: "Open the Sounds page", link: { text: "Sounds page", pane: "vgs.sounds" } } } }, "status.a.link has unknown key \"pane\""],
         ["a status hint link with an http address", { capabilities: ["status"], status: { a: { type: "state", label: "A", hint: "Open GitHub settings", link: { text: "GitHub settings", url: "http://github.com/settings" } } } }, "status.a.link.url must be an https address"],
-        ["a status info with a control character", { capabilities: ["status"], status: { a: { type: "text", label: "A", info: "A\u001bB" } } }, "status.a.info must be a printable line"],
-        ["a status info of 401 characters", { capabilities: ["status"], status: { a: { type: "text", label: "A", info: "x".repeat(401) } } }, "status.a.info must be a printable line"],
+        ["a status info with a control character", { capabilities: ["status"], status: { a: { type: "text", label: "A", info: "A\u001bB" } } }, "status.a.info must be printable lines"],
+        ["a status info of 401 characters", { capabilities: ["status"], status: { a: { type: "text", label: "A", info: "x".repeat(401) } } }, "status.a.info must be printable lines"],
         ["a status info of 400 characters", { capabilities: ["status"], status: { a: { type: "text", label: "A", info: "x".repeat(400) } } }, null],
         ["a state action opening the plugin's own TUI", { capabilities: ["status", "tui"], tui: { setup: { script: "tui/setup.sh", title: "Set up" } }, status: { a: { type: "state", label: "A", setup: true, action: { label: "Set up", tui: "setup" } } } }, null],
         ["a presence action naming install, though its command is a declared requirement", { capabilities: ["status"], requirements: [{ command: "vsys", purpose: "p" }], status: { a: { type: "presence", label: "A", setup: true, action: { label: "Install", install: ["vsys"] } } } }, "status.a.action has unknown key \"install\""],
@@ -2817,7 +2839,7 @@ const CONTROLS = [
     ["a status hint is a printable line", "if (entry.hint !== undefined && !statusReferenceFits(entry.hint, STATUS_HINT_MAX))", "if (false)"],
     ["status info is judged", "        var statusInfo = infoError(entry.info, at, true);\n        if (statusInfo !== \"\")\n            return statusInfo;\n", ""],
     ["a printable line holds no control character", "!SettingValues.CONTROL_OR_SEPARATOR.test(text)", "true"],
-    ["a printable line has a ceiling", "text.length <= max &&", ""],
+    ["a printable line has a ceiling", 'typeof text === "string" && text.length > 0 && text.length <= max &&', 'typeof text === "string" && text.length > 0 &&'],
     ["status hidden is a boolean", "if (entry.hidden !== undefined && typeof entry.hidden !== \"boolean\")", "if (false)"],
     ["a data entry is never drawn", "if (entry[drawn[d]] !== undefined)", "if (false)"],
     ["a launcherRows entry is never drawn", "if (entry.type === \"data\" || entry.type === \"launcherRows\")", "if (entry.type === \"data\")"],

@@ -401,7 +401,7 @@ function verify(logic, producer) {
     same(((b) => [b.kind, b.label, b.enabled])(notesStep({ notes: tooLong }).button), ["status", "Open notes", true], "file action: a Setup step offers Open file on the status route");
     same(notesStep({ notes: ready }).button, null, "file action: a done step offers no file");
     same(producer.statusWrite(filed, {}, "notes", tooLong).ok, true, "value info: a value with its own info is admitted");
-    for (const [name, info] of [["empty", ""], ["past the bound", "x".repeat(producer.INFO_MAX + 1)], ["two lines", "a\nb"], ["no string", 4]])
+    for (const [name, info] of [["empty", ""], ["past the bound", "x".repeat(producer.INFO_MAX + 1)], ["no string", 4]])
         same(producer.statusWrite(filed, {}, "notes", Object.assign({}, tooLong, { info: info })).ok, false, "value info: an info " + name + " is refused");
     same(filedRows({ notes: tooLong }).find(row => row.key === "notes").info, tooLong.info, "value info: a value's info stands in the entry's");
     same(filedRows({ notes: ready }).find(row => row.key === "notes").info, "Notes hold what the fixture reads", "value info: without its own info the entry's applies");

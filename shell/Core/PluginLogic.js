@@ -796,9 +796,17 @@ function statusReferenceFits(text, max) {
     return isPrintableLine(text, STATUS_MAX_BYTES) && isPrintableLine(PageReference.plain(text), max);
 }
 
+// Info opens in a dialog, where single line feeds separate short lines.
+// Check the stored text before reading references so a hidden target cannot
+// hide a control character; status keeps its separate visible-word limit.
+function infoFits(text, max) {
+    return typeof text === "string" && text.length <= max && text.split("\n").every(function (line) { return isPrintableLine(line, max); });
+}
+
 function infoError(info, at, statusText) {
-    var fits = statusText === true ? statusReferenceFits : isPrintableLine;
-    return info === undefined || fits(info, INFO_MAX) ? "" : at + ".info must be a printable line of 1 to " + INFO_MAX + " characters when present";
+    var fits = info === undefined || (infoFits(info, statusText === true ? STATUS_MAX_BYTES : INFO_MAX)
+        && (statusText !== true || infoFits(PageReference.plain(info), INFO_MAX)));
+    return fits ? "" : at + ".info must be printable lines joined by single line feeds, of 1 to " + INFO_MAX + " characters when present";
 }
 
 // The first defect of an entry's optional `link`, or "": an object of
