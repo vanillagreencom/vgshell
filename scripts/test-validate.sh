@@ -767,7 +767,7 @@ cases=(
   "share-picker-suite|scripts/test-share-picker.py|cli|python3 scripts/test-share-picker.py"
   "share-picker-consumer|scripts/fixtures/share-picker/xdph-selection.cpp|cli|python3 scripts/test-share-picker.py"
   "jarvis-key-smoke|scripts/smoke/rows/jarvis-keys.sh|all|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-daemon.js"$'\n'"${smoke_plan/smoke_reads_named/$'smoke_reads_named\npython3 scripts/test-smoke-user-config.py'}"
-  "world-consumers|scripts/smoke/gpu-fence.sh|tools|python3 scripts/test-smoke-evidence.py"$'\nscripts/test-sandbox-shots.sh\nscripts/test-gpu-fence.sh\nscripts/test-smoke-owner.sh\nscripts/test-scratch-dirs.sh\nscripts/test-jarvis-selftest.sh'
+  "world-consumers|scripts/smoke/gpu-fence.sh|tools|python3 scripts/check-smoke-readers.py"$'\npython3 scripts/test-check-smoke-readers.py\nsmoke_reads_named\npython3 scripts/test-smoke-evidence.py\nscripts/test-sandbox-shots.sh\nscripts/test-gpu-fence.sh\nscripts/test-smoke-owner.sh\nscripts/test-scratch-dirs.sh\nscripts/test-jarvis-selftest.sh'
   "mode-startup-entry|scripts/qml-smoke.sh|tools|scripts/test-mode-hold.sh"$'\nsmoke_reads_named\npython3 scripts/test-smoke-evidence.py\nscripts/test-gpu-fence.sh\nscripts/test-validate.sh'
   "mode-capture-entry|scripts/sandbox-shots.sh|tools|scripts/test-mode-hold.sh"$'\nscripts/test-smoke-input-guard.sh\nscripts/test-sandbox-shots.sh\nnode scripts/test-google-drive-scene.js\nscripts/test-gpu-fence.sh'
   "compositor-reveal-barrier-suite|scripts/test-compositor-reveal.py|tools|python3 scripts/test-compositor-reveal.py"
@@ -2972,7 +2972,9 @@ done
 # the mutation lines are read. A copy that prints the case logs in reverse
 # is the control.
 q="$tmp/qml-jobs"
-mkdir -p "$q/scripts/qml-tests" "$q/shell/Ui"
+mkdir -p "$q/scripts/qml-tests" "$q/scripts/smoke" "$q/shell/Ui"
+printf '#!/bin/sh\nexit 0\n' >"$q/scripts/smoke/gpu-fence.sh"
+chmod +x "$q/scripts/smoke/gpu-fence.sh"
 printf 'base\n' >"$q/shell/Ui/a.qml"
 : >"$q/scripts/qml-tests/tst_x.qml"
 cat >"$q/scripts/qml-unit.sh" <<'SH'

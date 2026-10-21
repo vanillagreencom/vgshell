@@ -706,6 +706,7 @@ forward() {
 # run_controls TABLE: each control of the array TABLE planted in a copy of
 # the fence must turn its case red. A control that leaves the case green,
 # or that names no case, fails.
+declare -A control_mutants=()
 run_controls() {
   local -n plants="$1"
   local i label mutant result
@@ -713,6 +714,7 @@ run_controls() {
     label="${plants[i]}"
     mutant="$TMP_ROOT/mutant-$1-$i.sh"
     if ! mutate "$fence" "${plants[i + 1]}" "${plants[i + 2]}" "$mutant"; then fail "control: $label"; continue; fi
+    control_mutants["$label"]=$mutant
     result=0
     run_case "$mutant" "${plants[i + 3]}" >/dev/null || result=$?
     case "$result" in
@@ -757,7 +759,7 @@ fi
 if [[ $namespace == true ]]; then
   roots amd
   want_seen="$(for path in "${amd_paths[@]}"; do printf 'gpu-fence: status=not-measured reason=amd-node-visible path=%s/amd/dev/%s\n' "$TMP_ROOT" "$path"; done | LC_ALL=C sort)"
-  run_fence "$TMP_ROOT/mutant-controls-0.sh" real "${at[@]}" touch "$TMP_ROOT/marker"
+  run_fence "${control_mutants[the fence with no restriction]}" real "${at[@]}" touch "$TMP_ROOT/marker"
   seen="$(grep -F 'reason=amd-node-visible' "$TMP_ROOT/err" | LC_ALL=C sort)" || seen=""
   if [[ $status -eq 77 && $seen == "$want_seen" && ! -e $TMP_ROOT/marker ]]; then
     ok "control: the fence with no restriction reports the ${#amd_paths[@]} amdgpu paths it sees and starts nothing"
