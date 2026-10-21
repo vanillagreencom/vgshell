@@ -2,8 +2,14 @@
 // The VPN plugin's decisions under the same loader as QML, over the nmcli
 // shapes in scripts/fixtures/vpn/: the list, the multi-uuid detail read,
 // the address read and each failure text, as NetworkManager 1.58.1 printed
-// them under LC_ALL=C (VGS-1931 verify-first, 2026-10-20). Every name,
-// address, key and path is a stand-in. Every control changes production
+// them under LC_ALL=C (VGS-1931 verify-first, 2026-10-20). What a connect
+// that carried a password reads from those texts is traced in
+// NetworkManager 1.58.1 and its VPN plugins' source, not run (VGS-1932
+// verify-first § 6): the pppd types and Fortinet end in up-failed.txt's
+// Unknown reason, openvpn retries the refused password until the action
+// deadline kills nmcli (-1), and a password the plugin never asked for
+// ends in No valid secrets with no warning line. Every name, address, key,
+// path and password is a stand-in. Every control changes production
 // behavior and must redden this suite.
 "use strict";
 const fs = require("fs");
@@ -109,9 +115,12 @@ function suite(logic, service = serviceSource) {
     assert.equal(logic.address(2, ""), null);
     assert.equal(logic.address(-1, text("address.txt")), null);
 
-    // The failure each `up` text leaves, by the profile it ran on.
+    // The failure each `up` text leaves, by the profile it ran on and
+    // whether the connect carried a password: a carried one leaves
+    // password-tried unless nmcli named a missing plugin or another secret.
     const rowOf = (uuid, service) => Object.assign({}, listing.rows.find(row => row.uuid === uuid), { service });
-    for (const [name, code, row, kind, failedService] of [
+    const noValidSecrets = "Error: Connection activation failed: No valid secrets";
+    for (const [name, code, row, kind, failedService, carried] of [
         ["up-secrets-wireguard.txt", 4, rowOf(LAB, ""), "sign-in", ""],
         ["up-secrets-password.txt", 4, rowOf(TRAVEL, "l2tp"), "needs-password", ""],
         ["up-secrets-password.txt", 4, rowOf(OFFICE, "openvpn"), "needs-password", ""],
@@ -121,13 +130,25 @@ function suite(logic, service = serviceSource) {
         ["up-secrets-multiple.txt", 4, rowOf(BRANCH, "vpnc"), "sign-in", ""],
         ["up-service-missing.txt", 4, rowOf(BRANCH, ""), "plugin-needed", "vpnc"],
         ["up-failed.txt", 4, rowOf(OFFICE, "openvpn"), "failed", ""],
-        ["up-secrets-password.txt", -1, rowOf(TRAVEL, "l2tp"), "failed", ""]
+        ["up-secrets-password.txt", -1, rowOf(TRAVEL, "l2tp"), "failed", ""],
+        [null, 4, rowOf(TRAVEL, "l2tp"), "sign-in", ""],
+        ["up-failed.txt", 4, rowOf(TRAVEL, "l2tp"), "failed", "", false],
+        ["up-secrets-password.txt", 4, rowOf(TRAVEL, "l2tp"), "needs-password", "", false],
+        ["up-secrets-password.txt", -1, rowOf(OFFICE, "openvpn"), "failed", "", false],
+        [null, 4, rowOf(TRAVEL, "l2tp"), "sign-in", "", false],
+        ["up-failed.txt", 4, rowOf(TRAVEL, "l2tp"), "password-tried", "", true],
+        ["up-failed.txt", 4, rowOf(OFFICE, "openvpn"), "password-tried", "", true],
+        ["up-secrets-password.txt", -1, rowOf(OFFICE, "openvpn"), "password-tried", "", true],
+        [null, 4, rowOf(OFFICE, "sstp"), "password-tried", "", true],
+        ["up-secrets-password.txt", 4, rowOf(TRAVEL, "l2tp"), "password-tried", "", true],
+        ["up-service-missing.txt", 4, rowOf(BRANCH, ""), "plugin-needed", "vpnc", true],
+        ["up-secrets-multiple.txt", 4, rowOf(TRAVEL, "l2tp"), "sign-in", "", true]
     ]) {
-        const failure = plain(logic.upFailure(code, text(name), row));
-        assert.deepEqual(failure, { kind, service: failedService }, name + " on " + row.name);
-        holdsNothingPrivate(failure, name);
+        const output = name === null ? noValidSecrets : text(name);
+        const failure = plain(logic.upFailure(code, output, row, carried));
+        assert.deepEqual(failure, { kind, service: failedService }, (name || noValidSecrets) + " on " + row.name + " carried=" + carried);
+        holdsNothingPrivate(failure, name || noValidSecrets);
     }
-    assert.equal(logic.upFailure(4, "Error: Connection activation failed: No valid secrets", rowOf(TRAVEL, "l2tp")).kind, "sign-in");
     for (const [code, output, outcome] of [[0, "", "removed"], [10, text("delete-unknown.txt"), "gone"],
         [1, text("up-failed.txt"), "failed"], [-1, text("delete-unknown.txt"), "failed"]])
         assert.equal(logic.removeOutcome(code, output), outcome);
@@ -168,8 +189,14 @@ function suite(logic, service = serviceSource) {
         [plain(logic.compose(listing, details, {}, {}, { kind: "profile-remove", uuid: OFFICE, name: "Office VPN" }, "")), OFFICE,
             ["removing", false, false, true, false, true]],
         [plain(logic.compose(logic.list(0, "Office VPN:" + OFFICE + ":vpn:activating"), details, {}, {}, null, "")), OFFICE,
-            ["connecting", false, true, true, false, true]]
+            ["connecting", false, true, true, false, true]],
+        [plain(logic.compose(listing, details, {}, { [TRAVEL]: { kind: "password-tried", service: "" } }, null, "")), TRAVEL,
+            ["needs-password", false, false, false, false, false]]
     ]) assert.deepEqual(flags(viewOf(payload, uuid)), want, uuid + " " + want[0]);
+    // A connect with a password that failed draws the row and its switch
+    // exactly as before the first password, so the switch asks again.
+    const tried = plain(logic.compose(listing, details, {}, { [TRAVEL]: { kind: "password-tried", service: "" } }, null, ""));
+    assert.deepEqual(viewOf(tried, TRAVEL), viewOf(profiles, TRAVEL));
     // Each service has its own type name; an unread or unknown one reads as
     // a plain VPN.
     const names = Object.keys(logic.TYPE_NAMES).map(service => logic.typeName("vpn", service));
@@ -196,6 +223,81 @@ function suite(logic, service = serviceSource) {
         [[], profiles, { refusal: "refused: profile=action" }]
     ]) assert.deepEqual(plain(logic.profileCommand(request, payload)), want, JSON.stringify(request));
 
+    // The one passwd-file line: nmcli 1.58.1 strips unescaped edge
+    // whitespace and reads a backslash as an escape, and a CR or LF would
+    // start a second line (VGS-1932 verify-first § 2).
+    for (const [password, line] of [
+        ["hunter2", "vpn.secrets.password:hunter2\n"],
+        ["back\\slash", "vpn.secrets.password:back\\\\slash\n"],
+        ["\\\\", "vpn.secrets.password:\\\\\\\\\n"],
+        [" lead", "vpn.secrets.password:\\040lead\n"],
+        ["trail ", "vpn.secrets.password:trail\\040\n"],
+        ["  both  ", "vpn.secrets.password:\\040\\040both\\040\\040\n"],
+        [" ", "vpn.secrets.password:\\040\n"],
+        ["\ttab\t", "vpn.secrets.password:\\ttab\\t\n"],
+        ["\v\fedge\f\v", "vpn.secrets.password:\\v\\fedge\\f\\v\n"],
+        ["a b\tc\vd\fe", "vpn.secrets.password:a b\tc\vd\fe\n"],
+        ["line\nbreak\r", "vpn.secrets.password:line\\nbreak\\r\n"],
+        ["\r\nlead", "vpn.secrets.password:\\r\\nlead\n"],
+        ["c:o=lon", "vpn.secrets.password:c:o=lon\n"],
+        [" a\\b ", "vpn.secrets.password:\\040a\\\\b\\040\n"],
+        ["", null],
+        ["nul\u0000", null],
+        ["\u0000", null],
+        [42, null],
+        [null, null],
+        [undefined, null]
+    ]) assert.equal(logic.passwordLine(password), line, JSON.stringify(password));
+
+    // A password connect runs only on a profile that reads Needs password,
+    // reads its passwd-file on stdin, and never asks or waits.
+    const passwordArgv = uuid => ["nmcli", "connection", "up", "uuid", uuid, "passwd-file", "/dev/stdin"];
+    for (const [uuid, payload, want] of [
+        [TRAVEL, profiles, { argv: passwordArgv(TRAVEL) }],
+        [TRAVEL, tried, { argv: passwordArgv(TRAVEL) }],
+        [TRAVEL.toUpperCase(), profiles, { refusal: "refused: profile=absent" }],
+        [OFFICE, profiles, { refusal: "refused: profile=state" }],
+        [HOME, profiles, { refusal: "refused: profile=state" }],
+        [BRANCH, profiles, { refusal: "refused: profile=state" }],
+        [CAMPUS, profiles, { refusal: "refused: profile=state" }],
+        [LAB, profiles, { refusal: "refused: profile=state" }],
+        [TRAVEL, plain(logic.compose(listing, details, {}, { [TRAVEL]: { kind: "failed", service: "" } }, null, "")), { refusal: "refused: profile=state" }],
+        [TRAVEL, plain(logic.compose(listing, details, {}, failures, { kind: "profile-up", uuid: TRAVEL, name: "Travel L2TP" }, "")), { refusal: "refused: profile=state" }],
+        ["Travel L2TP", profiles, { refusal: "refused: profile=absent" }],
+        [TRAVEL, plain(logic.compose(logic.emptyProfiles("not-running"), {}, {}, {}, null, "")), { refusal: "refused: profile=unavailable" }]
+    ]) {
+        const plan = plain(logic.passwordCommand(uuid, payload));
+        assert.deepEqual(plan, want, uuid);
+        if (plan.argv !== undefined) assert.ok(!plan.argv.some(word => word === "--ask" || word === "--wait"), "a password connect never asks or waits");
+    }
+
+    // submitConnect hands the owner the uuid and a closure that writes the
+    // one line and then closes stdin; a password nmcli cannot read, or no
+    // owner, reaches no owner.
+    const planted = " planted\\stand-in ";
+    const plantedLine = "vpn.secrets.password:\\040planted\\\\stand-in\\040\n";
+    const connects = [];
+    const owner = { reply: "ok", connectWithPassword(uuid, feed) { connects.push([uuid, feed]); return owner.reply; } };
+    const other = { connectWithPassword() { throw new Error("a released owner was called"); } };
+    assert.equal(logic.submitConnect(TRAVEL, planted), "unavailable");
+    logic.attachConnect(other);
+    logic.attachConnect(owner);
+    logic.releaseConnect(other);
+    for (const refused of ["", "nul\u0000", 42, null])
+        assert.equal(logic.submitConnect(TRAVEL, refused), "refused: password=value", JSON.stringify(refused));
+    assert.deepEqual(connects, []);
+    assert.equal(logic.submitConnect(TRAVEL, planted), "ok");
+    owner.reply = "busy";
+    assert.equal(logic.submitConnect(TRAVEL, planted), "busy");
+    assert.deepEqual(connects.map(call => call[0]), [TRAVEL, TRAVEL]);
+    const events = [];
+    const child = { write(data) { events.push(["write", data]); }, set stdinEnabled(value) { events.push(["stdin", value]); } };
+    connects[0][1](child);
+    assert.deepEqual(events, [["write", plantedLine], ["stdin", false]]);
+    logic.releaseConnect(owner);
+    assert.equal(logic.submitConnect(TRAVEL, planted), "unavailable");
+    assert.equal(connects.length, 2);
+
     // The bar icon and its tooltip's subject.
     const bar = payload => plain(logic.barView(payload));
     for (const hidden of [null, logic.emptyProfiles("reading"), logic.emptyProfiles("not-running"), logic.compose(logic.list(0, ""), {}, {}, {}, null, "")])
@@ -211,12 +313,17 @@ function suite(logic, service = serviceSource) {
     assert.deepEqual([bar(connecting).spinning, bar(connecting).warning], [true, false]);
     assert.ok(bar(connecting).tooltip.includes("Office VPN"));
     assert.equal(bar(plain(logic.compose(listing, details, {}, {}, { kind: "profile-remove", uuid: OFFICE, name: "Office VPN" }, ""))).spinning, false);
-    for (const [kind, warning] of [["needs-password", true], ["failed", true], ["sign-in", false], ["plugin-needed", false]]) {
+    const alerts = {};
+    for (const [kind, warning] of [["needs-password", true], ["password-tried", true], ["failed", true], ["sign-in", false], ["plugin-needed", false]]) {
         const view = bar(plain(logic.compose(listing, details, {}, { [OFFICE]: { kind, service: "" } }, null, "")));
         assert.equal(view.warning, warning, kind);
         assert.equal(view.icon, warning ? "shield-alert" : "shield-check", kind);
         if (warning) assert.ok(view.tooltip.includes("Office VPN"));
+        alerts[kind] = view.tooltip;
     }
+    // password-tried says the profile needs a password, never that it failed.
+    assert.equal(alerts["password-tried"], alerts["needs-password"]);
+    assert.notEqual(alerts["password-tried"], alerts.failed);
 
     // Execute the shipped list completion body. start-order reads its
     // log severity; process output can contain private profile data.
@@ -311,7 +418,10 @@ function suite(logic, service = serviceSource) {
     // The action completion records the failure kind on the uuid, clears it
     // on success, leaves a problem line, and logs no nmcli text.
     const completeAction = new Function("running", "completion", "root", "Logic", "actorText", "actorErrors", "profileActionDeadline", "console", bodyOf("profileActor", "action"));
-    for (const [kind, uuid, code, output, failure, problem] of [
+    for (const [kind, uuid, code, output, failure, problem, password] of [
+        ["profile-up", TRAVEL, 4, text("up-failed.txt"), "password-tried", true, true],
+        ["profile-up", TRAVEL, 4, text("up-secrets-multiple.txt"), "sign-in", true, true],
+        ["profile-up", TRAVEL, 0, "Connection successfully activated", null, false, true],
         ["profile-up", TRAVEL, 4, text("up-secrets-password.txt"), "needs-password", true],
         ["profile-up", LAB, 4, text("up-secrets-wireguard.txt"), "sign-in", true],
         ["profile-up", BRANCH, 4, text("up-service-missing.txt"), "plugin-needed", true],
@@ -324,7 +434,7 @@ function suite(logic, service = serviceSource) {
         const console = logs();
         let reads = 0;
         const owner = Object.assign(helpers(), { profiles, failures: { [TRAVEL]: { kind: "needs-password", service: "" } },
-            profileAction: { kind, uuid, name: byUuid(uuid).name }, profileProblem: null, readProfiles() { reads++; } });
+            profileAction: { kind, uuid, name: byUuid(uuid).name, password: password === true }, profileProblem: null, readProfiles() { reads++; } });
         completeAction(false, { code, status: 0 }, owner, logic, { text: "" }, { text: output }, { stop() {} }, console);
         if (kind === "profile-up") assert.equal(owner.failures[uuid] === undefined ? null : owner.failures[uuid].kind, failure, kind + " " + code);
         assert.deepEqual(owner.profileProblem === null ? null : [owner.profileProblem.uuid, owner.profileProblem.kind],
@@ -336,10 +446,60 @@ function suite(logic, service = serviceSource) {
         holdsNothingPrivate([owner.failures, owner.profileProblem], kind);
     }
 
+    // A password connect: connectWithPassword plans it and startAction runs
+    // nmcli with stdin open and the feed held; the run's start hands the
+    // feed the child once and drops it. A plain change holds no feed.
+    const bodyNamed = name => {
+        const found = new RegExp("function " + name + "\\(([^)]*)\\) \\{([\\s\\S]*?)\\n    \\}").exec(service);
+        assert.ok(found, name);
+        return found;
+    };
+    const method = (owner, name) => {
+        const found = bodyNamed(name);
+        const params = found[1].split(",").map(param => param.trim()).filter(param => param !== "");
+        owner[name] = new Function("Logic", "owner", ...params, "with (owner) {" + found[2] + "}").bind(null, logic, owner);
+    };
+    const feed = () => {};
+    const actor = () => ({ running: false, stdinEnabled: false, command: [], completion: "old" });
+    const actionOwner = () => {
+        const owner = { profiles, profileAction: null, profileProblem: { uuid: OFFICE }, connectFeed: null, profileActor: actor(),
+            restarts: 0, profileActionDeadline: { restart() { owner.restarts++; } } };
+        method(owner, "connectWithPassword");
+        method(owner, "startAction");
+        return owner;
+    };
+    const started = actionOwner();
+    assert.equal(started.connectWithPassword(TRAVEL, feed), "ok");
+    assert.deepEqual(plain(started.profileAction), { kind: "profile-up", uuid: TRAVEL, name: "Travel L2TP", password: true });
+    assert.deepEqual(plain(started.profileActor), { running: true, stdinEnabled: true, command: passwordArgv(TRAVEL), completion: null });
+    assert.equal(started.connectFeed, feed);
+    assert.equal(started.profileProblem, null);
+    assert.equal(started.restarts, 1);
+    assert.equal(started.connectWithPassword(TRAVEL, () => {}), "busy", "one change at a time");
+    assert.equal(started.connectFeed, feed);
+    const refusedConnect = actionOwner();
+    assert.equal(refusedConnect.connectWithPassword(OFFICE, feed), "refused: profile=state");
+    assert.deepEqual([refusedConnect.profileActor.running, refusedConnect.connectFeed, refusedConnect.profileAction], [false, null, null]);
+    const plainChange = actionOwner();
+    assert.equal(plainChange.startAction("profile-up", OFFICE, ["nmcli", "connection", "up", "uuid", OFFICE], null), "ok");
+    assert.deepEqual([plainChange.profileAction.password, plainChange.profileActor.stdinEnabled, plainChange.connectFeed], [false, false, null]);
+    const startBody = /onStarted: \{([\s\S]*?)\n        \}/.exec(service);
+    assert.ok(startBody);
+    const runStart = new Function("root", "profileActor", startBody[1]);
+    const handed = [];
+    const startedChild = { name: "child" };
+    const startOwner = { connectFeed: process => handed.push(process) };
+    runStart(startOwner, startedChild);
+    runStart(startOwner, startedChild);
+    assert.deepEqual(handed, [startedChild], "the feed runs once, with the started child");
+    assert.equal(startOwner.connectFeed, null);
+    runStart({ connectFeed: null }, startedChild);
+
     // A requirements rescan asks again about a missing plugin or sign-in
     // detail, and keeps the failures the bar warns about.
     const recorded = { [TRAVEL]: { kind: "needs-password", service: "" }, [OFFICE]: { kind: "failed", service: "" },
-        [BRANCH]: { kind: "sign-in", service: "" }, [LAB]: { kind: "plugin-needed", service: "vpnc" } };
+        [BRANCH]: { kind: "sign-in", service: "" }, [LAB]: { kind: "plugin-needed", service: "vpnc" },
+        [CAMPUS]: { kind: "password-tried", service: "" } };
     const rescanBody = /onScansChanged: \{([\s\S]*?)\n    \}/.exec(service);
     assert.ok(rescanBody);
     const runRescan = new Function("Logic", "owner", "with (owner) {" + rescanBody[1] + "}");
@@ -348,7 +508,7 @@ function suite(logic, service = serviceSource) {
         const rescanned = { listing, failures: recorded, profileProblem: { uuid, kind, text: logic.problem(kind, byUuid(uuid).name, 4) },
             refreshed: 0, refresh() { rescanned.refreshed++; } };
         runRescan(logic, rescanned);
-        assert.deepEqual(Object.keys(plain(rescanned.failures)).sort(), [OFFICE, TRAVEL].sort());
+        assert.deepEqual(Object.keys(plain(rescanned.failures)).sort(), [OFFICE, TRAVEL, CAMPUS].sort());
         assert.equal(rescanned.profileProblem === null, !kept, "a rescan's problem line for " + kind + " " + byUuid(uuid).name);
         assert.equal(rescanned.refreshed, 1);
     }
@@ -465,6 +625,22 @@ try {
         ["a disconnect's problem goes once the profile is down", 'if (problem.kind === "profile-down" && row.state === "") return null;', ''],
         ["a password failure raises the alert", 'row.failure === "needs-password" || row.failure === "failed"', 'row.failure === "failed"'],
         ["a drawn line holds no markup start", "\\u007f<]/g", "\\u007f]/g"],
+        ["a backslash is escaped", String.raw`password.replace(/\\/g, "\\\\")`, "password"],
+        ["CR and LF are escaped", String.raw`.replace(/\r/g, "\\r").replace(/\n/g, "\\n")`, ""],
+        ["leading whitespace is escaped", "edge(parts[1])", "parts[1]"],
+        ["trailing whitespace is escaped", "edge(parts[3])", "parts[3]"],
+        ["an empty password is refused", 'password === "" || ', ""],
+        ["a NUL is refused", String.raw` || password.indexOf("\u0000") !== -1`, ""],
+        ["a password nmcli cannot read reaches no owner", 'if (text === null) return "refused: password=value";', ""],
+        ["no owner answers unavailable", 'if (connectOwner === null) return "unavailable";', ""],
+        ["only the owner releases itself", "if (connectOwner === owner) connectOwner = null;", "connectOwner = null;"],
+        ["the feed closes stdin", "process.stdinEnabled = false;", ""],
+        ["a carried password reads password-tried", "if (carried === true)", "if (false)"],
+        ["a carried second secret reads sign-in", 'missing.some(name => name !== PASSWORD_ENTRY) ? "sign-in" : "password-tried"', '"password-tried"'],
+        ["password-tried reads Needs password", 'row.failure === "needs-password" || row.failure === "password-tried") return view(', 'row.failure === "needs-password") return view('],
+        ["password-tried raises the alert", ' || row.failure === "password-tried"));', "));"],
+        ["only Needs password takes a password", 'if (rowView(row, profiles).key !== "needs-password") return { refusal: "refused: profile=state" };', ""],
+        ["the password connect never asks", '"passwd-file", "/dev/stdin"]', '"passwd-file", "/dev/stdin", "--ask"]'],
         ["status rows are trimmed to their budget", "profiles.rows.pop();", "break;"]
     ]) {
         assert.equal(source.split(needle).length - 1, 1, name + " mutation must match once");
@@ -489,7 +665,13 @@ try {
         ["an unchanged uuid set reads no details", "if (Logic.detailsKey(next) !== detailsRead) readDetails();", "readDetails();"],
         ["an activated profile drops its failure", 'failures = kept(failures, row => row.state !== "activated");', "failures = kept(failures, row => true);"],
         ["a profile no longer activated drops its address", 'addresses = kept(addresses, row => row.state === "activated");', "addresses = kept(addresses, row => true);"],
-        ["an activated profile with an address queues no read", 'row.state === "activated" && addresses[row.uuid] === undefined', 'row.state === "activated"']
+        ["an activated profile with an address queues no read", 'row.state === "activated" && addresses[row.uuid] === undefined', 'row.state === "activated"'],
+        ["a password connect opens stdin", "profileActor.stdinEnabled = feed !== null;", "profileActor.stdinEnabled = false;"],
+        ["a password connect is marked", "password: feed !== null }", "password: false }"],
+        ["a password connect holds its feed", "connectFeed = feed;", ""],
+        ["one change at a time", 'if (profileActor.running) return "busy";', ""],
+        ["the started run drops its feed", "root.connectFeed = null;\n            if (once !== null)", "if (once !== null)"],
+        ["a password connect's failure is carried", "action.password === true)", "false)"]
     ]) {
         assert.equal(serviceSource.split(old).length - 1, 1, name);
         assert.throws(() => suite(load(file, commons), serviceSource.replace(old, replacement)), undefined, "control: " + name);

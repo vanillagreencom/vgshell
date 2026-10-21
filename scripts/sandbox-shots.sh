@@ -58,7 +58,9 @@
 # then the widget's menu with the pointer on an entry; vpn is the VPN bar
 # icon connected, warning and connecting, its flyout and its System
 # Settings section with a profile expanded, the remove confirmation, a
-# connect that found no OpenVPN plugin and no profile, over the nmcli
+# connect that found no OpenVPN plugin and no profile, and the password
+# prompt in the flyout with its field empty, with masked typed text and
+# with its retry line, and in the section, over the nmcli
 # stand-in and the fixtures of scripts/fixtures/vpn/; vpn-locked, taken only when named, is the
 # VPN dropdown while Tailscale's access step is offered: at rest, its
 # header switch under the pointer and under keyboard focus, the switch's
@@ -6719,7 +6721,11 @@ tailscale_shot_read() { ipc smoke readDescendant window vgs.tailscale TailscaleB
 # Office VPN needing the OpenVPN plugin, its switch disabled. The bar strip
 # shows the connected, the connecting and the warning icon; the flyout and
 # the System Settings section show a profile expanded, the remove
-# confirmation, the missing plugin and the no-profile state.
+# confirmation, the missing plugin and the no-profile state. Travel L2TP's
+# switch opens the password prompt: in the flyout empty, with typed text
+# and, after a password connect NetworkManager answers with Unknown
+# reason, with its retry line; in the section, after a plain connect
+# leaves it needing its password again.
 vpn_shot_home=9d76b882-ead1-4c49-8675-7be6431d5f71
 vpn_shot_office=95ea5c2d-312f-4a84-8fd1-9ebc0a4a7581
 vpn_shot_travel=5b1c0a9e-2f43-4d7a-9a51-0c3e6e1d2b84
@@ -6756,6 +6762,7 @@ scene_vpn() { # MODE
   expect_poll "the flyout draws no Remove profile" false vpn_shot_read panel RowAction "vpn-remove:$vpn_shot_home" visible
   park_pointer
   take "vpn-$1-dropdown"
+  vpn_shot_dropdown_password "$1"
   expect "the VPN flyout hides" ok ipc shell hide panel vgs.vpn
 
   expect "System enables for the VPN shot" ok ipc shell setPluginEnabled vgs.system true
@@ -6773,6 +6780,7 @@ scene_vpn() { # MODE
   click_item "window:System Settings" window vgs.vpn Button "Cancel" || fail "the click on Cancel failed"
   expect_poll "the remove confirmation closes" false vpn_shot_read window Dialog vpn-remove-confirm visible
   expect "no profile was removed" '[]' vpn_shot_deletes
+  vpn_shot_pane_password "$1"
   scroll="$(vpn_shot_end)" || { fail "the VPN pane end is unreadable"; return; }
   case "$scroll" in
     moved) park_pointer; take "vpn-$1-pane-end" ;;
@@ -6810,6 +6818,57 @@ scene_vpn() { # MODE
   expect "VPN disables after its shot" ok ipc shell setPluginEnabled vgs.vpn false
   expect "System disables after the VPN shot" ok ipc shell setPluginEnabled vgs.system false
   device_reply_clear nmcli
+}
+# vpn_shot_dropdown_password MODE: in the open flyout, Travel L2TP's
+# switch opens the password prompt over the flyout's Pane; its field
+# empty, then holding typed text, then, after a password connect the
+# stand-in answers with Unknown reason, the prompt opened again with its
+# retry line. Escape closes it.
+vpn_shot_dropdown_password() { # MODE
+  vpn_shot_switch "$vpn_shot_travel" || { fail "the click on Travel L2TP's flyout switch failed"; return; }
+  expect_poll "the switch opens the password prompt in the flyout" true vpn_shot_read panel ConnectPrompt vpn-connect-prompt visible
+  expect_poll "the flyout prompt's field holds the keys" true vpn_shot_read panel TextField vpn-password activeFocus
+  park_pointer
+  take_posed "vpn-$1-dropdown-password"
+  type_keys vpn-shot-typed
+  expect_poll "the flyout prompt's field takes the typed text" 14 vpn_shot_read panel TextField vpn-password length
+  park_pointer
+  take_posed "vpn-$1-dropdown-password-typed"
+  device_reply nmcli 4 "$(<"$repo/scripts/fixtures/vpn/up-failed.txt")" connection up uuid "$vpn_shot_travel" passwd-file /dev/stdin
+  type_keys -k Return
+  expect_poll "the failed password connect leaves Travel L2TP asking again" password-tried vpn_shot_failure "$vpn_shot_travel"
+  expect_poll "the failed password connect opens the prompt again" true vpn_shot_read panel ConnectPrompt vpn-connect-prompt visible
+  expect "the reopened prompt shows its retry line" true vpn_shot_read panel Label vpn-password-retry visible
+  expect_poll "the reopened prompt's field holds the keys" true vpn_shot_read panel TextField vpn-password activeFocus
+  park_pointer
+  take_posed "vpn-$1-dropdown-password-retry"
+  type_keys -k Escape
+  expect_poll "Escape closes the flyout prompt" false vpn_shot_read panel ConnectPrompt vpn-connect-prompt visible
+}
+# vpn_shot_pane_password MODE: a plain connect leaves Travel L2TP needing
+# its password again, and its section switch opens the prompt beside it.
+vpn_shot_pane_password() { # MODE
+  device_reply nmcli 4 "$(<"$repo/scripts/fixtures/vpn/up-secrets-password.txt")" connection up uuid "$vpn_shot_travel"
+  expect "Travel L2TP is asked to connect again" ok ipc vgs.vpn invoke action "{\"kind\":\"profile-up\",\"id\":\"$vpn_shot_travel\"}"
+  expect_poll "Travel L2TP needs its password again" needs-password vpn_shot_failure "$vpn_shot_travel"
+  click_item "scoped:System Settings" window vgs.vpn ProfileRow "Travel L2TP" Switch "" || { fail "the click on Travel L2TP's section switch failed"; return; }
+  expect_poll "the switch opens the password prompt in the section" true vpn_shot_read window ConnectPrompt vpn-connect-prompt visible
+  expect_poll "the section prompt's field holds the keys" true vpn_shot_read window TextField vpn-password activeFocus
+  park_pointer
+  take_posed "vpn-$1-pane-password"
+  type_keys -k Escape
+  expect_poll "Escape closes the section prompt" false vpn_shot_read window ConnectPrompt vpn-connect-prompt visible
+}
+# vpn_shot_switch UUID: one click on the centre of profile UUID's switch
+# in the open flyout, found by its objectName, which the probe reads in
+# output coordinates for the flyout's popup.
+vpn_shot_switch() { # UUID
+  local rect x y
+  rect="$(ipc smoke descendantGeometry panel vgs.vpn | py_reply 'import json,sys; r=[i["box"] for i in json.load(sys.stdin) if i["name"] == sys.argv[1] and i["visible"]]; print(json.dumps(r[0]) if r else "absent")' "vpn-profile-toggle:$1")" || return 1
+  [[ $rect == \[* ]] || { echo "vpn_shot_switch: no switch for $1: $rect" >&2; return 1; }
+  read -r x y < <(centre_of "$rect") || return 1
+  [[ $x != none ]] || return 1
+  hover "$((x + 1))" "$y" && click "$x" "$y"
 }
 # vpn_shot_plant: the list, the one detail read of the four profiles in the
 # sorted uuid order the service asks for, and Home tunnel's address, from

@@ -6,10 +6,18 @@
 # the Updates section, Import and the privacy of nmcli's output. Switches,
 # Remove and Import are pressed with the pointer and reach recorded nmcli
 # and the fixture terminal only; a held stand-in reply shows a change in
-# flight. Controls on a disposable installed copy reverse the toggle
+# flight. The switch of a profile that reads Needs password opens the
+# password prompt, in System Settings beside the profile and in the
+# dropdown over its own Pane; a planted stand-in password typed there
+# reaches only the stdin of `nmcli connection up uuid U passwd-file
+# /dev/stdin`, which the private nmcli double of network.sh
+# (fixtures/devices/network-join-nmcli.py) records by digest, and is read
+# absent from status, configuration, the log and every recorded argv.
+# Controls on a disposable installed copy reverse the toggle
 # route, remove on Cancel, remove without the confirmation, break the
-# Import callback and drop Import's availability guard.
-# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.vpn/* shell/plugins/vgs.system/* scripts/smoke/fixtures/tui/vgs.vpn/* scripts/smoke/fixtures/devices/* scripts/fixtures/vpn/* shell/Commons/Nmcli.js shell/Commons/SettingValues.js shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/TuiRunner.qml shell/Hosts/PaneHost.qml shell/Hosts/SummonHost.qml shell/Hosts/NoticeHost.qml bin/vgshell-tui bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh shell/Ui/controls/RowAction.qml shell/Ui/controls/Switch.qml shell/Ui/controls/BarItem.qml shell/Ui/controls/Button.qml shell/Ui/layout/Disclosure.qml shell/Ui/layout/ListItem.qml shell/Ui/layout/Section.qml shell/Ui/feedback/Dialog.qml shell/Ui/feedback/EmptyState.qml shell/Ui/feedback/Spinner.qml
+# Import callback, drop Import's availability guard and put the password
+# on nmcli's argv.
+# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.vpn/* shell/plugins/vgs.system/* scripts/smoke/fixtures/tui/vgs.vpn/* scripts/smoke/fixtures/devices/* scripts/fixtures/vpn/* shell/Commons/Nmcli.js shell/Commons/SettingValues.js shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/TuiRunner.qml shell/Hosts/PaneHost.qml shell/Hosts/SummonHost.qml shell/Hosts/NoticeHost.qml bin/vgshell-tui bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh shell/Ui/controls/RowAction.qml shell/Ui/controls/Switch.qml shell/Ui/controls/BarItem.qml shell/Ui/controls/Button.qml shell/Ui/layout/Disclosure.qml shell/Ui/layout/ListItem.qml shell/Ui/layout/Section.qml shell/Ui/feedback/Dialog.qml shell/Ui/feedback/EmptyState.qml shell/Ui/feedback/Spinner.qml shell/Ui/controls/TextField.qml shell/Ui/foundation/Scrim.qml shell/Ui/foundation/Label.qml
 set -euo pipefail
 devices_ready vpn || return 0
 vpn_saved="$sandbox/vpn-shell-before.json"
@@ -143,6 +151,131 @@ vpn_tooltip_names() { ipc smoke readDescendant "$(bar_key)" vgs.vpn BarItem tool
 vpn_focus() { ipc smoke activeFocusItem window vgs.vpn; }
 vpn_named() { ipc smoke readMatchingDescendant "$1" vgs.vpn "$2" objectName "$3" "$4"; } # HOST TYPE NAME PROPERTY
 vpn_confirm() { vpn_named window Dialog vpn-remove-confirm visible; }
+# The password prompt in HOST: whether it shows, and whether its title
+# names NAME.
+vpn_prompt() { vpn_named "$1" ConnectPrompt vpn-connect-prompt visible; } # HOST
+vpn_prompt_names() { vpn_named "$1" ConnectPrompt vpn-connect-prompt title | py_reply 'import json,sys; print(json.dumps(sys.argv[1] in json.load(sys.stdin)))' "$2"; } # HOST NAME
+# A profile row's state key as HOST draws it.
+vpn_key() { vpn_named "$1" ProfileRow "vpn-profile:$2" view | py_reply 'import json,sys; print(json.load(sys.stdin)["key"])'; } # HOST UUID
+# A published row's failure, as JSON.
+vpn_failure() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=json.load(sys.stdin).get("profiles") or {"rows": []}; print(next((json.dumps(r["failure"]) for r in v["rows"] if r["uuid"] == sys.argv[1]), "absent"))' "$1"; }
+# Whether the published change in flight says a password went with it.
+vpn_action_password() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; a=(json.load(sys.stdin).get("profiles") or {}).get("action"); print(json.dumps(None if a is None else a.get("password")))'; }
+vpn_tooltip() { ipc smoke readDescendant "$(bar_key)" vgs.vpn BarItem tooltip; }
+vpn_flyout_shown() { [[ $(ipc smoke instanceGeometry panel vgs.vpn) != absent ]] && echo shown || echo hidden; }
+# `pane` while the shown prompt and the shown Scrim are children of the
+# flyout's Pane and the Scrim covers the whole Pane, header and footer
+# included; else `elsewhere` with what was found.
+vpn_prompt_placed() { ipc smoke descendantGeometry panel vgs.vpn | py_reply 'import json,sys
+items=json.load(sys.stdin); find=lambda f: next((n for n,i in enumerate(items) if f(i)), None)
+prompt=find(lambda i: i["name"]=="vpn-connect-prompt" and i["visible"]); scrim=find(lambda i: i["type"]=="Scrim" and i["visible"])
+pane=None if prompt is None else items[prompt]["parent"]
+placed=pane is not None and pane>=0 and items[pane]["type"]=="Pane" and scrim is not None and items[scrim]["parent"]==pane and items[scrim]["box"]==items[pane]["box"]
+print("pane" if placed else "elsewhere prompt=%s scrim=%s parent=%s" % (prompt, scrim, None if pane is None or pane<0 else items[pane]["type"]))'; }
+# vpn_flyout_press UUID: one pointer press on the switch of profile UUID
+# in the dropdown, once the switch reports the pointer over it twice in a
+# row; the pointer moves one pixel each poll so each move is a motion.
+vpn_flyout_press() {
+  local rect x y held=0 i
+  for i in $(seq 1 30); do
+    rect="$(ipc smoke descendantGeometry panel vgs.vpn | py_reply 'import json,sys; r=[i["box"] for i in json.load(sys.stdin) if i["name"] == sys.argv[1] and i["visible"]]; print(json.dumps(r[0]) if r else "absent")' "vpn-profile-toggle:$1")" || return 1
+    if [[ $rect != \[* ]]; then held=0; sleep 0.1; continue; fi
+    read -r x y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(int(x + w / 2), int(y + h / 2))' "$rect") || return 1
+    hover "$((x + i % 2))" "$y" || return 1
+    if [[ $(vpn_named panel Switch "vpn-profile-toggle:$1" hovered) == true ]]; then held=$((held + 1)); else held=0; fi
+    if (( held >= 2 )); then click "$((x + i % 2))" "$y"; return; fi
+    sleep 0.1
+  done
+  echo "vpn_flyout_press: the switch of $1 never reported the pointer" >&2
+  return 1
+}
+vpn_dropdown_open() { # LABEL
+  rest_pointer && click_centre "$(bar_key)" vgs.vpn || fail "$1: the click on the VPN widget failed"
+  expect_poll "$1: the VPN widget opens its dropdown" shown vpn_flyout_shown
+  summon_drawn panel vgs.vpn || fail "$1: the dropdown never drew a frame"
+}
+
+# The password connect's private nmcli double: network.sh's
+# fixtures/devices/network-join-nmcli.py, which records each call's argv
+# with the password replaced, whether any argv held it, and whether its
+# stdin, read to its end, has the digest of the line it expects; it never
+# records the line. nmcli's other calls go to the stand-in. The planted
+# password carries a leading and a trailing space and a backslash, which
+# nmcli would strip or unescape unless VGS escapes them.
+vpn_connect_dir="$sandbox/vpn-connect"
+vpn_planted=' vpn-smoke-planted\secret '
+# vpn_connect_world failed|ok hold|run: the double's world; `hold` keeps
+# the connect at the double, after its record, until a world without it.
+vpn_connect_world() { # OUTCOME HOLD
+  python3 - "$vpn_connect_dir/world.json" "$vpn_planted" "$1" "$2" <<'PYVPNWORLD'
+import hashlib, json, os, pathlib, sys
+path, secret, outcome, hold = sys.argv[1:]
+# The passwd-file line for the planted password, escaped by hand: each
+# edge space as \040 and the backslash doubled (VGS-1932 verify-first § 2).
+assert secret == " vpn-smoke-planted\\secret ", secret
+line = "vpn.secrets.password:\\040vpn-smoke-planted\\\\secret\\040\n"
+world = {"secret_codes": list(map(ord, secret)), "stdin_digest": hashlib.sha256(line.encode()).hexdigest(),
+         "hold": "up" if hold == "hold" else None}
+if outcome == "failed":
+    world["fail"] = {"up": "failed"}
+# Replaced whole: a held double reads the world while it waits.
+pathlib.Path(path + ".next").write_text(json.dumps(world))
+os.replace(path + ".next", path)
+PYVPNWORLD
+}
+vpn_connect_stand_over() {
+  mkdir -p -- "$vpn_connect_dir"
+  printf '#!/usr/bin/env bash\nif [[ " $* " == *" passwd-file "* ]]; then exec python3 %q %q %q %q "$@"; fi\nexec %q "$@"\n' \
+    "$repo/scripts/smoke/fixtures/devices/network-join-nmcli.py" "$vpn_connect_dir/world.json" "$vpn_connect_dir/calls" "$vpn_connect_dir/ready" \
+    "$(sentinel_saved "$shim/nmcli")" | sentinel_stand_over "$shim/nmcli"
+}
+vpn_connect_count() { python3 - "$vpn_connect_dir/calls" <<'PYVPNCOUNT'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1])
+print(len(p.read_text().splitlines()) if p.exists() else 0)
+PYVPNCOUNT
+}
+# vpn_connect_record N: `private-stdin` when the double's Nth call is
+# exactly nmcli's passwd-file connect of Travel L2TP by uuid, no argv held
+# the password, and its stdin, read to its end, matched the escaped line;
+# `pending` before the call, else `invalid`.
+vpn_connect_record() { python3 - "$vpn_connect_dir/calls" "$1" "$vpn_travel" <<'PYVPNCALLS'
+import json, pathlib, sys
+path, n, uuid = pathlib.Path(sys.argv[1]), int(sys.argv[2]), sys.argv[3]
+rows = [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+if len(rows) < n:
+    print("pending")
+else:
+    r = rows[n - 1]
+    valid = r["argv"] == ["connection", "up", "uuid", uuid, "passwd-file", "/dev/stdin"] and r["operation"] == "up"
+    valid = valid and not r["argv_secret"] and not r["helper_argv_secret"] and r.get("stdin_ok") is True
+    print("private-stdin" if valid else "invalid")
+PYVPNCALLS
+}
+# vpn_planted_absent: `clean` while the planted password's distinctive
+# middle is absent from the published status, the user's configuration,
+# the instance log, the stand-ins' recorded argv, replies and the
+# authentication log, and the double's records, and no argv the double
+# recorded held the password; else `leaked`.
+vpn_planted_absent() {
+  local status
+  status="$(ipc smoke statusValues vgs.vpn)" || return 1
+  python3 - "$status" "$vpn_connect_dir/calls" "$home/.config/vgshell" "$instance_log" "$devices_dir/calls" "$devices_dir/replies" "$vpn_connect_dir" "$auth_log" <<'PYVPNPRIVATE'
+import json, pathlib, sys
+needle = "vpn-smoke-planted"
+texts = [sys.argv[1]]
+for name in sys.argv[3:]:
+    path = pathlib.Path(name)
+    if not path.exists():
+        continue
+    files = [path] if path.is_file() else [f for f in sorted(path.rglob("*")) if f.is_file()]
+    texts.extend(f.read_text(errors="replace") for f in files)
+calls = pathlib.Path(sys.argv[2])
+rows = [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
+argv_clean = all(not r["argv_secret"] and not r["helper_argv_secret"] for r in rows)
+print("clean" if argv_clean and all(needle not in text for text in texts) else "leaked")
+PYVPNPRIVATE
+}
 vpn_answer() { printf '%s|%s\n' "$(vpn_profiles state)" "$(vpn_profiles count)"; }
 vpn_empty_action() { vpn_named window EmptyState vpn-empty actionText | py_reply 'import json,sys; print("offered" if json.load(sys.stdin) else "none")'; }
 # Whether any private text is drawn in System Settings or published.
@@ -234,7 +367,8 @@ vpn_import_refused_step() { # LABEL
 vpn_control() { (failures=0 behaviour_failures=0; "${@:2}" >"$1" 2>&1; echo "$failures"); }
 vpn_control_failed() { [[ $1 -gt 0 ]] && echo failed || echo passed; }
 
-expected_errors+=('vpn: refused: profile=state' 'vpn: operation=profile-up completion=failed code=4$' 'vpn: operation=profile-read completion=failed code=8$')
+expected_errors+=('vpn: refused: profile=state' 'vpn: operation=profile-up completion=failed code=4$' 'vpn: operation=profile-read completion=failed code=8$'
+  'vpn: operation=profile-up completion=failed code=2$')
 read_count vpn_private_logged "the instance log is unreadable before the VPN row" log_lines "$vpn_private"
 expect "VPN enables over its stand-in" ok ipc shell setPluginEnabled vgs.vpn true
 expect_poll "the VPN service is built" True record_exists vgs.vpn
@@ -317,10 +451,27 @@ expect "the sign-in switch is refused over IPC" 'refused: profile=sign-in' vpn_a
 device_reply nmcli 4 "$(cat -- "$vpn_fixtures/up-secrets-wireguard.txt")" connection up uuid "$vpn_home"
 expect "Home tunnel connects" ok vpn_act profile-up "$vpn_home"
 expect_poll "Home tunnel: a WireGuard profile without its key asks for sign-in details, never Could not connect" 'sign-in|false|locked|false|' vpn_row "$vpn_home" "Home tunnel"
+# The Needs password switch asks for the password beside its profile and
+# hands nmcli nothing; Escape closes the prompt, empties its field and
+# gives the focus back to the switch.
+read_count vpn_before "prompt: nmcli calls are unreadable" vpn_call_count
+vpn_press "Travel L2TP" Switch "" || fail "the switch of Travel L2TP could not be pressed"
+expect_poll "the Needs password switch opens the password prompt in System Settings" true vpn_prompt window
+expect "the prompt names the profile" true vpn_prompt_names window "Travel L2TP"
+expect "the prompt draws no retry line before a password was tried" false vpn_named window Label vpn-password-retry visible
+expect_poll "the masked field holds the keys" true vpn_named window TextField vpn-password activeFocus
+expect "the field is masked" true vpn_named window TextField vpn-password password
+type_keys vpn-smoke-draft
+expect_poll "the field takes the typed text" 15 vpn_named window TextField vpn-password length
+type_keys -k Escape
+expect_poll "Escape closes the prompt" false vpn_prompt window
+expect "Escape empties the field" 0 vpn_named window TextField vpn-password length
+expect_poll "the focus returns to the switch after Escape" true vpn_named window Switch "vpn-profile-toggle:$vpn_travel" activeFocus
+expect "the prompt hands nmcli nothing" '[]' vpn_changes "$vpn_before"
 device_reply nmcli 4 "$(cat -- "$vpn_fixtures/up-failed.txt")"$'\nPRIVATE-FIXTURE-PROFILE-ERROR' connection up uuid "$vpn_travel"
 read_count vpn_before "retry: nmcli calls are unreadable" vpn_call_count
-vpn_press "Travel L2TP" Switch "" || fail "the switch of Travel L2TP could not be pressed"
-expect_poll "the Needs password switch runs up again" "[[\"connection\", \"up\", \"uuid\", \"$vpn_travel\"]]" vpn_changes "$vpn_before"
+expect "an IPC connect of a profile that needs its password runs a plain up" ok vpn_act profile-up "$vpn_travel"
+expect_poll "the IPC connect runs up again" "[[\"connection\", \"up\", \"uuid\", \"$vpn_travel\"]]" vpn_changes "$vpn_before"
 expect_poll "Travel L2TP: Could not connect in the danger tone" 'failed|false|free|false|danger' vpn_row "$vpn_travel" "Travel L2TP"
 expect_poll "the failed connect keeps shield-alert in the warning tone" 'shield-alert|false|warning' vpn_bar
 rescan "a requirements rescan starts"
@@ -378,6 +529,69 @@ expect "the flyout has no Updates section" false vpn_named panel Section vpn-upd
 expect "the flyout has no Check every" false vpn_named panel SegmentedControl vpn-poll visible
 expect "the flyout closes" ok ipc shell hide panel vgs.vpn
 
+# The password prompt in the dropdown the bar opens. Travel L2TP reads
+# Needs password; a press on its switch opens the prompt over the
+# dropdown's own Pane and hands the stand-in nmcli nothing. The planted
+# password typed there and Return reach only the double's stdin, while
+# the connect is held there; the failed connect opens the prompt again with
+# its retry line and the bar's password alert, and a later one connects.
+device_reply nmcli 4 "$(cat -- "$vpn_fixtures/up-secrets-password.txt")" connection up uuid "$vpn_travel"
+expect "Travel L2TP connects before its password" ok vpn_act profile-up "$vpn_travel"
+expect_poll "Travel L2TP needs its password" '"needs-password"' vpn_failure "$vpn_travel"
+expect_poll "the bar warns that Travel L2TP needs its password" 'shield-alert|false|warning' vpn_bar
+expect "the alert tooltip names Travel L2TP" true vpn_tooltip_names "Travel L2TP"
+vpn_alert_tooltip="$(vpn_tooltip)" || vpn_alert_tooltip=unread
+[[ $vpn_alert_tooltip == \"* ]] || fail "the needs-password tooltip is unreadable: $vpn_alert_tooltip"
+vpn_connect_stand_over
+rm -f -- "$vpn_connect_dir/ready"
+vpn_connect_world failed hold
+vpn_dropdown_open "password"
+expect_poll "the dropdown draws Travel L2TP at Needs password" needs-password vpn_key panel "$vpn_travel"
+read_count vpn_before "password: nmcli calls are unreadable" vpn_call_count
+vpn_flyout_press "$vpn_travel" || fail "the dropdown switch of Travel L2TP could not be pressed"
+expect_poll "the Needs password switch opens the prompt in the dropdown" true vpn_prompt panel
+expect "the prompt and its scrim draw in the dropdown's own Pane, the scrim over all of it" pane vpn_prompt_placed
+expect "the prompt is drawn on no layer of its own" 0 layer_count vgs:dialog
+expect "the dropdown prompt names the profile" true vpn_prompt_names panel "Travel L2TP"
+expect "no retry line shows before a password was tried" false vpn_named panel Label vpn-password-retry visible
+expect_poll "the dropdown's masked field holds the keys" true vpn_named panel TextField vpn-password activeFocus
+expect "the dropdown's field is masked" true vpn_named panel TextField vpn-password password
+expect "the switch hands the stand-in nmcli no plain up" '[]' vpn_changes "$vpn_before"
+type_keys "$vpn_planted"
+expect_poll "the field takes the planted password" "${#vpn_planted}" vpn_named panel TextField vpn-password length
+type_keys -k Return
+expect_poll "the connect is held at the private nmcli" 1 vpn_marker "$vpn_connect_dir/ready"
+expect "nmcli runs passwd-file /dev/stdin by uuid and reads the escaped line to its end, no argv holding the password" private-stdin vpn_connect_record 1
+expect_poll "the submit closes the prompt" false vpn_prompt panel
+expect "the submit empties the field" 0 vpn_named panel TextField vpn-password length
+expect_poll "the focus returns to the switch after the submit" true vpn_named panel Switch "vpn-profile-toggle:$vpn_travel" activeFocus
+expect_poll "Travel L2TP reads Connecting in the dropdown" connecting vpn_key panel "$vpn_travel"
+expect "the change in flight says a password went, as a flag alone" true vpn_action_password
+vpn_connect_world failed run
+expect_poll "the failed password connect leaves Travel L2TP asking again" '"password-tried"' vpn_failure "$vpn_travel"
+expect_poll "the failed password connect opens the prompt again" true vpn_prompt panel
+expect "the reopened prompt shows its retry line" true vpn_named panel Label vpn-password-retry visible
+expect_poll "the reopened prompt's field holds the keys" true vpn_named panel TextField vpn-password activeFocus
+expect "the reopened field is empty" 0 vpn_named panel TextField vpn-password length
+expect "Travel L2TP still reads Needs password" needs-password vpn_key panel "$vpn_travel"
+expect_poll "the bar keeps its password alert in the warning tone" 'shield-alert|false|warning' vpn_bar
+expect "the bar tooltip reads as before the first password" "$vpn_alert_tooltip" vpn_tooltip
+device_reply nmcli 0 $'GENERAL.STATE:activated\nIP4.ADDRESS[1]:10.40.0.2/24' -t -f GENERAL.STATE,IP4.ADDRESS connection show uuid "$vpn_travel"
+vpn_plant "$vpn_home=" "$vpn_campus=-" "$vpn_travel=activated"
+vpn_connect_world ok run
+type_keys "$vpn_planted"
+expect_poll "the retry's field takes the planted password" "${#vpn_planted}" vpn_named panel TextField vpn-password length
+type_keys -k Return
+expect_poll "the retry reads the escaped line to its end, no argv holding the password" private-stdin vpn_connect_record 2
+expect_poll "Travel L2TP connects with its password" connected vpn_key panel "$vpn_travel"
+expect "the connect clears the tried password" '""' vpn_failure "$vpn_travel"
+expect "the prompt stays closed after the connect" false vpn_prompt panel
+expect "the double saw the two password connects alone" 2 vpn_connect_count
+expect "the switch never handed the stand-in nmcli a plain up" '[]' vpn_changes "$vpn_before"
+expect "the planted password is absent from status, configuration, the log and every recorded argv" clean vpn_planted_absent
+expect "the password dropdown closes" ok ipc shell hide panel vgs.vpn
+sentinel_restore "$shim/nmcli"
+
 # NetworkManager absent: not running, then nmcli missing.
 device_reply nmcli 8 "" "${vpn_list_argv[@]}"
 expect "a refresh reads NetworkManager not running" ok vpn_refresh
@@ -416,7 +630,7 @@ service, body = map(pathlib.Path, sys.argv[1:])
 for path, edits in ((service, [
     ('if (profiles.state !== "available") return "refused: import=unavailable";', 'if (false) return "refused: import=unavailable";'),
 ]), (body, [
-    ('root.act(wanted ? "profile-up" : "profile-down",', 'root.act(wanted ? "profile-down" : "profile-up",'),
+    ('act(wanted ? "profile-up" : "profile-down", row.uuid,', 'act(wanted ? "profile-down" : "profile-up", row.uuid,'),
     ('answered(shell.ipc.call("import", ""),', 'answered(shell.ipc.call("refresh", ""),'),
     ('onRejected: root.cancelRemove()', 'onRejected: root.acceptRemove()'),
 ])):
@@ -469,6 +683,45 @@ expect "control: a Remove profile without the confirmation fails the ask step" f
 control_output "$sandbox/vpn-ask-control.log"
 expect_poll "control: the unconfirmed remove ends" null vpn_profiles action
 expect "control: System closes again" ok ipc shell hide window vgs.system
+# The privacy reader sees a password on nmcli's argv: a copy whose
+# VpnLogic hands the password connect's argv the password reads leaked.
+expect "VPN disables before its argv control" ok ipc shell setPluginEnabled vgs.vpn false
+expect_poll "the second control's service is gone" False record_exists vgs.vpn
+for vpn_file in Service.qml VpnBody.qml VpnLogic.js; do cp -- "$repo/shell/plugins/vgs.vpn/$vpn_file" "$vpn_copy/$vpn_file"; done
+python3 - "$vpn_copy/VpnLogic.js" <<'PYARGVCONTROL'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+text = path.read_text()
+for old, new in (('var connectOwner = null;', 'var connectOwner = null; var leakedPassword = "";'),
+                 ('const text = passwordLine(password);', 'const text = passwordLine(password); leakedPassword = String(password);'),
+                 ('"passwd-file", "/dev/stdin"] };', '"passwd-file", "/dev/stdin", leakedPassword] };')):
+    assert text.count(old) == 1, old
+    text = text.replace(old, new)
+path.write_text(text)
+PYARGVCONTROL
+rescan "the argv control is discovered"
+vpn_plant
+device_reply nmcli 4 "$(cat -- "$vpn_fixtures/up-secrets-password.txt")" connection up uuid "$vpn_travel"
+expect "the argv control enables" ok ipc shell setPluginEnabled vgs.vpn true
+expect_poll "control: profiles publish for the argv control" '"available"' vpn_profiles state
+expect "control: Travel L2TP connects before its password" ok vpn_act profile-up "$vpn_travel"
+expect_poll "control: Travel L2TP needs its password" '"needs-password"' vpn_failure "$vpn_travel"
+vpn_connect_stand_over
+vpn_connect_world ok run
+vpn_dropdown_open "control"
+expect_poll "control: the dropdown draws Travel L2TP at Needs password" needs-password vpn_key panel "$vpn_travel"
+vpn_flyout_press "$vpn_travel" || fail "control: the dropdown switch of Travel L2TP could not be pressed"
+expect_poll "control: the switch opens the prompt" true vpn_prompt panel
+expect_poll "control: the masked field holds the keys" true vpn_named panel TextField vpn-password activeFocus
+type_keys "$vpn_planted"
+expect_poll "control: the field takes the planted password" "${#vpn_planted}" vpn_named panel TextField vpn-password length
+type_keys -k Return
+expect_poll "control: the double records the connect" 3 vpn_connect_count
+expect_poll "control: the connect ends" null vpn_profiles action
+expect "control: a password on nmcli's argv reads as a leak" leaked vpn_planted_absent
+expect "control: the dropdown closes" ok ipc shell hide panel vgs.vpn
+sentinel_restore "$shim/nmcli"
+rm -rf -- "${sandbox:?}/vpn-connect"
 expect "the VPN control copy disables" ok ipc shell setPluginEnabled vgs.vpn false
 expect_poll "the VPN control service is gone" False record_exists vgs.vpn
 rm -rf -- "${vpn_copy:?}"
