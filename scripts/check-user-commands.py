@@ -45,9 +45,10 @@ command:
                 names no plugin directory under the root's plugins/. A
                 target completed by concatenation is not judged. With
                 --plugin, the target directories are that plugin's siblings.
-  page-reference-field  a complete literal `page:<id>/Settings/<field key>`
-                reference whose key names no field of that plugin's
-                manifest schema, which its Settings tab would not show.
+  page-reference-field  a complete literal `page:<id>/<tab>/<key>`
+                reference whose key names no row that tab of that plugin's
+                page draws, as the page's own judges place its manifest's
+                fields and status entries (bin/lib/page-rows.js).
   file-reference  a known file extension, ~/ path or absolute path in
                 manifest prose or drawn/source prose outside a file link.
                 PageReference.js reads inline links. File-action labels,
@@ -114,7 +115,7 @@ PAGE_REFERENCE = re.compile(r"\bSettings >|\b(?:in|from) (?:Settings|Plugins)\b|
 PAGE_LINK = re.compile(r"\[[^\[\]\n]+\]\(page:")
 # Only complete literal targets can be judged. An empty id opens the
 # plugin list; a template argument or unfinished concatenation is unknown.
-PAGE_TARGET = re.compile(PAGE_LINK.pattern + r"([^\s()/$]+)(?:/Settings/([^\s()/$]+)|/[^\s()/$]+)?\)")
+PAGE_TARGET = re.compile(PAGE_LINK.pattern + r"([^\s()/$]+)(?:/(Settings|Setup|Details)/([^\s()/$]+)|/[^\s()/$]+)?\)")
 # Extensions of the configuration and instruction files VGS cites. The
 # path branch also catches extensionless folders and files.
 FILE_NAME = re.compile(r"(?<![\w./~:$])(?:~?/[^\s<>\[\]`\"']+|[\w.-]+\.(?:lua|conf|config|ghostty|json|jsonc|md|txt|toml|ini|yaml|yml|qml|js|sh|service|desktop|hook))(?!\w|\.[A-Za-z0-9])", re.I)
@@ -128,7 +129,7 @@ REQUIRED_HEADS = ("vgshell", "sudo")
 # table or index of a list.
 FIELDS = (
     ("name",), ("description",), ("author",),
-    ("schema", "*", "label"), ("schema", "*", "description"), ("schema", "*", "placeholder"), ("schema", "*", "info"), ("schema", "*", "tooltip"), ("schema", "*", "link", "text"), ("schema", "*", "group"), ("schema", "*", "options", "*", "label"), ("schema", "*", "presets", "*", "label"),
+    ("schema", "*", "label"), ("schema", "*", "description"), ("schema", "*", "placeholder"), ("schema", "*", "info"), ("schema", "*", "tooltip"), ("schema", "*", "link", "text"), ("schema", "*", "group"), ("schema", "*", "groupLabel"), ("schema", "*", "addChoice", "label"), ("schema", "*", "options", "*", "label"), ("schema", "*", "options", "*", "group"), ("schema", "*", "presets", "*", "label"),
     ("schema", "*", "items", "*", "label"), ("schema", "*", "items", "*", "description"), ("schema", "*", "items", "*", "tooltip"), ("schema", "*", "items", "*", "placeholder"), ("schema", "*", "items", "*", "group"),
     ("schema", "*", "items", "*", "options", "*", "label"), ("schema", "*", "items", "*", "presets", "*", "label"),
     ("status", "*", "label"), ("status", "*", "group"), ("status", "*", "hint"), ("status", "*", "info"), ("status", "*", "link", "text"), ("status", "*", "action", "label"), ("status", "*", "actions", "*", "label"), ("status", "*", "aside", "label"), ("status", "*", "rowActions", "*", "label"),
@@ -146,7 +147,7 @@ FIELDS = (
 EXEMPT = (
     ("schemaVersion",), ("id",), ("version",), ("license",), ("icon",), ("kinds",), ("entryPoints",),
     ("capabilities",), ("capabilityKinds",), ("systemSteps",), ("settings",), ("defaultSection",), ("pane", "order"), ("appearance",), ("alwaysOn",), ("formerIds",), ("splitFrom",), ("idleStages",),
-    ("schema", "*", "type"), ("schema", "*", "optionsFrom"), ("schema", "*", "link", "url"), ("schema", "*", "defaults"), ("schema", "*", "presets", "*", "value"), ("schema", "*", "separator"), ("schema", "*", "allowCustom"), ("schema", "*", "hideEmpty"), ("schema", "*", "shownWhen"), ("schema", "*", "problem"), ("schema", "*", "format"), ("schema", "*", "unit"), ("schema", "*", "min"), ("schema", "*", "max"), ("schema", "*", "step"),
+    ("schema", "*", "type"), ("schema", "*", "optionsFrom"), ("schema", "*", "link", "url"), ("schema", "*", "defaults"), ("schema", "*", "presets", "*", "value"), ("schema", "*", "separator"), ("schema", "*", "allowCustom"), ("schema", "*", "hideEmpty"), ("schema", "*", "shownWhen"), ("schema", "*", "addChoice", "tui"), ("schema", "*", "preview"), ("schema", "*", "problem"), ("schema", "*", "format"), ("schema", "*", "unit"), ("schema", "*", "min"), ("schema", "*", "max"), ("schema", "*", "step"),
     ("status", "*", "setup"), ("status", "*", "setting"), ("status", "*", "step"),
     ("status", "*", "type"), ("status", "*", "hidden"), ("status", "*", "link", "url"),
     ("status", "*", "action", "tui"), ("status", "*", "action", "system"), ("status", "*", "action", "undo"), ("status", "*", "action", "tone"), ("status", "*", "action", "icon"), ("status", "*", "action", "dictation"), ("status", "*", "action", "file"),
@@ -156,7 +157,7 @@ EXEMPT = (
     ("status", "*", "settings"), ("status", "*", "icon"), ("status", "*", "plain"),
     ("setupGuide", "readme"),
     ("requirements", "*", "command"), ("requirements", "*", "dbus", "bus"), ("requirements", "*", "dbus", "name"), ("requirements", "*", "packages"), ("requirements", "*", "optional"), ("requirements", "*", "floor"), ("requirements", "*", "install"),
-    ("tui", "*", "script"), ("tui", "*", "size"), ("tui", "*", "presentation"), ("tui", "*", "requires"), ("tui", "*", "entry", "icon"), ("tui", "*", "entry", "settings"),
+    ("tui", "*", "script"), ("tui", "*", "size"), ("tui", "*", "presentation"), ("tui", "*", "requires"), ("tui", "*", "args"), ("tui", "*", "entry", "icon"), ("tui", "*", "entry", "settings"),
     ("menu", "*", "icon"), ("menu", "*", "aliases"), ("menu", "*", "shortcut"), ("menu", "*", "tui"), ("menu", "*", "tuiGroup"), ("menu", "*", "provider"), ("menu", "*", "toggle", "setting"), ("menu", "*", "toggle", "icon"),
     ("secrets", "service"),
     ("sounds", "*", "default"), ("sounds", "*", "held"),
@@ -529,15 +530,21 @@ def resolve(node, pattern, where=()):
         yield from resolve(node[head], rest, where + (head,))
 
 
-def schema_keys(base, plugin):
-    """The field keys of plugin PLUGIN's manifest schema under BASE."""
-    path = os.path.join(base, plugin, "manifest.json")
+def page_rows(base):
+    """{plugin directory: {tab: [row keys]}} of the plugins under BASE: the
+    rows each tab of a plugin's page draws and a page reference can open,
+    as the page's own judges place them (bin/lib/page-rows.js)."""
     try:
-        doc = json.loads(read(path))
-    except ValueError as exc:
-        unreadable(path, "not JSON: " + str(exc))
-    schema = doc.get("schema") if isinstance(doc, dict) else None
-    return set(schema) if isinstance(schema, dict) else set()
+        out = subprocess.run(["node", os.path.join(REPO, "bin", "lib", "page-rows.js"), base],
+                             capture_output=True, text=True, check=True, env={"PATH": os.environ.get("PATH", "/usr/bin:/bin")})
+        rows = json.loads(out.stdout)
+    except (OSError, ValueError) as exc:
+        unreadable("bin/lib/page-rows.js", "the page rows did not load: " + str(exc).splitlines()[0])
+    except subprocess.CalledProcessError as exc:
+        unreadable("bin/lib/page-rows.js", "the page rows did not load: " + (exc.stderr.strip().splitlines() or ["exit " + str(exc.returncode)])[0])
+    if not isinstance(rows, dict):
+        unreadable("bin/lib/page-rows.js", "the page rows are no object")
+    return rows
 
 
 def manifest_strings(doc):
@@ -621,11 +628,17 @@ def main(argv):
     files = len(markdown) + len(manifests) + len(scripts) + code_files
     if files == 0:
         unreadable(root, "no file to read: an empty walk certifies nothing")
+    rows = None
     for path, where, text in references:
         for target in PAGE_TARGET.finditer(text):
             if target.group(1) not in targets:
                 findings.append(("page-reference-target", path, where, text.strip()[:120]))
-            elif target.group(2) is not None and target.group(2) not in schema_keys(plugin_base, target.group(1)):
+                continue
+            if target.group(2) is None:
+                continue
+            if rows is None:
+                rows = page_rows(plugin_base)
+            if target.group(3) not in rows.get(target.group(1), {}).get(target.group(2), []):
                 findings.append(("page-reference-field", path, where, text.strip()[:120]))
     for path, where, excerpt in pages:
         findings.append(("page-reference", path, where, excerpt))

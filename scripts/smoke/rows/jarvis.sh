@@ -1180,7 +1180,7 @@ jarvis_unsent_mark="$(jarvis_unsent)" || { fail "the shell log is unreadable bef
 expect "the hello-less daemon fixture enables" ok ipc shell setPluginEnabled vgs.jarvis true
 expect_poll "the hello-less daemon names the first failed start" retry-words jarvis_start_retry_words
 expect_poll "the hello-less daemon reads problem with words" problem-words jarvis_start_problem_words
-expect_poll "the hello-less daemon sends one Jarvis notification" '[["Jarvis did not answer in time", "danger", "mic"]]' jarvis_cards
+expect_poll "the hello-less daemon sends one Jarvis notification" '[["Jarvis did not answer in time", "danger", "vgs-letter-j"]]' jarvis_cards
 expect "the hello-less daemon logs no unsent notice" "$jarvis_unsent_mark" jarvis_unsent
 expect "the hello-less daemon service disables" ok ipc shell setPluginEnabled vgs.jarvis false
 notes_off "jarvis hello-less daemon"
@@ -1233,7 +1233,7 @@ jarvis_rescan
 jarvis_unsent_mark="$(jarvis_unsent)" || { fail "the shell log is unreadable before the permanent stop"; jarvis_unsent_mark=unread; }
 expect "the unsupported Node fixture enables" ok ipc shell setPluginEnabled vgs.jarvis true
 expect_poll "Node exit 78 is a permanent problem without retries" permanent jarvis_permanent
-expect_poll "the permanent stop sends one Jarvis notification" '[["Jarvis needs Node 22 or later", "danger", "mic"]]' jarvis_cards
+expect_poll "the permanent stop sends one Jarvis notification" '[["Jarvis needs Node 22 or later", "danger", "vgs-letter-j"]]' jarvis_cards
 expect "the permanent stop logs no unsent notice" "$jarvis_unsent_mark" jarvis_unsent
 expect "the unsupported Node service disables" ok ipc shell setPluginEnabled vgs.jarvis false
 python3 - "$jarvis_service" <<'PY'
@@ -1257,7 +1257,7 @@ jarvis_rescan
 notes_on "jarvis retries"
 jarvis_enable
 expect "five retries end in problem status" problem jarvis_exhaust
-expect_poll "retry exhaustion sends one Jarvis notification" '[["Jarvis daemon stopped", "danger", "mic"]]' jarvis_cards
+expect_poll "retry exhaustion sends one Jarvis notification" '[["Jarvis daemon stopped", "danger", "vgs-letter-j"]]' jarvis_cards
 expect "the exhausted service disables" ok ipc shell setPluginEnabled vgs.jarvis false
 notes_off "jarvis retries"
 
@@ -1436,10 +1436,11 @@ cp -- "$jarvis_accounts" "$sandbox/jarvis-accounts-original"
 cp -- "$repo/shell/plugins/vgs.jarvis/tui/accounts.sh" "$sandbox/jarvis-accounts-tui-original"
 cp -- "$repo/scripts/smoke/fixtures/tui/vgs.jarvis/tui/accounts.sh" "$repo/shell/plugins/vgs.jarvis/tui/accounts.sh"
 jarvis_rescan
-# The hint AccountStatus.js words for the fixture's Claude Code / team in
-# STATE: signed in on plan pro as team@example.invalid, whose folder name
-# names no identity, or found with neither. A found folder is signed out,
-# so its row reads signed-out and carries no hint.
+# The hint AccountStatus.js words for the fixture's team folder in STATE:
+# signed in on plan pro as team@example.invalid, or found with neither. A
+# found folder is signed out, so its row reads signed-out and carries no
+# hint. A label names the provider and the sign-in email, the provider
+# alone while the email is unknown, and never the folder.
 jarvis_hint_of() { # STATE
   "$node_bin" -e '
 const words = require(process.argv[1]);
@@ -1454,8 +1455,9 @@ jarvis_account_hint() {
   ipc smoke jarvisProcess | py_reply '
 import json,sys
 rows=json.load(sys.stdin)["status"].get("accounts", [])
-row=next((item for item in rows if item["label"] == "Claude Code / team"), None)
-ok=row is not None and row["value"] == ("signed-out" if sys.argv[2] == "found" else "present") and row.get("hint", "") == sys.argv[1]
+found=sys.argv[2] == "found"
+label="Claude Code" if found else "Claude Code, team@example.invalid"
+ok=any(item["label"] == label and item["value"] == ("signed-out" if found else "present") and item.get("hint", "") == sys.argv[1] for item in rows)
 print("matched" if ok else "pending")
 ' "$want" "$1"
 }
@@ -1498,15 +1500,17 @@ jarvis_open_accounts
 expect_poll "restored discovery reports login hints" matched jarvis_account_hint signed-in
 # A home folder too large to search whole is a partial search: the
 # folders read before the bound and the config home's stay, and the row
-# warns and offers Accounts. The fixture writes the labels of those
-# folders, read from its own listing, beside the mode file.
+# warns and offers Accounts. The fixture writes the names of those
+# folders, read from its own listing, beside the mode file. A label names
+# no folder, so the row counts the Claude Code accounts: one for each listed
+# folder and at most one more, the default folder, which the list leaves out.
 jarvis_account_labels() {
   ipc smoke jarvisProcess | py_reply '
 import json,sys
 rows=json.load(sys.stdin)["status"].get("accounts", [])
-labels=sorted(row["label"][len("Claude Code / "):] for row in rows if row["label"].startswith("Claude Code / "))
+claude=[row for row in rows if row["label"] == "Claude Code" or row["label"].startswith("Claude Code, ")]
 want=json.load(open(sys.argv[1]))
-print("matched" if [label for label in labels if label != "default"] == want else "pending")
+print("matched" if len(claude) - len(want) in (0, 1) else "pending")
 ' "$sandbox/jarvis-world/account-labels"
 }
 rm -f -- "${sandbox:?}/jarvis-world/account-labels"
@@ -1767,13 +1771,23 @@ jarvis_kill_daemon() {
   daemon="$(jarvis_descendants "$launcher" 2>&1)" || { fail "the Jarvis daemon is unreadable: $daemon"; return 1; }
   kill -KILL "$daemon"
 }
-# A held Talk recording through the core, from a fresh note log.
+# A held Talk recording through the core, from a fresh note log. Talk
+# comes up through jarvis_talk_up_held, 300 ms past Session's tap bound,
+# so the release ends the recording.
+jarvis_tap_ms="$(sed -n 's/^var TAP_MS = \([0-9][0-9]*\);$/\1/p' "$repo/shell/plugins/vgs.jarvis/Session.js")"
+[[ $jarvis_tap_ms =~ ^[0-9]+$ ]] || fail "Session names no tap bound: '$jarvis_tap_ms'"
 jarvis_dictation_talk() { # LABEL
   rm -f -- "${jarvis_dictation_notes:?}"
   expect_poll "$1: the local voice takes Talk" "up closed" jarvis_gate_capture
+  jarvis_talk_down_at="$(now_ms)"
   expect "$1: Talk goes down" "" jarvis_intent talk-down
   expect_poll "$1: Talk records through the core" "vgs.jarvis text" jarvis_dictation_recording
   expect_poll "$1: the stand-in's daemon records once" start jarvis_dictation_noted
+}
+jarvis_talk_up_held() { # LABEL
+  local left=$(( jarvis_talk_down_at + jarvis_tap_ms + 300 - $(now_ms) ))
+  (( left <= 0 )) || sleep "$((left / 1000)).$(printf '%03d' $((left % 1000)))"
+  expect "$1: Talk comes up" "" jarvis_intent talk-up
 }
 
 dictation_stand_ins off
@@ -1821,7 +1835,7 @@ jarvis_rescan
 jarvis_enable
 expect_poll "Jarvis's recording daemon reads ready" "ready running vgs.jarvis" dictation_lent
 jarvis_dictation_talk "Jarvis alone"
-expect "Jarvis alone: Talk comes up" "" jarvis_intent talk-up
+jarvis_talk_up_held "Jarvis alone"
 expect_poll "Jarvis alone: the user's words are the stand-in voxtype's" "the stand-in heard this" jarvis_user_words
 expect_poll "Jarvis alone: the recording was stopped" "start stop" jarvis_dictation_noted
 expect "Jarvis alone: Stop ends the turn" "" jarvis_intent stop
@@ -1842,7 +1856,7 @@ expect "Voice's toggle during Jarvis's recording answers busy" "refused: dictati
 expect "Voice's toggle leaves Jarvis's recording" "vgs.jarvis text" jarvis_dictation_recording
 expect "Voice's toggle starts no recording of its own" start jarvis_dictation_noted
 expect "Voice shows no recording of its own" '"idle"' ipc smoke readInstance service vgs.voice dictation
-expect "both on: Talk comes up" "" jarvis_intent talk-up
+jarvis_talk_up_held "both on"
 expect_poll "both on: the recording was stopped" "start stop" jarvis_dictation_noted
 expect "both on: Stop ends the turn" "" jarvis_intent stop
 expect "Voice disables" ok ipc shell setPluginEnabled vgs.voice false

@@ -25,6 +25,16 @@ var VOICE_QUIET_MS = 1000;
 // also keeps the time a television or another person can reach the AI model
 // without a wake word short. A design choice, not a measurement.
 var WAKE_SILENCE_MS = 6000;
+// How long a tapped request listens after its last words, or after the tap
+// while none came: the end of speech that sends it. About 6 s, chosen, not
+// measured, so a speaker can pause mid-request without it being sent.
+var TAP_SILENCE_MS = 6000;
+// A Talk press released sooner than this is a tap: the microphone stays open
+// until the next press or the end of speech. Hyprland's default
+// input:repeat_delay, 600 ms, is the bound the core's tap tracker uses for a
+// tap (HyprlandLayer.tapTrackerLines), so a key held longer than a repeat
+// would start counts as a hold here too.
+var TAP_MS = 600;
 var TRANSCRIPT_CHARS = 4096;
 var EVENTS = [
     "snapshot", "indicator", "talk-down", "talk-up", "toggle", "mute", "unmute", "mute-toggle",
@@ -44,7 +54,7 @@ function initial() {
         action: { kind: "none" }, approval: { kind: "none" }, fault: { kind: "none" },
         conversation: { kind: "ended" }, input: { kind: "released" }, followUp: { kind: "none" },
         indicator: { kind: "gone" }, duplex: { kind: "half" }, toggleAt: null,
-        engine: { kind: "chained" }, speech: { kind: "closed" }, check: { kind: "unavailable" }
+        engine: { kind: "chained" }, speech: { kind: "closed" }, check: { kind: "unavailable" }, checkSource: null
     };
 }
 
@@ -166,7 +176,7 @@ function canEngage(s) {
 }
 
 function canCheck(s) {
-    return s !== null && ["ready", "done", "failed"].indexOf(s.check.kind) !== -1 && s.fault.kind === "none" && s.mute.kind === "off"
+    return s !== null && ["ready", "again", "done", "failed"].indexOf(s.check.kind) !== -1 && s.fault.kind === "none" && s.mute.kind === "off"
         && (s.gate.kind === "up" || s.gate.reason === "unconfigured")
         && s.turn.kind === "none" && s.playback.kind === "idle" && s.action.kind !== "running" && s.approval.kind !== "held";
 }
@@ -305,7 +315,7 @@ function reconcile(s, effects, at) {
     }
     if (!canCapture(s)) closeCapture(s, effects);
     else if (s.capture.kind === "closed") {
-        var mode = s.input.kind === "held" ? "hold" : s.input.kind === "woken" ? "conversation" : s.input.kind;
+        var mode = s.input.kind === "held" || s.input.kind === "tapped" ? "hold" : s.input.kind === "woken" ? "conversation" : s.input.kind;
         var e = effect(s, effects, "capture-open", { mode: mode });
         s.capture = { kind: "opening", gen: e.gen, op: e.op, mode: mode };
         if (mode === "check") s.check = { kind: "waiting", gen: e.gen, op: e.op, deadline: at + COLLECTION_TIMEOUT_MS };
@@ -334,7 +344,7 @@ function start(s, effects, mode, at) {
     } else if (s.conversation.kind === "interrupted") s.conversation = { kind: "active" };
     // A wake capture feeds the spotter, not a transcription.
     closeArmed(s, effects);
-    s.input = { kind: mode };
+    s.input = mode === "held" ? { kind: "held", since: at } : { kind: mode };
     // Half duplex: the start sound drains before the microphone opens.
     // A held approval's answer starts capture without another prompt sound,
     // and a dictation recording sounds voxtype's own start tone.
@@ -428,6 +438,12 @@ function listenNow(s, effects, at) {
 }
 
 function expire(s, effects, at) {
+    // A tapped request ends at the end of speech, for every engine: the
+    // bound the tapped input holds while its microphone is open.
+    if (s.input.kind === "tapped" && s.input.deadline !== null && s.capture.kind === "open" && at >= s.input.deadline) {
+        s.input = { kind: "released" };
+        closeCapture(s, effects);
+    }
     if (["waiting", "recording", "finishing"].indexOf(s.check.kind) !== -1 && at >= s.check.deadline) {
         if (s.check.kind === "recording") {
             s.input = { kind: "released" };
@@ -435,7 +451,7 @@ function expire(s, effects, at) {
             s.check = { kind: "finishing", gen: s.check.gen, op: s.check.op, deadline: at + COLLECTION_TIMEOUT_MS };
         } else {
             end(s, effects, at, "check-timeout", false);
-            s.check = { kind: "failed", reason: "check-timeout" };
+            s.check = { kind: "failed", reason: "check-timeout", device: s.checkSource };
         }
     }
     // A woken request that heard nothing was a false wake: Always mode goes
@@ -497,7 +513,19 @@ function reduce(state, e) {
         if (["chained", "dictation", "duplex"].indexOf(e.engine) === -1) throw new Error("jarvis: session=engine");
         var settingsChanged = changedSettings(s.settings, e.settings) || s.engine.kind !== e.engine;
         var devicesChanged = s.settings.microphone !== e.settings.microphone || s.settings.speaker !== e.settings.speaker;
-        if (devicesChanged && ["done", "failed"].indexOf(s.check.kind) !== -1) s.check = { kind: "ready" };
+        // A check's result belongs to the source it heard: another source,
+        // such as a new default microphone, asks for the check again and
+        // says why. An unknown source, before discovery, changes nothing.
+        var source = typeof e.checkSource === "string" ? e.checkSource : null;
+        if (source !== null && ["done", "failed", "kept"].indexOf(s.check.kind) !== -1 && s.check.device !== source) s.check = { kind: "again" };
+        // A check under way heard the source it started on, which Audio may
+        // still record: a move to another ends it and asks again.
+        else if (source !== null && s.checkSource !== null && source !== s.checkSource
+                && ["waiting", "recording", "finishing"].indexOf(s.check.kind) !== -1) {
+            end(s, effects, e.at, "check-source", false);
+            s.check = { kind: "again" };
+        }
+        s.checkSource = source;
         if (devicesChanged && s.fault.kind === "error" && s.fault.reason === "device-lost")
             s.fault = { kind: "none" };
         if (settingsChanged || devicesChanged && ["waiting", "recording", "finishing"].indexOf(s.check.kind) !== -1) {
@@ -514,10 +542,13 @@ function reduce(state, e) {
             s.gate = { kind: "down", reason: e.locked === null ? "lock-unknown"
                 : e.locked ? "locked" : "unconfigured" };
         } else s.gate = { kind: "up" };
+        // A voice that cannot check, a cloud one, keeps a check that ended,
+        // so a change of voice provider on the same devices keeps its result.
         if (e.checkReady !== true) {
             if (["waiting", "recording", "finishing"].indexOf(s.check.kind) !== -1) end(s, effects, e.at, "voice-unavailable", false);
-            s.check = { kind: "unavailable" };
+            s.check = s.check.kind === "done" || s.check.kind === "kept" ? { kind: "kept", result: s.check.result, device: s.check.device } : { kind: "unavailable" };
         } else if (s.check.kind === "unavailable") s.check = { kind: "ready" };
+        else if (s.check.kind === "kept") s.check = { kind: "done", result: s.check.result, device: s.check.device };
         break;
     }
     case "indicator":
@@ -533,12 +564,12 @@ function reduce(state, e) {
     case "voice-checked":
         if (!live(s, e, "check", ["finishing"])) { stale(s); break; }
         if (["ready", "silent", "not-heard"].indexOf(e.result) === -1) throw new Error("jarvis: session=check-result");
-        s.check = { kind: "done", result: e.result };
+        s.check = { kind: "done", result: e.result, device: s.checkSource };
         break;
     case "voice-check-failed":
         if (!live(s, e, "check", ["waiting", "recording", "finishing"])) { stale(s); break; }
         end(s, effects, e.at, "check-failed", false);
-        s.check = { kind: "failed", reason: e.reason };
+        s.check = { kind: "failed", reason: e.reason, device: s.checkSource };
         break;
     case "talk-down":
         if (s.approval.kind === "held") {
@@ -554,6 +585,12 @@ function reduce(state, e) {
         if (s.settings.mode === "toggle") { toggle(s, effects, e.at); break; }
         if (s.settings.mode === "always") { listenNow(s, effects, e.at); break; }
         if (s.input.kind === "held") break;
+        // The press after a tap sends the words, as a release does.
+        if (s.input.kind === "tapped") {
+            s.input = { kind: "released" };
+            closeCapture(s, effects);
+            break;
+        }
         recover(s, effects, e.at);
         interrupt(s, effects, e.at);
         start(s, effects, "held", e.at);
@@ -561,6 +598,16 @@ function reduce(state, e) {
     case "talk-up":
         if (s.settings.mode === "toggle" && s.approval.kind !== "held") break;
         if (s.input.kind !== "held") break;
+        // A tap keeps the microphone open for the request, or has it open
+        // once the start sound and the bubble allow (canCapture), as a tap
+        // usually ends before them; a held answer to a request on screen
+        // ends with its hold, and a capture that failed leaves nothing to
+        // keep open.
+        if (s.approval.kind !== "held" && (s.capture.kind === "opening" || s.capture.kind === "open" || (s.capture.kind === "closed" && s.fault.kind === "none"))
+                && e.at - s.input.since < TAP_MS) {
+            s.input = { kind: "tapped", deadline: s.capture.kind === "open" ? e.at + TAP_SILENCE_MS : null };
+            break;
+        }
         s.input = { kind: "released" };
         closeCapture(s, effects);
         break;
@@ -611,6 +658,7 @@ function reduce(state, e) {
         s.capture.kind = "open";
         if (s.capture.mode === "check") s.check = { kind: "recording", gen: e.gen, op: e.op, deadline: e.at + VOICE_CHECK_MS };
         if (s.turn.kind === "collecting") s.turn.deadline = s.input.kind === "woken" || s.input.kind === "follow-up" ? e.at + WAKE_SILENCE_MS : null;
+        if (s.input.kind === "tapped") s.input.deadline = e.at + TAP_SILENCE_MS;
         if (s.fault.kind === "retrying") s.fault = { kind: "none" };
         break;
     case "capture-failed": {
@@ -621,6 +669,8 @@ function reduce(state, e) {
             : { kind: "error", reason: e.reason, retry: retry };
         closeCapture(s, effects);
         if (s.input.kind === "check") end(s, effects, e.at, "capture-failed", false);
+        // A failed capture ends a tap: the next press recovers and listens.
+        if (s.input.kind === "tapped") s.input = { kind: "released" };
         if (s.turn.kind === "collecting") s.turn = { kind: "none" };
         break;
     }
@@ -638,6 +688,9 @@ function reduce(state, e) {
     case "partial":
         if (!live(s, e, "turn", ["collecting"])) { stale(s); break; }
         s.turn.partial = e.text;
+        // A tapped request ends once its words stop: each partial moves the
+        // silence bound.
+        if (s.input.kind === "tapped" && s.capture.kind === "open") s.input.deadline = e.at + TAP_SILENCE_MS;
         // Words were heard: the request is collected as a Talk-started one.
         if (s.input.kind === "woken" || s.input.kind === "follow-up") {
             s.input = { kind: "conversation" };
@@ -653,6 +706,12 @@ function reduce(state, e) {
             // A new request drops the words the voice held for the old one.
             if (s.speech.reply.kind === "due") s.speech.reply = { kind: "none" };
             if (s.conversation.kind === "interrupted") s.conversation = { kind: "active" };
+            // A tap is one request: the voice's end of speech hands it to
+            // the brain, and the microphone stays closed after the reply.
+            if (s.input.kind === "tapped") {
+                s.input = { kind: "released" };
+                closeCapture(s, effects);
+            }
             think(s, effects, { text: e.text, delegation: e.id }, e.at);
         } else {
             if (!live(s, e, "turn", ["collecting"])) { stale(s); break; }
@@ -673,10 +732,13 @@ function reduce(state, e) {
         // A new conversation takes a new gen; one between turns keeps its own.
         if (s.conversation.kind === "ended") s.gen += 1;
         if (s.conversation.kind !== "active") s.conversation = { kind: "active" };
+        // A preview names one offer of the Voice list; the engine plays the
+        // chosen voice for a voice its provider does not offer.
+        var preview = { preview: true, voice: e.voice };
         if (s.engine.kind === "duplex") {
-            var opened = effect(s, effects, "speech-open", { preview: true });
+            var opened = effect(s, effects, "speech-open", preview);
             s.speech = { kind: "open", gen: opened.gen, op: opened.op, reply: { kind: "none" } };
-        } else think(s, effects, { preview: true }, e.at);
+        } else think(s, effects, preview, e.at);
         break;
     // A task line the daemon wrote speaks as a turn of its own: no user
     // words, and the engine never hands it to the brain.
@@ -879,6 +941,9 @@ function reduce(state, e) {
             break;
         }
         effect(s, effects, "transcript", { role: e.role, text: e.text, stage: e.stage, rev: e.rev });
+        // The voice's captions of the user's words move a tap's end of
+        // speech, as a chained engine's partials do.
+        if (e.role === "user" && s.input.kind === "tapped" && s.capture.kind === "open") s.input.deadline = e.at + TAP_SILENCE_MS;
         break;
     case "speech-idle":
         if (!live(s, e, "speech", ["open"])) { stale(s); break; }
@@ -900,7 +965,8 @@ function reduce(state, e) {
         if (live(s, e, "turn", ["collecting", "thinking", "cancelling"])
                 || live(s, e, "check", ["waiting", "recording", "finishing"])
                 || live(s, e, "playback", ["playing", "feedback"])
-                || live(s, e, "approval", ["held"]) || live(s, e, "action", ["running"]))
+                || live(s, e, "approval", ["held"]) || live(s, e, "action", ["running"])
+                || s.input.kind === "tapped" && live(s, e, "capture", ["open"]))
             expire(s, effects, e.at);
         else stale(s);
         break;
@@ -921,11 +987,11 @@ var REGIONS = {
     action: { none: "", running: "gen op tool brain limit cancellation" },
     approval: { none: "", held: "purpose gen op id digest deadline shownAt physical text tool timeoutMs cancellable brain" },
     fault: { none: "", error: "reason retry", retrying: "reason retry" }, conversation: { ended: "", active: "", interrupted: "" },
-    input: { released: "", held: "", conversation: "", "follow-up": "", armed: "", woken: "", check: "" },
+    input: { released: "", held: "since", tapped: "deadline", conversation: "", "follow-up": "", armed: "", woken: "", check: "" },
     followUp: { none: "", asked: "gen", spoken: "gen" },
     indicator: { gone: "", shown: "" }, duplex: { half: "" },
     engine: { chained: "", dictation: "", duplex: "" }, speech: { closed: "", open: "gen op reply" },
-    check: { unavailable: "", ready: "", waiting: "gen op deadline", recording: "gen op deadline", finishing: "gen op deadline", done: "result", failed: "reason" }
+    check: { unavailable: "", kept: "result device", ready: "", again: "", waiting: "gen op deadline", recording: "gen op deadline", finishing: "gen op deadline", done: "result device", failed: "reason device" }
 };
 
 function exact(value, names) {
@@ -934,7 +1000,8 @@ function exact(value, names) {
 }
 
 function validate(s) {
-    if (!exact(s, Object.keys(REGIONS).concat(["gen", "nextOp", "stale", "settings", "toggleAt"]))) return false;
+    if (!exact(s, Object.keys(REGIONS).concat(["gen", "nextOp", "stale", "settings", "toggleAt", "checkSource"]))) return false;
+    if (s.checkSource !== null && typeof s.checkSource !== "string") return false;
     for (var name of ["gen", "nextOp", "stale"])
         if (!Number.isSafeInteger(s[name]) || s[name] < (name === "nextOp" ? 1 : 0)) return false;
     if (s.settings === null || typeof s.settings !== "object" || Array.isArray(s.settings)) return false;
@@ -947,8 +1014,12 @@ function validate(s) {
         for (var f of fields) {
             if (["gen", "op", "brain", "source", "retry"].indexOf(f) !== -1) {
                 if (!Number.isSafeInteger(r[f]) || r[f] < (["op", "brain", "source"].indexOf(f) !== -1 ? 1 : 0)) return false;
+            } else if (f === "device") {
+                if (r[f] !== null && typeof r[f] !== "string") return false;
+            } else if (f === "since") {
+                if (!Number.isFinite(r[f]) || r[f] < 0) return false;
             } else if (f === "deadline" || f === "shownAt") {
-                if (f === "deadline" && r[f] === null && (region === "playback" || r.kind === "collecting")) continue;
+                if (f === "deadline" && r[f] === null && (region === "playback" || r.kind === "collecting" || r.kind === "tapped")) continue;
                 if (!(f === "shownAt" && r[f] === null) && (!Number.isFinite(r[f]) || r[f] < 0)) return false;
             } else if (f === "timeoutMs") {
                 if (!Number.isFinite(r[f]) || r[f] <= 0) return false;
@@ -979,7 +1050,7 @@ function validate(s) {
         if (region === "approval" && r.kind === "held" && ["action", "release"].indexOf(r.purpose) === -1) return false;
         if (region === "capture" && fields.indexOf("mode") !== -1
                 && ["hold", "conversation", "follow-up", "armed", "check"].indexOf(r.mode) === -1) return false;
-        if (region === "check" && r.kind === "done" && ["ready", "silent", "not-heard"].indexOf(r.result) === -1) return false;
+        if (region === "check" && (r.kind === "done" || r.kind === "kept") && ["ready", "silent", "not-heard"].indexOf(r.result) === -1) return false;
         if (region === "playback" && r.kind === "feedback" && ["start", "working", "line"].indexOf(r.cue) === -1) return false;
         if (region === "gate" && r.kind === "down"
                 && ["starting", "unconfigured", "node", "lock-unknown", "locked"].indexOf(r.reason) === -1) return false;

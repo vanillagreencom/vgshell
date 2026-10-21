@@ -465,9 +465,14 @@ function accept(line, direction) {
         } else if (message.intent === "say") {
             keys(message, fields.concat(["text"]), "say");
             if (!printable(message.text, 1, TRANSCRIPT_CHARS) || message.text.trim() === "") fail("say-text");
+        } else if (message.intent === "preview") {
+            // A preview of one offer of the Voice list, beside its speaker
+            // button; the engine plays it only if its voice offers it.
+            keys(message, fields.concat(["voice"]), "preview");
+            if (!printable(message.voice, 1, 128)) fail("preview-voice");
         } else {
             keys(message, fields, "intent");
-            if (["talk-down", "talk-up", "mute", "stop", "voice-check", "preview"].indexOf(message.intent) === -1) fail("intent");
+            if (["talk-down", "talk-up", "mute", "stop", "voice-check"].indexOf(message.intent) === -1) fail("intent");
         }
         break;
     case "shown":
@@ -491,6 +496,16 @@ function accept(line, direction) {
             fail("request-kind");
         if (!printable(message.answer, 1, ANSWER_MAX)) fail("reply-answer");
         replyData(message);
+        break;
+    // From the shell, a local voice setup run starts (`running` true) or
+    // ended; from the daemon, with no field, the answer to a start once the
+    // local speech sidecar has exited, so its shared hold on the setup lock
+    // is gone (ChainedEngine localSetup).
+    case "local-setup":
+        if (direction === "shell") {
+            keys(message, ["v", "type", "gen", "revision", "running"], "local-setup");
+            if (typeof message.running !== "boolean") fail("local-setup-running");
+        } else keys(message, ["v", "type", "gen", "revision"], "local-setup");
         break;
     case "tui-state":
         if (direction !== "shell") fail("direction-tui-state");
@@ -529,7 +544,7 @@ function accept(line, direction) {
                     || ["pending", "completed", "failed", "unknown", "cancelled"].indexOf(row.outcome) === -1
                     || (["refuse", "withhold"].indexOf(row.decision) === -1 && ["failed", "unknown"].indexOf(row.outcome) === -1)
                     || !(row.refusal === null || ["expired", "no-hold", "identity", "source", "early", "voice-physical", "voice-timing"].indexOf(row.refusal) !== -1)
-                    || !(row.cause === null || ["input-silent", "unheard", "voice-stopped"].indexOf(row.cause) !== -1)) fail("audit-row");
+                    || !(row.cause === null || ["input-silent", "unheard", "key-refused", "voice-stopped"].indexOf(row.cause) !== -1)) fail("audit-row");
         }
         break;
     case "input-ready":

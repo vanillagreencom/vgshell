@@ -13,12 +13,20 @@ jarvis_key_lua="$home/.config/hypr/hyprland.lua"
 jarvis_key_service="$repo/shell/plugins/vgs.jarvis/Service.qml"
 jarvis_key_backend="$repo/shell/plugins/vgs.jarvis/backend/jarvisd.js"
 jarvis_key_engine="$repo/shell/plugins/vgs.jarvis/backend/ChainedEngine.js"
+jarvis_key_session="$repo/shell/plugins/vgs.jarvis/Session.js"
 jarvis_key_gates="$sandbox/jarvis-key-gates"
 cp -- "$jarvis_key_config" "$sandbox/jarvis-key-config-before.json"
 cp -- "$jarvis_key_lua" "$sandbox/jarvis-key-lua-before"
 cp -- "$jarvis_key_service" "$sandbox/jarvis-key-service-before"
 cp -- "$jarvis_key_backend" "$sandbox/jarvis-key-backend-before"
 cp -- "$jarvis_key_engine" "$sandbox/jarvis-key-engine-before"
+cp -- "$jarvis_key_session" "$sandbox/jarvis-key-session-before"
+# Session's own bounds: a release sooner than TAP_MS is a tap, and a tapped
+# request ends by itself TAP_SILENCE_MS after the tap or its last words.
+jarvis_key_tap_ms="$(sed -n 's/^var TAP_MS = \([0-9][0-9]*\);$/\1/p' "$jarvis_key_session")"
+jarvis_key_silence_ms="$(sed -n 's/^var TAP_SILENCE_MS = \([0-9][0-9]*\);$/\1/p' "$jarvis_key_session")"
+expect "Session names its tap and silence bounds" ok \
+  python3 -c 'import sys; print("ok" if all(v.isdigit() for v in sys.argv[1:]) else sys.argv[1:])' "$jarvis_key_tap_ms" "$jarvis_key_silence_ms"
 expect "the key row starts with Jarvis disabled" absent ipc smoke jarvisProcess
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" "$jarvis_key_backend" "$jarvis_key_gates" --mapped-indicator
 python3 - "$jarvis_key_backend" "$jarvis_key_gates/received-intents.jsonl" <<'PY'
@@ -92,8 +100,79 @@ PY
   expect "deliver the Jarvis talk mode" ok ipc shell reloadConfig
   expect_poll "the running daemon receives its mode" "$1" jarvis_key_state mode
 }
-jarvis_key_talk_down() { hold_send "down 133" "down 108"; }
-jarvis_key_talk_up() { hold_send "up 108" "up 133"; }
+# Sleep until MS milliseconds have passed since AT, a now_ms reading.
+jarvis_key_wait_past() { # AT MS
+  local left=$(( $1 + $2 - $(now_ms) ))
+  (( left <= 0 )) || sleep "$((left / 1000)).$(printf '%03d' $((left % 1000)))"
+}
+jarvis_key_talk_down() { hold_send "down 133" "down 108"; jarvis_key_down_at="$(now_ms)"; }
+# A hold: the release comes 300 ms past Session's tap bound, so it ends the
+# request at the release.
+jarvis_key_talk_up() {
+  jarvis_key_wait_past "$jarvis_key_down_at" $((jarvis_key_tap_ms + 300))
+  hold_send "up 108" "up 133"
+}
+# A tap: both edges at once, far inside the tap bound.
+jarvis_key_tap() { hold_send "down 133" "down 108" "up 108" "up 133"; jarvis_key_tapped_at="$(now_ms)"; }
+# Whether the request is sent, phase thinking, before DEADLINE, a now_ms
+# reading: a tapped request reaches thinking by itself only after Session's
+# silence bound, so a send before it comes from the key.
+jarvis_key_sent_before() { # DEADLINE
+  local phase
+  while :; do
+    phase="$(jarvis_key_state phase)" || return
+    if [[ $phase == thinking ]]; then echo sent; return; fi
+    if (( $(now_ms) >= $1 )); then echo "phase=$phase at the bound"; return; fi
+    sleep 0.1
+  done
+}
+# A tap, then the wait past the tap bound and the key barrier, which counts
+# its marker in this shell, never in a control's subshell.
+jarvis_key_tap_wait() {
+  jarvis_key_tap
+  jarvis_key_wait_past "$jarvis_key_tapped_at" $((jarvis_key_tap_ms + 300))
+  hold_barrier
+}
+jarvis_key_tap_keeps() { expect "a tap keeps listening past the tap bound" tapped jarvis_key_state input; }
+jarvis_key_tap_listens() { jarvis_key_tap_wait; jarvis_key_tap_keeps; }
+jarvis_key_hold_sends() {
+  local released
+  jarvis_key_talk_down
+  expect_poll "the held talk key starts listening" listening jarvis_key_state phase
+  jarvis_key_talk_up
+  released="$(now_ms)"
+  expect "a hold past the tap bound sends at its release" sent jarvis_key_sent_before $((released + jarvis_key_silence_ms))
+}
+jarvis_key_second_tap_sends() {
+  local first="$jarvis_key_tapped_at"
+  jarvis_key_tap
+  expect "the second tap sends the tapped request" sent jarvis_key_sent_before $((first + jarvis_key_silence_ms))
+}
+# One Session copy per tap rule: NEEDLE becomes REPLACEMENT, SETUP runs
+# ("-" for none), and JUDGED's one assertion must then fail once.
+jarvis_key_tap_control() { # LABEL NEEDLE REPLACEMENT SETUP JUDGED
+  python3 - "$jarvis_key_session" "$2" "$3" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]); assert not p.is_symlink()
+s=p.read_text(); assert s.count(sys.argv[2])==1
+changed=s.replace(sys.argv[2], sys.argv[3])
+assert changed!=s
+p.write_text(changed)
+PY
+  jarvis_rescan
+  jarvis_enable
+  jarvis_key_mode hold
+  [[ $4 == - ]] || "$4"
+  expect "$1 breaks its tap assertion" 1 jarvis_key_tap_judged "$5"
+  jarvis_disable
+  cp -- "$sandbox/jarvis-key-session-before" "$jarvis_key_session"
+}
+jarvis_key_tap_judged() { # FUNCTION
+  (failures=0 behaviour_failures=0
+   "$1" >"$sandbox/jarvis-key-tap-control-$1.log"
+   echo "$failures")
+}
 jarvis_key_mute() { hold_send "down 133" "down 50" "down 108" "up 108" "up 50" "up 133"; }
 jarvis_key_stop() { hold_send "down 133" "down 64" "down 60" "up 60" "up 64" "up 133"; }
 jarvis_key_commit() { expect_poll "release commits the scripted utterance" thinking jarvis_key_state phase; }
@@ -472,12 +551,27 @@ hold_send "down 108" "down 108"
 hold_barrier
 expect "physical repeat opens no second capture" "$((jarvis_key_initial_opens + 1))" jarvis_key_effects capture-open
 jarvis_key_talk_up
-jarvis_key_commit
+jarvis_key_released="$(now_ms)"
+expect "a hold past the tap bound sends at its release" sent jarvis_key_sent_before $((jarvis_key_released + jarvis_key_silence_ms))
 expect "physical repeat sends only the release intent" "$((jarvis_key_received_before + 1))" jarvis_key_received count
 jarvis_key_gate brain
 expect_poll "the scripted brain starts speaking" speaking jarvis_key_state phase
 jarvis_key_gate played
 expect_poll "scripted playback returns to idle" idle jarvis_key_state phase
+
+# Talk tap through the real bind: a press released inside Session's tap
+# bound keeps listening past it on one capture, and the next tap sends the
+# request before the tap's silence bound could.
+jarvis_key_initial_opens="$(jarvis_key_effects capture-open)"
+jarvis_key_tap_listens
+expect "the tapped request still listens" listening jarvis_key_state phase
+expect "a tap opens one capture" "$((jarvis_key_initial_opens + 1))" jarvis_key_effects capture-open
+jarvis_key_second_tap_sends
+expect "the second tap opens no capture" "$((jarvis_key_initial_opens + 1))" jarvis_key_effects capture-open
+jarvis_key_gate brain
+expect_poll "the tapped request's answer speaks" speaking jarvis_key_state phase
+jarvis_key_gate played
+expect_poll "the tapped request's playback returns to idle" idle jarvis_key_state phase
 
 jarvis_key_mode toggle
 jarvis_key_talk_down
@@ -581,6 +675,18 @@ jarvis_key_talk_up
 hold_barrier
 expect "dropping release delivery breaks the real phase assertion" 1 jarvis_key_commit_control
 jarvis_disable
+# Each tap rule's Session copy fails the same assertion once.
+cp -- "$sandbox/jarvis-key-service-before" "$jarvis_key_service"
+jarvis_key_tap_control "a Session whose every release ends the request" "var TAP_MS = $jarvis_key_tap_ms;" "var TAP_MS = 0;" jarvis_key_tap_wait jarvis_key_tap_keeps
+jarvis_key_tap_control "a Session whose every release is a tap" "var TAP_MS = $jarvis_key_tap_ms;" "var TAP_MS = 60000;" - jarvis_key_hold_sends
+jarvis_key_tap_control "a Session whose press after a tap starts a new hold" \
+  "        if (s.input.kind === \"tapped\") {
+            s.input = { kind: \"released\" };
+            closeCapture(s, effects);
+            break;
+        }
+        recover(s, effects, e.at);" "        recover(s, effects, e.at);" jarvis_key_tap_listens jarvis_key_second_tap_sends
+jarvis_rescan
 # Keep the bubble and Always mode. Let only the resting orb tick; the same
 # resting assertion must fail once.
 cp -- "$sandbox/jarvis-key-service-before" "$jarvis_key_service"
@@ -610,6 +716,7 @@ expect "the observer releases its ordering marker" ok ipc smoke holdMarkerStop
 cp -- "$sandbox/jarvis-key-service-before" "$jarvis_key_service"
 cp -- "$sandbox/jarvis-key-backend-before" "$jarvis_key_backend"
 cp -- "$sandbox/jarvis-key-engine-before" "$jarvis_key_engine"
+cp -- "$sandbox/jarvis-key-session-before" "$jarvis_key_session"
 rm -- "$repo/shell/plugins/vgs.jarvis/backend/scripted-fixture.js"
 rm -- "$home/.local/state/vgshell/jarvis/mute.json"
 jarvis_rescan

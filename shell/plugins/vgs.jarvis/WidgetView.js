@@ -1,5 +1,6 @@
 .pragma library
 .import qs.Commons 1.0 as Commons
+.import "SetupGate.js" as Gate
 
 // What the Jarvis bar widget shows, pure so scripts/test-jarvis-widget.js
 // runs it under node. This is the one judge from the service status values
@@ -22,18 +23,19 @@
 // off; a ready Setup summary's caution shows under ready.
 // A tone is `calm` or a Theme.color state role, `neutral` being textMuted.
 // The Jarvis session's reading (`jarvisSession`, SetupGate.sessionRecord)
-// adds to the state's tooltip: its model, since when it runs, each step of
+// adds to the state's tooltip: since when it runs, each step of
 // a resume after a machine restart, and, once the service stopped reading
 // the steps still pending, when it read them last. While the Resume offer
 // stands, the tooltip names it first and `click` is "resume": a click
-// resumes, and the Mute key alone mutes. Else `click` is "mute".
+// resumes. Else `click` is "console": a click opens the console, and the
+// Mute key and the right-click menu mute.
 // A value outside the shapes the service and Session.js produce throws a
 // keyed error; nothing falls back.
 
 var LOOKS = {
-    "off": { icon: "power-off", tone: "neutral" },
+    "off": { icon: "vgs-letter-j", tone: "neutral" },
     "loading": { icon: "loader", tone: "info" },
-    "ready": { icon: "mic", tone: "calm" },
+    "ready": { icon: "vgs-letter-j", tone: "calm" },
     "listening": { icon: "audio-lines", tone: "accent" },
     "working": { icon: "brain", tone: "info" },
     "speaking": { icon: "volume-2", tone: "accent" },
@@ -58,9 +60,19 @@ var WORK_TEXT = {
 // The required Setup steps the service publishes (SetupGate.readiness), in
 // the engine's order, and what the bar says while one is still to do.
 var SETUP_TEXT = [
-    ["setupVoice", { title: "Jarvis needs local voice", action: "Set it up in [Settings > Jarvis](page:vgs.jarvis/Setup)." }],
-    ["setupModel", { title: "Jarvis needs an AI model", action: "Choose one under [AI model in Settings > Jarvis](page:vgs.jarvis/Settings)." }]
+    ["setupVoice", { title: "Jarvis needs local voice", action: "Set it up in [Setup > Voice](page:vgs.jarvis/Setup/setupVoice)." }],
+    ["setupModel", { title: "Jarvis needs an AI model", action: "Choose one in [Account under AI model](page:vgs.jarvis/Settings/brain)." }]
 ];
+// The Voice step's state while the cloud voice has no key, or refused the
+// one it has (SetupGate.voiceStep), and what the bar says then.
+var VOICE_KEY_TEXT = { title: "Jarvis needs a voice key", action: "Add a key in [Voice key](page:vgs.jarvis/Settings/voiceAccount)." };
+var KEY_REFUSED_ACTION = "Add a new key in [Voice key](page:vgs.jarvis/Settings/voiceAccount).";
+// What the bar says of a refused key, naming the company of VOICE, the
+// chosen cloud voice (AccountProviders.cloudVoice); null once the user has
+// left the cloud voice whose refusal still stands.
+function keyRefusedText(voice) {
+    return { title: (voice === null ? "The voice service" : voice.company) + " refused your key", action: KEY_REFUSED_ACTION };
+}
 // A Session fault's kind of failure, by its keyed reason: the first
 // pattern that matches wins. Examples are the producers' own reasons:
 // Session's thinking-timeout and device-lost, the engine's keyed brain and
@@ -78,6 +90,7 @@ var FAULT_KINDS = [
     [/^thinking-timeout$/, "slow"],
     [/^live=input-silent$/, "inputSilent"],
     [/^live=unheard$/, "unheard"],
+    [/^live=key-refused$/, "keyRefused"],
     [/^device-lost$/, "device"],
     [/^(home=|guidance=home-)/, "home"],
     [MODEL_REFUSED, "model"],
@@ -94,8 +107,8 @@ var FAULT_KINDS = [
 // What the bar and the bubble say of each kind: what went wrong, then what
 // to do. Only a changed device setting or a restart clears a fault, so a
 // device fault asks for a device and every other for a restart. A home
-// folder fault asks for the folder: Jarvis reads it again at the next
-// request. A refused model asks for another: a changed model clears the
+// folder fault opens the Home folder step, whose row links each file to
+// check: Jarvis reads the folder again at the next request. A refused model asks for another: a changed model clears the
 // fault, and its title ends with the model's name. A dictation fault, the
 // core's recording refused or failed, clears at the next Talk.
 var RESTART = "Turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings).";
@@ -104,7 +117,7 @@ var FAULT_TEXT = {
     "device": { title: "The microphone or speaker is gone", action: "Connect it again, or choose another under [Audio in Settings > Jarvis](page:vgs.jarvis/Settings)." },
     // The local voice hears the system default microphone, as dictation does.
     "defaultDevice": { title: "The microphone or speaker is gone", action: "Connect it again, or choose another default microphone in [System > Sound](page:vgs.sound)." },
-    "home": { title: "Jarvis cannot use the home folder", action: "Choose a folder with [Home folder](page:vgs.jarvis/Settings/home)." },
+    "home": { title: "Jarvis cannot use the home folder", action: "See what to change in [Setup > Home folder](page:vgs.jarvis/Setup/setupHome)." },
     "brain": { title: "The AI model did not answer", action: RESTART },
     "model": { title: "The AI app cannot use the model", action: "Choose another model under [AI model in Settings > Jarvis](page:vgs.jarvis/Settings)." },
     "localVoice": { title: "Local voice did not get ready in time", action: "Turn Jarvis off and on again, or set it up again in [Settings > Jarvis](page:vgs.jarvis/Setup)." },
@@ -115,7 +128,9 @@ var FAULT_TEXT = {
     "audio": { title: "The microphone or speaker stopped working", action: RESTART },
     // A voice that heard no speech in the captured audio ends the
     // conversation; the next Talk press clears the fault.
-    "inputSilent": { title: "The microphone sent only silence", action: "Choose a working microphone under [Audio in Settings > Jarvis](page:vgs.jarvis/Settings), then talk again." },
+    "inputSilent": { title: "The microphone sent only silence", action: "Choose a working microphone in [Microphone](page:vgs.jarvis/Settings/microphone), then talk again." },
+    // A cloud voice refused the key at its handshake; the next key clears it.
+    "keyRefused": { title: "The voice service refused your key", action: KEY_REFUSED_ACTION },
     "unheard": { title: "The voice service heard no words", action: "Talk again, closer to the microphone." },
     "other": { title: "Jarvis stopped after a problem", action: RESTART }
 };
@@ -154,7 +169,7 @@ function report(name, value, tones) {
 // enabled or disabled, before the registry holds its binds.
 function spelledKeys(keys, caps) {
     var out = {};
-    var names = ["talk", "mute", "stop", "confirm"];
+    var names = ["talk", "mute", "stop", "confirm", "console"];
     for (var i = 0; i < names.length; i++) {
         var key = keys === null ? null : keys[names[i]];
         out[names[i]] = key === null || key === undefined ? null : caps(key).join("+");
@@ -164,7 +179,7 @@ function spelledKeys(keys, caps) {
 
 function shortcutKeys(value) {
     if (value === null || typeof value !== "object" || Array.isArray(value)) refuse("keys", value);
-    var names = ["talk", "mute", "stop", "confirm"];
+    var names = ["talk", "mute", "stop", "confirm", "console"];
     for (var i = 0; i < names.length; i++) {
         var name = names[i];
         if (!hasOwn(value, name) || (value[name] !== null && typeof value[name] !== "string")) refuse("keys", value);
@@ -217,13 +232,11 @@ function faultKind(fault) {
 
 // What FAULT, a Session fault that is not none, says: { title, action }.
 // ENGINE is Session's engine word: a dictation engine hears the default
-// microphone, not the Microphone setting.
-function faultText(fault, engine, homePath) {
+// microphone, not the Microphone setting. VOICE (keyRefusedText) names
+// the company of a refused key.
+function faultText(fault, engine, voice) {
     var kind = faultKind(fault);
-    if (kind === "home" && homePath) return { title: FAULT_TEXT.home.title,
-        action: "Check " + Commons.PageReference.fileReference("AGENTS.md", homePath + "/AGENTS.md") + ", "
-            + Commons.PageReference.fileReference("memory/MEMORY.md", homePath + "/memory/MEMORY.md") + " and the "
-            + Commons.PageReference.fileReference("skills folder", homePath + "/skills/") + "." };
+    if (kind === "keyRefused") return keyRefusedText(voice);
     if (kind === "device" && engine === "dictation") kind = "defaultDevice";
     if (kind === "model") return { title: FAULT_TEXT.model.title + " " + MODEL_REFUSED.exec(fault.reason)[1], action: FAULT_TEXT.model.action };
     return fault.kind === "retrying" ? RETRYING : FAULT_TEXT[kind];
@@ -269,13 +282,17 @@ function homeText(values) {
 
 // What the bar says while the gate is down unconfigured: the first
 // required step VALUES still holds to do, as SetupGate offers its action.
+// A refused key reads as a problem before this (stateView).
 function unconfiguredText(values) {
+    var voice = values.setupVoice;
+    if (voice && voice.tone === "warning" && voice.action === "key") return VOICE_KEY_TEXT;
     for (var i = 0; i < SETUP_TEXT.length; i++) {
         var step = values[SETUP_TEXT[i][0]];
         if (step && step.tone === "warning" && offered(step) && step.hint && timedOut(step))
             return { title: SETUP_TEXT[i][1].title, action: step.hint };
+        // A step's chip word is no title: the bar names what Jarvis needs.
         if (step && step.tone === "warning" && !offered(step) && step.hint)
-            return { title: step.text, action: step.hint };
+            return { title: step.text === Gate.TO_DO ? SETUP_TEXT[i][1].title : step.text, action: step.hint };
         if (step !== undefined && step !== null && offered(step)) return SETUP_TEXT[i][1];
     }
     return GATE_TEXT.unconfigured;
@@ -321,12 +338,6 @@ function keySetting(name) {
     return "Set " + name + " key in [Settings > Jarvis > Keys](page:vgs.jarvis/Keys).";
 }
 
-function readyAction(mode, keys) {
-    if (mode === "hold") return keys.talk === null ? keySetting("Talk") : "Hold " + keys.talk + " and speak.";
-    if (mode === "toggle") return keys.talk === null ? keySetting("Talk") : "Press " + keys.talk + " to start talking.";
-    return keys.talk === null ? "Say Hey Jarvis, or set [Talk key in Settings > Jarvis](page:vgs.jarvis/Keys)."
-        : "Say Hey Jarvis, or press " + keys.talk + ".";
-}
 
 function stopAction(keys) {
     return keys.stop === null ? keySetting("Stop") : "Press " + keys.stop + " to stop.";
@@ -337,12 +348,17 @@ function confirmAction(keys) {
         : "Confirm on screen, or press " + keys.confirm + ".";
 }
 
-// The last tooltip line names what a click does to MUTEON, the mute region
-// the click toggles, whatever state the icon shows.
-function clickLine(muteOn, keys) {
-    var verb = muteOn ? "unmute" : "mute";
-    return keys.mute === null ? "Click, or set [Mute key in Settings > Jarvis](page:vgs.jarvis/Keys), to " + verb + "."
-        : "Click or press " + keys.mute + " to " + verb + ".";
+// The last tooltip line names what a click does, whatever state the icon
+// shows: it opens the console.
+function clickLine(keys) {
+    return keys.console === null ? "Click to open the console."
+        : "Click or press " + keys.console + " to open the console.";
+}
+
+// The muted state's line: the Mute key unmutes, as the right-click menu's
+// Unmute does.
+function unmuteLine(keys) {
+    return keys.mute === null ? "Unmute Jarvis from its right-click menu." : "Press " + keys.mute + " to unmute.";
 }
 
 // A tooltip line is a sentence: one taken from a status hint, which ends
@@ -354,7 +370,7 @@ function line(text) {
 function look(state, title, details, muteOn, keys) {
     var out = LOOKS[state];
     var lines = details.map(line);
-    if (state !== "muted") lines.push(clickLine(muteOn, keys));
+    lines.push(clickLine(keys));
     return { state: state, icon: out.icon, tone: out.tone,
         tooltip: title, tooltipDetails: lines };
 }
@@ -417,15 +433,39 @@ function keyLine(muteOn, keys) {
         : "Press " + keys.mute + " to " + action + ".";
 }
 
+// LINES with their first reference alone kept as a link: every later
+// reference, on that line or another, draws its words alone, so a tooltip
+// offers one next action. A row that names several files links them on
+// its page (design-system.md, file references).
+function oneLink(lines) {
+    var linked = false;
+    return lines.map(function (text) {
+        var found = Commons.PageReference.references(text);
+        if (found.links.length === 0) return text;
+        if (linked) return found.text;
+        linked = true;
+        var first = found.links[0];
+        return found.text.slice(0, first.start) + first.reference + found.text.slice(first.end);
+    });
+}
+
 // The widget's { state, icon, tone, tooltip, tooltipDetails, click } for
 // VALUES, the plugin's status values, KEYS, the already-spelled effective
-// shortcut keys, and MODE, the talk mode. A key the service has not
-// published yet is undefined.
-function view(values, keys, mode) {
-    var base = stateView(values, keys, mode);
+// shortcut keys, MODE, the talk mode, and VOICE, the Voice provider setting
+// as AccountProviders.cloudVoice gives it. A key the service has not
+// published yet is undefined. A tooltip holds one link at most.
+function view(values, keys, mode, voice) {
+    var out = sessionView(values, keys, mode, voice);
+    out.tooltipDetails = oneLink(out.tooltipDetails);
+    return out;
+}
+
+// The state's look with the Jarvis session's reading.
+function sessionView(values, keys, mode, voice) {
+    var base = stateView(values, keys, mode, voice);
     var session = sessionReading(values.jarvisSession);
     var out = { state: base.state, icon: base.icon, tone: base.tone, tooltip: base.tooltip,
-        tooltipDetails: base.tooltipDetails, click: "mute" };
+        tooltipDetails: base.tooltipDetails, click: "console" };
     if (session === null) return out;
     // The state's last line names what a click does (clickLine).
     var details = base.tooltipDetails.slice(0, -1);
@@ -439,7 +479,6 @@ function view(values, keys, mode) {
         return out;
     }
     var running = [];
-    if (session.model !== null) running.push("Jarvis session model: " + session.model + ".");
     if (session.since !== null) running.push("Jarvis session running since " + session.since + ".");
     out.tooltipDetails = details.concat(running, session.steps.map(stepLine), session.checkedAt === null ? [] : [checkedLine(session.checkedAt)],
         base.tooltipDetails.slice(-1));
@@ -447,7 +486,7 @@ function view(values, keys, mode) {
 }
 
 // The state's look, without the Jarvis session's reading.
-function stateView(values, keys, mode) {
+function stateView(values, keys, mode, voice) {
     var effectiveKeys = shortcutKeys(keys);
     var effectiveMode = talkMode(mode);
     var daemon = report("daemon", values.daemon, DAEMON_TONES);
@@ -459,10 +498,15 @@ function stateView(values, keys, mode) {
         refuse("detail", detail);
     var state = detail === null ? null : detail.state;
     var brain = detail === null || detail.brain === undefined ? "" : detail.brain;
+    // The AI model, then the voice, each a line of its own after the state's
+    // first line, which says what to do.
+    var route = values.voiceRoute === undefined || values.voiceRoute === null ? "" : values.voiceRoute.text;
     function withBrain(value) {
-        if (brain === "") return value;
+        var facts = (brain === "" ? [] : ["AI model: " + brain]).concat(route === "" ? [] : ["Voice: " + route]);
+        if (facts.length === 0) return value;
+        var details = value.tooltipDetails;
         return { state: value.state, icon: value.icon, tone: value.tone, tooltip: value.tooltip,
-            tooltipDetails: ["AI model: " + brain].concat(value.tooltipDetails) };
+            tooltipDetails: details.slice(0, 1).concat(facts, details.slice(1)) };
     }
     var muteOn = state !== null && muted(state.mute);
     // The wake-word capture, from its opening: Session's phase reads armed
@@ -473,23 +517,30 @@ function stateView(values, keys, mode) {
         && (state.capture.kind === "opening" || state.capture.kind === "open");
     // The local sidecar drops every wake frame until its voice is ready, so
     // an armed capture over a pending voice reads loading below.
+    var tapped = state !== null && state.input !== undefined && state.input !== null && state.input.kind === "tapped";
     if (state !== null && !(armed && voicePending(values)) && microphoneOpen(state.capture)) return withBrain(look("listening",
         armed ? "Jarvis is listening for Hey Jarvis" : followUp ? "Jarvis is listening for a follow-up" : "Jarvis is listening",
-        [armed ? "Say Hey Jarvis." : followUp ? "Speak now. No wake word needed." : "Speak now."], muteOn, effectiveKeys));
+        [armed ? "Say Hey Jarvis." : followUp ? "Speak now. No wake word needed."
+            : tapped && effectiveKeys.talk !== null ? "Speak now. Tap " + effectiveKeys.talk + " again to stop." : "Speak now."], muteOn, effectiveKeys));
     if (daemon !== null && daemon.tone === "danger") return withBrain(reportLook("problem", daemon, muteOn, effectiveKeys));
     if (daemon !== null && daemon.tone === "warning" && daemon.hint !== undefined) return withBrain(reportLook("problem", daemon, muteOn, effectiveKeys));
-    if (detail !== null && detail.phase === "error") return withBrain(textLook("problem", faultText(state.fault, state.engine.kind, values.homePath), muteOn, effectiveKeys));
+    if (detail !== null && detail.phase === "error") return withBrain(textLook("problem", faultText(state.fault, state.engine.kind, voice), muteOn, effectiveKeys));
     if (audio !== null && audio.tone === "danger") return withBrain(textLook("problem", AUDIO_TEXT, muteOn, effectiveKeys));
     if (state === null) return textLook("loading", GATE_TEXT.starting, muteOn, effectiveKeys);
     var down = gateDown(state.gate);
     if (down && state.gate.reason === "starting") return withBrain(textLook("loading", GATE_TEXT.starting, muteOn, effectiveKeys));
-    if (muteOn) return withBrain(look("muted", "Jarvis is muted", [clickLine(true, effectiveKeys)], muteOn, effectiveKeys));
+    if (muteOn) return withBrain(look("muted", "Jarvis is muted", [unmuteLine(effectiveKeys)], muteOn, effectiveKeys));
     // No voice or setup state reads over a home folder the daemon refuses.
     if (down && state.gate.reason === "unconfigured" && homeRefused(values)) return withBrain(textLook("off", homeText(values), muteOn, effectiveKeys));
     if (down && state.gate.reason === "unconfigured" && setupChecking(values))
         return withBrain(look("loading", "Jarvis is checking setup", ["Wait for the check to finish."], muteOn, effectiveKeys));
     if ((!down || state.gate.reason === "unconfigured") && (armed || voiceLoading(values)))
-        return withBrain(look("loading", "Jarvis is loading its voice", ["Wait for local voice to load."], muteOn, effectiveKeys));
+        return withBrain(values.setupVoice && values.setupVoice.text === Gate.SETTING_UP.text
+            ? look("loading", "Jarvis is setting up its local voice", ["Wait for the setup to finish."], muteOn, effectiveKeys)
+            : look("loading", "Jarvis is loading its voice", ["Wait for local voice to load."], muteOn, effectiveKeys));
+    // A cloud voice that refused its key is a problem to fix, not a step.
+    if (down && state.gate.reason === "unconfigured" && values.setupVoice && values.setupVoice.text === Gate.KEY_REFUSED)
+        return withBrain(textLook("problem", keyRefusedText(voice), muteOn, effectiveKeys));
     if (down) return withBrain(textLook("off", state.gate.reason === "unconfigured" ? unconfiguredText(values) : GATE_TEXT[state.gate.reason], muteOn, effectiveKeys));
     switch (detail.phase) {
     case "thinking":
@@ -502,8 +553,11 @@ function stateView(values, keys, mode) {
         return withBrain(look("speaking", "Jarvis is speaking", [stopAction(effectiveKeys)], muteOn, effectiveKeys));
     case "idle":
         var hint = setupCaution(values);
-        return withBrain(look("ready", "Jarvis is ready", hint === null ? [readyAction(effectiveMode, effectiveKeys)]
-            : [readyAction(effectiveMode, effectiveKeys), hint], muteOn, effectiveKeys));
+        var ready = withBrain(look("ready", "Ready to talk", [Gate.talkHint(effectiveMode, effectiveKeys.talk) + "."], muteOn, effectiveKeys));
+        // A caution, such as a Jarvis session that cannot start, stands
+        // before the click line: one fact, one link.
+        if (hint !== null) ready.tooltipDetails = ready.tooltipDetails.slice(0, -1).concat([line(hint)], ready.tooltipDetails.slice(-1));
+        return ready;
     default:
         // Listening and armed hold capture open, which reads listening above;
         // down holds the gate down.

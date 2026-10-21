@@ -26,6 +26,7 @@ const BIN = path.join(__dirname, "..", "bin");
 const LOGIC = path.join(CORE, "PluginLogic.js");
 const IMPORTS = [
     [path.join(__dirname, "..", "shell", "Ui", "icons", "Lucide.js"), path.join("shell", "Ui", "icons", "Lucide.js")],
+    [path.join(__dirname, "..", "shell", "Ui", "icons", "Own.js"), path.join("shell", "Ui", "icons", "Own.js")],
     [path.join(CORE, "ConfigLogic.js"), path.join("shell", "Core", "ConfigLogic.js")],
     [path.join(CORE, "PackageManagers.js"), path.join("shell", "Core", "PackageManagers.js")],
     [path.join(CORE, "HyprlandLayer.js"), path.join("shell", "Core", "HyprlandLayer.js")],
@@ -57,6 +58,11 @@ function suite(ctx, check) {
     // for ["tui"], null for accepted or the start of the refusal].
     const keyRows = [
         ["one script with a title", { hello: hello }, undefined, null],
+        ["a script with fixed arguments", { hello: Object.assign({ args: ["voice", "--quiet"] }, hello) }, undefined, null],
+        ["fixed arguments that are an empty list", { hello: Object.assign({ args: [] }, hello) }, undefined, "tui.hello.args must be a non-empty list of at most 16 printable arguments"],
+        ["fixed arguments that are a string", { hello: Object.assign({ args: "voice" }, hello) }, undefined, "tui.hello.args must be a non-empty list"],
+        ["a fixed argument on two lines", { hello: Object.assign({ args: ["a\nb"] }, hello) }, undefined, "tui.hello.args must be a non-empty list"],
+        ["more fixed arguments than a run takes", { hello: Object.assign({ args: Array.from({ length: 17 }, (_, i) => "a" + i) }, hello) }, undefined, "tui.hello.args must be a non-empty list"],
         ["a listed script with every key", { update: listed }, undefined, null],
         ["a script in a subdirectory of tui/", { hello: { script: "tui/sub/run_1.sh", title: "Hello" } }, undefined, null],
         ["a title of 60 characters", { hello: { script: "tui/hello.sh", title: "t".repeat(60) } }, undefined, null],
@@ -126,8 +132,8 @@ function suite(ctx, check) {
     const plain = ctx.validateManifest(manifestWith(undefined), "/p").manifest;
     check("a manifest without tui carries an empty tui", plain.tui, {});
     const normal = ctx.validateManifest(manifestWith({ hello: hello, update: listed }), "/p").manifest;
-    check("an absent size, presentation, entry and requires are normalized", normal.tui.hello, { script: "tui/hello.sh", title: "Hello", size: "default", presentation: "full", entry: null, requires: null });
-    check("a declared size, presentation and entry are kept", normal.tui.update, Object.assign({}, listed, { requires: null }));
+    check("an absent size, presentation, entry and requires are normalized", normal.tui.hello, { script: "tui/hello.sh", title: "Hello", size: "default", presentation: "full", entry: null, requires: null, args: [] });
+    check("a declared size, presentation and entry are kept", normal.tui.update, Object.assign({}, listed, { requires: null, args: [] }));
     const requiring = manifestWith({ hello: Object.assign({ requires: ["acme-sync"] }, hello) });
     requiring.requirements = [{ command: "acme-sync", purpose: "Syncs" }];
     check("a declared requires is kept", ctx.validateManifest(requiring, "/p").manifest.tui.hello.requires, ["acme-sync"]);
@@ -184,6 +190,18 @@ function suite(ctx, check) {
     const runner = (launcher, busy) => ({ launcher: launcher, busy: busy, run: "7-1" });
     for (const [name, enabled, launcher, busy, script, args, want] of runRows) {
         const r = ctx.tuiRun(running, enabled, "/run/src", runner(launcher, busy), script, args);
+        check("tuiRun: " + name, r.ok ? r.argv : [r.answer, r.action], want);
+    }
+    // A script's fixed arguments come before a run's own, and both count
+    // toward one run's ceiling.
+    const fixed = Object.assign({ __revision: "r1" }, ctx.validateManifest(manifestWith({ hello: Object.assign({ args: ["voice"] }, hello) }), "/p").manifest);
+    const fixedArgv = argvHello.slice(0, -1).concat(["tui/hello.sh", "voice"]);
+    for (const [name, args, want] of [
+        ["fixed arguments alone", [], fixedArgv],
+        ["fixed arguments before a run's own", ["openai"], fixedArgv.concat(["openai"])],
+        ["fixed and run arguments past the ceiling", Array.from({ length: 16 }, (_, i) => "a" + i), ["refused: tui=hello reason=args", "none"]]
+    ]) {
+        const r = ctx.tuiRun(fixed, true, "/run/src", runner("present", []), "hello", args);
         check("tuiRun: " + name, r.ok ? r.argv : [r.answer, r.action], want);
     }
     check("tuiRun keys a launch by plugin and name", ctx.tuiRun(running, true, "/run/src", runner("present", []), "hello", []).key, "acme.tui/hello");
@@ -1402,7 +1420,11 @@ const CONTROLS = [
     ["edit refuses a bad line", "if (!/^[1-9][0-9]*$/.test(text))", "if (false)"],
     ["run opens only a declared script", "if (typeof name !== \"string\" || !hasOwn(manifest.tui, name))", "if (false)"],
     ["run refuses a disabled plugin", "if (!enabled)\n        return tuiRefusal(name, \"disabled\");", "if (false)\n        return tuiRefusal(name, \"disabled\");"],
-    ["run judges its arguments", "    if (!tuiArgsValid(args))\n        return tuiRefusal(name, \"args\");", "    if (false)\n        return tuiRefusal(name, \"args\");"],
+    ["run judges its arguments", "    if (!tuiArgsValid(args) || !tuiArgsValid(", "    if (false && !tuiArgsValid("],
+    ["run counts the fixed arguments", "|| !tuiArgsValid(manifest.tui[name].args.concat(args === undefined ? [] : args)))", ")"],
+    ["fixed arguments are a tui key", "\"entry\", \"requires\", \"args\"];", "\"entry\", \"requires\"];"],
+    ["fixed arguments are judged", "if (row.args !== undefined && (!Array.isArray(row.args) || row.args.length === 0 || !tuiArgsValid(row.args)))", "if (false)"],
+    ["fixed arguments come first", "[row.script].concat(row.args, args === undefined ? [] : args)", "[row.script].concat(args === undefined ? [] : args)"],
     ["run starts from the published snapshot", "dir: sourceDir + \"/\" + manifest.__revision", "dir: manifest.__sourceDir"],
     ["the launch names the plugin", "argv.push(\"--plugin\", plugin.id, \"--dir\", plugin.dir);", "argv.push(\"--dir\", plugin.dir);"],
     ["open needs a key with a slash", "if (slash === -1)\n        return tuiRefusal(key, \"undeclared\");", "if (false)\n        return tuiRefusal(key, \"undeclared\");"],

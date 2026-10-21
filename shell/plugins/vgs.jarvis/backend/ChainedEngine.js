@@ -68,7 +68,7 @@ const RELEASE_EFFECT = "external";
 // The cause a failed duplex stream's closing release row keeps, by the
 // adapters' keyed fault (Realtime.js, GeminiLive.js); any other fault keeps
 // voice-stopped. Audit.js refuses any other cause.
-const STREAM_CAUSES = Object.freeze({ "live=input-silent": "input-silent", "live=unheard": "unheard" });
+const STREAM_CAUSES = Object.freeze({ "live=input-silent": "input-silent", "live=unheard": "unheard", "live=key-refused": "key-refused" });
 // One local working sound for a still-silent turn, without a speech request.
 const WORKING_AFTER_MS = 1200;
 // Owner ruling VGS-1320: longer than a few seconds gets one spoken progress line per stated step.
@@ -191,9 +191,10 @@ function signal() {
  * order, which the daemon publishes for the setup view. A dictation row
  * holds the plan with the service's dictation cause, settings.dictation,
  * while the core's recording cannot start; its sidecar still loads.
+ * refused is the identity of the cloud voice key its provider refused, or null.
  */
-function select(settings, accounts, directories, listed = () => ({ voices: null, known: null, reading: false }), models = () => ({ kind: "none" })) {
-    const { list = null, ...speech } = selectSpeech(settings, accounts, directories, listed);
+function select(settings, accounts, directories, listed = () => ({ voices: null, known: null, reading: false }), models = () => ({ kind: "none" }), refused = null) {
+    const { list = null, ...speech } = selectSpeech(settings, accounts, directories, listed, refused);
     const dictation = speech.kind === "ready" && speech.dictation === true && settings.dictation !== ""
         ? unconfigured(settings.dictation) : { kind: "ready" };
     const brain = selectBrain(settings, accounts, models);
@@ -238,18 +239,25 @@ function heldByHome(plan, home) {
 
 // Always mode listens for the wake word on this computer, so it needs a row
 // that spots it locally; any other voice would stream the room to a provider.
-function selectSpeech(settings, accounts, directories, listed) {
-    const speech = selectVoice(settings, accounts, directories, listed);
+function selectSpeech(settings, accounts, directories, listed, refused) {
+    const speech = selectVoice(settings, accounts, directories, listed, refused);
     if (settings.mode === "always" && (Object.hasOwn(DUPLEX, settings.voiceProvider) || speech.kind === "ready" && speech.wake !== true))
         return unconfigured("speech=always-local-voice");
     return speech;
 }
 
+// A stored key's identity: its reference and the stored list's revision
+// (Secrets.revision). Adding a key under a new name gives a new reference;
+// storing one again under its name, or removing and adding it, gives a new
+// revision, so the key the user pasted gets its own try.
+function keyIdentity(key) { return JSON.stringify([key.reference, key.secrets.revision()]); }
+
 // The stored key a cloud voice uses: the Voice key setting's account, a
 // keyring key of the provider ACCOUNT names, which may travel to PROVIDER's
 // origin. {kind: "ready", key, recipient}, or the cloud voices' shared
-// cause.
-function voiceKey(settings, accounts, account, provider) {
+// cause. A key whose identity is REFUSED, which its provider refused at the
+// handshake, holds the step until another key is chosen or the key is stored again.
+function voiceKey(settings, accounts, account, provider, refused = null) {
     if (!settings.voiceAccount) return unconfigured("speech=live-account-unselected");
     let judge, resolved;
     try { judge = accounts(); resolved = judge.resolve(settings.voiceAccount); }
@@ -261,15 +269,22 @@ function voiceKey(settings, accounts, account, provider) {
         return unconfigured("speech=live-key-required");
     const reference = resolved.source.reference;
     Net.assertKeyTarget(provider.base, reference.origin);
+    if (refused !== null && refused === keyIdentity({ secrets: judge.secrets, reference })) return unconfigured("speech=live-key-refused");
     return { kind: "ready", key: { secrets: judge.secrets, reference },
         recipient: { kind: "network", provider: resolved.provider, account: resolved.id, origin: Net.endpoint(provider.base).origin } };
 }
 
-function selectVoice(settings, accounts, directories, listed) {
+// VOICE, a preview's voice, while SPEECH, the voice's plan, offers it, else
+// null: a preview plays only a voice of the provider's own list.
+function offeredVoice(speech, voice) {
+    return typeof voice === "string" && Array.isArray(speech.voices) && speech.voices.some(offer => offer.value === voice) ? voice : null;
+}
+
+function selectVoice(settings, accounts, directories, listed, refused) {
     if (Object.hasOwn(DUPLEX, settings.voiceProvider)) {
         const duplex = DUPLEX[settings.voiceProvider];
         const provider = Providers.select(duplex.id);
-        const key = voiceKey(settings, accounts, duplex.account, provider);
+        const key = voiceKey(settings, accounts, duplex.account, provider, refused);
         if (key.kind !== "ready") return key;
         const voices = duplex.adapter.VOICES;
         return { kind: "ready", id: duplex.id, provider, key: key.key,
@@ -402,8 +417,21 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     let idleAt = null;
     let daemonSpeech = null;
     let speechState = { kind: "new" };
+    // While a local voice setup run holds the local voice closed
+    // (localSetup), { released }, the promise of its sidecar's exit; else
+    // null. The sidecar holds local-setup.lock shared for its whole life,
+    // which setup-local takes alone to replace a model, so no sidecar
+    // starts until the run ends.
+    let setup = null;
+    // Whether the voice provider hears the user on this computer, which the
+    // setup's cause holds while the run replaces the tier under it.
+    let hearsHere = false;
     // The identity of the row the daemon's sidecar last started from.
     let speechIdentity = null;
+    // The identity of the cloud voice key its provider refused at the
+    // handshake (live=key-refused), which holds the plan with
+    // speech=live-key-refused until a judge selects another key or none.
+    let refusedKey = null;
     const homePath = () => { const judged = home(); return judged.kind === "ready" ? judged.path : null; };
     // Whether the home folder's own cause holds the plan.
     let homeHeld = false;
@@ -438,7 +466,10 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
 
     function configuration() {
         const local = plan.speech?.kind === "ready" && plan.speech.lifetime === "daemon";
-        const cause = local && speechState.kind === "starting" ? "speech=local-loading"
+        // A setup run holds Talk down with its cause, also once its install
+        // removed the tier the plan read.
+        const cause = setup !== null && hearsHere ? "speech=local-setting-up"
+            : local && speechState.kind === "starting" ? "speech=local-loading"
             : local && speechState.kind === "refused" ? "speech=local-" + speechState.error.code.split(" ")[0] : null;
         if (plan.kind !== "ready") {
             const { speech, list, modelLists, ...answer } = plan;
@@ -446,15 +477,14 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             return cause === null ? { ...answer, cautions }
                 : { ...answer, cause, causes: [cause, ...answer.causes.filter(other => !other.startsWith("speech="))], cautions };
         }
-        if (local && speechState.kind === "starting")
-            return { kind: "loading", cause: "speech=local-loading", causes: ["speech=local-loading"], cautions };
-        if (local && speechState.kind === "refused") {
-            return { kind: "unconfigured", cause, causes: [cause], cautions };
-        }
+        if (cause === "speech=local-loading")
+            return { kind: "loading", cause, causes: [cause], cautions };
+        if (cause !== null) return { kind: "unconfigured", cause, causes: [cause], cautions };
         return { kind: "ready", cautions };
     }
 
     function startSpeech(row) {
+        if (setup !== null) fail("local-setting-up");
         speechState = { kind: "starting" };
         speechIdentity = row.identity;
         const owner = row.open({ clock, changed: () => {
@@ -481,10 +511,17 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     // or removal published. Never under a conversation, whose pending
     // speech the old sidecar holds; its end or the next one's open does.
     function reargue() {
-        if (closed || conversation !== null || plan.speech?.kind !== "ready" || plan.speech.lifetime !== "daemon"
+        if (closed || setup !== null || conversation !== null || plan.speech?.kind !== "ready" || plan.speech.lifetime !== "daemon"
                 || speechState.kind === "new" || speechIdentity === plan.speech.identity) return;
         daemonSpeech?.close();
         startSpeech(plan.speech);
+    }
+    // The daemon's sidecar for ROW, started when none runs; refused while a
+    // local voice setup run holds the local voice closed.
+    function daemonOwner(row) {
+        if (setup !== null) fail("local-setting-up");
+        if (daemonSpeech === null) startSpeech(row);
+        return daemonSpeech;
     }
 
     function releaseEvent(c, identity, labels, decision, outcome) {
@@ -541,7 +578,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             const duplex = duplexOf(plan.speech.id);
             if (duplex !== null) {
                 c.live = duplex.adapter.create({ provider: plan.speech.provider, clock, captionLimit,
-                    log, conversation: e => ({ net: c.net, key: plan.speech.key, language: LANGUAGE, voice: plan.speech.voice,
+                    log, conversation: e => ({ net: c.net, key: plan.speech.key, language: LANGUAGE, voice: offeredVoice(plan.speech, e.voice) ?? plan.speech.voice,
                         preview: e.preview === true ? PREVIEW_LINE : null,
                         grants: () => c.grants, transfer: (item, start) => transfer(c, e, item, () => {
                             streamed(c, e);
@@ -550,8 +587,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 c.speech = { close: () => c.live.port.release() };
             } else {
                 reargue();
-                if (plan.speech.lifetime === "daemon" && daemonSpeech === null) startSpeech(plan.speech);
-                c.speech = plan.speech.lifetime === "daemon" ? daemonSpeech : plan.speech.open({ net, recipients });
+                c.speech = plan.speech.lifetime === "daemon" ? daemonOwner(plan.speech) : plan.speech.open({ net, recipients });
                 // A failover replaces the net owner and the grants, so the
                 // voice reads both at each request.
                 if (plan.speech.spoken !== undefined) c.spoken = ElevenLabs.create({ provider: plan.speech.spoken.provider,
@@ -565,10 +601,8 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         if (gen !== state().gen) fail("stale-conversation");
         if (conversation !== null && conversation.gen !== gen) fail("conversation-generation");
         if (conversation === null) conversation = open(gen);
-        else if (conversation.plan.speech.lifetime === "daemon" && daemonSpeech === null) {
-            startSpeech(conversation.plan.speech);
-            conversation.speech = daemonSpeech;
-        }
+        else if (conversation.plan.speech.lifetime === "daemon" && daemonSpeech === null)
+            conversation.speech = daemonOwner(conversation.plan.speech);
         return conversation;
     }
     // Drop the context, the recipient set and its transport before another
@@ -817,9 +851,9 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     // Neither starts a conversation or sends audio to a brain.
     function spotting(e) {
         if (plan.speech?.wake !== true || e.mode !== "check" && plan.kind !== "ready") fail("wake-unavailable");
-        if (daemonSpeech === null) startSpeech(plan.speech);
+        const owner = daemonOwner(plan.speech);
         const { sink, frames } = captured(() => true);
-        void daemonSpeech.spot(frames, { check: e.mode === "check" }).outcome.then(result => {
+        void owner.spot(frames, { check: e.mode === "check" }).outcome.then(result => {
             if (result.kind === "checked") dispatch({ type: "voice-checked", gen: e.gen, op: e.op, result: result.result });
             else if (result.kind === "woke") dispatch({ type: "wake", gen: e.gen, op: e.op });
             // Final detector work completes after Audio closes the sink.
@@ -833,7 +867,8 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     // Text to speech for one brain turn: one Readable for Audio, fed by the
     // adapter from released sentences. Synthesis waits on Audio; the brain
     // is read to its end, so its deadline never waits on speech.
-    function speech(c) {
+    // SPEAKER, a preview's voice, else the chosen one (offeredVoice).
+    function speech(c, speaker) {
         const sentences = [];
         let queued = 0;
         const input = signal(), wanted = signal();
@@ -859,7 +894,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             }
         }, async return() { ended = true; return { value: undefined, done: true }; } }; } };
         async function pump() {
-            output = (c.spoken ?? c.speech).speak(sentenceInput, c.plan.speech.speaker)[Symbol.asyncIterator]();
+            output = (c.spoken ?? c.speech).speak(sentenceInput, speaker ?? c.plan.speech.speaker)[Symbol.asyncIterator]();
             try {
                 for (;;) {
                     const step = await output.next();
@@ -917,7 +952,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         }
         transfer(c, turn, item, () => {
             if (turn.speech === null) {
-                turn.speech = speech(c);
+                turn.speech = speech(c, turn.voice ?? null);
             }
             turn.speech.dropLines();
             if (!turn.speaking) {
@@ -1522,6 +1557,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             // prefix, and as a done one no task line to report back.
             if (e.preview === true) {
                 const turn = relayTurn(c, e, done, { ask: null, line: null, done: true });
+                turn.voice = offeredVoice(c.plan.speech, e.voice);
                 turn.labels.add("desktop");
                 fixedLine(c, turn, PREVIEW_LINE);
                 return;
@@ -1720,7 +1756,10 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     }
 
     function judge(settings) {
-        plan = select(settings, accounts, directories, listed, modelOffers);
+        hearsHere = !Object.hasOwn(DUPLEX, settings.voiceProvider);
+        plan = select(settings, accounts, directories, listed, modelOffers, refusedKey);
+        // Another key, or none, ends the hold: the next key gets its own try.
+        if (plan.speech?.cause !== "speech=live-key-refused") refusedKey = null;
         const held = heldByHome(plan, home());
         homeHeld = held.plan !== plan;
         plan = held.plan;
@@ -1824,6 +1863,34 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         // by the daemon's existing Talk judgement, after the server recovers.
         modelsHeld,
         checkReady: () => plan.speech?.wake === true && daemonSpeech?.status().kind === "ready",
+        /**
+         * A local voice setup run started (RUNNING true) or ended. A start
+         * takes Talk down with the cause speech=local-setting-up, so Session
+         * ends a live conversation or check, then closes the sidecar, and
+         * none starts until the end. It resolves once that sidecar has
+         * exited, so its shared hold on local-setup.lock is gone; a second
+         * start answers with the first. The end judges again, which starts
+         * the sidecar on the publication the run left.
+         */
+        localSetup(running) {
+            if (!running) {
+                if (setup === null) return Promise.resolve();
+                setup = null;
+                speechState = { kind: "new" };
+                rejudge();
+                return Promise.resolve();
+            }
+            if (setup !== null) return setup.released;
+            const owner = daemonSpeech;
+            daemonSpeech = null;
+            // Unloaded, a judge starts none; the run's end makes it new.
+            speechState = { kind: "unloaded" };
+            setup = { released: owner === null ? Promise.resolve() : owner.closed.then(() => undefined) };
+            // checkReady reads no sidecar now, so the snapshot ends a check too.
+            configured(configuration());
+            owner?.close();
+            return setup.released;
+        },
         observe(s) {
             if (conversation !== null && (s.gen !== conversation.gen || s.conversation.kind === "ended")) end();
             if (conversation?.collection !== null && conversation?.collection !== undefined
@@ -1969,6 +2036,11 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 const own = { ...events, failed: reason => {
                     if (c.stream?.op === e.op) closeStream(c, reason);
                     events.failed(reason);
+                    // A refused key holds Talk with its cause until the key changes.
+                    if (reason === "live=key-refused" && !closed) {
+                        refusedKey = keyIdentity(c.plan.speech.key);
+                        rejudge();
+                    }
                 } };
                 c.liveOpen = { e: reopen, events: own };
                 c.live.port.open(e, own);

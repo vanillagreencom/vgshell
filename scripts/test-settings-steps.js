@@ -142,6 +142,7 @@ function verify(logic, producer) {
     same([complete.text, complete.tone], ["Done", "success"], "completed chip uses two-state vocabulary");
     same(logic.stepView(rows({}).find(entry => entry.key === "home"), String, off).text, "To do", "unreported required chip stays To do");
 
+
     // Setup steps: what each To do step offers to press, with the plugin
     // on and off. The page draws a step's own action while on and Turn on
     // while off (Steps.lineAction); the Tools step's Review takes a press
@@ -315,6 +316,29 @@ function verify(logic, producer) {
     const optionalMissing = requirements(["optional-tool"]);
     same([logic.stepReading(extraTools, on), (logic.stepButton(extraTools, optionalMissing) || {}).kind, logic.setupNeeds([extraTools], optionalMissing, true).open],
         ["optional", "tools", false], "optional step: a missing optional tool offers Review on its row");
+    // An optional state step and an optional presence step beside a
+    // required one: [name, values, the step order, Setup needed]. Optional
+    // steps alone keep Setup and never need setup.
+    const mixedManifest = { tui: tui, requirements: [], status: { needed: { type: "state", label: "Needed", setup: true },
+        extra: { type: "state", label: "Extra", setup: "optional", action: { label: "Configure feature", tui: "feature" } }, other: { type: "presence", label: "Other", setup: "optional" } } };
+    const mixedScreens = producer.listedTuis(mixedManifest);
+    const notAdded = { tone: "warning", text: "Not set up", action: true };
+    for (const [name, values, order, needed] of [
+        ["unreported", {}, ["needed", "extra", "other"], true],
+        ["the required step open", { needed: blocked, extra: notAdded, other: "absent" }, ["needed", "extra", "other"], true],
+        ["the required step done", { needed: ready, extra: notAdded, other: "absent" }, ["extra", "other", "needed"], false],
+        ["the required step not available", { needed: unavailable, extra: notAdded }, ["needed", "extra", "other"], false],
+        ["an optional step done", { needed: blocked, extra: ready, other: "absent" }, ["needed", "other", "extra"], true],
+        ["every step done", { needed: ready, extra: ready, other: "present" }, ["needed", "extra", "other"], false],
+        ["an optional step the user cannot act on", { needed: ready, extra: unavailable, other: "absent" }, ["extra", "other", "needed"], false]
+    ]) {
+        const steps = producer.statusRows(mixedManifest, values);
+        same(items(logic.setupSections(mixedScreens, steps, [], on)).map(item => item.key), order, "optional steps " + name + ": the order");
+        same(logic.setupNeeds(steps, [], true).open, needed, "optional steps " + name + ": Setup needed");
+    }
+    const onlyOptional = { tui: tui, requirements: [], status: { extra: mixedManifest.status.extra } };
+    same(logic.setupTab(logic.setupSections(producer.listedTuis(onlyOptional), producer.statusRows(onlyOptional, {})), []), true, "optional steps alone keep Setup");
+    same(logic.setupNeeds(producer.statusRows(onlyOptional, {}), [], true).open, false, "optional steps alone never need setup");
 
     // The tab of each `rows` entry, by the placement statusRows carries: a
     // Settings list on Settings alone, any other on Details as a section
@@ -464,6 +488,7 @@ const controls = [
     ["an optional step reads To do", 'return entry.setup === "optional" ? "optional" : "todo";', 'return "todo";', "tools steps an optional tool missing"],
     ["an optional step the user cannot act on reads Optional", 'if (!stepOpen(entry)) return "unavailable";', 'if (!stepOpen(entry) && entry.setup !== "optional") return "unavailable";', "optional step not available: the chip"],
     ["an optional step raises Setup needed", 'stepReading(entry, plugin) === "todo"; })', 'stepReading(entry, plugin) !== "done" && stepReading(entry, plugin) !== "unavailable"; })', "optional step open beside a done required step: Setup needed"],
+    ["Optional reads in a warning tone", 'optional: { text: "Optional", tone: "neutral" }', 'optional: { text: "Optional", tone: "warning" }', "tools steps an optional tool missing"],
     ["an optional step sorts with To do", 'optional: 2, done: 3 };', 'optional: 0, done: 3 };', "optional step open beside a required step To do: the order"],
     ["an optional step sorts after Done", 'optional: 2, done: 3 };', 'optional: 4, done: 3 };', "optional step open beside a done required step: the order"],
     ["an optional step Not available sorts with the required ones", 'return reading !== "done" && entry.setup === "optional" ?', 'return reading === "optional" ?', "optional step not available beside a required step Not available: the order"],

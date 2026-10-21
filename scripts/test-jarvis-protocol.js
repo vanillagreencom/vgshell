@@ -4,6 +4,7 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const vm = require("node:vm");
 const { load } = require("../bin/lib/qml-library.js");
 const { freshSuite } = require("./fixtures/jarvis/prepare.js");
 const file = path.join(__dirname, "../shell/plugins/vgs.jarvis/JarvisProtocol.js");
@@ -85,6 +86,8 @@ const auditFailures = { ...taskList, type: "audit-failures", rows: [auditRow] };
 const say = { ...intent, intent: "say", text: "typed message" };
 const requirementsScan = { v: 1, type: "requirements-scan", gen: 0, revision: hello.revision, scan: 1 };
 const tuiState = { v: 1, type: "tui-state", gen: 0, revision: hello.revision, name: "task", running: true };
+const localSetup = { v: 1, type: "local-setup", gen: 0, revision: hello.revision, running: true };
+const localReleased = { v: 1, type: "local-setup", gen: 0, revision: hello.revision };
 const taskReply = { ...reply, kind: "tui.run", answer: "refused: tui=task reason=busy" };
 const taskRequest = { v: 1, type: "request", gen: 0, revision: hello.revision, id: 1, kind: "tui.run",
     args: ["/run/user/1000/vgshell/jarvis/tasks/" + taskStop.task + ".json"] };
@@ -124,6 +127,7 @@ const cases = [
     ["audit-completed", changed(auditFailures, { rows: [{ ...auditRow, outcome: "completed" }] }), "daemon", "audit-row"],
     ["audit-refusal", changed(auditFailures, { rows: [{ ...auditRow, refusal: "other" }] }), "daemon", "audit-row"],
     ["audit-cause", changed(auditFailures, { rows: [{ ...auditRow, cause: "live=unheard" }] }), "daemon", "audit-row"],
+    ["audit-key-cause", changed(auditFailures, { rows: [{ ...auditRow, cause: "live=key-refused" }] }), "daemon", "audit-row"],
     ["task-open-id", changed(taskOpen, { task: "a".repeat(65) }), "shell", "task-id"],
     ["task-open-direction", JSON.stringify(taskOpened), "shell", "direction-task-open"],
     ["task-open-answer-id", changed(taskOpened, { task: "a".repeat(65) }), "daemon", "open-task-id"],
@@ -256,6 +260,8 @@ const cases = [
     ["intent-direction", JSON.stringify(intent), "daemon", "direction-intent"],
     ["intent-shape", changed(intent, { extra: true }), "shell", "shape-intent"],
     ["intent-name", changed(intent, { intent: "approve" }), "shell", "intent"],
+    ["preview-without-voice", changed(intent, { intent: "preview" }), "shell", "shape-preview"],
+    ["preview-empty-voice", changed(intent, { intent: "preview", voice: "" }), "shell", "preview-voice"],
     ["say-shape", changed(say, { extra: true }), "shell", "shape-say"],
     ["say-empty", changed(say, { text: "" }), "shell", "say-text"],
     ["say-blank", changed(say, { text: "   " }), "shell", "say-text"],
@@ -373,6 +379,10 @@ const cases = [
     ["tui-state-shape", changed(tuiState, { code: 0 }), "shell", "shape-tui-state"],
     ["tui-state-name", changed(tuiState, { name: "accounts" }), "shell", "tui-name"],
     ["tui-state-running", changed(tuiState, { running: "yes" }), "shell", "tui-running"],
+    ["local-setup-running", changed(localSetup, { running: "yes" }), "shell", "local-setup-running"],
+    ["local-setup-missing", changed(localSetup, { running: undefined }), "shell", "shape-local-setup"],
+    ["local-setup-shell-shape", changed(localSetup, { released: true }), "shell", "shape-local-setup"],
+    ["local-setup-daemon-shape", JSON.stringify(localSetup), "daemon", "shape-local-setup"],
     ["task-request-name", changed(taskRequest, { name: "accounts" }), "daemon", "shape-request"],
     ["task-request-args", changed(taskRequest, { args: [taskRequest.args[0], "--other"] }), "daemon", "request-args"],
     ["task-request-spec", changed(taskRequest, { args: ["tasks/one.json"] }), "daemon", "request-args"],
@@ -416,7 +426,7 @@ for (const cautions of [["guidance=agents-over-budget"], ["guidance=persona-over
     assert.equal(JSON.stringify(Protocol.accept(changed(status, { cautions, causes: ["brain=unselected"] }), "daemon").cautions), JSON.stringify(cautions));
 assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(state), "daemon")), JSON.stringify(state));
 for (const reason of ["check-timeout", "speech=local-wake-failed"]) {
-    const failed = { ...state, state: { ...state.state, check: { kind: "failed", reason } } };
+    const failed = { ...state, state: { ...state.state, check: { kind: "failed", reason, device: "alsa_input.fixture" } } };
     assert.deepEqual(JSON.parse(JSON.stringify(Protocol.accept(JSON.stringify(failed), "daemon"))), failed,
         "a microphone check failure carries its cause over the wire");
 }
@@ -434,8 +444,10 @@ const dueState = (() => {
 assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(dueState), "daemon")), JSON.stringify(dueState), "a due reply is a wire state");
 rejected(Protocol, ["state-speech-reply", JSON.stringify({ ...dueState, state: { ...dueState.state, speech: { ...dueState.state.speech, reply: { kind: "coming" } } } }),
     "daemon", "state"]);
-for (const name of ["talk-down", "talk-up", "mute", "stop", "voice-check", "preview"])
+for (const name of ["talk-down", "talk-up", "mute", "stop", "voice-check"])
     assert.equal(Protocol.accept(changed(intent, { intent: name }), "shell").intent, name);
+// A preview always names the voice it plays (Service.previewVoice).
+assert.equal(Protocol.accept(changed(intent, { intent: "preview", voice: "marin" }), "shell").voice, "marin");
 assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(say), "shell")), JSON.stringify(say));
 for (const shown of [personality, { ...personality, personality: { kind: "none" } }, { ...personality, personality: { kind: "missing" } }, voices, { ...voices, voices: [] },
     startText, { ...startText, size: { kind: "unreadable" } }, { ...startText, size: { kind: "read", tokens: 1350, layers: [] } },
@@ -465,7 +477,7 @@ for (const [message, direction] of [
     [{ ...taskList, rows: Array(16).fill({ ...taskRow, id: "a".repeat(64), goal: "g".repeat(200), agent: "a".repeat(128),
         failure: "f".repeat(128), createdAt: Number.MAX_SAFE_INTEGER, endedAt: Number.MAX_SAFE_INTEGER }) }, "daemon"],
     [{ ...auditFailures, rows: Array(20).fill({ ...auditRow, tool: "t".repeat(128) }) }, "daemon"],
-    [{ ...auditFailures, rows: ["input-silent", "unheard", "voice-stopped"].map(cause => ({ ...auditRow, tool: "release", decision: "send", cause })) }, "daemon"]
+    [{ ...auditFailures, rows: ["input-silent", "unheard", "key-refused", "voice-stopped"].map(cause => ({ ...auditRow, tool: "release", decision: "send", cause })) }, "daemon"]
 ]) assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(message), direction)), JSON.stringify(message));
 for (const failure of [null, 1, -1, Number.MAX_SAFE_INTEGER, "lost", "reported-failed"])
     assert.equal(Protocol.accept(changed(taskList, { rows: [{ ...taskRow, failure }] }), "daemon").rows[0].failure, failure);
@@ -479,12 +491,12 @@ assert.equal(Protocol.accept(changed(hello, { settings: { ...hello.settings, mod
     keys: { talk: null, mute: null, stop: null, confirm: null, console: null } }), "shell").settings.mode, "always");
 for (const message of [devices, homes, level, audioFault, memory, memoryInbox, { ...memoryInbox, entries: [{ ...memoryEntry, kind: "replace" }] },
     { ...memoryInbox, entries: [{ ...memoryEntry, problem: "write" }] },
-    taskRequest, tasks, taskAnswer, taskPrompts, taskResponse, { ...tasks, count: 0 },
+    taskRequest, tasks, taskAnswer, taskPrompts, taskResponse, { ...tasks, count: 0 }, localReleased,
     transcript, { ...transcript, role: "assistant", stage: "final", text: "a".repeat(4096), rev: 2 },
     shellStatus, { ...shellStatus, availability: { kind: "checking" } },
     { ...shellStatus, availability: { kind: "unavailable", reason: "bwrap-missing" } }])
     assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(message), "daemon")), JSON.stringify(message));
-for (const message of [taskRespond, { ...taskRespond, answer: { v: 1, kind: "reply", text: "main" } }, requirementsScan, { ...requirementsScan, scan: 0 }, { ...requirementsScan, scan: Number.MAX_SAFE_INTEGER }, taskStop, tuiState, { ...tuiState, running: false }, taskReply, { ...taskReply, answer: "ok" },
+for (const message of [taskRespond, { ...taskRespond, answer: { v: 1, kind: "reply", text: "main" } }, requirementsScan, { ...requirementsScan, scan: 0 }, { ...requirementsScan, scan: Number.MAX_SAFE_INTEGER }, taskStop, tuiState, { ...tuiState, running: false }, localSetup, { ...localSetup, running: false }, taskReply, { ...taskReply, answer: "ok" },
     { ...taskReply, answer: "x".repeat(300) }])
     assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(message), "shell")), JSON.stringify(message));
 for (const cloudVision of ["ask", "allow", "never"])
@@ -664,8 +676,11 @@ try {
         ["key-type", 'fail("key-" + shortcut);', ';', "key-type"],
         ["intent-direction", 'if (direction !== "shell") fail("direction-intent");',
             'if (false) fail("direction-intent");', "intent-direction"],
-        ["intent-name", 'if (["talk-down", "talk-up", "mute", "stop", "voice-check", "preview"].indexOf(message.intent) === -1) fail("intent");',
+        ["intent-name", 'if (["talk-down", "talk-up", "mute", "stop", "voice-check"].indexOf(message.intent) === -1) fail("intent");',
             'if (false) fail("intent");', "intent-name"],
+        ["preview-voice-required", '} else if (message.intent === "preview") {',
+            '} else if (message.intent === "preview" && message.voice !== undefined) {', "preview-without-voice"],
+        ["preview-voice-text", 'if (!printable(message.voice, 1, 128)) fail("preview-voice");', "", "preview-empty-voice"],
         ["say-shape", 'keys(message, fields.concat(["text"]), "say");', 'if (false) keys(message, fields.concat(["text"]), "say");', "say-shape"],
         ["say-text", 'if (!printable(message.text, 1, TRANSCRIPT_CHARS) || message.text.trim() === "") fail("say-text");',
             'if (false) fail("say-text");', "say-empty"],
@@ -841,5 +856,43 @@ try {
         logic => assert.equal(logic.bytes("😀"), 4));
     control("framing", 'var parts = (tail + chunk).split("\\n");', 'var parts = chunk.split("\\n");',
         logic => assert.equal(logic.feed("one", "\n").lines[0], "one"));
+    // The shell end of local-setup: Service.localSetup, the setup window's
+    // ask. A daemon still starting may start its sidecar, so its ask waits
+    // and reaches the daemon once it is ready; one that does not run is
+    // refused, as it holds no sidecar.
+    // The fresh copy holds the protocol's imports alone, no Service.qml.
+    if (process.argv[2] !== "--fresh") {
+        const serviceSource = fs.readFileSync(path.join(path.dirname(file), "Service.qml"), "utf8");
+        function localSetupAsk(source) {
+            const ask = source.match(/^    function localSetup\(step\) \{\n[\s\S]*?^    \}/m);
+            const ready = source.match(/^    onLifetimeChanged: (.*)$/m);
+            assert.ok(ask && ready, "the service's local-setup ask");
+            for (const [label, lifetime, running, answer, told] of [
+                ["ready", "ready", true, "waiting", [true]],
+                ["starting", "starting", true, "waiting", []],
+                ["stopped", "stopped", false, "refused: jarvis=not-running", []]
+            ]) {
+                const root = { localSetupRunning: true, localSetupRelease: "none", localSetupChild: -1, childSerial: 1, cause: "",
+                    lifetime: { kind: lifetime }, child: { running }, sent: [] };
+                root.sendLocalSetup = value => { root.sent.push(value); root.localSetupChild = root.childSerial; return true; };
+                const run = code => vm.runInNewContext("(function() { with(root) { " + code + " } }).call(root)", { root });
+                assert.equal(run("return (" + ask[0] + ")('begin');"), answer, label);
+                assert.deepEqual(root.sent, told, label + ": told at once");
+                if (lifetime === "starting") {
+                    root.lifetime = { kind: "ready" };
+                    run(ready[1]);
+                    assert.deepEqual(root.sent, [true], label + ": told once ready");
+                }
+            }
+        }
+        localSetupAsk(serviceSource);
+        {
+            const needle = '        if (lifetime.kind === "ready") sendLocalSetup(true);\n        return "waiting";';
+            assert.equal(serviceSource.split(needle).length - 1, 1, "local-setup ask control match");
+            const refusing = serviceSource.replace(needle, '        if (lifetime.kind === "ready") sendLocalSetup(true);\n        else return "refused: jarvis=not-running";\n        return "waiting";');
+            assert.throws(() => localSetupAsk(refusing), assert.AssertionError, "a refused starting daemon must turn red");
+            controls++;
+        }
+    }
 } finally { fs.rmSync(root, { recursive: true, force: true }); }
 console.log("test-jarvis-protocol: ok cases=" + cases.length + " controls=" + controls);

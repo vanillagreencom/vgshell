@@ -3,11 +3,13 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Hyprland
 import qs.Commons
+import qs.Ui
 import "." as Jarvis
 import "JarvisProtocol.js" as Protocol
 import "AccountProviders.js" as Providers
 import "Session.js" as Session
 import "SetupGate.js" as Gate
+import "WidgetView.js" as View
 import "Conversation.js" as Conversation
 
 Item {
@@ -41,11 +43,17 @@ Item {
     property int voiceOffers: 0
     // The facts the ElevenLabs voices row and the Voice provider hint follow,
     // as text, so only a changed fact publishes them again.
-    readonly property string elevenLabsFacts: shell === null ? "" : JSON.stringify([accountReader.voiceProvider,
+    readonly property string elevenLabsFacts: shell === null ? "" : JSON.stringify([voiceProvider,
         accountReader.voiceKeys === undefined ? null : accountReader.voiceKeys, shell.settings.voiceAccount, setupAnswer, voiceOffers])
     onElevenLabsFactsChanged: publishElevenLabs()
-    readonly property string voiceChoice: shell === null ? "" : shell.settings.voiceProvider
-    onVoiceChoiceChanged: publishVoiceRoute()
+    // Whether the settings `shell` holds name a Voice provider of this
+    // version: onShellChanged sets it once it finds no provider stored as
+    // "auto" before VGS-1953, which migrateVoiceProvider rewrites first.
+    property bool voiceSettled: false
+    // The voice the daemon runs, the Voice provider setting, "" without a
+    // shell and until voiceSettled, so no reader meets the old form.
+    readonly property string voiceProvider: voiceSettled && shell !== null ? shell.settings.voiceProvider : ""
+    onVoiceProviderChanged: publishVoiceRoute()
     property var homeMessage: ({ homes: [], current: "" })
     property var homePathRead: ({ kind: "empty" })
     onHomePathReadChanged: {
@@ -98,7 +106,7 @@ Item {
     // (SetupGate.dictationCause), which each hello carries.
     readonly property var dictationState: shell === null ? null : shell.dictation.state
     readonly property string dictationCause: shell === null ? ""
-        : Gate.dictationCause(Gate.voiceProvider(shell.settings, accountReader.voiceKeys), dictationState)
+        : Gate.dictationCause(voiceProvider, dictationState)
     onDictationCauseChanged: hello()
     // The daemon's dictation start that waits for the core's read after the
     // last recording's command, { message, serial }, or null.
@@ -112,8 +120,14 @@ Item {
     readonly property bool pageViewed: shell !== null && shell.status.viewed
     onPageViewedChanged: if (pageViewed) hello()
 
+    // Qt runs this handler before the bindings that read `shell` (checked
+    // with qmltestrunner on Qt 6.12), so a stored "auto" is rewritten
+    // before they read the provider, and voiceSettled withholds it from a
+    // binding either way. The rewrite publishes new settings, which the core
+    // hands back as a new `shell` once this handler returns (Plugins.qml).
     onShellChanged: {
-        if (shell === null) return;
+        voiceSettled = shell !== null && migrateVoiceProvider();
+        if (!voiceSettled) return;
         if (lifetime.kind === "new") {
             shell.shortcut.register("talk", "Talk to Jarvis",
                 () => intent("talk-down"), () => intent("talk-up"));
@@ -125,6 +139,10 @@ Item {
             // The bar widget's click and `vgshell ipc call vgs.jarvis invoke
             // mute` reach the Mute key's intent.
             shell.ipc.handle("mute", () => { intent("mute"); return "ok"; });
+            // The local voice setup's release (tui/setup-local.sh, localSetup).
+            shell.ipc.handle("local-setup", step => localSetup(step));
+            // The bar widget's click opens the console, as the Console key does.
+            shell.ipc.handle("console", () => { summonConsole(); return "ok"; });
             shell.ipc.handle("say", text => say(text));
             shell.ipc.handle("stop", () => { intent("stop"); return "ok"; });
             shell.ipc.handle("check-microphone", () => {
@@ -132,10 +150,17 @@ Item {
                 intent("voice-check");
                 return "ok";
             });
-            // The Preview and Edit actions' screens: `kind` answers whether
-            // the preview is local or cloud, `play` speaks it; the Edit
-            // screen opens the file this answers.
-            shell.ipc.handle("preview-voice", step => previewVoice(step));
+            // The speaker beside each offer of the Voice list plays it.
+            const previews = shell.status.handlePreview("voice", value => previewVoice(value));
+            if (previews !== "ok") console.warn("jarvis: preview=" + previews);
+            // A choice on the Jarvis page of the Local voice model or the
+            // Voice provider may open a setup window (voiceChosen); no other
+            // change of either does.
+            for (const key of ["localTier", "voiceProvider"]) {
+                const choices = shell.status.handleChoice(key, (value, previous) => voiceChosen(key, value, previous));
+                if (choices !== "ok") console.warn("jarvis: choice=" + key + " " + choices);
+            }
+            // The Edit action's screen opens the file this answers.
             shell.ipc.handle("personality-file", () => personalityFile());
             shell.ipc.handle("memory-confirm", text => memoryIntent("memory-confirm", text));
             shell.ipc.handle("memory-discard", text => memoryIntent("memory-discard", text));
@@ -214,6 +239,7 @@ Item {
     // (SetupGate.sessionSummary).
     function publishSetup(answer) {
         setupAnswer = answer;
+        if (voiceProvider === "") return false;
         const setupCause = localRuntime.setupCause;
         const merged = answer.kind === "answered" && setupCause !== "" && answer.causes.indexOf(setupCause) === -1
             ? { kind: "answered", causes: [setupCause].concat(answer.causes) }
@@ -223,9 +249,16 @@ Item {
         values.homePath = homePathRead.kind === "ready" ? homePathRead.path : "";
         values.setup = Gate.sessionSummary(values.setup, Gate.sessionStart(shell.settings.startAtBoot, sessionStart.result));
         values.setupVoice = Gate.dictationSetup(values.setupVoice, dictationState);
-        values.setupVoice = Gate.voiceCheck(values.setupVoice, sessionState === null ? null : sessionState.check);
+        const provider = voiceProvider;
+        const voice = Providers.cloudVoice(provider);
+        const talk = Gate.talkHint(shell.settings.mode, View.spelledKeys(shell.shortcut.keys, KeyNavLogic.keyCaps).talk);
+        values.setupVoice = Gate.voiceCheck(values.setupVoice, sessionState === null ? null : sessionState.check, talk);
         values.setupVoice = Gate.setupValue(values.setupVoice, Gate.actionRequires(values.setupVoice, shell.manifest), shell.requirements.missing, true);
+        values.setupVoice = Gate.voiceStep(values.setupVoice, { provider: provider, voice: voice, causes: merged.kind === "answered" ? merged.causes : [], talk: talk,
+            keys: accountReader.voiceKeys === undefined ? 0 : Gate.voiceKeys(accountReader.voiceKeys, voice).length,
+            size: localTier.pickSize, failure: Gate.localFailure(localRuntime.reading, localTier.wantedTier, localTier.readyTier) });
         values.setupModel = Gate.modelStep(values.setupModel, shell.status.values["keys"], accountReader.modelAccess);
+        values.setupModel = Gate.modelDone(values.setupModel, shell.status.values["brains"], shell.settings.brain);
         for (const key of Object.keys(values)) {
             const reply = shell.status.set(key, values[key]);
             if (!shell.status.isOk(reply)) throw new Error("jarvis: " + reply);
@@ -242,9 +275,10 @@ Item {
     function publishShellSetup() {
         return publishSetup(setupAnswer);
     }
-    // The optional input step from its reader's VALUE.
+    // The optional input step, its reader's VALUE unchanged: the Settings
+    // page draws an optional step's chip itself (Steps.stepView).
     function publishInput(value) {
-        const reply = shell.status.set("input", Gate.optionalStep(value));
+        const reply = shell.status.set("input", value);
         if (!shell.status.isOk(reply)) throw new Error("jarvis: " + reply);
         return reply === "ok";
     }
@@ -280,7 +314,7 @@ Item {
         taskResponse = null;
         const idle = shell.status.set("tasks", 0);
         if (!shell.status.isOk(idle)) throw new Error("jarvis: " + idle);
-        for (const key of ["voicePreview", "personality", "startText"]) {
+        for (const key of ["personality", "startText"]) {
             const unread = shell.status.set(key, { hidden: true });
             if (!shell.status.isOk(unread)) throw new Error("jarvis: " + unread);
         }
@@ -310,7 +344,7 @@ Item {
     }
 
     function hello() {
-        if (shell === null || !child.running || cause !== ""
+        if (voiceProvider === "" || !child.running || cause !== ""
                 || (lifetime.kind !== "starting" && lifetime.kind !== "ready")) return;
         const keys = shell.shortcut.keys;
         // Enablement and disposal can change the registry before the instance.
@@ -331,7 +365,7 @@ Item {
             // model choice by the account it resolves, for a hello sent
             // before the account reader's first answer.
             settings: Object.assign(settings, { sounds: feedbackSounds,
-                voiceProvider: Gate.voiceProvider(shell.settings, accountReader.voiceKeys), dictation: dictationCause },
+                voiceProvider: voiceProvider, dictation: dictationCause },
                 Providers.unlistedChoice(shell.settings, accountReader.providers[shell.settings.brain])),
             directories: {
                 state: Paths.stateDir + "/jarvis",
@@ -346,7 +380,8 @@ Item {
         try {
             Protocol.accept(wire, "shell");
             child.write(wire + "\n");
-        } catch (error) { broken(error.message); }
+        } catch (error) { broken(error.message); return; }
+        if (localSetupRelease !== "none" && localSetupChild !== childSerial) sendLocalSetup(true);
     }
 
     function intent(name) {
@@ -362,7 +397,7 @@ Item {
                 if (!publish("warning", "Jarvis will mute when it is ready; turning Jarvis off cancels this request")) return;
                 notice({ title: "Jarvis mute pending",
                     message: "Waiting for daemon; disabling Jarvis cancels this request.",
-                    tone: "warning", icon: "mic", transient: true });
+                    tone: "warning", icon: "vgs-letter-j", transient: true });
                 return;
             }
         }
@@ -475,17 +510,88 @@ Item {
         } catch (error) { broken(error.message); }
     }
 
-    function previewVoice(step) {
+    // The local voice's release for a setup-local run, which its window asks
+    // for before it installs: the daemon's local speech sidecar holds
+    // local-setup.lock shared for its whole life, and the install takes it
+    // alone. "none"; "waiting" from the ask until the daemon answers that the
+    // sidecar has exited, or the daemon itself has, since its children die
+    // with it; "released" until the run ends, which sends the end. A daemon
+    // started since the ask is told again after its hello (localSetupChild).
+    property string localSetupRelease: "none"
+    // The childSerial of the daemon last told the run started.
+    property int localSetupChild: -1
+    readonly property bool localSetupRunning: shell !== null && shell.tui.state["setup-local"] !== undefined && shell.tui.state["setup-local"].running
+    onLocalSetupRunningChanged: {
+        if (localSetupRunning || localSetupRelease === "none") return;
+        localSetupRelease = "none";
+        sendLocalSetup(false);
+    }
+    readonly property bool daemonRunning: child.running
+    onDaemonRunningChanged: if (!daemonRunning && localSetupRelease === "waiting") localSetupRelease = "released"
+    function sendLocalSetup(running) {
+        if (shell === null || cause !== "" || !child.running) return false;
+        localSetupChild = childSerial;
+        send({ type: "local-setup", running: running });
+        return true;
+    }
+    // The run's ask, STEP: `begin` tells the daemon and answers `waiting`,
+    // refused outside a setup-local run (setup-local release asks again
+    // while the core lists its run) or while no daemon runs, which holds no
+    // sidecar, so the window installs at once; `state` answers `waiting` or
+    // `released`. A daemon still starting may start its sidecar, so its ask
+    // waits: its hello, or its readiness for a hello already sent, tells it.
+    function localSetup(step) {
+        if (step === "state") return localSetupRelease === "none" ? "refused: local-setup=not-asked" : localSetupRelease;
+        if (step !== "begin") return "refused: local-setup=" + step;
+        if (!localSetupRunning) return "refused: local-setup=no-run";
+        if (localSetupRelease !== "none") return localSetupRelease;
+        if (!child.running || cause !== "" || lifetime.kind !== "ready" && lifetime.kind !== "starting")
+            return "refused: jarvis=not-running";
+        localSetupRelease = "waiting";
+        if (lifetime.kind === "ready") sendLocalSetup(true);
+        return "waiting";
+    }
+    onLifetimeChanged: if (lifetime.kind === "ready" && localSetupRelease === "waiting" && localSetupChild !== childSerial) sendLocalSetup(true)
+
+    // Play VOICE, an offer of the Voice list, in the voice provider now
+    // chosen: one fixed sentence, through the daemon's one preview route.
+    // A cloud voice speaks it with the user's key; the Voice field's info
+    // says so (Q5: one click plays, with no question).
+    function previewVoice(voice) {
         if (shell === null || lifetime.kind !== "ready" || cause !== "" || !child.running || sessionState === null)
             return "refused: jarvis=not-ready";
         const refusal = Session.previewRefusal(sessionState);
         if (refusal !== null) return "refused: preview=" + refusal;
-        // A cloud voice speaks the preview with the user's key, ElevenLabs
-        // over the local voice's engine included, so its screen asks first.
-        if (step === "kind") return Gate.cloudSpeech(Gate.voiceProvider(shell.settings, accountReader.voiceKeys)) ? "cloud" : "local";
-        if (step !== "play") return "refused: preview=step";
-        sendIntent("preview");
+        if (typeof voice !== "string" || voice === "") return "refused: preview=voice";
+        send({ type: "intent", intent: "preview", voice: voice });
         return "ok";
+    }
+
+    // The user chose VALUE for the field KEY on the Jarvis page in place of
+    // PREVIOUS (the core's choice hook). A Local voice model may open the
+    // local voice's download (LocalTier.chosen). A Voice provider opens at
+    // most one window, which SetupGate.providerWindow names: Add a key for
+    // a cloud voice with none of its keys stored, else the download for a
+    // voice that hears on this computer with no tier ready.
+    function voiceChosen(key, value, previous) {
+        if (key === "localTier") {
+            localTier.chosen(value);
+            return;
+        }
+        switch (Gate.providerWindow(previous, value, localTier.reading, accountReader.voiceKeys, Providers.cloudVoice(value))) {
+        case "add-voice-key": {
+            const answer = shell.tui.run("add-voice-key", []);
+            if (answer !== "ok") console.warn("jarvis: add-voice-key=" + answer);
+            return;
+        }
+        case "setup-local":
+            localTier.setUp();
+            return;
+        case null:
+            return;
+        default:
+            throw new Error("jarvis: provider-window unexpected");
+        }
     }
 
     // The read-only folder command uses Home.resolve, the daemon's path
@@ -518,27 +624,28 @@ Item {
     // the key's voice list as the daemon last reported it.
     function publishElevenLabs() {
         if (shell === null) return;
-        const reply = shell.status.set("elevenLabs", Gate.elevenLabsStep({ provider: accountReader.voiceProvider,
+        const reply = shell.status.set("elevenLabs", Gate.elevenLabsStep({ provider: voiceProvider,
             keys: accountReader.voiceKeys, account: shell.settings.voiceAccount, answer: setupAnswer, voices: voiceOffers }));
         if (!shell.status.isOk(reply)) throw new Error("jarvis: " + reply);
     }
 
     // The Voice provider field's hint, from the provider the user chose.
+    // Whether the settings name a Voice provider of this version. A provider
+    // stored as "auto" before VGS-1953 is rewritten in place on this first
+    // read (D107), the only reader of that form, and answers false: the
+    // rewritten settings arrive as the next `shell`.
+    function migrateVoiceProvider() {
+        if (shell.settings.voiceProvider !== "auto") return true;
+        const reply = shell.configure.set("voiceProvider", Gate.autoVoiceProvider(shell.settings));
+        if (reply !== "ok") console.warn("jarvis: voice-provider-migration=" + reply);
+        return false;
+    }
     function publishVoiceRoute() {
-        if (shell === null) return;
-        const reply = shell.status.set("voiceRoute", Gate.voiceRoute(shell.settings.voiceProvider));
+        if (voiceProvider === "") return;
+        const reply = shell.status.set("voiceRoute", Gate.voiceRoute(voiceProvider, Providers.cloudVoice(voiceProvider)));
         if (!shell.status.isOk(reply)) throw new Error("jarvis: " + reply);
     }
 
-    function publishPreview() {
-        const provider = Gate.voiceProvider(shell.settings, accountReader.voiceKeys);
-        const value = sessionState === null || Session.previewRefusal(sessionState) === "down" ? { hidden: true }
-            : Gate.cloudSpeech(provider) ? Gate.previewCost(provider)
-            : { tone: "info", text: "Plays on this computer", action: true };
-        const reply = shell.status.set("voicePreview", value);
-        if (!shell.status.isOk(reply)) throw new Error("jarvis: " + reply);
-        return reply === "ok";
-    }
 
     // The Personality row from the last personality message and the last
     // status's causes, which say whether AGENTS.md is over its budget.
@@ -654,7 +761,7 @@ Item {
                 : message.answer === "task-unknown" ? "Jarvis could not find this coding task."
                 : message.answer === "identity-mismatch" ? "Jarvis could not confirm which programs belong to this coding task."
                 : message.answer === "daemon-ending" ? "Jarvis is stopping. Try again after you turn Jarvis on."
-                : "Jarvis could not stop this coding task. Open its terminal to check it.", tone: "danger", icon: "mic" });
+                : "Jarvis could not stop this coding task. Open its terminal to check it.", tone: "danger", icon: "vgs-letter-j" });
     }
 
     // One system notification; the core sends it and no other path draws it.
@@ -962,6 +1069,10 @@ Item {
                     if (reply !== "ok") return;
                     continue;
                 }
+                if (message.type === "local-setup") {
+                    if (localSetupRelease === "waiting") localSetupRelease = "released";
+                    continue;
+                }
                 if (message.type === "tasks") {
                     const reply = shell.status.set("tasks", message.count);
                     if (!shell.status.isOk(reply)) throw new Error("jarvis: " + reply);
@@ -1021,7 +1132,7 @@ Item {
                     if (fault.kind !== "none" && (sessionState === null || JSON.stringify(sessionState.fault) !== JSON.stringify(fault)))
                         console.warn("jarvis: fault=" + fault.reason + " kind=" + fault.kind);
                     sessionState = message.state;
-                    if (!publishShellSetup() || !publishPreview()) return;
+                    if (!publishShellSetup()) return;
                     const result = shell.status.set("detail", { phase: message.phase, seq: message.seq, state: message.state, brain: message.brain });
                     if (!shell.status.isOk(result)) throw new Error("jarvis: " + result);
                     if (result !== "ok") return;
@@ -1060,7 +1171,6 @@ Item {
         // The ended child's Session state is no longer current: neither the
         // retry wait nor a problem may show or act on it.
         sessionState = null;
-        publishPreview();
         shellStatus({ kind: "unavailable", reason: "daemon-ended" });
         const stale = shell.status.set("detail", null);
         if (!shell.status.isOk(stale)) throw new Error("jarvis: " + stale);
@@ -1204,7 +1314,7 @@ Item {
     // so the row reads again when that voice changes.
     Jarvis.LocalRuntime {
         id: localRuntime
-        readonly property string provider: accountReader.voiceProvider
+        readonly property string provider: root.voiceProvider
         shell: root.shell
         // The binding's value is the function: QML records the properties
         // a binding reads while it evaluates (Qt 6 Property Binding), so
@@ -1218,11 +1328,13 @@ Item {
             cloneRuntime.refresh();
         }
     }
-    Jarvis.LocalTier { shell: root.shell }
+    // The Voice step names the download size and a failed setup from the
+    // tier reading, which can arrive after the setup answer.
+    Jarvis.LocalTier { id: localTier; shell: root.shell; onReadingChanged: root.publishShellSetup() }
     Jarvis.CloneRuntime {
         id: cloneRuntime
         shell: root.shell
-        provider: root.shell === null ? "" : Gate.voiceProvider(root.shell.settings, accountReader.voiceKeys)
+        provider: root.voiceProvider
         onRefreshed: root.hello()
     }
     Jarvis.BrowserRuntime { shell: root.shell }

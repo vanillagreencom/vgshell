@@ -14,7 +14,17 @@ import qs.Ui
 // row holds shows under it; for a status-fed string "" is the unset value,
 // never a custom one. A custom datetime string validates before it writes.
 // A bounded number uses Slider, and a unit makes its value read as a
-// quantity.
+// quantity. A status-fed select whose entry declares `addChoice` ends its
+// list with that entry, led by the plus mark, which asks the page to open
+// the plugin's screen that adds an offer and stores nothing; one that
+// declares `preview` draws a speaker button beside each offer, which asks
+// the plugin to play it. An enum whose options form groups (PluginLogic.groupsOf, the
+// manager row's `groups`) draws one segment per group; a group of one
+// option stores it when pressed, and under the group of several a second
+// row, labelled by the entry's `groupLabel`, chooses among them with a
+// Select. Pressing that group's segment while another group's option is
+// stored opens its list and stores nothing until a choice; the list
+// closed with none puts the segments back.
 //
 // Every editor but a text one writes at once. A text editor keeps what is
 // typed until it is saved: Enter in it writes it, a loss of focus writes
@@ -39,6 +49,17 @@ Column {
     property var spec: ({})
     property var value
     property var choices: []
+    // An enum's option groups, each { name, values } (PluginLogic.fieldRows).
+    property var groups: []
+    // The group whose segment was pressed while its list waits for a
+    // choice, "" for none: the stored value's group draws otherwise.
+    property string pendingGroup: ""
+    readonly property int valueGroup: groups.findIndex(group => group.values.indexOf(value) !== -1)
+    readonly property int shownGroup: pendingGroup !== "" ? groups.findIndex(group => group.name === pendingGroup) : valueGroup
+    // The options of the shown group when it holds several, which the
+    // group row's Select offers; none otherwise.
+    readonly property var groupOptions: shownGroup < 0 || groups[shownGroup].values.length < 2 ? []
+        : spec.options.filter(option => groups[shownGroup].values.indexOf(option.value) !== -1)
     // The manager row resolves the schema's problem from plugin status.
     property string problem: ""
     property bool editable: true
@@ -69,7 +90,7 @@ Column {
     readonly property bool edited: editing(loader.item) || editing(customLoader.item)
     // Whether the field ends in a description or an error line, which
     // takes the room under it a Field takes (Theme.subTextRoom).
-    readonly property bool subText: (customVisible ? customField : primary).subText
+    readonly property bool subText: (customVisible ? customField : groupOptions.length > 0 && groupRow.item !== null ? groupRow.item : primary).subText
     // A key/value row: the row under it stands by ink (Field).
     readonly property bool keyValueRow: true
     signal apply(var value)
@@ -78,6 +99,13 @@ Column {
     // The select of a status-fed string opened: the page asks the plugin
     // to read its choices again.
     signal choicesWanted()
+    // The entry's `addChoice` was chosen: the page opens its screen, which
+    // adds an offer; the field stores nothing.
+    signal addWanted()
+    // The speaker beside the offer VALUE, its own id, was pressed
+    // (`preview`): the page asks the plugin to play it; the field stores
+    // nothing.
+    signal previewWanted(var value)
 
     width: parent === null ? implicitWidth : parent.width
     spacing: Theme.field.gap
@@ -203,12 +231,60 @@ Column {
             id: loader
             width: parent.width
             sourceComponent: root.spec.type === "boolean" ? toggle
+                : root.groups.length > 0 ? groupedSegments
                 : root.spec.type === "enum" && root.spec.options.length <= root.segmentedLimit ? segmented
                 : root.spec.type === "enum" || root.spec.optionsFrom !== undefined ? choice
                 : root.multiple ? multipleChoice
                 : root.hasPresets ? presetChoice
                 : root.bounded ? slider
                 : text
+        }
+    }
+
+    // Open the group row's list, once the row shows the pressed group.
+    function openGroupList() {
+        if (groupRow.item !== null) groupRow.item.select.openList();
+    }
+
+    // The second row of a grouped enum: the shown group's options, while
+    // that group holds several. Only a grouped enum builds it.
+    Loader {
+        id: groupRow
+        width: root.width
+        active: root.groups.length > 0
+        visible: root.groupOptions.length > 0
+        sourceComponent: groupFieldComponent
+    }
+    Component {
+        id: groupFieldComponent
+        Field {
+            id: groupField
+            readonly property alias select: groupSelect
+            width: root.width
+            label: root.spec.groupLabel === undefined ? "" : String(root.spec.groupLabel)
+            inline: true
+
+            Select {
+                id: groupSelect
+                width: parent.width
+                readonly property int chosen: root.groupOptions.findIndex(option => option.value === root.value)
+                model: root.groupOptions
+                textRole: "label"
+                placeholderText: root.spec.groupLabel === undefined ? "" : "Choose a " + String(root.spec.groupLabel).toLowerCase()
+                currentIndex: chosen
+                enabled: root.editable
+                onActivated: index => {
+                    const option = root.groupOptions[index];
+                    currentIndex = Qt.binding(() => chosen);
+                    root.pendingGroup = "";
+                    if (option.value !== root.value) root.apply(option.value);
+                }
+                // A list closed with no choice stores nothing and puts the
+                // stored value's segment back. Select emits `activated` before
+                // it closes its list (Select.choose), so a choice has already
+                // cleared the pending group here.
+                onListOpenChanged: if (!listOpen && root.pendingGroup !== "") root.pendingGroup = ""
+            }
         }
     }
 
@@ -321,13 +397,21 @@ Column {
             readonly property bool dynamic: root.statusFed
             // It reads no value, so the Custom… row adds no rebuild on a
             // write.
+            // A speaker beside each offer (PluginLogic.settingChoices
+            // `offer`), none beside an unavailable stored value.
+            readonly property var offers: !dynamic || root.spec.preview !== true ? root.choices
+                : root.choices.map(choice => ({ label: choice.label, value: choice.value, offer: choice.offer, preview: choice.offer !== undefined }))
             readonly property var rows: !dynamic ? root.spec.options
-                : root.allowCustom ? root.choices.concat([{ label: "Custom…", custom: true }])
-                : root.choices
+                : offers.concat(root.allowCustom ? [{ label: "Custom…", custom: true }] : [],
+                    root.spec.addChoice === undefined ? [] : [{ label: root.spec.addChoice.label, add: true, icon: "plus" }])
             readonly property int configuredIndex: dynamic ? root.selectedOfferIndex : root.optionIndex
             readonly property int shownIndex: configuredIndex >= 0 ? configuredIndex : root.customVisible ? root.choices.length : -1
             model: rows
             textRole: "label"
+            iconRole: "icon"
+            actionRole: "preview"
+            entryAction: root.spec.preview === true ? { iconName: "volume-2", label: "Play" } : null
+            onEntryActionActivated: index => root.previewWanted(rows[index].offer)
             // A plugin that is off publishes no choices, so nothing was
             // looked for.
             emptyText: !dynamic ? "" : root.editable ? "None found yet" : "Not reported"
@@ -342,9 +426,46 @@ Column {
                     root.customChosen = true;
                     return;
                 }
+                if (dynamic && row.add === true) {
+                    root.addWanted();
+                    return;
+                }
                 root.customChosen = false;
                 if (row.value === root.value) return;
                 root.apply(row.value);
+            }
+        }
+    }
+
+    Component {
+        id: groupedSegments
+        Item {
+            width: parent.width
+            implicitHeight: groupSeg.implicitHeight
+            function inkEnd() { return groupSeg.x + groupSeg.width; }
+
+            SegmentedControl {
+                id: groupSeg
+                width: implicitWidth
+                model: root.groups.map(group => group.name)
+                currentIndex: root.shownGroup
+                enabled: root.editable
+                onActivated: index => {
+                    currentIndex = Qt.binding(() => root.shownGroup);
+                    const group = root.groups[index];
+                    if (index === root.valueGroup) {
+                        root.pendingGroup = "";
+                        return;
+                    }
+                    if (group.values.length === 1) {
+                        root.pendingGroup = "";
+                        root.apply(group.values[0]);
+                        return;
+                    }
+                    root.pendingGroup = group.name;
+                    // The group row shows once the binding above settles.
+                    Qt.callLater(root.openGroupList);
+                }
             }
         }
     }

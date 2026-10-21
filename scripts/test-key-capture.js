@@ -196,6 +196,7 @@ try {
     fs.mkdirSync(path.join(temp, "shell", "Ui", "icons"), { recursive: true });
     fs.mkdirSync(path.join(temp, "shell", "Commons"), { recursive: true });
     fs.symlinkSync(LUCIDE, path.join(temp, "shell", "Ui", "icons", "Lucide.js"));
+    fs.symlinkSync(path.join(path.dirname(LUCIDE), "Own.js"), path.join(temp, "shell", "Ui", "icons", "Own.js"));
     fs.symlinkSync(MANAGERS, path.join(temp, "shell", "Core", "PackageManagers.js"));
     fs.symlinkSync(path.join(path.dirname(MANAGERS), "ConfigLogic.js"), path.join(temp, "shell", "Core", "ConfigLogic.js"));
     fs.symlinkSync(LAYER, path.join(temp, "shell", "Core", "HyprlandLayer.js"));

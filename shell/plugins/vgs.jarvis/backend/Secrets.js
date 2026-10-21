@@ -86,6 +86,21 @@ class Secrets {
 
     identity(ref) { return JSON.stringify([ref.provider, ref.account, ref.origin]); }
 
+    // The stored list's revision, "" while there is none. Every write renames
+    // a new file into place (#write), so a key stored again under its name,
+    // whose reference stays the same, still gives a new revision. The inode
+    // alone could come back after two writes; with the change time in
+    // nanoseconds it does not.
+    revision() {
+        let stat;
+        try { stat = fs.lstatSync(this.file, { bigint: true }); }
+        catch (error) {
+            if (error.code === "ENOENT") return "";
+            fail("references=read-failed");
+        }
+        return stat.ino + ":" + stat.mtimeNs;
+    }
+
     #referenceUpdate(value) {
         const ref = reference(value);
         const refs = this.references();
@@ -141,17 +156,29 @@ class Secrets {
         }
     }
 
-    addKey(ref) {
-        const own = ownReference(ref.provider, ref.account, ref.origin);
-        this.#referenceUpdate(own);
-        if (!process.stdin.isTTY) fail("store=terminal-required");
-        // secret-tool uses getpass on the controlling terminal when stdin
-        // is a TTY. Jarvis never receives the key. Keep stdout/stderr private:
-        // getpass's masked prompt uses /dev/tty, not these output pipes.
-        const output = this.run("secret-tool", ["store", "--label=Jarvis provider key",
-            ...this.attributes(own)], { stdio: ["inherit", "pipe", "pipe"], timeout: 0 });
-        output.fill(0);
-        this.remember(own);
+    // Refuse, as addKey would, a key the list cannot take under REF, so
+    // the add-key window says so before it asks for the key.
+    checkAdd(ref) { this.#referenceUpdate(ownReference(ref.provider, ref.account, ref.origin)); }
+
+    // Store KEY, a Buffer holding the key the user pasted into the add-key
+    // window's masked box, which read it from that window's pipe, under REF.
+    // It reaches secret-tool on stdin alone, which reads a non-terminal
+    // stdin to its end; the buffer is zeroed after the write, refused or
+    // not (docs/architecture/secrets.md). An empty key, an Escape in the
+    // box, stores nothing.
+    addKey(ref, key) {
+        try {
+            if (!Buffer.isBuffer(key) || key.length === 0) fail("store=empty");
+            if (key.length > MAX_SECRET_BYTES) fail("store=oversize");
+            const own = ownReference(ref.provider, ref.account, ref.origin);
+            this.#referenceUpdate(own);
+            const output = this.run("secret-tool", ["store", "--label=Jarvis provider key",
+                ...this.attributes(own)], { input: key, timeout: 0 });
+            output.fill(0);
+            this.remember(own);
+        } finally {
+            if (Buffer.isBuffer(key)) key.fill(0);
+        }
     }
 
     // Removes the one remembered key PROVIDER and ACCOUNT name, and answers

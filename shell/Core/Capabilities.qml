@@ -169,7 +169,7 @@ Singleton {
             setEnabled: (id, enabled) => typeof enabled === "boolean" ? Plugins.setEnabled(id, enabled) : "refused: enabled=" + JSON.stringify(enabled) + " want=boolean",
             setPlaced: (id, placed) => typeof placed === "boolean" ? Plugins.setPlaced(id, placed) : "refused: placed=" + JSON.stringify(placed) + " want=boolean",
             moveWidget: (id, section, index) => typeof section !== "string" ? "refused: section=" + JSON.stringify(section) + " want=string" : typeof index === "number" && Number.isInteger(index) && index >= 0 ? Plugins.moveWidget(id, section, index, null) : "refused: index=" + JSON.stringify(index) + " want=integer>=0",
-            setSetting: (id, key, value) => Plugins.setSetting(id, key, value),
+            setSetting: (id, key, value) => root.managerChoose(id, key, value),
             setKey: (id, shortcut, key) => Plugins.setKey(id, shortcut, key),
             update: id => root.managerTui("update", id),
             remove: id => root.managerTui("remove", id),
@@ -179,10 +179,12 @@ Singleton {
             rescan: () => Registry.rescan().answer,
             act: (id, key, row, rowAction) => root.managerAct(id, key, row, rowAction),
             refreshChoices: (id, key) => PluginStatus.refresh(id, key),
+            previewChoice: (id, key, value) => PluginStatus.preview(id, key, value),
             viewPage: id => { PluginStatus.viewed = id; },
             open: id => root.managerOpen(id),
             openPane: id => root.managerOpenPane(id),
             openTui: (id, name) => root.managerOpenTui(id, name),
+            addChoice: (id, key) => root.managerAddChoice(id, key),
             storeSecret: (id, key, account, secret, done) => root.managerSecret(ctx, "store", id, key, account, secret, done),
             clearSecret: (id, key, account, done) => root.managerSecret(ctx, "clear", id, key, account, null, done)
         }),
@@ -221,12 +223,18 @@ Singleton {
         // own Status rows as the Settings page draws them, so its surfaces
         // take each entry's tone and offered action from the one owner.
         // `handleRefresh` registers what the plugin runs when Settings opens
-        // the select one of its `choices` entries feeds. `viewed` holds
+        // the select one of its `choices` entries feeds, and `handlePreview`
+        // what it runs when the user presses the speaker beside an offer of
+        // a field that declares `preview`, and `handleChoice` what it runs
+        // after the user chooses a value of one of its fields on its page
+        // (managerChoose). `viewed` holds
         // while the Settings window shows the plugin's page.
         status: ctx => ({
             set: (key, value) => PluginStatus.set(ctx, key, value),
             isOk: Logic.statusReplyOk,
             handleRefresh: (key, handler) => PluginStatus.handleRefresh(ctx, key, handler),
+            handlePreview: (key, handler) => PluginStatus.handlePreview(ctx, key, handler),
+            handleChoice: (key, handler) => PluginStatus.handleChoice(ctx, key, handler),
             act: (key, row, rowAction) => root.managerAct(ctx.id, key, row, rowAction),
             get rows() { return Logic.statusRows(Registry.manifests[ctx.id], PluginStatus.valuesOf(ctx.id)); },
             get values() { return PluginStatus.valuesOf(ctx.id); },
@@ -432,6 +440,32 @@ Singleton {
     function managerOpenTui(id, name) {
         const subject = managerSubject(id);
         const request = Logic.listedTuiRequest(subject.manifest, id, name);
+        return request.ok ? root.managerStep(id, request) : request.answer;
+    }
+
+    // The user's choice of VALUE for plugin ID's field KEY on its Settings
+    // page: written as Plugins.setSetting writes it, then, when the write is `ok`
+    // and changed the field's effective value, handed to the plugin's
+    // choice handler (PluginStatus.handleChoice) with the value it
+    // replaced. Config.writeUser publishes the effective settings before it
+    // answers, so the handler reads the new value in `shell.settings`. Only
+    // this route reaches the handler, so a config-file change, a reload, a
+    // migration or a write through configure.set starts nothing.
+    function managerChoose(id, key, value) {
+        const manifest = typeof id === "string" && Registry.has(id) ? Registry.manifests[id] : null;
+        const before = manifest === null ? undefined : Logic.settingsFor(Config.effective, manifest)[key];
+        const reply = Plugins.setSetting(id, key, value);
+        if (reply !== "ok") return reply;
+        const after = Logic.settingsFor(Config.effective, manifest)[key];
+        if (JSON.stringify(after) !== JSON.stringify(before)) PluginStatus.chosen(id, key, after, before);
+        return reply;
+    }
+
+    // The screen the Add entry of plugin ID's field KEY opens
+    // (PluginLogic.addChoiceRequest).
+    function managerAddChoice(id, key) {
+        const subject = managerSubject(id);
+        const request = Logic.addChoiceRequest(subject.manifest, id, subject.enabled, key);
         return request.ok ? root.managerStep(id, request) : request.answer;
     }
 

@@ -24,12 +24,14 @@ function width(text) {
     return value;
 }
 
-// An account by its sign-in email where the program reports one.
+// An account by its sign-in email where the program reports one. An app
+// account whose email is unknown has no name: its folder's name is none
+// the user gave it (Accounts.js accountLabel).
 function accountName(account) {
     if (account.email) return account.email;
     if (account.source.kind === "local") return "This computer";
     if (account.source.kind === "variable") return "Environment variable";
-    return account.label;
+    return account.source.kind === "cli" ? "" : account.label;
 }
 
 function status(account) {
@@ -88,7 +90,7 @@ async function main() {
         const columns = width(args[1]);
         judge.discover();
         await Promise.all([judge.readEmails(), judge.readModels()]);
-        lines = judge.accounts.map(account => choiceLine(label(account.provider) + ": " + accountName(account)
+        lines = judge.accounts.map(account => choiceLine(label(account.provider) + (accountName(account) === "" ? "" : ": " + accountName(account))
             + " (" + status(account) + ")", account.id, columns));
         break;
     }
@@ -112,7 +114,7 @@ async function main() {
         if (args.length !== 3) fail("arguments=sign-in-folders");
         const columns = width(args[2]);
         lines = [choiceLine("New account", "new", columns), ...judge.signInFolders(args[1]).map(item =>
-            choiceLine(item.label + " / " + item.directory.replace(judge.home + "/", "~/"),
+            choiceLine(item.directory.replace(judge.home + "/", "~/"),
                 item.id, columns))];
         break;
     }

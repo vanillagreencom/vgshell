@@ -138,6 +138,20 @@ Item {
     Select { id: bound; y: 120; model: ["one", "two", "three"]; currentIndex: root.wanted }
     Select { id: longSelect; y: 160; model: ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p"] }
     Select { id: emptySelect; y: 200; model: []; emptyText: "Nothing to choose" }
+    // A select whose offers each play on request, ended by an Add entry
+    // that plays nothing, as a voice field draws it (`preview`,
+    // `addChoice`).
+    Select {
+        id: previewing
+        y: 240
+        textRole: "label"
+        iconRole: "icon"
+        actionRole: "preview"
+        entryAction: ({ iconName: "volume-2", label: "Play" })
+        model: [{ label: "Puck", preview: true }, { label: "Kore", preview: true }, { label: "Add a voice", icon: "plus" }]
+    }
+    SignalSpy { id: previewChoices; target: previewing; signalName: "activated" }
+    SignalSpy { id: previewPresses; target: previewing; signalName: "entryActionActivated" }
     property int triggered: -1
     property int reached: 0
     MouseArea { id: under; x: 250; width: 50; height: 30; onPressed: root.reached += 1 }
@@ -889,6 +903,98 @@ Item {
             // The list's content sits in the popup's DismissScope.
             const scope = window.contentItem.children.find(child => child.popup !== undefined);
             return scope.children.find(child => child.currentIndex !== undefined);
+        }
+
+        // The open previewing list, its window active and its keys its own.
+        function openPreviewing() {
+            previewing.choose(0);
+            previewChoices.clear();
+            previewPresses.clear();
+            previewing.openList();
+            const list = selectList(previewing);
+            tryVerify(() => list.itemAtIndex(2) !== null, 1000, "the list builds its entries");
+            list.Window.window.requestActivate();
+            list.forceActiveFocus();
+            tryCompare(list.Window, "active", true);
+            tryCompare(list, "activeFocus", true);
+            wait(0);
+            return list;
+        }
+        function entryButton(list, index) {
+            const entry = list.itemAtIndex(index);
+            let found = [entry];
+            for (let i = 0; i < found.length; i++) for (const child of found[i].children || []) found.push(child);
+            return found.find(child => child instanceof IconButton && child.visible);
+        }
+        function pressIndexes() {
+            const out = [];
+            for (let i = 0; i < previewPresses.count; i++) out.push(previewPresses.signalArguments[i][0]);
+            return out;
+        }
+
+        // In the open list Right moves the keyboard to the highlighted
+        // entry's button, and Enter or Space presses it: the entry's action
+        // runs, nothing is chosen and the list stays open. Left takes the
+        // keyboard back, where Enter chooses the entry.
+        function test_right_reaches_an_entry_button_and_enter_presses_it() {
+            const list = openPreviewing();
+            compare([entryButton(list, 0) !== undefined, entryButton(list, 1) !== undefined, entryButton(list, 2)], [true, true, undefined], "each offer draws its button, the Add entry none");
+            compare(entryButton(list, 0).label, "Play Puck");
+            keyClick(Qt.Key_Right);
+            verify(previewing.entryActionFocused, "Right moves the keyboard to the button");
+            verify(entryButton(list, 0).focusPreview, "the button shows the keyboard");
+            keyClick(Qt.Key_Return);
+            keyClick(Qt.Key_Space);
+            compare(pressIndexes(), [0, 0], "Enter and Space press the button");
+            compare(previewChoices.count, 0, "the press chooses nothing");
+            verify(previewing.listOpen, "the list stays open");
+            verify(entryButton(list, 0).checked, "the pressed button reads checked");
+            keyClick(Qt.Key_Left);
+            verify(!previewing.entryActionFocused, "Left takes the keyboard back to the entry");
+            keyClick(Qt.Key_Down);
+            keyClick(Qt.Key_Return);
+            compare([previewChoices.count, previewing.currentIndex, previewing.listOpen, pressIndexes()], [1, 1, false, [0, 0]], "Enter on the entry chooses it");
+        }
+
+        // No arrow presses a button: Up and Down move the highlight and
+        // take the keyboard back to the entry, at the list's end too, and
+        // Right on an entry with no button stays on the entry.
+        function test_arrows_never_press_an_entry_button() {
+            const list = openPreviewing();
+            keyClick(Qt.Key_Right);
+            verify(previewing.entryActionFocused, "Right moves the keyboard to the button");
+            keyClick(Qt.Key_Down);
+            compare([list.highlightIndex, previewing.entryActionFocused], [1, false], "Down moves the highlight and leaves the button");
+            keyClick(Qt.Key_Right);
+            keyClick(Qt.Key_Up);
+            compare([list.highlightIndex, previewing.entryActionFocused], [0, false], "Up moves the highlight and leaves the button");
+            keyClick(Qt.Key_Right);
+            keyClick(Qt.Key_Up);
+            compare([list.highlightIndex, previewing.entryActionFocused], [0, false], "Up at the list's start leaves the button too");
+            keyClick(Qt.Key_Down);
+            keyClick(Qt.Key_Down);
+            keyClick(Qt.Key_Right);
+            compare([list.highlightIndex, previewing.entryActionFocused], [2, false], "an entry with no button keeps the keyboard");
+            keyClick(Qt.Key_Left);
+            compare(pressIndexes(), [], "no arrow pressed a button");
+            compare(previewChoices.count, 0);
+            previewing.choose(0);
+        }
+
+        // A pointer over an entry's button highlights that entry, as over
+        // the entry, and presses nothing; a click on the button runs its
+        // action, chooses nothing and keeps the list open.
+        function test_an_entry_button_takes_the_pointer_as_its_entry_does() {
+            const list = openPreviewing();
+            const button = entryButton(list, 1);
+            mouseMove(button, 4, 4);
+            mouseMove(button, 6, 4);
+            compare(list.highlightIndex, 1, "a hover over the button highlights its entry");
+            compare(pressIndexes(), [], "a hover presses nothing");
+            mouseClick(button);
+            compare([pressIndexes(), previewChoices.count, previewing.listOpen], [[1], 0, true], "a click presses the button alone");
+            leaveWindow(list);
+            previewing.choose(0);
         }
 
         function test_select_list_highlights_through_its_cursor() {

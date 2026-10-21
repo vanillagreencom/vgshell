@@ -254,7 +254,7 @@ function instrument(file, root, engine = "chained", mappedIndicator = false) {
     edit(file, changes);
     fs.copyFileSync(__filename, path.join(path.dirname(file), "scripted-fixture.js"));
     edit(path.join(path.dirname(file), "ChainedEngine.js"), [
-        ["plan = select(settings, accounts, directories, listed, modelOffers);", 'plan = require("./scripted-fixture.js").readyPlan();'],
+        ["plan = select(settings, accounts, directories, listed, modelOffers, refusedKey);", 'plan = require("./scripted-fixture.js").readyPlan();'],
         ['const DRIVERS = Object.freeze({ "openai-chat": OpenAIChat,',
             'const DRIVERS = Object.freeze({ scripted: require("./scripted-fixture.js").driver, "openai-chat": OpenAIChat,']
     ]);
@@ -371,7 +371,10 @@ if (require.main === module) {
     else if (process.argv.length === 4 && process.argv[2] === "--chained-engine") chainedEngine(process.argv[3]);
     else if (process.argv.length === 4 && process.argv[2] === "--dictation-brain") dictationBrain(process.argv[3]);
     else if (process.argv.length === 4 && process.argv[2] === "--held-approvals") heldApprovals(process.argv[3]);
-    else if (process.argv.length === 4 || (process.argv.length === 5 && process.argv[4] === "--mapped-indicator"))
-        instrument(process.argv[2], process.argv[3], "chained", process.argv[4] === "--mapped-indicator");
+    else if (process.argv.length >= 4 && process.argv.slice(4).every(flag => ["--mapped-indicator", "--duplex"].includes(flag))
+            && new Set(process.argv.slice(4)).size === process.argv.length - 4)
+        // --duplex snapshots the engine as a duplex voice, which takes no
+        // typed message (Session.sayRefusal).
+        instrument(process.argv[2], process.argv[3], process.argv.includes("--duplex") ? "duplex" : "chained", process.argv.includes("--mapped-indicator"));
     else throw new Error("scripted: arguments");
 }

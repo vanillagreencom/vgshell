@@ -93,6 +93,34 @@ function accepted(resolved, state, model, listed = { kind: "none" }) {
     }
     return { kind: "accepted", account: resolved };
 }
+// The label an account reads by on the Jarvis page, in the account
+// window and on the session row: its provider, then for an app account its
+// sign-in email, the provider alone while that email is unknown, since a
+// folder's name is no name the user gave the account; a key reads by the
+// name it was stored under. "Claude Code, beijuan@vanillagreen.com".
+function accountLabel(item) {
+    const name = item.source.kind === "cli" ? item.email || "" : item.label;
+    return (provider(item.provider).label + (name === "" ? "" : ", " + name)).slice(0, 60);
+}
+
+// Each of ITEMS' labels (accountLabel), by item: accounts that would read
+// the same, such as two Pi folders or two Codex logins with no email, read
+// by their place among them in ITEMS' order, "Pi, account 2", so the user
+// can tell the account a choice stores, still without a folder's name.
+function accountLabels(items) {
+    const plain = items.map(accountLabel);
+    const shared = label => plain.filter(other => other === label).length > 1;
+    const seen = new Map();
+    return new Map(items.map((item, index) => {
+        const label = plain[index];
+        if (!shared(label)) return [item, label];
+        const place = (seen.get(label) ?? 0) + 1;
+        seen.set(label, place);
+        const suffix = ", account " + place;
+        return [item, label.slice(0, 60 - suffix.length) + suffix];
+    }));
+}
+
 // Only a label that is itself an email names an identity to compare.
 function identityOf(label, email) {
     return { kind: email && label.includes("@") && email !== label ? "mismatch" : "match" };
@@ -407,18 +435,36 @@ class Accounts {
     async readEmails({ deadlineMs } = {}) {
         await Promise.all(this.accounts.filter(item => item.provider === "codex" && item.source.kind === "cli"
             && item.state.kind === "signed-in").map(async item => {
-            let email = "";
-            try {
-                const { account } = await Core.codexAccount().read({ directory: item.source.directory, env: this.env, cwd: this.home,
-                    deadlineMs: deadlineMs ?? EMAIL_MS, clientInfo: { ...CLIENT } });
-                email = account.kind === "chatgpt" ? account.email : "";
-            } catch (error) {
-                if (error.reason === undefined) throw error;
-                email = "";
-            }
-            item.email = email;
-            item.identity = identityOf(item.label, email);
+            item.email = await this.codexEmail(item.source.directory, deadlineMs ?? EMAIL_MS);
+            item.identity = identityOf(item.label, item.email);
         }));
+    }
+
+    // The sign-in email of the Codex account in DIRECTORY, "" for none.
+    async codexEmail(directory, deadlineMs) {
+        try {
+            const { account } = await Core.codexAccount().read({ directory, env: this.env, cwd: this.home,
+                deadlineMs, clientInfo: { ...CLIENT } });
+            return account.kind === "chatgpt" ? account.email : "";
+        } catch (error) {
+            if (error.reason === undefined) throw error;
+            return "";
+        }
+    }
+
+    /**
+     * The label (accountLabel) of the app account PROVIDERID signs in from
+     * DIRECTORY, read now as the account read reads it: the running Jarvis
+     * session's account, which session-control.js names. Its vendor status
+     * command runs under COMMAND_MS and a Codex email read under EMAIL_MS,
+     * as on the Jarvis page; an absent folder or a provider that is no app
+     * reads by its provider alone.
+     */
+    async label(providerId, directory) {
+        const item = provider(providerId).kind === "cli" ? this.cliAccount({ provider: providerId, directory, label: "" }) : null;
+        if (item === null) return accountLabel({ provider: providerId, source: { kind: "cli" }, email: "" });
+        if (item.provider === "codex" && item.state.kind === "signed-in") item.email = await this.codexEmail(directory, EMAIL_MS);
+        return accountLabel(item);
     }
 
     // Whether each found Pi setup lists a model, all at once.
@@ -894,11 +940,10 @@ class Accounts {
      * whether its Pi is older than the Pi brain's floor, the brain choices, and the search's found count and partial reason. No
      * reason code leaves. A signed-out account reads signed-out. The brain
      * choices are the accounts accepted() takes, grouped by
-     * provider and sorted by email: a harness with one account reads as its
-     * name; with more accounts it reads each by the sign-in email, or by the
-     * folder label when it has no email; a key reads as provider / label.
+     * provider and sorted by email. Every label is accountLabels'.
      */
     status() {
+        const labels = accountLabels(this.accounts);
         const accounts = this.accounts.map(item => {
             const row = provider(item.provider);
             const out = signedOut(item.source, item.state.kind);
@@ -909,7 +954,7 @@ class Accounts {
             case "unavailable": value = "unavailable"; break;
             default: fail("state=unknown");
             }
-            return { label: (row.label + " / " + item.label).slice(0, 60), value, provider: item.provider, state: item.state.kind,
+            return { label: labels.get(item), value, provider: item.provider, state: item.state.kind,
                 source: item.source.kind, plan: item.plan || "", email: item.email || "",
                 mismatch: item.identity.kind === "mismatch", signIn: out && Array.isArray(row.signIn),
                 update: item.state.kind === "unavailable" && item.state.reason === "pi-update" };
@@ -920,14 +965,7 @@ class Accounts {
         const order = (left, right) => left < right ? -1 : left > right ? 1 : 0;
         // Every label starts with its provider's name, so label order groups
         // the choices by provider and orders a harness's by email.
-        const brains = offered.map(item => {
-            const row = provider(item.provider);
-            let label = row.label + " / " + item.label;
-            const one = offered.filter(other => other.provider === item.provider).length === 1;
-            if (item.source.kind === "cli")
-                label = one ? row.label : item.email ? row.label + " / " + item.email : row.label + " / " + item.label;
-            return { value: item.id, label: label.slice(0, 60) };
-        }).sort((left, right) => order(left.label, right.label) || order(left.value, right.value)).slice(0, MAX_ROWS);
+        const brains = offered.map(item => ({ value: item.id, label: labels.get(item) })).sort((left, right) => order(left.label, right.label) || order(left.value, right.value)).slice(0, MAX_ROWS);
         // The keys of the cloud voices' providers: OpenAI's serve Realtime,
         // Gemini's serve Gemini Live and ElevenLabs's speak the replies. An
         // ElevenLabs key runs no AI model, so its stored key alone offers it.
@@ -935,7 +973,7 @@ class Accounts {
         const voiced = item => ["openai", "gemini"].includes(item.provider) ? offered.includes(item)
             : item.provider === "elevenlabs" && resolve(item.id)?.source.kind === "keyring";
         const voiceAccounts = usable.filter(voiced)
-            .map(item => ({ value: item.id, label: (provider(item.provider).label + " / " + item.label).slice(0, 60), provider: item.provider }))
+            .map(item => ({ value: item.id, label: labels.get(item), provider: item.provider }))
             .sort((left, right) => order(left.label, right.label) || order(left.value, right.value));
         // Each offered account's provider by its id: the service chooses an
         // unset model by it (AccountProviders.unlistedChoice).
@@ -944,4 +982,4 @@ class Accounts {
     }
 }
 
-module.exports = { Accounts, accountRoots, provider };
+module.exports = { Accounts, accountRoots, accountLabel, provider };

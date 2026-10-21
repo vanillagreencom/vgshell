@@ -21,7 +21,14 @@
 # binding breaks; a change opens local setup with the wanted tier,
 # Automatic with none; the run's end writes back the tier it left ready,
 # which opens nothing, and nor does a wanted tier that is ready. Its
-# control is a LocalTier copy that opens no run. The Cloned voice: the
+# control is a LocalTier copy that opens no run. Each change is chosen on the
+# Jarvis page; a change of the configuration file opens nothing, though the
+# page shows, which a reader copy that takes every change for a choice
+# breaks. A replacement over the ready tier while the sidecar stand-in holds
+# the setup lock ends ready, not busy, once the shell released the local
+# voice, and the run's end starts the sidecar again; a service copy that
+# releases nothing leaves it busy. A failed run's Voice step names the
+# chosen tier, links the setup log and offers Set up local voice. The Cloned voice: the
 # Settings tab's Local voice section draws its setting and attached state.
 # Details draws no copy. The reader answers as setup-local does. Its text
 # action opens the clone setup.
@@ -122,17 +129,25 @@ print(json.dumps(out))
 setup_fresh='[["setupModel", [["To do", "warning"]], []], ["setupVoice", [["To do", "warning"]], ["Set up local voice"]]]'
 setup_voice_left='[["setupModel", [["Done", "success"]], []], ["setupVoice", [["To do", "warning"]], ["Set up local voice"]]]'
 setup_ready='[["setupModel", [["Done", "success"]], []], ["setupVoice", [["To do", "warning"]], ["Check microphone"]]]'
-# The Setup tab draws no optional rows or screens and each required step
-# uses the required chip vocabulary. Required local voice setup appears once.
+# The Setup rows that break the manifest's steps: a row no step declares,
+# a required step (`setup: true`, or the core's Tools step for the
+# required commands) with a chip other than To do or Done, an
+# optional one (`setup: "optional"`, or the core's Optional tools step for
+# the optional commands) with a warning chip, or Set up local voice
+# offered twice.
 setup_once() {
   ipc smoke setupRows window vgs.settings | py_reply '
 import json,sys
 rows=json.load(sys.stdin)
-forbidden={"setup", "clonedVoiceSetup", "browser", "input", "localRuntime", "keys", "copilotMemory", "setupFleet"}
-violations=[r["key"] for r in rows if r["key"] in forbidden or r["chips"] not in ([["To do","warning"]], [["Done","success"]]) and not (r["key"] == "optional-tools" and r["chips"] == [["Optional","neutral"]])]
+status=json.load(open(sys.argv[1]))["status"]
+required={k for k,e in status.items() if e.get("setup") is True} | {"required-tools"}
+optional={k for k,e in status.items() if e.get("setup") == "optional"} | {"optional-tools"}
+violations=[r["key"] for r in rows if r["key"] not in required | optional
+    or (r["key"] in required and r["chips"] not in ([["To do","warning"]], [["Done","success"]]))
+    or (r["key"] in optional and any(tone == "warning" for _, tone in r["chips"]))]
 if sum(b["text"] == "Set up local voice" for r in rows for b in r["buttons"]) > 1: violations.append("setup-local-repeated")
 print(json.dumps(violations) if rows else "absent")
-'
+' "$repo/shell/plugins/vgs.jarvis/manifest.json"
 }
 # BRAIN as the Jarvis AI model setting, "" for none, delivered by a reload.
 setup_brain() { # BRAIN
@@ -281,6 +296,16 @@ print(json.dumps(value))
 PY
   expect "deliver the Local voice setting $1" ok ipc shell reloadConfig
 }
+# VALUE as the Local voice setting, chosen on the Jarvis page the Settings
+# window shows, as its select writes it: the page's writeSetting goes
+# through the manager's setSetting, which hands the choice to the
+# plugin's choice hook (LocalTier.chosen), and only such a choice opens a
+# download.
+setup_tier_choose() { # VALUE
+  expect_poll "the Settings window shows the Jarvis page for the Local voice choice $1" '"vgs.jarvis"' ipc smoke readInstance window vgs.settings page
+  expect "choose the Local voice setting $1 on the Jarvis page" ok \
+    ipc smoke invokeInstanceArgs window vgs.settings writeSetting "{\"args\":[\"vgs.jarvis\",\"localTier\",\"$1\"]}"
+}
 setup_tier_saved() {
   python3 -c 'import json,sys; print(next((r.get("localTier","unset") for r in json.load(open(sys.argv[1])).get("plugins",[]) if r["id"]=="vgs.jarvis"),"unset"))' "$setup_config"
 }
@@ -306,8 +331,8 @@ setup_tier_start_none() {
   expect "the start opened no local setup" absent recorded
 }
 setup_tier_start_none
-# Control: a reader copy that takes the start setting from its binding,
-# which still reads "" when the shell arrives, opens local setup at start.
+# Control: a reader copy that acts on the setting when no page choice
+# waits opens local setup at start, after its first read.
 cp -- "$setup_tier_reader" "$sandbox/local-tier-original"
 python3 - "$setup_tier_reader" <<'PY'
 from pathlib import Path
@@ -315,24 +340,34 @@ import sys
 p=Path(sys.argv[1])
 assert not p.is_symlink()
 s=p.read_text()
-needle="decided = shell.settings.localTier;"
+needle="""if (shell === null || reading === null || afterRun || chosenTier === null) return;
+        const args = Gate.tierRun(chosenTier, reading.pick, reading.ready);"""
 assert s.count(needle)==1
-p.write_text(s.replace(needle, "decided = wanted;"))
+p.write_text(s.replace(needle, """if (shell === null || reading === null || afterRun) return;
+        const args = Gate.tierRun(chosenTier === null ? wanted : chosenTier, reading.pick, reading.ready);"""))
 PY
 forget_record
 jarvis_rescan
+# The copy's run is still pending or open when the check reads, or has
+# ended, by the host's timing; the control waits for its end and judges
+# the record alone, so the next section starts with no run.
 setup_tier_start_control() {
   (failures=0 behaviour_failures=0
-   setup_tier_start_none >"$sandbox/tier-start-control.log"
+   { expect_poll "the reader read the default answer at start" '["small", null]' setup_tier_reading
+     expect_poll "the control's local setup run has ended" idle key_idle vgs.jarvis/setup-local
+     failures=0
+     expect "the start opened no local setup" absent recorded; } >"$sandbox/tier-start-control.log"
    echo "$failures")
 }
-expect "a start setting read from the binding opens local setup" 1 local_control_count setup_tier_start_control
+expect "a reader that acts on the setting opens local setup at start" 1 local_control_count setup_tier_start_control
 cp -- "$sandbox/local-tier-original" "$setup_tier_reader"
 jarvis_rescan
 # The Voice step offers its setup while the daemon reads local voice to do:
 # a status open follows local_ready with every reader idle, so no hello
 # reaches the daemon between the marker and the press.
-local_open() { # status | launcher
+# With unbounded, the run end is waited for with no latency ceiling: a
+# control whose run waits on the lock ends late by design.
+local_open() { # status | launcher [unbounded]
   local revision snapshot
   revision="$(jarvis_revision)" || return 1
   snapshot="$rt_dir/vgshell-sources-$shell_qs_pid/$revision"
@@ -346,7 +381,8 @@ local_open() { # status | launcher
     "$(words --app-id=org.vgs.tui "--title=VGS · Set up Jarvis local voice" -- "$tui_self" present --presentation full \
       --plugin vgs.jarvis --dir "$snapshot" --record vgs.jarvis/setup-local --run RUN --record-dir "$rt_dir/vgshell/tui" \
       --app-id org.vgs.tui --window-title "VGS · Set up Jarvis local voice" -- tui/setup-local.sh)" recorded
-  expect_run_end "the fixture local setup terminal ends" vgs.jarvis/setup-local
+  if [[ ${2-} == unbounded ]]; then expect_poll "the fixture local setup terminal ends" idle key_idle vgs.jarvis/setup-local
+  else expect_run_end "the fixture local setup terminal ends" vgs.jarvis/setup-local; fi
 }
 local_ready() { printf 'ready\n' >"$sandbox/jarvis-world/local-mode" && setup_write_marker; }
 expect_poll "Local voice reads not set up and leaves its setup to the Voice step" matched local_value absent-under-voice
@@ -358,7 +394,7 @@ assert any(row["key"]=="vgs.jarvis/setup-local" and row["group"]=="Jarvis" for r
 expect_poll "the Setup fixture retains its present key" matched jarvis_key_value present
 expect_poll "the Setup fixture retains its signed-in app" matched jarvis_account_hint signed-in
 expect_poll "a fresh profile's Setup section reads the AI model and local voice to do" "$setup_fresh" setup_rows
-expect_poll "a fresh profile's Setup tab holds only required steps with Done or To do chips" '[]' setup_once
+expect_poll "a fresh profile's Setup tab holds its declared steps, required ones with Done or To do chips" '[]' setup_once
 setup_sign_in_end
 # An AI model the engine takes: a hand-added Codex folder, by the id the
 # account helper lists. Chosen while its account is not there, it stays
@@ -403,7 +439,7 @@ local_ready || fail "local setup's marker is not written"
 local_open status
 expect_poll "the service rereads readiness after the Settings action ends" matched local_value ready
 expect_poll "the ended local setup reaches the daemon: the Setup section reads ready" "$setup_ready" setup_rows
-expect_poll "the Setup tab keeps optional steps out after local voice setup" '[]' setup_once
+expect_poll "the Setup tab keeps its declared steps after local voice setup" '[]' setup_once
 
 # Control: the local voice reader's end sends no snapshot, so the daemon
 # keeps its answer after the marker appears and local setup ends.
@@ -432,24 +468,67 @@ rescan "the Local voice reader reads large as the pick"
 expect_poll "the Local voice reader reads large as the pick, small ready" '["large", "small"]' setup_tier_reading
 expect "the page offers Auto first, with the pick's description and size" '{"value": "auto", "label": "Auto: Large, English, graphics card, 1.2 GB"}' setup_tiers_published
 forget_record
-setup_tier medium
+setup_tier_choose medium
 expect_poll "choosing Medium opens local setup for medium" '["vgs.jarvis/setup-local", "tui/setup-local.sh", "medium"]' recorded_tail
 expect_run_end "the Medium run ends" vgs.jarvis/setup-local
 setup_tier_run="$(setup_run_id)"
 expect_poll "the run's end writes back the ready tier" small setup_tier_saved
 setup_tier_opens_none "the written-back tier" "$setup_tier_run"
-setup_tier auto
+setup_tier_choose auto
 expect_poll "Automatic opens local setup with no tier" '["vgs.jarvis/setup-local", "tui/setup-local.sh"]' recorded_tail
 expect_run_end "the Automatic run ends" vgs.jarvis/setup-local
 expect_poll "the run's end writes back the ready tier again" small setup_tier_saved
+# A change of the configuration file opens no local setup, nor does its
+# change back, though the Settings window shows the Jarvis page.
+setup_tier_file_none() {
+  setup_tier_run="$(setup_run_id)"
+  setup_tier medium
+  setup_tier_opens_none "Medium from the configuration file" "$setup_tier_run"
+  setup_tier small
+  setup_tier_opens_none "Small from the configuration file" "$setup_tier_run"
+}
+setup_tier_file_none
+# Control: a reader copy that takes every change of the setting for the
+# user's choice opens local setup for the configuration file's Medium.
+cp -- "$setup_tier_reader" "$sandbox/local-tier-original"
+python3 - "$setup_tier_reader" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1])
+assert not p.is_symlink()
+s=p.read_text()
+needle="    onRequirementsRevisionChanged: refresh()\n"
+assert s.count(needle)==1
+p.write_text(s.replace(needle, "    onWantedChanged: { chosenTier = wanted; decide(); }\n" + needle))
+PY
+jarvis_rescan
+expect_poll "the page-choice control's reader reads large as the pick, small ready" '["large", "small"]' setup_tier_reading
+setup_tier_file_control() {
+  (failures=0 behaviour_failures=0
+   {
+     setup_tier_run="$(setup_run_id)"
+     setup_tier medium
+     # The run the copy opens ends before the verdict, with no latency
+     # ceiling; only the run id judges.
+     expect_poll "the control's local setup run has ended" idle key_idle vgs.jarvis/setup-local
+     failures=0
+     expect "Medium from the configuration file: no terminal opened" "$setup_tier_run" setup_run_id
+   } >"$sandbox/tier-file-control.log"
+   echo "$failures")
+}
+expect "a reader that takes a configuration file change for a choice opens local setup" 1 local_control_count setup_tier_file_control
+cp -- "$sandbox/local-tier-original" "$setup_tier_reader"
+setup_tier small
+jarvis_rescan
+expect_poll "the restored reader reads large as the pick, small ready" '["large", "small"]' setup_tier_reading
 # A wanted tier that is ready opens nothing, by name or as Automatic.
 setup_tiers_answer large large
 rescan "the Local voice reader reads large ready"
 expect_poll "the Local voice reader reads large ready" '["large", "large"]' setup_tier_reading
 setup_tier_run="$(setup_run_id)"
-setup_tier large
+setup_tier_choose large
 setup_tier_opens_none "Large while large is ready" "$setup_tier_run"
-setup_tier auto
+setup_tier_choose auto
 setup_tier_opens_none "Automatic while the pick is ready" "$setup_tier_run"
 # Control: a reader copy that opens no run breaks the Medium read.
 cp -- "$setup_tier_reader" "$sandbox/local-tier-original"
@@ -469,7 +548,7 @@ setup_tiers_answer large small
 rescan "the run control's reader reads small ready"
 expect_poll "the run control's reader reads small ready" '["large", "small"]' setup_tier_reading
 forget_record
-setup_tier medium
+setup_tier_choose medium
 setup_tier_control() {
   (failures=0 behaviour_failures=0
    expect_poll "choosing Medium must open local setup" '["vgs.jarvis/setup-local", "tui/setup-local.sh", "medium"]' recorded_tail
@@ -481,6 +560,99 @@ cp -- "$sandbox/local-tiers-original" "$setup_tiers"
 setup_tier auto
 jarvis_rescan
 expect_poll "the restored Local voice reader reads the default answer" '["small", null]' setup_tier_reading
+# A replacement over the ready tier while the daemon's sidecar stand-in
+# holds local-setup.lock shared, as local-speech.py's hold() does: the
+# window's ask (the fixture's release mode) has the service tell the
+# daemon, which closes the sidecar and answers once it has exited, so the
+# setup takes the lock alone and ends ready, not busy, the px13 case. The
+# run's end starts the sidecar on the publication it left.
+setup_sidecar_starts() {
+  python3 -c 'import json,sys; print(sum(1 for line in open(sys.argv[1]) if "start" in json.loads(line)))' "$setup_data/local/log.jsonl"
+}
+setup_lock_state() {
+  python3 -I -c '
+import fcntl,sys
+try:
+    fcntl.flock(open(sys.argv[1], "a"), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    print("free")
+except BlockingIOError:
+    print("held")' "$setup_state/local-setup.lock"
+}
+setup_release_outcome() { cat -- "$setup_state/smoke-local-setup-outcome" 2>/dev/null || echo none; }
+setup_release_answer() { cat -- "$setup_state/smoke-local-setup-release" 2>/dev/null || echo none; }
+setup_replace() { # SECONDS [unbounded]: the fixture's bound on the lock
+  rm -f -- "$setup_state/smoke-local-setup-outcome" "$setup_state/smoke-local-setup-release"
+  printf 'release %s\n' "$1" >"$setup_state/smoke-local-setup"
+  local_open launcher "${2-}"
+  rm -f -- "$setup_state/smoke-local-setup"
+}
+expect_poll "the ready local voice's sidecar runs before the replacement" "$setup_ready" setup_rows
+expect_poll "the sidecar holds the setup lock" held setup_lock_state
+setup_starts="$(setup_sidecar_starts)"
+setup_replace 30
+expect "the shell released the local voice for the window" released setup_release_answer
+expect "the replacement over the running sidecar ends ready, not busy" ready setup_release_outcome
+expect_poll "the run's end starts the sidecar again" "$((setup_starts + 1))" setup_sidecar_starts
+expect_poll "the Setup section reads ready after the replacement" "$setup_ready" setup_rows
+# Control: a service copy that releases nothing leaves the sidecar holding
+# the lock, so the replacement ends busy.
+cp -- "$setup_service" "$sandbox/setup-service-original"
+python3 - "$setup_service" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1])
+assert not p.is_symlink()
+s=p.read_text()
+needle='shell.ipc.handle("local-setup", step => localSetup(step));'
+assert s.count(needle)==1
+p.write_text(s.replace(needle, 'shell.ipc.handle("local-setup", step => "refused: control");'))
+PY
+jarvis_rescan
+expect_poll "the release control reads ready" "$setup_ready" setup_rows
+expect_poll "the release control's sidecar holds the setup lock" held setup_lock_state
+setup_replace 2 unbounded
+setup_release_control() {
+  (failures=0 behaviour_failures=0
+   expect "the replacement must end ready" ready setup_release_outcome >"$sandbox/release-control.log"
+   echo "$failures")
+}
+expect "a service that releases nothing leaves the replacement busy" 1 local_control_count setup_release_control
+cp -- "$sandbox/setup-service-original" "$setup_service"
+jarvis_rescan
+expect_poll "the restored service reads ready after the release control" "$setup_ready" setup_rows
+
+# A failed run's row: setup-local's status answers a busy record for Medium
+# (status.py failed-busy) while no tier is ready, and the Local voice model
+# setting names Medium, delivered by the configuration file, which opens
+# nothing. The Voice step names Medium, links the setup log the record names
+# and offers Set up local voice.
+setup_voice_failure() {
+  status_row vgs.jarvis setupVoice | py_reply '
+import json,re,sys
+from urllib.parse import unquote
+v=json.load(sys.stdin).get("value") or {}
+links=re.findall(r"\]\(file:([^)]*)\)", v.get("hint") or "")
+ok=v.get("text")=="Medium is not set up" and v.get("tone")=="warning" and len(links)==1 and unquote(links[0]).endswith("/vgshell/jarvis/setup-local.log")
+print("matched" if ok else "pending")
+'
+}
+setup_tier_run="$(setup_run_id)"
+setup_tier medium
+setup_tier_opens_none "Medium from the configuration file beside a failed run" "$setup_tier_run"
+rm -- "$setup_marker"
+printf 'failed-busy\n' >"$sandbox/jarvis-world/local-mode"
+# No source changed, so a restart, not a rescan, has the readers read the
+# local voice again.
+jarvis_disable
+jarvis_enable
+expect_poll "a failed run's Voice step names Medium and links the setup log" matched setup_voice_failure
+expect_poll "a failed run's Voice step offers Set up local voice" "$setup_voice_left" setup_rows
+setup_tier auto
+printf 'ready\n' >"$sandbox/jarvis-world/local-mode"
+setup_write_marker || fail "local setup's marker is not written"
+jarvis_disable
+jarvis_enable
+expect_poll "the local voice reads ready again after the failed run's row" "$setup_ready" setup_rows
 printf 'failed\n' >"$sandbox/jarvis-world/local-mode"
 local_open launcher
 expect_poll "exit 77 replaces a previous ready status" matched local_value failed-open
@@ -631,22 +803,23 @@ print(json.dumps(any(sys.argv[2] in s for s in r)) if r else "absent")' "$1" "$2
 setup_tab_draws() { # LABEL
   ipc smoke itemTexts window vgs.settings Section | py_reply 'import json,sys; print(json.dumps(any(sys.argv[1] in s for s in json.load(sys.stdin))))' "$1"
 }
-# The shown tab's Cloned voice state: its Settings field owner, none on
-# Details, chip tones and visible action words, enabled state and tone.
-setup_clone_drawn() {
-  ipc smoke settingRows window vgs.settings | py_reply 'import json,sys
+# The Cloned voice step as the shown tab draws it, an optional Setup step
+# (READER setupRows) or none on Settings (settingRows): its chip words and
+# its visible action words with their enabled state.
+setup_clone_drawn() { # [READER]
+  ipc smoke "${1:-setupRows}" window vgs.settings | py_reply 'import json,sys
 r=[x for x in json.load(sys.stdin) if x["key"]=="clonedVoiceSetup"]
-print(json.dumps([r[0]["field"], [c[1] for c in r[0]["chips"]], [[b["text"],b["enabled"],b["tone"]] for b in r[0]["buttons"]]]) if len(r)==1 else "rows=%d" % len(r))'
+print(json.dumps([[c[0] for c in r[0]["chips"]], [[b["text"],b["enabled"]] for b in r[0]["buttons"]]]) if len(r)==1 else "rows=%d" % len(r))'
 }
 { read -r setup_clone_setting_label && read -r setup_clone_step && read -r setup_clone_press && read -r setup_clone_remove; } < <(python3 -c 'import json,sys
 m=json.load(open(sys.argv[1])); row=m["status"]["clonedVoiceSetup"]
 print(m["schema"]["clonedVoice"]["label"]); print(row["label"]); print(row["actions"]["setup"]["label"]); print(row["actions"]["remove"]["label"])' "$repo/shell/plugins/vgs.jarvis/manifest.json") ||
   fail "the manifest names no Cloned voice setting, setup row or Set up action"
-settings_details
+settings_setup
 setup_clone_answer false
 rescan "a rescan reads the clone status beside no large tier"
 expect_poll "beside no large tier the setup row offers nothing" '[false, ""]' setup_clone_row
-expect_poll "Details draws Cloned voice with no action before the large tier is ready" '["", ["info"], []]' setup_clone_drawn
+expect_poll "Setup draws the optional Cloned voice step with no action before the large tier is ready" '[["Optional"], []]' setup_clone_drawn
 # A local voice setup's end reads the row again, with no rescan: the
 # Large model now ready, the row offers the clone setup.
 setup_clone_answer true
@@ -654,13 +827,13 @@ forget_record
 expect "the launcher opens local voice setup" ok ipc shell openTui vgs.jarvis/setup-local
 expect_run_end "the local voice setup terminal ends" vgs.jarvis/setup-local
 expect_poll "after a local voice setup the setup row opens the clone setup while the voice resolves Local" '[true, "clone-voice"]' setup_clone_row
-expect_poll "Details draws the declared clone setup text link beside Cloned voice" '["", ["info"], [["Set up cloned voice", true, "accent"]]]' setup_clone_drawn
+expect_poll "Setup draws the optional Cloned voice step with its declared setup action" '[["Optional"], [["Set up cloned voice", true]]]' setup_clone_drawn
 settings_tab_click Settings || fail "the click on the Settings tab failed"
 expect_poll "the plugin page shows Settings" Settings settings_tab_text
-expect_poll "the Settings tab's Local voice section draws the Cloned voice setting" true setup_tab_section "Local voice" "$setup_clone_setting_label"
-expect_poll "Settings draws no Cloned voice step" rows=0 setup_clone_drawn
-settings_details
-expect_poll "Details draws Cloned voice in its Local voice section" true setup_tab_section "Local voice" "$setup_clone_step"
+expect_poll "the Settings tab's Voice section draws the Cloned voice setting" true setup_tab_section "Voice" "$setup_clone_setting_label"
+expect_poll "Settings draws no Cloned voice step" rows=0 setup_clone_drawn settingRows
+settings_setup
+expect_poll "Setup draws the Cloned voice step again" '[["Optional"], [["Set up cloned voice", true]]]' setup_clone_drawn
 forget_record
 settings_press --type RowAction "$setup_clone_press" || fail "the click on $setup_clone_press failed"
 expect_poll "the step's button opens the clone setup in the core floating terminal" '["vgs.jarvis/clone-voice", "tui/clone-voice.sh"]' recorded_tail
@@ -812,7 +985,7 @@ PYHOME
 )" || fail "the synthetic audio world's home is unreadable"
 expect "Check microphone asks the daemon to start" ok ipc vgs.jarvis invoke check-microphone ''
 expect_poll "the selected stand-in source wakes the detector" ready setup_check_result
-expect_poll "Voice reports Ready and keeps the check action" '["ok", "Ready", null, "check-microphone"]' setup_check_row
+expect_poll "Voice reports the passed check, how to talk, and keeps the check action" '["ok", "Microphone check passed", "Tap or hold Super+Right Alt, then speak", "check-microphone"]' setup_check_row
 expect "Check microphone can run again" ok ipc vgs.jarvis invoke check-microphone ''
 expect_poll "sound without the wake phrase is not Ready" not-heard setup_check_result
 expect_poll "Voice gives not-heard guidance and keeps the check action" '["warning", "Not heard", true, "check-microphone"]' setup_check_row_hint_present

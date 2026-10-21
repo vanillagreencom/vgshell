@@ -264,6 +264,78 @@ Item {
         }
     }
 
+    // A grouped enum, as a provider choice of Local and three Cloud
+    // offers, between two switches on the surface colour, so the rendered
+    // image reads its rows' ink.
+    Component {
+        id: coveredGrouped
+        Rectangle {
+            id: groupedCover
+            property alias rows: groupedRows
+            property alias grouped: groupedField
+            property alias after: afterField
+            property var written: []
+            anchors.fill: parent
+            z: 1
+            color: Theme.color.surface
+            Column {
+                id: groupedRows
+                width: 420
+                spacing: Theme.stack.row
+                SettingField { key: "before"; spec: ({ type: "boolean", label: "Before" }); value: true }
+                SettingField {
+                    id: groupedField
+                    key: "provider"
+                    spec: ({ type: "enum", label: "Voice provider", groupLabel: "Cloud voice", options: [{ value: "local", label: "Local", group: "Local" },
+                        { value: "realtime", label: "OpenAI Realtime", group: "Cloud" }, { value: "gemini", label: "Gemini Live", group: "Cloud" },
+                        { value: "elevenlabs", label: "ElevenLabs", group: "Cloud" }] })
+                    groups: [{ name: "Local", values: ["local"] }, { name: "Cloud", values: ["realtime", "gemini", "elevenlabs"] }]
+                    value: "local"
+                    onApply: chosen => {
+                        groupedCover.written = groupedCover.written.concat([chosen]);
+                        groupedField.value = chosen;
+                    }
+                }
+                SettingField { id: afterField; key: "after"; spec: ({ type: "boolean", label: "After" }); value: true }
+            }
+        }
+    }
+
+    // A status-fed select whose entry ends its list with an Add entry and
+    // plays each offer (`addChoice`, `preview`).
+    Component {
+        id: offeringField
+        SettingField {
+            property var written: []
+            property int adds: 0
+            property var previews: []
+            width: 420
+            key: "voiceAccount"
+            spec: ({ type: "string", label: "Voice key", optionsFrom: "voiceAccounts", placeholder: "Choose a key", addChoice: { label: "Add a key", tui: "add-voice-key" }, preview: true })
+            choices: [{ label: "OpenAI, key 1", value: "k1", offer: "k1" }, { label: "OpenAI, key 2", value: "k2", offer: "k2" }]
+            value: "k1"
+            onApply: chosen => { written = written.concat([chosen]); }
+            onAddWanted: adds += 1
+            onPreviewWanted: offer => { previews = previews.concat([offer]); }
+        }
+    }
+
+    // The Voice list as PluginLogic.settingChoices gives it under the default
+    // voice: the first offer stands for the unset "" and carries its own id,
+    // and a stored voice no offer holds is listed with none.
+    Component {
+        id: voiceField
+        SettingField {
+            property var previews: []
+            width: 420
+            key: "voice"
+            spec: ({ type: "string", label: "Voice", optionsFrom: "voices", preview: true })
+            choices: [{ label: "Heart", value: "", offer: "af_heart" }, { label: "Bella", value: "af_bella", offer: "af_bella" }, { label: "Voice (unavailable)", value: "af_gone" }]
+            value: ""
+            onPreviewWanted: offer => { previews = previews.concat([offer]); }
+        }
+    }
+
     // A column of bare key/value rows, as the Displays, Capture and Sound
     // panes draw them: a select, a level slider, a level meter, a slider
     // with its reading, a slider, a segmented control, switches, one with a
@@ -993,6 +1065,114 @@ Item {
             const pitch = tops.slice(1).map((top, i) => top - tops[i]);
             compare(pitch[0], pitch[1], "under a hint with descenders as without: " + pitch.join(", "));
             verify(pitch.slice(2).every(step => step === pitch[2]), "under values with descenders, tall glyphs or neither: " + pitch.join(", "));
+        }
+
+        function segmentsOf(item) { return descendants(item).find(child => String(child).indexOf("SegmentedControl") === 0); }
+        function fieldRowOf(item, label) { return descendants(item).find(child => child.objectName === "fieldRow" && child.label === label && child.visible); }
+
+        // A grouped enum draws one segment per group. The stored value's
+        // group is pressed, and under a group of several the second row,
+        // labelled by `groupLabel`, chooses among them; under a group of
+        // one no second row shows.
+        function test_a_grouped_enum_draws_its_groups_as_segments() {
+            const cover = createTemporaryObject(coveredGrouped, root);
+            verify(cover !== null);
+            const segments = segmentsOf(cover.grouped);
+            compare(segments.model, ["Local", "Cloud"]);
+            compare(segments.currentIndex, 0);
+            compare(fieldRowOf(cover.grouped, "Cloud voice"), undefined, "a group of one draws no second row");
+            cover.grouped.value = "gemini";
+            compare(segments.currentIndex, 1);
+            tryVerify(() => fieldRowOf(cover.grouped, "Cloud voice") !== undefined, 1000, "the group of several draws its row");
+            const select = selectOf(fieldRowOf(cover.grouped, "Cloud voice"));
+            compare(select.model.map(option => option.label), ["OpenAI Realtime", "Gemini Live", "ElevenLabs"]);
+            compare(select.currentText, "Gemini Live");
+        }
+
+        // The second row stands `stack.page` under the segments by ink, and
+        // the row under the field stands `stack.page` under the second row,
+        // as every key/value row does (design-system § Layout). Held in a
+        // Loader, the row stood 8 blank rows under the segments, its
+        // column's spacing alone.
+        function test_a_grouped_enums_second_row_stands_one_step_under_the_segments() {
+            const cover = createTemporaryObject(coveredGrouped, root);
+            cover.grouped.value = "realtime";
+            tryVerify(() => fieldRowOf(cover.grouped, "Cloud voice") !== undefined, 1000);
+            verify(waitForRendering(cover));
+            const img = grabImage(root);
+            const width = cover.rows.width;
+            const gaps = [["Voice provider/Cloud voice", gapOver(img, fieldRowOf(cover.grouped, "Cloud voice"), width)], ["Cloud voice/After", gapOver(img, fieldRowOf(cover.after, "After"), width)]];
+            const read = gaps.map(entry => entry.join(" ")).join(", ");
+            for (const entry of gaps)
+                verify(Math.abs(entry[1] - Theme.stack.page) <= 1, "each row stands " + Theme.stack.page + " blank rows under the one above: " + read);
+        }
+
+        // Pressing the group of several while another group's value is
+        // stored opens its list and stores nothing until a choice; a choice
+        // stores it, and a list closed with no choice puts the stored
+        // value's segment back. The group of one stores its option at once.
+        function test_pressing_a_group_of_several_opens_its_list_and_stores_nothing() {
+            const cover = createTemporaryObject(coveredGrouped, root);
+            const segments = segmentsOf(cover.grouped);
+            segments.activated(1);
+            tryVerify(() => fieldRowOf(cover.grouped, "Cloud voice") !== undefined && selectOf(fieldRowOf(cover.grouped, "Cloud voice")).listOpen, 1000, "the Cloud voice list opens");
+            const select = selectOf(fieldRowOf(cover.grouped, "Cloud voice"));
+            compare(cover.written, [], "pressing Cloud stores nothing");
+            compare(segments.currentIndex, 1, "Cloud reads pressed while its list is open");
+            compare(select.currentIndex, -1, "no Cloud voice reads chosen");
+            keyClick(Qt.Key_Escape);
+            tryVerify(() => !select.listOpen, 1000);
+            compare(cover.written, [], "a list closed with no choice stores nothing");
+            tryCompare(segments, "currentIndex", 0, 1000, "the stored value's segment comes back");
+            tryVerify(() => fieldRowOf(cover.grouped, "Cloud voice") === undefined, 1000, "the second row goes with it");
+            segments.activated(1);
+            tryVerify(() => selectOf(fieldRowOf(cover.grouped, "Cloud voice")).listOpen, 1000);
+            selectOf(fieldRowOf(cover.grouped, "Cloud voice")).choose(1);
+            compare(cover.written, ["gemini"], "a choice stores it");
+            compare(segments.currentIndex, 1);
+            segments.activated(0);
+            compare(cover.written, ["gemini", "local"], "the group of one stores its option at once");
+        }
+
+        // An Add entry ends a status-fed select's list, led by the plus
+        // mark; choosing it asks for the screen and stores nothing. A
+        // preview field draws the entry action on each offer, never on the
+        // Add entry, and pressing it plays that offer and stores nothing.
+        function test_an_add_entry_ends_the_list_and_stores_nothing() {
+            const offering = createTemporaryObject(offeringField, root);
+            verify(offering !== null);
+            const select = selectOf(offering);
+            compare(select.model.map(entry => entry.label), ["OpenAI, key 1", "OpenAI, key 2", "Add a key"]);
+            compare([select.iconAt(0), select.iconAt(2)], ["", "plus"]);
+            compare([select.actionAt(0), select.actionAt(1), select.actionAt(2)], [true, true, false], "each offer plays; the Add entry does not");
+            select.choose(2);
+            compare([offering.adds, offering.written, select.currentIndex], [1, [], 0], "the Add entry asks for its screen, stores nothing and keeps the choice");
+            select.entryActionActivated(1);
+            compare([offering.previews, offering.written], [["k2"], []], "a preview plays its offer and stores nothing");
+            select.choose(1);
+            compare(offering.written, ["k2"], "an offer still stores itself");
+        }
+
+        // Play on the first voice, which stands for the unset voice, plays
+        // that voice by its own id; an unavailable stored voice draws no
+        // speaker.
+        function test_a_preview_plays_the_offer_not_the_stored_value() {
+            const field = createTemporaryObject(voiceField, root);
+            verify(field !== null);
+            const select = selectOf(field);
+            compare([select.actionAt(0), select.actionAt(1), select.actionAt(2)], [true, true, false], "each offer plays; the unavailable voice does not");
+            select.entryActionActivated(0);
+            compare(field.previews, ["af_heart"], "the first offer plays its own voice");
+        }
+
+        // With no offer the list holds the Add entry alone, under the
+        // field's placeholder.
+        function test_an_add_entry_alone_under_the_placeholder() {
+            const offering = createTemporaryObject(offeringField, root, { choices: [], value: "" });
+            const select = selectOf(offering);
+            compare(select.model.map(entry => entry.label), ["Add a key"]);
+            verify(select.showsPlaceholder, "the placeholder reads while nothing is chosen");
+            compare(select.currentText, "");
         }
 
         function test_a_status_choice_without_custom_reads_unavailable() {

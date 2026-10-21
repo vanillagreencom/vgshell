@@ -26,10 +26,13 @@ const TRANSCRIBE = "gpt-live-transcribe";
 const IDLE_MS = 60000;            // plan § 3.5
 const START_WAIT_MS = 20000;      // connect, session.created and session.updated
 const RESPONSE_WAIT_MS = 30000;   // response.create to its response.done
-// The first captured frame of a running session to the voice's first sign
-// that it heard speech: speech_started, a transcription delta or a
-// transcript. Semantic VAD reports the start of speech as it comes (the
-// Realtime VAD guide), so this leaves a user room to start talking.
+// The first captured frame of a running session to the voice's first heard
+// words: a transcription delta or a transcript that holds any. Semantic VAD
+// reports the start of speech as it comes (the Realtime VAD guide), so this
+// leaves a user room to start talking. It also raises speech_started on
+// keyboard noise or breath, whose transcript is empty, so speech pauses the
+// bound rather than ending it, and its stop runs the bound again from there:
+// the transcript of that speech comes after the stop.
 const UNHEARD_MS = 15000;
 const REPLY_GAP_MS = 500;         // no words waiting for this long ends a playing reply
 const SILENCE_TICK_MS = 100;
@@ -91,6 +94,8 @@ function eventOf(data) {
     }
     case "input_audio_buffer.speech_started":
         return { kind: "activity" };
+    case "input_audio_buffer.speech_stopped":
+        return { kind: "stopped" };
     case "conversation.item.input_audio_transcription.delta":
         if (value.delta !== undefined && typeof value.delta !== "string") fail("frame-shape");
         return { kind: "hearing", item: identity(value.item_id), text: value.delta ?? "" };
@@ -129,7 +134,7 @@ function eventOf(data) {
     }
     // Documented events this session causes and does not read.
     case "conversation.created": case "conversation.item.created": case "conversation.item.added":
-    case "conversation.item.done": case "input_audio_buffer.speech_stopped": case "input_audio_buffer.committed":
+    case "conversation.item.done": case "input_audio_buffer.committed":
     case "response.output_item.added": case "response.output_item.done": case "response.content_part.added":
     case "response.content_part.done": case "response.output_audio.done": case "response.output_audio_transcript.done":
     case "rate_limits.updated":
@@ -252,10 +257,11 @@ function create({ provider, clock, conversation, captionLimit, log }) {
     }
     // Captured audio the voice never answers ends the conversation at
     // UNHEARD_MS with the cause its frames' peak names, rather than at the
-    // idle wait with no cause. The first sign of heard speech ends the watch
-    // for the session's life: a quiet answered conversation ends at idle.
+    // idle wait with no cause. Speech the voice detects pauses the watch and
+    // its stop runs it again; the first heard words end it for the session's
+    // life: a quiet answered conversation ends at idle.
     function watch(session) {
-        if (session.answered || !session.captured || session.state.kind !== "running" || session.timers.unheard !== null) return;
+        if (session.answered || session.talking || !session.captured || session.state.kind !== "running" || session.timers.unheard !== null) return;
         session.timers.unheard = clock.set(() => {
             session.timers.unheard = null;
             failed(session, session.peak <= SILENT_PEAK ? "live=input-silent" : "live=unheard");
@@ -264,6 +270,11 @@ function create({ provider, clock, conversation, captionLimit, log }) {
     function answered(session) {
         session.answered = true;
         clear(session, "unheard");
+    }
+    function talking(session, value) {
+        session.talking = value;
+        if (value) clear(session, "unheard");
+        else watch(session);
     }
     function quiet(session) { return session.speech.active === null && session.speech.queue.length === 0; }
     function replyPending(session) {
@@ -402,16 +413,17 @@ function create({ provider, clock, conversation, captionLimit, log }) {
                     commentary(PREVIEW, Policy.item(session.preview, ["desktop"]));
                 }
                 break;
-            case "activity": activity(session); answered(session); break;
+            case "activity": activity(session); talking(session, true); break;
+            case "stopped": talking(session, false); break;
             case "hearing":
                 activity(session);
-                answered(session);
+                if (event.text.trim() !== "") answered(session);
                 conclude(session, "assistant");
                 caption(session, "user", event.item, event.text);
                 break;
             case "heard":
                 activity(session);
-                answered(session);
+                if (event.text.trim() !== "") answered(session);
                 conclude(session, "assistant");
                 // The open caption closes on its own item's transcript. An item
                 // with none open gets its caption whole, and another item's stays open.
@@ -485,7 +497,9 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         answer.events.addEventListener("message", event => receive(session, event.data));
         // WHATWG WebSocket fires close after every error, a refused redirect
         // included; close owns the outcome.
-        answer.events.addEventListener("close", event => failed(session, "live=disconnected code=" + event.code));
+        // A handshake answered 401 or 403 refused the key; its body is never read.
+        answer.events.addEventListener("close", event => failed(session,
+            Net.keyRefused(event) ? "live=key-refused" : "live=disconnected code=" + event.code));
     }
 
     const port = {
@@ -494,7 +508,7 @@ function create({ provider, clock, conversation, captionLimit, log }) {
             const session = { op: e.op, events, state: { kind: "connecting" }, channel: null, update: null, reader: "",
                 timers: { start: null, silence: null, idle: null, gap: null, words: null, preview: null, unheard: null },
                 pending: [], pendingBytes: 0, inputAt: clock.now(), capture: null, captured: false, peak: 0, answered: false,
-                playing: null, next: null,
+                talking: false, playing: null, next: null,
                 speech: { queue: [], chars: 0, active: null }, delegation: null, said: [], taken: null,
                 segments: { user: null, assistant: null }, rev: 0, language: "", preview: null };
             live = session;

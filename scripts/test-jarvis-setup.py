@@ -247,7 +247,7 @@ esac
                 self.not_ready()
                 self.assertFalse((self.state / "local-ready.json").exists())
                 # Preserve the rule's text while changing its effect.
-                self.mutant("if result.returncode != 0:", "if False and result.returncode != 0:")
+                self.mutant("    if returncode != 0:", "    if False and returncode != 0:")
                 self.install()
                 self.ready()
                 (self.plugin / "setup-local").write_text((PLUGIN / "setup-local").read_text())
@@ -706,16 +706,18 @@ esac
                 self.assertEqual(result.stderr.splitlines()[0].split("=", 2)[:2],
                                  ["jarvis-setup: failed", "probe log"])
                 self.assertIn(str(self.home / ".local/share/vgshell/jarvis/local/local-load.lock"),
-                              (self.state / "local-setup.log").read_text())
+                              (self.state / "setup-local.log").read_text())
                 self.assertFalse((self.state / "local-ready.json").exists())
-                self.assertEqual(self.report(), {"tone": "warning", "text": "Not set up", "action": True})
+                report = self.report()
+                self.assertEqual([report["tone"], report["action"], report["failure"]["cause"], report["failure"]["tier"]],
+                                 ["warning", True, "probe", "small"])
                 if name == "inner-vgs":
                     (self.plugin / "setup-local").write_text(original)
                     self.mutant("return env",
                         'env["XDG_DATA_HOME"] = str(data.resolve().parents[2])\n    return env')
                     self.install(1)
                     self.assertFalse((self.state / "local-ready.json").exists())
-                    self.assertEqual(self.report(), {"tone": "warning", "text": "Not set up", "action": True})
+                    self.assertEqual(self.report()["failure"]["cause"], "probe")
 
     def test_lock_install_flags_control(self):
         self.install()
@@ -752,38 +754,114 @@ esac
         # The marker-invalidation and child-exit controls prove the owned
         # readiness mechanism; the OS signal is not a new production guard.
 
-    def test_tui_and_control(self):
-        # Neutral core presentation double. The actual TUI executes the real
-        # installer with the tier it is handed, or none for the pick.
-        # The confirmation double records each question and answers CONFIRM.
-        library = self.root / "tui-lib.sh"
-        questions = self.root / "questions"
-        library.write_text('source "' + str(REPO / "bin/lib/tui.sh") + '"\n'
-                           'vgs_tui_header() { :; }\nvgs_tui_error() { :; }\n'
-                           'vgs_tui_confirm() { printf "%s\\n" "$1" >>"$QUESTIONS"; return "$CONFIRM"; }\n')
-        env = dict(self.env, VGS_TUI_LIB=str(library), VGS_PLUGIN_DIR=str(self.plugin),
-                   QUESTIONS=str(questions), CONFIRM="0")
+    def tui(self, settings=None, release="off", quiet=True):
+        """The window's run inside a VGS tree whose bin/vgshell is a double:
+        `plugin settings` answers SETTINGS, and the local voice release asks
+        answer as RELEASE has Jarvis do: "off" refuses, as a Jarvis that is
+        not running does; "release" lets the lock holder go and answers
+        released once it has; "stuck" keeps waiting. QUIET silences the
+        header and the error lines. Answers (run, env); each vgshell call is
+        a line of env["VGSHELL_CALLS"]."""
+        tree = self.root / "vgs"
+        (tree / "bin/lib").mkdir(parents=True, exist_ok=True)
+        (tree / "bin/lib/tui.sh").write_text('source "' + str(REPO / "bin/lib/tui.sh") + '"\n'
+            + ('vgs_tui_header() { :; }\nvgs_tui_error() { :; }\n' if quiet else 'vgs_tui_header() { :; }\n')
+            + 'vgs_tui_confirm() { printf "%s\\n" "$1" >>"$QUESTIONS"; return "$CONFIRM"; }\n')
+        (tree / "bin/vgshell").write_text("""#!/bin/sh
+printf '%s\\n' "$*" >>"$VGSHELL_CALLS"
+case "$1 $2 $5 $6" in
+  "plugin settings  ") cat "$VGSHELL_SETTINGS" ;;
+  "ipc call local-setup begin")
+    if [ "$RELEASE" = listing ]; then
+      # The core lists the run from the third ask on.
+      printf x >>"$LISTING_ASKS"
+      [ "$(wc -c <"$LISTING_ASKS")" -ge 3 ] || { printf 'refused: local-setup=no-run\\n'; exit 69; }
+      RELEASE=release
+    fi
+    case "$RELEASE" in
+      off) printf 'refused: jarvis=not-running\\n'; exit 69 ;;
+      release) : >"$HOLDER_RELEASE"; printf 'waiting\\n' ;;
+      *) printf 'waiting\\n' ;;
+    esac ;;
+  "ipc call local-setup state")
+    if [ "$RELEASE" = release ] || [ "$RELEASE" = listing ] && [ ! -e "$HOLDER_HELD" ]; then printf 'released\\n'; else printf 'waiting\\n'; fi ;;
+  *) exit 2 ;;
+esac
+""")
+        (tree / "bin/vgshell").chmod(0o700)
+        (self.root / "settings.json").write_text(json.dumps(settings or {"localTier": "auto"}))
+        env = dict(self.env, VGS_TUI_LIB=str(tree / "bin/lib/tui.sh"), VGS_PLUGIN_DIR=str(self.plugin), VGS_PLUGIN_ID="vgs.jarvis",
+                   QUESTIONS=str(self.root / "questions"), CONFIRM="0", VGSHELL_CALLS=str(self.root / "vgshell-calls"),
+                   VGSHELL_SETTINGS=str(self.root / "settings.json"), RELEASE=release,
+                   HOLDER_HELD=str(self.root / "holder-held"), HOLDER_RELEASE=str(self.root / "holder-release"),
+                   LISTING_ASKS=str(self.root / "listing-asks"))
         script = self.plugin / "tui/setup-local.sh"
         run = lambda *args: subprocess.run(["bash", str(script), *args],
-            env=env, capture_output=True, text=True, check=False, timeout=30)
-        # With no argument, a PX13-class laptop's pick, small, ends ready.
+            env=env, capture_output=True, text=True, check=False, timeout=60)
+        return run, env
+
+    def vgshell_calls(self):
+        path = self.root / "vgshell-calls"
+        return path.read_text().splitlines() if path.exists() else []
+
+    def hold_lock(self):
+        """A stand-in for the daemon's local speech sidecar: it holds
+        local-setup.lock shared, as local-speech.py's hold() does, until
+        the vgshell double's release asks it to let go. Answers its pid."""
+        self.state.mkdir(parents=True, exist_ok=True)
+        held, release = self.root / "holder-held", self.root / "holder-release"
+        release.unlink(missing_ok=True)
+        holder = subprocess.Popen([sys.executable, "-I", "-c", """
+import fcntl, os, sys, time
+from pathlib import Path
+lock = open(sys.argv[1], "a")
+fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
+Path(sys.argv[2]).write_text(str(os.getpid()))
+while not Path(sys.argv[3]).exists():
+    time.sleep(0.05)
+Path(sys.argv[2]).unlink()
+""", str(self.state / "local-setup.lock"), str(held), str(release)])
+        def stop():
+            release.touch()
+            holder.wait(timeout=10)
+        self.addCleanup(stop)
+        deadline = time.monotonic() + 10
+        while not held.exists():
+            self.assertIsNone(holder.poll())
+            self.assertLess(time.monotonic(), deadline)
+            time.sleep(0.01)
+        return holder
+
+    def test_tui_and_control(self):
+        # Neutral core presentation double. The actual TUI executes the real
+        # installer with the tier it is handed, or the setting's, or none for
+        # the pick. The confirmation double records each question and
+        # answers CONFIRM.
+        run, env = self.tui()
+        questions = self.root / "questions"
+        script = self.plugin / "tui/setup-local.sh"
+        # With no argument and Auto, a PX13-class laptop's pick, small, ends
+        # ready; Jarvis is off, so nothing holds the lock.
         self.plant_machine(None, 32000000, 24)
         result = run()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.ready()
+        self.assertEqual(self.vgshell_calls(), ["plugin settings vgs.jarvis", "ipc call vgs.jarvis invoke local-setup begin"])
         # The terminal hides diagnostic keys; the setup log keeps them.
         self.assertFalse(any(line.startswith("jarvis-setup:") for line in result.stdout.splitlines()))
         logged = (self.state / "setup-local.log").read_text()
         for key in ("step=runtime", "step=model", "step=probe", "ready=small"):
             self.assertIn("jarvis-setup: " + key, logged)
-        # The page's choice reaches the installer.
+        self.assertEqual(len(questions.read_text().splitlines()), 1, "a first download asks once")
+        # The page's choice reaches the installer, without a settings read.
         self.config["tier"] = "medium"
         self.write_config()
-        self.assertFalse(questions.exists(), "nothing was ready, so nothing is replaced")
+        (self.root / "vgshell-calls").unlink()
         result = run("medium")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.ready()
-        self.assertEqual(len(questions.read_text().splitlines()), 1, "replacing small asks once")
+        self.assertEqual(self.vgshell_calls(), ["ipc call vgs.jarvis invoke local-setup begin"])
+        self.assertEqual(len(questions.read_text().splitlines()), 2, "replacing small asks once")
         # A No keeps the ready tier and installs nothing.
         source = script.read_text()
         for name, changed in (("shipped", source),
@@ -806,16 +884,257 @@ esac
         (self.commands / "uv").unlink()
         self.assertEqual(run().returncode, 77)
         source = script.read_text()
-        needle = 'vgs_tui_split "$log" jarvis-setup vgs_tui_logged "$log" python3 -I "$VGS_PLUGIN_DIR/setup-local" install "$@"'
+        needle = 'vgs_tui_split "$log" jarvis-setup python3 -I "$VGS_PLUGIN_DIR/setup-local" install ${tier:+"$tier"}'
         self.assertEqual(source.count(needle), 1)
-        changed = source.replace(needle, ': python3 -I "$VGS_PLUGIN_DIR/setup-local" install "$@"')
+        changed = source.replace(needle, ': python3 -I "$VGS_PLUGIN_DIR/setup-local" install ${tier:+"$tier"}')
         self.assertNotEqual(changed, source)
         script.write_text(changed)
         shutil.copyfile(DOUBLE, self.commands / "uv")
         (self.commands / "uv").chmod(0o700)
         (self.state / "local-ready.json").unlink()
-        self.assertEqual(run().returncode, 0)
+        self.assertEqual(run("small").returncode, 0)
         self.not_ready()
+
+    def test_tui_busy_names_the_holder_and_keeps_the_chosen_model(self):
+        # The px13 case: Small is ready, the Local voice model setting reads
+        # Medium, and a holder that never lets go keeps the lock shared
+        # while Jarvis answers nothing, so the install fails busy. A copy
+        # with a one-second bound keeps it short.
+        self.install()
+        self.ready()
+        self.mutant("LOCK_WAIT = 30\n", "LOCK_WAIT = 1\n")
+        log = self.state / "setup-local.log"
+        holder = self.hold_lock()
+        run, env = self.tui({"localTier": "medium"}, quiet=False)
+        result = run()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        program = Path(f"/proc/{holder.pid}/comm").read_text().strip()
+        self.assertIn(f"jarvis-setup: failed=setup=busy holder={holder.pid} program={program}", log.read_text().splitlines())
+        # setup-local's own plain line follows its keyed one and reaches the
+        # screen; the window then names the way back and the log.
+        direct = self.run_command("install", "medium")
+        lines = direct.stderr.splitlines()
+        self.assertEqual(lines[0], f"jarvis-setup: failed=setup=busy holder={holder.pid} program={program}")
+        self.assertFalse(lines[1].startswith("jarvis-setup:"), "the busy refusal carries a plain line")
+        self.assertIn(" ".join(lines[1].split()), " ".join(re.sub(r"\x1b\[[0-9;]*m", "", result.stdout + result.stderr).split()))
+        # The state root sits outside HOME here, so the log reads in full,
+        # wrapped over the terminal's rows.
+        screen = "".join(line.strip() for line in re.sub(r"\x1b\[[0-9;]*m", "", result.stderr).splitlines())
+        self.assertIn(str(log), screen)
+        report = self.report()
+        self.assertEqual([report["tone"], report["text"], report["failure"]["cause"], report["failure"]["tier"], report["failure"]["log"]],
+                         ["ok", "Ready: small", "busy", "medium", str(log)])
+        # With the holder gone, a run with no argument installs Medium, the
+        # setting's tier, not the pick, and clears the record.
+        holder_release = Path(env["HOLDER_RELEASE"])
+        holder_release.touch()
+        holder.wait(timeout=10)
+        self.config["tier"] = "medium"
+        self.write_config()
+        result = run()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.ready()
+        self.assertFalse((self.state / "local-setup-failed.json").exists())
+
+    def test_tui_releases_the_sidecar_before_it_installs_and_control(self):
+        # A replacement over a ready tier whose sidecar holds the lock: the
+        # window asks Jarvis first, which lets the holder go, and the
+        # install ends ready, not busy.
+        self.install()
+        self.ready()
+        self.config["tier"] = "medium"
+        self.write_config()
+        self.hold_lock()
+        run, env = self.tui(release="release")
+        result = run("medium")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.ready()
+        calls = self.vgshell_calls()
+        self.assertEqual(calls[0], "ipc call vgs.jarvis invoke local-setup begin")
+        self.assertIn("ipc call vgs.jarvis invoke local-setup state", calls)
+        # Control: a window that does not ask installs over the holder and
+        # fails busy.
+        self.config["tier"] = "small"
+        self.write_config()
+        self.hold_lock()
+        self.mutant("LOCK_WAIT = 30\n", "LOCK_WAIT = 1\n")
+        self.mutant('    answer = ask("begin")\n    while', '    answer = ""\n    while')
+        result = run("small")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(self.report()["failure"]["cause"], "busy")
+
+    def test_tui_release_time_out_installs_nothing_and_logs(self):
+        self.install()
+        self.ready()
+        marker = (self.state / "local-ready.json").read_bytes()
+        self.reset_calls()
+        # A copy with a one-second bound on the release.
+        self.mutant("LOCK_WAIT = 30\n", "LOCK_WAIT = 1\n")
+        run, _ = self.tui({"localTier": "medium"}, release="stuck")
+        result = run()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("jarvis-setup: failed=setup=busy release=waiting", (self.state / "setup-local.log").read_text().splitlines())
+        self.assertEqual([call[0] for call in self.calls() if call[0] != "nvidia-smi"], [], "the install never ran")
+        self.assertEqual((self.state / "local-ready.json").read_bytes(), marker)
+
+    def test_release_asks_again_until_the_run_is_listed_and_control(self):
+        # The window starts at once, so the core may not list its run when
+        # the first ask comes: setup-local release asks again, and the
+        # replacement over the holder still ends ready, not busy.
+        self.install()
+        self.ready()
+        self.config["tier"] = "medium"
+        self.write_config()
+        self.hold_lock()
+        run, env = self.tui(release="listing")
+        result = run("medium")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.ready()
+        self.assertEqual(self.vgshell_calls().count("ipc call vgs.jarvis invoke local-setup begin"), 3)
+        self.assertIn("jarvis-setup: release=released", (self.state / "setup-local.log").read_text().splitlines())
+        # Control: no second ask installs over the holder and fails busy.
+        Path(env["LISTING_ASKS"]).unlink()
+        self.config["tier"] = "small"
+        self.write_config()
+        self.hold_lock()
+        self.mutant("LOCK_WAIT = 30\n", "LOCK_WAIT = 1\n")
+        self.mutant("LISTING_WAIT = 5\n", "LISTING_WAIT = 0\n")
+        result = run("small")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(self.report()["failure"]["cause"], "busy")
+
+    def test_release_names_a_stop_only_over_a_ready_tier_and_control(self):
+        # Jarvis stops a local voice only when one is ready to run: a first
+        # setup says nothing of it, a replacement does.
+        module = self.load_module()
+        run, env = self.tui(release="release")
+        release = lambda: subprocess.run([sys.executable, "-I", str(self.plugin / "setup-local"), "release",
+                                          env["VGS_TUI_LIB"].replace("lib/tui.sh", "vgshell")],
+                                         env=env, capture_output=True, text=True, check=False, timeout=60)
+        for label, ready in (("first setup", False), ("replacement", True)):
+            with self.subTest(case=label):
+                if ready:
+                    self.install()
+                    self.ready()
+                result = release()
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(module.STOPPING in result.stdout.splitlines(), ready, result.stdout)
+                self.assertEqual(result.stdout.splitlines()[-1], "jarvis-setup: release=released")
+        self.mutant("        if ready is not None:\n            print(STOPPING", "        if True:\n            print(STOPPING")
+        (self.state / "local-ready.json").unlink()
+        result = release()
+        self.assertIn(module.STOPPING, result.stdout.splitlines(), "the control prints the line on a first setup")
+
+    def test_plan_names_the_tier_the_page_offers_and_control(self):
+        # The window's header names the tier and size the page's Auto offer
+        # names, from the one tier table, on each machine.
+        tiers = self.spec["tiers"]
+        size = lambda count: f"{round(count / 10**6)} MB" if round(count / 10**6) < 1000 else f"{count / 10**9:.1f} GB"
+        def check():
+            for label, gpu, ram, threads in (("no graphics card", None, 32000000, 24), ("a large card", 24576, 64000000, 32)):
+                self.plant_machine(gpu, ram, threads)
+                offers = self.offered()
+                pick = offers["pick"]
+                named = f"{tiers[pick]['name']} local voice, {size(tiers[pick]['downloadBytes'])}"
+                self.assertTrue(offers["choices"][0]["label"].startswith(f"Auto: {tiers[pick]['name']}, "), label)
+                result = self.run_command("plan")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                header, question = result.stdout.split("\n")[:2]
+                self.assertIn(named, header, label)
+                self.assertIn(named, question, label + ": a first download asks, naming the tier and its size")
+        check()
+        self.mutant('    target = tier or offers["pick"]', '    target = tier or "small"')
+        with self.assertRaises(AssertionError):
+            check()
+        (self.plugin / "setup-local").write_text((PLUGIN / "setup-local").read_text())
+        # The ready tier asks nothing; another asks to replace it.
+        self.plant_machine(None, 32000000, 24)
+        self.install()
+        self.ready()
+        self.assertEqual(self.run_command("plan", "small").stdout.split("\n")[1], "")
+        replace = self.run_command("plan", "medium").stdout.split("\n")[1]
+        self.assertIn(tiers["small"]["name"], replace)
+        self.assertIn(tiers["medium"]["name"], replace)
+
+    def test_child_errors_reach_the_log_and_control(self):
+        # The log a failure names holds a child's own error line, beside its
+        # keyed lines; a progress meter's redraws keep only their last.
+        self.config.update(curl_exit=22, curl_stderr="\r  10 %\r  60 %\ncurl: (22) The requested URL returned error: 404\n")
+        self.write_config()
+        log = self.state / "setup-local.log"
+        result = self.install(22)
+        self.assertIn("curl: (22) The requested URL returned error: 404", result.stderr, "the screen still shows it")
+        lines = log.read_text().splitlines()
+        self.assertIn("curl: (22) The requested URL returned error: 404", lines)
+        self.assertIn("  60 %", lines)
+        self.assertNotIn("  10 %", lines)
+        log.unlink()
+        self.mutant('"--proto-redir", "=https", "--output", str(partial), "--", url], data, log=log)',
+                    '"--proto-redir", "=https", "--output", str(partial), "--", url], data)')
+        self.install(22)
+        self.assertFalse(log.exists() and "curl: (22)" in log.read_text(), "the control leaves the cause out of the log")
+
+    def test_paths_read_home_relative(self):
+        module = self.load_module()
+        home = str(self.home)
+        old = os.environ.get("HOME")
+        os.environ["HOME"] = home
+        try:
+            for path, want in ((home + "/.local/state/vgshell/jarvis/setup-local.log", "~/.local/state/vgshell/jarvis/setup-local.log"),
+                               (home, "~"), (home + "-other/x", home + "-other/x"), ("/var/tmp/x", "/var/tmp/x")):
+                self.assertEqual(module.shown(Path(path)), want, path)
+        finally:
+            if old is None:
+                del os.environ["HOME"]
+            else:
+                os.environ["HOME"] = old
+
+    def test_failure_record_causes(self):
+        # Each install that ends without its voice ready records its cause,
+        # its tier and the log that names it, and status answers it; a
+        # finished install removes it. [label, config, tier, cause, keyed
+        # line prefix, a plain line follows]
+        for label, config, tier, cause, keyed, plain in (
+                ("the download stops", {"curl_exit": 7}, "small", "download", "jarvis-setup: failed=exit code=7 stage=download", True),
+                ("the disk fills up", {"curl_exit": 23}, "small", "disk", "jarvis-setup: failed=disk=full file=", True),
+                ("a tier no longer offered", {}, "huge", "refused", "jarvis-setup: failed=tier=unknown tier=huge", True)):
+            with self.subTest(case=label):
+                self.config = {"tier": "small", **config}
+                self.write_config()
+                result = self.run_command("install", tier)
+                self.assertNotEqual(result.returncode, 0)
+                lines = result.stderr.splitlines()
+                keyed_lines = [line for line in lines if line.startswith(keyed)]
+                self.assertEqual(len(keyed_lines), 1, result.stderr)
+                after = lines[lines.index(keyed_lines[0]) + 1:]
+                self.assertEqual(bool(after) and not after[0].startswith("jarvis-setup:"), plain, result.stderr)
+                record = json.loads((self.state / "local-setup-failed.json").read_text())
+                self.assertEqual(record, {"cause": cause, "tier": tier, "log": str(self.state / "setup-local.log")})
+                report = self.report()
+                self.assertEqual([report["tone"], report["action"], report["failure"]["cause"], report["failure"]["tier"]],
+                                 ["warning", True, cause, tier])
+        self.config = {"tier": "small"}
+        self.write_config()
+        self.install()
+        self.ready()
+        self.assertFalse((self.state / "local-setup-failed.json").exists())
+        # A full disk anywhere else in the install reads as the disk.
+        module = self.load_module()
+        self.assertEqual(module.failure_cause(OSError(28, "No space left on device"), "runtime"), "disk")
+        self.assertEqual(module.failure_cause(OSError(13, "Permission denied"), "runtime"), "other")
+
+    def test_lock_holders_parse(self):
+        # /proc/locks rows with synthetic ids: flock holders of the inode,
+        # each once, and neither a waiter, a POSIX lock nor another inode.
+        table = "\n".join((
+            "1: FLOCK  ADVISORY  READ  4101 00:2a:7001 0 EOF",
+            "2: FLOCK  ADVISORY  READ  4102 00:2a:7001 0 EOF",
+            "3: -> FLOCK  ADVISORY  WRITE 4103 00:2a:7001 0 EOF",
+            "4: POSIX  ADVISORY  WRITE 4104 00:2a:7001 0 EOF",
+            "5: FLOCK  ADVISORY  READ  4105 00:2a:7002 0 EOF",
+            "6: FLOCK  ADVISORY  READ  4101 00:2a:7001 0 EOF",
+            "garbage"))
+        self.assertEqual(self.load_module().lock_holders(table, 7001), [4101, 4102])
 
     # The pick for a machine reading: [label, GPU MiB or None, RAM MiB,
     # threads, tier]. This host and a PX13-class laptop are the issue's
@@ -953,7 +1272,9 @@ esac
         self.assertEqual(result.stderr.splitlines()[0], "jarvis-setup: failed=gpu=unavailable tier=large")
         self.assertEqual([call[0] for call in self.calls()], ["nvidia-smi"])
         self.assertEqual((self.state / "local-ready.json").read_bytes(), marker)
-        self.assertEqual(self.report(), {"tone": "ok", "text": "Ready: small", "action": False})
+        self.assertEqual(self.report(), {"tone": "ok", "text": "Ready: small", "action": False,
+            "failure": {"cause": "unavailable", "tier": "large", "log": str(self.state / "setup-local.log"),
+                        "text": self.spec["tiers"]["large"]["name"] + " is not set up"}})
         self.mutant("if not runnable(provider, reading):", "if False and not runnable(provider, reading):")
         self.install()
         self.ready()
@@ -977,7 +1298,7 @@ esac
         engine = 'Traceback (most recent call last):\n  File "probe"\nRuntimeError: fixture provider\n'
         self.config.update(probe_exit=1, probe_stderr=engine)
         self.write_config()
-        log = self.state / "local-setup.log"
+        log = self.state / "setup-local.log"
         original = (self.plugin / "setup-local").read_text()
         result = self.install(1)
         self.assertNotIn("Traceback", result.stderr)
@@ -1029,6 +1350,9 @@ esac
             path = commands / tool
             path.write_text('#!/bin/sh\nprintf "%s\\n" called >>"$SETUP_CALLS"\nexit 99\n')
             path.chmod(0o700)
+        # The library's log helpers make the log's folder; no installer.
+        for tool in ("mkdir", "dirname"):
+            (commands / tool).symlink_to(shutil.which(tool))
         calls = self.root / "setup-calls"
         library = self.root / "setup-library"
         library.write_text((REPO / "bin/lib/tui.sh").read_text() +
@@ -1039,11 +1363,13 @@ esac
         def run():
             return subprocess.run(["/bin/bash", str(script)], env=env,
                 capture_output=True, text=True, check=False, timeout=30)
+        log = self.state / "setup-local.log"
         def assert_withheld(tool):
+            log.unlink(missing_ok=True)
             result = run()
             self.assertEqual(result.returncode, 77, result.stderr)
-            self.assertEqual(result.stderr.splitlines()[0],
-                             "jarvis-setup: command=missing name=" + tool)
+            self.assertEqual(log.read_text().splitlines(), ["jarvis-setup: command=missing name=" + tool])
+            self.assertFalse(any(line.startswith("jarvis-setup:") for line in result.stderr.splitlines()))
             self.assertEqual(result.stdout, "")
             self.assertFalse(calls.exists(), "missing requirement started setup")
         for tool in required:
@@ -1054,9 +1380,9 @@ esac
                 assert_withheld(tool)
                 path.write_text(original)
                 path.chmod(0o700)
-        needle = 'command -v "$tool" >/dev/null || {'
+        needle = 'command -v "$tool" >/dev/null || missing+=("$tool")'
         self.assertEqual(source.count(needle), 1)
-        changed = source.replace(needle, 'true || {')
+        changed = source.replace(needle, 'true || missing+=("$tool")')
         self.assertNotEqual(changed, source)
         self.assertFalse(script.is_symlink())
         script.write_text(changed)

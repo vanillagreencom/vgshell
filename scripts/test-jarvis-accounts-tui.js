@@ -266,8 +266,8 @@ world(async () => {
         'return value <= MAX_WIDTH ? value : null;', folder => widths(folder, "minimum"));
     await control("AccountProviders.js", "width-maximum", 'return value >= MIN_WIDTH && value <= MAX_WIDTH ? value : null;',
         'return value >= MIN_WIDTH ? value : null;', folder => widths(folder, "maximum"));
-    await control("backend/accounts.js", "choice-id", 'lines = judge.accounts.map(account => choiceLine(label(account.provider) + ": "',
-        'lines = judge.accounts.map(account => choiceLine(account.id + ": "', choices);
+    await control("backend/accounts.js", "choice-id", 'lines = judge.accounts.map(account => choiceLine(label(account.provider) + (',
+        'lines = judge.accounts.map(account => choiceLine(account.id + (', choices);
     await control("AccountProviders.js", "speech-key-missing", 'return modelKeyProvider(row) || row.kind === "speech-key";',
         "return modelKeyProvider(row);", keyProviders);
     await control("AccountProviders.js", "model-less-key-offered", 'if (kind === "key") return storedKeyProvider(row);',
@@ -387,9 +387,12 @@ process.execve(process.execPath,[process.execPath,${JSON.stringify(path.join(tre
             const listsBefore = records().filter(item => item.args.includes("--input-format")).length;
             const shown = JSON.parse(cli(folder, "presence", JSON.stringify(presence)));
             assert.ok(shown.brains.some(item => item.value === account.id), "signed-in account offered as AI model");
-            // Pi's own model list reads the fresh setup signed in.
-            if (vendor === "pi") assert.ok(shown.accounts.some(row => row.provider === "pi" && row.label.endsWith(" / " + label)
+            // Pi's own model list reads the fresh setup signed in. Pi names no
+            // sign-in email, so the account reads by its provider alone, never
+            // by the name typed for its folder.
+            if (vendor === "pi") assert.ok(shown.accounts.some(row => row.provider === "pi" && row.label === "Pi"
                 && row.state === "signed-in"), "the Pi account reads signed in");
+            assert.equal(shown.accounts.some(row => row.label.includes(label)), false, "no account reads by its folder's name");
             // The account answer starts no model list read: the Jarvis page
             // asks for the chosen sign-in's list in a request of its own.
             assert.equal(records().filter(item => item.args.includes("--input-format")).length, listsBefore, "no list read in the account answer");

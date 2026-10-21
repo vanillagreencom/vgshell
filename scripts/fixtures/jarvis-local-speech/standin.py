@@ -13,7 +13,9 @@ written independently of LocalSpeech.js. DATA/scenario.json scripts it:
   wakes: per wake, {afterFrames} answered woke on that audio frame | {failed}
     answered on the first; with none left a wake waits for its abort
 DATA/log.jsonl records what it observed: its start facts, then one line per
-ended, aborted or spoken request. No model, device or network is touched.
+ended, aborted or spoken request. Given --state, it holds STATE's
+local-setup.lock shared, as the sidecar does. No model, device or network is
+touched.
 """
 import ctypes
 import importlib.machinery
@@ -66,6 +68,16 @@ signal = ctypes.c_int()
 ctypes.CDLL(None, use_errno=True).prctl(2, ctypes.byref(signal))  # PR_GET_PDEATHSIG
 record({"start": {"argv": args, "pid": os.getpid(), "env": sorted(os.environ), "ppid": os.getppid(),
                   "net": os.readlink("/proc/self/ns/net"), "pdeathsig": signal.value}})
+# Setup's lock, held shared for this process's life as local-speech.py's
+# hold() holds it; a setup that holds it alone refuses the start.
+if "--state" in args:
+    import fcntl
+    setup_lock = (Path(args[args.index("--state") + 1]) / "local-setup.lock").open("a")
+    try:
+        fcntl.flock(setup_lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
+    except BlockingIOError:
+        send({"type": "failed", "cause": "setup-busy"})
+        sys.exit(77)
 start = scenario.get("start", "ready")
 if start == "memory-query":
     loader = importlib.machinery.SourceFileLoader("query_owner", str(data / "measure-local"))

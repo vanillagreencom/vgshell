@@ -4,6 +4,7 @@
 // owners.
 "use strict";
 const { isIP } = require("node:net");
+const diagnostics = require("node:diagnostics_channel");
 
 /** Parse a transport URL once. WS credentials use the HTTP handshake's origin. */
 function endpoint(value) {
@@ -64,11 +65,43 @@ function headers(target, values, key) {
     return result;
 }
 
+// The status of this socket's refused handshake. WHATWG WebSocket reports a
+// refused handshake as close 1006 with no status. Node's bundled undici
+// publishes every response's status on its documented diagnostics channel
+// undici:request:headers (undici docs/api/DiagnosticsChannel.md), after the
+// constructor and before close; checked on Node 26.11.1, undici 8.11.2. A
+// response is this socket's by its origin, path and websocket upgrade while
+// the socket connects: one duplex session is live at a time, so no other
+// handshake to the same URL runs. The body is never read.
+function handshakeStatus(target) {
+    const url = new URL(target.url);
+    const path = url.pathname + url.search;
+    const channel = diagnostics.channel("undici:request:headers");
+    let status = null;
+    let listening = true;
+    const heard = ({ request, response }) => {
+        if (request.upgrade === "websocket" && request.origin === target.origin && request.path === path && response.statusCode !== 101)
+            status = response.statusCode;
+    };
+    channel.subscribe(heard);
+    return { status: () => status, stop() {
+        if (listening) channel.unsubscribe(heard);
+        listening = false;
+    } };
+}
+
+/** A close whose handshake the server answered 401 or 403: it refused the key. */
+function keyRefused(close) {
+    return close.status === 401 || close.status === 403;
+}
+
 /**
  * One transport lifetime per immutable recipient set. request takes
  * (item, {url, method?, headers?, key?, signal?}, grants?). websocket takes the
  * same arguments (without method/signal); its item gates connection metadata,
- * not a frame. Its returned channel sends each labelled frame through release.
+ * not a frame. Its returned channel sends each labelled frame through release;
+ * its close event carries code, wasClean and status, a refused handshake's
+ * HTTP status or null.
  * Ask/withhold opens no connection and writes no frame. Native failures carry
  * no URL, headers or key. HTTP streams stay native Responses for SSE adapters.
  */
@@ -133,15 +166,20 @@ function create(selected) {
         // Node 22's bundled WebSocketInit supports headers. Its handshake uses
         // redirect:error. See docs/decisions/D073-jarvis-release-and-origin-bound-keys.md.
         const socket = new WebSocket(target.url, { headers: metadata });
+        const refused = handshakeStatus(target);
         const events = new EventTarget();
         const stop = () => socket.close();
         active.add(stop);
-        socket.addEventListener("open", () => events.dispatchEvent(new Event("open")));
+        socket.addEventListener("open", () => {
+            refused.stop();
+            events.dispatchEvent(new Event("open"));
+        });
         socket.addEventListener("message", event => events.dispatchEvent(new MessageEvent("message", { data: event.data })));
         socket.addEventListener("error", () => events.dispatchEvent(new Event("error")));
         socket.addEventListener("close", event => {
+            refused.stop();
             active.delete(stop);
-            events.dispatchEvent(Object.assign(new Event("close"), { code: event.code, wasClean: event.wasClean }));
+            events.dispatchEvent(Object.assign(new Event("close"), { code: event.code, wasClean: event.wasClean, status: refused.status() }));
         });
         return Object.freeze({ kind: "channel", events,
             get readyState() { return socket.readyState; },
@@ -165,4 +203,4 @@ function create(selected) {
     } });
 }
 
-module.exports = { endpoint, assertKeyTarget, create };
+module.exports = { endpoint, assertKeyTarget, keyRefused, create };

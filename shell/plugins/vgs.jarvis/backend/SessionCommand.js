@@ -6,10 +6,19 @@
 const fs = require("node:fs");
 const Home = require("./Home.js");
 
+// What stops a session command a home holds, by Home.sessionCommand's
+// kind: a link or a part that is no folder or cannot be opened is the Home
+// folder's to fix.
+const BLOCKS = { link: "home-link", kind: "home-kind", unreadable: "home-unreadable" };
+
 /**
  * The home folder SETTING names under USER with its session command, as
  * { folder, command }, or { kind: "blocked", block }: "no-home" for no
- * folder, "package" for a folder without the command.
+ * folder; for a folder without the command, "package" in a home Kendex
+ * installed, whose Repair restores it, and "vgs-package" in one VGS laid
+ * out, whose render ships none (Home.packageOwner); "home-link",
+ * "home-kind" or "home-unreadable" for a way to it that Jarvis cannot
+ * follow.
  */
 function place(setting, user) {
     let folder = null;
@@ -20,7 +29,15 @@ function place(setting, user) {
     }
     if (folder === null || !fs.statSync(folder, { throwIfNoEntry: false })?.isDirectory()) return { kind: "blocked", block: "no-home" };
     const command = Home.sessionCommand(folder);
-    return command === null ? { kind: "blocked", block: "package" } : { folder, command };
+    if (command.kind === "found") return { folder, command: command.path };
+    if (command.kind !== "absent") return { kind: "blocked", block: BLOCKS[command.kind] };
+    let owner;
+    try { owner = Home.packageOwner(folder); }
+    catch (error) {
+        if (!/^jarvis: home=/.test(error.message)) throw error;
+        return { kind: "blocked", block: "home-unreadable" };
+    }
+    return { kind: "blocked", block: owner === "kendex" ? "package" : "vgs-package" };
 }
 
 /**

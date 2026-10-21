@@ -95,8 +95,38 @@ function verify(data) {
             assert.ok(!/(^|\s)m/.test(d.replace(/^m/, "")), `${name}: a joined path starts with a relative move`);
     assert.ok(data.ICONS.palette[1].startsWith("M13 6.5a0.5 0.5 0 1 0 1 0"), "a filled circle lands in the fill path");
     assert.ok(data.ICONS.palette[0].indexOf("M13 6.5a0.5 0.5 0 1 0 1 0") !== -1, "a filled circle keeps its stroke");
+    // VGS's own symbols join the set under their prefix, each as drawn
+    // in Own.js.
+    for (const name of Object.keys(own.ICONS)) {
+        assert.match(name, /^vgs-/, `own icon ${name} lacks the vgs- prefix`);
+        assert.equal(JSON.stringify(data.ICONS[name]), JSON.stringify(own.ICONS[name]), `own icon ${name} is not in the set as drawn`);
+    }
 }
+const ownFile = path.join(__dirname, "..", "shell", "Ui", "icons", "Own.js");
+const own = load(ownFile);
+assert.ok(Object.keys(own.ICONS).length > 0, "Own.js holds no symbol");
 verify(load(dataFile));
+
+// The data's import of Own.js and its merging trailer are the lines
+// scripts/vendor-lucide writes, so a re-vendor keeps the own symbols.
+const vendor = fs.readFileSync(path.join(__dirname, "vendor-lucide"), "utf8");
+const trailerSource = /^const OWN_TRAILER = (\[[\s\S]*?^\]);$/m.exec(vendor);
+assert.ok(trailerSource !== null, "vendor-lucide declares OWN_TRAILER");
+const trailer = require("node:vm").runInNewContext(trailerSource[1]);
+const dataText = fs.readFileSync(dataFile, "utf8");
+assert.ok(vendor.indexOf("\".import \\\"Own.js\\\" as Own\"") !== -1, "vendor-lucide writes the Own.js import");
+assert.equal(dataText.split("\n")[1], ".import \"Own.js\" as Own", "the data imports Own.js as the generator writes it");
+assert.ok(dataText.endsWith("};\n\n" + trailer.join("\n") + "\n"), "the data ends with the generator's trailer");
+// A symbol named as a Lucide icon stops the set loading.
+const clashDir = fs.mkdtempSync(path.join(os.tmpdir(), "lucide-own-clash-"));
+try {
+    fs.copyFileSync(dataFile, path.join(clashDir, "Lucide.js"));
+    fs.writeFileSync(path.join(clashDir, "Own.js"), '.pragma library\nvar ICONS = { "check": ["M4 12h16", ""] };\n');
+    assert.throws(() => load(path.join(clashDir, "Lucide.js")), error => String(error.message).split("\n").some(line => /(^|: )lucide: own-icon=check reason=clash$/.test(line.trim())),
+        "an own symbol cannot replace a Lucide one");
+} finally {
+    fs.rmSync(clashDir, { recursive: true, force: true });
+}
 
 // Each control plants one defect in a copy of the data.
 const CONTROLS = [
@@ -110,7 +140,8 @@ const CONTROLS = [
     ["arc flags touching the next number", '"leaf": ["M11 20a10 10 0 0 0 10 -10', '"leaf": ["M11 20a10 10 0 0010 -10'],
     ["a wrong circle conversion", '"circle": ["M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0z",""]', '"circle": ["M2 12a10 10 0 1 0 20 0z",""]'],
     ["a fill dropped from the fill path", '","M13 6.5a0.5 0.5 0 1 0 1 0a0.5 0.5 0 1 0 -1 0z M17', '","M17'],
-    ["a filled node without its stroke", '2.8z M13 6.5a0.5 0.5 0 1 0 1 0a0.5 0.5 0 1 0 -1 0z M17', '2.8z M17']
+    ["a filled node without its stroke", '2.8z M13 6.5a0.5 0.5 0 1 0 1 0a0.5 0.5 0 1 0 -1 0z M17', '2.8z M17'],
+    ["the own symbols left out of the set", "    ICONS[name] = Own.ICONS[name];\n", ""]
 ];
 const source = fs.readFileSync(dataFile, "utf8");
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "lucide-data-control-"));
@@ -118,6 +149,7 @@ try {
     for (const [label, needle, replacement] of CONTROLS) {
         assert.equal(source.split(needle).length, 2, `control "${label}": the text to replace must occur once`);
         const mutant = path.join(temp, "Lucide.js");
+        fs.copyFileSync(ownFile, path.join(temp, "Own.js"));
         fs.writeFileSync(mutant, source.replace(needle, () => replacement));
         let failed = false;
         try {

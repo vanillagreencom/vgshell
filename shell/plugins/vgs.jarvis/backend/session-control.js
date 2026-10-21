@@ -31,14 +31,24 @@
 // The package's `prepare` before a machine restart is power-wait.js's call.
 // Each verb prints one JSON line and exits 0:
 //   { kind: "answer", state, reason, detail, names: { home, account } }
-//     the package's answer, names those of the recorded session or null;
+//     the package's answer, names those of the recorded session or null:
+//     `home` as ~/path, `account` as the Jarvis page labels it, its
+//     provider and sign-in email (Accounts.js accountLabel), read now;
 //     `model`, `since` and `restart` are added as the package gives them
 //     (accepted); `unapplied`, a block, is added when the selection failed
 //     its check and the session that lives stays as it is
-//   { kind: "blocked", block }  "no-account", "not-app", "no-home" or
-//     "package": no call can be made
+//   { kind: "blocked", block }  "no-account", "not-app", "no-home",
+//     "package", "vgs-package", "home-link", "home-kind" or
+//     "home-unreadable" (SessionCommand.place): no call can be made; or
+//     "unread": the command's status ran outside its contract
 //   { kind: "failed" }  the command ran outside its contract
-// Arguments it cannot read exit 2 with a keyed line.
+// A run outside the contract, an exit other than 0 or 1, a signal, the
+// time-out, a command that would not start, no line or more than one, or
+// an answer outside the table, writes one keyed line to stderr,
+// `jarvis: session-<verb>=timeout|exit=N|signal|spawn|unaccepted`, VERB
+// the command's: SessionStart.qml logs its first. An account whose label
+// cannot be read writes `jarvis: session-account=<reason>` and reads by
+// its provider alone. Arguments it cannot read exit 2 with a keyed line.
 "use strict";
 const cp = require("node:child_process");
 const path = require("node:path");
@@ -51,7 +61,7 @@ const STATES = Object.freeze({
     stopping: ["stop-requested"],
     stopped: ["never-started", "stopped", "ended"],
     off: ["app-off"],
-    blocked: ["app-off", "name-conflict", "record-unreadable", "sign-in-required", "selection-conflict", "tmux-missing", "app-missing"],
+    blocked: ["app-off", "name-conflict", "record-unreadable", "sign-in-required", "selection-conflict", "tmux-missing", "app-missing", "trust-required"],
     failed: ["launch-failed", "handover-failed"]
 });
 const LIVE = ["running", "starting", "handing-over"];
@@ -137,32 +147,44 @@ async function main() {
         return 2;
     }
     require("./Core.js").use(tree);
-    const { Accounts, provider } = require("./Accounts.js");
+    const { Accounts, accountLabel } = require("./Accounts.js");
     const SessionCommand = require("./SessionCommand.js");
     const user = process.env.HOME;
     const environment = SessionCommand.environment(process.env);
 
     const blocked = block => ({ kind: "blocked", block });
     const short = value => value === user || value.startsWith(user + "/") ? "~" + value.slice(user.length) : value;
+    const state = path.join(process.env.XDG_STATE_HOME || path.join(user, ".local/state"), "vgshell/jarvis");
+    // The recorded session's account by its label. The label is a name to
+    // show, so an account it cannot read still shows the session.
+    async function label(harness, directory) {
+        try { return await new Accounts(state, process.env).label(harness, directory); }
+        catch (error) {
+            const key = /^jarvis-accounts: ([a-z=-]+)/.exec(error.message);
+            if (key === null) throw error;
+            process.stderr.write("jarvis: session-account=" + key[1] + "\n");
+            return accountLabel({ provider: harness, source: { kind: "cli" }, email: "" });
+        }
+    }
     // The optional fields are passed on only as the package gives them.
-    const answer = value => ({ kind: "answer", state: value.state, reason: value.reason, detail: value.detail,
+    const answer = async value => ({ kind: "answer", state: value.state, reason: value.reason, detail: value.detail,
         names: value.home === null || value.harness === null || value.account === null ? null
-            : { home: short(value.home), account: provider(value.harness).label + ", " + short(value.account) },
+            : { home: short(value.home), account: await label(value.harness, value.account) },
         ...Object.fromEntries(["model", "since", "restart"].filter(field => value[field] !== null).map(field => [field, value[field]])) });
 
     // The home folder a setting names with its session command, or a block.
     const place = setting => SessionCommand.place(setting, user);
     // The app account a setting names, or a block.
     function account(setting) {
-        const state = path.join(process.env.XDG_STATE_HOME || path.join(user, ".local/state"), "vgshell/jarvis");
         const resolved = setting === "" ? null : new Accounts(state, process.env).resolve(setting);
         if (resolved === null) return blocked("no-account");
         return resolved.source.kind === "cli" ? { harness: resolved.provider, directory: resolved.source.directory } : blocked("not-app");
     }
     // One run of the command by argument list in its home: { code, value },
-    // the exit status, 0 or 1, and the contract's object, else null. The
-    // bound ends the run itself: a program the command started can hold its
-    // output open past the command's own end, and `close` waits for that.
+    // the exit status, 0 or 1, and the contract's object, else null, whose
+    // cause goes to stderr as its keyed line. The bound ends the run
+    // itself: a program the command started can hold its output open past
+    // the command's own end, and `close` waits for that.
     function exited(at, words) {
         return new Promise(resolve => {
             const child = cp.spawn(at.command, words.concat(["--home", at.folder]), { cwd: at.folder, env: environment, stdio: ["ignore", "pipe", "ignore"] });
@@ -174,17 +196,22 @@ async function main() {
                 clearTimeout(timer);
                 resolve(value);
             };
+            const outside = cause => {
+                if (!ended) process.stderr.write("jarvis: session-" + words[0] + "=" + cause + "\n");
+                end(null);
+            };
             const timer = setTimeout(() => {
                 child.kill("SIGKILL");
                 child.stdout.destroy();
-                end(null);
+                outside("timeout");
             }, COMMAND_MS);
             child.stdout.setEncoding("utf8");
             child.stdout.on("data", text => { if (out.length <= OUTPUT_BYTES) out += text; });
-            child.on("error", () => end(null));
+            child.on("error", () => outside("spawn"));
             child.on("close", (code, signal) => {
                 const value = signal === null && (code === 0 || code === 1) ? accepted(out) : null;
-                end(value === null ? null : { code, value });
+                if (value !== null) end({ code, value });
+                else outside(signal !== null ? "signal" : code !== 0 && code !== 1 ? "exit=" + code : "unaccepted");
             });
         });
     }
@@ -192,8 +219,8 @@ async function main() {
     const run = async (at, words) => (await exited(at, words))?.value ?? null;
     const failed = { kind: "failed" };
     // The session as the command reads it now; a status outside the
-    // contract is no package VGS can use.
-    const read = async at => await run(at, ["status"]) ?? blocked("package");
+    // contract reads `unread`.
+    const read = async at => await run(at, ["status"]) ?? blocked("unread");
     // A `start` or `resume`, WORDS, then the session as it is after it. A
     // refusal's own object is the answer.
     async function launch(at, words) {
@@ -244,7 +271,7 @@ async function main() {
         // The new selection is checked whole before the old session ends.
         const who = account(setting);
         const probe = at.kind === "blocked" ? at : who.kind === "blocked" ? who : await read(at);
-        if (probe.kind === "blocked") return { ...answer(before), unapplied: probe.block };
+        if (probe.kind === "blocked") return { ...await answer(before), unapplied: probe.block };
         // The selection the session already runs on, as after a refused
         // selection is taken back, replaces nothing.
         if (at.folder === from.folder && before.harness === who.harness && before.account === who.directory) return answer(before);
@@ -267,7 +294,7 @@ async function main() {
     const who = account(setting);
     if (who.kind !== "blocked") return start(at, who, mode, origin);
     // A session that lives, one started by hand among them, stays shown.
-    return LIVE.includes(now.state) ? { ...answer(now), unapplied: who.block } : who;
+    return LIVE.includes(now.state) ? { ...await answer(now), unapplied: who.block } : who;
 }
 
 main().then(value => {

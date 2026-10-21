@@ -5,6 +5,7 @@ import qs.Core
 import qs.Ui
 import "../../shell/plugins/vgs.settings"
 import "../../shell/plugins/vgs.settings/Steps.js" as Steps
+import "../../shell/Commons/Reply.js" as Reply
 
 // PluginLogic produces the manager rows. The actual page and list consume
 // them. Required steps, including an actionless Home failure, keep Setup
@@ -37,6 +38,15 @@ Item {
         }
     })
     readonly property var ready: ({ tone: "ok", text: "Ready" })
+    // A required step beside an optional one (setup "optional"), a step
+    // that adds a feature.
+    readonly property var extended: ({
+        requirements: [], tui: { connect: { requires: [] } },
+        status: {
+            model: { type: "state", label: "Model", setup: true },
+            extra: { type: "state", label: "Extra", setup: "optional", action: { label: "Add", tui: "connect" } }
+        }
+    })
     readonly property var todo: ({ model: { tone: "warning", text: "Account missing", action: true }, home: ready, health: ready })
     readonly property var done: ({ model: ready, home: ready, health: ready })
     readonly property var homeOnly: ({ model: ready, home: { tone: "danger", text: "Choose an allowed Home" }, health: ready })
@@ -90,6 +100,18 @@ Item {
         row.fieldRows = PluginLogic.fieldRows(row.schema, manifest.status);
         return row;
     }
+    // Thirty Setup steps and thirty Details facts, each published ready,
+    // the last of each far below the window's first screen.
+    function longStatus() {
+        const status = {}, values = {};
+        for (let i = 0; i < 30; i++) {
+            status["s" + i] = { type: "state", label: "Step " + i, setup: true };
+            status["f" + i] = { type: "state", label: "Fact " + i };
+            values["s" + i] = root.ready;
+            values["f" + i] = root.ready;
+        }
+        return { manifest: { requirements: [], tui: {}, status: status }, values: values };
+    }
     function listed(settings) { return { tuis: [{ name: "task", label: "Run task", icon: "wrench", settings: settings }] }; }
     // Forty switches, the last far below the window's first screen.
     function longFields() {
@@ -113,6 +135,7 @@ Item {
             pluginRow("acme.optional", optional, { featureState: { tone: "warning", text: "Not configured", action: true }, health: ready }, ["optional-tool"],
                 { schema: { feature: { type: "boolean", label: "Feature" } }, settings: { feature: false } }),
             pluginRow("acme.required", requiredTools, {}, ["required-a", "required-b"], {}),
+            pluginRow("acme.extra", extended, { model: ready, extra: { tone: "warning", text: "Not set up", action: true } }, [], {}),
             pluginRow("acme.present", requiredTools, {}, [], {}),
             pluginRow("acme.keys", keyed, { connection: ready, credentials: [{ label: "Client ID", value: "present", secret: "acme:id" }, { label: "Client secret", value: "absent", secret: "acme:secret" }] }, [], {}),
             pluginRow("acme.explained", keyed, { connection: ready, credentials: [{ label: "Client ID", value: "present", hint: root.idHint, info: root.idInfo, secret: "acme:id" }, { label: "Client secret", value: "absent", secret: "acme:secret" }] }, [], {}),
@@ -125,6 +148,7 @@ Item {
             pluginRow("acme.settings", { requirements: [], status: {}, tui: {} }, {}, [], listed(true)),
             pluginRow("acme.offtools", requiredTools, {}, ["required-a"], { enabled: false }),
             pluginRow("acme.long", { requirements: [], status: {}, tui: {} }, {}, [], longFields()),
+            pluginRow("acme.longsteps", longStatus().manifest, longStatus().values, [], {}),
             pluginRow("acme.installed", stepped, done, [], { source: "installed" }),
             pluginRow("acme.loose", { requirements: [], status: {}, tui: {} }, {}, [], { source: "installed" })
         ];
@@ -137,6 +161,7 @@ Item {
         property var opens: []
         property var enables: []
         property var acts: []
+        property var chosen: []
         property string actionReply: "ok"
         property string enableReply: "ok"
         property string installReply: "ok"
@@ -147,6 +172,7 @@ Item {
         function update(id) { updates = updates.concat([id]); return "ok"; }
         function openTui(id, name) { opens = opens.concat([[id, name]]); return "ok"; }
         function act(id, key) { acts = acts.concat([[id, key]]); return actionReply; }
+        function setSetting(id, key, value) { chosen = chosen.concat([[id, key, value]]); return "ok"; }
     }
     QtObject { id: fakeCompositor; function readWindows(done) {} }
     QtObject {
@@ -172,7 +198,7 @@ Item {
             for (let i = 0; i < found.length; i++) for (const child of found[i].children || []) found.push(child);
             return found;
         }
-        function init() { fakeManager.plugins = root.rows(); fakeManager.installs = []; fakeManager.updates = []; fakeManager.opens = []; fakeManager.enables = []; fakeManager.acts = []; fakeManager.actionReply = "ok"; fakeManager.enableReply = "ok"; fakeManager.installReply = "ok"; }
+        function init() { fakeManager.plugins = root.rows(); fakeManager.installs = []; fakeManager.updates = []; fakeManager.opens = []; fakeManager.enables = []; fakeManager.acts = []; fakeManager.chosen = []; fakeManager.actionReply = "ok"; fakeManager.enableReply = "ok"; fakeManager.installReply = "ok"; }
         function opened() {
             const window = createTemporaryObject(windowComponent, root);
             verify(window !== null, "the window builds");
@@ -277,6 +303,20 @@ Item {
             compare(shown(window, Field).map(field => field.label).filter(label => ["Extra", "Model"].indexOf(label) !== -1), data.labels);
             compare(shown(window, Badge).map(chip => [chip.text, chip.tone]), data.chips);
             compare(shown(window, RowAction).map(action => action.text), data.actions);
+        }
+        // An optional step that is not done reads Optional, in the neutral
+        // tone, before the Done step, offers its action, and gives neither
+        // the list row nor the Setup tab a warning.
+        function test_an_optional_step_reads_optional_with_no_warning() {
+            const window = opened(); window.openPlugin("acme.extra", Qt.OtherFocusReason, "Setup");
+            compare(pageOf(window).tab, "Setup");
+            const steps = shown(window, Field).filter(field => ["Model", "Extra"].indexOf(field.label) !== -1);
+            compare(steps.map(field => field.label), ["Extra", "Model"]);
+            compare(shown(window, Badge).map(chip => [chip.text, chip.tone]), [["Optional", "neutral"], ["Done", "success"]]);
+            compare(descendants(steps[0]).filter(item => item instanceof RowAction && item.visible).map(action => action.text), ["Add"]);
+            compare(chipShown(window, "acme.extra"), false, "the list row draws no warning");
+            compare(tabsOf(window).warningTabs, []);
+            compare(tabWarning(window).visible, false, "the Setup tab draws no warning icon");
         }
         // [tag, plugin, the chip tone of each step in drawn order, the step
         // labels in that order, the steps that draw an action].
@@ -549,15 +589,72 @@ Item {
             mouseClick(links()[0]);
             compare(fakeManager.installs, ["acme.offtools"]);
         }
-        // A reference to a field brings it into view on Settings.
-        function test_a_field_reference_scrolls_to_it() {
-            const window = opened(); window.openPlugin("acme.long", Qt.OtherFocusReason, "Settings/f39");
-            compare(pageOf(window).tab, "Settings");
-            tryVerify(() => pageOf(window).scrollArea.contentY > 0, 2000, "the page scrolls to the far field");
-            const far = shown(window, SettingField).find(item => item.key === "f39");
-            verify(far !== undefined);
-            const top = far.mapToItem(pageOf(window).scrollArea, 0, 0).y;
-            verify(top >= 0 && top + far.height <= pageOf(window).scrollArea.height, "the far field is in view: " + top);
+        // A value the user picks on the page goes through the manager's
+        // choice route once, with its plugin, key and value, which tells the
+        // plugin of it (PluginStatus.handleChoice).
+        function test_a_page_choice_takes_the_choice_route() {
+            const window = opened(); window.openPlugin("acme.optional", Qt.OtherFocusReason, "Settings");
+            const field = descendants(tabsOf(window).currentPage).find(item => item instanceof SettingField && item.key === "feature");
+            verify(field !== undefined, "the page draws the feature field");
+            const toggle = descendants(field).find(item => item instanceof Switch && item.visible);
+            tryVerify(() => toggle.height > 0 && pageOf(window).parent.x === -window.width, 2000, "the page has slid in");
+            mouseClick(toggle);
+            compare(fakeManager.chosen, [["acme.optional", "feature", true]]);
+        }
+        // A reference to a row brings it into view on its tab and marks it
+        // with one plate inside the content, until a scroll the reveal did
+        // not make: [tag, plugin, reference, tab, the row's key].
+        function test_a_row_reference_scrolls_to_it_and_marks_it_data() {
+            return [{ tag: "a Settings field", id: "acme.long", reference: "Settings/f39", tab: "Settings", key: "f39" },
+                { tag: "a Setup step", id: "acme.longsteps", reference: "Setup/s29", tab: "Setup", key: "s29" },
+                { tag: "a Details fact", id: "acme.longsteps", reference: "Details/f29", tab: "Details", key: "f29" }];
+        }
+        function test_a_row_reference_scrolls_to_it_and_marks_it(data) {
+            const window = opened(); window.openPlugin(data.id, Qt.OtherFocusReason, data.reference);
+            const area = pageOf(window).scrollArea;
+            compare(pageOf(window).tab, data.tab);
+            tryVerify(() => area.contentY > 0, 2000, "the page scrolls to the far row");
+            const far = descendants(tabsOf(window).currentPage).find(item => item.visible && (item.fieldKey === data.key || item.statusKey === data.key));
+            verify(far !== undefined, "the tab draws the row");
+            const top = far.mapToItem(area, 0, 0).y;
+            verify(top >= 0 && top + far.height <= area.height, "the far row is in view: " + top);
+            const plate = descendants(area.contentItem).find(item => item.objectName === "revealMark");
+            verify(plate !== undefined, "the page declares its plate");
+            tryCompare(plate, "opacity", 1, 2000);
+            const box = far.mapToItem(plate.parent, 0, 0);
+            verify(plate.y <= box.y && plate.y + plate.height >= box.y + far.height, "the plate covers the row");
+            verify(plate.x >= 0 && plate.x + plate.width <= plate.parent.width, "the plate stays inside the content: " + [plate.x, plate.width, plate.parent.width]);
+            area.contentY = 0;
+            tryVerify(() => !plate.visible, 2000, "a scroll the reveal did not make clears the plate");
+        }
+        // The area settling back inside its end after a reveal, as the
+        // window takes the page's height, keeps the plate: only a scroll
+        // the user makes clears it.
+        function test_a_settle_inside_the_end_keeps_the_plate() {
+            const window = opened(); window.openPlugin("acme.longsteps", Qt.OtherFocusReason, "Details/f29");
+            const area = pageOf(window).scrollArea;
+            tryVerify(() => area.contentY > 0, 2000, "the page scrolls to the far row");
+            const plate = descendants(area.contentItem).find(item => item.objectName === "revealMark");
+            tryCompare(plate, "opacity", 1, 2000);
+            const scrolled = area.contentY;
+            const height = area.height;
+            area.height = area.contentHeight;
+            tryVerify(() => area.contentY < scrolled, 2000, "the area settles inside its end: " + area.contentY);
+            compare(pageOf(window).revealing, "f29", "the settle keeps the row shown");
+            compare(plate.opacity, 1, "the settle keeps the plate");
+            area.height = height;
+            area.contentY = 10;
+            tryVerify(() => !plate.visible, 2000, "a scroll the user makes clears the plate");
+        }
+        // A reference to a key its tab draws no row for opens the tab and
+        // says so at the page head, once.
+        function test_a_reference_to_an_undrawn_row_is_refused() {
+            ignoreWarning("settings: acme.longsteps refused: page-target=Setup/f29 reason=undrawn");
+            const window = opened(); window.openPlugin("acme.longsteps", Qt.OtherFocusReason, "Setup/f29");
+            compare(pageOf(window).tab, "Setup");
+            tryCompare(pageOf(window).panel, "replies", ({ "acme.longsteps": Reply.line("refused: page-target=Setup/f29 reason=undrawn") }), 2000);
+            compare(pageOf(window).panel.headReplies("acme.longsteps").length, 1, "the page head draws it");
+            compare(pageOf(window).revealing, "", "the page shows nothing");
         }
         function test_more_settings_and_task_screens_have_one_home() {
             const window = opened(); window.openPlugin("acme.settings", Qt.OtherFocusReason);

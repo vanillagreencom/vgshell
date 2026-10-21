@@ -308,13 +308,20 @@ class Audio {
             this.failPlayback("device-lost");
     }
 
-    // A dictation engine's words are voxtype's, which records the default
-    // source, so its captions, turn end and wake word hear that source too.
+    // The device of GROUP that ENGINE (a Session engine kind) uses under
+    // SETTINGS: the one SETTING names, else the default, null before
+    // discovery names it. A dictation engine's words are voxtype's, which
+    // records the default source, so its captions, turn end and wake word
+    // hear that source too. The daemon's snapshot carries the microphone,
+    // so Session keeps a microphone check's result with the source it heard.
+    device(group, setting, settings, engine) {
+        const configured = group === "microphones" && engine === "dictation" ? "" : settings[setting] || "";
+        return configured === "" ? this.defaults[group] : configured;
+    }
+
     selected(group, setting) {
-        const offers = this.devices[group];
-        const configured = group === "microphones" && this.state.engine.kind === "dictation" ? "" : this.state.settings[setting] || "";
-        const value = configured === "" ? this.defaults[group] : configured;
-        if (!offers.some(item => item.value === value)) throw new Error("device-lost");
+        const value = this.device(group, setting, this.state.settings, this.state.engine.kind);
+        if (!this.devices[group].some(item => item.value === value)) throw new Error("device-lost");
         return value;
     }
 

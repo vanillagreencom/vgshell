@@ -107,6 +107,7 @@ ln -s -- "$repo/shell/Core/HyprlandLayer.js" "$tree/shell/Core/HyprlandLayer.js"
 ln -s -- "$repo/shell/Core/MonitorLogic.js" "$tree/shell/Core/MonitorLogic.js"
 ln -s -- "$repo/shell/Core/Pads.js" "$tree/shell/Core/Pads.js"
 ln -s -- "$repo/shell/Ui/icons/Lucide.js" "$tree/shell/Ui/icons/Lucide.js"
+ln -s -- "$repo/shell/Ui/icons/Own.js" "$tree/shell/Ui/icons/Own.js"
 
 # Detection that cannot run is a refusal naming it, never a line without
 # its package: the tree's vgshell-pkg is set aside for the one run. Returns 1

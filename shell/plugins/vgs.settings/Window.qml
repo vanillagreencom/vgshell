@@ -398,12 +398,23 @@ FocusScope {
         return keep(pageId, shell.manager.setPlaced(id, placed));
     }
 
-    // Write one setting of plugin `id` through the manager; answers its
-    // reply.
+    // Write VALUE, the user's choice on the page, to plugin `id`'s setting
+    // `key` through the manager's choice route, which tells the plugin of
+    // it (PluginStatus.handleChoice); a refusal reads at the page head.
     function writeSetting(id, key, value) {
         return keep(id, shell.manager.setSetting(id, key, value));
     }
 
+    // Open the screen the Add entry of plugin `id`'s field `key` names,
+    // which adds an offer; a refusal reads at the page head.
+    function addChoice(id, key) {
+        return keep(id, shell.manager.addChoice(id, key));
+    }
+    // Ask plugin `id` to play VALUE, an offer of its field `key` that
+    // declares `preview`; a refusal reads at the page head.
+    function previewChoice(id, key, value) {
+        return keep(id, shell.manager.previewChoice(id, key, value));
+    }
     // Ask plugin `id` to read its choices status `key` again, as its select
     // opens; answers the manager's reply, which no page shows.
     function refreshChoices(id, key) {

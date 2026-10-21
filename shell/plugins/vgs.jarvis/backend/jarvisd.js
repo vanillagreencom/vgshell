@@ -142,8 +142,18 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         // A selected healthy loading plan can accept bounded capture. The
         // loading cause remains until the same child reports model readiness.
         // Session still owns lock, mute, fault and indicator admission.
+        lastConfiguration = configuration;
+        snapshot();
+    }
+    // The engine's last configuration, which each snapshot carries; null
+    // before the first.
+    let lastConfiguration = null;
+    // Hand Session the engine's last configuration and the source a
+    // microphone check hears now (Audio.device).
+    function snapshot() {
         runner.dispatch({ type: "snapshot", locked: context.locked, engine: engine.engine(),
-            configured: configuration.kind === "ready" || configuration.kind === "loading", checkReady: engine.checkReady(), settings: context.settings });
+            configured: lastConfiguration.kind === "ready" || lastConfiguration.kind === "loading", checkReady: engine.checkReady(),
+            checkSource: audio.device("microphones", "microphone", context.settings, engine.engine()), settings: context.settings });
     }
 
     // Judge the home and the engine again; the status carries each failing
@@ -446,8 +456,13 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
             now: () => performance.now(), set: (fn, ms) => setTimeout(fn, ms), clear: timer => clearTimeout(timer)
         },
         offers: devices => {
-            if (!ending && context !== null) write({ v: 1, type: "devices", gen: runner.state.gen,
-                revision: context.revision, ...devices });
+            if (ending || context === null) return;
+            write({ v: 1, type: "devices", gen: runner.state.gen, revision: context.revision, ...devices });
+            // A new default microphone reaches Session after Audio's own
+            // update, so a check result never outlives the source it heard.
+            queueMicrotask(() => {
+                if (!ending && context !== null && lastConfiguration !== null && audio.device("microphones", "microphone", context.settings, engine.engine()) !== runner.state.checkSource) snapshot();
+            });
         },
         level: (gen, level) => {
             if (!ending && context !== null) write({ v: 1, type: "level", gen,
@@ -533,6 +548,16 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                     tasks.tuiState(message.running);
                     continue;
                 }
+                // A local voice setup run (ChainedEngine localSetup): a start
+                // is answered once the sidecar has exited; an end needs none.
+                if (message.type === "local-setup") {
+                    intentIdentity(message);
+                    if (!message.running) engine.localSetup(false);
+                    else void engine.localSetup(true).then(() => {
+                        if (!ending) write({ v: 1, type: "local-setup", gen: runner.state.gen, revision: context.revision });
+                    });
+                    continue;
+                }
                 if (message.type === "reply") {
                     intentIdentity(message);
                     requests.reply(message);
@@ -563,6 +588,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                         const dispatch = () => {
                             runner.dispatch(message.intent === "mute" ? { type: "mute-toggle" }
                                 : message.intent === "say" ? { type: "say", text: message.text }
+                                : message.intent === "preview" ? { type: "preview", voice: message.voice }
                                 : { type: message.intent });
                         };
                         if (["mute", "stop"].includes(message.intent)) audit.cleanup(message.intent, dispatch);

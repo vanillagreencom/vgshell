@@ -70,6 +70,10 @@ Item {
     onWantedChanged: publish()
     readonly property bool pageViewed: shell !== null && shell.status.viewed
     onPageViewedChanged: if (pageViewed && judged !== "") call("status", sessionHome, [sessionHome])
+    // The row's Repair restores the home's package: its end reads the
+    // session again, so the row follows what the repair left.
+    readonly property var repairEndedAt: shell === null || shell.tui.state["repair-home"] === undefined ? null : shell.tui.state["repair-home"].endedAt
+    onRepairEndedAtChanged: if (repairEndedAt !== null && judged !== "") call("status", sessionHome, [sessionHome])
     onShellChanged: {
         if (shell === null) return;
         // A new `shell` is any changed setting, so only a change of what a
@@ -166,6 +170,13 @@ Item {
                 return;
             }
         }
+        // A block to fix or a failure keeps its keyed cause in the log, as
+        // the helper wrote it (session-control.js `jarvis: session-<verb>=`).
+        // A block that waits on the user's choice is no fault to log.
+        if ((answer.kind === "blocked" && Gate.SESSION_CHOICES.indexOf(answer.block) === -1) || answer.kind === "failed"
+                || (answer.kind === "answer" && answer.state === "failed"))
+            console.warn("jarvis-session: " + current.verb + "=" + (answer.kind === "blocked" ? "blocked block=" + answer.block : answer.kind === "failed" ? "failed" : "failed reason=" + answer.reason)
+                + (errors === "" ? "" : " cause=" + errors.split("\n")[0].slice(0, 180)));
         let again = false;
         if (answer.kind === "answer" && answer.unapplied !== undefined) unapplied = answer.unapplied;
         else if (answer.kind !== "failed" && current.verb === "status" && unapplied !== "") {

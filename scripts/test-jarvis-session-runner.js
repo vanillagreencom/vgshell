@@ -411,6 +411,21 @@ const tests = [
         w.runner.close();
         assert.equal(w.timers.size, 0);
     }],
+    // A tap's end of speech fires on its own, with no other event to run it.
+    ["tap-timer", impl => {
+        const w = world(impl);
+        w.dispatch("talk-down");
+        w.pending.open();
+        w.dispatch("talk-up");
+        assert.equal(w.runner.state.input.kind, "tapped");
+        assert.deepEqual([...w.timers.values()].map(timer => timer.deadline), [Session.TAP_SILENCE_MS]);
+        w.tick(Session.TAP_SILENCE_MS - 1);
+        assert.equal(w.runner.state.capture.kind, "open");
+        w.tick(Session.TAP_SILENCE_MS);
+        assert.deepEqual([w.runner.state.input.kind, w.runner.state.capture.kind], ["released", "closing"]);
+        w.pending.close();
+        w.runner.close();
+    }],
     ["timer-release", impl => {
         const w = world(impl);
         thinking(w);
@@ -459,6 +474,7 @@ let controls = 0;
 try {
     const mutants = [
         ["check timer scheduled", 'this.state.approval, this.state.check, toolDeadline', 'this.state.approval, toolDeadline', "check-timer"],
+        ["tap timer scheduled", "toolDeadline, tapDeadline]", "toolDeadline]", "tap-timer"],
         ["delegation-identity", 'delegation: task => done("delegation", task),', 'delegation: task => done("delegation", { ...task, id: "changed" }),', "delegation-identity"],
         ["speech-due", 'due: due => done("speech-due", { due }),', "due: () => {},", "speech-due-identity"],
         ["speech-due-value", 'due: due => done("speech-due", { due }),', 'due: () => done("speech-due", { due: true }),', "speech-due-identity"],

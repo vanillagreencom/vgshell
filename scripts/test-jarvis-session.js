@@ -19,6 +19,9 @@ assert.deepEqual(copy(Session.EVENTS), events, "every supported event enters the
 const snapshot = extra => ({ type: "snapshot", at: 0, locked: false, engine: "chained", configured: true,
     settings: {}, ...extra });
 const event = (type, at = 10, extra = {}) => ({ type, at, ...extra });
+// The Talk release that ends a hold pressed at DOWN: TAP_MS later, so it is
+// no tap. AFTER moves it later still.
+const holdUp = (down = 10, after = 0) => event("talk-up", down + Session.TAP_MS + after);
 const callback = (type, owner, at = 20, extra = {}) => event(type, at, {
     gen: owner.gen, op: owner.op, ...(owner.kind === "held" ? { id: owner.id, digest: owner.digest } : {}), ...extra });
 const step = (logic, s, e) => copy(logic.reduce(s, e));
@@ -64,13 +67,13 @@ function duplexListening(logic) {
     return step(logic, s, callback("capture-opened", s.capture)).state;
 }
 function duplexSpeaking(logic) {
-    let s = step(logic, duplexListening(logic), event("talk-up", 30)).state;
+    let s = step(logic, duplexListening(logic), holdUp()).state;
     s = step(logic, s, callback("capture-closed", s.capture, 31)).state;
     return step(logic, s, callback("speak", s.speech, 32)).state;
 }
 // Talk released, the user's request is the brain's turn.
 function duplexThinking(logic) {
-    let s = step(logic, duplexListening(logic), event("talk-up", 30)).state;
+    let s = step(logic, duplexListening(logic), holdUp()).state;
     s = step(logic, s, callback("capture-closed", s.capture, 31)).state;
     return step(logic, s, callback("delegation", s.speech, 32, { id: "request", text: "context" })).state;
 }
@@ -110,7 +113,7 @@ function alwaysFollowUp(logic, order = "brain-then-played") {
 }
 const table = [
     ["voice-check-lifetime", logic => {
-        let s = step(logic, logic.initial(), snapshot({ configured: false, checkReady: true })).state;
+        let s = step(logic, logic.initial(), snapshot({ configured: false, checkReady: true, checkSource: "mic-a" })).state;
         assert.equal(logic.canCheck(s), true);
         for (const blocked of [{ ...s, gate: { kind: "down", reason: "locked" } }, { ...s, mute: { kind: "on" } },
             { ...s, turn: thinking(logic).turn }, { ...s, action: acting(logic).action }, { ...s, approval: held(logic).approval }]) {
@@ -133,10 +136,22 @@ const table = [
         assert.equal(closing.state.check.kind, "finishing");
         for (const result of ["ready", "silent", "not-heard"]) {
             const checked = step(logic, closing.state, callback("voice-checked", s.check, 3021, { result })).state;
-            assert.deepEqual(checked.check, { kind: "done", result });
-            const changed = step(logic, checked, snapshot({ at: 3022, configured: false, checkReady: true,
-                settings: { ...checked.settings, microphone: "other" } })).state;
-            assert.equal(changed.check.kind, "ready", "a result belongs to the checked microphone");
+            assert.deepEqual(checked.check, { kind: "done", result, device: "mic-a" }, "a result names the source it heard");
+            const at = (state, extra, time) => step(logic, state, snapshot({ at: time, configured: false, checkReady: true, ...extra })).state;
+            const changed = at(checked, { checkSource: "mic-b" }, 3022);
+            assert.equal(changed.check.kind, "again", "a result belongs to the checked microphone, and its reset says so");
+            assert.deepEqual(at(checked, { checkSource: "mic-a" }, 3022).check, checked.check, "the same source keeps the result");
+            assert.deepEqual(at(checked, {}, 3022).check, checked.check, "an unknown source keeps the result");
+            // A cloud voice cannot check; it keeps the result for the same
+            // source, so Local, then a cloud voice, then Local keeps it.
+            const cloud = at(checked, { checkReady: false, checkSource: "mic-a" }, 3023);
+            assert.deepEqual(cloud.check, { kind: "kept", result, device: "mic-a" }, "a cloud voice keeps the result");
+            assert.deepEqual(at(cloud, { checkSource: "mic-a" }, 3024).check, checked.check, "back on Local the result stands");
+            // Under a cloud voice no check can run, so a kept result of
+            // another source is dropped; Local then asks for a check.
+            const moved = at(cloud, { checkReady: false, checkSource: "mic-b" }, 3024);
+            assert.deepEqual([moved.check.kind, at(moved, { checkSource: "mic-b" }, 3025).check.kind], ["unavailable", "ready"],
+                "a kept result goes with its source");
         }
         for (const trigger of [event("mute", 30), event("stop", 30), event("lease-ended", 30),
             event("indicator", 30, { shown: false }), event("cancel", 30), event("interrupt", 30),
@@ -150,8 +165,29 @@ const table = [
             assert.notEqual(step(logic, stopped, callback("voice-checked", s.check, 31, { result: "ready" })).state.check.kind, "done");
         }
     }],
+    // A source that moves while a check runs, such as a new default
+    // microphone with the old one still connected, ends the check and asks
+    // again: the result the old source's recording brings is not the new
+    // source's.
+    ["voice-check-source-moves", logic => {
+        let waiting = step(logic, logic.initial(), snapshot({ configured: false, checkReady: true, checkSource: "mic-a" })).state;
+        waiting = step(logic, waiting, event("voice-check", 1)).state;
+        let recording = step(logic, waiting, event("indicator", 2, { shown: true })).state;
+        recording = step(logic, recording, callback("capture-opened", recording.capture, 3)).state;
+        const finishing = step(logic, recording, callback("deadline", recording.check, recording.check.deadline)).state;
+        for (const [label, owner] of [["waiting", waiting], ["recording", recording], ["finishing", finishing]]) {
+            const at = owner.check.deadline - 1;
+            const moved = step(logic, owner, snapshot({ at, configured: false, checkReady: true, checkSource: "mic-b" })).state;
+            assert.deepEqual([moved.check.kind, moved.checkSource, moved.input.kind], ["again", "mic-b", "released"], label + ": the check asks again");
+            assert.equal(["opening", "open"].includes(moved.capture.kind), false, label + ": the old recording ends");
+            const late = step(logic, moved, callback("voice-checked", owner.check, at + 1, { result: "ready" })).state;
+            assert.equal(late.check.kind, "again", label + ": the old source's result does not land");
+            const same = step(logic, owner, snapshot({ at, configured: false, checkReady: true, checkSource: "mic-a" })).state;
+            assert.equal(same.check.kind, owner.check.kind, label + ": the same source keeps the check");
+        }
+    }],
     ["voice-check-failures", logic => {
-        let waiting = step(logic, logic.initial(), snapshot({ configured: false, checkReady: true })).state;
+        let waiting = step(logic, logic.initial(), snapshot({ configured: false, checkReady: true, checkSource: "mic-a" })).state;
         waiting = step(logic, waiting, event("voice-check", 1)).state;
         let recording = step(logic, waiting, event("indicator", 2, { shown: true })).state;
         recording = step(logic, recording, callback("capture-opened", recording.capture, 3)).state;
@@ -162,7 +198,7 @@ const table = [
             [finishing, "voice-check-failed", "speech=local-wake-failed"]]) {
             const at = type === "deadline" ? owner.check.deadline : owner.check.deadline - 1;
             const failed = step(logic, owner, callback(type, owner.check, at, { reason })).state;
-            assert.deepEqual(failed.check, { kind: "failed", reason }, "check failure keeps its cause");
+            assert.deepEqual(failed.check, { kind: "failed", reason, device: "mic-a" }, "check failure keeps its cause");
             assert.equal(logic.validate(failed), true);
             assert.equal(failed.input.kind, "released");
             assert.equal(logic.canCapture(failed), false);
@@ -174,9 +210,8 @@ const table = [
             assert.notEqual(repeated.check.op, owner.check.op);
             const stale = step(logic, repeated, callback("voice-check-failed", owner.check, at + 3, { reason })).state;
             assert.equal(stale.check.kind, "waiting", "old failure cannot replace a repeated check");
-            const changed = step(logic, failed, snapshot({ at: at + 1, configured: false, checkReady: true,
-                settings: { ...failed.settings, microphone: "other" } })).state;
-            assert.equal(changed.check.kind, "ready", "failure belongs to the checked microphone");
+            const changed = step(logic, failed, snapshot({ at: at + 1, configured: false, checkReady: true, checkSource: "mic-b" })).state;
+            assert.equal(changed.check.kind, "again", "failure belongs to the checked microphone");
         }
         for (const owner of [waiting, recording, finishing]) for (const type of ["stop", "mute", "lease-ended"]) {
             const stopped = step(logic, owner, event(type, owner.check.deadline - 2)).state;
@@ -485,11 +520,11 @@ const table = [
     ["preview-local", logic => {
         for (const [label, s] of [["idle", ready(logic)], ["between turns", between(logic)], ["always armed", alwaysArmed(logic)]]) {
             assert.equal(logic.previewRefusal(s), null, label);
-            let r = step(logic, s, event("preview", 50));
+            let r = step(logic, s, event("preview", 50, { voice: "VoiceA" }));
             const send = r.effects.find(e => e.kind === "brain-send");
             assert.ok(send, label + ": the engine is asked for the sentence");
-            assert.deepEqual([send.preview, send.text, r.state.turn.kind, r.state.turn.op, r.state.conversation.kind],
-                [true, undefined, "thinking", send.op, "active"], label);
+            assert.deepEqual([send.preview, send.voice, send.text, r.state.turn.kind, r.state.turn.op, r.state.conversation.kind],
+                [true, "VoiceA", undefined, "thinking", send.op, "active"], label);
             assert.equal(r.state.gen, s.conversation.kind === "ended" ? s.gen + 1 : s.gen, label + ": a new conversation takes a new gen");
             assert.equal(kinds(r).includes("transcript"), false, label + ": a preview is no user turn");
             assert.equal(r.state.capture.kind === "open" || r.state.capture.kind === "opening", false, label + ": no microphone opens");
@@ -500,7 +535,7 @@ const table = [
     ["preview-refusals", logic => {
         const unchanged = (label, s, key) => {
             assert.equal(logic.previewRefusal(s), key, label);
-            assert.deepEqual(step(logic, s, event("preview", 20)), { state: copy(s), effects: [] }, label);
+            assert.deepEqual(step(logic, s, event("preview", 20, { voice: "VoiceA" })), { state: copy(s), effects: [] }, label);
         };
         unchanged("down", logic.initial(), "down");
         unchanged("muted", step(logic, ready(logic), event("mute", 10)).state, "muted");
@@ -531,16 +566,17 @@ const table = [
         const failed = step(logic, s, callback("brain-failed", s.turn, 40, { reason: "brain=fixture" })).state;
         assert.equal(failed.fault.kind, "error");
         assert.equal(logic.previewRefusal(failed), null);
-        const r = step(logic, failed, event("preview", 50));
+        const r = step(logic, failed, event("preview", 50, { voice: "VoiceA" }));
         assert.deepEqual([r.state.fault.kind, r.state.turn.kind, kinds(r).includes("brain-send")], ["none", "thinking", true]);
     }],
     // A duplex preview opens the voice's session alone, with no capture;
     // the voice's idle report after the sentence ends the conversation.
     ["preview-duplex", logic => {
         const s = duplexReady(logic);
-        let r = step(logic, s, event("preview", 50));
+        let r = step(logic, s, event("preview", 50, { voice: "marin" }));
         const open = r.effects.find(e => e.kind === "speech-open");
         assert.ok(open, "the voice's session opens");
+        assert.equal(open.voice, "marin", "the preview names its voice");
         assert.deepEqual([open.preview, r.state.speech.op, r.state.conversation.kind, r.state.gen, r.state.turn.kind],
             [true, open.op, "active", s.gen + 1, "none"]);
         assert.equal(kinds(r).includes("capture-open"), false, "no microphone opens");
@@ -848,14 +884,114 @@ const table = [
         assert.deepEqual(s.capture, { kind: "closed" });
         assert.deepEqual(s.indicator, { kind: "gone" });
     }],
+    // Tap or hold (Talk mode hold): a press released within TAP_MS is a tap,
+    // which keeps listening until a second press or the end of speech,
+    // TAP_SILENCE_MS after the last words; a longer press ends at release.
+    ["tap", logic => {
+        const tap = 10 + logic.TAP_MS - 1;
+        const tapped = () => step(logic, listening(logic), event("talk-up", tap)).state;
+        let s = tapped();
+        assert.deepEqual([s.input, s.capture.kind], [{ kind: "tapped", deadline: tap + logic.TAP_SILENCE_MS }, "open"],
+            "tap: a short press keeps listening until the end of speech");
+        assert.equal(logic.phaseOf(s), "listening", "tap: Jarvis listens");
+        // A second press sends the words; its release changes nothing.
+        const second = step(logic, s, event("talk-down", tap + 100));
+        assert.deepEqual([second.state.input, second.state.capture.kind], [{ kind: "released" }, "closing"], "second tap: the press sends the words");
+        assert.deepEqual(step(logic, second.state, event("talk-up", tap + 150)).effects, [], "second tap: its release changes nothing");
+        // Each partial moves the end of speech; silence after it sends.
+        s = step(logic, tapped(), callback("partial", tapped().turn, tap + 1000, { text: "turn on the" })).state;
+        assert.equal(s.input.deadline, tap + 1000 + logic.TAP_SILENCE_MS, "end of speech: words move the bound");
+        assert.deepEqual(step(logic, s, callback("deadline", s.capture, s.input.deadline - 1)).state.input, s.input,
+            "end of speech: words heard within the bound keep listening");
+        const ended = step(logic, s, callback("deadline", s.capture, s.input.deadline));
+        assert.deepEqual([ended.state.input, ended.state.capture.kind, ended.state.turn.kind, ended.state.fault.kind], [{ kind: "released" }, "closing", "collecting", "none"],
+            "end of speech: silence sends the words, no fault");
+        // A press released at TAP_MS is a hold, which ends at release.
+        const held = step(logic, listening(logic), holdUp()).state;
+        assert.deepEqual([held.input, held.capture.kind], [{ kind: "released" }, "closing"], "hold: the release sends the words");
+        // A tap before the microphone opened listens from its opening.
+        let early = step(logic, ready(logic), event("talk-down")).state;
+        early = step(logic, early, event("talk-up", tap)).state;
+        early = step(logic, early, callback("capture-opened", early.capture, tap + 20)).state;
+        assert.deepEqual(early.input, { kind: "tapped", deadline: tap + 20 + logic.TAP_SILENCE_MS }, "tap before open: the bound starts at the opening");
+        // A tap during the start sound, before the microphone opens, keeps
+        // the request: the microphone opens once the sound ends.
+        let cue = startFeedback(logic).state;
+        cue = step(logic, cue, event("talk-up", 11)).state;
+        assert.deepEqual(cue.input, { kind: "tapped", deadline: null }, "tap during the start sound: the request stays");
+        assert.equal(step(logic, cue, callback("played", cue.playback, 12)).state.capture.kind, "opening",
+            "tap during the start sound: the microphone opens after it");
+        // A capture that failed leaves no tap: the next press starts afresh.
+        let failed = step(logic, listening(logic), callback("capture-failed", listening(logic).capture, 20, { reason: "provider-disconnected" })).state;
+        failed = step(logic, failed, callback("capture-closed", failed.capture, 21)).state;
+        failed = step(logic, failed, event("talk-up", tap)).state;
+        assert.notEqual(failed.input.kind, "tapped", "failed capture: a short release is no tap");
+        // A capture that fails after a tap ends it: the next press recovers
+        // and listens at once.
+        let lost = tapped();
+        lost = step(logic, lost, callback("capture-failed", lost.capture, tap + 50, { reason: "provider-disconnected" })).state;
+        lost = step(logic, lost, callback("capture-closed", lost.capture, tap + 51)).state;
+        const again = step(logic, lost, event("talk-down", tap + 100));
+        assert.deepEqual([again.state.fault.kind, again.state.input.kind, again.state.capture.kind, kinds(again).includes("capture-open")],
+            ["none", "held", "opening", true], "tap then failed capture: the next press listens");
+    }],
+    // A tap on a cloud voice is one request. Each adapter's events for one
+    // spoken request, as it emits them: Realtime captions the user's words
+    // as they come and delegates the item at its transcript; Gemini Live
+    // captions the turn and delegates it at its end, before the caption's
+    // final.
+    ["duplex-tap", logic => {
+        const tap = 10 + logic.TAP_MS - 1;
+        for (const [adapter, request] of [
+            ["realtime", [["transcript", { role: "user", text: "turn on", stage: "partial", rev: 1 }],
+                ["transcript", { role: "user", text: "turn on the light", stage: "final", rev: 2 }],
+                ["delegation", { id: "item", text: "turn on the light" }]]],
+            ["gemini", [["transcript", { role: "user", text: "turn on the light", stage: "partial", rev: 1 }],
+                ["delegation", { id: "turn-1", text: "turn on the light" }],
+                ["transcript", { role: "user", text: "turn on the light", stage: "final", rev: 2 }]]]
+        ]) {
+            const label = adapter + ": ";
+            const tapped = step(logic, duplexListening(logic), event("talk-up", tap)).state;
+            assert.deepEqual([tapped.input, tapped.capture.kind], [{ kind: "tapped", deadline: tap + logic.TAP_SILENCE_MS }, "open"],
+                label + "a short tap keeps listening");
+            // Silence: no words end the request at the bound, no fault, and
+            // nothing reopens the microphone.
+            const silent = step(logic, tapped, callback("deadline", tapped.capture, tapped.input.deadline)).state;
+            assert.deepEqual([silent.input.kind, silent.capture.kind, silent.fault.kind], ["released", "closing", "none"],
+                label + "silence ends the tap");
+            assert.equal(step(logic, silent, callback("capture-closed", silent.capture, tapped.input.deadline + 1)).effects
+                .some(e => e.kind === "capture-open"), false, label + "silence: the microphone stays closed");
+            // Words move the bound; the voice's end of speech hands the
+            // request to the brain and closes the microphone; after the
+            // reply plays, nothing reopens it.
+            let s = tapped, at = tap, opened = [];
+            const run = (type, owner, extra) => {
+                const r = step(logic, s, callback(type, owner, ++at, extra));
+                opened = opened.concat(r.effects.filter(e => e.kind === "capture-open"));
+                s = r.state;
+            };
+            run(...[request[0][0], s.speech, request[0][1]]);
+            assert.equal(s.input.deadline, at + logic.TAP_SILENCE_MS, label + "words move the end of speech");
+            for (const [type, extra] of request.slice(1)) run(type, s.speech, extra);
+            assert.deepEqual([s.input.kind, s.capture.kind, s.turn.kind], ["released", "closing", "thinking"],
+                label + "the request goes to the brain and the microphone closes");
+            run("capture-closed", s.capture);
+            run("speak", s.speech);
+            assert.equal(s.playback.kind, "playing", label + "the reply plays");
+            run("played", s.playback);
+            run("brain-done", s.turn);
+            assert.deepEqual([s.playback.kind, s.turn.kind, s.capture.kind, opened], ["idle", "none", "closed", []],
+                label + "after the reply the microphone stays closed");
+        }
+    }],
     ["hold-edges", logic => {
         let s = listening(logic);
         s = step(logic, s, callback("partial", s.turn, 20, { text: "keep this partial" })).state;
         assert.equal(logic.phaseOf(s), "listening");
         const duplicate = step(logic, s, event("talk-down", 21));
         assert.deepEqual(duplicate, { state: s, effects: [] });
-        s = step(logic, s, event("talk-up", 22)).state;
-        const twice = step(logic, s, event("talk-up", 23));
+        s = step(logic, s, holdUp()).state;
+        const twice = step(logic, s, holdUp(10, 1));
         assert.deepEqual(twice, { state: s, effects: [] });
         assert.deepEqual(step(logic, ready(logic), event("talk-up")).effects, []);
         const conversation = listening(logic, true);
@@ -864,7 +1000,7 @@ const table = [
     ["hold-replacement", logic => {
         let s = listening(logic);
         const old = copy(s.turn);
-        s = step(logic, s, event("talk-up", 21)).state;
+        s = step(logic, s, holdUp()).state;
         s = step(logic, s, callback("capture-closed", s.capture, 22)).state;
         s = step(logic, s, event("talk-down", 23)).state;
         s = step(logic, s, callback("capture-opened", s.capture, 24)).state;
@@ -872,7 +1008,7 @@ const table = [
         const late = step(logic, s, callback("final", old, 25, { text: "old transcript" }));
         assert.deepEqual(late.effects, [], "the old final cannot send or close the new hold");
         assert.deepEqual(late.state.capture, before.capture);
-        assert.deepEqual(late.state.input, { kind: "held" });
+        assert.deepEqual(late.state.input, { kind: "held", since: 23 });
         assert.deepEqual(late.state.turn, before.turn);
         assert.equal(late.state.stale, before.stale + 1);
         assert.notEqual(before.turn.op, old.op);
@@ -1470,7 +1606,7 @@ table.push(["duplex-delegation", logic => {
     let s = step(logic, duplexListening(logic), callback("speak", duplexListening(logic).speech, 30)).state;
     assert.deepEqual([s.speech.reply.kind, s.capture.kind, s.playback.kind], ["waiting", "open", "idle"],
         "a reply waits while talk is held: half duplex never runs both");
-    const released = step(logic, s, event("talk-up", 31));
+    const released = step(logic, s, holdUp(10, 1));
     assert.equal(released.state.playback.kind, "playing");
     assert.equal(released.state.playback.source, s.speech.op);
     assert.equal(released.state.capture.kind, "closing");
@@ -1708,8 +1844,9 @@ table.push(["feedback-start", logic => {
     assert.equal(logic.canCapture(s), false);
     const played = step(logic, s, callback("played", s.playback, 11));
     assert.deepEqual(kinds(played), ["capture-open", "collect"]);
-    const released = step(logic, s, event("talk-up", 11)).state;
-    assert.equal(step(logic, released, callback("played", s.playback, 12)).state.capture.kind, "closed");
+    // A hold released before the start sound ends opens no microphone.
+    const released = step(logic, s, holdUp()).state;
+    assert.equal(step(logic, released, callback("played", s.playback, 10 + logic.TAP_MS + 1)).state.capture.kind, "closed");
     for (const value of [false, undefined]) {
         const silent = step(logic, ready(logic), snapshot({ settings: { sounds: value } })).state;
         assert.deepEqual(kinds(step(logic, silent, event("talk-down"))), ["capture-open", "collect"]);
@@ -2138,8 +2275,12 @@ let controls = 0;
 try {
     // Each independent lifetime rule has its own planted defect.
     const mutants = [
-        ["check timeout cause", 's.check = { kind: "failed", reason: "check-timeout" };', 's.check = { kind: "ready" };', "voice-check-failures"],
-        ["check detector cause", 's.check = { kind: "failed", reason: e.reason };', 's.check = { kind: "ready" };', "voice-check-failures"],
+        ["check timeout cause", 's.check = { kind: "failed", reason: "check-timeout", device: s.checkSource };', 's.check = { kind: "ready" };', "voice-check-failures"],
+        ["check result source", 's.check = { kind: "done", result: e.result, device: s.checkSource };', 's.check = { kind: "done", result: e.result, device: null };', "voice-check-lifetime"],
+        ["check source reset", '&& s.check.device !== source) s.check = { kind: "again" };', ') s.check = s.check;', "voice-check-lifetime"],
+        ["check source moves", '            end(s, effects, e.at, "check-source", false);\n            s.check = { kind: "again" };\n', "", "voice-check-source-moves", "asks again"],
+        ["check kept source", '{ kind: "kept", result: s.check.result, device: s.check.device }', '{ kind: "kept", result: s.check.result, device: null }', "voice-check-lifetime"],
+        ["check detector cause", 's.check = { kind: "failed", reason: e.reason, device: s.checkSource };', 's.check = { kind: "ready" };', "voice-check-failures"],
         ["check failure identity", 'if (!live(s, e, "check", ["waiting", "recording", "finishing"]))', 'if (false)', "voice-check-failures"],
         ["check deadline", 'deadline: e.at + VOICE_CHECK_MS', 'deadline: e.at + COLLECTION_TIMEOUT_MS', "voice-check-lifetime"],
         ["check indicator", 'if (!e.shown && s.input.kind === "check" && s.capture.kind !== "closed")', 'if (false)', "voice-check-lifetime"],
@@ -2218,8 +2359,8 @@ try {
             's.input = { kind: "follow-up" };\n        if (s.input.kind === "follow-up") s.followUp = { kind: "none" };', "always-follow-up-overrun"],
         ["follow-up-stop-drops", 's.input = { kind: "follow-up" };\n        s.followUp = { kind: "none" };',
             's.input = { kind: "follow-up" };\n        if (s.input.kind === "follow-up") s.followUp = { kind: "none" };', "always-follow-up-closes"],
-        ["follow-up-bound", 's.input.kind === "woken" || s.input.kind === "follow-up" ? e.at + WAKE_SILENCE_MS : null',
-            's.input.kind === "woken" ? e.at + WAKE_SILENCE_MS : null', "always-follow-up-orders"],
+        ["follow-up-bound", 's.input.kind === "woken" || s.input.kind === "follow-up" ? e.at + WAKE_SILENCE_MS : null;',
+            's.input.kind === "woken" ? e.at + WAKE_SILENCE_MS : null;', "always-follow-up-orders"],
         ["follow-up-partial", 'if (s.input.kind === "woken" || s.input.kind === "follow-up") {',
             'if (s.input.kind === "woken") {', "always-follow-up-final"],
         ["follow-up-silence", 'else if (s.input.kind === "follow-up") {\n            s.input = { kind: "released" };\n            closeCapture(s, effects);\n            s.turn = { kind: "none" };\n        }',
@@ -2407,7 +2548,18 @@ try {
         ["wake-starts", 'start(s, effects, "woken", e.at);\n        break;\n    case "capture-closed":', 'break;\n    case "capture-closed":', "always-wake"],
         ["wake-woken", 'start(s, effects, "woken", e.at);', 'start(s, effects, "conversation", e.at);', "always-false-wake"],
         ["wake-capture-mode", 's.input.kind === "woken" ? "conversation" : s.input.kind;', 's.input.kind;', "always-wake"],
-        ["wake-silence-bound", 's.input.kind === "woken" || s.input.kind === "follow-up" ? e.at + WAKE_SILENCE_MS : null', 'null', "always-false-wake", "short bound"],
+        ["wake-silence-bound", 's.input.kind === "woken" || s.input.kind === "follow-up" ? e.at + WAKE_SILENCE_MS : null;', 'null;', "always-false-wake", "short bound"],
+        ["tap-bound", "&& e.at - s.input.since < TAP_MS) {", "&& false) {", "tap", "tap:"],
+        ["tap-open-capture", '(s.capture.kind === "opening" || s.capture.kind === "open" || (s.capture.kind === "closed" && s.fault.kind === "none"))\n                && e.at', "e.at", "tap", "failed capture"],
+        ["tap-before-open", ' || (s.capture.kind === "closed" && s.fault.kind === "none")', "", "tap", "start sound"],
+        ["tap-second-press", '        if (s.input.kind === "tapped") {\n            s.input = { kind: "released" };\n            closeCapture(s, effects);\n            break;\n        }\n', "", "tap", "second tap"],
+        ["tap-words-move", '        if (s.input.kind === "tapped" && s.capture.kind === "open") s.input.deadline = e.at + TAP_SILENCE_MS;\n        // Words were heard', "        // Words were heard", "tap", "end of speech"],
+        ["tap-silence-ends", '    if (s.input.kind === "tapped" && s.input.deadline !== null && s.capture.kind === "open" && at >= s.input.deadline) {', "    if (false) {", "tap", "end of speech"],
+        ["tap-deadline-event", '\n                || s.input.kind === "tapped" && live(s, e, "capture", ["open"]))', ")", "tap", "end of speech"],
+        ["tap-opened-bound", '        if (s.input.kind === "tapped") s.input.deadline = e.at + TAP_SILENCE_MS;\n', "", "tap", "tap before open"],
+        ["tap-failed-ends", '        if (s.input.kind === "tapped") s.input = { kind: "released" };\n        if (s.turn.kind === "collecting") s.turn = { kind: "none" };', '        if (s.turn.kind === "collecting") s.turn = { kind: "none" };', "tap", "failed capture: the next press"],
+        ["duplex-tap-one-request", '            if (s.input.kind === "tapped") {\n                s.input = { kind: "released" };\n                closeCapture(s, effects);\n            }\n            think(', "            think(", "duplex-tap", "the request goes to the brain"],
+        ["duplex-tap-words", "        if (e.role === \"user\" && s.input.kind === \"tapped\" && s.capture.kind === \"open\") s.input.deadline = e.at + TAP_SILENCE_MS;\n", "", "duplex-tap", "words move"],
         ["wake-silence-quiet", 'if (s.input.kind === "woken") end(s, effects, at, "wake-silence", false);', 'if (false) end(s, effects, at, "wake-silence", false);', "always-false-wake", "returns quietly"],
         ["wake-heard", 'if (s.input.kind === "woken" || s.input.kind === "follow-up") {\n            s.input = { kind: "conversation" };', 'if (false) {\n            s.input = { kind: "conversation" };', "always-false-wake", "lift the bound"],
         ["wake-heard-open", 'if (s.capture.kind === "open") s.turn.deadline = null;', 'void s;', "always-false-wake", "lift the bound"],
@@ -2434,8 +2586,8 @@ try {
         ["preview-check", '|| ["waiting", "recording", "finishing"].indexOf(s.check.kind) !== -1\n            || s.engine.kind === "duplex"', '|| s.engine.kind === "duplex"', "preview-refusals"],
         ["preview-duplex-busy", ' || s.engine.kind === "duplex" && s.conversation.kind !== "ended") return "busy";', ') return "busy";', "preview-refusals"],
         ["preview-gen", 'if (s.conversation.kind === "ended") s.gen += 1;', '', "preview-local"],
-        ["preview-turn", '} else think(s, effects, { preview: true }, e.at);', '}', "preview-local"],
-        ["preview-duplex-open", 'effect(s, effects, "speech-open", { preview: true });', 'effect(s, effects, "speech-open", {});', "preview-duplex"],
+        ["preview-turn", '} else think(s, effects, preview, e.at);', '}', "preview-local"],
+        ["preview-duplex-open", 'var opened = effect(s, effects, "speech-open", preview);', 'var opened = effect(s, effects, "speech-open", {});', "preview-duplex"],
         ["say-judge", 'case "say":\n        if (sayRefusal(s) !== null) break;', 'case "say":', "say-refusals"],
         ["say-recover", 'recover(s, effects, e.at);\n        commitUserText(s, effects, e.text, e.at, 1, false);', 'commitUserText(s, effects, e.text, e.at, 1, false);', "say-recovers"],
         ["say-speaking", 'if (s.playback.kind !== "idle") return "speaking";', 'if (false) return "speaking";', "say-refuses-speaking"],
@@ -2452,8 +2604,8 @@ try {
             'if (false && ["completed", "failed", "unknown"].indexOf(e.outcome) === -1)', "invalid-outcome"]
     );
     mutants.push(
-        ["state-record", 'if (!exact(s, Object.keys(REGIONS).concat(["gen", "nextOp", "stale", "settings", "toggleAt"]))) return false;',
-            'if (false && !exact(s, Object.keys(REGIONS).concat(["gen", "nextOp", "stale", "settings", "toggleAt"]))) return false;', "wire-record"],
+        ["state-record", 'if (!exact(s, Object.keys(REGIONS).concat(["gen", "nextOp", "stale", "settings", "toggleAt", "checkSource"]))) return false;',
+            'if (false && !exact(s, Object.keys(REGIONS).concat(["gen", "nextOp", "stale", "settings", "toggleAt", "checkSource"]))) return false;', "wire-record"],
         ["state-counter", 'if (!Number.isSafeInteger(s[name]) || s[name] < (name === "nextOp" ? 1 : 0)) return false;',
             'if (false && (!Number.isSafeInteger(s[name]) || s[name] < (name === "nextOp" ? 1 : 0))) return false;', "wire-counter"],
         ["state-settings", 'if (s.settings === null || typeof s.settings !== "object" || Array.isArray(s.settings)) return false;',

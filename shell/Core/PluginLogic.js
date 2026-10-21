@@ -61,10 +61,18 @@ var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes"];
 // on hover and keyboard focus of the label. Pads.js judges a
 // `list`.
 var SETTING_TYPES = ["string", "number", "boolean", "enum", "list"];
-var SCHEMA_ENTRY_KEYS = ["type", "label", "description", "info", "tooltip", "link", "options", "optionsFrom", "presets", "separator", "allowCustom", "format", "unit", "min", "max", "step", "group", "shownWhen", "problem", "items", "defaults", "placeholder", "hideEmpty"];
+var SCHEMA_ENTRY_KEYS = ["type", "label", "description", "info", "tooltip", "link", "options", "optionsFrom", "presets", "separator", "allowCustom", "format", "unit", "min", "max", "step", "group", "shownWhen", "problem", "items", "defaults", "placeholder", "hideEmpty", "groupLabel", "addChoice", "preview"];
+// A status-fed select's last entry, which opens the plugin's own screen
+// that adds an offer, such as a key, and stores nothing itself.
+var ADD_CHOICE_KEYS = ["label", "tui"];
 var NUMBER_BOUND_KEYS = ["min", "max", "step"];
 var PRESET_KEYS = ["value", "label"];
-var OPTION_KEYS = ["value", "label"];
+var OPTION_KEYS = ["value", "label", "group"];
+// An enum's option groups (optionGroupsError): two or three segments, each
+// a short word the segmented control fits.
+var OPTION_GROUPS_MIN = 2;
+var OPTION_GROUPS_MAX = 3;
+var OPTION_GROUP_MAX = 16;
 var PRESET_LABEL_MAX = 40;
 // A schema entry's `link`: the words of its description that open `url`,
 // or `pane`, the id of the plugin whose page the panes holder opens.
@@ -499,9 +507,14 @@ function schemaError(schema, settings, status) {
                     return at + ".options must hold distinct values";
                 seenOptions.push(option.value);
             }
+            var badGroups = optionGroupsError(entry);
+            if (badGroups !== "")
+                return at + badGroups;
         } else if (entry.options !== undefined) {
             return at + ".options needs type enum";
         }
+        if (entry.groupLabel !== undefined && entry.type !== "enum")
+            return at + ".groupLabel needs type enum with option groups";
         if (entry.optionsFrom !== undefined) {
             if (entry.type !== "string")
                 return at + ".optionsFrom needs type string";
@@ -516,6 +529,22 @@ function schemaError(schema, settings, status) {
             if (!isPrintableLine(entry.placeholder, STATUS_LABEL_MAX))
                 return at + ".placeholder must be a printable line of 1 to " + STATUS_LABEL_MAX + " characters";
         }
+        if (entry.addChoice !== undefined) {
+            if (entry.optionsFrom === undefined)
+                return at + ".addChoice needs optionsFrom";
+            if (!isPlainObject(entry.addChoice) || Object.keys(entry.addChoice).some(function (name) { return ADD_CHOICE_KEYS.indexOf(name) === -1; }))
+                return at + ".addChoice must be { label, tui }";
+            if (!isPrintableLine(entry.addChoice.label, PRESET_LABEL_MAX))
+                return at + ".addChoice.label must be a printable line of 1 to " + PRESET_LABEL_MAX + " characters";
+            if (typeof entry.addChoice.tui !== "string")
+                return at + ".addChoice.tui must name a script of the manifest's tui key";
+        }
+        // A status-fed select whose plugin plays each offer on request, such
+        // as a voice: its list draws a speaker button per entry
+        // (Select.entryAction), which asks the plugin's preview handler
+        // (PluginStatus.handlePreview) and stores nothing.
+        if (entry.preview !== undefined && (entry.preview !== true || entry.optionsFrom === undefined))
+            return at + ".preview must be true, on a field with optionsFrom";
         if (entry.hideEmpty !== undefined) {
             if (entry.optionsFrom === undefined)
                 return at + ".hideEmpty needs optionsFrom";
@@ -526,8 +555,9 @@ function schemaError(schema, settings, status) {
         if (entry.shownWhen !== undefined) {
             if (entry.type === "list")
                 return at + ".shownWhen needs a flat setting";
-            if (typeof entry.shownWhen !== "string" || !hasOwn(status, entry.shownWhen) || status[entry.shownWhen].type !== "presence")
-                return at + ".shownWhen must name a presence status entry";
+            var badShown = shownWhenError(entry.shownWhen, schema, status);
+            if (badShown !== "")
+                return at + ".shownWhen" + badShown;
         }
         // A list draws a section, not the flat Field that owns an error line.
         if (entry.problem !== undefined) {
@@ -623,6 +653,82 @@ function schemaError(schema, settings, status) {
         if (bad !== "")
             return "settings." + key + " does not fit its schema: " + bad;
     }
+    return "";
+}
+
+// The first defect of enum ENTRY's option groups, after its path, or "".
+// Options either all declare `group` or none does. Grouped options draw as
+// one segment per group, in the order the groups first appear, so a group's
+// options stand together; there are OPTION_GROUPS_MIN to OPTION_GROUPS_MAX
+// groups, each a printable word of at most OPTION_GROUP_MAX characters. A
+// group of one option stores that option when its segment is pressed; one
+// group may hold several, which a select under the segments chooses from,
+// labelled by the entry's `groupLabel`, which only such an entry declares.
+function optionGroupsError(entry) {
+    var grouped = entry.options.filter(function (option) { return option.group !== undefined; }).length;
+    if (grouped === 0)
+        return entry.groupLabel === undefined ? "" : ".groupLabel needs options that declare group";
+    if (grouped !== entry.options.length)
+        return ".options must all declare group, or none";
+    var groups = groupsOf(entry);
+    for (var g = 0; g < groups.length; g++)
+        if (!isPrintableLine(groups[g].name, OPTION_GROUP_MAX)) return ".options group must be a printable line of 1 to " + OPTION_GROUP_MAX + " characters";
+    var order = entry.options.map(function (option) { return option.group; });
+    for (var i = 1; i < order.length; i++)
+        if (order[i] !== order[i - 1] && order.indexOf(order[i]) < i) return ".options of one group must stand together";
+    if (groups.length < OPTION_GROUPS_MIN || groups.length > OPTION_GROUPS_MAX)
+        return ".options must form " + OPTION_GROUPS_MIN + " to " + OPTION_GROUPS_MAX + " groups";
+    var many = groups.filter(function (group) { return group.options.length > 1; });
+    if (many.length > 1)
+        return ".options may hold several options in one group only";
+    if ((many.length === 1) !== (entry.groupLabel !== undefined))
+        return ".groupLabel labels the select of a group of several options, which needs one";
+    if (entry.groupLabel !== undefined && !isPrintableLine(entry.groupLabel, STATUS_LABEL_MAX))
+        return ".groupLabel must be a printable line of 1 to " + STATUS_LABEL_MAX + " characters";
+    return "";
+}
+
+// The option groups of enum ENTRY, [{ name, options }] in the order each
+// first appears, its options in order; none for an enum without groups.
+// The Settings page draws one segment per group (SettingField).
+function groupsOf(entry) {
+    var out = [];
+    entry.options.forEach(function (option) {
+        if (option.group === undefined) return;
+        var group = out.find(function (seen) { return seen.name === option.group; });
+        if (group === undefined) {
+            group = { name: option.group, options: [] };
+            out.push(group);
+        }
+        group.options.push(option);
+    });
+    return out;
+}
+
+// The first defect of a schema entry's `shownWhen`, SHOWN, over SCHEMA and
+// STATUS, after the key's path, or "": the key of a `presence` status entry, which shows the
+// field while it reads present, or { setting, in }, which shows it while the
+// setting SETTING, an enum or boolean field of SCHEMA that is itself always
+// shown, holds one of IN, a non-empty list of its values. A field gated on
+// a gated field would vanish with no value of its own to explain it.
+var SHOWN_WHEN_KEYS = ["setting", "in"];
+function shownWhenError(shown, schema, status) {
+    if (typeof shown === "string")
+        return hasOwn(status, shown) && status[shown].type === "presence" ? "" : " must name a presence status entry or be { setting, in }";
+    if (!isPlainObject(shown))
+        return " must name a presence status entry or be { setting, in }";
+    var keys = Object.keys(shown);
+    for (var i = 0; i < keys.length; i++)
+        if (SHOWN_WHEN_KEYS.indexOf(keys[i]) === -1) return " has unknown key " + JSON.stringify(keys[i]);
+    var gate = typeof shown.setting === "string" && hasOwn(schema, shown.setting) ? schema[shown.setting] : null;
+    if (gate === null || !isPlainObject(gate) || (gate.type !== "enum" && gate.type !== "boolean"))
+        return ".setting must name an enum or boolean schema field";
+    if (gate.shownWhen !== undefined)
+        return ".setting must name a field that is always shown";
+    if (!Array.isArray(shown.in) || shown.in.length === 0)
+        return ".in must be a non-empty list of the setting's values";
+    for (var v = 0; v < shown.in.length; v++)
+        if (settingError(gate, shown.in[v]) !== "") return ".in." + v + " is no value of " + shown.setting;
     return "";
 }
 
@@ -1501,6 +1607,9 @@ function statusDisplayable(entry) {
 // declares `placeholder` has no unset offer: "" means nothing is chosen.
 // An entry that declares `hideEmpty` has an empty model while nothing is
 // offered, whatever is configured, and the page then draws no field.
+// An entry that declares `preview` gives each offer its own id as `offer`,
+// the id a press of its speaker plays, also where `value` holds the unset
+// "", and gives the unavailable entry none, since no offer holds it.
 // Settings choices: docs/architecture/design-system.md § Settings pages.
 function settingChoices(manifest, values, settings) {
     var out = {};
@@ -1508,7 +1617,9 @@ function settingChoices(manifest, values, settings) {
         var offered = hasOwn(values, entry.optionsFrom) ? values[entry.optionsFrom] : [];
         var model = offered.map(function (choice, index) {
             var unset = entry.placeholder === undefined && index === 0 && configured !== choice.value;
-            return { label: choice.label, value: unset ? "" : choice.value };
+            var row = { label: choice.label, value: unset ? "" : choice.value };
+            if (entry.preview === true) row.offer = choice.value;
+            return row;
         });
         if (entry.hideEmpty === true && offered.length === 0) return model;
         if (entry.allowCustom !== true && configured !== "" && !offered.some(function (choice) { return choice.value === configured; }))
@@ -1523,16 +1634,21 @@ function settingChoices(manifest, values, settings) {
     return frozenJson(out);
 }
 
-// The keys of MANIFEST's schema fields that declare `shownWhen` and whose
-// presence entry does not read present in VALUES, the plugin's published
-// status. An unreported entry withholds its field too: before the service's
-// first publish, and while the plugin is off, since PluginStatus drops the
-// record of a disabled plugin, the page draws no field for hardware it has
-// not seen.
-function withheldFields(manifest, values) {
+// The keys of MANIFEST's schema fields that declare `shownWhen` and that
+// it hides now: one gated on a presence entry whose entry does not read
+// present in VALUES, the plugin's published status, and one gated on a
+// setting whose value in SETTINGS, the plugin's merged settings, is none of
+// its `in`. An unreported entry withholds its field too: before the
+// service's first publish, and while the plugin is off, since PluginStatus
+// drops the record of a disabled plugin, the page draws no field for
+// hardware it has not seen. A setting's value is known whether the plugin
+// is on or not, so a field gated on one follows it at once.
+function withheldFields(manifest, values, settings) {
     return Object.keys(manifest.schema).filter(function (key) {
-        var entry = manifest.schema[key];
-        return entry.shownWhen !== undefined && !(hasOwn(values, entry.shownWhen) && values[entry.shownWhen] === "present");
+        var shown = manifest.schema[key].shownWhen;
+        if (shown === undefined) return false;
+        if (typeof shown === "string") return !(hasOwn(values, shown) && values[shown] === "present");
+        return shown.in.indexOf(settings[shown.setting]) === -1;
     });
 }
 
@@ -2899,7 +3015,7 @@ function welcomeStep(welcomeState, event) {
 // the presentations are bin/vgshell-tui's. A title, a label and a group are one
 // printable line of at most TUI_TEXT_MAX characters. `settings` marks a
 // configuration screen, the bottom More settings link of Settings.
-var TUI_KEYS = ["script", "title", "size", "presentation", "entry", "requires"];
+var TUI_KEYS = ["script", "title", "size", "presentation", "entry", "requires", "args"];
 var TUI_ENTRY_KEYS = ["label", "icon", "group", "settings"];
 var TUI_SIZES = Object.keys(HyprlandLayer.TUI_WINDOWS);
 var TUI_PRESENTATIONS = ["full", "plain"];
@@ -3173,6 +3289,11 @@ function tuiError(tui, capabilities, requirements) {
         var requiresError = tuiRequiresError(at, row.requires, requirements);
         if (requiresError !== "")
             return requiresError;
+        // `args` are literal arguments the script takes before a run's own,
+        // so two names can open one script for two purposes, such as Add
+        // key and the voice's Add a key, with no second script.
+        if (row.args !== undefined && (!Array.isArray(row.args) || row.args.length === 0 || !tuiArgsValid(row.args)))
+            return at + ".args must be a non-empty list of at most " + TUI_ARGS_MAX + " printable arguments";
         if (row.entry === undefined)
             continue;
         var entryError = tuiEntryError(at, row.entry);
@@ -3289,7 +3410,8 @@ function normalTui(tui) {
             size: row.size === undefined ? "default" : row.size,
             presentation: row.presentation === undefined ? "full" : row.presentation,
             entry: row.entry === undefined ? null : clone(row.entry),
-            requires: row.requires === undefined ? null : row.requires.slice()
+            requires: row.requires === undefined ? null : row.requires.slice(),
+            args: row.args === undefined ? [] : row.args.slice()
         };
     });
     return out;
@@ -3446,7 +3568,8 @@ function tuiArgv(row, plugin, key, run, command) {
 // answer, action, key } with answer `refused: tui=<name>` and, in this
 // order, `reason=undeclared` for a name the manifest does not declare,
 // `reason=disabled` while the plugin is not ENABLED, `reason=args` for
-// arguments tuiArgsValid refuses, then `reason=busy` or
+// arguments tuiArgsValid refuses, alone or after the script's fixed `args`
+// (normalTui), which the script takes first, then `reason=busy` or
 // `reason=launcher-missing` as tuiRunnerRefusal decides; `action` is
 // `none` for the first three.
 function tuiRun(manifest, enabled, sourceDir, runner, name, args) {
@@ -3454,7 +3577,7 @@ function tuiRun(manifest, enabled, sourceDir, runner, name, args) {
         return tuiRefusal(name, "undeclared");
     if (!enabled)
         return tuiRefusal(name, "disabled");
-    if (!tuiArgsValid(args))
+    if (!tuiArgsValid(args) || !tuiArgsValid(manifest.tui[name].args.concat(args === undefined ? [] : args)))
         return tuiRefusal(name, "args");
     var key = tuiOwnKey(manifest.id, name);
     var refusal = tuiRunnerRefusal(runner, name, key);
@@ -3462,7 +3585,7 @@ function tuiRun(manifest, enabled, sourceDir, runner, name, args) {
         return refusal;
     var row = manifest.tui[name];
     var plugin = { id: manifest.id, dir: sourceDir + "/" + manifest.__revision };
-    return { ok: true, key: key, run: runner.run, argv: tuiArgv(row, plugin, key, runner.run, [row.script].concat(args === undefined ? [] : args)) };
+    return { ok: true, key: key, run: runner.run, argv: tuiArgv(row, plugin, key, runner.run, [row.script].concat(row.args, args === undefined ? [] : args)) };
 }
 
 // The launch key and refusal label of core TUI NAME run for OWNER, a
@@ -3577,6 +3700,22 @@ function listedTuiRequest(manifest, id, name) {
     if (!listedTuis(manifest).some(function (tui) { return tui.name === name; }))
         return { ok: false, answer: tuiRefusal(name, "undeclared").answer };
     return { ok: true, kind: "tui", name: name };
+}
+
+// The manager's request for the screen field KEY of MANIFEST's schema
+// opens from its select's Add entry (the entry's `addChoice`), the plugin's
+// own declared TUI whether it is listed or not: { ok, kind, name }, or a
+// refusal { ok: false, answer } for a plugin that is not known or off, or a
+// field that declares no Add entry.
+function addChoiceRequest(manifest, id, enabled, key) {
+    if (manifest === null)
+        return { ok: false, answer: "unknown: " + tuiLabel(id) };
+    var entry = typeof key === "string" && hasOwn(manifest.schema, key) ? manifest.schema[key] : null;
+    if (entry === null || entry.addChoice === undefined)
+        return { ok: false, answer: "refused: add-choice=" + (typeof key === "string" && STATUS_KEY_PATTERN.test(key) ? key : JSON.stringify(String(key))) + " reason=undeclared" };
+    if (!enabled)
+        return { ok: false, answer: tuiRefusal(entry.addChoice.tui, "disabled").answer };
+    return { ok: true, kind: "tui", name: entry.addChoice.tui };
 }
 
 // The Settings page's Open summons a plugin's working surface. A window
@@ -4492,6 +4631,11 @@ function validateManifest(raw, sourceDir) {
         if (badTui !== "")
             return { ok: false, error: badTui };
     }
+    var adding = Object.keys(schema).find(function (key) {
+        return schema[key].addChoice !== undefined && !(isPlainObject(raw.tui) && hasOwn(raw.tui, schema[key].addChoice.tui));
+    });
+    if (adding !== undefined)
+        return { ok: false, error: "schema." + adding + ".addChoice.tui must name a script of the manifest's tui key, got " + JSON.stringify(schema[adding].addChoice.tui) };
     if (raw.menu !== undefined) {
         var badMenu = menuError(raw.menu, capabilities, schema, raw.status === undefined ? {} : raw.status);
         if (badMenu !== "")
@@ -5781,16 +5925,21 @@ function setupGuideRow(manifest, readme) {
 
 // The rows a plugin's Settings page draws for SCHEMA, one per field in
 // schema order, from the normalized STATUS: { key, section, list,
-// keyLists }. `section` is the field's group, "" for none, and `list`
+// keyLists, groups }. `section` is the field's group, "" for none, and `list`
 // whether it is a list, which draws as a section of its own. `keyLists`
 // are the stored key lists placed beside the field (pagePlacementError).
+// `groups` are an enum's option groups (groupsOf), each { name, values },
+// none for any other field.
 function fieldRows(schema, status) {
     return Object.keys(schema).map(function (key) {
         return {
             key: key,
             section: schema[key].group === undefined ? "" : schema[key].group,
             list: schema[key].type === "list",
-            keyLists: Object.keys(status).filter(function (name) { return status[name].setting === key; })
+            keyLists: Object.keys(status).filter(function (name) { return status[name].setting === key; }),
+            groups: schema[key].type !== "enum" ? [] : groupsOf(schema[key]).map(function (group) {
+                return { name: group.name, values: group.options.map(function (option) { return option.value; }) };
+            })
         };
     });
 }

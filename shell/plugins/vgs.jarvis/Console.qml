@@ -6,6 +6,7 @@ import qs.Ui
 import "Session.js" as Session
 import "WidgetView.js" as WidgetView
 import "SetupGate.js" as Gate
+import "AccountProviders.js" as Providers
 
 // Jarvis console: a keyboard-first window for typed turns. It asks the
 // service through IPC, reads the service's bounded conversation status, and
@@ -16,7 +17,7 @@ FocusScope {
     property var shell: null
     property var payload: ({})
     property string problem: ""
-    property Item initialFocus: entryField
+    property Item initialFocus: composerFocus
     readonly property var screen: shell === null ? null : shell.screens.current
     readonly property var values: shell === null ? ({}) : shell.status.values
     readonly property var detail: values.detail === undefined ? null : values.detail
@@ -40,12 +41,27 @@ FocusScope {
     readonly property var transcriptRows: rows()
     readonly property string hint: problem !== "" ? problem : refusalText(refusal)
     readonly property var messageLimit: Gate.messageLimit(Session.TRANSCRIPT_CHARS)
+    // A duplex voice takes no typed message (Session.sayRefusal), so the
+    // composer offers none: one line says how to talk instead.
+    readonly property bool speechOnly: refusal === "duplex"
+    // The shortcut keys as people read them, the bar's own spelling.
+    readonly property var spelledKeys: WidgetView.spelledKeys(shell === null ? null : shell.shortcut.keys, KeyNavLogic.keyCaps)
+    // How to talk now: the sentence the Voice step and the bar say it with.
+    readonly property string talkLine: Gate.talkHint(shell === null ? "hold" : shell.settings.mode, spelledKeys.talk) + "."
+    // What the bar shows (WidgetView), whose title and first action the
+    // status line under the console's purpose repeats.
+    readonly property var barView: WidgetView.view(values, spelledKeys, shell === null ? "hold" : shell.settings.mode,
+        shell === null ? null : Providers.cloudVoice(shell.settings.voiceProvider))
+    // The Conversation tab's first control: the message box, or Stop where
+    // one line stands in its place.
+    readonly property Item composerFocus: speechOnly ? speechStop : entryField
+    readonly property string speechOnlyText: speechOnlyLine(values.voiceRoute, talkLine)
 
     function open(payloadJson) {
         payload = payloadJson ? JSON.parse(payloadJson) : {};
         problem = "";
         tab = 0;
-        Qt.callLater(() => entryField.forceActiveFocus());
+        Qt.callLater(() => root.composerFocus.forceActiveFocus());
         Qt.callLater(followEnd);
     }
 
@@ -53,7 +69,7 @@ FocusScope {
 
     function focusTab() {
         layout.scrollArea.contentY = 0;
-        const control = tab === 0 ? entryField : tab === 1 ? tasksBody : auditBody;
+        const control = tab === 0 ? composerFocus : tab === 1 ? tasksBody : auditBody;
         control.forceActiveFocus(consoleTabs.activeFocus ? consoleTabs.focusReason : Qt.TabFocusReason);
         if (tab === 0) Qt.callLater(followEnd);
     }
@@ -95,6 +111,8 @@ FocusScope {
     readonly property var streamCauses: ({
         "input-silent": "the microphone sent only silence",
         "unheard": "the voice service heard no words",
+        // A row keeps no provider, and the voice may have changed since.
+        "key-refused": "the voice service refused the key",
         "voice-stopped": "the voice stopped after a problem"
     })
 
@@ -120,12 +138,29 @@ FocusScope {
 
     // The bar's state line, with the action of a state that needs one.
     function stateText() {
-        const view = WidgetView.view(values, WidgetView.spelledKeys(shell === null ? null : shell.shortcut.keys, KeyNavLogic.keyCaps),
-            shell === null ? "hold" : shell.settings.mode);
+        const view = barView;
         const model = view.tooltipDetails.find(line => String(line).indexOf("AI model: ") === 0);
         const modelText = model === undefined ? "" : "\n" + model;
         const firstAction = view.tooltipDetails.find(line => String(line).indexOf("AI model: ") !== 0);
         return view.state === "problem" || view.state === "off" ? view.tooltip + modelText + ". " + firstAction : view.tooltip + modelText;
+    }
+
+    // The line in place of the message box under a voice that takes speech
+    // only (ROUTE, the Voice provider reading), saying how to talk (TALK).
+    function speechOnlyLine(route, talk) {
+        return (route === undefined || route === null ? "This voice" : route.text) + " takes speech only. " + talk;
+    }
+
+    // The empty conversation's line: how to start one, by typing or, under a
+    // voice that takes speech only (SPEECH), by talking (TALK).
+    function emptyText(speech, talk) {
+        return "No conversation yet. " + (speech ? PageReference.plain(talk) : "Type a message to start.");
+    }
+
+    // The status line's color for STATE, the bar's state: a warning only
+    // while it says Jarvis cannot take a request, a problem or off.
+    function stateColor(state) {
+        return state === "problem" || state === "off" ? Theme.color.warning : Theme.color.textMuted;
     }
 
     function rows() {
@@ -196,7 +231,7 @@ FocusScope {
             if (root.tab !== 0) return;
             const item = memoryList.itemAt(index) || memoryList.itemAt(index - 1);
             if (item !== null && item.confirmButton !== undefined) item.confirmButton.forceActiveFocus();
-            else entryField.forceActiveFocus();
+            else root.composerFocus.forceActiveFocus();
         }));
     }
 
@@ -255,11 +290,19 @@ FocusScope {
             Column {
                 width: layout.contentWidth
                 spacing: Theme.row.lineGap
+                // The console's three jobs, so a first look says what it is for.
+                Label {
+                    width: parent.width
+                    role: "hint"
+                    text: (root.speechOnly ? "Talk to Jarvis" : "Type to Jarvis") + " and read its replies. Tasks shows the coding tasks it started. Audit shows actions it refused or that failed."
+                    color: Theme.color.textMuted
+                    wrapMode: Text.Wrap
+                }
                 Label {
                     width: parent.width
                     role: "hint"
                     text: root.stateText()
-                    color: root.refusal === null ? Theme.color.textMuted : Theme.color.warning
+                    color: root.stateColor(root.barView.state)
                     wrapMode: Text.Wrap
                 }
             }
@@ -312,7 +355,7 @@ FocusScope {
                 width: layout.contentWidth
                 visible: root.transcriptRows.length === 0 && root.memoryInbox.length === 0
                 iconName: "message-circle"
-                text: "No conversation yet. Type a message to start."
+                text: root.emptyText(root.speechOnly, root.talkLine)
             }
 
             Repeater {
@@ -493,9 +536,37 @@ FocusScope {
                 width: layout.contentWidth
                 spacing: Theme.stack.inline
 
+                // Under a voice that takes speech only, one line in place of
+                // the message box and Send; Stop stays beside it.
                 Row {
                     width: parent.width
                     spacing: Theme.control.gap
+                    visible: root.speechOnly
+                    // The talk sentence links the Talk key setting while none is set.
+                    LinkText {
+                        width: parent.width - speechStop.width - parent.spacing
+                        anchors.verticalCenter: parent.verticalCenter
+                        role: "hint"
+                        text: root.speechOnlyText
+                        color: Theme.color.textMuted
+                        wrapMode: Text.Wrap
+                        onPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
+                    }
+                    IconButton {
+                        id: speechStop
+                        anchors.verticalCenter: parent.verticalCenter
+                        iconName: "square"
+                        label: "Stop Jarvis"
+                        tooltip: root.stopKey === "" ? "Stop Jarvis" : "Stop Jarvis " + root.stopKey
+                        onClicked: root.stop()
+                        Keys.onPressed: event => root.handleBacktab(event)
+                    }
+                }
+
+                Row {
+                    width: parent.width
+                    spacing: Theme.control.gap
+                    visible: !root.speechOnly
                     Label {
                         width: parent.width - messageInfo.width - parent.spacing
                         role: "hint"
@@ -513,6 +584,7 @@ FocusScope {
                 Row {
                     width: parent.width
                     spacing: Theme.control.gap
+                    visible: !root.speechOnly
 
                     TextField {
                         id: entryField
@@ -532,7 +604,7 @@ FocusScope {
                         anchors.verticalCenter: parent.verticalCenter
                         text: "Send"
                         iconName: "send"
-                        enabled: root.ready && entryField.text.trim() !== ""
+                        disabledReason: !root.ready ? root.refusalText(root.refusal) : entryField.text.trim() === "" ? "Type a message to Jarvis first" : ""
                         onClicked: root.sendMessage()
                     }
                     IconButton {

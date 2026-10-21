@@ -19,6 +19,7 @@ const CORE = path.join(__dirname, "..", "shell", "Core");
 const LOGIC = path.join(CORE, "PluginLogic.js");
 const IMPORTS = [
     [path.join(__dirname, "..", "shell", "Ui", "icons", "Lucide.js"), path.join("shell", "Ui", "icons", "Lucide.js")],
+    [path.join(__dirname, "..", "shell", "Ui", "icons", "Own.js"), path.join("shell", "Ui", "icons", "Own.js")],
     [path.join(CORE, "ConfigLogic.js"), path.join("shell", "Core", "ConfigLogic.js")],
     [path.join(CORE, "PackageManagers.js"), path.join("shell", "Core", "PackageManagers.js")],
     [path.join(CORE, "HyprlandLayer.js"), path.join("shell", "Core", "HyprlandLayer.js")],

@@ -89,7 +89,12 @@ class SessionRunner {
         const action = this.state.action;
         const toolDeadline = action.kind === "running" && action.limit.kind === "pending"
             ? { gen: action.gen, op: action.op, deadline: action.limit.deadline } : {};
-        const owners = [this.state.turn, this.state.playback, this.state.approval, this.state.check, toolDeadline]
+        // A tap's end of speech runs while its microphone is open, under the
+        // capture's identity.
+        const { input, capture } = this.state;
+        const tapDeadline = input.kind === "tapped" && capture.kind === "open"
+            ? { gen: capture.gen, op: capture.op, deadline: input.deadline } : {};
+        const owners = [this.state.turn, this.state.playback, this.state.approval, this.state.check, toolDeadline, tapDeadline]
             .filter(owner => Number.isFinite(owner.deadline));
         if (owners.length === 0) return;
         const owner = owners.reduce((a, b) => a.deadline <= b.deadline ? a : b);

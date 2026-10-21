@@ -1,4 +1,5 @@
 .pragma library
+.import "Own.js" as Own
 
 // Lucide icon path data, written by scripts/vendor-lucide from lucide-static
 // 1.48.0. Per name: the stroked path and the filled path, in a 24 by
@@ -1865,3 +1866,11 @@ var ICONS = {
     "zoom-in": ["M3 11a8 8 0 1 0 16 0a8 8 0 1 0 -16 0z M21 21L16.65 16.65 M11 8L11 14 M8 11L14 11",""],
     "zoom-out": ["M3 11a8 8 0 1 0 16 0a8 8 0 1 0 -16 0z M21 21L16.65 16.65 M8 11L14 11",""]
 };
+
+// VGS's own symbols join the set under their `vgs-` names (Own.js), so every
+// reader of ICONS draws and judges them as Lucide's; a name both hold is an
+// error, never a silent replacement.
+Object.keys(Own.ICONS).forEach(function (name) {
+    if (Object.prototype.hasOwnProperty.call(ICONS, name)) throw new Error("lucide: own-icon=" + name + " reason=clash");
+    ICONS[name] = Own.ICONS[name];
+});

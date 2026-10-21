@@ -548,7 +548,8 @@ Singleton {
     // shows its page, "" for a plugin without kind `pane` or while no
     // holder is enabled (PluginLogic.panesHolderId), its setting
     // choices (PluginLogic.settingChoices over those same values), the
-    // fields its page withholds (PluginLogic.withheldFields over them), the
+    // fields its page withholds (PluginLogic.withheldFields over them and
+    // its settings), the
     // fields' errors (PluginLogic.fieldProblems over them), its
     // requirements with their state and its errors: why an enabled plugin is
     // not built while another plugin holds a capability it needs or the
@@ -603,7 +604,7 @@ Singleton {
                 fieldRows: m.fieldRows,
                 settings: settings,
                 settingChoices: Logic.settingChoices(m, values, settings),
-                withheldFields: Logic.withheldFields(m, values),
+                withheldFields: Logic.withheldFields(m, values, settings),
                 fieldProblems: Logic.fieldProblems(m, values),
                 binds: Logic.bindRows(config, m, descriptions),
                 status: Logic.statusRows(m, values),

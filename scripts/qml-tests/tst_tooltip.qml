@@ -39,6 +39,10 @@ Item {
     Anchor { id: linked; x: 100; pageLinks: true; title: "Jarvis is not set up"; details: ["Finish in [Setup](page:acme.probe/Setup)."] }
     Anchor { id: unrouted; x: 200; title: "Jarvis is not set up"; details: ["Finish in [Setup](page:acme.probe/Setup)."] }
     Anchor { id: after; y: 60; title: "Next" }
+    // A linked detail line wider than the tooltip wraps, and the line under
+    // it starts below its last line.
+    Anchor { id: wrapping; y: 120; pageLinks: true; title: "Jarvis heard nothing"
+        details: ["Choose a working microphone in [Microphone](page:acme.probe/Settings/microphone), then talk again, and check that the microphone is not muted.", "AI model: Fixture"] }
     SignalSpy { id: activations; target: linked.tip; signalName: "pageActivated" }
 
     TestCase {
@@ -55,7 +59,7 @@ Item {
         }
 
         function cleanup() {
-            for (const item of [bare, linked, unrouted, after]) {
+            for (const item of [bare, linked, unrouted, after, wrapping]) {
                 item.tip.shown = false;
                 tryCompare(item.tip, "opened", false);
             }
@@ -110,6 +114,20 @@ Item {
             verify(!Qt.colorEqual(drawnFill(bare.tip), solid), "control: the translucent fill is not the solid one");
             surface.solidOnly = true;
             Theme.appearanceInput = "";
+        }
+
+        // A linked detail line that wraps takes the height of its lines, so
+        // the next detail line starts under it, not over its second line.
+        function test_a_wrapped_link_line_keeps_the_next_line_below_it() {
+            compare(UnitTheme.override({ tooltip: { maxWidth: 160 } }), "ok");
+            hoverOpen(wrapping);
+            const rows = named(wrapping.tip, "tooltipDetailRow");
+            compare(rows.length, 2);
+            const link = named(wrapping.tip, "tooltipLink").find(item => item.text.indexOf("Microphone") !== -1);
+            verify(link !== undefined, "the first detail line draws its link");
+            verify(link.lineCount > 1, "the linked line wraps");
+            verify(rows[0].height >= link.height, "the row takes the wrapped line's height");
+            verify(rows[1].y >= rows[0].y + link.height, "the next line starts below the wrapped line");
         }
 
         function test_a_tooltip_with_no_link_closes_when_the_pointer_leaves() {

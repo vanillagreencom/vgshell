@@ -191,15 +191,19 @@ expect_poll "Return on a description link opens its address" '["open https://exa
 page_link_fixture="$home/.config/vgshell/plugins/acme.page-link"
 page_link_text='[Bare page](page:acme.bare/Details) holds the rest'
 page_info_text='The cue is set on the [Sounds page](page:vgs.sounds).'
+page_step_text='[Check step](page:acme.status/Setup/check) is a Setup step'
+page_fact_text='[Note row](page:acme.status/Details/note) is a Details row'
 page_link_add() {
   mkdir -- "$page_link_fixture" || return 1
   cp -- "$repo/scripts/smoke/fixtures/plugins/acme.bare/Service.qml" "$page_link_fixture/Service.qml" || return 1
-  python3 - "$repo/scripts/smoke/fixtures/plugins/acme.bare/manifest.json" "$page_link_fixture/manifest.json" "$page_link_text" "$page_info_text" <<'PYLINK'
+  python3 - "$repo/scripts/smoke/fixtures/plugins/acme.bare/manifest.json" "$page_link_fixture/manifest.json" "$page_link_text" "$page_info_text" "$page_step_text" "$page_fact_text" <<'PYLINK'
 import json,sys
 from pathlib import Path
 manifest=json.loads(Path(sys.argv[1]).read_text())
-manifest.update(id="acme.page-link",name="Page link fixture",requirements=[],settings={"on":False},
-    schema={"on":{"type":"boolean","label":"On","description":sys.argv[3],"info":sys.argv[4]}})
+manifest.update(id="acme.page-link",name="Page link fixture",requirements=[],settings={"on":False,"step":False,"fact":False},
+    schema={"on":{"type":"boolean","label":"On","description":sys.argv[3],"info":sys.argv[4]},
+        "step":{"type":"boolean","label":"Step","description":sys.argv[5]},
+        "fact":{"type":"boolean","label":"Fact","description":sys.argv[6]}})
 with Path(sys.argv[2]).open("x") as file:
     json.dump(manifest,file)
 PYLINK
@@ -211,6 +215,29 @@ expect_poll "the page link fixture's page shows" '"acme.page-link"' settings_pag
 link_click "$page_link_text" || fail "the click on the page reference failed"
 expect_poll "a click on a page reference opens the page it names" '"acme.bare"' settings_page
 expect_poll "a page reference opens the tab it names" Details settings_tab_text
+# A reference to a status row opens its tab with that row marked by the
+# page's one plate; the next open without a row clears it.
+# tst_settings_setup.qml reads the row in view, the plate inside the
+# content and a scroll clearing it.
+reveal_key() { ipc smoke readDescendant window vgs.settings PluginPage revealing; }
+reveal_mark() { ipc smoke readMatchingDescendant window vgs.settings QQuickRectangle objectName revealMark opacity; }
+expect "the window opens the page link fixture for its Setup row reference" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.page-link
+expect_poll "the page link fixture's page shows again" '"acme.page-link"' settings_page
+link_click "$page_step_text" || fail "the click on the Setup row reference failed"
+expect_poll "a Setup row reference opens its plugin's page" '"acme.status"' settings_page
+expect_poll "a Setup row reference opens Setup" Setup settings_tab_text
+expect_poll "the page shows the Setup step the reference names" '"check"' reveal_key
+expect_poll "the plate marks the Setup step" 1 reveal_mark
+expect "the window opens the page link fixture for its Details row reference" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.page-link
+expect_poll "the page link fixture's page shows once more" '"acme.page-link"' settings_page
+link_click "$page_fact_text" || fail "the click on the Details row reference failed"
+expect_poll "a Details row reference opens its plugin's page" '"acme.status"' settings_page
+expect_poll "a Details row reference opens Details" Details settings_tab_text
+expect_poll "the page shows the Details row the reference names" '"note"' reveal_key
+expect_poll "the plate marks the Details row" 1 reveal_mark
+expect "the page opens again with no row named" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.status
+expect_poll "an open without a row shows none" '""' reveal_key
+expect_poll "the plate fades once no row is shown" 0 reveal_mark
 
 # A page reference after prose in a setting's info dialog opens the Sounds
 # pane in the System window, and the dialog closes. Settings keeps the
@@ -230,12 +257,25 @@ info_link_click() {
   # popupItemGeometry gives the whole paragraph in the popup window's
   # Quickshell global frame, which at_centre places with the parent window.
   # linkBox is local to LinkText. Add its origin once and keep its size.
+  # A link the dialog wraps holds a gap at its box's centre, so the click
+  # aims at its first laid-out span (LinkText.underlined) on its line.
+  local spans pitch
   for _ in $(seq 1 50); do
     paragraph="$(ipc smoke popupItemGeometry window vgs.settings "$scope_type" "$scope_text" LinkText "$text")" || return 1
     linked="$(ipc smoke popupItemRead window vgs.settings "$scope_type" "$scope_text" LinkText "$text" linked)" || return 1
     box="$(ipc smoke popupItemRead window vgs.settings "$scope_type" "$scope_text" LinkText "$text" linkBox)" || return 1
+    spans="$(ipc smoke popupItemRead window vgs.settings "$scope_type" "$scope_text" LinkText "$text" underlined)" || return 1
+    pitch="$(ipc smoke popupItemRead window vgs.settings "$scope_type" "$scope_text" LinkText "$text" linePitch)" || return 1
     if [[ $linked == true && $paragraph == \[* && $box == \{* ]]; then
-      rect="$(printf '%s\n' "$paragraph" | py_reply 'import json,sys; r=json.load(sys.stdin); b=json.loads(sys.argv[1]); print(json.dumps([r[0] + b["x"], r[1] + b["y"], b["width"], b["height"]]) if b["width"] > 0 and b["height"] > 0 else "empty-link")' "$box")" || return 1
+      rect="$(printf '%s\n' "$paragraph" | py_reply '
+import json,sys
+r=json.load(sys.stdin); b=json.loads(sys.argv[1])
+try: spans, pitch = json.loads(sys.argv[2]), float(sys.argv[3])
+except (ValueError, TypeError): spans, pitch = [], 0
+if spans and pitch > 0 and spans[0]["right"] > spans[0]["left"]:
+    s=spans[0]; print(json.dumps([r[0] + s["left"], r[1] + s["line"] * pitch, s["right"] - s["left"], pitch]))
+else:
+    print(json.dumps([r[0] + b["x"], r[1] + b["y"], b["width"], b["height"]]) if b["width"] > 0 and b["height"] > 0 else "empty-link")' "$box" "$spans" "$pitch")" || return 1
     else
       rect="$linked/$paragraph/$box"
     fi
@@ -406,9 +446,27 @@ expect_poll "the disabled Jarvis page's Home folder field offers only Custom\u20
 expect "control: a field the Jarvis page lacks reads absent" absent home_field homeFolder
 # Voice hides with no voices reported: its ElevenLabs guidance is a Details fact.
 expect "the disabled Jarvis page hides Voice with no voices reported" absent home_field voice
-# The ElevenLabs option, by its stored value, as the field draws it.
+# The ElevenLabs option, by its stored value, as the field draws it: in
+# the Cloud voice row's list, which shows while a cloud voice is stored.
+# The page refuses a write for a disabled plugin, so the configuration
+# file stores it, and is put back after.
 voice_provider() { home_field voiceProvider | py_reply 'import json,sys; print(json.dumps([o["label"] for o in json.load(sys.stdin)["model"] if o["value"] == sys.argv[1]]))' "$1"; }
+cp -- "$home/.config/vgshell/shell.json" "$sandbox/settings-voice-config.json"
+user_config_write python3 - "$home/.config/vgshell/shell.json" <<'PYVOICE' || fail "the cloud voice could not be stored"
+import json,sys
+from pathlib import Path
+value=json.loads(Path(sys.argv[1]).read_text())
+row=next((r for r in value.setdefault("plugins",[]) if r["id"]=="vgs.jarvis"),None)
+if row is None:
+    row={"id":"vgs.jarvis"}; value["plugins"].append(row)
+row["voiceProvider"]="realtime"
+print(json.dumps(value))
+PYVOICE
+expect "the stored cloud voice reaches the shell" ok ipc shell reloadConfig
 expect_poll "the Jarvis page's Voice provider field offers ElevenLabs in words, not as its stored value" '["ElevenLabs"]' voice_provider elevenlabs
+user_config_restore "$sandbox/settings-voice-config.json" || fail "the Voice provider setting could not be put back"
+expect "the put-back setting reaches the shell" ok ipc shell reloadConfig
+expect_poll "the Jarvis page's Cloud voice row hides again" '[]' voice_provider elevenlabs
 expect_poll "control: the disabled Jarvis page, with settings to change, draws the hint to turn it on" drawn enabled_hint Jarvis
 # The short fixture reaches the same scroll reader, which must refuse it
 # as setup rather than report a product failure or accept a clamped zero.

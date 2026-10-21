@@ -29,9 +29,12 @@ if (PCM_RATE !== OUTPUT_RATE) throw new Error("jarvis: live=audio-rate");
 const IDLE_MS = 60000;            // plan § 3.5
 const START_WAIT_MS = 20000;      // connect, open and setupComplete
 const RESPONSE_WAIT_MS = 30000;   // asked words, or words held for the voice's own turn, to that turn's turnComplete
-// The first captured frame of a running session to the voice's first sign
-// that it heard speech, an input transcription. The Live API transcribes
-// the user's words as they come, so this leaves a user room to start talking.
+// The first captured frame of a running session to the voice's first heard
+// words: an interim or a final input transcription that holds any. The
+// reference sends inputTranscription independently of the other messages,
+// with no guaranteed order, so a long request's words can come late; its
+// voiceActivity start pauses the bound and its end runs the bound again from
+// there. This leaves a user room to start talking.
 const UNHEARD_MS = 15000;
 const REPLY_GAP_MS = 500;         // no words waiting for this long ends a playing reply
 const SILENCE_TICK_MS = 100;
@@ -68,8 +71,12 @@ const PREVIEW = "preview";
 // groundingMetadata and urlContextMetadata answer tools it never offers.
 const CONTENT_FIELDS = new Set(["modelTurn", "turnComplete", "interrupted", "generationComplete", "inputTranscription",
     "interimInputTranscription", "outputTranscription", "waitingForInput", "interactionStatus"]);
-// The server message's members outside its one kind, which the session leaves.
+// The server message's members beside its one kind: usageMetadata, which the
+// session leaves, and voiceActivity, which it reads.
 const BESIDE = new Set(["usageMetadata", "voiceActivity"]);
+// voiceActivity's types (the reference's VoiceActivity.Type): the start and
+// end of the user's speech; TYPE_UNSPECIFIED, the default, says neither.
+const VOICE_ACTIVITY = Object.freeze({ ACTIVITY_START: "start", ACTIVITY_END: "end", TYPE_UNSPECIFIED: null });
 
 function fail(code) { throw new Error("jarvis: live=" + code); }
 function plain(value) { return value !== null && typeof value === "object" && !Array.isArray(value); }
@@ -104,10 +111,19 @@ function audioOf(part) {
     return pcm;
 }
 
+// A message's voiceActivity: "start", "end" or null.
+function voiceActivityOf(value) {
+    if (value === undefined) return null;
+    if (!plain(value) || value.type !== undefined && typeof value.type !== "string") fail("frame-shape");
+    const type = value.type ?? "TYPE_UNSPECIFIED";
+    if (!Object.hasOwn(VOICE_ACTIVITY, type)) fail("voice-activity type=" + token(type));
+    return VOICE_ACTIVITY[type];
+}
+
 /**
  * The one narrowing door for a server message's text. Returns a tagged
- * event or throws a keyed error. A message names one kind beside optional
- * usageMetadata and voiceActivity.
+ * event, with the message's voice activity, or throws a keyed error. A
+ * message names one kind beside optional usageMetadata and voiceActivity.
  */
 function eventOf(data) {
     if (data.length > FRAME_CHARS) fail("frame-size");
@@ -116,7 +132,12 @@ function eventOf(data) {
     if (!plain(value)) fail("frame-shape");
     const kinds = Object.keys(value).filter(key => !BESIDE.has(key));
     if (kinds.length > 1) fail("frame-shape");
-    switch (kinds[0]) {
+    return { ...kindOf(value, kinds[0]), voice: voiceActivityOf(value.voiceActivity) };
+}
+
+// A message's one kind, or none, as a tagged event.
+function kindOf(value, kind) {
+    switch (kind) {
     case undefined:
         return { kind: "ignored" };
     case "setupComplete":
@@ -145,10 +166,10 @@ function eventOf(data) {
         flag(content.waitingForInput);
         flag(content.generationComplete);
         if (content.interactionStatus !== undefined && typeof content.interactionStatus !== "string") fail("frame-shape");
-        transcription(content.interimInputTranscription);
+        const interim = transcription(content.interimInputTranscription);
         const heard = transcription(content.inputTranscription);
         const said = transcription(content.outputTranscription);
-        return { kind: "content", heard: heard.text, finished: heard.finished, model, audio, said: said.text,
+        return { kind: "content", interim: interim.text, heard: heard.text, finished: heard.finished, model, audio, said: said.text,
             interrupted: flag(content.interrupted), complete: flag(content.turnComplete) };
     }
     // The session ends at the server's notice: no resumption is set up.
@@ -159,7 +180,7 @@ function eventOf(data) {
     // Everything else answers a request this session never makes: a tool
     // call or its cancellation.
     default:
-        return fail("message type=" + token(kinds[0]));
+        return fail("message type=" + token(kind));
     }
 }
 
@@ -291,10 +312,11 @@ function create({ provider, clock, conversation, captionLimit, log }) {
     }
     // Captured audio the voice never answers ends the conversation at
     // UNHEARD_MS with the cause its frames' peak names, rather than at the
-    // idle wait with no cause. The first sign of heard speech ends the watch
-    // for the session's life: a quiet answered conversation ends at idle.
+    // idle wait with no cause. The user's voice activity pauses the watch and
+    // its end runs it again; the first heard words end it for the session's
+    // life: a quiet answered conversation ends at idle.
     function watch(session) {
-        if (session.answered || !session.captured || session.state.kind !== "running" || session.timers.unheard !== null) return;
+        if (session.answered || session.talking || !session.captured || session.state.kind !== "running" || session.timers.unheard !== null) return;
         session.timers.unheard = clock.set(() => {
             session.timers.unheard = null;
             failed(session, session.peak <= SILENT_PEAK ? "live=input-silent" : "live=unheard");
@@ -303,6 +325,11 @@ function create({ provider, clock, conversation, captionLimit, log }) {
     function answered(session) {
         session.answered = true;
         clear(session, "unheard");
+    }
+    function talking(session, value) {
+        session.talking = value;
+        if (value) clear(session, "unheard");
+        else watch(session);
     }
     function quiet(session) { return session.speech.active === null && session.speech.queue.length === 0; }
     function replyPending(session) {
@@ -424,7 +451,7 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         if (turn.text.length + text.length > TURN_CHARS) fail("turn-size");
         turn.text += text;
         caption(session, "user", text);
-        answered(session);
+        if (text.trim() !== "") answered(session);
     }
     // The user's words go to the brain once.
     function delegate(session) {
@@ -450,6 +477,11 @@ function create({ provider, clock, conversation, captionLimit, log }) {
     // can end the session, as a brain that fails at once does.
     function content(session, event) {
         const active = session.speech.active;
+        // Interim words show the user was heard; the final ones carry the turn.
+        if (event.interim.trim() !== "") {
+            activity(session);
+            answered(session);
+        }
         if (event.heard !== "") hearing(session, event.heard);
         if (event.finished) {
             delegate(session);
@@ -518,6 +550,11 @@ function create({ provider, clock, conversation, captionLimit, log }) {
             case "ignored": break;
             default: throw new Error("jarvis: live=event-kind");
             }
+            // After the kind, so words in the same message end the watch first.
+            if (event.voice !== null && session.state.kind === "running") {
+                if (event.voice === "start") activity(session);
+                talking(session, event.voice === "start");
+            }
         } catch (error) { failed(session, reasonOf(error)); }
     }
     // Messages are read in the order they came. A JSON message may come as a
@@ -583,8 +620,10 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         answer.events.addEventListener("open", () => opened(session));
         answer.events.addEventListener("message", event => inbound(session, event.data));
         // WHATWG WebSocket fires close after every error, a refused redirect
-        // included; close owns the outcome. Google's close reason is not read.
-        answer.events.addEventListener("close", event => failed(session, "live=disconnected code=" + event.code));
+        // included; close owns the outcome. Google's close reason is not read,
+        // nor the body of a handshake answered 401 or 403, which refused the key.
+        answer.events.addEventListener("close", event => failed(session,
+            Net.keyRefused(event) ? "live=key-refused" : "live=disconnected code=" + event.code));
     }
 
     const port = {
@@ -593,7 +632,7 @@ function create({ provider, clock, conversation, captionLimit, log }) {
             const session = { op: e.op, events, state: { kind: "connecting" }, channel: null, setup: null, reader: "",
                 timers: { start: null, silence: null, idle: null, gap: null, words: null, hold: null, preview: null, unheard: null },
                 pending: [], pendingBytes: 0, carry: Buffer.alloc(0), inbox: [], reading: false, inputAt: clock.now(), capture: null,
-                captured: false, peak: 0, answered: false,
+                captured: false, peak: 0, answered: false, talking: false,
                 playing: null, next: null, speech: { queue: [], chars: 0, active: null }, hold: false, turn: null, turns: 0,
                 delegation: null, said: [], taken: null, segments: { user: null, assistant: null }, rev: 0, language: "", preview: null };
             live = session;

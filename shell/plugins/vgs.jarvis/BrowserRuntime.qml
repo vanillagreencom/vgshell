@@ -2,7 +2,8 @@ import QtQuick
 import "SetupGate.js" as Gate
 
 // Browser readiness uses the same setup status reader as local voice, and
-// publishes it as an optional step (SetupGate.optionalStep). It also
+// publishes its reading unchanged: the manifest makes it an optional Setup
+// step, which the Settings page draws as Optional until it is done. It also
 // writes the browser driver's own row, whose Install, or Update for a driver
 // below the manifest's floor, raises the requirement notice; setup is
 // withheld until a scan finds the driver.
@@ -14,7 +15,6 @@ LocalRuntime {
     requires: [driver]
     program: String(Qt.resolvedUrl("backend/browser-setup.js")).replace(/^file:\/\//, "")
     command: ["node", program, "status"]
-    shape: value => Gate.optionalStep(value)
     onDriverValueChanged: {
         if (driverValue === null) return;
         const reply = shell.status.set("browserDriver", driverValue);

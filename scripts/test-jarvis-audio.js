@@ -30,8 +30,10 @@ function setup(Implementation = Audio, sink = null, source = null, clock = null)
         collect: () => {} }; // Speech is outside this audio lifetime surface.
     ports.playback = audio.playbackPort;
     ports.brain.send = () => {}; // No speech/brain implementation enters this audio fixture.
+    // Session's clock, which release() moves past a tap.
+    let skew = 0;
     const runner = new SessionRunner(Session, ports, {
-        now: () => performance.now(), set: (fn, ms) => setTimeout(fn, ms), clear: timer => clearTimeout(timer)
+        now: () => performance.now() + skew, set: (fn, ms) => setTimeout(fn, ms), clear: timer => clearTimeout(timer)
     }, s => {
         audio.observe(s);
         if (s.gate.kind === "down") void audio.teardown("gate", ["capture", "playback"]);
@@ -40,7 +42,10 @@ function setup(Implementation = Audio, sink = null, source = null, clock = null)
     dispatch("snapshot", { locked: false, engine: "chained", configured: true,
         settings: { microphone: "", speaker: "" } });
     dispatch("indicator", { shown: true });
-    return { audio, runner, dispatch, levels, offers, faults, frames: () => frames, tick: ms => { at += ms; } };
+    // A Talk release that ends a hold: past Session's tap bound, so it
+    // closes the capture.
+    const release = () => { skew += Session.TAP_MS; dispatch("talk-up"); };
+    return { audio, runner, dispatch, release, levels, offers, faults, frames: () => frames, tick: ms => { at += ms; } };
 }
 
 async function capture(w) {
@@ -225,7 +230,7 @@ async function inside() {
         });
         try {
             await capture(w);
-            w.dispatch("talk-up");
+            w.release();
             await until(() => w.runner.state.capture.kind === "closed", "first capture exits");
             await capture(w);
             const before = w.runner.state.capture.op;
@@ -312,7 +317,7 @@ async function inside() {
             else if (operation === "talk") w.dispatch("talk-down");
             else if (operation === "release") {
                 w.dispatch("talk-down");
-                w.dispatch("talk-up");
+                w.release();
             }
             else if (operation === "indicator") w.dispatch("indicator", { shown: false });
             else if (operation === "provider") source.destroy(new Error("synthetic provider disconnect"));
@@ -520,7 +525,7 @@ async function inside() {
         controls++;
     }
     await control("desktop-default", 'configured === "" ? this.defaults[group] : configured',
-        'configured === "" ? (offers[0] && offers[0].value) : configured', desktopDefaults);
+        'configured === "" ? (this.devices[group][0] && this.devices[group][0].value) : configured', desktopDefaults);
     await control("first-playback-discovery", 'await this.discover();\n            if (this.playback !== playback) return;',
         'if (this.playback !== playback) return;', firstPlayback);
     await control("early-muted", "return this.release;", "return Promise.resolve();", async impl => {

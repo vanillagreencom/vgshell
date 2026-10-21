@@ -18,7 +18,8 @@ function daemonCopy(name, mutant = null, half = false) {
             'audio.playbackSource = engine.playbackSource;\n' +
             '                    audio.captureSink = () => new (require("node:stream").Writable)({ write(frame, encoding, done) { done(); } });\n' +
             '                    runner.ports.capture = { ...runner.ports.capture, collect: () => {} };' + (half ? "\n                    fixtureSpeech();" : "")],
-        ['configured: configuration.kind === "ready" || configuration.kind === "loading", checkReady: engine.checkReady(), settings: context.settings });',
+        ['configured: lastConfiguration.kind === "ready" || lastConfiguration.kind === "loading", checkReady: engine.checkReady(),\n'
+            + '            checkSource: audio.device("microphones", "microphone", context.settings, engine.engine()), settings: context.settings });',
             'configured: true, settings: context.settings });\n' +
             '                runner.dispatch({ type: "indicator", shown: true });\n' +
             '                runner.dispatch({ type: "talk-down" });']

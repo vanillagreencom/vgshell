@@ -79,7 +79,7 @@ Item {
         : phase === "confirming" || phase === "acting" ? "warning"
         : phase === "speaking" ? "success" : phase === "thinking" ? "info" : "accent"
     // A fault reads as the bar says it: what went wrong, then what to do.
-    readonly property var fault: phase === "error" ? View.faultText(state.fault, state.engine.kind) : null
+    readonly property var fault: phase === "error" ? View.faultText(state.fault, state.engine.kind, service.shell === null ? {} : service.shell.status.values) : null
     readonly property string stateText: state === null ? "" : state.mute.kind !== "off" ? "Muting"
         : fault !== null ? fault.title
         : phase === "armed" ? "Say Hey Jarvis"

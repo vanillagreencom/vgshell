@@ -260,6 +260,23 @@ expect "the Gallery copy without TileGroup focus builds" ok ipc smoke popupLoad 
 expect "control: dropping TileGroup from Gallery focus is refused" '["TileGroup:absent"]' ipc smoke galleryFocusMissingCopy gallery-tile-control
 expect "the TileGroup focus control is released" ok ipc smoke popupDrop gallery-tile-control
 rm -r -- "${repo:?}/shell/Core/GalleryTileControl" || fail "removing the TileGroup focus control failed"
+
+# The Select variant whose offers each play: Enter opens its list on Puck,
+# Right moves the keyboard to Puck's Play button, Enter presses it and
+# chooses nothing, and Escape closes the list on the choice it held
+# (Select entryAction; tst_overlays.qml holds the arrows and the pointer).
+gallery_actions_select() { ipc smoke readMatchingDescendant window vgs.gallery Select objectName gallerySelectActions "$1"; }
+expect "the Select entry action example takes focus" focused ipc smoke focusExample window vgs.gallery "Select entry action"
+type_keys -k Return || fail "Enter on the Select entry action example failed"
+expect_poll "Enter opens the entry action example's list" true gallery_actions_select listOpen
+type_keys -k Right || fail "Right in the entry action list failed"
+expect_poll "Right moves the keyboard to Puck's Play button" true gallery_actions_select entryActionFocused
+type_keys -k Return || fail "Enter on Puck's Play button failed"
+expect_poll "Enter presses Puck's Play button" 0 gallery_actions_select pressedAction
+expect "the press keeps the list open" true gallery_actions_select listOpen
+type_keys -k Escape || fail "Escape in the entry action list failed"
+expect_poll "Escape closes the entry action list" false gallery_actions_select listOpen
+expect "the press chose nothing" '"Puck"' gallery_actions_select currentText
 gallery_tab_tour() {
   local required focus label seen_json
   required='["Button primary","Button secondary","Button tertiary","Button ghost","Button danger","ToggleButton","IconButton","BarItem","Switch","Checkbox","SegmentedControl","Select","TextField","Slider","TitleButton","RowAction","Tabs","Disclosure","DeviceRow","CardCarousel","KeyNav list","Dialog accept action"]'

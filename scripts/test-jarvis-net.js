@@ -139,6 +139,7 @@ world(async () => {
         channel.send(speech);
         const [event] = await closing;
         assert.deepEqual([event.code, event.wasClean], [code, wasClean], route);
+        assert.equal(event.status, null, "an opened socket reports no refused handshake");
         assert.equal(event.reason, undefined, "raw provider reason stays private");
         assert.equal(event.target, channel.events);
         assert.equal(event.target.send, undefined, "close event cannot expose the native socket");
@@ -369,7 +370,7 @@ world(async () => {
             controls++;
         }
         await control("close-outcomes",
-            '{ code: event.code, wasClean: event.wasClean }', '{}',
+            '{ code: event.code, wasClean: event.wasClean, status: refused.status() }', '{}',
             async (net, policy) => closeOutcome(net, policy, "/close-policy", 1008, true));
         await control("close-clean",
             'wasClean: event.wasClean', 'wasClean: true',

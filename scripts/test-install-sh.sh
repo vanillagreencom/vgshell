@@ -119,7 +119,7 @@ installer_source_tree() {
   cp -- "$repo/shell/Core/PluginLogic.js" "$repo/shell/Core/ConfigLogic.js" "$repo/shell/Core/Pads.js" "$repo/shell/Core/HyprlandLayer.js" "$repo/shell/Core/MonitorLogic.js" "$1/shell/Core/"
   mkdir -p "$1/shell/Commons" "$1/shell/Ui/icons" "$1/shell/plugins"
   cp -- "$repo/shell/Commons/SettingValues.js" "$repo/shell/Commons/PageReference.js" "$1/shell/Commons/"
-  cp -- "$repo/shell/Ui/icons/Lucide.js" "$1/shell/Ui/icons/"
+  cp -- "$repo/shell/Ui/icons/Lucide.js" "$repo/shell/Ui/icons/Own.js" "$1/shell/Ui/icons/"
   for manifest in "$repo/shell/plugins"/*/manifest.json; do
     plugin="${manifest%/manifest.json}"; plugin="${plugin##*/}"
     mkdir -p "$1/shell/plugins/$plugin"

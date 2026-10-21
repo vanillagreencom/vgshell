@@ -47,20 +47,87 @@ Singleton {
             throw new Error("refused: status=" + key + " handler=not-a-function");
         if (typeof key !== "string" || !Logic.hasOwn(ctx.manifest.status, key) || ctx.manifest.status[key].type !== "choices")
             return Logic.statusRefusal(key, "undeclared");
-        if (Logic.hasOwn(refreshers, ctx.id) && Logic.hasOwn(refreshers[ctx.id], key))
+        return holdHandler("refreshers", ctx, key, handler);
+    }
+
+    // Put `handler` in the table the property NAME holds, `refreshers`,
+    // `previewers` or `choosers`, under the instance `ctx` belongs to and `key`, until
+    // the instance is disposed: `ok`, or `refused: status=<key>
+    // reason=held` while another instance's handler holds that key.
+    function holdHandler(name, ctx, key, handler) {
+        if (Logic.hasOwn(root[name], ctx.id) && Logic.hasOwn(root[name][ctx.id], key))
             return Logic.statusRefusal(key, "held");
-        const next = Object.assign({}, refreshers);
+        const next = Object.assign({}, root[name]);
         next[ctx.id] = Object.assign({}, next[ctx.id] || {});
         next[ctx.id][key] = handler;
-        refreshers = next;
+        root[name] = next;
         ctx.onDispose(() => {
-            const rest = Object.assign({}, root.refreshers);
+            const rest = Object.assign({}, root[name]);
             const own = Object.assign({}, rest[ctx.id]);
             delete own[key];
             if (Object.keys(own).length === 0) delete rest[ctx.id];
             else rest[ctx.id] = own;
-            root.refreshers = rest;
+            root[name] = rest;
         });
+        return "ok";
+    }
+
+    // Plugin id -> { schema key -> handler }: what each plugin runs when the
+    // Settings page asks it to play an offer of a field that declares
+    // `preview`, such as a voice. A handler lives with the instance that
+    // registered it.
+    property var previewers: ({})
+
+    // Register `handler` for the instance `ctx` belongs to as the one that
+    // plays an offer of its schema field `key`, released with the
+    // instance: `ok`, `refused: status=<key> reason=undeclared` for a key
+    // whose field declares no `preview`, or `reason=held` while another
+    // instance's handler holds it. The handler takes the offer's value and
+    // answers a keyed reply.
+    function handlePreview(ctx, key, handler) {
+        if (typeof handler !== "function")
+            throw new Error("refused: status=" + key + " handler=not-a-function");
+        if (typeof key !== "string" || !Logic.hasOwn(ctx.manifest.schema, key) || ctx.manifest.schema[key].preview !== true)
+            return Logic.statusRefusal(key, "undeclared");
+        return holdHandler("previewers", ctx, key, handler);
+    }
+
+    // Ask plugin `id`'s preview handler of field `key` to play VALUE: its
+    // reply, or `refused: preview=<key> reason=none` when no instance
+    // registered one, as while the plugin is off.
+    function preview(id, key, value) {
+        if (!Logic.hasOwn(previewers, id) || !Logic.hasOwn(previewers[id], key)) return "refused: preview=" + key + " reason=none";
+        return String(previewers[id][key](value));
+    }
+
+    // Plugin id -> { schema key -> handler }: what each plugin runs after
+    // the user chooses a value of one of its fields on its Settings page
+    // (Capabilities.managerChoose), so a choice made on purpose can start
+    // work, such as a download, that a config-file change, a reload or a
+    // migration write must not. A handler lives with the instance that
+    // registered it.
+    property var choosers: ({})
+
+    // Register `handler` for the instance `ctx` belongs to as the one told
+    // of a user's choice of its schema field `key`, released with the
+    // instance: `ok`, `refused: status=<key> reason=undeclared` for a key
+    // the schema lacks, or `reason=held` while another instance's handler
+    // holds it. The handler takes the chosen value and the value it
+    // replaced; what it returns is not read.
+    function handleChoice(ctx, key, handler) {
+        if (typeof handler !== "function")
+            throw new Error("refused: status=" + key + " handler=not-a-function");
+        if (typeof key !== "string" || !Logic.hasOwn(ctx.manifest.schema, key))
+            return Logic.statusRefusal(key, "undeclared");
+        return holdHandler("choosers", ctx, key, handler);
+    }
+
+    // Tell plugin `id`'s choice handler of field `key` that the user chose
+    // VALUE in place of PREVIOUS: `ok`, or `none` when no instance
+    // registered one, as while the plugin is off.
+    function chosen(id, key, value, previous) {
+        if (!Logic.hasOwn(choosers, id) || !Logic.hasOwn(choosers[id], key)) return "none";
+        choosers[id][key](value, previous);
         return "ok";
     }
 

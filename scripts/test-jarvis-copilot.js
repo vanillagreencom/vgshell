@@ -572,8 +572,10 @@ world(async () => {
             assert.deepEqual(judge.resolve(copilot.id), { id: copilot.id, provider: "copilot", label: "default",
                 source: { kind: "cli", directory: account }, model: "" });
             const choices = judge.status().brains.filter(choice => found.some(item => item.provider === "copilot" && item.id === choice.value));
-            assert.deepEqual(choices.map(choice => choice.label).sort(), ["GitHub Copilot / 1", "GitHub Copilot / default"]);
-            const accountRows = judge.status().accounts.filter(row => row.label.startsWith("GitHub Copilot /"));
+            // Copilot names no sign-in email, so each account reads by its
+            // provider alone, never by its folder's name (`.1copilot`).
+            assert.deepEqual(choices.map(choice => choice.label), ["GitHub Copilot", "GitHub Copilot"]);
+            const accountRows = judge.status().accounts.filter(row => row.provider === "copilot");
             assert.deepEqual(accountRows.map(row => [row.state, row.value]).sort(), [["unchecked", "present"], ["unchecked", "present"]]);
             assert.deepEqual(await judge.verify(copilot.id, "user"), { kind: "verified" });
             assert.deepEqual(read("copilot-log").filter(row => row.direction === "audit").map(row => row.message.lines), [1],
@@ -730,7 +732,7 @@ world(async () => {
             ["handoff-audit", "backend/Accounts.js", [["release.start(() => CopilotHarness.probe(", "(send => send())(() => CopilotHarness.probe("]], "verify"],
             ["status-command", "AccountProviders.js", [['{ id: "copilot", label: "GitHub Copilot", kind: "cli", command: null,', '{ id: "copilot", label: "GitHub Copilot", kind: "cli", command: ["copilot", "--version"],']], "verify"],
             ["unchecked-state", "backend/Accounts.js", [['let state = { kind: "unchecked" };', 'let state = { kind: "found" };']], "verify"],
-            ["folder-label", "backend/Accounts.js", [[': item.email ? row.label + " / " + item.email : row.label + " / " + item.label;', ': item.email ? row.label + " / " + item.email : row.label + " / same";']], "verify"],
+            ["folder-label", "backend/Accounts.js", [['item.source.kind === "cli" ? item.email || "" : item.label', 'item.source.kind === "cli" ? item.email || item.label : item.label']], "verify"],
             ["harness-reason", "backend/Accounts.js", [["(?:harness|codex|copilot|pi)-", "(?:harness|codex|pi)-"]], "verify"],
             ["account-row", "AccountProviders.js", [['{ id: "copilot", label: "GitHub Copilot", kind: "cli", command: null,', '{ id: "copilot-removed", label: "GitHub Copilot", kind: "cli", command: null,']], "verify"],
             ["engine-driver", "backend/ChainedEngine.js", [["\"copilot-acp\": CopilotHarness, ", ""]], "limit"]

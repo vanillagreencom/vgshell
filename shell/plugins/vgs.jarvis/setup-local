@@ -5,8 +5,9 @@
 RAM and CPU threads. `choices` prints one JSON object for the service: the
 pick, the tier ready now (null for none) and the Local voice setting's offers,
 `auto` labelled with the pick first, then every other tier this machine can
-run, in declaration order. The TUI calls `install [TIER]`; with no tier it
-installs the pick. The service calls `status`, which emits one status value
+run, in declaration order. The TUI calls `plan [TIER]` for its header line
+and question, `release VGSHELL` to have Jarvis close its local voice, then
+`install [TIER]`; with no tier it installs the pick. The service calls `status`, which emits one status value
 for localRuntime. `probe` runs only inside a network namespace. Exit 77 means
 unavailable, never ready; 69 is a refusal before anything ran, whose sentence
 names the step the user takes first. No audio device or host setting is
@@ -22,6 +23,7 @@ publishes after a probe, `probe` runs only inside a network namespace,
 import argparse
 from array import array
 from contextlib import contextmanager
+import errno
 import fcntl
 from functools import cache
 import hashlib
@@ -134,11 +136,40 @@ class ChildFailed(SystemExit):
     """A child's nonzero exit, apart from a cancel's; the process exits with it."""
 
 
-def command(argv, data, offline=False, stderr=None, stdout=None):
-    """Preserve every child failure, including unavailable evidence."""
-    result = subprocess.run(argv, env=environment(data, offline), stderr=stderr, stdout=stdout, check=False)
-    if result.returncode != 0:
-        raise ChildFailed(result.returncode if result.returncode > 0 else 1)
+def command(argv, data, offline=False, stderr=None, stdout=None, log=None):
+    """Preserve every child failure, including unavailable evidence.
+
+    With LOG, the child's stderr reaches the screen as it comes and each of
+    its whole lines the log too, a progress meter's carriage-return redraws
+    cut to the last, so the log the failure names holds the child's cause.
+    """
+    if log is None:
+        result = subprocess.run(argv, env=environment(data, offline), stderr=stderr, stdout=stdout, check=False)
+        returncode = result.returncode
+    else:
+        with log.open("ab") as copy, subprocess.Popen(argv, env=environment(data, offline), stderr=subprocess.PIPE,
+                                                      stdout=stdout) as child:
+            try:
+                pending = b""
+                for chunk in iter(lambda: child.stderr.read1(65536), b""):
+                    sys.stderr.buffer.write(chunk)
+                    sys.stderr.buffer.flush()
+                    *whole, pending = (pending + chunk).split(b"\n")
+                    for line in whole:
+                        line = line.rsplit(b"\r", 1)[-1]
+                        if line.strip():
+                            copy.write(line + b"\n")
+                    copy.flush()
+                    # A meter redraws without a line feed; keep its last.
+                    pending = pending.rsplit(b"\r", 1)[-1][-4096:]
+                if pending.strip():
+                    copy.write(pending + b"\n")
+            except BaseException:
+                child.kill()
+                raise
+        returncode = child.returncode
+    if returncode != 0:
+        raise ChildFailed(returncode if returncode > 0 else 1)
 
 
 def machine(judge, data):
@@ -194,6 +225,13 @@ def size(count):
     return f"{count / 10**9:.1f} GB"
 
 
+def shown(path):
+    """PATH as a plain line names it: under HOME as ~/..., the way a reader
+    finds it in a file manager."""
+    home, text = os.environ.get("HOME", ""), str(path)
+    return "~" + text[len(home):] if home and (text == home or text.startswith(home + "/")) else text
+
+
 def stored(*roots):
     """Bytes of the regular files below roots, not following links."""
     return sum(path.lstat().st_size for root in roots for path in root.rglob("*")
@@ -213,7 +251,66 @@ def choices(value, reading, ready):
     offers = [{"value": "auto", "label": label(f"Auto: {value['tiers'][best]['name']}, ", value["tiers"][best])}]
     offers += [{"value": tier, "label": label(f"{row['name']}: ", row)}
                for tier, row in value["tiers"].items() if tier != best and runnable(row["provider"], reading)]
-    return {"pick": best, "ready": ready, "choices": offers}
+    return {"pick": best, "ready": ready, "choices": offers, "pickSize": size(value["tiers"][best]["downloadBytes"])}
+
+
+def plan(value, offers, tier):
+    """The setup window's header line and question for installing TIER (the
+    pick for None), from OFFERS, choices' answer. A first download and a
+    replacement ask, naming the size; the ready tier itself asks nothing."""
+    target = tier or offers["pick"]
+    if target not in value["tiers"]:
+        return ["Downloads the local voice model you chose and the tools it needs.", ""]
+    row = value["tiers"][target]
+    named = f"{row['name']} local voice, {size(row['downloadBytes'])}"
+    ready = offers["ready"]
+    if ready is not None and ready != target:
+        question = f"{value['tiers'][ready]['name']} is ready. Replace it with {row['name']}, {size(row['downloadBytes'])}?"
+    elif ready != target:
+        question = f"Download the {named}?"
+    else:
+        question = ""
+    return [f"Downloads the {named}, and the tools it needs.", question]
+
+
+# How long the core may take to list a setup-local run its window started:
+# Jarvis's ask refuses a run it does not list yet (Service.localSetup).
+LISTING_WAIT = 5
+STOPPING = "Jarvis stops the local voice while it sets up the new model."
+
+
+def release(vgshell, ready):
+    """Have Jarvis close its local voice, whose speech program holds
+    local-setup.lock shared while it runs, before install takes the lock
+    alone. VGSHELL is the VGS tree's bin/vgshell; READY, the ready tier or
+    None, says whether a local voice runs to be stopped. A refusal other
+    than an unlisted run, such as no Jarvis running, holds no lock, so
+    install goes on and waits LOCK_WAIT for the lock itself."""
+    def ask(step):
+        # vgshell prints a refusal on stdout before it exits 69.
+        try:
+            return subprocess.run([vgshell, "ipc", "call", "vgs.jarvis", "invoke", "local-setup", step],
+                                  capture_output=True, text=True, check=False, timeout=10).stdout.strip()
+        except (OSError, subprocess.TimeoutExpired):
+            return ""
+
+    deadline = time.monotonic() + LISTING_WAIT
+    answer = ask("begin")
+    while answer == "refused: local-setup=no-run" and time.monotonic() < deadline:
+        time.sleep(0.2)
+        answer = ask("begin")
+    if answer == "waiting":
+        if ready is not None:
+            print(STOPPING, flush=True)
+        # LOCK_WAIT bounds the release as it bounds the lock.
+        deadline = time.monotonic() + LOCK_WAIT
+        while answer == "waiting" and time.monotonic() < deadline:
+            time.sleep(0.5)
+            answer = ask("state")
+        if answer != "released":
+            raise ValueError(f"setup=busy release={answer or 'unanswered'}\n"
+                             f"Local voice setup did not start: the local voice is still in use. {BACK}")
+    print(f"jarvis-setup: release={answer or 'unanswered'}", flush=True)
 
 
 def remove_runtime(data, names=RUNTIME):
@@ -226,14 +323,20 @@ def remove_runtime(data, names=RUNTIME):
             path.unlink(missing_ok=True)
 
 
-def download(url, target, digest, judge, data):
+def download(url, target, digest, judge, data, log=None):
     """curl writes a private partial; only verified bytes get their final name."""
     partial = target.with_name(target.name + ".partial")
     try:
-        command(["curl", "--disable", "--fail", "--location", "--proto", "=https",
-                 "--proto-redir", "=https", "--output", str(partial), "--", url], data)
+        try:
+            command(["curl", "--disable", "--fail", "--location", "--proto", "=https",
+                     "--proto-redir", "=https", "--output", str(partial), "--", url], data, log=log)
+        except ChildFailed as error:
+            if error.code != CURL_WRITE_ERROR:
+                raise
+            raise ValueError(f"disk=full file={target.name}\n{DISK_FULL}") from None
         if judge.sha256(partial) != digest:
-            raise ValueError(f"download=hash-mismatch file={target.name}")
+            raise ValueError(f"download=hash-mismatch file={target.name}\n"
+                             "Local voice setup did not finish: a download was damaged. Press Set up local voice to download it again.")
         partial.replace(target)
     finally:
         partial.unlink(missing_ok=True)
@@ -344,6 +447,43 @@ def probe(judge, value, tier, data):
     judge.run(value, artifacts, data / "models", provider, None, tier)
 
 
+def lock_holders(table, inode):
+    """The pids TABLE, /proc/locks's text, names holding a flock on INODE.
+
+    /proc/locks prints the superblock's device, which on btrfs is not the
+    subvolume device stat answers, so the inode alone matches; a waiter's
+    `->` row holds nothing."""
+    pids = []
+    for line in table.splitlines():
+        fields = line.split()
+        if len(fields) < 6 or fields[1] != "FLOCK":
+            continue
+        try:
+            pid, held = int(fields[4]), int(fields[5].rsplit(":", 1)[1])
+        except (ValueError, IndexError):
+            continue
+        if held == inode and pid not in pids:
+            pids.append(pid)
+    return pids
+
+
+def holders(path):
+    """`holder=<pid> program=<name>` for each process holding the lock at
+    PATH; only its comm is read, never its memory."""
+    try:
+        pids = lock_holders(Path("/proc/locks").read_text(), path.stat().st_ino)
+    except OSError:
+        return []
+    named = []
+    for pid in pids:
+        try:
+            program = Path(f"/proc/{pid}/comm").read_text().strip()
+        except OSError:
+            program = "unknown"
+        named.append(f"holder={pid} program={program}")
+    return named
+
+
 @contextmanager
 def exclusive(path):
     """Hold the lock at PATH alone, waiting LOCK_WAIT for its readers."""
@@ -355,7 +495,9 @@ def exclusive(path):
                 break
             except BlockingIOError:
                 if time.monotonic() >= deadline:
-                    raise ValueError("setup=busy") from None
+                    named = "".join(" " + holder for holder in holders(path))
+                    raise ValueError(f"setup=busy{named}\n"
+                                     f"Local voice setup did not start: the local voice is still in use. {BACK}") from None
                 time.sleep(0.1)
         yield
 
@@ -393,10 +535,49 @@ def room(data, need, advice):
     free = shutil.disk_usage(data).free
     if free < need:
         raise ValueError(f"disk=insufficient need={need} free={free} path={data}\n"
-                         f"This setup needs {size(need)} free in {data}, which has {size(free)}. " + advice)
+                         f"This setup needs {size(need)} free in {shown(data)}, which has {size(free)}. " + advice)
 
 
-def install(judge, state, data, tier, reading):
+# The record of the last install that did not finish, which status answers
+# until an install finishes: {"cause", "tier", "log"}, CAUSE one of
+# FAILURE_CAUSES, TIER the tier it installed and LOG the log that holds its
+# keyed line. The Voice step words each cause (SetupGate.voiceStep) and
+# links that log.
+FAILED = "local-setup-failed.json"
+# The setup window's log: its keyed lines, the children's error lines and
+# the probe's engine output, the one log every failure names.
+LOG = "setup-local.log"
+BACK = "Close this window, then press Set up local voice on the Setup tab of the Jarvis page."
+FAILURE_CAUSES = ("busy", "download", "disk", "probe", "unavailable", "refused", "cancelled", "other")
+# curl's exit for a failed write of the received data.
+CURL_WRITE_ERROR = 23
+DISK_FULL = "Local voice setup did not finish: the disk is full. Free some space, then press Set up local voice again."
+# The plain line of a failed install whose error carries none: a child's
+# exit, a cancel, or an error with no sentence of its own.
+FAILURE_WORDS = {
+    "download": "Local voice setup did not finish: the download stopped. Check your network, then press Set up local voice again.",
+    "cancelled": "Local voice setup was cancelled. Press Set up local voice to start it again.",
+    "other": "Local voice setup did not finish. " + BACK,
+}
+
+
+def failure_cause(error, stage):
+    """The cause of ERROR, an install's, raised at STAGE, its last step."""
+    if isinstance(error, SystemExit) and error.code in (129, 143):
+        return "cancelled"
+    if isinstance(error, OSError) and error.errno == errno.ENOSPC:
+        return "disk"
+    text = str(error)
+    for prefix, cause in (("setup=busy", "busy"), ("disk=", "disk"), ("gpu=unavailable", "unavailable"),
+                          ("tier=unknown", "refused"), ("download=hash-mismatch", "download")):
+        if text.startswith(prefix):
+            return cause
+    if isinstance(error, ChildFailed):
+        return {"runtime": "download", "download": "download", "probe": "probe"}.get(stage, "other")
+    return "other"
+
+
+def install(judge, state, data, tier, reading, progress):
     """Refuse before any effect, invalidate, and publish only after real inference.
 
     A refused attempt keeps an earlier ready installation. A failed one removes
@@ -405,6 +586,9 @@ def install(judge, state, data, tier, reading):
     state.mkdir(parents=True, exist_ok=True, mode=0o700)
     with exclusive(state / "local-setup.lock"):
         value = judge.manifest(HERE / "artifacts.json")
+        if tier not in value["tiers"]:
+            raise ValueError(f"tier=unknown tier={tier}\n"
+                             "This model is no longer offered. Under Local voice on the Jarvis page, choose another model.")
         artifacts, provider = selected(value, tier)
         if not runnable(provider, reading):
             raise ValueError(f"gpu=unavailable tier={tier}\n"
@@ -420,6 +604,7 @@ def install(judge, state, data, tier, reading):
         marker = state / "local-ready.json"
         marker.unlink(missing_ok=True)
         judge.clip(value)
+        log = state / LOG
         try:
             models = data / "models"
             verified = reuse(judge, value, models, artifacts)
@@ -427,10 +612,11 @@ def install(judge, state, data, tier, reading):
             models.mkdir(mode=0o700, exist_ok=True)
             python = data / "venv/bin/python"
             abi = value["runtimes"]["sherpa-onnx"]["cudaWheel"]["python"]
+            progress["stage"] = "runtime"
             print("jarvis-setup: step=runtime", flush=True)
             print("Preparing the tools for local voice", flush=True)
             command(["uv", "--no-config", "venv", "--managed-python", "--python", abi,
-                     str(data / "venv")], data)
+                     str(data / "venv")], data, log=log)
             if provider == "cpu":
                 requirements = HERE / "requirements-local-cpu.lock"
             else:
@@ -439,25 +625,26 @@ def install(judge, state, data, tier, reading):
                 requirements.write_text((HERE / "requirements-local.lock").read_text() +
                     f"\nsherpa-onnx @ {wheel['url']} --hash=sha256:{wheel['sha256']}\n")
             command(["uv", "--no-config", "pip", "sync", "--python", str(python),
-                     "--require-hashes", "--only-binary", ":all:", str(requirements)], data)
+                     "--require-hashes", "--only-binary", ":all:", str(requirements)], data, log=log)
             for artifact in artifacts:
                 if artifact["id"] in verified:
                     print(f"jarvis-setup: step=model id={artifact['id']} reused", flush=True)
                     print("Using the downloaded model for " + value["tiers"][tier]["name"], flush=True)
                     continue
+                progress["stage"] = "download"
                 print(f"jarvis-setup: step=model id={artifact['id']}", flush=True)
                 print("Downloading the model for " + value["tiers"][tier]["name"], flush=True)
                 target = models / Path(urlparse(artifact["url"]).path).name
-                download(artifact["url"], target, artifact["sha256"], judge, data)
+                download(artifact["url"], target, artifact["sha256"], judge, data, log)
                 if artifact["directory"] != ".":
                     extract(target, models)
             judge.verify(value, models, artifacts)
             ready = identity(judge, tier, data)
+            progress["stage"] = "probe"
             print("jarvis-setup: step=probe", flush=True)
             print("Checking local voice on this computer", flush=True)
             # The owner reads the plain line; the engine's own lines go to the log.
-            log = state / "local-setup.log"
-            with log.open("w") as output, tempfile.TemporaryFile(mode="w+") as reading:
+            with log.open("a") as output, tempfile.TemporaryFile(mode="w+") as reading:
                 try:
                     command(["unshare", "-rn", "--", str(python), "-I", str(HERE / "setup-local"),
                              "probe", tier], data, offline=True, stderr=output, stdout=reading)
@@ -466,22 +653,24 @@ def install(judge, state, data, tier, reading):
                     advice = (" Under Local voice on the Jarvis page, choose a model that runs on any computer."
                               if provider == "cuda" else "")
                     print(f"jarvis-setup: failed=probe log={log}\n"
-                          f"Local voice did not pass its test on this computer. The details are in {log}." + advice,
+                          f"Local voice did not pass its test on this computer. The details are in {shown(log)}." + advice,
                           file=sys.stderr)
                     raise
                 reading.seek(0)
                 need = judge.memory_need(json.load(reading), tier, provider, value["tiers"][tier]["artifacts"])
             judge.verify(value, models, artifacts)
             if ready != identity(judge, tier, data):
-                raise ValueError("runtime=changed-during-probe")
+                raise ValueError("runtime=changed-during-probe\n"
+                                 "Local voice setup did not finish: its files changed while it was checked. " + BACK)
             ready["memory"] = need
             publish(marker, ready)
         except BaseException:
             remove_runtime(data)
             kept = stored(data)
-            print(f"jarvis-setup: kept={data} bytes={kept}\n"
-                  f"Removed the downloaded models and runtime. Kept {size(kept)} of downloads in {data}; "
-                  "the next setup reuses them.", file=sys.stderr)
+            print(f"jarvis-setup: kept={data} bytes={kept}", file=sys.stderr)
+            print("Removed the local voice models and tools."
+                  + (f" Kept {size(kept)} of downloaded files in {shown(data)}, which the next setup reuses." if kept else ""),
+                  file=sys.stderr)
             raise
         print("jarvis-setup: ready=" + tier, flush=True)
         print(value["tiers"][tier]["name"] + " is ready", flush=True)
@@ -501,12 +690,35 @@ def migrated(judge, saved, data):
     return dict(identity(judge, saved["tier"], data), memory=saved["memory"])
 
 
+def failed_record(judge, state):
+    """The record of the last install that did not finish, with `text`
+    naming its tier as the Voice step reads it, or None for none."""
+    try:
+        value = json.loads((state / FAILED).read_text())
+    except (OSError, ValueError):
+        return None
+    if (not isinstance(value, dict) or value.get("cause") not in FAILURE_CAUSES
+            or not isinstance(value.get("tier"), str) or not isinstance(value.get("log"), str)):
+        return None
+    tiers = judge.manifest(HERE / "artifacts.json")["tiers"]
+    # A tier the manifest retired since is named as the user chose it.
+    name = tiers[value["tier"]]["name"] if value["tier"] in tiers else value["tier"]
+    return {"cause": value["cause"], "tier": value["tier"], "log": value["log"], "text": name + " is not set up"}
+
+
 def status(judge, state, data):
-    """A missing, busy, stale or unverifiable installation never reports ready."""
+    """A missing, busy, stale or unverifiable installation never reports ready.
+
+    The last install that did not finish rides beside any answer but a busy
+    one as `failure` (failed_record): a failed replacement leaves the tier
+    before it ready, and the Voice step judges which tier the user wants."""
     report = {"tone": "warning", "text": "Not set up", "action": True}
     marker = state / "local-ready.json"
     if not state.is_dir():
         return report
+    failure = failed_record(judge, state)
+    if failure is not None:
+        report = {"tone": "warning", "text": failure["text"], "action": True, "failure": failure}
     with shared(state / "local-setup.lock") as held:
         if not held:
             return {"tone": "info", "text": "Setting up", "action": False}
@@ -528,7 +740,8 @@ def status(judge, state, data):
             # Only a marker this read judged ready replaces the version 1 one.
             if previous:
                 publish(marker, saved)
-            return {"tone": "ok", "text": "Ready: " + tier, "action": False}
+            ready = {"tone": "ok", "text": "Ready: " + tier, "action": False}
+            return ready if failure is None else dict(ready, failure=failure)
         except (ValueError, KeyError, TypeError, OSError, judge.Unavailable):
             return {"tone": "warning", "text": "Setup needs verification", "action": True}
 
@@ -784,8 +997,8 @@ def main():
     """Keep chosen tiers within the producer's current declaration."""
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("verb", choices=("choices", "install", "status", "probe", "clone"))
-    parser.add_argument("tier", nargs="?", help="the tier; after clone, its verb")
+    parser.add_argument("verb", choices=("choices", "plan", "release", "install", "status", "probe", "clone"))
+    parser.add_argument("tier", nargs="?", help="the tier; after clone, its verb; after release, bin/vgshell")
     args = parser.parse_args()
     judge = measurement()
     state, data = roots()
@@ -816,12 +1029,44 @@ def main():
     if args.verb == "status":
         print(json.dumps(status(judge, state, data)))
         return
+    if args.verb == "plan":
+        value = judge.manifest(HERE / "artifacts.json")
+        print("\n".join(plan(value, choices(value, machine(judge, data), ready_tier(judge, state, data)), args.tier)))
+        return
+    if args.verb == "release":
+        if args.tier is None:
+            parser.error("release takes bin/vgshell")
+        release(args.tier, ready_tier(judge, state, data))
+        return
     if args.verb == "probe":
         value = judge.manifest(HERE / "artifacts.json")
         probe(judge, value, args.tier, data)
     else:
+        # Each install that ends without its voice ready records why, for
+        # the Voice step, until one finishes.
+        progress = {"stage": "start"}
+        state.mkdir(parents=True, exist_ok=True, mode=0o700)
         reading = machine(judge, data)
-        install(judge, state, data, pick(reading) if args.tier is None else args.tier, reading)
+        tier = pick(reading) if args.tier is None else args.tier
+        try:
+            install(judge, state, data, tier, reading, progress)
+        except BaseException as error:
+            cause = failure_cause(error, progress["stage"])
+            publish(state / FAILED, {"cause": cause, "tier": tier, "log": str(state / LOG)})
+            # An exit carries no keyed line of its own; a raised refusal's
+            # comes from __main__, which prints its notes after it. A probe
+            # that failed printed its plain line already.
+            words = FAILURE_WORDS.get(cause)
+            if isinstance(error, SystemExit):
+                print(f"jarvis-setup: failed=exit code={error.code} stage={progress['stage']}", file=sys.stderr)
+                if words is not None:
+                    print(words, file=sys.stderr)
+            elif words is not None and "\n" not in str(error):
+                error.add_note(words)
+            if cause == "disk" and isinstance(error, OSError):
+                raise ValueError(f"disk=full stage={progress['stage']}\n{DISK_FULL}") from error
+            raise
+        (state / FAILED).unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
@@ -838,4 +1083,6 @@ if __name__ == "__main__":
         sys.exit(69)
     except (ValueError, KeyError, TypeError, OSError, tarfile.TarError) as error:
         print(f"jarvis-setup: failed={error}", file=sys.stderr)
+        for note in getattr(error, "__notes__", ()):
+            print(note, file=sys.stderr)
         sys.exit(1)

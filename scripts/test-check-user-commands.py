@@ -36,6 +36,14 @@ SERVICE = 'import QtQuick\nItem {\n    property string note: "Checks the token"\
 FENCE = "```"
 
 
+# Status entries of each page placement: a required and an optional
+# Setup step, a Details fact with `setup` false, a list of rows and a
+# hidden entry.
+STEPS = ('{ "ready": { "type": "state", "label": "Ready", "setup": true }, "extra": { "type": "state", "label": "Extra", "setup": "optional" },'
+         ' "fact": { "type": "state", "label": "Fact", "setup": false }, "pairs": { "type": "rows", "label": "Pairs" },'
+         ' "quiet": { "type": "state", "label": "Quiet", "hidden": true } }')
+
+
 def manifest(**extra):
     text = MANIFEST.rstrip().rstrip("}")
     for key, value in extra.items():
@@ -150,6 +158,14 @@ ROWS = [
     ("a field target naming no field of its plugin", {"manifest.json": manifest(description='"Open [w](page:acme.setup/Settings/nosuch)."')}, "page-reference-field", "manifest.json:description"),
     ("a field target in QML naming no field", {"Service.qml": qml('    Label { text: "[Home](page:acme.setup/Settings/nosuch)" }')}, "page-reference-field", "Service.qml:3"),
     ("an existing field target", {"manifest.json": manifest(schema='{ "a": { "type": "boolean", "label": "A" } }', description='"Open [w](page:acme.setup/Settings/a)."')}, None, None),
+    ("a Setup target naming a Details row", {"manifest.json": manifest(description='"Open [w](page:acme.setup/Setup/nosuch)."')}, "page-reference-field", "manifest.json:description"),
+    ("a Setup target naming its required step", {"manifest.json": manifest(status=STEPS, description='"Open [w](page:acme.setup/Setup/ready)."')}, None, None),
+    ("a Setup target naming its optional step", {"manifest.json": manifest(status=STEPS, description='"Open [w](page:acme.setup/Setup/extra)."')}, None, None),
+    ("a Setup target naming a Details fact", {"manifest.json": manifest(status=STEPS, description='"Open [w](page:acme.setup/Setup/fact)."')}, "page-reference-field", "manifest.json:description"),
+    ("a Details target naming a fact", {"manifest.json": manifest(status=STEPS, description='"Open [w](page:acme.setup/Details/fact)."')}, None, None),
+    ("a Details target naming a Setup step", {"manifest.json": manifest(status=STEPS, description='"Open [w](page:acme.setup/Details/ready)."')}, "page-reference-field", "manifest.json:description"),
+    ("a Details target naming a list of rows", {"manifest.json": manifest(status=STEPS, description='"Open [w](page:acme.setup/Details/pairs)."')}, "page-reference-field", "manifest.json:description"),
+    ("a Details target naming a hidden entry", {"manifest.json": manifest(status=STEPS, description='"Open [w](page:acme.setup/Details/quiet)."')}, "page-reference-field", "manifest.json:description"),
     ("a target completed after a literal plugin prefix", {"Service.qml": qml('    Label { text: "[Setup page](page:vgs.nosuch" + id + ")" }')}, None, None),
     ("a template argument target", {"Service.qml": qml('    Label { text: `[Setup page](page:${id}/Setup)` }')}, None, None),
     ("an empty target opens the plugin list", {"Service.qml": qml('    Label { text: "[Plugins](page:)" }')}, None, None),
@@ -380,9 +396,13 @@ CONTROLS = [
     ("a manifest string's page reference", "                pages.append((path, where, excerpt))", "                pass"),
     ("a string literal's page reference", "                    pages.append((path, line, excerpt))", "                    pass"),
     ("a literal target needs a plugin directory", "            if target.group(1) not in targets:", "            if False:"),
-    ("a tab target needs a plugin directory", r'(?:/Settings/([^\s()/$]+)|/[^\s()/$]+)?\)', r'\)'),
-    ("a field target needs a plugin directory", r'/Settings/([^\s()/$]+)|', r''),
-    ("a field target needs a schema field", "elif target.group(2) is not None and target.group(2) not in schema_keys(", "elif False and target.group(2) not in schema_keys("),
+    ("a tab target needs a plugin directory", r'(?:/(Settings|Setup|Details)/([^\s()/$]+)|/[^\s()/$]+)?\)', r'\)'),
+    ("a field target needs a plugin directory", r'/(Settings|Setup|Details)/([^\s()/$]+)|', r''),
+    # Where a tab places a row is the page's judges' rule (bin/lib/page-rows.js,
+    # Steps.js), which their own suites pin; the check holds a reference to
+    # the rows of the tab it names.
+    ("a field target needs a row of its tab", "if target.group(3) not in rows.get(target.group(1), {}).get(target.group(2), []):", "if False:"),
+    ("a field target reads the rows of its own tab", ".get(target.group(2), []):", '.get("Settings", []):'),
     ("a terminal line is not a page link", "            words += 1\n", '            words += 1\n            for excerpt in page_references(word.group(0)[1:-1]):\n                findings.append(("page-reference", path, line_of(code, call.start()), excerpt))\n'),
     ("a page reference's words are a link", "    plain = blank(text, PAGE_LINK)", "    plain = text"),
     ("a manifest link's words are a link", "        plain = plain.replace(linked, \" \" * len(linked))", "        pass"),

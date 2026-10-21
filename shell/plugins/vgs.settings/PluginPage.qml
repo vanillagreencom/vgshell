@@ -67,7 +67,8 @@ FocusScope {
     // no place while its select model is empty and it draws no key list
     // beside it (Steps.featureRow): nothing is offered for it. A
     // `shownWhen` field has no place while the manager row withholds it,
-    // its presence entry not reading present (PluginLogic.withheldFields).
+    // its presence entry not reading present or the setting it follows
+    // holding another value (PluginLogic.withheldFields).
     function drawsLines(field) {
         return Steps.featureRow(field, row).length > 0;
     }
@@ -228,6 +229,7 @@ FocusScope {
         property alias spec: editor.spec
         property alias value: editor.value
         property alias choices: editor.choices
+        property alias groups: editor.groups
         property alias problem: editor.problem
         property alias editable: editor.editable
         property alias edits: editor.edits
@@ -243,6 +245,8 @@ FocusScope {
         signal openLink(var link)
         signal openPage(string id, string tab)
         signal choicesWanted()
+        signal addWanted()
+        signal previewWanted(var value)
         spacing: Theme.stack.row
         bottomPadding: Theme.subTextRoom(choiceField.subText, Positioner.index, Positioner.isLastItem, parent)
         SettingField {
@@ -252,6 +256,8 @@ FocusScope {
             onOpenLink: link => choiceField.openLink(link)
             onOpenPage: (id, tab) => choiceField.openPage(id, tab)
             onChoicesWanted: choiceField.choicesWanted()
+            onAddWanted: choiceField.addWanted()
+            onPreviewWanted: value => choiceField.previewWanted(value)
         }
         ChoiceExtras {
             width: parent.width
@@ -302,55 +308,88 @@ FocusScope {
     }
 
     // Show the page as it opens: on TAB, a tab's text, or on Settings when
-    // the page has no such tab, the back button focused. A `Settings/<field
-    // key>` tab (PageReference.place) also brings that field into view.
+    // the page has no such tab, the back button focused. A `<tab>/<key>` tab
+    // (PageReference.place) also brings that row into view, a Settings
+    // field's or a Setup or Details status row's, and marks it.
     function open(reason, tab) {
         const place = PageReference.place(tab);
         tabs.currentIndex = Math.max(0, tabs.model.indexOf(place.tab));
         back.forceActiveFocus(reason);
-        if (place.field === "") {
+        if (place.key === "") {
             revealing = "";
             return;
         }
         revealMoving = true;
         layout.scrollArea.contentY = 0;
         revealMoving = false;
-        revealing = place.field;
+        revealTab = tabs.model.indexOf(place.tab) === -1 ? "Settings" : place.tab;
+        revealing = place.key;
         Qt.callLater(page.revealField);
     }
 
-    // The key of the field an open asked to show, "" for none. A newly
-    // shown plugin's rows lay out after the open, so each layout of the
-    // Settings tab that completes shows it again (Column.positioningComplete),
-    // the call waiting for the next turn, as SettingField's reveal does,
-    // until the next open, a change of tab or a scroll the reveal did not
-    // make, so the page never moves under the user later.
+    // The key of the row an open asked to show, "" for none, on the tab
+    // `revealTab` names. A newly shown plugin's rows lay out after the open,
+    // so each layout of the tab that completes shows it again
+    // (Column.positioningComplete), the call waiting for the next turn, as
+    // SettingField's reveal does, until the next open, a change of tab or a
+    // scroll the reveal did not make, so the page never moves under the user
+    // later. The row it shows draws the page's one mark (`revealMark`) while
+    // `revealing` holds.
     property string revealing: ""
+    property string revealTab: "Settings"
     property bool revealMoving: false
+    // The row the last reveal found, null while none is shown.
+    property Item revealedRow: null
+    onRevealingChanged: if (revealing === "") revealedRow = null
+    // The scroll position the last move left. A move that starts past the
+    // area's end is the area settling back inside it, as the window takes
+    // the page's height after a reveal near the end, not the user's scroll.
+    property real lastContentY: 0
     Connections {
         target: layout.scrollArea
-        function onContentYChanged() { if (!page.revealMoving) page.revealing = ""; }
+        function onContentYChanged() {
+            const area = layout.scrollArea;
+            const settling = page.lastContentY > Math.max(0, area.contentHeight - area.height);
+            page.lastContentY = area.contentY;
+            if (!page.revealMoving && !settling) page.revealing = "";
+        }
     }
-    // Scroll the Settings tab to the row of the field `revealing` names, a
-    // field's or a list's. A key the page draws no row for is refused once,
-    // at the page head and in the log.
+    // Whether the tab TAB draws a row for KEY: a Settings field or list
+    // the page places, a Setup step, or a Details status row.
+    function revealDrawn(tab, key) {
+        if (tab === "Settings") {
+            const field = fieldRow(key);
+            return field === null ? "unknown" : field.list || placed(field) ? "" : "undrawn";
+        }
+        const entry = statusEntry(key);
+        if (entry === null) return "unknown";
+        if (tab === "Setup") return setupSections.length > 0 && setupSections[0].items.some(item => !item.keys && item.key === key) ? "" : "undrawn";
+        return Steps.detailEntries(row.status).some(shown => shown.key === key) ? "" : "undrawn";
+    }
+    // Scroll the tab `revealTab` names to the row `revealing` names, which
+    // carries it as `fieldKey`, a field's or a list's, or `statusKey`, a
+    // status row's. A key the tab draws no row for is refused once, at the
+    // page head and in the log.
     function revealField() {
         if (revealing === "" || row === null) return;
-        const field = fieldRow(revealing);
-        if (field === null || (!field.list && !placed(field))) {
-            panel.keep(row.id, "refused: page-field=" + revealing + " reason=" + (field === null ? "unknown" : "undrawn"));
+        const refusal = revealDrawn(revealTab, revealing);
+        if (refusal !== "") {
+            panel.keep(row.id, "refused: page-target=" + revealTab + "/" + revealing + " reason=" + refusal);
             revealing = "";
             return;
         }
-        const found = [settingsPage];
+        const found = [revealTab === "Settings" ? settingsPage : revealTab === "Setup" ? setupPage : detailsPage];
         for (let i = 0; i < found.length; i++) {
-            if (found[i].fieldKey === revealing && found[i].visible) {
+            const item = found[i];
+            if ((item.fieldKey === revealing || item.statusKey === revealing) && item.visible) {
                 revealMoving = true;
-                layout.scrollArea.reveal(found[i]);
+                layout.scrollArea.reveal(item);
                 revealMoving = false;
+                revealedRow = item;
+                revealMark.place();
                 return;
             }
-            for (const child of found[i].children) found.push(child);
+            for (const child of item.children) found.push(child);
         }
     }
 
@@ -487,7 +526,7 @@ FocusScope {
                 Column {
                     id: settingsPage
                     spacing: Theme.stack.page
-                    onPositioningComplete: if (page.revealing !== "") Qt.callLater(page.revealField)
+                    onPositioningComplete: if (page.revealing !== "" && page.revealTab === "Settings") Qt.callLater(page.revealField)
 
                     // The switches, then the fields of no group, rows of
                     // one list, each `stack.page` under the drawn ink of
@@ -542,6 +581,7 @@ FocusScope {
                                 spec: page.row.schema[modelData]
                                 value: page.row.settings[modelData]
                                 choices: page.row.settingChoices[modelData] || []
+                                groups: page.fieldRow(modelData).groups
                                 problem: spec.problem === undefined ? "" : page.row.fieldProblems[modelData]
                                 editable: page.editable
                                 edits: unsaved
@@ -549,6 +589,8 @@ FocusScope {
                                 onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(pluginId, link); }
                                 onOpenPage: (id, tab) => { if (page !== null && page.panel !== null) page.panel.openPage(id, tab); }
                                 onChoicesWanted: if (page !== null && page.row !== null) page.panel.refreshChoices(pluginId, spec.optionsFrom)
+                                onAddWanted: if (page !== null && page.row !== null) page.panel.addChoice(pluginId, key)
+                                onPreviewWanted: value => { if (page !== null && page.row !== null) page.panel.previewChoice(pluginId, key, value); }
                             }
                         }
                     }
@@ -603,6 +645,7 @@ FocusScope {
                                     spec: page.row.schema[modelData]
                                     value: page.row.settings[modelData]
                                     choices: page.row.settingChoices[modelData] || []
+                                    groups: page.fieldRow(modelData).groups
                                     problem: spec.problem === undefined ? "" : page.row.fieldProblems[modelData]
                                     editable: page.editable
                                     edits: unsaved
@@ -610,6 +653,8 @@ FocusScope {
                                     onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(pluginId, link); }
                                     onOpenPage: (id, tab) => { if (page !== null && page.panel !== null) page.panel.openPage(id, tab); }
                                     onChoicesWanted: if (page !== null && page.row !== null) page.panel.refreshChoices(pluginId, spec.optionsFrom)
+                                    onAddWanted: if (page !== null && page.row !== null) page.panel.addChoice(pluginId, key)
+                                    onPreviewWanted: value => { if (page !== null && page.row !== null) page.panel.previewChoice(pluginId, key, value); }
                                 }
                             }
 
@@ -776,6 +821,7 @@ FocusScope {
                 Column {
                     id: setupPage
                     spacing: Theme.stack.page
+                    onPositioningComplete: if (page.revealing !== "" && page.revealTab !== "Settings") Qt.callLater(page.revealField)
 
                     // The manifest's guide to the steps, which opens its
                     // README section in the default browser
@@ -807,6 +853,8 @@ FocusScope {
                                 Loader {
                                     id: requiredEntry
                                     required property var modelData
+                                    // The key a page reference names the step by (revealField).
+                                    readonly property string statusKey: modelData.keys ? "" : modelData.key
                                     width: requiredSteps.width
                                     // A step whose entry left the row draws no line.
                                     visible: modelData.keys || modelData.tools === true || page.statusEntry(modelData.key) !== null
@@ -855,6 +903,7 @@ FocusScope {
                     // this one as its third.
                     onParentChanged: if (parent === setupPage) visible = true
                     spacing: Theme.stack.page
+                    onPositioningComplete: if (page.revealing !== "" && page.revealTab === "Details") Qt.callLater(page.revealField)
 
                     Label {
                         role: "hint"
@@ -994,6 +1043,8 @@ FocusScope {
                                     StatusRow {
                                         id: detailRow
                                         required property string modelData
+                                        // The key a page reference names the row by (revealField).
+                                        readonly property string statusKey: modelData
                                         // An optional feature's own action beside its fact.
                                         readonly property var buttons: entry === null ? ({ action: null, aside: null }) : Steps.detailButtons(entry, page.plugin)
                                         width: statusRows.width
@@ -1046,6 +1097,39 @@ FocusScope {
                         }
                     }
                 }
+            }
+        }
+
+        // The mark on the row a page reference opened (revealField): one
+        // plate of the list selection's fill under the row, in the scroll
+        // area's content beside the page's columns, so no column lays it out
+        // as a row of its own, and it scrolls with the row. It fades in, and
+        // out once `revealing` clears: at the next scroll, tab or open.
+        Rectangle {
+            id: revealMark
+            objectName: "revealMark"
+            parent: layout.scrollArea.contentItem
+            z: -1
+            radius: Theme.listItem.radius
+            color: Theme.listItem.selected
+            opacity: page.revealedRow !== null ? 1 : 0
+            visible: opacity > 0
+            Behavior on opacity {
+                enabled: Theme.motion.list.fade.duration > 0
+                NumberAnimation { duration: Theme.motion.list.fade.duration; easing.type: Theme.motion.list.fade.easing }
+            }
+            // The row's box in the content, `space.xs` taller on each side.
+            // A page row spans the body to the content's right edge, which
+            // leaves no room beside it inside the container inset, so the
+            // plate keeps the row's own width.
+            function place() {
+                const shown = page.revealedRow;
+                if (shown === null || parent === null) return;
+                const at = shown.mapToItem(parent, 0, 0);
+                x = at.x;
+                y = at.y - Theme.space.xs;
+                width = shown.width;
+                height = shown.height + 2 * Theme.space.xs;
             }
         }
 

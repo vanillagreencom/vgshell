@@ -14,9 +14,9 @@ const TAIL_BYTES = 64 * 1024;
 const owners = new Set();
 const effects = ["read", "reversible", "input", "persistent", "exec", "external", "destructive"];
 // Why a duplex voice stream failed, as ChainedEngine closes its release
-// rows: the microphone sent only silence, the voice heard no words, or any
-// other fault of the stream.
-const STREAM_CAUSES = ["input-silent", "unheard", "voice-stopped"];
+// rows: the microphone sent only silence, the voice heard no words, the
+// provider refused the key at the handshake, or any other fault of the stream.
+const STREAM_CAUSES = ["input-silent", "unheard", "key-refused", "voice-stopped"];
 
 function fail(code) {
     const error = new Error("jarvis: audit=" + code);

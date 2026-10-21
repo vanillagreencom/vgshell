@@ -134,12 +134,19 @@ Item {
     // and then moved above it would run again inside that row's change
     // and log a binding loop. A Field takes its space as top padding, which
     // moves none of the parts its lineBelow() reads, so it is read as is.
+    // A Loader that holds the placed item, as a row built only where it is
+    // used is held, stands in its place: its column places the Loader, which
+    // takes the item's size (https://doc.qt.io/qt-6/qml-qtquick-loader.html).
     readonly property var rowAbove: {
         if (!labelColumn || label === "") return null;
         let room = 0;
         for (let at = placed; at.parent !== null; ) {
             void at.Positioner.index;
             const holder = at.parent;
+            if (holder instanceof Loader) {
+                at = holder;
+                continue;
+            }
             const list = holder.parent instanceof GroupList ? holder.parent : null;
             if (!(holder instanceof Column) && list === null) return null;
             const siblings = holder.children;

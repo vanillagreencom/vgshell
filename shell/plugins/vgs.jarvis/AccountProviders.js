@@ -2,7 +2,8 @@
 // Login tokens belong to the vendor program, never to the key picker. A cli
 // row's id names its harness in shell/Commons/AccountDirectories.js, the
 // core's account rule, which holds its folder, variable and marker. A key
-// row's keyPage is the vendor's page that creates an API key, which Add key
+// row's keyPage is the vendor's page that creates an API key, keyPageName
+// that page's own name, which Add key
 // names beside a provider it offers. A key row's models, where it has them,
 // are the models its account runs, as the Jarvis page offers them.
 var PROVIDERS = [
@@ -21,9 +22,9 @@ var PROVIDERS = [
     // list proves a setup.
     { id: "pi", label: "Pi", kind: "cli", command: null, signIn: ["pi", "--no-session", "--no-extensions", "--no-skills",
         "--no-prompt-templates", "--no-themes", "--no-context-files", "--no-approve", "--no-tools", "--no-mcp"] },
-    { id: "openai", label: "OpenAI", kind: "key", variable: "OPENAI_API_KEY", origin: "https://api.openai.com", keyPage: "https://platform.openai.com/api-keys",
+    { id: "openai", label: "OpenAI", kind: "key", variable: "OPENAI_API_KEY", origin: "https://api.openai.com", keyPage: "https://platform.openai.com/api-keys", keyPageName: "OpenAI API keys",
         probe: { driver: "chat", path: "/v1/chat/completions", model: "gpt-4.1-nano", limit: "max_completion_tokens", header: "authorization", prefix: "Bearer " } },
-    { id: "anthropic", label: "Anthropic", kind: "key", variable: "ANTHROPIC_API_KEY", origin: "https://api.anthropic.com", keyPage: "https://console.anthropic.com/settings/keys",
+    { id: "anthropic", label: "Anthropic", kind: "key", variable: "ANTHROPIC_API_KEY", origin: "https://api.anthropic.com", keyPage: "https://console.anthropic.com/settings/keys", keyPageName: "Anthropic Console",
         probe: { driver: "messages", path: "/v1/messages", model: "claude-haiku-4-5", header: "x-api-key", prefix: "" },
         // A fixed list (2026-10-10): the models backend/AnthropicMessages.js
         // runs, each with the effort levels the Messages API takes for it
@@ -33,19 +34,19 @@ var PROVIDERS = [
             { value: "claude-opus-5-5", label: "Claude Opus 5.5", efforts: ["low", "medium", "high", "xhigh", "max"], effort: "medium", own: false },
             { value: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", efforts: ["low", "medium", "high", "xhigh", "max"], effort: "high", own: false },
             { value: "claude-haiku-4-5", label: "Claude Haiku 4.5", efforts: [], effort: "", own: false }] },
-    { id: "openrouter", label: "OpenRouter", kind: "key", variable: "OPENROUTER_API_KEY", origin: "https://openrouter.ai", keyPage: "https://openrouter.ai/keys",
+    { id: "openrouter", label: "OpenRouter", kind: "key", variable: "OPENROUTER_API_KEY", origin: "https://openrouter.ai", keyPage: "https://openrouter.ai/keys", keyPageName: "OpenRouter keys",
         probe: { driver: "chat", path: "/api/v1/chat/completions", model: "openai/gpt-4.1-nano", limit: "max_tokens", header: "authorization", prefix: "Bearer " } },
-    { id: "groq", label: "Groq", kind: "key", variable: "GROQ_API_KEY", origin: "https://api.groq.com", keyPage: "https://console.groq.com/keys",
+    { id: "groq", label: "Groq", kind: "key", variable: "GROQ_API_KEY", origin: "https://api.groq.com", keyPage: "https://console.groq.com/keys", keyPageName: "GroqCloud keys",
         probe: { driver: "chat", path: "/openai/v1/chat/completions", model: "llama-3.1-8b-instant", limit: "max_tokens", header: "authorization", prefix: "Bearer " } },
     { id: "cerebras", label: "Cerebras", kind: "key", variable: "CEREBRAS_API_KEY", origin: "https://api.cerebras.ai",
         probe: { driver: "chat", path: "/v1/chat/completions", model: "", limit: "max_completion_tokens", header: "authorization", prefix: "Bearer " } },
-    { id: "mistral", label: "Mistral", kind: "key", variable: "MISTRAL_API_KEY", origin: "https://api.mistral.ai", keyPage: "https://console.mistral.ai/api-keys",
+    { id: "mistral", label: "Mistral", kind: "key", variable: "MISTRAL_API_KEY", origin: "https://api.mistral.ai", keyPage: "https://console.mistral.ai/api-keys", keyPageName: "Mistral API keys",
         probe: { driver: "chat", path: "/v1/chat/completions", model: "mistral-small-latest", limit: "max_tokens", header: "authorization", prefix: "Bearer " } },
-    { id: "gemini", label: "Gemini", kind: "key", variable: "GEMINI_API_KEY", origin: "https://generativelanguage.googleapis.com", keyPage: "https://aistudio.google.com/apikey",
+    { id: "gemini", label: "Gemini", kind: "key", variable: "GEMINI_API_KEY", origin: "https://generativelanguage.googleapis.com", keyPage: "https://aistudio.google.com/apikey", keyPageName: "Google AI Studio",
         probe: { driver: "chat", path: "/v1beta/openai/chat/completions", model: "gemini-2.5-flash-lite", limit: "max_tokens", header: "authorization", prefix: "Bearer " } },
     // A speech key: it serves the ElevenLabs voice, never an AI model.
     { id: "elevenlabs", label: "ElevenLabs", kind: "speech-key", variable: "ELEVENLABS_API_KEY", origin: "https://api.elevenlabs.io",
-        keyPage: "https://elevenlabs.io/app/settings/api-keys" },
+        keyPage: "https://elevenlabs.io/app/settings/api-keys", keyPageName: "ElevenLabs API keys" },
     { id: "ollama", label: "Ollama", kind: "local", port: 11434, origin: "http://127.0.0.1:11434",
         probe: { driver: "ollama", path: "/api/generate", model: "" } },
     { id: "llama-server", label: "llama-server", kind: "local", port: 8080, origin: "http://127.0.0.1:8080",
@@ -53,6 +54,24 @@ var PROVIDERS = [
     { id: "lm-studio", label: "LM Studio", kind: "local", port: 1234, origin: "http://127.0.0.1:1234",
         probe: { driver: "chat", path: "/v1/chat/completions", model: "", limit: "max_tokens" } }
 ];
+
+// The cloud voices, by the Voice provider setting's value: the PROVIDERS
+// row whose stored key each speaks with, and the product the user chose.
+// The company the user reads is that row's label. ChainedEngine's DUPLEX
+// holds the engine of each voice that hears elsewhere.
+var VOICES = {
+    realtime: { provider: "openai", product: "OpenAI Realtime" },
+    gemini: { provider: "gemini", product: "Gemini Live" },
+    elevenlabs: { provider: "elevenlabs", product: "ElevenLabs" }
+};
+
+// The cloud voice VOICE, a Voice provider setting value, as { provider,
+// product, company }, or null for a voice that uses no key, as Local.
+function cloudVoice(voice) {
+    if (!Object.prototype.hasOwnProperty.call(VOICES, voice)) return null;
+    var row = PROVIDERS.filter(function (item) { return item.id === VOICES[voice].provider; })[0];
+    return { provider: row.id, product: VOICES[voice].product, company: row.label };
+}
 
 // The daemon's runtime directory under the session's XDG_RUNTIME_DIR, empty
 // without one. The service hands it to the daemon in hello and the account
@@ -308,7 +327,7 @@ function probeFailure(completion, diagnostic) {
     }
 }
 
-if (typeof module !== "undefined") module.exports = { PROVIDERS: PROVIDERS, runtimeDirectory: runtimeDirectory,
+if (typeof module !== "undefined") module.exports = { PROVIDERS: PROVIDERS, cloudVoice: cloudVoice, runtimeDirectory: runtimeDirectory,
     keyPresence: keyPresence, keyProvider: keyProvider, modelProvider: modelProvider, storedKeyProvider: storedKeyProvider, unlistedChoice: unlistedChoice, modelChoice: modelChoice, parseWidth: parseWidth, fitText: fitText, choiceLine: choiceLine,
     providerChoices: providerChoices, FAILURE_KEYS: FAILURE_KEYS, feedDiagnostic: feedDiagnostic,
     helperFailure: helperFailure, probeFailure: probeFailure };

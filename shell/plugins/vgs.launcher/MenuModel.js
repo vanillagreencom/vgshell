@@ -607,7 +607,9 @@ function searchScore(items, entry, query) {
 
 // The rows for a query under `active`: matches directly under it first,
 // then deeper ones, each sorted by score then path. Deeper rows carry the
-// `drilldown` section when both groups have rows.
+// `drilldown` section when both groups have rows. A row's detail is the
+// menu path it lives under, or its description for a row at the top, which
+// no path names.
 function searchRows(items, itemOrder, active, query, missing) {
     var current = [];
     var deeper = [];
@@ -615,7 +617,8 @@ function searchRows(items, itemOrder, active, query, missing) {
         var entry = items[itemOrder[i]];
         if (entry.id === "root" || !isDescendantOf(items, entry.id, active)) continue;
         if (!isVisible(items, itemOrder, entry) || !matchesQuery(entry, query)) continue;
-        var row = displayRow(items, itemOrder, entry, parentPathFor(items, entry.id), searchScore(items, entry, query), "", missing);
+        var path = parentPathFor(items, entry.id);
+        var row = displayRow(items, itemOrder, entry, path !== "" ? path : entry.description, searchScore(items, entry, query), "", missing);
         (entry.parent === active ? current : deeper).push(row);
     }
     var bySearch = function (a, b) { return a.score !== b.score ? a.score - b.score : a.path.localeCompare(b.path) || (a.itemId < b.itemId ? -1 : a.itemId > b.itemId ? 1 : 0); };

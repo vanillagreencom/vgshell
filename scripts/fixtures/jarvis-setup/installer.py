@@ -46,6 +46,7 @@ elif name == "curl":
     assert args[9] == "--"
     source = data / "downloads" / urlparse(args[10]).path.lstrip("/")
     shutil.copyfile(source, args[8])
+    sys.stderr.write(config.get("curl_stderr", ""))
     sys.exit(config.get("curl_exit", 0))
 elif name == "unshare":
     assert args[:2] == ["-rn", "--"] and args[2] in [str(runtime / "bin/python") for runtime in runtimes]

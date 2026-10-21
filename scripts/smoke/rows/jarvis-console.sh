@@ -1,5 +1,7 @@
 # Jarvis console window. Scripted daemon fixtures only: no audio, account,
-# provider or network runs. The row has no latency ceiling. It polls once
+# provider or network runs. Under a voice that takes speech only (a duplex
+# engine) the Conversation tab shows no message box and no Send, one line
+# in their place and Stop; under mute Send names why it is off. The row has no latency ceiling. It polls once
 # per nested IPC round trip; fixture callback gates poll at 10 ms.
 # inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* scripts/smoke/keyboard/* scripts/smoke/toplevel/* shell/Ui/* shell/Commons/* scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/jarvis-bubble.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/windows.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/hold-shortcuts.sh shell/Core/ShortcutRegistry.qml shell/Hosts/AppWindow.qml shell/Hosts/PluginSlot.qml shell/Hosts/SummonHost.qml shell/Core/HyprlandLayer.js
 set -euo pipefail
@@ -66,6 +68,40 @@ jarvis_console_hint_has() { # TEXT
 import json,sys
 print("shown" if any(row.get("visible") and row.get("text")==sys.argv[1] for row in json.load(sys.stdin)) else "missing")
 ' "$1"
+}
+# Send's disabledReason, or `absent` while no Send button is drawn.
+jarvis_console_send_reason() {
+  ipc smoke itemValues window vgs.jarvis Button text,disabledReason | py_reply '
+import json,sys
+rows=[r for r in json.load(sys.stdin) if r.get("text")=="Send"]
+print(json.dumps(rows[0].get("disabledReason")) if rows else "absent")
+'
+}
+# How many items of TYPE the console shows.
+jarvis_console_shown() { # TYPE
+  ipc smoke itemValues window vgs.jarvis "$1" text,visible | py_reply 'import json,sys; print(sum(1 for r in json.load(sys.stdin) if r.get("visible")))'
+}
+jarvis_console_send_shown() {
+  ipc smoke itemValues window vgs.jarvis Button text,visible | py_reply 'import json,sys; print(sum(1 for r in json.load(sys.stdin) if r.get("visible") and r.get("text")=="Send"))'
+}
+jarvis_console_speech_line() {
+  ipc smoke itemValues window vgs.jarvis Label text,visible | py_reply '
+import json,sys
+print("shown" if any(r.get("visible") and str(r.get("text")).endswith(" takes speech only. Tap or hold Super+Right Alt, then speak.") for r in json.load(sys.stdin)) else "missing")
+'
+}
+jarvis_console_engine_kind() {
+  ipc smoke jarvisProcess | py_reply 'import json,sys; d=json.load(sys.stdin)["status"].get("detail") or {}; print(json.dumps(((d.get("state") or {}).get("engine") or {}).get("kind")))'
+}
+jarvis_console_speech_only_check() {
+  expect_poll "a duplex voice shows the speech-only line" shown jarvis_console_speech_line
+  expect "a duplex voice shows no message box" 0 jarvis_console_shown TextField
+  expect "a duplex voice shows no Send" 0 jarvis_console_send_shown
+}
+jarvis_console_speech_only_control() {
+  (failures=0 behaviour_failures=0
+   jarvis_console_speech_only_check >"$sandbox/jarvis-console-speech-only-control.log"
+   echo "$failures")
 }
 jarvis_console_send_drop_control() {
   (failures=0 behaviour_failures=0
@@ -215,6 +251,7 @@ expect_poll "muted state reaches the console" on jarvis_key_state mute
 type_keys " stays in field" || fail "typing while muted failed"
 type_keys -k Return || fail "pressing Enter while muted failed"
 expect_poll "muted Send is refused in the composer" shown jarvis_console_hint_has "Unmute Jarvis to type"
+expect "muted Send names why it is off" '"Unmute Jarvis to type"' jarvis_console_send_reason
 expect 'muted refusal keeps the typed text' '" stays in field"' jarvis_console_field_text
 expect "muted refusal leaves daemon send count unchanged" "$((say_before + 1))" jarvis_console_say_count
 jarvis_key_mute
@@ -300,8 +337,7 @@ from pathlib import Path
 import sys
 p=Path(sys.argv[1]); s=p.read_text()
 replacements=[
-    ('property Item initialFocus: entryField', 'property Item initialFocus: stopButton'),
-    ('Qt.callLater(() => entryField.forceActiveFocus());', 'Qt.callLater(() => stopButton.forceActiveFocus());'),
+    ('readonly property Item composerFocus: speechOnly ? speechStop : entryField', 'readonly property Item composerFocus: stopButton'),
 ]
 for needle, replacement in replacements:
     assert s.count(needle)==1, needle
@@ -360,6 +396,36 @@ PY_CONTROL
   jarvis_disable
   cp -- "$sandbox/jarvis-console-qml-before" "$jarvis_console_qml"
 done
+# A duplex voice: the scripted daemon again, its engine snapshotted as
+# duplex, then the same with a Console copy that keeps the message box.
+jarvis_console_duplex() { # LABEL
+  cp -- "$sandbox/jarvis-console-backend-before" "$jarvis_console_backend"
+  cp -- "$sandbox/jarvis-console-engine-before" "$jarvis_console_engine"
+  "$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" "$jarvis_console_backend" "$jarvis_console_gates" --mapped-indicator --duplex
+  jarvis_rescan
+  jarvis_enable
+  expect_poll "$1: the scripted engine reads duplex" '"duplex"' jarvis_console_engine_kind
+  jarvis_console_open
+  hold_barrier
+  expect_poll "$1: the console key opens one Jarvis window" 1 jarvis_console_client_count
+}
+jarvis_console_duplex "duplex"
+jarvis_console_speech_only_check
+expect_poll "a duplex voice gives Stop the keyboard" true ipc smoke activeFocusWithin window vgs.jarvis IconButton
+type_keys -k Escape || fail "Escape on the duplex console failed"
+expect_poll "Escape closes the duplex console" 0 jarvis_console_client_count
+jarvis_disable
+python3 - "$jarvis_console_qml" <<'PY_DUPLEX'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]); s=p.read_text()
+needle='                    visible: !root.speechOnly\n\n                    TextField {'
+assert s.count(needle)==1, needle
+p.write_text(s.replace(needle, '\n                    TextField {'))
+PY_DUPLEX
+jarvis_console_duplex "duplex control"
+expect "control: a message box under a duplex voice fails the message box and Send assertions" 2 jarvis_console_speech_only_control
+jarvis_disable
 cp -- "$sandbox/jarvis-console-backend-before" "$jarvis_console_backend"
 cp -- "$sandbox/jarvis-console-engine-before" "$jarvis_console_engine"
 cp -- "$sandbox/jarvis-console-service-before" "$jarvis_console_service"

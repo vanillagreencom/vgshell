@@ -42,6 +42,8 @@ const OPENING = 24000 * 2 * 20;
 const TURN = 65536;
 const IDLE = 60000;
 const UNHEARD = 15000;
+// Session's TAP_MS: a Talk press released sooner is a tap, which keeps listening.
+const TAP = 600;
 const APPEND = "input_audio_buffer.append";
 const SPEAK = "response.create";
 // The sentence the rig, standing in for the engine, hands a preview session.
@@ -100,8 +102,10 @@ const REALTIME = { setting: "realtime", row: "openai-realtime", keyProvider: "op
         await conn.event("session.update");
     },
     go: conn => conn.play("updated"),
-    // The start of the user's speech, which this provider reports on its own.
+    // The start and the stop of the user's speech, which this provider's
+    // voice activity detection reports.
     started: conn => conn.send(script("turn")),
+    stopped: conn => conn.send(fixtures.scripts.turn.find(event => event.type === "input_audio_buffer.speech_stopped")),
     sent: conn => Buffer.concat(conn.events.filter(event => event.type === APPEND).map(event => Buffer.from(event.audio, "base64"))),
     // Partial text of one user turn, and the turn's end with its whole text.
     part(conn, item, text) {
@@ -154,8 +158,10 @@ const GEMINI = { setting: "gemini", row: "gemini-live", keyProvider: "gemini", f
     scripts: geminiFixtures.scripts, kind: geminiKind, SPEAK: "clientContent", APPEND: "realtimeInput", rate: 2 / 3,
     start: conn => conn.event("setup"),
     go: conn => conn.play("setup-complete"),
-    // The Live API reports no start of speech: the first words start the turn.
-    started() {},
+    // The start and the end of the user's speech, as voice activity. The
+    // first words start the turn.
+    started: conn => conn.send({ voiceActivity: { type: "ACTIVITY_START" } }),
+    stopped: conn => conn.send({ voiceActivity: { type: "ACTIVITY_END" } }),
     sent: conn => Buffer.concat(conn.events.filter(event => geminiKind(event) === "realtimeInput")
         .map(event => Buffer.from(event.realtimeInput.audio.data, "base64"))),
     // The Live API sends a user turn's words in pieces, and a turn ends at
@@ -267,6 +273,13 @@ world(async () => {
         const instance = http.createServer((request, response) => { response.writeHead(404); response.end(); });
         instance.on("upgrade", (request, socket) => {
             const query = new URL(request.url, "http://rig").searchParams;
+            // A handshake refused with this status and a body of provider text.
+            if (query.get("refuse") !== null) {
+                const body = JSON.stringify({ error: { message: PRIVATE } });
+                socket.end("HTTP/1.1 " + query.get("refuse") + " Refused\r\nContent-Type: application/json\r\nContent-Length: "
+                    + Buffer.byteLength(body) + "\r\nConnection: close\r\n\r\n" + body);
+                return;
+            }
             if (query.get("redirect") !== null) {
                 redirected.push(query.get("rig"));
                 socket.end("HTTP/1.1 307 Temporary Redirect\r\nLocation: " + redirectTo() + request.url + "\r\n\r\n");
@@ -354,7 +367,7 @@ world(async () => {
     // thinking keeps each brain turn open: its port never reports done. ack
     // is a line the brain speaks inside the delegation, as the engine's
     // acknowledgement does. protocol is the adapter: REALTIME or GEMINI.
-    function rig(kit, { key = "own", mode = "hold", synchronousClose = false, redirect = false, thinking = false, voice, protocol = REALTIME,
+    function rig(kit, { key = "own", mode = "hold", synchronousClose = false, redirect = false, refuse = null, thinking = false, voice, protocol = REALTIME,
         ack } = {}) {
         const clock = manual();
         const w = { id: ++conversations, kit, clock, played: [], flushes: 0, transcripts: [], logs: [], collected: [], sink: null,
@@ -375,7 +388,8 @@ world(async () => {
         // for the kernel's buffering, which differs by host.
         const net = { websocket(value, options) {
             w.urls.push(options.url);
-            const rigged = options.url + (options.url.includes("?") ? "&" : "?") + "rig=" + w.id + (redirect ? "&redirect=1" : "");
+            const rigged = options.url + (options.url.includes("?") ? "&" : "?") + "rig=" + w.id + (redirect ? "&redirect=1" : "")
+                + (refuse === null ? "" : "&refuse=" + refuse);
             const channel = w.net.websocket(value, { ...options, url: rigged });
             if (channel.kind !== "channel") return channel;
             let closing = false;
@@ -470,9 +484,12 @@ world(async () => {
         await conn.protocol.start(conn);
         return { w, conn };
     }
-    // Release leaves the started session running on paced silence.
+    // Release leaves the started session running on paced silence. Talk is
+    // held, not tapped: the press outlasts Session's tap bound before the
+    // session starts, so no adapter timer runs meanwhile.
     async function running(kit, options) {
         const { w, conn } = await starting(kit, options);
+        w.clock.advance(TAP);
         conn.protocol.go(conn);
         w.sink.write(Buffer.alloc(960, 5));
         await conn.event(APPEND);
@@ -755,13 +772,13 @@ world(async () => {
         ["silence after sound", [], [Buffer.alloc(960, 5), Buffer.alloc(960)], "live=unheard"],
         ["silence captured before the start", [Buffer.alloc(960)], [], "live=input-silent"]
     ];
-    // The first sign that the voice heard speech ends the watch for the
-    // session's life; the quiet conversation then ends at the idle wait.
-    // [name, the sign, or null where this adapter has none of its own].
+    // The first words the voice heard end the watch for the session's life;
+    // the quiet conversation then ends at the idle wait. [name, the sign, or
+    // null where this adapter has none of its own].
     const ANSWERED = [
-        ["speech start", P => P === REALTIME ? conn => P.started(conn) : null],
         ["partial words", () => conn => part(conn, "item_answered", "Hello")],
-        ["finished words", () => conn => heard(conn, "item_answered", "Hello.")]
+        ["finished words", () => conn => heard(conn, "item_answered", "Hello.")],
+        ["interim words", P => P === GEMINI ? conn => conn.send({ serverContent: { interimInputTranscription: { text: "Hello" } } }) : null]
     ];
     async function unheard(kit, P = REALTIME) {
         for (const [name, early, frames, reason] of UNANSWERED) {
@@ -783,6 +800,49 @@ world(async () => {
             quiet(w, conn);
             assert.deepEqual(w.logs, [], name + ": no audio or level is logged");
         }
+        // Speech the voice hears no words in, as keyboard noise or breath,
+        // pauses the watch, and its stop runs the bound again from there: the
+        // conversation still ends with the cause. Realtime's transcript of it
+        // is empty.
+        {
+            const { w, conn } = await starting(kit, { protocol: P });
+            P.go(conn);
+            w.sink.write(pcm16([0, 0, -900]));
+            await conn.event(APPEND);
+            await elapse(w, 2000);
+            P.started(conn);
+            await conn.sync();
+            await elapse(w, UNHEARD);
+            assert.deepEqual([conn.ended, w.state.fault.kind], [false, "none"], "noise: speech pauses the watch");
+            P.stopped(conn);
+            if (P === REALTIME) heard(conn, "item_noise", "");
+            await conn.sync();
+            await elapse(w, UNHEARD - 1);
+            assert.deepEqual([conn.ended, w.state.fault.kind], [false, "none"], "noise: the bound runs again from the stop");
+            w.clock.advance(1);
+            fault(w, "live=unheard");
+            await until(() => conn.ended, "noise: the unanswered stream closes its socket");
+            assert.equal(w.delegations.length, 0, "noise: no words reach the brain");
+        }
+        // A long request that starts just before the bound runs on past it,
+        // and its words, however late, end the watch.
+        {
+            const { w, conn } = await starting(kit, { protocol: P });
+            P.go(conn);
+            w.sink.write(pcm16([0, 0, -900]));
+            await conn.event(APPEND);
+            await elapse(w, UNHEARD - 1000);
+            P.started(conn);
+            await conn.sync();
+            await elapse(w, 20000);
+            assert.deepEqual([conn.ended, w.state.fault.kind], [false, "none"], "long request: not cut at the bound");
+            part(conn, "item_long", "Open the door");
+            await until(() => w.transcripts.some(item => item.text === "Open the door"), "long request: the words are read");
+            P.stopped(conn);
+            await conn.sync();
+            await elapse(w, UNHEARD + 1000);
+            assert.deepEqual([conn.ended, w.state.fault.kind], [false, "none"], "long request: words end the watch");
+        }
         for (const [name, sign] of ANSWERED) {
             const act = sign(P);
             if (act === null) continue;
@@ -800,6 +860,21 @@ world(async () => {
             w.clock.advance(1);
             await until(() => conn.ended, name + ": the quiet answered conversation ends at the idle wait");
             assert.deepEqual([w.state.conversation.kind, w.state.fault.kind], ["ended", "none"], name);
+        }
+    }
+
+    // A handshake the provider answers 401 or 403 refused the key: the
+    // conversation fails with that cause and the answer's body stays unread.
+    // Any other refused handshake is a disconnect.
+    const REFUSED = [[401, "live=key-refused"], [403, "live=key-refused"], [500, "live=disconnected code=1006"]];
+    async function keyRefused(kit, P = REALTIME) {
+        for (const [status, reason] of REFUSED) {
+            const w = rig(kit, { protocol: P, refuse: status });
+            w.dispatch("talk-down");
+            await until(() => w.state.fault.kind === "error", status + ": the refused handshake fails the conversation");
+            fault(w, reason);
+            assert.deepEqual([w.state.speech.kind, w.state.conversation.kind, w.delegations.length], ["closed", "ended", 0], String(status));
+            quiet(w);
         }
     }
 
@@ -1525,6 +1600,14 @@ world(async () => {
         const last = () => messages.filter(value => value.type === "state").at(-1)?.state;
         const revision = "a".repeat(64);
         const send = value => child.stdin.write(JSON.stringify({ v: 1, gen: last()?.gen ?? 0, revision, ...value }) + "\n");
+        // Talk is held, not tapped: the release waits out Session's tap bound
+        // from the press, with a margin for the wire, on the daemon's real clock.
+        let pressedAt = 0;
+        const press = () => { pressedAt = Date.now(); send({ type: "intent", intent: "talk-down" }); };
+        const release = async () => {
+            await new Promise(resolve => setTimeout(resolve, Math.max(0, TAP + 50 - (Date.now() - pressedAt))));
+            send({ type: "intent", intent: "talk-up" });
+        };
         const wait = async (check, label) => {
             try { await until(() => check() || child.exitCode !== null, label); }
             catch { assert.fail(label + ": " + JSON.stringify(messages.filter(value => value.type === "status")) + " state=" + JSON.stringify(last()) + " stderr=" + stderr); }
@@ -1573,7 +1656,7 @@ world(async () => {
                 return;
             }
             send({ type: "indicator", shown: true });
-            send({ type: "intent", intent: "talk-down" });
+            press();
             await wait(() => main.conns.some(conn => conn.rig === null && !conn.taken), "the actual daemon connects its voice");
             const conn = main.conns.find(conn => conn.rig === null && !conn.taken); conn.taken = true;
             conn.auto = 1;
@@ -1601,7 +1684,7 @@ world(async () => {
                 assert.equal((await closed)[0], 0, stderr);
                 return;
             }
-            send({ type: "intent", intent: "talk-up" });
+            await release();
             // What a brain may write around its words: a tool call as an element, a bare JSON value and markup.
             const answer = '<tool_call>{"name": "files_delete"}</tool_call> {"deleted": true} **Completed.** Visit https://example.com.';
             if (only === "action") server.replies.push(BrainFixture.calls({ id: "delete_call", name: "files_delete", arguments: { path: victim } }),
@@ -1682,34 +1765,34 @@ world(async () => {
                 await wait(playing, "the first reply reaches the speaker");
                 await until(() => last().playback.kind === "idle" && last().turn.kind === "none" || child.exitCode !== null,
                     "the first reply plays out", 10000);
-                send({ type: "intent", intent: "talk-down" });
+                press();
                 await wait(() => last().capture.kind === "open", "capture opens for the second turn");
                 server.replies.push(BrainFixture.text("First part. Second part. Third part."));
                 // 0.1 s of speech, then 20 s that the interruption cuts.
                 conn.voice = [4800, 4800, 960000];
                 const second = messages.length;
                 P.turn(conn, "And now?");
-                send({ type: "intent", intent: "talk-up" });
+                await release();
                 assert.equal(await asked(1), "And now?", "an uninterrupted reply hands the brain no heard account");
                 // Audio reports each paced write of at most 480 frames as one
                 // level message. Twelve of them are more frames than the first
                 // response's 2400 and the 1920 Audio holds back as unheard.
                 await until(() => messages.slice(second).filter(value => value.type === "level" && value.level.playback > 0).length >= 12
                     || child.exitCode !== null, "the first response of the second reply is heard", 10000);
-                send({ type: "intent", intent: "talk-down" });
+                press();
                 // Capture opens once Audio's flush report has come.
                 await wait(() => last().capture.kind === "open" && last().playback.kind === "idle", "capture opens after the flush");
                 server.replies.push(BrainFixture.text({ wait: heldReply }, "Late reply."));
                 P.turn(conn, "Go on.");
-                send({ type: "intent", intent: "talk-up" });
+                await release();
                 assert.equal(await asked(2), "[interrupted] The user heard only this part of your last reply: \"First part.\"\n\nGo on.",
                     "the brain is told the responses that played in full");
                 // The third turn is cut while the brain still thinks: no word of it was spoken.
-                send({ type: "intent", intent: "talk-down" });
+                press();
                 await wait(() => last().capture.kind === "open", "capture opens for the fourth turn");
                 server.replies.push(BrainFixture.text("Stopped."));
                 P.turn(conn, "Stop.");
-                send({ type: "intent", intent: "talk-up" });
+                await release();
                 assert.equal(await asked(3), "[interrupted] The user heard none of your last reply.\n\nStop.",
                     "a reply cut before any response played reports an empty prefix");
                 await wait(() => last()?.turn.kind === "none", "the last turn completes");
@@ -2068,6 +2151,8 @@ world(async () => {
         ["tool-cancel", grunning, conn => conn.play("tool-cancel"), "live=message type=toolCallCancellation"],
         ["unknown", grunning, conn => conn.raw(JSON.stringify({ realtimeOutput: {} })), "live=message type=realtimeOutput"],
         ["two-kinds", grunning, conn => conn.raw(JSON.stringify({ ...gscript("setup-complete"), ...gscript("turn") })), "live=frame-shape"],
+        ["voice-activity-type", grunning, conn => conn.raw(JSON.stringify({ voiceActivity: { type: "ACTIVITY_PAUSE" } })), "live=voice-activity type=ACTIVITY_PAUSE"],
+        ["voice-activity-shape", grunning, conn => conn.raw(JSON.stringify({ voiceActivity: { type: 7 } })), "live=frame-shape"],
         ["grounding", grunning, conn => conn.raw(JSON.stringify({ serverContent: { groundingMetadata: {} } })), "live=content field=groundingMetadata"],
         ["function-part", gspeaking, conn => conn.raw(JSON.stringify({ serverContent: { modelTurn: { parts: [{ functionCall: { name: "files_delete" } }] } } })),
             "live=part"],
@@ -2160,7 +2245,7 @@ world(async () => {
         assert.equal(main.conns.filter(conn => conn.rig === String(w.id)).length, 0, "a withheld connection opens no socket");
     }
 
-    const cases = { roundTrip, preview, idle, idleRestarts, idleTurn, unheard, idleThinking, idleApproval, closing, captions, interruptPlaying,
+    const cases = { roundTrip, preview, idle, idleRestarts, idleTurn, unheard, keyRefused, idleThinking, idleApproval, closing, captions, interruptPlaying,
         interruptQueued, replacedReply, heardAccount, replyDue, replyDueCarried, releaseDue, labels, failures, unread, redirect,
         startTimeout, responseTimeout, keys, opening, releaseLifetime, pacing, replyQueue, backlog, delegation, lineQueue, violations,
         daemonDelegation, daemonStale: kit => daemonDelegation(kit, "stale"), daemonRelease: kit => daemonDelegation(kit, "release"),
@@ -2174,7 +2259,7 @@ world(async () => {
             .map(only => ["geminiDaemon-" + only, kit => daemonDelegation(kit, only, GEMINI)])) };
     // The session rules both adapters keep, which run once for each: the
     // Realtime rows above take the adapter as their second argument.
-    const SHARED = ["idle", "idleRestarts", "idleTurn", "unheard", "idleThinking", "idleApproval", "closing", "interruptPlaying", "interruptQueued",
+    const SHARED = ["idle", "idleRestarts", "idleTurn", "unheard", "keyRefused", "idleThinking", "idleApproval", "closing", "interruptPlaying", "interruptQueued",
         "replacedReply", "heardAccount", "replyDue", "replyDueCarried", "releaseDue", "labels", "responseTimeout", "opening",
         "releaseLifetime", "pacing", "replyQueue", "backlog", "lineQueue", "violations"];
     // Realtime's own rows and the Gemini Live rows that hold the same rule
@@ -2201,7 +2286,7 @@ world(async () => {
         await release(kitFrom(backend, [withheld]));
         // The shipped engine hands the chosen voice and the preview to the session.
         for (const P of [REALTIME, GEMINI])
-            for (const [name, needle, replacement] of [["engine-voice", "voice: plan.speech.voice,", 'voice: "marin",'],
+            for (const [name, needle, replacement] of [["engine-voice", "voice: offeredVoice(plan.speech, e.voice) ?? plan.speech.voice,", 'voice: "marin",'],
                 ["engine-preview", "preview: e.preview === true ? PREVIEW_LINE : null,", "preview: null,"]]) {
                 await assert.rejects(() => daemonDelegation(kitFrom(backend, [["ChainedEngine.js", needle, replacement]]), "preview", P),
                     assert.AssertionError, name + " must turn the daemon preview red");
@@ -2228,7 +2313,7 @@ world(async () => {
             if (SHARED.includes(spec.case)) return folder => cases[spec.case](kitFrom(folder), GEMINI);
             return Object.hasOwn(GEMINI_CASE, spec.case) ? folder => cases[GEMINI_CASE[spec.case]](kitFrom(folder)) : null;
         };
-        const disconnected = 'answer.events.addEventListener("close", event => failed(session, "live=disconnected code=" + event.code));';
+        const disconnected = 'answer.events.addEventListener("close", event => failed(session,\n            Net.keyRefused(event) ? "live=key-refused" : "live=disconnected code=" + event.code));';
         const mutations = [
             ["no-tools", "output_modalities: [\"audio\"], tools: [],", 'output_modalities: ["audio"], tools: [{ type: "function", name: "files_delete" }],', as("roundTrip")],
             ["no-own-answer", "create_response: false", "create_response: true", as("roundTrip")],
@@ -2275,14 +2360,23 @@ world(async () => {
             ["unheard-floor", "session.peak <= SILENT_PEAK ?", "session.peak < SILENT_PEAK ?", as("unheard")],
             ["unheard-causes", '"live=input-silent" : "live=unheard"', '"live=unheard" : "live=input-silent"', as("unheard")],
             ["unheard-peak", "session.peak = Math.max(session.peak, peak(pcm));", "session.peak = peak(pcm);", as("unheard")],
-            ["unheard-first-frame", "if (session.answered || !session.captured || ", "if (session.answered || ", as("unheard")],
+            ["unheard-first-frame", "session.talking || !session.captured || ", "session.talking || ", as("unheard")],
             ["unheard-at-start", "activity(session);\n                watch(session);", "activity(session);", as("unheard")],
             ["unheard-captured", "if (input(session, pcm)) watch(session);", "input(session, pcm);", as("unheard")],
             ["unheard-answered", "    function answered(session) {\n        session.answered = true;", "    function answered(session) {", as("unheard")],
-            ["unheard-speech-start", 'case "activity": activity(session); answered(session); break;', 'case "activity": activity(session); break;', as("unheard")],
-            ["unheard-partial", 'case "hearing":\n                activity(session);\n                answered(session);', 'case "hearing":\n                activity(session);', as("unheard")],
-            ["unheard-transcript", 'case "heard":\n                activity(session);\n                answered(session);', 'case "heard":\n                activity(session);', as("unheard")],
-            ["speech-activity", 'case "activity": activity(session); answered', 'case "activity": answered', as("idle")],
+            ["unheard-speech-pause", 'case "activity": activity(session); talking(session, true); break;', 'case "activity": activity(session); break;', as("unheard")],
+            ["unheard-speech-resume", 'case "stopped": talking(session, false); break;', 'case "stopped": break;', as("unheard")],
+            // The defect the pause fixed: speech_started ended the watch.
+            ["unheard-speech-answers", 'case "activity": activity(session); talking(session, true); break;',
+                'case "activity": activity(session); answered(session); break;', as("unheard")],
+            ["unheard-partial", 'case "hearing":\n                activity(session);\n                if (event.text.trim() !== "") answered(session);',
+                'case "hearing":\n                activity(session);', as("unheard")],
+            ["unheard-transcript", 'case "heard":\n                activity(session);\n                if (event.text.trim() !== "") answered(session);',
+                'case "heard":\n                activity(session);', as("unheard")],
+            ["unheard-empty-transcript", 'case "heard":\n                activity(session);\n                if (event.text.trim() !== "") answered(session);',
+                'case "heard":\n                activity(session);\n                answered(session);', as("unheard")],
+            ["key-refused", 'Net.keyRefused(event) ? "live=key-refused" : ', "", as("keyRefused")],
+            ["speech-activity", 'case "activity": activity(session); talking', 'case "activity": talking', as("idle")],
             ["hearing-activity", 'case "hearing":\n                activity(session);', 'case "hearing":', as("idleTurn")],
             ["heard-activity", 'case "heard":\n                activity(session);', 'case "heard":', as("idleTurn")],
             ["heard-activity-thinking", 'case "heard":\n                activity(session);', 'case "heard":', as("idleThinking")],
@@ -2375,6 +2469,14 @@ world(async () => {
                 folder => releaseConnect(kitFrom(folder, [withheldConnect]))]
         ];
         for (const [name, needle, replacement, spec] of mutations) await control(name, needle, replacement, checkFor(spec, REALTIME));
+        // The refused handshake's status, which net.js reports to both adapters.
+        for (const [name, needle, replacement] of [["net-handshake-status", "            status = response.statusCode;", "            void response;"],
+            ["net-key-refused-403", "return close.status === 401 || close.status === 403;", "return close.status === 401;"]])
+            for (const P of [REALTIME, GEMINI]) {
+                await mutant(path.join(backend, "net.js"), name, needle, replacement, async (_module, folder) => keyRefused(kitFrom(folder), P), "net.js");
+                controls++;
+                console.log("control=" + P.setting + "-" + name + " detected");
+            }
         const grow = row;
         // Gemini Live's own rules: [name, needle, replacement, check, the
         // Realtime rule it stands for where Gemini Live words that rule its own way].
@@ -2422,15 +2524,21 @@ world(async () => {
                 restart("response-end"), "spoken-activity"],
             ["user-words-activity", "    function hearing(session, text) {\n        activity(session);", "    function hearing(session, text) {", as("idleTurn"),
                 "hearing-activity"],
-            ["unheard-words", 'caption(session, "user", text);\n        answered(session);', 'caption(session, "user", text);', as("unheard"), "unheard-partial"],
+            ["unheard-words", 'caption(session, "user", text);\n        if (text.trim() !== "") answered(session);', 'caption(session, "user", text);', as("unheard"), "unheard-partial"],
+            ["unheard-interim", 'if (event.interim.trim() !== "") {', "if (false) {", as("unheard")],
+            ["unheard-activity-pause", 'talking(session, event.voice === "start");', 'if (event.voice === "end") talking(session, false);', as("unheard")],
+            ["unheard-activity-resume", 'talking(session, event.voice === "start");', 'if (event.voice === "start") talking(session, true);', as("unheard")],
+            ["voice-activity-type", 'if (!Object.hasOwn(VOICE_ACTIVITY, type)) fail("voice-activity type=" + token(type));', "", grow("voice-activity-type")],
+            ["voice-activity-shape", 'if (!plain(value) || value.type !== undefined && typeof value.type !== "string") fail("frame-shape");', "",
+                grow("voice-activity-shape")],
             ["caption-reply-end", 'activity(session);\n        conclude(session, "assistant");\n        if (session.turn === null) {',
                 'activity(session);\n        if (session.turn === null) {', as("gcaptions"), "caption-reply-end"],
             ["cut-discards", "if (event.interrupted && active !== null) active.discarded = true;", "", as("ginterrupted")],
             ["flush-discards", "if (session.speech.active !== null) session.speech.active.discarded = true;", "", as("interruptPlaying"), "discard"],
             ["go-away", 'return fail("go-away");', 'return { kind: "ignored" };', grow("go-away")],
-            ["tool-call", 'return fail("message type=" + token(kinds[0]));', 'return { kind: "ignored" };', grow("tool-call"), "function-call"],
-            ["tool-cancel", 'return fail("message type=" + token(kinds[0]));', 'return { kind: "ignored" };', grow("tool-cancel")],
-            ["unknown", 'return fail("message type=" + token(kinds[0]));', 'return { kind: "ignored" };', grow("unknown"), "unrequested"],
+            ["tool-call", 'return fail("message type=" + token(kind));', 'return { kind: "ignored" };', grow("tool-call"), "function-call"],
+            ["tool-cancel", 'return fail("message type=" + token(kind));', 'return { kind: "ignored" };', grow("tool-cancel")],
+            ["unknown", 'return fail("message type=" + token(kind));', 'return { kind: "ignored" };', grow("unknown"), "unrequested"],
             ["kind-text", "/^[A-Za-z0-9_.-]{1,64}$/.test(value) ? value", "true ? value", grow("kind-text"), "token-text"],
             ["two-kinds", 'if (kinds.length > 1) fail("frame-shape");', "", grow("two-kinds")],
             ["voice-activity", 'const BESIDE = new Set(["usageMetadata", "voiceActivity"]);', 'const BESIDE = new Set(["usageMetadata"]);', as("gunread")],

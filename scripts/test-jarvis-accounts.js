@@ -13,7 +13,7 @@ world(async () => {
     const directory = path.join(env.XDG_STATE_HOME, "vgshell/jarvis");
     const { Accounts } = require(path.join(plugin, "backend/Accounts.js"));
     const { Secrets, ownReference } = require(path.join(plugin, "backend/Secrets.js"));
-    const { PROVIDERS, keyPresence, helperFailure, feedDiagnostic, probeFailure } = require(path.join(plugin, "AccountProviders.js"));
+    const { PROVIDERS, cloudVoice, keyPresence, helperFailure, feedDiagnostic, probeFailure } = require(path.join(plugin, "AccountProviders.js"));
     const mode = (name, value) => fs.writeFileSync(path.join(env.XDG_STATE_HOME, name + "-mode"), value);
     const calls = name => fs.existsSync(path.join(env.XDG_STATE_HOME, name))
         ? fs.readFileSync(path.join(env.XDG_STATE_HOME, name), "utf8").trim().split("\n").filter(Boolean).map(JSON.parse) : [];
@@ -74,7 +74,8 @@ world(async () => {
     // keys; voice is the Voice
     // provider setting, and switchTo the one the user changes it to after
     // the read. The selected cloud voice's keys are offered, and its sole key
-    // is chosen for the user unless they named one of their own. removed is
+    // is chosen for the user unless they named one of their own; the reader
+    // writes no Voice provider (the service migrates it). removed is
     // the OpenAI keys offered when Remove key ended before this read: a
     // named key the read no longer holds is cleared, one it holds is kept.
     const publicationCases = [
@@ -83,7 +84,6 @@ world(async () => {
         { name: "other-voice", choices: ["key-a"], gemini: ["key-g"], selected: "key-g", writes: ["key-a"] },
         { name: "switch", choices: ["key-a"], gemini: ["key-g"], switchTo: "gemini", writes: ["key-a", "key-g"] },
         { name: "local-keeps", choices: ["key-a"], gemini: ["key-g", "key-h"], selected: "key-h", voice: "local", switchTo: "gemini", writes: [] },
-        { name: "auto-keeps", choices: ["key-a"], gemini: ["key-g"], selected: "key-g", voice: "auto", writes: [] },
         { name: "elevenlabs", choices: ["key-a"], gemini: ["key-g"], eleven: ["key-e"], voice: "elevenlabs", writes: ["key-e"] },
         { name: "elevenlabs-other-voice", choices: ["key-a"], eleven: ["key-e"], selected: "key-a", voice: "elevenlabs", writes: ["key-e"] },
         { name: "zero", choices: [], writes: [] },
@@ -93,6 +93,10 @@ world(async () => {
         { name: "invalid", choices: ["key-a"], invalid: true, writes: [] },
         { name: "stale", choices: ["key-a"], pending: true, writes: [] },
         { name: "removed", choices: ["key-b"], selected: "key-a", removed: ["key-a", "key-b"], writes: ["", "key-b"] },
+        // After Add a key, the key the run added is selected, though another
+        // key of the voice stays chosen (SetupGate.voiceAdded).
+        { name: "added", choices: ["key-a", "key-b"], selected: "key-a", added: ["key-a"], writes: ["key-b"] },
+        { name: "added-none", choices: ["key-a", "key-b"], selected: "key-a", added: ["key-a", "key-b"], writes: [] },
         { name: "removal-cancelled", choices: ["key-a", "key-b"], selected: "key-a", removed: ["key-a", "key-b"], writes: [] },
         { name: "refused", choices: ["key-a"], refuseWrite: true, writes: ["key-a"] },
         ...["accounts", "brains", "voiceAccounts", "accountSearch"].map(key =>
@@ -106,7 +110,7 @@ world(async () => {
         const writes = [], reports = new Map(), warnings = [];
         let refreshed = 0;
         const initial = row.selected ?? "";
-        const root = { pending: row.pending ?? false, removedFrom: row.removed?.map(value => ({ value, provider: "openai" })), completion: { kind: "exited", code: row.code ?? 0 },
+        const root = { pending: row.pending ?? false, addedFrom: row.added?.map(value => ({ value, provider: "openai" })), removedFrom: row.removed?.map(value => ({ value, provider: "openai" })), completion: { kind: "exited", code: row.code ?? 0 },
             diagnostic: { kind: "collected", text: "" },
             output: row.invalid ? "broken" : JSON.stringify({ accounts: [], brains: [],
                 voiceAccounts: [...row.choices.map(value => ({ value, label: "Fixture " + value, provider: "openai" })),
@@ -123,7 +127,7 @@ world(async () => {
                     if (row.refuseWrite) return "refused";
                     root.shell.settings.voiceAccount = value; return "ok";
                 } } } };
-        const context = vm.createContext({ root, Providers: { probeFailure },
+        const context = vm.createContext({ root, Providers: { cloudVoice, probeFailure },
             Gate: load(gate, { "qs.Commons 1.0": { PageReference } }), PageReference,
             Words: require(path.join(plugin, "AccountStatus.js")), console: { warn: value => warnings.push(value) } });
         vm.runInContext("(function() { with(root) { root.publishVoice = (" + matches[1][0][0] + "); root.republishVoice = ("
@@ -132,11 +136,11 @@ world(async () => {
             root.shell.settings.voiceProvider = row.switchTo;
             root.republishVoice();
         }
-        assert.deepEqual(writes, row.writes);
+        assert.deepEqual(writes, row.writes, row.name + ": the Voice key writes");
         assert.equal(root.shell.settings.voiceAccount, row.refuseWrite || row.writes.length === 0 ? initial : row.writes.at(-1));
         assert.equal(refreshed, 1);
         const failed = row.code === 1 || row.invalid || row.refuseStatus;
-        assert.equal(reports.get("accountSearch").tone, failed ? "danger" : row.choices.length ? "ok" : "info");
+        assert.equal(reports.get("accountSearch").tone, failed ? "danger" : row.choices.length ? "ok" : "info", row.name + ": the account search row " + warnings.join(" "));
         assert.deepEqual(Array.from(reports.get("voiceAccounts"), item => item.value),
             failed ? [] : (row.switchTo ?? row.voice) === "gemini" ? row.gemini
                 : (row.switchTo ?? row.voice) === "elevenlabs" ? row.eleven : row.choices);
@@ -147,12 +151,13 @@ world(async () => {
         ["sole", 'shell.configure.set("voiceAccount", chosen)', 'shell.configure.set("voiceAccount", "key-b")'],
         ["failed", 'if (code !== 0) throw new Error("probe");', "void code;"],
         ["invalid", "JSON.parse(output)", 'JSON.parse(output === "broken" ? JSON.stringify({accounts: [], brains: [], voiceAccounts: [{value: "key-a", label: "Fixture"}], search: {found: 1, partial: ""}}) : output)'],
-        ["stale", "const chosen = pending ? null : ", "const chosen = "],
+        ["stale", "let chosen = pending ? null : ", "let chosen = "],
         ["stale", 'const code = completion.kind === "exited" ? completion.code : -1;', 'if (pending) return; const code = completion.kind === "exited" ? completion.code : -1;'],
         ["refused", 'console.warn("jarvis-accounts: voice-selection=refused");\n        return true;\n    }', "void 0;\n        return true;\n    }"],
         ["removed", "const gone = removedFrom.some(named) && !keys.some(named);", "const gone = false;"],
         ["removal-cancelled", "const gone = removedFrom.some(named) && !keys.some(named);", "const gone = removedFrom.some(named);"],
-        ["switch", "if (shell !== null && voiceKeys !== undefined) publishVoice(voiceKeys);", "void voiceKeys;"]
+        ["switch", "if (shell !== null && voiceKeys !== undefined) publishVoice(voiceKeys);", "void voiceKeys;"],
+        ["added", "if (added !== null) chosen = added;", "void added;"]
     ];
     for (const key of ["accounts", "brains", "voiceAccounts", "accountSearch"]) {
         const argument = { accounts: "accounts", brains: "value.brains", voiceAccounts: "voiceChoices", accountSearch: "search" }[key];
@@ -168,18 +173,14 @@ world(async () => {
     // The choice rule is SetupGate's: each control plants its defect in a copy.
     const gateSource = fs.readFileSync(path.join(plugin, "SetupGate.js"), "utf8");
     for (const [name, needle, replacement] of [
-        ["zero", "if (offered.length !== 1) return null;", "if (offered.length > 1) return null;"],
-        ["multiple", "if (offered.length !== 1) return null;", "if (offered.length === 0) return null;"],
-        ["explicit", "return other ? offered[0].value : null;", "return offered[0].value;"],
-        ["other-voice", "return other ? offered[0].value : null;", "return null;"],
-        ["local-keeps", 'var other = cloud && keys.some(', "var other = keys.some("],
-        ["auto-keeps", 'var other = cloud && keys.some(', "var other = keys.some("],
-        ["gemini", 'return settings.voiceProvider === "gemini" || settings.voiceProvider === "elevenlabs" ? settings.voiceProvider : "openai";',
-            'return settings.voiceProvider === "elevenlabs" ? settings.voiceProvider : "openai";'],
-        ["elevenlabs", 'return settings.voiceProvider === "gemini" || settings.voiceProvider === "elevenlabs" ? settings.voiceProvider : "openai";',
-            'return settings.voiceProvider === "gemini" ? settings.voiceProvider : "openai";'],
-        ["elevenlabs-other-voice", 'return provider === "realtime" || provider === "gemini" || provider === "elevenlabs";',
-            'return provider === "realtime" || provider === "gemini";']
+        ["zero", 'if (offered.length === 1 && (named === "" || other)) return offered[0].value;', 'if (offered.length <= 1 && (named === "" || other)) return offered.length === 1 ? offered[0].value : "key-z";'],
+        ["multiple", 'if (offered.length === 1 && (named === "" || other))', 'if (offered.length >= 1 && (named === "" || other))'],
+        ["explicit", 'if (offered.length === 1 && (named === "" || other))', "if (offered.length === 1)"],
+        ["other-voice", 'if (offered.length === 1 && (named === "" || other))', 'if (offered.length === 1 && named === "")'],
+        ["local-keeps", "    if (voice === null) return null;\n", ""],
+        ["gemini", "return voice !== null && key.provider === voice.provider;", 'return voice !== null && key.provider === "openai";'],
+        ["elevenlabs", "return voice !== null && key.provider === voice.provider;", 'return voice !== null && key.provider !== "elevenlabs";'],
+        ["elevenlabs-other-voice", "    if (voice === null) return null;\n", '    if (voice === null || voice.provider === "elevenlabs") return null;\n']
     ]) {
         assert.equal(gateSource.split(needle).length - 1, 1, name + " gate mutation match");
         const copy = path.join(process.env.JARVIS_TEST_ROOT, "gate-" + name + ".js");
@@ -188,6 +189,16 @@ world(async () => {
         controls++;
     }
     const manifest = JSON.parse(fs.readFileSync(path.join(plugin, "manifest.json"), "utf8"));
+    // Each Voice provider option's cloud voice: the key provider it speaks
+    // with and the company the user reads, none for Local.
+    assert.deepEqual(Object.fromEntries(manifest.schema.voiceProvider.options.map(option => [option.value, cloudVoice(option.value)])), {
+        local: null,
+        realtime: { provider: "openai", product: "OpenAI Realtime", company: "OpenAI" },
+        gemini: { provider: "gemini", product: "Gemini Live", company: "Gemini" },
+        elevenlabs: { provider: "elevenlabs", product: "ElevenLabs", company: "ElevenLabs" }
+    }, "the cloud voice of each Voice provider");
+    assert.equal(cloudVoice("auto"), null, "a value that is no Voice provider option has no cloud voice");
+    cases++;
     const configured = value => assert.equal(value.capabilities.includes("configure"), true);
     configured(manifest);
     assert.deepEqual(manifest.settings.fallbacks, [], "backup list starts empty");
@@ -373,7 +384,7 @@ world(async () => {
         ["live-gemini-offer", '["openai", "gemini"].includes(item.provider)', 'item.provider === "openai"'],
         ["elevenlabs-offer", 'item.provider === "elevenlabs" && ', "false && "],
         ["elevenlabs-stored-key", 'resolve(item.id)?.source.kind === "keyring"', "true"],
-        ["live-offer-provider", "slice(0, 60), provider: item.provider }))", "slice(0, 60), provider: \"openai\" }))"],
+        ["live-offer-provider", "label: labels.get(item), provider: item.provider }))", "label: labels.get(item), provider: \"openai\" }))"],
         ["live-resolved-account-offer", 'if (resolved === null) return { kind: "refused", cause: "account-unavailable" };',
             'if (resolved === null) return { kind: "accepted", account: null };']
     ]) {
@@ -852,10 +863,10 @@ world(async () => {
         controls++;
     }
 
-    // Labels: one account of a harness reads as its provider's name, more
-    // read as their sign-in emails, and one with no email names no folder;
-    // grouped by provider, a provider's emails in order. The words around
-    // them are the label's own.
+    // Labels: an app account reads as its provider and its sign-in email,
+    // or its provider alone while the email is unknown, never by its
+    // folder's name (`.2codex` reads as Codex); grouped by provider, a
+    // provider's emails in order.
     const labelWorld = (name, folders) => {
         const own = worldOf(name);
         fs.writeFileSync(path.join(own.env.XDG_STATE_HOME, "ports-mode"), "absent");
@@ -867,8 +878,8 @@ world(async () => {
         return { own, directories };
     };
     const providerLabel = id => PROVIDERS.find(row => row.id === id).label;
-    // WANT: [provider id, its email, "alone" for a provider's one account or
-    // null for none, folder name] for each offered account.
+    // WANT: [provider id, its email or null for none, folder name] for each
+    // offered account.
     const checkLabels = (judge, found, want, name) => {
         const got = judge.status().brains.map(choice => {
             const item = found.find(account => account.id === choice.value);
@@ -876,22 +887,23 @@ world(async () => {
         });
         assert.deepEqual(got.map(row => row.provider + " " + row.folder).sort(),
             want.map(([provider, , folder]) => provider + " " + folder).sort(), name + ": the accounts offered");
+        // Accounts that would read the same read by their place among
+        // them: "Codex, account 1" and "Codex, account 2".
+        const base = ([provider, email]) => providerLabel(provider) + (email === null || email === "" ? "" : ", " + email);
         for (const row of got) {
-            const [, email] = want.find(([provider, , folder]) => provider === row.provider && folder === row.folder);
-            const first = providerLabel(row.provider);
-            assert.ok(row.label.startsWith(first), name + ": " + row.label + " names its provider first");
-            if (email === "alone") assert.equal(row.label, first, name + ": a provider's one account");
-            else if (email === null)
-                assert.equal(row.label, first + " / " + row.name,
-                    name + ": " + row.label + " falls back to the folder label");
-            else assert.ok(row.label.includes(email), name + ": " + row.label + " names " + email);
+            const wanted = want.find(([provider, , folder]) => provider === row.provider && folder === row.folder);
+            const sharing = want.filter(other => base(other) === base(wanted)).length;
+            if (sharing === 1) assert.equal(row.label, base(wanted), name + ": " + row.folder + " reads by its provider and email, not its folder name " + row.name);
+            else assert.match(row.label, new RegExp("^" + base(wanted).replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ", account [1-" + sharing + "]$"),
+                name + ": " + row.folder + " reads by its place among the accounts that share its label, not its folder name " + row.name);
         }
+        assert.equal(new Set(got.map(row => row.label)).size, got.length, name + ": no two accounts read the same");
         const groups = got.map(row => providerLabel(row.provider));
         assert.deepEqual(groups, [...groups].sort(), name + ": grouped by provider");
         for (const provider of new Set(got.map(row => row.provider))) {
             const emails = got.filter(row => row.provider === provider)
                 .map(row => want.find(([id, , folder]) => id === provider && folder === row.folder)[1])
-                .filter(email => email !== null && email !== "alone");
+                .filter(email => email !== null);
             assert.deepEqual(emails, [...emails].sort(), name + ": " + provider + " in email order");
         }
     };
@@ -903,18 +915,18 @@ world(async () => {
             [several, [["claude", null, ".claude-q"], ["claude", "amy@example.invalid", ".claude-b"],
                 ["claude", "bob@example.invalid", ".claude"], ["claude", "zed@example.invalid", ".claude-a"],
                 ["codex", null, ".2codex"], ["codex", null, ".codex"]], "several"],
-            [single, [["claude", "alone", ".claude"], ["codex", "alone", ".codex"]], "single"]]) {
+            [single, [["claude", "bob@example.invalid", ".claude"], ["codex", null, ".codex"]], "single"]]) {
             const judge = new Judge(world.own.state, world.own.env);
             checkLabels(judge, judge.discover(), want, name);
         }
     };
     labels(Accounts);
     for (const [name, needle, replacement] of [
-        ["label-email", 'item.email ? row.label + " / " + item.email', 'item.email ? row.label + " / " + item.label'],
-        ["label-single", ".length === 1;", ".length === 0;"],
-        ["label-no-email", ": row.label + \" / \" + item.label;", ": row.label;"],
+        ["label-email", 'item.source.kind === "cli" ? item.email || "" : item.label', 'item.source.kind === "cli" ? "" : item.label'],
+        ["label-folder-name", 'item.source.kind === "cli" ? item.email || "" : item.label', 'item.source.kind === "cli" ? item.email || item.label : item.label'],
         ["label-order", ".sort((left, right) => order(left.label, right.label) || order(left.value, right.value)).slice(0, MAX_ROWS);",
-            ".slice(0, MAX_ROWS);"]]) {
+            ".slice(0, MAX_ROWS);"],
+        ["label-shared", "if (!shared(label)) return [item, label];", "return [item, label];"]]) {
         await mutant("backend/Accounts.js", name, needle, replacement, folder => labels(judgeIn(folder)));
         controls++;
     }
@@ -948,9 +960,9 @@ world(async () => {
     };
     await codexEmails(Accounts);
     for (const [file, name, needle, replacement] of [
-        ["backend/Accounts.js", "email-kept", "            item.email = email;\n", ""],
+        ["backend/Accounts.js", "email-kept", "            item.email = await this.codexEmail(item.source.directory, deadlineMs ?? EMAIL_MS);\n", ""],
         ["bin/lib/codex-account.js", "refresh-token", "{ refreshToken: false }", "{ refreshToken: true }"],
-        ["backend/Accounts.js", "email-deadline", "deadlineMs: deadlineMs ?? EMAIL_MS,", "deadlineMs: 60000,"]]) {
+        ["backend/Accounts.js", "email-deadline", "deadlineMs ?? EMAIL_MS);", "60000);"]]) {
         await mutant(file, name, needle, replacement, folder => codexEmails(judgeIn(folder)));
         mode("codex-app", "chatgpt");
         controls++;
@@ -1357,6 +1369,7 @@ world(async () => {
         assert.notEqual(hintOf("signed-in", "cli"), hintOf("found", "cli"), "signed in and found read apart");
         assert.notEqual(hintOf("found", "cli"), hintOf("unavailable", "cli"), "found and unavailable read apart");
         assert.notEqual(hintOf("unchecked", "cli"), hintOf("found", "cli"), "unchecked and found read apart");
+        assert.equal(hintOf("signed-in", "cli").includes("team@example.invalid"), false, "the label names the email, so the hint does not");
         // A signed-out row's badge says it is signed out, so its hint is
         // empty unless the email disagrees with the folder name.
         const signedOut = mismatch => Words.accountHint({ state: "found", source: "cli", value: "signed-out", plan: "", email: "", mismatch });

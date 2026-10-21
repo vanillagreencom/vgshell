@@ -25,9 +25,14 @@ function isPlainObject(value) {
 // SCHEMA_ERROR, PluginLogic's flat judge, judges as it judges a manifest's
 // schema and settings, so an item field is any flat entry and nothing more:
 // no `list` inside a list, no `hideEmpty` and no `shownWhen`, since an item
-// draws every field, and no field named `name`, which every item holds as
-// its unique NAME_PATTERN name. `defaults` names no other field.
+// draws every field, no option groups, `addChoice` or `preview`, since an
+// item draws a plain control (ListField), and no field named `name`, which
+// every item holds as its unique NAME_PATTERN name. `defaults` names no
+// other field.
 // Any other entry carries neither key.
+// The schema keys of a field the page draws beyond a plain control, which
+// an item's field cannot declare.
+var ITEM_PLAIN_KEYS = ["groupLabel", "addChoice", "preview"];
 function listEntryError(entry, at, status, schemaError) {
     if (entry.type !== "list")
         return entry.items !== undefined || entry.defaults !== undefined ? at + ".items and .defaults need type list" : "";
@@ -47,6 +52,12 @@ function listEntryError(entry, at, status, schemaError) {
             return at + ".items." + fields[i] + ".shownWhen is refused: an item draws every field";
         if (isPlainObject(entry.items[fields[i]]) && entry.items[fields[i]].problem !== undefined)
             return at + ".items." + fields[i] + ".problem is refused: a problem names a setting, not a list item";
+        var plain = isPlainObject(entry.items[fields[i]]) ? ITEM_PLAIN_KEYS.find(function (key) { return entry.items[fields[i]][key] !== undefined; }) : undefined;
+        if (plain !== undefined)
+            return at + ".items." + fields[i] + "." + plain + " is refused: an item draws a plain control";
+        if (isPlainObject(entry.items[fields[i]]) && Array.isArray(entry.items[fields[i]].options)
+                && entry.items[fields[i]].options.some(function (option) { return isPlainObject(option) && option.group !== undefined; }))
+            return at + ".items." + fields[i] + ".options group is refused: an item draws a plain control";
     }
     var extra = Object.keys(entry.defaults).filter(function (key) { return !hasOwn(entry.items, key); });
     if (extra.length > 0)

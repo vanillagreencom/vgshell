@@ -25,6 +25,7 @@ function inside() {
     const mode = value => fs.writeFileSync(path.join(env.XDG_STATE_HOME, "bus-mode"), value);
     function rejects(fn, expected) { assert.throws(fn, expected); cases++; }
     assert.deepEqual(store.references(), []);
+    assert.equal(store.revision(), "", "no list has no revision");
     assert.equal(calls("secret-calls"), "");
     store.remember(ref);
     assert.deepEqual(store.references(), [ref]);
@@ -69,7 +70,32 @@ function inside() {
     store.remember(external);
     assert.deepEqual(store.references()[1], external);
     assert.equal(store.lookup(external).toString(), key);
-    rejects(() => store.addKey(ref), /store=terminal-required/);
+    // The key reaches secret-tool on stdin alone, never in its argv, and
+    // the buffer is zeroed after the write, refused or not.
+    for (const [, bytes, expected] of [["empty", Buffer.alloc(0), /store=empty/],
+        ["oversize", Buffer.alloc(8193, 65), /store=oversize/], ["not a buffer", key, /store=empty/]])
+        rejects(() => store.addKey(ref, bytes), expected);
+    const oversize = Buffer.alloc(8193, 65);
+    rejects(() => store.addKey(ref, oversize), /store=oversize/);
+    assert.equal(oversize.every(byte => byte === 0), true, "a refused key is zeroed");
+    const pasted = Buffer.from(key);
+    const beforeStore = calls("secret-calls");
+    store.addKey(ref, pasted);
+    assert.equal(pasted.every(byte => byte === 0), true, "a stored key is zeroed");
+    const stored = calls("secret-calls").slice(beforeStore.length).trim().split("\n").map(JSON.parse);
+    assert.deepEqual(stored.map(call => call.argv), [["store", "--label=Jarvis provider key", "service", "vgs-jarvis",
+        "provider", "fixture", "account", "test", "origin", "https://fixture.invalid"]]);
+    safe(calls("secret-calls"));
+    cases++;
+    // A key stored again under its name keeps its reference and gives the
+    // list a new revision, which ends the engine's refused-key hold.
+    const revision = store.revision();
+    assert.equal(store.revision(), revision, "a read keeps the revision");
+    const referencesBefore = JSON.stringify(store.references());
+    store.addKey(ref, Buffer.from(key));
+    assert.equal(JSON.stringify(store.references()), referencesBefore, "the stored-again key keeps its reference");
+    assert.notEqual(store.revision(), revision, "a key stored again gives a new revision");
+    cases++;
 
     const referenceCases = [
         [{ ...ref, key }, /reference=shape/],
@@ -96,6 +122,13 @@ function inside() {
 const fs = require("node:fs"), path = require("node:path");
 const state = process.env.XDG_STATE_HOME, args = process.argv.slice(2);
 fs.appendFileSync(path.join(state, "gum-calls"), JSON.stringify(args) + "\\n");
+if (args[0] === "input" && args.includes("--password")) {
+    // gum's masked box: it asks and reads on the terminal with echo off and
+    // prints the value with a line feed.
+    const box = require("node:child_process").spawnSync("python3", ["-c",
+        "import getpass, sys; sys.stdout.write(getpass.getpass('Password: ') + '\\\\n')"], { stdio: "inherit" });
+    process.exit(box.status ?? 1);
+}
 if (args[0] === "input") { console.log("test"); process.exit(0); }
 if (args[0] !== "choose") process.exit(0);
 const delimiter = args.find(arg => arg.startsWith("--label-delimiter="))?.slice("--label-delimiter=".length);
@@ -115,8 +148,8 @@ console.log(wanted);
     const provider = id => fs.writeFileSync(path.join(env.XDG_STATE_HOME, "gum-provider"), id);
     provider("openai");
     // The reference Add key stores: the chosen provider's own origin.
-    const added = (id, origin) => ({ provider: id, account: "test", origin,
-        attributes: { service: "vgs-jarvis", provider: id, account: "test", origin } });
+    const added = (id, origin, account = "test") => ({ provider: id, account, origin,
+        attributes: { service: "vgs-jarvis", provider: id, account, origin } });
     const openai = added("openai", "https://api.openai.com");
     const log = path.join(env.XDG_STATE_HOME, "vgshell/jarvis/setup.log");
     const logged = () => fs.existsSync(log) ? fs.readFileSync(log, "utf8") : "";
@@ -216,7 +249,9 @@ console.log(wanted);
         try {
             goodTui(tui(folder), added("anthropic", "https://api.anthropic.com"));
             const gum = calls("gum-calls").trim().split("\n").map(JSON.parse);
-            assert.equal(gum.filter(args => args[0] === "input").length, 1, "only the key's name is typed");
+            const inputs = gum.filter(args => args[0] === "input");
+            assert.deepEqual(inputs.map(args => args.includes("--password")), [false, true],
+                "the key's name is typed, then the key in the masked box");
             // The ElevenLabs voice's key is bound to ElevenLabs's own origin.
             provider("elevenlabs");
             goodTui(tui(folder), added("elevenlabs", "https://api.elevenlabs.io"));
@@ -324,6 +359,79 @@ console.log(wanted);
             provider("openai");
         }
     };
+    // The add-voice-key window adds the key of the cloud voice chosen, under
+    // the next free name, and refuses a voice that takes no key.
+    const voiceKey = (...args) => cp.spawnSync("node", [path.join(plugin, "backend/keys.js"), "voice-key", ...args], { env, encoding: "utf8" });
+    const listed = fs.readFileSync(store.file);
+    for (const [voice, id, product] of [["realtime", "openai", "OpenAI Realtime"], ["gemini", "gemini", "Gemini Live"],
+        ["elevenlabs", "elevenlabs", "ElevenLabs"]]) {
+        const fields = () => voiceKey(voice).stdout.trimEnd().split("\t");
+        assert.deepEqual([fields()[0], fields()[2], fields()[5]], [id, product, "key 1"], voice);
+        const row = PROVIDERS.find(item => item.id === id);
+        store.remember(added(id, row.origin, "key 1"));
+        assert.equal(fields()[5], "key 2", voice + ": the next name");
+        cases++;
+    }
+    fs.writeFileSync(store.file, listed);
+    for (const voice of ["local", "auto", ""])
+        assert.deepEqual([voiceKey(voice).status, voiceKey(voice).stderr], [7, "jarvis-keys: arguments=voice\n"], "voice [" + voice + "]");
+    // The add-key window words these refusals by keys.js's exit status
+    // (tui/add-key.sh); any other refusal exits 1.
+    const statuses = folder => {
+        const run = (input, ...args) => cp.spawnSync("node", [path.join(folder, "backend/keys.js"), ...args],
+            { env, input, encoding: "utf8" });
+        const before = calls("secret-calls");
+        try {
+            for (const [label, list, input, args, status, reason] of [
+                ["an empty box", clean, "\n", ["add-key", "openai", "test"], 3, "store=empty"],
+                ["a paste too long", clean, "A".repeat(8193), ["add-key", "openai", "test"], 4, "store=oversize"],
+                ["a name too long", clean, "", ["add-check", "openai", "n".repeat(81)], 5, "reference=identity"],
+                ["a full list", JSON.stringify(full), "", ["add-check", "openai", "new"], 6, "references=limit"],
+                ["a list too large", " ".repeat(65537), "", ["add-check", "openai", "new"], 6, "references=size"],
+                ["an unreadable list", "junk", "", ["add-check", "openai", "new"], 1, "references=json"]
+            ]) {
+                fs.writeFileSync(store.file, list);
+                const result = run(input, ...args);
+                assert.deepEqual([result.status, result.stderr], [status, "jarvis-keys: " + reason + "\n"], label);
+                cases++;
+            }
+        } finally { fs.writeFileSync(store.file, clean); }
+        assert.equal(calls("secret-calls"), before, "a refusal stores nothing");
+        // Enter on an empty box leaves the window as Escape does.
+        const result = tui(folder, path.join(folder, "tui/add-key.sh"), ["--empty-key"]);
+        assert.equal(result.status, 130, result.stdout + result.stderr);
+        assert.equal(calls("secret-calls"), before, "an empty box stores nothing");
+        cases++;
+    };
+    statuses(plugin);
+    // The window starts keys.js with the box, so keys.js waits on the pipe
+    // while the user fetches the key. That wait blocks in the kernel: the
+    // process's utime + stime (/proc/PID/stat, clock ticks) across 0.6 s of
+    // the wait stays under 0.2 s. This probe on Node v26.11.1, 2026-10-20:
+    // 0.00 s blocking, 0.60 s for a read loop that retries EAGAIN.
+    const waited = folder => {
+        const result = cp.spawnSync("python3", ["-c", `
+import os, subprocess, sys, time
+child = subprocess.Popen(["node", sys.argv[1], "add-key", "openai", "waited"], stdin=subprocess.PIPE,
+                         stdout=subprocess.DEVNULL, stderr=sys.stderr)
+def cpu():
+    fields = open(f"/proc/{child.pid}/stat").read().rsplit(")", 1)[1].split()
+    return (int(fields[11]) + int(fields[12])) / os.sysconf("SC_CLK_TCK")
+time.sleep(0.6)  # past node's start, into the read
+before = cpu()
+time.sleep(0.6)
+spent = cpu() - before
+child.communicate((sys.argv[2] + "\\n").encode(), timeout=10)
+print(f"{spent:.2f} {child.returncode}")
+`, path.join(folder, "backend/keys.js"), key], { env, encoding: "utf8", timeout: 20000 });
+        fs.writeFileSync(store.file, clean);
+        assert.equal(result.status, 0, result.stderr);
+        const [spent, status] = result.stdout.trim().split(" ").map(Number);
+        assert.equal(status, 0, "the key is stored once it arrives: " + result.stderr);
+        assert.ok(spent < 0.2, "the wait for the key takes no CPU: " + spent + " s");
+        cases++;
+    };
+    waited(plugin);
     keyProviders(plugin);
     chosen(plugin);
     unknown(plugin);
@@ -353,6 +461,12 @@ console.log(wanted);
         assert.throws(() => check(copy), assert.AssertionError, name + " must fail its assertion");
         controls++;
     }
+    mutate("revision", 'return stat.ino + ":" + stat.mtimeNs;', 'return "fixed";', copy => {
+        const copied = new copy.Secrets(directory, env);
+        const before = copied.revision();
+        copied.remember(ref);
+        assert.notEqual(copied.revision(), before);
+    });
     mutate("shape", "fail(\"reference=shape\");", "void 0;",
         copy => assert.throws(() => copy.reference({ ...ref, key }), /reference=shape/));
     mutate("identity", 'fail("reference=identity");', "void 0;",
@@ -405,9 +519,11 @@ console.log(wanted);
     fs.mkdirSync(path.join(mutant, "backend"), { recursive: true });
     fs.copyFileSync(path.join(backend, "keys.js"), path.join(mutant, "backend/keys.js"));
     fs.copyFileSync(path.join(plugin, "AccountProviders.js"), path.join(mutant, "AccountProviders.js"));
-    const precheck = "this.#referenceUpdate(own);";
+    fs.mkdirSync(path.join(mutant, "tui"));
+    fs.copyFileSync(path.join(plugin, "tui/add-key.sh"), path.join(mutant, "tui/add-key.sh"));
+    const precheck = "checkAdd(ref) { this.#referenceUpdate(ownReference(ref.provider, ref.account, ref.origin)); }";
     assert.equal(source.split(precheck).length - 1, 1);
-    const unchecked = source.replace(precheck, "void own;");
+    const unchecked = source.replace(precheck, "checkAdd(ref) { void ref; }");
     assert.notEqual(unchecked, source);
     fs.writeFileSync(path.join(mutant, "backend/Secrets.js"), unchecked);
     for (const [data, expected] of [...metadataCases, [JSON.stringify(full), /references=limit/]]) {
@@ -417,7 +533,7 @@ console.log(wanted);
     }
     fs.writeFileSync(store.file, clean);
     controls++;
-    const needle = 'output.fill(0);\n        this.remember(own);';
+    const needle = 'output.fill(0);\n            this.remember(own);';
     assert.equal(source.split(needle).length - 1, 1);
     fs.writeFileSync(path.join(mutant, "backend/Secrets.js"),
         source.replace(needle, 'process.stdout.write(output);\n' + needle));
@@ -425,7 +541,7 @@ console.log(wanted);
     controls++;
     fs.writeFileSync(path.join(mutant, "backend/Secrets.js"), source);
     const cliSource = fs.readFileSync(path.join(backend, "keys.js"), "utf8");
-    const cliNeedle = "store.addKey(ref);";
+    const cliNeedle = "store.addKey(ref, pastedKey());";
     assert.equal(cliSource.split(cliNeedle).length - 1, 1);
     fs.writeFileSync(path.join(mutant, "backend/keys.js"), cliSource.replace(cliNeedle, "void ref;"));
     assert.throws(() => goodTui(tui(mutant)), assert.AssertionError, "CLI must call storage");
@@ -459,6 +575,10 @@ console.log(wanted);
         ["removal-clears-absent", "backend/Secrets.js", 'if (own && this.presence(ref).value !== "absent")', "if (own)", removal],
         ["removal-clears-foreign", "backend/Secrets.js", "const own = sorted(ref.attributes) === sorted(ownReference(provider, account, ref.origin).attributes);", "const own = true;", removal],
         ["removal-cli", "backend/keys.js", "store.removeKey(process.argv[3], process.argv[4])", "true", removal],
+        ["stdin-stream", "backend/keys.js", "if (tty.isatty(0))", "if (process.stdin.isTTY)", waited],
+        ["empty-status", "backend/keys.js", '"store=empty": 3,', "", statuses],
+        ["name-status", "backend/keys.js", '"reference=identity": 5,', "", statuses],
+        ["empty-box-window", "tui/add-key.sh", "3) printf 'No key was saved.\\n'; exit 130 ;;", "", statuses],
         ["unknown-provider", "backend/keys.js", 'if (row === undefined) throw new Error("jarvis-keys: provider=unknown");', "", unknown],
         ["provider-origin", "backend/keys.js", "ownReference(row.id, account, row.origin)", 'ownReference(row.id, account, "https://api.openai.com")', chosen],
         ["model-providers", "AccountProviders.js", 'return row.kind === "key" && modelProvider(row);', 'return row.kind === "key";', unknown],
@@ -469,6 +589,17 @@ console.log(wanted);
         fs.writeFileSync(path.join(mutant, file), original.replace(needle, replacement));
         try { assert.throws(() => check(mutant), assert.AssertionError, name + " must turn red"); }
         finally { fs.writeFileSync(path.join(mutant, file), original); }
+        controls++;
+    }
+    // The EAGAIN retry this replaced spins while the window waits.
+    {
+        const original = fs.readFileSync(path.join(plugin, "backend/keys.js"), "utf8");
+        const spinning = original.replace("if (tty.isatty(0))", "if (process.stdin.isTTY)")
+            .replace("catch {\n            chunk.fill(0);", "catch (error) {\n            if (error.code === \"EAGAIN\") continue;\n            chunk.fill(0);");
+        assert.equal(spinning.includes("EAGAIN") && spinning.includes("process.stdin.isTTY"), true, "spin mutation matches");
+        fs.writeFileSync(path.join(mutant, "backend/keys.js"), spinning);
+        try { assert.throws(() => waited(mutant), /takes no CPU/, "an EAGAIN retry must turn red"); }
+        finally { fs.writeFileSync(path.join(mutant, "backend/keys.js"), original); }
         controls++;
     }
     function walk(folder) {

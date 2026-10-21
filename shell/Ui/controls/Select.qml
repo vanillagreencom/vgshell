@@ -42,6 +42,18 @@ import qs.Ui
 // nothing to choose, a key moves no choice, it draws faded with no hover
 // outline, and it shows the reason on hover and keyboard focus
 // (DisabledReason).
+// `iconRole` names the field of a model entry that holds the name of an
+// icon the entry leads with, such as an Add entry's plus mark. With
+// `entryAction` set, { iconName, label }, each entry whose `actionRole`
+// field is true draws an icon button at its end, labelled with the action
+// and the entry's text, such as Play Puck: a click on it, or Enter or
+// Space while the keyboard is on it, emits `entryActionActivated` with the
+// entry's index and chooses nothing. In the open list Right moves the
+// keyboard from the highlighted entry to its button and Left back; Up and
+// Down move the highlight and take the keyboard back to the entry, and no
+// arrow presses the button (docs/architecture/design-system.md § Keyboard).
+// The button of the entry last pressed draws checked while the list stays
+// open.
 T.AbstractButton {
     id: root
 
@@ -66,11 +78,20 @@ T.AbstractButton {
     property string emptyText: ""
     readonly property bool showsEmpty: count === 0 && emptyText !== ""
     property string placeholderText: ""
+    property string iconRole: ""
+    property var entryAction: null
+    property string actionRole: ""
+    // Whether the keyboard is on the highlighted entry's button.
+    readonly property bool entryActionFocused: entries.actionFocused
+    // The index of the entry whose button was pressed last, -1 for none.
+    readonly property int pressedAction: entries.pressedAction
     readonly property bool showsPlaceholder: count > 0 && !(currentIndex >= 0 && currentIndex < count) && placeholderText !== ""
     // A user choice only. Model and binding updates never emit this.
     signal activated(int index)
     // The list opened, so an owner can refresh the model it shows.
     signal opened()
+    // The button of the entry at INDEX was pressed (entryAction).
+    signal entryActionActivated(int index)
 
     function share(open) {
         if (open === counted) return;
@@ -84,6 +105,23 @@ T.AbstractButton {
     // `listCover` added; its side inset is the border.
     readonly property real listInset: Theme.menuListInset(list.width)
     readonly property real listCover: Theme.select.gap + Theme.textField.border
+
+    // Whether the entry at INDEX draws the entry action's button.
+    function actionAt(index) {
+        if (entryAction === null || actionRole === "" || index < 0 || index >= count) return false;
+        const entry = model[index];
+        return entry !== null && typeof entry === "object" && entry[actionRole] === true;
+    }
+    function iconAt(index) {
+        if (iconRole === "" || index < 0 || index >= count) return "";
+        const entry = model[index];
+        return entry !== null && typeof entry === "object" && typeof entry[iconRole] === "string" ? entry[iconRole] : "";
+    }
+    function pressAction(index) {
+        if (!actionAt(index)) return;
+        entries.pressedAction = index;
+        entryActionActivated(index);
+    }
 
     function textAt(index) {
         if (index < 0 || index >= count) return "";
@@ -107,6 +145,8 @@ T.AbstractButton {
         // the last opening left it.
         plate.disarm();
         plate.snap();
+        entries.actionFocused = false;
+        entries.pressedAction = -1;
         entries.highlightIndex = currentIndex;
         list.visible = true;
         if (currentIndex >= 0 && currentIndex < count) entries.positionViewAtIndex(currentIndex, ListView.Contain);
@@ -238,9 +278,31 @@ T.AbstractButton {
                 // Only a key move, through openNav, and an opening scroll an
                 // entry into view.
                 property int highlightIndex: -1
+                // Whether the keyboard is on the highlighted entry's button
+                // (entryAction), and the entry whose button was pressed last.
+                property bool actionFocused: false
+                property int pressedAction: -1
+                onHighlightIndexChanged: actionFocused = false
                 // A key moves the highlight: the pointer resting over the list
-                // takes it again only once it moves.
-                Keys.onPressed: event => { event.accepted = openNav.handle(event); }
+                // takes it again only once it moves. Right and Left move the
+                // keyboard between the highlighted entry and its button, and
+                // Enter or Space presses the button while the keyboard is on
+                // it; every other key goes to the list's navigation.
+                Keys.onPressed: event => {
+                    // Up and Down take the keyboard back to the entry even
+                    // at the list's end, where the highlight stays put.
+                    if (event.key === Qt.Key_Up || event.key === Qt.Key_Down) entries.actionFocused = false;
+                    if (root.actionAt(entries.highlightIndex) && event.modifiers === Qt.NoModifier) {
+                        if (event.key === Qt.Key_Right && !entries.actionFocused) { entries.actionFocused = true; event.accepted = true; return; }
+                        if (event.key === Qt.Key_Left && entries.actionFocused) { entries.actionFocused = false; event.accepted = true; return; }
+                        if (entries.actionFocused && [Qt.Key_Return, Qt.Key_Enter, Qt.Key_Space].indexOf(event.key) !== -1) {
+                            root.pressAction(entries.highlightIndex);
+                            event.accepted = true;
+                            return;
+                        }
+                    }
+                    event.accepted = openNav.handle(event);
+                }
 
                 property KeyNav openNav: KeyNav {
                     count: entries.count
@@ -261,10 +323,15 @@ T.AbstractButton {
                     id: entry
                     required property int index
 
+                    // The scroll bar's strip. A delegate that outlives its
+                    // list while it tears down reads none.
+                    readonly property real gutter: entries !== null && entries.overflowing ? Theme.scrollArea.gutter : 0
+
                     width: ListView.view.width
                     leftPadding: root.sidePadding - Theme.border.thin
-                    barRoom: entries.overflowing ? Theme.scrollArea.gutter : 0
+                    barRoom: entry.gutter + (action.visible ? action.width + spacing : 0)
                     text: root.textAt(index)
+                    iconName: root.iconAt(index)
                     checked: index === root.currentIndex
                     highlighted: index === entries.highlightIndex
                     cursor: plate
@@ -277,6 +344,27 @@ T.AbstractButton {
                     // automations and network smoke rows, 2026-10-18:
                     // Return chose the view's current entry instead).
                     Keys.forwardTo: [entries]
+
+                    // The entry action's button, in the strip the entry keeps
+                    // clear at its end (barRoom), before the scroll bar's.
+                    // Only an entry that offers the action builds one.
+                    Loader {
+                        id: action
+                        active: root.actionAt(entry.index)
+                        visible: active
+                        anchors.verticalCenter: parent.verticalCenter
+                        x: entry.width - entry.gutter - width - Theme.border.thin
+                        // keyboard-path: the open list's Right moves to it and Enter or Space presses it (entries Keys.onPressed)
+                        sourceComponent: IconButton {
+                            size: "sm"
+                            iconName: root.entryAction === null ? "" : root.entryAction.iconName
+                            label: root.entryAction === null ? "" : root.entryAction.label + " " + entry.text
+                            checked: entries.pressedAction === entry.index
+                            focusPreview: entry.highlighted && entries.actionFocused
+                            focusPolicy: Qt.NoFocus
+                            onClicked: root.pressAction(entry.index)
+                        }
+                    }
                 }
 
                 ListCursor {

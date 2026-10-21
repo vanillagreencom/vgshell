@@ -2,8 +2,12 @@
 # with a stand-in for the Jarvis package's `jarvis-session` in the home
 # folder (scripts/fixtures/jarvis/session-package.py): it records each call
 # and answers what the row wrote beside it, and starts nothing, so no
-# session and no tmux server exists at any point. In a home without the
-# command the row reads that no session can start and names the package.
+# session and no tmux server exists at any point. In the home VGS laid out,
+# which ships no command, the row reads that this home offers no session.
+# A status the command answers outside its contract reads its own cause,
+# and the reference the gate hands the bar for a session fault
+# (SetupGate SESSION_FAULT) opens the Jarvis page on Setup with the session
+# row in view and marked (PluginPage revealedRow).
 # With Start Jarvis at boot off a shell start reads the session and asks
 # for no start. Turned on in a running shell, the row reads that the next
 # boot starts it, the session choices are offered and still no start is
@@ -60,7 +64,7 @@
 # No latency ceiling. Reads poll once per nested IPC round trip.
 # The home's Jarvis package is the copy VGS writes there; the row adds only
 # the stand-in command beside it.
-# inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.jarvis/backend/* packaging/jarvis-home/* scripts/fixtures/jarvis/session-package.py shell/Core/Plugins.qml shell/Commons/AccountDirectories.js bin/lib/account-folders.js bin/lib/anchored.js bin/lib/qml-library.js shell/Core/PluginStatus.qml scripts/smoke/rows/jarvis.sh shell/plugins/vgs.launcher/menu.json shell/Core/Layers.qml shell/Hosts/LayerHost.qml shell/Ui/overlay/Tooltip.qml shell/Ui/controls/BarItem.qml shell/plugins/vgs.updates/tui/pipeline.sh bin/vgshell bin/vgshell-power
+# inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.jarvis/backend/* packaging/jarvis-home/* scripts/fixtures/jarvis/session-package.py shell/Core/Plugins.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/Window.qml shell/Commons/PageReference.js shell/Commons/AccountDirectories.js bin/lib/account-folders.js bin/lib/anchored.js bin/lib/qml-library.js shell/Core/PluginStatus.qml scripts/smoke/rows/jarvis.sh shell/plugins/vgs.launcher/menu.json shell/Core/Layers.qml shell/Hosts/LayerHost.qml shell/Ui/overlay/Tooltip.qml shell/Ui/controls/BarItem.qml shell/plugins/vgs.updates/tui/pipeline.sh bin/vgshell bin/vgshell-power
 set -euo pipefail
 session_config="$home/.config/vgshell/shell.json"
 session_home="$home/SmokeJarvis"
@@ -212,8 +216,8 @@ session_shell_start() { # TREE NAME
 jarvis_setup_requirements
 session_set "$(python3 -c 'import json,sys; print(json.dumps({"brain": sys.argv[1], "home": "~/SmokeJarvis"}))' "$session_brain")"
 session_shell_start "$repo" no-package
-expect_poll "a home without the package's command reads that no session can start" \
-  '["Cannot start", "Install or update the Jarvis package in this home folder"]' session_row
+expect_poll "the home VGS laid out reads that it offers no session" \
+  '["Not offered in this home folder", "VGS made this Home folder without the Jarvis session program. Voice Jarvis works without it. [Choose a Kendex Jarvis home](page:vgs.jarvis/Settings/home)."]' session_row
 
 mkdir -p -- "$session_package/scripts"
 cp -- "$source_repo/scripts/fixtures/jarvis/session-package.py" "$session_package/scripts/jarvis-session"
@@ -223,6 +227,45 @@ session_shell_start "$repo" off
 expect_poll "with the setting off the row reads not started" "Not started" session_text
 expect "with the setting off the page is offered no session choice" '[]' session_modes
 expect "with the setting off a shell start asks for no start" '[]' session_calls start
+
+# The page reference the gate hands the bar for a session fault, as
+# PAGE/TAB; the page reads the session again when it is viewed.
+session_fault_target="$(python3 -c 'import re,sys; print(re.search(r"^var SESSION_FAULT = \"\[[^]]*\]\(page:([^)]*)\)\";$", open(sys.argv[1]).read(), re.M).group(1))' \
+  "$repo/shell/plugins/vgs.jarvis/SetupGate.js")" || session_fault_target=unread
+expect "the session fault names the session row on Setup" vgs.jarvis/Setup/sessionStart echo "$session_fault_target"
+session_unread_hint="The Jarvis session program did not answer as expected. Try again."
+# The key of the row the page marks, null for none.
+session_revealed() {
+  ipc smoke itemValues window vgs.settings PluginPage revealedRow.statusKey | py_reply '
+import json,sys
+rows=json.load(sys.stdin)
+print(json.dumps(rows[0].get("revealedRow.statusKey")) if len(rows) == 1 else "pages=%d" % len(rows))
+'
+}
+# Whether the line HINT lies whole inside the scroll area that holds it.
+session_in_view() { # HINT
+  local box view
+  box="$(ipc smoke windowGeometry window vgs.settings QQuickText "$1")" || return 1
+  view="$(ipc smoke viewHolding window vgs.settings "$1")" || return 1
+  python3 -c '
+import json,sys
+try: box, view = json.loads(sys.argv[1]), json.loads(sys.argv[2])["box"]
+except (ValueError, KeyError, TypeError): print("unread"); sys.exit()
+print(str(box[1] >= view[1] and box[1] + box[3] <= view[1] + view[3]).lower())' "$box" "$view"
+}
+session_answer status '{"exit": 2, "raw": ""}'
+expect "the session fault's reference opens the Jarvis page" ok ipc shell summon window vgs.settings \
+  "$(python3 -c 'import json,sys; page, tab = sys.argv[1].split("/", 1); print(json.dumps({"plugin": page, "tab": tab}))' "$session_fault_target")"
+expect_poll "a status outside the contract reads its own cause" "$(python3 -c 'import json,sys; print(json.dumps(["Cannot start", sys.argv[1]]))' "$session_unread_hint")" session_row
+expect_poll "the reference opens Setup" Setup settings_tab_text
+expect_poll "the reference marks the session row" '"sessionStart"' session_revealed
+expect_poll "the marked session row lies in view" true session_in_view "$session_unread_hint"
+settings_page_close vgs.jarvis
+# The page viewed again reads the session again, now in its contract.
+session_answer status '{"exit": 0, "object": {"state": "stopped", "reason": "never-started"}}'
+expect "the Jarvis page opens again on Setup" ok ipc shell summon window vgs.settings '{"plugin": "vgs.jarvis", "tab": "Setup"}'
+expect_poll "viewed again, the row reads not started" "Not started" session_text
+settings_page_close vgs.jarvis
 
 session_set '{"startAtBoot": true}'
 expect "the configuration reloads with the setting on" ok ipc shell reloadConfig

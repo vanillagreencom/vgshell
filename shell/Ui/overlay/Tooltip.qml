@@ -126,6 +126,11 @@ Item {
         property bool current: false
         // How far the link's ring reaches under this line.
         readonly property real ringBelow: item !== null ? item.ringBelow : 0
+        // The height of the line as drawn, wrapped included: a Loader given
+        // only a width keeps the height its item had before that width
+        // wrapped it (Qt 6.12, tst_tooltip's wrapped link line), so a row
+        // sized by the Loader drew its next line over the wrapped one.
+        readonly property real lineHeight: item !== null ? item.height : 0
         signal pageActivated(string page, string tab)
 
         width: parent.width
@@ -545,7 +550,7 @@ Item {
 
                     Item {
                         width: parent.width
-                        height: titleLink.active ? titleLink.height : titleLabel.height
+                        height: titleLink.active ? titleLink.lineHeight : titleLabel.height
 
                         Label {
                             id: titleLabel
@@ -607,7 +612,7 @@ Item {
                                 readonly property real valueImplicitWidth: valueLabel.implicitWidth
                                 readonly property real detailWidth: kind === "plain" ? Math.min(Math.ceil(plainLink.active ? plainLink.implicitWidth : plainLabel.implicitWidth), root.maxWidth) : labelImplicitWidth + Theme.tooltip.gap + valueImplicitWidth
                                 width: detailColumn.width
-                                height: !visible ? 0 : plainLink.active ? plainLink.height : kind === "plain" ? plainLabel.height : Math.max(countLabel.height, valueLabel.height)
+                                height: !visible ? 0 : plainLink.active ? plainLink.lineHeight : kind === "plain" ? plainLabel.height : Math.max(countLabel.height, valueLabel.height)
                                 visible: !zeroRow
 
                                 Label {

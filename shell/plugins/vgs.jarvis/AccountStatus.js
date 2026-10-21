@@ -85,7 +85,7 @@ function stateLabel(state, source) {
 
 /**
  * The hint of one account item from Accounts.status(), "" for none: its
- * state, source, plan, email, whether its Pi needs an update and whether
+ * state, source, plan (the label names the email), whether its Pi needs an update and whether
  * the email disagrees with the folder name. A signed-out row's badge already says so, so its hint names only a
  * mismatch. A hint of one sentence ends with no full stop, and each
  * sentence of a longer one ends with one (docs/architecture/design-system.md § Copy).
@@ -96,7 +96,7 @@ function accountHint(account) {
     if (account.update === true) return "Jarvis needs Pi 1.1.0 or later: choose [Review all missing or outdated tools under Optional tools on the Setup tab](page:vgs.jarvis/Setup) to use this setup";
     var text = stateLabel(account.state, account.source);
     if (account.state === "signed-in")
-        text += (account.plan !== "" ? ", " + account.plan + " plan" : "") + (account.email !== "" ? ", " + account.email : "");
+        text += account.plan !== "" ? ", " + account.plan + " plan" : "";
     if (mismatch !== "") text += ". " + mismatch + ".";
     return text.slice(0, 200);
 }

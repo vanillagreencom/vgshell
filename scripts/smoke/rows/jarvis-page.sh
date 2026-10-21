@@ -24,8 +24,9 @@
 # unexpected line from these steps.
 # Two backup models added through the list's Add action sit the group
 # list's gap apart, with the hairline in that gap. A fresh profile saves
-# no Voice provider and reads Local; a saved Auto survives a shell
-# restart, and with it taken out the page reads Local again.
+# no Voice provider and reads Local; a stored Realtime shows the
+# Microphone field and survives a shell restart, and with it taken out
+# the page reads Local again.
 # No latency budget.
 # Poll once per nested IPC round trip. Only J09's process double and the
 # allow-listed TUI fixtures run here.
@@ -105,6 +106,14 @@ expect_poll "with no key stored the keyring row offers Add key" '["Add key", tru
 expect_poll "with no account found the search row offers Accounts" '["Accounts", true, "info"]' page_offered accountSearch
 page_open keyStore add-key "Add Jarvis key"
 page_open accountSearch accounts "Jarvis accounts"
+# The Voice key field's Add a key entry, as its select calls the page,
+# opens the add-key window with its declared argument: the window then adds
+# the key of the chosen cloud voice.
+forget_record
+expect "Add a key on the Voice key field starts its screen" ok \
+  ipc smoke invokeInstanceArgs window vgs.settings addChoice '{"args":["vgs.jarvis","voiceAccount"]}'
+expect_poll "Add a key opens the add-key window for the chosen cloud voice" '["vgs.jarvis/add-voice-key", "tui/add-key.sh", "voice"]' recorded_tail
+expect_run_end "the fixture add-voice-key terminal ends" "vgs.jarvis/add-voice-key"
 
 # The page's buttons its texts name, and of those the ones it does not
 # offer: every row's hint, each list item's hint and each state's text.
@@ -248,7 +257,7 @@ printf 'none\n' >"$sandbox/jarvis-world/account-mode"
 page_open accountSearch accounts "Jarvis accounts"
 expect_poll "without the Copilot account the row leaves the page" '[]' page_copilot
 
-# The AI model hint on Setup opens the Settings tab that holds the field.
+# The AI model hint on Setup opens the Settings tab at its field.
 # The control keeps its words and drops only their page reference.
 page_gate="$repo/shell/plugins/vgs.jarvis/SetupGate.js"
 cp -- "$page_gate" "$sandbox/page-gate-original"
@@ -261,11 +270,11 @@ r=json.load(sys.stdin)
 print(json.dumps([r.get("page"), r.get("tab"), bool(r.get("words"))]))
 '
 }
-page_model_link_assertion() { expect "the AI model hint draws its link to Settings" '["vgs.jarvis", "Settings", true]' page_model_hint_link; }
+page_model_link_assertion() { expect "the AI model hint draws its link to the field" '["vgs.jarvis", "Settings/brain", true]' page_model_hint_link; }
 settings_setup
-expect_poll "the AI model step links its field" 'Choose an AI model in [Settings > Jarvis > AI model](page:vgs.jarvis/Settings)' page_model_hint
+expect_poll "the AI model step links its field" 'Choose an AI model in [AI model](page:vgs.jarvis/Settings/brain)' page_model_hint
 page_hint="$(page_model_hint)"
-page_link="Settings > Jarvis > AI model"
+page_link="AI model"
 ipc smoke revealText window vgs.settings LinkText "$page_hint" >/dev/null || fail "the AI model hint is not drawn"
 page_model_link_assertion
 page_link_click || fail "the click on the AI model hint failed"
@@ -276,16 +285,16 @@ from pathlib import Path
 import sys
 p=Path(sys.argv[1]); assert not p.is_symlink()
 s=p.read_text()
-needle='"brain=unselected": "Choose an AI model in [Settings > Jarvis > AI model](page:vgs.jarvis/Settings)"'
+needle='"brain=unselected": "Choose an AI model in [AI model](page:vgs.jarvis/Settings/brain)"'
 assert s.count(needle)==1
-changed=s.replace(needle, '"brain=unselected": "Choose an AI model in Settings > Jarvis > AI model"')
+changed=s.replace(needle, '"brain=unselected": "Choose an AI model in AI model"')
 assert changed != s
 p.write_text(changed)
 PY
 jarvis_rescan
 jarvis_enable
 settings_setup
-expect_poll "the control keeps the AI model hint's plain words" 'Choose an AI model in Settings > Jarvis > AI model' page_model_hint
+expect_poll "the control keeps the AI model hint's plain words" 'Choose an AI model in AI model' page_model_hint
 page_hint="$(page_model_hint)"
 ipc smoke revealText window vgs.settings LinkText "$page_hint" >/dev/null || fail "the control's AI model hint is not drawn"
 page_model_link_control() {
@@ -340,7 +349,7 @@ PY
 page_log_start="$(wc -c <"$instance_log")"
 printf 'signed-in\n' >"$sandbox/jarvis-world/account-mode"
 page_open accountSearch accounts "Jarvis accounts"
-expect_poll "the AI model list offers Claude Code and local servers" '[["Claude Code", "LM Studio / local", "Ollama / local", "llama-server / local"], "", ""]' page_choice_state brain
+expect_poll "the AI model list offers Claude Code and local servers" '[["Claude Code, team@example.invalid", "LM Studio, local", "Ollama, local", "llama-server, local"], "", ""]' page_choice_state brain
 expect "with no sign-in chosen the page draws no model field" absent page_choice model
 expect "with no sign-in chosen the page draws no effort field" absent page_choice effort
 page_reads_start="$(page_reads)"
@@ -545,8 +554,22 @@ expect_poll "the page draws one backup model" '["2"]' page_backups
 expect "the second backup model is removed" clicked ipc smoke invokeInstance window vgs.settings listRemove '{"id":"vgs.jarvis","key":"fallbacks","name":"2"}'
 expect_poll "the page draws no backup model" '[]' page_backups
 
-# The Microphone field keeps the feedback-tones link in its info dialog.
-# The System window starts disabled and is restored after this reading.
+# The Microphone field, shown under a cloud voice, keeps the feedback-tones
+# link in its info dialog. The configuration file stores Realtime: a choice
+# on the page would open Add a key, as this world stores no voice key. The
+# System window starts disabled and is restored after this reading.
+user_config_write python3 - "$home/.config/vgshell/shell.json" <<'PY' || fail "Realtime could not be stored"
+import json,sys
+from pathlib import Path
+value=json.loads(Path(sys.argv[1]).read_text())
+row=next((r for r in value.setdefault("plugins",[]) if r["id"]=="vgs.jarvis"),None)
+if row is None:
+    row={"id":"vgs.jarvis"}; value["plugins"].append(row)
+row["voiceProvider"]="realtime"
+print(json.dumps(value))
+PY
+expect "the stored Realtime reaches the shell" ok ipc shell reloadConfig
+expect_poll "the page reads Realtime as the Voice provider" '"realtime"' page_voice
 page_system_was="$(plugin_enabled vgs.system)" || fail "vgs.system's enabled state is unreadable"
 expect "enabling the System window is allowed" ok ipc shell setPluginEnabled vgs.system true
 page_info_text="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["schema"]["microphone"]["info"])' "$repo/shell/plugins/vgs.jarvis/manifest.json")" ||
@@ -562,19 +585,16 @@ expect_poll "the System window is gone after the Sounds link" 0 window_count 'Sy
 expect "the System window's enablement is put back" ok ipc shell setPluginEnabled vgs.system "$page_system_want"
 expect_poll "vgs.system's enablement is as the row found it" "$page_system_was" plugin_enabled vgs.system
 
-# A saved Voice provider survives a shell restart. The page writes only
-# while Jarvis is on, so Auto is saved then: with the world's stored key it
-# runs the voice the rows ran before Local was the default. After the
-# restart the step takes it out and the page reads Local again.
-expect "the Settings page saves Auto as the Voice provider" ok ipc smoke invokeInstance window vgs.settings applySetting '{"id":"vgs.jarvis","key":"voiceProvider","value":"auto"}'
-expect_poll "the user file holds Auto" '["auto"]' page_voice_saved
+# The stored Voice provider survives a shell restart. After the restart
+# the step takes it out and the page reads Local again.
+expect_poll "the user file holds Realtime" '["realtime"]' page_voice_saved
 settings_page_close vgs.jarvis
 jarvis_disable
 jarvis_notice_close
 stop_shell || :
 start_shell "$repo" "$sandbox/jarvis-page-restarted.log"
 settings_page_open vgs.jarvis
-expect_poll "the saved Auto survives a shell restart" '"auto"' page_voice
+expect_poll "the stored Realtime survives a shell restart" '"realtime"' page_voice
 page_settings_drop voiceProvider
 expect "the user file holds no Voice provider again" absent page_voice_saved
 expect_poll "with nothing saved the Voice provider reads Local" '"local"' page_voice

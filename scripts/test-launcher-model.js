@@ -76,6 +76,7 @@ const STYLE = { id: "style", plugin: "vgs.themes", label: "Style", icon: "paintb
 const THEME = { id: "style.theme", plugin: "vgs.themes", label: "Theme", icon: "palette", aliases: ["themes"], description: "", shortcut: "vgs.themes:themes" };
 const BAR = { id: "style.bar", plugin: "vgs.bar", label: "Hide top bar", icon: "panel-top-close", aliases: [], description: "Give the bar's space to windows", shortcut: "vgs.bar:toggle" };
 const TAKEN = { id: "system", plugin: "acme.taken", label: "Mine", icon: "star", aliases: [], description: "", shortcut: "acme.taken:go" };
+const CONSOLE = { id: "console", plugin: "vgs.jarvis", label: "Jarvis console", icon: "vgs-letter-j", aliases: [], description: "Type to Jarvis", shortcut: "vgs.jarvis:console" };
 const CATALOG = { id: "tools.catalog", plugin: "acme.catalog", label: "Catalog", icon: "blocks", aliases: ["catalog"], description: "Dynamic tools", shortcut: "acme.catalog:open", provider: "rows" };
 const PACKAGES = { id: "packages", plugin: "acme.packages", label: "Packages", icon: "package", aliases: [], description: "", shortcut: "", provider: "", tui: "", tuiGroup: "" };
 const PACKAGE_INSTALL = { id: "packages.install", plugin: "acme.packages", label: "Install", icon: "package", aliases: [], description: "", shortcut: "", provider: "", tui: "core/pkg-install", tuiGroup: "" };
@@ -214,6 +215,12 @@ function verify(model, menu = shippedMenu) {
     same(model.menuRows(plugged.items, plugged.itemOrder, "style", []).map(r => [r.kind, r.label, r.detail]),
         [["shortcut", "Theme", ""], ["shortcut", "Hide top bar", "Give the bar's space to windows"]]);
     same(model.searchRows(plugged.items, plugged.itemOrder, "root", "top bar", []).map(r => [r.kind, r.label]), [["shortcut", "Hide top bar"]], "a search finds a plugin row");
+    // A found row names the menu it lives under, and a row at the top,
+    // which no menu holds, its own description.
+    const topped = model.mergeMenuSources(shipped.entries, [], model.pluginEntries([STYLE, BAR, CONSOLE]));
+    assert.equal(topped.ok, true, topped.error);
+    same(["top bar", "jarvis console"].map(query => model.searchRows(topped.items, topped.itemOrder, "root", query, []).map(r => [r.label, r.detail])[0]),
+        [["Hide top bar", topped.items.style.label], ["Jarvis console", CONSOLE.description]], "a found row's detail is its menu, or its description at the top");
     const realUpdates = pluginLogic.validateManifest(updatesManifest, path.join(__dirname, "..", "shell", "plugins", "vgs.updates"));
     assert.equal(realUpdates.ok, true, realUpdates.error);
     const realUpdatesRows = pluginLogic.menuRows({ "vgs.updates": realUpdates.manifest }, ["vgs.updates"], {}).rows;
@@ -443,6 +450,7 @@ verify(load(file));
 // Each control removes one rule from a copy of the model and keeps the
 // text around it. The suite must fail on every copy.
 const CONTROLS = [
+    ["a found row at the top names no description", 'path !== "" ? path : entry.description', "path"],
     ["application source order cannot rank a tie", '(entry.kind === "app" ? 0 : entry.order)', 'entry.order'],
     ["equal application names use id", 'a.path.localeCompare(b.path) || (a.itemId < b.itemId ? -1 : a.itemId > b.itemId ? 1 : 0)', 'a.path.localeCompare(b.path)'],
     ["a missing launcher needs installation repair", 'if (/reason=launcher-missing/.test(String(reason)))', 'if (false)'],

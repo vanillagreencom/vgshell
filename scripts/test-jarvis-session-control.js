@@ -4,8 +4,10 @@
 // (scripts/fixtures/jarvis/session-package.py) in a scratch home of the
 // J09 world: the stand-in records each call and answers what the case
 // wrote, and starts nothing. No package, vendor program, account, tmux
-// server or live session. A control runs a private copy of the plugin with
-// one planted defect.
+// server or live session; a `claude` stand-in answers `auth status` for
+// ~/.claude alone. A control runs a private copy of the plugin with one
+// planted defect. `node test-jarvis-session-control.js CHECK` runs that
+// one check and no control, as against another tree's plugin copied here.
 "use strict";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -47,12 +49,15 @@ function inside() {
         ? fs.readFileSync(path.join(scripts(at), "calls.log"), "utf8").split("\n").filter(Boolean).map(line => JSON.parse(line)) : [];
     const said = (state, reason, more = {}) => ({ exit: 0, object: { state, reason, ...more } });
     // One helper run from DIRECTORY, a plugin tree, with the variables a
-    // shell restarted from a tmux pane would hand it.
+    // shell restarted from a tmux pane would hand it; `errors` keeps its
+    // stderr.
+    let errors = "";
     function helper(directory, args) {
         const result = cp.spawnSync(process.execPath, [path.join(directory, "backend/session-control.js"), "--tree", tree, ...args], {
             env: { ...process.env, XDG_SESSION_ID: "7", TMUX: "/scratch/other,1,0", TMUX_PANE: "%9", VGSHELL_RUNNER_PID: "1" },
             encoding: "utf8", timeout: 30000 });
         assert.equal(result.status, 0, "the helper answers: " + result.stderr);
+        errors = result.stderr;
         return JSON.parse(result.stdout);
     }
     const startWords = (mode, origin, at = folder) =>
@@ -80,7 +85,7 @@ function inside() {
     function bootOff(directory) {
         answers(folder, { status: said("running", "existing", { home: folder, harness: "claude", account }) });
         const result = helper(directory, ["build", claude, "~/Jarvis", "resume", "off"]);
-        assert.deepEqual([result.kind, result.state, result.names], ["answer", "running", { home: "~/Jarvis", account: "Claude Code, ~/.claude" }]);
+        assert.deepEqual([result.kind, result.state, result.names], ["answer", "running", { home: "~/Jarvis", account: "Claude Code, beijuan@vanillagreen.com" }]);
         assert.deepEqual(calls(folder).map(call => call.argv), [status(folder)], "a build with the setting off only reads");
         cases++;
     }
@@ -120,7 +125,7 @@ function inside() {
     // A new selection that fails its check keeps the old session, says so
     // and stops nothing.
     function changeRefused(directory) {
-        for (const [setting, target, block] of [[local, "~/Jarvis", "not-app"], [claude, "~/Bare", "package"], [claude, "~/Absent", "no-home"]]) {
+        for (const [setting, target, block] of [[local, "~/Jarvis", "not-app"], [claude, "~/Bare", "vgs-package"], [claude, "~/Absent", "no-home"]]) {
             answers(folder, { status: said("running", "resumed", { home: folder, harness: "claude", account }), stop: said("stopping", "stop-requested") });
             const result = helper(directory, ["change", "~/Jarvis", setting, target, "resume"]);
             assert.deepEqual([result.kind, result.state, result.unapplied], ["answer", "running", block], block);
@@ -152,7 +157,7 @@ function inside() {
         answers(folder, { status: said("stopped", "never-started"), start: said("starting", "launching") });
         const rows = [
             ["no-home", ["build", claude, "", "resume", "on"]], ["no-home", ["status", "~/Absent"]], ["no-home", ["status", "/outside"]],
-            ["package", ["status", "~/Bare"]], ["package", ["build", claude, "~/Bare", "resume", "on"]],
+            ["vgs-package", ["status", "~/Bare"]], ["vgs-package", ["build", claude, "~/Bare", "resume", "on"]],
             ["no-account", ["build", "", "~/Jarvis", "resume", "on"]], ["no-account", ["start", "cli:" + "0".repeat(32), "~/Jarvis", "resume"]],
             ["not-app", ["start", local, "~/Jarvis", "resume"]]
         ];
@@ -162,23 +167,83 @@ function inside() {
             cases++;
         }
     }
-    // A command file that is no package: a link on the way, no execute bit,
-    // or a status outside the contract.
-    function noPackage(directory) {
+    // Each cause the session row names, as the helper reads it: a status
+    // outside the contract reads `unread` with its keyed stderr line, the
+    // package's trust question is its own answer with its line unchanged,
+    // and a way to the command Jarvis cannot follow, or a command missing
+    // from a home Kendex installed or from one VGS made, is its own block,
+    // with no run of the command. Every row is read before any is judged,
+    // so a run against another tree prints each row it reads. No row reads
+    // home-unreadable: the world's user namespace opens a mode 000 folder.
+    function causes(directory) {
         const file = path.join(scripts(other), "jarvis-session");
-        answers(other, { status: { exit: 0, object: { state: "stopped", reason: "never-started", v: 2 } } });
-        assert.deepEqual(helper(directory, ["status", "~/Other"]), { kind: "blocked", block: "package" }, "another format version");
+        const trust = "Do you trust the files in this folder?";
+        const homes = path.join(home, "causes");
+        const at = name => path.join(homes, name);
+        fs.rmSync(homes, { recursive: true, force: true });
+        // A link on the way to the command.
+        fs.mkdirSync(path.join(at("Linked"), ".agents/skills"), { recursive: true });
+        fs.symlinkSync(path.join(other, ".agents/skills/jarvis"), path.join(at("Linked"), ".agents/skills/jarvis"));
+        // A file where a folder on the way should be.
+        fs.mkdirSync(path.join(at("Kind"), ".agents/skills"), { recursive: true });
+        fs.writeFileSync(path.join(at("Kind"), ".agents/skills/jarvis"), "");
+        // A home Kendex installed, its command with no execute bit.
+        fs.mkdirSync(scripts(at("Kendex")), { recursive: true });
+        fs.writeFileSync(path.join(at("Kendex"), ".kendex-lock.json"), JSON.stringify({ entries: { jarvis: { kind: "skill", name: "jarvis" } } }));
+        fs.copyFileSync(standIn, path.join(scripts(at("Kendex")), "jarvis-session"));
+        fs.chmodSync(path.join(scripts(at("Kendex")), "jarvis-session"), 0o644);
+        // A home VGS laid out from its render, which ships no command.
+        fs.mkdirSync(at("Made"));
+        require(path.join(plugin, "backend/Home.js")).layout(at("Made"));
+        const statusRows = [
+            ["exit-2", { exit: 2, object: { state: "stopped", reason: "never-started" } }, { kind: "blocked", block: "unread" }, "jarvis: session-status=exit=2"],
+            ["no-line", { exit: 0, raw: "" }, { kind: "blocked", block: "unread" }, "jarvis: session-status=unaccepted"],
+            ["two-lines", { exit: 0, raw: "a\nb\n" }, { kind: "blocked", block: "unread" }, "jarvis: session-status=unaccepted"],
+            ["format-version", { exit: 0, object: { state: "stopped", reason: "never-started", v: 2 } }, { kind: "blocked", block: "unread" }, "jarvis: session-status=unaccepted"],
+            ["trust-required", { exit: 1, object: { state: "blocked", reason: "trust-required", detail: trust } },
+                { kind: "answer", state: "blocked", reason: "trust-required", detail: trust, names: null }, ""]
+        ];
+        const read = [], expected = [], ran = [];
+        for (const [name, entry, reads, line] of statusRows) {
+            answers(other, { status: entry });
+            read.push([name, helper(directory, ["status", "~/Other"]), errors.split("\n")[0]]);
+            expected.push([name, reads, line]);
+            ran.push(...calls(other).map(call => call.argv));
+        }
         answers(other, { status: said("stopped", "never-started") });
         fs.chmodSync(file, 0o644);
-        assert.deepEqual(helper(directory, ["status", "~/Other"]), { kind: "blocked", block: "package" }, "no execute bit");
+        const homeRows = [["link", "~/causes/Linked", "home-link"], ["kind", "~/causes/Kind", "home-kind"],
+            ["kendex-no-execute", "~/causes/Kendex", "package"], ["vgs-no-execute", "~/Other", "vgs-package"], ["vgs-made", "~/causes/Made", "vgs-package"]];
+        for (const [name, setting, block] of homeRows) {
+            read.push([name, helper(directory, ["status", setting]), errors.split("\n")[0]]);
+            expected.push([name, { kind: "blocked", block }, ""]);
+        }
         fs.chmodSync(file, 0o755);
-        const linked = path.join(home, "Linked");
-        fs.mkdirSync(path.join(linked, ".agents/skills"), { recursive: true });
-        fs.symlinkSync(path.join(other, ".agents/skills/jarvis"), path.join(linked, ".agents/skills/jarvis"));
-        assert.deepEqual(helper(directory, ["status", "~/Linked"]), { kind: "blocked", block: "package" }, "a link on the way");
-        assert.deepEqual(calls(other), [], "a refused command file is not run");
-        fs.rmSync(linked, { recursive: true });
-        cases++;
+        for (const [name, reads, line] of read)
+            console.log("test-jarvis-session-control: cause=" + name + " reads=" + JSON.stringify(reads) + " stderr=" + JSON.stringify(line));
+        assert.deepEqual(read, expected, "each cause reads its own row");
+        assert.deepEqual([ran, calls(other)], [statusRows.map(() => status(other)), []], "one status run a row, and a refused command file is not run");
+        fs.rmSync(homes, { recursive: true });
+        cases += read.length;
+    }
+    // The recorded session's account reads by its provider and sign-in
+    // email, read now, and by its provider alone while that email is
+    // unknown: never by its folder's name, `.1copilot` among them.
+    function names(directory) {
+        const copilot = path.join(home, ".1copilot");
+        fs.mkdirSync(copilot, { recursive: true });
+        const rows = [
+            ["signed-in", "claude", account, "Claude Code, beijuan@vanillagreen.com"],
+            ["signed-out", "claude", path.join(home, ".claude-work"), "Claude Code"],
+            ["no-email", "copilot", copilot, "GitHub Copilot"],
+            ["unlisted", "other-app", account, "other-app"]
+        ];
+        for (const [name, harness, directoryOf, label] of rows) {
+            answers(folder, { status: said("running", "existing", { home: folder, harness, account: directoryOf }) });
+            assert.deepEqual(helper(directory, ["status", "~/Jarvis"]).names, { home: "~/Jarvis", account: label }, name);
+            cases++;
+        }
+        fs.rmSync(copilot, { recursive: true });
     }
     // A start outside the contract is a failure, never a state: a pair the
     // table does not hold, another exit status, two lines, no object.
@@ -245,7 +310,7 @@ function inside() {
         ];
         for (const [name, more] of rows) {
             answers(folder, { status: said("running", "existing", more) });
-            assert.deepEqual(helper(directory, ["status", "~/Jarvis"]), { kind: "blocked", block: "package" }, name);
+            assert.deepEqual(helper(directory, ["status", "~/Jarvis"]), { kind: "blocked", block: "unread" }, name);
             cases++;
         }
         answers(folder, { status: said("running", "existing", { model: "m".repeat(100), since: "2026-10-17T18:02:00.5Z" }) });
@@ -320,7 +385,14 @@ function inside() {
         cases++;
     }
 
-    const checks = { boot, bootOff, enable, manual, off, change, changeRefused, blocks, noPackage, outside, fields, fieldsOutside, resume, dismiss, bootResume };
+    const checks = { boot, bootOff, enable, manual, off, change, changeRefused, blocks, causes, names, outside, fields, fieldsOutside, resume, dismiss, bootResume };
+    const only = process.argv[3];
+    if (only !== undefined) {
+        assert.ok(Object.hasOwn(checks, only), "no check " + only);
+        checks[only](plugin);
+        console.log("test-jarvis-session-control: ok check=" + only + " cases=" + cases);
+        return;
+    }
     for (const check of Object.values(checks)) check(plugin);
 
     // A copy of the plugin tree FROM with one text of FILE replaced.
@@ -344,6 +416,14 @@ function inside() {
         cases++;
     }
     stalled(quick);
+    // A status the bound ends reads `unread`, its keyed line naming the time-out.
+    function statusStalled(directory) {
+        answers(folder, { status: { ...said("stopped", "never-started"), hold: 5 } });
+        assert.deepEqual([helper(directory, ["status", "~/Jarvis"]), errors.split("\n")[0]],
+            [{ kind: "blocked", block: "unread" }, "jarvis: session-status=timeout"]);
+        cases++;
+    }
+    statusStalled(quick);
 
     function control(name, file, needle, replacement, check, from = plugin) {
         const copy = planted("control-" + name, file, needle, replacement, from);
@@ -364,10 +444,10 @@ function inside() {
     control("mode", C, '"--mode", mode, "--origin", origin]);', '"--mode", "resume", "--origin", origin]);', manual);
     control("environment", S, "const { TMUX, TMUX_PANE, VGSHELL_RUNNER_PID, ...kept } = from;", "const kept = from;", boot);
     control("app-off", C, 'args.length === 2 ? ["--origin", "app-off"] : []', "[]", off);
-    control("check-before-stop", C, 'if (probe.kind === "blocked") return { ...answer(before), unapplied: probe.block };', "", changeRefused);
+    control("check-before-stop", C, 'if (probe.kind === "blocked") return { ...await answer(before), unapplied: probe.block };', "", changeRefused);
     control("stop-old-home", C, 'if (await run(from, ["stop"]) === null) return failed;', "", change);
     control("live-only", C, "if (!live) return", "if (false) return", changeRefused);
-    control("bound-ends-run", C, "                child.stdout.destroy();\n                end(null);", "", stalled, quick);
+    control("bound-ends-run", C, "                child.stdout.destroy();\n                outside(\"timeout\");", "", stalled, quick);
     control("old-home-unread", C, 'const before = from.kind === "blocked" ? from : await run(from, ["status"]);',
         'const before = from.kind === "blocked" ? from : await read(from);', changeRefused);
     control("same-selection", C, "if (at.folder === from.folder && before.harness === who.harness && before.account === who.directory) return answer(before);", "", changeRefused);
@@ -376,7 +456,13 @@ function inside() {
     control("contract-pair", C, "|| !STATES[value.state].includes(value.reason)", "", outside);
     control("exit-status", C, "signal === null && (code === 0 || code === 1) ? accepted(out) : null", "accepted(out)", outside);
     control("one-line", C, "if (!/^[^\\n]+\\n$/.test(text)) return null;", "text = text.split(\"\\n\")[0];", outside);
-    control("version", C, "|| value.v !== 1", "", noPackage);
+    control("version", C, "|| value.v !== 1", "", causes);
+    control("unread-block", C, '?? blocked("unread")', '?? blocked("package")', causes);
+    control("keyed-line", C, 'process.stderr.write("jarvis: session-" + words[0] + "=" + cause + "\\n");', "", causes);
+    control("trust-state", C, '"app-missing", "trust-required"]', '"app-missing"]', causes);
+    control("home-blocks", S, 'if (command.kind !== "absent") return { kind: "blocked", block: BLOCKS[command.kind] };', "", causes);
+    control("package-owner", S, 'owner === "kendex" ? "package" : "vgs-package"', '"package"', causes);
+    control("account-label", C, "account: await label(value.harness, value.account)", "account: value.account", names);
     control("home-folder", S, "folder === null || !fs.statSync(folder, { throwIfNoEntry: false })?.isDirectory()", "folder === null", blocks);
     control("fields-pass-on", C, '...Object.fromEntries(["model", "since", "restart"]', '...Object.fromEntries([]', fields);
     control("model-checked", C, "if (model !== null && !named(model)) return null;", "", fieldsOutside);
@@ -400,13 +486,23 @@ function inside() {
 
 function main() {
     if (process.argv[2] === "--inside") return inside();
-    const parent = require("node:os").tmpdir();
+    // The caller's JARVIS_TEST_SCRATCH_ROOT holds the scratch root of an
+    // evidence run, as jarvis-env.sh takes it.
+    const parent = process.env.JARVIS_TEST_SCRATCH_ROOT ?? require("node:os").tmpdir();
+    fs.mkdirSync(parent, { recursive: true });
     const root = fs.realpathSync(fs.mkdtempSync(path.join(parent, "js-")));
     try {
         const standins = path.join(root, "standins");
         fs.mkdirSync(standins);
+        // Claude Code's `auth status` (Accounts.js login) for ~/.claude
+        // alone; any other folder is signed out.
+        fs.writeFileSync(path.join(standins, "claude"), [
+            "#!/bin/bash",
+            '[[ "$*" == "auth status" ]] || exit 2',
+            'if [[ $CLAUDE_CONFIG_DIR == "$HOME/.claude" ]]; then echo \'{"loggedIn":true,"email":"beijuan@vanillagreen.com","subscriptionType":"max"}\'; exit 0; fi',
+            "echo '{\"loggedIn\":false}'; exit 1", ""].join("\n"), { mode: 0o755 });
         const result = cp.spawnSync("/bin/bash", [path.join(tree, "scripts/lib/jarvis-env.sh"), standins,
-            "--", "node", __filename, "--inside"], {
+            "--", "node", __filename, "--inside", ...process.argv.slice(2)], {
             env: { PATH: "/usr/bin:/bin", HOME: root, JARVIS_TEST_SCRATCH_ROOT: root },
             encoding: "utf8", timeout: 300000
         });

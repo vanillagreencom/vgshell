@@ -1055,18 +1055,26 @@ function consumeMailCutover(home) {
 }
 
 /**
- * The absolute path of the home's Jarvis session command, SESSION_COMMAND
- * reached through no link and a regular file with its owner's execute bit;
- * else null, as while the home cannot be read. The shell runs it by this
- * path, never a brain: it starts and stops the user's own Jarvis session
- * (D105).
+ * The home's Jarvis session command, SESSION_COMMAND reached through no
+ * link: { kind: "found", path } for a regular file with its owner's execute
+ * bit, else { kind } of what stops it: "absent" for no such entry or one
+ * that is no program, "link" for a link on the way, "kind" for a part of
+ * the way that is no folder, "unreadable" for a part that cannot be opened
+ * (within). The shell runs it by this path, never a brain: it starts and
+ * stops the user's own Jarvis session (D105).
  */
 function sessionCommand(home) {
-    return held(home, SESSION_COMMAND, O_RDONLY | O_NONBLOCK, fd => {
-        const found = fs.fstatSync(fd);
-        const runs = found.isFile() && (found.mode & fs.constants.S_IXUSR) !== 0;
-        return runs ? path.join(home, SESSION_COMMAND) : null;
-    });
+    try {
+        return within(home, SESSION_COMMAND, O_RDONLY | O_NONBLOCK, fd => {
+            const found = fs.fstatSync(fd);
+            const runs = found.isFile() && (found.mode & fs.constants.S_IXUSR) !== 0;
+            return runs ? { kind: "found", path: path.join(home, SESSION_COMMAND) } : { kind: "absent" };
+        });
+    } catch (error) {
+        const code = /^jarvis: home=([a-z-]+)/.exec(error.message);
+        if (code === null) throw error;
+        return { kind: ["absent", "link", "kind"].includes(code[1]) ? code[1] : "unreadable" };
+    }
 }
 
 /** Whether the home holds the Jarvis session's mailbox folder, no link on the way. */

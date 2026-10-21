@@ -14,6 +14,12 @@ const { standins } = require("./fixtures/jarvis/audio.js");
 const desktopFixture = require("./fixtures/jarvis/desktop.js");
 const { instrument: instrumentDesktop } = require("./fixtures/jarvis/desktop-driver.js");
 const tree = path.resolve(__dirname, "..");
+// Session's tap bound: the shipped daemon reads a Talk release sooner than
+// this after its press as a tap, which keeps listening.
+const TAP_MS = require("../bin/lib/qml-library.js").load(path.join(tree, "shell/plugins/vgs.jarvis/Session.js")).TAP_MS;
+// Wait until a press made at PRESSED (Date.now()) is past the tap bound on
+// the daemon's clock, with 50 ms for the pipe between the two writes.
+const pastTap = pressed => new Promise(resolve => setTimeout(resolve, Math.max(0, pressed + TAP_MS + 50 - Date.now())));
 const daemon = path.join(tree, "shell/plugins/vgs.jarvis/backend/jarvisd.js");
 const source = fs.readFileSync(daemon, "utf8");
 const hello = { v: 1, type: "hello", gen: 0, settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "",
@@ -112,7 +118,7 @@ async function inside() {
                     conversation: { kind: "ended" }, input: { kind: "released" }, followUp: { kind: "none" },
                     indicator: { kind: "gone" },
                     duplex: { kind: "half" }, toggleAt: null,
-                    engine: { kind: "chained" }, speech: { kind: "closed" }, check: { kind: "unavailable" }
+                    engine: { kind: "chained" }, speech: { kind: "closed" }, check: { kind: "unavailable" }, checkSource: null
                 }, phase: "down", brain: "" });
         }
         return lines;
@@ -639,7 +645,18 @@ async function inside() {
             send({ ...hello, settings: { ...hello.settings, mode, sounds } });
             if (beforeState !== null) await beforeState({ messages });
             await wait(m => m.state.gate.kind !== "down" || m.state.gate.reason === "unconfigured");
-            await check({ send: name => send(intent(name)), raw: send, reply: send,
+            let pressed = 0;
+            const talk = name => {
+                if (name === "talk-down") pressed = Date.now();
+                send(intent(name));
+            };
+            // A release that ends a hold: the real daemon times the press on
+            // its own clock, so the release waits out the tap bound.
+            const holdUp = async () => {
+                await pastTap(pressed);
+                send(intent("talk-up"));
+            };
+            await check({ send: talk, holdUp, raw: send, reply: send,
                 indicator: shown => send(indicator(shown)), wait, last, messages, pid: child.pid });
             child.stdin.end();
             const [code, signal] = await closed;
@@ -788,7 +805,7 @@ async function inside() {
     fs.writeFileSync(muteFile, JSON.stringify({ muted: false }));
     await control("mute-store", 'fs.renameSync(file, path.join(directory, name));',
         'void directory;', muteCheck);
-    await control("intent-consumer", 'runner.dispatch(message.intent === "mute" ? { type: "mute-toggle" }\n                                : message.intent === "say" ? { type: "say", text: message.text }\n                                : { type: message.intent });',
+    await control("intent-consumer", 'runner.dispatch(message.intent === "mute" ? { type: "mute-toggle" }\n                                : message.intent === "say" ? { type: "say", text: message.text }\n                                : message.intent === "preview" ? { type: "preview", voice: message.voice }\n                                : { type: message.intent });',
         'void message.intent;', muteCheck);
     for (const [bytes, reason] of [["{", "record-json"], ['{"muted":"yes"}', "record-shape"],
         ['{"muted":true,"extra":0}', "record-shape"], [" ".repeat(65), "record-size"]]) {
@@ -862,9 +879,10 @@ async function inside() {
     await desktopDriver(mappedDriverFile, mappedDriverRoot, true);
     const mappedDriverFixture = path.join(path.dirname(mappedDriverFile), "desktop-driver-fixture.js");
     const mappedDriverSource = fs.readFileSync(mappedDriverFixture, "utf8");
-    const captureWait = 'if (turnRequest === "held" && runner.state.capture.kind === "open")';
+    const captureWait = 'if (turnRequest === "held" && runner.state.capture.kind === "open" && runner.state.input.kind === "held"\n'
+        + '                        && runner.clock.now() - runner.state.input.since >= runner.session.TAP_MS) {';
     assert.equal(mappedDriverSource.split(captureWait).length - 1, 1);
-    const earlyRelease = mappedDriverSource.replace(captureWait, 'if (turnRequest === "held")');
+    const earlyRelease = mappedDriverSource.replace(captureWait, 'if (turnRequest === "held") {');
     assert.notEqual(earlyRelease, mappedDriverSource);
     fs.writeFileSync(mappedDriverFixture, earlyRelease);
     fs.rmSync(path.join(mappedDriverRoot, "results.jsonl"));
@@ -962,7 +980,7 @@ async function inside() {
             await w.wait(m => m.phase === "listening");
             assert.equal(effects("feedback-start"), cues + 1, "first Talk completes the scripted start cue");
             assert.equal(effects("capture-open"), opens + 1, "first Talk opens one capture after its cue");
-            w.send("talk-up");
+            await w.holdUp();
             await w.wait(m => m.phase === "thinking");
             assert.equal(effects("playback-start"), 0, "the basic fixture keeps its assistant reply gated");
             w.send("stop");
@@ -1060,7 +1078,7 @@ async function inside() {
     const activeStop = async (file, phase, settled = stopSettled) => conversation(file, async w => {
         w.send("talk-down");
         await w.wait(m => m.phase === "listening");
-        w.send("talk-up");
+        await w.holdUp();
         await w.wait(m => m.phase === "thinking");
         if (phase === "speaking") {
             const starts = count("playback-start");
@@ -1109,7 +1127,7 @@ async function inside() {
     console.log("test-jarvis-daemon: control=stop-settled detected");
     const stopControl = daemonCopy("stop-routing");
     instrument(stopControl, gates);
-    const dispatch = 'runner.dispatch(message.intent === "mute" ? { type: "mute-toggle" }\n                                : message.intent === "say" ? { type: "say", text: message.text }\n                                : { type: message.intent });';
+    const dispatch = 'runner.dispatch(message.intent === "mute" ? { type: "mute-toggle" }\n                                : message.intent === "say" ? { type: "say", text: message.text }\n                                : message.intent === "preview" ? { type: "preview", voice: message.voice }\n                                : { type: message.intent });';
     const stopSource = fs.readFileSync(stopControl, "utf8");
     assert.equal(stopSource.split(dispatch).length - 1, 1);
     const misrouted = stopSource.replace(dispatch, 'if (message.intent === "stop") message.intent = "talk-up";\n                    ' + dispatch);
@@ -1131,7 +1149,7 @@ async function inside() {
         w.send("talk-down");
         await w.wait(m => m.seq > listening.seq);
         assert.equal(count("capture-open"), initialOpens + 1, "repeat opens no second scripted capture");
-        w.send("talk-up");
+        await w.holdUp();
         await w.wait(m => m.phase === "thinking");
         gate("brain");
         await w.wait(m => m.phase === "speaking");
@@ -1162,7 +1180,7 @@ async function inside() {
         w.send("talk-down");
         await w.wait(m => m.phase === "listening");
         const before = w.last().seq;
-        w.send("talk-up");
+        await w.holdUp();
         await w.wait(m => m.seq > before);
         assert.equal(w.last().state.input.kind, "conversation", "release does not commit toggle");
         await new Promise(resolve => setTimeout(resolve, 250)); // Reach the reducer's next permitted toggle edge.
@@ -1207,7 +1225,7 @@ async function inside() {
     const replyWords = file => conversation(file, async w => {
         w.send("talk-down");
         const listening = await w.wait(m => m.phase === "listening");
-        w.send("talk-up");
+        await w.holdUp();
         const thinking = await w.wait(m => m.phase === "thinking");
         fs.writeFileSync(path.join(chainedGates, "reply"), "");
         await w.wait(m => m.phase === "speaking" && m.state.turn.kind === "none");
@@ -1267,7 +1285,7 @@ async function inside() {
         fs.rmSync(path.join(renderHome, ".agents"), { recursive: true });
         w.send("talk-down");
         await w.wait(m => m.phase === "listening");
-        w.send("talk-up");
+        await w.holdUp();
         if (owner === "kendex") {
             const down = await w.wait(m => m.state.gate.kind === "down" || m.state.fault.kind !== "none");
             assert.deepEqual([down.state.gate, down.state.fault], [{ kind: "down", reason: "unconfigured" }, { kind: "none" }],
@@ -1292,7 +1310,8 @@ async function inside() {
         await w.wait(m => m.state.conversation.kind === "ended" && m.state.brain.kind === "closed");
     }, "hold", 0, owner === "kendex" ? "jarvis: home=absent" : "");
     for (const [name, needle, replacement, owner = "vgs"] of [["render-removed", null, null], ["render-removed-kendex", null, null, "kendex"],
-        ["render-removed-unjudged", "        rejudge();\n", ""]]) {
+        ["render-removed-unjudged", 'if (error.message !== "jarvis: home=absent") throw error; }\n        rejudge();\n',
+            'if (error.message !== "jarvis: home=absent") throw error; }\n']]) {
         fs.rmSync(renderGates, { recursive: true, force: true });
         const file = daemonCopy(name);
         instrument(file, renderGates);
@@ -1473,7 +1492,7 @@ exit "$failures"
             fs.rmSync(answers, { force: true });
             w.send("talk-down");
             await w.wait(m => m.phase === "listening");
-            w.send("talk-up");
+            await w.holdUp();
             // The routed call can move the phase on to acting at once.
             await w.wait(m => m.state.turn.kind === "thinking");
             if (modes.playerctl?.hold) {
@@ -1837,8 +1856,10 @@ exit "$failures"
             send({ ...hello, settings: { ...hello.settings, brain: brainId, model: "fixture-model", ...settings } });
             await wait(m => m?.state.gate.kind === "up", "the engine raises the gate");
             await wait(() => fs.existsSync(registered), "vision registers after the Hyprland probe");
+            const pressed = Date.now();
             send(intent("talk-down"));
             await wait(m => m.phase === "listening", "listening");
+            await pastTap(pressed);
             send(intent("talk-up"));
             await wait(m => loopback.requests.length === before + 2 && m.phase === "idle" && m.state.turn.kind === "none",
                 () => "the screen result reaches the brain, requests=" + (loopback.requests.length - before) + " last="
@@ -1924,9 +1945,11 @@ exit "$failures"
             await wait(m => m.state.gate.kind === "up", "the selected catalog model admits the engine");
             assert.equal(states.at(-1).state.gate.kind, "up", "the engine raises the gate: " + JSON.stringify(states.at(-1).state.gate));
             assert.deepEqual(statuses.at(-1).causes, [], "a ready engine publishes no setup cause");
+            const pressed = Date.now();
             send(intent("talk-down"));
             await wait(m => m.phase === "listening", "listening");
             const collectionOp = states.at(-1).state.turn.op;
+            await pastTap(pressed);
             send(intent("talk-up"));
             if (identicalHello) {
                 await wait(m => m.phase === "thinking" && loopback.requests.length === before + 1,

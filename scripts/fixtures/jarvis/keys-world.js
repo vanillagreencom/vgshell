@@ -28,7 +28,7 @@ const item = "/org/freedesktop/secrets/collection/test/item";
 console.log(JSON.stringify({ type: "aoao", data: [mode === "present" ? [item] : [], mode === "locked" ? [item] : []] }));
 `, { mode: 0o700 });
     fs.writeFileSync(path.join(directory, "secret-tool"), `#!/usr/bin/env python3
-import getpass, json, os, sys
+import json, os, sys
 from pathlib import Path
 root = Path(os.environ["XDG_STATE_HOME"])
 args = sys.argv[1:]
@@ -37,9 +37,11 @@ with (root / "secret-calls").open("a") as output:
 if args[0] == "lookup":
     sys.stdout.write("test-key-must-stay-private\\n")
 elif args[0] == "store":
-    if not sys.stdin.isatty():
+    # secret-tool reads a non-terminal stdin to its end and stores every
+    # byte, so the key must arrive without the box's line feed.
+    if sys.stdin.isatty():
         sys.exit(8)
-    key = getpass.getpass("Password: ")
+    key = sys.stdin.buffer.read().decode()
     if key != "test-key-must-stay-private":
         sys.exit(9)
     if (root / "store-fail").exists():

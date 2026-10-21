@@ -83,7 +83,13 @@ if stop_shell && copy_tree startup-migrations-original; then
           control_output "$sandbox/startup-migrations-control.log"
         fi
         expect "control: the original startup runs no hook" '{}' migrations_attempts
+        # The original Registry calls PluginLogic.withheldFields without the
+        # settings it takes since VGS-1953, so each field gated on a setting,
+        # Jarvis's on voiceProvider, throws in this copy alone.
+        migrations_expected=("${expected_errors[@]}")
+        expected_errors+=("@Core/PluginLogic\\.js\\[[0-9]+:-1\\]: TypeError: Cannot read property 'voiceProvider' of undefined$")
         check_unexpected_log "original startup log" "$instance_log"
+        expected_errors=("${migrations_expected[@]}")
       fi
       ;;
   esac

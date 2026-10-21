@@ -1,6 +1,10 @@
 .pragma library
 .import qs.Commons 1.0 as Commons
 
+// The word of a required step still to do, which the bar widget tells from
+// the step (WidgetView.unconfiguredText).
+var TO_DO = "To do";
+
 // Which setup step Jarvis offers while a command its setup needs is missing,
 // pure so scripts/test-jarvis-setup-gate.js runs it under node. MISSING is
 // the requirements capability's list: the plugin's declared commands the
@@ -100,9 +104,9 @@ var ELEVENLABS_UNREAD = "Jarvis could not read the voices of your ElevenLabs key
 // such as local voice not set up, keeps the declared hint, which says what
 // the step gives, since its action already says to set it up.
 var TODO = {
-    "brain=unselected": "Choose an AI model in [Settings > Jarvis > AI model](page:vgs.jarvis/Settings)",
-    "brain=account-unavailable": "The selected account or its key is unavailable: [add a provider key or sign in on the Details tab](page:vgs.jarvis/Details)",
-    "brain=model-required": "Choose a model in [Settings > Jarvis > AI model](page:vgs.jarvis/Settings)",
+    "brain=unselected": "Choose an AI model in [AI model](page:vgs.jarvis/Settings/brain)",
+    "brain=account-unavailable": "The chosen account or its key is unavailable: [add a key or sign in](page:vgs.jarvis/Details/keyStore)",
+    "brain=model-required": "Choose a model in [Model](page:vgs.jarvis/Settings/model)",
     "brain=models-reading": "Jarvis is reading the local server model list",
     "brain=models-unavailable": "Check the local server, then [choose a model](page:vgs.jarvis/Settings) under AI model and press Talk to try again",
     "brain=model-unavailable": "The local server does not offer this model: [choose another model](page:vgs.jarvis/Settings) under AI model",
@@ -134,8 +138,8 @@ var CAUTION = {
 // core's dictation setup copies voxtype's defaults and downloads its model;
 // the user stops another voxtype, or chooses voxtype's microphone, in Voice.
 var DICTATION = {
-    "speech=dictation-absent": { tone: "warning", text: "To do", hint: "Set up dictation so the local voice can hear you", action: "dictation" },
-    "speech=dictation-failed": { tone: "warning", text: "To do", hint: "Set up dictation again", action: "dictation" },
+    "speech=dictation-absent": { tone: "warning", text: TO_DO, hint: "Set up dictation so the local voice can hear you", action: "dictation" },
+    "speech=dictation-failed": { tone: "warning", text: TO_DO, hint: "Set up dictation again", action: "dictation" },
     "speech=dictation-elsewhere": { tone: "warning", text: "Another voxtype runs", hint: "Stop the other voxtype beside [Other dictation service in Voice Setup](page:vgs.voice/Setup)" },
     "speech=dictation-device": { tone: "warning", text: "Dictation uses another microphone", hint: "The local voice hears the system default microphone: choose it with [Configure in Settings > Voice](page:vgs.voice/Settings)" }
 };
@@ -165,10 +169,10 @@ var HOME_STEP_TODO = "Check that you can open and change the folder, or choose a
 var HOME_FILES = { agents: "/AGENTS.md", skills: "/skills/", memory: "/memory/MEMORY.md", persona: "/.agents/skills/jarvis/persona.md", folder: "/", state: "/state/" };
 function homeStep(cause, home, repair) {
     if (cause === "home=package") return homePackageStep(repair);
-    var value = Object.assign({ tone: "warning", text: "To do" },
+    var value = Object.assign({ tone: "warning", text: TO_DO },
         Object.prototype.hasOwnProperty.call(HOME_TODO, cause) ? HOME_TODO[cause] : { hint: HOME_STEP_TODO });
     if (value.action !== undefined) {
-        if (home.kind !== "ready") return { tone: "warning", text: "To do", hint: home.kind === "reading"
+        if (home.kind !== "ready") return { tone: "warning", text: TO_DO, hint: home.kind === "reading"
             ? "Jarvis is finding the file in your [Home folder](page:vgs.jarvis/Settings/home)"
             : "Jarvis could not find the file. Check your [Home folder in Settings](page:vgs.jarvis/Settings/home)." };
         value.file = home.path + HOME_FILES[value.action];
@@ -186,10 +190,10 @@ function homeStep(cause, home, repair) {
 // Home.js judges the writer. VGS restores its install, and Kendex restores
 // the Home it already owns. Neither route transfers ownership.
 function homePackageStep(home) {
-    if (home === undefined || home.kind !== "ready") return { tone: "warning", text: "To do", hint: home !== undefined && home.kind === "reading"
+    if (home === undefined || home.kind !== "ready") return { tone: "warning", text: TO_DO, hint: home !== undefined && home.kind === "reading"
         ? "Jarvis is checking how to repair your Home folder"
         : "Jarvis could not check the repair route. Choose another [Home folder in Settings](page:vgs.jarvis/Settings/home)." };
-    return { tone: "warning", text: "To do", action: "repair", hint: home.repair.kind === "install"
+    return { tone: "warning", text: TO_DO, action: "repair", hint: home.repair.kind === "install"
         ? home.repair.installPlan !== undefined && home.repair.installPlan.kind === "by-hand"
             ? "The VGS install is missing Jarvis files. Repair shows the required steps. Or choose another [Home folder](page:vgs.jarvis/Settings/home)."
             : "The VGS install is missing Jarvis files. Repair restores VGS. Or choose another [Home folder](page:vgs.jarvis/Settings/home)."
@@ -294,9 +298,12 @@ function homeDone(causes, home) {
 var HOME_UNCHECKED = { tone: "warning", text: "Not checked" };
 var DONE = { tone: "ok", text: "Done", action: false };
 // Voice setup uses Session's check result, which only the local wake detector
-// supplies. A step that names its own action, such as Set up dictation, keeps it.
-function voiceCheck(value, check) {
-    if (value.tone !== "ok" || check === null || check.kind === "unavailable") return value.action === true
+// supplies; a cloud voice keeps a check that ended (`kept`), so a provider
+// change on the same microphone keeps its result. A step that names its own
+// action, such as Set up dictation, keeps it. TALK is the sentence that says
+// how to talk now (talkHint).
+function voiceCheck(value, check, talk) {
+    if (value.tone !== "ok" || check === null || check.kind === "unavailable" || check.kind === "kept") return value.action === true
         ? Object.assign({}, value, { action: "setup" }) : typeof value.action === "string" ? value : noAction(value);
     if (check.kind === "waiting" || check.kind === "recording")
         return { tone: "info", text: "Say Hey Jarvis", hint: "The microphone is open for three seconds",
@@ -305,15 +312,120 @@ function voiceCheck(value, check) {
     if (check.kind === "failed") return { tone: "danger", text: "Check failed",
         hint: "Jarvis could not check the microphone: press Check microphone to try again", action: "check" };
     if (check.kind === "done") {
-        if (check.result === "ready") return { tone: "ok", text: "Ready", action: "check" };
+        if (check.result === "ready") return { tone: "ok", text: "Microphone check passed", hint: talk, action: "check" };
         // Only the local voice checks, and it hears the system default.
         if (check.result === "silent") return { tone: "warning", text: "Muted or silent", hint: "The default microphone is muted or sends silence: [check it in System > Sound](page:vgs.sound)", action: "check" };
         return { tone: "warning", text: "Not heard", hint: "Jarvis did not hear Hey Jarvis: try again closer or in a quieter room", action: "check" };
     }
+    // A changed device asks for the check again, and says why.
+    if (check.kind === "again") return { tone: "info", text: "Check again",
+        hint: "Jarvis now hears another microphone: press Check microphone, then say Hey Jarvis", action: "check" };
     return { tone: "info", text: "Not checked", hint: "Press Check microphone, then say Hey Jarvis", action: "check" };
+}
+
+// The sentence that says how to talk to Jarvis now, for MODE, the Talk mode
+// setting, and TALK, its key as people read it, or null while no key is set:
+// the one sentence the Voice step, the bar and the console say it with.
+function talkHint(mode, talk) {
+    if (talk === null) return (mode === "always" ? "Say Hey Jarvis, or set" : "Set") + " the [Talk key](page:vgs.jarvis/Settings) in the Keys section";
+    if (mode === "hold") return "Tap or hold " + talk + ", then speak";
+    if (mode === "toggle") return "Press " + talk + ", then speak";
+    return "Say Hey Jarvis, or press " + talk;
+}
+
+// Each cause a failed local voice setup records (setup-local
+// local-setup-failed.json), by what the user does next: the Voice step's
+// hint, which links the log that holds the cause.
+var LOCAL_FAILURES = {
+    busy: "The local voice was in use, so the new model did not install",
+    download: "The download stopped: check your network, then try again",
+    disk: "The disk is full: free some space, then try again",
+    probe: "The voice did not pass its test on this computer: choose a model that runs on any computer",
+    unavailable: "This model needs an NVIDIA graphics card: choose a model that runs on any computer",
+    refused: "This model is no longer offered: choose another model",
+    cancelled: "The setup was cancelled: set it up again when you are ready",
+    other: "The setup stopped before it finished: try again"
+};
+var LOCAL_SETUP_INFO = "The download holds the speech models that run on this computer, so your speech stays here.";
+
+// The Voice step as the page shows it, from VALUE, the step readiness,
+// voiceCheck and setupValue made, and FACTS: `provider` (voiceProvider),
+// `voice`, that provider as AccountProviders.cloudVoice gives it, null for
+// Local, `causes`, the daemon's last setup causes, `talk` (talkHint), `keys`, how
+// many keys of the provider are stored, `size`, the download size of the
+// local voice setup-local picks or "", and `failure`, the last failed local
+// setup of the tier the user wants (localFailure) or null. A done step names
+// the voice and how to talk; a cloud voice without its key names the key and
+// offers Add a key; a voice that hears on this computer whose wanted tier's
+// setup failed names that tier and why, and offers Set up local voice, also
+// while the tier before it still serves; local voice not set up names the
+// download and offers the same, with a cloud voice as the other path.
+function voiceStep(value, facts) {
+    var voice = facts.voice;
+    var failed = facts.failure !== null && hearsLocally(facts.provider);
+    if (value.tone === "ok" && value.text === "Done" && !failed) return { tone: "ok", text: voice === null ? "Local voice" : voice.product, hint: facts.talk };
+    var has = function (cause) { return facts.causes.indexOf(cause) !== -1; };
+    // Only a cloud voice takes a key, so only its key causes name one.
+    if (voice !== null && has("speech=live-key-refused"))
+        return { tone: "warning", text: KEY_REFUSED, hint: voice.product + " refused your " + voice.company + " key: add a new one", action: "key" };
+    if (voice !== null && (has("speech=live-key-required") || has("speech=live-account-unselected")))
+        return facts.keys > 0 ? { tone: "warning", text: "No key chosen", hint: "Choose your " + voice.company + " key in [Voice key](page:vgs.jarvis/Settings/voiceAccount), or add one", action: "key" }
+            : { tone: "warning", text: "No " + voice.company + " key", hint: voice.product + " needs your " + voice.company + " key", action: "key" };
+    // A step another action mends, such as a missing tool, keeps it.
+    if (failed && (value.action === "setup" || value.tone === "ok")) {
+        var reason = Object.prototype.hasOwnProperty.call(LOCAL_FAILURES, facts.failure.cause) ? LOCAL_FAILURES[facts.failure.cause] : LOCAL_FAILURES.other;
+        return { tone: "warning", text: facts.failure.text, action: "setup", info: LOCAL_SETUP_INFO,
+            hint: reason + ". " + Commons.PageReference.fileReference("Open the setup log", facts.failure.log) + "." };
+    }
+    if (value.action !== "setup" || value.tone === "ok") return value;
+    if (has("speech=local-not-set-up"))
+        return { tone: "warning", text: "Not set up", action: "setup", info: LOCAL_SETUP_INFO,
+            hint: "Downloads the local voice" + (facts.size === "" ? "" : ", about " + facts.size) + ". Or [use a cloud voice](page:vgs.jarvis/Settings/voiceProvider)." };
+    return value;
+}
+
+// The last failed local voice setup in READING, setup-local's status
+// answer, as { cause, log, text }, while it set up WANTED, the tier the
+// Local voice model setting asks for, and READY, the tier ready (null for
+// none), is another; else null. A setup of a tier the user has since left,
+// or one a later run set up, is no step.
+function localFailure(reading, wanted, ready) {
+    if (reading === null || typeof reading !== "object" || typeof reading.failure !== "object" || reading.failure === null) return null;
+    var failure = reading.failure;
+    if (typeof failure.cause !== "string" || typeof failure.log !== "string" || typeof failure.text !== "string") return null;
+    if (failure.tier !== wanted || ready === wanted) return null;
+    return { cause: failure.cause, log: failure.log, text: failure.text };
+}
+
+// Whether the user's choice on the Jarvis page of AFTER as the Voice
+// provider, in place of BEFORE, starts the local voice's download: a voice
+// that hears on this computer in place of one that does not, while
+// READING, LocalTier's last read, has no tier ready.
+function localVoiceChosen(before, after, reading) {
+    return reading !== null && reading.ready === null && hearsLocally(after) && !hearsLocally(before);
+}
+
+// The one window the user's choice on the Jarvis page of AFTER as the
+// Voice provider, in place of BEFORE, opens: "add-voice-key" for a cloud
+// voice with none of its keys among KEYS (the account reader's voice keys,
+// undefined before its first read, which opens nothing), VOICE being AFTER
+// as AccountProviders.cloudVoice gives it, null for Local, else
+// "setup-local" when localVoiceChosen holds over READING, else null. One
+// choice opens one window: ElevenLabs with no tier ready and no key opens
+// Add a key, and the local download then stands as the Voice step's action.
+function providerWindow(before, after, reading, keys, voice) {
+    if (voice !== null && keys !== undefined && voiceKeys(keys, voice).length === 0) return "add-voice-key";
+    return localVoiceChosen(before, after, reading) ? "setup-local" : null;
 }
 var CHECKING = { tone: "info", text: "Checking", action: false };
 var LOADING = { tone: "info", text: "Loading", action: false };
+// The local voice while a setup replaces its model: the daemon closed the
+// sidecar for it (ChainedEngine.localSetup) and starts it once the setup
+// window closes.
+var SETTING_UP = { tone: "info", text: "Setting up", action: false };
+// The Voice step's word while the cloud voice's provider refused its key,
+// which the bar widget tells from the step (WidgetView.unconfiguredText).
+var KEY_REFUSED = "Key refused";
 // The summary declares no action, so its value carries none: the manifest
 // judge refuses an action key on an entry without one.
 var CHECKING_SUMMARY = { tone: "info", text: "Checking" };
@@ -363,11 +475,11 @@ function startStatus(cause, retrying) {
 // refused a mute press: the cause's title and action, never its key.
 function stoppedNotice(cause) {
     var problem = startCause(cause);
-    return { title: problem.title, message: sentence(problem.action), tone: "danger", icon: "mic" };
+    return { title: problem.title, message: sentence(problem.action), tone: "danger", icon: "vgs-letter-j" };
 }
 function muteRefusedNotice(cause) {
     return { title: "Jarvis mute not saved", message: "Mute request could not be saved: " + startCause(cause).title + ".",
-        tone: "danger", icon: "mic" };
+        tone: "danger", icon: "vgs-letter-j" };
 }
 // The installed voice stays verified. Reinstalling it cannot free memory.
 var MEMORY = {
@@ -413,6 +525,15 @@ function modelStep(value, keys, access) {
     return noAction(value);
 }
 
+// The AI model step once done, VALUE, names the account Jarvis asks, its
+// label among CHOICES, the `brains` offers, for BRAIN, the setting; a step
+// not done, or an account no offer names, is VALUE as it is.
+function modelDone(value, choices, brain) {
+    if (value.tone !== "ok" || !Array.isArray(choices)) return value;
+    var chosen = choices.find(function (choice) { return choice.value === brain; });
+    return chosen === undefined ? value : Object.assign({}, value, { text: chosen.label });
+}
+
 // The summary and required step values for ANSWER: { kind: "checking" }
 // while the daemon has not answered, { kind: "stopped" } once it stopped
 // for good, { kind: "problem", cause } after a failed start, or
@@ -453,8 +574,9 @@ function readiness(answer, home, repair) {
             }
             // ElevenLabs's voices are being read: the voice is chosen once
             // they answer.
-            if (cause === "speech=local-loading" || cause === "speech=dictation-starting" || cause === "speech=elevenlabs-voices-reading") {
-                out.setupVoice = LOADING;
+            if (cause === "speech=local-loading" || cause === "speech=dictation-starting" || cause === "speech=elevenlabs-voices-reading"
+                    || cause === "speech=local-setting-up") {
+                out.setupVoice = cause === "speech=local-setting-up" ? SETTING_UP : LOADING;
                 if (blocking.length === 1) out.setup = LOADING_SUMMARY;
                 return;
             }
@@ -468,7 +590,7 @@ function readiness(answer, home, repair) {
             }
             var hint = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];
             var action = step === "brain" ? (cause === "brain=signed-out" ? "signIn" : "key") : setupActs(cause);
-            var text = cause === "speech=local-ready-timeout" ? TIMED_OUT : "To do";
+            var text = cause === "speech=local-ready-timeout" ? TIMED_OUT : TO_DO;
             out[REQUIRED[step]] = hint === undefined ? { tone: "warning", text: text, action: action }
                 : { tone: "warning", text: text, hint: hint, action: action };
             if (cause === "brain=pi-update") out[REQUIRED[step]] = noAction(out[REQUIRED[step]]);
@@ -489,57 +611,51 @@ function copilotMemory(accounts) {
         ? { tone: "info", text: "Kept by GitHub" } : { hidden: true };
 }
 
-// The voice the daemon runs for SETTINGS, the plugin's: the provider the
-// user chose, or for "auto" Realtime while the Voice key setting names a
-// stored OpenAI key, else Local. Always talk mode listens on this
-// computer, so "auto" stays Local in it. OFFERED is the account reader's
-// stored cloud voice keys, each {value, label, provider}, undefined while
-// it has no answer, before its first read and after a failed one. A key's
-// id does not tell its provider, so with no answer "auto" is Local: the
-// named key may be a Gemini key, which Realtime cannot use, and the first
-// answer moves "auto" to Realtime when it names an OpenAI key. Jarvis
-// names a sole stored key itself (voiceChoice).
-function voiceProvider(settings, offered) {
-    if (settings.voiceProvider !== "auto") return settings.voiceProvider;
-    if (settings.mode === "always" || offered === undefined) return "local";
-    return offered.some(function (key) { return key.provider === "openai" && key.value === settings.voiceAccount; }) ? "realtime" : "local";
+// The provider a Voice provider stored as "auto" before VGS-1953 becomes,
+// the migration the service runs on its first read of SETTINGS (D107):
+// Realtime while the Voice key setting names a key and Talk mode is not
+// Always, which listens on this computer, else Local. Auto promised
+// Realtime once an OpenAI key was stored. The rewrite reads only the
+// settings file, so it never waits on the account probe: a key's id does
+// not tell its provider, and a Gemini or ElevenLabs key named under Auto
+// leaves Realtime asking for an OpenAI key, which the daemon never sends
+// another provider's key to (ChainedEngine voiceKey).
+function autoVoiceProvider(settings) {
+    return settings.mode !== "always" && settings.voiceAccount !== "" ? "realtime" : "local";
 }
 
-// The account provider whose keys the Voice key setting offers for
-// SETTINGS: Gemini for Gemini Live, ElevenLabs for ElevenLabs, else OpenAI,
-// which Realtime and Auto use.
-function voiceKeyProvider(settings) {
-    return settings.voiceProvider === "gemini" || settings.voiceProvider === "elevenlabs" ? settings.voiceProvider : "openai";
-}
-
-// Whether the voice PROVIDER (voiceProvider) speaks through a provider's
-// network service with the user's key, which a preview may be charged for.
-function cloudSpeech(provider) {
-    return provider === "realtime" || provider === "gemini" || provider === "elevenlabs";
-}
-
-// The Voice key choices for SETTINGS from KEYS, the account reader's stored
-// cloud voice keys: the keys of the selected cloud voice's provider.
-function voiceKeys(keys, settings) {
-    var provider = voiceKeyProvider(settings);
-    return keys.filter(function (key) { return key.provider === provider; })
+// The Voice key choices from KEYS, the account reader's stored cloud voice
+// keys, for VOICE, the selected voice as AccountProviders.cloudVoice gives
+// it: the keys of its provider, none for Local, which takes no key.
+function voiceKeys(keys, voice) {
+    return keys.filter(function (key) { return voice !== null && key.provider === voice.provider; })
         .map(function (key) { return { value: key.value, label: key.label }; });
 }
 
-// The key Jarvis selects for the user from KEYS, or null: the sole stored
-// key of the selected cloud voice, while the Voice key setting names none,
-// or, while a cloud voice is chosen, a stored key of another cloud voice,
-// as after a change of Voice provider. Under Local or Auto a named key
-// stays, so a Gemini key chosen before survives a visit to Local; a named
-// key that is not stored, such as a locked one, stays too.
-function voiceChoice(keys, settings) {
-    var offered = voiceKeys(keys, settings);
-    if (offered.length !== 1) return null;
-    var named = settings.voiceAccount;
-    if (named === "") return offered[0].value;
-    var cloud = cloudSpeech(settings.voiceProvider);
-    var other = cloud && keys.some(function (key) { return key.value === named && key.provider !== voiceKeyProvider(settings); });
-    return other ? offered[0].value : null;
+// The key Jarvis writes for the user from KEYS, or null to write none, for
+// VOICE (voiceKeys) and NAMED, the key the Voice key setting names:
+// while a cloud voice is chosen, its sole stored key, while the Voice key
+// setting names none or a stored key of another cloud voice, as after a
+// change of Voice provider; and "" for such a key of another voice while
+// the chosen voice has no sole key, so the field reads Choose a key, never
+// an unavailable key. Under Local, which shows no Voice key, nothing is
+// written, so a Gemini key chosen before survives a visit to Local; a
+// named key that is not stored, such as a locked one, stays too.
+function voiceChoice(keys, voice, named) {
+    if (voice === null) return null;
+    var offered = voiceKeys(keys, voice);
+    var other = named !== "" && keys.some(function (key) { return key.value === named && key.provider !== voice.provider; });
+    if (offered.length === 1 && (named === "" || other)) return offered[0].value;
+    return other ? "" : null;
+}
+
+// The key a finished Add a key stored, which Jarvis then selects: a key of
+// the selected cloud voice VOICE (voiceKeys) in KEYS that BEFORE, the keys
+// read before that run, did not hold; null for none.
+function voiceAdded(before, keys, voice) {
+    var held = before === undefined ? [] : before.map(function (key) { return key.value; });
+    var added = voiceKeys(keys, voice).filter(function (key) { return held.indexOf(key.value) === -1; });
+    return added.length === 1 ? added[0].value : null;
 }
 
 // The Cloned voice setup row (the manifest's clonedVoiceSetup) for VALUE,
@@ -575,41 +691,6 @@ function clonedVoiceStep(value, provider) {
     return row;
 }
 
-// Where to get a key and what it unlocks (D075), by the Voice provider
-// setting: the chosen cloud voice's key, or under Local and Auto the keys
-// of the two voices that hear you. The row's one link, Google AI Studio,
-// draws where the hint names it; another page is named in words alone.
-// `other` is the declared hint.
-var VOICE_KEY_HINTS = {
-    realtime: "Get an OpenAI key from OpenAI API keys to use the Realtime voice",
-    gemini: "Get a Gemini key from Google AI Studio to use the Gemini Live voice",
-    elevenlabs: "Get an ElevenLabs key from ElevenLabs API keys to speak in your ElevenLabs voices",
-    other: "Get an OpenAI key from OpenAI API keys for the Realtime voice, or a Gemini key from Google AI Studio for Gemini Live"
-};
-// The hint of a row with a key stored, by the provider of the offered keys
-// (voiceKeyProvider): what the key gives, and how to use another. Jarvis
-// stores its keys itself, several for one provider, each under a name, so
-// the row is no line of a key the core stores and takes no Replace or
-// Remove: a new key goes in through Add key on the API keys line under
-// AI model on Details, where this row is drawn too, and the Voice key field
-// on Settings chooses it. A link to that field would take the ElevenLabs
-// hint past the status hint ceiling.
-var VOICE_KEY_CHANGE = "; Add key on the API keys line under AI model stores another key for the Voice key setting";
-var VOICE_KEY_STORED = {
-    openai: "Jarvis can use the Realtime voice with your OpenAI key" + VOICE_KEY_CHANGE,
-    gemini: "Jarvis can use the Gemini Live voice with your Gemini key" + VOICE_KEY_CHANGE,
-    elevenlabs: "Jarvis can speak in your ElevenLabs voices with your ElevenLabs key" + VOICE_KEY_CHANGE
-};
-// The Voice group's key row for OFFERED, the stored keys of the cloud voice
-// SETTINGS select (voiceKeys), or null while the account reader could not
-// read them: Add key is offered until one is stored.
-function voiceKey(offered, settings) {
-    var hint = VOICE_KEY_HINTS[cloudSpeech(settings.voiceProvider) ? settings.voiceProvider : "other"];
-    if (offered === null) return { tone: "warning", text: "Could not check", hint: hint, action: true };
-    return offered.length === 0 ? { tone: "info", text: "No key stored", hint: hint, action: true }
-        : { tone: "ok", text: "Key stored", hint: VOICE_KEY_STORED[voiceKeyProvider(settings)], action: false };
-}
-
 // The ElevenLabs voices row (the manifest's elevenLabs) from FACTS:
 // `provider`, the voice the daemon runs (voiceProvider); `keys`, the
 // account reader's stored cloud voice keys, undefined before its answer;
@@ -640,30 +721,18 @@ function elevenLabsStep(facts) {
 }
 
 // The voiceRoute reading on Details for SETTING, the Voice provider the
-// user chose: what leaves the computer, to whom, and with which key.
+// user chose, and VOICE, that provider as AccountProviders.cloudVoice gives
+// it, null for Local: the voice's name, then what leaves the computer, to
+// whom, and with which key.
 var VOICE_ROUTES = {
-    auto: { text: "Auto", hint: "Auto chooses between Realtime and Local" },
-    local: { text: "Local", hint: "Local keeps your voice and the replies on this computer, and answers fastest" },
-    realtime: { text: "Realtime", hint: "Realtime sends your voice and the replies Jarvis lets out to OpenAI, with your OpenAI key" },
-    gemini: { text: "Gemini Live", hint: "Gemini Live sends your voice and the replies Jarvis lets out to Google, with your Gemini key" },
-    elevenlabs: { text: "ElevenLabs", hint: "ElevenLabs keeps your voice on this computer and sends the replies Jarvis lets out to ElevenLabs, with your ElevenLabs key" }
+    local: "Local keeps your voice and the replies on this computer, and answers fastest",
+    realtime: "OpenAI Realtime sends your voice and the replies Jarvis lets out to OpenAI, with your OpenAI key",
+    gemini: "Gemini Live sends your voice and the replies Jarvis lets out to Google, with your Gemini key",
+    elevenlabs: "ElevenLabs keeps your voice on this computer and sends the replies Jarvis lets out to ElevenLabs, with your ElevenLabs key"
 };
-function voiceRoute(setting) {
+function voiceRoute(setting, voice) {
     if (!Object.prototype.hasOwnProperty.call(VOICE_ROUTES, setting)) throw new Error("jarvis-setup: voice-provider=" + setting);
-    var route = VOICE_ROUTES[setting];
-    return { tone: "info", text: route.text, hint: route.hint };
-}
-
-// The Voice preview row's words for a cloud voice PROVIDER (voiceProvider):
-// whose key the preview uses, and that it may cost money.
-var PREVIEW_COSTS = {
-    realtime: { tone: "info", text: "Uses your OpenAI key", hint: "A preview of the Realtime voice may cost money", action: true },
-    gemini: { tone: "info", text: "Uses your Gemini key", hint: "A preview of the Gemini Live voice may cost money", action: true },
-    elevenlabs: { tone: "info", text: "Uses your ElevenLabs key", hint: "A preview in an ElevenLabs voice uses credits of your ElevenLabs account", action: true }
-};
-function previewCost(provider) {
-    if (!cloudSpeech(provider)) throw new Error("jarvis-setup: preview-provider=" + provider);
-    return PREVIEW_COSTS[provider];
+    return { tone: "info", text: voice === null ? "Local" : voice.product, hint: VOICE_ROUTES[setting] };
 }
 
 // The Agent fleet row (the manifest's setupFleet) for HOME, the home folder
@@ -683,16 +752,29 @@ function fleetStep(home, tool) {
 // folder field as the Personality row does and leaves that row's badge the
 // one place the Home group says no folder is chosen, VGS-1785).
 var SESSION_BOOT = "When VGS starts after you sign in, a tmux session starts Jarvis in your selected home folder";
+// Each block of session-control.js, by its row: { text, hint, action },
+// `action` the row's action, absent where the hint's link is the way on.
+// A home Kendex installed lacks its session program until Repair restores
+// it; one VGS laid out ships none (Home.layout), so the row says so and
+// that the voice works without it, and links the Home folder for a Kendex
+// home. A command that ran outside its contract reads again on Retry. A
+// way to the program Jarvis cannot follow is the Home folder's to fix.
 var SESSION_BLOCKS = {
-    "no-account": "No session can start without an account: [choose an app as the Account under AI model](page:vgs.jarvis/Settings)",
-    "not-app": "No session can start with an API key or a local model: [choose an app as the Account under AI model](page:vgs.jarvis/Settings)",
-    "no-home": "No session can start until [Home folder](page:vgs.jarvis/Settings/home) sets a folder",
-    "package": "Install or update the Jarvis package in this home folder"
+    "no-account": { text: "Optional", hint: "No session can start without an account: [choose an app as the Account under AI model](page:vgs.jarvis/Settings/brain)" },
+    "not-app": { text: "Optional", hint: "No session can start with an API key or a local model: [choose an app as the Account under AI model](page:vgs.jarvis/Settings/brain)" },
+    "no-home": { text: "Optional", hint: "No session can start until [Home folder](page:vgs.jarvis/Settings/home) sets a folder" },
+    "package": { text: "Cannot start", hint: "This home folder's Jarvis package has no session program. Repair restores it with Kendex.", action: "repair" },
+    "vgs-package": { text: "Not offered in this home folder", hint: "VGS made this Home folder without the Jarvis session program. Voice Jarvis works without it. [Choose a Kendex Jarvis home](page:vgs.jarvis/Settings/home)." },
+    "unread": { text: "Cannot start", hint: "The Jarvis session program did not answer as expected. Try again.", action: "retry" },
+    "home-link": { text: "Cannot start", hint: HOME_TODO["home=link"].hint },
+    "home-kind": { text: "Cannot start", hint: HOME_STEP_TODO },
+    "home-unreadable": { text: "Cannot start", hint: HOME_STEP_TODO }
 };
-// The blocks that wait only on a choice the user has not made yet. The
-// session is optional (Start Jarvis at boot is off at first), so these read
-// as an optional step; the other blocks are faults to fix.
-var SESSION_CHOICES = ["no-account", "not-app", "no-home"];
+// The blocks that wait only on a choice the user has not made yet, or that
+// the home cannot offer: the session is optional (Start Jarvis at boot is
+// off at first), so these read in the info tone; the other blocks are
+// faults to fix, which the bar names (sessionSummary).
+var SESSION_CHOICES = ["no-account", "not-app", "no-home", "vgs-package"];
 var SESSION_FAILED = "Jarvis did not start";
 // PluginLogic STATUS_HINT_MAX, the longest hint a status row takes.
 var SESSION_HINT_MAX = 200;
@@ -728,6 +810,7 @@ var SESSION_ROWS = {
     "blocked selection-conflict": { tone: "warning", text: "Cannot start", hint: "Changing the home or account restarts Jarvis after the new selection is checked" },
     "blocked tmux-missing": { tone: "warning", text: "Cannot start", hint: "No session can start without tmux: [review all missing or outdated tools under Optional tools on the Setup tab](page:vgs.jarvis/Setup)" },
     "blocked app-missing": { tone: "warning", text: "Cannot start", hint: "No session can start, because the app of the selected account is not installed" },
+    "blocked trust-required": { tone: "warning", text: "Cannot start", detail: true, action: "retry" },
     "failed launch-failed": { tone: "danger", text: "Not started", detail: true, action: "retry" },
     "failed handover-failed": { tone: "danger", text: "Not started", detail: true, action: "retry" }
 };
@@ -843,8 +926,10 @@ function sessionStart(wanted, result, offered, notDismissed) {
     if (result === null) return { hidden: true };
     if (result.kind === "blocked") {
         if (!Object.prototype.hasOwnProperty.call(SESSION_BLOCKS, result.block)) throw new Error("jarvis-setup: session=" + result.block);
-        return SESSION_CHOICES.indexOf(result.block) !== -1 ? { tone: "info", text: "Optional", hint: SESSION_BLOCKS[result.block] }
-            : { tone: "warning", text: "Cannot start", hint: SESSION_BLOCKS[result.block] };
+        var block = SESSION_BLOCKS[result.block];
+        var blocked = { tone: SESSION_CHOICES.indexOf(result.block) !== -1 ? "info" : "warning", text: block.text, hint: block.hint };
+        if (block.action !== undefined) blocked.action = block.action;
+        return blocked;
     }
     var failure = { tone: "danger", text: "Not started", hint: SESSION_FAILED, action: "retry" };
     if (result.kind !== "answer") return failure;
@@ -868,7 +953,7 @@ function sessionStart(wanted, result, offered, notDismissed) {
     if (running.model !== null) lines.push("Model: " + running.model);
     if (running.since !== null) lines.push("Running since " + running.since);
     // The selection that failed its check, beside the session that stays.
-    if (result.unapplied !== undefined) lines.push(SESSION_BLOCKS[result.unapplied]);
+    if (result.unapplied !== undefined) lines.push(SESSION_BLOCKS[result.unapplied].hint);
     if (offered === true && notDismissed === true) lines.push(SESSION_NOT_DISMISSED);
     if (lines.length > 0) value.lines = lines;
     return value;
@@ -876,12 +961,11 @@ function sessionStart(wanted, result, offered, notDismissed) {
 
 // The Setup summary SETUP beside SESSION, the Jarvis session row
 // (sessionStart). The session is optional, so it never makes Jarvis not
-// ready, but a Ready summary names a session the user must fix: the page
-// gives one judgement.
-var SESSION_FAULTS = {
-    warning: "The Jarvis session cannot start: see [Jarvis session under Home on the Details tab](page:vgs.jarvis/Details)",
-    danger: "The Jarvis session did not start: see [Jarvis session under Home on the Details tab](page:vgs.jarvis/Details)"
-};
+// ready, but a Ready summary names a session the user must fix, as one
+// link to the row on Setup that holds the fix: the page gives one
+// judgement.
+var SESSION_FAULT = "[Jarvis session cannot start](page:vgs.jarvis/Setup/sessionStart)";
+var SESSION_FAULTS = { warning: SESSION_FAULT, danger: SESSION_FAULT };
 function sessionSummary(setup, session) {
     if (setup.tone !== "ok" || !Object.prototype.hasOwnProperty.call(SESSION_FAULTS, session.tone)) return setup;
     var fault = SESSION_FAULTS[session.tone];
@@ -894,9 +978,10 @@ function sessionModes(wanted) {
     return wanted ? SESSION_MODES : [];
 }
 
-// An optional step's row from VALUE, its reader's state: that state, in
-// the info tone that marks a step optional while it is not ok, so Jarvis
-// reads ready without it. The browser and input are optional.
+// The Local voice reading VALUE under a voice that hears the user
+// elsewhere (localVoiceStep): that state, in the info tone while it is not
+// ok, since that voice needs no local voice. The Setup tab's optional steps
+// take their chip from the page (Steps.stepView), so they need no tone.
 function optionalStep(value) {
     return value.tone === "ok" ? value : Object.assign({}, value, { tone: "info" });
 }
@@ -911,10 +996,14 @@ function optionalStep(value) {
 // step and never open; a reading that would offer setup, with no hint of
 // its own, states why the step asks for it. Else, under a voice that hears
 // the user on this computer, the row keeps its reading's tone, and under a
-// voice that hears the user elsewhere it is optional.
+// voice that hears the user elsewhere it is optional, and its hint says the
+// voice is not used: the declared hint links Local voice model, a field the
+// page withholds under such a voice.
 var LOCAL_VOICE_NEEDED = "The selected voice provider needs the local voice";
+var LOCAL_VOICE_UNUSED = "Not used with the voice you chose in [Voice provider](page:vgs.jarvis/Settings/voiceProvider)";
 function localVoiceStep(value, provider, voice) {
     var reading = noAction(value);
+    delete reading.failure;
     if (voice.action === "setup") {
         if (value.tone === "ok") return reading;
         var row = { tone: "info", text: value.text };
@@ -923,7 +1012,7 @@ function localVoiceStep(value, provider, voice) {
         if (value.hint !== undefined) row.hint = value.hint;
         return row;
     }
-    return hearsLocally(provider) ? reading : optionalStep(reading);
+    return hearsLocally(provider) ? reading : Object.assign(optionalStep(reading), { hint: LOCAL_VOICE_UNUSED });
 }
 
 // The value a setup reader publishes when its check gives no answer, by
@@ -969,12 +1058,14 @@ function tierRun(wanted, pick, ready) {
     return wanted === "auto" ? [] : [wanted];
 }
 
-// The setting after a setup run ended, null to keep it: once the run left
-// another tier than the wanted one ready, a cancelled pick or the Setup
-// button's install of the pick, the setting names that tier, "auto" for the
-// pick, so the page shows what is installed. A run that left none keeps it:
-// READY null is then returned.
-function tierAfterRun(wanted, pick, ready) {
+// The setting after a setup run ended with CODE, null to keep it: once a
+// cancelled run (130) or one that finished left another tier than the
+// wanted one ready, the setting names that tier, "auto" for the pick, so
+// the page shows what is installed. A run that failed keeps the model the
+// user chose, which the Setup step's retry installs; a run that left none
+// keeps it too. CODE null is a run whose end gave no code.
+function tierAfterRun(wanted, pick, ready, code) {
     if (wantedTier(wanted, pick) === ready) return null;
+    if (code !== undefined && code !== null && code !== 0 && code !== 130) return null;
     return ready === pick ? "auto" : ready;
 }

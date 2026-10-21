@@ -161,7 +161,8 @@ function rig(kit, server, options = {}) {
         directories: options.directories, configured, tasks: tasks?.port ?? null, request: dictation.send,
         ...(options.home === undefined ? {} : { home: options.home }),
         ...(options.log === undefined ? {} : { log: options.log }),
-        ...(options.trace === undefined ? {} : { trace: options.trace }) });
+        ...(options.trace === undefined ? {} : { trace: options.trace }),
+        ...(options.rejudge === undefined ? {} : { rejudge: options.rejudge }) });
     if (daemon !== null) daemon.engine = engine;
     ports.release = engine.release;
     const actionApproval = ports.approval;
@@ -188,7 +189,7 @@ function rig(kit, server, options = {}) {
         const file = path.join(state, "audit/2026-10-01.jsonl");
         return fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim().split("\n").map(line => JSON.parse(line)) : [];
     };
-    return { runner, router, audio, audioClock, engine, audit, faults, executions, held, partials, captions, rows, configure,
+    return { Session, runnerNow: runnerClock.now, runner, router, audio, audioClock, engine, audit, faults, executions, held, partials, captions, rows, configure,
         state, workspace, server, advanceRunner, writes, timers, tasks, dictation, bridge: daemon?.bridge,
         s: () => runner.state,
         async close() {
@@ -255,6 +256,14 @@ function taskWorld(kit, runner, Session, faults) {
     };
 }
 
+// A Talk release after a hold: Session reads a release sooner than its
+// TAP_MS as a tap, which keeps the microphone open, so the injected
+// runner clock first passes that bound.
+function release(w) {
+    w.advanceRunner(w.Session.TAP_MS);
+    w.runner.dispatch({ type: "talk-up" });
+}
+
 // One utterance through real capture: down, partials, up, final.
 async function say(w, script, { waitPartial = true, over = () => false } = {}) {
     control.utterances.push(script);
@@ -267,7 +276,7 @@ async function say(w, script, { waitPartial = true, over = () => false } = {}) {
         "capture opens from real fixture PCM");
     if (waitPartial && script.partials.length)
         await settled(() => w.partials.at(-1) === script.partials.at(-1) || !collecting(), over, "partials reach Session");
-    w.runner.dispatch({ type: "talk-up" });
+    release(w);
     return before;
 }
 // Waits for an observation or for a state from which it can no longer come,
@@ -454,7 +463,7 @@ async function daemonSpeech(server, edits = [], scenario = "ready", firstEnding 
             w.runner.dispatch({ type: "snapshot", locked: false, engine: w.engine.engine(), configured: true, settings: w.s().settings });
             w.runner.dispatch({ type: "talk-down" });
             await until(() => w.s().capture.kind === "open", "bounded loading capture opens");
-            w.runner.dispatch({ type: "talk-up" });
+            release(w);
             await until(() => w.s().capture.kind === "closed", "bounded loading capture releases");
             assert.equal(w.s().turn.kind, "collecting");
             const before = server.requests.length;
@@ -560,6 +569,77 @@ async function daemonSpeech(server, edits = [], scenario = "ready", firstEnding 
         await w.close();
         // A control can leave a replaced sidecar running; its handle would
         // keep this world alive past its bound.
+        await turn();
+        try { await until(() => starts().every(row => !alive(row.pid)), "daemon teardown releases speech child"); }
+        finally {
+            for (const row of starts()) if (alive(row.pid)) process.kill(row.pid, "SIGKILL");
+            server.closeAll();
+        }
+    }
+}
+
+// A local voice setup run over a live local conversation with the stand-in
+// sidecar (ChainedEngine localSetup): its start ends the conversation and
+// answers only once the sidecar is reaped, a judge during the run starts
+// none, and its end starts the sidecar on the publication the run left.
+async function localSetupRun(server, edits = []) {
+    Fixture.reset();
+    server.replies.length = 0;
+    const kit = Fixture.copy(process.env.JARVIS_TEST_ROOT, edits);
+    const engineFile = path.join(kit.folder, "backend/ChainedEngine.js");
+    const source = fs.readFileSync(engineFile, "utf8");
+    const needle = 'const SPEECH = Object.freeze({ scripted: require(' + JSON.stringify(require.resolve("./fixtures/jarvis/engine.js")) + ').row });';
+    assert.equal(source.split(needle).length - 1, 1);
+    fs.writeFileSync(engineFile, source.replace(needle, "const SPEECH = Object.freeze({ local: LocalSpeech.row });"));
+    fs.copyFileSync(path.join(tree, "shell/plugins/vgs.jarvis/artifacts.json"), path.join(kit.folder, "artifacts.json"));
+    delete require.cache[engineFile];
+    kit.Engine = require(engineFile);
+    const root = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "local-setup-"));
+    const local = path.join(root, "local"), state = path.join(root, "state");
+    fs.mkdirSync(path.join(local, "venv/bin"), { recursive: true });
+    fs.mkdirSync(state);
+    fs.copyFileSync(path.join(__dirname, "fixtures/jarvis-local-speech/standin.py"), path.join(local, "venv/bin/python"));
+    fs.chmodSync(path.join(local, "venv/bin/python"), 0o700);
+    fs.writeFileSync(path.join(local, "scenario.json"), JSON.stringify({ start: "ready",
+        utterances: Array.from({ length: 2 }, () => ({ speech: true })), speech: [] }));
+    const marker = path.join(state, "local-ready.json");
+    fs.writeFileSync(marker, JSON.stringify({ tier: "small", data: fs.realpathSync(local) }));
+    const logs = () => fs.existsSync(path.join(local, "log.jsonl")) ? fs.readFileSync(path.join(local, "log.jsonl"), "utf8")
+        .trim().split("\n").filter(Boolean).map(JSON.parse) : [];
+    const starts = () => logs().filter(row => row.start).map(row => row.start);
+    const alive = pid => { try { process.kill(pid, 0); return true; } catch (error) { if (error.code === "ESRCH") return false; throw error; } };
+    const w = rig(kit, server, { directories: { state, data: root, runtime: root }, rejudge: () => w.configure(w.s().settings) });
+    w.dictation.text = "Fixture request.";
+    try {
+        await until(() => starts().length === 1, "sidecar starts before any conversation");
+        const first = starts()[0].pid;
+        // Whether setup-local could take the lock alone now.
+        const lockFree = () => cp.spawnSync("python3", ["-I", "-c", "import fcntl,sys\nfcntl.flock(open(sys.argv[1], 'a'), fcntl.LOCK_EX | fcntl.LOCK_NB)",
+            path.join(state, "local-setup.lock")]).status === 0;
+        assert.equal(lockFree(), false, "the sidecar holds the setup lock");
+        w.runner.dispatch({ type: "talk-down" });
+        await until(() => w.s().conversation.kind === "active" && w.s().capture.kind === "open", "a live local conversation");
+        const answer = w.engine.localSetup(true).then(() => alive(first));
+        assert.deepEqual([w.s().gate.kind, w.s().conversation.kind], ["down", "ended"], "the start ends the live conversation");
+        assert.equal(w.engine.localSetup(true) instanceof Promise, true);
+        assert.equal(await answer, false, "the answer follows the sidecar's exit");
+        assert.equal(lockFree(), true, "the answer follows the lock's release");
+        assert.deepEqual(w.configure(w.s().settings).causes, ["speech=local-setting-up"]);
+        w.runner.dispatch({ type: "talk-down" });
+        assert.equal(w.s().conversation.kind, "ended", "Talk waits for the setup");
+        // setup-local publishes the replacement with rename.
+        const replacement = path.join(state, ".local-ready-replaced");
+        fs.writeFileSync(replacement, JSON.stringify({ tier: "medium", data: fs.realpathSync(local) }));
+        fs.renameSync(replacement, marker);
+        assert.deepEqual(w.configure(w.s().settings).causes, ["speech=local-setting-up"]);
+        w.engine.localSetup(false);
+        assert.equal(w.s().gate.kind, "up", "the end judges again");
+        // A sidecar a judge started during the run was spawned before the
+        // end's, so it has logged its start once the end's one is ready.
+        await until(() => w.engine.checkReady(), "the end starts the sidecar on the new publication");
+        assert.equal(starts().length, 2, "no sidecar starts while the setup runs");
+    } finally {
+        await w.close();
         await turn();
         try { await until(() => starts().every(row => !alive(row.pid)), "daemon teardown releases speech child"); }
         finally {
@@ -689,6 +769,9 @@ async function loadingTalk(server, ending = "ready", edits = []) {
         // At least one PCM period reaches the existing sink before release.
         await until(() => fs.existsSync(path.join(process.env.HOME, "audio-argv")) &&
             fs.readFileSync(path.join(process.env.HOME, "audio-argv"), "utf8").includes('"command": "pw-record"'), "fixture recorder starts");
+        // The shipped daemon's runner reads the real clock: a release sooner
+        // than Session's TAP_MS would be a tap, which keeps capturing.
+        await new Promise(resolve => setTimeout(resolve, load(path.join(kit.folder, "Session.js")).TAP_MS));
         intent("talk-up");
         await until(() => s().capture.kind === "closed", "release closes the same capture before ready");
         assert.equal(s().input.kind, "released");
@@ -1040,7 +1123,7 @@ async function cases(kit, server, only = null) {
         assert.equal(w.s().capture.kind, "closed", "no microphone overlaps the start sound");
         assert.equal(control.frames, 0);
         assert.equal(w.writes.some(write => write.pcm.some(byte => byte !== 0)), true, "the start sound is audible PCM");
-        w.runner.dispatch({ type: "talk-up" });
+        release(w);
         await playOut(w);
         assert.equal(w.s().capture.kind, "closed", "an early release opens no microphone");
         assert.equal(w.audio.lastPlayback.writtenFrames, 1920, "the whole start sound is played");
@@ -1118,7 +1201,7 @@ async function cases(kit, server, only = null) {
             // The injected clock advances only after the real stream adapter
             // has consumed the released sentence or the tool event.
             server.replies.push(reply(held));
-            await settled(() => ![...w.timers.values()].some(timer => timer.at === 1200),
+            await settled(() => ![...w.timers.values()].some(timer => timer.at === w.runnerNow() + 1200),
                 () => kind === "tool" ? w.executions.length > 0 : withoutAcks(control.spoken).length > 0,
                 "substantive provider output retires the feedback timer");
             w.advanceRunner(1200);
@@ -1138,7 +1221,7 @@ async function cases(kit, server, only = null) {
         const held = gate();
         server.replies.push(text('<tool_call>{"name": "windows_focus"}</tool_call> Calling `mcp__vgs-jarvis__windows_focus` now. ', { wait: held.wait }));
         await until(() => fs.readFileSync(silenced, "utf8").includes("Calling"), "the engine reads the silenced text");
-        assert.ok([...w.timers.values()].some(timer => timer.at === 1200), "silenced text leaves the working sound due");
+        assert.ok([...w.timers.values()].some(timer => timer.at === w.runnerNow() + 1200), "silenced text leaves the working sound due");
         w.advanceRunner(1200);
         assert.deepEqual([w.s().playback.kind, w.s().playback.cue], ["feedback", "line"], "the acknowledgement line covers the wait");
         assert.deepEqual(control.spoken, ["On it."], "and none of the silenced text is spoken");
@@ -1221,7 +1304,7 @@ async function cases(kit, server, only = null) {
         w.runner.dispatch({ type: "talk-down" });
         await until(() => w.s().capture.kind === "open", "Talk admits the voice answer after flush");
         assert.equal(w.s().turn.kind, "thinking");
-        w.runner.dispatch({ type: "talk-up" });
+        release(w);
         await requested(w, first + 2, "voice approval continues the same brain turn");
         const writes = w.writes.length;
         server.replies.push(text("Done."));
@@ -1390,7 +1473,7 @@ async function cases(kit, server, only = null) {
         control.utterances.push(utterance("Enough."));
         w.runner.dispatch({ type: "talk-down" });
         await until(() => w.s().capture.kind === "open", "Talk cuts the line and opens capture");
-        w.runner.dispatch({ type: "talk-up" });
+        release(w);
         server.replies.push(text(""));
         const body = await requested(w, first + 2, "the request after the interruption");
         assert.deepEqual(user(body), ["Hello.", INTERRUPTED + "\n\nEnough."], "the held reply was heard not at all");
@@ -1419,7 +1502,7 @@ async function cases(kit, server, only = null) {
         control.utterances.push(utterance("Enough."));
         w.runner.dispatch({ type: "talk-down" });
         await until(() => w.s().capture.kind === "open", "interruption flushes cue playback before capture");
-        w.runner.dispatch({ type: "talk-up" });
+        release(w);
         server.replies.push(text(""));
         const body = await requested(w, first + 2, "the interrupted cue's next request");
         assert.deepEqual(user(body), ["Hello.", INTERRUPTED + "\n\nEnough."], "no cue becomes assistant heard context");
@@ -1550,7 +1633,7 @@ async function cases(kit, server, only = null) {
         w.runner.dispatch({ type: "talk-down" });
         await until(() => w.s().capture.kind === "open", "capture reopens after the flush");
         assert.equal(w.audio.lastPlayback.heardText, "Hello", "Audio's lower bound covers one word");
-        w.runner.dispatch({ type: "talk-up" });
+        release(w);
         server.replies.push(text("Stopped."));
         const body = await requested(w, first + 2, "the request after barge-in");
         assert.deepEqual(body.messages.slice(1).map(message => [message.role, message.content]), [
@@ -1581,7 +1664,7 @@ async function cases(kit, server, only = null) {
         await until(() => w.s().capture.kind === "open", "capture reopens after cancel and flush");
         await server.requests[first].closed;
         held.open();
-        w.runner.dispatch({ type: "talk-up" });
+        release(w);
         server.replies.push(text("Fine."));
         const body = await requested(w, first + 2, "the request after barge-in");
         assert.deepEqual(body.messages.slice(1).map(message => [message.role, message.content]), [
@@ -1602,7 +1685,7 @@ async function cases(kit, server, only = null) {
         assert.equal(w.audio.lastPlayback === null || w.audio.lastPlayback.heardText === "", true,
             "no reply audio played before the interruption");
         held.open();
-        w.runner.dispatch({ type: "talk-up" });
+        release(w);
         server.replies.push(text("Okay."));
         const body = await requested(w, first + 2, "the request after cancel");
         assert.deepEqual(user(body), ["Open the door.", INTERRUPTED + "\n\nNever mind."], "the brain is told it heard nothing");
@@ -1741,7 +1824,7 @@ async function cases(kit, server, only = null) {
         control.utterances.push(utterance("Stop there."));
         w.runner.dispatch({ type: "talk-down" });
         await until(() => w.s().capture.kind === "open", "capture reopens after the flush");
-        w.runner.dispatch({ type: "talk-up" });
+        release(w);
         server.replies.push(text("Stopped."));
         const body = await requested(w, first + 1, "the request after the barge-in");
         assert.deepEqual(user(body), [FAST_ACCOUNT + "\n\nStop there."]);
@@ -1778,7 +1861,7 @@ async function cases(kit, server, only = null) {
         await until(() => w.s().capture.kind === "open", "capture reopens while the call runs");
         w.held[0]({ outcome: "completed", content: "workspace shown late" });
         await turn();
-        w.runner.dispatch({ type: "talk-up" });
+        release(w);
         server.replies.push(text("Waiting."));
         const body = await requested(w, first + 1, "the request after the interruption");
         assert.deepEqual(user(body), [FAST_ACCOUNT.replace("focused undefined", "workspace shown late") + "\n\nWait."],
@@ -1821,7 +1904,7 @@ async function cases(kit, server, only = null) {
         await until(() => w.s().capture.kind === "open", "capture reopens while the tool runs");
         const later = gate();
         server.replies.push([...pause(later), ...text("Waiting.").slice(1)]);
-        w.runner.dispatch({ type: "talk-up" });
+        release(w);
         // A fault ends the conversation: no later request or reply comes.
         const faulted = () => w.s().fault.kind === "error";
         const body = await requested(w, first + 2, "the request after the interruption", faulted);
@@ -1930,7 +2013,7 @@ async function cases(kit, server, only = null) {
         const before = server.requests.length;
         w.runner.dispatch({ type: "talk-down" });
         await until(() => w.s().capture.kind === "open", "capture opens");
-        w.runner.dispatch({ type: "talk-up" });
+        release(w);
         // A failure the service heard is one the turn no longer can.
         await settled(() => w.s().turn.kind !== "collecting",
             () => w.faults.includes("speech-transcribe: speech=fixture-failed"), "the failure reaches the turn");
@@ -2003,7 +2086,7 @@ async function cases(kit, server, only = null) {
     // provider does: a Realtime voice cannot change once it has spoken.
     await run("voice-preview", async w => {
         const before = w.server.requests.length;
-        w.runner.dispatch({ type: "preview" });
+        w.runner.dispatch({ type: "preview", voice: "fixture" });
         await settled(() => control.spoken.length === 1,
             () => w.s().turn.kind === "none" && w.s().playback.kind === "idle",
             "the preview speaks");
@@ -2021,7 +2104,7 @@ async function cases(kit, server, only = null) {
         assert.deepEqual([w.s().conversation.kind, w.s().gen > gen], ["ended", true]);
         // The ended turn's acknowledgement is flushed first; a preview waits for a quiet speaker.
         await until(() => w.s().playback.kind === "idle", "the ended conversation's playback is flushed");
-        w.runner.dispatch({ type: "preview" });
+        w.runner.dispatch({ type: "preview", voice: "other" });
         await until(() => control.spoken.filter(line => line === control.spoken[0]).length === 2, "the preview speaks again");
         await playOut(w);
         assert.deepEqual([control.speakers.at(-1), control.spoken.at(-1)], ["other", control.spoken[0]], "the same sentence in the new voice");
@@ -2129,7 +2212,7 @@ async function cases(kit, server, only = null) {
         await until(() => w.s().capture.kind === "open", "answer capture opens without a new brain turn");
         assert.equal(w.s().approval.id, h.id);
         assert.equal(w.s().turn.kind, "thinking");
-        w.runner.dispatch({type: "talk-up"});
+        release(w);
         const body = await requested(w, first + 2, "final voice answer releases the result",
             () => w.s().approval.kind === "held" && w.s().capture.kind === "closed" && control.finals > finals);
         assert.equal(body.messages.find(m => m.role === "tool").content, "clipboard words");
@@ -2165,7 +2248,7 @@ async function cases(kit, server, only = null) {
         assert.notEqual(w.s().capture.op, prior, "Talk replaces the capture that predates the hold");
         assert.equal(w.s().approval.id, h.id, "earlier audio cannot release the hold");
         assert.equal(server.requests.length, first + 1, "earlier Yes starts no brain turn or transfer");
-        w.runner.dispatch({ type: "talk-up" });
+        release(w);
         const body = await requested(w, first + 2, "fresh Toggle answer releases the result");
         assert.equal(body.messages.find(m => m.role === "tool").content, "clipboard words");
         assert.deepEqual(user(body), ["Read my clipboard."]);
@@ -2199,7 +2282,7 @@ async function cases(kit, server, only = null) {
                 w.runner.dispatch({ type: "shown", gen: h.gen, op: h.op, id: h.id });
             }
             w.advanceRunner(1100); // The final is late enough; its start is not.
-            w.runner.dispatch({ type: "talk-up" });
+            release(w);
             await until(() => control.finals > finals && w.s().capture.kind === "closed", "the answer final arrives after capture closes");
             await turn();
             assert.equal(w.s().approval.kind, "held", "the real engine refuses an answer with unsafe start timing");
@@ -2267,7 +2350,7 @@ async function cases(kit, server, only = null) {
         w.runner.dispatch({ type: "talk-down" });
         await until(() => w.s().capture.kind === "open", "capture opens");
         block();
-        w.runner.dispatch({ type: "talk-up" });
+        release(w);
         await settled(() => w.s().fault.kind === "error",
             () => server.requests.length > before || w.s().turn.kind === "thinking",
             "the acknowledgement audit failure ends the turn");
@@ -2376,7 +2459,7 @@ async function cases(kit, server, only = null) {
         w.runner.dispatch({ type: "indicator", shown: true });
         await until(() => w.s().capture.kind === "open", "the presented indicator opens the capture");
         assert.deepEqual(w.dictation.calls, ["dictation.start"]);
-        w.runner.dispatch({ type: "talk-up" });
+        release(w);
         const body = await requested(w, before + 1, "the recording's words reach the brain",
             () => w.dictation.calls.includes("dictation.stop") && quietTurn(w));
         assert.deepEqual(user(body), ["Open the voxtype browser."], "the recording's words are the user's turn");
@@ -2417,7 +2500,7 @@ async function cases(kit, server, only = null) {
         await settled(() => w.dictation.calls.includes("dictation.cancel"),
             () => daemonEnded && w.dictation.calls.length === 1 || w.s().capture.kind === "closed" && w.s().turn.kind === "none",
             trigger + " cancels the recording");
-        w.runner.dispatch({ type: "talk-up" });
+        release(w);
         await turn();
         assert.deepEqual(w.dictation.calls, ["dictation.start", "dictation.cancel"], trigger + ": never stopped");
         assert.equal(server.requests.length, before, trigger + ": no words reach the brain");
@@ -2442,7 +2525,7 @@ async function cases(kit, server, only = null) {
         await settled(() => w.dictation.calls.includes("dictation.cancel"),
             () => w.dictation.held.length === 0 && w.dictation.calls.length === 1 && w.s().conversation.kind === "ended",
             trigger + " cancels the recording once the start answers");
-        w.runner.dispatch({ type: "talk-up" });
+        release(w);
         await turn();
         assert.deepEqual(w.dictation.calls, ["dictation.start", "dictation.cancel"], trigger + ": never stopped");
         assert.equal(server.requests.length, before, trigger + ": no words reach the brain");
@@ -2454,7 +2537,7 @@ async function cases(kit, server, only = null) {
         const before = server.requests.length;
         w.runner.dispatch({ type: "talk-down" });
         await until(() => w.dictation.calls.length === 1 && w.s().capture.kind === "open", "the start waits for its answer");
-        w.runner.dispatch({ type: "talk-up" });
+        release(w);
         await until(() => control.finals === 1, "the row's end comes before the start answers");
         assert.deepEqual(w.dictation.calls, ["dictation.start"]);
         w.dictation.release();
@@ -2531,7 +2614,7 @@ async function cases(kit, server, only = null) {
         await until(() => w.s().fault.kind === "error", "the refusal is the turn's fault");
         assert.equal(w.s().fault.reason, "speech=dictation-busy");
         await until(() => w.s().capture.kind === "closed", "the refused utterance's capture closes");
-        w.runner.dispatch({ type: "talk-up" });
+        release(w);
         await turn();
         assert.deepEqual(w.dictation.calls, ["dictation.start"], "a refused recording is never stopped");
         assert.equal(server.requests.length, before);
@@ -2571,7 +2654,7 @@ async function cases(kit, server, only = null) {
         w.runner.dispatch({ type: "talk-down" });
         await until(() => w.s().capture.kind === "open", "the answer capture opens");
         w.advanceRunner(1100);
-        w.runner.dispatch({ type: "talk-up" });
+        release(w);
         await until(() => w.dictation.calls.slice(calls0).join(",") === "dictation.start,dictation.stop", "the answer is recorded");
         await until(() => w.s().capture.kind === "closed", "the answer capture closes");
         await turn();
@@ -3369,7 +3452,7 @@ async function groupSelection(root, server) {
         controls++;
     }
     assert.deepEqual(server.faults, [], "selection requests matched the pinned schema");
-    return controls;
+    return controls + await keyRefusedGroup(root);
 }
 
 async function groupDaemonSpeech(root, server) {
@@ -3385,6 +3468,18 @@ async function groupDaemonSpeech(root, server) {
     console.log("control=memory refusal admitted detected");
     controls++;
     await daemonSpeech(server, [], "held");
+    await localSetupRun(server);
+    for (const [name, edits] of [
+        ["setup answers before the sidecar exits", [["owner.closed.then(() => undefined)", "Promise.resolve()"]]],
+        ["setup keeps the conversation", [["            configured(configuration());\n            owner?.close();", "            owner?.close();"]]],
+        ["setup run starts a sidecar", [["            speechState = { kind: \"unloaded\" };", "            speechState = { kind: \"new\" };"],
+            ["        if (setup !== null) fail(\"local-setting-up\");\n        speechState = { kind: \"starting\" };", "        speechState = { kind: \"starting\" };"]]],
+        ["setup end starts nothing", [["                speechState = { kind: \"new\" };\n                rejudge();\n", "                speechState = { kind: \"new\" };\n"]]]
+    ]) {
+        await assert.rejects(() => localSetupRun(server, edits), assert.AssertionError, name + " control must fail");
+        console.log("control=" + name + " detected");
+        controls++;
+    }
     for (const [name, edits] of [
         ["ready before model load", [['speechState.kind === "new" || published) startSpeech(plan.speech);', 'false) startSpeech(plan.speech);']]],
         ["new arguments keep the sidecar", [['|| speechState.kind === "new" || speechIdentity === plan.speech.identity) return;', '|| true) return;']]],
@@ -3553,7 +3648,7 @@ async function groupPlants(root, server) {
         ["line-refused-retry", "if (c.live === null && turn.lineStream !== null) {",
             "if (c.live === null && (turn.lineStream !== null || turn.pendingLine !== null)) {", "progress-after-refused-line"],
         ["line-flush-heard", 'report === null || flushedLine ? "" : withoutLinePrefix', 'report === null ? "" : withoutLinePrefix', "line-held-reply-interrupt"],
-        ["preview-speaker", ".speak(sentenceInput, c.plan.speech.speaker)", '.speak(sentenceInput, "fixture")', "voice-preview"],
+        ["preview-speaker", ".speak(sentenceInput, speaker ?? c.plan.speech.speaker)", '.speak(sentenceInput, "fixture")', "voice-preview"],
         ["preview-unspoken", "fixedLine(c, turn, PREVIEW_LINE);", 'turn.done("brain-done");', "voice-preview"],
         ["dictation-reply-dropped", 'settle(ok(result) ? { kind: "text", text: result.data.text }',
             'settle(ok(result) ? { kind: "text", text: "" }', "dictation-hold-turn"],
@@ -3847,6 +3942,109 @@ async function spokenSelection(Engine, eleven) {
         assert.deepEqual([local.id, local.recipients.length], ["scripted", 1], "Local never speaks through ElevenLabs");
     } finally { for (const engine of engines) engine.close(); }
 }
+// A cloud voice key its provider refuses at the handshake holds Talk with
+// speech=live-key-refused until a judge selects another key or none, or the
+// key is stored again under its name (a new list revision): the
+// shipped adapter fails live=key-refused, the stream's closing release row
+// keeps key-refused, and the engine has the daemon judge again. Any other
+// refused handshake holds nothing. The handshake stand-in answers on a
+// loopback port; no provider is reached.
+const REFUSED_VOICES = [
+    { setting: "realtime", account: "openai", base: "wss://api.openai.com/v1/realtime", path: "/v1/realtime", status: 401 },
+    { setting: "gemini", account: "gemini", base: "wss://generativelanguage.googleapis.com/ws/", path: "/ws/", status: 403 }
+];
+async function keyRefusedHold(root, handshake, engineEdits = []) {
+    const origin = "http://127.0.0.1:" + handshake.address().port;
+    const from = fs.mkdtempSync(path.join(root, "key-refused-plugin-"));
+    const plugin = path.join(tree, "shell/plugins/vgs.jarvis");
+    fs.cpSync(path.join(plugin, "backend"), path.join(from, "backend"), { recursive: true });
+    for (const name of ["AccountProviders.js", "Session.js", "JarvisProtocol.js", "manifest.json"])
+        fs.copyFileSync(path.join(plugin, name), path.join(from, name));
+    const providers = path.join(from, "backend/Providers.js");
+    let table = fs.readFileSync(providers, "utf8");
+    for (const voice of REFUSED_VOICES) {
+        assert.equal(table.split(voice.base).length - 1, 1, "provider base edit match: " + voice.base);
+        table = table.replace(voice.base, origin.replace("http:", "ws:") + voice.path);
+    }
+    fs.writeFileSync(providers, table);
+    const { Engine } = Fixture.copy(root, engineEdits, from);
+    for (const voice of REFUSED_VOICES) {
+        const keyOf = id => ({ id, provider: voice.account, label: id, model: "",
+            source: { kind: "keyring", reference: { provider: voice.account, account: id, origin, attributes: { service: "vgs-jarvis" } } } });
+        const answers = [], records = [], failures = [];
+        let settings = null;
+        // Secrets.revision: a new one for each write of the stored list.
+        let revision = 1;
+        const engine = Engine.create({ captionLimit: 1, state: () => ({ gen: 0 }),
+            accounts: () => ({ secrets: { lookup: () => Buffer.from("test-key-must-stay-private"), revision: () => String(revision) }, choose: elevenAccounts.choose,
+                resolve: id => ["key 1", "key 2"].includes(id) ? keyOf(id) : null }),
+            clock: { now: () => performance.now(), set: (fn, ms) => setTimeout(fn, ms), clear: timer => clearTimeout(timer) },
+            policy: () => ({ profile: "standard", cloudVision: "ask" }),
+            audit: { before: (event, start) => ({ kind: "started", value: start() }), record: event => { records.push(event); return { kind: "recorded" }; } },
+            configured: answer => answers.push(answer), rejudge: () => answers.push(engine.configure(settings)) });
+        const judged = key => {
+            settings = { brain: "a", mode: "toggle", voiceProvider: voice.setting, voiceAccount: key, voice: "" };
+            return engine.configure(settings);
+        };
+        const cause = answer => [answer.kind, answer.cause, answer.causes?.[0]];
+        const talk = async (op, status, label) => {
+            handshake.status = status;
+            const before = failures.length;
+            engine.speech.open({ gen: 0, op }, { failed: reason => failures.push(reason), idle() {}, due() {}, delegation() {} });
+            await until(() => failures.length === before + 1, label + ": the refused handshake fails the stream");
+            return failures.at(-1);
+        };
+        try {
+            assert.deepEqual(cause(judged("key 1")), ["ready", undefined, undefined], voice.setting + ": key 1 is ready");
+            const published = answers.length;
+            assert.equal(await talk(1, voice.status, voice.setting), "live=key-refused", voice.setting + ": the adapter's cause");
+            assert.deepEqual([records.at(-1).outcome, records.at(-1).cause], ["failed", "key-refused"], voice.setting + ": the stream's closing row");
+            assert.equal(answers.length, published + 1, voice.setting + ": the daemon judges again");
+            assert.deepEqual(cause(answers.at(-1)), ["unconfigured", "speech=live-key-refused", "speech=live-key-refused"],
+                voice.setting + ": the refused key holds Talk");
+            assert.deepEqual(cause(judged("key 1")), ["unconfigured", "speech=live-key-refused", "speech=live-key-refused"],
+                voice.setting + ": the same key stays held");
+            assert.deepEqual(cause(judged("key 2")), ["ready", undefined, undefined], voice.setting + ": another key is ready");
+            assert.deepEqual(cause(judged("key 1")), ["ready", undefined, undefined], voice.setting + ": the hold ended with the key change");
+            assert.equal(await talk(3, voice.status, voice.setting + " again"), "live=key-refused", voice.setting + ": key 1 refused again");
+            assert.deepEqual(cause(judged("key 1")), ["unconfigured", "speech=live-key-refused", "speech=live-key-refused"],
+                voice.setting + ": key 1 held again");
+            revision += 1;
+            assert.deepEqual(cause(judged("key 1")), ["ready", undefined, undefined], voice.setting + ": key 1 stored again under its name is ready");
+            const another = await talk(2, 500, voice.setting + " 500");
+            assert.deepEqual([another, records.at(-1).cause], ["live=disconnected code=1006", "voice-stopped"], voice.setting + ": another refusal");
+            assert.deepEqual(cause(judged("key 1")), ["ready", undefined, undefined], voice.setting + ": another refusal holds nothing");
+        } finally { engine.close(); }
+    }
+}
+async function keyRefusedGroup(root) {
+    let controls = 0;
+    const handshake = http.createServer((request, response) => { response.writeHead(404); response.end(); });
+    handshake.status = 401;
+    // The refusal's body is provider text, which no cause carries.
+    handshake.on("upgrade", (request, socket) => socket.end("HTTP/1.1 " + handshake.status + " Refused\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}"));
+    await new Promise(resolve => handshake.listen(0, "127.0.0.1", resolve));
+    try {
+        await keyRefusedHold(root, handshake);
+        for (const [name, needle, replacement] of [
+            ["key-refused-unheld", "refusedKey = keyIdentity(c.plan.speech.key);", "void c;"],
+            ["key-refused-unjudged", "refusedKey = keyIdentity(c.plan.speech.key);\n                        rejudge();",
+                "refusedKey = keyIdentity(c.plan.speech.key);"],
+            ["key-refused-stored-again", "JSON.stringify([key.reference, key.secrets.revision()])", "JSON.stringify(key.reference)"],
+            ["key-refused-kept", 'if (plan.speech?.cause !== "speech=live-key-refused") refusedKey = null;', "void plan;"],
+            ["key-refused-stream-cause", ', "live=key-refused": "key-refused" });', " });"],
+            ["key-refused-any-fault", 'if (reason === "live=key-refused" && !closed) {', "if (!closed) {"]]) {
+            await assert.rejects(() => keyRefusedHold(root, handshake, [[needle, replacement]]), assert.AssertionError, name + " must turn red");
+            console.log("control=" + name + " detected");
+            controls++;
+        }
+    } finally {
+        handshake.closeAllConnections();
+        await new Promise(resolve => handshake.close(resolve));
+    }
+    return controls;
+}
+
 const SPOKEN_CONTROLS = [
     ["elevenlabs-selected", 'if (settings.voiceProvider === "elevenlabs") return selectSpoken(', 'if (false) return selectSpoken('],
     ["elevenlabs-key-provider", 'voiceKey(settings, accounts, "elevenlabs", provider)', 'voiceKey(settings, accounts, "openai", provider)'],
@@ -3898,7 +4096,7 @@ async function elevenCases(kit, server, eleven, only = null) {
         assert.deepEqual(w.rows().filter(row => row.kind === "release").map(row => [row.decision, row.outcome, row.effect]),
             lists.map(() => ["send", "pending", "external"]), "each page is audited before it leaves");
         const requests = w.server.requests.length;
-        w.runner.dispatch({ type: "preview" });
+        w.runner.dispatch({ type: "preview", voice: "VoiceA" });
         await settled(() => spoken().includes(PREVIEW), () => w.s().turn.kind === "none" && w.s().playback.kind === "idle", "the preview speaks");
         await playOut(w);
         const preview = eleven.posts().find(record => record.text === PREVIEW);
@@ -3975,7 +4173,7 @@ async function elevenCases(kit, server, eleven, only = null) {
         assert.equal(w.audio.lastPlayback.heardText, "Hello there.", "a sentence counts once it played whole");
         const held = eleven.posts().find(record => record.text === "Goodbye now.");
         await until(() => held.closed, "the barge-in ends the request in flight");
-        w.runner.dispatch({ type: "talk-up" });
+        release(w);
         server.replies.push(text("Stopped."));
         const body = await requested(w, first + 2, "the request after barge-in");
         assert.equal(user(body).at(-1), heardOnly("Hello there.") + "\n\nStop there.", "the brain is told exactly the heard prefix");
@@ -4044,7 +4242,7 @@ async function groupElevenLabs(root, server) {
         await elevenCases(elevenKit(root, [FLUSH_RETURNS]), server, eleven, "elevenlabs-end");
         for (const [name, scenario, engine, backend] of [
             ["elevenlabs-voices-unread", "elevenlabs-voices", [["            if (plan.list !== null && plan.list !== undefined) readVoices(plan.list);\n", ""]], []],
-            ["elevenlabs-preview-voice", "elevenlabs-voices", [[".speak(sentenceInput, c.plan.speech.speaker)", '.speak(sentenceInput, "VoiceB")']], []],
+            ["elevenlabs-preview-voice", "elevenlabs-voices", [[".speak(sentenceInput, speaker ?? c.plan.speech.speaker)", '.speak(sentenceInput, "VoiceB")']], []],
             ["elevenlabs-list-unaudited", "elevenlabs-voices", [['const result = audit.before(releaseEvent({ recipients }, identityOf, item.labels, "send", "pending"), start);',
                 'const result = { kind: "started", value: start() };']], []],
             ["elevenlabs-failed-list-drops-voice", "elevenlabs-voices-failed", [["known: voices.length !== 0 ? new Set(voices.map(voice => voice.value)) : read.known",

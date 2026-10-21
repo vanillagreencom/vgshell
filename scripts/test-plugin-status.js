@@ -31,6 +31,9 @@ const READER_SOURCES = Object.fromEntries(["Accounts", "Keys", "LocalTier", "Ser
     [name, fs.readFileSync(path.join(JARVIS, name + ".qml"), "utf8")]));
 const WORDS = require(path.join(JARVIS, "AccountStatus.js"));
 const PROVIDERS = require(path.join(JARVIS, "AccountProviders.js"));
+// The libraries Service.qml imports beside SetupGate.js.
+const SERVICE_IMPORTS = { Providers: PROVIDERS, View: load(path.join(JARVIS, "WidgetView.js"), { "qs.Commons 1.0": { PageReference: PAGE_REFERENCE } }),
+    KeyNavLogic: load(path.join(path.dirname(LOGIC), "..", "Ui", "foundation", "KeyNavLogic.js")) };
 
 let failures = 0;
 function report(name, got, want) {
@@ -157,7 +160,7 @@ function continuationChecks(logic, check, sourceChanges = {}) {
             const make = saved => configuredWorld(logic, enabled, replaced, saved, path.join(scratch, "settings-" + sequence++ + ".json"));
             const keys = [{ label: "Fixture voice", value: "openai-fixture", provider: "openai" }];
             let world = make({ voiceProvider: "realtime", voiceAccount: "" });
-            let root = loadReader({ shell: world.shell, Gate: GATE, pending: false, removedFrom: undefined,
+            let root = loadReader({ ...SERVICE_IMPORTS, shell: world.shell, Gate: GATE, pending: false, removedFrom: undefined, addedFrom: undefined,
                 console: { warn: value => { throw new Error(value); } } }, sources.Accounts, ["publishVoice"]);
             const voice = root.publishVoice(keys);
             const disk = JSON.parse(fs.readFileSync(world.config.userPath, "utf8"));
@@ -180,8 +183,8 @@ function continuationChecks(logic, check, sourceChanges = {}) {
                 world = make({ localTier: "large" });
                 const runs = [];
                 world.shell.tui = { run: (name, args) => { runs.push([name, args]); return "ok"; } };
-                root = loadReader({ shell: world.shell, Gate: GATE, pending: false, afterRun, endedWanted: "large",
-                    wanted: "large", decided: "small", code: 0,
+                root = loadReader({ ...SERVICE_IMPORTS, shell: world.shell, Gate: GATE, pending: false, afterRun, endedWanted: "large",
+                    wanted: "large", chosenTier: afterRun ? null : "large", code: 0, runCode: 0,
                     output: JSON.stringify({ pick: "large", ready: "small", choices: [{ label: "Small", value: "small" }, { label: "Large", value: "large" }] }),
                     Qt: { callLater: () => { throw new Error("unexpected tier deferral"); } },
                     console: { warn: value => { throw new Error(value); } } }, sources.LocalTier, ["answered", "follow", "decide"]);
@@ -230,7 +233,7 @@ function continuationChecks(logic, check, sourceChanges = {}) {
             world = make({});
             let retried = 0;
             const stoppedTimer = { stop: () => {} };
-            root = loadReader({ shell: world.shell, Gate: GATE, lifetime: { kind: "ready", pendingMute: "none" },
+            root = loadReader({ ...SERVICE_IMPORTS, shell: world.shell, Gate: GATE, lifetime: { kind: "ready", pendingMute: "none" },
                 cause: "", outputTail: "", errorTail: "", retries: 0,
                 helloDeadline: stoppedTimer, stopDeadline: stoppedTimer, startWait: stoppedTimer,
                 cancelDictation: () => {}, publishPreview: () => {}, shellStatus: () => {},
@@ -262,19 +265,20 @@ function continuationChecks(logic, check, sourceChanges = {}) {
                 ["status", { daemon: "ready", causes: [], cautions: [] }, ["tui-state", "refresh-shell", "request"]]
             ]) {
                 world = make({});
+                world.shell.shortcut = { keys: null };
                 const events = [], broken = [], queue = [];
-                root = loadReader({ shell: world.shell, Gate: GATE, Protocol: protocol, Session: protocol.Session,
+                root = loadReader({ ...SERVICE_IMPORTS, shell: world.shell, Gate: GATE, Protocol: protocol, Session: protocol.Session,
                     Conversation: load(path.join(JARVIS, "Conversation.js")), conversationLog: [], outputTail: "", cause: "",
                     lifetime: { kind: "starting", pendingMute: "none" }, sessionState: protocol.Session.initial(),
                     setupAnswer: { kind: "checking" }, homeRepair: { result: { kind: "unavailable" } }, homePathRead: { kind: "ready", path: "/home/user/Fixture" }, voiceStep: null, dictationState: null, personalityShown: null, startTextShown: null, startTextOver: {},
-                    localRuntime: { setupCause: "", republish: () => true }, sessionStart: { result: null },
-                    accountReader: { voiceKeys: undefined, modelAccess: { kind: "checking" } }, audioHealth: { kind: "reading" },
+                    localRuntime: { setupCause: "", reading: null, republish: () => true }, localTier: { pickSize: "" }, sessionStart: { result: null },
+                    voiceProvider: world.shell.settings.voiceProvider, accountReader: { voiceKeys: undefined, modelAccess: { kind: "checking" } }, audioHealth: { kind: "reading" },
                     fleetRuntime: { refresh: () => events.push("fleet") }, serve: () => events.push("request"),
                     deliverMute: () => events.push("mute"), sendTuiState: () => events.push("tui-state"), refreshShell: () => events.push("refresh-shell"),
                     helloDeadline: { stop: () => {} }, indicatorPresented: false, sendIndicator: () => {},
                     lockObservation: () => false, broken: value => broken.push(value), console: { warn: () => {} }, Qt: { callLater: fn => queue.push(fn) } },
                 sources.Service, ["receive", "deviceOffers", "homeOffers", "publishHomes", "publishInput", "publishPersonality", "publishStartText",
-                    "shellStatus", "publishSetup", "publishShellSetup", "publishPreview", "publishDaemon", "publish"]);
+                    "shellStatus", "publishSetup", "publishShellSetup", "publishDaemon", "publish"]);
                 const base = { v: 1, gen: 0, revision: world.shell.manifest.__revision };
                 const first = Object.assign({}, base, { type }, fields);
                 const request = Object.assign({}, base, { type: "request", id: 1, kind: "compositor.moveWindow", args: ["0xa1", -10, 20] });
@@ -1002,10 +1006,129 @@ function suite(ctx, check) {
     check("secretRequest: an unknown verb throws", (() => { try { ctx.secretRequest(m, "acme.gone", true, items, "tokens", "acme:T1", "write", "x"); return "no throw"; } catch (e) { return e.message.slice(0, 31); } })(), "secretRequest: verb \"write\" is ");
 }
 
+// PluginStatus's handler tables, cut from SOURCE and run over the judge
+// LOGIC: a plugin registers what the Settings page asks of one of its
+// fields, holds it while its instance lives, and the manager reaches it by
+// plugin and key.
+function handlerChecks(logic, check, source = STATUS_SOURCE) {
+    const root = { refreshers: {}, previewers: {}, Logic: logic };
+    root.root = root;
+    root.choosers = {};
+    vm.runInNewContext(["handleRefresh", "holdHandler", "handlePreview", "preview", "refresh", "handleChoice", "chosen"].map(name => qmlMethod(source, name)).join("\n"), root);
+    const manifest = { schema: { voice: { type: "string", label: "Voice", optionsFrom: "voices", preview: true }, mode: { type: "boolean", label: "Mode" } },
+        status: { voices: { type: "choices", label: "Voices" } } };
+    const instance = id => {
+        const disposers = [];
+        return { ctx: { id: id, manifest: manifest, onDispose: fn => disposers.push(fn) }, dispose: () => disposers.splice(0).forEach(fn => fn()) };
+    };
+    const first = instance("acme.voice"), second = instance("acme.voice"), other = instance("acme.other");
+    const played = [];
+    check("handlePreview: a field that declares preview", root.handlePreview(first.ctx, "voice", value => { played.push(value); return "ok"; }), "ok");
+    check("handlePreview: a field that declares none", root.handlePreview(first.ctx, "mode", () => "ok"), "refused: status=mode reason=undeclared");
+    check("handlePreview: a key the schema lacks", root.handlePreview(first.ctx, "gone", () => "ok"), "refused: status=gone reason=undeclared");
+    check("handlePreview: a second instance of the plugin", root.handlePreview(second.ctx, "voice", () => "ok"), "refused: status=voice reason=held");
+    check("handlePreview: another plugin's field of the same key", root.handlePreview(other.ctx, "voice", () => "refused: preview=voice reason=fixture"), "ok");
+    check("preview: the plugin's handler plays the offer and answers", [root.preview("acme.voice", "voice", "puck"), played], ["ok", ["puck"]]);
+    check("preview: a field with no handler", root.preview("acme.voice", "mode", "x"), "refused: preview=mode reason=none");
+    first.dispose();
+    check("preview: a disposed instance's handler is gone, another plugin's stays",
+        [root.preview("acme.voice", "voice", "puck"), root.preview("acme.other", "voice", "x")], ["refused: preview=voice reason=none", "refused: preview=voice reason=fixture"]);
+    check("handlePreview: the key is free once its holder is disposed", root.handlePreview(second.ctx, "voice", () => "ok"), "ok");
+    check("handlePreview: a handler that is no function throws", (() => { try { root.handlePreview(other.ctx, "voice", "x"); return "no throw"; } catch (e) { return e.message; } })(),
+        "refused: status=voice handler=not-a-function");
+    let refreshed = 0;
+    const third = instance("acme.voice");
+    check("handleRefresh: a choices entry", root.handleRefresh(second.ctx, "voices", () => { refreshed += 1; }), "ok");
+    check("handleRefresh: a second instance shares the hold rule", root.handleRefresh(third.ctx, "voices", () => {}), "refused: status=voices reason=held");
+    check("refresh: runs the plugin's handler", [root.refresh("acme.voice", "voices"), refreshed], ["ok", 1]);
+    const choices = [];
+    check("handleChoice: a schema field", root.handleChoice(third.ctx, "mode", (value, previous) => choices.push([value, previous])), "ok");
+    check("handleChoice: a key the schema lacks", root.handleChoice(third.ctx, "voices", () => {}), "refused: status=voices reason=undeclared");
+    check("handleChoice: a second instance shares the hold rule", root.handleChoice(second.ctx, "mode", () => {}), "refused: status=mode reason=held");
+    check("chosen: the plugin's handler takes the value and the one it replaced", [root.chosen("acme.voice", "mode", true, false), choices], ["ok", [[true, false]]]);
+    check("chosen: a field with no handler", root.chosen("acme.voice", "voice", "puck", ""), "none");
+    third.dispose();
+    check("chosen: a disposed instance's handler is gone", root.chosen("acme.voice", "mode", false, true), "none");
+}
+
+// The choice route as shipped: Capabilities.managerChoose over Plugins'
+// setSetting and writeSetting, Config.writeUser and PluginStatus's choice
+// table, on the Jarvis manifest's `mode` field. A user's choice reaches
+// the plugin once, after the write, with the value it replaced; a re-pick,
+// a refused write, a disabled plugin, the plugin's own configure write and
+// another caller's setSetting reach it never.
+function choiceChecks(logic, check, capabilities = CAPABILITIES_SOURCE) {
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "vgs-status-choice-"));
+    try {
+        assertOutsideWorktree(scratch);
+        for (const enabled of [true, false]) {
+            const world = configuredWorld(logic, enabled, false, {}, path.join(scratch, "settings-" + enabled + ".json"));
+            const Registry = world.state.Registry;
+            const plugins = { Logic: logic, Registry, Config: world.config };
+            vm.runInNewContext(["writeSetting", "setSetting"].map(name => qmlMethod(PLUGINS_SOURCE, name)).join("\n"), plugins);
+            const status = { choosers: {}, previewers: {}, refreshers: {}, Logic: logic };
+            status.root = status;
+            vm.runInNewContext(["holdHandler", "handleChoice", "chosen"].map(name => qmlMethod(STATUS_SOURCE, name)).join("\n"), status);
+            const manager = { Logic: logic, Registry, Config: world.config, Plugins: plugins, PluginStatus: status };
+            manager.root = manager;
+            vm.runInNewContext(qmlMethod(capabilities, "managerChoose"), manager);
+            const id = world.shell.manifest.id;
+            const told = [];
+            status.handleChoice({ id: id, manifest: world.shell.manifest, onDispose: () => {} }, "mode", (value, previous) => told.push([value, previous, world.shell.settings.mode]));
+            const label = enabled ? "" : " of a disabled plugin";
+            if (!enabled) {
+                check("choice: a choice" + label + " is refused and tells nothing", [manager.managerChoose(id, "mode", "toggle"), told], ["refused: disabled=" + id, []]);
+                continue;
+            }
+            check("choice: a user's choice tells the plugin once, after the write", [manager.managerChoose(id, "mode", "toggle"), told], ["ok", [["toggle", "hold", "toggle"]]]);
+            check("choice: a re-pick of the stored value tells nothing", [manager.managerChoose(id, "mode", "toggle"), told.length], ["ok", 1]);
+            check("choice: a refused value tells nothing", [manager.managerChoose(id, "mode", "loud").startsWith("refused:"), told.length], [true, 1]);
+            check("choice: the plugin's own configure write tells nothing", [world.shell.configure.set("mode", "always"), world.shell.settings.mode, told.length], ["ok", "always", 1]);
+            check("choice: another caller's setSetting tells nothing", [plugins.setSetting(id, "mode", "hold"), world.shell.settings.mode, told.length], ["ok", "hold", 1]);
+            check("choice: the next choice names the value it replaced", [manager.managerChoose(id, "mode", "always"), told[1]], ["ok", ["always", "hold", "always"]]);
+        }
+    } finally {
+        fs.rmSync(scratch, { recursive: true, force: true });
+    }
+}
+
 suite(load(LOGIC), report);
 replyChecks(load(LOGIC), report);
 consumerChecks(load(LOGIC), report);
 continuationChecks(load(LOGIC), report);
+handlerChecks(load(LOGIC), report);
+choiceChecks(load(LOGIC), report);
+for (const [label, needle, replacement] of [
+    ["a re-pick tells the plugin", "if (JSON.stringify(after) !== JSON.stringify(before)) PluginStatus.chosen(", "PluginStatus.chosen("],
+    ["the plugin is told before the write", "        const reply = Plugins.setSetting(id, key, value);\n        if (reply !== \"ok\") return reply;", "        PluginStatus.chosen(id, key, value, before);\n        const reply = Plugins.setSetting(id, key, value);\n        if (reply !== \"ok\") return reply;"]
+]) {
+    const count = CAPABILITIES_SOURCE.split(needle).length - 1;
+    if (count !== 1) { report("control: " + label + ": the text to replace occurs once", count, 1); continue; }
+    let red = 0;
+    try {
+        choiceChecks(load(LOGIC), (name, got, want) => { if (JSON.stringify(got) !== JSON.stringify(want)) red += 1; }, CAPABILITIES_SOURCE.replace(needle, () => replacement));
+    } catch (e) {
+        red += 1;
+    }
+    report("control: the choice rows fail without the rule: " + label, red > 0, true);
+}
+// Each handler-table rule removed from a copy of PluginStatus's source
+// fails the rows above.
+for (const [label, needle, replacement] of [
+    ["a held key is refused", "if (Logic.hasOwn(root[name], ctx.id) && Logic.hasOwn(root[name][ctx.id], key))\n            return", "if (false)\n            return"],
+    ["a disposed instance releases its key", "            delete own[key];\n", ""],
+    ["a field must declare preview", "|| ctx.manifest.schema[key].preview !== true)", ")"]
+]) {
+    const count = STATUS_SOURCE.split(needle).length - 1;
+    if (count !== 1) { report("control: " + label + ": the text to replace occurs once", count, 1); continue; }
+    let red = 0;
+    try {
+        handlerChecks(load(LOGIC), (name, got, want) => { if (JSON.stringify(got) !== JSON.stringify(want)) red += 1; }, STATUS_SOURCE.replace(needle, () => replacement));
+    } catch (e) {
+        red += 1;
+    }
+    report("control: the handler rows fail without the rule: " + label, red > 0, true);
+}
 
 // Each control removes one rule from a copy of the judge and keeps the text
 // around it; the suite must fail on every copy.
@@ -1046,8 +1169,8 @@ const CONTROLS = [
     ["an unavailable id is not its own label", "model.push({ label: entry.label + \" (unavailable)\", value: configured });", "model.push({ label: configured + \" (unavailable)\", value: configured });"],
     ["the first offer stands for the unset value", "var unset = entry.placeholder === undefined && index === 0 && configured !== choice.value;", "var unset = false;"],
     ["a pinned first offer keeps its id", "index === 0 && configured !== choice.value;", "index === 0;"],
-    ["each offer is listed once", "            return { label: choice.label, value: unset ? \"\" : choice.value };\n        });\n", "            return { label: choice.label, value: unset ? \"\" : choice.value };\n        });\n        if (offered.length > 0) model.unshift({ label: offered[0].label, value: \"\" });\n"],
-    ["choices copies offered labels", "return { label: choice.label, value: unset", "return { label: choice.value, value: unset"],
+    ["each offer is listed once", "            return row;\n        });\n", "            return row;\n        });\n        if (offered.length > 0) model.unshift({ label: offered[0].label, value: \"\" });\n"],
+    ["choices copies offered labels", "var row = { label: choice.label, value: unset", "var row = { label: choice.value, value: unset"],
     ["a placeholder entry has no unset offer", "var unset = entry.placeholder === undefined && index === 0", "var unset = index === 0"],
     ["a hideEmpty entry with no offer has an empty model", "if (entry.hideEmpty === true && offered.length === 0) return model;", ""],
     ["a write needs a declared key", "if (typeof key !== \"string\" || !hasOwn(manifest.status, key))\n        return refused(\"undeclared\");", "if (false)\n        return refused(\"undeclared\");"],
@@ -1167,6 +1290,7 @@ try {
     fs.symlinkSync(SETTING_VALUES, path.join(temp, "shell", "Commons", "SettingValues.js"));
     fs.symlinkSync(path.join(path.dirname(SETTING_VALUES), "PageReference.js"), path.join(temp, "shell", "Commons", "PageReference.js"));
     fs.symlinkSync(LUCIDE, path.join(temp, "shell", "Ui", "icons", "Lucide.js"));
+    fs.symlinkSync(path.join(path.dirname(LUCIDE), "Own.js"), path.join(temp, "shell", "Ui", "icons", "Own.js"));
     fs.symlinkSync(MANAGERS, path.join(temp, "shell", "Core", "PackageManagers.js"));
     fs.symlinkSync(path.join(__dirname, "..", "shell", "Core", "ConfigLogic.js"), path.join(temp, "shell", "Core", "ConfigLogic.js"));
     fs.symlinkSync(path.join(__dirname, "..", "shell", "Core", "HyprlandLayer.js"), path.join(temp, "shell", "Core", "HyprlandLayer.js"));
@@ -1174,10 +1298,10 @@ try {
     fs.symlinkSync(path.join(__dirname, "..", "shell", "Core", "Pads.js"), path.join(temp, "shell", "Core", "Pads.js"));
     const source = fs.readFileSync(LOGIC, "utf8");
     const voice = qmlMethod(READER_SOURCES.Accounts, "publishVoice");
-    const liveGuards = /if \((?:choices|key) !== "ok"\) return false;/g;
+    const liveGuards = /if \(choices !== "ok"\) return false;/g;
     const liveMatches = [...voice.matchAll(liveGuards)].length;
-    report("control: the voice selection live guards occur once per write", liveMatches, 2);
-    if (liveMatches === 2) {
+    report("control: the voice selection live guard occurs once", liveMatches, 1);
+    if (liveMatches === 1) {
         const changedVoice = voice.replace(liveGuards, "if (false) return false;");
         const changed = READER_SOURCES.Accounts.replace(voice, changedVoice);
         report("control: removing the live guards changes the reader", changed !== READER_SOURCES.Accounts, true);

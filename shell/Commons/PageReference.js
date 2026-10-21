@@ -2,12 +2,14 @@
 
 // The one reader of a reference in text a user reads: a page reference,
 // `[words](page:<plugin id>)`, `[words](page:<plugin id>/<tab>)` or
-// `[words](page:<plugin id>/Settings/<field key>)`, or a file reference,
-// `[words](file:<encoded path>)`. LinkText draws the words as a link that opens
-// the page or the file, and a surface that cannot draw a link, such as a
-// notice another server shows, gives the words alone. The third page form
-// opens Settings at the field: its tab, `Settings/<field key>`, travels as
-// one tab, which place reads. A file reference percent-encodes its path,
+// `[words](page:<plugin id>/<tab>/<key>)`, TAB one of Settings, Setup and
+// Details and KEY a Settings field key or the key of a status row Setup or
+// Details draws, or a file reference, `[words](file:<encoded path>)`.
+// LinkText draws the words as a link that opens the page or the file, and a
+// surface that cannot draw a link, such as a notice another server shows,
+// gives the words alone. The third page form opens the tab at that row,
+// scrolled into view: its tab, `<tab>/<key>`, travels as one tab, which
+// place reads. A file reference percent-encodes its path,
 // including parentheses. The decoded path is absolute, starts with `~/`, or
 // is relative to the configuration directory, and a path that ends in `/`
 // names a folder (PluginLogic.editRoute).
@@ -17,7 +19,7 @@
 // unchanged, and the one that opens it reads the path back (file). No
 // plugin id holds a colon (PluginLogic.ID_PATTERN).
 
-var REFERENCE = /\[([^\[\]]+)\]\((?:page:([^\s()\/]*)(?:\/(Settings\/[^\s()\/]+|[^\s()\/]+))?|file:((?:[A-Za-z0-9_.!~*'\-]|%[0-9A-Fa-f]{2})+))\)/;
+var REFERENCE = /\[([^\[\]]+)\]\((?:page:([^\s()\/]*)(?:\/((?:Settings|Setup|Details)\/[^\s()\/]+|[^\s()\/]+))?|file:((?:[A-Za-z0-9_.!~*'\-]|%[0-9A-Fa-f]{2})+))\)/;
 var FILE_SCHEME = "file:";
 
 // TEXT's first reference: `text`, TEXT with the reference's words in its
@@ -66,10 +68,10 @@ function file(page) {
     return page.indexOf(FILE_SCHEME) === 0 ? decodeURIComponent(page.slice(FILE_SCHEME.length)) : "";
 }
 
-// Where TAB, a reference's tab, opens a page: { tab, field }, `field` the
-// key of the Settings field a `Settings/<field key>` tab shows, "" for a
-// tab alone.
+// Where TAB, a reference's tab, opens a page: { tab, key }, `key` the key
+// of the row a `<tab>/<key>` tab shows, a Settings field's or a Setup or
+// Details status row's, "" for a tab alone.
 function place(tab) {
     var at = tab.indexOf("/");
-    return at === -1 ? { tab: tab, field: "" } : { tab: tab.slice(0, at), field: tab.slice(at + 1) };
+    return at === -1 ? { tab: tab, key: "" } : { tab: tab.slice(0, at), key: tab.slice(at + 1) };
 }

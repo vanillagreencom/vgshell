@@ -238,6 +238,18 @@ Item {
                     SegmentedControl { model: ["Day", "Week", "Month"]; currentIndex: 1 }
                     Select { model: ["Default", "Ocean", "Forest"] }
                     Select { model: ["Disabled"]; enabled: false }
+                    // Offers that each play on request, ended by an Add
+                    // entry, as a voice field draws them. Play does nothing
+                    // here.
+                    Select {
+                        objectName: "gallerySelectActions"
+                        property string focusExample: "Select entry action"
+                        textRole: "label"
+                        iconRole: "icon"
+                        actionRole: "preview"
+                        entryAction: ({ iconName: "volume-2", label: "Play" })
+                        model: [{ label: "Puck", preview: true }, { label: "Kore", preview: true }, { label: "Add a voice", icon: "plus" }]
+                    }
                 }
                 Column {
                     width: parent.width

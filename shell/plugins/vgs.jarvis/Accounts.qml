@@ -46,6 +46,17 @@ Item {
     onChoiceChanged: publishChoice()
     readonly property var tuiState: shell === null ? null : shell.tui.state["accounts"]
     readonly property var keyState: shell === null ? null : shell.tui.state["add-key"]
+    readonly property var voiceKeyState: shell === null ? null : shell.tui.state["add-voice-key"]
+    readonly property var voiceKeyEndedAt: voiceKeyState === null || voiceKeyState === undefined ? null : voiceKeyState.endedAt
+    // The Voice keys the last read offered when Add a key ended, until the
+    // read that end starts has published; undefined otherwise. The key that
+    // read adds is the one the user just stored, which Jarvis selects.
+    property var addedFrom: undefined
+    onVoiceKeyEndedAtChanged: {
+        if (voiceKeyEndedAt === null) return;
+        addedFrom = voiceKeys;
+        refresh();
+    }
     readonly property var removeState: shell === null ? null : shell.tui.state["remove-key"]
     readonly property var signInState: shell === null ? null : shell.tui.state["sign-in"]
     readonly property var endedAt: tuiState === null || tuiState === undefined ? null : tuiState.endedAt
@@ -55,13 +66,14 @@ Item {
     // read that end starts has published; undefined otherwise.
     property var removedFrom: undefined
     readonly property var signInEndedAt: signInState === null || signInState === undefined ? null : signInState.endedAt
-    // The voice the daemon runs.
-    readonly property string voiceProvider: shell === null ? "" : Gate.voiceProvider(shell.settings, voiceKeys)
     // The Voice key choices are the keys of the selected cloud voice's
     // provider, so a change of Voice provider publishes them again from the
     // last read. configure.set replaces `shell`, which this binding reads,
     // so the publication waits for the event loop (see save()).
-    readonly property string voiceKeyProvider: shell === null ? "" : Gate.voiceKeyProvider(shell.settings)
+    readonly property string voiceKeyProvider: voice === null ? "" : voice.provider
+    // The cloud voice the settings name (AccountProviders.cloudVoice), null
+    // for Local or without a shell.
+    readonly property var voice: shell === null ? null : Providers.cloudVoice(shell.settings.voiceProvider)
     onVoiceKeyProviderChanged: Qt.callLater(republishVoice)
     readonly property string program: String(Qt.resolvedUrl("backend/accounts.js")).replace(/^file:\/\//, "")
     onShellChanged: refresh()
@@ -150,7 +162,8 @@ Item {
     // same step, never left naming a key that is gone, and the sole key
     // left, if any, is then selected.
     function publishVoice(keys) {
-        const voiceChoices = Gate.voiceKeys(keys, shell.settings);
+        const voice = Providers.cloudVoice(shell.settings.voiceProvider);
+        const voiceChoices = Gate.voiceKeys(keys, voice);
         const choices = shell.status.set("voiceAccounts", voiceChoices);
         if (!shell.status.isOk(choices)) throw new Error("jarvis-accounts: status=refused");
         if (choices !== "ok") return false;
@@ -161,11 +174,13 @@ Item {
             if (gone && shell.configure.set("voiceAccount", "") !== "ok")
                 console.warn("jarvis-accounts: voice-selection=refused");
         }
-        const key = shell.status.set("voiceKey", Gate.voiceKey(voiceChoices, shell.settings));
-        if (!shell.status.isOk(key)) throw new Error("jarvis-accounts: status=refused");
-        if (key !== "ok") return false;
-        const chosen = pending ? null : Gate.voiceChoice(keys, shell.settings);
-        if (chosen !== null && shell.configure.set("voiceAccount", chosen) !== "ok")
+        let chosen = pending ? null : Gate.voiceChoice(keys, voice, shell.settings.voiceAccount);
+        if (addedFrom !== undefined && !pending) {
+            const added = Gate.voiceAdded(addedFrom, keys, voice);
+            addedFrom = undefined;
+            if (added !== null) chosen = added;
+        }
+        if (chosen !== null && chosen !== shell.settings.voiceAccount && shell.configure.set("voiceAccount", chosen) !== "ok")
             console.warn("jarvis-accounts: voice-selection=refused");
         return true;
     }
@@ -196,7 +211,7 @@ Item {
             console.warn(reason);
             const replies = [shell.status.set("accounts", []), shell.status.set("brains", []), shell.status.set("voiceAccounts", []),
                 shell.status.set("accountSearch", Words.searchValue({ kind: "failed", reason: reason })),
-                shell.status.set("copilotMemory", Gate.copilotMemory([])), shell.status.set("voiceKey", Gate.voiceKey(null, shell.settings))];
+                shell.status.set("copilotMemory", Gate.copilotMemory([]))];
             if (replies.some(reply => !shell.status.isOk(reply))) throw new Error("jarvis-accounts: status=refused");
             if (replies.some(reply => reply !== "ok")) return false;
         }

@@ -19,6 +19,18 @@ const path = require("path");
 const OUT = path.join(__dirname, "..", "shell", "Ui", "icons", "Lucide.js");
 const LICENCE = path.join(__dirname, "..", "shell", "Ui", "icons", "LICENSE");
 
+// The lines after the data that merge VGS's own symbols (shell/Ui/icons/Own.js)
+// into the set, so a re-vendor keeps them; a name both hold throws.
+const OWN_TRAILER = [
+    "// VGS's own symbols join the set under their `vgs-` names (Own.js), so every",
+    "// reader of ICONS draws and judges them as Lucide's; a name both hold is an",
+    "// error, never a silent replacement.",
+    "Object.keys(Own.ICONS).forEach(function (name) {",
+    "    if (Object.prototype.hasOwnProperty.call(ICONS, name)) throw new Error(\"lucide: own-icon=\" + name + \" reason=clash\");",
+    "    ICONS[name] = Own.ICONS[name];",
+    "});"
+];
+
 function refuse(first) {
     process.stderr.write("vendor-lucide: refused: " + first + "\n");
     process.exit(2);
@@ -136,6 +148,7 @@ function main(argv) {
     }
     const lines = [
         ".pragma library",
+        ".import \"Own.js\" as Own",
         "",
         "// Lucide icon path data, written by scripts/vendor-lucide from lucide-static",
         "// " + version + ". Per name: the stroked path and the filled path, in a 24 by",
@@ -152,7 +165,7 @@ function main(argv) {
     names.forEach((name, i) => {
         lines.push("    " + JSON.stringify(name) + ": " + JSON.stringify(icons[name]) + (i === names.length - 1 ? "" : ","));
     });
-    lines.push("};", "");
+    lines.push("};", "", ...OWN_TRAILER, "");
     fs.mkdirSync(path.dirname(OUT), { recursive: true });
     fs.writeFileSync(OUT, lines.join("\n"));
     fs.writeFileSync(LICENCE, licence);

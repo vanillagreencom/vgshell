@@ -30,8 +30,10 @@ const CASES = [
         { text: "Add a key on the Models page.", words: "Models page", page: "acme.models", tab: "Setup", reference: "[Models page](page:acme.models/Setup)" }, "Add a key on the Models page."],
     ["a Settings field", "Choose it in [Home folder](page:acme.models/Settings/home).",
         { text: "Choose it in Home folder.", words: "Home folder", page: "acme.models", tab: "Settings/home", reference: "[Home folder](page:acme.models/Settings/home)" }, "Choose it in Home folder."],
-    ["a field on another tab is no reference", "Open [Home](page:acme.models/Setup/home).",
-        { text: "Open [Home](page:acme.models/Setup/home).", words: "", page: "", tab: "", reference: "" }, "Open [Home](page:acme.models/Setup/home)."],
+    ["a Setup status row", "Open [Home](page:acme.models/Setup/home).",
+        { text: "Open Home.", words: "Home", page: "acme.models", tab: "Setup/home", reference: "[Home](page:acme.models/Setup/home)" }, "Open Home."],
+    ["a row on an unknown tab is no reference", "Open [Home](page:acme.models/Keys/home).",
+        { text: "Open [Home](page:acme.models/Keys/home).", words: "", page: "", tab: "", reference: "" }, "Open [Home](page:acme.models/Keys/home)."],
     ["a file in the configuration directory", "Edit [hyprland.lua](file:hypr%2Fhyprland.lua) by hand.",
         { text: "Edit hyprland.lua by hand.", words: "hyprland.lua", page: "file:hypr%2Fhyprland.lua", tab: "", reference: "[hyprland.lua](file:hypr%2Fhyprland.lua)" }, "Edit hyprland.lua by hand."],
     ["an absolute file", "See [the hook](file:%2Fetc%2Fpacman.d%2Fhooks%2Fvgs.hook).",
@@ -61,9 +63,10 @@ const FILES = [
 
 // Each row: [name, tab, place].
 const PLACES = [
-    ["a tab alone", "Setup", { tab: "Setup", field: "" }],
-    ["no tab", "", { tab: "", field: "" }],
-    ["Settings at a field", "Settings/home", { tab: "Settings", field: "home" }]
+    ["a tab alone", "Setup", { tab: "Setup", key: "" }],
+    ["no tab", "", { tab: "", key: "" }],
+    ["Settings at a field", "Settings/home", { tab: "Settings", key: "home" }],
+    ["Details at a status row", "Details/sessionStart", { tab: "Details", key: "sessionStart" }]
 ];
 
 // The names of the rows LIBRARY fails.
@@ -113,8 +116,8 @@ same(failures(load(file)), [], "every row holds");
 // Each control: [name, text to replace, replacement, rows that must fail].
 const CONTROLS = [
     ["a file path without decoding", "decodeURIComponent(page.slice(FILE_SCHEME.length))", "page.slice(FILE_SCHEME.length)", ["a file path with spaces and parentheses", "a literal percent decodes once"]],
-    ["a parser without the tab group", "(?:\\/(Settings\\/[^\\s()\\/]+|[^\\s()\\/]+))?", "", ["a page and a tab", "spaces inside the words", "a Settings field"]],
-    ["a parser without the field form", "Settings\\/[^\\s()\\/]+|", "", ["a Settings field"]],
+    ["a parser without the tab group", "(?:\\/((?:Settings|Setup|Details)\\/[^\\s()\\/]+|[^\\s()\\/]+))?", "", ["a page and a tab", "spaces inside the words", "a Settings field"]],
+    ["a parser without the row form", "(?:Settings|Setup|Details)\\/[^\\s()\\/]+|", "", ["a Settings field", "a Setup status row"]],
     ["a place that keeps the field in the tab", "return at === -1 ?", "return true ?", ["Settings at a field"]],
     ["a page-only parser", "|file:((?:[A-Za-z0-9_.!~*'\\-]|%[0-9A-Fa-f]{2})+)", "", ["a file in the configuration directory", "an absolute file", "a file in the home folder", "a folder", "a file before a page, the first wins"]],
     ["a file read as a plugin page", "page: file ? FILE_SCHEME + found[4] : found[2]", "page: file ? found[4] : found[2]", ["a file in the configuration directory", "a folder"]]

@@ -274,6 +274,7 @@ f share/vgshell/shell/Ui/foundation/Surface.qml
 f share/vgshell/shell/Ui/foundation/TextUnderline.qml
 f share/vgshell/shell/Ui/icons/LICENSE
 f share/vgshell/shell/Ui/icons/Lucide.js
+f share/vgshell/shell/Ui/icons/Own.js
 f share/vgshell/shell/Ui/layout/AngledCard.qml
 f share/vgshell/shell/Ui/layout/Card.qml
 f share/vgshell/shell/Ui/layout/CardCarousel.qml
@@ -563,7 +564,6 @@ f share/vgshell/shell/plugins/vgs.jarvis/tui/check-microphone.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/clone-voice-remove.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/clone-voice.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/edit-personality.sh
-f share/vgshell/shell/plugins/vgs.jarvis/tui/preview-voice.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/remove-key.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/repair-home.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/resume-session.sh

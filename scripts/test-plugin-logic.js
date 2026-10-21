@@ -16,6 +16,7 @@ const CONFIG = path.join(__dirname, "..", "shell", "Core", "ConfigLogic.js");
 const LUCIDE = path.join(__dirname, "..", "shell", "Ui", "icons", "Lucide.js");
 const MANAGERS = path.join(__dirname, "..", "shell", "Core", "PackageManagers.js");
 const LAYER = path.join(__dirname, "..", "shell", "Core", "HyprlandLayer.js");
+const PADS = path.join(__dirname, "..", "shell", "Core", "Pads.js");
 const SETTING_VALUES = path.join(__dirname, "..", "shell", "Commons", "SettingValues.js");
 const PAGE_REFERENCE = path.join(__dirname, "..", "shell", "Commons", "PageReference.js");
 // The core's own requirements, judged by the function a manifest's are.
@@ -97,6 +98,7 @@ function suite(ctx, configLogic, check) {
         ["hidden optional step", { extra: { type: "state", label: "Extra", hidden: true, setup: "optional" } }, false, false],
         ["optional step value type", { extra: { type: "count", label: "Extra", setup: "optional" } }, false, false],
         ["key list beside an optional step", { extra: { type: "state", label: "Extra", setup: "optional" }, keys: { type: "presenceList", label: "Keys", step: "extra" } }, true, false],
+        ["a setup word other than optional", { extra: { type: "state", label: "Extra", setup: "required" } }, false, false],
         ["connection keys", { ...requiredStatus, keys: { type: "presenceList", label: "Keys", step: "ready" } }, true, true],
         ["key step reference", { keys: { type: "presenceList", label: "Keys", step: "missing" } }, true, false],
         ["key step refers to required work", { ready: { type: "state", label: "Ready" }, keys: { type: "presenceList", label: "Keys", step: "ready" } }, true, false],
@@ -163,8 +165,8 @@ function suite(ctx, configLogic, check) {
         status: { fact: { type: "state", label: "Fact", action: { label: "Fix", tui: "fix" } }, gone: { type: "data", label: "Data" } }
     }), "/p");
     check("fieldRows: each field's stored key lists, in schema order", drawn.ok ? drawn.manifest.fieldRows : drawn.error, [
-        { key: "mode", section: "Main", list: false, keyLists: ["keys"] },
-        { key: "other", section: "", list: false, keyLists: [] }]);
+        { key: "mode", section: "Main", list: false, keyLists: ["keys"], groups: [] },
+        { key: "other", section: "", list: false, keyLists: [], groups: [] }]);
     // The defects first-party manifests held before their rows were judged,
     // planted again in the shipped manifest: each is refused at its path by
     // its rule.
@@ -289,7 +291,9 @@ function suite(ctx, configLogic, check) {
         ["a guide anchor in heading case", m => { m.setupGuide.readme = "Get your keys"; }, "setupGuide.readme must be a README heading anchor"],
         ["a guide anchor with a leading #", m => { m.setupGuide.readme = "#get-your-keys"; }, "setupGuide.readme must be a README heading anchor"],
         ["a guide anchor of doubled dashes", m => { m.setupGuide.readme = "get--keys"; }, "setupGuide.readme must be a README heading anchor"],
-        ["a guide with no Setup step to head", m => { delete m.status.signIn; }, "setupGuide needs a required Setup step"]
+        ["a guide with no Setup step to head", m => { delete m.status.signIn; }, "setupGuide needs a required Setup step"],
+        ["a guide over an optional step alone", m => { m.status.signIn.setup = "optional"; }, "setupGuide needs a required Setup step"],
+        ["a plain optional step", m => { m.status.extra = { type: "state", label: "Extra", setup: "optional", plain: true }; }, "status.extra.plain needs a state entry that is no Setup step"]
     ]) {
         const raw = guidedRaw();
         plant(raw);
@@ -303,6 +307,22 @@ function suite(ctx, configLogic, check) {
     check("plain: a calm state draws as text", ["ok", "info"].map(tone => accountTone("account", tone)), ["", ""]);
     check("plain: a state that needs the user keeps its chip", ["warning", "danger"].map(tone => accountTone("account", tone)), ["warning", "danger"]);
     check("plain: a state that is not plain keeps its chip", accountTone("signIn", "ok"), "success");
+    // An optional step (setup "optional") beside the required one: what a
+    // value may say of each, and the step each row names.
+    const stepsRaw = guidedRaw();
+    stepsRaw.status.extra = { type: "state", label: "Extra", setup: "optional", action: { label: "Add", tui: "add" } };
+    const steps = ctx.validateManifest(stepsRaw, "/p").manifest;
+    const cannot = { tone: "warning", text: "No reader", hint: "Connect a reader to set this up", available: false };
+    for (const [name, key, value, accepted] of [
+        ["a required step hides", "signIn", { hidden: true }, false],
+        ["an optional step that cannot apply hides", "extra", { hidden: true }, true],
+        ["a required step the user cannot act on", "signIn", cannot, true],
+        ["an optional step the user cannot act on", "extra", cannot, true],
+        ["a Details reading the user cannot act on", "account", cannot, false],
+        ["an optional step offers its action", "extra", { tone: "warning", text: "Not added", action: true }, true]
+    ]) check("optional step value: " + name, ctx.statusWrite(steps, {}, key, value).ok, accepted);
+    check("optional step: each row names its step", ctx.statusRows(steps, {}).filter(row => ["signIn", "extra", "account"].indexOf(row.key) !== -1).map(row => [row.key, row.setup]),
+        [["signIn", "required"], ["account", ""], ["extra", "optional"]]);
     // The guide a page draws: its README section's address, or no address
     // for a plugin with no README to open.
     check("setupGuideRow: the README section", ctx.setupGuideRow(guided, "https://example.com/acme.rows/README.md"),
@@ -313,6 +333,34 @@ function suite(ctx, configLogic, check) {
     const clock = { schemaVersion: 1, id: "vgs.clock", name: "Clock", version: "0.1.0", author: "VGS", description: "d", kinds: ["bar-widget"], entryPoints: { "bar-widget": "Widget.qml" }, defaultSection: "center" };
     const svc = { schemaVersion: 1, id: "acme.svc", name: "S", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" }, settings: { x: 0 } };
 
+    // An enum of a Local option and three Cloud ones, the Settings shape of
+    // a provider choice, and a choices string with an Add entry and a
+    // preview, each changed by PLANT.
+    const grouped = (plant = () => {}) => {
+        const entry = { type: "enum", label: "Side", groupLabel: "Cloud kind", options: [{ value: "local", label: "Local", group: "Local" },
+            { value: "a", label: "A", group: "Cloud" }, { value: "b", label: "B", group: "Cloud" }, { value: "c", label: "C", group: "Cloud" }] };
+        plant(entry);
+        return entry;
+    };
+    const offering = (plant = () => {}) => {
+        const patch = { capabilities: ["status", "tui"], status: { voices: { type: "choices", label: "Voices" } }, tui: { "add-voice": { script: "tui/add.sh", title: "Add a voice" } },
+            settings: { voice: "" }, schema: { voice: { type: "string", label: "Voice", optionsFrom: "voices", addChoice: { label: "Add a voice", tui: "add-voice" }, preview: true } } };
+        plant(patch);
+        return patch;
+    };
+    // The groups a grouped enum's row draws, in order, and the request an
+    // Add entry makes of the manager (addChoiceRequest).
+    const offered = ctx.validateManifest(Object.assign({}, svc, offering(m => { m.settings.side = "local"; m.schema.side = grouped(); })), "/p");
+    check("fieldRows: a grouped enum's groups, each with its values in order", offered.ok ? offered.manifest.fieldRows.map(row => [row.key, row.groups]) : offered.error,
+        [["voice", []], ["side", [{ name: "Local", values: ["local"] }, { name: "Cloud", values: ["a", "b", "c"] }]]]);
+    for (const [name, manifest, enabled, key, want] of [
+        ["an Add entry opens its screen", offered.manifest, true, "voice", { ok: true, kind: "tui", name: "add-voice" }],
+        ["an Add entry of a plugin that is off", offered.manifest, false, "voice", { ok: false, answer: "refused: tui=add-voice reason=disabled" }],
+        ["a field with no Add entry", offered.manifest, true, "side", { ok: false, answer: "refused: add-choice=side reason=undeclared" }],
+        ["a field the schema lacks", offered.manifest, true, "gone", { ok: false, answer: "refused: add-choice=gone reason=undeclared" }],
+        ["a key that is no status key", offered.manifest, true, "a b", { ok: false, answer: "refused: add-choice=\"a b\" reason=undeclared" }],
+        ["an unknown plugin", null, true, "voice", { ok: false, answer: "unknown: acme.svc" }]
+    ]) check("addChoiceRequest: " + name, ctx.addChoiceRequest(manifest, "acme.svc", enabled, key), want);
     // validateManifest: one row per rule, defect planted in `patch`. A refusal
     // row pins the start of the error text, so a neighbouring rule catching the
     // same fixture does not pass for it.
@@ -546,8 +594,40 @@ function suite(ctx, configLogic, check) {
         ["a shownWhen naming a state entry", { capabilities: ["status"], status: { battery: { type: "state", label: "Battery" } }, settings: { a: true }, schema: { a: { type: "boolean", label: "A", shownWhen: "battery" } } }, "schema.a.shownWhen must name a presence status entry"],
         ["a shownWhen naming a key list", { capabilities: ["status"], status: { battery: { type: "presenceList", label: "Battery" } }, settings: { a: true }, schema: { a: { type: "boolean", label: "A", shownWhen: "battery" } } }, "schema.a.shownWhen must name a presence status entry"],
         ["a shownWhen that is no string", { capabilities: ["status"], status: { battery: { type: "presence", label: "Battery" } }, settings: { a: true }, schema: { a: { type: "boolean", label: "A", shownWhen: ["battery"] } } }, "schema.a.shownWhen must name a presence status entry"],
+        ["a field shown by an enum setting", { settings: { side: "local", a: true }, schema: { side: { type: "enum", label: "Side", options: [{ value: "local", label: "Local" }, { value: "cloud", label: "Cloud" }] }, a: { type: "boolean", label: "A", shownWhen: { setting: "side", in: ["cloud"] } } } }, null],
+        ["a setting gate on a string field", { settings: { side: "x", a: true }, schema: { side: { type: "string", label: "Side", presets: [{ value: "x" }] }, a: { type: "boolean", label: "A", shownWhen: { setting: "side", in: ["x"] } } } }, "schema.a.shownWhen.setting must name an enum or boolean schema field"],
+        ["a setting gate on a gated field", { settings: { on: true, side: true, a: true }, schema: { on: { type: "boolean", label: "On" }, side: { type: "boolean", label: "Side", shownWhen: { setting: "on", in: [true] } }, a: { type: "boolean", label: "A", shownWhen: { setting: "side", in: [true] } } } }, "schema.a.shownWhen.setting must name a field that is always shown"],
+        ["a setting gate with no values", { settings: { on: true, a: true }, schema: { on: { type: "boolean", label: "On" }, a: { type: "boolean", label: "A", shownWhen: { setting: "on", in: [] } } } }, "schema.a.shownWhen.in must be a non-empty list"],
+        ["a setting gate with a value the setting cannot hold", { settings: { on: true, a: true }, schema: { on: { type: "boolean", label: "On" }, a: { type: "boolean", label: "A", shownWhen: { setting: "on", in: ["yes"] } } } }, "schema.a.shownWhen.in.0 is no value of on"],
+        ["a setting gate with an unknown key", { settings: { on: true, a: true }, schema: { on: { type: "boolean", label: "On" }, a: { type: "boolean", label: "A", shownWhen: { setting: "on", in: [true], when: 1 } } } }, "schema.a.shownWhen has unknown key"],
         ["a list that is shown when", { capabilities: ["status"], status: { battery: { type: "presence", label: "Battery" } }, settings: { a: [] }, schema: { a: { type: "list", label: "A", shownWhen: "battery", items: { on: { type: "boolean", label: "On" } }, defaults: { on: true } } } }, "schema.a.shownWhen needs a flat setting"],
         ["a list item field that is shown when", { capabilities: ["status"], status: { battery: { type: "presence", label: "Battery" } }, settings: { a: [] }, schema: { a: { type: "list", label: "A", items: { on: { type: "boolean", label: "On", shownWhen: "battery" } }, defaults: { on: true } } } }, "schema.a.items.on.shownWhen is refused: an item draws every field"],
+        // An enum's option groups (optionGroupsError) and the select's own
+        // entries (addChoice, preview).
+        ["an enum of a one-option group and a many-option group", { settings: { side: "local" }, schema: { side: grouped() } }, null],
+        ["an enum of two one-option groups", { settings: { side: "a" }, schema: { side: { type: "enum", label: "Side", options: [{ value: "a", label: "A", group: "A" }, { value: "b", label: "B", group: "B" }] } } }, null],
+        ["options of which only some declare a group", { settings: { side: "local" }, schema: { side: grouped(e => { delete e.options[1].group; }) } }, "schema.side.options must all declare group, or none"],
+        ["a group that is no printable word", { settings: { side: "local" }, schema: { side: grouped(e => { e.options[0].group = "x".repeat(17); }) } }, "schema.side.options group must be a printable line of 1 to 16"],
+        ["one group's options apart", { settings: { side: "local" }, schema: { side: grouped(e => { e.options.push({ value: "near", label: "Near", group: "Local" }); }) } }, "schema.side.options of one group must stand together"],
+        ["one group", { settings: { side: "local" }, schema: { side: grouped(e => { e.options.forEach(o => { o.group = "Cloud"; }); }) } }, "schema.side.options must form 2 to 3 groups"],
+        ["four groups", { settings: { side: "local" }, schema: { side: grouped(e => { e.options.forEach((o, i) => { o.group = "G" + i; }); delete e.groupLabel; }) } }, "schema.side.options must form 2 to 3 groups"],
+        ["two groups of several options", { settings: { side: "local" }, schema: { side: grouped(e => { e.options.push({ value: "near", label: "Near", group: "Local" }); e.options.splice(1, 0, e.options.pop()); }) } }, "schema.side.options may hold several options in one group only"],
+        ["a many-option group with no groupLabel", { settings: { side: "local" }, schema: { side: grouped(e => { delete e.groupLabel; }) } }, "schema.side.groupLabel labels the select of a group of several options"],
+        ["a groupLabel over one-option groups", { settings: { side: "a" }, schema: { side: { type: "enum", label: "Side", groupLabel: "Kind", options: [{ value: "a", label: "A", group: "A" }, { value: "b", label: "B", group: "B" }] } } }, "schema.side.groupLabel labels the select of a group of several options"],
+        ["a groupLabel over options with no group", { settings: { side: "a" }, schema: { side: { type: "enum", label: "Side", groupLabel: "Kind", options: [{ value: "a", label: "A" }, { value: "b", label: "B" }] } } }, "schema.side.groupLabel needs options that declare group"],
+        ["a groupLabel on a boolean", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", groupLabel: "Kind" } } }, "schema.a.groupLabel needs type enum"],
+        ["a groupLabel on two lines", { settings: { side: "local" }, schema: { side: grouped(e => { e.groupLabel = "Cloud\nvoice"; }) } }, "schema.side.groupLabel must be a printable line"],
+        ["a list item enum of groups", { settings: { a: [] }, schema: { a: { type: "list", label: "A", items: { side: grouped() }, defaults: { side: "local" } } } }, "schema.a.items.side.groupLabel is refused: an item draws a plain control"],
+        ["a list item enum of groups with no label", { settings: { a: [] }, schema: { a: { type: "list", label: "A", items: { side: { type: "enum", label: "Side", options: [{ value: "a", label: "A", group: "A" }, { value: "b", label: "B", group: "B" }] } }, defaults: { side: "a" } } } }, "schema.a.items.side.options group is refused: an item draws a plain control"],
+        ["an Add entry and a preview on a choices string", offering(), null],
+        ["an Add entry on a string with no choices", offering(m => { delete m.schema.voice.optionsFrom; delete m.schema.voice.preview; m.schema.voice.presets = [{ value: "a" }]; m.settings.voice = "a"; }), "schema.voice.addChoice needs optionsFrom"],
+        ["an Add entry with an unknown key", offering(m => { m.schema.voice.addChoice.icon = "plus"; }), "schema.voice.addChoice must be { label, tui }"],
+        ["an Add entry with no label", offering(m => { delete m.schema.voice.addChoice.label; }), "schema.voice.addChoice.label must be a printable line"],
+        ["an Add entry whose tui is no name", offering(m => { m.schema.voice.addChoice.tui = 3; }), "schema.voice.addChoice.tui must name a script"],
+        ["an Add entry naming an undeclared screen", offering(m => { m.schema.voice.addChoice.tui = "other"; }), "schema.voice.addChoice.tui must name a script of the manifest's tui key, got \"other\""],
+        ["a preview that is false", offering(m => { m.schema.voice.preview = false; }), "schema.voice.preview must be true, on a field with optionsFrom"],
+        ["a preview on a string with no choices", offering(m => { delete m.schema.voice.optionsFrom; delete m.schema.voice.addChoice; m.schema.voice.presets = [{ value: "a" }]; m.settings.voice = "a"; }), "schema.voice.preview must be true, on a field with optionsFrom"],
+        ["a list item Add entry", offering(m => { m.schema.list = { type: "list", label: "List", items: { voice: m.schema.voice }, defaults: { voice: "" } }; m.settings.list = []; delete m.schema.voice; delete m.settings.voice; }), "schema.list.items.voice.addChoice is refused: an item draws a plain control"],
         ["a field with hidden failure text", { capabilities: ["status"], status: { failure: { type: "text", label: "Failure", hidden: true } }, settings: { a: true }, schema: { a: { type: "boolean", label: "A", problem: "failure" } } }, null],
         ["a field with drawn failure text", { capabilities: ["status"], status: { failure: { type: "text", label: "Failure" } }, settings: { a: 20 }, schema: { a: { type: "number", label: "A", presets: [{ value: 20 }], problem: "failure" } } }, null],
         ["a problem naming no status entry", { capabilities: ["status"], status: { failure: { type: "text", label: "Failure" } }, settings: { a: true }, schema: { a: { type: "boolean", label: "A", problem: "missing" } } }, "schema.a.problem must name a text status entry"],
@@ -720,7 +800,14 @@ function suite(ctx, configLogic, check) {
         ["before the first publish", {}, ["low", "lid"]],
         ["one entry present", { battery: "present", lid: "absent" }, ["lid"]],
         ["a presence that is not present", { battery: "unavailable", lid: "present" }, ["low"]],
-    ]) check("withheldFields: " + name, ctx.withheldFields(gated, values), want);
+    ]) check("withheldFields: " + name, ctx.withheldFields(gated, values, {}), want);
+    // A field gated on a setting follows its value, whatever is published.
+    const sided = { schema: { side: { type: "enum", label: "Side", options: [{ value: "local", label: "L" }, { value: "cloud", label: "C" }] },
+        key: { type: "boolean", label: "Key", shownWhen: { setting: "side", in: ["cloud"] } }, tier: { type: "boolean", label: "Tier", shownWhen: { setting: "side", in: ["local"] } } } };
+    for (const [name, settings, want] of [
+        ["the local side hides the cloud field", { side: "local" }, ["key"]],
+        ["the cloud side hides the local field", { side: "cloud" }, ["tier"]],
+    ]) check("withheldFields: " + name, ctx.withheldFields(sided, {}, settings), want);
     // Power's service reports a failure, clears it after success, and loses
     // its status when disabled. Each transition must reach the same field.
     const problems = { schema: { wake: { type: "boolean", label: "Wake", problem: "failure" }, kept: { type: "boolean", label: "Kept" } } };
@@ -1718,7 +1805,7 @@ function suite(ctx, configLogic, check) {
         ["vgs.capture", "codec", null, ["auto", "h264", "hevc", "av1", "vp9"]],
         ["vgs.displays", "keysTarget", null, ["focused", "all"]],
         ["vgs.jarvis", "mode", null, ["hold", "toggle", "always"]],
-        ["vgs.jarvis", "voiceProvider", null, ["auto", "local", "realtime", "gemini"]],
+        ["vgs.jarvis", "voiceProvider", null, ["local", "realtime", "gemini", "elevenlabs"]],
         ["vgs.jarvis", "taskTerminal", null, ["auto", "tmux", "floating"]],
         ["vgs.jarvis", "cloudVision", null, ["ask", "allow", "never"]],
         ["vgs.mouse", "accelProfile", null, ["adaptive", "flat"]],
@@ -2515,7 +2602,7 @@ const CONTROLS = [
     ["a status entry that is no stored key list is drawn on Settings", 'if (entry.type !== "presenceList" || !secrets) return at + ".setting needs a stored key list', 'if (false) return at + ".setting needs a stored key list'],
     ["a stored key list names a real field", 'typeof entry.setting !== "string" || !hasOwn(schema, entry.setting)', 'false'],
     ["a stored key list on Settings is displayed", 'if (entry.hidden === true) return at + ".setting needs a displayed status";', 'if (false) return at + ".setting needs a displayed status";'],
-    ["setup declaration is boolean", 'entry.setup !== undefined && typeof entry.setup !== "boolean"', 'false'],
+    ["setup declaration is boolean or optional", 'entry.setup !== undefined && typeof entry.setup !== "boolean" && entry.setup !== SETUP_OPTIONAL', 'false'],
     ["required step is displayed", 'entry.hidden === true || ["state", "presence"].indexOf(entry.type) === -1', 'false'],
     ["keys name a required step", 'typeof entry.step !== "string" || !hasOwn(status, entry.step) || status[entry.step].setup !== true', 'false'],
     ["key association holds keys", 'if (entry.type !== "presenceList") return at + ".step needs a key list";', 'if (false) return at + ".step needs a key list";'],
@@ -2872,8 +2959,8 @@ const CONTROLS = [
     ["a list entry's keys are judged", "var listBad = Pads.listEntryError(entry, at, status, schemaError);", "var listBad = \"\";"],
     ["a list value is judged", "if (entry.type === \"list\") return Pads.listValueError(entry, value, settingError, ConfigLogic.NAME_PATTERN);", "if (entry.type === \"list\") return \"\";"],
     ["list is a setting type", "\"enum\", \"list\"];", "\"enum\"];"],
-    ["items and defaults are schema entry keys", ", \"items\", \"defaults\", \"placeholder\", \"hideEmpty\"];", ", \"placeholder\", \"hideEmpty\"];"],
-    ["placeholder is a schema entry key", ", \"defaults\", \"placeholder\", \"hideEmpty\"];", ", \"defaults\", \"hideEmpty\"];"],
+    ["items and defaults are schema entry keys", ", \"items\", \"defaults\", \"placeholder\", \"hideEmpty\",", ", \"placeholder\", \"hideEmpty\","],
+    ["placeholder is a schema entry key", ", \"defaults\", \"placeholder\", \"hideEmpty\",", ", \"defaults\", \"hideEmpty\","],
     ["tooltip is a schema entry key", "\"info\", \"tooltip\", \"link\"", "\"info\", \"link\""],
     ["a tooltip needs a flat setting", "if (entry.type === \"list\")\n                return at + \".tooltip needs a flat setting\";", "if (false)\n                return at + \".tooltip needs a flat setting\";"],
     ["a tooltip is a printable line", "if (!isPrintableLine(entry.tooltip, TOOLTIP_MAX))", "if (false)"],
@@ -2885,7 +2972,7 @@ const CONTROLS = [
     ["a space at a line's end takes no room", "var ink = segments[i].replace(/ +$/, \"\").length;", "var ink = segments[i].length;"],
     ["a line breaks after a hyphen", "var segments = text.match(", "var segments = text.replace(/-/g, \"_\").match("],
     ["a hyphen before a digit keeps its word", "(?:[^ -]|-(?=[0-9]))*", "[^ -]*"],
-    ["hideEmpty is a schema entry key", ", \"placeholder\", \"hideEmpty\"];", ", \"placeholder\"];"],
+    ["hideEmpty is a schema entry key", ", \"placeholder\", \"hideEmpty\", \"groupLabel\"", ", \"placeholder\", \"groupLabel\""],
     ["hideEmpty needs optionsFrom", "if (entry.optionsFrom === undefined)\n                return at + \".hideEmpty needs optionsFrom\";", "if (false)\n                return at + \".hideEmpty needs optionsFrom\";"],
     ["hideEmpty is a boolean", "if (typeof entry.hideEmpty !== \"boolean\")", "if (false)"],
     ["shownWhen is a schema entry key", "\"group\", \"shownWhen\", \"problem\"", "\"group\", \"problem\""],
@@ -2896,11 +2983,28 @@ const CONTROLS = [
     ["problem carries its published text", "hasOwn(values, problem) ? values[problem] : \"\"", "hasOwn(values, problem) ? \"\" : \"\""],
     ["an unreported problem is empty", "hasOwn(values, problem) ? values[problem] : \"\"", "values[problem]"],
     ["shownWhen needs a flat setting", "if (entry.type === \"list\")\n                return at + \".shownWhen needs a flat setting\";", "if (false)\n                return at + \".shownWhen needs a flat setting\";"],
-    ["shownWhen is a string", "if (typeof entry.shownWhen !== \"string\" || ", "if ("],
-    ["shownWhen names a presence entry", " || status[entry.shownWhen].type !== \"presence\")", ")"],
-    ["a present entry shows its field", "values[entry.shownWhen] === \"present\")", "values[entry.shownWhen] !== \"absent\")"],
-    ["an unreported entry withholds its field", "!(hasOwn(values, entry.shownWhen) && values[entry.shownWhen] === \"present\")", "(hasOwn(values, entry.shownWhen) && values[entry.shownWhen] !== \"present\")"],
-    ["a field without shownWhen is never withheld", "return entry.shownWhen !== undefined && !(hasOwn", "return !(hasOwn"],
+    ["shownWhen names a presence entry", " && status[shown].type === \"presence\" ? \"\"", " ? \"\""],
+    ["a setting gate names an enum or boolean", "(gate.type !== \"enum\" && gate.type !== \"boolean\")", "false"],
+    ["a setting gate is always shown", "if (gate.shownWhen !== undefined)\n        return", "if (false)\n        return"],
+    ["a setting gate's values fit it", "if (settingError(gate, shown.in[v]) !== \"\") return", "if (false) return"],
+    ["a present entry shows its field", "values[shown] === \"present\")", "values[shown] !== \"absent\")"],
+    ["an unreported entry withholds its field", "!(hasOwn(values, shown) && values[shown] === \"present\")", "(hasOwn(values, shown) && values[shown] !== \"present\")"],
+    ["a field without shownWhen is never withheld", "if (shown === undefined) return false;", ""],
+    ["a setting gate follows the setting", "return shown.in.indexOf(settings[shown.setting]) === -1;", "return false;"],
+    ["an option names its group", 'var OPTION_KEYS = ["value", "label", "group"];', 'var OPTION_KEYS = ["value", "label"];'],
+    ["options all declare a group or none", "if (grouped !== entry.options.length)", "if (false)"],
+    ["one group's options stand together", "if (order[i] !== order[i - 1] && order.indexOf(order[i]) < i) return", "if (false) return"],
+    ["groups are counted", "if (groups.length < OPTION_GROUPS_MIN || groups.length > OPTION_GROUPS_MAX)", "if (false)"],
+    ["one group holds several options", "if (many.length > 1)", "if (false)"],
+    ["a group of several options is labelled", "if ((many.length === 1) !== (entry.groupLabel !== undefined))", "if (false)"],
+    ["a grouped row carries its groups", "groups: schema[key].type !== \"enum\" ? [] : groupsOf(schema[key])", "groups: [] && groupsOf(schema[key])"],
+    ["an Add entry needs optionsFrom", "if (entry.optionsFrom === undefined)\n                return at + \".addChoice needs optionsFrom\";", "if (false)\n                return at + \".addChoice needs optionsFrom\";"],
+    ["an Add entry's screen is declared", "return schema[key].addChoice !== undefined && !(isPlainObject(raw.tui) && hasOwn(raw.tui, schema[key].addChoice.tui));", "return false;"],
+    ["an Add entry of a plugin that is off opens nothing", "if (!enabled)\n        return { ok: false, answer: tuiRefusal(entry.addChoice.tui, \"disabled\").answer };", ""],
+    ["a preview needs optionsFrom", "(entry.preview !== true || entry.optionsFrom === undefined)", "(entry.preview !== true)"],
+    ["an optional step is no required one", 'return entry.setup === true ? "required" : entry.setup === SETUP_OPTIONAL ? "optional" : "";', 'return entry.setup === true || entry.setup === SETUP_OPTIONAL ? "required" : "";'],
+    ["only a Setup step says the user cannot act on it", "if (value.available === false && (setupStep(entry) === \"\" || ", "if (value.available === false && ("],
+    ["a required step never hides", "if (entry.setup === true && statusStateHidden(value)) return false;", "if (statusStateHidden(value)) return false;"],
     ["a placeholder needs optionsFrom", "if (entry.optionsFrom === undefined)\n                return at + \".placeholder needs optionsFrom\";", "if (false)\n                return at + \".placeholder needs optionsFrom\";"],
     ["a placeholder is a bounded printable line", "if (!isPrintableLine(entry.placeholder, STATUS_LABEL_MAX))", "if (false)"],
     ["pads are a hyprland key", 'var HYPRLAND_KEYS = ["binds", "layerRules", "appearance", "options", "pads", "monitors"];', 'var HYPRLAND_KEYS = ["binds", "layerRules", "appearance", "options", "monitors"];'],
@@ -3010,6 +3114,12 @@ const CONTROLS = [
 ];
 
 // The controls on ConfigLogic.js, the configuration judge PluginLogic.js imports.
+// The list judge's rules the rows above reach through validateManifest;
+// scripts/test-pads.js holds the rest.
+const PADS_CONTROLS = [
+    ["an item field declares no select entries", "if (plain !== undefined)\n            return", "if (false)\n            return"],
+    ["an item enum declares no option groups", "&& entry.items[fields[i]].options.some(function (option) { return isPlainObject(option) && option.group !== undefined; }))", "&& false)"]
+];
 const CONFIG_CONTROLS = [
     ["a split always records its target", "        rows.push(target);", "        if (source) rows.push(target);", "splitPlugins:"],
     ["appearance is an object", "if (config.appearance !== undefined && !isPlainObject(config.appearance))", "if (false)"],
@@ -3048,13 +3158,13 @@ try {
     fs.symlinkSync(SETTING_VALUES, path.join(temp, "shell", "Commons", "SettingValues.js"));
     fs.symlinkSync(PAGE_REFERENCE, path.join(temp, "shell", "Commons", "PageReference.js"));
     fs.symlinkSync(LUCIDE, path.join(temp, "shell", "Ui", "icons", "Lucide.js"));
+    fs.symlinkSync(path.join(path.dirname(LUCIDE), "Own.js"), path.join(temp, "shell", "Ui", "icons", "Own.js"));
     fs.symlinkSync(MANAGERS, path.join(temp, "shell", "Core", "PackageManagers.js"));
     fs.symlinkSync(LAYER, path.join(temp, "shell", "Core", "HyprlandLayer.js"));
     fs.symlinkSync(path.join(path.dirname(LAYER), "MonitorLogic.js"), path.join(temp, "shell", "Core", "MonitorLogic.js"));
-    fs.symlinkSync(path.join(path.dirname(LAYER), "Pads.js"), path.join(temp, "shell", "Core", "Pads.js"));
-    const sources = { [LOGIC]: fs.readFileSync(LOGIC, "utf8"), [CONFIG]: fs.readFileSync(CONFIG, "utf8") };
+    const sources = { [LOGIC]: fs.readFileSync(LOGIC, "utf8"), [CONFIG]: fs.readFileSync(CONFIG, "utf8"), [PADS]: fs.readFileSync(PADS, "utf8") };
     const copyOf = file => path.join(temp, "shell", "Core", path.basename(file));
-    for (const [file, controls] of [[LOGIC, CONTROLS], [CONFIG, CONFIG_CONTROLS]]) {
+    for (const [file, controls] of [[LOGIC, CONTROLS], [CONFIG, CONFIG_CONTROLS], [PADS, PADS_CONTROLS]]) {
         for (const [label, needle, replacement, filter] of controls) {
             const count = sources[file].split(needle).length - 1;
             if (count !== 1) { report("control: " + label + ": the text to replace occurs once", count, 1); continue; }

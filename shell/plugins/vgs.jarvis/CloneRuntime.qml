@@ -4,7 +4,7 @@ import "SetupGate.js" as Gate
 // The Cloned voice setup row (SetupGate.clonedVoiceStep) uses the same
 // setup status reader as local voice, read again after either clone TUI
 // ends, after each requirement scan and when the voice the daemon runs
-// changes. `provider` is that voice (SetupGate.voiceProvider).
+// changes. `provider` is that voice (Service.voiceProvider).
 LocalRuntime {
     property string provider: ""
     readonly property double readerStartedAtMs: Date.now()

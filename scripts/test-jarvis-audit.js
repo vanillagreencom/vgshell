@@ -329,16 +329,16 @@ world(() => {
         const root = state();
         const stream = { ...event, kind: "release", effect: "external", decision: "send", outcome: "failed" };
         withWriter(logic, { state: root }, writer => {
-            for (const cause of ["input-silent", "unheard", "voice-stopped"])
+            for (const cause of ["input-silent", "unheard", "key-refused", "voice-stopped"])
                 assert.equal(writer.record({ ...stream, cause }).kind, "recorded", cause);
             assert.equal(writer.record(stream).kind, "recorded");
-            assert.deepEqual(records(root).map(record => record.cause), ["input-silent", "unheard", "voice-stopped", undefined]);
+            assert.deepEqual(records(root).map(record => record.cause), ["input-silent", "unheard", "key-refused", "voice-stopped", undefined]);
             for (const [name, value] of [["fault text", { ...stream, cause: "live=unheard" }],
                 ["caller text", { ...stream, cause: "planted-arbitrary-credential" }],
                 ["completed stream", { ...stream, outcome: "completed", cause: "unheard" }],
                 ["action", { ...event, outcome: "failed", cause: "unheard" }]])
                 assert.deepEqual(writer.record(value), { kind: "refuse", reason: "audit-write", cause: "cause" }, name);
-            assert.equal(records(root).length, 4, "a refused cause writes nothing");
+            assert.equal(records(root).length, 5, "a refused cause writes nothing");
         });
     }
     // A vision capture's facts: numbers and a digest, never image bytes.
