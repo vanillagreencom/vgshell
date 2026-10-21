@@ -1,7 +1,7 @@
 {
   "app": "tmux",
   "runsCode": true,
-  "encoder": "hex6",
+  "encoder": "tmux",
   "files": [{ "template": "tmux.conf", "destination": "tmux.conf" }],
   "detect": ["tmux"],
   "wiring": { "file": "tmux/tmux.conf", "line": "source-file -q '@{state}/tmux.conf'", "create": false, "fallbacks": [".tmux.conf"], "last": true },

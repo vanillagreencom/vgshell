@@ -2006,12 +2006,33 @@ function verifyTmuxPalette(template, render = selectionRender) {
             new Map([["tmux.conf", template]]), { values: pkg.values, slots, curated: new Map(), installed: !shipped });
         assert.equal(rendered.ok, true);
         const output = rendered.files.find(file => file.destination === "tmux.conf").bytes.toString("utf8");
-        const fields = new Map([...output.matchAll(/^set -gq ((?:dark|light)-theme-[a-z-]+) "(#[\da-f]{6})"$/gim)]
-            .map(match => [match[1], match[2].toLowerCase()]));
+        const fields = new Map([...output.matchAll(/^set -gq ((?:dark|light)-theme-[a-z-]+) "(colour(?:[0-9]|1[0-5])|default)"$/gim)]
+            .map(match => [match[1], match[2]]));
         for (const mode of ["dark", "light"]) for (const [name, slot] of TMUX_THEME_ROLES) {
-            const key = `${mode}-theme-${name}`, actual = fields.get(key) ?? null, expected = slots[slot].slice(0, 7).toLowerCase();
+            const key = `${mode}-theme-${name}`, actual = fields.get(key) ?? null, expected = `colour${slot.slice("color".length)}`;
             if (actual !== expected) failures.push({ package: pkg.name, key, role: `terminal.${slot}`, actual, expected });
         }
+        assert.doesNotMatch(output, /#[0-9a-f]{6}/i, pkg.name + "/tmux hex colour");
+        const slotColor = name => {
+            const match = /^colour(1[0-5]|[0-9])$/.exec(name);
+            assert.ok(match, pkg.name + "/tmux colour slot " + name);
+            return slots[`color${match[1]}`];
+        };
+        const styles = [...output.matchAll(/^set -gq? ([a-z-]+-style) "([^"]+)"$/gm)];
+        for (const [, option, value] of styles) {
+            const style = Object.fromEntries(value.split(",").map(part => part.includes("=") ? part.split("=") : [part, true]));
+            const assignments = [...value.matchAll(/\b(?:fg|bg)=/g)].length;
+            const colors = [...value.matchAll(/\b(?:fg|bg)=(colour(?:[0-9]|1[0-5])|default)\b/g)];
+            assert.equal(colors.length, assignments, pkg.name + "/" + option + " colour values use terminal slots");
+            if (option.includes("border")) continue;
+            const foreground = logic.parseColor(slotColor(style.fg));
+            const fill = style.bg === undefined || style.bg === "default" ? logic.parseColor(slotColor("colour0")) : logic.parseColor(slotColor(style.bg));
+            assert.ok(logic.contrastRatio(foreground, fill) >= 4.5, pkg.name + "/" + option + " text floor");
+        }
+        for (const [, option, value] of output.matchAll(/^set -gq? ((?:dark|light)-theme-[a-z-]+) "([^"]+)"$/gm))
+            assert.match(value, /^(?:colour(?:[0-9]|1[0-5])|default)$/, pkg.name + "/" + option);
+        for (const [, option, value] of output.matchAll(/^set -gq? (clock-mode-colour|display-panes-colour|display-panes-active-colour) "([^"]+)"$/gm))
+            assert.match(value, /^(?:colour(?:[0-9]|1[0-5])|default)$/, pkg.name + "/" + option);
     }
     assert.deepEqual(failures, []);
 }
@@ -2903,9 +2924,6 @@ function tmuxStyle(text, option) {
     assert.ok(value, option);
     return Object.fromEntries(value[1].split(",").map(part => part.includes("=") ? part.split("=") : [part, true]));
 }
-// The desk switcher's active pair for one light and one dark package: each
-// package's accent, and the black or white contrast() picks on it.
-const SESSION_PAIRS = { "flexoki-light": ["#205ea6", "#ffffff"], vgs: ["#ff5a36", "#000000"] };
 function verifyAppStyles(render, changedTemplates = {}) {
     const targets = Object.fromEntries(["tmux", "neovim", "ghostty"].map(name => {
         const dir = path.join(repo, "themes", "targets", name);
@@ -2946,8 +2964,7 @@ function verifyAppStyles(render, changedTemplates = {}) {
         }
         assert.equal(/^palette = 8=(#[0-9a-f]{6})$/m.exec(rendered.ghostty)[1],
             pkg.terminal.color8.slice(0, 7), name + "/terminal preserves its original brightblack");
-        const bg = /^background = (#[0-9a-f]{6})$/m.exec(rendered.ghostty)[1];
-        assert.equal(bg, pkg.values.palette.background.slice(0, 7), name + "/normal background");
+        const bg = pkg.values.palette.background.slice(0, 7);
         assert.equal(/^vim.o.background = "(dark|light)"$/m.exec(rendered.neovim)[1], pkg.values.scheme.mode);
         for (const group of ["Normal", "NormalNC", "SignColumn"]) {
             const highlight = rendered.neovim.split("\n").find(line => line.trimStart().startsWith('hl("' + group + '",'));
@@ -2958,23 +2975,20 @@ function verifyAppStyles(render, changedTemplates = {}) {
         const session = tmuxStyle(rendered.tmux, "status-left-style");
         const active = tmuxStyle(rendered.tmux, "window-status-current-style");
         const inactive = tmuxStyle(rendered.tmux, "window-status-style");
-        assert.equal(status.bg, bg);
-        assert.equal(active.bg, bg);
-        assert.equal(inactive.bg, bg);
-        for (const option of ["popup-style", "popup-border-style", "menu-style", "menu-border-style"]) {
-            const style = tmuxStyle(rendered.tmux, option);
-            assert.equal(style.bg, pkg.values.color[option.startsWith("popup") ? "background" : "surfaceRaised"].slice(0, 7), name + "/" + option);
-            if (option.endsWith("border-style")) assert.equal(style.fg, pkg.values.color.borderStrong.slice(0, 7), name + "/" + option);
-        }
-        // The session label takes the bar's active desk pair (BarItem.qml's
-        // Theme.bar.active fill and Theme.bar.onActive text).
-        assert.deepEqual([session.bg, session.fg], [pkg.values.bar.active.slice(0, 7), pkg.values.bar.onActive.slice(0, 7)], name + "/session");
-        if (name in SESSION_PAIRS) assert.deepEqual([session.bg, session.fg], SESSION_PAIRS[name], name + "/session literal");
-        assert.equal(active.fg, pkg.values.color.info.slice(0, 7));
+        const slotColor = value => {
+            const match = /^colour(1[0-5]|[0-9])$/.exec(value);
+            assert.ok(match, name + "/tmux colour slot " + value);
+            return pkg.terminal[`color${match[1]}`];
+        };
+        assert.equal(status.bg, "colour0", name + "/background uses terminal black");
+        assert.equal(active.bg, status.bg);
+        assert.equal(inactive.bg, status.bg);
+        assert.match(session.bg, /^colour(?:[0-9]|1[0-5])$/);
+        assert.match(session.fg, /^colour(?:[0-9]|1[0-5])$/);
         assert.equal(active.bold, true);
         assert.equal(inactive.bold, undefined);
         const ratios = Object.fromEntries(Object.entries({ status, session, active, inactive }).map(([role, style]) => {
-            const ratio = logic.contrastRatio(logic.parseColor(style.fg), logic.parseColor(style.bg));
+            const ratio = logic.contrastRatio(logic.parseColor(slotColor(style.fg)), logic.parseColor(slotColor(style.bg)));
             assert.deepEqual(ratio < 4.5 ? [{ kind: "app-style-contrast", theme: name, role, ratio, floor: 4.5 }] : [], []);
             return [role, ratio];
         }));
@@ -2984,21 +2998,17 @@ function verifyAppStyles(render, changedTemplates = {}) {
         for (const [, option, value] of rendered.tmux.matchAll(/^set -gq? ([a-z-]+-style) "([^"\n]+)"$/gm)) {
             if (option.includes("border")) continue;
             const style = Object.fromEntries(value.split(",").map(part => part.includes("=") ? part.split("=") : [part, true]));
-            if (!/^#[0-9a-f]{6}$/.test(style.fg)) continue;
-            const fill = /^#[0-9a-f]{6}$/.test(style.bg) ? style.bg : bg;
-            const ratio = logic.contrastRatio(logic.parseColor(style.fg), logic.parseColor(fill));
+            if (!/^colour(?:[0-9]|1[0-5])$/.test(style.fg)) continue;
+            const fill = /^colour(?:[0-9]|1[0-5])$/.test(style.bg) ? slotColor(style.bg) : slotColor("colour0");
+            const ratio = logic.contrastRatio(logic.parseColor(slotColor(style.fg)), logic.parseColor(fill));
             assert.deepEqual(ratio < 4.5 ? [{ kind: "app-style-contrast", theme: name, role: option, ratio, floor: 4.5 }] : [], []);
         }
-        const separation = channelSeparation(active.fg, inactive.fg);
+        const separation = channelSeparation(slotColor(active.fg), slotColor(inactive.fg));
         assert.ok(separation >= 55.65, name + "/inactive RGB separation=" + separation);
-        const old = pkg.terminal.color8.slice(0, 7);
-        const oldRatio = logic.contrastRatio(logic.parseColor(old), logic.parseColor(bg));
-        if (oldRatio >= 4.5 && channelSeparation(old, active.fg) >= 55.65) {
+        const old = "colour8";
+        const oldRatio = logic.contrastRatio(logic.parseColor(pkg.terminal.color8), logic.parseColor(slotColor(status.bg)));
+        if (oldRatio >= 4.5 && channelSeparation(pkg.terminal.color8, slotColor(active.fg)) >= 55.65) {
             assert.equal(inactive.fg, old, name + "/preserve distinct readable inactive text");
-        } else {
-            const colour = logic.parseColor(inactive.fg);
-            assert.equal(colour.r, colour.g, name + "/repair uses grey");
-            assert.equal(colour.g, colour.b, name + "/repair uses grey");
         }
         metrics.push({ name, background: bg, session, active, inactive, ratios, separation, preserved: inactive.fg === old,
             ghostty: { foreground, faintOpacity } });
@@ -4646,7 +4656,7 @@ const CONTROLS = [
     ["stamped ids only", 'return id === base || (id.startsWith(base + "-") && /^[0-9]+$/.test(id.slice(base.length + 1)));', 'return id.startsWith(base);'],
     ["the bare id is stamped", 'return id === base || (id.startsWith(base + "-")', 'return (id.startsWith(base + "-")'],
     ["unregister keeps the kept ids", "return id === null || keep.includes(id) || !isStampedId(id, base);", "return id === null || keep[0] === id || !isStampedId(id, base);"],
-    ["tmux native palette preserves ANSI", 'if (target.name === "tmux") input = { ...input, targetColors: tmuxColors(logic, input) };', 'if (target.name === "tmux") { input = { ...input, targetColors: tmuxColors(logic, input) }; input = { ...input, slots: { ...input.slots, color8: input.targetColors["tmux.inactive_foreground"] } }; }', render => verifyTmuxPalette(tmuxPaletteTemplate, render)],
+    ["tmux uses the package terminal palette", 'return "colour" + chosen;', 'return "colour8";', render => verifyTmuxPalette(tmuxPaletteTemplate, render)],
     ["tmux old inactive values", 'if (target.name === "tmux") input = { ...input, targetColors: tmuxColors(logic, input) };', 'if (target.name === "tmux") input = { ...input, targetColors: { "tmux.inactive_foreground": input.slots.color8 } };', verifyAppStyles],
     ["tmux readability", 'const readable = color => color.a === 1 && logic.contrastRatio(color, background) >= logic.READABILITY_FLOOR;', 'const readable = color => true;', verifyAppStyles],
     ["tmux distinction", 'const distinct = color => separation(color) >= 55.65;', 'const distinct = color => true;', verifyAppStyles],
@@ -4943,11 +4953,11 @@ try {
             failure = e;
         }
         assert.ok(failed, `control "${label}": the suite passed on a renderer without that rule`);
-        if (label === "tmux native palette preserves ANSI") {
+        if (label === "tmux uses the package terminal palette") {
             assert.equal(failure.code, "ERR_ASSERTION");
-            const changed = failure.actual.find(row => row.package === "vgs" && row.key === "dark-theme-dark-grey");
+            const changed = failure.actual.find(row => row.package === "vgs" && row.key === "dark-theme-black");
             assert.ok(changed && changed.actual !== changed.expected);
-            console.log("test-theme-render: tmux-palette-control " + JSON.stringify({ fault: "global-slot-remap", rejected: true, failure: changed }));
+            console.log("test-theme-render: tmux-palette-control " + JSON.stringify({ fault: "fixed-slot-mapping", rejected: true, failure: changed }));
         }
         if (label.startsWith("editor cap")) {
             assert.equal(failure.code, "ERR_ASSERTION");
