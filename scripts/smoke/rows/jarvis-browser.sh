@@ -19,7 +19,8 @@ jarvis_rescan
 jarvis_enable
 settings_page_open vgs.jarvis
 
-# The browser is optional: a reading that is not ready takes the info tone.
+# The browser is an optional Setup step: its reading keeps its own tone,
+# and the page draws the Optional chip (Steps.stepReading).
 # A failed or unreadable check also says why in a hint that names Set up
 # browser: [tone, text and action, whether that hint shows].
 browser_value() {
@@ -28,11 +29,11 @@ import json,sys
 r=json.load(sys.stdin)
 with open(sys.argv[2]) as stream:
     label=json.load(stream)["status"]["browser"]["action"]["label"]
-expected={"absent":({"tone":"info","text":"Browser needs setup","action":True},False),
+expected={"absent":({"tone":"warning","text":"Browser needs setup","action":True},False),
           "ready":({"tone":"ok","text":"Private browser ready","action":False},False),
-          "failed":({"tone":"info","text":"Setup check failed","action":True},True),
-          "invalid":({"tone":"info","text":"Setup check returned invalid status","action":True},True),
-          "withheld":({"tone":"info","text":"Needs agent-browser","action":False},False)}[sys.argv[1]]
+          "failed":({"tone":"warning","text":"Setup check failed","action":True},True),
+          "invalid":({"tone":"warning","text":"Setup check returned invalid status","action":True},True),
+          "withheld":({"tone":"warning","text":"Needs agent-browser","action":False},False)}[sys.argv[1]]
 v=r["value"]
 fields,reasoned=expected
 ok=isinstance(v,dict) and set(v)<=set(fields)|{"hint"} and {k:v.get(k) for k in fields}==fields

@@ -115,8 +115,9 @@ jarvis_key_talk_up() {
 # A tap: both edges at once, far inside the tap bound.
 jarvis_key_tap() { hold_send "down 133" "down 108" "up 108" "up 133"; jarvis_key_tapped_at="$(now_ms)"; }
 # Whether the request is sent, phase thinking, before DEADLINE, a now_ms
-# reading: a tapped request reaches thinking by itself only after Session's
-# silence bound, so a send before it comes from the key.
+# reading. A silent tapped request ends by itself TAP_SILENCE_MS after its
+# release, so the callers' deadline, half that bound past the key, catches
+# only a send that comes from the key.
 jarvis_key_sent_before() { # DEADLINE
   local phase
   while :; do
@@ -141,12 +142,12 @@ jarvis_key_hold_sends() {
   expect_poll "the held talk key starts listening" listening jarvis_key_state phase
   jarvis_key_talk_up
   released="$(now_ms)"
-  expect "a hold past the tap bound sends at its release" sent jarvis_key_sent_before $((released + jarvis_key_silence_ms))
+  expect "a hold past the tap bound sends at its release" sent jarvis_key_sent_before $((released + jarvis_key_silence_ms / 2))
 }
 jarvis_key_second_tap_sends() {
   local first="$jarvis_key_tapped_at"
   jarvis_key_tap
-  expect "the second tap sends the tapped request" sent jarvis_key_sent_before $((first + jarvis_key_silence_ms))
+  expect "the second tap sends the tapped request" sent jarvis_key_sent_before $((first + jarvis_key_silence_ms / 2))
 }
 # One Session copy per tap rule: NEEDLE becomes REPLACEMENT, SETUP runs
 # ("-" for none), and JUDGED's one assertion must then fail once.
@@ -552,7 +553,7 @@ hold_barrier
 expect "physical repeat opens no second capture" "$((jarvis_key_initial_opens + 1))" jarvis_key_effects capture-open
 jarvis_key_talk_up
 jarvis_key_released="$(now_ms)"
-expect "a hold past the tap bound sends at its release" sent jarvis_key_sent_before $((jarvis_key_released + jarvis_key_silence_ms))
+expect "a hold past the tap bound sends at its release" sent jarvis_key_sent_before $((jarvis_key_released + jarvis_key_silence_ms / 2))
 expect "physical repeat sends only the release intent" "$((jarvis_key_received_before + 1))" jarvis_key_received count
 jarvis_key_gate brain
 expect_poll "the scripted brain starts speaking" speaking jarvis_key_state phase

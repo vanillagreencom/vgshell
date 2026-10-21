@@ -86,7 +86,7 @@ import json,sys
 r=json.load(sys.stdin)
 expected={"absent-under-voice":({"tone":"info","text":"Not set up"},False,1),
           "absent-open":({"tone":"warning","text":"Not set up"},False,0),
-          "optional":({"tone":"info","text":"Not set up"},False,0),
+          "optional":({"tone":"info","text":"Not set up"},True,0),
           "ready":({"tone":"ok","text":"Ready: small"},False,0),
           "failed-open":({"tone":"warning","text":"Setup check failed"},True,0),
           "invalid-open":({"tone":"warning","text":"Setup check returned invalid status"},True,0)}[sys.argv[1]]
@@ -94,6 +94,9 @@ v=r["value"]
 fields,reasoned,lines=expected
 ok=isinstance(v,dict) and set(v)<=set(fields)|{"hint","lines"} and {k:v.get(k) for k in fields}==fields
 ok=ok and ("hint" in v)==reasoned and len(v.get("lines",[]))==lines
+# Under a voice that hears elsewhere the hint links Voice provider, the
+# field the page draws, never the Local voice model field it withholds.
+ok=ok and (sys.argv[1]!="optional" or "(page:vgs.jarvis/Settings/voiceProvider)" in v.get("hint",""))
 print("matched" if ok and r["action"] is None else "pending")
 ' "$1"
 }
