@@ -41,16 +41,16 @@ run_capture() { # OUT ERR STATUS_VAR CMD...
 grep_out() { grep -qxF -- "$1" "$2"; }
 voice_command=(env -i PATH=/usr/bin:/bin "$node_bin" "$repo/scripts/fixtures/jarvis-voice/installed.js")
 
-dest="$tmp/install"
-run_capture "$tmp/install.out" "$tmp/install.err" status env DESTDIR="$dest" PREFIX=/usr "$repo/packaging/install-system.sh"
-check "the installer succeeds into a staged /usr prefix" test "$status" = 0
-check "the installer reports the staged root" grep_out "install-system: ok prefix=/usr root=$dest/usr" "$tmp/install.out"
 checker_source="$tmp/checker-source"
 mkdir -p -- "$checker_source/scripts" "$checker_source/packaging"
 cp -- "$repo/scripts/check-install-tree.sh" "$checker_source/scripts/"
 cp -- "$repo/packaging/install-tree.manifest" "$checker_source/packaging/"
 chmod -R a-w -- "$checker_source"
 checker="$checker_source/scripts/check-install-tree.sh"
+dest="$tmp/install"
+run_capture "$tmp/install.out" "$tmp/install.err" status env DESTDIR="$dest" PREFIX=/usr "$repo/packaging/install-system.sh"
+check "the installer succeeds into a staged /usr prefix" test "$status" = 0
+check "the installer reports the staged root" grep_out "install-system: ok prefix=/usr root=$dest/usr" "$tmp/install.out"
 run_capture "$tmp/check.out" "$tmp/check.err" status "$checker" "$dest" /usr
 check "the committed manifest matches the installed tree" test "$status" = 0
 check "the checker reports the manifest it used" grep_out "install-tree=ok root=$dest/usr manifest=$checker_source/packaging/install-tree.manifest" "$tmp/check.out"
