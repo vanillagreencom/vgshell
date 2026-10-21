@@ -50,12 +50,14 @@ fi
 runs="${runs:-1}"
 # No process this run starts may open an amdgpu node, so the run goes on
 # only where none is visible: scripts/smoke/gpu-fence.sh.
-"$repo/scripts/smoke/gpu-fence.sh" --check || exec "$repo/scripts/smoke/gpu-fence.sh" "$self" "${argv[@]}"
-source_repo="$repo"
-if ! mkdir -p -- "$source_repo/tmp"; then
-  printf 'shader-cost: failed scratch=%s\n' "$source_repo/tmp"; exit 1
+world_args=(--out "$repo/tmp/shader-cost" --out "$repo/tmp/display-record" --out "$repo/tmp/qml-smoke")
+[[ $keep != true ]] || world_args+=(--keep)
+if [[ ${choice[0]} == --calibrate ]]; then
+  calibration="$(realpath -m -- "${choice[1]}")"
+  world_args+=(--out "${calibration%/*}")
 fi
-export TMPDIR="$source_repo/tmp"
+"$repo/scripts/smoke/gpu-fence.sh" --check || exec "$repo/scripts/smoke/gpu-fence.sh" "${world_args[@]}" "$self" "${argv[@]}"
+source_repo="$repo"
 # The compiler owner has a hyphenated filename; import through its path.
 compiler="$(python3 - "$repo/scripts/check-voiceorb-shader.py" <<'PY'
 import importlib.util, sys
@@ -110,7 +112,7 @@ PY
     printf 'shader-cost: failed costly-shader=compile shader=%s\n' "$shader"; exit 1
   fi
 done
-logs="$source_repo/tmp/shader-cost-$(date +%s)-$$"
+logs="$source_repo/tmp/shader-cost/$(date +%s)-$$"
 mkdir -p -- "$logs"
 printf 'shader-cost: logs=%s\n' "$logs"
 source "$source_repo/scripts/shader/measure-scene.sh"
