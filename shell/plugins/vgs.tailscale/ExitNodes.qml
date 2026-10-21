@@ -13,10 +13,11 @@ import "TailscaleLogic.js" as Logic
 // "City, Country", at most SEARCH_MAX of them. The host draws the search
 // field, the title and Back, which calls `closeCountry`.
 //
-// The chooser moves the keyboard itself, for both hosts: an opened
-// country's view takes it on its first row, Back returns it to the country
-// that was open, and Clear search to the search field, so it never rests
-// on a row the view hides.
+// The chooser moves the keyboard itself, for both hosts: Down from the
+// search field takes it to the view's first row, Recommended while it is
+// listed, an opened country's view takes it on its first row, Back
+// returns it to the country that was open, and Clear search to the search
+// field, so it never rests on a row the view hides.
 //
 // A row's click, Enter or Space emits `chose` with the node's id, "" for
 // None, and never a target: the service maps the id. The row whose node a
@@ -65,11 +66,16 @@ FocusScope {
     }
     function actOn(list, key) { act(list.rows.find(row => row.key === key)); }
 
-    // Gives the keyboard to the first list the view shows.
+    // Gives the keyboard to the first row of the first list the view
+    // shows. A keyed list keeps its selection on the row it held, so a
+    // Recommended row listed after the view opened would otherwise leave
+    // the selection on None, below it.
     function focusFirst() {
         const lists = [cityList, topList, searchList];
         const shown = lists.find(list => list.visible);
-        if (shown !== undefined) shown.focusCurrent(Qt.TabFocusReason);
+        if (shown === undefined) return;
+        shown.current = 0;
+        shown.focusCurrent(Qt.TabFocusReason);
     }
     // Gives the keyboard to the Mullvad list on country CODE.
     function focusCountry(code) {

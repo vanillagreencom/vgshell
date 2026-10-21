@@ -21,6 +21,8 @@ import "../../shell/plugins/vgs.tailscale/TailscaleLogic.js" as Logic
 // from; the card keeps its height while the chooser shows; Tailscale
 // stopping leaves the chooser with the keyboard on the header switch; an
 // offline node of your own is refused with its sentence and nothing runs.
+// Down from the search field lands on Recommended when the suggestion is
+// read after the chooser opened.
 // The System pane's body opens its disclosures, keeps the account and
 // this device while the device waits for approval, and its inline chooser
 // moves the keyboard as the flyout's does: an opened country takes it on
@@ -42,6 +44,9 @@ Item {
     readonly property string mullvadTag: "tag:mullvad-exit-node"
     // The daemon's state, which a case changes and cleanup() restores.
     property string backend: "Running"
+    // Whether the service has read its suggestion, which a case clears
+    // and cleanup() restores.
+    property bool suggested: true
     readonly property var snapshot: Logic.snapshot(0, JSON.stringify({
         BackendState: root.backend,
         Self: { ID: "nDESK", HostName: "desk", DNSName: "desk.tail-fixture.ts.net.", OS: "linux", UserID: 1, TailscaleIPs: ["100.64.0.1"] },
@@ -68,7 +73,7 @@ Item {
     function values() {
         return {
             tailscale: Logic.published(false, snapshot, setupLine, { accounts: accounts, action: "", login: "idle", problem: "",
-                suggestion: Logic.suggestion("se-sto-wg-001.mullvad.ts.net", snapshot) }),
+                suggestion: root.suggested ? Logic.suggestion("se-sto-wg-001.mullvad.ts.net", snapshot) : null }),
             devices: snapshot.devices,
             exitNodes: snapshot.exitNodes
         };
@@ -143,6 +148,7 @@ Item {
             panel.height = 900;
             panel.visible = true;
             root.backend = "Running";
+            root.suggested = true;
         }
 
         function find(item, wanted) {
@@ -261,6 +267,23 @@ Item {
             tryVerify(() => within(focused(), countries) && focused().visible, 1000, "the keys return to the countries");
             compare(countries.currentKey, "SE", "the keys return to Sweden");
             compare(root.actions, [], "opening a country changes nothing");
+        }
+
+        // The suggestion is read after the chooser opens, so Recommended is
+        // listed above None after the view first drew None alone; Down from
+        // the search field then lands on Recommended, the first row.
+        function test_down_from_the_search_field_reaches_a_later_recommended() {
+            root.suggested = false;
+            named("tailscale-exit-row").forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Return);
+            const top = named("tailscale-exit-top");
+            compare(top.rows.map(row => row.key), ["none"], "the chooser opens before the suggestion");
+            root.suggested = true;
+            compare(top.rows.map(row => row.key), ["recommended", "none"], "Recommended is listed first");
+            compare(focused(), named("tailscale-exit-search-field"));
+            keyClick(Qt.Key_Down);
+            verify(within(focused(), top), "Down from the search field reaches the top list");
+            compare(top.currentKey, "recommended", "Down from the search field lands on Recommended");
         }
 
         // The main view, short enough to scroll, reveals the Exit node row;
