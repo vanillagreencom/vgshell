@@ -1633,6 +1633,7 @@ mutations=(
   "a menu made and opened in one turn shows no window|overlay/Menu.qml|if (surface === null) build();|if (surface === null) Qt.callLater(build);|tst_overlays.qml"
   "a device list rebuilds every row on a change|layout/DeviceList.qml|if (wanted[held[index]] === true) continue;|if (false) continue;|tst_devicelist.qml"
   "a device list's keyboard keeps its place, not its row, through a change|layout/DeviceList.qml|const kept = rows.findIndex(row => String(row.key) === selectedKey);|const kept = -1;|tst_devicelist.qml"
+  "a device list keeps an unchosen selection on its row, not its place|layout/DeviceList.qml|current = held && kept !== -1 ? kept|current = kept !== -1 ? kept|tst_devicelist.qml"
   "a change under a resting pointer leaves the plate on the row it moved|layout/DeviceList.qml|if (changed) plate.rebuilt();|if (false) plate.rebuilt();|tst_devicelist.qml"
   "a device list's opening row draws no chevron|layout/DeviceList.qml|                        visible: row.opens|                        visible: false|tst_devicelist.qml"
   "a locked device list locks its opening row|layout/DeviceList.qml|readonly property bool locked: lockState.locked && !opens|readonly property bool locked: lockState.locked|tst_devicelist.qml"

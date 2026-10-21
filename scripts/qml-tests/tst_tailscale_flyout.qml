@@ -270,8 +270,9 @@ Item {
         }
 
         // The suggestion is read after the chooser opens, so Recommended is
-        // listed above None after the view first drew None alone; Down from
-        // the search field then lands on Recommended, the first row.
+        // listed above None after the view first drew None alone; Down
+        // from the search field lands on Recommended, the first row, then
+        // and after the keyboard chose None.
         function test_down_from_the_search_field_reaches_a_later_recommended() {
             root.suggested = false;
             named("tailscale-exit-row").forceActiveFocus(Qt.TabFocusReason);
@@ -284,6 +285,13 @@ Item {
             keyClick(Qt.Key_Down);
             verify(within(focused(), top), "Down from the search field reaches the top list");
             compare(top.currentKey, "recommended", "Down from the search field lands on Recommended");
+            // A later Down from the field lands on the top again, not on
+            // the row the keyboard last chose.
+            keyClick(Qt.Key_Down);
+            compare(top.currentKey, "none");
+            named("tailscale-exit-search-field").forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Down);
+            compare(top.currentKey, "recommended", "a later Down from the search field lands on Recommended");
         }
 
         // The main view, short enough to scroll, reveals the Exit node row;

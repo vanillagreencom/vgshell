@@ -13,7 +13,8 @@ import qs.Unit
 // while the list holds the keyboard; a change to the rows keeps the item
 // of each row whose key stays and the keyboard on its row, wherever the
 // row moves, and a row a change moves from under a resting pointer hands
-// the plate to the selection; a row's `secondaryTone` reaches its
+// the plate to the selection, while a list the keyboard has not entered
+// keeps its selection on its first row; a row's `secondaryTone` reaches its
 // DeviceRow; a hover over the row at a scroll area's edge moves the plate
 // and neither the keyboard nor the page, while the arrows still reveal. A
 // list given a `disabledReason` keeps its selected row a Tab stop, takes
@@ -77,6 +78,16 @@ Item {
                 { key: "zurich", text: "Switzerland", secondary: "Zurich", iconName: "map-pin" },
                 { key: "usa", text: "USA", secondary: "9 cities", iconName: "map-pin", opens: true }
             ]
+        }
+    }
+    // A list the keyboard has not entered, as the Tailscale exit node
+    // chooser's top list before a suggestion is read.
+    Component {
+        id: untouchedList
+        DeviceList {
+            y: 320
+            width: 420
+            rows: [{ key: "none", text: "None" }]
         }
     }
     // A list taller than the area it scrolls in, as a device pane's.
@@ -485,6 +496,21 @@ Item {
             compare(spy.count, 4);
             compare(spy.signalArguments[3][0], "usa");
             before.forceActiveFocus(Qt.TabFocusReason);
+        }
+
+        // Nobody chose the selection of a list the keyboard has not
+        // entered, so a row listed above its first row takes it and the
+        // keyboard enters there; once entered, the selection follows its
+        // row.
+        function test_an_unchosen_selection_stays_on_the_first_row() {
+            const made = createTemporaryObject(untouchedList, root);
+            const none = { key: "none", text: "None" };
+            made.rows = [{ key: "recommended", text: "Stockholm, Sweden" }, none];
+            compare(made.currentKey, "recommended", "a row listed above takes the unchosen selection");
+            made.focusCurrent(Qt.TabFocusReason);
+            compare(made.rowAt(0).activeFocus, true, "the keyboard enters on the first row");
+            made.rows = [{ key: "own", text: "gateway" }, { key: "recommended", text: "Stockholm, Sweden" }, none];
+            compare(made.currentKey, "recommended", "an entered list's selection follows its row");
         }
 
         function test_a_rows_change_keeps_the_keyboard() {

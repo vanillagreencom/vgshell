@@ -42,9 +42,11 @@ import qs.Ui
 // entry)` and `removed(key)`, and the owner acts.
 //
 // A row is keyed: a change to the rows keeps the item of every row whose
-// key stays, its keyboard focus with it, builds only the rows it adds and
-// moves the selection with its row. The search of a long list then builds
-// only the rows a keystroke adds.
+// key stays, its keyboard focus with it, builds only the rows it adds and,
+// once the list has held the keyboard, moves the selection with its row.
+// Until then nobody chose the selection, so it stays on the first row,
+// which a row listed above it takes, as Recommended does above None. The
+// search of a long list then builds only the rows a keystroke adds.
 FocusScope {
     id: list
 
@@ -70,6 +72,9 @@ FocusScope {
     // The key of the row that holds the selection, which the keyboard
     // follows through a change to the rows.
     property string selectedKey: ""
+    // Whether the list has held the keyboard, which makes its selection
+    // a choice that follows its row.
+    property bool held: false
 
     signal acted(string key)
     signal chose(string key, string entry)
@@ -82,10 +87,11 @@ FocusScope {
     // handler and the bindings on one property in no set way, so
     // `placeOf` and `currentKey` can still hold the last value here.
     onCurrentChanged: selectedKey = keyAt(current)
+    onActiveFocusChanged: if (activeFocus) held = true
     onRowsChanged: {
         const changed = syncKeys();
         const kept = rows.findIndex(row => String(row.key) === selectedKey);
-        current = kept !== -1 ? kept : Math.max(0, Math.min(current, rows.length - 1));
+        current = held && kept !== -1 ? kept : Math.max(0, Math.min(current, rows.length - 1));
         selectedKey = keyAt(current);
         if (changed) plate.rebuilt();
     }
