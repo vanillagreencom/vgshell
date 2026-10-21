@@ -30,7 +30,8 @@ vgs.keyhints-window.webp	keyhints	keyhints-dark	content
 vgs.clipboard-history.webp	clipboard	clipboard-dark	full
 vgs.scratchpads-page.webp	settings	settings-dark-scratchpads	content
 vgs.webapps-page.webp	settings	settings-dark-webapps	content
-vgs.tailscale-pane.webp	tailscale	tailscale-dark-pane	content
+vgs.tailscale-pane.webp	tailscale-section	tailscale-section-dark-top	content
+vgs.tailscale-pane-end.webp	tailscale-section	tailscale-section-dark-end	content
 vgs.vpn-pane.webp	vpn	vpn-dark-pane	content
 vgs.vpn-pane-end.webp	vpn	vpn-dark-pane-end	content
 vgs.voice-page.webp	settings	settings-dark-voice	content

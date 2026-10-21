@@ -23,13 +23,11 @@ import "../../shell/plugins/vgs.tailscale/TailscaleLogic.js" as Logic
 // offline node of your own is refused with its sentence and nothing runs.
 // Down from the search field lands on Recommended when the suggestion is
 // read after the chooser opened.
-// The System pane's body opens its disclosures, keeps the account and
-// this device while the device waits for approval, and its inline chooser
-// moves the keyboard as the flyout's does: an opened country takes it on
-// its first city, Back on the country, Clear search on the field. Under a
-// lock a one-city country chooses nothing while a country with cities
-// still opens, and a search keeps the rows it keeps and draws at most
-// SEARCH_MAX.
+// The System pane uses the shared account and device lists in open
+// sections. It keeps Account and This device while approval waits, and
+// expands exit countries inline: Tab enters the cities, Shift+Tab returns
+// to their Disclosure, and Clear search returns to the field. Stopping
+// returns the chooser's keyboard to the connection switch.
 // inputs: shell/plugins/vgs.tailscale/* shell/Ui/* shell/Ui/**/* shell/Commons/*
 Item {
     id: root
@@ -349,12 +347,17 @@ Item {
             return body;
         }
 
-        function test_the_pane_opens_its_disclosures() {
+        function test_the_pane_shows_its_lists_in_open_sections() {
             compare(named("tailscale-account").expanded, false, "the flyout opens its account closed");
             compare(named("tailscale-network-devices").expanded, false, "the flyout opens its devices closed");
             const body = openPane();
-            compare(findIn(body, "tailscale-account").expanded, true, "the pane opens its account");
-            compare(findIn(body, "tailscale-network-devices").expanded, true, "the pane opens its devices");
+            for (const name of ["tailscale-account-section", "tailscale-device-section", "tailscale-exit-section",
+                "tailscale-network-section", "tailscale-admin-section", "tailscale-updates-section"])
+                verify(findIn(body, name).visible, name + " is open");
+            compare(findIn(body, "tailscale-accounts").rows.map(row => row.key), ["a1", "a2"]);
+            compare(findIn(body, "tailscale-devices").rows.map(row => row.key), ["nGATE", "nPIXEL", "nATTIC"]);
+            findIn(body, "tailscale-self-address");
+            findIn(body, "tailscale-self-dns");
         }
 
         function test_the_pane_keeps_the_account_while_waiting_for_approval() {
@@ -362,17 +365,25 @@ Item {
             tryVerify(() => find(panel, item => item.objectName === "tailscale-approval-console") !== null, 1000, "the flyout shows the approval step");
             compare(find(panel, item => item.objectName === "tailscale-account"), null, "the flyout shows no account while waiting");
             const body = openPane();
-            findIn(body, "tailscale-account");
-            findIn(body, "tailscale-this-device");
+            findIn(body, "tailscale-account-section");
+            findIn(body, "tailscale-accounts");
+            findIn(body, "tailscale-device-section");
+            findIn(body, "tailscale-self-address");
+            findIn(body, "tailscale-self-dns");
+            compare(find(body, item => item.objectName === "tailscale-exit-section"), null);
+            compare(find(body, item => item.objectName === "tailscale-network-section"), null);
         }
 
-        // Tailscale stopping hides the pane's chooser, which hands the
-        // keyboard it held to where the pane opens, the connection switch.
+        // Stopping hides the inline chooser and returns its held keyboard.
         function test_tailscale_stopping_returns_the_panes_keyboard() {
             const body = openPane();
-            const countries = findIn(body, "tailscale-exit-countries");
-            countries.focusCurrent(Qt.TabFocusReason);
-            tryVerify(() => within(focused(), countries), 1000, "the countries take the keys");
+            const sweden = findIn(body, "tailscale-exit-country-SE");
+            sweden.focusItem.forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Return);
+            verify(sweden.expanded);
+            keyClick(Qt.Key_Tab);
+            const cities = findIn(body, "tailscale-exit-country-cities-SE");
+            tryVerify(() => within(focused(), cities), 1000, "the inline cities take the keys");
             root.backend = "Stopped";
             tryVerify(() => focused() === body.initialFocus, 1000, "the keys go where the pane opens");
             verify(focused().visible, "the keys rest on a shown item");
@@ -381,18 +392,22 @@ Item {
 
         function test_the_panes_chooser_keeps_the_keyboard_on_a_shown_row() {
             const body = openPane();
-            const countries = findIn(body, "tailscale-exit-countries");
-            countries.current = countries.rows.findIndex(row => row.code === "SE");
-            countries.focusCurrent(Qt.TabFocusReason);
+            const sweden = findIn(body, "tailscale-exit-country-SE");
+            sweden.focusItem.forceActiveFocus(Qt.TabFocusReason);
             keyClick(Qt.Key_Return);
-            tryVerify(() => focused().visible && within(focused(), findIn(body, "tailscale-exit-cities")), 1000, "the opened country's cities take the keys");
-            const back = find(body, item => item.iconName === "chevron-left" && item.label === "Back");
-            verify(back !== null, "the country view draws Back");
-            back.forceActiveFocus(Qt.TabFocusReason);
-            keyClick(Qt.Key_Space);
-            tryVerify(() => focused().visible && within(focused(), countries), 1000, "Back returns the keys to the countries");
-            compare(countries.currentKey, "SE");
-            const field = find(body, item => item.placeholderText === "Search countries, cities and devices");
+            verify(sweden.expanded, "Return expands the country in place");
+            compare(focused(), sweden.focusItem);
+            keyClick(Qt.Key_Tab);
+            const cities = findIn(body, "tailscale-exit-country-cities-SE");
+            tryVerify(() => focused().visible && within(focused(), cities), 1000, "Tab enters the inline cities");
+            keyClick(Qt.Key_Down);
+            compare(cities.currentKey, "city:GOT");
+            keyClick(Qt.Key_Tab, Qt.ShiftModifier);
+            compare(focused(), sweden.focusItem, "Shift+Tab returns to the country");
+            keyClick(Qt.Key_Return);
+            verify(!sweden.expanded, "Return collapses the country");
+            verify(focused().visible);
+            const field = findIn(body, "tailscale-inline-search");
             field.forceActiveFocus(Qt.TabFocusReason);
             for (const key of [Qt.Key_X, Qt.Key_Y, Qt.Key_Z]) keyClick(key);
             const empty = findIn(body, "tailscale-exit-no-match");
