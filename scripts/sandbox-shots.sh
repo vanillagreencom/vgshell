@@ -6643,9 +6643,11 @@ backend_widget_shots() { # NAME MODE
   park_pointer
   expect_poll "the $1 tooltip closes" false tooltip_opened "vgs.$1"
 }
+# The pane and widget shots run over the design's tailnet, whose account
+# list is accounts.json, so the account row and its list name one account.
 tailscale_shot_prepare() {
   devices_ready tailscale-shot || return 1
-  device_reply tailscale 0 "$(<"$repo/scripts/fixtures/tailscale/mullvad.json")" status --json
+  device_reply tailscale 0 "$(<"$repo/scripts/fixtures/tailscale/sheet.json")" status --json
   device_reply tailscale 0 "$(<"$repo/scripts/fixtures/tailscale/accounts.json")" switch --list --json
   device_reply tailscale 0 "$(<"$repo/scripts/fixtures/tailscale/suggest-none.txt")" exit-node suggest
   device_reply tailscale 0 "$(id -un)" get operator
@@ -6675,7 +6677,7 @@ tailscale_starting_shot() { # MODE
   expect "the starting Tailscale spinner uses its bar foreground" matched tailscale_starting_ink
   park_pointer
   take "tailscale-$1-starting-widget"
-  device_reply tailscale 0 "$(<"$repo/scripts/fixtures/tailscale/mullvad.json")" status --json
+  device_reply tailscale 0 "$(<"$repo/scripts/fixtures/tailscale/sheet.json")" status --json
   expect "Tailscale restores its running fixture" ok ipc vgs.tailscale invoke refresh ""
   expect_poll "the restored Tailscale widget stops spinning" false ipc smoke readDescendant "$(bar_key)" vgs.tailscale BarItem spinning
 }
@@ -6706,7 +6708,7 @@ scene_tailscale() { # MODE
   expect_poll "the Tailscale pane reads waiting for approval" '["needs-approval", 2]' tailscale_shot_read
   expect "the approval pane scrolls to its top" top tailscale_shot_top
   take "tailscale-$1-pane-approval"
-  device_reply tailscale 0 "$(<"$repo/scripts/fixtures/tailscale/mullvad.json")" status --json
+  device_reply tailscale 0 "$(<"$repo/scripts/fixtures/tailscale/sheet.json")" status --json
   expect "Tailscale reads its running fixture after the approval shot" ok ipc vgs.tailscale invoke refresh ""
   expect_poll "the Tailscale pane reads its running fixture again" '["running", 2]' tailscale_shot_read
   expect "the Tailscale System window closes" ok ipc shell hide window vgs.system
@@ -6726,11 +6728,11 @@ tailscale_shot_panel() {
   geometry="$(ipc smoke instanceGeometry panel vgs.tailscale)" || return $?
   [[ $geometry != absent ]] && echo shown || echo hidden
 }
-# tailscale_shot_status STATE: the running fixture with BackendState STATE
+# tailscale_shot_status STATE: the design's tailnet with BackendState STATE
 # as the stand-in's status answer.
 tailscale_shot_status() { # STATE
   local doc
-  doc="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d["BackendState"]=sys.argv[2]; print(json.dumps(d))' "$repo/scripts/fixtures/tailscale/mullvad.json" "$1")" || { fail "the $1 Tailscale fixture is unreadable"; return 1; }
+  doc="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d["BackendState"]=sys.argv[2]; print(json.dumps(d))' "$repo/scripts/fixtures/tailscale/sheet.json" "$1")" || { fail "the $1 Tailscale fixture is unreadable"; return 1; }
   device_reply tailscale 0 "$doc" status --json
 }
 # The pane's state line revealed in the System window, which holds the
