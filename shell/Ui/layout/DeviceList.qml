@@ -160,20 +160,20 @@ FocusScope {
 
         Repeater {
             id: repeater
-            // ScriptModel keys each row by `key`, so the Repeater keeps
-            // the item of a row that stays. The packaged Quickshell pin
-            // 2b4501a (0.3.2.r7), src/core/scriptmodel.cpp updateValuesUnique,
-            // refreshes modelData after all keyed removals, moves and inserts.
-            model: ScriptModel { values: list.rows; objectProp: "key" }
+            // Keep the supported Quickshell 0.3.1 floor: its
+            // src/core/scriptmodel.cpp updateValuesUnique can leave moved
+            // object payloads stale. Stable string keys preserve delegates
+            // independently of payload refresh; list.rows owns current data.
+            model: ScriptModel { values: list.rows.map(row => String(row.key)) }
 
             DeviceRow {
                 id: row
                 required property int index
                 required property var modelData
-                readonly property string key: String(modelData.key)
+                readonly property string key: String(modelData)
                 // A row the rows drop is read once more before it goes.
                 readonly property bool live: list.placeOf[key] !== undefined
-                readonly property var entry: live ? modelData : ({ key: "", text: "" })
+                readonly property var entry: live ? list.rows[list.placeOf[key]] : ({ key: "", text: "" })
                 readonly property var rowAction: live ? list.actionOf(entry) : null
                 readonly property bool busy: live && entry.busy === true
                 readonly property bool opens: live && entry.opens === true

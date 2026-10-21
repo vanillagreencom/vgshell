@@ -433,6 +433,7 @@ Item {
                 compare(list.count, change.keys.length, "the publication leaves no extra rows");
                 change.keys.forEach((key, index) => {
                     const row = list.rowAt(index);
+                    compare(row.modelData, key, "the model holds a stable string key, not a payload");
                     if (change.kept.indexOf(key) !== -1) compare(row, kept[key], "a kept key keeps its item: " + key);
                     compare(row.text, change.text && change.text[key] !== undefined ? change.text[key] : "Device " + key, "the item draws its current data");
                 });
