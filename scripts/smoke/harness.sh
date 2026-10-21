@@ -143,7 +143,8 @@ home="$sandbox/home"; mkdir -p "$home/.config/hypr"
 # Add the observer to a copy; the live checkout never imports test code.
 # A caller may set source_tree to another export of the shell, bin, config
 # and themes, such as scripts/sandbox-shots.sh --rev; the scripts, the probe
-# and the fixtures come from this checkout.
+# and the fixtures come from this checkout. Its exact fence ledger entry
+# establishes ownership for teardown; an unrecorded source_tree is refused.
 tree_harness_copy "$repo" "$sandbox/repo" "${source_tree:-$repo}"
 python3 - "$repo" "$sandbox/repo" <<'PY'
 import pathlib, shutil, sys

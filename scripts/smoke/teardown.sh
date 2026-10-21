@@ -6,7 +6,7 @@
 # harness.sh has started the sink and defined sink_alive, a sink that has
 # exited is printed as `qml-smoke: sink=exited ...` before the groups are
 # signalled, whichever runner sourced the harness. It needs no Wayland
-# session and no tool the harness checks for.
+# session; git checks the source export before deletion.
 #
 # Bash runs the EXIT trap on TERM, INT and HUP as well. A second of those
 # signals that arrives during the trap ends the shell there and leaves the
@@ -28,9 +28,54 @@ teardown_step() {
   return 0
 }
 
+# The shots runner records its exclusively created export in the fence's
+# ledger before handing it to the harness. A source_tree argument alone
+# grants no ownership, even when it names a directory inside the checkout.
+teardown_source_tree_check() {
+  [[ -n ${source_tree:-} ]] || return 0
+  local cause="" recorded owned=false canonical top probe_status
+  if [[ $source_tree != /* || $source_tree == *$'\n'* ]]; then
+    cause=invalid-path
+  elif [[ -z ${VGSHELL_FENCE_LEDGER:-} || ! -f $VGSHELL_FENCE_LEDGER || ! -r $VGSHELL_FENCE_LEDGER ]]; then
+    cause=ledger-unreadable
+  else
+    while IFS= read -r recorded; do
+      [[ $recorded != "$source_tree" ]] || owned=true
+    done <"$VGSHELL_FENCE_LEDGER"
+    if [[ $owned != true ]]; then
+      cause=unrecorded-export
+    elif [[ -L $source_tree ]]; then
+      cause=symlink
+    elif [[ -e $source_tree/.git || -L $source_tree/.git ]]; then
+      cause=git-checkout
+    elif [[ -e $source_tree ]]; then
+      if ! canonical="$(realpath -e -- "$source_tree")"; then
+        cause=path-unreadable
+      elif ! command -v git >/dev/null 2>&1; then
+        cause=git-unavailable
+      else
+        probe_status=0
+        # Cross mount boundaries so an outside export has one explicit
+        # no-repository result; every other failed lookup refuses deletion.
+        top="$(LC_ALL=C GIT_DISCOVERY_ACROSS_FILESYSTEM=1 git -C "$source_tree" rev-parse --show-toplevel 2>&1)" || probe_status=$?
+        if [[ $probe_status == 0 ]]; then
+          [[ $canonical != "$top" ]] || cause=git-checkout
+        elif [[ $probe_status != 128 || $top != 'fatal: not a git repository (or any of the parent directories): .git' ]]; then
+          cause=git-probe-failed
+        fi
+      fi
+    fi
+  fi
+  [[ -n $cause ]] || return 0
+  printf 'teardown: source-tree-refused path=%s cause=%s\n' "$source_tree" "$cause" >&2
+  return 1
+}
+
 cleanup() {
   local original_status=$?
   trap '' TERM INT HUP
+  local source_tree_status=0
+  teardown_source_tree_check || source_tree_status=$?
   local pg path
   if [[ -n ${display_record_pid:-} ]]; then
     if ! display_record_close "$original_status" cleanup; then
@@ -68,6 +113,7 @@ cleanup() {
     done
   fi
   # A caller's export of another tree is read only by the sandbox's copy.
+  [[ $source_tree_status == 0 ]] || return "$source_tree_status"
   [[ -z ${source_tree:-} ]] || teardown_step rm-failed "$source_tree" rm -rf -- "$source_tree"
 }
 trap cleanup EXIT
