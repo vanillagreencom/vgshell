@@ -386,6 +386,39 @@ function windowState(text) {
     return { ok: true, clients: read.values[0], monitors: read.values[1] };
 }
 
+var ACTIVATION_STATE_REQUEST = "j/clients;j/cursorpos";
+
+// CWindow::activate in Hyprland 0.56.2 skips a window it already names
+// active, even when a popup took its native keyboard focus. focusWindow
+// reaches fullWindowFocus instead. It also warps the cursor, so restore
+// the original position in the same socket callback, before any frame.
+// Lua reads that position inside the callback; classic uses the snapshot.
+// Verified by the VGS-1969 nested Bluetooth trigger/Escape probe, 2026-10-21:
+// real Down/Return work with the cursor unchanged at (10, 923).
+// https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/shared/actions/ConfigActions.cpp
+function activationRequest(text, pid, title, usingLua) {
+    var read = jsonReplies(text, [["clients", "array"], ["cursor", "object"]], "activation state");
+    if (!read.ok) return read;
+    var clients = read.values[0].filter(function (c) { return c && c.mapped && c.pid === pid && c.title === title; });
+    if (clients.length !== 1) return { ok: false, error: "refused: activation=windows count=" + clients.length };
+    var focus = request("focusWindow", [clients[0].address], usingLua);
+    if (!focus.ok) return focus;
+    var cursor = read.values[1];
+    var cursorMove = request("moveCursor", [cursor.x, cursor.y], usingLua);
+    if (!cursorMove.ok) return cursorMove;
+    if (!usingLua) return { ok: true, argv: ["hyprctl", "--batch", "dispatch " + focus.request + " ; dispatch " + cursorMove.request] };
+    return { ok: true, argv: ["hyprctl", "dispatch", "function() if hl.get_window(\"address:" + clients[0].address
+        + "\") == nil then return end; local p = hl.get_cursor_pos(); local r = hl.dispatch(" + focus.request
+        + "); local moved = hl.dispatch(hl.dsp.cursor.move({ x = p.x, y = p.y })); if not r.ok then return r end; return moved end"] };
+}
+
+function activationAnswer(answer, usingLua) {
+    if (usingLua && answer === "ok") return "ok";
+    var replies = batchReplies(answer, 2, "activation");
+    if (!usingLua && replies.ok && replies.parts.every(function (part) { return part === "ok"; })) return "ok";
+    return "refused: activation=" + JSON.stringify(String(answer));
+}
+
 // One compositor snapshot. Layer rectangles are deliberately protected whole,
 // including pass-through gaps: hyprctl exposes no input-region geometry.
 var INPUT_STATE_REQUEST = "j/clients;j/activewindow;j/monitors;j/layers;j/cursorpos";

@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Effects
 import Quickshell
 import qs.Commons
+import qs.Core
 import qs.Ui
 
 // A menu of MenuItem entries under the item it is declared in, in its own
@@ -112,7 +113,14 @@ Item {
         scrollArea.contentY = 0;
         reveal();
     }
-    function close() { if (surface !== null) surface.visible = false; }
+    // Escape's inherited DismissScope handler may already have hidden the
+    // popup. Intentional closes still return native keys to the opener.
+    function close(restore) {
+        if (surface === null) return;
+        const owner = restore && anchorItem !== null ? anchorItem.QsWindow.window : null;
+        surface.visible = false;
+        if (owner !== null && owner !== undefined) Compositor.activateWindow(owner);
+    }
     function toggle(opener) { if (opened) close(); else open(opener); }
 
     // Move the highlight by `step` over the reachable entries, as Up and
@@ -204,7 +212,7 @@ Item {
         delegate: Connections {
             required property var modelData
             target: modelData
-            function onTriggered() { if (!modelData.keepsOpen) root.close(); }
+            function onTriggered() { if (!modelData.keepsOpen) root.close(true); }
         }
     }
 
@@ -271,6 +279,7 @@ Item {
                 id: scope
                 popup: window
                 anchor: root.anchorItem
+                Keys.onEscapePressed: root.close(true)
                 Keys.onTabPressed: event => event.accepted = true
                 Keys.onBacktabPressed: event => event.accepted = true
                 Keys.onPressed: event => {
