@@ -6733,9 +6733,10 @@ tailscale_shot_status() { # STATE
   doc="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d["BackendState"]=sys.argv[2]; print(json.dumps(d))' "$repo/scripts/fixtures/tailscale/mullvad.json" "$1")" || { fail "the $1 Tailscale fixture is unreadable"; return 1; }
   device_reply tailscale 0 "$doc" status --json
 }
-# The pane's state line revealed, which rests the pane at its top: `top`,
-# else the probe's reply.
-tailscale_shot_top() { ipc smoke revealText window vgs.tailscale Label "Waiting for approval" | py_reply 'import sys; s=sys.stdin.read().strip(); print("top" if s in ("0", "0.0") else s)'; }
+# The pane's state line revealed in the System window, which holds the
+# pane's scroll area, rests the pane at its top: `top`, else the probe's
+# reply.
+tailscale_shot_top() { ipc smoke revealText window vgs.system Label "Waiting for approval" | py_reply 'import sys; s=sys.stdin.read().strip(); print("top" if s in ("0", "0.0") else s)'; }
 tailscale_shot_read() { ipc smoke readDescendant window vgs.tailscale TailscaleBody tailscale | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([v["state"], len(v["accounts"])]))'; }
 # tailscale-flyout, taken only when named: the Tailscale flyout and bar icon
 # in each state the design's sheets draw (VGS-1923 sheet spec sheets 1 to 5
