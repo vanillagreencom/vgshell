@@ -5,6 +5,7 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 const cp = require("node:child_process");
 const { once } = require("node:events");
 const { seedTaskEvents } = require("./fixtures/jarvis/prepare.js");
@@ -284,10 +285,17 @@ async function inside() {
         for (const file of ["TaskRelay.js", "claude-hook"])
             fs.copyFileSync(path.join(backend, file), path.join(root, name, file));
         fs.writeFileSync(path.join(root, name, "Tasks.js"), name === "prefix-good" ? taskSource : changed);
+        for (const file of fs.readdirSync(path.join(root, name)))
+            fs.chmodSync(path.join(root, name, file), 0o400);
+        fs.chmodSync(path.join(root, name), 0o500);
     }
-    prefixInside(path.join(root, "prefix-good"));
-    assert.throws(() => prefixInside(path.join(root, "prefix-control")),
-        error => error instanceof assert.AssertionError && error.actual === "none" && error.expected === "question");
+    try {
+        prefixInside(path.join(root, "prefix-good"));
+        assert.throws(() => prefixInside(path.join(root, "prefix-control")),
+            error => error instanceof assert.AssertionError && error.actual === "none" && error.expected === "question");
+    } finally {
+        for (const name of ["prefix-good", "prefix-control"]) fs.chmodSync(path.join(root, name), 0o700);
+    }
     controls++;
     console.log("test-task-event: ok cases=" + cases + " controls=" + controls);
 }
@@ -295,15 +303,13 @@ async function inside() {
 async function main() {
     if (process.argv[2] === "--inside") return inside();
     if (process.argv[2] === "--prefix-inside") return prefixInside(process.argv[3]);
-    const parent = path.join(tree, "tmp");
-    fs.mkdirSync(parent, { recursive: true });
-    const root = fs.realpathSync(fs.mkdtempSync(path.join(parent, "te-")));
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "te-")));
     try {
         fs.mkdirSync(path.join(root, "standins"));
         const mode = process.argv[2] === "--prefix" ? ["--prefix-inside", process.argv[3]] : ["--inside"];
         const result = cp.spawnSync("/bin/bash", [path.join(tree, "scripts/lib/jarvis-env.sh"),
             path.join(root, "standins"), "--", "node", __filename, ...mode], {
-            env: { PATH: "/usr/bin:/bin", HOME: root, JARVIS_TEST_SCRATCH_ROOT: path.join(tree, "tmp") },
+            env: { PATH: "/usr/bin:/bin", HOME: root, JARVIS_TEST_SCRATCH_ROOT: root },
             encoding: "utf8", timeout: 120000
         });
         process.stdout.write(result.stdout || "");

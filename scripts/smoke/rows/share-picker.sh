@@ -11,7 +11,8 @@ if ! pkg-config --exists libpipewire-0.3 || ! python3 -c 'import gi; from gi.rep
 fi
 share_world="$sandbox/share-picker"
 share_fixture="$source_repo/scripts/smoke/fixtures/share-picker"
-share_evidence="$source_repo/tmp/share-picker-evidence"
+mkdir -p -- "$smoke_log_dir/tmp"
+share_evidence="$(mktemp -d "$smoke_log_dir/tmp/share-picker-evidence.XXXXXX")"
 mkdir -p -- "$share_world" "$share_evidence"
 cp -- "$home/.config/vgshell/shell.json" "$share_world/shell.saved"
 share_theme="$home/.config/vgshell/theme.json"
@@ -450,7 +451,7 @@ share_matches() { [[ $(share_stdout "$1") == "$2" ]] && echo True || echo False;
 expect "control: dropping Remember fails the xdph assertion" False share_matches control-remember "[SELECTION]r/screen:$share_output"
 cp -- "$share_world/picker.saved" "$repo/bin/vgshell-share-picker"
 # The original picker sees private /tmp: upstream's QSettings path is fixed there.
-SHOT_DIR="$(shot_dir_under "$source_repo" "$share_evidence")"
+SHOT_DIR="$(shot_dir_under "$smoke_log_dir" "$share_evidence")"
 SHOT_SOCKET="$(shot_socket "$rt_dir" "$nested_socket")"
 SHOT_RUNTIME_DIR="$rt_dir"; SHOT_OUTPUT="$share_output"
 mkdir -p -- "$home/.config/qt6ct"
@@ -537,8 +538,8 @@ for old,new in (('Grid {\n                id: areaControls','Column {\n         
     s=s.replace(old,new,1)
 assert s!=p.read_text(); p.write_text(s)
 PY
-share_area_evidence="$source_repo/tmp/ui-shots/VGS-1164"
-SHOT_DIR="$(shot_dir_under "$source_repo" "$share_area_evidence")"
+share_area_evidence="$(mktemp -d "$smoke_log_dir/tmp/share-picker-area.XXXXXX")"
+SHOT_DIR="$(shot_dir_under "$smoke_log_dir" "$share_area_evidence")"
 share_original_mode="$(first_mode)"
 # share_evidence_theme MODE: publish the dark (vgs) or light
 # (flexoki-light) evidence theme and wait for the shell to read it.

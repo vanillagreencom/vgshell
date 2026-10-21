@@ -45,9 +45,15 @@ dest="$tmp/install"
 run_capture "$tmp/install.out" "$tmp/install.err" status env DESTDIR="$dest" PREFIX=/usr "$repo/packaging/install-system.sh"
 check "the installer succeeds into a staged /usr prefix" test "$status" = 0
 check "the installer reports the staged root" grep_out "install-system: ok prefix=/usr root=$dest/usr" "$tmp/install.out"
-run_capture "$tmp/check.out" "$tmp/check.err" status "$repo/scripts/check-install-tree.sh" "$dest" /usr
+checker_source="$tmp/checker-source"
+mkdir -p -- "$checker_source/scripts" "$checker_source/packaging"
+cp -- "$repo/scripts/check-install-tree.sh" "$checker_source/scripts/"
+cp -- "$repo/packaging/install-tree.manifest" "$checker_source/packaging/"
+chmod -R a-w -- "$checker_source"
+checker="$checker_source/scripts/check-install-tree.sh"
+run_capture "$tmp/check.out" "$tmp/check.err" status "$checker" "$dest" /usr
 check "the committed manifest matches the installed tree" test "$status" = 0
-check "the checker reports the manifest it used" grep_out "install-tree=ok root=$dest/usr manifest=$repo/packaging/install-tree.manifest" "$tmp/check.out"
+check "the checker reports the manifest it used" grep_out "install-tree=ok root=$dest/usr manifest=$checker_source/packaging/install-tree.manifest" "$tmp/check.out"
 check "the command link points into share/vgshell" test "$(readlink -- "$dest/usr/bin/vgshell")" = "../share/vgshell/bin/vgshell"
 check "the installed command reads VERSION from the install tree" test "$("$dest/usr/bin/vgshell" --version)" = "vgshell $(<"$repo/VERSION")"
 check "shell AGENTS.md is not installed" test ! -e "$dest/usr/share/vgshell/shell/AGENTS.md"
@@ -237,14 +243,14 @@ chmod -R u+w -- "$readonly_source"
 case_dest="$tmp/missing"
 cp -a -- "$dest" "$case_dest"
 rm -- "$case_dest/usr/share/vgshell/VERSION"
-run_capture "$tmp/missing.out" "$tmp/missing.err" status "$repo/scripts/check-install-tree.sh" "$case_dest" /usr
+run_capture "$tmp/missing.out" "$tmp/missing.err" status "$checker" "$case_dest" /usr
 check "a missing manifest entry fails the checker" test "$status" = 1
 check "the missing line names the entry" grep_out "install-tree=missing entry=f share/vgshell/VERSION" "$tmp/missing.out"
 
 case_dest="$tmp/extra"
 cp -a -- "$dest" "$case_dest"
 printf 'extra\n' >"$case_dest/usr/share/vgshell/EXTRA"
-run_capture "$tmp/extra.out" "$tmp/extra.err" status "$repo/scripts/check-install-tree.sh" "$case_dest" /usr
+run_capture "$tmp/extra.out" "$tmp/extra.err" status "$checker" "$case_dest" /usr
 check "an extra installed file fails the checker" test "$status" = 1
 check "the extra line names the entry" grep_out "install-tree=extra entry=f share/vgshell/EXTRA" "$tmp/extra.out"
 
@@ -252,7 +258,7 @@ case_dest="$tmp/link"
 cp -a -- "$dest" "$case_dest"
 rm -- "$case_dest/usr/bin/vgshell"
 ln -s -- wrong "$case_dest/usr/bin/vgshell"
-run_capture "$tmp/link.out" "$tmp/link.err" status "$repo/scripts/check-install-tree.sh" "$case_dest" /usr
+run_capture "$tmp/link.out" "$tmp/link.err" status "$checker" "$case_dest" /usr
 check "a wrong command link fails the checker" test "$status" = 1
 check "the checker reports the wanted link missing" grep_out "install-tree=missing entry=l bin/vgshell -> ../share/vgshell/bin/vgshell" "$tmp/link.out"
 check "the checker reports the wrong link as extra" grep_out "install-tree=extra entry=l bin/vgshell -> wrong" "$tmp/link.out"
