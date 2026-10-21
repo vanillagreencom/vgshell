@@ -9,23 +9,33 @@ import qs.Ui
 // sticky header, and the switch hidden; a country with several cities
 // opens its own view under its name. Back or Escape leaves a view: the
 // country view for the chooser, the chooser for the main view with the
-// keyboard on the Exit node row. A chosen node returns to the main view
-// once the service's change ends without a problem. The footer holds Open
-// admin console and Tailscale settings, which opens this plugin's System
+// keyboard on the Exit node row, or where the flyout opens when that row
+// is gone. A chosen node returns to the main view once the service's
+// change ends without a problem, and so does Tailscale leaving the
+// running state, which ends every choice. The Exit nodes view and the
+// main view open at their top. The card keeps the height it reached while
+// the chooser shows, so a search or a country never moves the footer
+// under the pointer (design VGS-1923 § 4). The footer holds Open admin
+// console and Tailscale settings, which opens this plugin's System
 // Settings section and closes the flyout, in every view.
 Item {
     id: root
 
     property var shell: null
     property var payload: ({})
+    // Whether the chooser shows in place of the main view.
+    property bool choosing: false
     // `main`, `exit-nodes` or `country`.
-    property string view: "main"
+    readonly property string view: !choosing ? "main" : chooser.country !== "" ? "country" : "exit-nodes"
     readonly property bool main: view === "main"
+    // The tallest the card stood since the chooser opened, 0 in the main
+    // view, which fits its content.
+    property real heldHeight: 0
     // The header switch while it can be used, else where the body opens.
     readonly property Item initialFocus: layout.headerSwitch !== null && layout.headerSwitch.enabled && body.lockReason === "" ? layout.headerSwitch : body.initialFocus
 
     implicitWidth: Theme.size.panel.lg
-    implicitHeight: layout.implicitHeight
+    implicitHeight: Math.max(layout.cappedHeight, heldHeight)
 
     // Hosts own Escape (design-system.md § Keyboard): it closes the flyout
     // from the main view, and leaves the chooser's views first.
@@ -40,14 +50,18 @@ Item {
 
     function open(payloadJson) {
         payload = payloadJson ? JSON.parse(payloadJson) : {};
-        view = "main";
-        chooser.country = "";
-        search.text = "";
+        leaveChooser();
         body.open();
     }
     function close() {
-        view = "main";
+        leaveChooser();
         body.close();
+    }
+    function leaveChooser() {
+        choosing = false;
+        heldHeight = 0;
+        chooser.country = "";
+        search.text = "";
     }
 
     function openSettings() {
@@ -56,33 +70,30 @@ Item {
         else shell.surfaces.hide("panel");
     }
 
+    // The search field, in the header, takes the keyboard, and the view
+    // starts at its top, where Recommended is: the body scrolls to reveal
+    // the item that holds the keyboard, and the Exit node row held it while
+    // the view changed, already hidden. A reveal of the field, outside the
+    // body, scrolls nothing after that.
     function showExitNodes() {
         body.localProblem = "";
         chooser.country = "";
         search.text = "";
-        view = "exit-nodes";
-        body.suggest();
+        heldHeight = layout.cappedHeight;
+        choosing = true;
         search.forceActiveFocus(Qt.OtherFocusReason);
-    }
-    function openCountry(code) {
-        chooser.country = code;
-        view = "country";
-        Qt.callLater(() => chooser.focusFirst());
+        layout.scrollArea.contentY = 0;
+        body.suggest();
     }
     function back() {
-        if (view === "country") {
-            const code = chooser.country;
-            chooser.country = "";
-            view = "exit-nodes";
-            Qt.callLater(() => chooser.focusCountry(code));
-            return;
-        }
-        showMain();
+        if (view === "country") chooser.closeCountry();
+        else showMain();
     }
     function showMain() {
         if (root.main) return;
-        view = "main";
-        Qt.callLater(() => body.focusExitRow());
+        leaveChooser();
+        layout.scrollArea.contentY = 0;
+        Qt.callLater(() => { if (root.main && !body.focusExitRow()) root.initialFocus.forceActiveFocus(Qt.TabFocusReason); });
     }
 
     Surface { anchors.fill: parent }
@@ -91,8 +102,11 @@ Item {
         id: layout
         anchors.fill: parent
         container: "panel"
-        fitToContent: true
+        // The chooser lays out at the held card's height, the footer on
+        // its bottom edge.
+        fitToContent: root.main
         maximumHeight: Theme.size.panel.maxHeight
+        onCappedHeightChanged: if (!root.main) root.heldHeight = Math.max(root.heldHeight, cappedHeight)
         title: root.main ? "Tailscale" : ""
         titleContent: [
             Row {
@@ -185,6 +199,7 @@ Item {
             promptPane: layout
             onExitNodesRequested: root.showExitNodes()
             onExitChosen: root.showMain()
+            onConnectedChanged: if (!connected) root.showMain()
         }
         ExitNodes {
             id: chooser
@@ -193,16 +208,11 @@ Item {
             visible: !root.main
             tailscale: body.tailscale
             exitNodes: body.exitNodes
-            query: search.text
+            searchField: search
             pending: body.busy ? body.pendingExit : null
             disabledReason: body.lockReason
             problem: body.problemText
-            onCountryOpened: code => root.openCountry(code)
             onChose: id => body.chooseExit(id)
-            onClearRequested: {
-                search.text = "";
-                search.forceActiveFocus(Qt.TabFocusReason);
-            }
         }
     }
 }

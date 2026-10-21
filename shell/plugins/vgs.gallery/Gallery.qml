@@ -1061,6 +1061,7 @@ Item {
                         { key: "Headphones", text: "Headphones", secondary: "Connected", iconName: "headphones", battery: 0.72 },
                         { key: "Mouse", text: "Mouse", secondary: "Connected", iconName: "mouse", battery: 0.08 },
                         { key: "Printer", text: "Printer", secondary: "Stopped: Paper jam", secondaryTone: "danger", iconName: "printer-x" },
+                        { key: "Displays", text: "Displays", secondary: "2 screens", iconName: "monitor", opens: true },
                         { key: "Speaker", text: "Speaker", secondary: "Not connected", iconName: "speaker", badge: "Nearby", badgeTone: "info" }
                     ]
                     actionOf: row => row.key === "Headphones" ? { text: "Disconnect" } : row.key === "Speaker" ? { text: "Connect" } : null
@@ -1072,6 +1073,16 @@ Item {
                     width: parent.width
                     rows: [{ key: "Earbuds", text: "Earbuds", secondary: "Connecting…", iconName: "headphones", busy: true }]
                     actionOf: row => ({ text: "Connect" })
+                }
+                // Locked: the row that opens keeps working, the other draws
+                // faded and says why.
+                DeviceList {
+                    width: parent.width
+                    disabledReason: "Sign in as the administrator to change these devices"
+                    rows: [
+                        { key: "Displays", text: "Displays", secondary: "2 screens", iconName: "monitor", opens: true },
+                        { key: "Keyboard", text: "Keyboard", secondary: "Connected", iconName: "keyboard" }
+                    ]
                 }
                 }
                 Section {

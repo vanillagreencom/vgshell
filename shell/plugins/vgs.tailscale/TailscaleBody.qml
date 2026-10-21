@@ -17,7 +17,12 @@ import "TailscaleLogic.js" as Logic
 // accounts and ends with Add account and Sign out; this device, whose
 // Copy puts its address on the clipboard through CopyText; the network
 // devices, a disclosure of their addresses; and the Exit node row, which
-// asks the host for the exit node chooser (`exitNodesRequested`). Sign out
+// asks the host for the exit node chooser (`exitNodesRequested`). The
+// flyout opens with the disclosures closed, the account's open while
+// signed out, and the pane with both open (design VGS-1923 § 4, "Flyout
+// versus section"). While the device waits for approval the flyout shows
+// only the approval step, and the pane keeps the account and this device,
+// since the CLI still switches, signs in and signs out there. Sign out
 // asks first, in a Dialog over a Scrim drawn over `promptPane`, the
 // flyout's own Pane, so the title row and the footer take no input while
 // it waits; the shared ModalDialog is a layer surface, and Hyprland ends
@@ -25,9 +30,12 @@ import "TailscaleLogic.js" as Logic
 // `promptPane`, as in the System pane, it draws over the body.
 //
 // Tab moves from the connection switch through the account row, its list,
-// Add account and Sign out while it is expanded, this device, the network
-// devices row and its list while expanded, and the Exit node row. Up and
-// Down move inside a list, and Enter chooses. Nothing opens with the
+// Add account and Sign out while it is expanded, this device and its
+// Copy, the network devices row and, while it is expanded, its list and
+// each device's Copy, and the Exit node row. In the pane the Exit node
+// section follows the network devices: the search field, or Back in a
+// country's view, then each list the chooser shows; then Check every. Up
+// and Down move inside a list, and Enter chooses. Nothing opens with the
 // keyboard on Sign out.
 FocusScope {
     id: root
@@ -66,9 +74,10 @@ FocusScope {
     readonly property bool reached: switchable || tailscale.state === "signed-out" || tailscale.state === "needs-approval"
     readonly property bool signedOut: tailscale.state === "signed-out"
     readonly property bool connected: tailscale.state === "running"
+    readonly property bool approvalPane: expanded && tailscale.state === "needs-approval"
     readonly property var currentAccount: tailscale.accounts.find(row => row.current) || null
-    readonly property bool accountShown: switchable || (signedOut && tailscale.accounts.length > 0)
-    readonly property bool deviceShown: switchable && tailscale.device.address !== ""
+    readonly property bool accountShown: switchable || approvalPane || (signedOut && tailscale.accounts.length > 0)
+    readonly property bool deviceShown: (switchable || approvalPane) && tailscale.device.address !== ""
     // The setup step the core offers now, { label, hint }, else null.
     // `hint` is the sentence that says what the step does.
     readonly property var setupAction: {
@@ -104,10 +113,11 @@ FocusScope {
     function open() {
         if (leaseId === "") leaseId = String(root);
         if (shell !== null && !leased) leased = shell.ipc.call("lease", JSON.stringify({ id: leaseId, open: true })) === "ok";
-        // Each opening starts with the disclosures closed, the account's
-        // open while signed out, where it lists the accounts to switch to.
-        accountRow.expanded = signedOut;
-        devicesRow.expanded = false;
+        // The flyout opens with both disclosures closed, the account's open
+        // while signed out, where it lists the accounts to switch to; the
+        // pane opens both.
+        accountRow.expanded = signedOut || expanded;
+        devicesRow.expanded = expanded;
         signingOut = false;
         localProblem = "";
         if (expanded) suggest();
@@ -157,7 +167,32 @@ FocusScope {
         pendingExit = null;
         if (tailscale.problem === "") exitChosen();
     }
-    function focusExitRow() { exitRow.forceActiveFocus(Qt.TabFocusReason); }
+    // Gives the keyboard to the Exit node row; answers false while the row
+    // is hidden. A hidden item keeps the keyboard, and a focus scope hands
+    // its keyboard to the child that held its focus last, hidden or not
+    // (a qmltestrunner run, Qt 6.11, 2026-10-20), so a hidden row first
+    // gives up its place, and the body then takes the keyboard itself.
+    function focusExitRow() {
+        if (exitRow.visible) {
+            exitRow.forceActiveFocus(Qt.TabFocusReason);
+            return true;
+        }
+        exitRow.focus = false;
+        return false;
+    }
+    // Tailscale leaving the running state ends every choice: the pane's
+    // inline chooser hides, starts over, and hands the keyboard it held to
+    // where the pane opens.
+    onConnectedChanged: {
+        if (connected || !expanded) return;
+        const parts = [inlineChooser, inlineSearch, inlineBack];
+        const held = parts.some(part => part.activeFocus);
+        inlineChooser.country = "";
+        inlineSearch.text = "";
+        if (!held) return;
+        for (const part of parts) part.focus = false;
+        initialFocus.forceActiveFocus(Qt.TabFocusReason);
+    }
 
     function askSignOut() {
         signingOut = true;
@@ -380,7 +415,7 @@ FocusScope {
                         InfoButton {
                             anchors.verticalCenter: parent.verticalCenter
                             title: "Network devices"
-                            info: "The list shows the first " + root.devices.rows.length + " devices, so it opens quickly. Open admin console to see every device."
+                            info: "The list shows the first " + root.devices.rows.length + " devices, so it opens quickly. The admin console on the Tailscale website lists every device."
                         }
                     }
                 }
@@ -424,10 +459,11 @@ FocusScope {
                 spacing: Theme.control.gap
 
                 IconButton {
+                    id: inlineBack
                     anchors.verticalCenter: parent.verticalCenter
                     iconName: "chevron-left"
                     label: "Back"
-                    onClicked: inlineChooser.country = ""
+                    onClicked: inlineChooser.closeCountry()
                 }
                 Label {
                     anchors.verticalCenter: parent.verticalCenter
@@ -441,18 +477,17 @@ FocusScope {
                 visible: inlineChooser.country === ""
                 leadingIcon: "search"
                 placeholderText: "Search countries, cities and devices"
+                Keys.onDownPressed: inlineChooser.focusFirst()
             }
             ExitNodes {
                 id: inlineChooser
                 width: parent.width
                 tailscale: root.tailscale
                 exitNodes: root.exitNodes
-                query: inlineSearch.text
+                searchField: inlineSearch
                 pending: root.busy ? root.pendingExit : null
                 disabledReason: root.lockReason
-                onCountryOpened: code => inlineChooser.country = code
                 onChose: id => root.chooseExit(id)
-                onClearRequested: inlineSearch.text = ""
             }
         }
         Field {

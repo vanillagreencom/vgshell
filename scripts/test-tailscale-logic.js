@@ -130,7 +130,7 @@ function suite(logic, service = serviceSource) {
     // cmd/tailscale/cli/exitnode.go at tailscale v1.104.1, the packaged CLI).
     assert.deepEqual(plain(logic.suggested(0, text("suggest.txt"))), { name: "se-sto-wg-001.mullvad.ts.net", fault: "" });
     assert.deepEqual(plain(logic.suggested(0, text("suggest-none.txt"))), { name: "", fault: "" });
-    for (const [code, stdout, fault] of [[1, text("suggest.txt"), "failed"], [-1, "", "failed"], [0, "", "unread"], [0, "Suggested exit node:\n", "unread"]])
+    for (const [code, stdout, fault] of [[1, text("suggest.txt"), "failed"], [-1, "", "timeout"], [0, "", "unread"], [0, "Suggested exit node:\n", "unread"]])
         assert.deepEqual(plain(logic.suggested(code, stdout)), { name: "", fault: fault }, JSON.stringify([code, stdout]));
     assert.deepEqual(plain(logic.suggestion(logic.suggested(0, text("suggest.txt")).name, sheet)), { id: "nSHEET0024CNTRL", name: "Stockholm, Sweden" });
     assert.equal(logic.suggestion("", sheet), null);

@@ -65,7 +65,7 @@
 # the row accepts 9 s to 20 s, since a request that moved the deadline
 # would hold it past any bound. Every other reading is expect_poll's, 0.2 s
 # apart.
-# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.tailscale/* shell/plugins/vgs.system/* shell/plugins/vgs.settings/* scripts/fixtures/tailscale/* scripts/smoke/fixtures/devices/* shell/Commons/SettingValues.js shell/Commons/qmldir shell/Ui/layout/DeviceList.qml shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/plugins/vgs.vpn/manifest.json shell/Core/Config.qml shell/Core/Registry.qml shell/Core/ConfigLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system bin/vgshell-tui scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh shell/Ui/controls/RowAction.qml shell/Ui/controls/Switch.qml shell/Ui/controls/DisabledReason.qml shell/Ui/controls/UnlockMark.qml shell/Ui/layout/Pane.qml shell/Ui/overlay/Tooltip.qml shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Ui/foundation/KeyNavLogic.js shell/Ui/feedback/CopyText.qml shell/Ui/feedback/Dialog.qml shell/Ui/feedback/EmptyState.qml shell/Ui/foundation/Scrim.qml shell/Ui/layout/Disclosure.qml shell/Ui/layout/ListItem.qml shell/Ui/layout/DeviceRow.qml shell/Ui/layout/Section.qml shell/Ui/controls/RowActions.qml shell/Ui/controls/TextField.qml shell/Hosts/NoticeHost.qml themes/vgs/theme.json themes/catalog/flexoki-light/theme.json
+# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.tailscale/* shell/plugins/vgs.system/* shell/plugins/vgs.settings/* scripts/fixtures/tailscale/* scripts/smoke/fixtures/devices/* shell/Commons/SettingValues.js shell/Commons/qmldir shell/Ui/layout/DeviceList.qml shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/plugins/vgs.vpn/manifest.json shell/Core/Config.qml shell/Core/Registry.qml shell/Core/ConfigLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system bin/vgshell-tui scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh shell/Ui/controls/RowAction.qml shell/Ui/controls/Switch.qml shell/Ui/controls/DisabledReason.qml shell/Ui/controls/UnlockMark.qml shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Ui/overlay/Tooltip.qml shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Ui/foundation/KeyNavLogic.js shell/Ui/feedback/CopyText.qml shell/Ui/feedback/Dialog.qml shell/Ui/feedback/EmptyState.qml shell/Ui/foundation/Scrim.qml shell/Ui/layout/Disclosure.qml shell/Ui/layout/ListItem.qml shell/Ui/layout/DeviceRow.qml shell/Ui/layout/Section.qml shell/Ui/controls/RowActions.qml shell/Ui/controls/TextField.qml shell/Hosts/NoticeHost.qml themes/vgs/theme.json themes/catalog/flexoki-light/theme.json
 set -euo pipefail
 devices_ready tailscale || return 0
 tailscale_saved="$sandbox/tailscale-shell-before.json"
@@ -866,6 +866,9 @@ tailscale_suggests_before="$(tailscale_suggests)" || { fail "tailscale: the sugg
 tailscale_key Return
 expect_poll "Enter on the exit node row opens the Exit nodes view" '"exit-nodes"' tailscale_view
 expect_poll "the Exit nodes view opens on its search field" '["TextField",""]' tailscale_focus
+# Sheet tailscale-flyout-a draws Recommended at the top of the chooser:
+# the Pane's body, its one ScrollArea, rests unscrolled.
+expect_poll "the Exit nodes view opens at its top, Recommended first" 0 ipc smoke readDescendant panel vgs.tailscale ScrollArea contentY
 expect_poll "the chooser's opening reads the suggestion" "$((tailscale_suggests_before + 1))" tailscale_suggests
 expect "the view is titled Exit nodes" '["Exit nodes"]' tailscale_label tailscale-view-title
 expect "the view draws Back" drawn tailscale_mark panel Back

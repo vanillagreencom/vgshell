@@ -10,15 +10,20 @@ import qs.Unit
 // `acted`, a menu entry `chose`; a busy row shows a Spinner and emits no
 // action; Delete emits `removed` only when `removable`, and the row that
 // takes a removed row's place takes the keyboard; the selection shows only
-// while the list holds the keyboard; a change to the rows that keeps their
-// count keeps the keyboard where it is; a row's `secondaryTone` reaches
-// its DeviceRow; a hover over the row at a scroll area's edge moves the
-// plate and neither the keyboard nor the page, while the arrows still
-// reveal. A list given a `disabledReason` keeps its selected row a
-// Tab stop, takes no click and no key, on a row or its action, moves no
-// selection under the pointer, offers no overflow menu, draws its rows'
-// content faded under a full-strength ring, and shows the reason on hover
-// and on keyboard focus; an empty reason leaves it as it was. The tooltip
+// while the list holds the keyboard; a change to the rows keeps the item
+// of each row whose key stays and the keyboard on its row, wherever the
+// row moves, and a row a change moves from under a resting pointer hands
+// the plate to the selection; a row's `secondaryTone` reaches its
+// DeviceRow; a hover over the row at a scroll area's edge moves the plate
+// and neither the keyboard nor the page, while the arrows still reveal. A
+// list given a `disabledReason` keeps its selected row a Tab stop, takes
+// no click and no key, on a row or its action, moves no selection under
+// the pointer, offers no overflow menu, draws its rows' content faded
+// under a full-strength ring, and shows the reason on hover and on
+// keyboard focus; an empty reason leaves it as it was. A row that opens
+// draws a chevron; under a reason it still takes its click and its keys
+// and draws unfaded, the arrows still move, and the list's other rows stay
+// locked, the reason opening on their keyboard focus alone. The tooltip
 // waits on `tooltip.delay` in real time, so this proves its wiring.
 Item {
     id: root
@@ -60,6 +65,20 @@ Item {
         }
     }
     Component { id: spyComponent; SignalSpy {} }
+    // A locked list whose first and last rows open views of their own.
+    Component {
+        id: mixedList
+        DeviceList {
+            y: 320
+            width: 420
+            disabledReason: root.reason
+            rows: [
+                { key: "sweden", text: "Sweden", secondary: "3 cities", iconName: "map-pin", opens: true },
+                { key: "zurich", text: "Switzerland", secondary: "Zurich", iconName: "map-pin" },
+                { key: "usa", text: "USA", secondary: "9 cities", iconName: "map-pin", opens: true }
+            ]
+        }
+    }
     // A list taller than the area it scrolls in, as a device pane's.
     Component {
         id: scrolledList
@@ -369,6 +388,103 @@ Item {
             compare(spy.signalArguments[0][0], "b");
             keyClick(Qt.Key_Down);
             compare(made.current, 2);
+        }
+
+        function chevronOf(row) { return trailing(row)[1].children[2]; }
+
+        // As a search narrows: the rows that stay keep their items, and
+        // the keyboard stays on its row as the row moves up and back.
+        function test_a_change_keeps_each_kept_row_and_the_keyboard_on_its_row() {
+            const five = ["a", "b", "c", "d", "e"].map(key => ({ key: key, text: "Device " + key }));
+            list.rows = five;
+            list.current = 3;
+            focusList();
+            const kept = { b: list.rowAt(1), d: list.rowAt(3), e: list.rowAt(4) };
+            list.rows = [five[1], five[3], five[4]];
+            compare(list.count, 3);
+            compare(list.rowAt(0), kept.b, "a narrowing change keeps the row it keeps");
+            compare(list.rowAt(1), kept.d);
+            compare(list.rowAt(2), kept.e);
+            compare(list.currentKey, "d", "the selection moves with its row");
+            compare(kept.d.activeFocus, true, "the keyboard stays on its row");
+            list.rows = five;
+            compare(list.rowAt(1), kept.b, "a widening change keeps the rows it had");
+            compare(list.rowAt(3), kept.d);
+            compare(list.currentKey, "d");
+            compare(kept.d.activeFocus, true);
+            compare(list.rowAt(0).text, "Device a", "a widening change builds the rows it adds");
+        }
+
+        // A row a change moves from under a resting pointer hands the
+        // plate to the selection, not to the row that comes under it.
+        function test_a_change_that_moves_the_pointed_row_hands_the_plate_to_the_selection() {
+            const rows = ["a", "b", "c", "d"].map(key => ({ key: key, text: "Device " + key }));
+            list.rows = rows;
+            tryVerify(() => list.rowAt(3).y >= list.rowAt(2).y + list.rowAt(2).height, 1000, "the rows are laid out");
+            const pointed = list.rowAt(2);
+            mouseMove(pointed, 20, pointed.height / 2);
+            mouseMove(pointed, 24, pointed.height / 2);
+            compare(plateOf(list).placed, pointed, "the plate follows the pointer");
+            list.rows = [{ key: "x", text: "Device x" }].concat(rows);
+            tryVerify(() => list.rowAt(3) === pointed && pointed.y >= list.rowAt(2).y + list.rowAt(2).height, 1000, "the pointed row moved down");
+            // Frames for a hover delivered again to reach the rows.
+            wait(100);
+            compare(plateOf(list).placed, list.rowAt(1), "the plate goes to the selection");
+            compare(list.currentKey, "a");
+            mouseMove(root, root.width - 1, 0);
+        }
+
+        function test_a_row_that_opens_draws_a_chevron() {
+            list.rows = [
+                { key: "sweden", text: "Sweden", secondary: "3 cities", iconName: "map-pin", opens: true },
+                { key: "zurich", text: "Switzerland", secondary: "Zurich", iconName: "map-pin" }
+            ];
+            const chevron = chevronOf(list.rowAt(0));
+            verify(chevron.visible, "the opening row draws its chevron");
+            compare(chevron.name, "chevron-right");
+            verify(!chevronOf(list.rowAt(1)).visible, "a row that chooses draws none");
+        }
+
+        // A row that opens a view changes nothing, so a reason leaves it
+        // working; the list's other rows stay locked one by one.
+        function test_a_locked_lists_row_that_opens_still_works() {
+            compare(UnitTheme.override({ tooltip: { delay: 200 } }), "ok");
+            const made = createTemporaryObject(mixedList, root);
+            tryVerify(() => made.rowAt(2).y >= made.rowAt(1).y + made.rowAt(1).height, 1000, "the rows are laid out");
+            const spy = createTemporaryObject(spyComponent, root, { target: made, signalName: "acted" });
+            const sweden = made.rowAt(0), zurich = made.rowAt(1);
+            mouseClick(sweden, 20, sweden.height / 2);
+            compare(spy.count, 1, "a click on the opening row acts");
+            compare(spy.signalArguments[0][0], "sweden");
+            mouseClick(zurich, 20, zurich.height / 2);
+            compare(spy.count, 1, "a click on a locked row acts");
+            compare(made.currentKey, "sweden", "a click on a locked row moves the selection");
+            // The click left the row focused by the mouse, which draws no
+            // ring and opens no reason; the keyboard takes it again by Tab.
+            before.forceActiveFocus(Qt.TabFocusReason);
+            made.focusCurrent(Qt.TabFocusReason);
+            tryCompare(sweden, "activeFocus", true);
+            compare(sweden.visualFocus, true);
+            keyClick(Qt.Key_Return);
+            keyClick(Qt.Key_Space);
+            compare(spy.count, 3, "Return and Space on the opening row act");
+            compare(made.visualFocus, false, "the opening row opens no reason");
+            tryCompare(sweden.contentItem, "opacity", 1);
+            compare(zurich.contentItem.opacity, Theme.opacity.disabled, "a locked row draws faded");
+            keyClick(Qt.Key_Down);
+            compare(made.currentKey, "zurich", "the arrows move");
+            compare(zurich.activeFocus, true);
+            keyClick(Qt.Key_Return);
+            keyClick(Qt.Key_Space);
+            compare(spy.count, 3, "a locked row takes no key");
+            compare(made.visualFocus, true, "the keyboard on a locked row opens the reason");
+            tryCompare(reasonTip(made), "opened", true);
+            keyClick(Qt.Key_End);
+            compare(made.currentKey, "usa");
+            keyClick(Qt.Key_Return);
+            compare(spy.count, 4);
+            compare(spy.signalArguments[3][0], "usa");
+            before.forceActiveFocus(Qt.TabFocusReason);
         }
 
         function test_a_rows_change_keeps_the_keyboard() {

@@ -25,6 +25,12 @@ var LOGIN_SAID_MAX = 4096;
 var PEER_MAX = 64;
 var CITY_MAX = 160;
 var ACCOUNT_MAX = 16;
+// The most matches the chooser's search draws at once. The view builds
+// each row a keystroke adds on the GUI thread, about 10 ms a row: a
+// qmltestrunner offscreen run of ExitNodes.qml took 985 to 1121 ms for the
+// first keystroke over 10 own nodes and 90 cities, all 100 matching
+// (VGS-1929 fix round, 2026-10-20).
+var SEARCH_MAX = 20;
 var TEXT_MAX = 64;
 // The longest DNS name, the longest target a node can have.
 var TARGET_MAX = 253;
@@ -337,10 +343,13 @@ function accounts(code, stdout) {
 // The node `tailscale exit-node suggest` names, from its text: the line
 // "Suggested exit node: <DNS name>." gives the DNS name, without its final
 // dot and in lower case; "No exit node suggestion is available." gives
-// none. The CLI has no JSON form. Answers { name, fault }: `fault` is ""
-// for either text, `failed` for a run that did not end with code 0 and
-// `unread` for any other text, both with no name.
+// none. The CLI has no JSON form. CODE is the run's exit code, -1 for a
+// run its deadline killed or that never started, as for `snapshot`.
+// Answers { name, fault }: `fault` is "" for either text, `timeout` for
+// code -1, `failed` for any other code but 0 and `unread` for any other
+// text, all three with no name.
 function suggested(code, stdout) {
+    if (code === -1) return { name: "", fault: "timeout" };
     if (code !== 0) return { name: "", fault: "failed" };
     var lines = String(stdout).split("\n").map(function (text) { return text.trim(); });
     for (var i = 0; i < lines.length; i++) {
