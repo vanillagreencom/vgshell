@@ -3398,6 +3398,12 @@ release_runs
 # The press lands once the ended guide's window has gone from over the page.
 cancel_globex() { settings_press --type RowAction "Cancel" StatusLine Globex 2>/dev/null && row_inputs; }
 expect_poll "Globex's Cancel closes its field once the guide's window goes" '[[]]' cancel_globex
+# The refusal stays under Acme until Acme's source next opens, which clears
+# it; Acme's own writes leave it.
+forget_record
+expect "Acme's source opens once Globex's guide has ended" ok ipc smoke invokeInstanceArgs window vgs.settings actSource '{"args":["vgs.notifications","slackTokens","slack:T0ACME"]}'
+expect_poll "the reopened guide is Acme's" "$(words vgs.notifications/setup-slack tui/setup-slack.sh slack:T0ACME "Acme Corp (acme)")" source_record
+expect_poll "the opened source clears Acme's refusal" "$(want_rows drawn "slack:T0ACME,absent;slack:T0GLOBEX,absent")" drawn_token_row
 # Remove on a locked key store: `secret-tool clear` deletes unlocked items
 # only and still exits 0, so the core searches for the account again and
 # ends the write as `locked`. The stand-in keeps the entry, the line names
