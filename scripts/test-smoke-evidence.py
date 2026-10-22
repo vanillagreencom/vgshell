@@ -9,7 +9,8 @@ import tempfile
 
 REPO = Path(__file__).resolve().parent.parent
 BASH = shutil.which("bash")
-ENV = {"PATH": os.environ["PATH"], "LC_ALL": "C.UTF-8", "VGS_TEST_RUN": "1"}
+ENV = {"PATH": os.environ["PATH"], "LC_ALL": "C.UTF-8", "VGS_TEST_RUN": "1",
+       "TMPDIR": os.environ["TMPDIR"], "VGSHELL_WORLD_ROOT": os.environ["VGSHELL_WORLD_ROOT"]}
 NODE = subprocess.check_output(["node", "-e", "process.stdout.write(process.execPath)"], text=True)
 ENV["PATH"] = str(Path(NODE).parent) + ":" + ENV["PATH"]
 BOUND = 8 * 1024 * 1024
@@ -98,7 +99,7 @@ exec "$BASH" "$script" "$source_repo" "$sandbox" "$runtime" "$mode" "$@"
 
     def world(script, sandbox, runtime, mode, env, extra=()):
         env["HOME"] = str(root / "caller-home")
-        declarations = ["--out", str(sandbox.parent)]
+        declarations = ["--fresh", "--out", str(sandbox.parent)]
         if mode == "keep": declarations.append("--keep")
         result = subprocess.run([BASH, str(REPO / "scripts/smoke/gpu-fence.sh"), *declarations,
                                  BASH, str(bootstrap), str(script), str(REPO), str(sandbox), str(runtime), mode, *map(str, extra)],

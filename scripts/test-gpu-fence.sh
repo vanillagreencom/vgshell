@@ -817,7 +817,8 @@ base.mkdir()
 runtime_parent = Path("/var/tmp")
 with tempfile.TemporaryDirectory(prefix="world-control-", dir="/tmp") as mutants, \
      tempfile.TemporaryDirectory(prefix="world-runtime-", dir=runtime_parent) as runtime, \
-     tempfile.TemporaryDirectory(prefix="world-socket-", dir="/tmp") as temporary:
+     tempfile.TemporaryDirectory(prefix="world-socket-", dir="/tmp") as temporary, \
+     tempfile.TemporaryDirectory(prefix="world-input space-", dir="/tmp") as prepared:
     caller = socket.socket(socket.AF_UNIX)
     caller.bind(runtime + "/caller.sock")
     caller.listen()
@@ -836,8 +837,15 @@ with tempfile.TemporaryDirectory(prefix="world-control-", dir="/tmp") as mutants
     named_socket.listen()
     probe = base / "probe.py"
     probe.write_text('''import errno, json, os, pathlib, shutil, socket, sys
-fixture, output, runtime, temporary, abstract, port, checkout = sys.argv[1:]
+fixture, output, runtime, temporary, abstract, port, prepared, checkout = sys.argv[1:]
 result = {}
+metadata = pathlib.Path(prepared, "a" * 64, "listing.json")
+assert metadata.read_text() == '{"files":["fixture.png"]}\\n'
+try:
+    metadata.write_text("changed\\n")
+    result["input"] = "writable"
+except OSError as error:
+    result["input"] = error.errno
 for name in ("checkout", "sibling", "home"):
     path = pathlib.Path(fixture) / name
     try:
@@ -898,19 +906,22 @@ pathlib.Path(output, "result.json").write_text(json.dumps(result))
         subprocess.run(["git", "-C", str(fixture / "checkout"), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "fixture"], check=True)
         subprocess.run(["git", "-C", str(fixture / "checkout"), "worktree", "add", "-q", "--detach", str(fixture / "sibling"), "HEAD"], check=True)
         (fixture / "home/marker").write_text("retained\n")
+        metadata = Path(prepared, "a" * 64, "listing.json")
+        metadata.parent.mkdir(exist_ok=True)
+        metadata.write_text('{"files":["fixture.png"]}\n')
         env = {"PATH": os.environ["PATH"], "HOME": str(fixture / "home"), "TMPDIR": str(base), "XDG_RUNTIME_DIR": runtime,
                "WAYLAND_DISPLAY": str(base / "named.sock"), "WAYLAND_SOCKET": "99", "DISPLAY": ":99", "HYPRLAND_INSTANCE_SIGNATURE": "planted",
                "DBUS_SESSION_BUS_ADDRESS": "unix:path=" + runtime + "/caller.sock", "VGS_WORLD_PLANTED": "planted",
                "VGSHELL_WORLD_ROOT": temporary}
-        completed = subprocess.run([bash, file, "--checkout", repo, "--out", str(output), "--out", mutants, *extra,
-                                    "python3", str(probe), str(fixture), str(output), runtime, temporary, abstract_name[1:], str(tcp.getsockname()[1]), repo],
+        completed = subprocess.run([bash, file, "--checkout", repo, "--input", prepared, "--out", str(output), "--out", mutants, *extra,
+                                    "python3", str(probe), str(fixture), str(output), runtime, temporary, abstract_name[1:], str(tcp.getsockname()[1]), prepared, repo],
                                    env=env, capture_output=True, text=True, timeout=20)
         assert completed.returncode == 0, (name, completed.returncode, completed.stderr)
         result = json.loads((output / "result.json").read_text())
         assert Path(result["root"]).exists() == ("--keep" in extra), (name, result)
         return result
     def holds(result):
-        return all(result[name] == errno.EROFS for name in ("checkout", "sibling", "home")) and \
+        return result["input"] == errno.EROFS and all(result[name] == errno.EROFS for name in ("checkout", "sibling", "home")) and \
             all(result[name] == "hidden" for name in ("runtime", "tmp", "abstract", "tcp", "named")) and not result["session"]
     result = run("world")
     assert holds(result), result
@@ -920,6 +931,7 @@ pathlib.Path(output, "result.json").write_text(json.dumps(result))
     # This kept root is a disposable test fixture; its test owner removes it.
     shutil.rmtree(result["root"])
     controls = (
+        ("writable-input", 'mounts+=(--ro-bind "$input" "$input")', 'mounts+=(--bind "$input" "$input")', "input", "writable"),
         ("parent-world-marker", "if fenced /; then", 'if [[ -n ${VGSHELL_WORLD_ROOT:-} ]]; then', "tmp", "connected"),
         ("writable-host", "bwrap --ro-bind / /", "bwrap --bind / /", "checkout", "deleted"),
         ("runtime-mask", 'mounts+=(--perms 0700 --tmpfs "$XDG_RUNTIME_DIR")', 'mounts+=()', "runtime", "connected"),
@@ -1000,7 +1012,9 @@ node_bin="$(node -e 'process.stdout.write(process.execPath)')" || { echo "test-g
 mkdir -p "$TMP_ROOT/entry-bin" "$TMP_ROOT/entry-account"
 printf '#!/bin/sh\nprintf "%%s\\n" "%s"\n' "$TMP_ROOT/entry-bin/copilot" >"$TMP_ROOT/entry-bin/mise"
 printf '#!/bin/sh\nexit 0\n' >"$TMP_ROOT/entry-bin/copilot"
-chmod +x "$TMP_ROOT/entry-bin/mise" "$TMP_ROOT/entry-bin/copilot"
+# sandbox-shots only resolves grim before the planted fence takes entry.
+printf '#!/bin/sh\nexit 99\n' >"$TMP_ROOT/entry-bin/grim"
+chmod +x "$TMP_ROOT/entry-bin/mise" "$TMP_ROOT/entry-bin/copilot" "$TMP_ROOT/entry-bin/grim"
 voice_root="$TMP_ROOT/voice/.local/share/vgshell/jarvis/local"
 voxtype_models="$TMP_ROOT/voxtype-models"
 voxtype_builds="$TMP_ROOT/voxtype-builds"

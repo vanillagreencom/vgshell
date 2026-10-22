@@ -122,10 +122,13 @@ elif mode == "runtime":
     assert runtime.parent == Path(parent).resolve() and runtime.name.startswith("jv-")
     assert runtime.is_dir() and not runtime.is_symlink()
     assert runtime.stat().st_mode & 0o777 == 0o700
-    # The caller's runtime directory reaches the child only as this parent.
+    # A default /tmp runtime parent can also contain this invocation's
+    # exclusively-created scratch root; neither is the caller's session.
+    root = Path(os.environ["JARVIS_TEST_ROOT"])
     for name, value in os.environ.items():
         if value == parent or value.startswith(parent + "/"):
-            assert value == str(runtime) or value.startswith(str(runtime) + "/"), name
+            assert any(value == str(owned) or value.startswith(str(owned) + "/")
+                       for owned in (runtime, root)), name
 elif mode == "path":
     root = Path(os.environ["JARVIS_TEST_ROOT"])
     assert os.environ["PATH"].split(":") == [str(root / "standins"), str(root / "tools")]

@@ -9,11 +9,11 @@
 //
 // An archive's image list is read once per pin: fetched and verified by
 // bin/lib/theme-download.js into a scratch folder under LISTINGS, read by
-// the install's member rule, and kept as LISTINGS/<sha256>.json; the
-// archive is removed at once. LISTINGS defaults to vgs-catalog-listings in
-// the repository's common git directory, which outlives a validate row's
-// home and is shared by every worktree: a listing is keyed by the
-// archive's sha256, so one fetch serves each checkout.
+// the install's member rule, and kept as LISTINGS/<sha256>/listing.json; the
+// archive is removed at once. --prepare owns that input step before any
+// offline row starts. The ordinary check reads only the prepared listings.
+// LISTINGS defaults to the caller's XDG cache under
+// vgshell/validate/theme-listings/<sha256>/listing.json.
 // VGS_THEME_ASSET_BASE replaces the pin's `<repo>/releases/download`, and
 // VGS_TEST_RUN allows a file:// base, as for `vgshell theme wallpapers`.
 //
@@ -21,16 +21,16 @@
 // `refused: theme=<name> reason=<key> ...` line per defect, `missing`
 // (an image with no name), `unknown` (a name on a file the archive lacks),
 // `duplicate`, `member` (a member install refuses), `sha256` or `size`
-// (the archive is not its pin), or `unavailable: theme=<name> reason=<key>`
-// when its archive could not be fetched.
+// (the archive is not its pin). Preparation prints `prepared` per entry;
+// an unreadable listing or unavailable archive prints `input-step: failed`.
 // Exit 0 when every entry passes, 1 when any is refused, 2 when the index
-// or a package cannot be read, 77 when an archive could not be fetched.
+// or a package cannot be read, or the input step cannot fetch an archive.
 //
-// Usage: scripts/check-catalog-wallpaper-names.js [THEMES] [LISTINGS]
+// Usage: scripts/check-catalog-wallpaper-names.js [--prepare] [THEMES] [LISTINGS]
 "use strict";
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
-const { spawnSync } = require("child_process");
 
 const repo = path.resolve(__dirname, "..");
 const download = require(path.join(repo, "bin", "lib", "theme-download.js"));
@@ -47,16 +47,23 @@ function readJson(file) {
 }
 
 function defaultListings() {
-    const git = spawnSync("git", ["-C", repo, "rev-parse", "--path-format=absolute", "--git-common-dir"], { encoding: "utf8" });
-    if (git.status !== 0) throw new Unreadable("check-catalog-wallpaper-names: unreadable git-common-dir status=" + git.status);
-    return path.join(git.stdout.trim(), "vgs-catalog-listings");
+    return path.resolve(process.env.XDG_CACHE_HOME || path.join(process.env.HOME || os.homedir(), ".cache"),
+        "vgshell", "validate", "theme-listings");
 }
 
 // The sorted image names of PIN's archive, or the refusal reasons of its
 // members: { files } or { refused: [[reason, detail]] }.
-async function listing(pin, listings) {
-    const kept = path.join(listings, pin.sha256 + ".json");
-    if (fs.existsSync(kept)) return readJson(kept);
+async function listing(pin, listings, prepare) {
+    const kept = path.join(listings, pin.sha256, "listing.json");
+    if (fs.existsSync(kept)) {
+        let cached;
+        try { cached = readJson(kept); }
+        catch (error) { throw new Unreadable("input-step: failed listing=unreadable path=" + kept + " error=" + error.message); }
+        if (!cached || !Array.isArray(cached.files) || cached.files.some(file => typeof file !== "string"))
+            throw new Unreadable("input-step: failed listing=invalid path=" + kept);
+        return cached;
+    }
+    if (!prepare) throw new Unreadable("input-step: failed listing=missing sha256=" + pin.sha256 + " path=" + kept);
     fs.mkdirSync(listings, { recursive: true });
     const scratch = fs.mkdtempSync(path.join(listings, ".fetch-"));
     try {
@@ -76,6 +83,7 @@ async function listing(pin, listings) {
         const answer = { files: files.sort() };
         const part = path.join(scratch, "listing.json");
         fs.writeFileSync(part, JSON.stringify(answer) + "\n");
+        fs.mkdirSync(path.dirname(kept), { recursive: true });
         fs.renameSync(part, kept);
         return answer;
     } finally {
@@ -106,7 +114,9 @@ function unavailable(refusal) {
     return refusal.step === "fetch" && !["sha256", "size", "pin"].includes(refusal.reason);
 }
 
-async function main([themes = path.join(repo, "themes"), listings]) {
+async function main(args) {
+    const prepare = args[0] === "--prepare";
+    const [themes = path.join(repo, "themes"), listings] = prepare ? args.slice(1) : args;
     const index = readJson(path.join(themes, "catalog", "index.json"));
     const kept = listings ?? defaultListings();
     let refused = false;
@@ -115,11 +125,11 @@ async function main([themes = path.join(repo, "themes"), listings]) {
         const names = readJson(path.join(themes, "catalog", entry.name, "theme.json")).backgrounds ?? {};
         let found;
         try {
-            found = await listing(entry.imagery, kept);
+            found = await listing(entry.imagery, kept, prepare);
         } catch (e) {
             if (!(e instanceof download.AssetRefusal)) throw e;
             if (unavailable(e)) {
-                process.stdout.write("unavailable: theme=" + entry.name + " reason=" + e.reason + " " + e.detail + "\n");
+                process.stderr.write("input-step: failed theme=" + entry.name + " reason=" + e.reason + " " + e.detail + "\n");
                 missed = true;
             } else {
                 process.stdout.write("refused: theme=" + entry.name + " reason=" + e.reason + " " + e.detail + "\n");
@@ -127,15 +137,15 @@ async function main([themes = path.join(repo, "themes"), listings]) {
             }
             continue;
         }
-        const problems = found.refused ?? defects(names, found.files);
+        const problems = found.refused ?? (prepare ? [] : defects(names, found.files));
         for (const [reason, detail] of problems)
             process.stdout.write("refused: theme=" + entry.name + " reason=" + reason + " " + detail + "\n");
         if (problems.length === 0)
-            process.stdout.write("ok theme=" + entry.name + " images=" + found.files.length + "\n");
+            process.stdout.write((prepare ? "prepared" : "ok") + " theme=" + entry.name + " images=" + found.files.length + "\n");
         else
             refused = true;
     }
-    return refused ? 1 : missed ? 77 : 0;
+    return refused ? 1 : missed ? 2 : 0;
 }
 
 main(process.argv.slice(2)).then(code => { process.exitCode = code; }, e => {

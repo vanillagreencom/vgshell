@@ -27,6 +27,7 @@
 #
 # --out DIR declares a writable output directory. A directory which is or
 # contains the checkout, its git directory or the caller HOME is refused.
+# --input DIR preserves prepared input through private mounts, read-only.
 # --secrets starts the selftest's filtered bus outside the namespace and
 # binds only its socket inside. --sign-in VARIABLE DIR declares the selected
 # account directory, its variable and its writable bind. Neither exception
@@ -106,6 +107,7 @@ world_runtime=/tmp/vr
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
 checkout="$(cd -- "${self%/*}/../.." && pwd -P)"
 outputs=()
+inputs=()
 output_roots=()
 keep=false
 fresh=false
@@ -114,10 +116,11 @@ secrets=false
 sign_in_name="" sign_in_dir=""
 while (($#)); do
   case "$1" in
-    --out|--checkout|--sign-in)
+    --out|--input|--checkout|--sign-in)
       [[ $# -ge 2 && -n $2 ]] || { note "refused: argument=$1"; exit 2; }
       case "$1" in
         --out) outputs+=("$2"); shift 2 ;;
+        --input) inputs+=("$2"); shift 2 ;;
         --checkout) checkout="$2"; shift 2 ;;
         --sign-in)
           [[ $# -ge 3 && -d $3 ]] || { note "refused: argument=--sign-in"; exit 2; }
@@ -415,6 +418,10 @@ case "$mode" in
       fi
     done
     git_dir="$(git -C "$checkout" rev-parse --absolute-git-dir 2>/dev/null)" || git_dir="$checkout/.git"
+    for input in "${inputs[@]}"; do
+      input="$(realpath -e -- "$input")" && [[ -d $input ]] || { note 'refused: input=unreadable'; exit 2; }
+      mounts+=(--ro-bind "$input" "$input")
+    done
     for output in "${outputs[@]}"; do
       output="$(realpath -m -- "$output")" || { note "refused: output=$output reason=resolve-failed"; exit 2; }
       for protected in "$checkout" "$git_dir" "${HOME:-/}" /tmp /dev /run/dbus /run/tailscale "${XDG_RUNTIME_DIR:-$world_runtime}"; do

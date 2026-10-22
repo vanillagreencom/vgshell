@@ -206,7 +206,7 @@ rm -f -- "$cfg/tmux/tmux.conf"
 # that socket then exits at once. The sockets stand in $tmp/tmux-<uid>, a
 # short path, since a socket path holds at most 107 bytes.
 mkdir -p "$tmp/tmux-names"
-tmux_run() { env -i PATH="$base_path" HOME="$tmp/home" XDG_CONFIG_HOME="$cfg" TMUX_TMPDIR="$tmp" "$tmux_bin" -L "$tmux_name" "$@"; }
+tmux_run() { env -i PATH="$base_path" HOME="$tmp/home" XDG_CONFIG_HOME="$cfg" TMUX_TMPDIR="$XDG_RUNTIME_DIR/owned" "$tmux_bin" -L "$tmux_name" "$@"; }
 tmux_read() {
   tmux_name="$(basename -- "$(mktemp "$tmp/tmux-names/XXXXXX")")"
   tmux_run new-session -d -s probe || return 1

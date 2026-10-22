@@ -1037,6 +1037,61 @@ PY
   # below use its filtered socket; their stand-in harness starts no shell.
   local proxy_world_pid="" proxy_root=""
   mkdir -p "$tmp/proxy-output"
+  cat >"$tmp/proxy-owner.py" <<'PY'
+import os
+from pathlib import Path
+import select
+import signal
+import sys
+
+mode, owner = sys.argv[1], int(sys.argv[2])
+children = list(map(int, Path(f"/proc/{owner}/task/{owner}/children").read_text().split()))
+proxies = []
+for child in children:
+    try:
+        command = Path(f"/proc/{child}/cmdline").read_bytes().split(b"\0")[0]
+    except FileNotFoundError:
+        continue
+    if Path(os.fsdecode(command)).name == "xdg-dbus-proxy":
+        proxies.append(child)
+owner_fd = os.pidfd_open(owner)
+proxy_fds = [os.pidfd_open(proxy) for proxy in proxies]
+ended = False
+try:
+    if mode == "lifetime":
+        assert len(proxies) == 1, proxies
+        proxy = proxies[0]
+        lease = os.readlink(f"/proc/{proxy}/fd/1")
+        pending = children[:]
+        while pending:
+            child = pending.pop()
+            if child == proxy:
+                continue
+            directory = Path(f"/proc/{child}")
+            try:
+                pending.extend(map(int, (directory / f"task/{child}/children").read_text().split()))
+                for descriptor in (directory / "fd").iterdir():
+                    try:
+                        assert os.readlink(descriptor) != lease, (child, str(descriptor))
+                    except FileNotFoundError:
+                        pass
+            except FileNotFoundError:
+                pass
+    signal.pidfd_send_signal(owner_fd, signal.SIGKILL)
+    if mode == "lifetime":
+        ended = bool(select.select(proxy_fds, [], [], 5)[0])
+        print("proxy-owner-kill: proxy=" + ("exited" if ended else "alive"))
+finally:
+    if not select.select([owner_fd], [], [], 0)[0]:
+        signal.pidfd_send_signal(owner_fd, signal.SIGKILL)
+    for proxy_fd in proxy_fds:
+        if not select.select([proxy_fd], [], [], 0)[0]:
+            signal.pidfd_send_signal(proxy_fd, signal.SIGKILL)
+            assert select.select([proxy_fd], [], [], 5)[0], "proxy cleanup"
+        os.close(proxy_fd)
+    os.close(owner_fd)
+sys.exit(0 if mode == "abort" or ended else 1)
+PY
   proxy_start() { # FENCE
     rm -f -- "$tmp/proxy-output/root"
     env -i PATH="$path" HOME="$world" TMPDIR=/tmp VGSHELL_WORLD_ROOT="$VGSHELL_WORLD_ROOT" DBUS_SESSION_BUS_ADDRESS="unix:path=$bus" \
@@ -1044,7 +1099,12 @@ PY
       "$BASH" -c 'printf "%s\n" "$VGSHELL_WORLD_ROOT" >"$1/root"; while :; do sleep 1 & wait $!; done' _ "$tmp/proxy-output" >"$tmp/proxy-output/log" 2>&1 &
     proxy_world_pid=$!
     for _ in $(seq 1 100); do [[ ! -s $tmp/proxy-output/root ]] || break; kill -0 "$proxy_world_pid" 2>/dev/null || break; sleep 0.05; done
-    [[ -s $tmp/proxy-output/root ]] || { cat "$tmp/proxy-output/log"; return 1; }
+    if [[ ! -s $tmp/proxy-output/root ]]; then
+      cat "$tmp/proxy-output/log"
+      python3 "$tmp/proxy-owner.py" abort "$proxy_world_pid" || fail "failed proxy start cleanup"
+      wait "$proxy_world_pid" 2>/dev/null || true
+      return 1
+    fi
     proxy_root="$(<"$tmp/proxy-output/root")"
     selftest_proxy_env=(XDG_RUNTIME_DIR="$proxy_root")
   }
@@ -1071,58 +1131,8 @@ PY
   }
   proxy_owner_lifetime() { # FENCE
     local result=0 owner_status=0
-    proxy_start "$1" || return 1
-    python3 - "$proxy_world_pid" <<'PY' || result=$?
-import os
-from pathlib import Path
-import select
-import signal
-import sys
-
-owner = int(sys.argv[1])
-children = list(map(int, Path(f"/proc/{owner}/task/{owner}/children").read_text().split()))
-proxies = []
-for child in children:
-    try:
-        command = Path(f"/proc/{child}/cmdline").read_bytes().split(b"\0")[0]
-    except FileNotFoundError:
-        continue
-    if Path(os.fsdecode(command)).name == "xdg-dbus-proxy":
-        proxies.append(child)
-assert len(proxies) == 1, proxies
-proxy = proxies[0]
-owner_fd, proxy_fd = os.pidfd_open(owner), os.pidfd_open(proxy)
-ended = False
-try:
-    lease = os.readlink(f"/proc/{proxy}/fd/1")
-    pending = children[:]
-    while pending:
-        child = pending.pop()
-        if child == proxy:
-            continue
-        directory = Path(f"/proc/{child}")
-        try:
-            pending.extend(map(int, (directory / f"task/{child}/children").read_text().split()))
-            for descriptor in (directory / "fd").iterdir():
-                try:
-                    assert os.readlink(descriptor) != lease, (child, str(descriptor))
-                except FileNotFoundError:
-                    pass
-        except FileNotFoundError:
-            pass
-    signal.pidfd_send_signal(owner_fd, signal.SIGKILL)
-    ended = bool(select.select([proxy_fd], [], [], 5)[0])
-    print("proxy-owner-kill: proxy=" + ("exited" if ended else "alive"))
-finally:
-    if not select.select([owner_fd], [], [], 0)[0]:
-        signal.pidfd_send_signal(owner_fd, signal.SIGKILL)
-    if not select.select([proxy_fd], [], [], 0)[0]:
-        signal.pidfd_send_signal(proxy_fd, signal.SIGKILL)
-        assert select.select([proxy_fd], [], [], 5)[0], "proxy cleanup"
-    os.close(proxy_fd)
-    os.close(owner_fd)
-sys.exit(0 if ended else 1)
-PY
+    proxy_start "$1" || return 77
+    python3 "$tmp/proxy-owner.py" lifetime "$proxy_world_pid" || result=$?
     wait "$proxy_world_pid" 2>/dev/null || owner_status=$?
     [[ $owner_status == 137 && -d $proxy_root ]] || result=1
     # SIGKILL deliberately leaves this acquired fixture root.
@@ -1132,12 +1142,31 @@ PY
   }
   holds "the outside filtered proxy exits when its world owner is killed" proxy_owner_lifetime "$repo/scripts/smoke/gpu-fence.sh"
   if ! mutate "$repo/scripts/smoke/gpu-fence.sh" 'exec env -i "$(command -v xdg-dbus-proxy)" --fd=1' \
-    'printf x; exec env -i "$(command -v xdg-dbus-proxy)"' "$tmp/proxy-lease-mutant.sh"; then
+    '(for ((ready = 0; ready < 500; ready++)); do
+      if [[ -S $fence_dir/secrets-bus ]]; then printf x; exit 0; fi
+      sleep 0.01
+    done; exit 1) & exec env -i "$(command -v xdg-dbus-proxy)"' "$tmp/proxy-lease-mutant.sh"; then
     fail "control: proxy lifetime mutation"
-  elif proxy_owner_lifetime "$tmp/proxy-lease-mutant.sh"; then
-    fail "control: an outside proxy without its lifetime lease stayed green"
   else
-    ok "control: an outside proxy without its lifetime lease"
+    lease_status=0
+    proxy_owner_lifetime "$tmp/proxy-lease-mutant.sh" || lease_status=$?
+    case $lease_status in
+      1) ok "control: an outside proxy without its lifetime lease" ;;
+      0) fail "control: an outside proxy without its lifetime lease stayed green" ;;
+      *) fail "control: proxy lifetime was not measured: exit=$lease_status" ;;
+    esac
+  fi
+  if mutate "$tmp/proxy-lease-mutant.sh" '"${fence[@]}" "${proof[@]}" true 2>&1' 'false' "$tmp/proxy-failed-start.sh"; then
+    failed_start_status=0
+    proxy_owner_lifetime "$tmp/proxy-failed-start.sh" >"$tmp/failed-start.log" 2>&1 || failed_start_status=$?
+    if [[ $failed_start_status == 77 ]] && ! kill -0 "$proxy_world_pid" 2>/dev/null; then
+      ok "a failed proxy start reaps its owner and supplies no lifetime verdict"
+    else
+      fail "failed proxy start cleanup or verdict: exit=$failed_start_status"
+      cat "$tmp/failed-start.log"
+    fi
+  else
+    fail "failed proxy start mutation"
   fi
   proxy_start "$repo/scripts/smoke/gpu-fence.sh" || { fail "world proxy start"; return; }
 

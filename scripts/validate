@@ -2,6 +2,7 @@
 # The product validation manifest, run explicitly rather than by git hooks.
 #
 # Usage: scripts/validate [AREA] [--changed BASE | --full] [--list] [--skip-unprepared]
+#        scripts/validate --prepare-catalog-inputs
 #   AREA is one of: logic, manifests, boundary, cli, tools, repo, offline,
 #   unit, package, qml, nix, all (default: all). One area per call.
 #   repo holds the checks this file makes itself, the whitespace
@@ -129,6 +130,12 @@ list_only=false
 full_scope=false
 skip_unprepared=false
 unselected=false
+catalog_prepare_only=false
+catalog_listings=""
+if [[ $# == 1 && $1 == --prepare-catalog-inputs ]]; then
+  catalog_prepare_only=true
+  set --
+fi
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --changed)
@@ -192,8 +199,12 @@ fi
 # store. The world's control runs outside so it can test the actual boundary.
 run() { # SCRATCH WORLD-OWNER LABEL CMD...
   local row_home="$1" owner="${2:-row}" label="$3" started status elapsed
-  local path_count=-1 paths=()
+  local path_count=-1 paths=() declarations=(--fresh)
   shift 3
+  if [[ $1 == catalog_wallpaper_names ]]; then
+    declarations+=(--input "$catalog_listings")
+    set -- "$@" "$catalog_listings"
+  fi
   echo "== $label"
   started=$SECONDS
   status=0
@@ -212,12 +223,31 @@ run() { # SCRATCH WORLD-OWNER LABEL CMD...
         mapfile -d '' -t paths <"$VGS_VALIDATE_CHANGED" || exit 1
         path_count=${#paths[@]}
       fi
-      "$repo/scripts/smoke/gpu-fence.sh" --fresh -- "$BASH" "$self" --row "${VGS_VALIDATE_BASE:-}" "$path_count" "${paths[@]}" -- "$@"
+      "$repo/scripts/smoke/gpu-fence.sh" "${declarations[@]}" -- "$BASH" "$self" --row "${VGS_VALIDATE_BASE:-}" "$path_count" "${paths[@]}" -- "$@"
     fi
   ) || status=$?
   elapsed=$((SECONDS - started))
   printf 'validate: secs=%s exit=%s row=%s\n' "$elapsed" "$status" "$label"
   return "$status"
+}
+
+catalog_input_prepare() {
+  local status=0
+  catalog_listings="$(realpath -m -- "${XDG_CACHE_HOME:-$HOME/.cache}/vgshell/validate/theme-listings")" || return 1
+  printf 'validate: input-step=catalog path=%q\n' "$catalog_listings"
+  node "$repo/scripts/check-catalog-wallpaper-names.js" --prepare "$repo/themes" "$catalog_listings" || status=$?
+  if [[ $status == 0 && ! -d $catalog_listings ]]; then
+    echo 'validate: input-step=failed name=catalog reason=missing-output' >&2
+    return 1
+  fi
+  if [[ $status != 0 ]]; then
+    printf 'validate: input-step=failed name=catalog exit=%s\n' "$status" >&2
+  fi
+  return "$status"
+}
+
+catalog_wallpaper_names() {
+  node "$repo/scripts/check-catalog-wallpaper-names.js" "$repo/themes" "$1"
 }
 
 # Rows: area | label | command | additional input globs, space-delimited,
@@ -503,7 +533,7 @@ rows=(
   "tools|plugin README image controls|python3 scripts/test-check-readme-images.py|scripts/check-readme-images.py"
   "tools|README shot controls|scripts/test-readme-shots.sh|scripts/readme-shots.sh scripts/check-readme-images.py scripts/smoke/shot.sh"
   "tools|theme preview maker controls|node scripts/test-theme-previews.js|scripts/theme-previews.sh scripts/theme-preview-wallpaper.js bin/lib/theme-download.js bin/lib/theme-backgrounds.js bin/lib/judge-files.js bin/lib/qml-library.js shell/Commons/Tokens.js scripts/tar-fixture.js"
-  "tools|catalog wallpaper names against the pinned archives|node scripts/check-catalog-wallpaper-names.js|themes/catalog/index.json themes/catalog/*/theme.json bin/lib/theme-download.js bin/lib/theme-backgrounds.js bin/lib/judge-files.js"
+  "tools|catalog wallpaper names against the pinned archives|catalog_wallpaper_names|scripts/check-catalog-wallpaper-names.js themes/catalog/index.json themes/catalog/*/theme.json bin/lib/theme-download.js bin/lib/theme-backgrounds.js bin/lib/judge-files.js"
   "tools|catalog wallpaper name check controls|node scripts/test-check-catalog-wallpaper-names.js|scripts/check-catalog-wallpaper-names.js bin/lib/theme-download.js bin/lib/theme-backgrounds.js bin/lib/judge-files.js scripts/tar-fixture.js"
   "tools|scratch directory guard controls|scripts/test-scratch-dirs.sh|scripts/vgshell-rows.sh scripts/test-launcher-file-search.sh scripts/test-notifications-images.sh scripts/test-notifications-token-status.sh scripts/test-sandbox-shots.sh scripts/test-smoke-verdict.sh scripts/test-smoke-teardown.sh scripts/test-readme-shots.sh scripts/smoke/gpu-fence.sh"
   "tools|Jarvis test environment controls|node scripts/test-jarvis-env.js|scripts/lib/jarvis-env.sh scripts/fixtures/jarvis-env/* scripts/smoke/harness.sh scripts/fixtures/jarvis/prepare.js scripts/fixtures/jarvis/bounded.js scripts/fixtures/jarvis/audio.js scripts/fixtures/jarvis/keys-world.js scripts/fixtures/jarvis/accounts-world.js scripts/fixtures/jarvis/core.js bin/lib/qml-library.js shell/plugins/vgs.jarvis/backend/Core.js shell/plugins/vgs.jarvis/Service.qml shell/plugins/vgs.jarvis/Keys.qml shell/plugins/vgs.jarvis/LocalRuntime.qml shell/plugins/vgs.jarvis/LocalTier.qml shell/plugins/vgs.jarvis/CloneRuntime.qml shell/plugins/vgs.jarvis/BrowserRuntime.qml shell/plugins/vgs.jarvis/Accounts.qml"
@@ -1488,6 +1518,11 @@ if [[ $row_entry == true ]]; then
   exit
 fi
 
+if [[ $catalog_prepare_only == true ]]; then
+  catalog_input_prepare
+  exit
+fi
+
 # The file that records this area's last pass, in the worktree's own git
 # directory, so no other worktree reads it. Empty when git names no git
 # directory: then no run reads or records a pass.
@@ -1729,6 +1764,13 @@ if [[ $list_only == true ]]; then
   printf 'validate: selected=%s area=%s\n' "$selected_count" "$area" >&2
   exit 0
 fi
+
+for command in "${row_command[@]}"; do
+  if [[ $command == catalog_wallpaper_names ]]; then
+    catalog_input_prepare || exit 1
+    break
+  fi
+done
 
 # The run loop: the selected rows run side by side, at most jobs_max at once,
 # each as a job in a process group of its own, so a signal reaches every

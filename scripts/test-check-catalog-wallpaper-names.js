@@ -60,11 +60,16 @@ function catalog(root, pin, names) {
     fs.writeFileSync(path.join(dir, "theme.json"), JSON.stringify(names === undefined ? { name: "moor" } : { name: "moor", backgrounds: names }));
 }
 
-function check(root) {
+function invoke(root, prepare = false) {
     const env = Object.assign({ VGS_THEME_ASSET_BASE: pathToFileURL(path.join(root, "assets")).href, VGS_TEST_RUN: "1" }, ENV);
-    const result = spawnSync(process.execPath, [path.join(root, CHECK), path.join(root, "themes"), path.join(root, "listings")], { encoding: "utf8", env, timeout: 60000 });
+    const result = spawnSync(process.execPath, [path.join(root, CHECK), ...(prepare ? ["--prepare"] : []), path.join(root, "themes"), path.join(root, "listings")], { encoding: "utf8", env, timeout: 60000 });
     assert.equal(result.error, undefined, "the check ran");
     return result;
+}
+
+function check(root) {
+    const prepared = invoke(root, true);
+    return prepared.status === 0 ? invoke(root) : prepared;
 }
 
 const IMAGES = [["backgrounds/b.png", "second"], ["backgrounds/a.jpg", "first"]];
@@ -86,6 +91,13 @@ const ROWS = [
 ];
 
 function rows(edit) {
+    const missing = tree(edit);
+    catalog(missing, publish(path.join(missing, "assets"), "vgs-theme-moor-r1.tar.gz", IMAGES), NAMED);
+    const unprepared = invoke(missing);
+    assert.equal(unprepared.status, 2, "an offline consumer requires its prepared input");
+    assert.match(unprepared.stderr, /^input-step: failed listing=missing /);
+    assert.ok(!fs.existsSync(path.join(missing, "listings")), "an offline consumer creates no cache or fetch scratch");
+
     for (const [label, members, names, status, stdout] of ROWS) {
         const root = tree(edit);
         catalog(root, publish(path.join(root, "assets"), "vgs-theme-moor-r1.tar.gz", members), names);
@@ -99,10 +111,18 @@ function rows(edit) {
     const pin = publish(path.join(root, "assets"), "vgs-theme-moor-r1.tar.gz", IMAGES);
     catalog(root, pin, NAMED);
     assert.equal(check(root).status, 0, "the first check passes");
-    assert.deepEqual(fs.readdirSync(path.join(root, "listings")), [pin.sha256 + ".json"], "only the pin's listing is kept");
+    assert.deepEqual(fs.readdirSync(path.join(root, "listings")), [pin.sha256], "only the pin's directory is kept");
+    assert.deepEqual(fs.readdirSync(path.join(root, "listings", pin.sha256)), ["listing.json"], "only the verified names are kept");
     fs.rmSync(path.join(root, "assets"), { recursive: true });
     let result = check(root);
     assert.equal(result.status, 0, "a kept listing needs no archive: " + result.stdout);
+    const kept = path.join(root, "listings", pin.sha256, "listing.json");
+    for (const malformed of ["{", JSON.stringify({ files: "fixture.png" }), JSON.stringify({ files: [1] })]) {
+        fs.writeFileSync(kept, malformed);
+        result = invoke(root, true);
+        assert.equal(result.status, 2, "malformed metadata fails preparation");
+        assert.match(result.stderr, /^input-step: failed listing=(unreadable|invalid) /);
+    }
 
     // An archive that is not its pin is refused; one that cannot be fetched
     // is unavailable, not a pass.
@@ -115,8 +135,8 @@ function rows(edit) {
     root = tree(edit);
     catalog(root, Object.assign({}, pin, { archive: "vgs-theme-moor-r9.tar.gz" }), NAMED);
     result = check(root);
-    assert.equal(result.status, 77, "an archive that cannot be fetched exits 77");
-    assert.match(result.stdout, /^unavailable: theme=moor reason=download /, "an archive that cannot be fetched is unavailable");
+    assert.equal(result.status, 2, "an unavailable archive fails its input step");
+    assert.match(result.stderr, /^input-step: failed theme=moor reason=download /, "an archive that cannot be fetched names the input failure");
 }
 
 const CONTROLS = [
@@ -126,7 +146,9 @@ const CONTROLS = [
     [CHECK, '!backgrounds.isImageName(file))', 'false)'],
     [CHECK, '!member.name.startsWith(backgrounds.DIR + "/") ||', ''],
     [CHECK, 'member.kind !== "file" || ', ''],
-    [CHECK, "if (fs.existsSync(kept)) return readJson(kept);", ""],
+    [CHECK, "if (fs.existsSync(kept)) {", "if (false) {"],
+    [CHECK, '!Array.isArray(cached.files)', 'false'],
+    [CHECK, 'if (!prepare) throw new Unreadable("input-step: failed listing=missing sha256=" + pin.sha256 + " path=" + kept);', ""],
     [CHECK, 'return refusal.step === "fetch" && !["sha256", "size", "pin"].includes(refusal.reason);', "return false;"]
 ];
 

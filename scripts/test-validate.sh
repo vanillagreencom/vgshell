@@ -586,7 +586,7 @@ cases=(
   "settings-reply-values|shell/Commons/SettingValues.js|logic|$settings_core_prefix"$'node scripts/test-setting-values.js\n'"$settings_theme_rows$settings_plugin_rows"$'node scripts/test-jarvis-setup-gate.js\n'"$settings_warden_row$settings_reply_row"$'\n'"$settings_steps_row$settings_devtools_row"
   "settings-reply-packages|shell/Core/PackageManagers.js|logic|$settings_core_prefix$settings_theme_rows$settings_plugin_rows"$'node scripts/test-jarvis-setup-gate.js\n'"$settings_catalog_rows$settings_warden_row$settings_reply_row"$'\n'"$settings_steps_row$settings_devtools_row"
   "settings-reply-icons|shell/Ui/icons/Lucide.js|logic|$settings_core_prefix"$'node scripts/test-icon-bounds.js\n'"$settings_theme_rows"$'node scripts/test-lucide-data.js\n'"$settings_plugin_rows"$'node scripts/test-jarvis-widget.js\nnode scripts/test-jarvis-setup-gate.js\n'"$settings_catalog_rows$settings_warden_row"$'node scripts/test-agent-warden-view.js\n'"$settings_reply_row"$'\n'"$settings_steps_row$settings_devtools_row"
-  "catalog-judge|themes/catalog/index.json|tools|node scripts/check-catalog-wallpaper-names.js"$'\nnode scripts/test-vgshell-theme-judge.js'
+  "catalog-judge|themes/catalog/index.json|tools|catalog_wallpaper_names"$'\nnode scripts/test-vgshell-theme-judge.js'
   "catalog-contrast|themes/catalog/index.json|logic|"$'node scripts/test-hyprland-layer.js\nnode scripts/test-theme-logic.js\n'"$settings_theme_rows"$'node scripts/test-check-theme-contrast.js\nnode scripts/test-theme-render.js'
   "orb-source|shell/Ui/feedback/shaders/voiceorb.frag|all|$orb_shader_plan"
   "orb-pack|shell/Ui/feedback/shaders/voiceorb.frag.qsb|all|$orb_shader_plan"
@@ -2391,6 +2391,74 @@ PY
 "${base_env[@]}" git -C "$d" commit -q -am control
 row "a validate without the marker export fails the planted row" "$d" 1 "" "validate: failed=test-run marker (exit 1)"
 
+# The catalog producer runs before the row, and its consumer can only read
+# the prepared directory. The checker's own suite proves archive verification.
+d="$tmp/catalog-input"; fresh "$d"
+cp -- "$repo/scripts/smoke/gpu-fence.sh" "$d/scripts/smoke/gpu-fence.sh"
+cat >"$d/scripts/check-catalog-wallpaper-names.js" <<'JS'
+const fs = require("node:fs");
+const path = require("node:path");
+const args = process.argv.slice(2);
+const prepare = args[0] === "--prepare";
+const listings = args[prepare ? 2 : 1];
+const file = path.join(listings, "fixture-sha", "listing.json");
+if (prepare) {
+    fs.accessSync(process.cwd(), fs.constants.W_OK);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, "prepared\n");
+    console.log("producer=parent");
+} else {
+    if (fs.readFileSync(file, "utf8") !== "prepared\n") process.exit(1);
+    try { fs.writeFileSync(file, "changed\n"); process.exit(1); }
+    catch (error) { if (error.code !== "EROFS") throw error; }
+    if (!process.env.VGSHELL_WORLD_ROOT) process.exit(1);
+    console.log("consumer=read-only-world");
+}
+JS
+python3 - "$d/scripts/validate" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+s = p.read_text()
+a = s.index('rows=(\n')
+b = s.index('\n)\n', a) + 3
+p.write_text(s[:a] + 'rows=(\n  "tools|catalog input|catalog_wallpaper_names|"\n)' + s[b:])
+PY
+"${base_env[@]}" git -C "$d" add -A
+"${base_env[@]}" git -C "$d" commit -q -m catalog-input
+test_area=tools
+test_args=(--full)
+row "catalog preparation precedes its read-only world consumer" "$d" 0 "" \
+  "producer=parent" "consumer=read-only-world" "validate: ok"
+cp -- "$d/scripts/check-catalog-wallpaper-names.js" "$tmp/catalog-checker.js"
+rm -rf -- "$tmp/home/.cache/vgshell/validate/theme-listings"
+python3 - "$d/scripts/check-catalog-wallpaper-names.js" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+s = p.read_text()
+old = '    fs.mkdirSync(path.dirname(file), { recursive: true });\n    fs.writeFileSync(file, "prepared\\n");'
+assert s.count(old) == 1
+p.write_text(s.replace(old, '    // A producer that returns success without producing its directory.'))
+PY
+row "a missing producer directory fails the input step before row entry" "$d" 1 "" \
+  "validate: input-step=failed name=catalog reason=missing-output" '!consumer=read-only-world' '!== catalog input'
+cp -- "$tmp/catalog-checker.js" "$d/scripts/check-catalog-wallpaper-names.js"
+rm -rf -- "$tmp/home/.cache/vgshell/validate/theme-listings"
+mkdir -p -- "$tmp/home/.cache/vgshell/validate/theme-listings"
+python3 - "$d/scripts/validate" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+s = p.read_text()
+old = '    catalog_input_prepare || exit 1'
+assert s.count(old) == 1
+p.write_text(s.replace(old, '    catalog_listings="${XDG_CACHE_HOME}/vgshell/validate/theme-listings"'))
+PY
+row "control: omitting preparation fails the actual catalog consumer" "$d" 1 "" \
+  "validate: failed=catalog input (exit 1)" '!consumer=read-only-world'
+test_args=()
+
 # Selection cases use a transparent world stand-in. These cases use the
 # production boundary and a planted reader independent of its implementation.
 world_fixture() {
@@ -2486,7 +2554,7 @@ done
 # The bypass preserves row re-entry and its data. The planted reader must
 # reject the checkout that remains writable when only the boundary is gone.
 d="$tmp/row-world-control"; world_fixture "$d"
-plant "$d/scripts/validate" '"$repo/scripts/smoke/gpu-fence.sh" --fresh -- "$BASH"' '"$BASH"'
+plant "$d/scripts/validate" '"$repo/scripts/smoke/gpu-fence.sh" "${declarations[@]}" -- "$BASH"' '"$BASH"'
 world_run "$d" tools
 if [[ $status == 1 ]] && grep -qxF 'validate: failed=world tools (exit 1)' <<<"$out"; then
   ok "control: bypassing world entry exposes a writable checkout and fails the planted rows"
