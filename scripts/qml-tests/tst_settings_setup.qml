@@ -26,7 +26,8 @@ import "../../shell/Commons/Reply.js" as Reply
 // plain text with no chip, each with its list's source action, which takes
 // the manager's act for that key's account and keeps its refusal apart
 // from the key's write; with no key to draw it reads one sentence under the
-// field. A key list on Details keeps its head.
+// field. A key the keyring cannot read links its plugin's Setup tab while
+// the key tool is missing. A key list on Details keeps its head.
 // Production-source controls live in
 // test-qml-unit.sh. The window's capabilities record each requested action.
 Item {
@@ -99,6 +100,10 @@ Item {
             wiring: { type: "presenceList", label: "Wiring" } } })
     readonly property var sourcedKeys: [{ label: "Acme", value: "present", hint: "A token for photos.", secret: "acme:a" }, { label: "Globex", value: "absent", hint: "A token for photos.", secret: "acme:g" }]
     readonly property var syncField: ({ schema: { sync: { type: "boolean", label: "Sync" } }, settings: { sync: true } })
+    // sourced reading its keys with the core's key tool, declared as the
+    // plugin's requirement, and one key the keyring cannot read.
+    readonly property var keyTooled: Object.assign({}, sourced, { requirements: PluginLogic.normalRequirements([{ command: Steps.KEY_TOOL, purpose: "Reads the keys" }]) })
+    readonly property var unreadKeys: [{ label: "Acme", value: "unavailable", secret: "acme:a" }]
     // The guide a manifest's setupGuide gives its Setup tab, and the same
     // guide of a plugin with no README to open.
     readonly property var guide: ({ title: "Acme needs keys from your own account", text: "It takes about 5 minutes.", link: "Open the guide", url: "https://example.com/acme/README.md#get-your-keys" })
@@ -167,7 +172,9 @@ Item {
             pluginRow("acme.sourced", sourced, { keys: sourcedKeys, wiring: [{ label: "Bar", value: "present" }] }, [], syncField),
             pluginRow("acme.sourcedempty", sourced, { keys: [] }, [], syncField),
             pluginRow("acme.sourcedwait", sourced, {}, [], syncField),
-            pluginRow("acme.sourcedoff", sourced, {}, [], Object.assign({ enabled: false }, syncField))
+            pluginRow("acme.sourcedoff", sourced, {}, [], Object.assign({ enabled: false }, syncField)),
+            pluginRow("acme.keytoolmissing", keyTooled, { keys: unreadKeys }, [Steps.KEY_TOOL], syncField),
+            pluginRow("acme.keytoolpresent", keyTooled, { keys: unreadKeys }, [], syncField)
         ];
     }
     QtObject {
@@ -634,6 +641,22 @@ Item {
             verify(lines[0].hint !== "", "it reads a sentence under the field");
             compare(lines[0].hint === root.sourcedHint, data.hint, "an empty list reads its hint, any other state its own sentence");
             compare(descendants(lines[0]).filter(item => item instanceof RowAction && item.visible).length, 0, "with no key it offers no action");
+        }
+        // A key the keyring cannot read links its own plugin's Setup tab,
+        // where the Tools step installs the key tool, while that tool is
+        // missing, and links nothing while it is present.
+        function test_an_unavailable_key_links_setup_while_its_tool_is_missing_data() {
+            return [{ tag: "tool missing", id: "acme.keytoolmissing", links: [["acme.keytoolmissing", "Setup"]] },
+                { tag: "tool present", id: "acme.keytoolpresent", links: [] }];
+        }
+        function test_an_unavailable_key_links_setup_while_its_tool_is_missing(data) {
+            const window = opened(); window.openPlugin(data.id, Qt.OtherFocusReason);
+            compare(pageOf(window).tab, "Settings");
+            const line = keyLines(window).find(item => item.label === "Acme");
+            verify(line !== undefined, "the unavailable key draws its line");
+            const hint = descendants(line).find(item => item instanceof LinkText && item.visible && item.role === "hint" && item.plain !== "");
+            verify(hint !== undefined, "the key reads a sentence under its value");
+            compare(hint.links.map(link => [link.page, link.tab]), data.links, "the sentence links the plugin's Setup tab only while the key tool is missing");
         }
         function test_list_click_and_keyboard_open_required_setup() {
             const window = opened(); mouseClick(listRow(window, "acme.todo"));

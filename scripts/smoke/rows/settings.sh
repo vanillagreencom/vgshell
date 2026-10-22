@@ -1454,11 +1454,15 @@ expect_poll "the notifications' page opens on its Settings tab" 0 settings_tab
 slack_list_label="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["status"]["slackTokens"]["label"])' "$repo/shell/plugins/vgs.notifications/manifest.json")"
 slack_list_unreported="$(python3 -c 'import json,sys; print(json.dumps([[sys.argv[1], "unreported", None, ""]]))' "$slack_list_label")"
 # slack_list_drawn: `one-sentence` while the page draws one row of one text
-# that is neither the list's label nor its hint, else the rows it draws.
+# that is neither the list's label nor its hint and names the plugin, else
+# the rows it draws. Of the sentences a list with no key reads
+# (Steps.keyListView), only the off one names the plugin: the starting one
+# names the list alone.
 slack_list_drawn() { ipc smoke itemTexts window vgs.settings StatusRow | py_reply 'import json,sys
-entry = json.load(open(sys.argv[1]))["status"]["slackTokens"]
+manifest = json.load(open(sys.argv[1]))
+entry = manifest["status"]["slackTokens"]
 rows = json.load(sys.stdin)
-one = len(rows) == 1 and len(rows[0]) == 1 and rows[0][0] not in ("", entry["label"], entry["hint"])
+one = len(rows) == 1 and len(rows[0]) == 1 and rows[0][0] not in ("", entry["label"], entry["hint"]) and manifest["name"] in rows[0][0]
 print("one-sentence" if one else json.dumps(rows))' "$repo/shell/plugins/vgs.notifications/manifest.json"; }
 expect_poll "with Slack photos off the disabled notifications list the workspace keys unreported" "$slack_list_unreported" status_of vgs.notifications
 expect_poll "Settings draws the off sentence in place of the workspace keys while photos are off" one-sentence slack_list_drawn
