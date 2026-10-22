@@ -511,6 +511,8 @@ FocusScope {
                 tabs.width: Math.max(0, layout.scrollArea.contentWidth - layout.ringRoom)
                 tabs.z: 2
                 tabs.objectName: "stickyTabs"
+                // The fade starts after the pinned tab band, which stays
+                // opaque above content scrolling behind it.
                 // True while the handler puts Settings back, and while
                 // the page sets the strip's tabs.
                 property bool returning: false
@@ -1157,15 +1159,23 @@ FocusScope {
         value: layout.scrollArea.contentY + layout.scrollArea.focusInset + layout.ringRoom - tabs.y
     }
 
-    // Keep the fade behind the pinned tabs out of view. This sibling of the
-    // scroll area covers only the viewport band behind its tab strip.
+    Binding {
+        target: layout.scrollArea
+        property: "fadeTopInset"
+        value: Math.max(0, stickySurface.mapToItem(layout.scrollArea, 0, 0).y + stickySurface.height
+            - layout.scrollArea.focusInset - layout.scrollArea.clipPadding)
+    }
+
+    // Keep the scroll content behind the pinned tabs out of view. This
+    // sibling of the page stack sits below the tab bar inside TabPages'
+    // focus scope, so the tabs remain visibly above it.
     Rectangle {
         id: stickySurface
         objectName: "stickyTabsSurface"
-        parent: layout.scrollArea
-        x: 0
-        y: 0
-        width: layout.scrollArea.width - layout.scrollArea.rightInset
+        parent: tabs
+        x: -tabs.x
+        y: tabs.tabs.y - layout.scrollArea.focusInset - layout.ringRoom
+        width: tabs.x + tabs.width
         height: layout.scrollArea.focusInset + layout.ringRoom + tabs.tabs.height
         color: Theme.color.surface
         z: 1

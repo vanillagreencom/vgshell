@@ -44,11 +44,15 @@ Flickable {
     property bool barHeld: false
     property bool keyboardScroll: false
     property real contentPadding: 0
+    // Keep fixed content at the top of a scrolling page clear of the fade.
+    // The top fade begins below this many pixels inside the clip.
+    property real fadeTopInset: 0
     readonly property real clipPadding: keyboardScroll && keyboardFocus.visualFocus ? contentPadding : 0
     readonly property real focusInset: keyboardScroll ? Theme.focusRing.width + Theme.focusRing.offset : 0
     readonly property real measuredContentHeight: measureContentHeight()
     readonly property bool overflowing: scrollBar.needed
     readonly property real fadeExtent: Math.min(Theme.scrollArea.fadeHeight, contentClip.height / 2)
+    readonly property real effectiveFadeTopInset: Math.min(Math.max(0, fadeTopInset), Math.max(0, contentClip.height - 2 * fadeExtent))
     readonly property real fadeAbove: overflowing && !barHeld ? fadeStrength(contentY) : 0
     readonly property real fadeBelow: overflowing && !barHeld ? fadeStrength(contentHeight - height - contentY) : 0
     readonly property alias bar: scrollBar
@@ -187,8 +191,9 @@ Flickable {
         layer.enabled: contentClip.layer.enabled
         layer.smooth: true
         gradient: Gradient {
-            GradientStop { position: 0; color: root.maskColor(1 - root.fadeAbove) }
-            GradientStop { position: root.fadeExtent / Math.max(1, contentClip.height); color: root.maskColor(1) }
+            GradientStop { position: 0; color: root.maskColor(root.effectiveFadeTopInset > 0 ? 1 : 1 - root.fadeAbove) }
+            GradientStop { position: root.effectiveFadeTopInset / Math.max(1, contentClip.height); color: root.maskColor(1 - root.fadeAbove) }
+            GradientStop { position: (root.effectiveFadeTopInset + root.fadeExtent) / Math.max(1, contentClip.height); color: root.maskColor(1) }
             GradientStop { position: 1 - root.fadeExtent / Math.max(1, contentClip.height); color: root.maskColor(1) }
             GradientStop { position: 1; color: root.maskColor(1 - root.fadeBelow) }
         }

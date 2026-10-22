@@ -271,6 +271,9 @@ Item {
             const surface = descendants(p.page).find(item => item.objectName === "stickyTabsSurface");
             const scroll = p.page.scrollArea;
             verify(strip !== null && surface !== undefined, "the page has pinned tabs over a masking surface");
+            compare(surface.parent, p.tabs, "the cover shares TabPages' stacking scope");
+            verify(surface.z > p.tabs.currentPage.parent.z && surface.z < strip.z,
+                "the cover masks scrolling pages while the tab strip draws above it");
 
             scroll.contentY = 0;
             waitForRendering(window);
@@ -280,14 +283,33 @@ Item {
             const restGap = firstRow.mapToItem(scroll.contentItem, 0, 0).y - scroll.contentPadding - p.tabs.tabs.height;
             compare(restGap, Theme.stack.page, "the first row follows the tab strip by the page spacing token");
 
-            compare(surface.mapToItem(scroll, 0, 0).y, 0, "the masking surface covers the scroll fade's top edge");
+            compare(surface.mapToItem(scroll, 0, 0).y, scroll.contentPadding + scroll.focusInset + scroll.clipPadding,
+                "the masking surface starts at the scroll content inset");
             compare(surface.height, strip.height + scroll.contentPadding, "the fade becomes visible below the pinned tabs");
+            compare(scroll.fadeTopInset, surface.mapToItem(scroll, 0, 0).y + surface.height - scroll.focusInset - scroll.clipPadding,
+                "the mask keeps the pinned tab band opaque before fading the page");
             const names = ["Settings", "Setup", "Details"];
+            function verifyLabelsDraw() {
+                for (const name of names) {
+                    const button = descendants(strip).find(item => item.text === name && item.checked !== undefined);
+                    verify(button !== undefined && button.visible, "the " + name + " tab button is visible");
+                    const label = descendants(button).find(item => item.objectName === "tabLabel");
+                    verify(label !== undefined && label.visible && label.opacity > 0, "the " + name + " tab label is visible");
+                    compare(label.color, button.checked ? button.active : button.foreground,
+                        "the " + name + " label uses its tab foreground color");
+                }
+            }
+            verifyLabelsDraw();
             for (let i = 0; i < names.length; i++) {
                 scroll.contentY = Math.max(0, scroll.contentHeight - scroll.height);
                 waitForRendering(window);
                 verify(scroll.contentY > 0, "the plugin page is scrolled before choosing " + names[i]);
                 compare(strip.mapToItem(p.page, 0, 0).y, restTop, "the tabs keep their resting position at the page end");
+                compare(surface.mapToItem(scroll, 0, 0).y, scroll.contentPadding + scroll.focusInset + scroll.clipPadding,
+                    "the tab cover remains at the scroll content inset while scrolled");
+                compare(scroll.fadeTopInset, surface.mapToItem(scroll, 0, 0).y + surface.height - scroll.focusInset - scroll.clipPadding,
+                    "the mask keeps the pinned tab band opaque while scrolled");
+                verifyLabelsDraw();
                 compare(firstRow.mapToItem(scroll.contentItem, 0, 0).y - scroll.contentPadding - p.tabs.tabs.height, Theme.stack.page,
                     "the first row keeps its page spacing while content scrolls");
                 const button = descendants(strip).find(item => item.text === names[i] && item.checked !== undefined);
