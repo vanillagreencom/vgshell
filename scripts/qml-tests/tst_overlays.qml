@@ -1551,7 +1551,7 @@ Item {
             root.Window.window.requestActivate();
             emptySelect.forceActiveFocus();
             tryCompare(emptySelect, "activeFocus", true);
-            compare(emptySelect.contentItem.text, emptySelect.emptyText);
+            compare(emptySelect.contentItem.text.replace(/\n/g, " "), emptySelect.emptyText, "the control draws its empty text, its line breaks at its spaces");
             for (const key of [Qt.Key_Return, Qt.Key_Space, Qt.Key_Down]) {
                 keyClick(key);
                 compare(emptySelect.listOpen, false, "key " + key + " leaves the empty select closed");

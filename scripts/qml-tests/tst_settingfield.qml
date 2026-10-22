@@ -409,10 +409,15 @@ Item {
 
     // A preset select whose stored value, a review command, is wider than
     // its control, between two switches on the surface colour, so the
-    // rendered image reads its rows' ink. Both commands hold hyphens a line
-    // could break after.
+    // rendered image reads its rows' ink. Both long commands hold hyphens
+    // a line could break after; `longPlain` is as long with none,
+    // `shortHyphen` fits on one line, and `longWord` holds a word wider
+    // than a list entry.
     readonly property string longClaude: "claude --model opus --effort medium --permission-mode default"
     readonly property string longCodex: "codex -m gpt-6.1-sol -c model_reasoning_effort=medium --sandbox workspace-write --ask-for-approval on-request"
+    readonly property string longPlain: "gemini review this change with the default model and a medium effort"
+    readonly property string shortHyphen: "codex --full-auto"
+    readonly property string longWord: "codex --profile /home/avery/.config/codex/profiles/review_profile_for_large_changes_in_monorepos.toml"
     Component {
         id: coveredLong
         Rectangle {
@@ -431,7 +436,7 @@ Item {
                 SettingField {
                     id: longField
                     key: "reviewCommand"
-                    spec: ({ type: "string", label: "Review command", allowCustom: true, presets: [{ value: "", label: "Automatic" }, { value: root.longClaude }, { value: root.longCodex }] })
+                    spec: ({ type: "string", label: "Review command", allowCustom: true, presets: [{ value: "", label: "Automatic" }, { value: root.longClaude }, { value: root.longCodex }, { value: root.longPlain }, { value: root.shortHyphen }, { value: root.longWord }] })
                     value: root.longCodex
                 }
                 SettingField { id: longAfter; key: "after"; spec: ({ type: "boolean", label: "After" }); value: true }
@@ -1272,10 +1277,10 @@ Item {
                 verify(Math.abs(entry[1] - Theme.stack.page) <= 1, "each row stands " + Theme.stack.page + " blank rows under the one above: " + read);
         }
 
-        // The text a reader sees: no character that draws nothing, and a
-        // no-break hyphen read as the hyphen it draws.
+        // The value a label draws, its line breaks read as the spaces they
+        // stand for.
         function seen(text) {
-            return text.replace(/[\u200b-\u200d\u2060\ufeff]/g, "").replace(/\u2011/g, "-");
+            return text.replace(/\n/g, " ");
         }
         // The text before each hyphen of LABEL's text that ends a drawn
         // line while more of the word follows on the next one.
@@ -1285,11 +1290,25 @@ Item {
             const text = label.text;
             const broken = [];
             for (let i = 0; i < text.length; i++) {
-                if (text[i] !== "-" && text[i] !== "\u2011") continue;
-                let next = i + 1;
-                while (next < text.length && /[\u200b-\u200d\u2060\ufeff]/.test(text[next])) next++;
-                if (next >= text.length || text[next] === " ") continue;
+                if (text[i] !== "-") continue;
+                const next = i + 1;
+                if (next >= text.length || text[next] === " " || text[next] === "\n") continue;
                 if (twin.positionToRectangle(next).y > twin.positionToRectangle(i).y) broken.push(seen(text.slice(Math.max(0, i - 12), i + 1)));
+            }
+            return broken;
+        }
+        // The lines of LABEL's text holding a space that it draws over
+        // more than one line: its own wrap breaks only a word wider than
+        // itself.
+        function rewrapped(label) {
+            const twin = createTemporaryObject(layoutTwin, root, { width: label.width, wrapMode: label.wrapMode, font: label.font, text: label.text });
+            compare(twin.lineCount, label.lineCount, "the twin lays the text out as the label does");
+            const broken = [];
+            let start = 0;
+            for (const line of label.text.split("\n")) {
+                const end = start + line.length - 1;
+                if (line.indexOf(" ") !== -1 && twin.positionToRectangle(end).y > twin.positionToRectangle(start).y) broken.push(line);
+                start += line.length + 1;
             }
             return broken;
         }
@@ -1298,6 +1317,8 @@ Item {
             compare(label.truncated, false, where + " elides the value");
             verify(label.lineCount > 1, where + " wraps a value wider than itself: " + label.lineCount + " line");
             compare(breaksAfterHyphen(label), [], where + " breaks no line after a hyphen");
+            compare(rewrapped(label), [], where + " draws each line of words it was handed on one line");
+            verify(label.contentWidth <= label.width + 0.5, where + " draws no line wider than itself: " + label.contentWidth + " in " + label.width);
         }
 
         // The long-value rows in a window on the screen at SCALE, which a
@@ -1312,8 +1333,11 @@ Item {
             return cover;
         }
 
+        // Full hinting rounds each glyph's advance, so a measure taken at
+        // another rendering than the label's ends its lines elsewhere.
         function test_a_long_value_reads_in_full_in_its_closed_select_data() {
-            return [{ tag: "1x", scale: 1 }, { tag: "2x", scale: 2 }];
+            return [{ tag: "1x", scale: 1 }, { tag: "2x", scale: 2 },
+                { tag: "1x full hinting", scale: 1, hinting: Font.PreferFullHinting }, { tag: "2x full hinting", scale: 2, hinting: Font.PreferFullHinting }];
         }
 
         // A value too long for its select reads in full: the control
@@ -1325,6 +1349,7 @@ Item {
             const cover = longAt(data.scale);
             const select = selectOf(cover.long);
             const shown = select.contentItem;
+            if (data.hinting !== undefined) shown.font.hintingPreference = data.hinting;
             readsInFull(shown, root.longCodex, "the closed select");
             verify(shown.contentHeight <= shown.height + 0.5, "the control holds every line: " + shown.contentHeight + " in " + shown.height);
             compare(select.Accessible.name, root.longCodex, "a screen reader reads the plain value");
@@ -1339,7 +1364,8 @@ Item {
             return [{ tag: "1x", scale: 1 }, { tag: "2x", scale: 2 }];
         }
 
-        // Each list entry too long for the list reads in full the same way.
+        // Each list entry too long for the list reads in full the same way,
+        // a word wider than the entry wrapping inside it.
         // The unit stand-in positions no window, so the test puts the
         // list's window on its select's screen.
         function test_a_long_value_reads_in_full_in_the_open_list(data) {
@@ -1355,7 +1381,7 @@ Item {
             tryCompare(list.Screen, "devicePixelRatio", data.scale, 1000, "the list draws at its screen's scale");
             // The list's window lays its content out once it shows.
             tryVerify(() => list.width >= select.width - 2 * Theme.border.thin - 0.5, 1000, "the list is as wide as the control: " + list.width);
-            for (const index of [1, 2]) {
+            for (const index of [1, 2, 5]) {
                 list.positionViewAtIndex(index, ListView.Contain);
                 tryVerify(() => list.itemAtIndex(index) !== null, 1000, "the list builds entry " + index);
                 const entry = list.itemAtIndex(index);
@@ -1365,6 +1391,76 @@ Item {
                 verify(title.mapToItem(entry, 0, title.contentHeight).y <= entry.height + 0.5, "entry " + index + " holds every line");
                 compare(entry.Accessible.name, value, "a screen reader reads entry " + index + "'s plain value");
             }
+        }
+
+        function test_each_line_draws_where_it_was_broken_data() {
+            return [{ tag: "default hinting", hinting: Font.PreferDefaultHinting }, { tag: "full hinting", hinting: Font.PreferFullHinting }];
+        }
+
+        // At every width the closed select breaks a value where it then
+        // draws it: no line of words it hands its label wraps again, which
+        // could break after a hyphen; only a word wider than the control
+        // wraps. Full hinting rounds each glyph's advance, so a measure
+        // taken at another rendering than the label's ends a line that
+        // then overflows and wraps.
+        function test_each_line_draws_where_it_was_broken(data) {
+            const cover = longAt(1);
+            const select = selectOf(cover.long);
+            const shown = select.contentItem;
+            shown.font.hintingPreference = data.hinting;
+            const bad = [];
+            const widths = new Set();
+            for (let width = 240; width <= 720; width += 2) {
+                cover.rows.width = width;
+                widths.add(shown.width);
+                const broken = rewrapped(shown);
+                if (broken.length > 0) bad.push(shown.width + ": " + broken.join(" / "));
+            }
+            verify(widths.size > 100, "the sweep lays the value out at many widths: " + widths.size);
+            compare(bad, [], "each line draws where it was broken");
+        }
+
+        function test_a_hyphen_moves_no_line_data() {
+            return [{ tag: "closed 1x", list: false, scale: 1 }, { tag: "closed 2x", list: false, scale: 2 },
+                { tag: "list 1x", list: true, scale: 1 }, { tag: "list 2x", list: true, scale: 2 }];
+        }
+
+        // A value's first line stands at the interface font's own height
+        // whether or not it holds a hyphen: closed and as a list entry, a
+        // hyphenated value's first baseline stands where an unhyphenated
+        // one's does, wrapped or on one line. A word joiner put after each
+        // hyphen, which the interface font did not map, was laid out in a
+        // fallback font, whose taller ascent dropped the line 1.5 px.
+        function test_a_hyphen_moves_no_line(data) {
+            const cover = longAt(data.scale);
+            const select = selectOf(cover.long);
+            const pairs = [[root.longCodex, root.longPlain], [root.shortHyphen, ""]];
+            let baseline = value => {
+                cover.long.value = value;
+                const shown = select.contentItem;
+                return shown.mapToItem(select, 0, shown.baselineOffset).y;
+            };
+            if (data.list) {
+                const screen = Qt.application.screens[data.scale - 1];
+                const window = selectListWindow(select);
+                window.screen = screen;
+                window.x = screen.virtualX + 10;
+                window.y = screen.virtualY + 10;
+                select.openList();
+                const list = selectList(select);
+                tryCompare(list.Screen, "devicePixelRatio", data.scale, 1000, "the list draws at its screen's scale");
+                tryVerify(() => list.width >= select.width - 2 * Theme.border.thin - 0.5, 1000, "the list is as wide as the control: " + list.width);
+                baseline = value => {
+                    const index = select.model.findIndex(option => option.value === value);
+                    list.positionViewAtIndex(index, ListView.Contain);
+                    tryVerify(() => list.itemAtIndex(index) !== null, 1000, "the list builds entry " + index);
+                    const entry = list.itemAtIndex(index);
+                    const title = descendants(entry).find(child => child.role === "menuItem" && child.visible);
+                    return title.mapToItem(entry, 0, title.baselineOffset).y;
+                };
+            }
+            for (const pair of pairs)
+                compare(baseline(pair[0]), baseline(pair[1]), "\"" + pair[0] + "\" stands on the line of \"" + pair[1] + "\"");
         }
 
         // The rows above and under a select that wraps stand `stack.page`

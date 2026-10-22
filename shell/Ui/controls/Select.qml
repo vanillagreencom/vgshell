@@ -202,12 +202,19 @@ T.AbstractButton {
 
     contentItem: Label {
         id: shown
+        // The text shown, which `text` draws broken at its spaces each time
+        // it, the width or the font changes.
+        readonly property string value: root.showsEmpty ? root.emptyText : root.showsPlaceholder ? root.placeholderText : root.currentText
+        function breakLines() { text = LineBreak.atSpaces(value, width, lineMetrics); }
+        onValueChanged: breakLines()
+        onWidthChanged: breakLines()
+        Component.onCompleted: breakLines()
         role: "item"
-        text: LineBreak.atSpaces(root.showsEmpty ? root.emptyText : root.showsPlaceholder ? root.placeholderText : root.currentText)
         color: root.showsEmpty || root.showsPlaceholder ? Theme.textField.placeholder : shown.typography.color
         opacity: lockState.fade
         verticalAlignment: Text.AlignVCenter
         wrapMode: Text.Wrap
+        TextMetrics { id: lineMetrics; font: shown.font; onFontChanged: shown.breakLines() }
     }
 
     indicator: Icon {

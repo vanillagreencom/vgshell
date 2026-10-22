@@ -94,7 +94,8 @@ T.MenuItem {
     contentItem: Item {
         readonly property real lead: icon.visible ? icon.width + root.spacing : 0
         readonly property real tail: hint.visible ? hint.implicitWidth + 2 * root.spacing : 0
-        implicitWidth: lead + title.implicitWidth + tail
+        // The text's width on one line, which its line breaks never change.
+        implicitWidth: lead + oneLine.advanceWidth + tail
         implicitHeight: Math.max(icon.visible ? icon.height : 0, title.implicitHeight, hint.visible ? hint.implicitHeight : 0)
 
         Icon {
@@ -108,12 +109,20 @@ T.MenuItem {
         Label {
             id: title
             role: "menuItem"
-            text: LineBreak.atSpaces(root.text)
+            // The entry's text, which `text` draws broken at its spaces
+            // each time it, the width or the font changes.
+            readonly property string value: root.text
+            function breakLines() { text = LineBreak.atSpaces(value, width, lineMetrics); }
+            onValueChanged: breakLines()
+            onWidthChanged: breakLines()
+            Component.onCompleted: breakLines()
             color: root.lit ? Theme.listItem.selectedForeground : Theme.menu.item.foreground
             x: parent.lead
             width: Math.max(0, parent.width - parent.lead - parent.tail)
             wrapMode: Text.Wrap
             y: root.wraps ? 0 : topForCapCenter(parent.height)
+            TextMetrics { id: lineMetrics; font: title.font; onFontChanged: title.breakLines() }
+            TextMetrics { id: oneLine; font: title.font; text: root.text }
         }
         Label {
             id: hint
