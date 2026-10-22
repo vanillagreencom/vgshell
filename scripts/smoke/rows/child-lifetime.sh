@@ -29,7 +29,11 @@ cl_ready() {
 }
 cl_file() { if [[ -s $1 ]]; then echo ready; else echo waiting; fi; }
 cl_crash_report() { local reports; reports="$(shell_crash_reports)"; [[ -n $reports ]] && echo ready || echo waiting; }
-cl_verdict() { py_reply 'import json,sys; d=json.load(open(sys.argv[1])); print("ended detached-alive acknowledged" if not d["survivors"] and d["detachedAlive"] and d["cleanupAcknowledged"] else json.dumps(d, sort_keys=True))' "$1" </dev/null; }
+cl_verdict() {
+  [[ -s $1 ]] || { echo absent; return; }
+  # py_reply judges its stdin; the observer's result is that reply.
+  py_reply 'import json,sys; d=json.load(sys.stdin); print("ended detached-alive acknowledged" if not d["survivors"] and d["detachedAlive"] and d["cleanupAcknowledged"] else json.dumps(d, sort_keys=True))' <"$1"
+}
 
 for cl_case in orderly hard crash; do
   expect_poll "$cl_case: subscriber and sleep watcher are ready" ready cl_ready
