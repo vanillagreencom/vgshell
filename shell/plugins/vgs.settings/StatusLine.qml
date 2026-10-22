@@ -84,13 +84,16 @@ Column {
         entering = false;
         if (actionFocused) restoreActionFocus();
     }
-    onVisibleChanged: if (!visible) entering = false
-    onBusyChanged: if (!busy && returnAfterWrite) restoreActionFocus()
-
-    property bool returnAfterWrite: false
+    onVisibleChanged: if (!visible) {
+        entering = false;
+        // Invisible Qt Quick items can retain keyboard focus. Reopening a
+        // retained page must not revive its earlier save interaction.
+        // https://doc.qt.io/qt-6/qml-qtquick-item.html#visible-prop
+        if (activeFocus) focus = false;
+    }
+    onBusyChanged: if (!busy && activeFocus) restoreActionFocus()
 
     function restoreActionFocus() {
-        returnAfterWrite = false;
         if (visible && !busy && (access === "connect" || access === "disconnect"))
             (access === "connect" ? addKey : replaceKey).forceActiveFocus(Qt.TabFocusReason);
     }
@@ -108,10 +111,13 @@ Column {
     // on.
     function saveSecret(value) {
         if (!canSave(value)) return;
-        returnAfterWrite = true;
         entering = false;
+        // While the action is disabled, this row holds the save interaction's
+        // focus. Moving to another control ends that ownership naturally;
+        // completion restores an action only if the user stayed here.
+        forceActiveFocus(Qt.TabFocusReason);
         storeSecret(value);
-        if (!busy) restoreActionFocus();
+        if (!busy && activeFocus) restoreActionFocus();
     }
 
     spacing: Theme.field.gap
