@@ -430,16 +430,18 @@ source_tree() { # DIR VERSION_TEXT
   printf '%s\n' "$2" >"$1/VERSION"
 }
 
-# system_bus NAME...: a private dbus-daemon in $tmp whose activatable names
+# system_bus NAME...: a private dbus-daemon in the row-owned runtime whose activatable names
 # are the NAMEs, each a service file whose Exec fails, so a name is listed
 # and never started. It sets system_bus_address and system_bus_pid, which
 # rows_cleanup stops, and appends DBUS_SYSTEM_BUS_ADDRESS to base_env. Only
 # the suite's own shell calls it, before any row job starts. Without
 # dbus-daemon, or when its socket does not appear, the suite exits 77.
 system_bus() {
-  local dir="$tmp/system-bus" name i
+  local dir name i
   command -v dbus-daemon >/dev/null || { echo "$(basename -- "$0" .sh): status=not-measured missing=dbus-daemon"; exit 77; }
   [[ -z $system_bus_pid ]] || { echo "$(basename -- "$0" .sh): system-bus=started" >&2; exit 1; }
+  # The row world removes this backing directory after rows_cleanup ends the bus.
+  dir="$(mktemp -d "$XDG_RUNTIME_DIR/owned/dbus.XXXXXX")" || exit 1
   mkdir -p "$dir/services"
   system_bus_address="unix:path=$dir/bus"
   for name in "$@"; do
