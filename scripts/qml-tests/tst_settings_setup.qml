@@ -13,8 +13,8 @@ import "../../shell/Commons/Reply.js" as Reply
 // raises no warning. Settings draws only values: no chip. Setup's chips
 // are Done, To do, Not available and Optional, and its actions are
 // RowAction links, including the Tools and Optional tools steps' Review;
-// while the plugin is off each To do step offers Turn on and both tools
-// steps still install. Details lists the optional tools as readings with
+// while the plugin is off the tab opens with one Turn on notice, no step
+// offers Turn on and both tools steps still install. Details lists the optional tools as readings with
 // no Review, and draws a fact's declared action beside it, which
 // bin/lib/check-manifests.js refuses in a bundled plugin. A step the user
 // cannot act on, by its value or a failed build, reads neutral, offers
@@ -572,21 +572,31 @@ Item {
             compare(tabsOf(window).model, ["Settings", "Details"]); compare(pageOf(window).tab, "Details");
             fakeManager.plugins = root.rows(); compare(pageOf(window).tab, "Details"); compare(tabsOf(window).currentIndex, 2);
         }
-        // While the plugin is off, every To do step offers Turn on, whose
-        // press asks the manager to turn the plugin on, and the Tools step
-        // still installs.
-        function test_off_plugin_steps_offer_turn_on() {
+        // While the plugin is off, the tab opens with one Turn on notice
+        // above the steps, whose press asks the manager to turn the plugin
+        // on; each step keeps its chip and offers no Turn on, and the Tools
+        // step still installs.
+        function test_off_plugin_setup_opens_with_one_turn_on_notice() {
             const window = opened(); window.openPlugin("acme.off", Qt.OtherFocusReason, "Setup");
             compare(pageOf(window).tab, "Setup");
-            const links = () => shown(window, RowAction);
-            // Model reads To do; Home, published as done, reads Done and offers nothing.
-            compare(links().map(action => [action.text, action.enabled]), [["Turn on acme.off", true]], "each To do step offers Turn on");
-            tryVerify(() => links()[0].height > 0 && pageOf(window).parent.x === -window.width, 2000, "the page has slid in");
-            mouseClick(links()[0]);
+            const notices = onTab(window, Callout);
+            compare(notices.length, 1, "the tab draws one notice");
+            const setup = onTab(window, Section).find(section => section.title === "Setup");
+            tryVerify(() => notices[0].height > 0 && notices[0].mapToItem(null, 0, notices[0].height).y <= setup.mapToItem(null, 0, 0).y, 2000, "the notice stands above the steps");
+            const link = descendants(notices[0]).filter(item => item instanceof RowAction && item.visible);
+            compare(link.length, 1, "the notice draws one link");
+            // Model reads To do and Home, published as done, Done; neither offers a link.
+            compare(onTab(window, StatusLine).map(line => [line.label, line.text, line.actionOffered]), [["Model", "To do", false], ["Home", "Done", false]], "each step keeps its chip and offers nothing");
+            compare(onTab(window, RowAction).filter(action => link.indexOf(action) === -1).length, 0, "no step draws a link");
+            tryVerify(() => pageOf(window).parent.x === -window.width, 2000, "the page has slid in");
+            mouseClick(link[0]);
             compare(fakeManager.enables, [["acme.off", true]], "Turn on asks to turn the plugin on");
             window.openPlugin("acme.offtools", Qt.OtherFocusReason, "Setup");
-            compare(links().map(action => [action.text, action.enabled]), [["Review all missing or outdated tools", true]], "the Tools step installs while the plugin is off");
-            mouseClick(links()[0]);
+            compare(onTab(window, Callout).length, 1, "a plugin with only a Tools step opens with the notice too");
+            const review = onTab(window, StatusLine).map(line => line.actionOffered ? line.actionLabel : "");
+            compare(review, ["Review all missing or outdated tools"], "the Tools step installs while the plugin is off");
+            const reviewLink = descendants(onTab(window, StatusLine)[0]).find(item => item instanceof RowAction && item.visible);
+            mouseClick(reviewLink);
             compare(fakeManager.installs, ["acme.offtools"]);
         }
         // A value the user picks on the page goes through the manager's

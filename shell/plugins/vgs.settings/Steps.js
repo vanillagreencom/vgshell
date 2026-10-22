@@ -188,14 +188,21 @@ function asideButton(entry) {
 // through the Enabled switch's route, and why its screens take no press.
 function turnOn(name) { return { kind: "enable", key: "enable", name: "", label: "Turn on " + name, tone: "", icon: "", enabled: true, reason: "" }; }
 function offReason(name) { return "Turn on " + name + " first"; }
-// The action a line draws for PLUGIN, { enabled, name }: BUTTON, the one
-// its entry offers, while the plugin is on; while it is off, Turn on for a
-// line that holds work (OPEN), a To do step or a Details fact that
-// declares an action, else none, since the page reads the plugin's
+// The action a Details or rows line draws for PLUGIN, { enabled, name }:
+// BUTTON, the one its entry offers, while the plugin is on; while it is
+// off, Turn on for a line that holds work (OPEN), a Details fact or a list
+// that declares an action, else none, since the page reads the plugin's
 // settings alone while it is off.
 function lineAction(button, open, plugin) {
     if (!plugin.enabled) return open ? turnOn(plugin.name) : null;
     return button;
+}
+// The action Setup step ENTRY draws for PLUGIN, { enabled }, with
+// REQUIREMENTS, the plugin's: its own (stepButton) while the plugin is on,
+// else none, since the tab's one Turn on notice stands for every step
+// (docs/architecture/design-system.md § Settings pages).
+function stepAction(entry, requirements, plugin) {
+    return plugin.enabled ? stepButton(entry, requirements) : null;
 }
 // The listed screens TUIS that NAMES holds, as buttons: disabled while
 // PLUGIN is off, with the reason.

@@ -11,9 +11,10 @@
 // required tools form the Tools step and the optional tools the Optional
 // tools step on Setup; Details lists the optional tools as readings.
 // Settings draws only values and their stored key lists. Every To do step
-// and every Details fact that holds work draws an action that takes a
-// press, with the plugin on and off; a fact whose feature is set up draws
-// none.
+// draws an action that takes a press while the plugin is on and none while
+// it is off, save the Tools step's Review; every Details fact that holds
+// work draws one with the plugin on and off; a fact whose feature is set
+// up draws none.
 // Expected placements and actions are independent data. The source check
 // reaches the actual Setup body: it proves that body declares no boxed
 // Button, not rendered behavior. Each control edits production source and
@@ -144,15 +145,16 @@ function verify(logic, producer) {
 
 
     // Setup steps: what each To do step offers to press, with the plugin
-    // on and off. The page draws a step's own action while on and Turn on
-    // while off (Steps.lineAction); the Tools step's Review takes a press
-    // in every state.
+    // on and off. The page draws a step's own action while on and none
+    // while off, where the tab's one Turn on notice stands for them
+    // (Steps.stepAction); the Tools step's Review takes a press in every
+    // state.
     const stepOffers = (values, missing, plugin) => items(logic.setupSections(screens, rows(values), requirements(missing))).filter(item => !item.keys).map(item => {
-        const button = item.tools === true ? item.button : logic.lineAction(item.button, logic.stepOpen(item.entry), plugin);
+        const button = item.tools === true ? item.button : logic.stepAction(item.entry, requirements(missing), plugin);
         return [item.key, button === null ? null : [button.label, button.enabled]];
     });
-    same(stepOffers({}, ["required-a"], off), [["model", [TURN_ON, true]], ["home", [TURN_ON, true]], ["account", [TURN_ON, true]], ["connection", [TURN_ON, true]], ["required-tools", [REVIEW, true]], ["optional-tools", null]],
-        "off: every To do step offers Turn on Fixture");
+    same(stepOffers({}, ["required-a"], off), [["model", null], ["home", null], ["account", null], ["connection", null], ["required-tools", [REVIEW, true]], ["optional-tools", null]],
+        "off: no step offers Turn on and the Tools step offers Review");
     same(stepOffers(Object.assign({}, allDone, { model: { tone: "warning", text: "Needs a key", action: true } }), [], on).find(([key]) => key === "model"), ["model", ["Set model", true]],
         "on: an offered step draws its own action");
     // Account's Sign in opens a screen that needs a missing optional tool;
@@ -201,7 +203,7 @@ function verify(logic, producer) {
         const status = rows(values), home = status.find(entry => entry.key === "home");
         same([logic.stepReading(home, plugin), logic.stepView(home, String, plugin).tone], reading, "Not available " + name + ": the chip");
         same(items(logic.setupSections(screens, status, requirements(missing), plugin)).map(item => item.key), order, "Not available " + name + ": the order");
-        same(logic.lineAction(logic.stepButton(home, requirements(missing)), logic.stepOpen(home), plugin), null, "Not available " + name + ": no action");
+        same(logic.stepAction(home, requirements(missing), plugin), null, "Not available " + name + ": no action");
     }
     const neutral = logic.stepView(rows(Object.assign({}, allDone, { home: unavailable })).find(entry => entry.key === "home"), String, on);
     same([neutral.hint, neutral.lines], [unavailable.hint, [unavailable.text]], "Not available by its value: the step says why and what changes it");
@@ -210,7 +212,7 @@ function verify(logic, producer) {
         same([view.lines, view.hint, view.link], [[plugin.error], "", null], "Not available " + name + ": the step draws the plain line alone");
     }
     same(items(logic.setupSections(screens, rows({}), requirements([]), failed)).filter(item => !item.keys && item.tools !== true)
-        .map(item => logic.lineAction(logic.stepButton(item.entry, requirements([])), logic.stepOpen(item.entry), failed)), [null, null, null, null], "after a failed build no step draws an action");
+        .map(item => logic.stepAction(item.entry, requirements([]), failed)), [null, null, null, null], "after a failed build no step draws an action");
     // Setup needed, as the Plugins list, the row's tab and the Setup tab
     // read it from the row's errors (Registry.managerRows): [name, errors,
     // missing tools, Setup needed], Home unreported throughout.
@@ -238,7 +240,7 @@ function verify(logic, producer) {
         const status = rows(Object.assign({}, allDone, { home: toolBlocked }));
         const home = items(logic.setupSections(screens, status, reqs, on)).find(item => item.key === "home");
         same([home.button === null ? null : home.button.kind, logic.setupNeeds(status, reqs, true).open], [want, needed], "tools: " + name);
-        const drawn = logic.lineAction(logic.stepButton(home.entry, reqs), logic.stepOpen(home.entry), on);
+        const drawn = logic.stepAction(home.entry, reqs, on);
         same(drawn === null ? null : [drawn.kind, drawn.enabled], want === null ? null : ["tools", true], "tools: " + name + ": the step's own row draws Review");
     }
     same(items(sections).find(item => item.key === "model").button, null, "unoffered required action draws nowhere");
@@ -254,12 +256,12 @@ function verify(logic, producer) {
         ["completed", "model", { model: ready }, ["required-a"], on, null],
         ["unreported after rescan", "model", {}, ["required-a"], on, null],
         ["by-hand explanation", "home", { home: blocked }, ["required-a"], on, null],
-        ["disabled", "model", {}, ["required-a"], off, ["enable", true]]
+        ["disabled", "model", {}, ["required-a"], off, null]
     ]) {
         const current = page(values, missing);
         if (name === "required tool outdated") current.requirements = outdated;
         const currentEntry = current.status.find(entry => entry.key === key);
-        const button = logic.lineAction(logic.stepButton(currentEntry), logic.stepOpen(currentEntry), plugin);
+        const button = logic.stepAction(currentEntry, current.requirements, plugin);
         same(button === null ? null : [button.kind, button.enabled], want, "step action owner: " + name);
     }
 
@@ -303,9 +305,9 @@ function verify(logic, producer) {
         ["a done Optional tools step", { extra: extraOpen, need: ready }, [], ["extra", "need", "required-tools", "optional-tools"]]
     ]) same(items(logic.setupSections(screens, optionalRows(values), requirements(missing), on)).map(item => item.key), order, "optional step: " + name + ": the order");
     const extraStep = values => optionalRows(values).find(entry => entry.key === "extra");
-    const extraOffer = (values, plugin) => { const b = logic.lineAction(logic.stepButton(extraStep(values)), logic.stepOpen(extraStep(values)), plugin); return b === null ? null : b.label; };
-    same([extraOffer({ extra: extraOpen }, on), extraOffer({ extra: extraOpen }, off), extraOffer({ extra: ready }, on)], ["Configure feature", TURN_ON, null],
-        "optional step: its own action while on, Turn on while off, none once done");
+    const extraOffer = (values, plugin) => { const b = logic.stepAction(extraStep(values), [], plugin); return b === null ? null : b.label; };
+    same([extraOffer({ extra: extraOpen }, on), extraOffer({ extra: extraOpen }, off), extraOffer({ extra: ready }, on)], ["Configure feature", null, null],
+        "optional step: its own action while on, none while off or once done");
     same([producer.statusWrite(optionalManifest, {}, "extra", { hidden: true }).ok, producer.statusWrite(optionalManifest, {}, "need", { hidden: true }).ok], [true, false],
         "optional step: a hidden value is admitted on an optional step alone");
     same(items(logic.setupSections(screens, optionalRows({ extra: { hidden: true }, need: ready }), [], on)).map(item => item.key), ["need"], "optional step: a hidden value takes it off Setup");
@@ -522,7 +524,8 @@ const controls = [
     ["a primary status action uses a separate screen reply", 'return { kind: "status", key: entry.key', 'return { kind: "tui", key: entry.key', "on: a step whose screen lacks an optional tool offers its own action"],
     ["More settings leaves Settings", 'place === "Settings" ? tui.settings', 'place === "Settings" ? false', "settings screens stay in More settings"],
     ["required keys keep ordinary chips", 'if (setup) {', 'if (false) {', "required stored key uses Done"],
-    ["a plugin that is off offers nothing", 'if (!plugin.enabled) return open ? turnOn(plugin.name) : null;', 'if (!plugin.enabled) return null;', "off: every To do step offers Turn on Fixture"],
+    ["a plugin that is off offers nothing", 'if (!plugin.enabled) return open ? turnOn(plugin.name) : null;', 'if (!plugin.enabled) return null;', "Details: off: a former Settings entry offers Turn on"],
+    ["every Setup step offers Turn on while the plugin is off", 'return plugin.enabled ? stepButton(entry, requirements) : null;', 'return lineAction(stepButton(entry, requirements), stepOpen(entry), plugin);', "off: no step offers Turn on and the Tools step offers Review"],
     ["an absent required key repeats its To do as a reason", 'var reason = done || item.value === "absent" ? ""', 'var reason = done ? ""', "required absent key leaves its reason to To do and Add key"],
     ["a screen that is off names no reason", 'reason: plugin.enabled ? "" : offReason(plugin.name)', 'reason: ""', "off: Settings screens take no press and name why"],
     ["a screen takes a press while the plugin is off", 'enabled: plugin.enabled, reason:', 'enabled: true, reason:', "off: Settings screens take no press and name why"],

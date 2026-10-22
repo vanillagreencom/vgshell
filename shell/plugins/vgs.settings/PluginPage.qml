@@ -862,6 +862,20 @@ FocusScope {
                     spacing: Theme.stack.page
                     onPositioningComplete: if (page.revealing !== "" && page.revealTab !== "Settings") Qt.callLater(page.revealField)
 
+                    // While the plugin is off, the tab opens with one Turn on
+                    // for every step, through the Enabled switch's route
+                    // (press), and the steps draw none (Steps.stepAction).
+                    // An always-on plugin is never off.
+                    Callout {
+                        width: body.width
+                        visible: page.hasSetup && !page.plugin.enabled
+                        iconName: "power"
+                        tone: "info"
+                        title: "Turn on " + page.plugin.name + " to continue setup"
+                        linkText: "Turn on"
+                        onActivated: page.press(Steps.turnOn(page.plugin.name), null)
+                    }
+
                     // The manifest's guide to the steps, which opens its
                     // README section in the default browser
                     // (PluginLogic.setupGuideRow); a plugin with no README
@@ -923,7 +937,7 @@ FocusScope {
                                             entry: tools ? requiredEntry.modelData.entry : page.statusEntry(requiredEntry.modelData.key)
                                             setup: true
                                             action: page.row === null ? null : tools ? requiredEntry.modelData.button
-                                                : entry === null ? null : Steps.lineAction(Steps.stepButton(entry, page.row.requirements), Steps.stepOpen(entry), page.plugin)
+                                                : entry === null ? null : Steps.stepAction(entry, page.row.requirements, page.plugin)
                                             asideAction: entry === null || tools || !page.plugin.enabled ? null : Steps.asideButton(entry)
                                         }
                                     }
