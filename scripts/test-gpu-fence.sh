@@ -32,6 +32,10 @@
 # control whose label no case carries is a failure, never a pass: a planted
 # one must turn the controls loop red.
 #
+# The PATH case reads which qs and node a command finds in the world and
+# under the harness's own sandbox_env words. A copy of the harness whose
+# sandbox PATH leads with the native node's directory must turn it red.
+#
 # The wiring cases run a copy of each entry point beside a stand-in fence.
 # Each must hand its own path and arguments to the fence before it makes
 # anything, and go on by itself where the fence's check passes. The tree
@@ -281,6 +285,38 @@ plain_namespace() {
   seen="$(seen_report)" || return 1
   [[ $status -eq 9 && $seen == "$want_plain" && "$(<"$TMP_ROOT/err")" == "$want_mask_notice" ]]
 }
+# path_order FILE [HARNESS]: a qs the caller puts first on PATH is the one
+# found in the world and under the sandbox environment HARNESS builds, and
+# node there is the native binary. The caller's PATH ends with the native
+# node's own directory, which beside an installed engine holds its qs too;
+# what comes ahead of the caller's PATH holds node alone.
+mkdir -p "$TMP_ROOT/bin-first"
+printf '#!/bin/sh\nexit 0\n' >"$TMP_ROOT/bin-first/qs"
+chmod +x "$TMP_ROOT/bin-first/qs"
+cat >"$TMP_ROOT/path-order.sh" <<'SH'
+read_path() {
+  local first="${PATH%%:*}" names
+  names="$(cd -- "$first" && echo *)"
+  echo "$1 qs=$(command -v qs) node=$(node -e 'process.stdout.write(process.execPath)') first=$names rest=${PATH#*:}"
+}
+if [[ $1 == sandbox ]]; then read_path sandbox; exit; fi
+read_path world
+home="$TMPDIR/home" rt_dir="$TMPDIR/runtime" devices_env_words=()
+node_bin="$(node -e 'process.stdout.write(process.execPath)')"
+source "$1"
+"${sandbox_env[@]}" "$BASH" "$0" sandbox
+SH
+path_order() {
+  local caller="$TMP_ROOT/bin-first:$TMP_ROOT/bin-real:${native_node%/*}" want
+  sed -n '/^sandbox_env=(/,/)$/p' -- "${2:-$repo/scripts/smoke/harness.sh}" >"$TMP_ROOT/sandbox-env.sh" || return 1
+  [[ $(<"$TMP_ROOT/sandbox-env.sh") == 'sandbox_env=('*')' ]] || return 1
+  roots plain
+  status=0
+  (cd -- "$TMP_ROOT/cwd" && env -i PATH="$caller" HOME="${TMP_ROOT}-home" TMPDIR="$TMP_ROOT" "$BASH" "$1" "${at[@]}" "$BASH" "$TMP_ROOT/path-order.sh" "$TMP_ROOT/sandbox-env.sh") \
+    >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" || status=$?
+  want="world qs=$TMP_ROOT/bin-first/qs node=$native_node first=node rest=$caller"
+  [[ $status -eq 0 && $(<"$TMP_ROOT/out") == "$want"$'\n'"${want/world/sandbox}" ]]
+}
 # A command that leaves a process in another session and a stopped one,
 # then says it is ready.
 cat >"$TMP_ROOT/leave.sh" <<'SH'
@@ -526,6 +562,7 @@ cases=(
   "the namespace hides every amdgpu path, keeps the rest and proves both|yes|hides"
   "a host with no amdgpu node runs the command in a PID namespace with every path kept|yes|plain_namespace"
   "service masks hide present paths and leave absent paths absent|yes|service_masks"
+  "a qs the caller puts first on PATH is found first in the world and the harness's sandbox, beside the native node|yes|path_order"
   "a SIGKILL of the fence ends every process its command started|yes|fence_killed"
   "TERM to the fence reaches the command once and its exit trap ends before the fence returns|yes|stops_once pid TERM 43"
   "INT to the fence reaches the command once and its exit trap ends before the fence returns|yes|stops_once pid INT 30"
@@ -594,6 +631,10 @@ controls=(
   '    if exposed || ! fenced; then exit 1; fi'
   '    : >"$checkout/probe"; if exposed || ! fenced; then exit 1; fi'
   'the check leaves the caller checkout byte-identical'
+  'the world leads PATH with the native node'"'"'s own directory'
+  'export PATH="$fence_dir/node:$PATH"'
+  'export PATH="${world_node%/*}:$PATH"'
+  'a qs the caller puts first on PATH is found first in the world and the harness'"'"'s sandbox, beside the native node'
   'an absent service path is unconditionally masked'
   'if [[ -e $service_path ]]; then'
   'if true; then'
@@ -762,6 +803,21 @@ if [[ $planted_out == "  FAIL  control: a control with no case names no case: no
   ok "control: a control that names no case fails the controls loop"
 else
   fail "control: a control that names no case fails the controls loop"; printf '%s\n' "$planted_out" | sed 's/^/        /'
+fi
+
+# The harness's sandbox PATH led again by the directory the native node
+# was installed to must turn the PATH case red.
+if [[ $namespace == true ]]; then
+  if ! mutate "$repo/scripts/smoke/harness.sh" 'HOME="$home" PATH="$PATH"' 'HOME="$home" PATH="$(dirname -- "$node_bin"):$PATH"' "$TMP_ROOT/harness-node-first.sh"; then
+    fail "control: a sandbox PATH led by the native node's directory"
+  elif path_order "$fence" "$TMP_ROOT/harness-node-first.sh"; then
+    fail "control: a sandbox PATH led by the native node's directory left the PATH case green"
+  else
+    ok "control: a sandbox PATH led by the native node's directory"
+  fi
+else
+  unmeasured=$((unmeasured + 1))
+  printf '  skip  control: a sandbox PATH led by the native node'"'"'s directory\n'
 fi
 
 # A fence whose command stays in the terminal's session stops on its mode

@@ -18,6 +18,8 @@
 # access, /tmp, /dev/shm and XDG_RUNTIME_DIR are private tmpfs mounts,
 # the caller runtime and the system buses are hidden, and the network is
 # unshared unless --net names the selftest exception. D112 owns this boundary.
+# Its PATH is the caller's behind one directory that holds the native node
+# alone, so every command the caller puts on PATH keeps its place.
 #
 # The world exclusively creates VGSHELL_WORLD_ROOT under the caller TMPDIR.
 # Every temporary tree lives there. After the PID namespace ends, this
@@ -371,10 +373,15 @@ case "$mode" in
     mkdir -p -- "$fence_dir"/{home,config,data,state,cache,tmp,runtime}
     chmod 700 -- "$fence_dir" "$fence_dir/runtime"
     # Version-manager shims need the caller's trust state. Resolve the
-    # native node before HOME is redirected, as the harness requires.
+    # native node before HOME is redirected, as the harness requires. PATH
+    # leads with a directory that holds that node alone: the directory it
+    # was installed to can hold other commands, such as an installed qs,
+    # that would shadow the caller's own.
     if command -v node >/dev/null 2>&1; then
       world_node="$(node -e 'process.stdout.write(process.execPath)')" || { note 'refused: node=binary-unavailable'; exit 2; }
-      export PATH="${world_node%/*}:$PATH"
+      mkdir -- "$fence_dir/node"
+      ln -s -- "$world_node" "$fence_dir/node/node"
+      export PATH="$fence_dir/node:$PATH"
     fi
     # These are the complete environment tables. Graphics/session variables
     # never enter either table. Prepared selftest values hold paths or account

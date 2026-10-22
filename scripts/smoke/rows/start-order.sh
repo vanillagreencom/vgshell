@@ -34,8 +34,9 @@
 # whose crash the planted process holds the lock and `vgshell run` exits 75;
 # a stop with no
 # lock wait, which returns with the lock held while the shell is stopped
-# with SIGSTOP; and a stop that times out on the lock, which fails and
-# names the runner among its holders. The row restores the incoming
+# with SIGSTOP; a stop that times out on the lock, which fails and names
+# the runner among its holders; and a restart whose engine check refuses,
+# which fails once and leaves the shell running. The row restores the incoming
 # plugin set and stand-ins before starting the sandbox's own tree again.
 # Otherwise the default set's VPN readers can add subprocess calls while
 # a later row checks that its widget actions start none.
@@ -278,43 +279,71 @@ expect "the shell holds no descriptor on the instance lock" 0 holders_named "$sh
 # and the shell the nested Hyprland's dispatch relaunches answers as the
 # guarded instance. That runner is no child of the harness, so its process
 # group joins the teardown's, and stop_shell stops it by the lock.
-restart_err="$sandbox/restart.err"
-plant restart
-restart_status=0
-restart_out="$("${shell_env[@]}" "$repo/bin/vgshell" restart 2>"$restart_err")" || restart_status=$?
-if [[ $restart_status == 0 && $restart_out =~ ^ok\ pid=([0-9]+)$ && ${BASH_REMATCH[1]} != "$shell_qs_pid" ]]; then
-  ok "vgshell restart during a live child brings the shell back: $restart_out"
-  shell_qs_pid="${BASH_REMATCH[1]}"
-  shell_pid="$(awk '$1 == "PPid:" { print $2 }' "/proc/$shell_qs_pid/status")" || shell_pid=""
-  if [[ $shell_pid =~ ^[0-9]+$ ]] && pgid="$(ps -o pgid= -p "$shell_pid")"; then pgids+=("${pgid// /}"); else fail "the relaunched shell's runner is unreadable: [$shell_pid]"; fi
-  expect "the relaunched shell answers as the guarded instance" true ipc shell guarded
-else
-  fail "vgshell restart during a live child: exit=$restart_status out=[$restart_out] stderr=[$(head -n 1 -- "$restart_err")]"
-fi
-expect "the planted process still runs after the restart" running holder_state "$gate"
 # stop_shell waits on the lock, not on the runner's pid, since a relaunched
 # runner is no child the harness can wait for. The shell is stopped with
 # SIGSTOP first, so the TERM the runner passes on stays pending and no
 # reading depends on how fast the shell exits: a copy of stop_shell with
 # no lock wait returns with the lock held, and the real stop_shell, run
 # once the shell continues, returns with it free.
+# restart_live BIN [ENV_WORDS...]: that restart, BIN's under shell_env and
+# then ENV_WORDS, and that stop. A restart that fails fails the row and
+# stops nothing: the runner is still the harness's child, which the copy
+# with no lock wait would wait for while its shell is stopped.
+restart_err="$sandbox/restart.err"
 unwaited_needle='flock -w "$stop_lock_wait_s" "$lock" true'
-if [[ $shell_pid =~ ^[0-9]+$ ]] && stop_shell_def="$(declare -f stop_shell)" \
-  && stop_shell_rest="${stop_shell_def//"$unwaited_needle"/}" \
-  && [[ $(( (${#stop_shell_def} - ${#stop_shell_rest}) / ${#unwaited_needle} )) == 1 ]] \
-  && unwaited_def="${stop_shell_def/"$unwaited_needle"/true}" \
-  && [[ $unwaited_def != "$stop_shell_def" ]] \
-  && eval "unwaited_$unwaited_def"; then
-  kill -STOP "$shell_qs_pid"
-  unwaited_stop_shell || :
-  expect "control: a stop that does not wait on the lock returns with a relaunched shell's lock held" held lock_state
-  kill -CONT "$shell_qs_pid"
-  if stop_shell; then
-    expect "stop_shell returns once a relaunched shell freed the instance lock" free lock_state
+restart_live() {
+  local restart_status=0 restart_out restarted=false pgid stop_shell_def stop_shell_rest unwaited_def
+  restart_out="$("${shell_env[@]}" "${@:2}" "$1" restart 2>"$restart_err")" || restart_status=$?
+  if [[ $restart_status == 0 && $restart_out =~ ^ok\ pid=([0-9]+)$ && ${BASH_REMATCH[1]} != "$shell_qs_pid" ]]; then
+    ok "vgshell restart during a live child brings the shell back: $restart_out"
+    restarted=true
+    shell_qs_pid="${BASH_REMATCH[1]}"
+    shell_pid="$(awk '$1 == "PPid:" { print $2 }' "/proc/$shell_qs_pid/status")" || shell_pid=""
+    if [[ $shell_pid =~ ^[0-9]+$ ]] && pgid="$(ps -o pgid= -p "$shell_pid")"; then pgids+=("${pgid// /}"); else fail "the relaunched shell's runner is unreadable: [$shell_pid]"; fi
+    expect "the relaunched shell answers as the guarded instance" true ipc shell guarded
+  else
+    fail "vgshell restart during a live child: exit=$restart_status out=[$restart_out] stderr=[$(head -n 1 -- "$restart_err")]"
   fi
-else
-  fail "the stop_shell copy with no lock wait could not be written"
-fi
+  expect "the planted process still runs after the restart" running holder_state "$gate"
+  [[ $restarted == true ]] || return 0
+  if [[ $shell_pid =~ ^[0-9]+$ ]] && stop_shell_def="$(declare -f stop_shell)" \
+    && stop_shell_rest="${stop_shell_def//"$unwaited_needle"/}" \
+    && [[ $(( (${#stop_shell_def} - ${#stop_shell_rest}) / ${#unwaited_needle} )) == 1 ]] \
+    && unwaited_def="${stop_shell_def/"$unwaited_needle"/true}" \
+    && [[ $unwaited_def != "$stop_shell_def" ]] \
+    && eval "unwaited_$unwaited_def"; then
+    kill -STOP "$shell_qs_pid"
+    unwaited_stop_shell || :
+    expect "control: a stop that does not wait on the lock returns with a relaunched shell's lock held" held lock_state
+    kill -CONT "$shell_qs_pid"
+    if stop_shell; then
+      expect "stop_shell returns once a relaunched shell freed the instance lock" free lock_state
+    fi
+  else
+    fail "the stop_shell copy with no lock wait could not be written"
+  fi
+}
+# A restart whose engine check refuses, under a qs first on PATH that
+# prints no version, fails the row once, naming the check, and leaves the
+# shell running under the same runner. Its lines go to their own file.
+refused_restart_log="$sandbox/refused-restart-control.log"
+no_version_engine="$sandbox/no-version-engine"
+mkdir -p -- "$no_version_engine"
+printf '#!/bin/sh\nexit 0\n' >"$no_version_engine/qs"
+chmod +x -- "$no_version_engine/qs"
+refused_restart_control() {
+  local counted
+  counted="$(
+    failures=0 behaviour_failures=0
+    restart_live "$repo/bin/vgshell" PATH="$no_version_engine:$PATH" >"$refused_restart_log"
+    echo "$failures"
+  )" || return
+  printf '%s %s\n' "$counted" "$(pid_state "$shell_qs_pid")"
+}
+plant restart
+expect "control: a restart the engine check refuses fails once and leaves the shell running" "1 running" refused_restart_control
+expect "control: the refused restart's failure names the engine check" 1 grep -c -F -- "preflight=quickshell have=unknown" "$refused_restart_log"
+restart_live "$repo/bin/vgshell"
 : >"$gate"
 
 # The controls start a copy of the tree whose runner execs qs with the

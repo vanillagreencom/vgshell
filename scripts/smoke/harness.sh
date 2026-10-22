@@ -224,8 +224,10 @@ printf 'local hold_file = "%s"\nlocal hold = io.open(hold_file)\nif hold then ho
 cp -- "$home/.config/hypr/hyprland.lua" "$sandbox/hyprland-harness.lua"
 
 # node on PATH may be a version-manager shim that reads the developer's own
-# configuration and fails under the sandbox HOME; the sandbox PATH leads with
-# the directory of the binary it resolves to. VGS_TEST_RUN, the test-run
+# configuration and fails under the sandbox HOME; the world's PATH already
+# leads with the binary it resolves to, alone in its directory
+# (scripts/smoke/gpu-fence.sh), so the sandbox keeps that PATH as it is and
+# a command the caller put first stays first. VGS_TEST_RUN, the test-run
 # marker, keeps the theme judge from running a reload hook through the
 # host's PATH or session: docs/architecture/validation.md.
 if ! node_bin="$(node -e 'process.stdout.write(process.execPath)')"; then
@@ -247,7 +249,7 @@ else
   exit "$jarvis_isolation_status"
 fi
 sandbox_env=(env -i
-  HOME="$home" PATH="$(dirname -- "$node_bin"):$PATH" USER="${USER:-$(id -un)}" TERM=dumb LANG=C.UTF-8
+  HOME="$home" PATH="$PATH" USER="${USER:-$(id -un)}" TERM=dumb LANG=C.UTF-8
   XDG_RUNTIME_DIR="$rt_dir" XDG_CONFIG_HOME="$home/.config" XDG_DATA_HOME="$home/.local/share"
   XDG_STATE_HOME="$home/.local/state" XDG_CACHE_HOME="$home/.cache" TMUX_TMPDIR="$rt_dir" VGS_TEST_RUN=1
   "${devices_env_words[@]}")
