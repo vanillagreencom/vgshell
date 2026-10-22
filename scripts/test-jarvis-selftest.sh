@@ -1934,27 +1934,37 @@ echo "--- this file's own teardown"
 teardown_dir="$tmp/teardown"
 mkdir -p "$teardown_dir"
 sed -n '/^teardown() {/,/^}/p' "$self" >"$teardown_dir/teardown.sh"
+# graceful.sh READY ENDED: a child that ends on TERM only after its
+# handler's pause, so ENDED exists only where the teardown sent it TERM and
+# then waited past that pause before any KILL. Its loop's sleeps are short,
+# so a KILLed run leaves no long-lived grandchild.
+cat >"$teardown_dir/graceful.sh" <<'SH'
+trap 'sleep 0.3; : >"$2"; exit 0' TERM
+: >"$1"
+while :; do sleep 0.1; done
+SH
 # leaked_children TEARDOWN: the teardown, run as the exit of a bash that
-# leaves a bus pid and two other children running, one that ends on TERM
-# and one that ignores it, returns before the deadline with status 1,
-# having named each of the two and removed its scratch root. The deadline
-# KILLs its whole process group, the planted children with it; the outer
-# redirect takes this shell's notice of that kill.
+# leaves a graceful bus pid and two other children running, one graceful
+# and one that ignores TERM, returns before the deadline with status 1,
+# having ended both graceful children by TERM, named each of the two
+# others and removed its scratch root. The deadline KILLs its whole
+# process group, the planted children with it; the outer redirect takes
+# this shell's notice of that kill.
 leaked_children() {
   local root="$teardown_dir/root"
   mkdir -p "$root"
-  rm -f -- "$teardown_dir/pids" "$teardown_dir/ready"
+  rm -f -- "$teardown_dir/pids" "$teardown_dir/ready-bus" "$teardown_dir/ready-term" "$teardown_dir/ready-kill" "$teardown_dir/ended-bus" "$teardown_dir/ended-term"
   teardown_status=0
   { timeout -s KILL 10 "$BASH" -c '
 set -euo pipefail
 source "$1"
-tmp="$2" bus_pids=()
+tmp="$2" dir="$3" bus_pids=()
 trap teardown EXIT
-sleep 600 & bus_pids+=($!)
-sleep 600 & echo "$!" >>"$3"
-"$BASH" -c "trap \"\" TERM; : >\"\$1\"; exec sleep 600" _ "$4" & echo "$!" >>"$3"
-until [[ -e $4 ]]; do sleep 0.05; done' _ "$1" "$root" "$teardown_dir/pids" "$teardown_dir/ready" >"$teardown_dir/out" 2>"$teardown_dir/err"; } 2>/dev/null || teardown_status=$?
-  [[ $teardown_status -eq 1 && ! -e $root && ! -s $teardown_dir/out &&
+"$BASH" "$dir/graceful.sh" "$dir/ready-bus" "$dir/ended-bus" & bus_pids+=($!)
+"$BASH" "$dir/graceful.sh" "$dir/ready-term" "$dir/ended-term" & echo "$!" >>"$dir/pids"
+"$BASH" -c "trap \"\" TERM; : >\"\$1\"; exec sleep 600" _ "$dir/ready-kill" & echo "$!" >>"$dir/pids"
+until [[ -e $dir/ready-bus && -e $dir/ready-term && -e $dir/ready-kill ]]; do sleep 0.05; done' _ "$1" "$root" "$teardown_dir" >"$teardown_dir/out" 2>"$teardown_dir/err"; } 2>/dev/null || teardown_status=$?
+  [[ $teardown_status -eq 1 && ! -e $root && ! -s $teardown_dir/out && -e $teardown_dir/ended-bus && -e $teardown_dir/ended-term &&
     "$(grep -- '^test-jarvis-selftest: ' "$teardown_dir/err")" == "$(sed 's/^/test-jarvis-selftest: refused: child=still-running pid=/' -- "$teardown_dir/pids")" ]]
 }
 holds "a child left running at exit is named, ended and fails the file" leaked_children "$teardown_dir/teardown.sh"
