@@ -717,12 +717,16 @@ expect "the reopened field is empty" 0 vpn_named panel TextField vpn-password le
 expect "Travel L2TP still reads Needs password" needs-password vpn_key panel "$vpn_travel"
 expect_poll "the bar keeps its password alert in the warning tone" 'shield-alert|false|warning' vpn_bar
 expect "the bar tooltip reads as before the first password" "$vpn_alert_tooltip" vpn_tooltip
-device_reply nmcli 0 $'GENERAL.STATE:activated\nIP4.ADDRESS[1]:10.40.0.2/24' -t -f GENERAL.STATE,IP4.ADDRESS connection show uuid "$vpn_travel"
-vpn_plant "$vpn_home=" "$vpn_campus=-" "$vpn_travel=activated"
-vpn_connect_world ok run
+vpn_connect_world ok hold
+expect "the retry prompt stays visible at the moment of typing" true vpn_prompt panel
+expect "the retry field keeps focus at the moment of typing" true vpn_named panel TextField vpn-password activeFocus
 type_keys "$vpn_planted"
 expect_poll "the retry's field takes the planted password" "${#vpn_planted}" vpn_named panel TextField vpn-password length
 type_keys -k Return
+expect_poll "the retried password connect starts before activation is published" 2 vpn_connect_count
+device_reply nmcli 0 $'GENERAL.STATE:activated\nIP4.ADDRESS[1]:10.40.0.2/24' -t -f GENERAL.STATE,IP4.ADDRESS connection show uuid "$vpn_travel"
+vpn_plant "$vpn_home=" "$vpn_campus=-" "$vpn_travel=activated"
+vpn_connect_world ok run
 expect_poll "the retry reads the escaped line to its end, no argv holding the password" private-stdin vpn_connect_record 2
 expect_poll "Travel L2TP connects with its password" connected vpn_key panel "$vpn_travel"
 expect "the connect clears the tried password" '""' vpn_failure "$vpn_travel"
