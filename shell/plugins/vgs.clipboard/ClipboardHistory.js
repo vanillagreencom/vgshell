@@ -187,6 +187,13 @@ function terminal(target) {
     return target.kind === "terminal" || (target.kind === "vgs" && target.terminal === true);
 }
 
+// A clipboard offering an image uses the CLI's native image reader, even
+// when it also offers text. Read the offered types at paste time: history
+// omits sensitive, empty and oversized copies and cannot name this copy.
+function clipboardKind(types) {
+    return String(types).split(/\r?\n/).some(function (mime) { return MIME.test(mime); }) ? "image" : "text";
+}
+
 // The chord ACTION sends to TARGET, as the [modifiers, key] the
 // compositor's sendShortcut takes, or null when it sends none. TARGET's
 // kind is `terminal`, `application` or `vgs`, a VGS surface. `copy`,
@@ -194,15 +201,20 @@ function terminal(target) {
 // Ctrl+V and Ctrl+X as control characters, so it takes Ctrl+Shift+C to
 // copy and Ctrl+Shift+V to paste, the keys kitty, Ghostty, foot and
 // Alacritty bind to the clipboard at their default settings, and no key to
-// cut. `pasteEntry` pastes the history entry the plugin put on the
-// clipboard: a terminal application takes the same Ctrl+Shift+V, and a VGS
-// surface takes none.
-function chord(target, action) {
+// cut. An image paste uses Ctrl+V, the clipboard-image key documented by
+// Claude Code, Pi and Copilot CLI and handled by Codex's ChatWidget:
+// https://code.claude.com/docs/en/interactive-mode#general-controls
+// https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/src/core/keybindings.ts
+// https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference
+// https://github.com/openai/codex/blob/main/codex-rs/tui/src/chatwidget/interaction.rs
+// `pasteEntry` pastes the history entry the plugin put on the clipboard;
+// a VGS surface takes none. This local key choice needs no separate ADR.
+function chord(target, action, clipboardKind) {
     var kind = target.kind;
     if (terminal(target)) {
         if (action === "copy") return ["CTRL_SHIFT", "c"];
-        if (action === "paste") return ["CTRL_SHIFT", "v"];
-        return action === "pasteEntry" && kind === "terminal" ? ["CTRL_SHIFT", "v"] : null;
+        if (action === "paste") return [clipboardKind === "image" ? "CTRL" : "CTRL_SHIFT", "v"];
+        return action === "pasteEntry" && kind === "terminal" ? [clipboardKind === "image" ? "CTRL" : "CTRL_SHIFT", "v"] : null;
     }
     if (kind === "application" && action === "pasteEntry") return ["CTRL", "v"];
     if (kind !== "application" && kind !== "vgs") return null;

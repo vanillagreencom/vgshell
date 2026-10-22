@@ -20,7 +20,7 @@ Clipboard ships with VGS and is on by default. It saves every copy to disk, so t
 
 The Keys rows on the plugin's Settings page change `SUPER+CTRL+V`, `SUPER+C`, `SUPER+V` and `SUPER+X`. The Tools step on its Setup tab lists the tools Clipboard needs, and Review all missing or outdated tools opens the notice that installs them.
 
-In a terminal, the copy and paste keys send Ctrl+Shift+C and Ctrl+Shift+V. kitty, Ghostty, foot and Alacritty copy and paste with those keys at their default settings.
+In a terminal, copy sends Ctrl+Shift+C and text paste sends Ctrl+Shift+V. kitty, Ghostty, foot and Alacritty use those keys at their default settings. Image paste sends Ctrl+V, which Claude Code, Pi, Copilot CLI and Codex CLI use to read a clipboard image.
 
 VGS recognizes dialogs and custom terminal windows through the application's desktop entry. If VGS cannot identify the application, it sends no key and shows a message.
 

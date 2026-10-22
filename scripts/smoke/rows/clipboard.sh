@@ -24,7 +24,7 @@
 # change the service refuses shows one too. SUPER+C, SUPER+V and SUPER+X,
 # typed on the nested seat, send what has the keyboard that action's own
 # key: a terminal receives C with Ctrl and Shift for a copy, V with Ctrl
-# and Shift for a paste, of text and of an image alike, and none for a cut,
+# and Shift for text paste, Ctrl alone for image paste, and none for a cut,
 # an application a key with Ctrl for each, and the
 # launcher's search field, a layer over that application, takes the paste,
 # the copy of its selection and the cut, while the application under it
@@ -51,6 +51,13 @@
 # control is the generated layer with those lines taken out and loaded:
 # SUPER+V then types its letter into the launcher's field and pastes nothing.
 # Every clipboard program runs with the nested socket in its environment.
+# One stand-in models the Ctrl+V clipboard-image route shared by Claude
+# Code, Pi, Copilot CLI and Codex CLI (sources in ClipboardHistory.js). It
+# reads the image bytes on that key, comparing them with this row's PNG;
+# this proves the route, not a real CLI attachment or model call. The image
+# control restores the former Ctrl+Shift+V rule. Text keeps today's key,
+# so its control changes text to Ctrl+V rather than claiming today's text
+# rule fails an unchanged requirement.
 # `input:resolve_binds_by_sym` is on while the row types its key, since a
 # bind resolves a virtual keyboard's key only by keysym, and the row puts
 # the harness hyprland.lua
@@ -203,6 +210,41 @@ clip_entry smoke.clipboard-app "Clipboard application" "Utility;"
 clip_entry smoke.clipboard-hidden "Clipboard dialog" "Utility;" true true
 cp -- "$sandbox/toplevel" "$sandbox/clipboard-custom-terminal"
 clip_entry smoke.clipboard-executable "Custom terminal" "System;TerminalEmulator;" "$sandbox/clipboard-custom-terminal"
+
+# Reuse the harness's Wayland window and key log for the native image
+# reader. It runs only under spawn_display with the nested environment.
+python3 - "$repo/scripts/smoke/toplevel/toplevel.c" "$sandbox/clipboard-cli.c" <<'PY'
+from pathlib import Path
+import sys
+text = Path(sys.argv[1]).read_text()
+changes = [
+    ('static void on_key(void *data,', 'static uint32_t clip_modifiers;\n\nstatic void on_key(void *data,'),
+    ('    printf("modifiers %u\\n", depressed);', '    clip_modifiers = depressed;\n    printf("modifiers %u\\n", depressed);'),
+    ('    printf("key %u %s\\n", key, state == WL_KEYBOARD_KEY_STATE_PRESSED ? "pressed" : "released");', r'''
+    if (key == 47 && state == WL_KEYBOARD_KEY_STATE_PRESSED && clip_modifiers == 4) {
+        FILE *copy = popen("wl-paste --type image/png", "r");
+        FILE *fixture = fopen(getenv("CLIPBOARD_IMAGE"), "rb");
+        int same = copy != NULL && fixture != NULL, byte;
+        if (copy != NULL && fixture != NULL) {
+            while ((byte = fgetc(copy)) != EOF) {
+                if (byte != fgetc(fixture)) same = 0;
+            }
+            if (fgetc(fixture) != EOF) same = 0;
+        }
+        if (copy != NULL && pclose(copy) != 0) same = 0;
+        if (fixture != NULL) fclose(fixture);
+        printf("image-paste %s\n", same ? "same" : "different");
+    }
+    printf("key %u %s\n", key, state == WL_KEYBOARD_KEY_STATE_PRESSED ? "pressed" : "released");'''),
+]
+for before, after in changes:
+    assert text.count(before) == 1, before
+    text = text.replace(before, after)
+Path(sys.argv[2]).write_text(text)
+PY
+build_helper clipboard-cli clipboard-cli "$sandbox/clipboard-cli.c" "$repo/scripts/smoke/toplevel/xdg-shell.xml"
+clip_cli_image() { python3 -c 'import sys; print("same" if "image-paste same\n" in list(open(sys.argv[1]))[int(sys.argv[2]):] else "absent")' "$1" "$2"; }
+clip_paste_contract() { local got; got="$(clip_chords_of "$1" "$2")" || return 1; if [[ $got == "$3" ]]; then echo pass; else echo rejected; fi; }
 hypr_lua_save clipboard
 printf '%s\n' 'hl.config({ input = { resolve_binds_by_sym = true } })' >>"$home/.config/hypr/hyprland.lua"
 expect "the nested instance reloads with typed keys reaching binds" ok hypr reload config-only
@@ -362,9 +404,9 @@ root = Path(sys.argv[1])
 changes = [
     ("Service.qml", 'shell.shortcut.register("toggle", "Clipboard history", () => root.toggle());', 'shell.shortcut.register("toggle", "Clipboard history", () => "ok");'),
     ("Service.qml", "stdout: SplitParser { onRead: line => root.captured(line) }", "stdout: SplitParser { onRead: line => {} }"),
-    ("ClipboardHistory.js", 'return action === "pasteEntry" && kind === "terminal" ? ["CTRL_SHIFT", "v"] : null;', 'return action === "pasteEntry" && kind === "terminal" ? ["CTRL", "v"] : null;'),
+    ("ClipboardHistory.js", 'return action === "pasteEntry" && kind === "terminal" ? [clipboardKind === "image" ? "CTRL" : "CTRL_SHIFT", "v"] : null;', 'return action === "pasteEntry" && kind === "terminal" ? ["CTRL", "v"] : null;'),
     ("ClipboardHistory.js", 'if (action === "copy") return ["CTRL_SHIFT", "c"];', 'if (action === "copy") return ["CTRL", "c"];'),
-    ("ClipboardHistory.js", 'if (action === "paste") return ["CTRL_SHIFT", "v"];', 'if (action === "paste") return ["CTRL", "v"];'),
+    ("ClipboardHistory.js", 'if (action === "paste") return [clipboardKind === "image" ? "CTRL" : "CTRL_SHIFT", "v"];', 'if (action === "paste") return ["CTRL", "v"];'),
     ("Service.qml", "            retry.restart();\n", ""),
     ("Service.qml", '        notice(title, message, true);\n        return "refused: " + key;', '        return "refused: " + key;'),
     ("Overlay.qml", 'shell.ipc.call("rows", filter)', 'shell.ipc.call("rows", "")'),
@@ -431,6 +473,7 @@ if clip_window "$sandbox/clipboard-control.log" smoke.clipboard-terminal "Clipbo
   clip_from="$(clip_lines "$sandbox/clipboard-control.log")"
   clip_press v || fail "control: typing SUPER+V failed"
   expect_poll "control: a terminal sent the application's paste chord receives V with Ctrl alone" '[[4, 47]]' clip_chords_of "$sandbox/clipboard-control.log" "$clip_from"
+  expect "control: the text-paste contract rejects Ctrl+V" rejected clip_paste_contract "$sandbox/clipboard-control.log" "$clip_from" '[[5, 47]]'
   close_toplevel "$clip_control_pid" "the control's terminal helper exits 0 on SIGTERM"
 fi
 if clip_end_watcher "control"; then expect "control: a service that starts no watcher again leaves none" 0 clip_watcher_returns; fi
@@ -444,8 +487,9 @@ expect_poll "the restored store is ready" '"ready"' clip_read service store
 # key, read by its code and the modifiers it arrives with, and a cut sends
 # none.
 clip_closed() { local got; for _ in $(seq 1 10); do got="$(layer_count vgs:overlay)" || return 1; [[ $got == "$1" ]] || { echo "$got"; return 0; }; sleep 0.2; done; echo "$1"; }
-if clip_window "$sandbox/clipboard-keys-terminal.log" smoke.clipboard-terminal "Clipboard terminal"; then
-  clip_keys_pid="$toplevel_pid"
+if spawn_display "$sandbox/clipboard-keys-terminal.log" "${shell_env[@]}" CLIPBOARD_IMAGE="$clip_image" -- "$sandbox/clipboard-cli" smoke.clipboard-terminal "Clipboard terminal"; then
+  clip_keys_pid="$spawn_pid"
+  expect_poll "the CLI-route terminal has the keyboard" '["smoke.clipboard-terminal", "Clipboard terminal"]' active_window
   clip_copy "smoke shortcut text"
   expect_poll "the shortcut text is on the clipboard" "smoke shortcut text" clip_holds
   clip_from="$(clip_lines "$sandbox/clipboard-keys-terminal.log")"
@@ -454,15 +498,42 @@ if clip_window "$sandbox/clipboard-keys-terminal.log" smoke.clipboard-terminal "
   clip_from="$(clip_lines "$sandbox/clipboard-keys-terminal.log")"
   clip_press v || fail "terminal: typing SUPER+V failed"
   expect_poll "SUPER+V sends a terminal V with Ctrl and Shift" '[[5, 47]]' clip_chords_of "$sandbox/clipboard-keys-terminal.log" "$clip_from"
+  expect "the text-paste contract keeps Ctrl+Shift+V" pass clip_paste_contract "$sandbox/clipboard-keys-terminal.log" "$clip_from" '[[5, 47]]'
   expect "SUPER+V over a terminal opens no clipboard history" 0 clip_closed 0
   clip_from="$(clip_lines "$sandbox/clipboard-keys-terminal.log")"
   clip_press x || fail "terminal: typing SUPER+X failed"
   expect "SUPER+X sends a terminal no key" none clip_no_key "$sandbox/clipboard-keys-terminal.log" "$clip_from"
   clip_copy_file image/png "$clip_image"
   expect_poll "the image is on the clipboard" same clip_holds_image
+
+  # Restore today's image key in the disposable plugin. The same contract
+  # must reject it, and the common native image reader must receive none.
+  python3 - "$clip_plugin/ClipboardHistory.js" <<'PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+assert not path.is_symlink()
+text = path.read_text()
+before = 'if (action === "paste") return [clipboardKind === "image" ? "CTRL" : "CTRL_SHIFT", "v"];'
+after = 'if (action === "paste") return ["CTRL_SHIFT", "v"];'
+assert text.count(before) == 1
+path.write_text(text.replace(before, after))
+PY
+  rescan "control: the prior image-paste rule is loaded"
+  expect_poll "control: the prior-rule service is ready" '"ready"' clip_read service store
+  clip_from="$(clip_lines "$sandbox/clipboard-keys-terminal.log")"
+  clip_press v || fail "control: typing SUPER+V over an image failed"
+  expect_poll "control: today's rule sends the terminal Ctrl+Shift+V" '[[5, 47]]' clip_chords_of "$sandbox/clipboard-keys-terminal.log" "$clip_from"
+  expect "control: the image-paste contract rejects today's rule" rejected clip_paste_contract "$sandbox/clipboard-keys-terminal.log" "$clip_from" '[[4, 47]]'
+  expect "control: today's rule does not reach the native Ctrl+V image reader" absent clip_cli_image "$sandbox/clipboard-keys-terminal.log" "$clip_from"
+  cp -- "$sandbox/clipboard-plugin.kept/ClipboardHistory.js" "$clip_plugin/ClipboardHistory.js"
+  rescan "the clipboard-kind image rule is restored"
+  expect_poll "the image-rule service is ready" '"ready"' clip_read service store
   clip_from="$(clip_lines "$sandbox/clipboard-keys-terminal.log")"
   clip_press v || fail "terminal: typing SUPER+V over an image failed"
-  expect_poll "SUPER+V sends a terminal the same key while the clipboard holds an image" '[[5, 47]]' clip_chords_of "$sandbox/clipboard-keys-terminal.log" "$clip_from"
+  expect_poll "SUPER+V sends a terminal image to the CLI with Ctrl alone" '[[4, 47]]' clip_chords_of "$sandbox/clipboard-keys-terminal.log" "$clip_from"
+  expect "the image-paste contract accepts Ctrl+V" pass clip_paste_contract "$sandbox/clipboard-keys-terminal.log" "$clip_from" '[[4, 47]]'
+  expect_poll "the shared Claude, Pi, Copilot and Codex route reads the same clipboard image" same clip_cli_image "$sandbox/clipboard-keys-terminal.log" "$clip_from"
   close_toplevel "$clip_keys_pid" "the shortcuts' terminal helper exits 0 on SIGTERM"
 fi
 
@@ -481,6 +552,8 @@ fi
 if spawn_display "$sandbox/clipboard-custom.log" "${shell_env[@]}" -- "$sandbox/clipboard-custom-terminal" smoke.clipboard-custom "Custom terminal"; then
   clip_custom_pid="$spawn_pid"
   expect_poll "the custom-class terminal has the keyboard" '["smoke.clipboard-custom", "Custom terminal"]' active_window
+  clip_copy "smoke custom terminal text"
+  expect_poll "the custom-terminal text is on the clipboard" "smoke custom terminal text" clip_holds
   for clip_custom_key in c v; do
     clip_from="$(clip_lines "$sandbox/clipboard-custom.log")"
     clip_press "$clip_custom_key" || fail "custom terminal: typing SUPER+$clip_custom_key failed"

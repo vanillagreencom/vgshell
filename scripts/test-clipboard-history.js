@@ -120,6 +120,16 @@ function verify(logic) {
     assert.equal(logic.rows(long, "")[0].text.length, 8192, "rows: 8192 characters of an entry are shown");
     assert.equal(logic.rows(long, "tail").length, 0, "rows: text past the shown characters is not searched");
 
+    // ---- the current clipboard's offered types, independent of history.
+    for (const [types, kind] of [
+        ["text/plain;charset=utf-8\nUTF8_STRING\n", "text"],
+        ["image/png\n", "image"],
+        ["text/html\r\nimage/jpeg\r\n", "image"],
+        ["text/plain\nimage/png\n", "image"],
+        ["application/octet-stream\n", "text"],
+        ["", "text"]
+    ]) assert.equal(logic.clipboardKind(types), kind, `clipboard kind: ${types}`);
+
     // ---- the chord of an action: [target, action, chord]. A
     // target is named here by its kind, and `tui` is the core's name for a
     // VGS floating TUI's window.
@@ -148,6 +158,17 @@ function verify(logic) {
     ];
     for (const [kind, action, want] of chords)
         same(logic.chord(targets[kind] || { kind: kind, id: "smoke" }, action), want, `chord: ${action} for ${kind || "no target"}`);
+    for (const [target, action, clipboard, want] of [
+        [{ kind: "terminal" }, "paste", "image", ["CTRL", "v"]],
+        [{ kind: "terminal" }, "paste", "text", ["CTRL_SHIFT", "v"]],
+        [{ kind: "terminal" }, "pasteEntry", "image", ["CTRL", "v"]],
+        [targets.tui, "paste", "image", ["CTRL", "v"]],
+        [targets.tui, "pasteEntry", "image", null],
+        [{ kind: "application" }, "paste", "image", ["CTRL", "v"]],
+        [targets.vgs, "paste", "image", ["CTRL", "v"]],
+        [{ kind: "terminal" }, "copy", "image", ["CTRL_SHIFT", "c"]],
+        [{ kind: "terminal" }, "cut", "image", null]
+    ]) same(logic.chord(target, action, clipboard), want, `chord: ${action} ${clipboard} for ${target.kind}`);
 
     // ---- why a key was not sent: the refusals of Compositor.qml's
     // observeInput and enqueue and of Dispatch.js's inputTarget.
@@ -186,8 +207,11 @@ const CONTROLS = [
     ["a VGS TUI's window is a terminal", "(target.kind === \"vgs\" && target.terminal === true)", "false"],
     ["a VGS surface is a terminal only when the core says so", "(target.kind === \"vgs\" && target.terminal === true)", "target.kind === \"vgs\""],
     ["a terminal copies with Ctrl+Shift+C", "if (action === \"copy\") return [\"CTRL_SHIFT\", \"c\"];", "if (action === \"copy\") return [\"CTRL\", \"Insert\"];"],
-    ["a terminal pastes with Ctrl+Shift+V", "if (action === \"paste\") return [\"CTRL_SHIFT\", \"v\"];", "if (action === \"paste\") return [\"SHIFT\", \"Insert\"];"],
-    ["a terminal takes no cut", "return action === \"pasteEntry\" && kind === \"terminal\" ? [\"CTRL_SHIFT\", \"v\"] : null;", "return action === \"cut\" ? [\"CTRL\", \"x\"] : [\"CTRL_SHIFT\", \"v\"];"],
+    ["a terminal image uses the CLI key, not the former text-only rule", 'if (action === "paste") return [clipboardKind === "image" ? "CTRL" : "CTRL_SHIFT", "v"];', 'if (action === "paste") return ["CTRL_SHIFT", "v"];'],
+    ["terminal text keeps the terminal's paste key", 'if (action === "paste") return [clipboardKind === "image" ? "CTRL" : "CTRL_SHIFT", "v"];', 'if (action === "paste") return ["CTRL", "v"];'],
+    ["an offered image is classified without the history", 'return MIME.test(mime);', 'return false;'],
+    ["an image history entry uses the CLI key", 'return action === "pasteEntry" && kind === "terminal" ? [clipboardKind === "image" ? "CTRL" : "CTRL_SHIFT", "v"] : null;', 'return action === "pasteEntry" && kind === "terminal" ? ["CTRL_SHIFT", "v"] : null;'],
+    ["a terminal takes no cut", 'return action === "pasteEntry" && kind === "terminal" ? [clipboardKind === "image" ? "CTRL" : "CTRL_SHIFT", "v"] : null;', 'return action === "cut" ? ["CTRL", "x"] : ["CTRL_SHIFT", "v"];'],
     ["a history entry is not pasted into a VGS TUI", "return action === \"pasteEntry\" && kind === \"terminal\" ? ", "return action === \"pasteEntry\" ? "],
     ["a history entry is not pasted into a VGS surface", "if (kind === \"application\" && action === \"pasteEntry\") return [\"CTRL\", \"v\"];", "if (action === \"pasteEntry\") return [\"CTRL\", \"v\"];"],
     ["a VGS surface takes the application's chords", "if (kind !== \"application\" && kind !== \"vgs\") return null;", "if (kind !== \"application\") return null;"],

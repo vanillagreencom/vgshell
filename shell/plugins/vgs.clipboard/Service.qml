@@ -55,8 +55,10 @@ Item {
     property var jobs: []
     // The run in progress: { name, input, done, code }, or null.
     property var job: null
-    // The paste or copy in progress, { send }, or null.
+    // The paste or copy in progress, { send, type }, or null.
     property var putting: null
+    // A shortcut's offered-type read, { code }, or null.
+    property var pasteRead: null
     readonly property string storeDir: Paths.stateDir + "/clipboard"
     readonly property string helperPath: decodeURIComponent(String(Qt.resolvedUrl("helper/clipboard.py")).replace(/^file:\/\//, ""))
     readonly property var missing: shell === null ? [] : shell.requirements.missing
@@ -162,7 +164,7 @@ Item {
             shell.requirements.offer(["wl-copy"]);
             return "refused: clipboard=missing wl-copy";
         }
-        putting = { send: send };
+        putting = { send: send, type: entry.type };
         run("copy", () => entry.type === "image" ? { args: ["copy", entry.mime, entry.id], input: null } : { args: ["copy", History.TEXT_MIME], input: entry.text }, code => root.copied(code));
         return "ok";
     }
@@ -175,7 +177,10 @@ Item {
         }
         const reply = shell.surfaces.hide("overlay");
         if (reply !== "ok") console.warn("clipboard: hide " + reply);
-        if (putting.send) shell.compositor.observeInput(null, seen => root.observed("pasteEntry", seen));
+        if (putting.send) {
+            const kind = putting.type;
+            shell.compositor.observeInput(null, seen => root.observed("pasteEntry", seen, kind));
+        }
         else putting = null;
     }
 
@@ -183,18 +188,28 @@ Item {
 
     // One of the copy, paste and cut shortcuts.
     function press(action) {
+        if (action === "paste" && pasteRead !== null) return;
         shell.compositor.observeInput(null, seen => root.observed(action, seen));
     }
 
     // ACTION is `copy`, `paste`, `cut` or `pasteEntry`, a paste of the
     // history entry `put` placed on the clipboard.
-    function observed(action, seen) {
+    function observed(action, seen, kind) {
         if (action === "pasteEntry") putting = null;
         if (!seen.ok) {
             unsent(action, seen.error);
             return;
         }
-        const chord = History.chord(seen.target, action);
+        if (action === "paste" && History.terminal(seen.target) && kind === undefined) {
+            if (missing.indexOf("wl-paste") !== -1) {
+                shell.requirements.offer(["wl-paste"]);
+                return;
+            }
+            pasteRead = { code: null };
+            pasteTypes.running = true;
+            return;
+        }
+        const chord = History.chord(seen.target, action, kind);
         // A shortcut with no key for its target, a cut in a terminal, does
         // nothing; an entry that is not pasted says so.
         if (chord === null && action !== "pasteEntry") return;
@@ -239,6 +254,29 @@ Item {
     }
 
     // ------------------------------------------------------------ owners
+
+    // Quickshell 0.3.1 Process clears running after exited and drains its
+    // parsers first, as the helper below also relies on. StdioCollector
+    // publishes text when the stream ends (waitForEnd defaults to true):
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/StdioCollector/
+    // Observe focus after this read, so a key uses the current target.
+    Process {
+        id: pasteTypes
+        command: ["wl-paste", "--list-types"]
+        stdout: StdioCollector { id: offeredTypes }
+        onExited: code => { root.pasteRead.code = code; }
+        onRunningChanged: {
+            if (running || root.pasteRead === null) return;
+            const code = root.pasteRead.code;
+            root.pasteRead = null;
+            if (code !== 0) {
+                root.unsent("paste", "clipboard-types=failed");
+                return;
+            }
+            const kind = History.clipboardKind(offeredTypes.text);
+            root.shell.compositor.observeInput(null, seen => root.observed("paste", seen, kind));
+        }
+    }
 
     // Reads the store once, when the service is built; a missing file and
     // one that holds no history both start empty.
