@@ -100,7 +100,7 @@ updates_identity() { # NAME OS_ID STAND_INS...
   local dir="$updates_state/identity-$1" tool
   mkdir -p "$dir/bin"
   printf 'ID=%s\n' "$2" >"$dir/os-release"
-  for tool in bash env readlink dirname flock setsid timeout mkdir cat sleep seq; do ln -sf -- "$(command -v "$tool")" "$dir/bin/$tool"; done
+  for tool in bash env readlink dirname flock setsid setpriv timeout mkdir cat sleep seq python3; do ln -sf -- "$(command -v "$tool")" "$dir/bin/$tool"; done
   ln -sf -- "$node_bin" "$dir/bin/node"
   shift 2
   for tool; do cp -- "$updates_fixtures/$tool" "$dir/bin/$tool"; done
