@@ -430,15 +430,16 @@ for path in tools.iterdir():
     if not path.is_symlink(): path.chmod(0o755)
 source = helper.read_text()
 mutants = {}
-for name, needle in (('no-mask', 'env --block-signal=TERM,INT,HUP -- '),):
-    assert source.count(needle) == 1, name
+for name, needle, count in (('no-mask', 'env --block-signal=TERM,INT,HUP -- ', 1),
+                            ('reentrant-stop', 'trap "" TERM INT HUP; exit 1', 3)):
+    assert source.count(needle) == count, name
     # Preserve the plugin-relative ipp files when running the helper copy.
     directory = root/name
     directory.mkdir()
     (directory/'bin').mkdir()
     (directory/'ipp').symlink_to(helper.parent.parent/'ipp')
     program = directory/'bin/printers-watch'
-    program.write_text(source.replace(needle, '', 1))
+    program.write_text(source.replace(needle, 'exit 1' if name == 'reentrant-stop' else ''))
     program.chmod(0o755)
     mutants[name] = program
 results = []
@@ -656,6 +657,98 @@ def group_members(group):
         if fields[0] not in 'ZX' and int(fields[2]) == group: members.append(int(entry.name))
     return members
 
+# At shell exit the engine's one root group TERM reaches both watchers
+# together, and the first forwards it again through %setpriv and once more
+# when its reader ends; no outer TERM comes first. Every run must reach the
+# real cancellation request and finish it. The race is in Bash's trap
+# handling, so one run proves nothing: the control, whose handlers do not
+# ignore the later TERMs, lost the cancel in 14 of 30 runs (this block under
+# python3 -I outside the nested shell, 2026-10-22, the review host), and the
+# review's own probe lost it in 38 of 60 on that form.
+GROUP_RUNS = 30
+def group_only(program, run):
+    case = root/f'group-{program.parent.parent.name}-{run}'
+    case.mkdir()
+    server = Responder(False)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    watch = subprocess.Popen([str(program), f'ipp://127.0.0.1:{server.server_port}/'],
+                             env={'PATH': str(tools)+':'+os.defpath, 'HOME': str(case),
+                                  'LC_ALL': 'C', 'PRINTER_CASE': str(case)},
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, text=True, start_new_session=True)
+    # Popen has not reaped the leader, so this pidfd and its group id are ours.
+    leader = os.pidfd_open(watch.pid)
+    try:
+        ready, _, _ = select.select([watch.stdout], [], [], 5)
+        assert ready, 'watcher readiness timeout'
+        assert watch.stdout.readline().strip() == 'ready subscription=5'
+        deadline = time.monotonic()+3
+        while not (case/'reader-pid').exists():
+            assert time.monotonic() < deadline, 'reader readiness timeout'
+            time.sleep(0.01)
+        # Past `ready` the held watch runs only builtins until its read on
+        # the monitor, so its first sleep is that read: the TERM must find
+        # it there, where Bash runs the trap from inside the builtin.
+        held = []
+        for entry in pathlib.Path('/proc').iterdir():
+            if not entry.name.isdigit(): continue
+            try:
+                if (entry/'stat').read_text().rsplit(') ', 1)[1].split()[1] == str(watch.pid) \
+                        and b'--held' in (entry/'cmdline').read_bytes():
+                    held.append(entry)
+            except (FileNotFoundError, ProcessLookupError):
+                continue
+        assert len(held) == 1, 'held watch not found'
+        deadline = time.monotonic()+3
+        while (held[0]/'stat').read_text().rsplit(') ', 1)[1].split()[0] != 'S':
+            assert time.monotonic() < deadline, 'held watch never blocked in its read'
+            time.sleep(0.001)
+        os.killpg(watch.pid, signal.SIGTERM)
+        # A held 100 keeps a started cancel inside ipptool, so the watch
+        # ends first only when it never asked.
+        deadline = time.monotonic()+3
+        while not server.cancel.is_set() and not exited(leader, 10):
+            assert time.monotonic() < deadline, 'watch neither cancelled nor ended'
+        reached = server.cancel.is_set()
+        server.release.set()
+        assert exited(leader, 5000), 'watch survived its cancellation'
+        deadline = time.monotonic()+2
+        while (survivors := group_members(watch.pid)) and time.monotonic() < deadline:
+            time.sleep(0.01)
+        status = watch.wait(timeout=1)
+        stdout, stderr = watch.communicate(timeout=1)
+        assert not server.errors, server.errors
+        return {'run': run, 'cancelRequested': reached, 'responseSent': server.finished.is_set(),
+                'status': status, 'stderr': stderr, 'groupSurvivors': survivors}
+    finally:
+        if watch.poll() is None: os.killpg(watch.pid, signal.SIGKILL)
+        watch.communicate(timeout=3)
+        os.close(leader)
+        server.release.set()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+# A TERM that lands while a handler runs, before it ignores the rest, stays
+# pending; Bash then finds the ignore, drops it and warns `run_pending_traps:
+# bad value in trap_list[15]` on stderr (trap.c), which the service logs. So
+# the verdict reads the watch's own keyed cancel line, not an empty stderr.
+def cancelled(result):
+    return (result['cancelRequested'] and result['responseSent'] and result['status'] == 143
+            and 'printers-watch: cancel=failed' not in result['stderr']
+            and not result['groupSurvivors'])
+
+runs = [group_only(helper, run) for run in range(GROUP_RUNS)]
+record({'case': 'group-only', 'runs': GROUP_RUNS, 'cancelled': sum(map(cancelled, runs)),
+        'failures': [r for r in runs if not cancelled(r)]})
+assert all(map(cancelled, runs)), [r for r in runs if not cancelled(r)]
+control = [group_only(mutants['reentrant-stop'], run) for run in range(GROUP_RUNS)]
+lost = [r for r in control if not r['cancelRequested']]
+record({'case': 'control-reentrant-stop', 'runs': GROUP_RUNS, 'cancelLost': len(lost),
+        'statuses': sorted({r['status'] for r in control})})
+assert lost, 'control: handlers that let a later TERM pre-empt cleanup kept every cancel'
+
 # Lock's sole monitor can finish during its startup query. These are real
 # owned children, with no PID reuse or real sleep action in the fixture.
 # sleep-watch promises only that TERM ends the hook and leaves no listener;
@@ -737,7 +830,7 @@ print('preserved')
 PY
 }
 
-expect "real ipptool preserves cancellation through overlapping TERM and keeps its timeout" preserved pr_cleanup_overlap
+expect "real ipptool preserves cancellation through overlapping and group-only TERM and keeps its timeout" preserved pr_cleanup_overlap
 [[ ! -f $sandbox/printer-overlap/results.json ]] || cat -- "$sandbox/printer-overlap/results.json"
 
 pr_was_system=""

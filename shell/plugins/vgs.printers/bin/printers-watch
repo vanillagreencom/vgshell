@@ -54,7 +54,8 @@
 #   printers-watch: refused: subscribe=failed      exit 2, CUPS refused it or
 #                                                  could not be reached
 #   printers-watch: refused: renew=failed id=<id>  exit 3
-# A TERM, INT or HUP ends it with 143, 130 or 129.
+# A TERM, INT or HUP ends it with 143, 130 or 129, and the first ignores
+# any later one, so the cancel still runs.
 set -euo pipefail
 
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
@@ -108,9 +109,12 @@ cleanup() {
   [[ -z $monitor_pid ]] || builtin kill -TERM -- %+ 2>/dev/null || :
 }
 trap cleanup EXIT
-trap 'exit 143' TERM
-trap 'exit 130' INT
-trap 'exit 129' HUP
+# One group TERM reaches this watch beside the first process, which forwards
+# it again; a stop signal still pending when EXIT starts would run its exit
+# inside cleanup and skip the cancel, so the first one ignores the rest.
+trap 'trap "" TERM INT HUP; exit 143' TERM
+trap 'trap "" TERM INT HUP; exit 130' INT
+trap 'trap "" TERM INT HUP; exit 129' HUP
 
 monitor_exit() {
   local status=0
