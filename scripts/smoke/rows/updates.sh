@@ -228,6 +228,7 @@ updates_reboot_field() { ipc smoke invokeInstance window vgs.settings fieldChoic
 t=sys.stdin.read(); f=json.loads(t) if t.startswith("{") else None
 print(json.dumps([f["shown"], [row["label"] for row in f["model"]]]) if f else t.strip())'; }
 updates_reboot_held() { python3 -c 'import json,sys; print(json.dumps(next((r.get("rebootNotice") for r in json.load(open(sys.argv[1])).get("plugins", []) if r["id"] == "vgs.updates"), None)))' "$home/.config/vgshell/shell.json"; }
+updates_reboot_action() { updates_field rebootNotice | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps(v.get("action") if isinstance(v,dict) else None))'; }
 updates_offer() { ipc smoke readInstance panel vgs.updates problem; }
 updates_answered() { python3 -c 'import json,sys; print(json.dumps(next((r.get("rebootNoticeAnswered") for r in json.load(open(sys.argv[1])).get("plugins", []) if r["id"] == "vgs.updates"), None)))' "$home/.config/vgshell/shell.json"; }
 updates_visit() {
@@ -256,7 +257,7 @@ updates_visit
 expect "Keep suppresses the next visit's offer" absent updates_offer
 expect "the Updates service disables for the saved-choice test" ok ipc shell setPluginEnabled vgs.updates false
 expect "the Updates service enables with the saved choice" ok ipc shell setPluginEnabled vgs.updates true
-expect_poll "the rebuilt service publishes the hook state" '"vgsOnly"' ipc smoke readInstance service vgs.updates reported.rebootNotice.action
+expect_poll "the rebuilt service publishes the hook state" '"vgsOnly"' updates_reboot_action
 updates_visit
 expect "the saved Keep survives the service rebuild" absent updates_offer
 expect "resetting the fixture's answer is allowed" ok ipc smoke invokeInstance window vgs.settings applySetting '{"id":"vgs.updates","key":"rebootNoticeAnswered","value":false}'
@@ -292,7 +293,7 @@ mkdir -p -- "${updates_notice_link%/*}" "${updates_notice_record%/*}"
 ln -s -- /dev/null "$updates_notice_link"
 printf 'uid=%s\nlink=1\n' "$(id -u)" >"$updates_notice_record"
 rescan "the recorded disabled hook is probed"
-expect_poll "the recorded hook reads VGS only" '"both"' ipc smoke readInstance service vgs.updates reported.rebootNotice.action
+expect_poll "the recorded hook reads VGS only" '"both"' updates_reboot_action
 expect "Updates opens with a ready probe" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.updates
 expect "a ready hook offers no panel" absent updates_offer
 expect "Updates leaves the ready probe" ok ipc smoke invokeInstance window vgs.settings back ''
