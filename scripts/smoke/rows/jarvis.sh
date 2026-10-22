@@ -72,7 +72,7 @@ def daemons():
 def running():
     try:
         stat = pathlib.Path(f"/proc/{launcher}/stat").read_text()
-    except FileNotFoundError:
+    except (FileNotFoundError, ProcessLookupError):
         return False
     return stat[stat.rindex(")") + 2] != "Z"
 while True:
