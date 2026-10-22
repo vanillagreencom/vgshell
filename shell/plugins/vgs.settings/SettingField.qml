@@ -120,7 +120,10 @@ Column {
     // A read-only field and a hidden custom row hold no edit.
     onEditableChanged: if (!editable) discard()
     onCustomVisibleChanged: {
-        if (customVisible) revealPending = true;
+        if (customVisible) {
+            revealPending = true;
+            if (!bounded && customLoader.item !== null) customLoader.item.prefill();
+        }
         else if (editing(customLoader.item)) customLoader.item.revert();
     }
     // The custom editor shows once this column has placed it
@@ -352,6 +355,13 @@ Column {
             readonly property bool edited: input.edited
             function save() { if (problemText === "") root.commit(input); }
             function revert() { input.revert(); }
+            // Empty defaults have no editable example. Keep the seed in
+            // the draft, so Enter saves it and Escape restores heldText.
+            function prefill() {
+                if (root.heldText !== "" || !root.hasPresets) return;
+                const preset = root.spec.presets.find(preset => preset.value !== "");
+                if (preset !== undefined) input.text = String(preset.value);
+            }
 
             DraftField {
                 id: input

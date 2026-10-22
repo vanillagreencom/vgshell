@@ -192,6 +192,18 @@ Item {
     }
 
     Component { id: shippedField; SettingField { pluginId: "vgs.capture" } }
+    Component {
+        id: committingField
+        SettingField {
+            width: 420
+            // QtTest constructor properties turn arrays into QVariant
+            // sequences; decode the schema here as native JavaScript.
+            required property string schemaJson
+            spec: JSON.parse(schemaJson)
+            property var written: []
+            onApply: wanted => { written.push(wanted); value = wanted; }
+        }
+    }
 
     SettingField {
         id: languages
@@ -656,15 +668,69 @@ Item {
             customFed.value = "b";
             select.choose(customFed.choices.length);
             verify(customFed.customVisible, "Custom… opens the custom editor");
-            compare(shownCustomText(customFed), "b", "the editor holds the configured value");
+            compare(shownCustomText(customFed), "b", "status-fed Custom retains the configured choice");
             compare(root.applied, [], "choosing Custom… writes nothing");
             compare(select.currentIndex, 1, "an offered value keeps its own row");
             customFed.value = "";
             verify(!customFed.customVisible, "a write of an offered value closes the custom editor");
             select.choose(customFed.choices.length);
+            compare(shownCustomText(customFed), "", "status-fed choices supply no preset seed");
             select.choose(1);
             verify(!customFed.customVisible, "choosing an offer closes the custom editor");
             compare(root.applied, ["b"], "choosing an offer writes its value");
+        }
+
+        function test_custom_prefill_is_an_unsaved_draft_data() {
+            const request = new XMLHttpRequest();
+            request.open("GET", Qt.resolvedUrl("../../shell/plugins/vgs.updates/manifest.json"), false);
+            request.send();
+            const schema = JSON.parse(request.responseText).schema;
+            return [
+                { tag: "AUR automatic", spec: schema.aurCommand, held: "", seed: "paru -Sua" },
+                { tag: "review automatic", spec: schema.reviewCommand, held: "", seed: "claude --model opus --effort medium --permission-mode default" },
+                { tag: "chosen preset", spec: schema.aurCommand, held: "yay -Sua", seed: "yay -Sua" },
+                { tag: "saved custom", spec: schema.aurCommand, held: "own-update --aur", seed: "own-update --aur" },
+                { tag: "unbounded number", spec: { type: "number", allowCustom: true, presets: [{ value: 0 }, { value: 30 }] }, held: 0, seed: "0" },
+                { tag: "bounded slider", spec: { type: "number", allowCustom: true, min: 0, max: 60, presets: [{ value: 0 }, { value: 30 }] }, held: 0, bounded: true },
+                { tag: "no nonempty preset", spec: { type: "string", allowCustom: true, presets: [{ value: "" }] }, held: "", seed: "" }
+            ];
+        }
+
+        function test_custom_prefill_is_an_unsaved_draft(data) {
+            const made = createTemporaryObject(committingField, root, { schemaJson: JSON.stringify(data.spec), value: data.held });
+            verify(made !== null);
+            tryVerify(() => selectOf(made) !== undefined);
+            const select = selectOf(made);
+            select.choose(select.count - 1);
+            if (data.bounded === true) {
+                verify(made.customVisible);
+                compare(shownCustomText(made), null, "bounded Custom keeps its slider");
+                verify(descendants(made).some(child => String(child).indexOf("Slider") === 0));
+                compare(made.written, []);
+                return;
+            }
+            const input = descendants(made).find(child => child instanceof TextInput && child.visible);
+            verify(input !== undefined);
+            compare(input.text, data.seed, "Custom starts from the chosen value or the first nonempty own preset");
+            compare(made.value, data.held, "opening Custom stores nothing");
+            compare(made.written, []);
+            input.forceActiveFocus();
+            keyClick(Qt.Key_Escape);
+            compare(input.text, String(data.held), "Escape drops the seeded draft");
+            compare(made.written, []);
+            verify(!made.edited);
+            select.choose(0);
+            made.value = data.held;
+            made.written = [];
+            select.choose(select.count - 1);
+            compare(input.text, data.seed, "reopening starts a new draft");
+            const saved = data.seed !== String(data.held) ? data.seed : data.spec.type === "number" ? "31" : data.seed + " edited";
+            input.text = saved;
+            input.forceActiveFocus();
+            keyClick(Qt.Key_Return);
+            compare(made.value, data.spec.type === "number" ? Number(saved) : saved);
+            compare(made.written, [made.value], "Enter saves the draft");
+            verify(!made.edited);
         }
 
         function test_a_value_no_choice_holds_shows_under_custom() {
