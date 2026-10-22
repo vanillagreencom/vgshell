@@ -1447,18 +1447,22 @@ expect_poll "a disabled plugin's step keeps its chip and draws no Turn on" '["To
 expect_poll "a disabled plugin's Setup opens with one Turn on notice" '[["Turn on Status to continue setup", "Turn on"]]' setup_notices
 expect "the window opens the notifications' page" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.notifications
 expect_poll "the notifications' page opens on its Settings tab" 0 settings_tab
-slack_tokens_hint="Connect each workspace to show sender photos"
-# Slack token rows stay beside their Settings choice when photos are off.
-# A disabled plugin reports no account state and offers no token edit.
-expect_poll "with Slack photos off the disabled notifications list the Slack tokens row unreported" '[["Slack tokens", "unreported", null, ""]]' status_of vgs.notifications
-expect_poll "Settings draws the Slack tokens row with its hint while photos are off" "$(python3 -c 'import json,sys; print(json.dumps([["Slack tokens", "Not reported", sys.argv[1]]]))' "$slack_tokens_hint")" drawn_status
+# The workspace key list stands beside its Settings choice when photos are
+# off. A disabled plugin reports no account state and offers no token
+# edit: the list draws no head and no key, only the one sentence that
+# turning the plugin on loads its keys.
+slack_list_label="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["status"]["slackTokens"]["label"])' "$repo/shell/plugins/vgs.notifications/manifest.json")"
+slack_list_unreported="$(python3 -c 'import json,sys; print(json.dumps([[sys.argv[1], "unreported", None, ""]]))' "$slack_list_label")"
+slack_list_off="$(python3 -c 'import json,sys; print(json.dumps([["Turn on Notifications to load " + sys.argv[1] + "."]]))' "$slack_list_label")"
+expect_poll "with Slack photos off the disabled notifications list the workspace keys unreported" "$slack_list_unreported" status_of vgs.notifications
+expect_poll "Settings draws the off sentence in place of the workspace keys while photos are off" "$slack_list_off" drawn_status
 # Changing the photos setting keeps the same supported connection path.
 set_slack_photos on
-expect_poll "the disabled notifications list the Slack tokens row unreported" '[["Slack tokens", "unreported", null, ""]]' status_of vgs.notifications
-expect_poll "Settings draws the Slack tokens row with its hint and no line per account" "$(python3 -c 'import json,sys; print(json.dumps([["Slack tokens", "Not reported", sys.argv[1]]]))' "$slack_tokens_hint")" drawn_status
-expect "no Slack tokens row takes an edit" '[[]]' ipc smoke statusRowInputs window vgs.settings
+expect_poll "the disabled notifications list the workspace keys unreported" "$slack_list_unreported" status_of vgs.notifications
+expect_poll "Settings draws the off sentence and no line per account" "$slack_list_off" drawn_status
+expect "no workspace key line takes an edit" '[[]]' ipc smoke statusRowInputs window vgs.settings
 set_slack_photos absent
-expect_poll "turning photos off again keeps the Slack tokens row unreported" '[["Slack tokens", "unreported", null, ""]]' status_of vgs.notifications
+expect_poll "turning photos off again keeps the workspace keys unreported" "$slack_list_unreported" status_of vgs.notifications
 
 # Pointer scrolling (docs/architecture/design-system.md § Pointer): a mouse drag on the page
 # leaves it where it was, a wheel notch scrolls it, and Tab still scrolls

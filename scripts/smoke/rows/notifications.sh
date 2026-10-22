@@ -3389,14 +3389,15 @@ hold_runs
 forget_record
 settings_press --type RowAction "Create Slack app" StatusLine "Globex" || fail "the held click on Globex's Create Slack app failed"
 expect_poll "a held guide for Globex starts" "$(words vgs.notifications/setup-slack tui/setup-slack.sh slack:T0GLOBEX Globex)" source_record
-settings_press --type RowAction "Create Slack app" StatusLine "Acme Corp (acme)" || fail "the click on Acme's Create Slack app beside Globex's guide failed"
-expect_log "Acme's press beside Globex's live guide is refused busy-other" 1 'settings: vgs\.notifications/slackTokens/source slack:T0ACME refused: tui=setup-slack reason=busy-other'
+# The live guide's window stands over the page, so Acme's press goes
+# through the page's own source call, as its Create Slack app hands it on.
+expect "Acme's press beside Globex's live guide is refused busy-other" "refused: tui=setup-slack reason=busy-other" ipc smoke invokeInstanceArgs window vgs.settings actSource '{"args":["vgs.notifications","slackTokens","slack:T0ACME"]}'
+expect_log "the page keeps the refusal under Acme's source" 1 'settings: vgs\.notifications/slackTokens/source slack:T0ACME refused: tui=setup-slack reason=busy-other'
 expect "no second guide started" "$(words vgs.notifications/setup-slack tui/setup-slack.sh slack:T0GLOBEX Globex)" source_record
 release_runs
-for line in "Acme Corp (acme)" Globex; do
-  settings_press --type RowAction "Cancel" StatusLine "$line" || fail "the click on $line's Cancel after the guides failed"
-done
-expect_poll "the guides leave no field open" '[[]]' row_inputs
+# The press lands once the ended guide's window has gone from over the page.
+cancel_globex() { settings_press --type RowAction "Cancel" StatusLine Globex 2>/dev/null && row_inputs; }
+expect_poll "Globex's Cancel closes its field once the guide's window goes" '[[]]' cancel_globex
 # Remove on a locked key store: `secret-tool clear` deletes unlocked items
 # only and still exits 0, so the core searches for the account again and
 # ends the write as `locked`. The stand-in keeps the entry, the line names
