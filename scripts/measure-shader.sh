@@ -7,7 +7,7 @@
 # measures one, voiceorb or plasma.
 # Calibration measures N passes, 1 by default, in one sandbox and derives
 # each shader's ceilings as twice its highest reading over every pass and
-# scale, written as that shader's record in FILE beside the others, with
+# scale, floored at each stream's instrument resolution, written in FILE with
 # each pass's highest scene CPU pressure (cpu_some_pct) beside its readings.
 # Each CPU, GPU, and presentation stream discards 120 warmup readings and
 # keeps 600 samples; a reading is their 90th percentile. GPU timestamps
@@ -16,7 +16,10 @@
 # each scene line records the host's CPU pressure.
 # Vulkan is required for device identity and timestamps. QSG_NO_VSYNC=1
 # requests swap interval 0; Wayland can still pace frameSwapped callbacks.
-# Exit 77: missing dependency, uncalibrated/software device, or sandbox fault.
+# CPU readings above harness.sh's latency_pressure_limit are not measured
+# in check or calibration mode. GPU ceilings and controls still fail.
+# Exit 77: missing dependency, uncalibrated/software device, CPU pressure,
+# or sandbox fault.
 # Exit 1: missing samples, failed scene, ceiling exceeded, or accepted control.
 # The result names the machine, UTC date, backend, GPU, and separate readings.
 set -euo pipefail
@@ -144,7 +147,7 @@ done
 verdict=0
 for shader in "${shaders[@]}"; do
   status=0
-  python3 "$source_repo/scripts/shader/readings.py" "${passes[@]/%//$shader}" --shader "$shader" "${choice[@]}" || status=$?
+  python3 "$source_repo/scripts/shader/readings.py" "${passes[@]/%//$shader}" --shader "$shader" "${choice[@]}" --cpu-pressure-limit "$latency_pressure_limit" || status=$?
   if [[ $status -ne 0 && ( $verdict -eq 0 || $verdict -eq 77 ) ]]; then verdict=$status; fi
 done
 exit "$verdict"
