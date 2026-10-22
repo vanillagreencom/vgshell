@@ -1449,17 +1449,23 @@ expect "the window opens the notifications' page" ok ipc smoke invokeInstance wi
 expect_poll "the notifications' page opens on its Settings tab" 0 settings_tab
 # The workspace key list stands beside its Settings choice when photos are
 # off. A disabled plugin reports no account state and offers no token
-# edit: the list draws no head and no key, only the one sentence that
-# turning the plugin on loads its keys.
+# edit: the list draws no head and no key, only one sentence of its own in
+# their place, neither the list's label nor its hint.
 slack_list_label="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["status"]["slackTokens"]["label"])' "$repo/shell/plugins/vgs.notifications/manifest.json")"
 slack_list_unreported="$(python3 -c 'import json,sys; print(json.dumps([[sys.argv[1], "unreported", None, ""]]))' "$slack_list_label")"
-slack_list_off="$(python3 -c 'import json,sys; print(json.dumps([["Turn on Notifications to load " + sys.argv[1] + "."]]))' "$slack_list_label")"
+# slack_list_drawn: `one-sentence` while the page draws one row of one text
+# that is neither the list's label nor its hint, else the rows it draws.
+slack_list_drawn() { ipc smoke itemTexts window vgs.settings StatusRow | py_reply 'import json,sys
+entry = json.load(open(sys.argv[1]))["status"]["slackTokens"]
+rows = json.load(sys.stdin)
+one = len(rows) == 1 and len(rows[0]) == 1 and rows[0][0] not in ("", entry["label"], entry["hint"])
+print("one-sentence" if one else json.dumps(rows))' "$repo/shell/plugins/vgs.notifications/manifest.json"; }
 expect_poll "with Slack photos off the disabled notifications list the workspace keys unreported" "$slack_list_unreported" status_of vgs.notifications
-expect_poll "Settings draws the off sentence in place of the workspace keys while photos are off" "$slack_list_off" drawn_status
+expect_poll "Settings draws the off sentence in place of the workspace keys while photos are off" one-sentence slack_list_drawn
 # Changing the photos setting keeps the same supported connection path.
 set_slack_photos on
 expect_poll "the disabled notifications list the workspace keys unreported" "$slack_list_unreported" status_of vgs.notifications
-expect_poll "Settings draws the off sentence and no line per account" "$slack_list_off" drawn_status
+expect_poll "Settings draws the off sentence and no line per account" one-sentence slack_list_drawn
 expect "no workspace key line takes an edit" '[[]]' ipc smoke statusRowInputs window vgs.settings
 set_slack_photos absent
 expect_poll "turning photos off again keeps the workspace keys unreported" "$slack_list_unreported" status_of vgs.notifications

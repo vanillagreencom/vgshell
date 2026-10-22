@@ -61,8 +61,8 @@ const blocked = { tone: "warning", text: "Waiting for account" };
 const allDone = { model: ready, home: ready, account: ready, connection: ready, ownedState: ready,
     optional: { tone: "warning", text: "Feature unavailable", action: true }, fact: { tone: "danger", text: "Alternative unavailable" } };
 const homeUnreported = Object.fromEntries(Object.entries(allDone).filter(([key]) => key !== "home"));
-const on = { enabled: true, name: "Fixture", error: "", failed: false };
-const off = { enabled: false, name: "Fixture", error: "", failed: false };
+const on = { id: "acme.fixture", enabled: true, name: "Fixture", error: "", failed: false, keyTool: "" };
+const off = { id: "acme.fixture", enabled: false, name: "Fixture", error: "", failed: false, keyTool: "" };
 // A step the user cannot act on, as its plugin publishes it, and one a
 // missing or outdated required tool blocks.
 const unavailable = { tone: "warning", text: "No reader on this computer", hint: "Connect a reader to set this up", available: false };
@@ -476,6 +476,26 @@ function verify(logic, producer) {
         // A signed-out account reads the same on both tabs.
         if (reads && presence !== "signed-out") assert.notEqual(got.text, logic.itemView({ access: "connect", value: presence, tone: "warning" }).text, "Settings: a " + presence + " key reads what is stored, not the Details reading");
     }
+    // The step a key's note links while the tool the core reads keys with
+    // is missing: [name, the plugin's requirements, whether it is optional,
+    // or null for no step].
+    const keyTool = (state, optional, name) => ({ name: name || "secret-tool", title: name || "secret-tool", optional: optional, state: state });
+    for (const [name, requirements, optional] of [
+        ["an optional key tool missing", [keyTool("missing", true)], true],
+        ["a required key tool missing", [keyTool("missing", false)], false],
+        ["the key tool present", [keyTool("present", true)], null],
+        ["another tool missing", [keyTool("missing", true, "curl")], null],
+        ["no tools declared", [], null]
+    ]) same(logic.keyToolStep(requirements), optional === null ? "" : logic.toolsStep(requirements, optional).label, "Settings: " + name + ": the step a key's note links");
+    // An unavailable key while that tool is missing links the step that
+    // installs it on the plugin's Setup tab, in place of the keyring's
+    // remedy; a locked key's note does not depend on the tool.
+    const toolMissing = Object.assign({}, on, { keyTool: logic.keyToolStep([keyTool("missing", true)]) });
+    const noteOf = (presence, plugin) => logic.keyView({ access: "connect", value: presence, tone: "warning" }, plugin).note;
+    assert.notEqual(noteOf("unavailable", toolMissing), noteOf("unavailable", on), "Settings: an unavailable key names the missing key tool, not the keyring");
+    assert.ok(noteOf("unavailable", toolMissing).includes("](page:" + on.id + "/Setup)"), "Settings: an unavailable key links its plugin's Setup tab while the key tool is missing");
+    assert.ok(!noteOf("unavailable", on).includes("](page:"), "Settings: an unavailable key with its tool present links no step");
+    same(noteOf("locked", toolMissing), noteOf("locked", on), "Settings: a locked key's note does not read the key tool");
     // A stored key list beside its Settings field: what it draws for the
     // plugin's state and its published list.
     const keyEntry = (report, value, hint) => ({ key: "keys", type: "presenceList", label: "Workspaces", hint: hint, info: "", report: report, value: value });
@@ -571,6 +591,8 @@ const controls = [
     ["every unpublished reading checks", 'entry.report !== "reported" && entry.systemStep && plugin', 'entry.report !== "reported" && plugin', "Details: an unpublished system step's reading checks"],
     ["a plugin that could not start checks", 'plugin.enabled && !plugin.failed;', 'plugin.enabled;', "Details: an unpublished system step's reading checks"],
     ["a system step's reading reads not reported", 'text: checking ? CHECKING_LINE : "Not reported"', 'text: "Not reported"', "Details: an unpublished system step's reading checks"],
+    ["an unavailable key blames the keyring while its tool is missing", 'if (value === "unavailable" && plugin.keyTool !== "")', 'if (value === "unavailable" && false)', "names the missing key tool"],
+    ["a key's note links no step for an optional key tool", 'return tool === undefined ? "" : toolsLabel(tool.optional);', 'return tool === undefined || tool.optional ? "" : toolsLabel(tool.optional);', "an optional key tool missing"]
 ];
 // Each producer control edits PluginLogic, whose rows the page draws.
 const producerControls = [

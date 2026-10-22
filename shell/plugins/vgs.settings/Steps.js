@@ -112,9 +112,20 @@ function toolsStep(requirements, optional) {
     if (rows.length === 0) return null;
     var lacking = rows.filter(requirementApplies);
     var chip = STEP_CHIPS[lacking.length === 0 ? "done" : optional ? "optional" : "todo"];
-    return { done: lacking.length === 0, optional: optional, label: optional ? "Optional tools" : "Tools", text: chip.text, tone: chip.tone,
+    return { done: lacking.length === 0, optional: optional, label: toolsLabel(optional), text: chip.text, tone: chip.tone,
         hint: lacking.length === 0 ? (optional ? "Every optional tool is installed" : "Every required tool is installed") : toolsText(lacking),
         button: lacking.length === 0 ? null : reviewButton() };
+}
+function toolsLabel(optional) { return optional ? "Optional tools" : "Tools"; }
+// The command the core reads and stores a plugin's keys with
+// (PluginLogic.secretRequest).
+var KEY_TOOL = "secret-tool";
+// The label of the Setup step that installs KEY_TOOL while REQUIREMENTS,
+// the plugin's, read it missing (toolsStep), else "" while it is present
+// or the plugin declares none.
+function keyToolStep(requirements) {
+    var tool = requirements.find(function (row) { return row.name === KEY_TOOL && row.state === "missing"; });
+    return tool === undefined ? "" : toolsLabel(tool.optional);
 }
 // The Setup section of a plugin's STATUS rows and REQUIREMENTS for
 // PLUGIN, { enabled, failed }: its steps by stepRank, each in manifest
@@ -333,10 +344,15 @@ function statusView(entry, timeText, plugin) {
 // What a stored key reads as beside its masked field on Settings, plain
 // text that says what the key store holds and never that the key works,
 // and the sentence under it, for a presence that has one, of what the
-// user can do. An absent key reads nothing: its Add key says it.
+// user can do, for PLUGIN, { id, name, keyTool }, `keyTool` its
+// keyToolStep. An unavailable key names the missing KEY_TOOL and links the
+// step that installs it, since turning the plugin off and on reads the
+// keys no better while it is missing. An absent key reads nothing: its Add
+// key says it.
 var KEY_WORDS = { present: "Saved", absent: "", locked: "Keyring locked", unavailable: "Keyring unavailable", unsafe: "Saved key is not private", "signed-out": "Signed out" };
 function keyNote(value, plugin) {
     if (value === "locked") return "Saving may ask you to unlock your keyring.";
+    if (value === "unavailable" && plugin.keyTool !== "") return "Install " + KEY_TOOL + " from [" + plugin.keyTool + "](page:" + plugin.id + "/Setup) to read this key.";
     if (value === "unavailable") return "Restore the keyring, then turn " + plugin.name + " off and on to read its keys again.";
     return "";
 }
@@ -360,7 +376,7 @@ function itemView(item, setup) {
 // with no chip (docs/architecture/design-system.md § Settings pages):
 // { tone, text, reason, danger, note }, KEY_WORDS as plain text, `danger`
 // for a key another user can read, and `note`, keyNote's sentence for
-// PLUGIN, { name }; `tone` and `reason` are "" as itemView's shape has them.
+// PLUGIN; `tone` and `reason` are "" as itemView's shape has them.
 function keyView(item, plugin) {
     return { tone: "", text: KEY_WORDS[item.value], reason: "", danger: item.value === "unsafe", note: keyNote(item.value, plugin) };
 }

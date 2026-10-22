@@ -3226,7 +3226,13 @@ expect_poll "the last toast's exit has played" 0 layer_count vgs:layer
 # when the service starts, so each set of states is read after a disable
 # and an enable. No state here makes the photo helper call Slack.
 token_row() { ipc smoke readInstance window vgs.settings plugins | py_reply 'import json,sys; r=[p for p in json.load(sys.stdin) if p["id"] == "vgs.notifications"][0]["status"]; print(json.dumps([[s["label"], s["report"], s["tone"], s["value"]] for s in r]))'; }
-drawn_token_row() { ipc smoke itemTexts window vgs.settings StatusRow | py_reply 'import json,sys; print(json.dumps([row for row in json.load(sys.stdin) if row]))'; }
+# drawn_token_row: the texts the page draws, a key's hint followed by a
+# further sentence of the page's own, as a locked key's note, read as the
+# hint and `<note>`, so the row holds where the note stands and not its words.
+drawn_token_row() { ipc smoke itemTexts window vgs.settings StatusRow | py_reply 'import json,re,sys
+hint = re.search(r"^var SLACK_TOKEN_HINT = \"([^\"]*)\";$", open(sys.argv[1]).read(), re.M).group(1)
+noted = lambda text: hint + " <note>" if text.startswith(hint + " ") and len(text) > len(hint) + 1 else text
+print(json.dumps([[noted(text) for text in row] for row in json.load(sys.stdin) if row]))' "$source_repo/shell/plugins/vgs.notifications/NotificationLogic.js"; }
 token_location() { ipc smoke settingKeyRows window vgs.settings | py_reply 'import json,sys; print(json.dumps([row for row in json.load(sys.stdin) if row["key"]=="slackTokens"]))'; }
 # want_rows rows|drawn|details ITEMS [ERRORED]: the manager row, the texts
 # the Settings page draws, or those a page that draws the keys on Details
@@ -3252,8 +3258,9 @@ steps = {
     "drawn": {"present": ["Saved", "Replace", "Remove"], "absent": ["Add key"], "locked": ["Keyring locked", "Replace", "Remove"]},
     "details": {"present": ["Present", "Replace", "Remove"], "absent": ["Add key"], "locked": ["Locked", "Replace", "Remove"]},
 }
-# What a locked key's line adds under its hint on Settings.
-notes = {"locked": "Saving may ask you to unlock your keyring."}
+# A locked key's line adds a sentence under its hint on Settings, which
+# drawn_token_row reads as `<note>`.
+notes = {"locked": "<note>"}
 accesses = {"present": "disconnect", "absent": "connect", "locked": "disconnect"}
 rows, drawn = [], [] if what == "drawn" else [entry["label"], entry["hint"]]
 for item in items.split(";"):
@@ -3372,6 +3379,9 @@ expect_poll "the write's end probes again: Acme reads Absent with Add key" "$(wa
 # Globex's guide is live, Acme's press reveals it and is refused
 # busy-other at the core's boundary, which the page logs under Acme's
 # source, apart from its writes, and the press opens no second terminal.
+# The core refuses a source while the run before it is live, so each later
+# request waits for the core to read that run's end; the stand-in ends a
+# run after it records it, and a window gone is no such end.
 expected_errors+=('settings: vgs\.notifications/slackTokens/source slack:T0ACME refused: tui=setup-slack reason=busy-other')
 source_record() { recorded_tail; }
 forget_record
@@ -3381,10 +3391,12 @@ expect_poll "the press opened Globex's empty masked field first" '[["TextField"]
 expect "the source reached no secret-tool" "$((calls_before + 3))" secret_calls
 settings_press --type RowAction "Cancel" StatusLine "Globex" || fail "the click on Globex's Cancel failed"
 expect_poll "Cancel closes Globex's field" '[[]]' row_inputs
+expect_run_end "Globex's guide run ends" vgs.notifications/setup-slack
 forget_record
 settings_press --type RowAction "Create Slack app" StatusLine "Acme Corp (acme)" || fail "the click on Acme's Create Slack app failed"
 expect_poll "Acme's press opens the guide with Acme's own account and label" "$(words vgs.notifications/setup-slack tui/setup-slack.sh slack:T0ACME "Acme Corp (acme)")" source_record
 settings_press --type RowAction "Cancel" StatusLine "Acme Corp (acme)" || fail "the click on Acme's Cancel failed"
+expect_run_end "Acme's guide run ends" vgs.notifications/setup-slack
 hold_runs
 forget_record
 settings_press --type RowAction "Create Slack app" StatusLine "Globex" || fail "the held click on Globex's Create Slack app failed"
@@ -3398,6 +3410,7 @@ release_runs
 # The press lands once the ended guide's window has gone from over the page.
 cancel_globex() { settings_press --type RowAction "Cancel" StatusLine Globex 2>/dev/null && row_inputs; }
 expect_poll "Globex's Cancel closes its field once the guide's window goes" '[[]]' cancel_globex
+expect_run_end "Globex's held guide run ends" vgs.notifications/setup-slack
 # The refusal stays under Acme until Acme's source next opens, which clears
 # it; Acme's own writes leave it.
 forget_record

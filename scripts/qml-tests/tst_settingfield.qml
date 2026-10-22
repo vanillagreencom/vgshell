@@ -1081,7 +1081,7 @@ Item {
         // (select over select), 16 (select over switch) and 24 (switch over
         // switch) blank rows apart: the control in scripts/test-qml-unit.sh.
         function test_rows_stand_one_step_apart_by_ink_data() {
-            const all = ["Enabled", "Interval", "View", "Sort", "Colour", "Number", "After", "After keys", "Last"];
+            const all = ["Enabled", "Interval", "View", "Sort", "Colour", "Number", "After", "Last"];
             return [
                 { tag: "no group", group: "", labels: all, step: 0 },
                 { tag: "one section", group: "Bar", labels: [SettingValues.PAGE_LABELS.showOnBar].concat(all.slice(1)), step: 0 },

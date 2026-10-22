@@ -978,7 +978,11 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
             ["copilot-b", "Copilot · zero-user"], ["claude-enterprise", "Claude Code"], ["codex-c", "Codex · c@example.invalid"], ["gateway-a", "AI Gateway"]]);
         assert.equal(View.panel(copilot, NOW, { aiGateway: false }).some(r => r.provider === "gateway"), false);
         assert.equal(View.panel(copilot, NOW, { aiGateway: true }).some(r => r.provider === "gateway"), true);
-        assert.deepEqual(plainOf(View.gatewayKey("present")), [{ label: "AI Gateway", value: "present", secret: "ai-gateway" }]);
+        assert.deepEqual(plainOf(View.gatewayKey("present")), [{ label: "AI Gateway", value: "present", hint: View.GATEWAY_KEY_HINT, secret: "ai-gateway" }]);
+        // The key asks for itself; the list's hint, the sentence its field
+        // reads while the switch is off and the list is empty, does not.
+        const keyList = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "shell", "plugins", "vgs.ai-usage", "manifest.json"), "utf8")).status.gatewayKey;
+        assert.notEqual(View.gatewayKey("absent")[0].hint, keyList.hint, "the gateway key carries its own hint apart from its list's");
         const failedCreditless = View.merge(copilot, { accounts: [{ id: "copilot-b", provider: "copilot", email: "", state: "failed", windows: [], credits: null }], partial: "" }, NOW + 1);
         assert.deepEqual(plainOf(failedCreditless.accounts[0]), { id: "copilot-b", provider: "copilot", email: "zero-user", state: "stale", windows: [], credits: { unit: "requests", granted: 0 }, details: {}, readAt: NOW },
         "a failed read keeps credit data that has no meter");

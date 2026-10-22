@@ -61,6 +61,10 @@ var UNREAD_NOTE = "Usage could not be read yet.";
 // limited read's kept figures once a window has reset since.
 var STALE_TIP = "The last check failed; figures may be old";
 var GATEWAY_ACCOUNT = "ai-gateway";
+// What the AI Gateway key's own line asks for. The key list's manifest
+// hint is the one sentence its field reads while the switch is off and the
+// list holds no key, so it cannot ask for the key too.
+var GATEWAY_KEY_HINT = "Add the key to show your AI Gateway credit figures";
 var LABEL_MAX = 60;
 // What the bar's number is under each Bar number setting, for its tooltip.
 var BAR_MEANING = { average: "Average of each account's highest limit", "most-left": "Account with the most left",
@@ -251,7 +255,7 @@ function signIn(usage, provider) {
 
 function gatewayKey(presence) {
     var value = ["present", "absent", "locked", "unavailable", "unsafe"].indexOf(presence) === -1 ? "unavailable" : presence;
-    return [{ label: "AI Gateway", value: value, secret: GATEWAY_ACCOUNT }];
+    return [{ label: "AI Gateway", value: value, hint: GATEWAY_KEY_HINT, secret: GATEWAY_ACCOUNT }];
 }
 
 // What a window measures: its length in minutes, null when the tool names

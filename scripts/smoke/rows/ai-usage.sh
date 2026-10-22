@@ -761,20 +761,21 @@ SH
 rescan "the gateway key stand-ins are scanned"
 expect "secret-tool resolves to the row's stand-in on the shell's PATH" "$shim/secret-tool" shell_resolves secret-tool
 # usage_key_want absent|present [details]: the texts the key's StatusRow
-# draws, its list's hint the manifest's. Beside its Settings field the list
-# draws no head: the key's line reads what the keyring holds as text, then
-# its steps, then the list's hint, which the key has none of its own to
-# stand in for. On Details the list keeps its head and the key its chip.
+# draws, the list's hint the manifest's and the key's own UsageView's
+# GATEWAY_KEY_HINT. Beside its Settings field the list draws no head: the
+# key's line reads what the keyring holds as text, then its steps, then its
+# hint. On Details the list keeps its head and the key its chip.
 usage_key_want() {
-  python3 - "$usage_plugin/manifest.json" "$1" "${2:-settings}" <<'PY'
-import json, sys
+  python3 - "$usage_plugin/manifest.json" "$usage_plugin/UsageView.js" "$1" "${2:-settings}" <<'PY'
+import json, re, sys
 entry = json.load(open(sys.argv[1]))["status"]["gatewayKey"]
-if sys.argv[3] == "details":
+hint = re.search(r'^var GATEWAY_KEY_HINT = "([^"]*)";$', open(sys.argv[2]).read(), re.M).group(1)
+if sys.argv[4] == "details":
     steps = {"absent": ["Add key"], "present": ["Present", "Replace", "Remove"]}
-    print(json.dumps([entry["label"], entry["hint"], "AI Gateway"] + steps[sys.argv[2]]))
+    print(json.dumps([entry["label"], entry["hint"], "AI Gateway"] + steps[sys.argv[3]] + [hint]))
 else:
     steps = {"absent": ["Add key"], "present": ["Saved", "Replace", "Remove"]}
-    print(json.dumps(["AI Gateway"] + steps[sys.argv[2]] + [entry["hint"]]))
+    print(json.dumps(["AI Gateway"] + steps[sys.argv[3]] + [hint]))
 PY
 }
 usage_key_row() { status_row vgs.ai-usage gatewayKey | py_reply 'import json,sys; r=json.load(sys.stdin); print(json.dumps([[i["label"], i["value"], i["secret"], i["access"]] for i in r["value"] or []]))'; }
@@ -872,6 +873,15 @@ expect_poll "the Settings window is gone after the key placement control" 0 wind
 rm -rf -- "${home:?}/.config/vgshell/plugins/vgs.settings"
 rescan "a rescan drops the key placement control copy"
 sentinel_restore "$shim/secret-tool"
+# With AI Gateway credits off the service lists no key, and the field reads
+# the list's hint alone in the key's place, never the key's own ask.
+usage_key_off() { ipc smoke itemTexts window vgs.settings StatusRow | py_reply 'import json,sys; hint=json.load(open(sys.argv[1]))["status"]["gatewayKey"]["hint"]; r=[r for r in json.load(sys.stdin) if hint in r or "AI Gateway" in r]; print(json.dumps(r[0] == [hint]) if len(r) == 1 else "rows=%d" % len(r))' "$usage_plugin/manifest.json"; }
+expect "Settings opens on AI Usage's page with AI Gateway credits on" ok ipc shell summon window vgs.settings '{"plugin":"vgs.ai-usage"}'
+expect "AI Gateway credits turn off through Settings" ok usage_apply_setting aiGateway false
+expect_poll "the service lists no gateway key once the switch is off" '[]' usage_key_row
+expect_poll "the off switch reads the list's hint alone in the key's place" true usage_key_off
+expect "the Settings window closes after the off switch" ok ipc shell hide window vgs.settings
+expect_poll "the Settings window is gone after the off switch" 0 window_count Plugins
 
 expect "AI Usage is disabled after the row" ok ipc shell setPluginEnabled vgs.ai-usage false
 expect_poll "disabled AI Usage releases its service" False record_exists vgs.ai-usage

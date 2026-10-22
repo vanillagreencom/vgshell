@@ -49,13 +49,15 @@ FocusScope {
     // capability another plugin holds, in the shell's words (Reply.line),
     // which a step it never reported reads in place of Checking, and
     // `failed`, whether such a line applies, which reads such a step Not
-    // available (Steps.stepView). A binding that reads it with the row
-    // calls pluginOf(row), so a new row reaches it in one evaluation and
-    // never beside the plugin of the row before.
+    // available (Steps.stepView), its `id`, and `keyTool`, the step that
+    // installs the missing tool its keys are read with (Steps.keyToolStep).
+    // A binding that reads it with the row calls pluginOf(row), so a new
+    // row reaches it in one evaluation and never beside the plugin of the
+    // row before.
     function pluginOf(row) {
-        if (row === null) return { enabled: false, name: "", error: "", failed: false };
+        if (row === null) return { id: "", enabled: false, name: "", error: "", failed: false, keyTool: "" };
         const line = Steps.startError(row.errors);
-        return { enabled: row.enabled, name: row.name, error: Reply.line(line || "ok"), failed: line !== "" };
+        return { id: row.id, enabled: row.enabled, name: row.name, error: Reply.line(line || "ok"), failed: line !== "", keyTool: Steps.keyToolStep(row.requirements) };
     }
     readonly property var plugin: pluginOf(row)
 
