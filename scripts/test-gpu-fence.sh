@@ -901,7 +901,7 @@ pathlib.Path(output, "result.json").write_text(json.dumps(result))
         env = {"PATH": os.environ["PATH"], "HOME": str(fixture / "home"), "TMPDIR": str(base), "XDG_RUNTIME_DIR": runtime,
                "WAYLAND_DISPLAY": str(base / "named.sock"), "WAYLAND_SOCKET": "99", "DISPLAY": ":99", "HYPRLAND_INSTANCE_SIGNATURE": "planted",
                "DBUS_SESSION_BUS_ADDRESS": "unix:path=" + runtime + "/caller.sock", "VGS_WORLD_PLANTED": "planted",
-               "VGSHELL_WORLD_ROOT": "/tmp"}
+               "VGSHELL_WORLD_ROOT": temporary}
         completed = subprocess.run([bash, file, "--checkout", repo, "--out", str(output), "--out", mutants, *extra,
                                     "python3", str(probe), str(fixture), str(output), runtime, temporary, abstract_name[1:], str(tcp.getsockname()[1]), repo],
                                    env=env, capture_output=True, text=True, timeout=20)

@@ -39,16 +39,19 @@ def namespace_entry():
     """Every behavior case runs under the shared private-world owner."""
     if os.environ.get("JARVIS_TEST_ROOT"):
         return
+    # Root-backed short paths keep both Unix sockets and TUI log names whole.
+    runtime_parent = str(Path(os.environ["XDG_RUNTIME_DIR"]) / "owned")
     with tempfile.TemporaryDirectory(prefix="setup-standins-") as name:
         child = subprocess.run([str(REPO / "scripts/lib/jarvis-env.sh"), name, "--",
             sys.executable, str(Path(__file__).resolve())],
-            env={"PATH": "/usr/bin:/bin", "LC_ALL": "C", "JARVIS_TEST_SCRATCH_ROOT": name}, check=False)
+            env={"PATH": "/usr/bin:/bin", "LC_ALL": "C", "XDG_RUNTIME_DIR": runtime_parent,
+                 "JARVIS_TEST_SCRATCH_ROOT": runtime_parent}, check=False)
     raise SystemExit(child.returncode)
 
 
 class Setup(unittest.TestCase):
     def setUp(self):
-        scratch = tempfile.TemporaryDirectory(prefix="jarvis-setup-")
+        scratch = tempfile.TemporaryDirectory(prefix="setup-", dir=Path(os.environ["XDG_RUNTIME_DIR"]).parent)
         self.addCleanup(scratch.cleanup)
         self.root = Path(scratch.name).resolve()
         self.plugin = self.root / "plugin"
