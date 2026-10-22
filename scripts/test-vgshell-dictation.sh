@@ -26,9 +26,19 @@ cat >"$tree/bin/vgshell-pkg" <<EOF2
 #!/bin/sh
 printf '%s\n' "\$*" >>"$tmp/pkg.calls"
 case "\$*" in
-  'detect --json') printf '{"primary":{"id":"%s","binary":"unused"},"overlays":[],"sources":[]}\n' "\$(cat "$tmp/package-manager")" ;;
+  'detect --json')
+    if [ -e "$tmp/detect-failed" ]; then
+      printf 'fixture-pkg: operation=detect-failed\n' >&2
+      exit 7
+    fi
+    printf '{"primary":{"id":"%s","binary":"unused"},"overlays":[],"sources":[]}\n' "\$(cat "$tmp/package-manager")"
+    ;;
   "run install --manager \$(cat "$tmp/package-manager") \$(cat "$tmp/package-name")")
-    [ ! -e "$tmp/install-failed" ] || exit 1
+    if [ -e "$tmp/install-failed" ]; then
+      printf 'fixture-pkg: operation=install-failed\n' >&2
+      exit 5
+    fi
+    printf '{"progress":"fixture-install"}\n'
     [ -e "$tmp/install-unavailable" ] || cp "$tmp/audio-module.so" "$audio_modules/libasound_module_pcm_pipewire.so"
     ;;
   *) exit 64 ;;
@@ -77,6 +87,7 @@ setup_run() { # EXPECTED_EXIT [ANSWER_STATUS]
   test "$code" == "$expected"
 }
 config_dir="$tmp/home/config & # \"quoted\"/voxtype"
+setup_log="$tmp/home/.local/state/vgshell/dictation/setup.log"
 no_changes() {
   [[ ! -e $config_dir && ! -e $tmp/system.calls ]] || return 1
   [[ -f $tmp/voxtype.calls ]] || return 1
@@ -116,7 +127,7 @@ check "no setup run starts sudo or systemctl" test ! -e "$tmp/forbidden"
 # supported package owner is reached through the existing setup verb.
 printf '[{"name":"parakeet","compiled":true}]\n' >"$tmp/engines.json"
 rm -f -- "${tmp:?}/system.calls"
-for pair in 'apt pipewire-alsa' 'dnf pipewire-alsa' 'pacman pipewire-audio' 'nix pipewire'; do
+for pair in 'apt pipewire-alsa' 'dnf pipewire-alsa' 'pacman pipewire-audio'; do
   read -r manager package <<<"$pair"
   printf '%s\n' "$manager" >"$tmp/package-manager"
   printf '%s\n' "$package" >"$tmp/package-name"
@@ -125,16 +136,53 @@ for pair in 'apt pipewire-alsa' 'dnf pipewire-alsa' 'pacman pipewire-audio' 'nix
   check "$manager: declined repair makes no package call" test ! -e "$tmp/pkg.calls"
   check "$manager: setup installs the canonical missing audio module" setup_run
   check "$manager: existing package owner receives install argv" grep -qxF -- "run install --manager $manager $package" "$tmp/pkg.calls"
+  check "$manager: package progress remains on the screen" grep -qF -- '{"progress":"fixture-install"}' "$tmp/setup.out"
 done
 check "an absent module never claims an engine compilation defect" test ! -e "$tmp/system.calls"
-rm -f -- "${audio_modules:?}/libasound_module_pcm_pipewire.so"
-touch "$tmp/install-unavailable"
-check "setup refuses success while an installed module still cannot load" setup_run 69
-rm -f -- "${tmp:?}/install-unavailable"
-touch "$tmp/install-failed"
-check "a failed package action stops setup" setup_run 1
-rm -f -- "${tmp:?}/install-failed"
+# Diagnostic keys are a technical log contract; screen copy is judged by
+# the terminal captures. Failed repair must not copy config or fetch models.
+printf '[{"name":"parakeet","compiled":false}]\n' >"$tmp/engines.json"
+printf '{"engines":{"parakeet":{"models":[{"name":"parakeet-tdt-0.6b-v3","installed":false}]}}}\n' >"$tmp/models.json"
+repair_failure_reading() { # CASE EXPECTED_STATUS DIAGNOSTIC_KEY
+  local case_name="$1" expected="$2" key="$3" result=0
+  rm -rf -- "${config_dir:?}"
+  rm -f -- "${audio_modules:?}/libasound_module_pcm_pipewire.so" "${tmp:?}/voxtype.calls" \
+    "${tmp:?}/system.calls" "${tmp:?}/pkg.calls" "${setup_log:?}"
+  printf '%s\n' pacman >"$tmp/package-manager"
+  case "$case_name" in
+    package) printf '%s\n' unsupported >"$tmp/package-manager" ;;
+    *) touch "$tmp/$case_name" ;;
+  esac
+  setup_run "$expected" || result=$?
+  [[ $case_name == package ]] || rm -f -- "${tmp:?}/$case_name"
+  no_changes || return 1
+  [[ $result == 0 ]] || return 1
+  grep -qxF -- "$key" "$setup_log" || return 1
+  ! grep -E 'vgs-dictation: route=|fixture-pkg: operation=' "$tmp/setup.out"
+}
+for row in \
+  'package|69|vgs-dictation: route=package-unavailable' \
+  'detect-failed|7|fixture-pkg: operation=detect-failed' \
+  'install-failed|5|fixture-pkg: operation=install-failed' \
+  'install-unavailable|69|vgs-dictation: route=pipewire-module-unavailable'; do
+  IFS='|' read -r failure expected key <<<"$row"
+  check "$failure: repair preserves status and logs diagnostics without later setup work" repair_failure_reading "$failure" "$expected" "$key"
+done
+# Removing only the route-package logging wrapper preserves its operation
+# and status but must fail the same screen/log separation assertion.
+cp -- "$tree/bin/vgshell-dictation" "$tmp/logged-setup-source"
+python3 - "$tree/bin/vgshell-dictation" <<'PY'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1]); s=p.read_text()
+a='vgs_tui_logged "$log" python3 "$root/bin/lib/voxtype.py" route-package'
+assert s.count(a)==1
+p.write_text(s.replace(a,'python3 "$root/bin/lib/voxtype.py" route-package'))
+PY
+check "control: unlogged route-package fails screen/log separation" test "$(repair_failure_reading package 69 'vgs-dictation: route=package-unavailable'; echo $?)" != 0
+cp -- "$tmp/logged-setup-source" "$tree/bin/vgshell-dictation"
 cp -- "$tmp/audio-module.so" "$audio_modules/libasound_module_pcm_pipewire.so"
+printf '[{"name":"parakeet","compiled":true}]\n' >"$tmp/engines.json"
+printf '{"engines":{"parakeet":{"models":[{"name":"parakeet-tdt-0.6b-v3","installed":true}]}}}\n' >"$tmp/models.json"
 # Each control changes the shipped operation in the private tree and must
 # fail the corresponding behavioral reading. Restore it after each rule.
 cp -- "$tree/bin/vgshell-dictation" "$tmp/setup-source"

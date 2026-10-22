@@ -16,6 +16,7 @@ if [[ $# != 1 || $1 != setup ]]; then
   exit 2
 fi
 source "$root/bin/lib/tui.sh"
+log="${XDG_STATE_HOME:-$HOME/.local/state}/vgshell/dictation/setup.log"
 config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/voxtype"
 config_file="$config_dir/config.toml"
 vgs_tui_header "Set up dictation" "Existing voxtype settings stay in place."
@@ -25,11 +26,11 @@ if ! command -v voxtype >/dev/null; then
   exit 1
 fi
 route_status=0
-python3 "$root/bin/lib/voxtype.py" check-route || route_status=$?
+vgs_tui_logged "$log" python3 "$root/bin/lib/voxtype.py" check-route || route_status=$?
 case "$route_status" in
   0) ;;
   69) vgs_tui_step "Dictation needs the PipeWire audio library." ;;
-  *) exit "$route_status" ;;
+  *) vgs_tui_failed "$log" "Dictation could not check the audio library."; exit "$route_status" ;;
 esac
 # --config selects the shipped defaults without writing them (voxtype
 # 1.1.0 src/cli/root.rs and src/app/config_get.rs, a read-only command).
@@ -55,15 +56,28 @@ status=0
 vgs_tui_confirm "$question" || status=$?
 case "$status" in 0) ;; 1) exit 130 ;; *) exit "$status" ;; esac
 if [[ $route_status != 0 ]]; then
-  detected="$("$root/bin/vgshell-pkg" detect --json)"
-  audio_package="$(python3 "$root/bin/lib/voxtype.py" route-package "$detected")"
+  detected="$(vgs_tui_logged "$log" "$root/bin/vgshell-pkg" detect --json)" || {
+    status=$?
+    vgs_tui_failed "$log" "Dictation could not find a package manager for this system."
+    exit "$status"
+  }
+  audio_package="$(vgs_tui_logged "$log" python3 "$root/bin/lib/voxtype.py" route-package "$detected")" || {
+    status=$?
+    vgs_tui_failed "$log" "Dictation could not find the audio package for this system."
+    exit "$status"
+  }
   mapfile -t audio_package <<<"$audio_package"
   vgs_tui_step "Installing the PipeWire audio library"
-  "$root/bin/vgshell-pkg" run install --manager "${audio_package[0]}" "${audio_package[1]}"
-  if ! python3 "$root/bin/lib/voxtype.py" check-route; then
-    vgs_tui_error "The PipeWire audio library is still unavailable. Dictation setup could not finish."
-    exit 69
-  fi
+  vgs_tui_logged "$log" "$root/bin/vgshell-pkg" run install --manager "${audio_package[0]}" "${audio_package[1]}" || {
+    status=$?
+    vgs_tui_failed "$log" "Dictation could not install the audio library."
+    exit "$status"
+  }
+  vgs_tui_logged "$log" python3 "$root/bin/lib/voxtype.py" check-route || {
+    status=$?
+    vgs_tui_failed "$log" "The PipeWire audio library is still unavailable. Dictation setup could not finish."
+    exit "$status"
+  }
 fi
 if [[ ${#config_read[@]} != 0 ]]; then
   vgs_tui_step "Copying dictation defaults"
