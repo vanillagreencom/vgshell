@@ -192,15 +192,7 @@ Flickable {
         layer.smooth: true
         gradient: Gradient {
             GradientStop { position: 0; color: root.maskColor(root.effectiveFadeTopInset > 0 ? 1 : 1 - root.fadeAbove) }
-            // Keep fixed content opaque through its inset, then start the fade below it.
-            GradientStop {
-                position: root.effectiveFadeTopInset / Math.max(1, contentClip.height)
-                color: root.maskColor(root.effectiveFadeTopInset > 0 ? 1 : 1 - root.fadeAbove)
-            }
-            GradientStop {
-                position: (root.effectiveFadeTopInset + (root.effectiveFadeTopInset > 0 ? 1 : 0)) / Math.max(1, contentClip.height)
-                color: root.maskColor(1 - root.fadeAbove)
-            }
+            GradientStop { position: root.effectiveFadeTopInset / Math.max(1, contentClip.height); color: root.maskColor(1 - root.fadeAbove) }
             GradientStop { position: (root.effectiveFadeTopInset + root.fadeExtent) / Math.max(1, contentClip.height); color: root.maskColor(1) }
             GradientStop { position: 1 - root.fadeExtent / Math.max(1, contentClip.height); color: root.maskColor(1) }
             GradientStop { position: 1; color: root.maskColor(1 - root.fadeBelow) }

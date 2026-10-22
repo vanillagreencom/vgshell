@@ -31,6 +31,7 @@ FocusScope {
     readonly property alias title: titleHeader.titleButton
     readonly property alias initialFocus: back
     readonly property alias stickyTabs: tabs.tabs
+    property Item stickyTabsSurface: null
     // The manager row of the panes holder that shows this plugin's page,
     // or null.
     readonly property var paneHolder: row === null || row.paneHolder === "" ? null : panel.plugins.find(p => p.id === row.paneHolder) || null
@@ -57,6 +58,30 @@ FocusScope {
         return { enabled: row.enabled, name: row.name, error: Reply.line(line || "ok"), failed: line !== "" };
     }
     readonly property var plugin: pluginOf(row)
+
+    Component {
+        id: stickyTabsBackground
+        Item {
+            Rectangle {
+                objectName: "stickyTabsSurface"
+                x: -tabs.x - tabs.tabs.x
+                y: -layout.scrollArea.focusInset - layout.ringRoom
+                width: tabs.x + tabs.width
+                height: layout.scrollArea.focusInset + layout.ringRoom + tabs.tabs.height
+                color: Theme.color.surface
+                z: 1
+            }
+            Rectangle {
+                objectName: "track"
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                height: Theme.border.thin
+                color: Theme.tabs.border
+                visible: !tabs.tabs.hoverMark
+            }
+        }
+    }
 
     // The rows of the manager row's `fieldRows` (PluginLogic.fieldRows)
     // decide each field's section. Fields of no group are rows under the
@@ -513,6 +538,13 @@ FocusScope {
                 tabs.objectName: "stickyTabs"
                 // The fade starts after the pinned tab band, which stays
                 // opaque above content scrolling behind it.
+                Component.onCompleted: {
+                    const background = stickyTabsBackground.createObject(null);
+                    if (background === null) throw new Error("settings: the pinned tab background did not build");
+                    tabs.tabs.background = background;
+                    page.stickyTabsSurface = background.children.find(item => item.objectName === "stickyTabsSurface") || null;
+                    if (page.stickyTabsSurface === null) throw new Error("settings: the pinned tab surface did not build");
+                }
                 // True while the handler puts Settings back, and while
                 // the page sets the strip's tabs.
                 property bool returning: false
@@ -1162,22 +1194,8 @@ FocusScope {
     Binding {
         target: layout.scrollArea
         property: "fadeTopInset"
-        value: Math.max(0, stickySurface.mapToItem(layout.scrollArea, 0, 0).y + stickySurface.height
+        value: page.stickyTabsSurface === null ? 0 : Math.max(0, page.stickyTabsSurface.mapToItem(layout.scrollArea, 0, 0).y + page.stickyTabsSurface.height
             - layout.scrollArea.focusInset - layout.scrollArea.clipPadding)
     }
 
-    // Keep the scroll content behind the pinned tabs out of view. This
-    // sibling of the page stack sits below the tab bar inside TabPages'
-    // focus scope, so the tabs remain visibly above it.
-    Rectangle {
-        id: stickySurface
-        objectName: "stickyTabsSurface"
-        parent: tabs
-        x: -tabs.x
-        y: tabs.tabs.y - layout.scrollArea.focusInset - layout.ringRoom
-        width: tabs.x + tabs.width
-        height: layout.scrollArea.focusInset + layout.ringRoom + tabs.tabs.height
-        color: Theme.color.surface
-        z: 1
-    }
 }
