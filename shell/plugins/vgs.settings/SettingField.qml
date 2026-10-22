@@ -195,8 +195,10 @@ Column {
     function openDescriptionPage(page, tab) { openPage(page, tab); }
     // The nearest enclosing ScrollArea scrolls the least distance that
     // shows the custom editor; a field outside one has nothing to scroll.
+    // Stopping a plugin removes its runtime choices. The exposed read-only
+    // editor must leave the page at the Enabled switch the user pressed.
     function revealCustom() {
-        if (!customVisible) return;
+        if (!customVisible || !editable) return;
         for (let at = parent; at !== null; at = at.parent) {
             if (typeof at.reveal === "function") {
                 at.reveal(customField);
