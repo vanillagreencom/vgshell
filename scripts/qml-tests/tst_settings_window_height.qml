@@ -299,10 +299,32 @@ Item {
                         "the " + name + " label uses its tab foreground color");
                 }
             }
+            function sameRenderedPixels(first, second, item) {
+                const origin = item.mapToItem(p.page, 0, 0);
+                const scaleX = first.width / p.page.width;
+                const scaleY = first.height / p.page.height;
+                const left = Math.floor(origin.x * scaleX);
+                const top = Math.floor(origin.y * scaleY);
+                const right = Math.ceil((origin.x + item.width) * scaleX);
+                const bottom = Math.ceil((origin.y + item.height) * scaleY);
+                compare(first.width, second.width, "rest and scrolled captures have the same width");
+                compare(first.height, second.height, "rest and scrolled captures have the same height");
+                verify(left >= 0 && top >= 0 && right <= first.width && bottom <= first.height,
+                    "the tab ink region fits inside the rendered page");
+                for (let y = top; y < bottom; y++)
+                    for (let x = left; x < right; x++)
+                        if (!Qt.colorEqual(first.pixel(x, y), second.pixel(x, y))) return false;
+                return true;
+            }
             verifyLabelsDraw();
             for (let i = 0; i < names.length; i++) {
+                scroll.contentY = 0;
+                waitForRendering(window);
+                const atRest = grabImage(p.page);
                 scroll.contentY = Math.max(0, scroll.contentHeight - scroll.height);
                 waitForRendering(window);
+                const atEnd = grabImage(p.page);
+                verify(atRest !== null && atEnd !== null, "the page renders at rest and at its scroll end");
                 verify(scroll.contentY > 0, "the plugin page is scrolled before choosing " + names[i]);
                 compare(strip.mapToItem(p.page, 0, 0).y, restTop, "the tabs keep their resting position at the page end");
                 compare(surface.mapToItem(scroll, 0, 0).y, scroll.contentPadding + scroll.focusInset + scroll.clipPadding,
@@ -310,6 +332,23 @@ Item {
                 compare(scroll.fadeTopInset, surface.mapToItem(scroll, 0, 0).y + surface.height - scroll.focusInset - scroll.clipPadding,
                     "the mask keeps the pinned tab band opaque while scrolled");
                 verifyLabelsDraw();
+                if (atRest !== null && atEnd !== null) {
+                    for (const name of names) {
+                        const button = descendants(strip).find(item => item.text === name && item.checked !== undefined);
+                        const label = descendants(button).find(item => item.objectName === "tabLabel");
+                        verify(sameRenderedPixels(atRest, atEnd, label),
+                            "the " + name + " tab label keeps its rendered ink while the page scrolls");
+                    }
+                }
+                const activeButton = descendants(strip).find(item => item.checked === true);
+                verify(activeButton !== undefined, "the selected tab button is present");
+                if (activeButton !== undefined) {
+                    const indicator = descendants(activeButton).find(item => item.objectName === "indicator");
+                    verify(indicator !== undefined && indicator.visible, "the selected tab draws its indicator");
+                    if (indicator !== undefined && atRest !== null && atEnd !== null)
+                        verify(sameRenderedPixels(atRest, atEnd, indicator),
+                            "the active tab indicator keeps its rendered ink while the page scrolls");
+                }
                 compare(firstRow.mapToItem(scroll.contentItem, 0, 0).y - scroll.contentPadding - p.tabs.tabs.height, Theme.stack.page,
                     "the first row keeps its page spacing while content scrolls");
                 const button = descendants(strip).find(item => item.text === names[i] && item.checked !== undefined);
