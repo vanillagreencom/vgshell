@@ -1817,7 +1817,7 @@ mutations=(
   "a key's info page reference opens nothing|../plugins/vgs.settings/StatusRow.qml|            onInfoPageActivated: (page, tab) => row.openPage(page, tab)|            onInfoPageActivated: (page, tab) => {}|tst_settings_setup.qml"
   "Turn on asks for nothing|../plugins/vgs.settings/PluginPage.qml|case \"enable\": return panel.setEnabled(row.id, true);|case \"enable\": return \"ok\";|tst_settings_setup.qml"
   "a plugin that is off offers no Turn on|../plugins/vgs.settings/Steps.js|if (!plugin.enabled) return open ? turnOn(plugin.name) : null;|if (!plugin.enabled) return null;|tst_settings_setup.qml"
-  "Setup of a plugin that is off opens with no Turn on notice|../plugins/vgs.settings/PluginPage.qml|visible: page.hasSetup && !page.plugin.enabled|visible: false|tst_settings_setup.qml"
+  "Setup of a plugin that is off opens with no Turn on notice|../plugins/vgs.settings/PluginPage.qml|visible: !page.plugin.enabled && page.hasSetup|visible: false|tst_settings_setup.qml"
   "every Setup step offers Turn on while its plugin is off|../plugins/vgs.settings/Steps.js|return plugin.enabled ? stepButton(entry, requirements) : null;|return lineAction(stepButton(entry, requirements), stepOpen(entry), plugin);|tst_settings_setup.qml"
   "a field reference scrolls nowhere|../plugins/vgs.settings/PluginPage.qml|layout.scrollArea.reveal(item);|void item;|tst_settings_setup.qml"
   "a field reference opens the page at its top|../plugins/vgs.settings/PluginPage.qml|        revealing = place.key;|        revealing = \"\";|tst_settings_setup.qml"

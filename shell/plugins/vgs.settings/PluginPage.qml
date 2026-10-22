@@ -868,7 +868,7 @@ FocusScope {
                     // An always-on plugin is never off.
                     Callout {
                         width: body.width
-                        visible: page.hasSetup && !page.plugin.enabled
+                        visible: !page.plugin.enabled && page.hasSetup
                         iconName: "power"
                         tone: "info"
                         title: "Turn on " + page.plugin.name + " to continue setup"
