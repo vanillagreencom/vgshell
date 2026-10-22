@@ -68,12 +68,16 @@
 # hook, so the reboot-notice step reads absent, the service publishes the
 # row hidden and the Reboot notice setting no choice, and the Settings page
 # draws only the four status rows. With the hook planted in that tree the
-# step reads needed and the setting offers the notice in place first. A
+# step reads needed and the first page visit offers VGS only or keeping
+# CachyOS notices. Closing alone offers again on the next visit; either
+# choice is remembered across service rebuilds. Ready and denied probes
+# offer no panel, independently of that saved answer. The setting keeps
+# the notice in place first. A
 # choice of the notice in place hands the terminal nothing, its control,
 # and VGS only hands it the core's `system apply reboot-notice`, which the
 # stand-in terminal replaces with `true`; the service clears the setting
 # after each choice.
-# inputs: shell/plugins/vgs.updates/* shell/Hosts/AppWindow.qml shell/Ui/overlay/OverlayState.qml shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/updates-bin/* scripts/smoke/fixtures/tui/vgs.updates/* bin/vgshell bin/vgshell-pkg bin/vgshell-system bin/lib/qml-library.js shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/PluginStatus.qml shell/Core/SystemSteps.qml shell/Core/TuiRunner.qml bin/lib/self.js scripts/smoke/rows/manager.sh scripts/smoke/rows/capabilities.sh bin/vgshell-tui shell/Ui/controls/RowAction.qml shell/Commons/PageReference.js
+# inputs: shell/plugins/vgs.updates/* shell/Hosts/AppWindow.qml shell/Ui/overlay/OverlayState.qml shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/updates-bin/* scripts/smoke/fixtures/tui/vgs.updates/* bin/vgshell bin/vgshell-pkg bin/vgshell-system bin/lib/qml-library.js shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/PluginStatus.qml shell/Core/SystemSteps.qml shell/Core/TuiRunner.qml bin/lib/self.js scripts/smoke/rows/manager.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/system-steps.sh bin/vgshell-tui shell/Ui/controls/RowAction.qml shell/Ui/feedback/Dialog.qml shell/Commons/PageReference.js
 set -euo pipefail
 updates_dir="$home/.config/vgshell/plugins/vgs.updates"
 updates_state="$home/.local/state/vgshell/updates-smoke"
@@ -224,15 +228,46 @@ updates_reboot_field() { ipc smoke invokeInstance window vgs.settings fieldChoic
 t=sys.stdin.read(); f=json.loads(t) if t.startswith("{") else None
 print(json.dumps([f["shown"], [row["label"] for row in f["model"]]]) if f else t.strip())'; }
 updates_reboot_held() { python3 -c 'import json,sys; print(json.dumps(next((r.get("rebootNotice") for r in json.load(open(sys.argv[1])).get("plugins", []) if r["id"] == "vgs.updates"), None)))' "$home/.config/vgshell/shell.json"; }
+updates_offer() { ipc smoke readInstance panel vgs.updates problem; }
+updates_answered() { python3 -c 'import json,sys; print(json.dumps(next((r.get("rebootNoticeAnswered") for r in json.load(open(sys.argv[1])).get("plugins", []) if r["id"] == "vgs.updates"), None)))' "$home/.config/vgshell/shell.json"; }
+updates_visit() {
+  expect "leaving Updates answers ok" ok ipc smoke invokeInstance window vgs.settings back ''
+  expect "opening Updates answers ok" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.updates
+}
 expect "the Settings tab draws no Reboot notice field while its step reads absent" absent updates_reboot_field
+expect "an absent hook offers no panel" absent updates_offer
 updates_notice_hook="$devices_system_root/usr/share/libalpm/hooks/cachyos-reboot-required.hook"
 mkdir -p -- "${updates_notice_hook%/*}"
 printf '[Trigger]\nOperation = Upgrade\nType = Package\nTarget = linux\n\n[Action]\nWhen = PostTransaction\nExec = /usr/bin/true\n' >"$updates_notice_hook"
 rescan "the planted CachyOS hook is probed"
 expect_poll "the reboot notice offers the notice in place first" \
-  '[{"label": "CachyOS and VGS", "value": "both"}, {"label": "VGS only", "value": "vgsOnly"}]' updates_field rebootNotices
+  '[{"label": "CachyOS and VGS", "value": "both"}, {"label": "VGS only (recommended)", "value": "vgsOnly"}]' updates_field rebootNotices
+expect_poll "the needed hook offers the choice on the Updates page" '""' updates_offer
+expect "closing without a choice hides the panel" ok ipc shell hide panel vgs.updates
+expect_poll "the dismissed panel is gone" absent updates_offer
+updates_visit
+expect_poll "the unanswered offer returns on the next page visit" '""' updates_offer
+forget_record
+click_in vgs:panel panel vgs.updates Button 'Keep CachyOS notices' || fail "the Keep choice was not pressed"
+expect_poll "Keep CachyOS notices is stored" true updates_answered
+expect_poll "Keep closes the offer" absent updates_offer
+expect "Keep starts no system step" absent recorded
+updates_visit
+expect "Keep suppresses the next visit's offer" absent updates_offer
+expect "the Updates service disables for the saved-choice test" ok ipc shell setPluginEnabled vgs.updates false
+expect "the Updates service enables with the saved choice" ok ipc shell setPluginEnabled vgs.updates true
+expect_poll "the rebuilt service publishes the hook state" '"vgsOnly"' ipc smoke readInstance service vgs.updates reported.rebootNotice.action
+updates_visit
+expect "the saved Keep survives the service rebuild" absent updates_offer
+expect "resetting the fixture's answer is allowed" ok ipc smoke invokeInstance window vgs.settings applySetting '{"id":"vgs.updates","key":"rebootNoticeAnswered","value":false}'
+expect_poll "the unanswered hook offers the choice again" '""' updates_offer
+click_in vgs:panel panel vgs.updates Button 'Use VGS only (recommended)' || fail "the VGS only offer was not pressed"
+expect_poll "the offer starts the unchanged reboot-notice system step" \
+  "$(core_words core/system "System setup" org.vgs.tui system apply reboot-notice)" recorded
+expect_poll "accepting closes the offer" absent updates_offer
+forget_record
 expect_poll "the Settings tab's Reboot notice field reads the notice in place over both choices" \
-  '["CachyOS and VGS", ["CachyOS and VGS", "VGS only"]]' updates_reboot_field
+  '["CachyOS and VGS", ["CachyOS and VGS", "VGS only (recommended)"]]' updates_reboot_field
 forget_record
 expect "the Settings page writes the notice in place" ok updates_reboot_choose both
 expect_poll "the service clears a choice of the notice in place" null updates_reboot_held
@@ -242,6 +277,32 @@ expect_poll "VGS only hands the terminal vgshell system apply with its step" \
   "$(core_words core/system "System setup" org.vgs.tui system apply reboot-notice)" recorded
 expect_poll "the service clears the VGS only choice" null updates_reboot_held
 forget_record
+# Reuse the system-steps owner's stat fixture before that later row runs:
+# it reads the sandbox's own records as root-owned. No root command runs.
+(
+  system_root="$devices_system_root"
+  system_bin="$system_root/usr/bin"
+  eval "$(sed -n '/^printf .* >"\$system_bin\/stat"$/p; /^chmod 755 "\$system_bin\/stat"$/p' "$repo/scripts/smoke/rows/system-steps.sh")"
+)
+expect "Updates leaves the page before testing other probe states" ok ipc smoke invokeInstance window vgs.settings back ''
+expect "the other probe states use an unanswered fixture" ok ipc smoke invokeInstance window vgs.settings applySetting '{"id":"vgs.updates","key":"rebootNoticeAnswered","value":false}'
+updates_notice_link="$devices_system_root/etc/pacman.d/hooks/cachyos-reboot-required.hook"
+updates_notice_record="$devices_system_root/var/lib/vgshell/system/reboot-notice"
+mkdir -p -- "${updates_notice_link%/*}" "${updates_notice_record%/*}"
+ln -s -- /dev/null "$updates_notice_link"
+printf 'uid=%s\nlink=1\n' "$(id -u)" >"$updates_notice_record"
+rescan "the recorded disabled hook is probed"
+expect_poll "the recorded hook reads VGS only" '"both"' ipc smoke readInstance service vgs.updates reported.rebootNotice.action
+expect "Updates opens with a ready probe" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.updates
+expect "a ready hook offers no panel" absent updates_offer
+expect "Updates leaves the ready probe" ok ipc smoke invokeInstance window vgs.settings back ''
+rm -f -- "$updates_notice_link" "$updates_notice_record"
+printf 'foreign hook\n' >"$updates_notice_link"
+rescan "the foreign hook is probed"
+expect_poll "the foreign hook hides the choice" '[]' updates_field rebootNotices
+expect "Updates opens with a denied probe" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.updates
+expect "a denied hook offers no panel" absent updates_offer
+rm -f -- "$updates_notice_link"
 rm -f -- "${updates_notice_hook:?}"
 rescan "the planted CachyOS hook is gone"
 expect_poll "the reboot notice offers no choice once the hook is gone" '[]' updates_field rebootNotices

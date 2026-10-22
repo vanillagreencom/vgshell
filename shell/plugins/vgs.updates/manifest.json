@@ -7,8 +7,8 @@
   "description": "Update your system, VGS, plugins, themes and tools.",
   "license": "MIT",
   "icon": "refresh-cw",
-  "kinds": ["service", "bar-widget", "window"],
-  "entryPoints": { "service": "Service.qml", "bar-widget": "Widget.qml", "window": "Window.qml" },
+  "kinds": ["service", "bar-widget", "window", "panel"],
+  "entryPoints": { "service": "Service.qml", "bar-widget": "Widget.qml", "window": "Window.qml", "panel": "RebootNotice.qml" },
   "capabilities": ["configure", "ipc", "screens", "shortcut", "status", "surfaces", "system", "tui"],
   "systemSteps": ["reboot-notice"],
   "defaultSection": "right",
@@ -41,7 +41,8 @@
     "reviewThirdParty": true,
     "reviewAgent": "",
     "reviewCommand": "",
-    "rebootNotice": ""
+    "rebootNotice": "",
+    "rebootNoticeAnswered": false
   },
   "schema": {
     "intervalHours": {"type": "number", "label": "Check interval", "min": 1, "max": 48, "step": 1, "unit": "hours", "group": "Schedule"},

@@ -45,10 +45,8 @@ Item {
     // The reboot-notice system step, which the core probes again after its
     // run in core/system and after each plugin scan.
     readonly property var rebootStep: shell === null ? null : shell.system.state["reboot-notice"]
-    // The Reboot notice setting: "" for the notice in place, else the change
-    // its field asks for, which this service runs once and clears, so the
-    // field always reads the probed notice.
-    readonly property string rebootRequest: shell === null || typeof shell.settings.rebootNotice !== "string" ? "" : shell.settings.rebootNotice
+    readonly property bool pageViewed: shell !== null && shell.status.viewed
+    property bool rebootOfferVisited: false
     // The AUR command setting, which decides what the VGS row says installs
     // a new release package (UpdatesLogic.publishedNote).
     readonly property string aurCommand: shell === null || typeof shell.settings.aurCommand !== "string" ? "" : shell.settings.aurCommand
@@ -56,10 +54,17 @@ Item {
     onShellChanged: {
         start();
         detectAgents();
+        offerRebootNotice();
     }
     onCurrentIntervalMsChanged: schedule()
-    onRebootStepChanged: publishNow()
-    onRebootRequestChanged: takeRebootRequest()
+    onRebootStepChanged: {
+        publishNow();
+        offerRebootNotice();
+    }
+    onPageViewedChanged: {
+        if (!pageViewed) rebootOfferVisited = false;
+        offerRebootNotice();
+    }
     onAurCommandChanged: publishNow()
     // Only a run that ends after this instance first read the state starts
     // a check: `shell` arrives with every run an earlier instance saw end,
@@ -81,6 +86,9 @@ Item {
         shell.ipc.handle("check", () => root.requestCheck("ipc"));
         shell.ipc.handle("status", () => JSON.stringify(shell.status.values));
         shell.ipc.handle("review", dir => root.openReview(dir));
+        // handleChoice reports only the user's Settings press, never a
+        // config edit or reload (plugin API, status.handleChoice).
+        shell.status.handleChoice("rebootNotice", value => root.takeRebootRequest(value));
         cacheReader.path = statusPath;
         bootReader.path = bootPath;
         if (lastTuiState === null) lastTuiState = shell.tui.state;
@@ -117,11 +125,23 @@ Item {
         return reply;
     }
 
+    function offerRebootNotice() {
+        if (shell === null) return;
+        if (!pageViewed || !rebootStep || rebootStep.state !== "needed") {
+            shell.surfaces.hide("panel");
+            return;
+        }
+        if (!Logic.offerRebootNotice(rebootStep, pageViewed, shell.settings.rebootNoticeAnswered, rebootOfferVisited)) return;
+        const reply = shell.surfaces.summon("panel", "{}");
+        if (reply === "ok") rebootOfferVisited = true;
+        else console.warn("updates: reboot offer " + reply);
+    }
+
     // The core's `core/system` run shows its root commands and asks before
     // it changes anything, and the probe after it moves the field.
-    function takeRebootRequest() {
-        if (shell === null || rebootRequest === "") return;
-        if (Logic.rebootNoticeRequested(rebootRequest, reported.rebootNotice)) {
+    function takeRebootRequest(request) {
+        if (shell === null || request === "") return;
+        if (Logic.rebootNoticeRequested(request, reported.rebootNotice)) {
             const reply = shell.status.act("rebootNotice");
             if (reply !== "ok") console.warn("updates: reboot notice " + reply);
         }
