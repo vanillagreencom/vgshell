@@ -20,6 +20,7 @@ const { load } = require("../bin/lib/qml-library.js");
 // A library's objects come from another realm, so they are compared as the
 // JSON they write.
 const same = (got, want, message) => assert.deepStrictEqual(JSON.parse(JSON.stringify(got === undefined ? null : got)), JSON.parse(JSON.stringify(want === undefined ? null : want)), message);
+const lines = out => out.text.split("\n");
 
 const logicFile = path.join(__dirname, "..", "shell", "Core", "PluginLogic.js");
 const configFile = path.join(__dirname, "..", "shell", "Core", "ConfigLogic.js");
@@ -85,8 +86,8 @@ const UNWRITTEN = {
 const TUI_SECTION = [
     "-- Floating TUIs: each size class's app-id floats, centred, at its share of its output or its cells, inside the gutters where its cells fit there, never past the bar.",
     "hl.window_rule({ name = \"vgs:tui\", match = { class = \"^org\\\\.vgs\\\\.tui$\" }, float = true, center = true, suppress_event = \"maximize\", size = { \"min(max(monitor_w*0.4,820),max(monitor_w-20,min(820,monitor_w-8)))\", \"min(max(monitor_h*0.5,814),max(monitor_h-50,min(814,monitor_h-38)))\" } })",
-    "hl.window_rule({ name = \"vgs:tui-wide\", match = { class = \"^org\\\\.vgs\\\\.tui\\\\.wide$\" }, float = true, center = true, suppress_event = \"maximize\", size = { \"min(max(monitor_w*0.55,1120),max(monitor_w-20,min(1120,monitor_w-8)))\", \"min(max(monitor_h*0.6,968),max(monitor_h-50,min(968,monitor_h-38)))\" } })",
-    "hl.window_rule({ name = \"vgs:tui-tall\", match = { class = \"^org\\\\.vgs\\\\.tui\\\\.tall$\" }, float = true, center = true, suppress_event = \"maximize\", size = { \"min(max(monitor_w*0.4,1270),max(monitor_w-20,min(1270,monitor_w-8)))\", \"min(max(monitor_h*0.75,1210),max(monitor_h-50,min(1210,monitor_h-38)))\" } })"
+    "hl.window_rule({ name = \"vgs:tui-wide\", match = { class = \"^org\\\\.vgs\\\\.tui\\\\.wide$\" }, float = true, center = true, suppress_event = \"maximize\", size = { \"min(max(monitor_w*0.55,1120),max(monitor_w-20,min(1120,monitor_w-8)))\", \"min(max(monitor_h*0.6,814),max(monitor_h-50,min(814,monitor_h-38)))\" } })",
+    "hl.window_rule({ name = \"vgs:tui-tall\", match = { class = \"^org\\\\.vgs\\\\.tui\\\\.tall$\" }, float = true, center = true, suppress_event = \"maximize\", size = { \"min(max(monitor_w*0.4,1270),max(monitor_w-20,min(1270,monitor_w-8)))\", \"min(max(monitor_h*0.75,638),max(monitor_h-50,min(638,monitor_h-38)))\" } })"
 ];
 // The size a floating TUI rule line gives a window on an output WIDTH by
 // HEIGHT logical pixels, as [width, height]. Hyprland v0.56.2 hands each
@@ -102,6 +103,31 @@ function tuiSize(line, width, height) {
         return Number(new Function("min", "max", "monitor_w", "monitor_h", "return " + text + ";")(Math.min, Math.max, width, height).toFixed(6));
     });
 }
+function verifyTuiGeometry(layer) {
+    // Each class's size on an output, in the layer's order: default, wide,
+    // tall, at the fixture's floors: 820, 1120 and 1270 px wide, 814, 814
+    // and 638 px tall. An output less the fixture's margins is 20 px
+    // narrower and 50 px shorter. Hyprland draws the fixture's 4 px border
+    // outside the window, so a window that takes the gutters stops 8 px
+    // short of the output's width and 38 px short of its height: its frame
+    // then meets the bar's bottom edge and the output's edges.
+    const tuiRules = lines(layer.render([], theme, "vgs", 1)).filter(line => line.startsWith("hl.window_rule({ name = \"vgs:tui"));
+    [
+        [1440, 900, [[820, 814], [1120, 814], [1270, 675]], "px13: the updater uses 75% of its logical height, leaving desktop above and below"],
+        [3008, 1692, [[1203.2, 846], [1654.4, 1015.2], [1270, 1269]], "cachy: each class keeps its existing output share"],
+        [1440, 2560, [[820, 1280], [1120, 1536], [1270, 1920]], "the rotated cachy output uses its tall logical height"],
+        [3840, 2160, [[1536, 1080], [2112, 1296], [1536, 1620]], "a large output gets each class at its share and no more"],
+        [1600, 860, [[820, 814], [1120, 814], [1270, 645]], "the btop floor takes four gutter pixels when needed"],
+        [1600, 1010, [[820, 814], [1120, 814], [1270, 757.5]], "the content floors keep desktop above and below on a small output"],
+        [1366, 768, [[820, 730], [1120, 730], [1270, 638]], "btop floors use the work area while Updates keeps its smaller content floor"],
+        [1280, 720, [[820, 682], [1120, 682], [1270, 638]], "a short output gives btop the gutters while Updates keeps its content floor"],
+        [1024, 768, [[820, 730], [1016, 730], [1016, 638]], "cells wider than the output get the whole width less the border and no more"]
+    ].forEach(([width, height, want, label]) => same(tuiRules.map(line => tuiSize(line, width, height)), want, label));
+    // A theme with a 1 px border keeps 2 px of each axis, not the fixture's 8.
+    const thinRules = lines(layer.render([], Object.assign({}, theme, { hyprland: Object.assign({}, theme.hyprland, { border: { size: 1 } }) }), "vgs", 1)).filter(line => line.startsWith("hl.window_rule({ name = \"vgs:tui"));
+    same(thinRules.map(line => tuiSize(line, 1024, 768)), [[820, 736], [1022, 736], [1022, 638]], "the border kept is the theme's border size");
+}
+
 // The shell's application window rule, byte for byte: no size, so each
 // window keeps the size it asks for, and a place, so each maps centred
 // across with its top at the theme's share of the output's height.
@@ -639,7 +665,6 @@ function padsFixture(logic, id, pads) {
 }
 
 function verify(logic, configLogic, layer, shellText) {
-    const lines = out => out.text.split("\n");
     for (const [text, want] of KEYS) {
         const got = configLogic.hyprlandKey(text);
         if (want.key !== undefined) same(got, { ok: true, key: want.key }, "hyprlandKey " + JSON.stringify(text));
@@ -990,7 +1015,7 @@ function verify(logic, configLogic, layer, shellText) {
     ].forEach(([label, margins, error]) => {
         assert.throws(() => layer.render([], Object.assign({}, theme, { tuiMargins: margins }), "vgs", 1), error, label + " is refused");
     });
-    assert.ok(lines(layer.render([], Object.assign({}, theme, { tuiMargins: { bar: 0, gutter: 0 } }), "vgs", 1)).includes("hl.window_rule({ name = \"vgs:tui-tall\", match = { class = \"^org\\\\.vgs\\\\.tui\\\\.tall$\" }, float = true, center = true, suppress_event = \"maximize\", size = { \"min(max(monitor_w*0.4,1270),max(monitor_w-0,min(1270,monitor_w-8)))\", \"min(max(monitor_h*0.75,1210),max(monitor_h-0,min(1210,monitor_h-8)))\" } })"), "zero margins clamp to the whole output");
+    assert.ok(lines(layer.render([], Object.assign({}, theme, { tuiMargins: { bar: 0, gutter: 0 } }), "vgs", 1)).includes("hl.window_rule({ name = \"vgs:tui-tall\", match = { class = \"^org\\\\.vgs\\\\.tui\\\\.tall$\" }, float = true, center = true, suppress_event = \"maximize\", size = { \"min(max(monitor_w*0.4,1270),max(monitor_w-0,min(1270,monitor_w-8)))\", \"min(max(monitor_h*0.75,638),max(monitor_h-0,min(638,monitor_h-8)))\" } })"), "zero margins clamp to the whole output");
     // A cell HyprlandLayer.qml could not measure is refused by name, never
     // written as a floor.
     [
@@ -1027,24 +1052,7 @@ function verify(logic, configLogic, layer, shellText) {
     // The default class's 80 columns and 2 of padding at 8.2 px are 672.4
     // px, and its 36 rows and 1 of padding at 19.5 px are 721.5 px.
     assert.ok(lines(layer.render([], Object.assign({}, theme, { tuiCell: { width: 8.2, height: 19.5 } }), "vgs", 1)).includes("hl.window_rule({ name = \"vgs:tui\", match = { class = \"^org\\\\.vgs\\\\.tui$\" }, float = true, center = true, suppress_event = \"maximize\", size = { \"min(max(monitor_w*0.4,673),max(monitor_w-20,min(673,monitor_w-8)))\", \"min(max(monitor_h*0.5,722),max(monitor_h-50,min(722,monitor_h-38)))\" } })"), "a floor is its cells and the padding's at the cell, rounded up to a whole pixel");
-    // Each class's size on an output, in the layer's order: default, wide,
-    // tall, at the fixture's floors: 820, 1120 and 1270 px wide, 814, 968
-    // and 1210 px tall. An output less the fixture's margins is 20 px
-    // narrower and 50 px shorter. Hyprland draws the fixture's 4 px border
-    // outside the window, so a window that takes the gutters stops 8 px
-    // short of the output's width and 38 px short of its height: its frame
-    // then meets the bar's bottom edge and the output's edges.
-    const tuiRules = bareLines.filter(line => line.startsWith("hl.window_rule({ name = \"vgs:tui"));
-    [
-        [3840, 2160, [[1536, 1080], [2112, 1296], [1536, 1620]], "a large output gets each class at its share and no more"],
-        [1600, 1010, [[820, 814], [1120, 968], [1270, 972]], "cells that fit inside the gutters keep them, cells 8 px over take those 8 px, and taller cells stop at the bar and the border"],
-        [1366, 768, [[820, 730], [1120, 730], [1270, 730]], "a small output gets each class at its cells wide and the output less the bar and the border tall"],
-        [1280, 720, [[820, 682], [1120, 682], [1270, 682]], "a 720 px tall output gets each class the output less the bar and the border tall"],
-        [1024, 768, [[820, 730], [1016, 730], [1016, 730]], "cells wider than the output get the whole width less the border and no more"]
-    ].forEach(([width, height, want, label]) => same(tuiRules.map(line => tuiSize(line, width, height)), want, label));
-    // A theme with a 1 px border keeps 2 px of each axis, not the fixture's 8.
-    const thinRules = lines(layer.render([], Object.assign({}, theme, { hyprland: Object.assign({}, theme.hyprland, { border: { size: 1 } }) }), "vgs", 1)).filter(line => line.startsWith("hl.window_rule({ name = \"vgs:tui"));
-    same(thinRules.map(line => tuiSize(line, 1024, 768)), [[820, 736], [1022, 736], [1022, 736]], "the border kept is the theme's border size");
+    verifyTuiGeometry(layer);
 
     const switched = layer.render([], groupsOf(false, false, true), "vgs", 1.5);
     const switchedLines = lines(switched);
@@ -1842,6 +1850,8 @@ const CONTROLS = [
     [layerFile, "floating TUI height keeps its border off the bar", "var keptDown = luaNumber(tuiMargin(margins, \"bar\") + 2 * border);", "var keptDown = luaNumber(tuiMargin(margins, \"bar\"));"],
     [layerFile, "floating TUI border is the theme's", "theme.tuiCell, theme.hyprland.border.size)", "theme.tuiCell, 2)"],
     [layerFile, "floating TUI sizes are no fixed pixels", "        var width = tuiLength(\"monitor_w\", row.widthShare, row.columns + TUI_PADDING.columns, tuiCell(cell, \"width\"), across, keptAcross);\n        var height = tuiLength(\"monitor_h\", row.heightShare, row.rows + TUI_PADDING.rows, tuiCell(cell, \"height\"), down, keptDown);\n", "        var fixed = { \"default\": [875, 600], wide: [1200, 720], tall: [875, 900] }[size];\n        var width = \"\\\"min(\" + fixed[0] + \",monitor_w-\" + across + \")\\\"\";\n        var height = \"\\\"min(\" + fixed[1] + \",monitor_h-\" + down + \")\\\"\";\n"],
+    [layerFile, "Updates keeps its content floor on px13", "heightShare: 0.75, columns: 125, rows: 28", "heightShare: 0.75, columns: 125, rows: 54", verifyTuiGeometry],
+    [layerFile, "wide keeps the btop floor", "heightShare: 0.6, columns: 110, rows: 36", "heightShare: 0.6, columns: 110, rows: 43", verifyTuiGeometry],
     [layerFile, "floating TUI takes its share of the output", "axis + \"*\" + luaNumber(share)", "axis + \"*0\""],
     [layerFile, "floating TUI is never under its cells", "luaNumber(Math.ceil(cells * cell))", "\"0\""],
     [layerFile, "a TUI floor rounds up to a whole pixel", "Math.ceil(cells * cell)", "Math.round(cells * cell)"],
@@ -2008,7 +2018,7 @@ try {
     fs.writeFileSync(unfilledFile, fillSource.replace(fillNeedle, ""));
     const unfilledLayer = load(unfilledFile);
     assert.throws(() => verifyStatusAppearance(appearanceSource, unfilledLayer), { code: "ERR_ASSERTION" });
-    CONTROLS.forEach(([file, label, needle, replacement], index) => {
+    CONTROLS.forEach(([file, label, needle, replacement, scopedVerify], index) => {
         const source = fs.readFileSync(file, "utf8");
         assert.equal(source.split(needle).length, 2, `control "${label}": the text to replace must occur once in ${path.basename(file)}`);
         const mutant = path.join(temp, "shell", "Core", `${index}-${path.basename(file)}`);
@@ -2020,8 +2030,11 @@ try {
         const layer = load(file === layerFile ? mutant : layerFile);
         let failed = false;
         try {
-            verify(logic, configLogic, layer, file === shellFile ? fs.readFileSync(mutant, "utf8") : shellText);
-            verifyAppearanceLayer(layer);
+            if (scopedVerify) scopedVerify(layer);
+            else {
+                verify(logic, configLogic, layer, file === shellFile ? fs.readFileSync(mutant, "utf8") : shellText);
+                verifyAppearanceLayer(layer);
+            }
         } catch (e) {
             failed = true;
         }

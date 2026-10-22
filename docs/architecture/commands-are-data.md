@@ -30,6 +30,7 @@ A string that reaches a shell becomes code, and a plugin's or a catalog's text w
 
 ### Floating TUIs
 
+- Do centre every size class and derive its height from its share of the output's logical height, capped by the output less `Theme.bar.height` and two `size.window.gutter` margins. Each class keeps only the row floor its content needs, derived beside `HyprlandLayer.TUI_WINDOWS`; the logo, package table and transcript can scroll. Each floor includes `TUI_PADDING` at the measured terminal cell size; a floor that exceeds the viewport takes the gutters before it loses cells, and always keeps the bar and outside border. `HyprlandLayer.tuiLength` owns the bounds, and `scripts/test-hyprland-layer.js` pins px13's 1440×900 logical output.
 - Do show commands through `bin/lib/tui.sh`'s `vgs_tui_commands`, after a plain sentence that says what the step changes. `scripts/test-tui.sh` pins the block.
 - Do launch every flow that asks the user anything, a password or a y/N, through `bin/vgshell-tui`, and hand `present` everything it needs in argv. `scripts/test-vgshell-tui.sh` pins it.
 - Do fork the terminal with `setsid -f`; Quickshell kills its children when the shell stops, and a restart during an install must not kill the install. `scripts/test-vgshell-tui.sh` pins it.

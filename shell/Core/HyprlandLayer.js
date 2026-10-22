@@ -62,15 +62,24 @@ var BORDERS = [
 // sizes it by one rule (tuiWindowLines): `widthShare` by `heightShare` of
 // its output, never under `columns` by `rows` terminal cells, inside the
 // output's gutters where those cells fit there and never past its bar. A
-// class holds no pixel size, so a window is the same part of a large
-// output and of a small one, and takes a small one's gutters before it
-// loses a cell. `default`'s cells are what btop asks of its
-// terminal, in the words of its own refusal: "Needed for current config:
-// Width = 80 Height = 36" (btop in the System Monitor's window on the
-// owner's desktop, 2026-10-10). `wide` is 11/8 as wide and 6/5 as tall,
-// in share and in cells. `tall`, the class of the Updates terminals alone,
-// is 3/2 as tall in share and in cells, `default`'s share wide and never
-// under 125 columns: the width pacman's verbose package table needs, or
+// class holds no pixel size. Each height share is of the output's logical
+// height, capped by the bar and two Theme.size.window.gutter margins; a
+// content floor that needs more keeps its cells before those gutters,
+// never the bar or border. `default`'s cells are what btop asks in its own
+// refusal: "Needed for current config: Width = 80 Height = 36" (btop in
+// the System Monitor on the owner's desktop, 2026-10-10). `wide` includes
+// that same btop, so keeps 36 rows and 11/8 of the columns, not 6/5 of the
+// rows. `tall`, the Updates terminals, needs 28 rows: the plan's title,
+// snapshot, seven source lines, review summary and AUR ordering, log path
+// and blank rows, the box's four border/padding rows, then the question,
+// help and buttons with their gap. The nine-row logo, an arbitrary
+// package table and review transcript scroll; none sets a minimum height.
+// The plan budget is read in sandbox-shots' VGS-2000 after-px13-dark run
+// (2026-10-22). At px13's 900 logical pixels, 28 for the bar and 12 for
+// each gutter leave a ceiling of 848; 28 rows plus padding at a 22 px cell
+// need 638, so tall's 0.75 share is 675, not the whole 872 px work area.
+// The 36-row btop floor with padding is 814 and still fits that ceiling.
+// Its 125 columns remain pacman's verbose package table's need, or
 // pacman prints "insufficient columns available for table display" and a
 // plain list instead. pacman 7.1.0's table is its columns' widest cells
 // with 2 columns between them (src/pacman/util.c, table_calc_widths and
@@ -82,8 +91,8 @@ var BORDERS = [
 // window rules: no plugin sets a size or a class pattern.
 var TUI_WINDOWS = {
     "default": { appId: "org.vgs.tui", rule: "vgs:tui", widthShare: 0.4, heightShare: 0.5, columns: 80, rows: 36 },
-    "wide": { appId: "org.vgs.tui.wide", rule: "vgs:tui-wide", widthShare: 0.55, heightShare: 0.6, columns: 110, rows: 43 },
-    "tall": { appId: "org.vgs.tui.tall", rule: "vgs:tui-tall", widthShare: 0.4, heightShare: 0.75, columns: 125, rows: 54 }
+    "wide": { appId: "org.vgs.tui.wide", rule: "vgs:tui-wide", widthShare: 0.55, heightShare: 0.6, columns: 110, rows: 36 },
+    "tall": { appId: "org.vgs.tui.tall", rule: "vgs:tui-tall", widthShare: 0.4, heightShare: 0.75, columns: 125, rows: 28 }
 };
 
 // What a terminal keeps of its window beside the grid, counted in cells so

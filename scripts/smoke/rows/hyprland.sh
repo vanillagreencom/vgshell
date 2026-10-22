@@ -15,7 +15,7 @@
 # its rule's size open after open, while a copy of the rule without its
 # suppressed maximize grants it; each class takes its own size, its share
 # of the output or its cells, inside the gutters on a 3008x1692 output, and
-# on a 1440x900 one the tall class stops at the work area's edge; the row
+# on a 1440x900 one the tall class keeps visible desktop above and below; the row
 # holds each mode on the first monitor and then gives back its own mode. It restarts the shell, reloads
 # Hyprland and reads each vgs bind once in its submap.
 #
@@ -467,10 +467,9 @@ hold_mode "the nested compositor holds $tui_monitor at 3008x1692 for the floatin
 tui_fit_rows "on a 3008x1692 output" 3008x1692 unclamped
 release_mode "the nested compositor gives $tui_monitor its own mode after 3008x1692" "$tui_monitor" "$tui_base_mode"
 hold_mode "the nested compositor holds $tui_monitor at 1440x900 for the floating TUIs" "$tui_monitor" 1440x900
-# Control: the tall class's cells are taller than this work area, so its
-# row below reads the height the bar leaves, both gutters given up, not a
-# size that fits.
-geometry expect_poll "control: a tall TUI's cells are taller than the 1440x900 work area" "w=own h=edge" tui_area "monitor:$tui_monitor" org.vgs.tui.tall 1440x900
+# Updates' real content floor fits inside the laptop's gutters. The old
+# 54-row floor filled the work area and made this read h=edge.
+geometry expect_poll "a tall TUI leaves desktop above and below on px13" "w=own h=own" tui_area "monitor:$tui_monitor" org.vgs.tui.tall 1440x900
 tui_fit_rows "on a 1440x900 output" 1440x900
 release_mode "the nested compositor gives $tui_monitor its own mode after 1440x900" "$tui_monitor" "$tui_base_mode"
 # A rule disabled by name after the line stops floating its class alone.
