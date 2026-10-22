@@ -69,15 +69,18 @@ var BORDERS = [
 // refusal: "Needed for current config: Width = 80 Height = 36" (btop in
 // the System Monitor on the owner's desktop, 2026-10-10). `wide` includes
 // that same btop, so keeps 36 rows and 11/8 of the columns, not 6/5 of the
-// rows. `tall`, the Updates terminals, needs 28 rows: the plan's title,
-// snapshot, seven source lines, review summary and AUR ordering, log path
-// and blank rows, the box's four border/padding rows, then the question,
-// help and buttons with their gap. The nine-row logo, an arbitrary
-// package table and review transcript scroll; none sets a minimum height.
-// The plan budget is read in sandbox-shots' VGS-2000 after-px13-dark run
-// (2026-10-22). At px13's 900 logical pixels, 28 for the bar and 12 for
-// each gutter leave a ceiling of 848; 28 rows plus padding at a 22 px cell
-// need 638, so tall's 0.75 share is 675, not the whole 872 px work area.
+// rows. `tall`, the Updates terminals, needs 25 structural rows. The
+// start plan in shell/plugins/vgs.updates/tui/pipeline.sh has at most 15
+// entries: title and blank, snapshot, seven sources, both review_line and
+// box_review_aur, AUR ordering, blank and log. The two review lines can
+// coexist when repository packages are reviewed and an explicit AUR
+// command has no paru/yay. bin/lib/tui.sh adds four header border/padding
+// rows and six for the confirmation gap, question, help and buttons.
+// The nine-row logo, variable wrapped lists, package table and review
+// transcript scroll; none sets a minimum height. At px13's 900 logical
+// pixels, 28 for the bar and 12 for each gutter leave a ceiling of 848.
+// With the unit fixture's 22 px cell, 25 rows plus padding need 572, so
+// tall's 0.75 share is 675, not the whole 872 px work area.
 // The 36-row btop floor with padding is 814 and still fits that ceiling.
 // Its 125 columns remain pacman's verbose package table's need, or
 // pacman prints "insufficient columns available for table display" and a
@@ -92,7 +95,7 @@ var BORDERS = [
 var TUI_WINDOWS = {
     "default": { appId: "org.vgs.tui", rule: "vgs:tui", widthShare: 0.4, heightShare: 0.5, columns: 80, rows: 36 },
     "wide": { appId: "org.vgs.tui.wide", rule: "vgs:tui-wide", widthShare: 0.55, heightShare: 0.6, columns: 110, rows: 36 },
-    "tall": { appId: "org.vgs.tui.tall", rule: "vgs:tui-tall", widthShare: 0.4, heightShare: 0.75, columns: 125, rows: 28 }
+    "tall": { appId: "org.vgs.tui.tall", rule: "vgs:tui-tall", widthShare: 0.4, heightShare: 0.75, columns: 125, rows: 25 }
 };
 
 // What a terminal keeps of its window beside the grid, counted in cells so
