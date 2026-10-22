@@ -489,10 +489,23 @@ expect_poll "the daemon notes the recording before the kill" start dictation_not
 dictation_kill_shell
 expect_poll "with the shell killed, no voxtype process remains" "$dictation_none" dictation_processes all
 expect "the killed shell's recording reached no wtype call" none dictation_wtype
-expect "the killed shell's daemon noted no cap" start dictation_noted
+# The shell's group TERM can reach the daemon before its parent-death KILL.
+# voxtype 1.1.0 on TERM discards the capture, aborts any transcription,
+# removes its state file and exits without output (daemon.rs:4553-4653 at
+# e2638ca63), so either ending is one with no cap and no typed text.
+dictation_killed_notes() { case "$(dictation_noted)" in start | "start stopped") echo "no cap" ;; *) dictation_noted ;; esac; }
+dictation_killed_state() {
+  local state=absent
+  [[ ! -e $rt_dir/voxtype/state ]] || state="$(<"$rt_dir/voxtype/state")"
+  case "$(dictation_noted) $state" in
+    "start recording" | "start stopped absent") echo matches ;;
+    *) echo "notes=$(dictation_noted) state=$state" ;;
+  esac
+}
+expect "the killed shell's daemon noted no cap" "no cap" dictation_killed_notes
 dictation_reap_runner
 
-expect "the killed daemon left its state file" recording cat "$rt_dir/voxtype/state"
+expect "the killed daemon's state file matches its ending" matches dictation_killed_state
 expect "the killed text recording left its file override" kept dictation_override
 : >"$dictation_loading"
 rm -f -- "${dictation_follow:?}"
