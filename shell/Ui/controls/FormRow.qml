@@ -88,7 +88,8 @@ import qs.Ui
 // role keep one pitch whatever they read.
 // A row with a label beside its control is a key/value row
 // (`keyValueRow`), and one under another key/value row of its column
-// (`rowAbove`) stands `stack.page` under that row's drawn ink, from its
+// (`rowAbove`), or a row with no label that sets `standsWithoutLabel`,
+// stands `stack.page` under that row's drawn ink, from its
 // lowest drawn part (`lineBelow()`) to this row's highest (`lineAbove()`),
 // whatever either control draws in its row box: `inkTop` is that space
 // less the room the columns already put there, negative where that room
@@ -115,6 +116,13 @@ Item {
     property bool labelColumn: true
     property bool textBelow: false
     property Item placed: root
+    // Whether a row with no label stands under the row above it as a
+    // key/value row does: a line of its own on the value column in a row's
+    // place, such as a stored key list's one sentence under its Settings
+    // field (StatusLine), which centred in its row box would stand by a
+    // label it does not draw. Any other row with no label, as a list's Add
+    // under its items, keeps its column's spacing.
+    property bool standsWithoutLabel: false
     default property alias control: slot.data
     readonly property bool keyValueRow: labelColumn
     // The key/value row the placed item stands under, and the room the
@@ -123,7 +131,7 @@ Item {
     // first shown item of. The first group of a GroupList stands at the
     // list's top, so the search goes on above the list; a later group keeps
     // the list's gap and hairline. null for a row with no label beside its
-    // control, under anything that is no key/value row, or under nothing. A
+    // control, save one that `standsWithoutLabel`, under anything that is no key/value row, or under nothing. A
     // Column lays out only its shown, sized children
     // (https://doc.qt.io/qt-6/qml-qtquick-column.html). A Repeater that
     // moves its rows reorders its parent's children with no change of
@@ -140,7 +148,7 @@ Item {
     // used is held, stands in its place: its column places the Loader, which
     // takes the item's size (https://doc.qt.io/qt-6/qml-qtquick-loader.html).
     readonly property var rowAbove: {
-        if (!labelColumn || label === "") return null;
+        if (!labelColumn || (label === "" && !standsWithoutLabel)) return null;
         let room = 0;
         for (let at = placed; at.parent !== null; ) {
             void at.Positioner.index;

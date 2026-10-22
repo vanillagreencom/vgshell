@@ -1,6 +1,7 @@
 import QtQuick
 import qs.Commons
 import qs.Ui
+import "Steps.js" as Steps
 
 // One read-only line of a Status row: `label` beside its value, the line's
 // one-click setup step (D061) as a RowAction right after the value, or
@@ -154,7 +155,7 @@ Column {
     // or a key's step or field in its place. Else the hint is the value.
     readonly property bool valued: tone !== "" || text !== "" || entering || adds || stored
     // What Replace's open field adds to the hint.
-    readonly property string replaceNote: entering && stored ? "The saved key stays until you save a replacement." : ""
+    readonly property string replaceNote: entering && stored ? "The saved key stays until you save a replacement" : ""
 
     Field {
         id: field
@@ -163,7 +164,11 @@ Column {
         info: line.info
         onInfoPageActivated: (page, tab) => line.infoPageActivated(page, tab)
         inline: true
-        hint: line.valued ? [line.hint, line.replaceNote].filter(part => part !== "").join(" ") : ""
+        // A line with no label, a stored key list's one sentence, stands
+        // under the field above by ink as a key's line does, whatever lines
+        // the sentence wraps to.
+        standsWithoutLabel: true
+        hint: line.valued ? Steps.hintOf([line.hint, line.replaceNote]) : ""
         hintLink: line.hintLink
         onHintLinkActivated: line.hintLinkActivated()
         onHintPageActivated: (page, tab) => line.hintPageActivated(page, tab)

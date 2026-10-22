@@ -1268,6 +1268,7 @@ mutations=(
   "a text value starts at its glyphs|controls/FormRow.qml|(byFont && child instanceof Label ? fontAbove(child) : Theme.inkAbove(child))|Theme.inkAbove(child)|tst_settingfield.qml"
   "a hint ends at its glyphs|controls/Field.qml|            const line = controlRow.fontBelow(hintProbe);|            const line = hintLine.inkBelow();|tst_settingfield.qml"
   "a row first in its column reads no row above that column|controls/FormRow.qml|            if (list === null) room += holder.topPadding;|            if (list === null) return null;|tst_settingfield.qml"
+  "a key list's sentence stands by its row box|../plugins/vgs.settings/StatusLine.qml|        standsWithoutLabel: true|        standsWithoutLabel: false|tst_settingfield.qml"
   "a group list's first row reads no row above the list|controls/FormRow.qml|const list = holder.parent instanceof GroupList ? holder.parent : null;|const list = null;|tst_settingfield.qml"
   "an inline field is no key/value row|controls/FormRow.qml|    readonly property bool keyValueRow: labelColumn|    readonly property bool keyValueRow: false|tst_settingfield.qml"
   "a setting is no key/value row|../plugins/vgs.settings/SettingField.qml|    readonly property bool keyValueRow: true|    readonly property bool keyValueRow: false|tst_settingfield.qml"

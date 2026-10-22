@@ -1044,13 +1044,16 @@ Item {
                 after: at({ type: "boolean", label: "After" }),
                 last: at({ type: "boolean", label: "Last" })
             };
-            const status = { afterKeys: { type: "presenceList", label: "After keys", setting: "after" } };
+            const status = {
+                afterKeys: { type: "presenceList", label: "After keys", setting: "after" },
+                numberKeys: { type: "presenceList", label: "Number keys", setting: "number", hint: "Keys come from the bar" }
+            };
             return {
                 id: "acme.rows", name: "Rows", version: "1.0.0", description: "", author: "", license: "", icon: "package",
                 source: "bundled", enabled: true, alwaysOn: false, placed: true, kinds: ["service"], capabilities: [],
                 builtins: group === "" ? [] : [{ id: "acme.rows.bar", name: group, placed: true }],
                 schema: schema, settings: { interval: 15, view: "full", sort: "a", colour: true, number: "b", after: false, last: true },
-                settingChoices: ({}), status: PluginLogic.statusRows({ status: status, secrets: { service: "acme-unit", label: "Key" } }, { afterKeys: [] }),
+                settingChoices: ({}), status: PluginLogic.statusRows({ status: status, secrets: { service: "acme-unit", label: "Key" } }, { afterKeys: [], numberKeys: [] }),
                 secretLabel: "Key", tuis: [], opens: "", paneHolder: "", binds: [], requirements: [],
                 errors: [], fieldRows: PluginLogic.fieldRows(schema, status)
             };
@@ -1102,6 +1105,11 @@ Item {
         // Spaced by their boxes, `stack.row` apart, the same rows stand 8
         // (select over select), 16 (select over switch) and 24 (switch over
         // switch) blank rows apart: the control in scripts/test-qml-unit.sh.
+        // The one-line sentence a stored key list with no key reads under
+        // its field, under the After switch and under the Number select's
+        // hint, stands the same; centred in its row box, the control there,
+        // it stands 27 blank rows under the hint and 25 under the switch
+        // (qml-unit run, 2026-10-22).
         function test_rows_stand_one_step_apart_by_ink_data() {
             const all = ["Enabled", "Interval", "View", "Sort", "Colour", "Number", "After", "Last"];
             return [
@@ -1122,6 +1130,10 @@ Item {
             verify(waitForRendering(cover));
             const img = grabImage(root);
             const gaps = data.labels.slice(1).map((label, i) => ({ pair: data.labels[i] + "/" + label, gap: gapOver(img, byLabel(label), cover.page.width) }));
+            // Each key list's sentence, in page order: Number's, then After's.
+            const notes = rows().filter(item => item.label === "").sort((a, b) => a.mapToItem(root, 0, 0).y - b.mapToItem(root, 0, 0).y);
+            compare(notes.length, 2, "the page draws the sentence of each key list with no key");
+            ["Number", "After"].forEach((label, i) => gaps.push({ pair: label + "/its keys", gap: gapOver(img, notes[i], cover.page.width) }));
             const want = Theme.stack.page;
             const read = gaps.map(entry => entry.pair + " " + entry.gap).join(", ");
             for (const entry of gaps)

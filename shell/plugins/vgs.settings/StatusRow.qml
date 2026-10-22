@@ -138,8 +138,7 @@ GroupList {
             width: row.width
             label: modelData.label
             info: modelData.info
-            hint: [row.setup && presence.reason !== "" ? presence.reason + (modelData.hint === "" ? "" : ": " + modelData.hint) : modelData.hint, row.settingsContext ? presence.note : ""]
-                .filter(part => part !== "").join(" ")
+            hint: Steps.hintOf([row.setup && presence.reason !== "" ? presence.reason + (modelData.hint === "" ? "" : ": " + modelData.hint) : modelData.hint, row.settingsContext ? presence.note : ""])
             onHintPageActivated: (page, tab) => row.openPage(page, tab)
             onInfoPageActivated: (page, tab) => row.openPage(page, tab)
             // The key's own write reads in its value's place while it runs.

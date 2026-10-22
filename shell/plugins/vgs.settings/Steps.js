@@ -343,7 +343,7 @@ function statusView(entry, timeText, plugin) {
 
 // What a stored key reads as beside its masked field on Settings, plain
 // text that says what the key store holds and never that the key works,
-// and the sentence under it, for a presence that has one, of what the
+// and the sentence under it, after the key's hint (hintOf), for a presence that has one, of what the
 // user can do, for PLUGIN, { id, name, keyTool }, `keyTool` its
 // keyToolStep. An unavailable key names the missing KEY_TOOL and links the
 // step that installs it, since turning the plugin off and on reads the
@@ -351,10 +351,19 @@ function statusView(entry, timeText, plugin) {
 // key says it.
 var KEY_WORDS = { present: "Saved", absent: "", locked: "Keyring locked", unavailable: "Keyring unavailable", unsafe: "Saved key is not private", "signed-out": "Signed out" };
 function keyNote(value, plugin) {
-    if (value === "locked") return "Saving may ask you to unlock your keyring.";
-    if (value === "unavailable" && plugin.keyTool !== "") return "Install " + KEY_TOOL + " from [" + plugin.keyTool + "](page:" + plugin.id + "/Setup) to read this key.";
-    if (value === "unavailable") return "Restore the keyring, then turn " + plugin.name + " off and on to read its keys again.";
+    if (value === "locked") return "Saving may ask you to unlock your keyring";
+    if (value === "unavailable" && plugin.keyTool !== "") return "Install " + KEY_TOOL + " from [" + plugin.keyTool + "](page:" + plugin.id + "/Setup) to read this key";
+    if (value === "unavailable") return "Restore the keyring, then turn " + plugin.name + " off and on to read its keys again";
     return "";
+}
+// One hint of PARTS, what a line reads under its value, by the copy rule
+// (design-system.md § Copy): a part alone reads as written, a declared hint
+// the manifest judge holds to that rule or one sentence of the page's own,
+// which ends with no full stop; of two or more, each part that ends with
+// no mark of its own ends with a full stop.
+function hintOf(parts) {
+    var shown = parts.filter(function (part) { return part !== ""; });
+    return shown.length === 1 ? shown[0] : shown.map(function (part) { return /[.?!]$/.test(part) ? part : part + "."; }).join(" ");
 }
 // What a line draws of ITEM's presence, one item of a presence list:
 // { tone, text }, its chip, or neither for a secret nothing is stored for,
@@ -399,7 +408,7 @@ var WRITE_WORDS = { store: "Saving\u2026", clear: "Removing\u2026" };
 // explain each key of a list whose head is not drawn. No published item is
 // drawn while the plugin is off.
 function keyListView(entry, plugin) {
-    if (!plugin.enabled) return { items: [], note: "Turn on " + plugin.name + " to load " + entry.label + "." };
+    if (!plugin.enabled) return { items: [], note: "Turn on " + plugin.name + " to load " + entry.label };
     if (entry.report !== "reported") return { items: [], note: plugin.failed ? plugin.error : "Finding " + entry.label + "\u2026" };
     if (entry.value.length === 0) return { items: [], note: entry.hint !== "" ? entry.hint : "None detected" };
     return { items: itemsKeyed(entry.value).map(function (item) {

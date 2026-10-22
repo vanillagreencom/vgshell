@@ -496,6 +496,13 @@ function verify(logic, producer) {
     assert.ok(noteOf("unavailable", toolMissing).includes("](page:" + on.id + "/Setup)"), "Settings: an unavailable key links its plugin's Setup tab while the key tool is missing");
     assert.ok(!noteOf("unavailable", on).includes("](page:"), "Settings: an unavailable key with its tool present links no step");
     same(noteOf("locked", toolMissing), noteOf("locked", on), "Settings: a locked key's note does not read the key tool");
+    // A key's note reads alone under a key with no hint, and after the
+    // key's hint otherwise: one sentence with no full stop, and two each
+    // ending with one, as the manifest judge holds a hint (§ Copy).
+    const keyNotes = ["locked", "unavailable"].flatMap(presence => [noteOf(presence, on), noteOf(presence, toolMissing)]);
+    same(keyNotes.filter(note => !producer.hintFits(note)), [], "Settings: a key's note alone keeps the one-sentence hint rule");
+    same(keyNotes.map(note => logic.hintOf(["Each key unlocks the feature", note])).filter(hint => !producer.hintFits(hint) || producer.hintSentences(hint).length !== 2), [],
+        "Settings: a key's note after its hint makes two sentences, each ending with a full stop");
     // A stored key list beside its Settings field: what it draws for the
     // plugin's state and its published list.
     const keyEntry = (report, value, hint) => ({ key: "keys", type: "presenceList", label: "Workspaces", hint: hint, info: "", report: report, value: value });
@@ -506,6 +513,9 @@ function verify(logic, producer) {
     same([offKeys.items.length, offKeys.note !== "" && offKeys.note !== "None listed"], [0, true], "Settings: an off plugin's key list draws no key and says why");
     const finding = keysOf(keyEntry("unreported", null, "None listed"), on);
     same([finding.items.length, finding.note !== "" && finding.note !== offKeys.note && finding.note !== "None listed"], [0, true], "Settings: a starting plugin's key list says it is finding its keys");
+    // Its own sentences stand where the list's hint does, so they keep the
+    // hint's copy rule, the manifest judge's (design-system.md § Copy).
+    same([offKeys.note, finding.note].filter(note => !producer.hintFits(note)), [], "Settings: a key list's own sentences keep the one-sentence hint rule");
     same(keysOf(keyEntry("unreported", null, "None listed"), failedOn), { items: [], note: failedOn.error }, "Settings: a key list of a plugin that could not start says why");
     same(keysOf(keyEntry("reported", [], "None listed"), on), { items: [], note: "None listed" }, "Settings: an empty key list reads its hint");
     assert.notEqual(keysOf(keyEntry("reported", [], ""), on).note, "", "Settings: an empty key list with no hint still reads a sentence");
@@ -572,6 +582,9 @@ const controls = [
     ["More settings leaves Settings", 'place === "Settings" ? tui.settings', 'place === "Settings" ? false', "settings screens stay in More settings"],
     ["required keys keep ordinary chips", 'if (setup) {', 'if (false) {', "required stored key uses Done"],
     ["a Settings key draws a chip", 'return { tone: "", text: KEY_WORDS[item.value]', 'return { tone: item.tone, text: KEY_WORDS[item.value]', "Settings: a present key reads plain text"],
+    ["a locked key's note ends with a full stop", 'return "Saving may ask you to unlock your keyring";', 'return "Saving may ask you to unlock your keyring.";', "Settings: a key's note alone keeps the one-sentence hint rule"],
+    ["a hint and a note join as one sentence", ': part + "."; }).join(" ");', ': part; }).join(" ");', "Settings: a key's note after its hint makes two sentences, each ending with a full stop"],
+    ["the Turn on sentence ends with a full stop", '" to load " + entry.label };', '" to load " + entry.label + "." };', "Settings: a key list's own sentences keep the one-sentence hint rule"],
     ["an off plugin's Settings keys are drawn", 'if (!plugin.enabled) return { items: [], note: "Turn on "', 'if (false) return { items: [], note: "Turn on "', "Settings: an off plugin's key list draws no key and says why"],
     ["a Settings key reads no hint of its list", 'hint: item.hint !== "" ? item.hint : entry.hint', 'hint: item.hint', "Settings: each key reads its own hint, else its list's"],
     ["a plugin that is off offers nothing", 'if (!plugin.enabled) return open ? turnOn(plugin.name) : null;', 'if (!plugin.enabled) return null;', "Details: off: a former Settings entry offers Turn on"],
