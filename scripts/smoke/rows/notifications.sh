@@ -5120,38 +5120,44 @@ rejects('if previous ~= nil and sink_bound then previous:request_destroy() end',
   'if false then previous:request_destroy() end', "last release destroys the hold sink")
 print("notifications: routing-contract=pass controls=queued-readmission,pending-holder,removed-serial,sink-release")
 LUA
-  # Replay both stdout delivery orders through the shipped removal handler.
-  # This checks its dispatch decision; the restart below checks the real hold.
+  # Replay the quiet replacement the old metadata observer missed through
+  # the shipped monitor callback. The private restart below also exercises
+  # the real service without adding notification streams or node events.
   node - "$repo/shell/plugins/vgs.notifications" "$repo" <<'JS'
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const dir = process.argv[2];
-// The logic imports qs.Commons, bound as the shell binds it.
 const { load } = require(process.argv[3] + '/bin/lib/qml-library.js');
 const logic = load(dir + '/NotificationLogic.js', { 'qs.Commons 1.0': { PageReference: load(process.argv[3] + '/shell/Commons/PageReference.js') } });
 const qml = fs.readFileSync(dir + '/SoundRule.qml', 'utf8');
-const match = qml.match(/id: removalWatch[\s\S]*?onLine: text => \{([\s\S]*?)\n        \}/);
-assert.ok(match, 'removal callback must be exercised');
-function check(body) {
-    for (const metadataId of [71, 0, 72]) {
-        const context = { Logic: logic, last: 0, rule: { observed: 'current', metadataId }, starts: 0 };
-        context.metadataWatch = { relaunch() { context.starts++; } };
-        vm.createContext(context);
-        vm.runInContext('function deliver(text) {' + body + '\n}', context);
-        vm.runInContext('deliver(\'    "id": 71,\')', context);
-        assert.equal(context.starts, 0);
-        vm.runInContext('deliver(\'    "info": null\')', context);
-        assert.equal(context.rule.observed, '');
-        assert.equal(context.starts, 1);
+const match = qml.match(/function dumpLine\(text\) \{([\s\S]*?)\n    \}/);
+assert.ok(match, 'monitor callback must be exercised');
+function check(logic) {
+    const context = { Logic: logic, metadataWatch: { metadataId: 31, pending: '' }, observed: 'previous', held: ['old'], stop(message) { throw new Error(message); }, console };
+    vm.createContext(context);
+    vm.runInContext('function deliver(text) {' + match[1] + '\n}', context);
+    const metadata = (id, entries) => ({ id, type: 'PipeWire:Interface:Metadata', props: { 'metadata.name': 'vgs-notification-sounds' }, metadata: entries });
+    for (const [objects, version, held, id] of [
+        [[{ id: 31, info: null }], '', [], 0],
+        [[metadata(33, [{ subject: 0, key: 'version', value: 'current' }, { subject: 0, key: 'held', value: ['9007199254740993'] }])], 'current', ['9007199254740993'], 33],
+        [[{ id: 31, info: null }], 'current', ['9007199254740993'], 33],
+        [[metadata(33, [{ subject: 0, key: 'held', value: [] }])], 'current', [], 33],
+        [[{ id: 33, info: null }], '', [], 0]
+    ]) {
+        for (const line of JSON.stringify(objects, null, 2).split('\n')) context.deliver(line);
+        assert.deepEqual(JSON.parse(JSON.stringify([context.observed, context.held, context.metadataWatch.metadataId])), [version, held, id], 'ordered replacement and held state');
     }
 }
-check(match[1]);
-const guard = 'if (read.removed === 0) return;';
-assert.equal(match[1].split(guard).length, 2);
-const old = match[1].replace(guard, 'if (read.removed === 0 || read.removed !== rule.metadataId) return;');
-assert.throws(() => check(old), assert.AssertionError);
-console.log('notifications: removal-order=pass control=old-id-guard-rejected');
+check(logic);
+const source = fs.readFileSync(dir + '/NotificationLogic.js', 'utf8');
+const guard = 'if (m.key === "version") next.version = typeof m.value === "string" ? m.value : "";';
+assert.equal(source.split(guard).length, 2);
+const mutant = source.replace(guard, 'if (m.key === "version") next.version = next.version;');
+const mutantContext = vm.createContext({});
+vm.runInContext(mutant.replace(/^\.pragma.*$/mg, '').replace(/^\.import.*$/mg, ''), mutantContext);
+assert.throws(() => check(mutantContext), assert.AssertionError, 'control: missing replacement version must fail');
+console.log('notifications: metadata-order=pass control=missed-replacement-rejected');
 const appSounds = fs.readFileSync(dir + '/AppSounds.qml', 'utf8');
 const entry = appSounds.match(/function holdEntry\(pid\) \{([\s\S]*?)\n    \}/);
 assert.ok(entry, 'exercise the existing-stream hold writer');

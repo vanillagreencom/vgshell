@@ -5,7 +5,7 @@ import Quickshell.Services.Pipewire
 import "NotificationLogic.js" as Logic
 
 // One long-lived child that talks to the session's PipeWire: the pw-cli
-// writer and the sound rule's two watchers. It runs while `wanted` is true
+// writer and the sound rule's metadata watcher. It runs while `wanted` is true
 // and PipeWire is ready, launched through NotificationLogic.guardedArgv so
 // it cannot outlive the shell, and is started again after an exit nobody
 // asked for, as NotificationLogic.restartStep spaces the starts, since
@@ -42,8 +42,6 @@ Item {
     // Set as the owner goes, so the exit the destruction causes restarts
     // and reports nothing.
     property bool ending: false
-    // Set while relaunch() stops the child to start it again at once.
-    property bool relaunching: false
     readonly property bool canRun: wanted && Pipewire.ready && !gaveUp
 
     function write(data) {
@@ -54,17 +52,6 @@ Item {
         if (!canRun || proc.running || backoff.running) return;
         proc.command = Logic.guardedArgv(Quickshell.processId, argv);
         proc.running = true;
-    }
-
-    // Stop the child and start it again at once, as its owner asks: no
-    // exit is counted.
-    function relaunch() {
-        if (!proc.running) {
-            start();
-            return;
-        }
-        relaunching = true;
-        proc.running = false;
     }
 
     onCanRunChanged: {
@@ -101,11 +88,6 @@ Item {
             completion = null;
             if (sup.ending) return;
             sup.ended();
-            if (sup.relaunching) {
-                sup.relaunching = false;
-                sup.start();
-                return;
-            }
             if (!sup.wanted) return;
             const step = Logic.restartStep(sup.streak, Date.now() - sup.startedAt);
             sup.streak = step.streak;

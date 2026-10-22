@@ -645,26 +645,30 @@ function verify(logic) {
         ["an exit just short of healthy keeps the streak", 2, 59999, { streak: 3, delay: 2000 }]
     ])
         same(logic.restartStep(streak, ran), want, "restart step: " + label);
-    // pw-metadata -m lines, as pw-metadata 1.6.9 printed them in the nested
-    // sandbox (VGS-1424 run 15): [line, the reading].
-    for (const [line, want] of [
-        ['Found "vgs-notification-sounds" metadata 31', { kind: "found", id: 31 }],
-        ["update: id:0 key:'version' value:'6fca98e8' type:'Spa:String'", { kind: "update", subject: 0, key: "version", value: "6fca98e8" }],
-        ["update: id:0 key:'hold' value:'{\"pid\": 930, \"apps\": [\"x\"], \"roles\": []}' type:'Spa:String:JSON'", { kind: "update", subject: 0, key: "hold", value: '{"pid": 930, "apps": ["x"], "roles": []}' }],
-        ["remove: id:0 key:'version'", { kind: "remove", subject: 0, key: "version" }],
-        ["remove: id:0 all keys", { kind: "remove", subject: 0, key: null }],
-        ['Error: "unsupported type PipeWire:Interface:SecurityContext"', null]
-    ])
-        same(logic.metadataLine(line), want, "metadata line: " + line);
-    // pw-dump -m lines (run 16): the removal of object 31 ends at its
-    // "info": null; the object's other lines remove nothing.
-    let dump = { last: 0, removed: 0 };
-    const removals = [];
-    for (const line of ["[", "  {", '    "id": 31,', '    "type": "PipeWire:Interface:Metadata",', '      "metadata.name": "vgs-notification-sounds",', "  }", "]", "[", "  {", '    "id": 31,', '    "info": null', "  }", "]"]) {
-        dump = logic.dumpLine(dump.last, line);
-        if (dump.removed !== 0) removals.push(dump.removed);
+    // The rule's one ordered monitor: complete replacement entries and
+    // held-only deltas, as pw-dump 1.6.9 emits them. A quiet restart can
+    // produce the replacement while pw-metadata reports only Found.
+    const metadata = (id, entries) => ({ id, type: "PipeWire:Interface:Metadata", props: { "metadata.name": "vgs-notification-sounds" }, metadata: entries });
+    const version = value => ({ subject: 0, key: "version", value });
+    const held = value => ({ subject: 0, key: "held", value });
+    let observed = { id: 0, version: "", held: [] };
+    for (const [label, objects, want] of [
+        ["initial absence", [], [0, "", [], false]],
+        ["first rule", [metadata(31, [version("v12345678"), held(["9007199254740993"])])], [31, "v12345678", ["9007199254740993"], false]],
+        ["held delta keeps version", [metadata(31, [held(["81"])])], [31, "v12345678", ["81"], false]],
+        ["other subject and metadata", [metadata(31, [{ subject: 7, key: "version", value: "other" }]), { id: 99, type: "PipeWire:Interface:Metadata", props: { "metadata.name": "default" }, metadata: [version("other")] }], [31, "v12345678", ["81"], false]],
+        ["empty held delta clears hold", [metadata(31, [held([])])], [31, "v12345678", [], false]],
+        ["invalid held delta clears hold and reports it", [metadata(31, [held([81])])], [31, "v12345678", [], true]],
+        ["replacement without another producer", [metadata(33, [version("v87654321"), held(["82"])])], [33, "v87654321", ["82"], false]],
+        ["older removal preserves replacement", [{ id: 31, info: null }], [33, "v87654321", ["82"], false]],
+        ["current removal clears version and holds", [{ id: 33, info: null }], [0, "", [], false]],
+        ["id reused by a new rule", [metadata(33, [version("v12345678"), held(["83"])])], [33, "v12345678", ["83"], false]],
+        ["new object without entries cannot retain old state", [metadata(34, [])], [34, "", [], false]],
+        ["late entries complete the new object", [metadata(34, [version("v87654321"), held([])])], [34, "v87654321", [], false]]
+    ]) {
+        observed = logic.soundRuleUpdate(observed, JSON.stringify(objects));
+        same(observed, { ok: true, id: want[0], version: want[1], held: want[2], invalidHeld: want[3] }, "rule monitor: " + label);
     }
-    same(removals, [31], "pw-dump lines: one removal, of object 31");
     // The guard: the program runs only under the pid it names as its
     // parent, as its own pid.
     const guarded = (shellPid, argv) => {
@@ -1728,7 +1732,7 @@ const CONTROLS = [
     ["the version reads the script", "h ^= text.charCodeAt(i);", "h ^= 0;"],
     ["the version is no number", "return \"v\" + (\"0000000\" + h.toString(16)).slice(-8);", "return (\"0000000\" + h.toString(16)).slice(-8);"],
     ["one restart per version", "return marker === version ? \"absent\" : \"restart\";", "return \"restart\";"],
-    ["the rule's version is on subject 0", "if (isPlainObject(m) && m.subject === 0 && m.key === \"version\"", "if (isPlainObject(m) && m.key === \"version\""],
+    ["the rule's version is on subject 0", "if (!isPlainObject(m) || m.subject !== 0) continue;", "if (!isPlainObject(m)) continue;"],
     ["the main profile requires the feature that wants the script", '"    custom.vgs-notification-sounds = required",', '"    custom.vgs-notification-sounds = optional",'],
     ["the shell's own player is its own", "    if (own) return \"own\";\n", ""],
     ["the shell's own sound is a file of its sounds directory", "return typeof file === \"string\" && file.indexOf(sounds + \"/\") === 0 && file.indexOf(\"/\", sounds.length + 1) === -1;", "return typeof file === \"string\";"],
@@ -1738,9 +1742,9 @@ const CONTROLS = [
     ["the guard checks the parent", "[ \\\"$PPID\\\" = \\\"$1\\\" ] || exit 1; shift; exec", "shift; exec"],
     ["a healthy run starts a new streak", "var next = ran >= RESTART_HEALTHY ? 0 : streak;", "var next = streak;"],
     ["the supervision gives up", "delay: next < RESTART_DELAYS.length ? RESTART_DELAYS[next] : -1", "delay: RESTART_DELAYS[Math.min(next, RESTART_DELAYS.length - 1)]"],
-    ["pw-metadata's found line", "if (m !== null) return { kind: \"found\", id: Number(m[1]) };", ""],
-    ["pw-metadata's removal of every key", "(?:key:'([^']*)'|all keys)", "key:'([^']*)'"],
-    ["pw-dump's removal ends at info null", "if (/^\\s*\"info\": null$/.test(line)) return { last: 0, removed: last };", ""],
+    ["replacement entries restore running without another observer", 'if (m.key === "version") next.version = typeof m.value === "string" ? m.value : "";', 'if (m.key === "version") next.version = next.version;'],
+    ["held-only deltas keep the observed version", "if (o.id !== next.id) {", "if (true) {"],
+    ["older removals keep replacement state", "if (o.id === next.id) {", "if (true) {"],
     ["the removal skips a symbolic link", "own() { [ -f \\\"$1\\\" ] && [ ! -L \\\"$1\\\" ] &&", "own() { [ -f \\\"$1\\\" ] &&"],
     ["the removal reads the head line", "&& [ \\\"$first\\\" = \\\"$2\\\" ]; }", "; }"],
     ["the removal keeps a marker that is no version", "case ${first#v} in *[!0-9a-f]*) ;; *) rm", "case ${first#v} in *) rm"],

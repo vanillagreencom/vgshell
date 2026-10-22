@@ -1053,23 +1053,8 @@ function soundRuleFragment(script, version) {
 // subject 0 `version`: { ok: true, version }, version "" while no rule
 // runs, or { ok: false, error } for text that is no pw-dump list.
 function soundRuleRunning(text) {
-    var objects;
-    try {
-        objects = JSON.parse(text);
-    } catch (e) {
-        return { ok: false, error: "json" };
-    }
-    if (!Array.isArray(objects)) return { ok: false, error: "not-list" };
-    for (var i = 0; i < objects.length; i++) {
-        var o = objects[i];
-        if (!isPlainObject(o) || o.type !== "PipeWire:Interface:Metadata" || !isPlainObject(o.props) || o.props["metadata.name"] !== SOUND_RULE_METADATA) continue;
-        var entries = Array.isArray(o.metadata) ? o.metadata : [];
-        for (var j = 0; j < entries.length; j++) {
-            var m = entries[j];
-            if (isPlainObject(m) && m.subject === 0 && m.key === "version" && typeof m.value === "string") return { ok: true, version: m.value };
-        }
-    }
-    return { ok: true, version: "" };
+    var read = soundRuleUpdate({ id: 0, version: "", held: [] }, text);
+    return read.ok ? { ok: true, version: read.version } : read;
 }
 
 // What the installer does once it has read the running rule: RUNNING the
@@ -1157,28 +1142,50 @@ function restartStep(streak, ran) {
 // 500 ms apart (SoundRule.qml).
 var RULE_GRACE = 10000;
 
-// One line of `pw-metadata -m -n <name>`, as pw-metadata 1.6.9 prints it:
-// { kind: "found", id }, { kind: "update", subject, key, value },
-// { kind: "remove", subject, key } (key null for all keys), or null.
-function metadataLine(line) {
-    var m = /^Found "[^"]*" metadata (\d+)$/.exec(line);
-    if (m !== null) return { kind: "found", id: Number(m[1]) };
-    m = /^update: id:(\d+) key:'([^']*)' value:'(.*)' type:'[^']*'$/.exec(line);
-    if (m !== null) return { kind: "update", subject: Number(m[1]), key: m[2], value: m[3] };
-    m = /^remove: id:(\d+) (?:key:'([^']*)'|all keys)$/.exec(line);
-    if (m !== null) return { kind: "remove", subject: Number(m[1]), key: m[2] === undefined ? null : m[2] };
-    return null;
-}
-
-// One line of `pw-dump -m -N <pattern>`: LAST the id the last object
-// opened with, or 0. Answers { last, removed }, removed the id of an
-// object whose removal the line ends, else 0: pw-dump prints a removed
-// object as its id and `"info": null`.
-function dumpLine(last, line) {
-    var m = /^\s*"id": (\d+),$/.exec(line);
-    if (m !== null) return { last: Number(m[1]), removed: 0 };
-    if (/^\s*"info": null$/.test(line)) return { last: 0, removed: last };
-    return { last: last, removed: 0 };
+// Apply one JSON array from pw-dump 1.6.9 --monitor. Metadata contains
+// changed entries only (metadata_dump); object removal is { id, info: null }
+// (registry_event_global_remove). Keep both in one producer's order, and
+// ignore removal of an older object after a replacement has been observed.
+// The rule publishes version once and held on each change, including [].
+function soundRuleUpdate(current, text) {
+    var objects;
+    try {
+        objects = JSON.parse(text);
+    } catch (e) {
+        return { ok: false, error: "json" };
+    }
+    if (!Array.isArray(objects)) return { ok: false, error: "not-list" };
+    var next = { ok: true, id: current.id, version: current.version, held: current.held, invalidHeld: false };
+    for (var i = 0; i < objects.length; i++) {
+        var o = objects[i];
+        if (!isPlainObject(o)) continue;
+        if (o.info === null) {
+            if (o.id === next.id) {
+                next.id = 0;
+                next.version = "";
+                next.held = [];
+            }
+            continue;
+        }
+        if (o.type !== "PipeWire:Interface:Metadata" || !isPlainObject(o.props) || o.props["metadata.name"] !== SOUND_RULE_METADATA) continue;
+        if (o.id !== next.id) {
+            next.id = o.id;
+            next.version = "";
+            next.held = [];
+        }
+        var entries = Array.isArray(o.metadata) ? o.metadata : [];
+        for (var j = 0; j < entries.length; j++) {
+            var m = entries[j];
+            if (!isPlainObject(m) || m.subject !== 0) continue;
+            if (m.key === "version") next.version = typeof m.value === "string" ? m.value : "";
+            else if (m.key === "held") {
+                var held = soundRuleHeld(JSON.stringify(m.value));
+                next.held = held === null ? [] : held;
+                next.invalidHeld = held === null;
+            }
+        }
+    }
+    return next;
 }
 
 // One output stream's next step under Silence. HOLD is its mute, null or

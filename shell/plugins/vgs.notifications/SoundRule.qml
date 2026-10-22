@@ -18,18 +18,17 @@ import "NotificationLogic.js" as Logic
 // Whether WirePlumber runs the rule is observed, not read once: `running`
 // is true while the rule's metadata reports this script's version, and
 // follows WirePlumber as it restarts or loads the rule late in a login.
-// Two watchers observe it (Supervised.qml): `pw-metadata -m` reports the
-// metadata's entries as they change, but stays bound to a metadata a
-// WirePlumber restart removed, and `pw-dump -m` reports that removal at
-// once but the next object only with a later event, so the removal starts
-// pw-metadata again, which waits for the new one (measured on PipeWire
-// 1.6.9 and WirePlumber 0.5.18 in the nested sandbox, VGS-1424).
+// One supervised `pw-dump -m` observes both metadata entry changes and
+// object removals in stdout order. A pw-metadata observer can bind the
+// replacement yet miss its entries: the quiet-restart trace in VGS-1985
+// investigation-2 on PipeWire 1.6.9 reports Found alone while pw-dump
+// reports the current version. No other graph event is needed here.
 //
 // After the install it reads the rule once: not running at this version,
 // and no marker beside the service's state file naming the version, it
 // restarts WirePlumber once for it, the marker written first. A rule that
 // does not come up, or a version already restarted for, leaves the phase
-// `absent` while the watchers go on: the rule turns running whenever
+// `absent` while the watcher goes on: the rule turns running whenever
 // WirePlumber loads it. Each step logs one keyed info line; AppSounds
 // warns when a mute waits on a rule that is not loaded.
 //
@@ -132,18 +131,31 @@ Item {
         }
     }
 
-    function metadataLine(text) {
-        const line = Logic.metadataLine(text);
-        if (line === null) return;
-        if (line.subject === 0 && line.key === "version") observed = line.kind === "update" ? line.value : "";
-        else if (line.subject === 0 && line.key === "held") {
-            const read = line.kind === "update" ? Logic.soundRuleHeld(line.value) : [];
-            held = read === null ? [] : read;
-            if (read === null) console.warn("notifications: sound rule: held=invalid");
-        } else if (line.kind === "remove" && line.subject === 0 && line.key === null) {
+    // SplitParser delivers newline chunks (Quickshell 0.3.1,
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/SplitParser).
+    // pw-dump 1.6.9 frames each update as an unindented JSON array; entries
+    // are deltas, so only a new object or its removal resets prior state.
+    function dumpLine(text) {
+        if (text === "[") {
+            metadataWatch.pending = text;
+            return;
+        }
+        if (metadataWatch.pending === "") return;
+        metadataWatch.pending += "\n" + text;
+        if (text !== "]") return;
+        const batch = metadataWatch.pending;
+        metadataWatch.pending = "";
+        const read = Logic.soundRuleUpdate({ id: metadataWatch.metadataId, version: observed, held: held }, batch);
+        if (!read.ok) {
             observed = "";
             held = [];
+            stop("watch=invalid error=" + read.error);
+            return;
         }
+        metadataWatch.metadataId = read.id;
+        observed = read.version;
+        held = read.held;
+        if (read.invalidHeld) console.warn("notifications: sound rule: held=invalid");
     }
 
     FileView {
@@ -332,7 +344,7 @@ Item {
 
     // systemctl returns once the unit has started, and WirePlumber loads
     // its scripts after that: a rule not seen within the grace is not
-    // loaded, and the watchers go on.
+    // loaded, and the watcher goes on.
     Timer {
         id: settle
         interval: Logic.RULE_GRACE
@@ -345,30 +357,13 @@ Item {
 
     Supervised {
         id: metadataWatch
+        property string pending: ""
+        property int metadataId: 0
         label: "sound rule: metadata watch"
-        argv: ["pw-metadata", "-m", "-n", Logic.SOUND_RULE_METADATA]
-        onLine: text => rule.metadataLine(text)
-        onStarted: { rule.observed = ""; rule.held = []; }
-        onEnded: { rule.observed = ""; rule.held = []; }
-    }
-
-    // pw-dump filters removals by the rule's name. Its removal can arrive
-    // before pw-metadata reports the object's id, so it must not wait for
-    // that other process's line before starting pw-metadata again.
-    Supervised {
-        id: removalWatch
-        property int last: 0
-        label: "sound rule: removal watch"
         argv: ["pw-dump", "-m", "-N", Logic.SOUND_RULE_METADATA]
-        onLine: text => {
-            const read = Logic.dumpLine(last, text);
-            last = read.last;
-            if (read.removed === 0) return;
-            rule.observed = "";
-            rule.held = [];
-            metadataWatch.relaunch();
-        }
-        onStarted: last = 0
+        onLine: text => rule.dumpLine(text)
+        onStarted: { pending = ""; metadataId = 0; rule.observed = ""; rule.held = []; }
+        onEnded: { pending = ""; metadataId = 0; rule.observed = ""; rule.held = []; }
     }
 
     Component.onDestruction: {
