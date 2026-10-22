@@ -275,6 +275,14 @@ Item {
         when: windowShown
 
         function init() { UnitTheme.reset(); hidden.visible = false; }
+        function cleanup() {
+            storedKey.entering = false;
+            storedKey.busy = false;
+            storedKey.access = "disconnect";
+            storedKey.width = 400;
+            storedKey.label = "Acme";
+            absentKey.entering = false;
+        }
 
         function hairlinesOf(owner) {
             return owner.children.filter(child => child.vertical !== undefined && child.visible);
@@ -726,22 +734,96 @@ Item {
         function test_a_secret_step_opens_the_masked_field() {
             stores.clear();
             compare(findChild(storedKey, TextField), null, "a closed line holds no field");
+            let closedAtStore = false;
+            const inspectStore = () => closedAtStore = findChild(storedKey, TextField) === null;
+            storedKey.storeSecret.connect(inspectStore);
             actionsOf(storedKey)[0].clicked();
-            tryVerify(() => findChild(storedKey, TextField) !== null, 1000, "Replace opens the field");
-            const field = findChild(storedKey, TextField);
-            verify(field.password, "the field masks what is typed");
-            compare(field.text, "", "the field opens empty");
-            compare(actionsOf(storedKey).length, 2, "the masked editor keeps its two links while the key actions hide");
-            field.text = "typed-key";
-            field.accepted();
+            tryVerify(() => findChild(storedKey, TextField) !== null);
+            let input = findChild(storedKey, TextField);
+            verify(input.password);
+            compare(input.text, "");
+            verify(input.activeFocus);
+            compare(actionsOf(storedKey).length, 2);
+            input.accepted();
+            compare(stores.count, 0, "empty input cannot save");
+            storedKey.saveSecret("two\nlines");
+            storedKey.saveSecret("two\rlines");
+            compare(stores.count, 0, "a multiline key cannot reach the writer");
+            input.text = "typed-key";
+            storedKey.busy = true;
+            input.accepted();
+            compare(stores.count, 0, "busy Enter cannot save");
+            verify(storedKey.entering);
+            storedKey.busy = false;
+            input.accepted();
             compare(stores.count, 1);
             compare(stores.signalArguments[0][0], "typed-key");
-            tryVerify(() => findChild(storedKey, TextField) === null, 1000, "Save closes the field");
+            verify(closedAtStore, "the field is destroyed before the direct writer is called");
+            storedKey.storeSecret.disconnect(inspectStore);
+            tryVerify(() => findChild(storedKey, TextField) === null);
+            verify(actionsOf(storedKey)[0].activeFocus, "Save returns focus to Replace");
+            actionsOf(storedKey)[0].clicked();
+            input = findChild(storedKey, TextField);
+            compare(input.text, "", "reopening retains no input");
+            input.text = "discarded-key";
+            actionsOf(storedKey).find(action => action.text === "Cancel").clicked();
+            tryVerify(() => findChild(storedKey, TextField) === null);
+            verify(actionsOf(storedKey)[0].activeFocus);
             stepOf(absentKey).clicked();
-            tryVerify(() => findChild(absentKey, TextField) !== null, 1000, "Add key opens the field");
+            tryVerify(() => findChild(absentKey, TextField) !== null);
+            findChild(absentKey, TextField).text = "discarded-key";
             keyClick(Qt.Key_Escape);
-            tryVerify(() => findChild(absentKey, TextField) === null, 1000, "Escape closes the field");
-            compare(stores.count, 1, "a closed field hands on nothing");
+            tryVerify(() => findChild(absentKey, TextField) === null);
+            verify(stepOf(absentKey).activeFocus, "Escape returns focus to Add key");
+            storedKey.text = "Updated status";
+            wait(0);
+            verify(stepOf(absentKey).activeFocus, "another status publish does not steal focus");
+            storedKey.text = "Present";
+            compare(stores.count, 1);
+            actionsOf(storedKey)[0].clicked();
+            findChild(storedKey, TextField).text = "discarded-on-navigation";
+            storedKey.visible = false;
+            tryVerify(() => findChild(storedKey, TextField) === null);
+            storedKey.visible = true;
+            actionsOf(storedKey)[0].clicked();
+            compare(findChild(storedKey, TextField).text, "");
+            storedKey.cancelEntry();
+            const beginWrite = () => storedKey.busy = true;
+            storedKey.storeSecret.connect(beginWrite);
+            actionsOf(storedKey)[0].clicked();
+            findChild(storedKey, TextField).text = "replacement-key";
+            findChild(storedKey, TextField).accepted();
+            verify(storedKey.busy);
+            storedKey.storeSecret.disconnect(beginWrite);
+            storedKey.busy = false;
+            verify(actionsOf(storedKey)[0].activeFocus, "write completion restores Replace");
+        }
+
+        function test_a_secret_editor_uses_the_value_row() {
+            for (const width of [400, 320]) {
+                storedKey.width = width;
+                storedKey.label = width === 320 ? "A long workspace label that wraps" : "Acme";
+                actionsOf(storedKey)[0].clicked();
+                tryVerify(() => findChild(storedKey, TextField) !== null);
+                wait(0);
+                const input = findChild(storedKey, TextField);
+                const field = storedKey.children.find(child => child.valueX !== undefined);
+                const row = field.children.find(child => child.objectName === "fieldRow");
+                const label = row.children.find(child => child.objectName === "fieldLabel");
+                const inputBox = box(input, field), rowBox = box(row, field);
+                compare(inputBox.x, field.valueX);
+                verify(inputBox.y < rowBox.bottom && inputBox.bottom <= rowBox.bottom,
+                       "the editor replaces the value inside the original row, above its end");
+                verify(input.width >= input.minimumWidth, "the input retains its shared usable width");
+                for (const action of actionsOf(storedKey)) {
+                    const actionBox = box(action, field);
+                    verify(actionBox.right <= field.width, "actions remain inside the value column");
+                    verify(actionBox.x >= inputBox.right || actionBox.y >= inputBox.bottom,
+                           "wrapped actions do not overlap the input");
+                }
+                if (label !== undefined) verify(box(label, field).right <= inputBox.x, "a wrapping label stays clear");
+                storedKey.cancelEntry();
+            }
         }
 
         function test_a_groups_own_lines_sit_close() {

@@ -22,7 +22,7 @@ import qs.Ui
 // after it, in `asideTone` with `asideIcon`, which emits `aside`; or, for
 // a line that is the presence of a secret, by `access`: `connect`, an Add key action, and `disconnect`, a
 // Replace action before a Remove action in the danger tone that emits
-// `clearSecret`. Add key and Replace open a masked field under the line
+// `clearSecret`. Add key and Replace open a masked field in the value slot
 // whose Save, or Enter, emits `storeSecret` with what was typed and closes
 // it. A line with no
 // value, such as a secret nothing is stored for, starts its step on the
@@ -76,17 +76,35 @@ Column {
 
     // The secret's presence changed under an open field, so what the
     // field was opened for no longer holds.
-    onAccessChanged: cancelEntry()
+    onAccessChanged: entering = false
+    onVisibleChanged: if (!visible) entering = false
+    onBusyChanged: if (!busy && returnAfterWrite) restoreActionFocus()
+
+    property bool returnAfterWrite: false
+
+    function restoreActionFocus() {
+        returnAfterWrite = false;
+        if (visible && !busy && (adds || stored))
+            (adds ? addKey : replaceKey).forceActiveFocus(Qt.TabFocusReason);
+    }
+
+    function canSave(value) {
+        return entering && !busy && value !== "" && !/[\r\n]/.test(value);
+    }
 
     function cancelEntry() {
         entering = false;
+        restoreActionFocus();
     }
 
     // Close the field, which destroys it and what it held, then hand VALUE
     // on.
     function saveSecret(value) {
+        if (!canSave(value)) return;
+        returnAfterWrite = true;
         entering = false;
         storeSecret(value);
+        if (!busy) restoreActionFocus();
     }
 
     spacing: Theme.field.gap
@@ -101,7 +119,7 @@ Column {
         info: line.info
         onInfoPageActivated: (page, tab) => line.infoPageActivated(page, tab)
         inline: true
-        hint: line.valued ? line.hint : ""
+        hint: line.valued || line.entering ? line.hint : ""
         hintLink: line.hintLink
         onHintLinkActivated: line.hintLinkActivated()
         onHintPageActivated: (page, tab) => line.hintPageActivated(page, tab)
@@ -118,138 +136,153 @@ Column {
         // and a hint wraps within the room it has, and the row grows with
         // it.
         Item {
-            id: valueRow
-            readonly property real naturalWidth: line.tone !== "" ? value.implicitWidth : Math.ceil(valueText.advanceWidth)
-            readonly property bool stepBelow: step.visible && naturalWidth + Theme.stack.inline + step.implicitWidth > width
-            // The height of the value's first line, a chip of the default
-            // size or the whole text, and the centre that line shares with
-            // a step beside it.
-            readonly property real firstLine: line.tone !== "" ? Theme.badge.size.sm.height : value.height
-            readonly property real centre: Math.max(firstLine, step.visible ? step.height : 0) / 2
-            // The width a text value may take: the column, less a step
-            // beside it.
-            readonly property real room: width - (step.visible && !stepBelow ? step.width + Theme.stack.inline : 0)
-            // Where the value or the step beside it starts and ends to
-            // draw, so a GroupList centres its hairline on what the line
-            // shows.
-            function inkAbove() {
-                const top = value.y + Theme.inkAbove(value);
-                return step.visible ? Math.min(top, step.y + Theme.inkAbove(step)) : top;
-            }
-            function inkBelow() {
-                const bottom = value.y + value.height - Theme.inkBelow(value);
-                return height - (step.visible ? Math.max(bottom, step.y + step.height - Theme.inkBelow(step)) : bottom);
-            }
             width: parent.width
-            implicitHeight: stepBelow ? value.height + Theme.field.gap + step.height : Math.max(value.y + value.height, step.visible ? step.y + step.height : 0)
-            // The hint role's face, which a hint drawn as the value takes;
-            // its LinkText reports the control's font, not its text's.
-            Label {
-                id: hintFace
-                role: "hint"
-                visible: false
+            implicitHeight: line.entering ? form.height : valueRow.height
+            function inkAbove() { return line.entering ? Theme.inkAbove(form) : valueRow.inkAbove(); }
+            function inkBelow() { return line.entering ? Theme.inkBelow(form) : valueRow.inkBelow(); }
+            Item {
+                id: valueRow
+                visible: !line.entering
+                readonly property real naturalWidth: line.tone !== "" ? value.implicitWidth : Math.ceil(valueText.advanceWidth)
+                readonly property bool stepBelow: step.visible && naturalWidth + Theme.stack.inline + step.implicitWidth > width
+                // The height of the value's first line, a chip of the default
+                // size or the whole text, and the centre that line shares with
+                // a step beside it.
+                readonly property real firstLine: line.tone !== "" ? Theme.badge.size.sm.height : value.height
+                readonly property real centre: Math.max(firstLine, step.visible ? step.height : 0) / 2
+                // The width a text value may take: the column, less a step
+                // beside it.
+                readonly property real room: width - (step.visible && !stepBelow ? step.width + Theme.stack.inline : 0)
+                // Where the value or the step beside it starts and ends to
+                // draw, so a GroupList centres its hairline on what the line
+                // shows.
+                function inkAbove() {
+                    const top = value.y + Theme.inkAbove(value);
+                    return step.visible ? Math.min(top, step.y + Theme.inkAbove(step)) : top;
+                }
+                function inkBelow() {
+                    const bottom = value.y + value.height - Theme.inkBelow(value);
+                    return height - (step.visible ? Math.max(bottom, step.y + step.height - Theme.inkBelow(step)) : bottom);
+                }
+                width: parent.width
+                implicitHeight: stepBelow ? value.height + Theme.field.gap + step.height : Math.max(value.y + value.height, step.visible ? step.y + step.height : 0)
+                // The hint role's face, which a hint drawn as the value takes;
+                // its LinkText reports the control's font, not its text's.
+                Label {
+                    id: hintFace
+                    role: "hint"
+                    visible: false
+                }
+                TextMetrics {
+                    id: valueText
+                    // The text's own font once it is built, the hint role's for
+                    // a hint; a chip value measures no text.
+                    font: line.tone === "" && line.text === "" ? hintFace.font
+                        : value.item !== null && value.item.font !== undefined ? value.item.font : Qt.font({ family: Theme.text.value.family, pixelSize: Theme.text.value.size })
+                    text: line.tone !== "" ? "" : line.text !== "" ? line.text : line.hint
+                }
+                Loader {
+                    id: value
+                    y: valueRow.stepBelow ? 0 : Math.round(valueRow.centre - valueRow.firstLine / 2)
+                    sourceComponent: line.tone !== "" ? badge : line.text !== "" ? plain : line.hint !== "" ? hintValue : null
+                }
+                // RowActions places only its visible actions, so a line draws
+                // the steps that apply to it alone.
+                Row {
+                    id: step
+                    x: valueRow.stepBelow ? 0 : value.width > 0 ? value.width + Theme.stack.inline : 0
+                    y: valueRow.stepBelow ? value.height + Theme.field.gap : Math.round(valueRow.centre - height / 2)
+                    spacing: Theme.stack.inline
+                    visible: line.stepShown && !line.entering
+                    RowActions {
+                        anchors.verticalCenter: parent.verticalCenter
+                        RowAction {
+                            visible: line.actionLabel !== "" && line.actionOffered
+                            enabled: !line.busy
+                            text: line.actionLabel
+                            tone: line.actionTone === "danger" ? "danger" : "accent"
+                            markName: line.actionIcon
+                            onClicked: line.act()
+                        }
+                        RowAction {
+                            visible: line.asideOffered
+                            enabled: !line.busy
+                            text: line.asideLabel
+                            tone: line.asideTone === "danger" ? "danger" : "accent"
+                            markName: line.asideIcon
+                            onClicked: line.aside()
+                        }
+                        RowAction {
+                            id: addKey
+                            visible: line.adds
+                            enabled: !line.busy
+                            text: "Add key"
+                            onClicked: line.entering = true
+                        }
+                        RowAction {
+                            id: replaceKey
+                            visible: line.stored
+                            enabled: !line.busy
+                            text: "Replace"
+                            onClicked: line.entering = true
+                        }
+                        RowAction {
+                            visible: line.stored
+                            enabled: !line.busy
+                            text: "Remove"
+                            tone: "danger"
+                            onClicked: line.clearSecret()
+                        }
+                    }
+                }
             }
-            TextMetrics {
-                id: valueText
-                // The text's own font once it is built, the hint role's for
-                // a hint; a chip value measures no text.
-                font: line.tone === "" && line.text === "" ? hintFace.font
-                    : value.item !== null && value.item.font !== undefined ? value.item.font : Qt.font({ family: Theme.text.value.family, pixelSize: Theme.text.value.size })
-                text: line.tone !== "" ? "" : line.text !== "" ? line.text : line.hint
-            }
+            // The masked field of Add key and Replace, built while it is open
+            // and destroyed on Save or Cancel, so a closed line holds no input and a
+            // typed secret outlives neither. What is typed stays in the field
+            // alone until Save hands it to the core, which stores it through
+            // libsecret.
             Loader {
-                id: value
-                y: valueRow.stepBelow ? 0 : Math.round(valueRow.centre - valueRow.firstLine / 2)
-                sourceComponent: line.tone !== "" ? badge : line.text !== "" ? plain : line.hint !== "" ? hintValue : null
-            }
-            // RowActions places only its visible actions, so a line draws
-            // the steps that apply to it alone.
-            Row {
-                id: step
-                x: valueRow.stepBelow ? 0 : value.width > 0 ? value.width + Theme.stack.inline : 0
-                y: valueRow.stepBelow ? value.height + Theme.field.gap : Math.round(valueRow.centre - height / 2)
-                spacing: Theme.stack.inline
-                visible: line.stepShown && !line.entering
-                RowActions {
-                    anchors.verticalCenter: parent.verticalCenter
-                    RowAction {
-                        visible: line.actionLabel !== "" && line.actionOffered
-                        enabled: !line.busy
-                        text: line.actionLabel
-                        tone: line.actionTone === "danger" ? "danger" : "accent"
-                        markName: line.actionIcon
-                        onClicked: line.act()
+                id: form
+                width: parent.width
+                active: line.entering
+                visible: active
+                // Qt Loader releases its item when inactive; the store signal's
+                // unit test reads item === null synchronously before the writer.
+                // https://doc.qt.io/qt-6/qml-qtquick-loader.html#active-prop
+                sourceComponent: Item {
+                    readonly property bool below: secret.minimumWidth + Theme.stack.inline + editorActions.implicitWidth > width
+                    implicitHeight: below ? secret.height + Theme.stack.row + editorActions.height : secret.height
+                    Component.onCompleted: secret.forceActiveFocus()
+                    TextField {
+                        id: secret
+                        width: parent.below ? form.width : form.width - editorActions.implicitWidth - Theme.stack.inline
+                        password: true
+                        leadingIcon: "key-round"
+                        placeholderText: line.secretLabel
+                        onAccepted: line.saveSecret(text)
+                        Keys.onEscapePressed: event => {
+                            line.cancelEntry();
+                            event.accepted = true;
+                        }
                     }
-                    RowAction {
-                        visible: line.asideOffered
-                        enabled: !line.busy
-                        text: line.asideLabel
-                        tone: line.asideTone === "danger" ? "danger" : "accent"
-                        markName: line.asideIcon
-                        onClicked: line.aside()
-                    }
-                    RowAction {
-                        visible: line.adds
-                        enabled: !line.busy
-                        text: "Add key"
-                        onClicked: line.entering = true
-                    }
-                    RowAction {
-                        visible: line.stored
-                        enabled: !line.busy
-                        text: "Replace"
-                        onClicked: line.entering = true
-                    }
-                    RowAction {
-                        visible: line.stored
-                        enabled: !line.busy
-                        text: "Remove"
-                        tone: "danger"
-                        onClicked: line.clearSecret()
+                    RowActions {
+                        id: editorActions
+                        width: parent.below ? form.width : implicitWidth
+                        x: parent.below ? 0 : secret.width + Theme.stack.inline
+                        y: parent.below ? secret.height + Theme.stack.row : Math.round((secret.height - height) / 2)
+                        RowAction {
+                            id: save
+                            enabled: line.canSave(secret.text)
+                            text: "Save"
+                            onClicked: line.saveSecret(secret.text)
+                        }
+                        RowAction {
+                            id: cancel
+                            text: "Cancel"
+                            onClicked: line.cancelEntry()
+                        }
                     }
                 }
-            }
-        }
-    }
-
-    // The masked field of Add key and Replace, built while it is open
-    // and destroyed on Save or Cancel, so a closed line holds no input and a
-    // typed secret outlives neither. What is typed stays in the field
-    // alone until Save hands it to the core, which stores it through
-    // libsecret.
-    Loader {
-        id: form
-        x: field.valueX
-        width: line.width - x - field.rightPadding
-        active: line.entering
-        visible: active
-        sourceComponent: Row {
-            spacing: Theme.stack.inline
-            Component.onCompleted: secret.forceActiveFocus()
-            TextField {
-                id: secret
-                width: form.width - save.width - cancel.width - 2 * parent.spacing
-                password: true
-                leadingIcon: "key-round"
-                placeholderText: line.secretLabel
-                onAccepted: if (text !== "") line.saveSecret(text)
-                Keys.onEscapePressed: event => {
-                    line.cancelEntry();
-                    event.accepted = true;
-                }
-            }
-            RowAction {
-                id: save
-                enabled: secret.text !== "" && !line.busy
-                text: "Save"
-                anchors.verticalCenter: parent.verticalCenter
-                onClicked: line.saveSecret(secret.text)
-            }
-            RowAction {
-                id: cancel
-                text: "Cancel"
-                anchors.verticalCenter: parent.verticalCenter
-                onClicked: line.cancelEntry()
             }
         }
     }
