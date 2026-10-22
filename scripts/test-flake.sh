@@ -11,6 +11,7 @@
 #   - `nix build` succeeds. The build runs scripts/check-install-tree.sh on the
 #     installed tree, so it ships the tree every other channel ships.
 #   - The installed Keyboard service reads its nonempty Nix-store catalog.
+#   - Installed dictation loads PipeWire's ALSA module without opening a PCM.
 #   - `nix run .# -- --version` prints `vgshell <VERSION>`.
 #   - For the file $out/bin/vgshell resolves to and for bin/vgshell-tui, the PATH
 #     row: the one `# vgs-nix-path` line, run in an empty environment,
@@ -174,6 +175,9 @@ if out="$(nix build "${flags[@]}" path:/src 2>/tmp/build.log)"; then
   fi
   vgshell="$(readlink -f "$out/bin/vgshell")"
   language_path="$(grep -F -- "$marker" "$vgshell")"
+  if env -i "$(command -v bash)" -c 'PATH=; eval "$1"; exec python3 "$2" check-route' _ "$language_path" "$out/share/vgshell/bin/lib/voxtype.py"; then
+    ok "Dictation loads the native PipeWire ALSA module without an audio server"
+  else fail "Dictation loads the native PipeWire ALSA module without an audio server"; fi
   languages="$(env -i "$(command -v bash)" -c 'PATH=; eval "$1"; tesseract --list-langs' _ "$language_path" 2>&1)" || languages=""
   if grep -qxF eng <<<"$languages"; then ok "Capture English OCR data is installed"
   else fail "Capture English OCR data is installed"; fi

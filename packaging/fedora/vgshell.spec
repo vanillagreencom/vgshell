@@ -48,6 +48,7 @@ Requires:       iproute
 Requires:       less
 Requires:       libnotify
 Requires:       libsecret
+Requires:       pipewire-alsa
 Requires:       pipewire-utils
 Requires:       playerctl
 Requires:       pulseaudio-utils
@@ -93,9 +94,6 @@ Recommends:     ydotool
 Recommends:     imv
 Recommends:     mpv
 # end runtime dependencies
-
-# The dictation child's private ALSA route loads this plugin directly.
-Requires:       pipewire-alsa
 
 %description
 VGS is a desktop shell for Hyprland, built on Quickshell. A small fixed core

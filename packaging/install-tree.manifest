@@ -23,6 +23,7 @@ f share/vgshell/bin/lib/theme-render.js
 f share/vgshell/bin/lib/theme-select.js
 f share/vgshell/bin/lib/tmpfiles.d/vgs-sudo-grant.conf
 f share/vgshell/bin/lib/tui.sh
+f share/vgshell/bin/lib/voxtype.py
 f share/vgshell/bin/lib/voxtype.sh
 f share/vgshell/bin/lib/xkb-keys.py
 f share/vgshell/bin/vgshell
@@ -41,6 +42,7 @@ f share/vgshell/bin/vgshell-system
 f share/vgshell/bin/vgshell-theme-judge
 f share/vgshell/bin/vgshell-tui
 f share/vgshell/config/requirements.json
+f share/vgshell/config/runtime-libraries.json
 f share/vgshell/config/shell.json
 f share/vgshell/config/system/greeter/hyprland.lua
 f share/vgshell/config/system/greeter/vgs-greeter.pam

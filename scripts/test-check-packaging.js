@@ -48,7 +48,7 @@ function git(...args) {
 }
 
 const pristine = path.join(tmp, "pristine");
-const files = ["packaging/runtime-libraries.json", "packaging/channel-gaps.json", "flake.lock", "flake.nix", "install.sh", "packaging/install-system.sh", "packaging/install-tree.manifest", "packaging/xdg-desktop-portal/hyprland-portals.conf", "VERSION", "config/requirements.json", "bin/vgshell", "docs/architecture/distribution.md"];
+const files = ["config/runtime-libraries.json", "packaging/channel-gaps.json", "flake.lock", "flake.nix", "install.sh", "packaging/install-system.sh", "packaging/install-tree.manifest", "packaging/xdg-desktop-portal/hyprland-portals.conf", "VERSION", "config/requirements.json", "bin/vgshell", "docs/architecture/distribution.md"];
 for (const plugin of fs.readdirSync(path.join(repo, "shell", "plugins"))) {
     if (fs.existsSync(path.join(repo, "shell", "plugins", plugin, "manifest.json"))) files.push(`shell/plugins/${plugin}/manifest.json`);
 }
@@ -104,7 +104,7 @@ function countRequirements(tree) {
     const table = fs.readFileSync(path.join(tree, "bin/vgshell"), "utf8").split("preflight_floor='\n")[1].split("\n'\n")[0];
     const probes = table.split("\n").filter(Boolean).map(line => line.trim().split(/\s+/)[3]);
     return all.length + probes.filter(probe => !all.some(entry => requirementName(entry) === probe)).length
-        + JSON.parse(fs.readFileSync(path.join(tree, "packaging/runtime-libraries.json"), "utf8")).length;
+        + JSON.parse(fs.readFileSync(path.join(tree, "config/runtime-libraries.json"), "utf8")).length;
 }
 
 function fresh(name) {
@@ -402,7 +402,7 @@ const ROWS = [
     ["a missing required runtime library is refused", t => edit(t, SRC, "^\\tdepends = libxkbcommon\\n", ""),
         1, () => refused("requirement=library:xkbcommon package=libxkbcommon want=depends " + where())],
     ["runtime library data rejects a duplicate identity", t => {
-        const file = path.join(t, "packaging/runtime-libraries.json");
+        const file = path.join(t, "config/runtime-libraries.json");
         const data = JSON.parse(fs.readFileSync(file, "utf8")); data.push(data[0]);
         fs.writeFileSync(file, JSON.stringify(data));
     }, 1, () => refused("libraries=shape")],

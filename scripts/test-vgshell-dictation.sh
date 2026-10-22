@@ -8,6 +8,33 @@ mkdir -p "$tree/bin/lib" "$tree/config" "$commands" "$tmp/home"
 cp -- "$repo/bin/vgshell" "$repo/bin/vgshell-dictation" "$tree/bin/"
 cp -R -- "$repo/bin/lib/." "$tree/bin/lib/"
 cp -R -- "$repo/config/voxtype" "$tree/config/"
+cp -- "$repo/config/runtime-libraries.json" "$tree/config/"
+# Real libasound loads this native stand-in without opening a PCM. Its
+# linked dependency also exercises the Nix module-handle loading path.
+command -v cc >/dev/null || { echo "$suite: status=not-measured missing=cc"; exit 77; }
+audio_modules="$tmp/audio-modules"
+mkdir -p "$audio_modules"
+cat >"$tmp/audio-module.c" <<'C'
+#include <stddef.h>
+extern void *snd_dlopen(const char *, int, char *, size_t);
+void *(*fixture_loader)(const char *, int, char *, size_t) = snd_dlopen;
+C
+cc -shared -fPIC "$tmp/audio-module.c" -Wl,--no-as-needed -l:libasound.so.2 -o "$tmp/audio-module.so"
+cp -- "$tmp/audio-module.so" "$audio_modules/libasound_module_pcm_pipewire.so"
+printf '#!/bin/sh\nexit 64\n' >"$commands/pw-play"
+cat >"$tree/bin/vgshell-pkg" <<EOF2
+#!/bin/sh
+printf '%s\n' "\$*" >>"$tmp/pkg.calls"
+case "\$*" in
+  'detect --json') printf '{"primary":{"id":"%s","binary":"unused"},"overlays":[],"sources":[]}\n' "\$(cat "$tmp/package-manager")" ;;
+  "run install --manager \$(cat "$tmp/package-manager") \$(cat "$tmp/package-name")")
+    [ ! -e "$tmp/install-failed" ] || exit 1
+    [ -e "$tmp/install-unavailable" ] || cp "$tmp/audio-module.so" "$audio_modules/libasound_module_pcm_pipewire.so"
+    ;;
+  *) exit 64 ;;
+esac
+EOF2
+chmod +x "$tree/bin/vgshell-pkg"
 cat >"$commands/voxtype" <<EOF2
 #!/bin/sh
 printf '%s\n' "\$*" >>"$tmp/voxtype.calls"
@@ -44,7 +71,7 @@ chmod +x "$commands"/* "$tree/bin/vgshell-system"
 setup_run() { # EXPECTED_EXIT [ANSWER_STATUS]
   local expected="${1:-0}" answer="${2:-0}" code=0
   printf '%s\n' "$answer" >"$tmp/answer"
-  "${base_env[@]}" PATH="$commands:$base_path" XDG_CONFIG_HOME="$tmp/home/config & # \"quoted\"" SHELL="$BASH" \
+  "${base_env[@]}" PATH="$commands:$base_path" ALSA_PLUGIN_DIR="$audio_modules" XDG_CONFIG_HOME="$tmp/home/config & # \"quoted\"" SHELL="$BASH" \
     script -qec "$(printf '%q ' "$BASH" "$tree/bin/vgshell" dictation setup)" /dev/null \
     </dev/null >"$tmp/setup.out" 2>&1 || code=$?
   test "$code" == "$expected"
@@ -85,6 +112,29 @@ check "setup with an installed model succeeds" setup_run
 no_download() { ! grep -E '^setup ' "$tmp/voxtype.calls"; }
 check "an installed model is not downloaded" no_download
 check "no setup run starts sudo or systemctl" test ! -e "$tmp/forbidden"
+# Module absence is separate from the installed engine and model. Every
+# supported package owner is reached through the existing setup verb.
+printf '[{"name":"parakeet","compiled":true}]\n' >"$tmp/engines.json"
+rm -f -- "${tmp:?}/system.calls"
+for pair in 'apt pipewire-alsa' 'dnf pipewire-alsa' 'pacman pipewire-audio' 'nix pipewire'; do
+  read -r manager package <<<"$pair"
+  printf '%s\n' "$manager" >"$tmp/package-manager"
+  printf '%s\n' "$package" >"$tmp/package-name"
+  rm -f -- "${audio_modules:?}/libasound_module_pcm_pipewire.so" "${tmp:?}/pkg.calls"
+  check "$manager: declining module repair runs no package action" setup_run 130 1
+  check "$manager: declined repair makes no package call" test ! -e "$tmp/pkg.calls"
+  check "$manager: setup installs the canonical missing audio module" setup_run
+  check "$manager: existing package owner receives install argv" grep -qxF -- "run install --manager $manager $package" "$tmp/pkg.calls"
+done
+check "an absent module never claims an engine compilation defect" test ! -e "$tmp/system.calls"
+rm -f -- "${audio_modules:?}/libasound_module_pcm_pipewire.so"
+touch "$tmp/install-unavailable"
+check "setup refuses success while an installed module still cannot load" setup_run 69
+rm -f -- "${tmp:?}/install-unavailable"
+touch "$tmp/install-failed"
+check "a failed package action stops setup" setup_run 1
+rm -f -- "${tmp:?}/install-failed"
+cp -- "$tmp/audio-module.so" "$audio_modules/libasound_module_pcm_pipewire.so"
 # Each control changes the shipped operation in the private tree and must
 # fail the corresponding behavioral reading. Restore it after each rule.
 cp -- "$tree/bin/vgshell-dictation" "$tmp/setup-source"
@@ -150,7 +200,7 @@ elif case == "valid":
 STUB
 chmod +x "$commands/voxtype"
 transport_readings() {
-  "${base_env[@]}" PATH="$commands:$base_path" python3 - "$BASH" "$tree/bin/vgshell-dictation" "$tmp" <<'TEST'
+  "${base_env[@]}" PATH="$commands:$base_path" ALSA_PLUGIN_DIR="$audio_modules" python3 - "$BASH" "$tree/bin/vgshell-dictation" "$tmp" <<'TEST'
 import os, pathlib, shutil, subprocess, sys
 bash, helper, scratch = sys.argv[1:]
 def run(role, case, target=helper):
@@ -185,28 +235,57 @@ player = package / "bin/pw-cat"
 player.write_text("#!/bin/sh\nexit 0\n")
 player.chmod(0o755)
 commands = pathlib.Path(os.environ["PATH"].split(os.pathsep)[0])
+(commands / "pw-play").unlink()
 (commands / "pw-play").symlink_to(player)
 nix_tree = pathlib.Path(scratch) / "transport-nix"
 (nix_tree / "bin/lib").mkdir(parents=True)
 shutil.copyfile(helper, nix_tree / "bin/vgshell-dictation")
-source = pathlib.Path(helper).parent / "lib/voxtype.sh"
+source = pathlib.Path(helper).parent / "lib/voxtype.py"
 text = source.read_text()
 needle = 'NIX_STORE_ROOT = "/nix/store"'
 assert text.count(needle) == 1
-(nix_tree / "bin/lib/voxtype.sh").write_text(text.replace(needle, "NIX_STORE_ROOT = " + repr(str(nix_root))))
+shutil.copyfile(pathlib.Path(helper).parent / "lib/voxtype.sh", nix_tree / "bin/lib/voxtype.sh")
+(nix_tree / "bin/lib/voxtype.py").write_text(text.replace(needle, "NIX_STORE_ROOT = " + repr(str(nix_root))))
+shutil.copyfile(pathlib.Path(scratch) / "audio-module.so", package / "lib/alsa-lib/libasound_module_pcm_pipewire.so")
 result = run("daemon", "argv", str(nix_tree / "bin/vgshell-dictation"))
 assert result.returncode == 0, result
 assert pathlib.Path(scratch, "transport.argv.module").read_text() == str(package / "lib/alsa-lib")
+# Both native lookups refuse a missing module before starting the child.
+(package / "lib/alsa-lib/libasound_module_pcm_pipewire.so").unlink()
+pathlib.Path(scratch, "transport.argv").unlink()
+result = run("daemon", "argv", str(nix_tree / "bin/vgshell-dictation"))
+assert result.returncode == 69 and result.stdout == b"", result
+assert result.stderr == b"vgs-dictation: route=pipewire-module-unavailable\n", result
+assert not pathlib.Path(scratch, "transport.argv").exists()
+module = pathlib.Path(os.environ["ALSA_PLUGIN_DIR"], "libasound_module_pcm_pipewire.so")
+module.unlink()
+result = run("daemon", "argv")
+assert result.returncode == 69 and result.stdout == b"", result
+assert result.stderr == b"vgs-dictation: route=pipewire-module-unavailable\n", result
+assert not pathlib.Path(scratch, "transport.argv").exists()
+admission_control = pathlib.Path(scratch) / "admission-control"
+(admission_control / "bin/lib").mkdir(parents=True)
+shutil.copyfile(helper, admission_control / "bin/vgshell-dictation")
+shutil.copyfile(pathlib.Path(helper).parent / "lib/voxtype.sh", admission_control / "bin/lib/voxtype.sh")
+source = pathlib.Path(helper).parent / "lib/voxtype.py"
+text = source.read_text()
+needle = '    if role == "daemon":\n        check_route(environment)\n'
+assert text.count(needle) == 1
+(admission_control / "bin/lib/voxtype.py").write_text(text.replace(needle, '    if role == "daemon":\n        pass\n'))
+mutant = run("daemon", "argv", str(admission_control / "bin/vgshell-dictation"))
+assert mutant.returncode == 0 and pathlib.Path(scratch, "transport.argv").exists(), mutant
+shutil.copyfile(pathlib.Path(scratch) / "audio-module.so", module)
 # The same behavioral assertion must reject a disposable transport whose
 # raw-byte governor is removed; its child is finite and needs no cleanup.
 control = pathlib.Path(scratch) / "transport-control"
 (control / "bin/lib").mkdir(parents=True)
 shutil.copyfile(helper, control / "bin/vgshell-dictation")
-source = pathlib.Path(helper).parent / "lib/voxtype.sh"
+source = pathlib.Path(helper).parent / "lib/voxtype.py"
 text = source.read_text()
-needle = "            if credit < 0:\n"
+needle = "                if credit < 0:\n"
 assert text.count(needle) == 1
-(control / "bin/lib/voxtype.sh").write_text(text.replace(needle, "            if False:\n"))
+shutil.copyfile(pathlib.Path(helper).parent / "lib/voxtype.sh", control / "bin/lib/voxtype.sh")
+(control / "bin/lib/voxtype.py").write_text(text.replace(needle, "                if False:\n"))
 mutant = run("daemon", "stderr", str(control / "bin/vgshell-dictation"))
 assert mutant.returncode != 74, mutant
 print("transport readings: bounded daemon/follow/run stdout and stderr; control rejected")

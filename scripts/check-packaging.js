@@ -302,7 +302,7 @@ function readRequirements() {
     // Libraries have no PATH command. Their package data shares the same
     // required dependency judge as commands, without inventing a command.
     let libraries;
-    try { libraries = JSON.parse(readText("packaging/runtime-libraries.json", "libraries=unreadable")); }
+    try { libraries = JSON.parse(readText("config/runtime-libraries.json", "libraries=unreadable")); }
     catch (error) { refuse("libraries=unreadable", error.message); }
     const seen = new Set();
     if (!Array.isArray(libraries)) refuse("libraries=shape");

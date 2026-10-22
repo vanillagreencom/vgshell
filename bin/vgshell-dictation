@@ -24,6 +24,13 @@ if ! command -v voxtype >/dev/null; then
   vgs_tui_error "Dictation needs voxtype. Install it from the plugin's Settings page."
   exit 1
 fi
+route_status=0
+python3 "$root/bin/lib/voxtype.py" check-route || route_status=$?
+case "$route_status" in
+  0) ;;
+  69) vgs_tui_step "Dictation needs the PipeWire audio library." ;;
+  *) exit "$route_status" ;;
+esac
 # --config selects the shipped defaults without writing them (voxtype
 # 1.1.0 src/cli/root.rs and src/app/config_get.rs, a read-only command).
 config_read=()
@@ -47,6 +54,17 @@ fi
 status=0
 vgs_tui_confirm "$question" || status=$?
 case "$status" in 0) ;; 1) exit 130 ;; *) exit "$status" ;; esac
+if [[ $route_status != 0 ]]; then
+  detected="$("$root/bin/vgshell-pkg" detect --json)"
+  audio_package="$(python3 "$root/bin/lib/voxtype.py" route-package "$detected")"
+  mapfile -t audio_package <<<"$audio_package"
+  vgs_tui_step "Installing the PipeWire audio library"
+  "$root/bin/vgshell-pkg" run install --manager "${audio_package[0]}" "${audio_package[1]}"
+  if ! python3 "$root/bin/lib/voxtype.py" check-route; then
+    vgs_tui_error "The PipeWire audio library is still unavailable. Dictation setup could not finish."
+    exit 69
+  fi
+fi
 if [[ ${#config_read[@]} != 0 ]]; then
   vgs_tui_step "Copying dictation defaults"
   mkdir -p -- "$config_dir"

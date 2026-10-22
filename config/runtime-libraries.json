@@ -1,0 +1,8 @@
+[
+  {"id": "xkbcommon", "packages": {"pacman": "libxkbcommon", "apt": "libxkbcommon0", "dnf": "libxkbcommon", "nix": "libxkbcommon"}},
+  {"id": "xkb-layouts", "packages": {"pacman": "xkeyboard-config", "apt": "xkb-data", "dnf": "xkeyboard-config", "nix": "xkeyboard_config"}},
+  {"id": "shell-interpreter", "packages": {"pacman": "bash", "apt": "bash", "dnf": "bash", "nix": "bash"}},
+  {"id": "shell-utilities", "packages": {"pacman": "coreutils", "apt": "coreutils", "dnf": "coreutils", "nix": "coreutils"}},
+  {"id": "capture-english", "packages": {"pacman": "tesseract-data-eng", "apt": "tesseract-ocr-eng", "dnf": "tesseract-langpack-eng", "nix": "tesseract"}},
+  {"id": "dictation-audio", "packages": {"pacman": "pipewire-audio", "apt": "pipewire-alsa", "dnf": "pipewire-alsa", "nix": "pipewire"}}
+]
