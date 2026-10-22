@@ -48,7 +48,9 @@ function failureText(failures, message, policy) {
 var SLEEP_COMMANDS = ["systemd-inhibit", "dbus-monitor", "busctl"];
 
 // One line of bin/sleep-watch as { kind, budgetMs, reason }: `ready
-// budget_ms=N` once the delay inhibitor holds and the listener is live,
+// budget_ms=N` once the delay inhibitor holds, the listener is live and
+// logind confirms PreparingForSleep=false; an initial true emits sleep
+// without ready, and an unreadable state emits neither and fails startup.
 // `sleep budget_ms=N` when logind prepares for sleep, `released reason=R`
 // when it lets go; kind "unknown" for any other line, budgetMs 0 where the
 // line names none.

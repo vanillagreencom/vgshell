@@ -10,6 +10,9 @@ Scope {
     property var lockContent: null
     property bool lockSecure: false
     property var lockContentOwner: null
+    // REVISIT(D113): Recovery across shell failure needs an independent owner.
+    // This record and its timer survive the plugin, not the whole shell.
+    property var release: null
     // How many requested locks the compositor refused or ended while the
     // holder still asked for them, bindable, so the holder sees each one.
     property int compositorEnds: 0
@@ -27,11 +30,15 @@ Scope {
     }
 
     function provider(ctx) {
-        ctx.onDispose(() => root.dropLock(ctx));
+        let disposed = false;
+        ctx.onDispose(() => { disposed = true; root.dropLock(ctx); });
+        const live = () => !disposed && ctx.active;
         return {
-            lock: content => root.lock(ctx, content),
-            unlock: () => root.unlock(),
+            lock: content => live() ? root.lock(ctx, content) : "refused: lock=released",
+            unlock: () => !live() ? "refused: lock=released" : root.lockContentOwner !== ctx ? "refused: lock=not-owner" : root.unlock(),
+            unlockFor: milliseconds => live() ? root.unlockFor(ctx, milliseconds) : "refused: lock=released",
             get locked() { return root.lockRequested; },
+            get temporary() { return root.release !== null; },
             get hasContent() { return root.lockContent !== null; },
             get secure() { return root.lockSecure; },
             get compositorEnds() { return root.compositorEnds; }
@@ -44,6 +51,7 @@ Scope {
     function lock(ctx, content) {
         if (content === null || content === undefined || typeof content.createObject !== "function")
             return "refused: lock-content=not-a-component";
+        endRelease("lock-request");
         lockContentOwner = ctx;
         lockContent = content;
         lockRequested = true;
@@ -51,8 +59,57 @@ Scope {
     }
 
     function unlock() {
+        if (release !== null) return "refused: lock=busy";
         lockRequested = false;
         return "ok";
+    }
+
+    // The exclusive lock holder supplies milliseconds; its service owns
+    // the user-facing duration policy. Qt Timer's interval is a signed int:
+    // https://doc.qt.io/qt-6/qml-qtqml-timer.html#interval-prop
+    function unlockFor(ctx, milliseconds) {
+        if (!Number.isInteger(milliseconds) || milliseconds <= 0 || milliseconds > 2147483647)
+            return "refused: lock-duration=integer-1..2147483647";
+        if (release !== null) return "refused: lock=busy";
+        if (!lockRequested || !lockSecure) return "refused: lock=not-secure";
+        if (lockContentOwner !== ctx || lockContent === null) return "refused: lock=not-owner";
+        release = { owner: ctx, milliseconds: milliseconds };
+        releaseClock.restart();
+        releaseTimer.interval = milliseconds;
+        releaseTimer.start();
+        lockRequested = false;
+        return "ok";
+    }
+
+    function endRelease(reason) {
+        if (release === null) return;
+        releaseTimer.stop();
+        release = null;
+        console.info("capabilities: lock-release=ended reason=" + reason + " relock=requested");
+    }
+
+    function expireTemporary() {
+        if (release === null) return;
+        const remaining = release.milliseconds - releaseClock.elapsedMs();
+        // A queued callback from an earlier release cannot shorten this one.
+        if (remaining > 0) {
+            releaseTimer.interval = remaining;
+            releaseTimer.start();
+            return;
+        }
+        endRelease("timeout");
+        lockRequested = true;
+    }
+
+    // QS 0.3.1 ElapsedTimer measures from restart() using QElapsedTimer:
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell/ElapsedTimer/
+    // Qt's steady clock excludes wall-clock edits; Timer needs a responsive
+    // event loop, and Linux suspend can extend this running-time window.
+    ElapsedTimer { id: releaseClock }
+    Timer {
+        id: releaseTimer
+        repeat: false
+        onTriggered: root.expireTemporary()
     }
 
     // The compositor ended a lock the holder still requests. REASON is
@@ -103,6 +160,10 @@ Scope {
     // with it, but a locked session stays locked: unloading the lock screen
     // never unlocks the desktop.
     function dropLock(ctx) {
+        if (release !== null && release.owner === ctx) {
+            endRelease("owner-disposed");
+            lockRequested = true;
+        }
         if (lockContentOwner !== ctx) return;
         lockContentOwner = null;
         lockContent = null;

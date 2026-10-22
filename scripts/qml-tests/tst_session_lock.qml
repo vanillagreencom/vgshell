@@ -68,7 +68,7 @@ Item {
 
         // expected-log: capabilities: lock=ended-by-compositor reason=finished -- the compositor refuses the requested lock
         function test_compositor_end_drops_the_request() {
-            const holder = owner.provider({ onDispose: fn => {} });
+            const holder = owner.provider({ active: true, onDispose: fn => {} });
             compare(holder.lock(contentComponent), "ok");
             owner.lockSecure = true;
             tryCompare(reader, "locked", true);
@@ -84,7 +84,7 @@ Item {
         }
 
         function test_a_released_lock_is_no_compositor_end() {
-            const holder = owner.provider({ onDispose: fn => {} });
+            const holder = owner.provider({ active: true, onDispose: fn => {} });
             compare(holder.lock(contentComponent), "ok");
             compare(holder.unlock(), "ok");
             owner.compositorEnded("finished");
@@ -98,7 +98,7 @@ Item {
 
         // expected-log: capabilities: lock=ended-by-compositor reason=unlocked-elsewhere -- another client released the session under the confirmed lock
         function test_two_unlocked_readings_end_a_confirmed_lock() {
-            const holder = owner.provider({ onDispose: fn => {} });
+            const holder = owner.provider({ active: true, onDispose: fn => {} });
             compare(holder.lock(contentComponent), "ok");
             owner.lockSecure = true;
             owner.compositorReading(monitors(["WINDOWED"]));
@@ -122,7 +122,7 @@ Item {
         }
 
         function test_readings_that_do_not_show_an_unlocked_session_keep_the_lock(data) {
-            const holder = owner.provider({ onDispose: fn => {} });
+            const holder = owner.provider({ active: true, onDispose: fn => {} });
             compare(holder.lock(contentComponent), "ok");
             owner.lockSecure = true;
             // An unlocked reading, then this one, then an unlocked one: the
@@ -135,7 +135,7 @@ Item {
         }
 
         function test_an_unconfirmed_lock_is_not_read() {
-            const holder = owner.provider({ onDispose: fn => {} });
+            const holder = owner.provider({ active: true, onDispose: fn => {} });
             compare(holder.lock(contentComponent), "ok");
             for (let i = 0; i < 3; i++) owner.compositorReading(monitors(["WINDOWED"]));
             compare(holder.locked, true);
@@ -144,7 +144,7 @@ Item {
 
         function test_holder_unload_keeps_lock() {
             let dispose = null;
-            const holder = owner.provider({ onDispose: fn => { dispose = fn; } });
+            const holder = owner.provider({ active: true, onDispose: fn => { dispose = fn; } });
             compare(holder.lock(contentComponent), "ok");
             owner.lockSecure = true;
             tryCompare(reader, "locked", true);
@@ -154,10 +154,80 @@ Item {
             compare(owner.lockRequested, true);
             compare(holder.locked, true);
             compare(reader.session.locked, true);
-            compare(holder.unlock(), "ok");
+            compare(holder.unlock(), "refused: lock=released");
             compare(reader.session.locked, true);
-            owner.lockSecure = false;
-            tryCompare(reader, "locked", false);
+        }
+
+        function test_temporary_expiry_relocks() {
+            const holder = owner.provider({ active: true, onDispose: fn => {} });
+            compare(holder.lock(contentComponent), "ok");
+            owner.lockSecure = true;
+            compare(holder.unlockFor(160), "ok");
+            compare(holder.temporary, true);
+            compare(holder.locked, false);
+            // The same provider and content survive the release. The real
+            // core Timer, not a copied release model, requests the relock.
+            tryCompare(owner, "lockRequested", true, 2000);
+            compare(holder.temporary, false);
+            compare(owner.lockContent, contentComponent);
+        }
+
+        function test_temporary_refusals_do_not_renew() {
+            const holder = owner.provider({ active: true, onDispose: fn => {} });
+            compare(holder.lock(contentComponent), "ok");
+            compare(holder.unlockFor(160), "refused: lock=not-secure");
+            owner.lockSecure = true;
+            for (const value of [0, -1, 1.5, Infinity, NaN, "160", 2147483648])
+                compare(holder.unlockFor(value), "refused: lock-duration=integer-1..2147483647");
+            compare(holder.unlockFor(160), "ok");
+            const original = owner.release;
+            compare(holder.unlockFor(2000), "refused: lock=busy");
+            compare(holder.unlock(), "refused: lock=busy");
+            compare(owner.release, original);
+            tryCompare(owner, "lockRequested", true, 1500);
+            compare(holder.temporary, false);
+        }
+
+        function test_normal_lock_cancels_temporary_and_stale_callback_cannot_end_next() {
+            const holder = owner.provider({ active: true, onDispose: fn => {} });
+            compare(holder.lock(contentComponent), "ok");
+            owner.lockSecure = true;
+            compare(holder.unlockFor(1000), "ok");
+            compare(holder.lock(contentComponent), "ok");
+            compare(holder.temporary, false);
+            compare(holder.locked, true);
+            compare(holder.unlockFor(1000), "ok");
+            const current = owner.release;
+            owner.expireTemporary();
+            compare(owner.release, current);
+            compare(holder.locked, false);
+            compare(holder.lock(contentComponent), "ok");
+        }
+
+        function test_disposal_relocks_before_content_drops_and_stale_owner_cannot_mutate() {
+            let disposeOld = null, disposeCurrent = null;
+            const old = owner.provider({ active: true, onDispose: fn => { disposeOld = fn; } });
+            const holder = owner.provider({ active: true, onDispose: fn => { disposeCurrent = fn; } });
+            compare(old.lock(contentComponent), "ok");
+            compare(holder.lock(contentComponent), "ok");
+            owner.lockSecure = true;
+            compare(old.unlockFor(1000), "refused: lock=not-owner");
+            compare(old.unlock(), "refused: lock=not-owner");
+            compare(holder.unlockFor(1000), "ok");
+            const current = owner.release;
+            disposeOld();
+            compare(owner.release, current);
+            compare(old.lock(contentComponent), "refused: lock=released");
+            compare(old.unlockFor(1000), "refused: lock=released");
+            let lockedAtRemoval = null;
+            const removed = () => { if (owner.lockContent === null) lockedAtRemoval = owner.lockRequested; };
+            owner.lockContentChanged.connect(removed);
+            disposeCurrent();
+            owner.lockContentChanged.disconnect(removed);
+            compare(lockedAtRemoval, true);
+            compare(holder.locked, true);
+            compare(holder.temporary, false);
+            compare(holder.unlock(), "refused: lock=released");
         }
     }
 }

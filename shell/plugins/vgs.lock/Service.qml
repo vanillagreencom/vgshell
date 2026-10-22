@@ -9,8 +9,9 @@ import "LockModel.js" as LockModel
 // it LockView, which the core's lock host builds on every screen; the core
 // keeps the session locked when this plugin is disabled, rebuilt or gone,
 // and the compositor keeps it locked when the shell dies. Within the shell,
-// only a password PAM accepts, checked through this plugin's own stack in
-// pam/, unlocks; with the restore option on, another client of the session
+// a password PAM accepts, checked through this plugin's own stack in
+// pam/, unlocks. The default-off temporary-unlock setting permits bounded
+// password-free access through session IPC (D113). With restore on, another client of the session
 // can take the lock over and release it (D062).
 //
 // Entry points: the shortcut `lock` (SUPER+DELETE in the manifest), the IPC
@@ -47,6 +48,8 @@ Item {
     readonly property int compositorEnds: shell === null ? 0 : shell.lock.compositorEnds
     readonly property int idleLockSeconds: shell === null ? 0 : shell.settings.idleLockSeconds
     readonly property bool lockBeforeSleep: shell !== null && shell.settings.lockBeforeSleep === true
+    readonly property bool delegateAllowed: shell !== null && shell.settings.allowDelegateUnlock === true
+    readonly property bool delegateActive: shell !== null && shell.lock.temporary
     // The hook's commands the last scan did not find; a rescan after the
     // requirement notice installs them starts the hook.
     readonly property var sleepMissing: shell === null ? [] : shell.requirements.missing.filter(command => LockModel.SLEEP_COMMANDS.indexOf(command) !== -1)
@@ -93,6 +96,9 @@ Item {
     property string sleepState: "off"
     property var sleepDetail: null
     property bool sleepPending: false
+    // Secure acknowledgement ends sleepPending before actual sleep. Only
+    // a fresh non-preparing hook's ready event permits temporary access.
+    property bool sleepReady: false
     property var sleepExit: null
     property var missedSleep: null
 
@@ -103,6 +109,7 @@ Item {
             shell.shortcut.register("lock", "Lock the session", () => root.lock());
             shell.ipc.handle("lock", () => root.lock());
             shell.ipc.handle("status", () => root.statusJson());
+            shell.ipc.handle("delegate-unlock", arg => root.delegateUnlock(arg));
         }
         if (seenEnds < 0) seenEnds = shell.lock.compositorEnds;
         // A holder rebuilt while locked hands the lock screen over again.
@@ -110,6 +117,7 @@ Item {
         watchIdle();
         publishLock();
         publishSleep();
+        publishDelegate();
         strandedCheck();
     }
     onIdleLockSecondsChanged: watchIdle()
@@ -118,10 +126,16 @@ Item {
     // again at once rather than at the next retry.
     onLockBeforeSleepChanged: retrySleep()
     onSleepMissingChanged: retrySleep()
+    onDelegateAllowedChanged: {
+        if (!delegateAllowed && delegateActive) lock();
+        publishDelegate();
+    }
+    onDelegateActiveChanged: publishDelegate()
     onLockedChanged: {
         if (locked) return;
         reset();
         showMissedSleep();
+        if (delegateActive) temporaryNotice();
     }
     onSecureChanged: {
         if (!secure) return;
@@ -146,6 +160,44 @@ Item {
         if (shell === null) return "refused: lock=not-ready";
         if (!backgroundProc.running) backgroundProc.running = true;
         return shell.lock.lock(lockView);
+    }
+
+    // IpcHandler carries arguments, not a peer identity. This permission
+    // applies to all callers reaching session IPC, never to a claimed name:
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/IpcHandler/
+    // REVISIT(D113): Isolating one delegate needs a protected identity.
+    function delegateUnlock(arg) {
+        function refuse(reason, seconds) {
+            console.info("lock: delegate-unlock=refused reason=" + reason + " authority=session-ipc" + (seconds === undefined ? "" : " seconds=" + seconds));
+            return "refused: delegate-unlock=" + reason;
+        }
+        if (!delegateAllowed) return refuse("disabled");
+        // External desk tools produce one bounded numeric JSON field. No
+        // prompt, caller claim or secret is accepted or echoed on failure.
+        if (typeof arg !== "string" || arg.length > 64 || !/^[\x20-\x7e]*$/.test(arg)) return refuse("argument");
+        let request;
+        try { request = JSON.parse(arg); } catch (e) { return refuse("argument"); }
+        if (request === null || typeof request !== "object" || Array.isArray(request)
+            || Object.keys(request).length !== 1 || !Object.prototype.hasOwnProperty.call(request, "seconds")
+            || !Number.isInteger(request.seconds) || request.seconds < 1 || request.seconds > 60) return refuse("argument");
+        const seconds = request.seconds;
+        if (delegateActive) return refuse("busy", seconds);
+        if (!locked || !secure) return refuse("not-secure", seconds);
+        if (checking) return refuse("checking", seconds);
+        if (lockBeforeSleep && !sleepReady) return refuse("sleep", seconds);
+        reset();
+        const reply = shell.lock.unlockFor(seconds * 1000);
+        if (reply !== "ok") {
+            console.info("lock: delegate-unlock=refused reason=core authority=session-ipc seconds=" + seconds);
+            return reply;
+        }
+        console.info("lock: delegate-unlock=granted authority=session-ipc seconds=" + seconds);
+        return "ok";
+    }
+
+    function temporaryNotice() {
+        const notice = shell.notify.send({ title: "Temporary desktop access", message: "The desktop will lock again after this step or when its time limit ends.", tone: "info", icon: "lock-open", urgency: "normal", transient: true });
+        if (notice !== "ok") console.info("lock: delegate-notice=refused");
     }
 
     Process {
@@ -197,7 +249,7 @@ Item {
     }
 
     function statusJson() {
-        return JSON.stringify({ locked: locked, secure: secure, refusals: seenEnds < 0 ? 0 : seenEnds, checking: checking, checks: checks, failures: failures, idleLockSeconds: idleLockSeconds, sleep: sleepState, strandedDone: strandedDone });
+        return JSON.stringify({ locked: locked, secure: secure, refusals: seenEnds < 0 ? 0 : seenEnds, checking: checking, checks: checks, failures: failures, idleLockSeconds: idleLockSeconds, sleep: sleepState, strandedDone: strandedDone, delegateAllowed: delegateAllowed, delegateActive: delegateActive });
     }
 
     // Each status value last published, as JSON by key, so an unchanged
@@ -220,6 +272,10 @@ Item {
 
     function publishLock() {
         publish("lock", LockModel.lockStatus(refused));
+    }
+
+    function publishDelegate() {
+        publish("temporaryAccess", { tone: "info", text: delegateActive ? "Temporary access is active" : delegateAllowed ? "Allowed" : "Off" });
     }
 
     // ------------------------------------------------------------ stranded
@@ -312,9 +368,13 @@ Item {
             onRead: line => {
                 const event = LockModel.sleepLine(line);
                 if (event.kind === "ready") {
+                    root.sleepReady = true;
                     root.sleepState = "held";
                     root.publishSleep();
                 } else if (event.kind === "sleep") {
+                    root.sleepReady = false;
+                    root.sleepState = "held";
+                    root.publishSleep();
                     root.sleepPending = true;
                     root.lock();
                     root.confirmSleep();
@@ -336,6 +396,7 @@ Item {
         // retrySleep. The status records the failure, so the log line is
         // info: a session without logind fails once a minute.
         onRunningChanged: {
+            root.sleepReady = false;
             if (running) {
                 root.sleepState = "starting";
                 root.publishSleep();

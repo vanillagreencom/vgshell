@@ -93,6 +93,8 @@
 
 | 2026-10-21 | D112 | [VGS-1971](https://linear.app/vanillagreen/issue/VGS-1971) | One world owns each nested run root, a read-only host, private temporary and runtime directories, hidden session sockets and network, a declared environment and after-namespace evidence; runners declare outputs, keep and narrow selftest exceptions; the shell hides every stand-in registry name | Caller-named teardown erased a checkout and a missing stand-in exposed host Tailscale; one boundary bounds all writers and deleters | A run needs an undeclarable host write or service, or can reach the live session through a path left visible | Active | [Full](D112-one-world-owns-the-test-run.md) |
 
+| 2026-10-22 | D113 | [VGS-1995](https://linear.app/vanillagreen/issue/VGS-1995) | Default-off session IPC permits one bounded delegate unlock owned by SessionLock | Desktop access keeps the shell alive; expiry requires a running responsive shell and no protected caller identity is claimed | Same-user isolation, whole-shell failure recovery or longer access is required | Active | [Full](D113-bounded-delegate-unlock.md) |
+
 ---
 
 ## Format Reference

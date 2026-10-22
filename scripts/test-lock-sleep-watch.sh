@@ -3,7 +3,8 @@
 # sleep-watch: the budget it derives from logind's InhibitDelayMaxUSec, the
 # lines it prints, a preparation already under way when it subscribes, the
 # release on `secure`, `refused`, the budget's end and a closed stdin, its
-# refusals when dbus-monitor stays silent or ends, and TERM ending its
+# refusals when preparation is unknown or unreadable, when dbus-monitor
+# stays silent or ends, and TERM ending its
 # dbus-monitor with it. Stand-in busctl and
 # dbus-monitor, first on PATH, answer from STUB_WINDOW and STUB_PREPARING;
 # the monitor prints the bus's NameAcquired, then one PrepareForSleep
@@ -25,7 +26,7 @@ cat >"$stub/busctl" <<'SH'
 #!/usr/bin/env bash
 case "${5:-}" in
   InhibitDelayMaxUSec) [[ -n ${STUB_WINDOW:-} ]] || exit 1; echo "t $STUB_WINDOW" ;;
-  PreparingForSleep) echo "b ${STUB_PREPARING:-false}" ;;
+  PreparingForSleep) [[ -z ${STUB_PREPARING_UNREADABLE:-} ]] || exit 1; echo "b ${STUB_PREPARING:-false}" ;;
   *) exit 1 ;;
 esac
 SH
@@ -124,7 +125,9 @@ watch_row "a 30 s window is capped at 12000 ms" 0 "ready budget_ms=12000|sleep b
 watch_row "a 2 s window keeps a second for logind" 0 "ready budget_ms=1000|sleep budget_ms=1000|released reason=secure" "" secure STUB_WINDOW=2000000
 watch_row "an unreadable window reads as 5 s" 0 "ready budget_ms=4000|sleep budget_ms=4000|released reason=secure" "" secure
 watch_row "a refusal releases the sleep as refused" 0 "ready budget_ms=4000|sleep budget_ms=4000|released reason=refused" "" refused STUB_WINDOW=5000000
-watch_row "a preparation under way before the listener is a sleep" 0 "ready budget_ms=4000|sleep budget_ms=4000|released reason=secure" "" secure STUB_WINDOW=5000000 STUB_PREPARING=true STUB_NO_SIGNAL=1
+watch_row "a preparation under way starts sleep without ready" 0 "sleep budget_ms=4000|released reason=secure" "" secure STUB_WINDOW=5000000 STUB_PREPARING=true STUB_NO_SIGNAL=1
+watch_row "unknown preparation refuses startup without ready" 1 "" "sleep-watch: refused: preparing=unknown" closed STUB_WINDOW=5000000 STUB_PREPARING=unknown STUB_NO_SIGNAL=1
+watch_row "an unreadable preparation refuses startup without ready" 1 "" "sleep-watch: refused: preparing=unknown" closed STUB_WINDOW=5000000 STUB_PREPARING_UNREADABLE=1 STUB_NO_SIGNAL=1
 watch_row "a silent dbus-monitor is refused" 1 "" "sleep-watch: refused: monitor=silent" closed STUB_WINDOW=5000000 STUB_SILENT=1
 watch_row "a line other than secure is no confirmation" 0 "ready budget_ms=4000|sleep budget_ms=4000|released reason=timeout" "" other STUB_WINDOW=5000000
 watch_row "the budget's end releases the sleep" 0 "ready budget_ms=250|sleep budget_ms=250|released reason=timeout" "" silent STUB_WINDOW=1250000
@@ -190,8 +193,12 @@ control any-reply '      *) echo "released reason=timeout" ;;' '      *) echo "r
 control_row "a copy that takes any line for the confirmation" "ready budget_ms=4000|sleep budget_ms=4000|released reason=timeout" other STUB_WINDOW=5000000
 control no-bound 'IFS= read -r -t "$budget_s" reply' 'IFS= read -r reply'
 control_row "a copy with no bound on the wait" "ready budget_ms=250|sleep budget_ms=250|released reason=timeout" silent STUB_WINDOW=1250000
-control no-preparing '[[ $preparing != "b true" ]] || sleep_once' ':'
-control_row "a copy that ignores a preparation under way" "ready budget_ms=4000|sleep budget_ms=4000|released reason=secure" secure STUB_WINDOW=5000000 STUB_PREPARING=true STUB_NO_SIGNAL=1
+control no-preparing '[[ $preparing != "b true" ]] || sleep_once' '[[ $preparing != "b true" ]] || :'
+control_row "a copy that ignores a preparation under way" "sleep budget_ms=4000|released reason=closed" closed STUB_WINDOW=5000000 STUB_PREPARING=true STUB_QUIET=1
+control early-ready '[[ $preparing != "b true" ]] || sleep_once' $'echo "ready budget_ms=$budget_ms"\n[[ $preparing != "b true" ]] || sleep_once'
+control_row "a copy that announces ready before handling preparation" "sleep budget_ms=4000|released reason=secure" secure STUB_WINDOW=5000000 STUB_PREPARING=true STUB_NO_SIGNAL=1
+control unknown-preparing "  *) printf 'sleep-watch: refused: preparing=unknown\\n' >&2; exit 1 ;;" "  *) printf 'sleep-watch: refused: preparing=unknown\\n' >&2 ;;"
+control_row "a copy that continues after unknown preparation" "" closed STUB_WINDOW=5000000 STUB_PREPARING=unknown STUB_QUIET=1
 control no-subscribe-wait 'if ! IFS= read -r -t 2 line <&"$monitor_fd"; then' 'if false; then'
 control_row "a copy that reports ready before the listener answers" "" closed STUB_WINDOW=5000000 STUB_SILENT=1
 control no-refused '      refused) echo "released reason=refused" ;;' '      refused) echo "released reason=timeout" ;;'

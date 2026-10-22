@@ -3,8 +3,8 @@
 #   systemd-inhibit --what=sleep --mode=delay -- setpriv --pdeathsig TERM -- sleep-watch
 # so logind holds every suspend until this process exits, for at most its
 # InhibitDelayMaxUSec. It prints, one line each, on stdout:
-#   ready budget_ms=<n>     the inhibitor holds and the listener is live;
-#                           n is the lock budget
+#   ready budget_ms=<n>     the inhibitor holds, the listener is live and
+#                           PreparingForSleep is false; n is the lock budget
 #   sleep budget_ms=<n>     logind prepares for sleep: lock now
 #   released reason=<r>     secure, refused, timeout or closed; it exits
 # After `sleep` it waits for one line on stdin, for at most the budget:
@@ -20,7 +20,8 @@
 # It subscribes first and waits for dbus-monitor's first line, the bus's
 # NameAcquired, which dbus-monitor prints only once its match is added.
 # Then it asks logind whether a preparation is already under way,
-# PreparingForSleep, and takes one for a sleep; `ready` follows that check.
+# PreparingForSleep. True enters the sleep path without `ready`; false
+# announces `ready`. An unreadable or unknown answer refuses startup.
 #
 # The budget is logind's InhibitDelayMaxUSec less a fifth of it, at least
 # 1000 ms kept for logind, capped at 12000 ms; 5 s, logind's default, when
@@ -31,6 +32,7 @@
 # Refusals, one keyed line on stderr, exit 1:
 #   sleep-watch: refused: monitor=silent             no first line in 2 s
 #   sleep-watch: refused: monitor=exited status=<n>   dbus-monitor ended
+#   sleep-watch: refused: preparing=unknown          no confirmed sleep state
 set -euo pipefail
 
 budget_cap_ms=12000
@@ -86,10 +88,14 @@ if ! IFS= read -r -t 2 line <&"$monitor_fd"; then
 fi
 preparing="$(timeout --foreground --kill-after=0.1s 1s busctl get-property org.freedesktop.login1 /org/freedesktop/login1 \
   org.freedesktop.login1.Manager PreparingForSleep 2>/dev/null)" || preparing=""
+case "$preparing" in
+  "b false"|"b true") ;;
+  *) printf 'sleep-watch: refused: preparing=unknown\n' >&2; exit 1 ;;
+esac
 budget_ms="$(derive_budget_ms)"
 printf -v budget_s '%d.%03d' $((budget_ms / 1000)) $((budget_ms % 1000))
-echo "ready budget_ms=$budget_ms"
 [[ $preparing != "b true" ]] || sleep_once
+echo "ready budget_ms=$budget_ms"
 
 while IFS= read -r line <&"$monitor_fd"; do
   [[ $line == *"boolean true"* ]] || continue
