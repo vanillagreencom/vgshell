@@ -643,6 +643,12 @@ Item {
             const plate = items[0].cursor;
             compare(long.currentIndex, 4);
             tryCompare(plate, "opacity", 1);
+            // Let the first opening's snap and its queued settle finish;
+            // neither may cover the later reopening's missing snap.
+            // https://doc.qt.io/qt-6/qml-qtqml-qt.html#callLater-method
+            let openingSettled = false;
+            Qt.callLater(() => Qt.callLater(() => { openingSettled = true; }));
+            tryVerify(() => openingSettled);
             long.move(1);
             long.move(1);
             compare(long.currentIndex, 6);
