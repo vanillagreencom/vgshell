@@ -73,6 +73,60 @@ def exited(fd):
 
 
 class OwnedGroupTests(unittest.TestCase):
+    def owned_jobs(self, owner):
+        with tempfile.TemporaryDirectory(prefix="owned-group-jobs-") as directory:
+            fixture = Path(directory) / "job.py"
+            fixture.write_text('''import pathlib,signal,sys
+def stop(signum,frame):
+    pathlib.Path(sys.argv[1]).write_text("ack")
+    sys.exit(0)
+signal.signal(signal.SIGTERM, stop)
+print("ready", flush=True)
+for line in sys.stdin:
+    print("pong", flush=True)
+''')
+            script = '''set -euo pipefail
+source "$1"
+true &
+finished=$!
+wait "$finished"
+coproc QUERY { exec "$2" "$3" "$4"; }
+running=$QUERY_PID
+input=${QUERY[1]}
+output=${QUERY[0]}
+read -r ready <&"$output"
+[[ $ready == ready ]]
+owned_group_stop "$finished"
+printf 'ping\\n' >&"$input"
+read -r pong <&"$output"
+[[ $pong == pong ]]
+owned_group_stop "$running"
+wait "$running"
+[[ -f $4 ]]
+'''
+            job = subprocess.Popen(["/bin/bash", "-c", script, "owned-jobs", str(owner), sys.executable,
+                                    str(fixture), str(Path(directory) / "ack")],
+                                   start_new_session=True, env=ENV, stdin=subprocess.DEVNULL,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            try:
+                stdout, stderr = job.communicate(timeout=5)
+                self.assertEqual(job.returncode, 0, stdout + stderr)
+            finally:
+                if job.poll() is None:
+                    os.killpg(job.pid, signal.SIGKILL)
+                job.communicate(timeout=5)
+
+    def test_owned_job_stop_ignores_completed_jobs(self):
+        self.owned_jobs(OWNER)
+        with tempfile.TemporaryDirectory(prefix="owned-group-job-control-") as directory:
+            control = Path(directory) / "owned-group.sh"
+            source = OWNER.read_text()
+            needle = '[[ $job_pid == "$pid" && $spec == \\[* ]] || continue'
+            self.assertEqual(source.count(needle), 1)
+            control.write_text(source.replace(needle, '[[ $spec == \\[* ]] || continue', 1))
+            with self.assertRaises(AssertionError):
+                self.owned_jobs(control)
+
     def returning_query(self, owner):
         with tempfile.TemporaryDirectory(prefix="owned-group-returning-") as directory:
             root = Path(directory)

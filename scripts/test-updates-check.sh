@@ -149,21 +149,20 @@ if [[ $status -eq 143 ]]; then ok "TERM exits as 128 plus the signal"; else fail
 if [[ $left -eq 0 ]]; then ok "TERM kills probe grandchildren"; else fail "TERM kills probe grandchildren: left=$left"; fi
 # Delayed shutdown: the package probe, the first bin/check waits on, takes
 # three seconds to end after TERM; the other probes end at once. bin/check
-# must wait again for a probe whose wait the signal interrupted, so no
-# probe outlives it. The control is bin/check with only that re-wait
-# removed, which returns while the package probe still runs.
+# hands cancellation to its group owner, which waits for responsive
+# cleanup before its final KILL. The control removes that owner's wait.
 cat >"$root/bin/vgshell" <<'VGSHELL'
 #!/usr/bin/env bash
 record="$XDG_STATE_HOME/vgshell/updates-test"
 mkdir -p -- "$record"
 echo "$$" >>"$record/delayed-$RUN"
-if [[ $1 == pkg ]]; then trap 'sleep 3; exit 143' TERM; else trap 'exit 143' TERM; fi
+if [[ $1 == pkg ]]; then trap 'sleep 3; : >"$record/ack-$RUN"; exit 143' TERM; else trap 'exit 143' TERM; fi
 sleep 60 &
 wait
 VGSHELL
 chmod 755 "$root/bin/vgshell"
 # delayed_run LABEL CHECK: run CHECK until its four probes recorded
-# themselves, TERM it, and print how many probes outlived it.
+# themselves, TERM it, and print survivors and cleanup acknowledgement.
 delayed_run() {
   local label="$1" helper="$2" pid left=0 probe log="$root/state/vgshell/updates-test/delayed-$1"
   set +e
@@ -172,34 +171,33 @@ delayed_run() {
   if ! wait_log_lines "$log" 4; then
     kill -TERM "$pid" 2>/dev/null || true
     wait "$pid" 2>/dev/null || true
-    echo "-1"
+    echo "-1 no"
     return
   fi
   kill -TERM "$pid"
   wait "$pid"
   set -e
   while read -r probe; do [[ -n $probe && -d /proc/$probe ]] && left=$((left + 1)); done <"$log"
-  echo "$left"
+  if [[ -f $root/state/vgshell/updates-test/ack-$label ]]; then echo "$left yes"; else echo "$left no"; fi
   while read -r probe; do kill -KILL "$probe" 2>/dev/null || true; done <"$log"
 }
-shipped_left="$(delayed_run shipped "$check")"
-if [[ $shipped_left -eq 0 ]]; then ok "TERM waits for a probe's delayed shutdown"; else fail "TERM waits for a probe's delayed shutdown: left=$shipped_left"; fi
+read -r shipped_left shipped_ack <<<"$(delayed_run shipped "$check")"
+if [[ $shipped_left -eq 0 && $shipped_ack == yes ]]; then ok "TERM waits for a probe's delayed shutdown"; else fail "TERM waits for a probe's delayed shutdown: left=$shipped_left ack=$shipped_ack"; fi
 mutant="$root/check-no-rewait"
-python3 - "$check" "$mutant" <<'PY'
+python3 - "$repo/bin/lib/owned-group.sh" "$root/owner-no-rewait" "$check" "$mutant" <<'PY'
 import pathlib, sys
 source = pathlib.Path(sys.argv[1]).read_text()
-old = """  while true; do
-    wait "${pids[$i]}" || status=$?
-    if [[ -z $stop_status || ! -d /proc/${pids[$i]} ]]; then break; fi
-    status=0
-  done"""
-new = """  wait "${pids[$i]}" || status=$?"""
+old = '  [[ -z $child ]] || wait "$child" 2>/dev/null || true'
 assert source.count(old) == 1
-pathlib.Path(sys.argv[2]).write_text(source.replace(old, new))
+pathlib.Path(sys.argv[2]).write_text(source.replace(old, '  :'))
+check = pathlib.Path(sys.argv[3]).read_text()
+old = '-- "${vgshell%/*}/lib/owned-group.sh"'
+assert check.count(old) == 1
+pathlib.Path(sys.argv[4]).write_text(check.replace(old, '-- "' + sys.argv[2] + '"'))
 PY
-chmod 755 "$mutant"
-mutant_left="$(delayed_run mutant "$mutant")"
-if [[ $mutant_left -gt 0 ]]; then ok "control: without the re-wait a probe outlives bin/check"; else fail "control: without the re-wait a probe outlives bin/check"; fi
+chmod 755 "$mutant" "$root/owner-no-rewait"
+read -r mutant_left mutant_ack <<<"$(delayed_run mutant "$mutant")"
+if [[ $mutant_ack == no && $mutant_left -eq 0 ]]; then ok "control: without the owner re-wait responsive cleanup is cut short"; else fail "control: without the owner re-wait responsive cleanup is cut short: left=$mutant_left ack=$mutant_ack"; fi
 # A check stopped by INT sends every probe group TERM. The stand-in probe
 # notes each TERM it gets; the private owner resets inherited ignored
 # signals before it starts the probe.

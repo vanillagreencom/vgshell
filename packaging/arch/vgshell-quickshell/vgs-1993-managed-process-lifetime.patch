@@ -330,7 +330,7 @@ diff --git a/src/launch/main.cpp b/src/launch/main.cpp
 diff --git a/src/crash/handler.cpp b/src/crash/handler.cpp
 --- a/src/crash/handler.cpp
 +++ b/src/crash/handler.cpp
-@@ -150,11 +150,9 @@
+@@ -150,10 +150,8 @@
  		perror("Failed to launch crash reporter.\n");
  		_exit(-1);
  	} else {
@@ -344,4 +344,3 @@ diff --git a/src/crash/handler.cpp b/src/crash/handler.cpp
 +		_exit(128 + sig);
  	}
  }
- 

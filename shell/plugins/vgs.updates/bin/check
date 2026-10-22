@@ -12,6 +12,7 @@ usage() { printf 'updates-check: refused: %s\nusage: check --vgshell PATH\n' "$1
 [[ ${1:-} == --vgshell && $# -eq 2 && -n ${2:-} ]] || usage 'vgshell=missing'
 vgshell="$2"
 [[ $vgshell == /* && -x $vgshell ]] || usage "vgshell=$vgshell"
+source "${vgshell%/*}/lib/owned-group.sh"
 
 state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
 runtime_dir="${XDG_RUNTIME_DIR:-$state_home}"
@@ -51,16 +52,16 @@ start_probe() {
   env --default-signal=TERM,INT,HUP setsid setpriv --pdeathsig TERM -- "${vgshell%/*}/lib/owned-group.sh" "$owner" 5 "$@" >"$out" 2>"$err" &
   pids+=("$!")
 }
-signal_groups() {
-  local sig="$1" pid
-  for pid in "${pids[@]}"; do kill -"$sig" -- "-$pid" 2>/dev/null || kill -"$sig" -- "$pid" 2>/dev/null || true; done
+stop_probes() {
+  local pid
+  for pid in "${pids[@]}"; do owned_group_stop "$pid"; done
 }
 # Each probe starts in the background of this shell, which runs no job
 # control, so it starts with SIGINT ignored and a bash probe cannot trap
-# it: every probe group gets TERM, whichever signal stopped the check.
+# it: each group's owner delivers TERM, whichever signal stopped the check.
 stop_all() { # STATUS
   stop_status="$1"
-  signal_groups TERM
+  stop_probes
 }
 trap 'stop_all 143' TERM
 trap 'stop_all 130' INT

@@ -252,7 +252,10 @@ function runCheck(check) {
         let failed = null;
         const signalGroup = signal => {
             try {
-                process.kill(-child.pid, signal);
+                // The owner alone delivers TERM so a second delivery cannot
+                // interrupt a responsive query's cleanup. KILL is the bound.
+                if (signal === "SIGTERM") child.kill(signal);
+                else process.kill(-child.pid, signal);
             } catch (e) {
                 if (e.code !== "ESRCH") throw e;
             }

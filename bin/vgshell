@@ -1439,6 +1439,7 @@ unattended_stopping=""
 unattended_git() { # KEY GIT_ARGS...
   local key="$1" out_fd err_fd err rc=0 started=$SECONDS owner=$BASHPID
   shift
+  source "$root/bin/lib/owned-group.sh" || refuse 1 "library=missing path=$root/bin/lib/owned-group.sh" "VGS cannot load a required file. Repair the VGS installation, then try again."
   # The call runs in the background so `wait` returns when a trapped
   # signal arrives, which a substitution's read does not; its output goes
   # to scratch files. Capture the owner before Bash expands the async
@@ -1465,9 +1466,9 @@ unattended_git() { # KEY GIT_ARGS...
   esac
 }
 
-# unattended_git's trap: TERM the call's process group, which holds timeout,
-# git and every process git started, wait until timeout has ended, after
-# git, and exit STATUS. The shell runs no job control, so the call started
+# unattended_git's trap: ask the group's owner to stop timeout, git and
+# every process git started, wait for that owner, and exit STATUS.
+# The shell runs no job control, so the call started
 # in its process group, not leading one, and setsid made it its session's
 # leader in place: its pid names the group. A second signal while it waits
 # changes nothing.
@@ -1476,7 +1477,7 @@ unattended_git_stop() { # STATUS
   [[ -z $unattended_stopping ]] || return 0
   unattended_stopping=1
   if [[ -n $unattended_pid ]]; then
-    kill -TERM -- "-$unattended_pid" 2>/dev/null || true
+    owned_group_stop "$unattended_pid"
     while true; do
       rc=0
       wait "$unattended_pid" 2>/dev/null || rc=$?

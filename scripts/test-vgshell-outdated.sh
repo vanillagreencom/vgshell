@@ -240,7 +240,13 @@ stop_graceless_control() {
   local -a base_env=("${base_env[@]:0:2}" --default-signal=TERM "${base_env[@]:2}")
   job_checkout "$cfg" stop
   stop_git deaf 10
-  tree_control graceless bin/vgshell '--kill-after="$outdated_kill_grace" ' ''
+  # Isolate the shared owner's bound from the independent leaf timeout.
+  # Both runs keep the production caller/owner and the same deaf query.
+  tree_control owner-bound bin/vgshell 'timeout --foreground --kill-after="$outdated_kill_grace" "$outdated_fetch_timeout" ' ''
+  local tree="${THEME_BIN%/bin/vgshell}"
+  INST_BIN="$THEME_BIN" stop_run TERM plugin outdated --json
+  check "the owner alone ends a fetch that ignores TERM before its own end" test "$stop_ended" == no
+  tree_control graceless bin/lib/owned-group.sh '( sleep "$grace"; kill -KILL -- "-$$" ) &' ':'
   INST_BIN="$THEME_BIN" stop_run TERM plugin outdated --json
   check "the graceless mutant waits out a fetch that ignores TERM" test "$stop_ended" == yes
   unset THEME_BIN
