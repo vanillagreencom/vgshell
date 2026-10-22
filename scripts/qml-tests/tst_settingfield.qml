@@ -724,13 +724,61 @@ Item {
             made.written = [];
             select.choose(select.count - 1);
             compare(input.text, data.seed, "reopening starts a new draft");
+            made.editable = false;
+            compare(input.text, String(data.held), "a read-only field drops the draft");
+            verify(!made.edited);
+            made.editable = true;
+            select.choose(0);
+            made.value = data.held;
+            made.written = [];
+            select.choose(select.count - 1);
             const saved = data.seed !== String(data.held) ? data.seed : data.spec.type === "number" ? "31" : data.seed + " edited";
             input.text = saved;
+            select.choose(select.count - 1);
+            compare(input.text, saved, "choosing Custom again preserves entered text");
             input.forceActiveFocus();
             keyClick(Qt.Key_Return);
             compare(made.value, data.spec.type === "number" ? Number(saved) : saved);
             compare(made.written, [made.value], "Enter saves the draft");
             verify(!made.edited);
+        }
+
+        function test_custom_prefill_requires_an_editable_custom_choice_data() {
+            const request = new XMLHttpRequest();
+            request.open("GET", Qt.resolvedUrl("../../shell/plugins/vgs.jarvis/manifest.json"), false);
+            request.send();
+            const home = JSON.parse(request.responseText).schema.home;
+            request.open("GET", Qt.resolvedUrl("../../shell/plugins/vgs.bar/manifest.json"), false);
+            request.send();
+            const calendar = JSON.parse(request.responseText).schema.calendarUrl;
+            return [
+                { tag: "read-only Custom", editable: false, statusFed: false, spec: { type: "string", allowCustom: true, presets: [{ value: "" }, { value: "example" }] } },
+                { tag: "choices cleared", editable: true, statusFed: true, spec: home },
+                { tag: "plugin disabled clears choices", editable: false, statusFed: true, spec: home },
+                { tag: "initially visible blank calendar URL", editable: true, statusFed: false, spec: calendar, visibleInitially: true, typed: "https://calendar.example.org/" }
+            ];
+        }
+
+        function test_custom_prefill_requires_an_editable_custom_choice(data) {
+            // Plugin disable clears Jarvis's Home folder choices while its
+            // stored folder remains. That reveals a row, not a Custom choice.
+            const held = data.statusFed ? "chosen-home" : "";
+            const made = createTemporaryObject(committingField, root, { schemaJson: JSON.stringify(data.spec), value: held });
+            verify(made !== null);
+            made.choices = [{ label: "Chosen home", value: held }];
+            compare(made.customVisible, data.visibleInitially === true);
+            const input = descendants(made).find(child => child instanceof TextInput);
+            verify(input !== undefined);
+            if (data.typed !== undefined) input.text = data.typed;
+            made.editable = data.editable;
+            if (data.statusFed) made.choices = [];
+            else selectOf(made).choose(selectOf(made).count - 1);
+            compare(input.text, data.typed === undefined ? held : data.typed, "a read-only or unchosen row gets no seed, and an entered draft survives Custom");
+            compare(input.readOnly, !data.editable);
+            compare(made.customChosen, data.typed !== undefined);
+            compare(made.edited, data.typed !== undefined);
+            compare(made.written, []);
+            compare(made.customVisible, data.statusFed || data.visibleInitially === true, "a lost or custom stored value remains visible");
         }
 
         function test_a_value_no_choice_holds_shows_under_custom() {

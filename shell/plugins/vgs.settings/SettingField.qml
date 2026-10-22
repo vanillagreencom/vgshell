@@ -122,7 +122,6 @@ Column {
     onCustomVisibleChanged: {
         if (customVisible) {
             revealPending = true;
-            if (!bounded && customLoader.item !== null) customLoader.item.prefill();
         }
         else if (editing(customLoader.item)) customLoader.item.revert();
     }
@@ -182,6 +181,14 @@ Column {
         if (!editable) return;
         const next = selectedTokens.indexOf(token) >= 0 ? selectedTokens.filter(held => held !== token) : selectedTokens.concat([token]);
         root.apply(next.join(spec.separator));
+    }
+
+    // Lost status choices can expose a stored value without an edit.
+    // Only an intentional Custom choice starts a draft.
+    function chooseCustom() {
+        if (!editable || customChosen) return;
+        customChosen = true;
+        if (!bounded && customLoader.item !== null && !editing(customLoader.item)) customLoader.item.prefill();
     }
 
     function openDescriptionLink() { openLink(spec.link); }
@@ -433,7 +440,7 @@ Column {
                 const row = rows[index];
                 currentIndex = Qt.binding(() => shownIndex);
                 if (dynamic && row.custom === true) {
-                    root.customChosen = true;
+                    root.chooseCustom();
                     return;
                 }
                 if (dynamic && row.add === true) {
@@ -533,7 +540,7 @@ Column {
                 MenuItem {
                     text: "Custom…"
                     visible: root.allowCustom
-                    onTriggered: root.customChosen = true
+                    onTriggered: root.chooseCustom()
                 }
             }
         }
@@ -551,7 +558,7 @@ Column {
                 const chosen = root.presetModel[index];
                 currentIndex = Qt.binding(() => root.selectedOfferIndex >= 0 ? root.selectedOfferIndex : root.allowCustom ? root.presetModel.length - 1 : -1);
                 if (chosen.custom === true) {
-                    root.customChosen = true;
+                    root.chooseCustom();
                     return;
                 }
                 root.customChosen = false;
