@@ -116,7 +116,23 @@ post_remove() {
 }
 `;
 
+// Paru's request failure spelling: Morganamilo/paru issues 1473 and 1172.
+// A request can fail at DNS, connect or TLS; none proves DNS alone failed.
+function verifyProbeErrors(logic) {
+    const rows = [
+      ["exit=1 stderr=error: error sending request for url (https://aur.archlinux.org/rpc): error trying to connect: unexpected EOF", "fetch=failed"],
+      ["exit=1 stderr=error: error sending request for url (https://aur.archlinux.org/rpc): dns error: failed to lookup address information", "fetch=failed"],
+      ["exit=1 stderr=Could not resolve host: aur.archlinux.org", "fetch=failed"],
+      ["exit=1 stderr=error: failed to get aur packages", "unexpected: key=value"],
+      ["exit=1 stderr=error sending request for url: timeout", "timeout=120"]
+    ];
+    for (const [diagnostic, kin] of rows)
+      for (const inWindow of [false, true])
+        assert.equal(logic.errorText(diagnostic, inWindow), logic.errorText(kin, inWindow), diagnostic);
+}
+
 function verify(logic) {
+    verifyProbeErrors(logic);
     const missing = "A tool needed for this check is missing. Install it in [Plugins](page:vgs.updates/Setup).";
     assert.equal(logic.errorText("helper-missing=checkupdates"), missing);
     assert.equal(logic.checkState(null, false, 0, 0, "helper-missing=checkupdates").hint, missing);
@@ -686,6 +702,19 @@ function verifyNoticeOwner(logic) {
 }
 
 verify(load(file, commons));
+
+const probeScratch = fs.mkdtempSync(path.join(os.tmpdir(), "test-updates-probe-errors-"));
+try {
+  const source = fs.readFileSync(file, "utf8");
+  const needle = "/fetch|remote|unreachable|could not resolve host|error sending request for url/i";
+  assert.equal(source.split(needle).length - 1, 1, "the transport pattern occurs once");
+  const mutant = path.join(probeScratch, "UpdatesLogic.js");
+  fs.writeFileSync(mutant, source.replace(needle, "/fetch|remote|unreachable/"));
+  assert.throws(() => verifyProbeErrors(load(mutant, commons)), assert.AssertionError,
+    "the old classifier cannot explain paru transport failures");
+} finally {
+  fs.rmSync(probeScratch, { recursive: true, force: true });
+}
 
 const controls = [
   ["git update rows show the commit target", 'pkg.new !== null && /-git$/.test(pkg.name) ? "latest commit" : pkg.new', 'pkg.new'],

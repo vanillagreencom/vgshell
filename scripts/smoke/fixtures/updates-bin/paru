@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
-# Stand-in paru for rows/updates.sh: `paru -Qua` lists one AUR update.
+# Stand-in paru for rows/updates.sh: one AUR update, or a failed RPC
+# request when fail-paru is present in the row's state directory.
 set -euo pipefail
 root="${XDG_STATE_HOME:?}/vgshell/updates-smoke"
 mkdir -p -- "$root"
 printf 'paru %s\n' "$*" >>"$root/calls.log"
+if [[ -f $root/fail-paru ]]; then
+  printf '%s\n' 'error: error sending request for url (https://aur.archlinux.org/rpc): error trying to connect: unexpected EOF' >&2
+  exit 1
+fi
 cat <<'OUT'
 helper-git 1 -> 2
 OUT

@@ -285,7 +285,7 @@ var CHECK_ERRORS = [
     [/\bcompare=http status=404\b/, "GitHub no longer has the VGS version installed here, so VGS cannot tell what changed since. Reinstall VGS to get the newest version.", null],
     [/=http status=(?:403|429)\b/, "GitHub limits how often VGS may check.", "wait"],
     [/=http status=/, "GitHub could not answer the update check.", "later"],
-    [/fetch|remote|unreachable/, "The update source could not be reached.", "connection"],
+    [/fetch|remote|unreachable|could not resolve host|error sending request for url/i, "The update source could not be reached.", "connection"],
     [/missing|reason=absent/, "A tool needed for this check is missing. Install it in [Plugins](page:vgs.updates/Setup).", null]
 ];
 var CHECK_FAILED = ["The update check failed.", "again"];

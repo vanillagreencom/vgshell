@@ -821,6 +821,30 @@ expect_poll "Refresh starts one check" STEADY checks_settle_at "$((before + 1))"
 expect_poll "the service is idle after Refresh" idle updates_idle
 expect "the window closes" ok ipc shell hide window vgs.updates
 
+# AUR exit 1 with stderr must reach the shipped probe, not the tool's
+# silent no-updates status. Read the real window's attention state and row.
+updates_aur_failure() { updates_values | py_reply 'import json,sys
+v=json.load(sys.stdin)
+rows=[r for r in v.get("sources", []) if r.get("source")=="aur"]
+print(json.dumps([v.get("checkState", {}).get("tone"), len(rows)==1 and rows[0].get("count") is None and str(rows[0].get("error", "")).startswith("exit=1 stderr=")]))'; }
+updates_aur_window() {
+  ipc smoke readInstance window vgs.updates rows | py_reply 'import json,sys
+rows=[r for r in json.load(sys.stdin) if r.get("source")=="aur"]
+print(json.dumps([[r.get("badgeTone"), r.get("updatable"), bool(r.get("detail")), len(r.get("lines", []))] for r in rows]))'
+}
+updates_window_state() { ipc smoke readInstance window vgs.updates view | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("state")))'; }
+touch "$updates_state/fail-paru"
+expect "a check with a failed AUR RPC starts" started ipc vgs.updates invoke check ''
+expect_poll "the shipped package probe keeps the AUR diagnostic and no count" '["warning", true]' updates_aur_failure
+open_updates
+expect_poll "the window cannot judge the failed AUR check current" '"attention"' updates_window_state
+expect_poll "the window draws the AUR failure with its reason and no update action" '[["warning", false, true, 0]]' updates_aur_window
+rm -f -- "$updates_state/fail-paru"
+expect "a check after the AUR failure starts" started ipc vgs.updates invoke check ''
+expect_poll "the recovered AUR probe restores the pending state" '["pending", "refresh-cw", "accent", "7", "accent"]' widget_view
+expect_poll "the service is idle after AUR recovery" idle updates_idle
+expect "the AUR failure window closes" ok ipc shell hide window vgs.updates
+
 # Checking: the spinner stands in for the icon, the count stays.
 touch "$updates_state/slow-checkupdates"
 expect "a held check starts" started ipc vgs.updates invoke check ''
