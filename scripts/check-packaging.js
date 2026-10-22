@@ -92,7 +92,8 @@
 // The dedicated vgshell-quickshell engine instead provides versioned
 // quickshell and conflicts with both stock engine package names. Its pinned
 // source, shared patch bytes, checksums and channel integration are checked
-// separately by engineRules.
+// separately by engineRules. Arch prepare() applies every patch with
+// --fuzz=0, matching Fedora's %autosetup, so the package build rejects fuzz.
 // Licence, after every channel: the shell package licence expression
 // docs/architecture/distribution.md, its line
 // "- The SPDX licence expression of a VGS shell package is `<expr>`.", equals
@@ -624,8 +625,13 @@ function engineRules() {
         const bytes = readText(ENGINE_DIR + "/" + name, "engine=source");
         if (crypto.createHash("sha256").update(bytes).digest("hex") !== sums[i + 1]) refuse(`engine=checksum source=${name}`);
     });
-    for (const name of ENGINE_SOURCES.filter(name => name.endsWith(".patch")))
-        if (!functionHolds(build, "prepare", `patch -p1 --forward < "$srcdir/${name}"`)) refuse(`engine=patch source=${name}`);
+    const prepare = /^prepare\(\) \{\n([\s\S]*?)^\}$/m.exec(build);
+    const patchCalls = ENGINE_SOURCES.filter(name => name.endsWith(".patch"))
+        .map(name => `patch -p1 --forward --fuzz=0 < "$srcdir/${name}"`);
+    // COPR build 11194872 rejected a hunk that Arch's default fuzz accepted.
+    // Compare the full body so an extra fuzzy invocation cannot bypass this.
+    if (prepare === null || prepare[1].split("\n").map(line => line.trim()).filter(Boolean).join("\n")
+            !== ['cd "$_pkgsrc"', ...patchCalls].join("\n")) refuse(`engine=patches recipe=${ENGINE}`);
     if (!build.includes(`-DDISTRIBUTOR="VGS ${engineRelease.RELEASE} (package: vgshell-quickshell)"`)) refuse("engine=distributor channel=pacman");
     const spec = readText("packaging/fedora/vgshell-quickshell.spec", "engine=spec");
     const required = [
