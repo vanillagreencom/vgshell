@@ -76,7 +76,14 @@ Column {
 
     // The secret's presence changed under an open field, so what the
     // field was opened for no longer holds.
-    onAccessChanged: entering = false
+    onAccessChanged: {
+        // The writer ends before the plugin's presence probe publishes. If
+        // Add key still owns focus, hand it to Replace as presence changes;
+        // a publish after focus moved elsewhere must not take it back.
+        const actionFocused = addKey.activeFocus || replaceKey.activeFocus;
+        entering = false;
+        if (actionFocused) restoreActionFocus();
+    }
     onVisibleChanged: if (!visible) entering = false
     onBusyChanged: if (!busy && returnAfterWrite) restoreActionFocus()
 
@@ -84,8 +91,8 @@ Column {
 
     function restoreActionFocus() {
         returnAfterWrite = false;
-        if (visible && !busy && (adds || stored))
-            (adds ? addKey : replaceKey).forceActiveFocus(Qt.TabFocusReason);
+        if (visible && !busy && (access === "connect" || access === "disconnect"))
+            (access === "connect" ? addKey : replaceKey).forceActiveFocus(Qt.TabFocusReason);
     }
 
     function canSave(value) {

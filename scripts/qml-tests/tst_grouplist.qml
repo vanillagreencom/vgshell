@@ -826,6 +826,34 @@ Item {
             }
         }
 
+        function test_a_first_key_write_returns_focus_after_presence_publishes() {
+            const beginWrite = () => absentKey.busy = true;
+            absentKey.storeSecret.connect(beginWrite);
+            for (const destination of ["same-row", "other-row", "navigation"]) {
+                absentKey.access = "connect";
+                stepOf(absentKey).clicked();
+                const input = findChild(absentKey, TextField);
+                input.text = "first-key";
+                input.accepted();
+                verify(absentKey.busy);
+                // SecretWriter.finish calls done before the plugin's asynchronous
+                // presence probe publishes its new access, so busy ends first.
+                if (destination === "navigation") {
+                    absentKey.visible = false;
+                    actionsOf(storedKey)[0].forceActiveFocus();
+                }
+                absentKey.busy = false;
+                if (destination === "other-row") actionsOf(storedKey)[0].forceActiveFocus();
+                absentKey.access = "disconnect";
+                wait(0);
+                verify(destination === "same-row" ? actionsOf(absentKey)[0].activeFocus : actionsOf(storedKey)[0].activeFocus,
+                       "presence transfers focus to Replace only while this row still owns it");
+                absentKey.visible = true;
+            }
+            absentKey.storeSecret.disconnect(beginWrite);
+            absentKey.access = "connect";
+        }
+
         function test_a_groups_own_lines_sit_close() {
             const field = warden.children.find(child => child.valueX !== undefined);
             verify(field !== undefined, "the line holds its field");
