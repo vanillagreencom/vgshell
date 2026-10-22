@@ -2824,7 +2824,7 @@ python3 - "$image_helper" "$image_gate" "$image_entered" <<'PY_IMAGE_GATE'
 import shlex, sys
 path, gate, entered = sys.argv[1:]
 text = open(path).read()
-needle = '      timeout 5 head -c'
+needle = '      timeout --foreground 5 head -c'
 assert text.count(needle) == 1, "the image copy occurs once"
 replacement = '      printf started >' + shlex.quote(entered) + '\n      read -r release <' + shlex.quote(gate) + '\n' + needle
 open(path, 'w').write(text.replace(needle, replacement))

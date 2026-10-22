@@ -302,7 +302,7 @@ else:
         valid=valid and add[add.index("802-1x.eap")+1]==sys.argv[5]
         valid=valid and add[add.index("802-1x.phase2-auth")+1]==("mschapv2" if sys.argv[5]=="peap" else "pap")
         valid=valid and add[add.index("802-1x.identity")+1]==sys.argv[6] and add[add.index("802-1x.domain-suffix-match")+1]==sys.argv[7]
-    valid=valid and rows[-1]["argv"]==["--wait","5","connection","delete","uuid",profile]
+    valid=valid and rows[-1]["argv"]==["--wait","1","connection","delete","uuid",profile]
     valid=valid and profile not in json.loads(pathlib.Path(sys.argv[2]).read_text()).get("profiles", [])
     print("private-cleaned" if valid else "invalid")
 PYJOINCALLS
