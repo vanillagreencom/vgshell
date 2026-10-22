@@ -325,7 +325,7 @@ terminal_stand_in
 # never a real tool change or a hardware access.
 dictation_forget
 : >"$dictation_daemon_fail"
-expected_errors+=('dictation: daemon stderr="Error: voxtype fixture cannot load its engine"' 'dictation: daemon=failed reason=ended code=1' 'dictation: probe code=1 stderr="Error: voxtype fixture inventory unavailable"' 'dictation: daemon=failed reason=probe code=1')
+expected_errors+=('dictation: daemon=failed reason=ended code=1 stderr="Error: voxtype fixture cannot load its engine"$' 'dictation: probe code=1 stderr="Error: voxtype fixture inventory unavailable"' 'dictation: daemon=failed reason=probe code=1')
 expect "a restart beside a broken tool uses the existing owner" ok dictate acme.dictation restart
 expect_poll "the broken tool leaves the same holder failed" "failed idle -" dictation_state acme.dictation
 expect_poll "the broken child and its follower both end" "$dictation_none" dictation_processes all
@@ -538,7 +538,7 @@ edit_tree dictation-controls shell/Core/Dictation.qml \
   '        return ["setpriv", "--pdeathsig", "KILL", "--", "bash", "-c", '"'"'[[ $PPID == "$1" ]] || exit 1; shift; exec "$@"'"'"', "bash", String(Quickshell.processId)].concat(argv);' \
   '        return argv;' || dictation_edits=false
 if [[ $dictation_edits == true ]]; then
-  expected_errors+=('dictation: daemon stderr="Error: Another voxtype instance is already running"' 'dictation: daemon=failed reason=ended code=1')
+  expected_errors+=('dictation: daemon=failed reason=ended code=1 stderr="Error: Another voxtype instance is already running"$')
   printf '%s\n' 3 >"$dictation_cap"
   dictation_forget
   dictation_own_daemon

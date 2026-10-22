@@ -1304,7 +1304,7 @@ settings_setup
 # Control: the core's daemon ended by the row, the stand-in whose pid its
 # own lock names, turns the same reading red: Setup needed, and Set up
 # first. Set up's run starts a daemon, and the step reads Done.
-expected_errors+=('WARN qml: dictation: daemon stderr=' 'WARN qml: dictation: daemon=failed reason=ended code=0$')
+expected_errors+=('WARN qml: dictation: daemon=failed reason=ended code=0$')
 voice_daemon_pid="$(cat -- "$rt_dir/voxtype/voxtype.lock")" || voice_daemon_pid=unread
 if [[ $voice_daemon_pid =~ ^[0-9]+$ && " $(dictation_processes pids) " == *" $voice_daemon_pid "* ]]; then
   kill -TERM "$voice_daemon_pid" || fail "control: the stand-in daemon could not be ended"
@@ -1316,14 +1316,16 @@ expect_poll "control: an ended daemon draws Setup needed with Set up first" "$vo
 expect "control: the Setup section draws the service's one setup line for the ended daemon" '{"action": "setup", "lines": 1, "drawn": true}' voice_setup_lines
 # Keep the child failure true while these starts retry. A repaired child
 # correctly reaches ready and cannot be a continuing-failure control.
+voice_engine_failure='WARN qml: dictation: daemon=failed reason=ended code=1 stderr="Error: voxtype fixture cannot load its engine"$'
+expected_errors+=('WARN qml: voice: start refused: dictation=daemon-starting' "$voice_engine_failure")
 : >"$sandbox/voxtype-daemon-fail"
-expected_errors+=('WARN qml: voice: start refused: dictation=daemon-starting' 'WARN qml: dictation: daemon=failed reason=ended code=1$')
 settings_page_close vgs.voice
 expect "the toggle shortcut delivers the failed-state retry" ok hypr dispatch 'hl.dsp.global("vgs.voice:toggle")'
 expect_poll "the failed toggle opens the existing correction window" 1 window_count Plugins
 expect_poll "the failed toggle shows Voice Setup" '"vgs.voice/Setup"' ipc smoke readInstance window vgs.settings shownPage
 expect_poll "the failed toggle draws the existing setup action" "$voice_setup_needed" voice_setup_section
 expect_poll "the pending toggle retry publishes the actual continuing failure" "failed idle -" voice_state
+expect_log "the intentional engine failure logs its bounded diagnostic" 1 "$voice_engine_failure"
 expect "the failed toggle draws the current failure lines" '{"action": "setup", "lines": 1, "drawn": true}' voice_setup_lines
 settings_page_close vgs.voice
 voice_widget_point
