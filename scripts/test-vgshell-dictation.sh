@@ -140,11 +140,13 @@ for pair in 'apt pipewire-alsa' 'dnf pipewire-alsa' 'pacman pipewire-audio'; do
 done
 check "an absent module never claims an engine compilation defect" test ! -e "$tmp/system.calls"
 # Diagnostic keys are a technical log contract; screen copy is judged by
-# the terminal captures. Failed repair must not copy config or fetch models.
+# the terminal captures. The package manager's own stderr, where it asks
+# and reports, stays on the terminal. Failed repair must not copy config or
+# fetch models.
 printf '[{"name":"parakeet","compiled":false}]\n' >"$tmp/engines.json"
 printf '{"engines":{"parakeet":{"models":[{"name":"parakeet-tdt-0.6b-v3","installed":false}]}}}\n' >"$tmp/models.json"
-repair_failure_reading() { # CASE EXPECTED_STATUS DIAGNOSTIC_KEY
-  local case_name="$1" expected="$2" key="$3" result=0
+repair_failure_reading() { # CASE EXPECTED_STATUS DIAGNOSTIC_KEY log|screen
+  local case_name="$1" expected="$2" key="$3" place="$4" result=0
   rm -rf -- "${config_dir:?}"
   rm -f -- "${audio_modules:?}/libasound_module_pcm_pipewire.so" "${tmp:?}/voxtype.calls" \
     "${tmp:?}/system.calls" "${tmp:?}/pkg.calls" "${setup_log:?}"
@@ -157,16 +159,22 @@ repair_failure_reading() { # CASE EXPECTED_STATUS DIAGNOSTIC_KEY
   [[ $case_name == package ]] || rm -f -- "${tmp:?}/$case_name"
   no_changes || return 1
   [[ $result == 0 ]] || return 1
-  grep -qxF -- "$key" "$setup_log" || return 1
-  ! grep -E 'vgs-dictation: route=|fixture-pkg: operation=' "$tmp/setup.out"
+  case "$place" in
+    log)
+      grep -qxF -- "$key" "$setup_log" || return 1
+      ! grep -E 'vgs-dictation: route=|fixture-pkg: operation=' "$tmp/setup.out"
+      ;;
+    screen) grep -qF -- "$key" "$tmp/setup.out" ;;
+    *) echo "$suite: refused: place=$place" >&2; return 2 ;;
+  esac
 }
 for row in \
-  'package|69|vgs-dictation: route=package-unavailable' \
-  'detect-failed|7|fixture-pkg: operation=detect-failed' \
-  'install-failed|5|fixture-pkg: operation=install-failed' \
-  'install-unavailable|69|vgs-dictation: route=pipewire-module-unavailable'; do
-  IFS='|' read -r failure expected key <<<"$row"
-  check "$failure: repair preserves status and logs diagnostics without later setup work" repair_failure_reading "$failure" "$expected" "$key"
+  'package|69|vgs-dictation: route=package-unavailable|log' \
+  'detect-failed|7|fixture-pkg: operation=detect-failed|log' \
+  'install-failed|5|fixture-pkg: operation=install-failed|screen' \
+  'install-unavailable|69|vgs-dictation: route=pipewire-module-unavailable|log'; do
+  IFS='|' read -r failure expected key place <<<"$row"
+  check "$failure: repair preserves status, keeps diagnostics on the $place and skips later setup work" repair_failure_reading "$failure" "$expected" "$key" "$place"
 done
 # Removing only the route-package logging wrapper preserves its operation
 # and status but must fail the same screen/log separation assertion.
@@ -178,7 +186,18 @@ a='vgs_tui_logged "$log" python3 "$root/bin/lib/voxtype.py" route-package'
 assert s.count(a)==1
 p.write_text(s.replace(a,'python3 "$root/bin/lib/voxtype.py" route-package'))
 PY
-check "control: unlogged route-package fails screen/log separation" test "$(repair_failure_reading package 69 'vgs-dictation: route=package-unavailable'; echo $?)" != 0
+check "control: unlogged route-package fails screen/log separation" test "$(repair_failure_reading package 69 'vgs-dictation: route=package-unavailable' log; echo $?)" != 0
+cp -- "$tmp/logged-setup-source" "$tree/bin/vgshell-dictation"
+# Logging the install step hides the package manager's stderr, so the
+# install-failed screen reading must fail while its status stays 5.
+python3 - "$tree/bin/vgshell-dictation" <<'PY'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1]); s=p.read_text()
+a='  "$root/bin/vgshell-pkg" run install'
+assert s.count(a)==1
+p.write_text(s.replace(a,'  vgs_tui_logged "$log" "$root/bin/vgshell-pkg" run install'))
+PY
+check "control: logged install fails the package manager's screen reading" test "$(repair_failure_reading install-failed 5 'fixture-pkg: operation=install-failed' screen; echo $?)" != 0
 cp -- "$tmp/logged-setup-source" "$tree/bin/vgshell-dictation"
 cp -- "$tmp/audio-module.so" "$audio_modules/libasound_module_pcm_pipewire.so"
 printf '[{"name":"parakeet","compiled":true}]\n' >"$tmp/engines.json"

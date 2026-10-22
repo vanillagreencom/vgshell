@@ -68,9 +68,11 @@ if [[ $route_status != 0 ]]; then
   }
   mapfile -t audio_package <<<"$audio_package"
   vgs_tui_step "Installing the PipeWire audio library"
-  vgs_tui_logged "$log" "$root/bin/vgshell-pkg" run install --manager "${audio_package[0]}" "${audio_package[1]}" || {
+  # The package manager asks its question and reports its errors on stderr,
+  # so the install keeps both streams on this terminal, not in the log.
+  "$root/bin/vgshell-pkg" run install --manager "${audio_package[0]}" "${audio_package[1]}" || {
     status=$?
-    vgs_tui_failed "$log" "Dictation could not install the audio library."
+    vgs_tui_error "Dictation could not install the audio library."
     exit "$status"
   }
   vgs_tui_logged "$log" python3 "$root/bin/lib/voxtype.py" check-route || {
