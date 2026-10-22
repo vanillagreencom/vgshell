@@ -6,7 +6,7 @@
 # a row holds the capability, so no row starts the host's voxtype; the
 # daemon the core starts for the holder is the stand-in. The row puts the
 # stand-ins away again and leaves the fixture disabled.
-# inputs: scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.dictation/* scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js shell/Core/Capabilities.qml shell/Core/ShortcutRegistry.qml shell/Core/IpcRegistry.qml shell/Core/IdleRegistry.qml shell/Core/PluginLogic.js shell/Core/Registry.qml shell/plugins/vgs.lock/manifest.json shell/Core/SessionLock.qml shell/Core/NotificationHub.qml shell/Core/Compositor.qml shell/Core/Dispatch.js scripts/smoke/rows/plugins.sh
+# inputs: scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.dictation/* scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js shell/Core/Capabilities.qml shell/Core/ShortcutRegistry.qml shell/Core/IpcRegistry.qml shell/Core/IdleRegistry.qml shell/Core/PluginLogic.js shell/Core/Registry.qml shell/plugins/vgs.lock/manifest.json shell/Core/SessionLock.qml shell/Core/NotificationHub.qml shell/Core/Compositor.qml shell/Core/Dispatch.js bin/vgshell-dictation bin/lib/voxtype.sh bin/lib/voxtype.py scripts/smoke/rows/plugins.sh
 set -euo pipefail
 lent() { ipc shell lent | py_reply 'import json,sys; d=json.load(sys.stdin); v=d
 for k in sys.argv[1].split("."): v=v.get(k) if isinstance(v, dict) else None
@@ -259,9 +259,9 @@ dictation_stand_ins() { # on|off
 # direct dictation transport. Fixture forks are not another owned role.
 # With `pids` it prints all matching pids for cleanup.
 dictation_processes() { # all|owned|pids
-  python3 - "$shim/voxtype" "${shell_qs_pid:-none}" "$1" <<'PY'
+  python3 - "$shim/voxtype" "${shell_qs_pid:-none}" "$1" "$shell_tree/bin/lib/voxtype.py" <<'PY'
 import os, sys
-stand_in, shell, want = sys.argv[1:]
+stand_in, shell, want, helper = sys.argv[1:]
 counts = {scope: {"daemon": 0, "follower": 0, "other": 0} for scope in ("all", "owned")}
 pids = []
 for pid in os.listdir("/proc"):
@@ -290,7 +290,7 @@ for pid in os.listdir("/proc"):
             with open(f"/proc/{parent}/status") as f:
                 owner_parent = next(line.split()[1] for line in f if line.startswith("PPid:"))
             role = "daemon" if kind == "daemon" else "follow" if kind == "follower" else "run"
-            owned = owner_parent == shell and os.path.basename(owner_args[0]) == "python3" and owner_args[1:4] == ["-", role, "voxtype"]
+            owned = owner_parent == shell and os.path.basename(owner_args[0]) == "python3" and owner_args[1:5] == [helper, "supervise", role, "voxtype"]
         except (OSError, StopIteration, IndexError):
             pass
     if owned:

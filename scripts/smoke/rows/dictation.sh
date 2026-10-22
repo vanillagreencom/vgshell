@@ -57,7 +57,7 @@
 # surviving processes contribute no shell-owned roles.
 # Every poll is expect_poll's, one read each 0.2 s; no latency budget is
 # claimed.
-# inputs: scripts/smoke/fixtures/plugins/acme.dictation/* scripts/smoke/fixtures/plugins/acme.dictation-other/* scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js bin/vgshell-dictation bin/lib/voxtype.sh bin/lib/tui.sh config/voxtype/* scripts/smoke/rows/capabilities.sh
+# inputs: scripts/smoke/fixtures/plugins/acme.dictation/* scripts/smoke/fixtures/plugins/acme.dictation-other/* scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js bin/vgshell-dictation bin/vgshell-pkg bin/lib/voxtype.sh bin/lib/voxtype.py bin/lib/tui.sh config/runtime-libraries.json config/voxtype/* scripts/smoke/rows/capabilities.sh
 set -euo pipefail
 dictation_other="$home/.config/vgshell/plugins/acme.dictation-other"
 dictation_dir="$rt_dir/vgshell/dictation"
@@ -186,8 +186,9 @@ expect "the dictation directory is the owner's alone and empty" "700 0" dictatio
 # regression can reach neither authentication nor systemctl.
 dictation_setup_tree="$sandbox/dictation-setup-tree"
 mkdir -p "$dictation_setup_tree/bin/lib" "$dictation_setup_tree/config" "$dictation_setup_tree/commands"
-cp -- "$repo/bin/vgshell-dictation" "$dictation_setup_tree/bin/"
-cp -- "$repo/bin/lib/tui.sh" "$repo/bin/lib/voxtype.sh" "$dictation_setup_tree/bin/lib/"
+cp -- "$repo/bin/vgshell-dictation" "$repo/bin/vgshell-pkg" "$dictation_setup_tree/bin/"
+cp -- "$repo/bin/lib/tui.sh" "$repo/bin/lib/voxtype.sh" "$repo/bin/lib/voxtype.py" "$dictation_setup_tree/bin/lib/"
+cp -- "$repo/config/runtime-libraries.json" "$dictation_setup_tree/config/"
 cp -R -- "$repo/config/voxtype" "$dictation_setup_tree/config/"
 printf '#!/bin/sh\nprintf "%%s\\n" forbidden >>%q\nexit 64\n' "$sandbox/dictation-setup-forbidden" >"$dictation_setup_tree/bin/vgshell-system"
 for name in sudo systemctl; do
