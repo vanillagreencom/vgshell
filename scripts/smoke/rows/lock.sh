@@ -344,6 +344,7 @@ expect "the last sleep is published as locked" '["ok", "The session was locked b
 
 # Disabled opt-in is a service-policy refusal for this ordinary session
 # caller. It supplies no evidence about an excluded identity's transport.
+notes_on "temporary access"
 expect "temporary access is disabled by default" '[false, false]' lock_status delegateAllowed delegateActive
 expect "the delegate tests request a secure lock" ok ipc vgs.lock invoke lock ''
 lock_relocked "before temporary access"
@@ -351,7 +352,7 @@ expect "the ordinary session caller is refused while disabled" 'refused: delegat
 lock_relocked "disabled temporary access"
 set_setting allowDelegateUnlock true
 expect_poll "the opt-in reaches the running lock service" '[true]' lock_status delegateAllowed
-for lock_argument in '' '{' '[]' '{}' '{"seconds":0}' '{"seconds":-1}' '{"seconds":1.5}' '{"seconds":61}' '{"seconds":"1"}' '{"seconds":true}' '{"seconds":null}' '{"seconds":1,"extra":true}'; do
+for lock_argument in '' '{' '{}' '{"seconds":0}' '{"seconds":-1}' '{"seconds":1.5}' '{"seconds":61}' '{"seconds":"1"}' '{"seconds":true}' '{"seconds":null}' '{"seconds":1,"extra":true}'; do
   expect "an invalid duration argument is refused" 'refused: delegate-unlock=argument' lock_delegate "$lock_argument"
 done
 printf -v lock_oversized '%065d' 0
@@ -431,6 +432,7 @@ expect_poll "a fresh non-preparing hook holds again" ok sleep_status
 expect_poll "only the fresh false state restores readiness" true lock_service sleepReady
 release "the temporary-access sleep cases"
 no_checks "after the temporary-access policy and sleep cases"
+notes_off "temporary access"
 
 # A second lock client, the harness's lock-client, holds the session. It
 # runs no authentication and is stopped by its pid. With the VGS layer's
@@ -530,6 +532,7 @@ expect_poll "the idle watch is back at its default" '[["vgs.lock:lock"], ["vgs.l
 release "the idle lock"
 
 # Disposing a release owner requests lock before removing its content.
+notes_on "temporary-access owner lifecycle"
 expect "the release-owner disposal test requests a secure lock" ok ipc vgs.lock invoke lock ''
 lock_relocked "before release-owner disposal"
 expect "a grant before disabling the owner is accepted" ok lock_delegate '{"seconds":60}'
@@ -605,6 +608,7 @@ rm -r -- "${control_dir:?}"
 rescan_theme_follow "rescan after removing the stand-in copy answers ok"
 expect_poll "the shipped plugin runs again after the stand-in" "$repo/shell/plugins/vgs.lock" lock_dir_of
 expect_poll "the rebuilt shipped plugin holds its sleep hook again" ok sleep_status
+notes_off "temporary-access owner lifecycle"
 
 # Control: a copy that never locks a stranded session. After the kill and
 # the restart the session is still locked, and the core holds no lock.

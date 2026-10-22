@@ -261,7 +261,7 @@ Item {
         const text = JSON.stringify(value);
         if (published[key] === text) return;
         const reply = shell.status.set(key, value);
-        if (reply !== "ok") {
+        if (!shell.status.isOk(reply)) {
             console.warn("lock: status " + reply);
             return;
         }
