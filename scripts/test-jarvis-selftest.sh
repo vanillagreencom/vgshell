@@ -39,7 +39,7 @@ self="$(readlink -f -- "${BASH_SOURCE[0]}")"
 repo="$(cd -- "$(dirname -- "$self")/.." && pwd)"
 runner="$repo/scripts/jarvis-selftest.sh"
 
-tmp="$(mktemp -d /var/tmp/test-jarvis-selftest.XXXXXX)" || { echo "test-jarvis-selftest: scratch=mktemp-failed" >&2; exit 1; }
+tmp="$(mktemp -d)" || { echo "test-jarvis-selftest: scratch=mktemp-failed" >&2; exit 1; }
 [[ -d $tmp && ! -L $tmp ]] || { echo "test-jarvis-selftest: scratch=not-a-directory value=[$tmp]" >&2; exit 1; }
 tmp="$(cd -- "$tmp" && pwd -P)" || { echo "test-jarvis-selftest: scratch=resolve-failed" >&2; exit 1; }
 # The scratch bus and the stand-in service end by the pids this file
@@ -939,7 +939,9 @@ keyring_cases() {
   # the saved OpenAI key's attributes, in the state the file keyring-mode
   # names at each call, and a second name that answers Ping. It logs each
   # call it gets in keyring.calls, a search with the attributes asked.
-  local bus="$tmp/bus"
+  local bus_dir bus
+  bus_dir="$(mktemp -d "$XDG_RUNTIME_DIR/owned/keyring.XXXXXX")" || return 1
+  bus="$bus_dir/bus"
   cat >"$tmp/bus.xml" <<XML
 <busconfig><type>session</type><listen>unix:path=$bus</listen><auth>EXTERNAL</auth>
 <policy context="default"><allow send_destination="*"/><allow receive_sender="*"/><allow own="*"/></policy></busconfig>
@@ -1037,8 +1039,8 @@ PY
   mkdir -p "$tmp/proxy-output"
   proxy_start() { # FENCE
     rm -f -- "$tmp/proxy-output/root"
-    env -i PATH="$path" HOME="$world" TMPDIR=/tmp DBUS_SESSION_BUS_ADDRESS="unix:path=$bus" \
-      "$BASH" "$1" --checkout "$repo" --out "$tmp/proxy-output" --secrets --sign-in COPILOT_HOME "$world/.copilot" \
+    env -i PATH="$path" HOME="$world" TMPDIR=/tmp VGSHELL_WORLD_ROOT="$VGSHELL_WORLD_ROOT" DBUS_SESSION_BUS_ADDRESS="unix:path=$bus" \
+      "$BASH" "$1" --fresh --checkout "$repo" --out "$tmp/proxy-output" --secrets --sign-in COPILOT_HOME "$world/.copilot" \
       "$BASH" -c 'printf "%s\n" "$VGSHELL_WORLD_ROOT" >"$1/root"; while :; do sleep 1 & wait $!; done' _ "$tmp/proxy-output" >"$tmp/proxy-output/log" 2>&1 &
     proxy_world_pid=$!
     for _ in $(seq 1 100); do [[ ! -s $tmp/proxy-output/root ]] || break; kill -0 "$proxy_world_pid" 2>/dev/null || break; sleep 0.05; done

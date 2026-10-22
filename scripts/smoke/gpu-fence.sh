@@ -7,7 +7,7 @@
 # the amdgpu node is not proven. So the node is hidden, not deselected.
 # REVISIT(D099): a kernel that fixes the amdgpu open path needs no fence.
 #
-# Usage: scripts/smoke/gpu-fence.sh CMD [ARG...]
+# Usage: scripts/smoke/gpu-fence.sh [DECLARATIONS] -- CMD [ARG...]
 #        scripts/smoke/gpu-fence.sh --check
 #
 # The DRM nodes are read on every run from /sys/class/drm/<node>: `dev`
@@ -31,6 +31,8 @@
 # binds only its socket inside. --sign-in VARIABLE DIR declares the selected
 # account directory, its variable and its writable bind. Neither exception
 # supplies the caller's raw bus. The rules below own the allowed bus calls.
+# --fresh gives a validate row its own root even when validate itself is
+# inside a test world. Other entry points reuse the world they already have.
 #
 # The fence remains bubblewrap's parent. TERM, INT and HUP each go to CMD
 # once. The PID namespace and --die-with-parent end every descendant after
@@ -46,7 +48,7 @@
 # line. A namespace made around `true` runs the same proof first, so a
 # failure there is the namespace's and never CMD's.
 #
-# --check reads access permissions only: the checkout must be read-only,
+# --check reads access permissions and mounts: the checkout must be read-only,
 # the owned root writable and every AMD path absent. It never writes.
 # An entry point continues only after
 #   gpu-fence.sh --check || exec gpu-fence.sh [DECLARATIONS] "$self" "${argv[@]}"
@@ -100,11 +102,13 @@ fault() {
 sys=/sys
 dev=/dev
 mode=run
+world_runtime=/tmp/vr
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
 checkout="$(cd -- "${self%/*}/../.." && pwd -P)"
 outputs=()
 output_roots=()
 keep=false
+fresh=false
 network=(--unshare-net)
 secrets=false
 sign_in_name="" sign_in_dir=""
@@ -121,8 +125,10 @@ while (($#)); do
           sign_in_name="$2" sign_in_dir="$(realpath -e -- "$3")"; shift 3 ;;
       esac ;;
     --keep) keep=true; shift ;;
+    --fresh) fresh=true; shift ;;
     --net) network=(); shift ;;
     --secrets) secrets=true; shift ;;
+    --) shift; break ;;
     --sys|--dev)
       [[ $# -ge 2 && -n $2 ]] || { note "refused: argument=$1"; exit 2; }
       if [[ $1 == --sys ]]; then sys="$2"; else dev="$2"; fi
@@ -236,9 +242,23 @@ exposed() {
   return 1
 }
 
-# The read-only checkout and writable root prove the mount boundary without
-# a write attempt. The marker alone grants no permission to start a runner.
-fenced() { [[ -n ${VGSHELL_WORLD_ROOT-} && -d $VGSHELL_WORLD_ROOT && -w $VGSHELL_WORLD_ROOT && ! -w $checkout ]]; }
+# Check permissions and the world's root/runtime mounts without writing.
+# The marker alone grants no permission to start or inherit a world.
+fenced() {
+  local readonly_tree="${1:-$checkout}" device mount_root mount_path mount_options
+  local host_readonly=false own_root="" own_device="" runtime_root="" runtime_device=""
+  [[ -n ${VGSHELL_WORLD_ROOT-} && -d $VGSHELL_WORLD_ROOT && -w $VGSHELL_WORLD_ROOT && ! -w $readonly_tree ]] || return 1
+  # A read-only host filesystem alone is no world. Its owned runtime must
+  # be backed by the same root that this invocation would inherit.
+  while read -r _ _ device mount_root mount_path mount_options _; do
+    printf -v mount_path '%b' "$mount_path"
+    printf -v mount_root '%b' "$mount_root"
+    if [[ $mount_path == / && ,$mount_options, == *,ro,* ]]; then host_readonly=true; fi
+    if [[ $mount_path == "$VGSHELL_WORLD_ROOT" ]]; then own_root="$mount_root"; own_device="$device"; fi
+    if [[ $mount_path == "$world_runtime/owned" ]]; then runtime_root="$mount_root"; runtime_device="$device"; fi
+  done </proc/self/mountinfo
+  [[ $host_readonly == true && -n $own_root && $runtime_device == "$own_device" && $runtime_root == "$own_root/runtime" ]]
+}
 
 # Wait for the namespace's init to leave before reading evidence or removing
 # the one root this process acquired. PID 1 exits after the kernel reaps
@@ -339,7 +359,7 @@ case "$mode" in
   run)
     (($#)) || { note "refused: argument=missing-command"; exit 2; }
     plan
-    ! fenced || exposed || exec "$@"
+    if [[ $fresh == false ]]; then ! fenced || exposed || exec "$@"; fi
     command -v bwrap >/dev/null 2>&1 || { fault bwrap-missing; exit 77; }
     fence_dir="$(mktemp -d "${TMPDIR:-/tmp}/vgshell-world.XXXXXX")" || { fault root-failed; exit 77; }
     [[ -d $fence_dir && ! -L $fence_dir ]] || { fault root-failed; exit 77; }
@@ -347,7 +367,6 @@ case "$mode" in
     trap release EXIT
     mkdir -p -- "$fence_dir"/{home,config,data,state,cache,tmp,runtime}
     chmod 700 -- "$fence_dir" "$fence_dir/runtime"
-    world_runtime=/tmp/vr
     # Version-manager shims need the caller's trust state. Resolve the
     # native node before HOME is redirected, as the harness requires.
     if command -v node >/dev/null 2>&1; then
@@ -373,6 +392,13 @@ case "$mode" in
       [[ ! -v $name ]] || environment+=(--setenv "$name" "${!name}")
     done
     mounts=()
+    parent_mounts=()
+    # A suite inside a world may make a disposable checkout under its root
+    # and enter a child world. Keep those input fixtures visible after /tmp
+    # is masked, with only the child root writable.
+    if fenced /; then
+      parent_mounts+=(--ro-bind "$VGSHELL_WORLD_ROOT" "$VGSHELL_WORLD_ROOT")
+    fi
     # Mask caller runtime even when its path is outside /tmp. No source from
     # it is mounted back, except the filtered selftest proxy socket below.
     if [[ -n ${XDG_RUNTIME_DIR:-} && $XDG_RUNTIME_DIR != /tmp && $XDG_RUNTIME_DIR != /tmp/* ]]; then
@@ -447,7 +473,7 @@ case "$mode" in
     # after-namespace copier can still read logs after tmpfs disappears.
     fence=(bwrap --ro-bind / / --dev-bind /dev /dev
       --tmpfs /dev/shm --tmpfs /tmp --perms 0700 --tmpfs "$world_runtime"
-      --bind "$fence_dir" "$fence_dir"
+      "${parent_mounts[@]}" --bind "$fence_dir" "$fence_dir"
       --bind "$fence_dir/runtime" "$world_runtime/owned"
       "${mounts[@]}" "${rebuild[@]}" "${network[@]}" --unshare-pid --proc /proc --die-with-parent --new-session
       "${environment[@]}")

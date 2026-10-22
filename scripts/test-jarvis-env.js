@@ -10,6 +10,7 @@ const cp = require("node:child_process");
 const fs = require("node:fs");
 const net = require("node:net");
 const path = require("node:path");
+const os = require("node:os");
 const vm = require("node:vm");
 
 const helper = path.join(__dirname, "lib/jarvis-env.sh");
@@ -63,7 +64,7 @@ async function main() {
         return;
     }
     if (process.argv[2] !== "--inside") {
-        const parent = path.resolve(__dirname, "../tmp");
+        const parent = os.tmpdir();
         fs.mkdirSync(parent, { recursive: true });
         const root = fs.realpathSync(fs.mkdtempSync(path.join(parent, "je-")));
         const short = fs.realpathSync(fs.mkdtempSync("/tmp/je-"));
@@ -402,7 +403,7 @@ async function main() {
         const defaultEnv = { ...env };
         delete defaultEnv.JARVIS_TEST_SCRATCH_ROOT;
         const defaultResult = run("/bin/bash",
-            [helper, standins, "--", "python3", probe, "scratch-parent", path.resolve(__dirname, "../tmp")], defaultEnv);
+            [helper, standins, "--", "python3", probe, "scratch-parent", defaultEnv.TMPDIR], defaultEnv);
         assert.equal(defaultResult.status, 0, defaultResult.stderr);
         assert.equal(fs.existsSync(defaultResult.stdout.trim()), false);
         const alias = path.join(root, "alias");
@@ -436,7 +437,7 @@ async function main() {
         const parentFile = path.join(root, "parent-file");
         fs.writeFileSync(parentFile, "");
         scratchRefusal(helper, parentFile, "jarvis-env: scratch-parent=create-failed path=" + parentFile);
-        mutation("scratch-parent", 'scratch="${JARVIS_TEST_SCRATCH_ROOT-${self%/*}/../../tmp}"',
+        mutation("scratch-parent", 'scratch="${JARVIS_TEST_SCRATCH_ROOT-${TMPDIR:-/tmp}}"',
             'scratch="' + path.join(root, "other") + '"', file => scratchLocation(file, root));
         mutation("scratch-empty", '[[ -n $scratch ]]', '[[ -n $scratch ]] || true',
             file => scratchRefusal(file, "", "jarvis-env: scratch-parent=empty"));

@@ -16,6 +16,7 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 const vm = require("node:vm");
 const { load: loadLibrary } = require("../bin/lib/qml-library.js");
 const pageReference = loadLibrary(path.join(__dirname, "..", "shell", "Commons", "PageReference.js"));
@@ -594,7 +595,7 @@ const CONTROLS = [
 ];
 
 const source = fs.readFileSync(path.join(dir, "WidgetView.js"), "utf8");
-const scratchRoot = path.join(__dirname, "..", "tmp");
+const scratchRoot = os.tmpdir();
 fs.mkdirSync(scratchRoot, { recursive: true });
 const temp = fs.mkdtempSync(path.join(scratchRoot, "jarvis-widget-control-"));
 // The copy imports SetupGate.js beside it, as the shipped file does.

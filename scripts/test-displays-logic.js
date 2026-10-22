@@ -11,6 +11,7 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 const { load } = require("../bin/lib/qml-library.js");
 
 const file = path.join(__dirname, "..", "shell", "plugins", "vgs.displays", "DisplaysLogic.js");
@@ -705,8 +706,8 @@ const CONTROLS = [
 ];
 
 const source = fs.readFileSync(file, "utf8");
-fs.mkdirSync(path.join(__dirname, "..", "tmp"), { recursive: true });
-const temp = fs.mkdtempSync(path.join(__dirname, "..", "tmp", "displays-logic-control-"));
+fs.mkdirSync(os.tmpdir(), { recursive: true });
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), "displays-logic-control-"));
 try {
   for (const [label, needle, replacement] of CONTROLS) {
     assert.equal(source.split(needle).length, 2, `control "${label}": the text to replace must occur once`);

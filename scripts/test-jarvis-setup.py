@@ -39,18 +39,16 @@ def namespace_entry():
     """Every behavior case runs under the shared private-world owner."""
     if os.environ.get("JARVIS_TEST_ROOT"):
         return
-    (REPO / "tmp").mkdir(exist_ok=True)
-    with tempfile.TemporaryDirectory(dir=REPO / "tmp", prefix="setup-standins-") as name:
+    with tempfile.TemporaryDirectory(prefix="setup-standins-") as name:
         child = subprocess.run([str(REPO / "scripts/lib/jarvis-env.sh"), name, "--",
             sys.executable, str(Path(__file__).resolve())],
-            env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"}, check=False)
+            env={"PATH": "/usr/bin:/bin", "LC_ALL": "C", "JARVIS_TEST_SCRATCH_ROOT": name}, check=False)
     raise SystemExit(child.returncode)
 
 
 class Setup(unittest.TestCase):
     def setUp(self):
-        (REPO / "tmp").mkdir(exist_ok=True)
-        scratch = tempfile.TemporaryDirectory(dir=REPO / "tmp", prefix="jarvis-setup-")
+        scratch = tempfile.TemporaryDirectory(prefix="jarvis-setup-")
         self.addCleanup(scratch.cleanup)
         self.root = Path(scratch.name).resolve()
         self.plugin = self.root / "plugin"

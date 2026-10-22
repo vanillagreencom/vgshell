@@ -15,9 +15,10 @@
 const childProcess = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 
 const repo = path.resolve(__dirname, "..");
-const tmp = path.join(repo, "tmp", "test-check-readme." + process.pid);
+const tmp = path.join(os.tmpdir(), "test-check-readme." + process.pid);
 fs.rmSync(tmp, { recursive: true, force: true });
 fs.mkdirSync(tmp, { recursive: true });
 process.on("exit", () => fs.rmSync(tmp, { recursive: true, force: true }));

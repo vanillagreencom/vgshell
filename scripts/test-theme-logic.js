@@ -1771,7 +1771,7 @@ const TOKEN_CONTROLS = [
     ["open tab indicator without its accent", 'tabIndicator: color("discernible({color.accent}, {carousel.backdrop}, {carousel.hintActive})")', 'tabIndicator: color("{carousel.hintActive}")', verifyTabIndicator],
     ["failure line without its danger", 'hintDanger: color("readable({color.danger}, {carousel.failurePlate}, {color.text})")', 'hintDanger: color("{color.text}")', verifyFailureLine]
 ];
-fs.mkdirSync(path.join(repo, "tmp"), { recursive: true });
+fs.mkdirSync(os.tmpdir(), { recursive: true });
 const tokenControlDir = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "token-control-"));
 try {
     for (const [label, needle, replacement, verifier] of TOKEN_CONTROLS) {
@@ -1797,7 +1797,7 @@ const GLASS_CONTROLS = [
     ["the dark lift", "solidLift: share(0.05)", "solidLift: share(0.25)"],
     ["the light lift", "solidLift: 0.1", "solidLift: 0.05"]
 ];
-const glassControlDir = fs.mkdtempSync(path.join(repo, "tmp", "glass-control-"));
+const glassControlDir = fs.mkdtempSync(path.join(os.tmpdir(), "glass-control-"));
 try {
     for (const [label, needle, replacement] of GLASS_CONTROLS) {
         assert.equal(glassSource.split(needle).length, 2, `glass control "${label}": the text to replace must occur once`);

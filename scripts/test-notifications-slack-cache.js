@@ -23,11 +23,12 @@ const childProcess = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 
 const repo = path.join(__dirname, "..");
 const pluginDir = path.join(repo, "shell", "plugins", "vgs.notifications");
 const fixture = path.join(repo, "scripts", "smoke", "fixtures", "slack", "Cache", "Cache_Data");
-const scratch = path.join(repo, "tmp", "test-notifications-slack-cache-" + process.pid);
+const scratch = path.join(os.tmpdir(), "test-notifications-slack-cache-" + process.pid);
 
 const ICON_URL = "https://avatars.slack-edge.com/fixture/acme_88.png";
 // The fixture icon's body: 370 bytes of PNG, whose SHA-256 opens with this.

@@ -15,6 +15,7 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 const { load } = require("../bin/lib/qml-library.js");
 const modules = { "qs.Commons 1.0": { Duration: load(path.join(__dirname, "..", "shell", "Commons", "Duration.js")) } };
 
@@ -333,7 +334,7 @@ const CONTROLS = [
 
 const sources = {};
 for (const name of ["Notices.js", "ViewLogic.js", "WardenLogic.js"]) sources[name] = fs.readFileSync(path.join(dir, name), "utf8");
-const scratchRoot = path.join(__dirname, "..", "tmp");
+const scratchRoot = os.tmpdir();
 fs.mkdirSync(scratchRoot, { recursive: true });
 const temp = fs.mkdtempSync(path.join(scratchRoot, "agent-warden-notices-control-"));
 try {

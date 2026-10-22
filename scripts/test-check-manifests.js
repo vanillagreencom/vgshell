@@ -18,11 +18,12 @@
 "use strict";
 const fs = require("fs");
 const path = require("path");
+const os = require("node:os");
 const { spawnSync } = require("child_process");
 
 const CHECK = path.join(__dirname, "..", "bin", "lib", "check-manifests.js");
 const ENV = { PATH: process.env.PATH, LC_ALL: "C" };
-const SCRATCH = path.join(__dirname, "..", "tmp", "test-check-manifests");
+const SCRATCH = path.join(os.tmpdir(), "test-check-manifests");
 const good = { schemaVersion: 1, id: "acme.one", name: "One", version: "1.0.0", author: "acme", description: "d", kinds: ["service"], entryPoints: { service: "Service.qml" } };
 
 function plugin(dir, manifest, withEntry) {

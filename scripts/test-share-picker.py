@@ -124,7 +124,7 @@ else:
 class PickerTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.scratch = tempfile.TemporaryDirectory(prefix="vgs-share-picker-", dir=REPO / "tmp")
+        cls.scratch = tempfile.TemporaryDirectory(prefix="vgs-share-picker-")
         cls.root = Path(cls.scratch.name)
         cls.consumer = cls.root / "xdph-selection"
         compiler = shutil.which("g++")

@@ -6,6 +6,7 @@ const assert = require("node:assert/strict");
 const cp = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 const { once } = require("node:events");
 const { freshSuite, shellState } = require("./fixtures/jarvis/prepare.js");
 const { runBounded, hungWorldControl } = require("./fixtures/jarvis/bounded.js");
@@ -2111,7 +2112,7 @@ exit "$failures"
 
 async function main() {
     if (process.argv[2] === "--inside") return inside();
-    const parent = path.join(tree, "tmp");
+    const parent = os.tmpdir();
     fs.mkdirSync(parent, { recursive: true });
     const root = fs.mkdtempSync(path.join(parent, "jd-"));
     try {
@@ -2119,7 +2120,7 @@ async function main() {
         // fails there, so its run is the one run of every case and control;
         // freshSuite fails with that run's output when a case fails.
         const launcher = path.join(tree, "scripts/lib/jarvis-env.sh");
-        const env = { PATH: "/usr/bin:/bin", HOME: root, JARVIS_TEST_SCRATCH_ROOT: path.join(tree, "tmp") };
+        const env = { PATH: "/usr/bin:/bin", HOME: root, JARVIS_TEST_SCRATCH_ROOT: os.tmpdir() };
         if (process.argv[2] !== "--fresh") {
             // Here, not in the export's run, so the row prints the control's line.
             fs.mkdirSync(path.join(root, "hung"));

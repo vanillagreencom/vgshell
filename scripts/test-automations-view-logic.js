@@ -8,6 +8,7 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 const { load } = require("../bin/lib/qml-library.js");
 const modules = { "qs.Commons 1.0": { Duration: load(path.join(__dirname, "..", "shell", "Commons", "Duration.js")) } };
 
@@ -180,7 +181,7 @@ const view = load(viewFile, modules);
 const logic = load(logicFile, modules);
 run(view, logic);
 
-const scratch = path.join(repo, "tmp", "test-automations-view-logic-" + process.pid);
+const scratch = path.join(os.tmpdir(), "test-automations-view-logic-" + process.pid);
 fs.rmSync(scratch, { recursive: true, force: true });
 fs.mkdirSync(scratch, { recursive: true });
 try {

@@ -10,7 +10,7 @@
 # world. No caller environment entries pass through. Fixture parameters are
 # command arguments or scratch files, never inherited environment variables.
 # JARVIS_TEST_SCRATCH_ROOT selects the parent directory for fresh worlds.
-# Default: this helper's worktree tmp/. The launcher resolves it physically;
+# Default: the caller's TMPDIR, else /tmp. The launcher resolves it physically;
 # this parent setting and the caller's TMPDIR never enter the child.
 # The world's runtime directory, which holds its private Unix sockets, is a
 # fresh directory under the caller's XDG_RUNTIME_DIR, else /tmp, so no
@@ -59,7 +59,7 @@ _jarvis_env_run() {
   standins="$(cd -- "$1" && pwd -P)" || { _jarvis_env_error "standins=unreadable path=$1"; return 1; }
   shift 2
   self="$(readlink -f -- "${BASH_SOURCE[0]}")" || return 1
-  scratch="${JARVIS_TEST_SCRATCH_ROOT-${self%/*}/../../tmp}"
+  scratch="${JARVIS_TEST_SCRATCH_ROOT-${TMPDIR:-/tmp}}"
   [[ -n $scratch ]] || { _jarvis_env_error 'scratch-parent=empty'; return 1; }
   umask 077
   if ! mkdir -p -- "$scratch" 2>/dev/null; then

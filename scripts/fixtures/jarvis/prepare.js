@@ -54,7 +54,7 @@ function missingImportControl(root) {
 }
 
 // Run the real suite and a missing-parent control in a private source export.
-// The export owns its tmp directory; no existing worktree tmp is removed.
+// Each run owns its scratch parent; no existing worktree directory is removed.
 function freshSuite(tree, suite, root) {
     const clone = path.join(root, "f");
     const relative = "scripts/test-jarvis-" + suite + ".js";
@@ -83,12 +83,13 @@ function freshSuite(tree, suite, root) {
     // The render a home layout copies (backend/Core.js homeRender).
     fs.cpSync(path.join(tree, "packaging/jarvis-home"), path.join(clone, "packaging/jarvis-home"), { recursive: true });
     const file = path.join(clone, relative);
+    const scratchParent = path.join(root, "fresh-scratch");
     const run = () => runBounded(process.execPath, [file, "--fresh"], {
-        cwd: clone, env: { PATH: "/usr/bin:/bin", HOME: clone, LC_ALL: "C",
-            JARVIS_TEST_SCRATCH_ROOT: path.join(tree, "tmp") },
+        cwd: clone, env: { PATH: "/usr/bin:/bin", HOME: clone, LC_ALL: "C", TMPDIR: scratchParent,
+            JARVIS_TEST_SCRATCH_ROOT: scratchParent },
         capture: true
     });
-    assert.equal(fs.existsSync(path.join(clone, "tmp")), false);
+    assert.equal(fs.existsSync(scratchParent), false);
     const good = run();
     if (good.status === 77) {
         process.stderr.write(good.stderr);
@@ -96,8 +97,8 @@ function freshSuite(tree, suite, root) {
     }
     assert.equal(good.error, undefined);
     assert.equal(good.status, 0, good.stdout + good.stderr);
-    assert.equal(fs.existsSync(path.join(clone, "tmp")), true);
-    fs.rmSync(path.join(clone, "tmp"), { recursive: true, force: true });
+    assert.equal(fs.existsSync(scratchParent), true);
+    fs.rmSync(scratchParent, { recursive: true, force: true });
     const source = fs.readFileSync(file, "utf8");
     const needle = "fs.mkdirSync(parent, { recursive: true });";
     assert.equal(source.split(needle).length - 1, 1, suite + " parent control match");

@@ -16,9 +16,7 @@ if [[ $(id -u) == 0 ]]; then
   echo "test-validate: status=not-measured reason=euid-0"
   exit 77
 fi
-tmp="$repo/tmp/test-validate-$$"
-rm -rf -- "$tmp"
-mkdir -p -- "$tmp"
+tmp="$(mktemp -d "$TMPDIR/test-validate.XXXXXX")" || exit 1
 trap 'chmod -R u+rwx -- "${tmp:?}" 2>/dev/null; rm -rf -- "${tmp:?}"' EXIT
 
 # Every git and validate call runs with this environment and nothing else.
@@ -30,7 +28,8 @@ node_bin="$(node -e 'process.stdout.write(process.execPath)')"
 mkdir -p "$tmp/home/.config" "$tmp/home/.cache" "$tmp/home/.local/share" "$tmp/home/.local/state" "$tmp/runtime"
 chmod 700 "$tmp/runtime"
 base_env=(env -i PATH="$(dirname -- "$node_bin"):$PATH" HOME="$tmp/home" LC_ALL=C GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
-  JARVIS_TEST_SCRATCH_ROOT="$repo/tmp"
+  VGSHELL_WORLD_ROOT="${VGSHELL_WORLD_ROOT:-}"
+  JARVIS_TEST_SCRATCH_ROOT="$tmp"
   XDG_CONFIG_HOME="$tmp/home/.config" XDG_CACHE_HOME="$tmp/home/.cache" XDG_DATA_HOME="$tmp/home/.local/share" XDG_STATE_HOME="$tmp/home/.local/state" XDG_RUNTIME_DIR="$tmp/runtime"
   TMPDIR="$tmp"
   GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.invalid GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.invalid
@@ -97,6 +96,10 @@ template() {
   cp -- "$repo/scripts/validate" "$dir/scripts/validate"
   cp -- "$repo/docs/architecture/validation.md" "$dir/docs/architecture/validation.md"
   cp -- "$repo/scripts/smoke/row-inputs.sh" "$dir/scripts/smoke/row-inputs.sh"
+  # Selection and scheduler cases have a transparent world stand-in. The
+  # boundary cases below replace it with the production world.
+  printf '#!/bin/sh\n[ "$1" != --fresh ] || shift\n[ "$1" != -- ] || shift\nexec "$@"\n' >"$dir/scripts/smoke/gpu-fence.sh"
+  chmod +x "$dir/scripts/smoke/gpu-fence.sh"
   cp -- "$repo/.agents/skills/orch/scripts/lib/kendex-env.sh" "$dir/.agents/skills/orch/scripts/lib/kendex-env.sh"
   cp -R -- "$repo/.agents/skills/commit-guards/scripts" "$dir/.agents/skills/commit-guards/"
   printf '# kendex-guard-dialect: legacy-glob\n.agents/*\tcopies of checkers, whose citations name their own repository\n' >"$dir/tools/md-excludes"
@@ -767,7 +770,7 @@ cases=(
   "share-picker-suite|scripts/test-share-picker.py|cli|python3 scripts/test-share-picker.py"
   "share-picker-consumer|scripts/fixtures/share-picker/xdph-selection.cpp|cli|python3 scripts/test-share-picker.py"
   "jarvis-key-smoke|scripts/smoke/rows/jarvis-keys.sh|all|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-daemon.js"$'\n'"${smoke_plan/smoke_reads_named/$'smoke_reads_named\npython3 scripts/test-smoke-user-config.py'}"
-  "world-consumers|scripts/smoke/gpu-fence.sh|tools|python3 scripts/check-smoke-readers.py"$'\npython3 scripts/test-check-smoke-readers.py\nsmoke_reads_named\npython3 scripts/test-smoke-evidence.py\nscripts/test-sandbox-shots.sh\nscripts/test-gpu-fence.sh\nscripts/test-smoke-owner.sh\nscripts/test-scratch-dirs.sh\nscripts/test-jarvis-selftest.sh'
+  "world-consumers|scripts/smoke/gpu-fence.sh|tools|python3 scripts/check-smoke-readers.py"$'\npython3 scripts/test-check-smoke-readers.py\nsmoke_reads_named\npython3 scripts/test-smoke-evidence.py\nscripts/test-sandbox-shots.sh\nscripts/test-gpu-fence.sh\nscripts/test-smoke-owner.sh\nscripts/test-scratch-dirs.sh\nscripts/test-jarvis-selftest.sh\nscripts/test-validate.sh'
   "mode-startup-entry|scripts/qml-smoke.sh|tools|scripts/test-mode-hold.sh"$'\nsmoke_reads_named\npython3 scripts/test-smoke-evidence.py\nscripts/test-gpu-fence.sh\nscripts/test-validate.sh'
   "mode-capture-entry|scripts/sandbox-shots.sh|tools|scripts/test-mode-hold.sh"$'\nscripts/test-smoke-input-guard.sh\nscripts/test-sandbox-shots.sh\nnode scripts/test-google-drive-scene.js\nscripts/test-gpu-fence.sh'
   "compositor-reveal-barrier-suite|scripts/test-compositor-reveal.py|tools|python3 scripts/test-compositor-reveal.py"
@@ -2388,107 +2391,108 @@ PY
 "${base_env[@]}" git -C "$d" commit -q -am control
 row "a validate without the marker export fails the planted row" "$d" 1 "" "validate: failed=test-run marker (exit 1)"
 
-# Every row runs with its own temporary home. The planted row runs
-# `git config --global` under a scratch HOME, as an installer test does, and
-# under its own HOME, and writes under XDG_CONFIG_HOME and, given `home`,
-# HOME, where the scratch HOME's setting must land in that HOME's .gitconfig.
-# The caller keeps its git configuration in its XDG_CONFIG_HOME and sets no
-# GIT_CONFIG_GLOBAL, as a developer's shell does, or, in the last case,
-# exports one naming a file of its own. The caller's files stay unchanged,
-# the row's home is gone after it, and a nix row keeps the caller's HOME. A
-# copy without each isolation line lets the row write the caller's files.
-caller="$tmp/row-home-caller"
-mkdir -p "$caller/.config/git" "$caller/.local/share" "$caller/.local/state" "$caller/.cache"
-printf '[user]\n\tname = caller\n' >"$caller/.config/git/config"
-cp -a -- "$caller" "$tmp/row-home-before"
-home_fixture() { # DIR: a fixture holding the planted row in tools and nix
+# Selection cases use a transparent world stand-in. These cases use the
+# production boundary and a planted reader independent of its implementation.
+world_fixture() {
   fresh "$1"
-  cat >"$1/scripts/test-home.sh" <<'SH'
-#!/bin/sh
-set -e
-printf 'row-home=%s row-config=%s\n' "$HOME" "$XDG_CONFIG_HOME"
-scratch="tmp/home-row-$$"
-rm -rf -- "$scratch"
-mkdir -p -- "$scratch"
-HOME="$scratch" git config --global url.file:///nowhere/vgs.git.insteadOf https://example.invalid/vgs.git
-if [ "${1-}" = home ]; then [ -f "$scratch/.gitconfig" ]; fi
-rm -rf -- "${scratch:?}"
+  cp -- "$repo/scripts/smoke/gpu-fence.sh" "$1/scripts/smoke/gpu-fence.sh"
+  cat >"$1/scripts/test-world.sh" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'world-root=%s\n' "${VGSHELL_WORLD_ROOT:-none}"
+[[ -n ${VGSHELL_WORLD_ROOT:-} && ! -w $PWD && ! -w $PWD/.git ]]
+[[ $HOME == "$VGSHELL_WORLD_ROOT/"* && $TMPDIR == "$VGSHELL_WORLD_ROOT/"* ]]
+[[ ! -v WAYLAND_DISPLAY && ! -v DISPLAY && ! -v HYPRLAND_INSTANCE_SIGNATURE && ! -v DBUS_SESSION_BUS_ADDRESS ]]
+[[ ! -v GIT_CONFIG_GLOBAL ]]
 git config --global vgs.row planted
 mkdir -p "$XDG_CONFIG_HOME/row"
 printf 'planted\n' >"$XDG_CONFIG_HOME/row/file"
-if [ "${1-}" = home ]; then printf 'planted\n' >"$HOME/.row"; fi
 SH
-  chmod +x "$1/scripts/test-home.sh"
-  python3 - "$1/scripts/validate" <<'PY'
+  chmod +x "$1/scripts/test-world.sh"
+  cat >"$1/scripts/test-outside.sh" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ -w $PWD && -n ${GIT_CONFIG_GLOBAL:-} && $GIT_CONFIG_GLOBAL != /dev/null ]]
+git config --global vgs.row planted
+printf 'outside-world=yes\n'
+SH
+  chmod +x "$1/scripts/test-outside.sh"
+  cp -- "$1/scripts/test-outside.sh" "$1/scripts/test-gpu-fence.sh"
+  cp -- "$repo/scripts/qml-smoke.sh" "$1/scripts/qml-smoke.sh"
+  cp -- "$repo/scripts/smoke/rows.list" "$1/scripts/smoke/rows.list"
+  printf 'tmp/\n' >"$1/.gitignore"
+  cat >"$1/scripts/smoke/harness.sh" <<'SH'
+[[ -n ${VGSHELL_WORLD_ROOT:-} && ! -w $repo && ! -w $repo/.git ]]
+[[ ! -v WAYLAND_DISPLAY && ! -v DISPLAY && ! -v HYPRLAND_INSTANCE_SIGNATURE ]]
+printf 'qml-world-root=%s\n' "$VGSHELL_WORLD_ROOT"
+printf 'written\n' >"$smoke_log_dir/world-output"
+exit 0
+SH
+  python3 - "$1/scripts/validate" <<'PYWORLD'
 from pathlib import Path
 import sys
-path = Path(sys.argv[1])
-source = path.read_text()
-assert source.count('rows=(\n') == 1
-path.write_text(source.replace('rows=(\n', 'rows=(\n  "tools|row home|scripts/test-home.sh home|"\n  "nix|row home in nix|scripts/test-home.sh|"\n'))
-PY
-  "${base_env[@]}" git -C "$1" commit -q -am home-row
+p = Path(sys.argv[1])
+s = p.read_text()
+a = s.index('rows=(\n')
+b = s.index('\n)\n', a) + 3
+areas = ('logic', 'manifests', 'boundary', 'cli', 'tools', 'repo', 'unit', 'qml')
+rows = ['  "' + area + '|world ' + area + '|scripts/test-world.sh|"' for area in areas]
+rows += ['  "repo|scratch under row root|world_scratch|"']
+rows += ['  "' + area + '|outside ' + area + '|scripts/test-outside.sh||container"' for area in ('package', 'nix')]
+rows += ['  "tools|world control exception|scripts/test-gpu-fence.sh||control"']
+rows += ['  "qml|graphical entry owner|scripts/qml-smoke.sh --log-dir tmp/qml-output||entry"']
+body = '''world_scratch() {
+  local scratch
+  scratch="$(scratch_file)"
+  [[ $scratch == "$VGSHELL_WORLD_ROOT/"* && ! -w $PWD/.git ]]
+  rm -- "${scratch:?}"
 }
-# home_run DIR AREA [GLOBAL]: run `scripts/validate AREA --changed HEAD` in
-# DIR as the caller, from a fresh copy of the caller's files, with
-# GIT_CONFIG_GLOBAL set to the caller's own GLOBAL file when given; sets out
-# and status.
-home_run() {
-  rm -rf -- "${caller:?}"
-  cp -a -- "$tmp/row-home-before" "$caller"
+'''
+p.write_text(s[:a] + body + 'rows=(\n' + '\n'.join(rows) + '\n)' + s[b:])
+PYWORLD
+  "${base_env[@]}" git -C "$1" add -A
+  "${base_env[@]}" git -C "$1" commit -q -m world-row
+}
+world_run() { # DIR AREA: leave output and status for assertions and controls
   status=0
-  out="$(cd -- "$1" && "${base_env[@]}" HOME="$caller" XDG_CONFIG_HOME="$caller/.config" \
-    XDG_DATA_HOME="$caller/.local/share" XDG_STATE_HOME="$caller/.local/state" XDG_CACHE_HOME="$caller/.cache" \
-    bash -c 'if [ -n "$2" ]; then export GIT_CONFIG_GLOBAL="$2"; else unset GIT_CONFIG_GLOBAL; fi
-      exec bash scripts/validate "$1" --changed HEAD' validate "$2" "${3:+$caller/$3}" 2>&1)" || status=$?
+  out="$(cd -- "$1" && "${base_env[@]}" WAYLAND_DISPLAY=planted DISPLAY=:99 HYPRLAND_INSTANCE_SIGNATURE=planted DBUS_SESSION_BUS_ADDRESS=unix:path=planted \
+    bash scripts/validate "$2" --full 2>&1)" || status=$?
 }
-d="$tmp/row-home"; home_fixture "$d"
-for spec in tools@ nix@ tools@explicit-gitconfig; do
-  IFS='@' read -r area global <<<"$spec"
-  home_run "$d" "$area" "$global"
-  row_home="" row_config=""
-  read -r row_home row_config < <(sed -n 's/^row-home=\([^ ]*\) row-config=\(.*\)$/\1 \2/p' <<<"$out") || true
-  if [[ $area == nix ]]; then want_home="$caller"; else want_home="$row_home"; fi
-  if [[ $status == 0 ]] && grep -qxF 'validate: ok' <<<"$out" &&
-     diff -r -- "$tmp/row-home-before" "$caller" >/dev/null &&
-     [[ -n $row_config && $row_config != "$caller"* && ! -e $row_config && $row_home == "$want_home" ]] &&
-     { [[ $area == nix ]] || [[ $row_home != "$caller" && ! -e $row_home ]]; }; then
-    ok "a $area row's git and configuration writes leave the caller's files unchanged${global:+ with GIT_CONFIG_GLOBAL set}"
+d="$tmp/row-world"; world_fixture "$d"
+for area in logic manifests boundary cli tools repo unit qml; do
+  world_run "$d" "$area"
+  world_root="$(sed -n 's/^world-root=//p' <<<"$out")" || world_root=""
+  if [[ $status == 0 && -n $world_root && $world_root != none && ! -e $world_root ]] &&
+     "${base_env[@]}" git -C "$d" diff --quiet HEAD && [[ ! -e $d/.git/vgs-validate-tmp && -s $d/.git/vgs-validated-$area ]]; then
+    ok "the $area area enters the world and releases its root without checkout writes"
   else
-    fail "$spec row home: status=$status home=$row_home config=$row_config"
-    diff -r -- "$tmp/row-home-before" "$caller" | sed 's/^/        /' || true
-    printf '%s\n' "$out" | sed 's/^/        /'
+    fail "the $area area world: exit=$status root=$world_root"; printf '%s\n' "$out" | sed 's/^/        /'
   fi
 done
-# Each mutant replaces one whole isolation line of the copy with the same
-# line less its isolation, and runs the planted row in the area named, as a
-# caller with the GIT_CONFIG_GLOBAL file named, if any.
-mutants=(
-  'configuration@tools@@    export XDG_CONFIG_HOME="$row_home/.config"@    :'
-  'git@nix@@      package|nix) export GIT_CONFIG_GLOBAL="$row_home/gitconfig" ;;@      package|nix) ;;'
-  'home@tools@@        export HOME="$row_home" XDG_DATA_HOME="$row_home/.local/share" XDG_STATE_HOME="$row_home/.local/state" XDG_CACHE_HOME="$row_home/.cache" ;;@        ;;'
-  'caller git file@tools@explicit-gitconfig@        unset GIT_CONFIG_GLOBAL@        :'
-)
-for i in "${!mutants[@]}"; do
-  IFS='@' read -r name area global line replacement <<<"${mutants[i]}"
-  d="$tmp/row-home-mutant-$i"; home_fixture "$d"
-  python3 - "$d/scripts/validate" "$line" "$replacement" <<'PY'
-from pathlib import Path
-import sys
-path, line, replacement = Path(sys.argv[1]), sys.argv[2] + '\n', sys.argv[3]
-source = path.read_text()
-assert source.count(line) == 1, line
-path.write_text(source.replace(line, replacement + '\n'))
-PY
-  "${base_env[@]}" git -C "$d" commit -q -am control
-  home_run "$d" "$area" "$global"
-  if diff -r -- "$tmp/row-home-before" "$caller" >/dev/null; then
-    fail "a validate without the $name isolation still left the caller's files unchanged"
-    printf '%s\n' "$out" | sed 's/^/        /'
+qml_world_root="$(sed -n 's/^qml-world-root=//p' <<<"$out")" || qml_world_root=""
+if [[ -n $qml_world_root && ! -e $qml_world_root && $(<"$d/tmp/qml-output/world-output") == written ]]; then
+  ok "the graphical entry owns its world and declared output"
+else
+  fail "the graphical entry did not retain its declared output after world teardown"
+fi
+for area in package nix; do
+  world_run "$d" "$area"
+  if [[ $status == 0 ]] && grep -qxF 'outside-world=yes' <<<"$out"; then
+    ok "the $area area uses its container boundary outside the world"
   else
-    ok "a validate without the $name isolation lets the row write the caller's files"
+    fail "the $area area exception: exit=$status"; printf '%s\n' "$out" | sed 's/^/        /'
   fi
 done
+# The bypass preserves row re-entry and its data. The planted reader must
+# reject the checkout that remains writable when only the boundary is gone.
+d="$tmp/row-world-control"; world_fixture "$d"
+plant "$d/scripts/validate" '"$repo/scripts/smoke/gpu-fence.sh" --fresh -- "$BASH"' '"$BASH"'
+world_run "$d" tools
+if [[ $status == 1 ]] && grep -qxF 'validate: failed=world tools (exit 1)' <<<"$out"; then
+  ok "control: bypassing world entry exposes a writable checkout and fails the planted rows"
+else
+  fail "control: bypassing world entry: exit=$status"; printf '%s\n' "$out" | sed 's/^/        /'
+fi
 
 # A diff-scoped run exports its NUL-delimited changed-path file to rows.
 # A full run unsets even an inherited value, so no stale caller value can
@@ -2882,7 +2886,8 @@ SH
 hold_run() {
   local dir="$1" pid lock signal started
   shift
-  (cd -- "$dir" && exec "${base_env[@]}" VGS_VALIDATE_JOBS=2 bash scripts/validate tools --full) >"$dir.out" 2>&1 &
+  mkdir -p "$dir/tmp"
+  (cd -- "$dir" && exec "${base_env[@]}" TMPDIR="$dir/tmp" VGS_VALIDATE_JOBS=2 bash scripts/validate tools --full) >"$dir.out" 2>&1 &
   pid=$!
   for _ in $(seq 1 100); do
     [[ -e $dir/.git/ready-a && -e $dir/.git/ready-b ]] && break
@@ -2920,10 +2925,10 @@ for spec in TERM@143 HUP@129; do
   signal="${spec%@*}"
   d="$tmp/jobs-$signal"; hold_rows "$d"
   hold_run "$d" "$signal"
-  if [[ $status == "${spec#*@}" && $freed == 2 && -z "$(ls -A -- "$d/.git/vgs-validate-tmp")" ]]; then
+  if [[ $status == "${spec#*@}" && $freed == 2 && -z "$(ls -A -- "$d/tmp")" ]]; then
     ok "a $signal to validate ends its rows and removes its scratch directory"
   else
-    fail "a $signal to validate: exit=$status freed=$freed scratch=[$(ls -A -- "$d/.git/vgs-validate-tmp")]"; sed 's/^/        /' "$d.out"
+    fail "a $signal to validate: exit=$status freed=$freed scratch=[$(ls -A -- "$d/tmp")]"; sed 's/^/        /' "$d.out"
   fi
 done
 d="$tmp/jobs-HUP-control"; hold_rows "$d"

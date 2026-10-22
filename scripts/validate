@@ -92,8 +92,8 @@
 #   bash takes for its EXIT trap, such as a PIPE. Each row's process group
 #   gets TERM, then KILL once 10 s have passed or at a repeat signal, and
 #   then the run's scratch directory is removed. A KILL to validate itself
-#   cannot be caught: it leaves the running rows going, and their homes and
-#   logs under <git-dir>/vgs-validate-tmp.
+#   cannot be caught: it leaves the running rows going, and validate's logs
+#   under its temporary directory. Each world still owns its row's root.
 set -euo pipefail
 
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
@@ -103,6 +103,24 @@ cd -- "$repo"
 # reload hook that could reach the host's live applications:
 # docs/architecture/validation.md.
 export VGS_TEST_RUN=1
+
+# Private row re-entry carries selection as data. The parent alone selects
+# rows and records a last pass; the child only loads this file's checks.
+row_entry=false
+if [[ ${1-} == --row ]]; then
+  row_entry=true
+  export VGS_VALIDATE_BASE="$2"
+  row_path_count="$3"
+  shift 3
+  row_paths=()
+  if ((row_path_count >= 0)); then
+    row_paths=("${@:1:row_path_count}")
+    shift "$row_path_count"
+  fi
+  shift # the command separator
+  row_words=("$@")
+  set --
+fi
 
 area="all"
 area_given=false
@@ -147,14 +165,13 @@ elif [[ ! $jobs_max =~ ^[1-9][0-9]*$ ]]; then
 fi
 failed=()
 skipped=()
-# A scratch file, or with -d a directory, under the git directory. mktemp
+# A scratch file, or with -d a directory, under the row's temporary root. mktemp
 # makes it by exclusive creation: the rows of one run share $$ and run side
 # by side, so a name picked first and created after can go to two rows, and
 # the row that removes it first leaves the other with no file.
 scratch_make() { # [-d]
   local root
-  root="$(git rev-parse --path-format=absolute --git-path vgs-validate-tmp)" || return 1
-  mkdir -p -- "$root" || return 1
+  root="${TMPDIR:-/tmp}"
   mktemp "$@" -- "$root/validate-$$-XXXXXXXX"
 }
 scratch_file() { scratch_make; }
@@ -169,47 +186,35 @@ if command -v node >/dev/null; then
     { echo 'validate: node=unresolved' >&2; exit 1; }
 fi
 
-# Each row runs with its own temporary home, removed after the row, so a row
-# that runs `git config --global` or writes its configuration never writes
-# the caller's own files, which may be links into a dotfiles repository.
-# XDG_CONFIG_HOME points under it for every row: git writes the XDG file only
-# where one exists, so a row that sets HOME to a scratch directory writes that
-# directory's .gitconfig. HOME and the XDG data, state and cache directories
-# move under it too, and git's global file follows the row's HOME. In package
-# and nix HOME stays the caller's, since rootless podman keeps its image store
-# and database under the caller's XDG_DATA_HOME, so GIT_CONFIG_GLOBAL points
-# under the temporary home instead:
-# docs/architecture/validation.md § Test isolation. The row runs in a
-# subshell, the one scope where an unset hides a caller's exported
-# GIT_CONFIG_GLOBAL from the row's processes. HOME is the path the home is
-# made at, under the run's scratch directory; the status is the row's.
-run() { # HOME AREA LABEL CMD...
-  local row_home="$1" area="$2" label="$3" started status elapsed
+# The world owns each row's home, XDG directories, scratch and cleanup.
+# docs/architecture/validation.md § Test isolation.
+# Package and nix use their own containers and keep the caller's image
+# store. The world's control runs outside so it can test the actual boundary.
+run() { # SCRATCH WORLD-OWNER LABEL CMD...
+  local row_home="$1" owner="${2:-row}" label="$3" started status elapsed
+  local path_count=-1 paths=()
   shift 3
-  mkdir -- "$row_home" || { echo 'validate: row-home=scratch-failed' >&2; exit 1; }
   echo "== $label"
   started=$SECONDS
   status=0
   (
-    export XDG_CONFIG_HOME="$row_home/.config"
-    case "$area" in
-      package|nix) export GIT_CONFIG_GLOBAL="$row_home/gitconfig" ;;
-      logic|manifests|boundary|cli|tools|repo|unit|qml)
-        unset GIT_CONFIG_GLOBAL
-        export HOME="$row_home" XDG_DATA_HOME="$row_home/.local/share" XDG_STATE_HOME="$row_home/.local/state" XDG_CACHE_HOME="$row_home/.cache" ;;
-      *) printf 'validate: row-area=%s unknown\n' "$area" >&2; exit 1 ;;
-    esac
-    if [[ -n $node_bin ]]; then
-      mkdir -- "$row_home/bin" && ln -s -- "$node_bin" "$row_home/bin/node" || exit 1
-      export PATH="$row_home/bin:$PATH"
+    if [[ $owner == container || $owner == control ]]; then
+      mkdir -- "$row_home" || exit 1
+      trap 'chmod -R u+rwX -- "$row_home" 2>/dev/null; rm -rf -- "${row_home:?}"' EXIT
+      export XDG_CONFIG_HOME="$row_home/.config" GIT_CONFIG_GLOBAL="$row_home/gitconfig"
+      [[ -z $node_bin ]] || export PATH="${node_bin%/*}:$PATH"
+      "$@"
+    elif [[ $owner == entry ]]; then
+      # Graphical runners own their output declarations before world entry.
+      "$@"
+    else
+      if [[ -n ${VGS_VALIDATE_CHANGED:-} ]]; then
+        mapfile -d '' -t paths <"$VGS_VALIDATE_CHANGED" || exit 1
+        path_count=${#paths[@]}
+      fi
+      "$repo/scripts/smoke/gpu-fence.sh" --fresh -- "$BASH" "$self" --row "${VGS_VALIDATE_BASE:-}" "$path_count" "${paths[@]}" -- "$@"
     fi
-    "$@"
   ) || status=$?
-  chmod -R u+rwx -- "$row_home" 2>/dev/null || true
-  if ! rm -rf -- "${row_home:?}"; then
-    printf 'validate: row-home=left path=%s row=%s\n' "$row_home" "$label" >&2
-    status=1
-  fi
   elapsed=$((SECONDS - started))
   printf 'validate: secs=%s exit=%s row=%s\n' "$elapsed" "$status" "$label"
   return "$status"
@@ -217,7 +222,9 @@ run() { # HOME AREA LABEL CMD...
 
 # Rows: area | label | command | additional input globs, space-delimited,
 # and the `$NAME` environment inputs and `@NAME` shared state the header
-# names.
+# names | world owner (default row). An entry owns its world's declarations;
+# a container supplies its own boundary. The world's control needs the
+# caller's writable checkout to prove entry and read-only checks.
 # The command's words that hold a slash are also inputs. Every input glob
 # counts, a root file such as VERSION included.
 rows=(
@@ -490,7 +497,7 @@ rows=(
   "tools|smoke configuration restore controls|python3 scripts/test-smoke-user-config.py|scripts/test-smoke-user-config.py scripts/smoke/user-config.sh scripts/smoke/harness.sh scripts/smoke/rows/hold-shortcuts.sh scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/jarvis-widget.sh scripts/smoke/rows/sound.sh scripts/smoke/rows/network.sh scripts/smoke/rows/tailscale.sh scripts/smoke/rows/vpn.sh"
   "tools|sandbox shot controls|scripts/test-sandbox-shots.sh|scripts/smoke/shot.sh scripts/smoke/tree.sh scripts/smoke/Probe.qml shell/Core/MonitorState.qml shell/Core/Compositor.qml shell/Core/MonitorLogic.js shell/Core/Dispatch.js shell/Core/HyprlandLayer.js bin/lib/qml-library.js scripts/sandbox-shots.sh scripts/clone-world.py scripts/smoke/harness.sh scripts/smoke/gpu-fence.sh bin/lib/ipc-reply.sh"
   "tools|google drive shot scene reads its states from the code|node scripts/test-google-drive-scene.js|scripts/test-google-drive-scene.js scripts/sandbox-shots.sh shell/plugins/vgs.google-drive/GoogleDriveLogic.js bin/lib/qml-library.js"
-  "tools|GPU fence controls|scripts/test-gpu-fence.sh|scripts/smoke/gpu-fence.sh scripts/smoke/harness.sh scripts/qml-smoke.sh scripts/smoke/rows.list scripts/sandbox-shots.sh scripts/measure-shader.sh scripts/qml-unit.sh scripts/jarvis-selftest.sh scripts/test-smoke-sink.sh config/voxtype/*"
+  "tools|GPU fence controls|scripts/test-gpu-fence.sh|scripts/smoke/gpu-fence.sh scripts/smoke/harness.sh scripts/qml-smoke.sh scripts/smoke/rows.list scripts/sandbox-shots.sh scripts/measure-shader.sh scripts/qml-unit.sh scripts/jarvis-selftest.sh scripts/test-smoke-sink.sh config/voxtype/*|control"
   "tools|smoke owner controls|scripts/test-smoke-owner.sh|scripts/smoke/gpu-fence.sh scripts/smoke/teardown.sh"
   "tools|plugin README images|python3 scripts/check-readme-images.py|shell/plugins/* docs/images/*"
   "tools|plugin README image controls|python3 scripts/test-check-readme-images.py|scripts/check-readme-images.py"
@@ -514,17 +521,17 @@ rows=(
   "repo|no private key in the tree|private_keys_check|"
   "repo|markdown references and source citations|md_refs_check|"
   "tools|document byte ceilings|doc_limits_check|*.md docs/* tools/doc-limits-excludes kendex.settings.toml .kendex/settings.toml .kendex-generated.json .agents/skills/doc-limits/scripts/* .agents/skills/commit-guards/scripts/lib/generated-paths.sh .agents/skills/commit-guards/scripts/lib/messages.sh"
-  "tools|validate self-check controls|scripts/test-validate.sh|scripts/validate docs/architecture/validation.md scripts/smoke/rows/tailscale.sh scripts/smoke/rows/vpn.sh packaging/install-tree.manifest scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/rows.list scripts/smoke/rows/bar.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/session.sh scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/auth-sentinel.sh scripts/test-qml-unit.sh .agents/skills/orch/scripts/lib/kendex-env.sh .agents/skills/doc-limits/scripts/* bin/lib/check-manifests.js scripts/test-check-manifests.js bin/lib/qml-library.js shell/* bin/vgshell-scan scripts/smoke/fixtures/*"
+  "tools|validate self-check controls|scripts/test-validate.sh|scripts/validate scripts/smoke/gpu-fence.sh docs/architecture/validation.md scripts/smoke/rows/tailscale.sh scripts/smoke/rows/vpn.sh packaging/install-tree.manifest scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/rows.list scripts/smoke/rows/bar.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/session.sh scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/auth-sentinel.sh scripts/test-qml-unit.sh .agents/skills/orch/scripts/lib/kendex-env.sh .agents/skills/doc-limits/scripts/* bin/lib/check-manifests.js scripts/test-check-manifests.js bin/lib/qml-library.js shell/* bin/vgshell-scan scripts/smoke/fixtures/*"
   "tools|theme package judge controls|node scripts/test-vgshell-theme-judge.js|scripts/test-vgshell-theme-judge.js bin/vgshell-theme-judge bin/lib/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js shell/Commons/Glass.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Ui/icons/Own.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js shell/Commons/PageReference.js themes/* config/shell.json"
   "unit|Keyboard UI contracts|scripts/test-keyboard-ui.sh|shell/plugins/vgs.keyboard/* scripts/fixtures/keyboard-ui/* scripts/qml-tests/stand-ins/* scripts/qml-unit.sh shell/Ui/* shell/Commons/* shell/Core/* shell/assets/* scripts/smoke/gpu-fence.sh"
   "unit|qml unit tests|scripts/qml-unit.sh|shell/Ui/* shell/Commons/* shell/Core/Config.qml shell/Core/TuiRecords.qml shell/Core/ThemeRunner.qml shell/Core/SessionLock.qml shell/Core/ShortcutRegistry.qml shell/Core/KeyCapture.qml shell/Core/HyprlandLayer.qml shell/Core/HyprlandState.qml shell/Core/HyprlandState.js shell/Core/HyprctlReader.qml shell/Core/Dispatch.js shell/Core/PluginLogic.js shell/Commons/PageReference.js shell/Core/ConfigLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Core/HyprlandLayer.js shell/assets/* scripts/qml-tests/* shell/plugins/vgs.tailscale/* shell/plugins/vgs.google-drive/Service.qml shell/plugins/vgs.google-drive/RunnerClient.qml shell/plugins/vgs.google-drive/GoogleDriveLogic.js shell/plugins/vgs.google-drive/Panel.qml shell/plugins/vgs.sysmon/* shell/plugins/vgs.traffic/* shell/plugins/vgs.notifications/* shell/plugins/vgs.themes/* shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/* shell/plugins/vgs.displays/* shell/plugins/vgs.automations/* shell/plugins/vgs.jarvis/Widget.qml shell/plugins/vgs.jarvis/Console.qml shell/plugins/vgs.jarvis/WidgetView.js shell/plugins/vgs.jarvis/Session.js shell/plugins/vgs.jarvis/Service.qml shell/plugins/vgs.jarvis/Conversation.js shell/plugins/vgs.jarvis/Bubble.qml shell/plugins/vgs.jarvis/LocalTier.qml shell/plugins/vgs.jarvis/CloneRuntime.qml shell/plugins/vgs.jarvis/BrowserRuntime.qml shell/plugins/vgs.jarvis/FleetRuntime.qml shell/plugins/vgs.jarvis/SessionStart.qml shell/plugins/vgs.jarvis/Keys.qml shell/plugins/vgs.jarvis/LocalRuntime.qml shell/plugins/vgs.jarvis/SetupGate.js shell/plugins/vgs.jarvis/Accounts.qml shell/plugins/vgs.jarvis/AccountProviders.js shell/plugins/vgs.jarvis/AccountStatus.js shell/plugins/vgs.jarvis/JarvisProtocol.js shell/plugins/vgs.agent-warden/Widget.qml shell/plugins/vgs.agent-warden/ViewLogic.js shell/plugins/vgs.agent-warden/WardenLogic.js shell/plugins/vgs.ai-usage/Widget.qml shell/plugins/vgs.ai-usage/UsageView.js shell/plugins/vgs.sudo/Widget.qml shell/plugins/vgs.sudo/SudoView.js themes/vgs/theme.json themes/catalog/flexoki-light/theme.json scripts/smoke/gpu-fence.sh shell/plugins/vgs.vpn/*"
   "unit|qml unit controls|scripts/test-qml-unit.sh|scripts/qml-unit.sh scripts/qml-tests/* shell/Ui/* shell/Commons/* shell/Core/Config.qml shell/Core/TuiRecords.qml shell/Core/ThemeRunner.qml shell/Core/SessionLock.qml shell/Core/ShortcutRegistry.qml shell/Core/KeyCapture.qml shell/Core/HyprlandLayer.qml shell/Core/HyprlandState.qml shell/Core/HyprlandState.js shell/Core/HyprctlReader.qml shell/Core/Dispatch.js shell/Core/PluginLogic.js shell/Commons/PageReference.js shell/Core/ConfigLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Core/HyprlandLayer.js shell/plugins/vgs.google-drive/Service.qml shell/plugins/vgs.google-drive/RunnerClient.qml shell/plugins/vgs.google-drive/GoogleDriveLogic.js shell/plugins/vgs.google-drive/Panel.qml shell/plugins/vgs.sysmon/* shell/plugins/vgs.traffic/* shell/plugins/vgs.notifications/* shell/plugins/vgs.themes/* shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/* shell/plugins/vgs.displays/* shell/plugins/vgs.automations/* shell/plugins/vgs.jarvis/Widget.qml shell/plugins/vgs.jarvis/Console.qml shell/plugins/vgs.jarvis/WidgetView.js shell/plugins/vgs.jarvis/Session.js shell/plugins/vgs.jarvis/Service.qml shell/plugins/vgs.jarvis/Conversation.js shell/plugins/vgs.jarvis/Bubble.qml shell/plugins/vgs.jarvis/LocalTier.qml shell/plugins/vgs.jarvis/CloneRuntime.qml shell/plugins/vgs.jarvis/BrowserRuntime.qml shell/plugins/vgs.jarvis/FleetRuntime.qml shell/plugins/vgs.jarvis/SessionStart.qml shell/plugins/vgs.jarvis/Keys.qml shell/plugins/vgs.jarvis/LocalRuntime.qml shell/plugins/vgs.jarvis/SetupGate.js shell/plugins/vgs.jarvis/Accounts.qml shell/plugins/vgs.jarvis/AccountProviders.js shell/plugins/vgs.jarvis/AccountStatus.js shell/plugins/vgs.jarvis/JarvisProtocol.js shell/plugins/vgs.agent-warden/Widget.qml shell/plugins/vgs.agent-warden/ViewLogic.js shell/plugins/vgs.agent-warden/WardenLogic.js shell/plugins/vgs.ai-usage/Widget.qml shell/plugins/vgs.ai-usage/UsageView.js shell/plugins/vgs.sudo/Widget.qml shell/plugins/vgs.sudo/SudoView.js themes/vgs/theme.json themes/catalog/flexoki-light/theme.json scripts/smoke/gpu-fence.sh shell/plugins/vgs.vpn/*"
   "unit|Keys labels show whole|node scripts/test-key-labels.js|shell/plugins/*/manifest.json shell/plugins/*/Service.qml shell/plugins/vgs.themes/BrowserLogic.js shell/Ui/* shell/Commons/* shell/assets/* scripts/qml-unit.sh scripts/qml-tests/stand-ins/* bin/lib/qml-library.js scripts/smoke/gpu-fence.sh"
   "unit|session lock controls|scripts/test-session-lock.sh|shell/Core/SessionLock.qml shell/Commons/SessionLockState.js scripts/qml-unit.sh scripts/qml-tests/tst_session_lock.qml scripts/smoke/gpu-fence.sh"
-  "nix|nix flake package|scripts/test-flake.sh|flake.nix flake.lock packaging/arch/vgshell-quickshell/* config/requirements.json packaging/install-system.sh packaging/install-tree.manifest scripts/check-install-tree.sh bin/* shell/* config/* themes/* VERSION @alone"
-  "package|Arch package build|scripts/arch-packages.sh|scripts/lib/release-tarball.sh packaging/arch/* packaging/install-system.sh bin/lib/post-install.txt bin/lib/first-start.sh bin/vgshell-browser-policy themes/targets/chromium/* config/requirements.json config/shell.json shell/plugins/*/manifest.json @alone"
-  "qml|nested smoke|scripts/qml-smoke.sh|shell/* bin/* config/* themes/* packaging/install-system.sh packaging/install-tree.manifest VERSION scripts/smoke/* scripts/sample-shell-memory.sh scripts/lib/jarvis-env.sh scripts/fixtures/jarvis/* scripts/fixtures/jarvis-setup/status.py scripts/fixtures/jarvis-setup/installed.py scripts/fixtures/jarvis-voice/installed.js scripts/test-task-event.js @alone"
-  "qml|shader GPU cost|scripts/measure-shader.sh|scripts/measure-shader.sh scripts/shader/* scripts/smoke/user-config.sh scripts/check-voiceorb-shader.py shell/Ui/feedback/VoiceOrb.qml shell/Ui/feedback/shaders/* shell/plugins/vgs.voice/Plasma.qml shell/plugins/vgs.voice/Appearance.js shell/plugins/vgs.voice/shaders/* shell/Commons/* config/shell.json bin/lib/qml-library.js shell/Core/HyprlandLayer.js scripts/smoke/harness.sh scripts/smoke/gpu-fence.sh scripts/smoke/devices.sh scripts/smoke/fixtures/devices/* scripts/smoke/mode-hold.sh scripts/smoke/teardown.sh scripts/smoke/hypr-call.sh scripts/smoke/verdict.sh scripts/smoke/tree.sh scripts/smoke/shot.sh scripts/smoke/app-window.sh scripts/smoke/pointer/* scripts/smoke/toplevel/* scripts/smoke/keyboard/* scripts/smoke/sink/* @alone"
+  "nix|nix flake package|scripts/test-flake.sh|flake.nix flake.lock packaging/arch/vgshell-quickshell/* config/requirements.json packaging/install-system.sh packaging/install-tree.manifest scripts/check-install-tree.sh bin/* shell/* config/* themes/* VERSION @alone|container"
+  "package|Arch package build|scripts/arch-packages.sh|scripts/lib/release-tarball.sh packaging/arch/* packaging/install-system.sh bin/lib/post-install.txt bin/lib/first-start.sh bin/vgshell-browser-policy themes/targets/chromium/* config/requirements.json config/shell.json shell/plugins/*/manifest.json @alone|container"
+  "qml|nested smoke|scripts/qml-smoke.sh|shell/* bin/* config/* themes/* packaging/install-system.sh packaging/install-tree.manifest VERSION scripts/smoke/* scripts/sample-shell-memory.sh scripts/lib/jarvis-env.sh scripts/fixtures/jarvis/* scripts/fixtures/jarvis-setup/status.py scripts/fixtures/jarvis-setup/installed.py scripts/fixtures/jarvis-voice/installed.js scripts/test-task-event.js @alone|entry"
+  "qml|shader GPU cost|scripts/measure-shader.sh|scripts/measure-shader.sh scripts/shader/* scripts/smoke/user-config.sh scripts/check-voiceorb-shader.py shell/Ui/feedback/VoiceOrb.qml shell/Ui/feedback/shaders/* shell/plugins/vgs.voice/Plasma.qml shell/plugins/vgs.voice/Appearance.js shell/plugins/vgs.voice/shaders/* shell/Commons/* config/shell.json bin/lib/qml-library.js shell/Core/HyprlandLayer.js scripts/smoke/harness.sh scripts/smoke/gpu-fence.sh scripts/smoke/devices.sh scripts/smoke/fixtures/devices/* scripts/smoke/mode-hold.sh scripts/smoke/teardown.sh scripts/smoke/hypr-call.sh scripts/smoke/verdict.sh scripts/smoke/tree.sh scripts/smoke/shot.sh scripts/smoke/app-window.sh scripts/smoke/pointer/* scripts/smoke/toplevel/* scripts/smoke/keyboard/* scripts/smoke/sink/* @alone|entry"
 )
 
 # The branch point, printed on stdout: the merge base of COMMIT, HEAD by
@@ -1460,6 +1467,27 @@ smoke_reads_named() {
   return "$status"
 }
 
+if [[ $row_entry == true ]]; then
+  unset VGS_VALIDATE_CHANGED
+  if ((row_path_count >= 0)); then
+    VGS_VALIDATE_CHANGED="$(scratch_file)"
+    export VGS_VALIDATE_CHANGED
+    : >"$VGS_VALIDATE_CHANGED"
+    ((${#row_paths[@]} == 0)) || printf '%s\0' "${row_paths[@]}" >"$VGS_VALIDATE_CHANGED"
+  fi
+  # The built-in index readers materialize worktree blobs. Keep those
+  # objects under the row root and read existing objects through alternates.
+  # External test suites own their own fixture repositories.
+  if declare -F "${row_words[0]}" >/dev/null; then
+    GIT_ALTERNATE_OBJECT_DIRECTORIES="$(git rev-parse --path-format=absolute --git-path objects)"
+    export GIT_ALTERNATE_OBJECT_DIRECTORIES
+    GIT_OBJECT_DIRECTORY="$(scratch_dir)"
+    export GIT_OBJECT_DIRECTORY
+  fi
+  "${row_words[@]}"
+  exit
+fi
+
 # The file that records this area's last pass, in the worktree's own git
 # directory, so no other worktree reads it. Empty when git names no git
 # directory: then no run reads or records a pass.
@@ -1625,7 +1653,7 @@ if [[ -n $change_base ]]; then
     for path in "${changed_paths[@]}"; do
       known=false
       for i in "${!rows[@]}"; do
-        IFS='|' read -r row_area label command inputs <<<"${rows[i]}"
+        IFS='|' read -r row_area label command inputs _ <<<"${rows[i]}"
         [[ $row_area == repo ]] && continue
         # Command words without a slash, such as node, are not inputs.
         read -r -a patterns <<<"$inputs"
@@ -1665,7 +1693,7 @@ selected=()
 row_command=()
 validate_started=$SECONDS
 for i in "${!rows[@]}"; do
-  IFS='|' read -r row_area label command inputs <<<"${rows[i]}"
+  IFS='|' read -r row_area label command inputs _ <<<"${rows[i]}"
   case "$area" in
     all) ;;
     offline) [[ $row_area == qml || $row_area == unit || $row_area == nix || $row_area == package ]] && continue ;;
@@ -1715,7 +1743,7 @@ run_dir="$(scratch_dir)" || { echo 'validate: run-dir=scratch-failed' >&2; exit 
 declare -A row_of_pid=() held=()
 row_state=() row_alone=() row_locks=() row_status=()
 for k in "${!selected[@]}"; do
-  IFS='|' read -r _ _ _ inputs <<<"${rows[selected[k]]}"
+  IFS='|' read -r _ _ _ inputs _ <<<"${rows[selected[k]]}"
   read -r -a patterns <<<"$inputs"
   row_state[k]=pending row_alone[k]=false row_locks[k]=""
   for pattern in "${patterns[@]}"; do
@@ -1726,18 +1754,18 @@ for k in "${!selected[@]}"; do
   done
 done
 start_row() { # K
-  local k="$1" row_area label name
-  IFS='|' read -r row_area label _ <<<"${rows[selected[k]]}"
+  local k="$1" row_area label name owner
+  IFS='|' read -r row_area label _ _ owner <<<"${rows[selected[k]]}"
   # Job control, on only while the job starts, gives it its own process
   # group and leaves its INT and QUIT at their defaults, which a bare `&`
   # would ignore and the Ctrl-C checks of the fence and TUI rows need.
   set -m
   if [[ ${row_alone[k]} == true || $jobs_max -eq 1 ]]; then
     # shellcheck disable=SC2086
-    run "$run_dir/$k" "$row_area" "$label" ${row_command[k]} </dev/null &
+    run "$run_dir/$k" "$owner" "$label" ${row_command[k]} </dev/null &
   else
     # shellcheck disable=SC2086
-    run "$run_dir/$k" "$row_area" "$label" ${row_command[k]} </dev/null >"$run_dir/$k.log" 2>&1 &
+    run "$run_dir/$k" "$owner" "$label" ${row_command[k]} </dev/null >"$run_dir/$k.log" 2>&1 &
   fi
   set +m
   row_of_pid[$!]=$k

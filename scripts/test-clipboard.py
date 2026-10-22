@@ -371,9 +371,7 @@ CONTROLS = [
 
 
 def main():
-    scratch = REPO / "tmp"
-    scratch.mkdir(exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="clipboard-test-", dir=scratch) as temp:
+    with tempfile.TemporaryDirectory(prefix="clipboard-test-") as temp:
         base = Path(temp).resolve()
         for label, case in CASES:
             assert case(base / "cases" / case.__name__, HELPER), label

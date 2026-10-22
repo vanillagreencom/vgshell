@@ -1421,7 +1421,7 @@ def main():
         dimensions = (int(width), int(height))
     service_rectangles()
     delay_choice()
-    with tempfile.TemporaryDirectory(prefix="capture-test-", dir=REPO / "tmp") as temp:
+    with tempfile.TemporaryDirectory(prefix="capture-test-") as temp:
         base = Path(temp).resolve()
         def world(name, **extra):
             root = base / name

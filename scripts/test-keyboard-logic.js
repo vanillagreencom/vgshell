@@ -5,6 +5,7 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 const { load } = require("../bin/lib/qml-library.js");
 const repo = path.join(__dirname, "..");
 const file = path.join(repo, "shell/plugins/vgs.keyboard/KeyboardLogic.js");
@@ -82,7 +83,7 @@ const controls = [
     ["event acknowledgement", 'if (code === event.code && keyboard.activeKeymap === event.name) return null;', 'if (false) return null;']
 ];
 const source = fs.readFileSync(file, "utf8");
-const temp = fs.mkdtempSync(path.join(repo, "tmp/keyboard-logic-"));
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), "keyboard-logic-"));
 try {
     for (const [label, needle, replacement] of controls) {
         assert.equal(source.split(needle).length, 2, label);

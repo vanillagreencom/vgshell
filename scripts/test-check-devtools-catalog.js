@@ -7,13 +7,14 @@
 const childProcess = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 
 const repo = path.join(__dirname, "..");
 const CHECK = path.join(repo, "scripts", "check-devtools-catalog.js");
 const CATALOG = path.join(repo, "shell", "plugins", "vgs.devtools", "catalog.json");
 const { load } = require("../bin/lib/qml-library.js");
 const ENV = { PATH: process.env.PATH, LC_ALL: "C" };
-const runRoot = path.join(repo, "tmp", "test-check-devtools-catalog-" + process.pid + "-" + Date.now());
+const runRoot = path.join(os.tmpdir(), "test-check-devtools-catalog-" + process.pid + "-" + Date.now());
 let failures = 0;
 
 function clone(value) {

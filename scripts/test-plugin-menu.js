@@ -10,6 +10,7 @@
 "use strict";
 const fs = require("fs");
 const path = require("path");
+const os = require("node:os");
 const { load } = require("../bin/lib/qml-library.js");
 
 const LOGIC = path.join(__dirname, "..", "shell", "Core", "PluginLogic.js");
@@ -261,7 +262,7 @@ const CONTROLS = [
     ["a run is registered", "if (!hasOwn(registered, key))\n        return \"refused: shortcut=\" + tuiLabel(key) + \" reason=unregistered\";\n    return \"ok\";\n}", "if (!(key in registered))\n        return \"refused: shortcut=\" + tuiLabel(key) + \" reason=unregistered\";\n    return \"ok\";\n}"]
 ];
 
-const scratchRoot = path.join(__dirname, "..", "tmp");
+const scratchRoot = os.tmpdir();
 fs.mkdirSync(scratchRoot, { recursive: true });
 const temp = fs.mkdtempSync(path.join(scratchRoot, "plugin-menu-control-"));
 try {

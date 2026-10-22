@@ -5,6 +5,7 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 const { load } = require("../bin/lib/qml-library.js");
 const tree = path.resolve(__dirname, "..");
 const file = path.join(tree, "shell/plugins/vgs.jarvis/backend/ShellRequests.js");
@@ -99,7 +100,7 @@ function checks(ShellRequests) {
 }
 
 checks(require(file));
-const parent = path.join(tree, "tmp");
+const parent = os.tmpdir();
 fs.mkdirSync(parent, { recursive: true });
 const root = fs.mkdtempSync(path.join(parent, "jq-"));
 let controls = 0;

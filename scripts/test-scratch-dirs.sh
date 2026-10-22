@@ -20,7 +20,7 @@ set -euo pipefail
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
 repo="$(cd -- "$(dirname -- "$self")/.." && pwd)"
 
-tmp="$(mktemp -d /var/tmp/test-scratch-dirs.XXXXXX)" || { echo "test-scratch-dirs: scratch=mktemp-failed" >&2; exit 1; }
+tmp="$(mktemp -d)" || { echo "test-scratch-dirs: scratch=mktemp-failed" >&2; exit 1; }
 [[ -d $tmp && ! -L $tmp ]] || { echo "test-scratch-dirs: scratch=not-a-directory value=[$tmp]" >&2; exit 1; }
 tmp="$(cd -- "$tmp" && pwd -P)"
 trap 'rm -rf -- "${tmp:?}"' EXIT

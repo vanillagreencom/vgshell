@@ -53,7 +53,7 @@ def snapshot(output, row="example"):
     return sum(p.stat().st_size for p in folder.rglob("*") if p.is_file())
 
 
-with tempfile.TemporaryDirectory(prefix="smoke-evidence-", dir="/var/tmp") as scratch:
+with tempfile.TemporaryDirectory(prefix="smoke-evidence-") as scratch:
     root = Path(scratch)
     child = root / "child.sh"
     child.write_text('''set -euo pipefail

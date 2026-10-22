@@ -319,7 +319,8 @@ class World:
 
 class Case(unittest.TestCase):
     def world(self):
-        scratch = tempfile.mkdtemp(prefix="vgs-brightness-")
+        # Unix sockets need the world's short, root-backed runtime path.
+        scratch = tempfile.mkdtemp(prefix="vgs-brightness-", dir=Path(os.environ["XDG_RUNTIME_DIR"]) / "owned")
         self.addCleanup(shutil.rmtree, scratch)
         world = World(os.path.realpath(scratch))
         self.addCleanup(world.stop)
@@ -1027,7 +1028,8 @@ class Controls(unittest.TestCase):
 
     def run_tests(self, root, tests):
         return subprocess.run([sys.executable, "-B", str(root / "scripts/test-displays-brightness.py"), *tests],
-                              env={"PATH": "/usr/bin:/bin", "HOME": str(root), "LC_ALL": "C"},
+                              env={"PATH": "/usr/bin:/bin", "HOME": str(root), "LC_ALL": "C",
+                                   "XDG_RUNTIME_DIR": os.environ["XDG_RUNTIME_DIR"]},
                               text=True, capture_output=True, check=False)
 
     def test_mirror_passes_unplanted(self):

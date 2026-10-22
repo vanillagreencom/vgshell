@@ -388,7 +388,7 @@ function suite(ctx, check) {
     const jarvisService = fs.readFileSync(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "Service.qml"), "utf8");
     const jarvisNone = /const offers = \[\{ label: "None", value: "([^"]*)" \}\]\.concat\(homes\);/.exec(jarvisService)?.[1] ?? null;
     const voiceValues = { setupVoice: { tone: "warning", text: "To do", action: "setup" } };
-    const scratchRoot = path.join(__dirname, "..", "tmp");
+    const scratchRoot = os.tmpdir();
     fs.mkdirSync(scratchRoot, { recursive: true });
     const commands = fs.mkdtempSync(path.join(scratchRoot, "settings-tui-path-"));
     try {

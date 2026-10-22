@@ -118,7 +118,7 @@ world(async () => {
         const owner = Gate.create({ router, state: () => runner.state });
         gate = { ...owner, ask(gen, proposal, port) { harnessRequests.push(proposal); return owner.ask(gen, proposal, port); } };
         router.register("harness", gate.executor);
-        const runtime = path.join(process.env.JARVIS_TEST_ROOT, "r" + serial.toString(36));
+        const runtime = path.join(process.env.XDG_RUNTIME_DIR, "r" + serial.toString(36));
         bridge = Bridge.create({ router, state: () => runner.state, audit, directory: runtime,
             release: { prepare: () => Promise.resolve([]) } });
         runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: {} });
@@ -262,7 +262,7 @@ world(async () => {
         // The model list read: one session with no tools and no prompt.
         async models(folder) {
             const Harness = require(path.join(folder, "backend/CopilotHarness.js"));
-            const runtime = path.join(process.env.JARVIS_TEST_ROOT, "models");
+            const runtime = path.join(process.env.XDG_RUNTIME_DIR, "models");
             // A read answers its list or its error's message, so a row compares both.
             const list = () => Harness.models({ directory: account, env, runtime }).then(offers => offers, error => error.message);
             scenario({ session: "recorded" });
@@ -561,7 +561,7 @@ world(async () => {
             const { Accounts } = require(path.join(folder, "backend/Accounts.js"));
             const directory = path.join(state, "vgshell/jarvis");
             fs.rmSync(path.join(directory, "audit"), { recursive: true, force: true });
-            const runtime = path.join(process.env.JARVIS_TEST_ROOT, "verify-runtime");
+            const runtime = path.join(process.env.XDG_RUNTIME_DIR, "verify-runtime");
             const judge = new Accounts(directory, env, undefined, runtime);
             scenario({ reply: "OK" });
             const found = judge.discover();
@@ -600,7 +600,7 @@ world(async () => {
         // Account Verify's handoff: one prompt in a session with no tools.
         async probe(folder) {
             const Harness = require(path.join(folder, "backend/CopilotHarness.js"));
-            const runtime = path.join(process.env.JARVIS_TEST_ROOT, "probe");
+            const runtime = path.join(process.env.XDG_RUNTIME_DIR, "probe");
             const probe = () => Harness.probe({ provider: "copilot", directory: account, env, runtime, model: "", text: "Reply OK." });
             scenario({ reply: "OK" });
             assert.equal(await probe(), "OK");
@@ -620,7 +620,7 @@ world(async () => {
                 ["const CLOSE_MS = 2000;", "const CLOSE_MS = 200;"]
             ] });
             const Harness = require(path.join(probeCopy, "backend/CopilotHarness.js"));
-            const runtime = path.join(process.env.JARVIS_TEST_ROOT, "probe-hang");
+            const runtime = path.join(process.env.XDG_RUNTIME_DIR, "probe-hang");
             scenario({ reply: "OK", delayPromptMs: 100 });
             await assert.rejects(() => Harness.probe({ provider: "copilot", directory: account, env, runtime, model: "", text: "Reply OK." }),
                 { message: "jarvis: brain=copilot-probe-deadline" });
@@ -628,7 +628,7 @@ world(async () => {
         },
         async probePermission(folder) {
             const Harness = require(path.join(folder, "backend/CopilotHarness.js"));
-            const runtime = path.join(process.env.JARVIS_TEST_ROOT, "probe-permission");
+            const runtime = path.join(process.env.XDG_RUNTIME_DIR, "probe-permission");
             scenario({ turns: [[permission({ kind: "execute", rawInput: { command: "make" } }), { stop: "end_turn" }]] });
             await assert.rejects(() => Harness.probe({ provider: "copilot", directory: account, env, runtime, model: "", text: "Reply OK." }),
                 { message: "jarvis: brain=copilot-no-reply" });

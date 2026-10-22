@@ -3,6 +3,7 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 const cp = require("node:child_process");
 const { standins, ref } = require("./fixtures/jarvis/keys-world.js");
 const tree = path.resolve(__dirname, "..");
@@ -157,13 +158,18 @@ console.log(wanted);
         extra = []) {
         fs.rmSync(log, { force: true });
         fs.rmSync(path.join(env.XDG_STATE_HOME, "gum-calls"), { force: true });
-        return cp.spawnSync("python3", [path.join(tree, "scripts/fixtures/jarvis/key-tui.py"),
+        const before = calls("secret-calls");
+        const result = cp.spawnSync("python3", [path.join(tree, "scripts/fixtures/jarvis/key-tui.py"),
             script, path.join(tree, "bin/lib/tui.sh"), folder, ...extra], { env, encoding: "utf8", timeout: 15000 });
+        result.storageCalls = calls("secret-calls").slice(before.length).trim().split("\n").filter(Boolean)
+            .map(JSON.parse).filter(call => call.argv[0] === "store");
+        return result;
     }
     // Keyed lines go to the log; the screen holds none.
     function goodTui(result, expected = openai) {
         assert.equal(result.error, undefined);
         assert.equal(result.status, 0, result.stdout + result.stderr);
+        assert.equal(result.storageCalls.length, 1, "this invocation stores one key");
         assert.match(result.stdout, /Password: /);
         assert.match(logged(), /jarvis-keys: stored=libsecret/);
         assert.doesNotMatch(result.stdout, /jarvis-keys:/);
@@ -617,8 +623,8 @@ print(f"{spent:.2f} {child.returncode}")
 
 if (process.argv[2] === "--inside") inside();
 else {
-    fs.mkdirSync(path.join(tree, "tmp"), { recursive: true });
-    const root = fs.mkdtempSync(path.join(tree, "tmp", "jk-"));
+    fs.mkdirSync(os.tmpdir(), { recursive: true });
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "jk-"));
     try {
         standins(path.join(root, "standins"));
         const result = cp.spawnSync("/bin/bash", [path.join(tree, "scripts/lib/jarvis-env.sh"),

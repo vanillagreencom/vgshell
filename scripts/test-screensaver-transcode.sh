@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 repo="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
-work="$repo/tmp/test-screensaver-transcode"
-mkdir -p -- "$work"
+work="$(mktemp -d)" || exit 1
+trap 'rm -rf -- "${work:?}"' EXIT
 script="$repo/shell/plugins/vgs.screensaver/bin/transcode-ascii"
 fixture="$work/diag.png"
 magick -size 4x4 xc:none -fill black -draw 'point 0,0 point 1,1 point 0,2 point 1,3' "$fixture"

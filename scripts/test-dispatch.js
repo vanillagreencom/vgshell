@@ -7,6 +7,7 @@
 // smoke row also reads the new effects back from nested Hyprland.
 "use strict";
 const path = require("path");
+const os = require("node:os");
 
 const ctx = require("../bin/lib/qml-library.js").load(path.join(__dirname, "..", "shell", "Core", "Dispatch.js"));
 
@@ -449,8 +450,8 @@ const revealControls = [
 ];
 const dispatchFile = path.join(__dirname, "..", "shell", "Core", "Dispatch.js");
 const source = fs.readFileSync(dispatchFile, "utf8");
-fs.mkdirSync(path.join(__dirname, "..", "tmp"), { recursive: true });
-const scratch = fs.mkdtempSync(path.join(__dirname, "..", "tmp", "test-dispatch-"));
+fs.mkdirSync(os.tmpdir(), { recursive: true });
+const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "test-dispatch-"));
 fs.copyFileSync(path.join(path.dirname(dispatchFile), "HyprlandLayer.js"), path.join(scratch, "HyprlandLayer.js"));
 fs.copyFileSync(path.join(path.dirname(dispatchFile), "MonitorLogic.js"), path.join(scratch, "MonitorLogic.js"));
 try {

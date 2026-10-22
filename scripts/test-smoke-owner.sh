@@ -38,7 +38,7 @@ repo="$(cd -- "$(dirname -- "$self")/.." && pwd)"
 fence="$repo/scripts/smoke/gpu-fence.sh"
 teardown="$repo/scripts/smoke/teardown.sh"
 
-TMP_ROOT="$(mktemp -d /var/tmp/test-smoke-owner.XXXXXX)" || { echo "test-smoke-owner: scratch=mktemp-failed" >&2; exit 1; }
+TMP_ROOT="$(mktemp -d)" || { echo "test-smoke-owner: scratch=mktemp-failed" >&2; exit 1; }
 [[ -d $TMP_ROOT && ! -L $TMP_ROOT ]] || { echo "test-smoke-owner: scratch=not-a-directory value=[$TMP_ROOT]" >&2; exit 1; }
 TMP_ROOT="$(cd -- "$TMP_ROOT" && pwd -P)" || { echo "test-smoke-owner: scratch=resolve-failed" >&2; exit 1; }
 # A case a control turned red can leave a folder without write bits.
@@ -170,9 +170,9 @@ SH
 # left, once none is or after 5 s more. A zombie has ended.
 cat >"$TMP_ROOT/case.sh" <<'SH'
 fence="$1" teardown="$2" mode="$3" case_dir="$4" root="$5" target="$6" signal="$7"
-world_args=(--checkout "$8" --out "$case_dir")
+world_args=(--fresh --checkout "$8" --out "$case_dir")
 [[ $mode != keep ]] || world_args+=(--keep)
-env -i --default-signal=INT PATH="$root/bin" HOME="$root" TMPDIR="$case_dir" \
+env -i --default-signal=INT PATH="$root/bin" HOME="$root" TMPDIR="$case_dir" VGSHELL_WORLD_ROOT="$VGSHELL_WORLD_ROOT" \
   "$root/bin/bash" "$fence" "${world_args[@]}" \
   "$root/bin/bash" "$root/harness.sh" "$teardown" "$mode" "$case_dir" >"$case_dir/out" 2>"$case_dir/err" &
 pid=$!

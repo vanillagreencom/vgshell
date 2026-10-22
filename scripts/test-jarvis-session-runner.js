@@ -5,6 +5,7 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 const { load } = require("../bin/lib/qml-library.js");
 const Session = load(path.resolve(__dirname, "../shell/plugins/vgs.jarvis/Session.js"));
 const file = path.resolve(__dirname, "../shell/plugins/vgs.jarvis/backend/session-runner.js");
@@ -466,7 +467,7 @@ const tests = [
     }]
 ];
 for (const [, check] of tests) check(Owner);
-const parent = path.resolve(__dirname, "../tmp");
+const parent = os.tmpdir();
 fs.mkdirSync(parent, { recursive: true });
 const root = fs.mkdtempSync(path.join(parent, "jr-"));
 const source = fs.readFileSync(file, "utf8");

@@ -22,12 +22,13 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");
+const os = require("node:os");
 
 const repo = path.join(__dirname, "..");
 const pluginDir = path.join(repo, "shell", "plugins", "vgs.notifications");
 const helper = process.env.NOTIFICATIONS_SLACK_EMOJI_HELPER || path.join(pluginDir, "slack-photos.js");
 const emojiSource = path.join(pluginDir, "slack-emoji.js");
-const scratch = path.join(repo, "tmp", "test-notifications-slack-emoji-" + process.pid);
+const scratch = path.join(os.tmpdir(), "test-notifications-slack-emoji-" + process.pid);
 const TOKENS = { "xoxp-acme-4f2a": "T1", "xoxp-globex-7c1d": "T2" };
 
 function write(file, bytes, mode) {

@@ -17,11 +17,12 @@ const childProcess = require("node:child_process");
 const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");
+const os = require("node:os");
 
 const repo = path.join(__dirname, "..");
 const helper = process.env.NOTIFICATIONS_SLACK_PHOTOS_HELPER || path.join(repo, "shell", "plugins", "vgs.notifications", "slack-photos.js");
 const helperSource = path.join(repo, "shell", "plugins", "vgs.notifications", "slack-photos.js");
-const scratch = path.join(repo, "tmp", "test-notifications-slack-photos-" + process.pid);
+const scratch = path.join(os.tmpdir(), "test-notifications-slack-photos-" + process.pid);
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=", "base64");
 const pngChanged = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
 const VERSIONED = /^file:\/\/\/[^\s?#]+\.png\?v=[0-9a-f]{16}$/;

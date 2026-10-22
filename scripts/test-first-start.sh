@@ -1,14 +1,12 @@
 #!/usr/bin/env bash
 # Controls for bin/lib/first-start.sh. The suite builds a package-shaped
 # tree with stand-ins for runuser, timeout and getent, and a fake runtime
-# root under this repository's tmp/. It never calls the host's runuser and
+# root under the row's temporary directory. It never calls the host's runuser and
 # never reads /run/user.
 set -euo pipefail
 
 repo="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/.." && pwd)"
-tmp="$repo/tmp/fs.$$"
-rm -rf -- "$tmp"
-mkdir -p -- "$tmp"
+tmp="$(mktemp -d "$XDG_RUNTIME_DIR/owned/first-start.XXXXXX")" || exit 1
 failures=0
 socket_pids=()
 cleanup() {

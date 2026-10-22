@@ -402,7 +402,8 @@ def dbus_rows(script=SCAN, quiet=False):
         return [True if quiet else report("D-Bus rows are not measured", True, f" ({message})")]
     results = []
     for name, manifests, want, mode in DBUS_ROWS:
-        with tempfile.TemporaryDirectory() as tmp:
+        # This fixture binds a Unix socket, so use the world's short runtime.
+        with tempfile.TemporaryDirectory(dir=os.path.join(os.environ["XDG_RUNTIME_DIR"], "owned")) as tmp:
             files = {os.path.join("plugins", d, "manifest.json"): json.dumps(m) for d, m in manifests.items()}
             plant(tmp, files)
             proc = owner = old_address = None

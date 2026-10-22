@@ -4,6 +4,7 @@
 const assert = require("node:assert");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 const { load } = require("../bin/lib/qml-library.js");
 const file = path.resolve(__dirname, "../shell/plugins/vgs.jarvis/Conversation.js");
 const Conversation = load(file);
@@ -37,7 +38,7 @@ function contract(logic) {
 }
 contract(Conversation);
 
-const parent = path.resolve(__dirname, "../tmp");
+const parent = os.tmpdir();
 fs.mkdirSync(parent, { recursive: true });
 const root = fs.mkdtempSync(path.join(parent, "jc-"));
 const source = fs.readFileSync(file, "utf8");

@@ -98,7 +98,7 @@ world(async () => {
         const recipients = Policy.recipients({ conversation: "claude-" + serial, profile: "standard", cloudVision: "ask",
             brain: { kind: "network", provider: "claude", account: "fixture", origin: "https://api.anthropic.com" },
             speech: [{ kind: "local", provider: "fixture-speech", account: "" }] });
-        const runtime = path.join(process.env.JARVIS_TEST_ROOT, "r" + serial.toString(36));
+        const runtime = path.join(process.env.XDG_RUNTIME_DIR, "r" + serial.toString(36));
         bridge = Bridge.create({ router, state: () => runner.state, audit, release: { prepare: (value, recipients) => engine === null ? Promise.resolve([]) : engine.release.prepare(value, recipients) }, directory: runtime,
             clock: { set: () => ({}), clear() {} } });
         const a = account(script);

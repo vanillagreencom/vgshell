@@ -4,11 +4,12 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 const backend = path.resolve(__dirname, "../../../shell/plugins/vgs.jarvis/backend");
 
-/** Allocate a suite-owned runtime copy under this worktree's tmp directory. */
+/** Allocate a suite-owned runtime copy under the row's temporary directory. */
 function world(name, run) {
-    const parent = path.resolve(__dirname, "../../../tmp");
+    const parent = os.tmpdir();
     fs.mkdirSync(parent, { recursive: true });
     const root = fs.mkdtempSync(path.join(parent, name + "-"));
     try { run(root); } finally { fs.rmSync(root, { recursive: true, force: true }); }

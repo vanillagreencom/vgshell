@@ -20,7 +20,7 @@ helper="$repo/scripts/smoke/shot.sh"
 
 # The EXIT trap is armed only on the directory mktemp made: an empty or
 # non-directory answer never reaches rm -rf.
-tmp="$(mktemp -d /var/tmp/test-sandbox-shots.XXXXXX)" || { echo "test-sandbox-shots: scratch=mktemp-failed" >&2; exit 1; }
+tmp="$(mktemp -d)" || { echo "test-sandbox-shots: scratch=mktemp-failed" >&2; exit 1; }
 [[ -d $tmp && ! -L $tmp ]] || { echo "test-sandbox-shots: scratch=not-a-directory value=[$tmp]" >&2; exit 1; }
 tmp="$(cd -- "$tmp" && pwd -P)"
 trap 'rm -rf -- "${tmp:?}"' EXIT
@@ -282,7 +282,8 @@ done
 
 # The caller's runtime dir with its socket, and the sandbox's beneath it,
 # as the harness makes them.
-host="$tmp/run"; rt="$host/vs.test"
+host="$(mktemp -d "$XDG_RUNTIME_DIR/owned/shots.XXXXXX")" || exit 1
+rt="$host/vs.test"
 mkdir -p "$rt" "$tmp/bin" "$tmp/checkout/tmp"
 python3 - "$host/wayland-1" "$host/wayland-2" "$rt/wayland-1" <<'PY'
 import socket, sys
@@ -674,8 +675,9 @@ JS
 # Hyprland delivery or QML notification wiring, which the smoke observes.
 source "$repo/scripts/smoke/display-record.sh"
 display_record_program >"$tmp/display-record.py"
+display_record_root="$(mktemp -d "$XDG_RUNTIME_DIR/owned/record.XXXXXX")" || exit 1
 if node "$tmp/probe-display-control.cjs" "$repo/scripts/smoke/Probe.qml" --packets >"$tmp/probe-display-packets.jsonl" &&
-   python3 - "$tmp/display-record.py" "$tmp" "$repo/scripts/smoke/harness.sh" "$tmp/probe-display-packets.jsonl" <<'PY'
+   python3 - "$tmp/display-record.py" "$display_record_root" "$repo/scripts/smoke/harness.sh" "$tmp/probe-display-packets.jsonl" <<'PY'
 import contextlib, json, os, pathlib, re, runpy, signal, socket, subprocess, sys
 
 program, root, harness, packet_path = map(pathlib.Path, sys.argv[1:])
@@ -1720,7 +1722,7 @@ scene_case() {
   local script="$1" label="$2" want_status="$3" want_line="$4" status=0 out err
   shift 4
   cp -- "$script" "$shots_repo/scripts/sandbox-shots.sh"
-  out="$(env -i PATH="$tmp/bin:$PATH" HOME="$tmp" bash "$shots_repo/scripts/sandbox-shots.sh" --out "$shots_repo/tmp/shots-$RANDOM$RANDOM" "$@" 2>"$tmp/scene.err")" || status=$?
+  out="$(env -i PATH="$tmp/bin:$PATH" HOME="$tmp" TMPDIR="$TMPDIR" VGSHELL_WORLD_ROOT="$VGSHELL_WORLD_ROOT" "$BASH" "$shots_repo/scripts/sandbox-shots.sh" --out "$shots_repo/tmp/shots-$RANDOM$RANDOM" "$@" 2>"$tmp/scene.err")" || status=$?
   err="$(sed -n '/^gpu-fence: \(absent\|present\) path=/!{p;q}' "$tmp/scene.err")"
   if [[ $status -eq 77 && $err == "gpu-fence: status=not-measured "* ]]; then
     printf 'test-sandbox-shots: status=not-measured %s\n' "$err"

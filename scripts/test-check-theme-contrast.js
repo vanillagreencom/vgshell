@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 // Controls for scripts/check-theme-contrast.js. Each row builds a themes
-// directory below the repository tmp/ tree and asserts the check reports the
+// directory below the row's temporary root and asserts the check reports the
 // producer-facing line that a theme author acts on.
 "use strict";
 
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 const { spawnSync } = require("node:child_process");
 
 const repo = path.join(__dirname, "..");
@@ -108,8 +109,8 @@ function assertStatus(proc, status) {
     assert.equal(proc.status, status, proc.stdout + proc.stderr);
 }
 
-fs.mkdirSync(path.join(repo, "tmp"), { recursive: true });
-const root = fs.mkdtempSync(path.join(repo, "tmp", "test-check-theme-contrast-"));
+fs.mkdirSync(os.tmpdir(), { recursive: true });
+const root = fs.mkdtempSync(path.join(os.tmpdir(), "test-check-theme-contrast-"));
 let failures = 0;
 function row(name, fn) {
     try {

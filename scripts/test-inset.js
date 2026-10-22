@@ -12,6 +12,7 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 const { load } = require("../bin/lib/qml-library.js");
 
 const file = path.join(__dirname, "..", "shell", "Commons", "Inset.js");
@@ -67,7 +68,7 @@ const CONTROLS = [
 ];
 
 const source = fs.readFileSync(file, "utf8");
-const temp = path.join(__dirname, "..", "tmp", "inset-control-" + process.pid);
+const temp = path.join(os.tmpdir(), "inset-control-" + process.pid);
 fs.rmSync(temp, { recursive: true, force: true });
 fs.mkdirSync(temp, { recursive: true });
 try {

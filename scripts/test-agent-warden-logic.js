@@ -13,6 +13,7 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 const { load } = require("../bin/lib/qml-library.js");
 
 const file = path.join(__dirname, "..", "shell", "plugins", "vgs.agent-warden", "WardenLogic.js");
@@ -306,7 +307,7 @@ const CONTROLS = [
 ];
 
 const source = fs.readFileSync(file, "utf8");
-const scratchRoot = path.join(__dirname, "..", "tmp");
+const scratchRoot = os.tmpdir();
 fs.mkdirSync(scratchRoot, { recursive: true });
 const temp = fs.mkdtempSync(path.join(scratchRoot, "agent-warden-control-"));
 try {

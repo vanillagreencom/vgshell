@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 // KeyNav's pure decisions, shell/Ui/foundation/KeyNavLogic.js, under node:
 // keyboard intent, roving steps, type-ahead, reveal math, activation, a
-// click's opener and shortcut keycap labels. The controls edit a copy under ./tmp and require
+// click's opener and shortcut keycap labels. The controls edit a temporary copy and require
 // this suite to fail on each copy.
 "use strict";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 const { load } = require("../bin/lib/qml-library.js");
 
 const repo = path.join(__dirname, "..");
@@ -133,7 +134,7 @@ const CONTROLS = [
 ];
 
 const source = fs.readFileSync(file, "utf8");
-const scratchRoot = path.join(repo, "tmp");
+const scratchRoot = os.tmpdir();
 fs.mkdirSync(scratchRoot, { recursive: true });
 const scratch = fs.mkdtempSync(path.join(scratchRoot, "test-key-nav-logic-"));
 try {

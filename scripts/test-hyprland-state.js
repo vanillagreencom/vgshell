@@ -9,6 +9,7 @@
 "use strict";
 const fs = require("fs");
 const path = require("path");
+const os = require("node:os");
 const { load } = require("../bin/lib/qml-library.js");
 
 const STATE = path.join(__dirname, "..", "shell", "Core", "HyprlandState.js");
@@ -356,8 +357,8 @@ const CONTROLS = [
     ["the lines keep their breaks", "return text.match(/[^\\n]*\\n|[^\\n]+$/g) || [];", "return text.split(\"\\n\");"]
 ];
 
-fs.mkdirSync(path.join(__dirname, "..", "tmp"), { recursive: true });
-const temp = fs.mkdtempSync(path.join(__dirname, "..", "tmp", "hyprland-state-control-"));
+fs.mkdirSync(os.tmpdir(), { recursive: true });
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), "hyprland-state-control-"));
 try {
     fs.mkdirSync(path.join(temp, "shell", "Core"), { recursive: true });
     for (const name of ["ConfigLogic.js", "HyprlandLayer.js", "MonitorLogic.js", "PackageManagers.js", "Dispatch.js"])

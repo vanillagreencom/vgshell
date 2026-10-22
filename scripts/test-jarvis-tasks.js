@@ -5,6 +5,7 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 const cp = require("node:child_process");
 const { freshSuite, seedTaskEvents } = require("./fixtures/jarvis/prepare.js");
 const tree = path.resolve(__dirname, "..");
@@ -451,7 +452,7 @@ function inside() {
 
 function main() {
     if (process.argv[2] === "--inside") return inside();
-    const parent = path.join(tree, "tmp");
+    const parent = os.tmpdir();
     fs.mkdirSync(parent, { recursive: true });
     const root = fs.realpathSync(fs.mkdtempSync(path.join(parent, "jt-")));
     try {
@@ -459,7 +460,7 @@ function main() {
         fs.mkdirSync(path.join(root, "standins"));
         const result = cp.spawnSync("/bin/bash", [path.join(tree, "scripts/lib/jarvis-env.sh"),
             path.join(root, "standins"), "--", "node", __filename, "--inside"], {
-            env: { PATH: "/usr/bin:/bin", HOME: root, JARVIS_TEST_SCRATCH_ROOT: path.join(tree, "tmp") },
+            env: { PATH: "/usr/bin:/bin", HOME: root, JARVIS_TEST_SCRATCH_ROOT: os.tmpdir() },
             encoding: "utf8", timeout: 120000
         });
         process.stdout.write(result.stdout || "");

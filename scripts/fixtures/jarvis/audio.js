@@ -4,6 +4,7 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 const cp = require("node:child_process");
 const tree = path.resolve(__dirname, "../../..");
 const { runBounded, hungWorldControl } = require("./bounded.js");
@@ -18,7 +19,7 @@ function standins(folder) {
 
 // A scratch home with the audio stand-ins, removed when RUN returns.
 function scratch(run) {
-    const parent = path.join(tree, "tmp");
+    const parent = os.tmpdir();
     fs.mkdirSync(parent, { recursive: true });
     const root = fs.realpathSync(fs.mkdtempSync(path.join(parent, "ja-")));
     try {

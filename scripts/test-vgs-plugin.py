@@ -165,9 +165,7 @@ def main():
     report("the template table covers exactly PluginLogic.KINDS", sorted(table) == sorted(kinds), f"table={sorted(table)} kinds={sorted(kinds)}")
     report("every template file in the table exists", all(os.path.isfile(os.path.join(os.path.dirname(SCAFFOLD), "..", "templates", t)) for t, _ in table.values()), str(table))
 
-    scratch_root = os.path.join(REPO, "tmp")
-    os.makedirs(scratch_root, exist_ok=True)
-    with tempfile.TemporaryDirectory(dir=scratch_root) as tmp:
+    with tempfile.TemporaryDirectory() as tmp:
         made = scaffold("new", "acme.probe", "--kinds", "bar-widget,service", "--dir", tmp)
         target = os.path.join(tmp, "acme.probe")
         report("new writes a plugin of two kinds and its check passes", made.returncode == 0 and made.stdout.rstrip().endswith("vgs-plugin: check ok"), f"exit={made.returncode}\n{made.stdout}{made.stderr}")

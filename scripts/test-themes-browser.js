@@ -14,6 +14,7 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 const { load } = require("../bin/lib/qml-library.js");
 
 const dir = path.join(__dirname, "..", "shell", "plugins", "vgs.themes");
@@ -426,7 +427,7 @@ function verifyWallpapers(logic) {
 
 const files = load(path.join(dir, "Files.js"));
 const source = fs.readFileSync(file, "utf8");
-const scratchRoot = path.join(__dirname, "..", "tmp");
+const scratchRoot = os.tmpdir();
 fs.mkdirSync(scratchRoot, { recursive: true });
 const temp = fs.mkdtempSync(path.join(scratchRoot, "themes-browser-control-"));
 const keyNavLogic = path.join(__dirname, "..", "shell", "Ui", "foundation", "KeyNavLogic.js");

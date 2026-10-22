@@ -16,6 +16,7 @@
 const childProcess = require("child_process");
 const fs = require("fs");
 const path = require("path");
+const os = require("node:os");
 const { load } = require("../bin/lib/qml-library.js");
 
 const LOGIC = path.join(__dirname, "..", "shell", "Core", "MonitorLogic.js");
@@ -621,8 +622,8 @@ const CONTROLS = [
     ["a rule with no colour mode needs a panel read", "&& rules[id].cm !== undefined && rules[id].cm", "&& rules[id].cm"]
 ];
 
-fs.mkdirSync(path.join(__dirname, "..", "tmp"), { recursive: true });
-const temp = fs.mkdtempSync(path.join(__dirname, "..", "tmp", "monitor-logic-control-"));
+fs.mkdirSync(os.tmpdir(), { recursive: true });
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), "monitor-logic-control-"));
 try {
     const source = fs.readFileSync(LOGIC, "utf8");
     const mutant = path.join(temp, "MonitorLogic.js");

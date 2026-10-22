@@ -244,6 +244,26 @@ check_is() { # FILE WORLD STATUS
   run_fence "$1" none "${at[@]}" --check
   [[ $status -eq $3 && ! -s $TMP_ROOT/out && ! -s $TMP_ROOT/err ]]
 }
+# --check is called outside the world by each entry point. Reading the
+# boundary must leave that checkout byte-identical, even on refusal.
+check_readonly() { # FILE
+  python3 - "$BASH" "$1" "$TMP_ROOT" <<'PYCHECK'
+from pathlib import Path
+import os, subprocess, sys, tempfile
+bash, fence, scratch = sys.argv[1:]
+with tempfile.TemporaryDirectory(dir=scratch, prefix="check-checkout-") as directory:
+    checkout = Path(directory)
+    (checkout / "sentinel").write_bytes(b"checkout\x00unchanged\n")
+    def snapshot():
+        return {str(p.relative_to(checkout)): p.read_bytes() for p in checkout.rglob("*") if p.is_file()}
+    before = snapshot()
+    result = subprocess.run([bash, fence, "--checkout", directory, "--sys", scratch + "/plain/sys",
+                             "--dev", scratch + "/plain/dev", "--check"],
+                            env={"PATH": os.environ["PATH"], "HOME": scratch},
+                            capture_output=True, timeout=10)
+    assert result.returncode == 1 and snapshot() == before, result.returncode
+PYCHECK
+}
 hides() { # FILE
   local seen
   roots amd
@@ -500,6 +520,7 @@ PYSERVICES
 
 # Rows: label | whether the case makes a namespace | the case and its words.
 cases=(
+  "the check leaves the caller checkout byte-identical|no|check_readonly"
   "a visible amdgpu node needs the fence|no|check_is amd 1"
   "a host with no amdgpu node needs the fence|no|check_is plain 1"
   "the namespace hides every amdgpu path, keeps the rest and proves both|yes|hides"
@@ -569,6 +590,10 @@ mutate() {
 # must go red.
 # shellcheck disable=SC2034 # run_controls reads the table by name
 controls=(
+  'the check writes a probe into the checkout'
+  '    if exposed || ! fenced; then exit 1; fi'
+  '    : >"$checkout/probe"; if exposed || ! fenced; then exit 1; fi'
+  'the check leaves the caller checkout byte-identical'
   'an absent service path is unconditionally masked'
   'if [[ -e $service_path ]]; then'
   'if true; then'
@@ -709,14 +734,14 @@ forward() {
 declare -A control_mutants=()
 run_controls() {
   local -n plants="$1"
-  local i label mutant result
+  local i label mutant result diagnostics
   for (( i = 0; i < ${#plants[@]}; i += 4 )); do
     label="${plants[i]}"
     mutant="$TMP_ROOT/mutant-$1-$i.sh"
     if ! mutate "$fence" "${plants[i + 1]}" "${plants[i + 2]}" "$mutant"; then fail "control: $label"; continue; fi
     control_mutants["$label"]=$mutant
     result=0
-    run_case "$mutant" "${plants[i + 3]}" >/dev/null || result=$?
+    diagnostics="$(run_case "$mutant" "${plants[i + 3]}" 2>&1)" || result=$?
     case "$result" in
       0) fail "control: $label left '${plants[i + 3]}' green" ;;
       1) ok "control: $label" ;;
@@ -724,6 +749,7 @@ run_controls() {
       3) fail "control: $label names no case: ${plants[i + 3]}" ;;
       *) fail "control: $label: run_case answered $result" ;;
     esac
+    if [[ $result != 1 && -n $diagnostics ]]; then printf '%s\n' "$diagnostics"; fi
   done
 }
 run_controls controls
@@ -874,7 +900,8 @@ pathlib.Path(output, "result.json").write_text(json.dumps(result))
         (fixture / "home/marker").write_text("retained\n")
         env = {"PATH": os.environ["PATH"], "HOME": str(fixture / "home"), "TMPDIR": str(base), "XDG_RUNTIME_DIR": runtime,
                "WAYLAND_DISPLAY": str(base / "named.sock"), "WAYLAND_SOCKET": "99", "DISPLAY": ":99", "HYPRLAND_INSTANCE_SIGNATURE": "planted",
-               "DBUS_SESSION_BUS_ADDRESS": "unix:path=" + runtime + "/caller.sock", "VGS_WORLD_PLANTED": "planted"}
+               "DBUS_SESSION_BUS_ADDRESS": "unix:path=" + runtime + "/caller.sock", "VGS_WORLD_PLANTED": "planted",
+               "VGSHELL_WORLD_ROOT": "/tmp"}
         completed = subprocess.run([bash, file, "--checkout", repo, "--out", str(output), "--out", mutants, *extra,
                                     "python3", str(probe), str(fixture), str(output), runtime, temporary, abstract_name[1:], str(tcp.getsockname()[1]), repo],
                                    env=env, capture_output=True, text=True, timeout=20)
@@ -893,6 +920,7 @@ pathlib.Path(output, "result.json").write_text(json.dumps(result))
     # This kept root is a disposable test fixture; its test owner removes it.
     shutil.rmtree(result["root"])
     controls = (
+        ("parent-world-marker", "if fenced /; then", 'if [[ -n ${VGSHELL_WORLD_ROOT:-} ]]; then', "tmp", "connected"),
         ("writable-host", "bwrap --ro-bind / /", "bwrap --bind / /", "checkout", "deleted"),
         ("runtime-mask", 'mounts+=(--perms 0700 --tmpfs "$XDG_RUNTIME_DIR")', 'mounts+=()', "runtime", "connected"),
         ("session-pass", "passed=(PATH USER", "passed=(WAYLAND_DISPLAY PATH USER", "session", ["WAYLAND_DISPLAY"]),

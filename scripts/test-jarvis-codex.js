@@ -109,7 +109,7 @@ world(async () => {
             harnessStarts.push(call);
             gate.executor.start(call, done);
         } });
-        const runtime = path.join(process.env.JARVIS_TEST_ROOT, "r" + serial.toString(36));
+        const runtime = path.join(process.env.XDG_RUNTIME_DIR, "r" + serial.toString(36));
         bridge = Bridge.create({ router, state: () => runner.state, audit, release: { prepare: (value, recipients) => engine === null ? Promise.resolve([]) : engine.release.prepare(value, recipients) }, directory: runtime });
         runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: {} });
         runner.dispatch({ type: "indicator", shown: true });
@@ -578,7 +578,7 @@ world(async () => {
             fs.rmSync(path.join(directory, "audit"), { recursive: true, force: true });
             fs.mkdirSync(path.join(process.env.HOME, ".claude"), { recursive: true });
             // Verify's program runs in the runtime directory its owner hands over.
-            const runtime = path.join(process.env.JARVIS_TEST_ROOT, "verify-runtime");
+            const runtime = path.join(process.env.XDG_RUNTIME_DIR, "verify-runtime");
             const judge = new Accounts(directory, env, undefined, runtime);
             const found = judge.discover();
             const codex = found.find(item => item.provider === "codex" && item.source.directory === account);
@@ -633,7 +633,7 @@ world(async () => {
         // The model list read: no thread, no turn, the account's own list.
         async models(folder) {
             const Harness = require(path.join(folder, "backend/CodexHarness.js"));
-            const runtime = path.join(process.env.JARVIS_TEST_ROOT, "models");
+            const runtime = path.join(process.env.XDG_RUNTIME_DIR, "models");
             // A read answers its list or its error's message, so a row compares both.
             const list = () => Harness.models({ directory: account, env, runtime }).then(offers => offers, error => error.message);
             scenario({});
@@ -677,7 +677,7 @@ world(async () => {
         // Account Verify's handoff: one turn on a thread with no tools.
         async probe(folder) {
             const Harness = require(path.join(folder, "backend/CodexHarness.js"));
-            const runtime = path.join(process.env.JARVIS_TEST_ROOT, "probe");
+            const runtime = path.join(process.env.XDG_RUNTIME_DIR, "probe");
             scenario({ reply: "OK", servers: { userfs: {} } });
             assert.equal(await Harness.probe({ directory: account, env, runtime, model: "", text: "Reply OK." }), "OK");
             const [start] = received("thread/start");

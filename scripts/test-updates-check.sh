@@ -4,8 +4,7 @@
 set -euo pipefail
 repo="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 check="$repo/shell/plugins/vgs.updates/bin/check"
-root="$repo/tmp/test-updates-check-$$"
-rm -rf -- "$root"
+root="$(mktemp -d)" || exit 1
 mkdir -p -- "$root/bin" "$root/state" "$root/runtime" "$root/home"
 mkdir -p -- "$root/bin/lib"
 ln -s -- "$repo/bin/lib/qml-library.js" "$root/bin/lib/qml-library.js"

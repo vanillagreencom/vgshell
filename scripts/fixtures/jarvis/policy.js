@@ -4,6 +4,7 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 const cp = require("node:child_process");
 const tree = path.resolve(__dirname, "../../..");
 const { FILES: CORE_FILES, useTree, scratchTree } = require("./core.js");
@@ -11,7 +12,7 @@ const { runBounded } = require("./bounded.js");
 
 function world(main, prepareStandins) {
     if (process.argv[2] === "--inside") return main();
-    const parent = path.join(tree, "tmp");
+    const parent = os.tmpdir();
     fs.mkdirSync(parent, { recursive: true });
     const root = fs.realpathSync(fs.mkdtempSync(path.join(parent, "jp-")));
     try {

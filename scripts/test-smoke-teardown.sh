@@ -11,7 +11,6 @@ self="$(readlink -f -- "${BASH_SOURCE[0]}")"
 repo="$(cd -- "$(dirname -- "$self")/.." && pwd)"
 teardown="$repo/scripts/smoke/teardown.sh"
 [[ $# == 0 ]] || { echo 'test-smoke-teardown: refused: arguments' >&2; exit 2; }
-"$repo/scripts/smoke/gpu-fence.sh" --check || exec "$repo/scripts/smoke/gpu-fence.sh" "$self" "$@"
 
 tmp="$(mktemp -d "$TMPDIR/test-smoke-teardown.XXXXXX")" || { echo "test-smoke-teardown: scratch=mktemp-failed" >&2; exit 1; }
 [[ -d $tmp && ! -L $tmp ]] || { echo "test-smoke-teardown: scratch=not-a-directory value=[$tmp]" >&2; exit 1; }

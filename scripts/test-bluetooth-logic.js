@@ -891,7 +891,7 @@ try {
     fs.rmSync(scratch, { recursive: true, force: true });
 }
 
-const manifestScratch = path.join(__dirname, "..", "tmp", "test-bluetooth-manifest-" + process.pid);
+const manifestScratch = path.join(os.tmpdir(), "test-bluetooth-manifest-" + process.pid);
 fs.rmSync(manifestScratch, { recursive: true, force: true });
 fs.mkdirSync(manifestScratch, { recursive: true });
 try {

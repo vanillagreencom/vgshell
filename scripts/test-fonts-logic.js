@@ -9,6 +9,7 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 const { load } = require("../bin/lib/qml-library.js");
 
 const repo = path.join(__dirname, "..");
@@ -88,7 +89,7 @@ const CONTROLS = [
 ];
 
 const source = fs.readFileSync(logicFile, "utf8");
-const tempRoot = path.join(repo, "tmp");
+const tempRoot = os.tmpdir();
 fs.mkdirSync(tempRoot, { recursive: true });
 const temp = fs.mkdtempSync(path.join(tempRoot, "fonts-logic-control-"));
 try {

@@ -36,8 +36,7 @@ def run_case(name, text, want):
 
 def main():
     global SCRATCH
-    os.makedirs(os.path.join(REPO, "tmp"), exist_ok=True)
-    SCRATCH = tempfile.mkdtemp(prefix="test-check-keyboard-", dir=os.path.join(REPO, "tmp"))
+    SCRATCH = tempfile.mkdtemp(prefix="test-check-keyboard-")
     try:
         cases = [
             ("clean focused button", HEAD + "Item {\n    T.Button { focusPolicy: Qt.StrongFocus; Keys.onReturnPressed: clicked(); FocusRing { target: parent } }\n}\n", None),

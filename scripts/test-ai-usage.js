@@ -13,6 +13,7 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 const cp = require("node:child_process");
 const crypto = require("node:crypto");
 const { load } = require("../bin/lib/qml-library.js");
@@ -29,8 +30,8 @@ const TOKEN = "sk-ant-oat01-plantedToken-" + crypto.randomBytes(12).toString("he
 const HOUR = 3600000;
 const NOW = Date.parse("2026-10-05T12:00:00Z");
 
-fs.mkdirSync(path.join(tree, "tmp"), { recursive: true });
-const root = fs.realpathSync(fs.mkdtempSync(path.join(tree, "tmp/ai-usage-")));
+fs.mkdirSync(os.tmpdir(), { recursive: true });
+const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ai-usage-")));
 let cases = 0;
 // Each copy of the helper this suite loads holds its own exit listener.
 process.setMaxListeners(64);

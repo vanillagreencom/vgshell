@@ -3,10 +3,9 @@ set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 GUARD="$ROOT/bin/vgshell-display-guard"
-SCRATCH="$ROOT/tmp/test-display-guard-$$"
-rm -rf -- "$SCRATCH"
+SCRATCH="$(mktemp -d)" || exit 1
 mkdir -p -- "$SCRATCH/bin"
-trap 'rm -rf -- "$SCRATCH"' EXIT
+trap 'rm -rf -- "${SCRATCH:?}"' EXIT
 
 cat >"$SCRATCH/bin/hyprctl" <<'SH'
 #!/usr/bin/env bash

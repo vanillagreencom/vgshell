@@ -11,7 +11,7 @@
 // the package walk skips the catalog. Its controls at the end edit a copy
 // of the judge, one rule at a time, and require the catalog rows to fail on
 // each copy. User readability controls use an external scratch tree;
-// package and catalog fixture directories live under repo tmp.
+// package and catalog fixture directories live under the row's temporary root.
 "use strict";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -21,7 +21,7 @@ const { spawnSync } = require("node:child_process");
 
 const repo = path.join(__dirname, "..");
 const CHECK = path.join(repo, "bin", "vgshell-theme-judge");
-const ENV = { PATH: process.env.PATH, LC_ALL: "C", TMPDIR: path.join(repo, "tmp") };
+const ENV = { PATH: process.env.PATH, LC_ALL: "C", TMPDIR: os.tmpdir() };
 const slots = Object.fromEntries(Array.from({ length: 16 }, (_, index) => [`color${index}`, "#000000"]));
 
 function writePackage(base, name, themeName, terminalSlots = slots) {
@@ -388,8 +388,8 @@ function backgroundNameRows(check, root) {
     assert.equal(proc.stdout, "ok       vgs\nvgshell-theme-judge: ok\n", "shipped named background present");
 }
 
-fs.mkdirSync(path.join(repo, "tmp"), { recursive: true });
-const root = fs.mkdtempSync(path.join(repo, "tmp", "test-vgshell-theme-judge+ space-"));
+fs.mkdirSync(os.tmpdir(), { recursive: true });
+const root = fs.mkdtempSync(path.join(os.tmpdir(), "test-vgshell-theme-judge+ space-"));
 try {
     let base = path.join(root, "good");
     writePackage(base, "vgs", "vgs");

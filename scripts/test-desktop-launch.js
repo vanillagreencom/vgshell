@@ -7,6 +7,7 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 const { load } = require("../bin/lib/qml-library.js");
 
 const file = path.join(__dirname, "..", "shell", "Commons", "DesktopLaunch.js");
@@ -76,7 +77,7 @@ function verify(launch) {
 
 verify(load(file));
 const source = fs.readFileSync(file, "utf8");
-const parent = path.join(__dirname, "..", "tmp");
+const parent = os.tmpdir();
 fs.mkdirSync(parent, { recursive: true });
 const scratch = fs.mkdtempSync(path.join(parent, "desktop-launch-"));
 let controls = 0;

@@ -22,7 +22,7 @@ BASH = shutil.which("bash")
 ENV = {"PATH": os.defpath, "LANG": "C"}
 BEFORE = b'{"version":2,"plugins":[]}\n'
 AFTER = b'{"version":2,"plugins":[{"id":"acme.tick"}]}\n'
-SCRATCH_PARENT = REPO / "tmp/test-smoke-user-config"
+
 
 
 def restore(writer, home, backup):
@@ -52,8 +52,7 @@ def failed_write(writer, home):
 
 
 def scratch_dir():
-    SCRATCH_PARENT.mkdir(parents=True, exist_ok=True)
-    return tempfile.TemporaryDirectory(dir=SCRATCH_PARENT)
+    return tempfile.TemporaryDirectory()
 
 
 def mutant_writer(scratch, old, new):

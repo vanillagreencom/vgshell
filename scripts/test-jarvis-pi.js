@@ -88,7 +88,7 @@ world(async () => {
         Object.assign(ports, router.ports);
         router.register("windows", { commands: ["hyprctl"], timeoutMs: 1000, cancellable: false,
             start: (call, done) => starts.push({ call, done }) });
-        const runtime = path.join(process.env.JARVIS_TEST_ROOT, "r" + serial.toString(36));
+        const runtime = path.join(process.env.XDG_RUNTIME_DIR, "r" + serial.toString(36));
         bridge = Bridge.create({ router, state: () => runner.state, audit, directory: runtime,
             release: { prepare: () => Promise.resolve([]) } });
         runner.dispatch({ type: "snapshot", locked: false, engine: "chained", configured: true, settings: {} });
@@ -242,7 +242,7 @@ world(async () => {
             assert.deepEqual(program().args.slice(0, -1), recordedArgs("turn"), "the turn's argv is the recorded one");
             const Harness = require(path.join(folder, "backend/PiHarness.js"));
             scenario({ reply: "OK" });
-            await Harness.probe({ directory: account, env, runtime: path.join(process.env.JARVIS_TEST_ROOT, "lockdown"), model: "", text: "x" });
+            await Harness.probe({ directory: account, env, runtime: path.join(process.env.XDG_RUNTIME_DIR, "lockdown"), model: "", text: "x" });
             assert.deepEqual(program().args.slice(0, -1), recordedArgs("bare"), "the probe's argv is the recorded one");
             const offered = flow => recordedRows.filter(row => row.flow === flow && row.direction === "model-request").map(row => row.line.tools);
             assert.ok(offered("turn").length > 0 && offered("turn").every(tools => tools.length > 0 && tools.every(name => name.startsWith("mcp__vgs_jarvis__"))));
@@ -440,7 +440,7 @@ world(async () => {
         // Verify: no tools, no MCP, one prompt after the release record.
         async probe(folder) {
             const Harness = require(path.join(folder, "backend/PiHarness.js"));
-            const runtime = path.join(process.env.JARVIS_TEST_ROOT, "probe");
+            const runtime = path.join(process.env.XDG_RUNTIME_DIR, "probe");
             const probe = () => Harness.probe({ directory: account, env, runtime, model: "", text: "Reply OK." });
             scenario({ reply: "OK" });
             assert.equal(await probe(), "OK");
@@ -464,7 +464,7 @@ world(async () => {
         // while that model is set. No prompt.
         async models(folder) {
             const Harness = require(path.join(folder, "backend/PiHarness.js"));
-            const runtime = path.join(process.env.JARVIS_TEST_ROOT, "models");
+            const runtime = path.join(process.env.XDG_RUNTIME_DIR, "models");
             const listed = [{ provider: "a", id: "one", name: "One", baseUrl: "https://example.invalid" },
                 { provider: "b", id: "two" }, { provider: "c", id: "x".repeat(121) },
                 ...Array.from({ length: 20 }, (_, i) => ({ provider: "d", id: "m" + i }))];
@@ -494,7 +494,7 @@ world(async () => {
         // page reads from Pi. Verify writes the release record before the
         // one prompt.
         async accounts(folder) {
-            const runtime = path.join(process.env.JARVIS_TEST_ROOT, "accounts-runtime");
+            const runtime = path.join(process.env.XDG_RUNTIME_DIR, "accounts-runtime");
             const { judge, directory } = accounts(folder, runtime);
             fs.rmSync(path.join(directory, "audit"), { recursive: true, force: true });
             scenario({ reply: "OK", levels: { "stub/stub-1": ["off", "low", "high"] } });
@@ -530,7 +530,7 @@ world(async () => {
         },
         // Without Pi installed the menu offers it no model.
         async absent(folder) {
-            const runtime = path.join(process.env.JARVIS_TEST_ROOT, "absent-runtime");
+            const runtime = path.join(process.env.XDG_RUNTIME_DIR, "absent-runtime");
             require(path.join(folder, "backend/Core.js")).use(tree);
             const { Accounts } = require(path.join(folder, "backend/Accounts.js"));
             const bare = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "bin-"));
@@ -547,7 +547,7 @@ world(async () => {
         // model read refuses it, the account reads that Pi needs an update,
         // and the engine's choice refuses it before any turn.
         async floor(folder) {
-            const runtime = path.join(process.env.JARVIS_TEST_ROOT, "floor-runtime");
+            const runtime = path.join(process.env.XDG_RUNTIME_DIR, "floor-runtime");
             const Harness = require(path.join(folder, "backend/PiHarness.js"));
             const below = "jarvis: brain=pi-update need=1.1.0";
             for (const [line, want] of [["1.0.2", below], ["0.99.2", below], ["1.0.99", below], ["pi 1.1.0", "jarvis: brain=pi-version-shape"],
@@ -577,7 +577,7 @@ world(async () => {
         // every field Jarvis must leave unread, appears in no event, error,
         // status, audit record, state file or helper output.
         async credential(folder) {
-            const runtime = path.join(process.env.JARVIS_TEST_ROOT, "credential-runtime");
+            const runtime = path.join(process.env.XDG_RUNTIME_DIR, "credential-runtime");
             scenario({ leak: true, turns: [[{ notice: "n" }, chunk("Hi."), { tool: { name: "mcp__vgs_jarvis__fixture", durationMs: 1 } }, { stop: "stop" }],
                 [chunk("x"), { stop: "error" }]] });
             const w = make(folder);

@@ -39,7 +39,7 @@ process.env.TZ = "UTC";
 const repo = path.join(__dirname, "..");
 const pluginDir = path.join(repo, "shell", "plugins", "vgs.automations");
 const Logic = load(path.join(pluginDir, "AutomationsLogic.js"), modules);
-const scratch = path.join(repo, "tmp", "test-automations-engine-" + process.pid);
+const scratch = path.join(os.tmpdir(), "test-automations-engine-" + process.pid);
 // The host tools a case may run: the engine's own, the ones vgshell plugin
 // settings needs, and the ones the commands under test use. systemctl,
 // systemd-run, loginctl, crontab, notify-send and busctl are stand-ins alone.

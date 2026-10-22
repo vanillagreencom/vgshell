@@ -2,6 +2,7 @@
 "use strict";
 const fs = require("fs");
 const path = require("path");
+const os = require("node:os");
 const { load } = require("../bin/lib/qml-library.js");
 
 const LOGIC = path.join(__dirname, "..", "shell", "plugins", "vgs.screensaver", "ScreensaverLogic.js");
@@ -120,7 +121,7 @@ const controls = [
 ];
 
 for (const [name, needle, replacement] of controls) {
-  const scratchRoot = path.join(process.cwd(), "tmp");
+  const scratchRoot = os.tmpdir();
   fs.mkdirSync(scratchRoot, { recursive: true });
   const dir = fs.mkdtempSync(path.join(scratchRoot, "vgs-screensaver-logic-"));
   try {

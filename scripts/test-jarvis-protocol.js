@@ -4,6 +4,7 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 const vm = require("node:vm");
 const { load } = require("../bin/lib/qml-library.js");
 const { freshSuite } = require("./fixtures/jarvis/prepare.js");
@@ -579,7 +580,7 @@ assert.throws(() => Protocol.feed("a".repeat(262144), "a"), { message: "jarvis: 
 assert.throws(() => Protocol.feed("", "é".repeat(131073)), { message: "jarvis: protocol=line-too-long" });
 assert.equal(JSON.stringify(Protocol.feed("one", "\ntwo\nthree")), '{"lines":["one","two"],"tail":"three"}');
 
-const parent = path.resolve(__dirname, "../tmp");
+const parent = os.tmpdir();
 fs.mkdirSync(parent, { recursive: true });
 const root = fs.mkdtempSync(path.join(parent, "jp-"));
 const source = fs.readFileSync(file, "utf8");

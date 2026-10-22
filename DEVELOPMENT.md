@@ -20,9 +20,12 @@ scripts/validate --list                      # the same selection, printed and n
 scripts/validate --changed <commit>          # a fix round: the checks the changes since that commit reach
 scripts/validate unit --full                 # one whole area; unit needs Qt and no Wayland session
 scripts/validate package                     # the Arch recipes in a rootless podman container
+scripts/smoke/gpu-fence.sh -- scripts/test-x.sh # one test in its own world
 ```
 
 Exit 77 means a check could not run and is not a pass. The `qml` area is the nested sandbox and needs `XDG_RUNTIME_DIR` and a render node that is not AMD's, and no `WAYLAND_DISPLAY`; `scripts/qml-smoke.sh` runs it alone. A new check is a row in `scripts/validate` with its must-fail control beside it.
+
+Every validate row runs in the world that `scripts/smoke/gpu-fence.sh` owns, with a read-only checkout and private home, XDG directories and scratch. Package and nix use their own containers. `scripts/test-gpu-fence.sh` runs outside the world to test that boundary. Validate itself keeps selection and last-pass records outside the row worlds.
 
 A run that must outlive a tool call starts detached with HUP, INT and QUIT at their defaults and records its own pid: `setsid env --default-signal=HUP,INT,QUIT bash -c 'echo $$ >tmp/run.pid; exec scripts/validate offline' </dev/null >tmp/run.log 2>&1 &`. Under `nohup` or a bare `&` those signals start ignored, and the signal rows of `scripts/test-gpu-fence.sh` and `scripts/test-vgshell-tui.sh` fail. Wait with `tail --pid=PID -f /dev/null` on the recorded pid, never on `$!`, which `setsid` can leave at once, and never on a `pgrep -f` hit, which can match the caller's own shell.
 
