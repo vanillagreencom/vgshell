@@ -49,7 +49,7 @@
 #
 # The row reads no latency: each reading polls at the harness's interval
 # until the harness's ceiling.
-# inputs: shell/plugins/vgs.polkit/* shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/PluginStatus.qml shell/Core/PackageManagers.js shell/Core/TuiRunner.qml shell/plugins/vgs.settings/* scripts/smoke/fixtures/polkit/* scripts/smoke/rows/capabilities.sh bin/vgshell bin/vgshell-pkg bin/vgshell-tui bin/lib/qml-library.js
+# inputs: shell/plugins/vgs.polkit/* shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/PluginStatus.qml shell/Core/PackageManagers.js shell/Core/TuiRunner.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml scripts/smoke/fixtures/polkit/* scripts/smoke/rows/capabilities.sh bin/vgshell bin/vgshell-pkg bin/vgshell-tui bin/lib/qml-library.js
 set -euo pipefail
 polkit_lent() { ipc shell lent | py_reply 'import json,sys; v=json.load(sys.stdin)
 for k in sys.argv[1].split("."): v=v.get(k) if isinstance(v, dict) else None

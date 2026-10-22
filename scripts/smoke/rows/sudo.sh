@@ -28,7 +28,7 @@
 # before a run's end shows the change is that run's read.
 # Every reading is expect_poll's: 200 reads 0.2 s apart; a run's end is
 # expect_run_end's.
-# inputs: shell/plugins/vgs.sudo/* shell/Core/SudoGrant.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml shell/Core/TuiRecords.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notifier.qml shell/Core/NotificationHub.qml bin/vgshell-sudo-grant bin/vgshell-tui bin/vgshell bin/vgshell-pkg bin/lib/tui.sh shell/Ui/controls/BarItem.qml shell/Ui/BarWidget.qml shell/plugins/vgs.settings/* shell/plugins/vgs.notifications/* scripts/smoke/toplevel/* scripts/smoke/rows/capabilities.sh
+# inputs: shell/plugins/vgs.sudo/* shell/Core/SudoGrant.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml shell/Core/TuiRecords.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notifier.qml shell/Core/NotificationHub.qml bin/vgshell-sudo-grant bin/vgshell-tui bin/vgshell bin/vgshell-pkg bin/lib/tui.sh shell/Ui/controls/BarItem.qml shell/Ui/BarWidget.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/SettingField.qml shell/plugins/vgs.notifications/* scripts/smoke/toplevel/* scripts/smoke/rows/capabilities.sh
 set -euo pipefail
 sudo_uid="$(id -u)"
 sudo_bin="$sudo_grant_root/usr/bin"

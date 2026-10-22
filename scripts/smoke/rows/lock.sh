@@ -63,7 +63,7 @@
 # capability rows' fixture, acme.probe, when an earlier row left it
 # enabled. The row ends with the plugin disabled, the fixture as it found
 # it, the stand-ins gone and hyprland.lua as the consent row left it.
-# inputs: shell/plugins/vgs.lock/* shell/plugins/vgs.settings/* shell/Core/SessionLock.qml shell/Commons/SessionLockState.js shell/Hosts/LockHost.qml shell/Core/IdleRegistry.qml bin/vgshell bin/vgshell-lock scripts/smoke/lock/* shell/Core/HyprlandLayer.js scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/*
+# inputs: shell/plugins/vgs.lock/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Core/SessionLock.qml shell/Commons/SessionLockState.js shell/Hosts/LockHost.qml shell/Core/IdleRegistry.qml bin/vgshell bin/vgshell-lock scripts/smoke/lock/* shell/Core/HyprlandLayer.js scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/*
 set -euo pipefail
 lock_user_config="$home/.config/vgshell/shell.json"
 lock_hypr_lua="$home/.config/hypr/hyprland.lua"

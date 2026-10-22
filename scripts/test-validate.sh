@@ -1378,6 +1378,13 @@ for pattern in inputs.split():
             if not path.exists():
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text('# neutral input\n')
+# The Settings plugin's files, so a change to any of them is a change to a
+# tracked file the fixture's selection reads.
+for original in (repo / 'shell/plugins/vgs.settings').iterdir():
+    path = target / original.relative_to(repo)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        path.write_text('# neutral input\n')
 if variant == 'tailscale-values-control':
     edge = 'shell/Commons/SettingValues.js '
     assert inputs.count(edge) == 1
@@ -1399,10 +1406,16 @@ smoke_tail='start-order,auth-sentinel'
 smoke_launcher="scripts/qml-smoke.sh --rows $smoke_core,launcher,$smoke_always,$smoke_tail"
 smoke_notify="scripts/qml-smoke.sh --rows $smoke_core,notifications,notifications-keys,$smoke_always,$smoke_tail"
 smoke_none="scripts/qml-smoke.sh --rows $smoke_core,$smoke_always,$smoke_tail"
+smoke_tailscale="scripts/qml-smoke.sh --rows $smoke_core,$smoke_always,device-fakes,tailscale,$smoke_tail"
 # name|changed paths|scope|wanted plan|mutant|fixture variant
 smoke_cases=(
   "the shared byte counter selects its Tailscale runtime consumer|shell/Commons/SettingValues.js|changed|scripts/qml-smoke.sh --rows $smoke_core,$smoke_always,device-fakes,tailscale,$smoke_tail||tailscale-values"
   "control: losing the Tailscale byte counter input skips its runtime consumer|shell/Commons/SettingValues.js|changed|$smoke_none||tailscale-values-control"
+  "a change to a Settings file the Tailscale row draws selects it, the status line among them|shell/plugins/vgs.settings/StatusLine.qml|changed|$smoke_tailscale||tailscale-values"
+  "a change to the Settings field selects the Tailscale row, which draws a field|shell/plugins/vgs.settings/SettingField.qml|changed|$smoke_tailscale||tailscale-values"
+  "a change to the Settings key field leaves the Tailscale row out, which has no Keys row|shell/plugins/vgs.settings/KeyField.qml|changed|$smoke_none||tailscale-values"
+  "a change to the Settings rows list leaves the Tailscale row out, which draws none|shell/plugins/vgs.settings/RowsList.qml|changed|$smoke_none||tailscale-values"
+  "a change to the Settings list field leaves the Tailscale row out, which has no list|shell/plugins/vgs.settings/ListField.qml|changed|$smoke_none||tailscale-values"
   "one plugin selects the core rows, its own and the rows that always run|shell/plugins/acme.launcher/Panel.qml|changed|$smoke_launcher||rows"
   "control: a row with no input line no longer runs|shell/plugins/acme.launcher/Panel.qml|changed|scripts/qml-smoke.sh --rows $smoke_core,launcher,stale,twice,blank,lost,$smoke_tail|missing|rows"
   "control: a row whose glob matches nothing no longer runs|shell/plugins/acme.launcher/Panel.qml|changed|scripts/qml-smoke.sh --rows $smoke_core,launcher,bare,twice,blank,lost,$smoke_tail|matches-nothing|rows"

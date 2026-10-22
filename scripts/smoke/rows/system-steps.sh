@@ -45,7 +45,7 @@
 # disk-sleep reads fake whole-disk rotational attributes and rule bytes;
 # its hdparm dependency is false(1), which no probe runs. This row never
 # applies disk-sleep and sends no disk command, even through a stand-in.
-# inputs: scripts/smoke/fixtures/plugins/acme.system/* scripts/smoke/fixtures/plugins/acme.capture/* scripts/smoke/fixtures/system/capture/* shell/Core/SystemSteps.qml bin/vgshell-system bin/vgshell config/system/* scripts/smoke/fixtures/devices/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/plugins/acme.status/* bin/vgshell-tui bin/lib/tui.sh shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/rows/device-fakes.sh
+# inputs: scripts/smoke/fixtures/plugins/acme.system/* scripts/smoke/fixtures/plugins/acme.capture/* scripts/smoke/fixtures/system/capture/* shell/Core/SystemSteps.qml bin/vgshell-system bin/vgshell config/system/* scripts/smoke/fixtures/devices/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/Commons/Reply.js scripts/smoke/fixtures/plugins/acme.status/* bin/vgshell-tui bin/lib/tui.sh shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/rows/device-fakes.sh
 set -euo pipefail
 devices_ready system-steps || return 0
 if ! command -v unshare >/dev/null 2>&1 || ! unshare -r true 2>/dev/null; then

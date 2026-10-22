@@ -29,6 +29,14 @@ A broken environment that reads as a pass hides the regression the check exists 
 - Never add a `repo` row for a check a path pattern can select; a `repo` row runs on every change. Review holds it.
 - Never leave a row out of a scoped run without a line that names it. `scripts/test-validate.sh` holds the lines a scoped run prints.
 
+### Plugin inputs
+
+- Do name the plugin files a row loads on its input line, never the plugin's folder. A file the row's shell never builds cannot change the row's reading, and a folder input runs the row for every file in it. The Settings window builds `Window.qml` and the files it names, and builds `StatusLine.qml`, `KeyField.qml` or `RowsList.qml` only for a plugin page whose manifest declares a status entry, a shortcut or a `rows` list, so a row that opens no such page names none of them. `scripts/test-validate.sh` holds the selection over a real row's input line.
+- Do name the files of the plugin's entry points that the row reaches itself, such as a service the row calls over IPC or a widget it reads. A started shell loads every always-on entry point for every row, and the core rows cover it.
+- Do keep `manifest.json` where the row loads the plugin at all. The core reads it to build each surface.
+- Keep the plugin folder where the row reads the plugin as a whole or its loads cannot be read, such as a row that opens pages by a variable it computes: [D100](../decisions/D100-validation-selects-by-inputs.md) runs a row whose inputs it cannot read. Review holds it.
+- Gap: no check reads which files a row loads. A manifest that gains a status entry, a shortcut or a list makes every page of that plugin load more files, so the rows that open its page need the new file on their line. Review holds it.
+
 ### Test isolation
 
 - Do run every check through the row runner in `scripts/validate`. The world gives each row its own home, XDG directories and scratch root, and removes them after the row. Package and nix use their own containers; `scripts/test-gpu-fence.sh` runs outside the world to test its boundary. Selection and last-pass records stay in validate's own process. `scripts/test-validate.sh` holds it.

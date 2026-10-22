@@ -16,7 +16,7 @@
 # fixture's own subscription keeps the core's server up and the fixture
 # receives the message; with no plugin holding the `notifications` role,
 # acme.notifier's message is dropped and the shell logs one unsent line.
-# inputs: scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.notifier/* shell/Core/Notifier.qml shell/Core/PluginLogic.js shell/Commons/PageReference.js shell/Core/ConfigLogic.js shell/Core/Capabilities.qml shell/Core/NotificationHub.qml shell/Core/Plugins.qml shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* scripts/smoke/rows/plugins.sh
+# inputs: scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.notifier/* shell/Core/Notifier.qml shell/Core/PluginLogic.js shell/Commons/PageReference.js shell/Core/ConfigLogic.js shell/Core/Capabilities.qml shell/Core/NotificationHub.qml shell/Core/Plugins.qml shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/SettingField.qml scripts/smoke/rows/plugins.sh
 set -euo pipefail
 notify_send() { ipc acme.probe invoke notify "$1"; }
 # notify_refused_key OPTIONS_JSON: the key a refusal names, the word after

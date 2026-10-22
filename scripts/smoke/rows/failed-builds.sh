@@ -7,7 +7,7 @@
 # It owes no restart notice either, though rows/manager.sh has planted its
 # control copies in the sandbox's shell/ by then, so the core differs from
 # the one the shell started over: the engine loaded the fixture's files.
-# inputs: shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/fixtures/plugins/acme.broken/* scripts/smoke/fixtures/plugins/acme.nowidget/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/Notices.qml shell/Hosts/BackgroundHost.qml scripts/smoke/rows/manager.sh scripts/smoke/rows/sources.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/capability-release.sh
+# inputs: shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/fixtures/plugins/acme.broken/* scripts/smoke/fixtures/plugins/acme.nowidget/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Commons/Reply.js shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/Notices.qml shell/Hosts/BackgroundHost.qml scripts/smoke/rows/manager.sh scripts/smoke/rows/sources.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/capability-release.sh
 set -euo pipefail
 broken="$home/.config/vgshell/plugins/acme.broken"
 mkdir -p "$broken"

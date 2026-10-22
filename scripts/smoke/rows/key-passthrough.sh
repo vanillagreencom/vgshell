@@ -17,7 +17,7 @@
 # hook. The row appends `input:resolve_binds_by_sym` to the nested
 # hyprland.lua, so wtype's Escape reaches the submap's bind, and puts the
 # file back at its end. Keys go to the nested seat alone.
-# inputs: shell/Core/KeyCapture.qml shell/Core/HyprlandLayer.js shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/toplevel/* shell/Core/Compositor.qml shell/Core/Dispatch.js scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/Core/KeyCapture.qml shell/Core/HyprlandLayer.js shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Service.qml shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/KeyField.qml shell/Commons/Reply.js scripts/smoke/toplevel/* shell/Core/Compositor.qml shell/Core/Dispatch.js scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 
 kp_settings_open() { [[ $(ipc smoke instanceGeometry window vgs.settings) != absent ]] && echo open || echo closed; }

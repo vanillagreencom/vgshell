@@ -13,7 +13,7 @@
 # the holder lists its fixtures alone, and puts each back as it found it.
 # Last, the shipped holder lists Power's section under Hardware and mounts
 # it, and vgs.power and vgs.system are put back as the row found them.
-# inputs: scripts/smoke/fixtures/plugins/acme.pane/* scripts/smoke/fixtures/plugins/acme.panehost/* shell/Hosts/PaneHost.qml shell/Hosts/PluginSlot.qml shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Core/Plugins.qml shell/plugins/vgs.system/* shell/plugins/vgs.power/* shell/plugins/*/manifest.json shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/rows/start-order.sh
+# inputs: scripts/smoke/fixtures/plugins/acme.pane/* scripts/smoke/fixtures/plugins/acme.panehost/* shell/Hosts/PaneHost.qml shell/Hosts/PluginSlot.qml shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Core/Plugins.qml shell/plugins/vgs.system/* shell/plugins/vgs.power/* shell/plugins/*/manifest.json shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/SettingField.qml shell/Commons/Reply.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/rows/start-order.sh
 set -euo pipefail
 
 pane_file="$home/.config/vgshell/shell.json"

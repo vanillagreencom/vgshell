@@ -37,7 +37,7 @@
 # keyboard before it, its Return as Escape, so Escape hid the notice in
 # place of Restore previous settings, in 1 of 4 runs of this row on host
 # cachy on 2026-10-06.
-# inputs: bin/vgshell bin/vgshell-theme-judge shell/shell.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/feedback/Dialog.qml shell/Core/Capabilities.qml shell/Core/HyprlandLayer.qml shell/plugins/vgs.settings/* shell/plugins/vgs.updates/bin/check config/shell.json themes/vgs/theme.json scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/keyboard/* scripts/smoke/rows/hyprland-consent.sh
+# inputs: bin/vgshell bin/vgshell-theme-judge shell/shell.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/feedback/Dialog.qml shell/Core/Capabilities.qml shell/Core/HyprlandLayer.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.updates/bin/check config/shell.json themes/vgs/theme.json scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/keyboard/* scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 reset_tree="$sandbox/tree-reset"
 reset_config="$home/.config/vgshell"
