@@ -25,7 +25,7 @@ A lock descriptor the shell inherits is held by every child the shell starts, so
 - Never relaunch, restart or refuse a run from anywhere but the runner's supervision table in `bin/vgshell`; `scripts/test-vgshell-run.sh` and `scripts/smoke/rows/supervise.sh` pin it.
 - Do keep the next sentence byte for byte; `scripts/check-readme.js` reads it and holds the README's install text to it. Autostart is `hl.on("hyprland.start", function () hl.exec_cmd("vgshell start") end)` in `hyprland.lua`.
 - Never ship a systemd unit for the shell. Review holds it.
-- Do start voxtype's daemon only from `shell/Core/Dictation.qml`, as the shell's child with SIGKILL as its parent-death signal, while a plugin holds capability `dictation`; no plugin and no user unit starts one ([D106](../decisions/D106-dictation-core-lent-over-voxtype.md)). `scripts/smoke/rows/dictation.sh` pins it.
+- Do start voxtype's daemon only from `shell/Core/Dictation.qml`, through `bin/vgshell-dictation`, while a plugin holds capability `dictation`; the helper and its direct child each use SIGKILL as their parent-death signal, and no plugin or user unit starts a daemon ([D106](../decisions/D106-dictation-core-lent-over-voxtype.md)). `scripts/smoke/rows/dictation.sh` pins it.
 
 ### Memory
 

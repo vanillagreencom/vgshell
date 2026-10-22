@@ -3,12 +3,19 @@
 # offer the engine system step, then download the configured model.
 set -euo pipefail
 root="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/.." && pwd -P)"
+source "$root/bin/lib/voxtype.sh"
+# Private transports for Core/Dictation.qml. The helper owns raw child
+# pipes so no unbounded voxtype stream reaches the shell's main thread.
+case "${1:-}" in
+  daemon) [[ $# == 1 ]] || exit 2; vgs_voxtype_supervise daemon voxtype --audio-device default daemon ;;
+  follow) [[ $# == 1 ]] || exit 2; vgs_voxtype_supervise follow voxtype status --follow --extended --format json ;;
+  run) [[ $# -gt 2 && $2 == -- ]] || exit 2; shift 2; vgs_voxtype_supervise run "$@" ;;
+esac
 if [[ $# != 1 || $1 != setup ]]; then
   printf 'vgs-dictation: refused: invocation=setup-required\n' >&2
   exit 2
 fi
 source "$root/bin/lib/tui.sh"
-source "$root/bin/lib/voxtype.sh"
 config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/voxtype"
 config_file="$config_dir/config.toml"
 vgs_tui_header "Set up dictation" "Existing voxtype settings stay in place."

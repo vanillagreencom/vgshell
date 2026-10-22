@@ -94,6 +94,9 @@ Recommends:     imv
 Recommends:     mpv
 # end runtime dependencies
 
+# The dictation child's private ALSA route loads this plugin directly.
+Requires:       pipewire-alsa
+
 %description
 VGS is a desktop shell for Hyprland, built on Quickshell. A small fixed core
 starts the shell, talks to Hyprland, hosts surfaces and loads plugins; the

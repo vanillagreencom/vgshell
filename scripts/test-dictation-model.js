@@ -26,11 +26,11 @@ const FOREIGN = ["ran", "probe", 0, inventory(42)];
 const PROBE_RUN = "run:voxtype info variants --json";
 const CONFIG = [
     ["ran", "audio.max_duration_secs", 0, "210\n"],
-    ["ran", "audio.device", 0, "default\n"],
     ["ran", "engine", 0, "parakeet\n"],
     ["ran", "output.mode", 0, "paste\n"],
     ["ran", "output.auto_submit", 0, "true\n"],
-    ["ran", "text.smart_auto_submit", 0, "false\n"]
+    ["ran", "text.smart_auto_submit", 0, "false\n"],
+    ["ran", "audio.feedback.enabled", 0, "true\n"]
 ];
 const MODEL = ["ran", "model", 0, "parakeet-tdt-0.6b-v3\n"];
 const MODELS = '{"engines":{"parakeet":{"models":[{"name":"parakeet-tdt-0.6b-v3","installed":true}]}}}';
@@ -56,6 +56,46 @@ const TRANSCRIBING = [...READY, ["start", "a", "type", "ok"], ["ran", "start", 0
     ["ran", "stop", 0, ""], read("transcribing")];
 
 const CASES = [
+    ...[["server", false, false], ["sink", false, true], ["source", true, false]].map(([part, output, input]) =>
+        ["a missing PipeWire " + part + " delays daemon launch",
+            [["audio", output, input], ...READY.slice(0, -1)],
+            { daemon: "starting", child: "none", timer: "audio" }, null]),
+    ["PipeWire readiness resumes the waiting startup once",
+        [["audio", false, false], ...READY.slice(0, -1), "|", ["audio", true, true], ["audio", true, true]],
+        { daemon: "starting", child: "running", timer: "none" }, ["timer=0", "daemon", "follow"]],
+    ["a missing audio server fails at the startup deadline without a child",
+        [["audio", false, false], ...READY.slice(0, -1), "|", ["deadline"], ["audio", true, true]],
+        { daemon: "failed", child: "none", timer: "none" }, ["log", "abort"]],
+    ["the last holder release disarms the audio startup deadline",
+        [["audio", false, false], ...READY.slice(0, -1), "|", ["release", "a"], ["audio", true, true]],
+        { daemon: "absent", child: "none", timer: "none" }, ["abort", "timer=0"]],
+    ["restart while waiting disarms that deadline before probing again",
+        [["audio", false, false], ...READY.slice(0, -1), "|", ["restart", "ok"]],
+        { daemon: "starting", child: "none", timer: "none" }, ["abort", "timer=0", PROBE_RUN]],
+    ["a sink change during shutdown cannot overwrite the stop grace",
+        [...READY, ["restart", "ok"], "|", ["audio", false, false], ["exited", 0]],
+        { daemon: "starting", child: "none", timer: "none" }, ["timer=0", PROBE_RUN]],
+    ["a ready daemon survives a transient null default without a restart",
+        [...READY, "|", ["audio", false, false], ["audio", true, true]],
+        { daemon: "ready", child: "running" }, []],
+    ["recording refuses an absent default source without queuing commands",
+        [...READY, ["audio", true, false], "|", ["start", "a", "type", "refused: dictation=audio-unavailable"]],
+        { daemon: "ready", holder: "" }, []],
+    ["a capture-only setup starts without a sink when feedback is off",
+        [["audio", false, true], ["lease", "a"], PROBE, ...CONFIG.slice(0, -1), ["ran", "audio.feedback.enabled", 0, "false\n"], ...SETUP, ["ran", "directory", 0, ""], "|", ["ran", "clean", 0, ""]],
+        { daemon: "starting", child: "running" }, ["daemon", "follow"]],
+    ["a daemon flood leaves one failed state without retrying",
+        [...READY, "|", ["exited", 74], ["unfollowed", 74]],
+        { daemon: "failed", child: "none" }, ["unfollow", "log", "abort"]],
+    ["a follower flood fails once and stops the owned daemon",
+        [...READY, "|", ["unfollowed", 74], ["unfollowed", 74]],
+        { daemon: "failed", child: "stopping" }, ["log", ...END]],
+    ["a command flood fails the daemon and retires pending commands",
+        [...READY, ["start", "a", "type", "ok"], "|", ["ran", "start", 74, ""]],
+        { daemon: "failed", child: "stopping" }, ["log", ...END]],
+    ["a text stop flood cancels before teardown and never returns a transcript",
+        [...TAKEN, ["stop", "a", "ok"], "|", ["ran", "stop", 74, ""]],
+        { daemon: "failed", child: "stopping", holder: "" }, ["log", "abort", CANCEL, "done:" + JSON.stringify({ kind: "failed", reason: "daemon-stream-overflow role=command" }), REMOVE, "timer=2000"]],
     ["a refused non-idle start queues a fresh status read",
         [...TRANSCRIBING, "|", ["start", "a", "type", "refused: dictation=engine-busy state=transcribing"]],
         { holder: "", phase: "unread" }, [READ]],
@@ -94,7 +134,7 @@ const CASES = [
         { daemon: "starting", child: "none" }, [PROBE_RUN]],
     ["the probe's explicit null reads the config, one key at a time",
         [["lease", "a"], "|", PROBE, CONFIG[0]],
-        { daemon: "starting", child: "none" }, ["run:voxtype config get audio.max_duration_secs", "run:voxtype config get audio.device"]],
+        { daemon: "starting", child: "none" }, ["run:voxtype config get audio.max_duration_secs", "run:voxtype config get engine"]],
     ["the last start step removes the killed daemon's state file before the child starts",
         [["lease", "a"], PROBE, ...CONFIG, ...SETUP, "|", ["ran", "directory", 0, ""]],
         { daemon: "starting", child: "none" }, ["run:rm -f -- " + STATE_PATH]],
@@ -148,13 +188,13 @@ const CASES = [
         [["lease", "a"], PROBE, ["ran", "audio.max_duration_secs", 0, "null\n"], CONFIG[1], CONFIG[2], CONFIG[3], CONFIG[4], "|", CONFIG[5]],
         { daemon: "failed", child: "none" }, ["log", "abort"]],
     ["an output mode outside voxtype's set fails the start",
-        [["lease", "a"], PROBE, CONFIG[0], CONFIG[1], CONFIG[2], ["ran", "output.mode", 0, "weird\n"], CONFIG[4], "|", CONFIG[5]],
+        [["lease", "a"], PROBE, CONFIG[0], CONFIG[1], ["ran", "output.mode", 0, "weird\n"], CONFIG[3], CONFIG[4], "|", CONFIG[5]],
         { daemon: "failed", child: "none" }, ["log", "abort"]],
     ["an auto-submit value outside true and false fails the start",
-        [["lease", "a"], PROBE, CONFIG[0], CONFIG[1], CONFIG[2], CONFIG[3], ["ran", "output.auto_submit", 0, "maybe\n"], "|", CONFIG[5]],
+        [["lease", "a"], PROBE, CONFIG[0], CONFIG[1], CONFIG[2], ["ran", "output.auto_submit", 0, "maybe\n"], CONFIG[4], "|", CONFIG[5]],
         { daemon: "failed", child: "none" }, ["log", "abort"]],
     ["a smart auto-submit value outside true and false fails the start",
-        [["lease", "a"], PROBE, CONFIG[0], CONFIG[1], CONFIG[2], CONFIG[3], CONFIG[4], "|", ["ran", "text.smart_auto_submit", 0, "maybe\n"]],
+        [["lease", "a"], PROBE, CONFIG[0], CONFIG[1], CONFIG[2], CONFIG[3], ["ran", "text.smart_auto_submit", 0, "maybe\n"], "|", CONFIG[5]],
         { daemon: "failed", child: "none" }, ["log", "abort"]],
     ["a daemon that ends on its own reads failed",
         [...READY, "|", ["exited", 1]],
@@ -206,8 +246,8 @@ const CASES = [
         [...TAKEN, ["exited", null], ["restart", "ok"], PROBE, ...CONFIG, ...SETUP, ["ran", "directory", 0, ""], ["ran", "clean", 0, ""], ["status", line("idle")], "|", ["start", "a", "type", "ok"]],
         { holder: "a", mode: "type" }, [TYPE_START]],
     ["a type start names the other configured values: file output, no auto-submit, smart auto-submit",
-        [["lease", "a"], PROBE, CONFIG[0], CONFIG[1], CONFIG[2], ["ran", "output.mode", 0, "file\n"], ["ran", "output.auto_submit", 0, "false\n"],
-            ["ran", "text.smart_auto_submit", 0, "true\n"], ...SETUP, ["ran", "directory", 0, ""], ["ran", "clean", 0, ""], ["status", line("idle")], "|", ["start", "a", "type", "ok"]],
+        [["lease", "a"], PROBE, CONFIG[0], CONFIG[1], ["ran", "output.mode", 0, "file\n"], ["ran", "output.auto_submit", 0, "false\n"],
+            ["ran", "text.smart_auto_submit", 0, "true\n"], CONFIG[5], ...SETUP, ["ran", "directory", 0, ""], ["ran", "clean", 0, ""], ["status", line("idle")], "|", ["start", "a", "type", "ok"]],
         { holder: "a", mode: "type" }, ["run:voxtype record start --no-auto-submit --smart-auto-submit --file"]],
     ["mode text records to a file and arms the cancel a second before the cap",
         [...READY, "|", ["start", "a", "text", "ok"]],
@@ -380,7 +420,7 @@ const CASES = [
         [...READY, ["start", "a", "text", "ok"], "|", ["ran", "start", 1, ""]],
         { holder: "", phase: "unread" }, ["timer=0", REMOVE, READ]],
     ["a config value that cannot be read fails the start",
-        [["lease", "a"], PROBE, CONFIG[0], "|", ["ran", "audio.device", 1, ""]],
+        [["lease", "a"], PROBE, CONFIG[0], "|", ["ran", "engine", 1, ""]],
         { daemon: "failed", child: "none" }, ["log", "abort"]],
     ["restart is refused while a recording runs",
         [...READY, ["start", "a", "type", "ok"], "|", ["restart", "refused: dictation=busy holder=a"]],
@@ -414,7 +454,7 @@ function verify(M) {
     for (const [value, expected] of [[null, "absent"], [2, "elsewhere"], [2147483647, "elsewhere"]])
         assert.equal(M.ownershipOf(inventory(value)), expected, "public liveness PID domain: " + value);
     for (const [label, events, want, effects] of CASES) {
-        let model = M.initial(DIR, STATE_PATH), seen = null;
+        let model = M.initial(DIR, STATE_PATH, true, true), seen = null;
         for (const event of events) {
             if (event === "|") {
                 seen = [];
@@ -438,7 +478,7 @@ function verify(M) {
         ["unread models", "bad-json", ENGINES, true, false],
         ["unread engines", MODELS, "bad-json", false, true]
     ]) {
-        let model = M.initial(DIR, STATE_PATH);
+        let model = M.initial(DIR, STATE_PATH, true, true);
         const effects = [];
         for (const [name, ...args] of [["lease", "a"], PROBE, ...CONFIG, ...SETUP.slice(0, 2), ["ran", "models", 0, models], ["ran", "engines", 0, engines]]) {
             const step = M[name](model, ...args);
@@ -455,9 +495,9 @@ function verify(M) {
         assert.equal(Object.isFrozen(held), true, label + ": setup is immutable");
         assert.equal(M.start(model, "a", "type").answer, "refused: dictation=daemon-absent", label + ": recording refused");
     }
-    assert.throws(() => M.release(M.initial(DIR, STATE_PATH), "a"), /release by a which holds none/, "a release with no lease is an error");
-    assert.throws(() => M.start(M.initial(DIR, STATE_PATH), "a", "type"), /start by a which holds no lease/, "a start with no lease is an error");
-    assert.deepEqual(Object.keys(JSON.parse(JSON.stringify(M.record(M.initial(DIR, STATE_PATH))))).sort(), ["child", "daemon", "holder", "holders", "mode"], "the lending record holds no path and no text");
+    assert.throws(() => M.release(M.initial(DIR, STATE_PATH, true, true), "a"), /release by a which holds none/, "a release with no lease is an error");
+    assert.throws(() => M.start(M.initial(DIR, STATE_PATH, true, true), "a", "type"), /start by a which holds no lease/, "a start with no lease is an error");
+    assert.deepEqual(Object.keys(JSON.parse(JSON.stringify(M.record(M.initial(DIR, STATE_PATH, true, true))))).sort(), ["child", "daemon", "holder", "holders", "mode"], "the lending record holds no path and no text");
 }
 
 verify(load(file));
@@ -520,7 +560,10 @@ const CONTROLS = [
     ["a text recording is cancelled before the daemon ends", '    if (s.child === "running" && r !== null && r.mode === "text") {', "    if (false) {"],
     ["the daemon ends only once the cancel command ended", '    if (s.child === "draining" && s.pending === 0 && s.status === "idle") endChild(s, effects);', '    if (s.child === "draining" && s.status === "idle") endChild(s, effects);'],
     ["a daemon that takes no cancel is ended at the grace", '        effects.push({ kind: "log", line: "dictation: cancel=unread state=" + t.status });\n        endChild(t, effects);', '        effects.push({ kind: "log", line: "dictation: cancel=unread state=" + t.status });'],
-    ["a daemon that ends on its own fails", '        fail(t, effects, "ended code=" + (code === null ? "none" : code));\n', ""],
+    ["a daemon that ends on its own fails", '        fail(t, effects, daemonReason);\n', ""],
+    ["a bounded command overflow fails the owner", '    if (code === 74) {\n', '    if (false) {\n'],
+    ["audio readiness gates daemon launch", '        if (audioAvailable(s)) launch(s, effects);', '        if (true) launch(s, effects);'],
+    ["source readiness gates capture", '    else if (!t.inputReady) answer = "refused: dictation=audio-unavailable";\n', ''],
     ["the follower's stopped is not ready", '    if (word === "stopped") return { model: t, effects: effects };\n', ""],
     ["an unreadable cap fails the start", '    if (!Number.isInteger(secs) || secs <= CAP_MARGIN_S) return "config max_duration_secs=" + JSON.stringify(s.config["audio.max_duration_secs"]);\n', ""],
     ["the lending record names no path", "function record(s) {\n    return {\n", "function record(s) {\n    return {\n        path: s.recording === null ? \"\" : s.recording.path,\n"]

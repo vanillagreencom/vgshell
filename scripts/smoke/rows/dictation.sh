@@ -605,5 +605,44 @@ start_shell "$repo" "$sandbox/dictation-restored.log"
 expect "the fixture is disabled on the tree's shell" ok ipc shell setPluginEnabled acme.dictation false
 expect_poll "the tree's shell holds no dictation after the controls" null lent holders.dictation
 expect_poll "the tree's shell runs no stand-in process" "$dictation_none" dictation_processes all
+# The pre-fix nested run on cachy, 2026-10-21, measured shell main CPU
+# 99.592% at 87.8 MB/s stderr, cpu some avg10 0.79 -> 0.67. Require less
+# than one quarter of a core over the same 5 s window. The failed state
+# and ended children independently reject the old unbounded transport.
+dictation_cpu_window() { # TRIGGER, empty for idle
+  python3 -c 'import json,os,pathlib,sys,time
+shell,daemon,trigger=sys.argv[1:]
+def ticks(pid,main=False):
+    try:
+        p=pathlib.Path("/proc")/pid
+        s=(p/("task/"+pid+"/stat" if main else "stat")).read_text().rsplit(")",1)[1].split()
+        return int(s[11])+int(s[12])
+    except (OSError,ValueError,IndexError): return None
+before=ticks(shell,True); daemon_before=ticks(daemon)
+pressure=pathlib.Path("/proc/pressure/cpu").read_text().strip()
+start=time.monotonic()
+if trigger: pathlib.Path(trigger).touch()
+time.sleep(5)
+seconds=time.monotonic()-start
+after=ticks(shell,True); daemon_after=ticks(daemon)
+clock=os.sysconf("SC_CLK_TCK")
+def percent(a,b): return None if a is None or b is None else (b-a)/clock/seconds*100
+print(json.dumps({"seconds":seconds,"shell_main_pct":percent(before,after),"voxtype_pct":percent(daemon_before,daemon_after),"voxtype_ended":daemon_after is None,"cpu_pressure_before":pressure,"cpu_pressure_after":pathlib.Path("/proc/pressure/cpu").read_text().strip()}))' "$shell_qs_pid" "$(cat "$rt_dir/voxtype/voxtype.lock")" "$1"
+}
+dictation_flood="$sandbox/voxtype-stderr-flood"
+expected_errors+=('dictation: daemon=failed reason=stream-overflow role=daemon')
+expect "the fixture enables for the stream reading" ok ipc shell setPluginEnabled acme.dictation true
+expect_poll "the fixture is idle before its stream reading" "ready idle -" dictation_state acme.dictation
+dictation_idle_cpu="$(dictation_cpu_window '')"
+printf '  dictation_cpu phase=idle %s\n' "$dictation_idle_cpu"
+dictation_flood_cpu="$(dictation_cpu_window "$dictation_flood")"
+printf '  dictation_cpu phase=stderr-flood %s\n' "$dictation_flood_cpu"
+expect "a stderr flood stays below a quarter shell main core" True py_reply 'import json,sys; d=json.load(sys.stdin); p=d.get("shell_main_pct"); print(isinstance(p,(int,float)) and 0<=p<25)' <<<"$dictation_flood_cpu"
+expect_poll "a stderr flood leaves one failed dictation state" "failed idle -" dictation_state acme.dictation
+expect_poll "the overflowing daemon and its follower are reaped" "$dictation_none" dictation_processes all
+expect "one failure is logged for the overflowing daemon" 1 log_lines 'dictation: daemon=failed reason=stream-overflow role=daemon'
+rm -f -- "${dictation_flood:?}"
+expect "disabling the failed fixture releases its hold" ok ipc shell setPluginEnabled acme.dictation false
+
 dictation_stand_ins off
 rm -f -- "${dictation_words:?}" "${dictation_notes:?}" "${dictation_typed:?}" "${dictation_loading:?}" "${dictation_follow:?}" "${dictation_daemon_fail:?}" "${dictation_liveness_unreadable:?}"

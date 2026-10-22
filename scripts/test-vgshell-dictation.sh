@@ -121,4 +121,72 @@ import pathlib,sys
 p=pathlib.Path(sys.argv[1]); s=p.read_text(); a='--model "$model"'; assert s.count(a)==1; p.write_text(s.replace(a,'--model wrong-model'))
 PY
 check "control: the download contract rejects a wrong model" test "$(setup_run; echo $?)" == 1
+# All three transports own both raw pipes. A finite hostile child makes
+# the same failure reproducible without relying on a timeout or a device.
+cp -- "$tmp/setup-source" "$tree/bin/vgshell-dictation"
+cat >"$commands/voxtype" <<'STUB'
+#!/usr/bin/env python3
+import os, pathlib, sys
+case = os.environ.get("DICTATION_STREAM_CASE", "valid")
+if case == "argv":
+    with open(os.environ["DICTATION_ARGV_FILE"], "w") as log:
+        log.write(" ".join(sys.argv[1:]) + "\n" + pathlib.Path(os.environ["ALSA_CONFIG_PATH"]).read_text())
+elif case in ("stdout", "stderr"):
+    fd = 1 if case == "stdout" else 2
+    for _ in range(2048):
+        os.write(fd, b"x" * 4096)
+elif case == "lines":
+    for _ in range(256):
+        os.write(1, b'{"alt":"idle"}\n')
+elif case == "valid":
+    if "status" in sys.argv:
+        print('{"alt":"idle"}')
+    elif "daemon" not in sys.argv:
+        print('{"status":"ok","text":"bounded transcript"}')
+    print("diagnostic", file=sys.stderr)
+    sys.exit(3)
+STUB
+chmod +x "$commands/voxtype"
+transport_readings() {
+  "${base_env[@]}" PATH="$commands:$base_path" python3 - "$BASH" "$tree/bin/vgshell-dictation" "$tmp" <<'TEST'
+import os, pathlib, shutil, subprocess, sys
+bash, helper, scratch = sys.argv[1:]
+def run(role, case, target=helper):
+    args = [role] if role != "run" else ["run", "--", "voxtype", "probe"]
+    return subprocess.run([bash, target, *args], env={**os.environ, "ALSA_CONFIG_PATH": "/vgs-deliberately-absent", "DICTATION_STREAM_CASE": case, "DICTATION_ARGV_FILE": scratch + "/transport.argv"}, capture_output=True, timeout=15)
+for role in ("daemon", "follow", "run"):
+    result = run(role, "valid")
+    assert result.returncode == 3, (role, result)
+    assert result.stderr.strip() == b"diagnostic", (role, result)
+    assert (result.stdout == b"") == (role == "daemon"), (role, result)
+    for stream in ("stdout", "stderr"):
+        result = run(role, stream)
+        assert result.returncode == 74, (role, stream, result.returncode)
+        assert len(result.stdout) <= 1048576 and len(result.stderr) <= 200, (role, stream)
+        assert b"stream=overflow" in result.stderr, (role, stream)
+result = run("follow", "lines")
+assert result.returncode == 74 and len(result.stdout.splitlines()) <= 32, result
+result = run("daemon", "argv")
+assert result.returncode == 0 and result.stdout == b"", result
+args, route = pathlib.Path(scratch, "transport.argv").read_text().split("\n", 1)
+assert args == "--audio-device default daemon"
+assert "pcm.!default" in route and "ctl.!default" in route
+assert 'playback_node "-1"' in route and 'capture_node "-1"' in route
+assert "type hw" not in route and "<" not in route
+# The same behavioral assertion must reject a disposable transport whose
+# raw-byte governor is removed; its child is finite and needs no cleanup.
+control = pathlib.Path(scratch) / "transport-control"
+(control / "bin/lib").mkdir(parents=True)
+shutil.copyfile(helper, control / "bin/vgshell-dictation")
+source = pathlib.Path(helper).parent / "lib/voxtype.sh"
+text = source.read_text()
+needle = "            if credit < 0:\n"
+assert text.count(needle) == 1
+(control / "bin/lib/voxtype.sh").write_text(text.replace(needle, "            if False:\n"))
+mutant = run("daemon", "stderr", str(control / "bin/vgshell-dictation"))
+assert mutant.returncode != 74, mutant
+print("transport readings: bounded daemon/follow/run stdout and stderr; control rejected")
+TEST
+}
+check "private dictation transports bound all child streams and retain finite results" transport_readings
 rows_done "$suite"

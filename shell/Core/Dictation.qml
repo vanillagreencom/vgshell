@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Services.Pipewire
 import "DictationModel.js" as Model
 
 // Owns the `dictation` capability (D106): voxtype's one recording, lent to
@@ -8,20 +9,27 @@ import "DictationModel.js" as Model
 // plugin holds the capability. DictationModel.js makes every decision; this
 // scope runs its effects on the daemon child, the status follower, one
 // serial command runner, the one timer and the start check, and hands it
-// their output and ends as events. Every program is resolved on the
-// shell's PATH.
+// their output and ends as events. The shipped helper bounds their raw
+// streams outside the shell and resolves voxtype on the shell's PATH.
 Scope {
     id: root
 
     // The plugin ids that hold the capability, as Capabilities accounts for
     // them: each id that enters is a lease and each that leaves a release.
     property var holders: []
+    // Pipewire.ready follows the initial server sync; either default can
+    // still be null (Quickshell 0.3.1, Pipewire singleton).
+    readonly property bool outputReady: Pipewire.ready && Pipewire.defaultAudioSink !== null
+    readonly property bool inputReady: Pipewire.ready && Pipewire.defaultAudioSource !== null
+    onOutputReadyChanged: if (model !== undefined) apply(Model.audio(model, outputReady, inputReady))
+    onInputReadyChanged: if (model !== undefined) apply(Model.audio(model, outputReady, inputReady))
     // Replaced whole on every event, so the provider's `state` is bindable.
-    property var model: Model.initial(Quickshell.env("XDG_RUNTIME_DIR") + "/vgshell/dictation", Quickshell.env("XDG_RUNTIME_DIR") + "/voxtype/state")
+    property var model: Model.initial(Quickshell.env("XDG_RUNTIME_DIR") + "/vgshell/dictation", Quickshell.env("XDG_RUNTIME_DIR") + "/voxtype/state", outputReady, inputReady)
     // The commands the model asked for that have not started, oldest first.
     property var queue: []
     // The callback of the stop that waits, or null.
     property var waiting: null
+    readonly property string transport: Quickshell.shellDir + "/../bin/vgshell-dictation"
 
     // What voxtype needs of the session: its config and runtime
     // directories, the display and session bus its output and its
@@ -79,7 +87,6 @@ Scope {
             return;
         case "daemon":
             daemon.completion = null;
-            daemon.lastError = "";
             daemon.running = true;
             return;
         case "term":
@@ -142,7 +149,7 @@ Scope {
         runner.tag = next.tag;
         runner.aborted = false;
         runner.completion = null;
-        runner.command = guarded(next.argv);
+        runner.command = guarded([transport, "run", "--"].concat(next.argv));
         runner.running = true;
     }
 
@@ -195,21 +202,18 @@ Scope {
     Process {
         id: daemon
         property var completion: null
-        // The last line voxtype logged, for the warning of an end nothing
-        // asked for; its log is not kept.
-        property string lastError: ""
-        command: root.guarded(["voxtype", "daemon"])
+        // The helper bounds raw bytes before QProcess. A null parser
+        // alone still drains the pipe in Qt (Qt 6.12 qprocess.cpp).
+        command: root.guarded([root.transport, "daemon"])
         clearEnvironment: true
         environment: root.environment
-        stdout: SplitParser {}
-        stderr: SplitParser { onRead: line => { daemon.lastError = line.slice(0, 200); } }
+        stderr: StdioCollector { id: daemonErr }
         onExited: (code, status) => { completion = { code: code, status: status }; }
         onRunningChanged: {
             if (running) return;
             const code = completion === null || completion.status !== 0 ? null : completion.code;
             completion = null;
-            if (root.model.child === "running") console.warn("dictation: daemon stderr=" + JSON.stringify(lastError));
-            root.apply(Model.exited(root.model, code));
+            root.apply(Model.exited(root.model, code, daemonErr.text.trim()));
         }
     }
 
@@ -219,18 +223,22 @@ Scope {
         id: follower
         property bool wanted: false
         property bool stopping: false
-        command: root.guarded(["voxtype", "status", "--follow", "--extended", "--format", "json"])
+        property var completion: null
+        command: root.guarded([root.transport, "follow"])
         clearEnvironment: true
         environment: root.environment
         stdout: SplitParser { onRead: line => root.apply(Model.status(root.model, line)) }
-        stderr: SplitParser { onRead: line => console.warn("dictation: status " + line.slice(0, 200)) }
+        stderr: StdioCollector { id: followerErr }
+        onExited: (code, status) => { completion = { code: code, status: status }; }
         onRunningChanged: {
-            if (running) return;
+            if (running) { completion = null; return; }
+            const code = completion === null || completion.status !== 0 ? null : completion.code;
+            completion = null;
             const asked = stopping;
             stopping = false;
             if (!asked) {
                 wanted = false;
-                root.apply(Model.unfollowed(root.model));
+                root.apply(Model.unfollowed(root.model, code, followerErr.text.trim()));
             } else if (wanted) {
                 running = true;
             }
@@ -253,7 +261,7 @@ Scope {
             completion = null;
             if (!aborted) {
                 const complaint = runnerErr.text.trim();
-                if (code !== 0 && complaint !== "") console.warn("dictation: " + tag + " code=" + (code === null ? "none" : code) + " stderr=" + JSON.stringify(complaint.slice(0, 200)));
+                if (code !== 0 && code !== 74 && complaint !== "") console.warn("dictation: " + tag + " code=" + (code === null ? "none" : code) + " stderr=" + JSON.stringify(complaint.slice(0, 200)));
                 root.apply(Model.ran(root.model, tag, code, runnerOut.text));
             }
             root.pump();

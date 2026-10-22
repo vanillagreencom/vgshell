@@ -63,7 +63,7 @@ var STATE = "state";
 var STATUS_ARGV = ["voxtype", "status", "--format", "json"];
 var DIRECTORY = "directory";
 var CLEAN = "clean";
-var CONFIG_KEYS = ["audio.max_duration_secs", "audio.device", "engine", "output.mode", "output.auto_submit", "text.smart_auto_submit"];
+var CONFIG_KEYS = ["audio.max_duration_secs", "engine", "output.mode", "output.auto_submit", "text.smart_auto_submit", "audio.feedback.enabled"];
 var SETUP_KEYS = ["version", "model", "models", "engines"];
 var OUTPUT_MODES = ["type", "clipboard", "paste", "file"];
 
@@ -71,10 +71,10 @@ var OUTPUT_MODES = ["type", "clipboard", "paste", "file"];
 // STATE_PATH is voxtype's documented state_file=auto path, which a killed
 // daemon leaves behind because only a graceful shutdown removes it
 // (docs/CONFIGURATION.md, src/daemon.rs:4606).
-function initial(dir, statePath) {
+function initial(dir, statePath, outputReady, inputReady) {
     return {
         dir: dir, statePath: statePath, holders: [], daemon: "absent", step: "", child: "none", timer: "none",
-        recording: null, late: false, delivery: 0, reconciling: false, files: 0, pending: 0, status: "idle", config: {}, setup: null, elsewhere: false, maxSecs: 0, engine: "", model: "", device: "", typeFlags: []
+        recording: null, late: false, delivery: 0, reconciling: false, files: 0, pending: 0, status: "idle", config: {}, setup: null, elsewhere: false, maxSecs: 0, engine: "", model: "", device: "", typeFlags: [], outputReady: outputReady, inputReady: inputReady
     };
 }
 
@@ -167,6 +167,7 @@ function begin(s, effects) {
 // go first, so a `record stop --wait` does not wait out a dead daemon.
 function endChild(s, effects) {
     abort(s, effects);
+    if (s.timer === "audio") setTimer(s, effects, "none", 0);
     if (s.child !== "running" && s.child !== "draining") return;
     s.child = "stopping";
     effects.push({ kind: "unfollow" }, { kind: "term" });
@@ -217,6 +218,7 @@ function drained(s, effects) {
 }
 
 function fail(s, effects, reason) {
+    if (s.daemon === "failed") return;
     effects.push({ kind: "log", line: "dictation: daemon=failed reason=" + reason });
     end(s, effects, "daemon-" + reason);
     s.daemon = s.holders.length === 0 ? "absent" : "failed";
@@ -265,6 +267,7 @@ function start(s, id, mode) {
         return { model: recovery.model, effects: recovery.effects, answer: "refused: dictation=daemon-" + recovery.model.daemon };
     }
     else if (t.daemon !== "ready") answer = "refused: dictation=daemon-" + t.daemon;
+    else if (!t.inputReady) answer = "refused: dictation=audio-unavailable";
     // A start the daemon gets while it transcribes starts nothing, and
     // one queued behind an earlier recording's commands would run among
     // them.
@@ -349,8 +352,11 @@ function configured(s) {
     if (autoSubmit !== "true" && autoSubmit !== "false") return "config output.auto_submit=" + JSON.stringify(autoSubmit);
     var smartAutoSubmit = s.config["text.smart_auto_submit"];
     if (smartAutoSubmit !== "true" && smartAutoSubmit !== "false") return "config text.smart_auto_submit=" + JSON.stringify(smartAutoSubmit);
+    if (["true", "false"].indexOf(s.config["audio.feedback.enabled"]) === -1) return "config audio.feedback.enabled=unread";
     s.maxSecs = secs;
-    s.device = s.config["audio.device"];
+    // The daemon's --audio-device default override routes capture to
+    // PipeWire's selected source, including with an existing raw ALSA name.
+    s.device = "default";
     s.engine = s.config.engine;
     // `record start` writes these per-recording override files before it
     // signals the daemon (src/app/record.rs:36-68). A killed recording can
@@ -439,9 +445,11 @@ function stepped(s, effects, tag, code, out) {
         return;
     }
     if (tag === CLEAN) {
-        s.step = "child";
-        s.child = "running";
-        effects.push({ kind: "daemon" }, { kind: "follow" });
+        s.step = "audio";
+        if (audioAvailable(s)) launch(s, effects);
+        // This reuses the shutdown grace as a chosen startup failure
+        // deadline, not a measured PipeWire startup latency budget.
+        else setTimer(s, effects, "audio", GRACE_MS);
         return;
     }
     s.config[tag] = text;
@@ -472,6 +480,27 @@ function stepped(s, effects, tag, code, out) {
     }
 }
 
+function audioAvailable(s) {
+    return s.inputReady && (s.config["audio.feedback.enabled"] === "false" || s.outputReady);
+}
+
+function launch(s, effects) {
+    if (s.timer === "audio") setTimer(s, effects, "none", 0);
+    s.step = "child";
+    s.child = "running";
+    effects.push({ kind: "daemon" }, { kind: "follow" });
+}
+
+// Pipewire's initial sync and default-node property changes feed this
+// event. A ready daemon keeps running across transient default changes.
+function audio(s, outputReady, inputReady) {
+    var t = clone(s), effects = [];
+    t.outputReady = outputReady;
+    t.inputReady = inputReady;
+    if (t.daemon === "starting" && t.step === "audio" && audioAvailable(t)) launch(t, effects);
+    return { model: t, effects: effects };
+}
+
 // The last record command of an ended recording ended: the daemon is read
 // once. `voxtype status --follow` prints a state only when it differs from
 // the last one it printed (src/app/status.rs:107-119), so a daemon that
@@ -485,6 +514,12 @@ function settle(s, effects) {
 // start or ended on a signal, and OUT its stdout.
 function ran(s, tag, code, out) {
     var t = clone(s), effects = [], r = t.recording;
+    // The stream supervisor reserves 74 for a raw byte/record bound. A
+    // flooded command invalidates this daemon, not just that command.
+    if (code === 74) {
+        fail(t, effects, "stream-overflow role=command");
+        return { model: t, effects: effects };
+    }
     if ([STATE, "start", "stop", "cancel"].indexOf(tag) !== -1) {
         if (t.pending === 0) throw new Error("dictation: command " + JSON.stringify(tag) + " ended with none pending");
         t.pending -= 1;
@@ -611,7 +646,7 @@ function status(s, line) {
 }
 
 // The daemon child ended; CODE is null for one that did not start.
-function exited(s, code) {
+function exited(s, code, complaint) {
     if (s.child === "none") throw new Error("dictation: exit with no child");
     var t = clone(s), effects = [], was = t.child;
     t.child = "none";
@@ -620,7 +655,9 @@ function exited(s, code) {
     if (t.timer === "grace" || t.timer === "drain") setTimer(t, effects, "none", 0);
     if (was !== "stopping") effects.push({ kind: "unfollow" });
     if (was === "running") {
-        fail(t, effects, "ended code=" + (code === null ? "none" : code));
+        var daemonReason = code === 74 ? "stream-overflow role=daemon" : "ended code=" + (code === null ? "none" : code);
+        if (complaint) daemonReason += " stderr=" + JSON.stringify(complaint);
+        fail(t, effects, daemonReason);
         return { model: t, effects: effects };
     }
     if (was === "draining") abort(t, effects);
@@ -640,16 +677,18 @@ function checked(s) {
 
 // The follower ended on its own while the child runs: nothing reads the
 // daemon any more.
-function unfollowed(s) {
+function unfollowed(s, code, complaint) {
     var t = clone(s), effects = [];
-    if (t.child === "running") fail(t, effects, "follower-ended");
+    if (t.child === "running") fail(t, effects, (code === 74 ? "stream-overflow role=follower" : "follower-ended") + (complaint ? " stderr=" + JSON.stringify(complaint) : ""));
     return { model: t, effects: effects };
 }
 
 function deadline(s) {
     var t = clone(s), effects = [], timer = t.timer;
     t.timer = "none";
-    if (timer === "cap" && t.recording !== null) {
+    if (timer === "audio" && t.daemon === "starting" && t.step === "audio") {
+        fail(t, effects, "audio-unavailable");
+    } else if (timer === "cap" && t.recording !== null) {
         effects.push({ kind: "log", line: "dictation: recording=cancelled reason=cap holder=" + t.recording.holder });
         cancelRecording(t, effects, "");
     } else if (timer === "grace" && t.child === "stopping") {

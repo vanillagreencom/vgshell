@@ -119,7 +119,11 @@
                 '#!/usr/bin/env bash' | '#!/bin/bash') ;;
                 *) continue ;;
               esac
-              awk -v line="$line" 'NR > 1 && !done && !/^#/ { print line; done = 1 } { print } END { if (!done) print line }' "$entry" >"$entry.nix-path"
+              entry_line="$line"
+              case "$entry" in
+                */vgshell-dictation) entry_line='export ALSA_PLUGIN_DIR=${pkgs.pipewire}/lib/alsa-lib; '"$line" ;;
+              esac
+              awk -v line="$entry_line" 'NR > 1 && !done && !/^#/ { print line; done = 1 } { print } END { if (!done) print line }' "$entry" >"$entry.nix-path"
               cat "$entry.nix-path" >"$entry"
               rm "$entry.nix-path"
             done

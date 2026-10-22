@@ -255,8 +255,8 @@ dictation_stand_ins() { # on|off
   [[ $(shell_resolves voxtype) == "$shim/voxtype" ]]
 }
 # The stand-in's processes by role: `all` includes foreign processes and
-# orphans; `owned` counts only direct children of shell_qs_pid. A matching
-# fixture subprocess must not count as a second shell-owned role.
+# orphans; `owned` counts direct children and raw children of exactly one
+# direct dictation transport. Fixture forks are not another owned role.
 # With `pids` it prints all matching pids for cleanup.
 dictation_processes() { # all|owned|pids
   python3 - "$shim/voxtype" "${shell_qs_pid:-none}" "$1" <<'PY'
@@ -278,9 +278,22 @@ for pid in os.listdir("/proc"):
     if stand_in not in args:
         continue
     verb = args[args.index(stand_in) + 1:]
+    while len(verb) >= 2 and verb[0] in ("--config", "--audio-device"):
+        verb = verb[2:]
     kind = "daemon" if verb[:1] == ["daemon"] else "follower" if verb[:2] == ["status", "--follow"] else "other"
     counts["all"][kind] += 1
-    if parent == shell:
+    owned = parent == shell
+    if not owned:
+        try:
+            with open(f"/proc/{parent}/cmdline", "rb") as f:
+                owner_args = f.read().decode(errors="replace").split("\0")
+            with open(f"/proc/{parent}/status") as f:
+                owner_parent = next(line.split()[1] for line in f if line.startswith("PPid:"))
+            role = "daemon" if kind == "daemon" else "follow" if kind == "follower" else "run"
+            owned = owner_parent == shell and os.path.basename(owner_args[0]) == "python3" and owner_args[1:4] == ["-", role, "voxtype"]
+        except (OSError, StopIteration, IndexError):
+            pass
+    if owned:
         counts["owned"][kind] += 1
     pids.append(pid)
 print(" ".join(pids) if want == "pids" else " ".join(f"{k}={v}" for k, v in counts[want].items()))
