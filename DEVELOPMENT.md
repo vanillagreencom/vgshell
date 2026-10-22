@@ -49,6 +49,7 @@ Quickshell links jemalloc, so glibc's `MALLOC_PERTURB_` does nothing. Start a sh
 - A scripted edit of a row or of `scripts/smoke/harness.sh` goes in a file run with `python3 FILE`. An inline here-document ends at the row's own `PY` line, and bash runs the rest as commands.
 - Never edit a script while a run is reading it: bash reads a script as it runs.
 - Name the before tree of `sandbox-shots.sh --rev` by the change's parent, `<change>^`. `origin/main` becomes the after tree once the change lands.
+- A screenshot sheet's index and each caption state the capture mode (live shell, sandbox capture of the real page on the branch, or prototype stand-in), the viewport width and every known difference from the production page. A prototype that composes its own page header draws the real page frame or names the difference.
 - Two runs of one tree differ in a few dozen glyph-edge pixels. A pixel-for-pixel proof reports a same-tree run's count beside the base-to-HEAD count: `magick A B -compose difference -composite -colorspace gray -threshold 0 -format '%[fx:round(mean*w*h)]' info:`.
 - A grim capture can trail a probe reading by a frame or two. Take a motion frame from its own pixels, or the last frame after a settled reading that equals the frame before it.
 - The fixture `acme.probe` draws an empty 10 px widget. Shoot a real plugin's widget.
