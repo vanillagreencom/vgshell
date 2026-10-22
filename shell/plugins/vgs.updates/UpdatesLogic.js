@@ -792,7 +792,7 @@ function rebootNoticeOwnerValue(step) {
 // rebootNotice status value: the notice in place first, which the
 // setting's unset value stands for, then the one VALUE's action turns to,
 // each named by that action; none while VALUE offers no change.
-var REBOOT_NOTICE_LABELS = { both: "CachyOS and VGS", vgsOnly: "VGS only" };
+var REBOOT_NOTICE_LABELS = { both: "CachyOS and VGS", vgsOnly: "VGS only (recommended)" };
 function rebootNoticeChoices(value) {
     if (value === null || value === undefined || typeof value.action !== "string") return [];
     var held = value.action === "vgsOnly" ? "both" : "vgsOnly";
@@ -804,6 +804,13 @@ function rebootNoticeChoices(value) {
 // place, so it asks for none.
 function rebootNoticeRequested(request, value) {
     return value !== null && value !== undefined && typeof value.action === "string" && request === value.action;
+}
+
+// Only the first visit that still needs a decision opens the plugin's
+// offer. Closing it alone leaves the next visit eligible; either explicit
+// choice is remembered in the additive plugin setting, with no old format.
+function offerRebootNotice(step, viewed, answered, visited) {
+    return !!step && step.state === "needed" && viewed === true && answered !== true && visited !== true;
 }
 
 // ---- What the bar widget and the window draw --------------------------------

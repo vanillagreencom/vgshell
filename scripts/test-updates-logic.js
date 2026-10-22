@@ -635,7 +635,7 @@ function verifyView(logic) {
   same(logic.statusWrites({}, { rebootNotices: [] }), [{ key: "rebootNotices", value: [] }]);
   // [the rebootNotice status value, the Reboot notice setting's choices]
   const both = { label: "CachyOS and VGS", value: "both" };
-  const vgsOnly = { label: "VGS only", value: "vgsOnly" };
+  const vgsOnly = { label: logic.REBOOT_NOTICE_LABELS.vgsOnly, value: "vgsOnly" };
   const choiceRows = [
     [{ tone: "info", text: "CachyOS and VGS", action: "vgsOnly" }, [both, vgsOnly]],
     [{ tone: "ok", text: "VGS only", action: "both" }, [vgsOnly, both]],
@@ -656,6 +656,12 @@ function verifyView(logic) {
     ["vgsOnly", undefined, false]
   ];
   for (const [request, value, want] of requestRows) assert.equal(logic.rebootNoticeRequested(request, value), want, "reboot notice request: " + request + " " + JSON.stringify(value));
+  for (const state of [undefined, "needed", "absent", "ready", "denied", "unknown"]) {
+    for (const viewed of [false, true]) for (const answered of [false, true]) for (const visited of [false, true]) {
+      assert.equal(logic.offerRebootNotice(state === undefined ? undefined : { state }, viewed, answered, visited),
+        state === "needed" && viewed && !answered && !visited, "offer state: " + JSON.stringify([state, viewed, answered, visited]));
+    }
+  }
   verifyNoticeOwner(logic);
 }
 
@@ -811,6 +817,7 @@ const controls = [
   ["the notice in place is the first choice", "return [held, value.action].map(", "return [value.action, held].map("],
   ["a notice without a change offers no choice", 'if (value === null || value === undefined || typeof value.action !== "string") return [];', 'if (value === null || value === undefined) return [];'],
   ["a request names the offered change", "&& request === value.action;", "&& request !== \"\";"],
+  ["only a needed unanswered visit offers restart notices", 'step.state === "needed" && viewed === true && answered !== true && visited !== true', 'viewed === true'],
   ["failed probe is reported", "if (!probe || probe.status !== 0) return { ok: false, error: commandError(name, probe || { status: null, stderr: \"\" }) };", "if (!probe || probe.status !== 0) return { ok: true, value: [] };"],
 ];
 
