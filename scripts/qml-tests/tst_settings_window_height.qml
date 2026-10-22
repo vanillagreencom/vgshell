@@ -56,6 +56,7 @@ Item {
             capabilities: [],
             schema: ({}),
             settings: ({}),
+            guide: null,
             settingChoices: ({}),
             status: [],
             secretLabel: "",
@@ -84,11 +85,14 @@ Item {
     readonly property var longRow: {
         const schema = {};
         const settings = {};
+        const setup = {};
         for (let i = 0; i < 40; i++) {
             schema["field" + i] = { type: "boolean", label: "Field " + i };
             settings["field" + i] = false;
+            setup["step" + i] = { type: "state", label: "Step " + i, setup: true };
         }
-        return pluginRow({ id: "acme.long", name: "Long", schema: schema, settings: settings });
+        const manifest = { status: setup };
+        return pluginRow({ id: "acme.long", name: "Long", schema: schema, settings: settings, status: PluginLogic.statusRows(manifest, {}) });
     }
 
     // Nothing to set, and a description that runs over many lines.
@@ -211,8 +215,8 @@ Item {
             const pane = descendants(page).find(item => item.uncappedHeight !== undefined);
             const tabs = descendants(page).find(item => item.currentPage !== undefined && item.tabs !== undefined);
             const pages = tabs.currentPage.parent.children;
-            compare(pages.length, 2, "the plugin page has a Settings and a Details tab");
-            return { page: page, pane: pane, tabs: tabs, settings: pages[0], details: pages[1] };
+            verify(pages.length >= 2, "the plugin page has Settings and Details tabs");
+            return { page: page, pane: pane, tabs: tabs, settings: pages[0], setup: pages.length === 3 ? pages[1] : null, details: pages[pages.length - 1] };
         }
 
         function opened(payload) {
@@ -257,6 +261,41 @@ Item {
             compare(p.pane.cappedHeight, cap(), "the page's Pane takes the cap, the height the window host maps it at");
             verify(p.page.scrollArea.contentHeight > p.page.scrollArea.height, "the page's content runs past its view");
             verify(p.page.scrollArea.overflowing, "a long page scrolls");
+        }
+
+        function test_plugin_tabs_stay_pinned_and_switch_from_the_end() {
+            const window = opened('{"plugin":"acme.long"}');
+            const p = parts(window);
+            compare(p.tabs.model, ["Settings", "Setup", "Details"]);
+            const strip = p.page.stickyTabs;
+            const surface = descendants(p.page).find(item => item.objectName === "stickyTabsSurface");
+            const scroll = p.page.scrollArea;
+            verify(strip !== null && surface !== undefined, "the page has pinned tabs over a masking surface");
+
+            scroll.contentY = 0;
+            waitForRendering(window);
+            const restTop = strip.mapToItem(p.page, 0, 0).y;
+            const firstRow = descendants(p.settings).find(item => item.label === "Enabled");
+            verify(firstRow !== undefined, "the Settings page has its first switch row");
+            const restGap = firstRow.mapToItem(scroll.contentItem, 0, 0).y - scroll.contentPadding - p.tabs.tabs.height;
+            compare(restGap, Theme.stack.page, "the first row follows the tab strip by the page spacing token");
+
+            compare(surface.mapToItem(scroll, 0, 0).y, 0, "the masking surface covers the scroll fade's top edge");
+            compare(surface.height, strip.height + scroll.contentPadding, "the fade becomes visible below the pinned tabs");
+            const names = ["Settings", "Setup", "Details"];
+            for (let i = 0; i < names.length; i++) {
+                scroll.contentY = Math.max(0, scroll.contentHeight - scroll.height);
+                waitForRendering(window);
+                verify(scroll.contentY > 0, "the plugin page is scrolled before choosing " + names[i]);
+                compare(strip.mapToItem(p.page, 0, 0).y, restTop, "the tabs keep their resting position at the page end");
+                compare(firstRow.mapToItem(scroll.contentItem, 0, 0).y - scroll.contentPadding - p.tabs.tabs.height, Theme.stack.page,
+                    "the first row keeps its page spacing while content scrolls");
+                const button = descendants(strip).find(item => item.text === names[i] && item.checked !== undefined);
+                verify(button !== undefined, "the pinned " + names[i] + " tab can be found");
+                mouseClick(button);
+                waitForRendering(window);
+                compare(p.tabs.currentIndex, i, "clicking the pinned " + names[i] + " tab switches pages");
+            }
         }
 
         function test_a_tab_change_takes_the_shown_tab_height() {

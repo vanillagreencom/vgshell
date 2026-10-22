@@ -18,6 +18,7 @@ FocusScope {
     property alias maximumHeight: layout.maximumHeight
     // The manager row this page draws, or null.
     property var row: null
+    onRowChanged: Qt.callLater(page.syncTabNavigation)
 
     readonly property bool editable: row !== null && row.enabled
     readonly property bool isSelf: row !== null && panel.shell !== null && row.id === panel.shell.manifest.id
@@ -30,6 +31,7 @@ FocusScope {
     readonly property alias titleMenu: menu
     readonly property alias title: titleHeader.titleButton
     readonly property alias initialFocus: back
+    readonly property alias stickyTabs: tabs.tabs
     // The manager row of the panes holder that shows this plugin's page,
     // or null.
     readonly property var paneHolder: row === null || row.paneHolder === "" ? null : panel.plugins.find(p => p.id === row.paneHolder) || null
@@ -402,6 +404,28 @@ FocusScope {
         unsaved.discard();
     }
 
+    function firstFocusable(item) {
+        if (item === null || item === undefined) return null;
+        const pending = [item];
+        while (pending.length > 0) {
+            const current = pending.shift();
+            if (current !== item && current.visible && current.enabled && current.forceActiveFocus !== undefined && (current.activeFocusOnTab === true || current.focusPolicy === Qt.StrongFocus || current.focusPolicy === Qt.TabFocus))
+                return current;
+            for (let i = 0; i < current.children.length; i++) pending.push(current.children[i]);
+        }
+        return null;
+    }
+
+    function syncTabNavigation() {
+        const first = firstFocusable(tabs.currentPage);
+        const open = openButton.visible && openButton.enabled;
+        titleHeader.titleButton.KeyNavigation.tab = open ? openButton : tabs.tabs;
+        if (open) openButton.KeyNavigation.tab = tabs.tabs;
+        tabs.tabs.KeyNavigation.backtab = open ? openButton : titleHeader.titleButton;
+        tabs.tabs.KeyNavigation.tab = first;
+        if (first !== null) first.KeyNavigation.backtab = tabs.tabs;
+    }
+
     EditSet {
         id: unsaved
         onSaved: saveBar.confirm()
@@ -439,6 +463,7 @@ FocusScope {
                         label: "Back to the plugin list"
                         anchors.verticalCenter: parent.verticalCenter
                         onClicked: page.panel.back()
+                        KeyNavigation.tab: titleHeader.titleButton
                     }
                 ]
 
@@ -452,6 +477,7 @@ FocusScope {
                         visible: page.row !== null && page.row.opens !== "" && !page.isSelf
                         enabled: page.editable
                         onClicked: page.panel.openSurface(page.row.id)
+                        KeyNavigation.backtab: titleHeader.titleButton
                     }
                 ]
 
@@ -506,10 +532,20 @@ FocusScope {
                 width: parent.width
                 model: ["Settings", "Details"]
                 warningTabs: page.setupNeeded ? ["Setup"] : []
+                tabs.x: layout.scrollArea.focusInset + layout.ringRoom
+                // Keep the real tab bar inside TabPages so its focus scope
+                // continues to own keyboard navigation. Offset it by the
+                // scroll position so its viewport position stays fixed.
+                tabs.tabs.y: layout.scrollArea.contentY + layout.scrollArea.focusInset + layout.ringRoom - tabs.y
+                tabs.width: Math.max(0, layout.scrollArea.contentWidth - layout.ringRoom)
+                tabs.z: 2
+                tabs.objectName: "stickyTabs"
+                Component.onCompleted: Qt.callLater(page.syncTabNavigation)
                 // True while the handler puts Settings back, and while
                 // the page sets the strip's tabs.
                 property bool returning: false
                 onCurrentIndexChanged: {
+                    Qt.callLater(page.syncTabNavigation);
                     if (returning) return;
                     page.revealing = "";
                     if (currentIndex === 0 || !page.dirty) {
@@ -1142,5 +1178,19 @@ FocusScope {
                 onDiscard: page.discard()
             }
         ]
+    }
+
+    // Keep the fade behind the pinned tabs out of view. This sibling of the
+    // scroll area covers only the viewport band behind its tab strip.
+    Rectangle {
+        id: stickySurface
+        objectName: "stickyTabsSurface"
+        parent: layout.scrollArea
+        x: 0
+        y: 0
+        width: layout.scrollArea.width - layout.scrollArea.rightInset
+        height: layout.scrollArea.focusInset + layout.ringRoom + tabs.tabs.height
+        color: Theme.color.surface
+        z: 1
     }
 }
