@@ -339,9 +339,16 @@ jarvis_key_startup() {
   jarvis_key_mute
   jarvis_key_talk_down
   jarvis_key_talk_up
-  jarvis_key_stop
   hold_barrier
   expect "unavailable repeated Mute keeps one pending privacy request" one jarvis_key_one_pending
+}
+jarvis_key_unavailable_stop_assertion() {
+  expect "unavailable physical Stop ends the startup lifetime" '{"kind":"stopped","pendingMute":"none"}' jarvis_key_pending
+}
+jarvis_key_unavailable_stop_control() {
+  (failures=0 behaviour_failures=0
+   jarvis_key_unavailable_stop_assertion >"$sandbox/jarvis-key-unavailable-stop-control.log"
+   echo "$failures")
 }
 
 # Remove only the new home registration. The manifest still offers it.
@@ -404,6 +411,41 @@ expect "the observer provides the key ordering marker" ok ipc smoke holdMarkerSt
 hold_markers="$(ipc smoke holdMarkerCount)"
 hold_delayed_keyboard=""
 hold_start_keyboard jarvis "$sandbox/keyboard" us ""
+
+# Restore the previous unavailable Stop behavior in the disposable plugin.
+# Only the lifetime assertion runs against this copy.
+python3 - "$jarvis_key_service" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]); assert not p.is_symlink()
+s=p.read_text()
+needle='if (name === "stop" && (lifetime.kind !== "ready" || cause !== "" || !child.running)) {'
+assert s.count(needle)==1
+changed=s.replace(needle, 'if (false && name === "stop" && (lifetime.kind !== "ready" || cause !== "" || !child.running)) {')
+assert changed!=s
+p.write_text(changed)
+PY
+jarvis_rescan
+jarvis_key_startup
+jarvis_key_stop
+hold_barrier
+expect "previous unavailable Stop behavior fails the startup lifetime assertion" 1 jarvis_key_unavailable_stop_control
+jarvis_disable
+cp -- "$sandbox/jarvis-key-service-before" "$jarvis_key_service"
+jarvis_rescan
+
+jarvis_key_startup
+jarvis_key_stop_launcher="$(ipc smoke jarvisProcess | jarvis_launcher_pid)"
+jarvis_key_stop_daemon="$(jarvis_descendants "$jarvis_key_stop_launcher")"
+jarvis_key_stop
+hold_barrier
+jarvis_key_unavailable_stop_assertion
+expect "unavailable Stop releases the real daemon" absent jarvis_no_pid "$jarvis_key_stop_daemon"
+expect "unavailable Stop releases the namespace launcher" absent jarvis_no_pid "$jarvis_key_stop_launcher"
+expect "the stopped startup service disables" ok ipc shell setPluginEnabled vgs.jarvis false
+expect_poll "disable drops the stopped startup owner" absent ipc smoke jarvisProcess
+
+# Pending Mute belongs to a fresh lifetime after Stop ended the first one.
 jarvis_key_startup
 for planted in '{"kind":"retry","pendingMute":["waiting","waiting"]}' '{"kind":"starting","pendingMute":"none"}'; do
   expect "a planted pending Mute reading other than one request fails the judge" "$planted" jarvis_key_one_pending "$planted"

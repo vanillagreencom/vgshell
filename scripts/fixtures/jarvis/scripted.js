@@ -27,11 +27,20 @@ function ports(root, engine, state) {
     gatesRoot = root;
     const waiting = new Map();
     let collect = null;
+    let capture = null;
     record = (kind, values) => fs.appendFileSync(path.join(root, "effects.jsonl"),
         JSON.stringify({ ...values, kind }) + "\n");
     const wait = (gate, done) => waiting.set(gate, done);
     gates = { wait, drop: gate => waiting.delete(gate) };
     const timer = setInterval(() => {
+        const lost = path.join(root, "device-lost");
+        if (capture !== null && fs.existsSync(lost)) {
+            fs.unlinkSync(lost);
+            fs.writeFileSync(path.join(root, "device-gone"), "");
+            const failed = capture;
+            capture = null;
+            failed("device-lost");
+        }
         for (const [gate, done] of waiting) {
             const file = path.join(root, gate);
             if (!fs.existsSync(file)) continue;
@@ -56,10 +65,16 @@ function ports(root, engine, state) {
     process.stdin.once("end", () => clearInterval(timer));
     return {
         capture: {
-            open: (e, done) => { record("capture-open", e); done(); },
+            open: (e, done, failed) => {
+                record("capture-open", e);
+                if (fs.existsSync(path.join(root, "device-gone"))) wait("device-back", done);
+                else { capture = failed; done(); }
+            },
             collect: (e, done) => { record("collect", e); collect = done; },
             close: (e, done) => {
                 record("capture-close", e);
+                capture = null;
+                gates.drop("device-back");
                 const final = collect;
                 collect = null;
                 const finish = () => { done(); if (final !== null) final("final", "scripted utterance"); };

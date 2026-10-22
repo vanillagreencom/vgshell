@@ -454,6 +454,31 @@ jarvis_bubble_click "Stop Jarvis"
 jarvis_key_talk_up
 jarvis_key_stop_assertion
 expect_poll "Stop removes the idle bubble" 0 layer_count vgs:layer
+
+# The capture fake loses its device after opening, then holds the retry's
+# open callback. The real daemon/Session owns the fault and cancellation.
+for jarvis_bubble_stop_mode in hold toggle always; do
+  for jarvis_bubble_stop_trigger in button key ipc; do
+    jarvis_key_mode "$jarvis_bubble_stop_mode"
+    jarvis_bubble_begin
+    jarvis_key_gate device-lost
+    expect_poll "device loss enters retry before $jarvis_bubble_stop_trigger Stop in $jarvis_bubble_stop_mode" retrying jarvis_key_state fault
+    expect_poll "the retry card remains presented" presented jarvis_bubble_state
+    case "$jarvis_bubble_stop_trigger" in
+      button) jarvis_bubble_click "Stop Jarvis" ;;
+      key) jarvis_key_stop ;;
+      ipc) expect "Stop IPC is accepted during retry" ok ipc vgs.jarvis invoke stop '' ;;
+    esac
+    jarvis_key_stop_assertion
+    expect_poll "Stop closes the retry card in $jarvis_bubble_stop_mode" 0 layer_count vgs:layer
+    expect "Stop clears the retry fault" none jarvis_key_state fault
+    jarvis_key_gate device-back
+    expect "a late device callback cannot reopen capture" closed jarvis_key_state capture
+    jarvis_key_talk_up
+    rm -f -- "$jarvis_key_gates/device-gone" "$jarvis_key_gates/device-back"
+  done
+done
+jarvis_key_mode hold
 jarvis_bubble_begin
 jarvis_bubble_click "Mute Jarvis"
 expect_poll "the labelled Mute button turns privacy mute on" on jarvis_key_state mute

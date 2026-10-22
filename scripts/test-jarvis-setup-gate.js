@@ -2245,6 +2245,51 @@ function verifyLimitPresentation(gate) {
 }
 
 verify(load(file));
+
+// The Bubble, physical key and IPC Stop all enter this shipped function.
+// Execute it with timer/child ports, including every daemon lifetime that
+// can receive a user intent, without running a process or a notification.
+function verifyStopIntents(serviceSource) {
+    const found = serviceSource.match(/^    function intent\(name\) \{\n[\s\S]*?^    \}/m);
+    assert.ok(found, "the service intent entry");
+    for (const [kind, running, cause] of [["new", false, ""], ["starting", true, ""],
+        ["retry", false, "jarvis: daemon=ended"], ["problem", false, "jarvis: daemon=ended"],
+        ["stopped", false, ""], ["ready", false, ""], ["ready", true, "jarvis: hello=timeout"], ["ready", true, ""]]) {
+        const sent = [], notices = [];
+        const timer = () => ({ running: true, stop() { this.running = false; }, restart() { this.running = true; } });
+        const root = { shell: { status: { set: () => "ok", isOk: value => value === "ok" } }, lifetime: { kind, pendingMute: "waiting" }, cause, sessionState: {},
+            pendingStart: {}, child: { running, stdinEnabled: true }, retry: timer(), helloDeadline: timer(), startWait: timer(),
+            stopDeadline: { running: false, restart() { this.running = true; } },
+            cancelDictation() { this.cancelled = true; }, cancelled: false,
+            publishDaemon: () => true, notice: value => notices.push(value), sendIntent: name => sent.push(name) };
+        const intent = vm.runInNewContext("(function() { with(root) { return (" + found[0] + "); } })()", { root, Gate: load(file) });
+        intent("stop");
+        if (kind === "ready" && running && cause === "") {
+            assert.deepEqual(sent, ["stop"], "ready Stop reaches Session");
+            continue;
+        }
+        assert.equal(root.lifetime.kind, "stopped", kind + ": Stop ends the lifetime");
+        assert.equal(root.lifetime.pendingMute, "none");
+        assert.deepEqual([root.retry.running, root.helloDeadline.running, root.startWait.running, root.pendingStart,
+            root.sessionState, root.child.stdinEnabled, root.cancelled, root.stopDeadline.running],
+            [false, false, false, null, null, false, true, running], kind + ": Stop cancels retry, capture and child lease");
+        assert.equal(sent.length, 0);
+        assert.equal(notices.length, 1, kind + ": Stop reports how to start again");
+        intent("talk-down");
+        assert.equal(notices.length, 2, kind + ": an unavailable intent is visible");
+        assert.equal(sent.length, 0);
+    }
+}
+verifyStopIntents(fs.readFileSync(serviceFile, "utf8"));
+const stopControl = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "jarvis-intent-"));
+try {
+    const source = fs.readFileSync(serviceFile, "utf8");
+    const needle = 'if (name === "stop" && (lifetime.kind';
+    assert.equal(source.split(needle).length - 1, 1);
+    const mutant = path.join(stopControl, "Service.qml");
+    fs.writeFileSync(mutant, source.replace(needle, 'if (false && name === "stop" && (lifetime.kind'));
+    assert.throws(() => verifyStopIntents(fs.readFileSync(mutant, "utf8")), assert.AssertionError);
+} finally { fs.rmSync(stopControl, { recursive: true }); }
 verifyVoiceConsumers(load(file));
 console.log("test-jarvis-setup-gate: consumer=Setup hint=" + readiness(load(file), { kind: "answered", causes: ["brain=unselected"] }).setupModel.hint);
 

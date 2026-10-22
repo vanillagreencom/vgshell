@@ -843,6 +843,56 @@ const table = [
         }
         assert.equal(logic.phaseOf(s), "error");
     }],
+    ["fault-stop", logic => {
+        // Service snapshots, mute controls and teardown all reach end().
+        const transitions = [
+            ["unchanged", [event("stop", 42)]],
+            ["locked", [snapshot({ at: 42, locked: true }), snapshot({ at: 43 })]],
+            ["lock unknown", [snapshot({ at: 42, locked: null }), snapshot({ at: 43 })]],
+            ["unconfigured", [snapshot({ at: 42, configured: false }), snapshot({ at: 43 })]],
+            ["settings", [snapshot({ at: 42, settings: { brain: "changed" } }), snapshot({ at: 43 })]],
+            ["mode", [snapshot({ at: 42, settings: { mode: "hold" } }), snapshot({ at: 43 })]],
+            ["mute", [event("mute", 42), event("unmute", 43)]],
+            ["mute toggle", [event("mute-toggle", 42), event("mute-toggle", 43)]],
+            ["lease", [event("lease-ended", 42)]],
+            ["cancel", [event("cancel", 42)]],
+            ["interrupt", [event("interrupt", 42)]]
+        ];
+        for (const mode of ["hold", "toggle", "always"]) for (const attempts of [1, 4])
+            for (const draining of [false, true]) for (const [name, triggers] of transitions) {
+                const label = [mode, attempts, draining ? "draining" : "closed", name].join(": ");
+                let s = mode === "always" ? alwaysListening(logic) : listening(logic, mode === "toggle");
+                for (let attempt = 0; attempt < attempts; attempt++) {
+                    s = step(logic, s, callback("capture-failed", s.capture, 20 + attempt * 2, { reason: "device-lost" })).state;
+                    if (attempt < attempts - 1) s = step(logic, s, callback("capture-closed", s.capture, 21 + attempt * 2)).state;
+                }
+                assert.equal(s.fault.kind, attempts === 1 ? "retrying" : "error");
+                assert.equal(logic.indicatorWanted(s), true);
+                const failedCapture = s.capture;
+                s = step(logic, s, event("stop", 40)).state;
+                const closing = s.capture;
+                if (!draining) s = step(logic, s, callback("capture-closed", closing, 41)).state;
+                for (const trigger of triggers) {
+                    // Preserve this mode unless the row explicitly changes it.
+                    const e = trigger.type === "snapshot" ? { ...trigger, settings: { mode, ...trigger.settings } } : trigger;
+                    const r = step(logic, s, e);
+                    s = r.state;
+                    assert.equal(s.input.kind, "stopped", label + ": teardown preserves the pause");
+                    assert.equal(kinds(r).includes("capture-open"), false, label + ": teardown opens no capture");
+                }
+                if (draining) s = step(logic, s, callback("capture-closed", closing, 44)).state;
+                // Finish mute after an in-flight close, then restore its off state.
+                if (s.mute.kind === "on") s = step(logic, s, event("unmute", 45)).state;
+                for (const e of [event("indicator", 46, { shown: false }), snapshot({ at: 47, settings: { mode } }),
+                    callback("capture-failed", failedCapture, 48, { reason: "device-lost" })])
+                    s = step(logic, s, e).state;
+                assert.deepEqual([s.fault.kind, s.conversation.kind, s.capture.kind, logic.indicatorWanted(s), s.mute.kind],
+                    ["none", "ended", "closed", false, "off"], label + ": Stop dismisses the fault and prevents another retry");
+                const resumed = step(logic, s, event("talk-down", 500));
+                assert.equal(logic.indicatorWanted(resumed.state), true, label + ": Talk starts again");
+                assert.equal(resumed.state.conversation.kind, "active");
+            }
+    }],
     ["capture-fault", logic => {
         const before = listening(logic);
         const s = step(logic, before, callback("capture-failed", before.capture, 50, { reason: "provider-disconnected" })).state;
@@ -1099,7 +1149,7 @@ const table = [
             return r.state;
         };
         for (const e of [event("indicator", 51, { shown: false }), event("indicator", 52, { shown: true }),
-            event("stop", 53), event("cancel", 54), event("interrupt", 55), event("talk-up", 56),
+            event("cancel", 54), event("interrupt", 55), event("talk-up", 56),
             event("mute-toggle", 57), event("mute-toggle", 58), event("mute", 59), event("unmute", 60)])
             s = kept(s, e, e.type);
         assert.equal(s.mute.kind, "off", "the mute round trips end unmuted");
@@ -1959,6 +2009,32 @@ table.push(["feedback-start", logic => {
     }
 }]);
 for (const [name, check] of table) { check(Session); }
+
+// The retained fault kept the error bubble alive after an otherwise
+// successful Stop. Run only that regression against the previous behavior.
+const stopControl = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "jarvis-stop-"));
+try {
+    const source = fs.readFileSync(file, "utf8");
+    const needle = '        s.fault = { kind: "none" };\n        // A fault\'s Stop';
+    assert.equal(source.split(needle).length - 1, 1);
+    const mutant = path.join(stopControl, "Session.js");
+    fs.writeFileSync(mutant, source.replace(needle, '        // A fault\'s Stop'));
+    assert.throws(() => table.find(([name]) => name === "fault-stop")[1](load(mutant)), assert.AssertionError);
+    for (const [name, needle, replacement] of [
+        ["end", 'if (s.input.kind !== "stopped") s.input = { kind: "released" };\n    closeCapture',
+            's.input = { kind: "released" };\n    closeCapture'],
+        ["cancel", 'if (s.input.kind !== "stopped") s.input = { kind: "released" };\n        closeCapture',
+            's.input = { kind: "released" };\n        closeCapture']
+    ]) {
+        assert.equal(source.split(needle).length - 1, 1, name + " pause control match");
+        const changed = source.replace(needle, replacement);
+        assert.notEqual(changed, source);
+        fs.writeFileSync(mutant, changed);
+        assert.throws(() => table.find(([name]) => name === "fault-stop")[1](load(mutant)),
+            error => error instanceof assert.AssertionError && error.message.includes("teardown preserves the pause"),
+            name + " must lose the pause before the fix");
+    }
+} finally { fs.rmSync(stopControl, { recursive: true }); }
 
 // Wire shape rules exercise the shared state judge without copying its table.
 const shapes = [

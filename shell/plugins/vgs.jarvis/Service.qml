@@ -385,9 +385,27 @@ Item {
     }
 
     function intent(name) {
-        if (shell === null || lifetime.kind === "stopped") return;
+        if (shell === null) return;
+        if (name === "stop" && (lifetime.kind !== "ready" || cause !== "" || !child.running)) {
+            lifetime = { kind: "stopped", pendingMute: "none" };
+            retry.stop();
+            helloDeadline.stop();
+            pendingStart = null;
+            startWait.stop();
+            cancelDictation();
+            sessionState = null;
+            child.stdinEnabled = false;
+            if (child.running) stopDeadline.restart();
+            const stale = shell.status.set("detail", null);
+            if (!shell.status.isOk(stale)) throw new Error("jarvis: " + stale);
+            if (stale !== "ok") return;
+            publishDaemon({ tone: "warning", text: "Jarvis stopped", hint: Gate.START_RESTART });
+            notice({ title: "Jarvis stopped", message: Gate.sentence(Gate.START_RESTART),
+                tone: "info", icon: "vgs-letter-j" });
+            return;
+        }
         if (name === "mute") {
-            if (lifetime.kind === "problem") {
+            if (lifetime.kind === "problem" || lifetime.kind === "stopped") {
                 notice(Gate.muteRefusedNotice(cause));
                 return;
             }
@@ -401,7 +419,11 @@ Item {
                 return;
             }
         }
-        if (lifetime.kind !== "ready" || cause !== "" || !child.running) return;
+        if (lifetime.kind !== "ready" || cause !== "" || !child.running) {
+            notice({ title: "Jarvis is not ready", message: "Check [Settings > Jarvis](page:vgs.jarvis/Settings) before trying again.",
+                tone: "warning", icon: "vgs-letter-j", transient: true });
+            return;
+        }
         sendIntent(name);
     }
 

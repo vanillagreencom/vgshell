@@ -161,7 +161,8 @@ function end(s, effects, at, reason, stopTool) {
         s.gen++;
         s.conversation = { kind: "ended" };
     }
-    s.input = { kind: "released" };
+    // A dismissed fault stays paused through teardown until Talk starts again.
+    if (s.input.kind !== "stopped") s.input = { kind: "released" };
     closeCapture(s, effects);
     cancelTurn(s, effects, at);
     if (s.turn.kind === "none") closeBrain(s, effects);
@@ -633,7 +634,12 @@ function reduce(state, e) {
         if (s.mute.kind === "on") s.mute = { kind: "off" };
         break;
     case "stop":
+        var faulted = s.fault.kind !== "none" || s.input.kind === "stopped";
         end(s, effects, e.at, "stop", true);
+        s.fault = { kind: "none" };
+        // A fault's Stop dismisses its retry as well as the conversation.
+        // Always mode waits for Talk instead of reopening the lost device.
+        if (faulted) s.input = { kind: "stopped" };
         break;
     case "lease-ended":
         end(s, effects, e.at, "lease", true);
@@ -644,7 +650,7 @@ function reduce(state, e) {
         break;
     case "cancel":
         if (["waiting", "recording", "finishing"].indexOf(s.check.kind) !== -1) end(s, effects, e.at, "cancel", false);
-        s.input = { kind: "released" };
+        if (s.input.kind !== "stopped") s.input = { kind: "released" };
         closeCapture(s, effects);
         cancelTurn(s, effects, e.at);
         dropApproval(s, effects, "cancel", e.at);
@@ -987,7 +993,7 @@ var REGIONS = {
     action: { none: "", running: "gen op tool brain limit cancellation" },
     approval: { none: "", held: "purpose gen op id digest deadline shownAt physical text tool timeoutMs cancellable brain" },
     fault: { none: "", error: "reason retry", retrying: "reason retry" }, conversation: { ended: "", active: "", interrupted: "" },
-    input: { released: "", held: "since", tapped: "deadline", conversation: "", "follow-up": "", armed: "", woken: "", check: "" },
+    input: { released: "", stopped: "", held: "since", tapped: "deadline", conversation: "", "follow-up": "", armed: "", woken: "", check: "" },
     followUp: { none: "", asked: "gen", spoken: "gen" },
     indicator: { gone: "", shown: "" }, duplex: { half: "" },
     engine: { chained: "", dictation: "", duplex: "" }, speech: { closed: "", open: "gen op reply" },
