@@ -18,9 +18,10 @@
           patches = [
             ./packaging/arch/vgshell-quickshell/vgs-989-deletelater.patch
             ./packaging/arch/vgshell-quickshell/vgs-1109-log-filter-mutex.patch
+            ./packaging/arch/vgshell-quickshell/vgs-1993-managed-process-lifetime.patch
           ];
           cmakeFlags = builtins.filter (flag: !(lib.hasPrefix "-DDISTRIBUTOR" flag) && !(lib.hasPrefix "-DGIT_REVISION" flag)) old.cmakeFlags ++ [
-            (lib.cmakeFeature "DISTRIBUTOR" "VGS (package: vgshell-quickshell)")
+            (lib.cmakeFeature "DISTRIBUTOR" "VGS 2 (package: vgshell-quickshell)")
             (lib.cmakeFeature "GIT_REVISION" "2b4501a282689792b62e94f3fb30d8f512324fe6")
           ];
         });

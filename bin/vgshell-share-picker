@@ -109,7 +109,8 @@ def serialize_choice(choice, windows):
 def run_child(arguments, stopped, timeout, operation):
     environment = {key: os.environ[key] for key in CHILD_ENV if key in os.environ}
     child = subprocess.Popen(
-        arguments,
+        ["env", "--default-signal=TERM,INT,HUP", "setpriv", "--pdeathsig", "TERM", "--",
+         str(Path(__file__).resolve().parent / "lib/owned-group.sh"), str(os.getpid()), "5", *arguments],
         env=environment, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
         stderr=subprocess.PIPE, text=True, start_new_session=True,
     )

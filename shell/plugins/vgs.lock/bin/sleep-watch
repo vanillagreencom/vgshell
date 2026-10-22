@@ -37,7 +37,7 @@ budget_cap_ms=12000
 
 derive_budget_ms() {
   local window
-  window="$(timeout --kill-after=0.1s 1s busctl get-property org.freedesktop.login1 /org/freedesktop/login1 \
+  window="$(timeout --foreground --kill-after=0.1s 1s busctl get-property org.freedesktop.login1 /org/freedesktop/login1 \
     org.freedesktop.login1.Manager InhibitDelayMaxUSec 2>/dev/null)" || window=""
   window="${window##* }"
   [[ $window =~ ^[0-9]+$ ]] && ((window > 0)) || window=5000000
@@ -82,7 +82,7 @@ if ! IFS= read -r -t 2 line <&"$monitor_fd"; then
   printf 'sleep-watch: refused: monitor=silent\n' >&2
   exit 1
 fi
-preparing="$(timeout --kill-after=0.1s 1s busctl get-property org.freedesktop.login1 /org/freedesktop/login1 \
+preparing="$(timeout --foreground --kill-after=0.1s 1s busctl get-property org.freedesktop.login1 /org/freedesktop/login1 \
   org.freedesktop.login1.Manager PreparingForSleep 2>/dev/null)" || preparing=""
 budget_ms="$(derive_budget_ms)"
 printf -v budget_s '%d.%03d' $((budget_ms / 1000)) $((budget_ms % 1000))

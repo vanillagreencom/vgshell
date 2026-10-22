@@ -36,10 +36,10 @@ class Commands:
             if not cleanup:
                 self.check_owner()
             self.child = subprocess.Popen(
-                ["nmcli", "--wait", "5" if cleanup else "120"] + args,
+                ["nmcli", "--wait", "1" if cleanup else "120"] + args,
                 stdin=subprocess.PIPE if feed is not None else subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, env=env)
-            deadline = time.monotonic() + (6 if cleanup else 125)
+            deadline = time.monotonic() + (2 if cleanup else 125)
             while True:
                 if not cleanup:
                     self.check_owner()

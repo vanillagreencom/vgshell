@@ -70,7 +70,7 @@ fi
 # probe ACCOUNT: the state of one account, as the rest of its line.
 probe() {
   local status=0 err found=false failure="" line
-  err="$(timeout "$limit" secret-tool search service vgs-notifications account "$1" 2>&1 >/dev/null)" || status=$?
+  err="$(timeout --foreground "$limit" secret-tool search service vgs-notifications account "$1" 2>&1 >/dev/null)" || status=$?
   if [[ $status -eq 124 ]]; then
     echo "unavailable reason=timeout"
     return

@@ -103,6 +103,7 @@ jarvis-console
 instance-guard
 diagnostics
 supervise
+child-lifetime
 # After supervise, with the tail rows that restart the shell: it proves the background launcher path and leaves a harness shell.
 start
 lock

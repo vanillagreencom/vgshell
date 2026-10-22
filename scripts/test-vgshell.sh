@@ -498,6 +498,9 @@ done <<'ROWS'
 run starts the shell with every tool at or above its floor|full||0|
 Quickshell 0.3.0 is below the floor|full|STUB_QS_VERSION=Quickshell 0.3.0 (revision x)|78|vgshell: refused: preflight=quickshell have=0.3.0 need=0.3.1
 Quickshell 0.10.0 meets 0.3.1: components compare as numbers|full|STUB_QS_VERSION=Quickshell 0.10.0|0|
+an old VGS distributor is below the engine release floor|full|STUB_QS_VERSION=Quickshell 0.3.2 (revision x, distributed by VGS (package: vgshell-quickshell))|78|vgshell: refused: preflight=vgshell-quickshell have=unknown need=2
+a numbered old VGS distributor is below the engine release floor|full|STUB_QS_VERSION=Quickshell 0.3.2 (revision x, distributed by VGS 1 (package: vgshell-quickshell))|78|vgshell: refused: preflight=vgshell-quickshell have=1 need=2
+the current VGS distributor meets the engine release floor|full|STUB_QS_VERSION=Quickshell 0.3.2 (revision x, distributed by VGS 2 (package: vgshell-quickshell))|0|
 a warning qs prints on stderr ahead of its version is not read|full|STUB_QS_STDERR=qt.qpa: warning|0|
 a Quickshell version line with no number is unknown|full|STUB_QS_VERSION=Quickshell git|78|vgshell: refused: preflight=quickshell have=unknown need=0.3.1
 a failed qs --version is unknown|full|STUB_QS_VERSION_EXIT=1|78|vgshell: refused: preflight=quickshell have=unknown need=0.3.1
@@ -563,6 +566,8 @@ pre_control "failed probe" full STUB_HYPR_VERSION_EXIT=4 78 "vgshell: refused: p
   '[[ ${statuses[i]} == 0 ]] ||' '[[ ${statuses[i]} == 0 ]] || true ||'
 pre_control "stdout only" full "STUB_QS_STDERR=qt.qpa: warning" 0 "" \
   "$probe_line" '"${argv[@]}" 1>&"${scratch_fds[i]}" 2>&1 </dev/null &'
+pre_control "VGS engine release" full "STUB_QS_VERSION=Quickshell 0.3.2 (revision x, distributed by VGS 1 (package: vgshell-quickshell))" 78 "vgshell: refused: preflight=vgshell-quickshell have=1 need=2" \
+  'if [[ $engine_status != 0 ]]; then' 'if false; then'
 pre_control "unread version" full "STUB_QS_VERSION=Quickshell git" 78 "vgshell: refused: preflight=quickshell have=unknown need=0.3.1" \
   '[[ ${outs[i]} =~ $pattern ]] ||' '[[ ${outs[i]} =~ $pattern ]] || true ||'
 pre_control "absent tool" no-git "" 78 "vgshell: refused: preflight=git have=none need=present" \

@@ -4,17 +4,22 @@ Read before touching anything that starts, stops, measures or talks to the shell
 
 ## The approach
 
-`vgshell run` holds the instance lock, starts the shell as its child and supervises it; every `vgshell` command addresses the pid the lock file names and judges an IPC reply by its text. Inside the shell, every watcher, poller, subprocess and session-wide object has one owner that creates it and destroys it, and a process-costing lookup runs once per set. The choices are [D053](../decisions/D053-runner-holds-the-instance-lock.md), [D069](../decisions/D069-runner-supervises-the-shell.md) and [D047](../decisions/D047-services-build-after-the-first-bar-frame.md).
+`vgshell run` holds the instance lock, starts the shell as its child and supervises it; every `vgshell` command addresses the pid the lock file names and judges an IPC reply by its text. Inside the shell, every watcher, poller, subprocess and session-wide object has one owner that creates it and destroys it. The patched engine ends each managed `Process` and its owned descendants with that shell, including a crash restart. A process-costing lookup runs once per set. The choices are [D053](../decisions/D053-runner-holds-the-instance-lock.md), [D069](../decisions/D069-runner-supervises-the-shell.md) and [D047](../decisions/D047-services-build-after-the-first-bar-frame.md).
 
 ## Why
 
-A lock descriptor the shell inherits is held by every child the shell starts, so a long download kept the lock after the shell died. Quickshell 0.3.1 re-executes itself in the same pid after a crash signal, so a runner that trusted the exit alone would never see the crash. Two components polling one source cost twice and disagree, and a lookup per item that forks a process makes a scan cost a process per plugin. Quickshell links jemalloc, which purges retained pages lazily, so resident size falls in steps and reports live plus retained data; a rate read over a short span measures the allocator, not the shell.
+A lock descriptor the shell inherits is held by every child the shell starts, so a long download kept the lock after the shell died. Upstream Quickshell re-executes itself in the same pid after a crash signal, bypassing QObject cleanup and parent-death signals. The VGS engine exits the crashed shell so its child lifetime ends and the runner owns replacement. Two components polling one source cost twice and disagree, and a lookup per item that forks a process makes a scan cost a process per plugin. Quickshell links jemalloc, which purges retained pages lazily, so resident size falls in steps and reports live plus retained data; a rate read over a short span measures the allocator, not the shell.
 
 ## Rules
 
 ### Process
 
 - Never start a second shell against the live session, and never kill Quickshell processes by name; other Quickshell applications share the seat. Validation runs in the nested sandbox alone.
+- Do enforce managed child lifetime at the patched Quickshell `Process` launcher. Keep a wrapper only for descendant cleanup or the engine delivery gap below. Review holds this boundary.
+- Do give the lifetime group SIGTERM, allow a cleanup grace of five seconds, then send SIGKILL. Replacement does not wait for cleanup; old descendants may overlap the replacement during that grace. Keep helper cleanup within that bound, including the printer helper's `ipptool -T 5` cancellation. Review holds the bound; `scripts/smoke/rows/child-lifetime.sh` checks termination.
+- Do keep a descendant's cleanup ownership when its parent forks or creates another process group. A parent-death signal is not inherited by a forked child. `bin/lib/owned-group.sh` owns explicitly isolated query groups. Review holds this boundary.
+- Do preserve explicit lifetime handoffs: `bin/vgshell-tui` starts independent terminals so user tasks survive shell restart; `Core/Capabilities.qml` detaches user applications so opened apps keep running; `Core/MonitorState.qml` detaches display rollback so recovery survives shell failure; `Core/Notices.qml` detaches restart and reset so each can finish after its requesting shell ends. Detached cleanup requests likewise finish their cleanup. Review holds these exceptions.
+- Engine delivery gap: curl apt and curl on NixOS use stock Quickshell. Keep existing direct-child guards uniformly for Dictation, notification PipeWire clients, the voice bridge, power watches, the clipboard watcher, screensaver conversion and the printer watcher until [VGS-1999](https://linear.app/vanillagreen/issue/VGS-1999/distribution-the-curl-apt-and-nixos-installs-run-the-patched-engine) delivers the patched engine and removes them. These guards protect their direct programs; they do not cover every forked or regrouped descendant, the unguarded sound subscriber or the lock inhibitor itself. Add no separate engine probe, alternate reader or version-based guard branch. Review holds this limit.
 - Do exit a shell through the runner, never `Qt.quit()` from the root; `Qt.exit` does nothing while the root is still loading. Review holds it.
 - Do read the shell's pid from the lock file for every command that contacts it, and exit 69 on no pid, a dead pid or a failed call. `scripts/test-vgshell.sh` pins it.
 - Do judge every `qs ipc call` reply by its text through `bin/lib/ipc-reply.sh`; `qs ipc call` exits 0 when the client fails. `scripts/test-ipc-reply.sh` pins it.
@@ -46,7 +51,7 @@ A lock descriptor the shell inherits is held by every child the shell starts, so
 
 ## The canonical example
 
-`bin/vgshell`'s `run` verb: the preflight, the lock, the child started through `setpriv --pdeathsig`, and the supervision table. Copy its shape for any new process the shell depends on.
+`bin/vgshell`'s `run` verb owns the shell's preflight, lock and supervision. Inside the shell, use managed Quickshell `Process`; the patched engine owns its lifetime. A helper that forks outside that lifetime group owns the escaped descendants' cleanup.
 
 ## Revisit when
 

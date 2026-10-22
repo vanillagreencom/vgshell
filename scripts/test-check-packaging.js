@@ -391,7 +391,7 @@ const ROWS = [
         1, () => refused("engine=spec-contract")],
     ["engine: a commented Nix patch is refused", t => edit(t, "flake.nix", "^(            )(./packaging/arch/vgshell-quickshell/vgs-989-deletelater.patch)$", "$1# $2"),
         1, () => refused("engine=nix-patches")],
-    ["engine: source metadata must match the recipe", t => edit(t, "packaging/arch/vgshell-quickshell/PKGBUILD", "^pkgrel=1$", "pkgrel=2"),
+    ["engine: source metadata must match the recipe", t => edit(t, "packaging/arch/vgshell-quickshell/PKGBUILD", "^pkgrel=.*$", "pkgrel=" + (Number(srcinfo(t, "packaging/arch/vgshell-quickshell/.SRCINFO", "pkgrel")) + 1)),
         1, () => refused("srcinfo=stale recipe=vgshell-quickshell")],
     ["Arch: a portal backend dependency is required", t => edit(t, SRC, "^\\tdepends = xdg-desktop-portal-gnome\\n", ""),
         1, () => refused("requirement=portal-backend:gnome package=xdg-desktop-portal-gnome want=depends channel=pacman recipe=vgshell scope=portal")],
@@ -422,7 +422,7 @@ const ROWS = [
         1, () => refused("requirement=org.vgshell.Planted package=vgs-planted-bus want=depends channel=pacman recipe=vgshell scope=vgs.launcher")],
     // Floors from bin/vgshell's preflight table.
     ["a floored depends without its constraint is refused", t => edit(t, SRC, "^\\tdepends = vgshell-quickshell>=.*$", "\tdepends = vgshell-quickshell"),
-        1, tree => refused(`floor=missing package=vgshell-quickshell want=>=${floorOf(tree, "quickshell")} ` + where())],
+        1, () => refused("floor=mismatch package=vgshell-quickshell have=none want=0.3.2.r7.g2b4501a-2 " + where())],
     ["a floored depends below its floor is refused", t => edit(t, SRC, "^\\tdepends = nodejs>=.*$", "\tdepends = nodejs>=0"),
         1, tree => refused(`floor=below package=nodejs have=>=0 want=>=${floorOf(tree, "node")} ` + where())],
     // The floor rises one past the recipe's own constraint, so the recipe is
@@ -514,16 +514,11 @@ const ROWS = [
     ["dnf: an extra Requires is refused", t => replaceIn(t, SPECS, "Requires:       git\n", "Requires:       git\nRequires:       jq\n"),
         1, () => refused("extra=jq field=Requires channel=dnf recipe=vgshell")],
     ["dnf: a spec floor below the preflight is refused", t => { for (const spec of SPECS) edit(t, spec, "^(Requires:\\s+vgshell-quickshell >= ).*$", "$10"); },
-        1, tree => refused(`floor=mismatch package=vgshell-quickshell have=0 want=${floorOf(tree, "quickshell")} ` + dnf())],
+        1, () => refused("floor=mismatch package=vgshell-quickshell have=0 want=0.3.2-2.2b4501a " + dnf())],
     ["dnf: a spec floor with no version is refused", t => { edit(t, REL, "^(Requires:\\s+hyprland) >= .*$", "$1"); edit(t, GIT, "^(Requires:\\s+hyprland) >= .*$", "$1"); },
         1, tree => refused(`floor=mismatch package=hyprland have=none want=${floorOf(tree, "hyprland")} ` + dnf())],
-    // The Arch recipes follow the raised floor, so the dnf channel is the one
-    // that refuses.
-    ["dnf: a raised preflight floor is refused", t => {
-        const bumped = specFloor(t, REL, "vgshell-quickshell").replace(/[0-9]+$/, n => String(Number(n) + 1));
-        edit(t, "bin/vgshell", "^quickshell( +)[0-9.]+ ", `quickshell$1${bumped} `);
-        for (const recipe of ["vgshell", "vgshell-git"]) edit(t, `packaging/arch/${recipe}/.SRCINFO`, "^\\tdepends = vgshell-quickshell>=.*$", "\tdepends = vgshell-quickshell>=" + bumped);
-    }, 1, tree => refused(`floor=mismatch package=vgshell-quickshell have=${specFloor(tree, REL, "vgshell-quickshell")} want=${floorOf(tree, "quickshell")} ` + dnf())],
+    ["dnf: the previous VGS engine release is refused", t => replaceIn(t, SPECS, "vgshell-quickshell >= 0.3.2-2.2b4501a", "vgshell-quickshell >= 0.3.2-1.2b4501a"),
+        1, () => refused("floor=mismatch package=vgshell-quickshell have=0.3.2-1.2b4501a want=0.3.2-2.2b4501a " + dnf())],
     ["dnf: an explicit epoch 0 on a floor passes", t => { edit(t, REL, "^(Requires:\\s+hyprland >= )", "$10:"); edit(t, GIT, "^(Requires:\\s+hyprland >= )", "$10:"); },
         0, tree => ok(countRequirements(tree))],
     ["dnf: a node floor without its epoch is refused", t => { edit(t, REL, "^(Requires:\\s+nodejs >= )1:", "$1"); edit(t, GIT, "^(Requires:\\s+nodejs >= )1:", "$1"); },

@@ -141,6 +141,7 @@ class Capture:
         return stdout
 
     def release(self):
+        deadline = time.monotonic() + 4
         for child in self.children:
             if child.poll() is None:
                 child.send_signal(signal.SIGINT if child is self.recorder else signal.SIGTERM)
@@ -148,7 +149,7 @@ class Capture:
             if child.poll() is None:
                 # A broken tool must not outlive the service which owns it.
                 try:
-                    child.wait(timeout=5)
+                    child.wait(timeout=max(0, deadline - time.monotonic()))
                 except subprocess.TimeoutExpired:
                     child.kill()
                     child.wait()

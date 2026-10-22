@@ -298,10 +298,9 @@ Item {
         }
     }
 
-    // Quickshell ends a removed service's child with SIGKILL; setpriv's
-    // pdeathsig also ends the watcher if the shell dies, and its stdin,
-    // held open and never written, ends it once the shell is gone. The
-    // watcher's own second process cancels the subscription in each case.
+    // The watcher's second process cancels the subscription when Process
+    // destruction kills its parent. Its stdin lease also ends it when
+    // its connection to the shell closes.
     Process {
         id: watcher
         property var completion: null

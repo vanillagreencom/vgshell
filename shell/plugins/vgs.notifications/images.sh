@@ -56,7 +56,7 @@ case "$verb" in
         continue
       fi
       status=0
-      timeout 5 head -c "$((max_bytes + 1))" -- "$from" >"$to.tmp" 2>/dev/null || status=$?
+      timeout --foreground 5 head -c "$((max_bytes + 1))" -- "$from" >"$to.tmp" 2>/dev/null || status=$?
       if [[ $status -ne 0 ]]; then
         rm -f -- "$to.tmp"
         if [[ $status -eq 124 ]]; then printf 'skipped %s reason=timeout\n' "$to"; else printf 'skipped %s reason=unreadable\n' "$to"; fi

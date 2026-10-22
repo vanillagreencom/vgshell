@@ -7,6 +7,7 @@ No inherited desktop, bus or device environment reaches an offline child.
 """
 import json
 import ctypes
+import runpy
 import os
 from pathlib import Path
 import signal
@@ -17,11 +18,49 @@ import subprocess
 import sys
 import tempfile
 import time
+from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parent.parent
 HELPER = REPO / "shell/plugins/vgs.capture/helper/capture.py"
 FIXTURE = REPO / "scripts/smoke/fixtures/capture/tools.py"
 TOOLS = ("grim", "slurp", "hyprpicker", "hyprctl", "tesseract", "wl-copy", "gpu-screen-recorder", "ffmpeg", "pw-dump")
+
+
+def release_deadline_holds(helper):
+    module = runpy.run_path(str(helper), run_name="capture_release_test")
+    events, clock = [], [0.0]
+    class Child:
+        def __init__(self, name):
+            self.name, self.killed = name, False
+        def poll(self):
+            return 0 if self.killed else None
+        def send_signal(self, value):
+            events.append(("signal", self.name))
+        def wait(self, timeout=None):
+            if timeout is not None:
+                events.append(("wait", self.name))
+                clock[0] += timeout
+                raise subprocess.TimeoutExpired(self.name, timeout)
+            return 0
+        def kill(self):
+            self.killed = True
+    owner = module["Capture"].__new__(module["Capture"])
+    owner.children = [Child(name) for name in ("recorder", "clipboard", "notice")]
+    owner.recorder = owner.children[0]
+    with patch.object(module["time"], "monotonic", lambda: clock[0]):
+        owner.release()
+    return clock[0] < 5 and all(c.killed for c in owner.children) and all(e[0] == "signal" for e in events[:3])
+
+
+def release_deadline():
+    assert release_deadline_holds(HELPER), "all capture children share the shell cleanup window"
+    with tempfile.TemporaryDirectory(prefix="capture-release-control-") as directory:
+        source = HELPER.read_text()
+        needle = "child.wait(timeout=max(0, deadline - time.monotonic()))"
+        assert source.count(needle) == 1
+        control = Path(directory) / "capture.py"
+        control.write_text(source.replace(needle, "child.wait(timeout=4)", 1))
+        assert not release_deadline_holds(control), "per-child cleanup waits exceed the shell window"
 
 
 def service_rectangles():
@@ -1411,6 +1450,7 @@ def recording_functions(base, source):
 
 
 def main():
+    release_deadline()
     config = {}
     output = "NESTED"
     dimensions = (320, 240)

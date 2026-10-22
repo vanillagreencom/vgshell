@@ -535,7 +535,8 @@ cat "$ENGINE_STATE/owner"
 RPM
 cat >"$migration_helpers/qs" <<'QS'
 #!/bin/bash
-exit 64
+[[ $* == --version ]] || exit 64
+printf 'Quickshell 0.3.2 (revision stub, distributed by VGS %s (package: vgshell-quickshell))\n' "$(cat "$ENGINE_STATE/release")"
 QS
 cat >"$migration_helpers/paru" <<'PARU'
 #!/bin/bash
@@ -548,6 +549,7 @@ read -r answer || exit 130
 [[ ! -f $ENGINE_STATE/fail ]] || exit 42
 [[ ! -f $ENGINE_STATE/retain ]] || exit 0
 printf 'vgshell-quickshell\n' >"$ENGINE_STATE/owner"
+[[ -f $ENGINE_STATE/stale ]] || printf '2\n' >"$ENGINE_STATE/release"
 PARU
 cat >"$migration_helpers/dnf" <<'DNF'
 #!/bin/bash
@@ -584,6 +586,7 @@ migration_run() { # NAME DISTRIBUTION IDENTITY ANSWER WANT_EXIT
     ln -s "$mdata-real" "$mdata"
   fi
   printf '%s\n' "$identity" >"$state/owner"
+  printf '1\n' >"$state/release"
   printf 'ID=%s\n' "$distro" >"$state/os-release"
   for binary in qs sudo; do ln -s "$migration_helpers/$binary" "$helperdir/$binary"; done
   if [[ $distro == arch ]]; then
@@ -596,6 +599,7 @@ migration_run() { # NAME DISTRIBUTION IDENTITY ANSWER WANT_EXIT
   ln -s "$version_text" "$mdata/vgshell/current"
   [[ $name != *failure* ]] || touch "$state/fail"
   [[ $name != *retained* ]] || touch "$state/retain"
+  [[ $name != *stale* ]] || touch "$state/stale"
   migration_invoke "$state" "$mdata" "$helperdir" "$answer" "$mdata/vgshell/$version_text/bin/lib/self.js" || status=$?
   check "migration $name has expected exit" test "$status" == "$wanted"
   if [[ $wanted == 0 ]]; then
@@ -626,13 +630,15 @@ mkdir "$tmp/ordinary-engine-state"
 "${base_env[@]}" PATH="$migration_helpers:$tools" ENGINE_STATE="$tmp/ordinary-engine-state" DESTDIR="$tmp/ordinary-package-stage" PREFIX=/vgshell "$migration_source/packaging/install-system.sh" >"$tmp/ordinary-stage.out"
 check "ordinary package staging with curl prefix performs no package action" test -d "$tmp/ordinary-package-stage/vgshell/share/vgshell"
 check "ordinary package staging never queries the host engine" test ! -e "$tmp/ordinary-engine-state/query"
-for row in 'arch-stock arch quickshell' 'arch-versionless arch quickshell-git' 'arch-symlink arch quickshell' 'fedora-stock fedora quickshell'; do
+for row in 'arch-stock arch quickshell' 'arch-versionless arch quickshell-git' 'arch-symlink arch quickshell' 'fedora-stock fedora quickshell' 'arch-old arch vgshell-quickshell' 'fedora-old fedora vgshell-quickshell'; do
   read -r name distro identity <<<"$row"
   migration_run "$name" "$distro" "$identity" y 0
 done
 migration_run arch-cancel arch quickshell n 1
 migration_run fedora-failure fedora quickshell y 1
 migration_run arch-retained arch quickshell y 1
+migration_run arch-stale arch vgshell-quickshell y 1
+migration_run fedora-stale fedora vgshell-quickshell y 1
 # The same replacement assertions reject a release with its hook removed.
 cp -- "$migration_source/packaging/install-system.sh" "$tmp/migration-installer"
 python3 - "$migration_source/packaging/install-system.sh" <<'CONTROL'

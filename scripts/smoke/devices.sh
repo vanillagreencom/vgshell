@@ -73,6 +73,33 @@ device_stand_in_names=(rfkill tailscale ddcutil brightnessctl nmcli nm-connectio
   chromium google-chrome-stable brave vivaldi-stable microsoft-edge-stable lpstat ipptool system-config-printer)
 mkdir -p -- "$devices_dir/calls" "$devices_dir/replies"
 
+# The child-lifetime row needs the real sleep-watch protocol without a
+# logind inhibitor. These inert tools never emit PrepareForSleep. Keep
+# and restore any earlier row's shim, including an absent one.
+devices_child_lifetime_setup() {
+  local name python
+  python="$(command -v python3)" || return
+  mkdir -p -- "$devices_dir/child-lifetime-saved"
+  for name in systemd-inhibit busctl dbus-monitor; do
+    if [[ -e $shim/$name ]]; then
+      cp -p -- "$shim/$name" "$devices_dir/child-lifetime-saved/$name"
+    fi
+    printf '#!/usr/bin/env bash\nexec %q %q %q %q "$@"\n' "$python" "$repo/scripts/smoke/fixtures/child-lifetime.py" "$name" "$devices_dir" >"$shim/$name"
+    chmod 755 "$shim/$name"
+  done
+}
+devices_child_lifetime_restore() {
+  local name
+  for name in systemd-inhibit busctl dbus-monitor; do
+    if [[ -e $devices_dir/child-lifetime-saved/$name ]]; then
+      mv -- "$devices_dir/child-lifetime-saved/$name" "$shim/$name"
+    else
+      rm -f -- "${shim:?}/$name"
+    fi
+  done
+  rmdir -- "$devices_dir/child-lifetime-saved"
+}
+
 # devices_write_stand_ins: every stand-in written into $shim, and rfkill's
 # state reset to the fixture's two unblocked radios. The harness calls it
 # before the first shell starts, so no shell ever resolves one of these

@@ -602,9 +602,10 @@ function readInstaller(recipe) {
 // recipe is read, and its freshness check or null. Its controls go in scripts/test-check-packaging.js ROWS.
 // The engine replaces stock Quickshell only on channels that publish it.
 const ENGINE = "vgshell-quickshell";
+const engineRelease = require("../bin/lib/engine.js");
 const ENGINE_REVISION = "2b4501a282689792b62e94f3fb30d8f512324fe6";
 const ENGINE_DIR = "packaging/arch/" + ENGINE;
-const ENGINE_SOURCES = ["quickshell-check.hook", "vgs-989-deletelater.patch", "vgs-1109-log-filter-mutex.patch"];
+const ENGINE_SOURCES = ["quickshell-check.hook", "vgs-989-deletelater.patch", "vgs-1109-log-filter-mutex.patch", "vgs-1993-managed-process-lifetime.patch"];
 function engineRules() {
     const recipe = { name: ENGINE, dir: ENGINE_DIR };
     const { info } = readSrcinfo(recipe);
@@ -625,15 +626,15 @@ function engineRules() {
     });
     for (const name of ENGINE_SOURCES.filter(name => name.endsWith(".patch")))
         if (!functionHolds(build, "prepare", `patch -p1 --forward < "$srcdir/${name}"`)) refuse(`engine=patch source=${name}`);
-    if (!build.includes('-DDISTRIBUTOR="VGS (package: vgshell-quickshell)"')) refuse("engine=distributor channel=pacman");
+    if (!build.includes(`-DDISTRIBUTOR="VGS ${engineRelease.RELEASE} (package: vgshell-quickshell)"`)) refuse("engine=distributor channel=pacman");
     const spec = readText("packaging/fedora/vgshell-quickshell.spec", "engine=spec");
     const required = [
         `%global commit ${ENGINE_REVISION}`, "Name:           " + ENGINE,
         "Provides:       quickshell = %{version}", "Conflicts:      quickshell", "Conflicts:      quickshell-git",
         "Obsoletes:      quickshell < 0.3.3", "Obsoletes:      quickshell-git < 0.3.3",
         "Source0:        %{url}/archive/%{commit}.tar.gz", "%autosetup -n quickshell -p1",
-        '    -DDISTRIBUTOR="VGS (package: vgshell-quickshell)" \\',
-        "Patch0:         vgs-989-deletelater.patch", "Patch1:         vgs-1109-log-filter-mutex.patch",
+        `    -DDISTRIBUTOR="VGS ${engineRelease.RELEASE} (package: vgshell-quickshell)" \\`,
+        ...ENGINE_SOURCES.filter(name => name.endsWith(".patch")).map((name, index) => `Patch${index}:         ${name}`),
     ];
     for (const line of required)
         if (!spec.split("\n").includes(line)) refuse("engine=spec-contract", "want " + line);
@@ -644,6 +645,7 @@ function engineRules() {
     const paths = patches === null ? [] : patches[1].split("\n").map(line => line.trim()).filter(line => line && !line.startsWith("#"));
     const expected = ENGINE_SOURCES.filter(name => name.endsWith(".patch")).map(name => `./${ENGINE_DIR}/${name}`);
     if (paths.join(",") !== expected.join(",")) refuse("engine=nix-patches");
+    if (!override[1].includes(`(lib.cmakeFeature "DISTRIBUTOR" "VGS ${engineRelease.RELEASE} (package: vgshell-quickshell)")`)) refuse("engine=distributor channel=nix");
     return recipe;
 }
 const CHANNELS = {
@@ -749,6 +751,10 @@ function sharedRules(id, channel, recipe, read, requirements, gaps, portalBacken
         if (dep === undefined) refuse(`requirement=${r.command} package=${pkg} want=${channel.hardField}` + where(r));
         if (channel.checkFloors === false) {
             // These channels select names; the existing preflight checks versions.
+        } else if (pkg === ENGINE && channel.enginePackage) {
+            const manager = channel.managers.includes("pacman") ? "pacman" : "dnf";
+            const want = engineRelease.PACKAGE_FLOORS[manager];
+            if (dep.op !== ">=" || dep.version !== want) refuse(`floor=mismatch package=${pkg} have=${dep.version || "none"} want=${want}` + where(r));
         } else if (channel.floorExact) {
             const have = dep.version || "none", want = r.floor || "none";
             if (have !== want) refuse(`floor=mismatch package=${pkg} have=${have} want=${want}` + where(r));

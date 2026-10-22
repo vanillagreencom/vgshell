@@ -907,7 +907,7 @@ version_at_least() { # HAVE NEED: dotted decimal integers
 # probes one after another and 20 to 31 ms with them together, twelve
 # runs each.
 preflight() {
-  local tool need pattern probe i fd have
+  local tool need pattern probe i fd have quickshell_version="" engine_report engine_status=0
   local -a tools=() needs=() patterns=() probes=() pids=() statuses=() outs=() argv
   while read -r tool need pattern probe; do
     [[ -n $tool ]] || continue
@@ -944,9 +944,15 @@ preflight() {
     [[ ${outs[i]} =~ $pattern ]] ||
       refuse 78 "preflight=$tool have=unknown need=$need" "VGS cannot read the $tool version. Check that it works in this session, then try again." "${outs[i]}"
     have="${BASH_REMATCH[1]}"
+    [[ $tool != quickshell ]] || quickshell_version="${outs[i]}"
     [[ $need == present ]] || version_at_least "$have" "$need" ||
       refuse 78 "preflight=$tool have=$have need=$need" "VGS needs a newer version of $tool. Update it through your package manager, then try again."
   done
+  engine_report="$(node "$root/bin/lib/engine.js" <<<"$quickshell_version")" || engine_status=$?
+  if [[ $engine_status != 0 ]]; then
+    read -r have need <<<"$engine_report"
+    refuse 78 "preflight=vgshell-quickshell have=${have:-unknown} need=${need:-unknown}" "VGS needs a newer VGS engine. Update it through your package manager, then try again."
+  fi
 }
 
 # Every git call: no pager, no hook, no filesystem monitor. The plugin's
@@ -1439,7 +1445,7 @@ unattended_git() { # KEY GIT_ARGS...
   scratch_open 2
   out_fd="${scratch_fds[0]}" err_fd="${scratch_fds[1]}"
   trap_stops unattended_git_stop
-  env "${outdated_fetch_env[@]}" setsid --wait timeout --kill-after="$outdated_kill_grace" "$outdated_fetch_timeout" git "${git_flags[@]}" "$@" >&"$out_fd" 2>&"$err_fd" {out_fd}>&- {err_fd}>&- &
+  env --default-signal=TERM,INT,HUP "${outdated_fetch_env[@]}" setsid --wait setpriv --pdeathsig TERM -- "$root/bin/lib/owned-group.sh" "$BASHPID" "$outdated_kill_grace" timeout --foreground --kill-after="$outdated_kill_grace" "$outdated_fetch_timeout" git "${git_flags[@]}" "$@" >&"$out_fd" 2>&"$err_fd" {out_fd}>&- {err_fd}>&- &
   unattended_pid=$!
   wait "$unattended_pid" || rc=$?
   trap - TERM INT HUP

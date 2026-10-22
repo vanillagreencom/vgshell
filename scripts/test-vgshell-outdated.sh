@@ -24,7 +24,7 @@ source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgshell-rows.sh"
 system_bus
 theme_tree
 # The outdated verbs call these beside the tools theme_tree links.
-for tool in timeout python3 realpath env setsid; do
+for tool in timeout python3 realpath env setsid setpriv sleep; do
   tool_bin="$(command -v "$tool")" || { echo "test-vgshell-outdated: status=not-measured missing=$tool"; exit 77; }
   ln -s -- "$tool_bin" "$theme_path/$tool"
 done
@@ -188,7 +188,7 @@ slow_untimed_control() {
   ssh_stub "$stub"
   job_checkout "$cfg" slow
   g -C "$cfg/vgshell/plugins/acme.slow" remote set-url origin ssh://slow.invalid/slow.git
-  tree_control untimed bin/vgshell 'timeout --kill-after="$outdated_kill_grace" "$outdated_fetch_timeout" ' ''
+  tree_control untimed bin/vgshell 'timeout --foreground --kill-after="$outdated_kill_grace" "$outdated_fetch_timeout" ' ''
   INST_PATH="$stub:$base_path" INST_BIN="$THEME_BIN" inst "the untimed mutant waits for the remote's failure" "$cfg" "$tmp/rt-empty" 0 "acme.slow error=fetch=acme.slow" "$any_out" plugin outdated
   check "the untimed mutant's remote answers" test "$(slow_stub_end "$stub")" == answered
   unset THEME_BIN
@@ -345,7 +345,7 @@ tree_control sessionless bin/vgshell 'setsid --wait ' ''
 rm -f -- "$stub/ssh.record"
 INST_BIN="$THEME_BIN" on_terminal "" plugin outdated
 check "the sessionless mutant on a terminal prints the error row" grep -q -F -- "acme.prompt error=fetch=acme.prompt" "$tmp/out"
-check "the sessionless mutant's ssh opens the terminal" test "$(<"$stub/ssh.record")" == "prompt=0 require=never tty=yes"
+check "the sessionless mutant is refused before ssh can open the terminal" test ! -e "$stub/ssh.record"
 unset THEME_BIN
 base_env=("${saved_env[@]}")
 

@@ -48,13 +48,10 @@
 # Controls, each its own edit of one copy of the tree, started in place of
 # the tree: a probe that reads no daemon tries a second one, which the
 # stand-in refuses; a `text` start that arms no deadline reaches the cap,
-# which types; children started without the parent-death signal outlive
-# the killed shell, and the cap types; a last release that ends no child
+# which types; a last release that ends no child
 # leaves the daemon with no holder. A second copy, whose last release sends
 # no cancel, leaves the file override. The row ends with a fresh shell of
 # the tree, both fixtures disabled and the stand-ins put away.
-# The daemon that outlives the killed shell remains globally visible;
-# surviving processes contribute no shell-owned roles.
 # Every poll is expect_poll's, one read each 0.2 s; no latency budget is
 # claimed.
 # inputs: scripts/smoke/fixtures/plugins/acme.dictation/* scripts/smoke/fixtures/plugins/acme.dictation-other/* scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js bin/vgshell-dictation bin/vgshell-pkg bin/lib/voxtype.sh bin/lib/voxtype.py bin/lib/tui.sh config/runtime-libraries.json config/voxtype/* scripts/smoke/rows/capabilities.sh
@@ -534,9 +531,6 @@ edit_tree dictation-controls shell/Core/DictationModel.js \
 edit_tree dictation-controls shell/Core/Capabilities.qml \
   '            if (end.code === 0) dictation.restart();' \
   '            if (false) dictation.restart();' || dictation_edits=false
-edit_tree dictation-controls shell/Core/Dictation.qml \
-  '        return ["setpriv", "--pdeathsig", "KILL", "--", "bash", "-c", '"'"'[[ $PPID == "$1" ]] || exit 1; shift; exec "$@"'"'"', "bash", String(Quickshell.processId)].concat(argv);' \
-  '        return argv;' || dictation_edits=false
 if [[ $dictation_edits == true ]]; then
   expected_errors+=('dictation: daemon=failed reason=ended code=1 stderr="Error: Another voxtype instance is already running"$')
   printf '%s\n' 3 >"$dictation_cap"
@@ -558,18 +552,7 @@ if [[ $dictation_edits == true ]]; then
   expect_poll "control: a text recording no deadline cancels reaches the stand-in's cap" "started start cap" dictation_noted
   expect_poll "control: the capped text recording is typed" "-d 10 -- second turn" dictation_wtype
   expect_poll "control: the copy reads the capped recording over" "ready idle -" dictation_state acme.dictation
-  dictation_forget
-  expect "control: a text recording starts before the kill" ok dictate acme.dictation start text
-  expect_poll "control: the daemon notes the recording before the kill" start dictation_noted
-  dictation_kill_shell
-  expect_poll "control: a daemon with no parent-death signal outlives the killed shell and reaches its cap" "start cap" dictation_noted
-  expect_poll "control: the outlived recording is typed" "-d 10 -- second turn" dictation_wtype
-  dictation_daemons() { dictation_processes all | cut -d' ' -f1; }
-  expect "control: the daemon remains, no child of any shell" daemon=1 dictation_daemons
-  expect "control: the orphaned processes contribute no shell-owned role" "$dictation_none" dictation_processes owned
-  dictation_reap_runner
-  dictation_end_left
-  expect_poll "control: the outlived stand-in processes are ended" "$dictation_none" dictation_processes all
+  stop_shell || :
   start_shell "$sandbox/tree-dictation-controls" "$sandbox/dictation-controls-release.log"
   expect_poll "control: the copy's daemon reads ready again" "ready idle -" dictation_state acme.dictation
   expect "control: disabling the last holder on the copy is allowed" ok ipc shell setPluginEnabled acme.dictation false

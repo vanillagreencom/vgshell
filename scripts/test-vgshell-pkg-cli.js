@@ -66,7 +66,7 @@ function verifyCli(texts, tmp) {
     // dirname; node runs bin/vgshell-pkg, which takes its lock through flock
     // and runs mise's query through env; the stubs use cat and sleep. None
     // of them is a manager.
-    for (const tool of ["bash", "readlink", "dirname", "flock", "env", "cat", "sleep"]) {
+    for (const tool of ["bash", "readlink", "dirname", "flock", "env", "setpriv", "cat", "sleep"]) {
         const found = childProcess.spawnSync("sh", ["-c", "command -v \"$1\"", "sh", tool], { encoding: "utf8" });
         if (found.status !== 0) return { failures: [], missing: tool, counts };
         const target = path.join(tools, tool);
@@ -287,7 +287,7 @@ function checkRows(scripts, quick, tools, tmp, expect, failures) {
         "kill -TERM \"$p\"\nsleep 1\nflock -n -E 75 \"$5\" /bin/sh -c :\nprobe=$?\ncase $probe in 0) echo lock=free ;; 75) echo lock=held ;; *) echo lock=probe-failed-$probe ;; esac\nwait \"$p\"\necho \"status=$?\"";
     const stopStarted = Date.now();
     const stopped = childProcess.spawnSync("/bin/sh", ["-c", stopScript, "sh", process.execPath, scripts.pkg, flatpakGroup, miseGroup, path.join(stopRuntime, "vgshell", "pkg-check.lock")], {
-        encoding: "utf8", env: { PATH: stubPath(tmp, "stopped", { flatpak: "echo $$ > \"" + flatpakGroup + "\"\nsleep 15", mise: "trap '' TERM\necho $$ > \"" + miseGroup + "\"\nsleep 15" }, tools),
+        encoding: "utf8", env: { PATH: stubPath(tmp, "stopped", { flatpak: "echo $PPID > \"" + flatpakGroup + "\"\nsleep 15", mise: "trap '' TERM\necho $PPID > \"" + miseGroup + "\"\nsleep 15" }, tools),
             LC_ALL: "POSIX", XDG_RUNTIME_DIR: stopRuntime, HOME: home } });
     const stopElapsed = Date.now() - stopStarted;
     expect("a stopped check holds the lock until its last query ends, then exits 143", stopped, 0, "lock=held\nstatus=143\n", "");
@@ -368,14 +368,11 @@ const CONTROLS = [
     ["cli", "holder commands are not validated", PKG, "        if (holders !== null) for (const command of holders)\n            if (!table.validCommand(command)) usage(\"command=\" + JSON.stringify(command));", "        if (holders !== null) for (const command of holders)\n            if (false) usage(\"command=\" + JSON.stringify(command));", "detect --holders refuses a malformed command"],
     ["cli", "holder query failures are fatal", PKG, "        holderUnread(command, entry.id, run.error.code);\n        return null;", "        refuse(\"query=\" + q.argv[0] + \" reason=failed error=\" + run.error.code);", "detect --json --holders keeps going when an owner query cannot start"],
     ["cli", "vgshell pkg drops its arguments", VGSHELL, "exec node \"$root/bin/vgshell-pkg\" \"$@\"", "exec node \"$root/bin/vgshell-pkg\""],
-    ["cli", "a timed-out query's process group lives on", PKG, "process.kill(-child.pid, signal);", "process.kill(child.pid, signal);"],
     ["cli", "check runs without the lock", PKG, "        holdCheckLock(dir);\n", ""],
     ["cli", "checkupdates always syncs", PKG, "if (Date.now() - fs.statSync(stamp).mtimeMs > FRESH_MS) return false;", "return false;"],
     ["cli", "checkupdates skips its sync with no database copy", PKG, "return fs.readdirSync(path.join(db, \"sync\")).some(name => name.endsWith(\".db\"));", "return true;"],
     ["cli", "a query runs from the caller's directory", PKG, "cwd: process.env.HOME || \"/\",", ""],
     ["cli", "a signalled check exits and leaves its queries running", PKG, "for (const signal of [\"SIGINT\", \"SIGTERM\", \"SIGHUP\"]) process.on(signal, () => stopQueries(signal));", ""],
-    ["cli", "a timed-out query that ignores SIGTERM is never killed", PKG, "grace = setTimeout(() => signalGroup(\"SIGKILL\"), KILL_GRACE_MS);", ""],
-    ["cli", "a stopped check never kills a query that ignores SIGTERM", PKG, "for (const signalGroup of liveGroups.values()) signalGroup(\"SIGKILL\");", ""],
     ["cli", "a stopped check exits when its first query ends", PKG, "if (stopStatus !== null) {\n                if (liveGroups.size === 0) process.exit(stopStatus);", "if (stopStatus !== null) {\n                process.exit(stopStatus);", "lock=free"],
     ["cli", "a query reads the caller's locale", PKG, "env: Object.assign({}, process.env, { LC_ALL: \"C\" }),", "env: process.env,"]
 ];

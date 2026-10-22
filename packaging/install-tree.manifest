@@ -6,11 +6,13 @@ f share/vgshell/bin/lib/anchored.js
 f share/vgshell/bin/lib/aur-helper.sh
 f share/vgshell/bin/lib/check-manifests.js
 f share/vgshell/bin/lib/codex-account.js
+f share/vgshell/bin/lib/engine.js
 f share/vgshell/bin/lib/first-start.sh
 f share/vgshell/bin/lib/hyprland-instance.sh
 f share/vgshell/bin/lib/ipc-reply.sh
 f share/vgshell/bin/lib/judge-files.js
 f share/vgshell/bin/lib/logo.txt
+f share/vgshell/bin/lib/owned-group.sh
 f share/vgshell/bin/lib/page-rows.js
 f share/vgshell/bin/lib/pkg-run.sh
 f share/vgshell/bin/lib/post-install.txt

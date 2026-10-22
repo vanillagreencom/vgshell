@@ -49,7 +49,7 @@ def contract(p,result,rows,method,hidden,expect_kind):
     assert up['helper_argv'][2:]==['wlan0','A: network \\ $(literal)','yes' if hidden else 'no',method,'' if method=='psk' else 'person','' if method=='psk' else 'auth.example.test']
     assert up['argv']==['--wait','120','connection','up','uuid',profile,'passwd-file','/dev/stdin'] and up['stdin_ok']
     if expect_kind!='ok':
-        assert rows[-1]['argv']==['--wait','5','connection','delete','uuid',profile]
+        assert rows[-1]['argv']==['--wait','1','connection','delete','uuid',profile]
         assert result['cleanup']=='deleted'
         assert profile not in json.loads(fixture.read_text())['profiles']
     else:
@@ -77,7 +77,7 @@ assert result['kind']=='failed' and result['cleanup']=='failed'
 world('802-1x.password',{'up':'failed'},hold='delete')
 p,result,rows=run(helper,'peap','person','auth.example.test',False)
 assert p.returncode==1 and result['kind']=='failed' and result['cleanup']=='failed'
-assert rows[-1]['argv']==['--wait','5','connection','delete','uuid',result['uuid']]
+assert rows[-1]['argv']==['--wait','1','connection','delete','uuid',result['uuid']]
 try: os.kill(int(ready.read_text()),0)
 except ProcessLookupError: pass
 else: raise AssertionError('cleanup command survived its deadline')
@@ -98,7 +98,7 @@ for stop in (signal.SIGTERM,signal.SIGKILL):
     assert p.returncode==(1 if stop==signal.SIGTERM else -signal.SIGKILL)
     assert result['kind']=='canceled' and result['cleanup']=='deleted'
     assert result['uuid'] not in json.loads(fixture.read_text())['profiles']
-    assert rows[-1]['argv']==['--wait','5','connection','delete','uuid',result['uuid']]
+    assert rows[-1]['argv']==['--wait','1','connection','delete','uuid',result['uuid']]
     assert secret not in out+err
     try: os.kill(int(ready.read_text()),0)
     except ProcessLookupError: pass

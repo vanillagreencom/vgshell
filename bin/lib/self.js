@@ -53,6 +53,7 @@ const { pipeline } = require("stream/promises");
 
 const { Refusal, refuse, main, writing } = require(path.join(__dirname, "judge-files.js"));
 const packageTable = require(path.join(__dirname, "qml-library.js")).load(path.join(__dirname, "..", "..", "shell", "Core", "PackageManagers.js"));
+const engine = require(path.join(__dirname, "engine.js"));
 
 const VERSION_PATTERN = /^[0-9]+\.[0-9]+\.[0-9]+$/;
 // Also read by bin/vgshell's Reset through directory-pattern.
@@ -318,7 +319,9 @@ function engineFacts() {
 }
 
 function engineInstalled(found) {
-    return found.primary !== null && found.holders.qs.owners[found.primary.id] === "vgshell-quickshell";
+    if (found.primary === null || found.holders.qs.owners[found.primary.id] !== "vgshell-quickshell") return false;
+    const version = childProcess.spawnSync("qs", ["--version"], { encoding: "utf8" });
+    return version.error === undefined && version.status === 0 && engine.current(version.stdout);
 }
 
 // Run only inside the presenter. It owns the terminal, and the existing

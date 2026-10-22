@@ -147,6 +147,8 @@ class PickerTests(unittest.TestCase):
         (self.runtime / "vgshell.lock").write_text(str(os.getpid()) + "\n")
         self.tools = self.home / "tools"
         self.tools.mkdir()
+        (self.home / "lib").mkdir()
+        (self.home / "lib/owned-group.sh").symlink_to(REPO / "bin/lib/owned-group.sh")
         (self.tools / "qs").write_text(QS)
         (self.tools / "qs").chmod(0o755)
         (self.tools / "systemctl").write_text(SYSTEMCTL)

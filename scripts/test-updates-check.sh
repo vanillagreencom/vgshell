@@ -8,6 +8,7 @@ root="$(mktemp -d)" || exit 1
 mkdir -p -- "$root/bin" "$root/state" "$root/runtime" "$root/home"
 mkdir -p -- "$root/bin/lib"
 ln -s -- "$repo/bin/lib/qml-library.js" "$root/bin/lib/qml-library.js"
+ln -s -- "$repo/bin/lib/owned-group.sh" "$root/bin/lib/owned-group.sh"
 mkdir -p -- "$root/shell/Commons"
 cp -- "$repo/shell/Commons/PageReference.js" "$root/shell/Commons/"
 trap 'chmod -R u+rwx -- "${root:?}" 2>/dev/null; rm -rf -- "${root:?}"' EXIT
@@ -111,8 +112,8 @@ PY
 got_note="$(record_note "$no_record" || :)"
 if [[ $got_note == null ]]; then ok "control: without the record's read the VGS row has no note"; else fail "control: without the record's read the VGS row has no note: $got_note"; fi
 # Process groups: each probe's vgshell leaves a grandchild in its group. TERM
-# to bin/check must reach it; the control signals each probe's pid alone
-# and leaves the grandchild running.
+# to bin/check must reach it. The private group owner also forwards a
+# parent-death signal, held by test-owned-group.py.
 cat >"$root/bin/vgshell" <<'VGSHELL'
 #!/usr/bin/env bash
 record="$XDG_STATE_HOME/vgshell/updates-test"
@@ -146,18 +147,6 @@ grandchild_run() {
 read -r status left <<<"$(grandchild_run groups "$check")"
 if [[ $status -eq 143 ]]; then ok "TERM exits as 128 plus the signal"; else fail "TERM exits as 128 plus the signal: $status"; fi
 if [[ $left -eq 0 ]]; then ok "TERM kills probe grandchildren"; else fail "TERM kills probe grandchildren: left=$left"; fi
-pid_only="$root/check-pid-only"
-python3 - "$check" "$pid_only" <<'PY'
-import pathlib, sys
-source = pathlib.Path(sys.argv[1]).read_text()
-old = 'kill -"$sig" -- "-$pid" 2>/dev/null || kill -"$sig" -- "$pid" 2>/dev/null || true'
-new = 'kill -"$sig" -- "$pid" 2>/dev/null || true'
-assert source.count(old) == 1
-pathlib.Path(sys.argv[2]).write_text(source.replace(old, new))
-PY
-chmod 755 "$pid_only"
-read -r _ left <<<"$(grandchild_run pid-only "$pid_only")"
-if [[ $left -gt 0 ]]; then ok "control: signalling each probe's pid alone leaves its grandchild"; else fail "control: signalling each probe's pid alone leaves its grandchild"; fi
 # Delayed shutdown: the package probe, the first bin/check waits on, takes
 # three seconds to end after TERM; the other probes end at once. bin/check
 # must wait again for a probe whose wait the signal interrupted, so no
@@ -211,11 +200,9 @@ PY
 chmod 755 "$mutant"
 mutant_left="$(delayed_run mutant "$mutant")"
 if [[ $mutant_left -gt 0 ]]; then ok "control: without the re-wait a probe outlives bin/check"; else fail "control: without the re-wait a probe outlives bin/check"; fi
-# SIGINT: each probe starts in the background of bin/check, so with SIGINT
-# ignored, and a bash probe cannot trap it; a check stopped by INT still
-# sends every probe group TERM. The stand-in probe notes each TERM it gets.
-# The control forwards INT, which the probes ignore until their 3 s sleep
-# ends.
+# A check stopped by INT sends every probe group TERM. The stand-in probe
+# notes each TERM it gets; the private owner resets inherited ignored
+# signals before it starts the probe.
 cat >"$root/bin/vgshell" <<'VGSHELL'
 #!/usr/bin/env bash
 record="$XDG_STATE_HOME/vgshell/updates-test"
@@ -249,17 +236,5 @@ int_run() {
 read -r status termed <<<"$(int_run int "$check")"
 if [[ $status -eq 130 ]]; then ok "INT exits as 128 plus the signal"; else fail "INT exits as 128 plus the signal: $status"; fi
 if [[ $termed -eq 4 ]]; then ok "INT sends every probe TERM"; else fail "INT sends every probe TERM: termed=$termed"; fi
-int_mutant="$root/check-forwards-int"
-python3 - "$check" "$int_mutant" <<'PY'
-import pathlib, sys
-source = pathlib.Path(sys.argv[1]).read_text()
-old = '  signal_groups TERM\n'
-new = '  signal_groups INT\n'
-assert source.count(old) == 1
-pathlib.Path(sys.argv[2]).write_text(source.replace(old, new))
-PY
-chmod 755 "$int_mutant"
-read -r _ termed <<<"$(int_run int-mutant "$int_mutant")"
-if [[ $termed -eq 0 ]]; then ok "control: forwarding INT stops no probe"; else fail "control: forwarding INT stops no probe: termed=$termed"; fi
 if [[ $failures -gt 0 ]]; then echo "test-updates-check: failed=$failures"; exit 1; fi
 echo "test-updates-check: ok"

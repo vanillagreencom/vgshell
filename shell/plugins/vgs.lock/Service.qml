@@ -300,6 +300,9 @@ Item {
         missedSleep = null;
     }
 
+    // Process destruction kills systemd-inhibit alone when this service
+    // is removed. Its child still needs TERM to run sleep-watch's EXIT
+    // trap and end dbus-monitor while the shell itself keeps running.
     Process {
         id: sleepWatch
         running: root.shell !== null && root.lockBeforeSleep && root.sleepMissing.length === 0 && !sleepRetry.running
