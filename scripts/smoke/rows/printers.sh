@@ -662,10 +662,13 @@ def group_members(group):
 # when its reader ends; no outer TERM comes first. Every run must reach the
 # real cancellation request and finish it. The race is in Bash's trap
 # handling, so one run proves nothing: the control, whose handlers do not
-# ignore the later TERMs, lost the cancel in 14 of 30 runs (this block under
-# python3 -I outside the nested shell, 2026-10-22, the review host), and the
-# review's own probe lost it in 38 of 60 on that form.
+# ignore the later TERMs, lost the cancel in 14 of 30 runs under python3 -I
+# outside the nested shell and 5 of 30 in this row (2026-10-22, the review
+# host); the review's own probe lost it in 38 of 60 on that form. The
+# control stops at its first loss; at 5 in 30, all 60 runs keep the cancel
+# less than once in 50000.
 GROUP_RUNS = 30
+CONTROL_RUNS = 60
 def group_only(program, run):
     case = root/f'group-{program.parent.parent.name}-{run}'
     case.mkdir()
@@ -743,11 +746,14 @@ runs = [group_only(helper, run) for run in range(GROUP_RUNS)]
 record({'case': 'group-only', 'runs': GROUP_RUNS, 'cancelled': sum(map(cancelled, runs)),
         'failures': [r for r in runs if not cancelled(r)]})
 assert all(map(cancelled, runs)), [r for r in runs if not cancelled(r)]
-control = [group_only(mutants['reentrant-stop'], run) for run in range(GROUP_RUNS)]
-lost = [r for r in control if not r['cancelRequested']]
-record({'case': 'control-reentrant-stop', 'runs': GROUP_RUNS, 'cancelLost': len(lost),
+control = []
+for run in range(CONTROL_RUNS):
+    control.append(group_only(mutants['reentrant-stop'], run))
+    if not control[-1]['cancelRequested']: break
+record({'case': 'control-reentrant-stop', 'runs': len(control),
+        'cancelLost': not control[-1]['cancelRequested'],
         'statuses': sorted({r['status'] for r in control})})
-assert lost, 'control: handlers that let a later TERM pre-empt cleanup kept every cancel'
+assert not control[-1]['cancelRequested'], 'control: handlers that let a later TERM pre-empt cleanup kept every cancel'
 
 # Lock's sole monitor can finish during its startup query. These are real
 # owned children, with no PID reuse or real sleep action in the fixture.
