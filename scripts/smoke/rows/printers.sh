@@ -418,6 +418,7 @@ sys.stdin.buffer.read()
 import os,pathlib,time
 root=pathlib.Path(os.environ['PRINTER_CASE'])
 assert 'get-property' in __import__('sys').argv
+(root/'busctl-pid').write_text(str(os.getpid()))
 (root/'startup-query').touch()
 deadline=time.monotonic()+3
 while not (root/'startup-release').exists():
@@ -644,34 +645,94 @@ for name, program, overlap, outcome in (
         server.server_close()
         thread.join(timeout=2)
 
+def group_members(group):
+    members = []
+    for entry in pathlib.Path('/proc').iterdir():
+        if not entry.name.isdigit(): continue
+        try:
+            fields = (entry/'stat').read_text().rsplit(') ', 1)[1].split()
+        except (FileNotFoundError, ProcessLookupError):
+            continue
+        if fields[0] not in 'ZX' and int(fields[2]) == group: members.append(int(entry.name))
+    return members
+
 # Lock's sole monitor can finish during its startup query. These are real
 # owned children, with no PID reuse or real sleep action in the fixture.
-case = root/'lock-completed-monitor'
-case.mkdir()
-watch = subprocess.Popen([str(lock_helper)], env={'PATH':str(tools)+':'+os.defpath,
-                         'HOME':str(case), 'LC_ALL':'C', 'PRINTER_CASE':str(case)},
-                         stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                         stderr=subprocess.PIPE, text=True, start_new_session=True)
-monitor = None
-try:
-    deadline = time.monotonic()+3
-    while not (case/'startup-query').exists():
-        assert watch.poll() is None, 'Lock exited before startup query'
-        assert time.monotonic() < deadline, 'Lock startup readiness timeout'
-        time.sleep(0.01)
-    monitor = os.pidfd_open(int((case/'monitor-pid').read_text()))
-    signal.pidfd_send_signal(monitor, signal.SIGTERM)
-    assert exited(monitor, 2000), 'Lock monitor did not exit before root TERM'
-    os.killpg(watch.pid, signal.SIGTERM)
-    status = watch.wait(timeout=3)
-    stdout, stderr = watch.communicate(timeout=1)
-    record({'case':'lock-completed-monitor', 'status':status,
-            'monitorExitedBeforeRootTerm':True, 'stdout':stdout, 'stderr':stderr})
-    assert status == 143 and 'sleep budget_ms=' not in stdout, results[-1]
-finally:
-    if watch.poll() is None: os.killpg(watch.pid, signal.SIGKILL)
-    watch.communicate(timeout=3)
-    if monitor is not None: os.close(monitor)
+# sleep-watch promises only that TERM ends the hook and leaves no listener;
+# it has no TERM trap, so Bash runs its EXIT trap and dies by the signal.
+def lock_case(name, program):
+    case = root/name
+    case.mkdir()
+    watch = subprocess.Popen([str(program)], env={'PATH':str(tools)+':'+os.defpath,
+                             'HOME':str(case), 'LC_ALL':'C', 'PRINTER_CASE':str(case)},
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, text=True, start_new_session=True)
+    # Popen has not reaped the leader, so this pidfd and its group id are ours.
+    leader = os.pidfd_open(watch.pid)
+    held = {}
+    try:
+        deadline = time.monotonic()+3
+        while not (case/'startup-query').exists():
+            assert not exited(leader, 0), 'Lock exited before startup query'
+            assert time.monotonic() < deadline, 'Lock startup readiness timeout'
+            time.sleep(0.01)
+        for label in ('monitor-pid', 'busctl-pid'):
+            pid = int((case/label).read_text())
+            fd = os.pidfd_open(pid)
+            try:
+                # Alive after the group read, so that read named this pidfd's process.
+                owned = os.getpgid(pid) == watch.pid and not exited(fd, 0)
+            except ProcessLookupError:
+                owned = False
+            if not owned: os.close(fd)
+            assert owned, f'{label} is not a live member of the Lock group'
+            held[label] = fd
+        signal.pidfd_send_signal(held['monitor-pid'], signal.SIGTERM)
+        assert exited(held['monitor-pid'], 2000), 'Lock monitor did not exit before root TERM'
+        os.killpg(watch.pid, signal.SIGTERM)
+        assert exited(leader, 3000), 'Lock survived root TERM'
+        query_exited = exited(held['busctl-pid'], 2000)
+        deadline = time.monotonic()+2
+        while (survivors := group_members(watch.pid)) and time.monotonic() < deadline:
+            time.sleep(0.01)
+        # The unreaped leader still holds the group id for this signal.
+        if survivors: os.killpg(watch.pid, signal.SIGKILL)
+        status = watch.wait(timeout=1)
+        stdout, stderr = watch.communicate(timeout=1)
+        result = {'case':name, 'status':status, 'monitorExitedBeforeRootTerm':True,
+                  'startupQueryExited':query_exited, 'groupSurvivors':survivors,
+                  'stdout':stdout, 'stderr':stderr}
+        record(result)
+        return result
+    finally:
+        if watch.poll() is None: os.killpg(watch.pid, signal.SIGKILL)
+        for fd in held.values():
+            if not exited(fd, 0): signal.pidfd_send_signal(fd, signal.SIGKILL)
+        watch.communicate(timeout=3)
+        for fd in (leader, *held.values()): os.close(fd)
+
+def lock_ended(result):
+    # Python reports a direct signal death as -15; a shell would report 143.
+    return (result['status'] in (-signal.SIGTERM, 128+signal.SIGTERM)
+            and result['startupQueryExited'] and not result['groupSurvivors']
+            and 'sleep budget_ms=' not in result['stdout'])
+
+result = lock_case('lock-completed-monitor', lock_helper)
+assert lock_ended(result), result
+# Must-fail controls on copies: one ignores TERM from its startup query on
+# and exits by its own refusal; the other leaves a TERM-ignoring member in
+# the hook's group.
+lock_source = lock_helper.read_text()
+for name, needle, planted, field in (
+        ('lock-control-term-ignored', 'preparing="$(timeout ', "trap '' TERM\n", 'status'),
+        ('lock-control-survivor', 'coproc MONITOR ', "( trap '' TERM; exec sleep 5 ) &\n", 'groupSurvivors')):
+    assert lock_source.count(needle) == 1, name
+    program = root/f'{name}-sleep-watch'
+    program.write_text(lock_source.replace(needle, planted+needle, 1))
+    program.chmod(0o755)
+    control = lock_case(name, program)
+    assert not lock_ended(control), control
+    assert control[field] != result[field], control
 print('preserved')
 PY
 }
