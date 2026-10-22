@@ -6,9 +6,22 @@ vgs_voxtype_supervise() { # ROLE ARGV...
   # pipes here, outside Quickshell. A failed transport ends the child once;
   # The existing process-group owner also covers this child's life.
   exec python3 - "$@" <<'PY'
-import os, selectors, signal, subprocess, sys, time
+import os, pathlib, selectors, shutil, signal, subprocess, sys, time
 
 role, *argv = sys.argv[1:]
+NIX_STORE_ROOT = "/nix/store"
+# pw-play is already a required core command. Nix installs its canonical
+# pw-cat binary and the ALSA modules in one PipeWire package output. Use
+# that package's own module directory for flake, curl and checkout trees;
+# ordinary distro libasound keeps its native (including multiarch) path.
+environment = dict(os.environ)
+player = shutil.which("pw-play")
+if player is None:
+    print("vgs-dictation: route=missing-player", file=sys.stderr)
+    sys.exit(127)
+player = pathlib.Path(player).resolve()
+if player.is_relative_to(NIX_STORE_ROOT):
+    environment["ALSA_PLUGIN_DIR"] = str(player.parent.parent / "lib/alsa-lib")
 # A changed-state follower emits small JSON records; allow startup bursts,
 # but refuse a continuous writer. One-shot inventories/transcripts get a
 # separate total ceiling. VGS-1998's nested before/after run measures the
@@ -47,8 +60,9 @@ try:
     # closes the race if this supervisor ended before setpriv started.
     guarded = ["setpriv", "--pdeathsig", "KILL", "--", "bash", "-c",
                '[[ $PPID == "$1" ]] || exit 1; shift; exec "$@"', "bash", str(os.getpid()), *argv]
+    environment["ALSA_CONFIG_PATH"] = "/proc/self/fd/" + str(config_fd)
     child = subprocess.Popen(guarded, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                             env={**os.environ, "ALSA_CONFIG_PATH": "/proc/self/fd/" + str(config_fd)}, pass_fds=(config_fd,))
+                             env=environment, pass_fds=(config_fd,))
 except OSError as error:
     print("vgs-dictation: child=start-failed errno=" + str(error.errno), file=sys.stderr)
     sys.exit(127)

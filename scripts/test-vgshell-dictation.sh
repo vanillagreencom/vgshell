@@ -131,6 +131,8 @@ case = os.environ.get("DICTATION_STREAM_CASE", "valid")
 if case == "argv":
     with open(os.environ["DICTATION_ARGV_FILE"], "w") as log:
         log.write(" ".join(sys.argv[1:]) + "\n" + pathlib.Path(os.environ["ALSA_CONFIG_PATH"]).read_text())
+    with open(os.environ["DICTATION_ARGV_FILE"] + ".module", "w") as log:
+        log.write(os.environ.get("ALSA_PLUGIN_DIR", ""))
 elif case in ("stdout", "stderr"):
     fd = 1 if case == "stdout" else 2
     for _ in range(2048):
@@ -173,6 +175,28 @@ assert args == "--audio-device default daemon"
 assert "pcm.!default" in route and "ctl.!default" in route
 assert 'playback_node "-1"' in route and 'capture_node "-1"' in route
 assert "type hw" not in route and "<" not in route
+# A fixed system root is redirected only in a disposable source copy;
+# the production package-root lookup and environment handoff run intact.
+nix_root = pathlib.Path(scratch) / "nix/store"
+package = nix_root / "fixture-pipewire"
+(package / "bin").mkdir(parents=True)
+(package / "lib/alsa-lib").mkdir(parents=True)
+player = package / "bin/pw-cat"
+player.write_text("#!/bin/sh\nexit 0\n")
+player.chmod(0o755)
+commands = pathlib.Path(os.environ["PATH"].split(os.pathsep)[0])
+(commands / "pw-play").symlink_to(player)
+nix_tree = pathlib.Path(scratch) / "transport-nix"
+(nix_tree / "bin/lib").mkdir(parents=True)
+shutil.copyfile(helper, nix_tree / "bin/vgshell-dictation")
+source = pathlib.Path(helper).parent / "lib/voxtype.sh"
+text = source.read_text()
+needle = 'NIX_STORE_ROOT = "/nix/store"'
+assert text.count(needle) == 1
+(nix_tree / "bin/lib/voxtype.sh").write_text(text.replace(needle, "NIX_STORE_ROOT = " + repr(str(nix_root))))
+result = run("daemon", "argv", str(nix_tree / "bin/vgshell-dictation"))
+assert result.returncode == 0, result
+assert pathlib.Path(scratch, "transport.argv.module").read_text() == str(package / "lib/alsa-lib")
 # The same behavioral assertion must reject a disposable transport whose
 # raw-byte governor is removed; its child is finite and needs no cleanup.
 control = pathlib.Path(scratch) / "transport-control"
