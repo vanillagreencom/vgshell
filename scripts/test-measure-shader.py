@@ -56,11 +56,71 @@ def fixture(root):
 
 
 class ShaderReadings(unittest.TestCase):
+    def test_resolution_floor_and_boundary(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            fixture(root)
+            for scale in (1, 2):
+                (root / f"scale-{scale}-on.log").write_text(stream_log([0] * 720, [0] * 720, [0.2] * 720))
+                (root / f"scale-{scale}-on.json").write_text(json.dumps(dict(STATE, scale=scale, presentation=[0] * 720)))
+            self.assertEqual(reader.calibrate([root], 2.8)["ceilings"], {
+                "cpu_sync_ms": 1, "cpu_render_ms": 1, "gpu_cost_ms": 0.2, "presentation_ms": 1})
+
+    def test_gpu_tick_boundary(self):
+        ceilings = dict(BASELINE["ceilings"], gpu_cost_ms=0.0026)
+        for value, want in ((0.0026000000000000007, []), (0.0027, ["gpu_cost_ms"])):
+            with self.subTest(gpu_cost_ms=value):
+                self.assertEqual(reader.over_ceiling(dict(ceilings, gpu_cost_ms=value), ceilings), want)
+
+    def test_pressure_verdicts(self):
+        # The on scene produces the CPU readings. Off/control pressure
+        # cannot excuse a quiet on-scene CPU regression.
+        cases = (
+            ("loaded CPU", "scale-1-on", "2.9", 3, 0.2, False, "--check", 77),
+            ("quiet same CPU", "scale-1-on", "2.8", 3, 0.2, False, "--check", 1),
+            ("off loaded only", "scale-1-off", "9.0", 3, 0.2, False, "--check", 1),
+            ("CPU pressure unread", "scale-1-on", "unmeasured", 3, 0.2, False, "--check", 77),
+            ("quiet GPU", "scale-1-on", "0.5", 1, 0.31, False, "--check", 1),
+            ("loaded GPU", "scale-1-on", "2.9", 3, 0.31, False, "--check", 1),
+            ("loaded weak control", "scale-1-on", "2.9", 3, 0.2, True, "--check", 1),
+            ("loaded calibration", "scale-1-on", "2.9", 3, 0.2, False, "--calibrate", 77),
+            ("loaded calibration weak control", "scale-1-on", "2.9", 3, 0.2, True, "--calibrate", 1),
+        )
+        for name, stem, pressure, cpu, gpu, weak, choice, status in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as scratch:
+                root = Path(scratch)
+                fixture(root)
+                (root / f"{stem}.cpu").write_text(pressure + "\n")
+                (root / "scale-1-on.log").write_text(stream_log([cpu] * 720, [cpu] * 720, [gpu] * 720))
+                if weak:
+                    (root / "scale-1-costly.log").write_text(log(0.2))
+                path = root / "baseline.json"
+                original = json.dumps({"shaders": {"voiceorb": BASELINE}})
+                path.write_text(original)
+                result = subprocess.run(
+                    [sys.executable, str(READER), "--cpu-pressure-limit", "2.8", str(root), "--shader", "voiceorb", choice, str(path)],
+                    env={"PATH": "/usr/bin:/bin", "HOME": scratch, "LC_ALL": "C"},
+                    text=True, capture_output=True, check=False)
+                self.assertEqual(result.returncode, status, result.stdout + result.stderr)
+                # Main batch investigations consume these keyed readings.
+                fields = dict(re.findall(r"(\w+)=([^\s]+)", result.stdout))
+                if status == 77:
+                    self.assertEqual(fields["status"], "not-measured")
+                    self.assertEqual(fields["cpu_some_pct"], pressure)
+                    self.assertEqual(float(fields["cpu_sync_ms"]), 3)
+                    self.assertEqual(float(fields["cpu_render_ms"]), 3)
+                if gpu == 0.31 and choice == "--check":
+                    self.assertIn("gpu_cost_ms", fields)
+                    self.assertAlmostEqual(float(fields["gpu_cost_ms"]), 0.21)
+                    self.assertEqual(float(fields["ceiling_gpu_cost_ms"]), 0.2)
+                if choice == "--calibrate":
+                    self.assertEqual(path.read_text(), original)
+
     def test_distinct_readings_and_calibration(self):
         with tempfile.TemporaryDirectory() as scratch:
             root = Path(scratch)
             fixture(root)
-            result = reader.calibrate([root])
+            result = reader.calibrate([root], 2.8)
             self.assertEqual(result["samples"], 600)
             self.assertEqual(result["warmup"], 120)
             self.assertEqual(result["readings"]["1"], {
@@ -77,7 +137,7 @@ class ShaderReadings(unittest.TestCase):
         # in another form fails.
         cases = (
             ("highest scene", {"scale-2-costly": "1.7"}, 1.7, None),
-            ("an unmeasured scene", {"scale-1-off": "unmeasured", "scale-2-on": "3.0"}, "unmeasured", None),
+            ("an unmeasured scene", {"scale-1-off": "unmeasured", "scale-2-on": "0.5"}, "unmeasured", None),
             ("an unreadable reading", {"scale-1-on": "high"}, None, "cpu-pressure=unreadable"),
         )
         for label, files, want, error in cases:
@@ -88,9 +148,9 @@ class ShaderReadings(unittest.TestCase):
                     (root / f"{stem}.cpu").write_text(value + "\n")
                 if error:
                     with self.assertRaisesRegex(ValueError, error):
-                        reader.calibrate([root])
+                        reader.calibrate([root], 2.8)
                 else:
-                    self.assertEqual(reader.calibrate([root])["calibration_runs"][0]["cpu_some_pct"], want)
+                    self.assertEqual(reader.calibrate([root], 2.8)["calibration_runs"][0]["cpu_some_pct"], want)
 
     def test_sample_and_attribution_rules(self):
         cases = (
@@ -114,7 +174,7 @@ class ShaderReadings(unittest.TestCase):
             fixture(root)
             (root / "scale-1-off.log").write_text(log().replace("type 2)", "type 4)"))
             result = subprocess.run(
-                [sys.executable, str(READER), str(root), "--shader", "voiceorb", "--calibrate", str(root / "baseline.json")],
+                [sys.executable, str(READER), "--cpu-pressure-limit", "2.8", str(root), "--shader", "voiceorb", "--calibrate", str(root / "baseline.json")],
                 env={"PATH": "/usr/bin:/bin", "HOME": scratch, "LC_ALL": "C"},
                 text=True, capture_output=True, check=False)
             self.assertEqual(result.returncode, 77, result.stdout + result.stderr)
@@ -125,7 +185,7 @@ class ShaderReadings(unittest.TestCase):
         with tempfile.TemporaryDirectory() as scratch:
             root = Path(scratch)
             fixture(root)
-            result = reader.calibrate([root])
+            result = reader.calibrate([root], 2.8)
             row = result["readings"]["1"]
             for name in reader.READINGS:
                 with self.subTest(name=name):
@@ -134,7 +194,7 @@ class ShaderReadings(unittest.TestCase):
             self.assertEqual(reader.over_ceiling(dict(row, cpu_sync_ms=1), dict(result["ceilings"], cpu_sync_ms=0)), ["cpu_sync_ms"])
             (root / "scale-2-costly.log").write_text(log(0.2))
             with self.assertRaisesRegex(ValueError, "costly-control=accepted scale=2"):
-                reader.calibrate([root])
+                reader.calibrate([root], 2.8)
 
     def test_check_mode_report_and_cli(self):
         cases = (
@@ -149,14 +209,14 @@ class ShaderReadings(unittest.TestCase):
                 with self.subTest(name=name):
                     baseline = dict(BASELINE, ceilings=dict(BASELINE["ceilings"], gpu_cost_ms=ceiling))
                     if error is None:
-                        self.assertEqual(reader.check(root, baseline)["ceilings"], baseline["ceilings"])
+                        self.assertEqual(reader.check(root, baseline, 2.8)["ceilings"], baseline["ceilings"])
                     else:
                         with self.assertRaisesRegex(ValueError, error):
-                            reader.check(root, baseline)
+                            reader.check(root, baseline, 2.8)
                     path = root / "baseline.json"
                     path.write_text(json.dumps({"shaders": {"voiceorb": baseline}}))
                     result = subprocess.run(
-                        [sys.executable, str(READER), str(root), "--shader", "voiceorb", "--check", str(path)],
+                        [sys.executable, str(READER), "--cpu-pressure-limit", "2.8", str(root), "--shader", "voiceorb", "--check", str(path)],
                         env={"PATH": "/usr/bin:/bin", "HOME": scratch, "LC_ALL": "C"},
                         text=True, capture_output=True, check=False)
                     self.assertEqual(result.returncode, 1 if error else 0, result.stdout + result.stderr)
@@ -179,11 +239,11 @@ class ShaderReadings(unittest.TestCase):
                         path = root / f"scale-{scale}-{mode}.log"
                         path.write_text(path.read_text().replace("'Test GPU'", "'Other GPU'"))
                     with self.assertRaisesRegex(reader.Unmeasured, "calibration=identity-mismatch"):
-                        reader.check(root, baseline)
+                        reader.check(root, baseline, 2.8)
                     path = root / "baseline.json"
                     path.write_text(json.dumps({"shaders": {"voiceorb": baseline}}))
                     result = subprocess.run(
-                        [sys.executable, str(READER), str(root), "--shader", "voiceorb", "--check", str(path)],
+                        [sys.executable, str(READER), "--cpu-pressure-limit", "2.8", str(root), "--shader", "voiceorb", "--check", str(path)],
                         env={"PATH": "/usr/bin:/bin", "HOME": scratch, "LC_ALL": "C"},
                         text=True, capture_output=True, check=False)
                     self.assertEqual(result.returncode, 77, result.stdout + result.stderr)
@@ -213,8 +273,8 @@ class ShaderReadings(unittest.TestCase):
                 (root / "scale-1-on.log").write_text(stream_log(
                     streams["cpu_sync_ms"], streams["cpu_render_ms"], streams["gpu_cost_ms"]))
                 (root / "scale-1-on.json").write_text(json.dumps(dict(STATE, presentation=streams["presentation_ms"])))
-                self.assertAlmostEqual(reader.calibrate([root])["readings"]["1"][name], want)
-                self.assertEqual(reader.check(root, BASELINE)["ceilings"], BASELINE["ceilings"])
+                self.assertAlmostEqual(reader.calibrate([root], 2.8)["readings"]["1"][name], want)
+                self.assertEqual(reader.check(root, BASELINE, 2.8)["ceilings"], BASELINE["ceilings"])
 
     def test_gpu_cost_not_resolved(self):
         # Fewer than a tenth of the on scene's frames cost more than the
@@ -228,7 +288,7 @@ class ShaderReadings(unittest.TestCase):
                 gpu[index] = 0.5
             (root / "scale-1-on.log").write_text(stream_log([1] * 720, [1] * 720, gpu))
             with self.assertRaisesRegex(ValueError, "gpu-cost=not-resolved reading_ms=0"):
-                reader.calibrate([root])
+                reader.calibrate([root], 2.8)
 
     def test_calibration_over_passes(self):
         with tempfile.TemporaryDirectory() as scratch:
@@ -238,7 +298,7 @@ class ShaderReadings(unittest.TestCase):
                 fixture(root)
             (second / "scale-2-on.log").write_text(log(0.25))
             (weak / "scale-1-costly.log").write_text(log(0.35))
-            result = reader.calibrate([first, second])
+            result = reader.calibrate([first, second], 2.8)
             self.assertAlmostEqual(result["ceilings"]["gpu_cost_ms"], 0.3)
             self.assertAlmostEqual(result["readings"]["2"]["gpu_cost_ms"], 0.15)
             self.assertAlmostEqual(result["readings"]["1"]["gpu_cost_ms"], 0.1)
@@ -246,7 +306,7 @@ class ShaderReadings(unittest.TestCase):
                              [f"{Path(scratch).name}/run-1/plasma", f"{Path(scratch).name}/run-2/plasma"])
             self.assertAlmostEqual(result["calibration_runs"][0]["readings"]["2"]["gpu_cost_ms"], 0.1)
             with self.assertRaisesRegex(ValueError, f"costly-control=accepted scale=1 .* run={Path(scratch).name}/run-3/plasma$"):
-                reader.calibrate([first, second, weak])
+                reader.calibrate([first, second, weak], 2.8)
             # A later pass is matched to the first pass's device.
             other = Path(scratch) / "run-4" / "plasma"
             other.mkdir(parents=True)
@@ -256,7 +316,7 @@ class ShaderReadings(unittest.TestCase):
             with self.assertRaisesRegex(
                     reader.Unmeasured,
                     r"calibration=identity-mismatch scale=2 scene=off want=\[Vulkan:Test GPU\] got=\[Vulkan:Other GPU\]"):
-                reader.calibrate([first, other])
+                reader.calibrate([first, other], 2.8)
 
     def test_check_takes_one_directory(self):
         with tempfile.TemporaryDirectory() as scratch:
@@ -269,7 +329,7 @@ class ShaderReadings(unittest.TestCase):
             for roots, status in (([first], 0), ([first, second], 2)):
                 with self.subTest(directories=len(roots)):
                     result = subprocess.run(
-                        [sys.executable, str(READER), *map(str, roots), "--shader", "voiceorb", "--check", str(path)],
+                        [sys.executable, str(READER), "--cpu-pressure-limit", "2.8", *map(str, roots), "--shader", "voiceorb", "--check", str(path)],
                         env={"PATH": "/usr/bin:/bin", "HOME": scratch, "LC_ALL": "C"},
                         text=True, capture_output=True, check=False)
                     self.assertEqual(result.returncode, status, result.stdout + result.stderr)
@@ -281,7 +341,7 @@ class ShaderReadings(unittest.TestCase):
         # shader keeps every other shader's record as it was.
         def run(root, path, shader, choice):
             return subprocess.run(
-                [sys.executable, str(READER), str(root), "--shader", shader, choice, str(path)],
+                [sys.executable, str(READER), "--cpu-pressure-limit", "2.8", str(root), "--shader", shader, choice, str(path)],
                 env={"PATH": "/usr/bin:/bin", "HOME": str(root), "LC_ALL": "C"},
                 text=True, capture_output=True, check=False)
         with tempfile.TemporaryDirectory() as scratch:
@@ -300,13 +360,13 @@ class ShaderReadings(unittest.TestCase):
                     result = run(root, path, shader, "--check")
                     self.assertEqual(result.returncode, status, result.stdout + result.stderr)
                     if line is not None:
-                        self.assertEqual(result.stdout, line + "\n")
+                        self.assertTrue(result.stdout.startswith(line + " ") or result.stdout == line + "\n", result.stdout)
             kept = path.read_text()
             result = run(root, path, "plasma", "--calibrate")
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             records = json.loads(path.read_text())["shaders"]
             self.assertEqual(records["voiceorb"], json.loads(kept)["shaders"]["voiceorb"])
-            self.assertEqual(records["plasma"]["ceilings"], reader.calibrate([root])["ceilings"])
+            self.assertEqual(records["plasma"]["ceilings"], reader.calibrate([root], 2.8)["ceilings"])
             path.unlink()
             result = run(root, path, "plasma", "--calibrate")
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -314,10 +374,17 @@ class ShaderReadings(unittest.TestCase):
 
     def test_sample_and_ceiling_mutants_turn_tests_red(self):
         plants = (
+            ("resolution floor", "max(RESOLUTION_MS[name], 2 *", "max(0 * RESOLUTION_MS[name], 2 *", "test_resolution_floor_and_boundary"),
+            ("GPU tick equality", "round(reading[name] / RESOLUTION_MS[name]) > round(ceilings[name] / RESOLUTION_MS[name])",
+             "reading[name] > ceilings[name]", "test_gpu_tick_boundary"),
+            ("CPU pressure ignored", 'if value == "unmeasured" or value > pressure_limit}',
+             'if False and (value == "unmeasured" or value > pressure_limit)}', "test_pressure_verdicts"),
+            ("failed readings omitted", 'f"{values} cpu_some_pct=',
+             'f"{values[:0]} cpu_some_pct=', "test_pressure_verdicts"),
             ("sample guard", "if len(values) < WARMUP + SAMPLES:", "if False and len(values) < WARMUP + SAMPLES:", "test_sample_and_attribution_rules"),
-            ("ceiling guard", "if reading[name] > ceilings[name]", "if reading[name] > float('inf') + ceilings[name]", "test_costly_control_and_each_ceiling"),
-            ("baseline rejection", 'raise ValueError(f"ceiling=exceeded scale={scale} readings={\',\'.join(broken)}")',
-             'str(f"ceiling=exceeded scale={scale} readings={\',\'.join(broken)}")', "test_check_mode_report_and_cli"),
+            ("ceiling guard", "if round(reading[name] / RESOLUTION_MS[name]) > round(ceilings[name] / RESOLUTION_MS[name])", "if round(reading[name] / RESOLUTION_MS[name]) > float('inf') + round(ceilings[name] / RESOLUTION_MS[name])", "test_costly_control_and_each_ceiling"),
+            ("baseline rejection", 'raise ValueError(f"ceiling=exceeded',
+             'str(f"ceiling=exceeded', "test_check_mode_report_and_cli"),
             ("calibration identity", "if identity is not None and (", "if identity is not None and False and (",
              "test_check_mode_calibration_identity"),
             ("percentile reading", "return ordered[rank - 1]", "return ordered[-1]", "test_percentile_ignores_a_spike"),
@@ -337,8 +404,8 @@ class ShaderReadings(unittest.TestCase):
              "    for run in runs[:1]:\n        prove_control(", "test_calibration_over_passes"),
             ("check reads one directory", "if args.check and len(args.directory) != 1:",
              "if args.check and len(args.directory) != len(args.directory):", "test_check_takes_one_directory"),
-            ("check reads another shader's record", "check(args.directory[0], records[args.shader])",
-             "check(args.directory[0], records[next(iter(records))])", "test_shader_records"),
+            ("check reads another shader's record", "check(args.directory[0], records[args.shader], args.cpu_pressure_limit)",
+             "check(args.directory[0], records[next(iter(records))], args.cpu_pressure_limit)", "test_shader_records"),
             ("an absent record passes", 'raise ValueError("baseline=absent")', 'records[args.shader] = records["voiceorb"]',
              "test_shader_records"),
             ("calibration drops other records",
@@ -545,7 +612,7 @@ exit 0
 home="$HOME"; sandbox="$HOME/sandbox"
 shell_env=(env -i PATH=/usr/bin:/bin HOME="$HOME")
 mkdir -p -- "$sandbox"
-failures=0; mode_hold=()
+failures=0; mode_hold=(); latency_pressure_limit=7.3
 first_name() { echo WAYLAND-1; }
 unscaled_mode_of() { echo 1755x933; }
 hidpi_mode_of() { echo 3510x1866; }
@@ -594,7 +661,7 @@ with open(pathlib.Path(__file__).with_name("readings-args"), "a") as calls:
                         calls = [json.loads(line) for line in (root / "scripts/shader/readings-args").read_text().splitlines()]
                         held = (scenes == want and calls == [
                             [f"{logs[0]}/run-{run}/{shader}" for run in range(1, passes + 1)]
-                            + ["--shader", shader, "--calibrate", "out.json"] for shader in shaders])
+                            + ["--shader", shader, "--calibrate", "out.json", "--cpu-pressure-limit", "7.3"] for shader in shaders])
                         # The fourth plant drops every shader but the first,
                         # which one chosen shader cannot see.
                         self.assertEqual(held, index == 0 or (chosen != () and index == 4),
@@ -607,7 +674,7 @@ with open(pathlib.Path(__file__).with_name("readings-args"), "a") as calls:
 home="$HOME"; sandbox="$HOME/sandbox"
 shell_env=(env -i PATH=/usr/bin:/bin HOME="$HOME")
 mkdir -p -- "$sandbox"
-failures=0; mode_hold=()
+failures=0; mode_hold=(); latency_pressure_limit=7.3
 first_name() { echo WAYLAND-1; }
 unscaled_mode_of() { echo 1755x933; }
 hidpi_mode_of() { echo 3510x1866; }

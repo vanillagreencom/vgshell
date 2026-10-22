@@ -17,8 +17,9 @@ highest reading over every pass and writes the shader's record into the
 file, keeping every other shader's; each calibration run records the
 highest CPU pressure (cpu_some_pct) its scenes ran under, read from each
 scene's .cpu file, or `unmeasured` when a scene could not read it. Check
-mode judges one directory.
-Software devices exit 77; absent samples fail.
+mode judges one directory. CPU readings above the runner's shared pressure
+limit are not measured in either mode; GPU ceilings and controls still fail.
+Software devices and CPU pressure without a measurement exit 77; absent samples fail.
 """
 import argparse
 import json
@@ -34,10 +35,15 @@ SAMPLES = 600
 # The reading of a stream is its nearest-rank percentile.
 PERCENTILE = 90
 READINGS = ("cpu_sync_ms", "cpu_render_ms", "gpu_cost_ms", "presentation_ms")
+CPU_READINGS = ("cpu_sync_ms", "cpu_render_ms")
+# QSGRenderThread::syncAndRender truncates CPU times to integer ms and
+# prints GPU timestamps with %.4f ms (Qt 6.11.2 qsgthreadedrenderloop.cpp).
+# Scene.qml's Date.now() presentation clock resolves whole ms.
+RESOLUTION_MS = dict(zip(READINGS, (1, 1, 0.0001, 1), strict=True))
 
 
 class Unmeasured(Exception):
-    """The backend cannot provide real-GPU evidence."""
+    """The run cannot provide measured evidence for every reading."""
 
 
 def samples(values, name):
@@ -114,9 +120,10 @@ def reading(on, off):
     }
 
 
-def over_ceiling(reading, ceilings):
-    """Return every exceeded reading, including a zero CPU ceiling."""
-    return [name for name in READINGS if reading[name] > ceilings[name]]
+def over_ceiling(reading, ceilings, names=READINGS):
+    """Compare instrument ticks, so subtraction residue cannot add a tick."""
+    return [name for name in names
+            if round(reading[name] / RESOLUTION_MS[name]) > round(ceilings[name] / RESOLUTION_MS[name])]
 
 
 def measure(root, identity=None):
@@ -142,6 +149,7 @@ def measure(root, identity=None):
         "backend": scenes[1]["on"]["backend"], "device": scenes[1]["on"]["device"],
         "readings": {str(scale): reading(rows["on"], rows["off"]) for scale, rows in scenes.items()},
         "costly_control": {str(scale): reading(rows["costly"], rows["off"]) for scale, rows in scenes.items()},
+        "on_cpu_some_pct": {str(scale): pressure([root / f"scale-{scale}-on"]) for scale in scenes},
     }
 
 
@@ -149,7 +157,7 @@ def prove_control(run, ceilings, suffix=""):
     """The costly shader must exceed the GPU ceiling at every scale."""
     for scale, control in run["costly_control"].items():
         # The control proves GPU cost, not a scheduling hiccup on the CPU.
-        if "gpu_cost_ms" not in over_ceiling(control, ceilings):
+        if not over_ceiling(control, ceilings, ("gpu_cost_ms",)):
             raise ValueError(
                 f"costly-control=accepted scale={scale} gpu_cost_ms={control['gpu_cost_ms']} "
                 f"ceiling={ceilings['gpu_cost_ms']}{suffix}")
@@ -167,47 +175,69 @@ def record(run, ceilings):
     }
 
 
-def check(root, baseline):
+def unmeasured_cpu(run, pressure_limit):
+    """Only the on scene produces the CPU readings judged by a ceiling."""
+    return {scale: f"scale={scale} cpu_some_pct={value} limit={pressure_limit} "
+                   + " ".join(f"{name}={run['readings'][scale][name]}" for name in CPU_READINGS)
+            for scale, value in run["on_cpu_some_pct"].items()
+            if value == "unmeasured" or value > pressure_limit}
+
+
+def check(root, baseline, pressure_limit):
     """Judge one pass at both scales, and its costly shader, against the
     committed ceilings."""
     run = measure(root, baseline)
     ceilings = baseline["ceilings"]
+    unmeasured = unmeasured_cpu(run, pressure_limit)
     for scale, row in run["readings"].items():
         broken = over_ceiling(row, ceilings)
+        if scale in unmeasured:
+            broken = [name for name in broken if name not in CPU_READINGS]
         if broken:
-            raise ValueError(f"ceiling=exceeded scale={scale} readings={','.join(broken)}")
+            values = " ".join(f"{name}={row[name]} ceiling_{name}={ceilings[name]}" for name in broken)
+            raise ValueError(f"ceiling=exceeded scale={scale} readings={','.join(broken)} "
+                             f"{values} cpu_some_pct={run['on_cpu_some_pct'][scale]}")
     prove_control(run, ceilings)
-    return dict(record(run, ceilings), readings=run["readings"], costly_control=run["costly_control"])
+    if unmeasured:
+        raise Unmeasured("cpu-pressure " + "; ".join(unmeasured.values()))
+    return dict(record(run, ceilings), readings=run["readings"], costly_control=run["costly_control"],
+                on_cpu_some_pct=run["on_cpu_some_pct"])
 
 
-def pressure(root):
-    """The highest cpu_some_pct over one pass's scenes, `unmeasured` when
+def pressure(stems):
+    """The highest cpu_some_pct over the named scenes, `unmeasured` when
     any scene could not read it."""
-    values = [(root / f"scale-{scale}-{mode}.cpu").read_text().strip()
-              for scale in (1, 2) for mode in ("off", "on", "costly")]
+    values = [stem.with_suffix(".cpu").read_text().strip() for stem in stems]
     if "unmeasured" in values:
         return "unmeasured"
     if not all(re.fullmatch(r"[0-9]+\.[0-9]", value) for value in values):
-        raise ValueError(f"cpu-pressure=unreadable root={root}")
+        raise ValueError(f"cpu-pressure=unreadable values={values}")
     return max(float(value) for value in values)
 
 
-def calibrate(roots):
+def calibrate(roots, pressure_limit):
     """Derive each ceiling as twice the highest reading over every pass and
     scale; the costly shader of every pass must exceed the GPU ceiling."""
     runs = []
+    unmeasured = []
     for root in roots:
         run = measure(root, runs[0] if runs else None)
         run["run"] = "/".join(root.parts[-3:])
-        run["cpu_some_pct"] = pressure(root)
+        run["cpu_some_pct"] = pressure(root / f"scale-{scale}-{mode}"
+                                       for scale in (1, 2) for mode in ("off", "on", "costly"))
+        unmeasured.extend(f"run={run['run']} {reason}" for reason in unmeasured_cpu(run, pressure_limit).values())
         runs.append(run)
     readings = {scale: {name: max(run["readings"][scale][name] for run in runs) for name in READINGS}
                 for scale in ("1", "2")}
-    ceilings = {name: 2 * max(row[name] for row in readings.values()) for name in READINGS}
+    ceilings = {name: max(RESOLUTION_MS[name], 2 * max(row[name] for row in readings.values()))
+                for name in READINGS if name not in CPU_READINGS or not unmeasured}
     for run in runs:
         prove_control(run, ceilings, f" run={run['run']}")
+    if unmeasured:
+        raise Unmeasured("cpu-pressure " + "; ".join(unmeasured))
     return dict(record(runs[0], ceilings), readings=readings, calibration_runs=[
         {"run": run["run"], "cpu_some_pct": run["cpu_some_pct"],
+         "on_cpu_some_pct": run["on_cpu_some_pct"],
          "readings": run["readings"], "costly_control": run["costly_control"]}
         for run in runs])
 
@@ -216,6 +246,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=Path, nargs="+")
     parser.add_argument("--shader", required=True)
+    parser.add_argument("--cpu-pressure-limit", type=float, required=True)
     choice = parser.add_mutually_exclusive_group(required=True)
     choice.add_argument("--calibrate", type=Path)
     choice.add_argument("--check", type=Path)
@@ -228,9 +259,9 @@ def main():
             records = json.loads(args.check.read_text())["shaders"]
             if args.shader not in records:
                 raise ValueError("baseline=absent")
-            result = check(args.directory[0], records[args.shader])
+            result = check(args.directory[0], records[args.shader], args.cpu_pressure_limit)
         else:
-            result = calibrate(args.directory)
+            result = calibrate(args.directory, args.cpu_pressure_limit)
             records = json.loads(args.calibrate.read_text()) if args.calibrate.exists() else {"shaders": {}}
             records["shaders"][args.shader] = result
             args.calibrate.write_text(json.dumps(records, indent=2) + "\n")
