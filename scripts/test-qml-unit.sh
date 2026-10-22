@@ -1794,7 +1794,7 @@ mutations=(
   "actionless Home does not warn|../plugins/vgs.settings/Steps.js|declaresStep(entry) && stepReading(entry, plugin) === \"todo\";|declaresStep(entry) && stepReading(entry, plugin) === \"todo\" && entry.action !== null && entry.action.offered;|tst_settings_setup.qml"
   "Setup shows published chip words|../plugins/vgs.settings/Steps.js|view.text = chip.text;|view.text = entry.value.text;|tst_settings_setup.qml"
   "a Not available step reads To do|../plugins/vgs.settings/Steps.js|view.tone = chip.tone;|view.tone = chip.tone === \"neutral\" ? \"warning\" : chip.tone;|tst_settings_setup.qml"
-  "a plugin that could not start reads To do|../plugins/vgs.settings/PluginPage.qml|failed: line !== \"\" }|failed: false }|tst_settings_setup.qml"
+  "a plugin that could not start reads To do|../plugins/vgs.settings/PluginPage.qml|failed: line !== \"\",|failed: false,|tst_settings_setup.qml"
   "the list marks Setup needed after a start error|../plugins/vgs.settings/ListPage.qml|modelData.enabled, Steps.startFailed(modelData.errors))|modelData.enabled)|tst_settings_setup.qml"
   "the Setup tab marks Setup needed after a start error|../plugins/vgs.settings/PluginPage.qml|row.requirements, row.enabled, Steps.startFailed(row.errors)).open|row.requirements, row.enabled).open|tst_settings_setup.qml"
   "a start error's row opens Setup|../plugins/vgs.settings/Window.qml|row.enabled, Steps.startFailed(row.errors)).open ? \"Setup\"|row.enabled).open ? \"Setup\"|tst_settings_setup.qml"

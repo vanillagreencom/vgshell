@@ -349,6 +349,28 @@ Item {
         }
     }
 
+    // A field over a group list whose first group is a field, `stack.row`
+    // apart by their boxes, as a Details row stands over a status list.
+    Component {
+        id: coveredGroup
+        Rectangle {
+            property alias rows: groupRows
+            anchors.fill: parent
+            z: 1
+            color: Theme.color.surface
+            Column {
+                id: groupRows
+                width: 420
+                spacing: Theme.stack.row
+                Field { label: "Above"; inline: true; width: parent.width; Switch { size: "sm" } }
+                GroupList {
+                    width: parent.width
+                    Field { label: "First in list"; inline: true; width: parent.width; Switch { size: "sm" } }
+                }
+            }
+        }
+    }
+
     // A column of bare key/value rows, as the Displays, Capture and Sound
     // panes draw them: a select, a level slider, a level meter, a slider
     // with its reading, a slider, a segmented control, switches, one with a
@@ -1136,6 +1158,20 @@ Item {
             const read = gaps.map(entry => entry.pair + " " + entry.gap).join(", ");
             for (const entry of gaps)
                 verify(Math.abs(entry.gap - want) <= 1, "every bare row stands " + want + " blank rows under the one above: " + read);
+        }
+
+        // A group list's first row reads no row of its own list above it,
+        // so it stands by the row above the list: one `stack.page` of blank
+        // rows under it, as rows of one column do. Spaced by its box, the
+        // control in scripts/test-qml-unit.sh, it stands farther.
+        function test_group_list_first_row_stands_one_step_under_the_row_above() {
+            const cover = createTemporaryObject(coveredGroup, root);
+            verify(cover !== null);
+            const first = () => descendants(cover.rows).find(item => item.objectName === "fieldRow" && item.label === "First in list");
+            tryVerify(() => first() !== undefined, 2000, "the list draws its first row");
+            verify(waitForRendering(cover));
+            const gap = gapOver(grabImage(root), first(), cover.rows.width);
+            verify(Math.abs(gap - Theme.stack.page) <= 1, "the list's first row stands " + Theme.stack.page + " blank rows under the row above the list: " + gap);
         }
 
         // Each shown key/value row of COLUMN, in its children's order, the
