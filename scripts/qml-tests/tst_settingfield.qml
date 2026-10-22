@@ -1526,6 +1526,41 @@ Item {
             compare(offering.written, ["k2"], "an offer still stores itself");
         }
 
+        function test_a_wrapped_entry_keeps_its_action_on_the_first_line_data() {
+            return [{ tag: "1x", scale: 1 }, { tag: "2x", scale: 2 }];
+        }
+
+        // An entry that wraps keeps its entry action's button centred on
+        // its first line, where a one-line entry's button centres, beside
+        // the text it plays rather than between its lines.
+        function test_a_wrapped_entry_keeps_its_action_on_the_first_line(data) {
+            const screen = Qt.application.screens[data.scale - 1];
+            const window = createTemporaryObject(scaledWindow, null, { screen: screen, x: screen.virtualX + 10, y: screen.virtualY + 10 });
+            window.visible = true;
+            const offering = createTemporaryObject(offeringField, window.contentItem, { choices: [{ label: "OpenAI, key 1", value: "k1", offer: "k1" }, { label: root.longPlain, value: "k2", offer: "k2" }] });
+            verify(offering !== null);
+            const select = selectOf(offering);
+            const listWindow = selectListWindow(select);
+            listWindow.screen = screen;
+            listWindow.x = screen.virtualX + 10;
+            listWindow.y = screen.virtualY + 10;
+            select.openList();
+            const list = selectList(select);
+            tryCompare(list.Screen, "devicePixelRatio", data.scale, 1000, "the list draws at its screen's scale");
+            tryVerify(() => list.width >= select.width - 2 * Theme.border.thin - 0.5, 1000, "the list is as wide as the control: " + list.width);
+            const buttonCentre = index => {
+                tryVerify(() => list.itemAtIndex(index) !== null, 1000, "the list builds entry " + index);
+                const entry = list.itemAtIndex(index);
+                const button = descendants(entry).find(child => child instanceof Loader && child.active).item;
+                return { entry: entry, centre: button.mapToItem(entry, 0, button.height / 2).y };
+            };
+            const short = buttonCentre(0);
+            const long = buttonCentre(1);
+            const title = descendants(long.entry).find(child => child.role === "menuItem" && child.visible);
+            verify(title.lineCount > 1, "the long entry wraps: " + title.lineCount + " line");
+            fuzzyCompare(long.centre, short.centre, 0.5, "the wrapped entry's button centres where a one-line entry's does, on its first line");
+        }
+
         // Play on the first voice, which stands for the unset voice, plays
         // that voice by its own id; an unavailable stored voice draws no
         // speaker.

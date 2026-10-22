@@ -366,13 +366,14 @@ T.AbstractButton {
                     Keys.forwardTo: [entries]
 
                     // The entry action's button, in the strip the entry keeps
-                    // clear at its end (barRoom), before the scroll bar's.
-                    // Only an entry that offers the action builds one.
+                    // clear at its end (barRoom), before the scroll bar's,
+                    // beside the entry's first line. Only an entry that
+                    // offers the action builds one.
                     Loader {
                         id: action
                         active: root.actionAt(entry.index)
                         visible: active
-                        anchors.verticalCenter: parent.verticalCenter
+                        y: entry.firstLineCentre - height / 2
                         x: entry.width - entry.gutter - width - Theme.border.thin
                         // keyboard-path: the open list's Right moves to it and Enter or Space presses it (entries Keys.onPressed)
                         sourceComponent: IconButton {

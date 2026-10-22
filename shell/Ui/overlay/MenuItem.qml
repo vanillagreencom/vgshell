@@ -58,6 +58,10 @@ T.MenuItem {
     topPadding: wraps ? lineInset : 0
     bottomPadding: wraps ? lineInset : 0
     implicitHeight: Math.max(Theme.menu.item.height, implicitContentHeight + topPadding + bottomPadding)
+    // The centre of the first line from the entry's top, where a control
+    // drawn beside the text centres, such as a select's entry action: the
+    // entry's centre while the text holds one line.
+    readonly property real firstLineCentre: wraps ? topPadding + title.y + title.lineBox / 2 : height / 2
     // Under a rounded theme the side padding grows until the content
     // clears the drawn corner.
     readonly property real sidePadding: Theme.controlPadding(Theme.menu.item.paddingX, Theme.menu.item.radius, Math.max(Theme.menu.item.height, height), implicitContentHeight)

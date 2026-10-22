@@ -1866,6 +1866,7 @@ mutations=(
   "a select measures its lines at another rendering than it draws|controls/Select.qml|TextMetrics { id: lineMetrics; font: shown.font;|TextMetrics { id: lineMetrics; font: shown.font; renderType: Text.NativeRendering;|tst_settingfield.qml"
   "a hyphenated value's lines drop to a fallback font's ascent|foundation/LineBreak.js|    return lines.join(\"\\n\");|    return lines.join(\"\\n\").replace(/-/g, \"-\\u2060\");|tst_settingfield.qml"
   "a select keeps one height under a long choice|controls/Select.qml|implicitHeight: Math.max(Theme.textField.height, implicitContentHeight + 2 * lineInset)|implicitHeight: Theme.textField.height|tst_settingfield.qml"
+  "a wrapped entry's action centres between its lines|controls/Select.qml|y: entry.firstLineCentre - height / 2|anchors.verticalCenter: parent.verticalCenter|tst_settingfield.qml"
   "a menu entry's width follows its own line breaks|overlay/MenuItem.qml|implicitWidth: lead + oneLine.advanceWidth + tail|implicitWidth: lead + title.implicitWidth + tail|tst_overlays.qml"
   "a menu entry keeps one height under a long text|overlay/MenuItem.qml|implicitHeight: Math.max(Theme.menu.item.height, implicitContentHeight + topPadding + bottomPadding)|implicitHeight: Theme.menu.item.height|tst_settingfield.qml"
   "a row reads no first line through a Loader|controls/FormRow.qml|const control = child instanceof Loader ? child.item : child;|const control = child;|tst_settingfield.qml"
