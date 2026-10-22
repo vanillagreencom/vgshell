@@ -123,7 +123,7 @@ new file mode 100644
 +	// TERM gives owned helpers their existing EXIT cleanup; KILL also ends
 +	// descendants that ignore it. The leader reserves the group throughout.
 +	// SIGTERM stays blocked in the monitor, preventing recursive teardown.
-+	// The grace matches printers-watch cleanup's ipptool -T 5 bound.
++	// The grace covers printers-watch cleanup's ipptool -T 4 bound.
 +	kill(0, SIGTERM);
 +	auto remaining = timespec {.tv_sec = 5, .tv_nsec = 0};
 +	while (nanosleep(&remaining, &remaining) == -1 && errno == EINTR) {}
