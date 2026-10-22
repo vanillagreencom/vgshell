@@ -4968,6 +4968,8 @@ local file = assert(io.open(arg[1]))
 local source = file:read("*a"); file:close()
 local function check(text, holder_first)
   local hooks, managers, changed = {}, {}, nil
+  local created, destroyed, pending = 0, 0, {}
+  local deferred = false
   local serial = "9007199254740993"
   local node = { id = 80, properties = { ["application.name"] = "Smoke Knock", ["object.serial"] = serial } }
   local client_present = holder_first
@@ -4975,13 +4977,26 @@ local function check(text, holder_first)
   local client = { properties = { ["pipewire.sec.pid"] = "42" } }
   local fixture = { pid = 42, apps = { "smoke knock" }, roles = {}, streams = { serial }, released = {} }
   local identity = function(value) return value end
-  local target = { properties = { ["node.id"] = "99" } }
+  local target = { properties = { ["node.id"] = "99", ["node.name"] = "vgs-notification-mute-hold" } }
   local selected, held = nil, nil
   local env = setmetatable({
     Log = { open_topic = function() return { info = function() end, warning = error } end },
     Interest = identity, Constraint = identity, EventInterest = identity,
     Features = { ALL = 1 }, Feature = { Proxy = { BOUND = 1 } },
-    Node = function() return { ["bound-id"] = 99, activate = function() end } end,
+    Node = function()
+      created = created + 1
+      local sink = { ["bound-id"] = 99 }
+      function sink:activate(_, callback)
+        if deferred then table.insert(pending, function() callback(self) end)
+        else callback(self) end
+      end
+      function sink:request_destroy()
+        assert(not self.destroyed, "each sink is destroyed once")
+        self.destroyed = true
+        destroyed = destroyed + 1
+      end
+      return sink
+    end,
     require = function(name)
       assert(name == "linking-utils")
       return { unwrap_select_target_event = function(_, event)
@@ -5013,8 +5028,10 @@ local function check(text, holder_first)
     } end,
   }, { __index = _G })
   assert(load(text, "sound-rule", "t", env))()
+  assert(created == 0, "an idle rule creates no hold sink")
   local event = { props = node.properties, get_subject = function() return node end,
-    set_data = function(_, _, value) selected = value end }
+    set_data = function(_, _, value) selected = value end,
+    stop_processing = function() end }
   local function routes()
     selected = nil
     hooks["linking/vgs-notification-sounds"].execute(event)
@@ -5030,6 +5047,7 @@ local function check(text, holder_first)
   fixture.streams, fixture.released = {}, { serial }
   changed(nil, 0, "hold", nil, "fixture")
   assert(not routes(), "exact release wins while broad app remains")
+  assert(destroyed == created, "last release destroys the hold sink")
   hooks["node/vgs-notification-sounds"].execute(event)
   assert(not routes(), "a queued node-added cannot readmit an explicitly released serial")
   fixture.released = {}
@@ -5042,13 +5060,29 @@ local function check(text, holder_first)
   node.properties = setmetatable({}, { __index = function() error("removed node properties are unavailable") end })
   hooks["node/vgs-notification-sounds-removed"].execute(event)
   assert(held == "" and not routes(), "removal drops the departed serial after properties disappear")
+  assert(destroyed == created, "last node removal destroys the hold sink")
   node.properties = live_props
   node.properties["object.serial"] = "next-serial"
   hooks["node/vgs-notification-sounds"].execute(event)
   assert(held == "next-serial" and routes(), "a reused node id holds only its current serial")
+  changed(nil, 0, "hold", nil, nil)
+  deferred = true
+  changed(nil, 0, "hold", nil, "fixture")
+  hooks["node/vgs-notification-sounds"].execute(event)
+  local stopped = false
+  event.stop_processing = function() stopped = true end
+  assert(not routes() and stopped, "an activating sink keeps the first sample off real outputs")
+  changed(nil, 0, "hold", nil, nil)
+  for _, complete in ipairs(pending) do complete() end
+  assert(destroyed == created, "release during activation destroys the sink once bound")
+  deferred = false
+  changed(nil, 0, "hold", nil, "fixture")
+  hooks["node/vgs-notification-sounds"].execute(event)
+  assert(routes(), "a new hold recreates its sink after release")
   client_present = false
   managers.client.callbacks["object-removed"](nil, client)
   assert(not routes() and held == "", "holder death drops all routing")
+  assert(destroyed == created, "holder death destroys the hold sink")
   selected = target
   hooks["linking/vgs-isolate-mute-hold"].execute(event)
   assert(selected == nil, "unheld streams cannot use the sink as sole best target")
@@ -5082,7 +5116,9 @@ rejects('if hold ~= nil and hold.pid == pid then adopt_exact() end',
   'if false then adopt_exact() end', "holder arrival adopts pending exact streams")
 rejects('if entry.id == id then held[serial] = nil end',
   'if entry.id == id then held[serial] = held[serial] end', "removal drops the departed serial")
-print("notifications: routing-contract=pass controls=queued-readmission,pending-holder,removed-serial")
+rejects('if previous ~= nil and sink_bound then previous:request_destroy() end',
+  'if false then previous:request_destroy() end', "last release destroys the hold sink")
+print("notifications: routing-contract=pass controls=queued-readmission,pending-holder,removed-serial,sink-release")
 LUA
   # Replay both stdout delivery orders through the shipped removal handler.
   # This checks its dispatch decision; the restart below checks the real hold.
@@ -5654,6 +5690,7 @@ print("clean" if "vgs-notification-mute-hold" not in t and props.get("channelVol
   expect "the hold output has its own name and cannot be default" '["VGS notification mute hold", false, true]' hold_output
   expect "Do Not Disturb turns off to measure Pulse requested volume" off notes silence off
   expect_poll "the Pulse reference has no shell hold" null app_held
+  expect_poll "releasing the last stream removes the private hold output" null hold_output
   spawn "$sandbox/volume-reference.log" "${shell_env[@]}" paplay --client-name="Smoke Volume" --stream-name=volume-reference --volume=32768 "$app_tone"
   volume_reference_pid="$spawn_pid"
   expect_poll "the Pulse reference reaches the speakers" vgs-smoke-speakers volume_node volume-reference target
@@ -5706,6 +5743,7 @@ print("clean" if "vgs-notification-mute-hold" not in t and props.get("channelVol
   note_audio_shell_stopped=yes
   kill -KILL "$app_writer" || fail "the owned holder did not stop"
   expect_poll "holder loss restores the same stream to speakers" vgs-smoke-speakers volume_node volume-death target
+  expect_poll "holder loss removes the private hold output" null hold_output
   expect "holder loss preserves the exact stream serial" "$volume_serial" volume_node volume-death serial
   expect_poll "holder loss preserves the requested volume" own volume_own vgs-smoke-speakers
   expect "holder loss leaves no saved hold sink or target" clean volume_state
@@ -5727,6 +5765,7 @@ print("clean" if "vgs-notification-mute-hold" not in t and props.get("channelVol
   expect "Do Not Disturb turns off after Smoke Knock" off notes silence off
   expect "Sound turns on for Smoke Knock's control" on notes sound on
   expect_poll "with Sound on nothing is watched for Smoke Knock" null app_held
+  expect_poll "Sound on removes the private hold output" null hold_output
   knock_take_file="$sandbox/knock-control.wav"
   knock_record start
   printf 'play\n' >&"$knock_fd"

@@ -18,6 +18,8 @@ local SINK = "vgs-notification-mute-hold"
 local hold = nil
 -- object.serial -> { pid, origin, id }: bounded by live output streams.
 local held = {}
+local sink = nil
+local sink_bound = false
 local gone = {}
 local GONE_MAX = 64
 
@@ -78,7 +80,50 @@ local function matches(props)
   return false
 end
 
+-- The sink shares the held set's lifetime, not the installed rule's. A
+-- remote Node needs request_destroy; dropping its Lua reference leaves it
+-- in PipeWire. Activation is asynchronous, so a release before BOUND
+-- destroys that node in its callback (WirePlumber Lua object/proxy API:
+-- https://pipewire.pages.freedesktop.org/wireplumber/scripting/lua_api/lua_object_api.html
+-- https://pipewire.pages.freedesktop.org/wireplumber/scripting/lua_api/lua_proxies_api.html).
+local function sync_sink()
+  if next(held) == nil then
+    local previous = sink
+    sink = nil
+    if previous ~= nil and sink_bound then previous:request_destroy() end
+    sink_bound = false
+    return
+  end
+  if sink ~= nil then return end
+  -- Adapter properties follow WirePlumber's fallback-sink.lua. No stream
+  -- Props or target metadata changes; state-stream.lua skips this sink.
+  sink = Node("adapter", {
+    ["factory.name"] = "support.null-audio-sink",
+    ["node.name"] = SINK,
+    ["node.description"] = "VGS notification mute hold",
+    ["media.class"] = "Audio/Sink",
+    ["audio.rate"] = 48000,
+    ["audio.channels"] = 2,
+    ["audio.position"] = "FL,FR",
+    ["node.virtual"] = true,
+    ["priority.session"] = -1000,
+    ["state.restore-props"] = false,
+    ["state.restore-target"] = false,
+  })
+  sink:activate(Feature.Proxy.BOUND, function(node, error)
+    if error then
+      if sink == node then sink = nil end
+      log:warning("sink=failed " .. tostring(error))
+    elseif sink ~= node then
+      node:request_destroy()
+    else
+      sink_bound = true
+    end
+  end)
+end
+
 local function publish()
+  sync_sink()
   local serials = {}
   for serial in pairs(held) do table.insert(serials, serial) end
   table.sort(serials)
@@ -94,25 +139,6 @@ local function adopt_exact()
   end
   publish()
 end
-
--- Adapter properties follow WirePlumber 0.5.18's fallback-sink.lua.
--- Node creates it in the daemon through the supported remote factory API. Keep it for the rule's life: a new stream's first
--- select-target event must find an already registered sink. The rule's
--- teardown destroys this owned node; state-stream.lua skips its Props.
-local sink = Node("adapter", {
-  ["factory.name"] = "support.null-audio-sink",
-  ["node.name"] = SINK,
-  ["node.description"] = "VGS notification mute hold",
-  ["media.class"] = "Audio/Sink",
-  ["audio.rate"] = 48000,
-  ["audio.channels"] = 2,
-  ["audio.position"] = "FL,FR",
-  ["node.virtual"] = true,
-  ["priority.session"] = -1000,
-  ["state.restore-props"] = false,
-  ["state.restore-target"] = false,
-})
-sink:activate(Feature.Proxy.BOUND)
 
 -- Priority alone still wins when no other output exists. The supported
 -- select-default-node event supplies available-nodes to all three stock
@@ -160,7 +186,7 @@ SimpleEventHook {
     local _, om, _, props = lutils:unwrap_select_target_event(event)
     local entry = held[props["object.serial"]]
     if entry == nil or hold == nil or entry.pid ~= hold.pid or not holder_present(hold.pid) then return end
-    local target = om:lookup { type = "SiLinkable", Constraint { "node.id", "=", tostring(sink["bound-id"]) } }
+    local target = sink ~= nil and sink_bound and om:lookup { type = "SiLinkable", Constraint { "node.id", "=", tostring(sink["bound-id"]) } } or nil
     if target == nil then
       -- Never send the held stream to a real output while the owned sink
       -- registers. Its session-item-added event schedules another rescan.
@@ -183,8 +209,8 @@ SimpleEventHook {
     local _, om, _, props, _, target = lutils:unwrap_select_target_event(event)
     local entry = held[props["object.serial"]]
     if entry ~= nil and hold ~= nil and entry.pid == hold.pid and holder_present(hold.pid) then
-      event:set_data("target", om:lookup { type = "SiLinkable", Constraint { "node.id", "=", tostring(sink["bound-id"]) } })
-    elseif target ~= nil and target.properties["node.id"] == tostring(sink["bound-id"]) then
+      event:set_data("target", sink ~= nil and sink_bound and om:lookup { type = "SiLinkable", Constraint { "node.id", "=", tostring(sink["bound-id"]) } } or nil)
+    elseif target ~= nil and target.properties["node.name"] == SINK then
       event:set_data("target", nil)
     end
   end,
