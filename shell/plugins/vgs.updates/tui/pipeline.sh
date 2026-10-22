@@ -975,8 +975,13 @@ _updates_review() { # LISTED
       if [[ $1 == 1 ]]; then vgs_tui_warn "The review ended without a result."
       else vgs_tui_warn "Could not list the third-party packages."
       fi
+      if [[ $rebuild == 1 ]]; then vgs_tui_warn "The VGS package has not been rebuilt yet."; fi
       status=0
       vgs_tui_confirm "Continue without a review?" --default=false || status=$?
+      if [[ $status != 0 && $rebuild == 1 ]]; then
+        _updates_diagnostic "updates: rebuild=skipped package=vgshell-git reason=review-no-result $_updates_review_reason"
+        vgs_tui_warn "vgshell-git was not rebuilt because the review ended without a result."
+      fi
       case "$status" in
         0) ;;
         1) echo "Update stopped."; exit 0 ;;

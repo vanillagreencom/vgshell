@@ -92,6 +92,8 @@ var MANAGERS = [
     },
     {
         id: "aur", role: "overlay", family: [], release: null, requires: "pacman", binaries: ["paru", "yay"], elevate: false,
+        // paru src/query.rs print_upgrade_list and yay print.go
+        // printUpdateList return 1 silently when no upgrades exist.
         check: [{ binary: null, argv: ["{bin}", "-Qua"], exits: { "0": "updates", "1": "none" }, parser: "arrow", timeout: 120 }],
         install: [["{bin}", "-S", "--needed", "--", "{names}"]],
         reinstall: [["{bin}", "-S", "--", "{names}"]],
@@ -638,11 +640,13 @@ function checkFor(id, binary) {
 }
 
 // What CHECK's run printed means: `{ packages }` or `{ error }`. STATUS is
-// the exit status and STDOUT the output. A status the check does not list
-// is a failure, `exit=<status>`, whatever the output holds.
-function checkOutcome(check, status, stdout) {
+// the exit status; STDOUT and STDERR are the query's two output streams.
+// A nonzero status with diagnostics cannot mean a successful empty query.
+function checkOutcome(check, status, stdout, stderr) {
     var meaning = check.exits[String(status)];
-    if (meaning === undefined) return { error: "exit=" + status };
+    var diagnostic = stderr.trim();
+    if (meaning === undefined || (status !== 0 && diagnostic !== ""))
+        return { error: "exit=" + status + (diagnostic === "" ? "" : " stderr=" + diagnostic) };
     if (meaning === "none") return { packages: [] };
     var parsed = PARSERS[check.parser](stdout);
     if (!parsed.ok) return { error: parsed.error };

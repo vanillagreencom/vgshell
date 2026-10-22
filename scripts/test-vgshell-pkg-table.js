@@ -348,12 +348,17 @@ const CHECK_ROWS = [
 ];
 
 // Outcome rows: name, manager, binary, exit status, stdout, and the
-// packages as [name, old, new] or the check's error.
+// packages as [name, old, new] or the check's error, then stderr.
 const OUTCOME_ROWS = [
     ["checkupdates 2 is none", "pacman", "pacman", 2, "", []],
     ["checkupdates 1 is a failure", "pacman", "pacman", 1, "", "exit=1"],
     ["checkupdates 0 reads the rows", "pacman", "pacman", 0, "bpf 7.2.7-1 -> 7.2.8-1\n", [["bpf", "7.2.7-1", "7.2.8-1"]]],
     ["yay 1 is none", "aur", "yay", 1, "", []],
+    ["paru 1 without diagnostics is none", "aur", "paru", 1, "", [], ""],
+    ["paru 1 with a failed request is an error", "aur", "paru", 1, "", "exit=1 stderr=error: failed to get aur packages", "error: failed to get aur packages\n"],
+    ["yay 1 with a failed request is an error", "aur", "yay", 1, "", "exit=1 stderr=Get https://aur.archlinux.org/rpc: network is unreachable", "Get https://aur.archlinux.org/rpc: network is unreachable\n"],
+    ["an unlisted failure retains its diagnostic", "aur", "paru", 2, "", "exit=2 stderr=error: failed to initialize alpm library", "error: failed to initialize alpm library\n"],
+    ["a successful probe can print warnings", "aur", "paru", 0, "tool 1 -> 2\n", [["tool", "1", "2"]], "warning: tool is orphaned\n"],
     ["dnf 100 reads the rows", "dnf", "dnf", 100, "\nbash.x86_64 5.2-1.fc40 updates\n", [["bash", null, "5.2-1.fc40"]]],
     ["dnf 0 is none", "dnf", "dnf", 0, "", []],
     ["dnf 1 is a failure", "dnf", "dnf", 1, "", "exit=1"],
@@ -516,9 +521,15 @@ function verifyTable(t) {
     }
     for (const row of t.MANAGERS) if (!checked.has(row.id)) failures.push("check: no row for " + row.id);
 
-    for (const [name, manager, binary, status, stdout, want] of OUTCOME_ROWS) {
+    failures.push(...verifyOutcomes(t));
+    return failures;
+}
+
+function verifyOutcomes(t) {
+    const failures = [];
+    for (const [name, manager, binary, status, stdout, want, stderr = ""] of OUTCOME_ROWS) {
         const found = t.checkFor(manager, binary);
-        const r = found.check === undefined ? { error: "no query" } : t.checkOutcome(found.check, status, stdout);
+        const r = found.check === undefined ? { error: "no query" } : t.checkOutcome(found.check, status, stdout, stderr);
         const got = r.error === undefined ? triples(r.packages) : r.error;
         if (!same(got, want)) failures.push("outcome: " + name + ": got " + JSON.stringify(got));
     }
@@ -568,7 +579,8 @@ const CONTROLS = [
     ["table", "a removable name may start with a dash", TABLE, "if (query !== \"owner\" && !validName(value))", "if (query === \"installed\" && !validName(value))"],
     ["table", "a query's answer ignores its pattern", TABLE, "return m === null ? null : m[1];", "return stdout.split(\"\\n\")[0];"],
     ["table", "mise roots never hold a command", TABLE, "if (pathHolds(root, realPath)) return names[i];", "if (false) return names[i];"],
-    ["table", "an unlisted exit status is read as output", TABLE, "if (meaning === undefined) return { error: \"exit=\" + status };", "if (meaning === undefined) meaning = \"rows\";"],
+    ["outcomes", "a failed probe discards its diagnostic", TABLE, 'var diagnostic = stderr.trim();', 'var diagnostic = "";'],
+    ["outcomes", "an unlisted exit status is read as output", TABLE, "meaning === undefined || ", ""],
     ["table", "a query runs for a binary it does not name", TABLE, "if (c.binary !== null && c.binary !== binary) continue;", ""],
     ["table", "paru's ignored package is counted", TABLE, "if (f[4] === \"[ignored]\") continue;", "if (f[4] === \"[ignored]\") { packages.push({ name: f[0], old: f[1], new: f[3] }); continue; }"],
     ["table", "apt skips a line it cannot read", TABLE, "if (m === null) return unreadable(i);\n        packages.push({ name: m[1], old: m[3], new: m[2] });", "if (m === null) continue;\n        packages.push({ name: m[1], old: m[3], new: m[2] });"],
@@ -594,7 +606,7 @@ function runControl(tmp, control, index) {
     }
     const mutant = path.join(tmp, index + "-PackageManagers.js");
     fs.writeFileSync(mutant, source.replace(needle, () => replacement));
-    const failures = kind === "table" ? verifyTable(load(mutant)) : tableErrors(load(mutant)).filter(f => f.includes(kind.slice("rule:".length)));
+    const failures = kind === "outcomes" ? verifyOutcomes(load(mutant)) : kind === "table" ? verifyTable(load(mutant)) : tableErrors(load(mutant)).filter(f => f.includes(kind.slice("rule:".length)));
     if (failures.length === 0) report("control", [label + ": the suite passed on a copy without that rule"]);
 }
 

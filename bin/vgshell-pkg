@@ -243,10 +243,11 @@ function runCheck(check) {
         const child = childProcess.spawn(check.argv[0], check.argv.slice(1), {
             cwd: process.env.HOME || "/",
             env: Object.assign({}, process.env, { LC_ALL: "C" }),
-            stdio: ["ignore", "pipe", "ignore"],
+            stdio: ["ignore", "pipe", "pipe"],
             detached: true
         });
         const chunks = [];
+        const errors = [];
         let timedOut = false;
         let failed = null;
         const signalGroup = signal => {
@@ -264,6 +265,7 @@ function runCheck(check) {
         }, check.timeout * 1000);
         if (child.pid !== undefined) liveGroups.set(child.pid, signalGroup);
         child.stdout.on("data", chunk => chunks.push(chunk));
+        child.stderr.on("data", chunk => errors.push(chunk));
         child.on("error", e => { failed = e.code; });
         child.on("close", (status, signal) => {
             clearTimeout(timer);
@@ -276,7 +278,7 @@ function runCheck(check) {
             if (timedOut) resolve({ error: "timeout=" + check.timeout });
             else if (failed !== null) resolve({ error: "spawn=" + failed });
             else if (signal !== null) resolve({ error: "signal=" + signal });
-            else resolve(table.checkOutcome(check, status, Buffer.concat(chunks).toString("utf8")));
+            else resolve(table.checkOutcome(check, status, Buffer.concat(chunks).toString("utf8"), Buffer.concat(errors).toString("utf8")));
         });
     });
 }

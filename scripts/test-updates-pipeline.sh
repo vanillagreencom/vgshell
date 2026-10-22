@@ -1561,6 +1561,25 @@ row_review_no_verdict() {
   assert "an unreadable list opens no review" no_call "$review_call"
   assert "an unreadable list names its cause in the developer log" diag_has "updates: review=none list=unreadable"
 }
+row_review_rebuild_no_verdict() {
+  local answer
+  for answer in 1 130; do
+    reset_fix
+    third_party
+    self_json package '"vgshell-git"' rebuild
+    printf '%s\n' "$answer" >"$fix/answer-continue"
+    PIPE_PATH="$agents" pipeline update.sh
+    assert "a stopped review records why the rebuild did not run" diag_has "updates: rebuild=skipped package=vgshell-git reason=review-no-result verdict=absent"
+    assert "a stopped review never rebuilds vgshell-git" no_call "paru -S vgshell-git"
+    # Read the warning's package identity and severity, leaving its prose free.
+    assert "the terminal warns which package was not rebuilt" grep -q $'\033\\[33mvgshell-git' "$tmp/out"
+    if [[ $answer == 1 ]]; then
+      assert "declining the review bypass exits normally" test "$status" == 0
+    else
+      assert "interrupting the review bypass preserves its status" test "$status" == "$answer"
+    fi
+  done
+}
 # The AUR through an aurCommand helper the table does not know: the AUR is
 # not reviewed, and the repository packages still are.
 row_review_no_helper() {
@@ -1749,7 +1768,7 @@ row_pipeline_plain() {
 row_facts_plain; row_pipeline_plain
 row_full; row_trusted; row_snapshot; row_failure; row_failed_end; row_cause; row_system_failed; row_order; row_answer; row_cause_output; row_stopped; row_interrupted; row_reboot; row_reboot_core; row_reboot_unread; row_orphans; row_yes
 row_declined; row_busy; row_aur_command; row_aur_failure; row_doas; row_vgs_only; row_vgs_helper; row_vgs_git; row_vgs_step; row_rebuild_failed; row_source; row_recheck_failure; row_recheck_replaced_tree; row_recheck_cli; row_reboot_deferred; row_helper_configs; row_log
-row_review_off; row_review_no_agent; row_review_none_pending; row_review_choice; row_review_clean; row_review_start_stable; row_review_flagged; row_review_no_verdict; row_review_no_helper; row_review_custom; row_review_install
+row_review_off; row_review_no_agent; row_review_none_pending; row_review_choice; row_review_clean; row_review_start_stable; row_review_flagged; row_review_no_verdict; row_review_rebuild_no_verdict; row_review_no_helper; row_review_custom; row_review_install
 row_review_install_links; row_review_split
 
 # Controls: each runs one row against a plugin copy whose FILE, relative
@@ -1854,6 +1873,7 @@ control review-starts-from-run-dir 'cd -- "${dir%/*}"' 'cd -- "$dir"' row_review
 control prompt-placeholder-kept 'prompt="${prompt//\{review_dir\}/$dir}"' 'prompt="$prompt"' row_review_clean tui/review.sh
 control skip-not-passed 'ignore=(--ignore "${_updates_skip_repo[@]}")' 'ignore=()' row_review_flagged
 control no-verdict-continues '"Continue without a review?" --default=false || status=$?' '"Continue without a review?" || status=$?' row_review_no_verdict
+control no-verdict-rebuild-silent 'vgs_tui_warn "vgshell-git was not rebuilt because the review ended without a result."' ':' row_review_rebuild_no_verdict
 control custom-replaced 'if (words.length > 0) {' 'if (false) {' row_review_custom UpdatesLogic.js
 control list-failure-unreviewed '        review=2' '        review=0' row_review_no_verdict
 control refusal-unread 'if [[ $status -ne 0 || $reply != ok ]]; then _updates_review_reason=' 'if false; then _updates_review_reason=' row_review_no_verdict
