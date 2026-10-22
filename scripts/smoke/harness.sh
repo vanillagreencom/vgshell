@@ -3423,10 +3423,11 @@ expect_within() { # LABEL READING WANT CEILING_MS CMD...
 # 11.1, while the poll's readings were 48 to 559 ms. Those poll readings
 # are no longer the reading. The load limits follow the readings on the
 # same host on 2026-10-22 (VGS-2002): the jarvis-setup and jarvis-input
-# rows through nested-slot.sh read 0 to 99 ms at load_per_core 0.40 to
+# rows through nested-slot.sh read 0 to 99 ms at load_per_core 0.41 to
 # 0.59 and cpu_some_pct 0.0 to 10.9, while main batch 20261022T023613Z
 # read 517 to 574 ms for the same checks at 1-minute load 46 to 67 half
-# an hour before them and 15-minute load 40.84 right after them.
+# an hour before them and 15-minute load 40.84 about 15 minutes after
+# jarvis-input.
 run_end_ceiling_ms=500
 run_idle_at() { ipc smoke tuiIdleAt "$1"; } # KEY
 expect_run_end() { # LABEL KEY
