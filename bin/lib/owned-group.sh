@@ -34,4 +34,13 @@ fi
 child=$!
 status=0
 wait "$child" || status=$?
+# Package checks, git transports and capture tools may fork before returning.
+# A cleanup child keeps this group allocated after its leader returns the
+# query's status. It holds no query streams and ends itself with the group.
+trap '' TERM INT HUP
+(
+  kill -TERM -- "-$$"
+  sleep "$grace"
+  kill -KILL -- "-$$"
+) </dev/null >/dev/null 2>&1 &
 exit "$status"

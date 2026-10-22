@@ -130,6 +130,8 @@ if [ "$1" -eq 1 ]; then
 fi
 
 %changelog
+* Thu Oct 22 2026 VanillaGreen <brad@vanillagreen.com> - 0.1.2-2
+- Require the VGS engine release with managed child lifetime ownership.
 * Mon Oct 19 2026 VanillaGreen <brad@vanillagreen.com> - 0.1.2-1
 - Patch release: fixes since 0.1.1, including shortcuts, Automations History and window sizing.
 * Sun Oct 18 2026 VanillaGreen <brad@vanillagreen.com> - 0.1.1-1

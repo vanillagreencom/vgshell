@@ -37,7 +37,7 @@ A package manager or Nix owns the tree it installed, and its next update would o
 
 ### Quickshell engine
 
-VGS carries the Hyprland request-socket lifetime fix, the log-filter mutex fix and managed child lifetime ownership on pinned upstream Quickshell. The socket lifetime defect can crash the whole shell during a request reply. Without memory poisoning, the crash is rare and delayed. The logging patch protects the filter hashes from concurrent readers and writers. Managed child lifetime ownership ends shell-owned processes when the shell ends or re-executes after a crash. VGS keeps the fixes with its package recipes, without a separate engine repository or an upstream pull request.
+VGS carries the Hyprland request-socket lifetime fix, the log-filter mutex fix and managed child lifetime ownership on pinned upstream Quickshell. The socket lifetime defect can crash the whole shell during a request reply. Without memory poisoning, the crash is rare and delayed. The logging patch protects the filter hashes from concurrent readers and writers. Managed child lifetime ownership ends shell-owned processes when the shell ends, including a crash restart. VGS keeps the fixes with its package recipes, without a separate engine repository or an upstream pull request.
 
 | Channel | Engine | Reason |
 | --- | --- | --- |

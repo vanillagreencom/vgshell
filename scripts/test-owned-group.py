@@ -44,6 +44,26 @@ child=subprocess.Popen(["env","--default-signal=TERM,INT,HUP","setpriv","--pdeat
 pathlib.Path(root,"owner").write_text(str(child.pid))
 while True: signal.pause()
 '''
+RETURNING = '''import json,os,pathlib,signal,sys,time
+root=pathlib.Path(sys.argv[1])
+pids=[]
+for mode in ("responsive", "stubborn"):
+    child=os.fork()
+    if child == 0:
+        def stop(signum,frame):
+            (root/"term-ack").write_text("ack")
+            sys.exit(0)
+        signal.signal(signal.SIGTERM, stop if mode == "responsive" else signal.SIG_IGN)
+        (root/mode).write_text(str(os.getpid()))
+        while True: signal.pause()
+    pids.append(child)
+while not all((root/name).exists() for name in ("responsive", "stubborn")): time.sleep(0.01)
+(root/"ready").write_text(json.dumps(pids))
+while not (root/"return").exists(): time.sleep(0.01)
+print("query-output", flush=True)
+print("query-error", file=sys.stderr, flush=True)
+sys.exit(7)
+'''
 
 
 def exited(fd):
@@ -53,6 +73,61 @@ def exited(fd):
 
 
 class OwnedGroupTests(unittest.TestCase):
+    def returning_query(self, owner):
+        with tempfile.TemporaryDirectory(prefix="owned-group-returning-") as directory:
+            root = Path(directory)
+            fixture = root / "fixture.py"
+            fixture.write_text(RETURNING)
+            query = subprocess.Popen([str(owner), str(os.getpid()), "0.2", sys.executable, str(fixture), directory],
+                                     start_new_session=True, env=ENV, stdin=subprocess.DEVNULL,
+                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            held = []
+            try:
+                deadline = time.monotonic() + 5
+                while not (root / "ready").exists():
+                    self.assertIsNone(query.poll(), "query ended before descendant readiness")
+                    self.assertLess(time.monotonic(), deadline, "query readiness timeout")
+                    time.sleep(0.01)
+                held = [os.pidfd_open(pid) for pid in json.loads((root / "ready").read_text())]
+                self.assertTrue(all(not exited(fd) for fd in held))
+                (root / "return").touch()
+                self.assertEqual(query.wait(timeout=3), 7)
+                deadline = time.monotonic() + 3
+                while any(not exited(fd) for fd in held) and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertTrue(all(exited(fd) for fd in held), "descendants survived a returned query")
+                self.assertTrue((root / "term-ack").exists(), "returned query skipped responsive cleanup")
+                stdout, stderr = query.communicate(timeout=3)
+                self.assertEqual(stdout, "query-output\n")
+                self.assertEqual(stderr, "query-error\n")
+            finally:
+                if query.poll() is None:
+                    query.kill()
+                query.wait(timeout=3)
+                for fd in held:
+                    if not exited(fd):
+                        signal.pidfd_send_signal(fd, signal.SIGKILL)
+                    os.close(fd)
+                query.communicate(timeout=3)
+
+    def test_returning_query_cleans_descendants(self):
+        self.returning_query(OWNER)
+        with tempfile.TemporaryDirectory(prefix="owned-group-return-control-") as directory:
+            control = Path(directory) / "owned-group.sh"
+            source = OWNER.read_text()
+            needle = '''trap '' TERM INT HUP
+(
+  kill -TERM -- "-$$"
+  sleep "$grace"
+  kill -KILL -- "-$$"
+) </dev/null >/dev/null 2>&1 &
+'''
+            self.assertEqual(source.count(needle), 1)
+            control.write_text(source.replace(needle, "", 1))
+            control.chmod(0o755)
+            with self.assertRaisesRegex(AssertionError, "descendants survived a returned query"):
+                self.returning_query(control)
+
     def exercise(self, owner, mode):
         with tempfile.TemporaryDirectory(prefix="owned-group-") as directory:
             root = Path(directory)

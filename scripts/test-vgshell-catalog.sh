@@ -10,7 +10,7 @@ source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgshell-rows.sh"
 theme_tree
 # outdated prints its rows through python3 and fetches a git row under
 # these; the catalog rows need none of them but share the verb.
-for tool in timeout python3 realpath env setsid; do
+for tool in timeout python3 realpath env setsid setpriv sleep; do
   tool_bin="$(command -v "$tool")" || { echo "test-vgshell-catalog: status=not-measured missing=$tool"; exit 77; }
   ln -s -- "$tool_bin" "$theme_path/$tool"
 done

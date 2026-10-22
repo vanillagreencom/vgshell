@@ -59,7 +59,15 @@ stub() { # DIR NAME STDOUT [STATUS]
   printf '#!/bin/sh\nprintf "%%s\\n" "%s"\nexit %s\n' "$3" "${4:-0}" >"$1/$2"
   chmod +x "$1/$2"
 }
-stub "$stubs" qs "Quickshell 0.3.1 (revision 41651d7, distributed by fixture)"
+cat >"$stubs/qs" <<'QS'
+#!/bin/sh
+if [ -f "$HOME/.fixture-engine-installed" ]; then
+  printf '%s\n' 'Quickshell 0.3.2 (revision 41651d7, distributed by VGS 2 (package: vgshell-quickshell))'
+else
+  printf '%s\n' 'Quickshell 0.3.1 (revision 41651d7, distributed by fixture)'
+fi
+QS
+chmod +x "$stubs/qs"
 stub "$stubs" Hyprland "Hyprland 0.56 built from branch fixture"
 stub "$stubs" nmcli "nmcli tool, version 1.56.0"
 stub "$stubs" qrencode "qrencode version 4.1.1"

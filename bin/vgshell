@@ -1437,15 +1437,16 @@ unattended_stopping=""
 # between has no trap and ends at once, and the verb's wait for the step
 # then rests on the call's shell still holding the step's output.
 unattended_git() { # KEY GIT_ARGS...
-  local key="$1" out_fd err_fd err rc=0 started=$SECONDS
+  local key="$1" out_fd err_fd err rc=0 started=$SECONDS owner=$BASHPID
   shift
   # The call runs in the background so `wait` returns when a trapped
   # signal arrives, which a substitution's read does not; its output goes
-  # to scratch files.
+  # to scratch files. Capture the owner before Bash expands the async
+  # command in its child, where BASHPID is already that child's pid.
   scratch_open 2
   out_fd="${scratch_fds[0]}" err_fd="${scratch_fds[1]}"
   trap_stops unattended_git_stop
-  env --default-signal=TERM,INT,HUP "${outdated_fetch_env[@]}" setsid --wait setpriv --pdeathsig TERM -- "$root/bin/lib/owned-group.sh" "$BASHPID" "$outdated_kill_grace" timeout --foreground --kill-after="$outdated_kill_grace" "$outdated_fetch_timeout" git "${git_flags[@]}" "$@" >&"$out_fd" 2>&"$err_fd" {out_fd}>&- {err_fd}>&- &
+  env --default-signal=TERM,INT,HUP "${outdated_fetch_env[@]}" setsid --wait setpriv --pdeathsig TERM -- "$root/bin/lib/owned-group.sh" "$owner" "$outdated_kill_grace" timeout --foreground --kill-after="$outdated_kill_grace" "$outdated_fetch_timeout" git "${git_flags[@]}" "$@" >&"$out_fd" 2>&"$err_fd" {out_fd}>&- {err_fd}>&- &
   unattended_pid=$!
   wait "$unattended_pid" || rc=$?
   trap - TERM INT HUP

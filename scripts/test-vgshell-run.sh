@@ -648,7 +648,7 @@ control no-wait-loop '[[ -n $forwarded ]] || break' 'break' \
   slow_stop "status=7 shell=ended"
 control status-dropped 'exit "$shell_status"' 'exit 0' \
   "left_behind exit" "status=3 lock=free child=running next=0 child=running"
-control no-parent-death-signal '--pdeathsig TERM' '--pdeathsig clear' \
+control no-parent-death-signal 'exec setpriv --pdeathsig TERM -- qs' 'exec setpriv --pdeathsig clear -- qs' \
   runner_killed "shell=ended lock=free"
 control no-relaunch 'if ! monitors="$(compositor_monitors)"; then' 'if ! monitors="$(false)"; then' \
   relaunched "$(row_want "relaunched")"
