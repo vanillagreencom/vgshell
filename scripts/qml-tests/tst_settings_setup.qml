@@ -22,6 +22,11 @@ import "../../shell/Commons/Reply.js" as Reply
 // blocks offers Review on its own row. The unit model rebuilds delegates;
 // keyed movement and editor retention run in the actual settings smoke.
 // A page link in a status entry's info, or in one key's, opens that page.
+// A stored key list beside its Settings field draws its keys alone, as
+// plain text with no chip, each with its list's source action, which takes
+// the manager's act for that key's account and keeps its refusal apart
+// from the key's write; with no key to draw it reads one sentence under the
+// field. A key list on Details keeps its head.
 // Production-source controls live in
 // test-qml-unit.sh. The window's capabilities record each requested action.
 Item {
@@ -86,6 +91,14 @@ Item {
     readonly property var pagedKeys: ({ requirements: [], tui: {}, secrets: { service: "acme-unit", label: "Key" },
         status: { connection: { type: "state", label: "Connection", setup: true, info: "Keys are listed on the [Done page](page:acme.done/Details)." },
             credentials: { type: "presenceList", label: "Credentials", step: "connection" } } })
+    // A stored key list beside the Sync field whose keys offer the script
+    // that makes one, and a key list read on Details.
+    readonly property string sourcedHint: "No workspace is listed yet"
+    readonly property var sourced: ({ requirements: [], tui: { make: { requires: [] } }, secrets: { service: "acme-unit", label: "Key" },
+        status: { keys: { type: "presenceList", label: "Workspaces", hint: root.sourcedHint, setting: "sync", sourceAction: { label: "Make key", tui: "make" } },
+            wiring: { type: "presenceList", label: "Wiring" } } })
+    readonly property var sourcedKeys: [{ label: "Acme", value: "present", hint: "A token for photos.", secret: "acme:a" }, { label: "Globex", value: "absent", hint: "A token for photos.", secret: "acme:g" }]
+    readonly property var syncField: ({ schema: { sync: { type: "boolean", label: "Sync" } }, settings: { sync: true } })
     // The guide a manifest's setupGuide gives its Setup tab, and the same
     // guide of a plugin with no README to open.
     readonly property var guide: ({ title: "Acme needs keys from your own account", text: "It takes about 5 minutes.", link: "Open the guide", url: "https://example.com/acme/README.md#get-your-keys" })
@@ -150,7 +163,11 @@ Item {
             pluginRow("acme.long", { requirements: [], status: {}, tui: {} }, {}, [], longFields()),
             pluginRow("acme.longsteps", longStatus().manifest, longStatus().values, [], {}),
             pluginRow("acme.installed", stepped, done, [], { source: "installed" }),
-            pluginRow("acme.loose", { requirements: [], status: {}, tui: {} }, {}, [], { source: "installed" })
+            pluginRow("acme.loose", { requirements: [], status: {}, tui: {} }, {}, [], { source: "installed" }),
+            pluginRow("acme.sourced", sourced, { keys: sourcedKeys, wiring: [{ label: "Bar", value: "present" }] }, [], syncField),
+            pluginRow("acme.sourcedempty", sourced, { keys: [] }, [], syncField),
+            pluginRow("acme.sourcedwait", sourced, {}, [], syncField),
+            pluginRow("acme.sourcedoff", sourced, {}, [], Object.assign({ enabled: false }, syncField))
         ];
     }
     QtObject {
@@ -171,7 +188,7 @@ Item {
         function installRequirements(id) { installs = installs.concat([id]); return installReply; }
         function update(id) { updates = updates.concat([id]); return "ok"; }
         function openTui(id, name) { opens = opens.concat([[id, name]]); return "ok"; }
-        function act(id, key) { acts = acts.concat([[id, key]]); return actionReply; }
+        function act(id, key, row, rowAction) { acts = acts.concat([[id, key].concat(row === undefined ? [] : [row, rowAction])]); return actionReply; }
         function setSetting(id, key, value) { chosen = chosen.concat([[id, key, value]]); return "ok"; }
     }
     QtObject { id: fakeCompositor; function readWindows(done) {} }
@@ -539,6 +556,84 @@ Item {
             link.clicked();
             tryVerify(() => pageOf(window).row !== null && pageOf(window).row.id === data.page, 2000, "the link opens the page it names");
             compare(pageOf(window).tab, data.tab);
+        }
+        function keyLines(window) {
+            const row = onTab(window, StatusRow).find(item => item.entry !== null && item.entry.key === "keys");
+            return row === undefined ? [] : descendants(row).filter(item => item instanceof StatusLine && item.visible);
+        }
+        function settled(window, item) {
+            let last = null;
+            tryVerify(() => {
+                const at = item.mapToItem(null, 0, 0), still = last !== null && at.x === last.x && at.y === last.y;
+                last = at;
+                return item.height > 0 && still && pageOf(window).parent.x === -window.width;
+            }, 3000, "the page has settled");
+        }
+        function test_a_settings_key_list_draws_its_keys_as_the_fields_own() {
+            const window = opened(); window.openPlugin("acme.sourced", Qt.OtherFocusReason);
+            compare(pageOf(window).tab, "Settings");
+            compare(keyLines(window).map(line => line.label), ["Acme", "Globex"], "the list draws its keys alone, with no head");
+            compare(onTab(window, Badge).length, 0, "a stored key draws no chip on Settings");
+            const acme = keyLines(window)[0];
+            verify(acme.text !== "" && acme.tone === "", "a stored key reads plain text");
+            for (const line of keyLines(window))
+                verify(descendants(line).some(item => item instanceof RowAction && item.visible && item.text === "Make key"), line.label + " offers its source");
+            // A key's own write reads in its value's place and holds its
+            // source; the other key reads as it did.
+            const acmeText = acme.text;
+            window.writing = { step: window.stepKey("acme.sourced", "keys", "acme:g"), verb: "store" };
+            const globex = keyLines(window).find(line => line.label === "Globex");
+            compare([globex.text, globex.tone], [Steps.WRITE_WORDS.store, ""], "Globex reads its write");
+            verify(!descendants(globex).find(item => item instanceof RowAction && item.visible && item.text === "Make key").enabled, "Globex's source takes no press while its write runs");
+            compare(keyLines(window)[0].text, acmeText, "Acme reads as it did");
+            window.writing = { step: window.stepKey("acme.sourced", "keys", "acme:g"), verb: "clear" };
+            compare(globex.text, Steps.WRITE_WORDS.clear, "a removal reads its own write");
+            window.writing = null;
+            compare(globex.text, "", "the write's words go once it ends");
+            window.openPlugin("acme.sourced", Qt.OtherFocusReason, "Details");
+            const wiring = onTab(window, StatusRow).find(item => item.entry !== null && item.entry.key === "wiring");
+            verify(wiring !== undefined, "Details draws its key list");
+            compare(descendants(wiring).filter(item => item instanceof StatusLine && item.visible).map(line => line.label), ["Wiring", "Bar"], "a Details key list keeps its head");
+        }
+        // expected-log: settings: acme.sourced/keys/source acme:g refused: tui=make reason=busy-other -- the refused source the case plants
+        // expected-log: settings: acme.sourced/keys/acme:g refused: secret write failed locked -- the failed write the case plants
+        function test_a_key_source_takes_the_manager_route_and_keeps_its_own_reply() {
+            const window = opened(); window.openPlugin("acme.sourced", Qt.OtherFocusReason);
+            const globex = () => keyLines(window).find(line => line.label === "Globex");
+            const source = () => descendants(globex()).find(item => item instanceof RowAction && item.visible && item.text === "Make key");
+            settled(window, source());
+            mouseClick(source());
+            compare(fakeManager.acts, [["acme.sourced", "keys", "acme:g", "source"]], "the source asks the manager for that key's account");
+            const input = descendants(globex()).find(item => item instanceof TextField);
+            verify(input !== undefined && input.activeFocus, "the key's field opened and holds the keyboard");
+            const busy = "refused: tui=make reason=busy-other";
+            fakeManager.actionReply = busy;
+            source().clicked();
+            compare(globex().error, Reply.line(busy), "the refused source reads under its key, translated");
+            const failed = "refused: secret write failed locked";
+            window.keep(window.stepKey("acme.sourced", "keys", "acme:g"), failed);
+            verify(globex().error.indexOf(Reply.line(failed)) !== -1 && globex().error.indexOf(Reply.line(busy)) !== -1, "the write's failure and the source's refusal read side by side");
+            fakeManager.actionReply = "ok";
+            source().clicked();
+            compare(globex().error, Reply.line(failed), "a source that opens clears its own refusal alone");
+            const typed = descendants(globex()).find(item => item instanceof TextField);
+            typed.forceActiveFocus();
+            keyClick(Qt.Key_Escape);
+            tryVerify(() => descendants(globex()).find(item => item instanceof TextField) === undefined, 1000, "Escape closes the field");
+            const add = descendants(globex()).find(item => item instanceof RowAction && item.visible && item.text === "Add key");
+            verify(add !== undefined && add.activeFocus, "Escape hands the keyboard back to Add key");
+        }
+        function test_a_settings_key_list_with_no_key_reads_one_sentence_data() {
+            return [{ tag: "listed none", id: "acme.sourcedempty", hint: true }, { tag: "not yet reported", id: "acme.sourcedwait", hint: false }, { tag: "plugin off", id: "acme.sourcedoff", hint: false }];
+        }
+        function test_a_settings_key_list_with_no_key_reads_one_sentence(data) {
+            const window = opened(); window.openPlugin(data.id, Qt.OtherFocusReason);
+            const lines = keyLines(window);
+            compare(lines.length, 1, "the list draws one line");
+            compare(lines[0].label, "", "with no label of its own: the field names what it is for");
+            verify(lines[0].hint !== "", "it reads a sentence under the field");
+            compare(lines[0].hint === root.sourcedHint, data.hint, "an empty list reads its hint, any other state its own sentence");
+            compare(descendants(lines[0]).filter(item => item instanceof RowAction && item.visible).length, 0, "with no key it offers no action");
         }
         function test_list_click_and_keyboard_open_required_setup() {
             const window = opened(); mouseClick(listRow(window, "acme.todo"));

@@ -292,7 +292,8 @@ FocusScope {
     }
 
     // The lines a field draws under its control, one feature row
-    // (Steps.featureRow): its stored key lists. Each delegate reads its
+    // (Steps.featureRow): its stored key lists, each drawn as the field's
+    // own keys (StatusRow `settingsContext`). Each delegate reads its
     // entry again by key, so a status write, which hands the page new
     // objects, keeps a key list's open masked field.
     component ChoiceExtras: Column {
@@ -323,6 +324,8 @@ FocusScope {
                     id: keys
                     width: keyLine.width
                     entry: page.statusEntry(keyLine.modelData.key)
+                    settingsContext: true
+                    plugin: page.plugin
                     panel: page.panel
                     pluginId: page.row === null ? "" : page.row.id
                     secretLabel: page.row === null ? "" : page.row.secretLabel
@@ -920,6 +923,7 @@ FocusScope {
                                             // without replacing an unchanged masked editor.
                                             entry: page.statusEntry(requiredEntry.modelData.key)
                                             setup: true
+                                            plugin: page.plugin
                                             panel: page.panel
                                             pluginId: page.row === null ? "" : page.row.id
                                             secretLabel: page.row === null ? "" : page.row.secretLabel

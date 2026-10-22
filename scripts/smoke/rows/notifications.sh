@@ -3219,34 +3219,50 @@ expect_poll "the last toast's exit has played" 0 layer_count vgs:layer
 
 # The Slack token rows: the service publishes whether the stub libsecret
 # holds each listed workspace's token, never a
-# token, and the Settings page draws a line per account beside the Slack
-# photos field, and none on Details. The probe runs
+# token, with what each workspace's field takes, and the Settings page
+# draws a line per account beside the Slack photos field, with no head of
+# its own, and none on Details. Each line reads what the keyring holds as
+# plain text, its steps, its hint and the list's Create Slack app. The probe runs
 # when the service starts, so each set of states is read after a disable
 # and an enable. No state here makes the photo helper call Slack.
-token_hint="Connect each workspace to show sender photos"
 token_row() { ipc smoke readInstance window vgs.settings plugins | py_reply 'import json,sys; r=[p for p in json.load(sys.stdin) if p["id"] == "vgs.notifications"][0]["status"]; print(json.dumps([[s["label"], s["report"], s["tone"], s["value"]] for s in r]))'; }
 drawn_token_row() { ipc smoke itemTexts window vgs.settings StatusRow | py_reply 'import json,sys; print(json.dumps([row for row in json.load(sys.stdin) if row]))'; }
 token_location() { ipc smoke settingKeyRows window vgs.settings | py_reply 'import json,sys; print(json.dumps([row for row in json.load(sys.stdin) if row["key"]=="slackTokens"]))'; }
-# want_rows rows|drawn ITEMS: the manager row, or the texts the page draws,
-# for ITEMS, `;`-separated `<account>,<state>` items.
+# want_rows rows|drawn|details ITEMS [ERRORED]: the manager row, the texts
+# the Settings page draws, or those a page that draws the keys on Details
+# draws, for ITEMS, `;`-separated `<account>,<state>` items; the line of
+# account ERRORED reads its error, which a row removes, in its hint's
+# place. The list's label, hint and source and each item's hint are the
+# plugin's own (manifest.json, NotificationLogic.SLACK_TOKEN_HINT).
 want_rows() {
-  python3 - "$1" "$2" "$token_hint" <<'PY'
-import json, sys
-what, items, hint = sys.argv[1], sys.argv[2], sys.argv[3]
+  python3 - "$1" "$2" "$source_repo" "${3:-}" <<'PY'
+import json, re, sys
+what, items, repo, errored = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+entry = json.load(open(repo + "/shell/plugins/vgs.notifications/manifest.json"))["status"]["slackTokens"]
+logic = open(repo + "/shell/plugins/vgs.notifications/NotificationLogic.js").read()
+hint = re.search(r'^var SLACK_TOKEN_HINT = "([^"]*)";$', logic, re.M).group(1)
+source = entry["sourceAction"]["label"]
 # A name equal to its domain, case folded, is drawn once.
 labels = {"slack:T0ACME": "Acme Corp (acme)", "slack:T0GLOBEX": "Globex"}
 tones = {"present": "success", "absent": "warning", "locked": "info"}
-words = {"present": "Present", "absent": "Absent", "locked": "Locked"}
-# A line offers Add key in the chip's place while its token is absent, and
-# Replace and Remove after the chip while one is stored.
-steps = {"present": ["Present", "Replace", "Remove"], "absent": ["Add key"], "locked": ["Locked", "Replace", "Remove"]}
+# A line offers Add key in the value's place while its token is absent, and
+# Replace and Remove after the value while one is stored. On Settings the
+# value is plain text of what the keyring holds; Details draws the chip.
+steps = {
+    "drawn": {"present": ["Saved", "Replace", "Remove"], "absent": ["Add key"], "locked": ["Keyring locked", "Replace", "Remove"]},
+    "details": {"present": ["Present", "Replace", "Remove"], "absent": ["Add key"], "locked": ["Locked", "Replace", "Remove"]},
+}
+# What a locked key's line adds under its hint on Settings.
+notes = {"locked": "Saving may ask you to unlock your keyring."}
 accesses = {"present": "disconnect", "absent": "connect", "locked": "disconnect"}
-rows, drawn = [], ["Slack tokens", hint]
+rows, drawn = [], [] if what == "drawn" else [entry["label"], entry["hint"]]
 for item in items.split(";"):
     account, state = item.split(",")
-    rows.append({"label": labels[account], "value": state, "hint": "", "info": "", "tone": tones[state], "secret": account, "access": accesses[state]})
-    drawn += [labels[account]] + steps[state]
-print(json.dumps([["Slack tokens", "reported", "", rows]]) if what == "rows" else json.dumps([drawn]))
+    rows.append({"label": labels[account], "value": state, "hint": hint, "info": "", "tone": tones[state], "secret": account, "access": accesses[state]})
+    if what == "rows": continue
+    under = [] if account == errored else [" ".join([hint] + ([notes[state]] if what == "drawn" and state in notes else []))]
+    drawn += [labels[account]] + steps[what][state] + under + [source]
+print(json.dumps([[entry["label"], "reported", "", rows]]) if what == "rows" else json.dumps([drawn]))
 PY
 }
 # change_offered ACCOUNT_LABEL: whether that account's line draws Replace.
@@ -3331,7 +3347,7 @@ expect "the token reached secret-tool on stdin alone, whole, with no newline" "b
 # refuses.
 expected_errors+=('notifications-slack-photos: account=slack:T0ACME api=team\.info curl=failed status=19' 'notifications-slack-photos: emoji team=T0ACME api=emoji\.list curl=failed status=19' 'notifications-slack-photos: recovered')
 expect_log "the stored token runs the photo helper at once" 1 'notifications-slack-photos: account=slack:T0ACME api=team\.info curl=failed'
-expect_poll "the write's end probes again: Acme reads Present with Replace and Remove" "$(want_rows drawn "slack:T0ACME,present;slack:T0GLOBEX,absent")" drawn_token_row
+expect_poll "the write's end probes again: Acme reads Saved with Replace and Remove" "$(want_rows drawn "slack:T0ACME,present;slack:T0GLOBEX,absent")" drawn_token_row
 expect "the closed field leaves no input on the line" '[[]]' row_inputs
 expect "the manager refuses an account the plugin does not list" "refused: secret=slack:T0NOPE reason=unlisted" ipc smoke invokeInstance window vgs.settings storeSecret '{"id":"vgs.notifications","key":"slackTokens","account":"slack:T0NOPE","secret":"xoxp-smoke-refused"}'
 expect "of the steps so far only Add key reached secret-tool" "$((calls_before + 1))" secret_calls
@@ -3343,15 +3359,48 @@ type_keys -k Return || fail "sending Enter to the field of Replace failed"
 expect_poll "Replace stores over the account through secret-tool store" "$((calls_before + 2))" secret_calls
 expect "the second store names the same account" "store --label=VGS notifications Slack token slack:T0ACME service vgs-notifications account slack:T0ACME" last_secret_call
 expect "the second token replaced the first on stdin, whole, with no newline" "b'$changed_token'" acme_stdin
-expect_poll "the changed token's line still reads Present with Replace and Remove" "$(want_rows drawn "slack:T0ACME,present;slack:T0GLOBEX,absent")" drawn_token_row
+expect_poll "the changed token's line still reads Saved with Replace and Remove" "$(want_rows drawn "slack:T0ACME,present;slack:T0GLOBEX,absent")" drawn_token_row
 expect_poll "the closed field of Replace leaves no input on the line" '[[]]' row_inputs
 settings_press --type RowAction "Remove" StatusLine "Acme Corp (acme)" || fail "the click on Acme's Remove failed"
 expect_poll "Remove clears the account through secret-tool clear" "clear service vgs-notifications account slack:T0ACME" last_secret_call
 expect_poll "the write's end probes again: Acme reads Absent with Add key" "$(want_rows drawn "slack:T0ACME,absent;slack:T0GLOBEX,absent")" drawn_token_row
+# Create Slack app, the list's source action: a press on Globex's line
+# opens its empty masked field, then the guide for Globex alone, with the
+# account and label the core reads from the published row; the stand-in
+# terminal records the argv and runs no plugin script. Acme's press hands
+# Acme's own account and label, so the argv follows the line pressed. While
+# Globex's guide is live, Acme's press reveals it and is refused
+# busy-other at the core's boundary, which the page logs under Acme's
+# source, apart from its writes, and the press opens no second terminal.
+expected_errors+=('settings: vgs\.notifications/slackTokens/source slack:T0ACME refused: tui=setup-slack reason=busy-other')
+source_record() { recorded_tail; }
+forget_record
+settings_press --type RowAction "Create Slack app" StatusLine "Globex" || fail "the click on Globex's Create Slack app failed"
+expect_poll "Create Slack app opens the guide for Globex alone" "$(words vgs.notifications/setup-slack tui/setup-slack.sh slack:T0GLOBEX Globex)" source_record
+expect_poll "the press opened Globex's empty masked field first" '[["TextField"]]' row_inputs
+expect "the source reached no secret-tool" "$((calls_before + 3))" secret_calls
+settings_press --type RowAction "Cancel" StatusLine "Globex" || fail "the click on Globex's Cancel failed"
+expect_poll "Cancel closes Globex's field" '[[]]' row_inputs
+forget_record
+settings_press --type RowAction "Create Slack app" StatusLine "Acme Corp (acme)" || fail "the click on Acme's Create Slack app failed"
+expect_poll "Acme's press opens the guide with Acme's own account and label" "$(words vgs.notifications/setup-slack tui/setup-slack.sh slack:T0ACME "Acme Corp (acme)")" source_record
+settings_press --type RowAction "Cancel" StatusLine "Acme Corp (acme)" || fail "the click on Acme's Cancel failed"
+hold_runs
+forget_record
+settings_press --type RowAction "Create Slack app" StatusLine "Globex" || fail "the held click on Globex's Create Slack app failed"
+expect_poll "a held guide for Globex starts" "$(words vgs.notifications/setup-slack tui/setup-slack.sh slack:T0GLOBEX Globex)" source_record
+settings_press --type RowAction "Create Slack app" StatusLine "Acme Corp (acme)" || fail "the click on Acme's Create Slack app beside Globex's guide failed"
+expect_log "Acme's press beside Globex's live guide is refused busy-other" 1 'settings: vgs\.notifications/slackTokens/source slack:T0ACME refused: tui=setup-slack reason=busy-other'
+expect "no second guide started" "$(words vgs.notifications/setup-slack tui/setup-slack.sh slack:T0GLOBEX Globex)" source_record
+release_runs
+for line in "Acme Corp (acme)" Globex; do
+  settings_press --type RowAction "Cancel" StatusLine "$line" || fail "the click on $line's Cancel after the guides failed"
+done
+expect_poll "the guides leave no field open" '[[]]' row_inputs
 # Remove on a locked key store: `secret-tool clear` deletes unlocked items
 # only and still exits 0, so the core searches for the account again and
 # ends the write as `locked`. The stand-in keeps the entry, the line names
-# the lock under the key and still reads Locked with Replace and Remove.
+# the lock under the key and still reads Keyring locked with Replace and Remove.
 # Once the store is unlocked the same Remove deletes the key and the lock
 # line goes. The control is `scripts/test-settings-reply.js`, where a
 # writer that trusts the clear's exit code fails the same case.
@@ -3363,12 +3412,12 @@ acme_state() { awk '$1 == "slack:T0ACME" { print $2 }' "$shim/secret-tool.states
 drawn_less_lock() { ipc smoke itemTexts window vgs.settings StatusRow | py_reply 'import json,sys; rows=json.load(sys.stdin); line=sys.argv[1]; print(json.dumps([[[t for t in r if t != line] for r in rows], sum(r.count(line) for r in rows)]))' "$lock_line"; }
 slack_states "slack:T0ACME locked;slack:T0GLOBEX absent"
 restart_notes "locked before Remove"
-expect_poll "the locked Acme line draws Locked with Replace and Remove" "$(want_rows drawn "$locked_items")" drawn_token_row
+expect_poll "the locked Acme line draws Keyring locked with Replace and Remove" "$(want_rows drawn "$locked_items")" drawn_token_row
 settings_press --type RowAction "Remove" StatusLine "Acme Corp (acme)" || fail "the click on the locked Acme's Remove failed"
 expect_poll "Remove on the locked store runs secret-tool clear" "$((calls_before + 4))" secret_calls
 expect_log "the core ends the clear of a kept key as locked" 1 'secrets: clear=vgs\.notifications/slack:T0ACME failed locked'
 expect "the locked store keeps the key" locked acme_state
-expect_poll "the line names the lock and still reads Locked with Replace and Remove" "[$(want_rows drawn "$locked_items"), 1]" drawn_less_lock
+expect_poll "the line names the lock and still reads Keyring locked with Replace and Remove" "[$(want_rows drawn "$locked_items" slack:T0ACME), 1]" drawn_less_lock
 slack_states "slack:T0ACME present;slack:T0GLOBEX absent"
 settings_press --type RowAction "Remove" StatusLine "Acme Corp (acme)" || fail "the click on Acme's Remove after the unlock failed"
 expect_poll "Remove on the unlocked store runs secret-tool clear again" "$((calls_before + 5))" secret_calls
@@ -3425,7 +3474,7 @@ expect "the control copy's Settings page opens" ok ipc shell summon window vgs.s
 expect_poll "the control copy reads each workspace's token" "$(want_rows rows "$control_items")" token_row
 expect_poll "control: a page that draws its keys on Details draws no token line on Settings" '[]' drawn_token_row
 settings_details
-expect_poll "control: that page draws the token lines on Details" "$(want_rows drawn "$control_items")" drawn_token_row
+expect_poll "control: that page draws the token lines on Details" "$(want_rows details "$control_items")" drawn_token_row
 expect "control: keys on Details have no Settings field ancestor" '[{"key": "slackTokens", "setting": "slackPhotos", "field": ""}]' token_location
 token_placement_control() {
   (failures=0 behaviour_failures=0

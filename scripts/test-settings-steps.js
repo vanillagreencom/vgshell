@@ -464,6 +464,33 @@ function verify(logic, producer) {
     same(logic.itemView({ access: "disconnect", value: "present", tone: "success" }, true), { tone: "success", text: "Done", reason: "" }, "required stored key uses Done");
     same(logic.itemView({ access: "connect", value: "locked", tone: "info" }, true), { tone: "warning", text: "To do", reason: "Locked" }, "required blocked key keeps its reason outside the chip");
     same(logic.itemView({ access: "connect", value: "absent", tone: "warning" }, true), { tone: "warning", text: "To do", reason: "" }, "required absent key leaves its reason to To do and Add key");
+    // A stored key beside its Settings field draws no chip, whatever its
+    // presence: [presence, whether it reads text, whether in the danger
+    // colour, whether a sentence under it says what the user can do].
+    for (const [presence, reads, danger, noted] of [
+        ["present", true, false, false], ["absent", false, false, false], ["locked", true, false, true],
+        ["unavailable", true, false, true], ["unsafe", true, true, false], ["signed-out", true, false, false]
+    ]) {
+        const got = logic.keyView({ access: "connect", value: presence, tone: "warning" }, on);
+        same([got.tone, got.text !== "", got.danger, got.note !== ""], ["", reads, danger, noted], "Settings: a " + presence + " key reads plain text");
+        // A signed-out account reads the same on both tabs.
+        if (reads && presence !== "signed-out") assert.notEqual(got.text, logic.itemView({ access: "connect", value: presence, tone: "warning" }).text, "Settings: a " + presence + " key reads what is stored, not the Details reading");
+    }
+    // A stored key list beside its Settings field: what it draws for the
+    // plugin's state and its published list.
+    const keyEntry = (report, value, hint) => ({ key: "keys", type: "presenceList", label: "Workspaces", hint: hint, info: "", report: report, value: value });
+    const keyItem = (label, more) => Object.assign({ label: label, value: "absent", hint: "", info: "", tone: "warning", secret: "acme:" + label, access: "connect" }, more);
+    const failedOn = { enabled: true, name: "Fixture", error: "Fixture could not start.", failed: true };
+    const keysOf = (entryValue, plugin) => logic.keyListView(entryValue, plugin);
+    const offKeys = keysOf(keyEntry("reported", [keyItem("A")], "None listed"), off);
+    same([offKeys.items.length, offKeys.note !== "" && offKeys.note !== "None listed"], [0, true], "Settings: an off plugin's key list draws no key and says why");
+    const finding = keysOf(keyEntry("unreported", null, "None listed"), on);
+    same([finding.items.length, finding.note !== "" && finding.note !== offKeys.note && finding.note !== "None listed"], [0, true], "Settings: a starting plugin's key list says it is finding its keys");
+    same(keysOf(keyEntry("unreported", null, "None listed"), failedOn), { items: [], note: failedOn.error }, "Settings: a key list of a plugin that could not start says why");
+    same(keysOf(keyEntry("reported", [], "None listed"), on), { items: [], note: "None listed" }, "Settings: an empty key list reads its hint");
+    assert.notEqual(keysOf(keyEntry("reported", [], ""), on).note, "", "Settings: an empty key list with no hint still reads a sentence");
+    const listed = keysOf(keyEntry("reported", [keyItem("A", { hint: "Its own" }), keyItem("B")], "Each key unlocks the feature"), on);
+    same([listed.note, listed.items.map(item => [item.key, item.hint])], ["", [["secret acme:A", "Its own"], ["secret acme:B", "Each key unlocks the feature"]]], "Settings: each key reads its own hint, else its list's");
     same(logic.itemsKeyed([{ secret: "provider:key", label: "Provider" }, { secret: "", label: "Local" }, { secret: "", label: "Local" }]).map(item => item.key), ["secret provider:key", "label Local", "label Local 2"], "stored key rows keep stable identities");
 }
 
@@ -524,6 +551,9 @@ const controls = [
     ["a primary status action uses a separate screen reply", 'return { kind: "status", key: entry.key', 'return { kind: "tui", key: entry.key', "on: a step whose screen lacks an optional tool offers its own action"],
     ["More settings leaves Settings", 'place === "Settings" ? tui.settings', 'place === "Settings" ? false', "settings screens stay in More settings"],
     ["required keys keep ordinary chips", 'if (setup) {', 'if (false) {', "required stored key uses Done"],
+    ["a Settings key draws a chip", 'return { tone: "", text: KEY_WORDS[item.value]', 'return { tone: item.tone, text: KEY_WORDS[item.value]', "Settings: a present key reads plain text"],
+    ["an off plugin's Settings keys are drawn", 'if (!plugin.enabled) return { items: [], note: "Turn on "', 'if (false) return { items: [], note: "Turn on "', "Settings: an off plugin's key list draws no key and says why"],
+    ["a Settings key reads no hint of its list", 'hint: item.hint !== "" ? item.hint : entry.hint', 'hint: item.hint', "Settings: each key reads its own hint, else its list's"],
     ["a plugin that is off offers nothing", 'if (!plugin.enabled) return open ? turnOn(plugin.name) : null;', 'if (!plugin.enabled) return null;', "Details: off: a former Settings entry offers Turn on"],
     ["every Setup step offers Turn on while the plugin is off", 'return plugin.enabled ? stepButton(entry, requirements) : null;', 'return lineAction(stepButton(entry, requirements), stepOpen(entry), plugin);', "off: no step offers Turn on and the Tools step offers Review"],
     ["an absent required key repeats its To do as a reason", 'var reason = done || item.value === "absent" ? ""', 'var reason = done ? ""', "required absent key leaves its reason to To do and Add key"],

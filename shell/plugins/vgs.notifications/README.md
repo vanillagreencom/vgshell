@@ -36,18 +36,18 @@ VGS uses a summoned panel to give the list keyboard focus.
 | VGlass | Whether notifications draw as frosted glass with a moving edge light, and enter from a glass bead. Off, they draw as plain panels that fade in and out. On by default. VGlass in the Windows page can turn glass on or off for every glass surface, and then this setting has no effect. |
 | Notification duration | The minimum time a normal notification stays on screen. |
 | Position | Where notifications show on each screen: top or bottom, at the left, center or right. The newest notification is nearest that edge. |
-| Slack photos | Whether sender photos load from connected Slack workspaces. |
+| Slack photos | Whether sender photos load from Slack workspaces. Each workspace's token field and its Create Slack app stand under it. |
 | Slack custom emoji | Whether custom emoji show in Slack notifications. |
 
 The shortcut is under Keys on the plugin's Settings page. The Tools step on Setup lists required tools, and the Optional tools step there installs the optional ones. Details lists the optional tools under Tools.
 
 ## Slack photos
 
-Turn on Slack photos in Settings to add sender photos, workspace icons and custom emoji. Each workspace needs its own Slack app user token.
+Turn on Slack photos in Settings to add sender photos, workspace icons and custom emoji. Each workspace you are signed in to in the Slack desktop app has its own row under Slack photos, and each needs its own User OAuth Token.
 
-Select Set up Slack photos on the Details tab. The guide explains the permissions before you select Open Slack. VGS fills the Slack app details in your browser. Follow the numbered steps to choose your workspace, create and install the app, then copy its User OAuth Token. If the browser does not open, select Retry opening, Continue in browser to keep reading the steps, or Cancel. App approval needed explains what to ask your workspace administrator.
+Select Create Slack app on the workspace's row. It opens the row's masked field, ready for the token, and the guide for that workspace. The guide explains the permissions before you select Open Slack. VGS fills the Slack app details in your browser. Follow the numbered steps to choose the workspace, create and install the app, then copy its User OAuth Token. If the browser does not open, select Retry opening, Continue in browser to keep reading the steps, or Cancel. App approval needed explains what to ask your workspace administrator.
 
-Sign in to the workspace in the Slack desktop app. Return to the Settings tab and, under Slack tokens, select Add key for the workspace. Paste the token into the masked field. VGS stores it in your keyring. Replace beside a stored token replaces it, and Remove removes it. The photos load after each token change. If your workspace requires app approval, ask its administrator to approve the app.
+Select Return to Notifications. Paste the token into the workspace's masked field and select Save. VGS stores it in your keyring, and the row reads Saved. Saved means the token is stored, not that Slack accepted it: the photos load after each token change. If you already have the token, paste it without opening the guide. Replace beside a saved token replaces it, and Remove removes it. If no workspace row appears, sign in to the workspace in the Slack desktop app, then turn Notifications off and on.
 
 The app requests read-only access to sender photos, workspace details and custom emoji. It does not request message or channel access. The guide takes no token. Cancel leaves your settings and saved tokens unchanged.
 

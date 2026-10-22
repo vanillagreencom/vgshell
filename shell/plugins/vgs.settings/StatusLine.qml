@@ -24,9 +24,18 @@ import qs.Ui
 // Replace action before a Remove action in the danger tone that emits
 // `clearSecret`. Add key and Replace open a masked field in the value slot
 // whose Save, or Enter, emits `storeSecret` with what was typed and closes
-// it. A line with no
+// it; while Replace's field is open, the hint says the stored key stays
+// until a replacement is saved. A line with no
 // value, such as a secret nothing is stored for, starts its step on the
-// value column. `busy` disables the step while its write runs; `error`,
+// value column. `busy` disables the step while a write runs; `writing`,
+// "store" or "clear" while this line's own write runs, disables its source
+// action too.
+// `sourceLabel`, when set, is the key's source action
+// (PluginLogic.statusRows `sourceAction`), drawn under the hint on the
+// value column: a press opens the masked field first where the line offers
+// one, so the key the source makes is pasted into the field that kept the
+// keyboard, then emits `source`. `danger` draws a text value in the danger
+// colour. `error`,
 // when set, reads in the hint's place in the error colour. A line that ends
 // in a hint, lines or an error takes the room under it a Field takes
 // (Theme.subTextRoom), `subText`.
@@ -55,6 +64,10 @@ Column {
     property string asideTone: ""
     property string asideIcon: ""
     property bool busy: false
+    // "store" or "clear" while this line's own write runs, else "".
+    property string writing: ""
+    property string sourceLabel: ""
+    property bool danger: false
     property string error: ""
     // What the masked field asks for: the plugin's `secrets` label.
     property string secretLabel: ""
@@ -64,7 +77,8 @@ Column {
     readonly property bool adds: access === "connect"
     readonly property bool stored: access === "disconnect"
     readonly property bool stepShown: (actionLabel !== "" && actionOffered) || asideOffered || adds || stored
-    readonly property bool subText: field.subText
+    readonly property bool sourceShown: sourceLabel !== ""
+    readonly property bool subText: field.subText && !sourceShown
 
     signal act()
     signal aside()
@@ -73,6 +87,7 @@ Column {
     signal infoPageActivated(string page, string tab)
     signal storeSecret(string value)
     signal clearSecret()
+    signal source()
 
     // The secret's presence changed under an open field, so what the
     // field was opened for no longer holds.
@@ -107,6 +122,18 @@ Column {
         restoreActionFocus();
     }
 
+    // The source action's press: the line's empty masked field opens and
+    // takes the keyboard before `source` opens the window that makes the
+    // key, so closing that window hands the keyboard back to the field. An
+    // open field, and what it holds, stays as it is; a line that offers no
+    // field, as while the key store cannot be asked, keeps the keyboard on
+    // the action.
+    function pressSource() {
+        if (writing !== "") return;
+        if (!entering && !busy && (adds || stored)) entering = true;
+        source();
+    }
+
     // Close the field, which destroys it and what it held, then hand VALUE
     // on.
     function saveSecret(value) {
@@ -123,7 +150,11 @@ Column {
     spacing: Theme.field.gap
     bottomPadding: Theme.subTextRoom(subText, Positioner.index, Positioner.isLastItem, parent)
 
-    readonly property bool valued: tone !== "" || text !== ""
+    // Whether the hint goes under the value: while the line draws a value,
+    // or a key's step or field in its place. Else the hint is the value.
+    readonly property bool valued: tone !== "" || text !== "" || entering || adds || stored
+    // What Replace's open field adds to the hint.
+    readonly property string replaceNote: entering && stored ? "The saved key stays until you save a replacement." : ""
 
     Field {
         id: field
@@ -132,7 +163,7 @@ Column {
         info: line.info
         onInfoPageActivated: (page, tab) => line.infoPageActivated(page, tab)
         inline: true
-        hint: line.valued || line.entering ? line.hint : ""
+        hint: line.valued ? [line.hint, line.replaceNote].filter(part => part !== "").join(" ") : ""
         hintLink: line.hintLink
         onHintLinkActivated: line.hintLinkActivated()
         onHintPageActivated: (page, tab) => line.hintPageActivated(page, tab)
@@ -156,7 +187,7 @@ Column {
             Item {
                 id: valueRow
                 visible: !line.entering
-                readonly property real naturalWidth: line.tone !== "" ? value.implicitWidth : Math.ceil(valueText.advanceWidth)
+                readonly property real naturalWidth: line.tone !== "" ? value.implicitWidth : line.text === "" && line.valued ? 0 : Math.ceil(valueText.advanceWidth)
                 readonly property bool stepBelow: step.visible && naturalWidth + Theme.stack.inline + step.implicitWidth > width
                 // The height of the value's first line, a chip of the default
                 // size or the whole text, and the centre that line shares with
@@ -197,7 +228,11 @@ Column {
                 Loader {
                     id: value
                     y: valueRow.stepBelow ? 0 : Math.round(valueRow.centre - valueRow.firstLine / 2)
-                    sourceComponent: line.tone !== "" ? badge : line.text !== "" ? plain : line.hint !== "" ? hintValue : null
+                    // An empty item, not null, while nothing is drawn: a Loader
+                    // whose component goes null keeps its last item's size, as
+                    // a sandbox capture of a failed key write read: Add key
+                    // stood a "Saving…" width right of the value column.
+                    sourceComponent: line.tone !== "" ? badge : line.text !== "" ? plain : line.hint !== "" && !line.valued ? hintValue : nothing
                 }
                 // RowActions places only its visible actions, so a line draws
                 // the steps that apply to it alone.
@@ -300,6 +335,21 @@ Column {
         }
     }
 
+    // The key's source action, on the value column under the hint.
+    RowAction {
+        id: sourceAction
+        x: field.valueX
+        visible: line.sourceShown
+        enabled: line.writing === ""
+        text: line.sourceLabel
+        onClicked: line.pressSource()
+    }
+
+    Component {
+        id: nothing
+        Item {}
+    }
+
     Component {
         id: badge
         Column {
@@ -342,6 +392,7 @@ Column {
         Label {
             role: line.muted ? "itemHint" : "value"
             text: line.text
+            color: line.danger ? Theme.color.danger : typography.color
             width: Math.min(implicitWidth, valueRow.room)
             elide: Text.ElideRight
         }

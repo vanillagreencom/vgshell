@@ -76,8 +76,9 @@ FocusScope {
     // its line, and a setup screen, shown under its buttons, each until a
     // later call there succeeds.
     property var replies: ({})
-    // The stepKey of the secret write running, or "".
-    property string writing: ""
+    // The secret write running, { step, verb }, its stepKey and "store" or
+    // "clear", or null.
+    property var writing: null
     // The page shown: "" for the list, else a plugin id.
     property string page: ""
     // The plugin page drawn, kept while it slides out on a pop.
@@ -440,6 +441,21 @@ FocusScope {
         return keep(stepKey(id, key, row), shell.manager.act(id, key, row, rowAction));
     }
 
+    // Run the source action of plugin `id`'s stored key list `key` for its
+    // key `account` (PluginLogic.statusActionRequest), the floating TUI that
+    // makes such a key, which Hyprland focuses over this window; answers the
+    // manager's reply, kept under sourceKey, apart from the key's writes.
+    function actSource(id, key, account) {
+        return keep(stepKey(id, key, sourceKey(account)), shell.manager.act(id, key, account, "source"));
+    }
+
+    // Where a key's source action keeps its reply in stepKey's account
+    // place: no account holds a space (PluginLogic.SECRET_ACCOUNT_PATTERN),
+    // so it never meets the key's own write.
+    function sourceKey(account) {
+        return "source " + account;
+    }
+
     // The step key of setup screen `name`, which `replyOf` reads its reply
     // under: a status key holds no colon, so a screen and a status entry of
     // one name keep their replies apart.
@@ -513,18 +529,18 @@ FocusScope {
     // end, a failure included, reads under the line. The secret goes to the
     // manager alone: no reply, log line or property here holds it.
     function storeSecret(id, key, account, secret) {
-        return secretStep(stepKey(id, key, account), done => shell.manager.storeSecret(id, key, account, secret, done));
+        return secretStep(stepKey(id, key, account), "store", done => shell.manager.storeSecret(id, key, account, secret, done));
     }
     function clearSecret(id, key, account) {
-        return secretStep(stepKey(id, key, account), done => shell.manager.clearSecret(id, key, account, done));
+        return secretStep(stepKey(id, key, account), "clear", done => shell.manager.clearSecret(id, key, account, done));
     }
 
-    function secretStep(step, call) {
+    function secretStep(step, verb, call) {
         const reply = keep(step, call(result => {
-            if (root.writing === step) root.writing = "";
+            if (root.writing !== null && root.writing.step === step) root.writing = null;
             root.keep(step, result.ok ? "ok" : "refused: secret write failed " + result.reason);
         }));
-        if (Reply.isOk(reply)) writing = step;
+        if (Reply.isOk(reply)) writing = { step: step, verb: verb };
         return reply;
     }
 

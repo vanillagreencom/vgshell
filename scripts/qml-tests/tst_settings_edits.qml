@@ -108,6 +108,10 @@ Item {
         function act() { return "ok"; }
         function replyOf() { return ""; }
         function headReplies() { return []; }
+        // No key write runs, and a key's source keeps its reply apart, as
+        // the Settings window's do.
+        property var writing: null
+        function sourceKey(account) { return "source " + account; }
     }
 
     Column {

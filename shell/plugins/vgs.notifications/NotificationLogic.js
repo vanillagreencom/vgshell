@@ -479,6 +479,10 @@ function slackWorkspaceLabel(workspace) {
     return cut + "\u2026";
 }
 
+// What each workspace's token field takes, where the token comes from and
+// what it unlocks, drawn under the field beside its Create Slack app.
+var SLACK_TOKEN_HINT = "User OAuth Token for sender photos. VGS saves it in your keyring.";
+
 // The Settings page's Slack token rows, one per listed workspace.
 // A missing probe result refuses publication until the next probe.
 function slackTokenRows(workspaces, states) {
@@ -486,7 +490,7 @@ function slackTokenRows(workspaces, states) {
     for (var i = 0; i < workspaces.length; i++) {
         var account = "slack:" + workspaces[i].id;
         if (!hasOwn(states, account)) return { ok: false, missing: account };
-        items.push({ label: slackWorkspaceLabel(workspaces[i]), value: states[account], secret: account });
+        items.push({ label: slackWorkspaceLabel(workspaces[i]), value: states[account], hint: SLACK_TOKEN_HINT, secret: account });
     }
     return { ok: true, items: items };
 }

@@ -330,6 +330,16 @@ function statusView(entry, timeText, plugin) {
     return out;
 }
 
+// What a stored key reads as beside its masked field on Settings, plain
+// text that says what the key store holds and never that the key works,
+// and the sentence under it, for a presence that has one, of what the
+// user can do. An absent key reads nothing: its Add key says it.
+var KEY_WORDS = { present: "Saved", absent: "", locked: "Keyring locked", unavailable: "Keyring unavailable", unsafe: "Saved key is not private", "signed-out": "Signed out" };
+function keyNote(value, plugin) {
+    if (value === "locked") return "Saving may ask you to unlock your keyring.";
+    if (value === "unavailable") return "Restore the keyring, then turn " + plugin.name + " off and on to read its keys again.";
+    return "";
+}
 // What a line draws of ITEM's presence, one item of a presence list:
 // { tone, text }, its chip, or neither for a secret nothing is stored for,
 // whose line offers Add key in the chip's place. On Setup, a key that is
@@ -344,6 +354,41 @@ function itemView(item, setup) {
     }
     if (item.access === "connect" && item.value === "absent") return { tone: "", text: "" };
     return { tone: item.tone, text: PRESENCE_WORDS[item.value] };
+}
+
+// What a stored key beside its Settings field draws of ITEM's presence,
+// with no chip (docs/architecture/design-system.md § Settings pages):
+// { tone, text, reason, danger, note }, KEY_WORDS as plain text, `danger`
+// for a key another user can read, and `note`, keyNote's sentence for
+// PLUGIN, { name }; `tone` and `reason` are "" as itemView's shape has them.
+function keyView(item, plugin) {
+    return { tone: "", text: KEY_WORDS[item.value], reason: "", danger: item.value === "unsafe", note: keyNote(item.value, plugin) };
+}
+
+// What a key's line reads in its value's place while its own write runs,
+// by the write's verb.
+var WRITE_WORDS = { store: "Saving\u2026", clear: "Removing\u2026" };
+
+// What a stored key list beside its Settings field draws of ENTRY, a
+// `presenceList` row of PluginLogic.statusRows, for PLUGIN, { enabled,
+// name, error, failed }: { items, note }. The list draws no head of its
+// own there, since its field's label names what the keys are for: ITEMS,
+// its published items keyed (itemsKeyed), each line with its own label,
+// and NOTE, the one sentence the list reads in their place while it has
+// none, attached under the field: while the plugin is off, that turning it
+// on lists them; while it could not start, why; while it is starting, that
+// it is finding them; and once it lists none, the entry's hint, which says
+// how keys come to be listed, or "None detected" for an entry without one.
+// An item without a hint or an info of its own reads the entry's, which
+// explain each key of a list whose head is not drawn. No published item is
+// drawn while the plugin is off.
+function keyListView(entry, plugin) {
+    if (!plugin.enabled) return { items: [], note: "Turn on " + plugin.name + " to load " + entry.label + "." };
+    if (entry.report !== "reported") return { items: [], note: plugin.failed ? plugin.error : "Finding " + entry.label + "\u2026" };
+    if (entry.value.length === 0) return { items: [], note: entry.hint !== "" ? entry.hint : "None detected" };
+    return { items: itemsKeyed(entry.value).map(function (item) {
+        return Object.assign({}, item, { hint: item.hint !== "" ? item.hint : entry.hint, info: item.info !== "" ? item.info : entry.info });
+    }), note: "" };
 }
 
 // ITEMS, a presence list's, each with the `key` a line keeps across

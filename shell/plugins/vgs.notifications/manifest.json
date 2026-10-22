@@ -39,21 +39,21 @@
   },
   "schema": {
     "glass": {"type": "boolean", "label": "VGlass", "description": "Works only while [VGlass in Appearance > Windows](page:vgs.windows) is set to Each surface decides", "info": "VGlass draws notifications as frosted glass with a moving edge light."},
-    "slackPhotos": {"type": "boolean", "label": "Slack photos", "group": "Slack", "info": "Shows the sender photo and workspace icon from Slack on a notification. Add a Slack token for each workspace under Slack tokens."},
+    "slackPhotos": {"type": "boolean", "label": "Slack photos", "group": "Slack", "info": "Shows the sender photo and workspace icon from Slack on a notification. Each workspace below takes its own User OAuth Token. Select Create Slack app on its row to make one."},
     "duration": {"type": "number", "label": "Notification duration", "description": "Urgent notifications stay until you close them, and a sender can ask for more time", "min": 2, "max": 30, "step": 1, "unit": "seconds"},
     "position": {"type": "enum", "label": "Position", "options": [{"value": "top-left", "label": "Top left"}, {"value": "top-center", "label": "Top center"}, {"value": "top-right", "label": "Top right"}, {"value": "bottom-left", "label": "Bottom left"}, {"value": "bottom-center", "label": "Bottom center"}, {"value": "bottom-right", "label": "Bottom right"}]},
     "customEmoji": {"type": "boolean", "label": "Slack custom emoji", "group": "Slack"}
   },
   "status": {
     "panelRevision": {"type": "count", "label": "Panel revision", "hidden": true},
-    "slackTokens": {"type": "presenceList", "label": "Slack tokens", "hint": "Connect each workspace to show sender photos", "info": "Select [Set up Slack photos on the Details tab](page:vgs.notifications/Details) to create the Slack app. Then add its User OAuth Token for each workspace. VGS stores the token in your keyring.", "setting": "slackPhotos"}
+    "slackTokens": {"type": "presenceList", "label": "Slack workspaces", "hint": "No Slack workspace token fields are available. Sign in to a workspace in the Slack desktop app. If you are already signed in, turn Notifications off and on here to read its workspaces again.", "setting": "slackPhotos", "sourceAction": {"label": "Create Slack app", "tui": "setup-slack"}}
   },
   "secrets": {
     "service": "vgs-notifications",
     "label": "VGS notifications Slack token"
   },
   "tui": {
-    "setup-slack": {"script": "tui/setup-slack.sh", "title": "Set up Slack photos", "requires": ["xdg-open", "node", "gum"], "entry": {"label": "Set up Slack photos", "icon": "external-link", "group": "Slack"}},
+    "setup-slack": {"script": "tui/setup-slack.sh", "title": "Create Slack app", "requires": ["xdg-open", "node", "gum", "secret-tool"]},
     "open": { "script": "tui/open.sh", "title": "Open notification file", "presentation": "plain", "requires": ["xdg-open", "gum"] }
   },
   "requirements": [

@@ -7,5 +7,5 @@ xdg-open https://vercel.com/dashboard
 printf '%s\n' \
   'In Vercel, open AI Gateway, then API keys, then Create key.' \
   'Return to AI Usage in Settings. Turn on AI Gateway credits.' \
-  'Under AI Gateway key, select Add key.' \
+  'On the AI Gateway row under it, select Add key.' \
   'Paste the key into the masked field. VGS stores it in your keyring.'

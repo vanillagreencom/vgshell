@@ -286,6 +286,64 @@ function suite(ctx, configLogic, check) {
         const judged = ctx.validateManifest(raw, "/p");
         check("rows: " + name, judged.ok ? "" : judged.error.slice(0, refusal.length || judged.error.length), refusal);
     }
+    // A stored key list's `sourceAction`, on a generic plugin: its key list
+    // beside its field offers the script that makes a key, then the same
+    // manifest with one defect planted, each refused at its path by its
+    // rule. No plugin id or product name reaches the judge.
+    const keysRaw = () => ({ schemaVersion: 1, id: "acme.keys", name: "Keys", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "Service.qml" },
+        capabilities: ["status", "secrets", "tui"], secrets: { service: "acme-keys", label: "Acme key" },
+        tui: { make: { script: "tui/make.sh", title: "Make a key" }, listed: { script: "tui/listed.sh", title: "Listed", entry: { label: "Open listed", icon: "wrench", group: "Tools" } } },
+        settings: { sync: false }, schema: { sync: { type: "boolean", label: "Sync" } },
+        status: { connection: { type: "state", label: "Connection", setup: true },
+            keys: { type: "presenceList", label: "Accounts", hint: "No account is listed yet", setting: "sync", sourceAction: { label: "Make key", tui: "make" } } } });
+    const stepKeys = m => { delete m.status.keys.setting; delete m.status.keys.hint; m.status.keys.step = "connection"; };
+    for (const [name, plant, refusal] of [
+        ["a key list beside its field offers its source", m => m, ""],
+        ["a key list under its step offers its source", stepKeys, ""],
+        ["a source on a state", m => { m.status.connection.sourceAction = { label: "Make key", tui: "make" }; }, "status.connection.sourceAction needs type presenceList"],
+        ["a source that is no object", m => { m.status.keys.sourceAction = "make"; }, "status.keys.sourceAction must be an object"],
+        ["a source with arguments of its own", m => { m.status.keys.sourceAction.args = ["--all"]; }, "status.keys.sourceAction has unknown key \"args\""],
+        ["a source that is a command", m => { m.status.keys.sourceAction = { label: "Make key", command: "make-key" }; }, "status.keys.sourceAction has unknown key \"command\""],
+        ["a source that opens a system step", m => { m.status.keys.sourceAction = { label: "Make key", system: "i2c-dev" }; }, "status.keys.sourceAction has unknown key \"system\""],
+        ["a source with no label", m => { delete m.status.keys.sourceAction.label; }, "status.keys.sourceAction.label must be a printable line"],
+        ["a source with a two-line label", m => { m.status.keys.sourceAction.label = "Make\nkey"; }, "status.keys.sourceAction.label must be a printable line"],
+        ["a source with no script", m => { delete m.status.keys.sourceAction.tui; }, "status.keys.sourceAction.tui must name a script"],
+        ["a source naming an undeclared script", m => { m.status.keys.sourceAction.tui = "gone"; }, "status.keys.sourceAction.tui must name a script"],
+        ["a source naming a listed screen", m => { m.status.keys.sourceAction.tui = "listed"; }, "status.keys.sourceAction.tui must name a script with no entry"],
+        ["a source on a key list no field or step holds", m => { delete m.status.keys.setting; }, "status.keys.sourceAction needs a displayed stored key list"],
+        ["a source on a hidden key list under its step", m => { stepKeys(m); m.status.keys.hidden = true; }, "status.keys.sourceAction needs a displayed stored key list"],
+        ["a source on a list of a plugin that stores no key", m => { stepKeys(m); delete m.secrets; m.capabilities = ["status", "tui"]; }, "status.keys.sourceAction needs a displayed stored key list"]
+    ]) {
+        const raw = keysRaw();
+        plant(raw);
+        const judged = ctx.validateManifest(raw, "/p");
+        check("sourceAction: " + name, judged.ok ? "" : judged.error.slice(0, refusal.length || judged.error.length), refusal);
+    }
+    const keysManifest = ctx.validateManifest(keysRaw(), "/p").manifest;
+    const keysRow = ctx.statusRows(keysManifest, {}).find(row => row.key === "keys");
+    check("sourceAction: a key list's row carries its source", ([keysRow.sourceAction, keysRow.declaredTuis]), [{ label: "Make key", tui: "make" }, ["make"]]);
+    check("sourceAction: a row without one carries none", ctx.statusRows(keysManifest, {}).find(row => row.key === "connection").sourceAction, null);
+    // The manager's act on one key's source: [name, enabled, values,
+    // account, row action, want]. The script's two arguments are the
+    // account and the label of the item published for it now.
+    const keyItems = [{ label: "Acme Corp (acme)", value: "absent", secret: "acme:T1" }, { label: "Globex", value: "unavailable", secret: "acme:T2" }, { label: "Shared", value: "present" }];
+    const sourceTui = args => ({ ok: true, kind: "tui", name: "make", args: args });
+    const sourceRefused = reason => ({ ok: false, answer: "refused: action=keys reason=" + reason });
+    for (const [name, enabled, values, account, rowAction, want] of [
+        ["an absent key's source opens with its account and label", true, { keys: keyItems }, "acme:T1", "source", sourceTui(["acme:T1", "Acme Corp (acme)"])],
+        ["a key the store cannot ask still offers its source", true, { keys: keyItems }, "acme:T2", "source", sourceTui(["acme:T2", "Globex"])],
+        ["the label is the one published at the press", true, { keys: [Object.assign({}, keyItems[0], { label: "Acme Renamed" })] }, "acme:T1", "source", sourceTui(["acme:T1", "Acme Renamed"])],
+        ["a plugin that is off opens no source", false, { keys: keyItems }, "acme:T1", "source", sourceRefused("disabled")],
+        ["an account no item lists opens nothing", true, { keys: keyItems }, "acme:T9", "source", sourceRefused("row-changed")],
+        ["a label is no account", true, { keys: keyItems }, "Shared", "source", sourceRefused("row-changed")],
+        ["an account that left the list opens nothing", true, { keys: [keyItems[1]] }, "acme:T1", "source", sourceRefused("row-changed")],
+        ["an unreported list opens nothing", true, {}, "acme:T1", "source", sourceRefused("row-changed")],
+        ["another row action on a key list is undeclared", true, { keys: keyItems }, "acme:T1", "remove", sourceRefused("undeclared")],
+        ["a key list's act with no account is undeclared", true, { keys: keyItems }, undefined, undefined, sourceRefused("undeclared")]
+    ]) check("sourceAction: " + name, ctx.statusActionRequest(keysManifest, "acme.keys", enabled, values, "keys", account, rowAction), want);
+    const sourceless = keysRaw();
+    delete sourceless.status.keys.sourceAction;
+    check("sourceAction: a key list that declares none opens nothing", ctx.statusActionRequest(ctx.validateManifest(sourceless, "/p").manifest, "acme.keys", true, { keys: keyItems }, "keys", "acme:T1", "source"), sourceRefused("undeclared"));
     // Each published `rows` value the judge takes or refuses: [name, the
     // value, accepted].
     const rowsManifest = ctx.validateManifest(rowsRaw(), "/p").manifest;
@@ -2677,6 +2735,13 @@ const CONTROLS = [
     ["a row may offer an undeclared row action", "return entry.rowActions !== undefined && hasOwn(entry.rowActions, name);", "return true;"],
     ["any entry may stand on Settings", 'if (entry.type !== "rows" || (entry.action === undefined && entry.rowActions === undefined)) return at + ".settings needs', 'if (false) return at + ".settings needs'],
     ["a row action hands its TUI no row id", "args: [row] };", "args: [] };"],
+    ["sourceAction is a status entry key", "\"plain\", \"sourceAction\"];", "\"plain\"];"],
+    ["a source action may name a listed screen", "if (isPlainObject(tui[source.tui].entry))\n        return at + \".sourceAction.tui", "if (false)\n        return at + \".sourceAction.tui"],
+    ["a source action may stand on a list no page attaches", " || (entry.setting === undefined && entry.step === undefined)))", "))"],
+    ["a source action hands its script the caller's account alone", "args: [row, item.label] };", "args: [row] };"],
+    ["a source action opens for any listed item", "return published.secret !== undefined && published.secret === row; });", "return true; });"],
+    ["a source action runs while its plugin is off", "if (!enabled)\n            return { ok: false, answer: statusActionRefusal(key, \"disabled\") };\n        var item", "var item"],
+    ["a key list's row carries no source", "sourceAction: entry.sourceAction === undefined ? null : { label: entry.sourceAction.label, tui: entry.sourceAction.tui },", "sourceAction: null,"],
     ["a row action runs on a row that does not offer it", "return published.id === row && published.actions !== undefined && published.actions.indexOf(rowAction) !== -1;", "return true;"],
     ["a row's state is never a chip", 'var STATUS_ROW_CHIP_TONES = ["warning", "danger"];', "var STATUS_ROW_CHIP_TONES = [];"],
     ["a schema field may be an action", 'var SETTING_TYPES = ["string", "number", "boolean", "enum", "list"];', 'var SETTING_TYPES = ["string", "number", "boolean", "enum", "list", "action"];'],
@@ -3003,7 +3068,7 @@ const CONTROLS = [
     ["a guide anchor is a README heading's", "|| !README_ANCHOR.test(guide.readme))", ")"],
     ["a guide heads a Setup step", "if (!Object.keys(status).some(function (key) { return status[key].setup === true; }))\n        return \"setupGuide needs", "if (false)\n        return \"setupGuide needs"],
     ["a guide links its README section", "url: readme === \"\" ? \"\" : readme + \"#\" + guide.readme", "url: readme"],
-    ["plain is a status entry key", "\"icon\", \"rowActions\", \"plain\"];", "\"icon\", \"rowActions\"];"],
+    ["plain is a status entry key", "\"icon\", \"rowActions\", \"plain\", \"sourceAction\"];", "\"icon\", \"rowActions\", \"sourceAction\"];"],
     ["plain needs a state that is no Setup step", "if (entry.type !== \"state\" || setupStep(entry) !== \"\")\n                return at + \".plain", "if (false)\n                return at + \".plain"],
     ["a plain state draws as text only while it needs nothing", "if (entry.plain === true && STATUS_ROW_CHIP_TONES.indexOf(value.tone) === -1) return \"\";", "if (entry.plain === true) return \"\";"],
     ["a plain state draws as text", "if (entry.plain === true && STATUS_ROW_CHIP_TONES.indexOf(value.tone) === -1) return \"\";", ""],

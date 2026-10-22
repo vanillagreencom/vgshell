@@ -180,7 +180,7 @@ var DBUS_NAME_PART = /^[A-Za-z_-][A-Za-z0-9_-]*$/;
 // list a page draws full width under its label, each row with its own
 // actions.
 var STATUS_TYPES = ["presence", "presenceList", "state", "text", "count", "time", "data", "choices", "launcherRows", "rows"];
-var STATUS_ENTRY_KEYS = ["type", "label", "group", "hint", "info", "link", "hidden", "action", "actions", "aside", "setup", "setting", "step", "settings", "icon", "rowActions", "plain"];
+var STATUS_ENTRY_KEYS = ["type", "label", "group", "hint", "info", "link", "hidden", "action", "actions", "aside", "setup", "setting", "step", "settings", "icon", "rowActions", "plain", "sourceAction"];
 // A status key names a value in `shell.status.values`, so it is a plain
 // identifier.
 var STATUS_KEY_PATTERN = /^[a-z][A-Za-z0-9]*$/;
@@ -318,6 +318,16 @@ var STATUS_ACTION_TYPES = ["presence", "state", "rows"];
 // The refusal reasons of the `manager` capability's `act`: `row-changed`
 // for a row action whose row no longer offers it.
 var STATUS_ACTION_REASONS = ["undeclared", "disabled", "not-offered", "row-changed"];
+// A stored key list's `sourceAction`: the one action each of its keys
+// offers beside its masked field, which opens the plugin's own script that
+// makes such a key, such as a guide that creates the app whose token the
+// field takes. It carries a printable `label` and `tui`, a script with no
+// `entry`, which the core opens with the key's account and its item's
+// label as its two arguments, read from the published item at the press
+// (statusActionRequest). STATUS_SOURCE_ACTION is the row action name the
+// manager's `act` takes for it.
+var STATUS_SOURCE_KEYS = ["label", "tui"];
+var STATUS_SOURCE_ACTION = "source";
 
 // The system steps (D081): the closed table bin/vgshell-system holds, which a
 // manifest's `systemSteps` names from, in the order `vgshell-system status`
@@ -928,6 +938,9 @@ function statusError(status, capabilities, tui, system) {
         var badAside = statusAsideError(entry, at, tui, system, capabilities);
         if (badAside !== "")
             return badAside;
+        var badSource = statusSourceError(entry, at, tui);
+        if (badSource !== "")
+            return badSource;
     }
     return "";
 }
@@ -1005,6 +1018,35 @@ function statusAsideError(entry, at, tui, system, capabilities) {
         return at + ".aside must name a tui; the page opens it as a listed screen";
     if (!isPlainObject(tui[entry.aside.tui].entry))
         return at + ".aside.tui must name a script with an entry, got " + JSON.stringify(entry.aside.tui);
+    return "";
+}
+
+// The first defect of status entry ENTRY's `sourceAction`, AT the entry's
+// path, or "": absent, or on a `presenceList`, an object of exactly
+// STATUS_SOURCE_KEYS, a printable `label` of at most STATUS_LABEL_MAX
+// characters and a `tui` naming a script of TUI with no `entry`, since the
+// core opens it with a key's account and label and a listed screen opens
+// with none. Whether the list is a stored key list a page attaches is
+// pagePlacementError's, which reads the manifest's `secrets`.
+function statusSourceError(entry, at, tui) {
+    if (entry.sourceAction === undefined)
+        return "";
+    if (entry.type !== "presenceList")
+        return at + ".sourceAction needs type presenceList, whose keys offer it";
+    var source = entry.sourceAction;
+    if (!isPlainObject(source))
+        return at + ".sourceAction must be an object";
+    var keys = Object.keys(source);
+    for (var i = 0; i < keys.length; i++) {
+        if (STATUS_SOURCE_KEYS.indexOf(keys[i]) === -1)
+            return at + ".sourceAction has unknown key " + JSON.stringify(keys[i]) + "; a source action takes " + STATUS_SOURCE_KEYS.join(", ");
+    }
+    if (!isPrintableLine(source.label, STATUS_LABEL_MAX))
+        return at + ".sourceAction.label must be a printable line of 1 to " + STATUS_LABEL_MAX + " characters";
+    if (typeof source.tui !== "string" || !isPlainObject(tui) || !hasOwn(tui, source.tui))
+        return at + ".sourceAction.tui must name a script of the manifest's tui key, got " + JSON.stringify(source.tui);
+    if (isPlainObject(tui[source.tui].entry))
+        return at + ".sourceAction.tui must name a script with no entry; a listed screen opens with no key";
     return "";
 }
 
@@ -1771,13 +1813,15 @@ function statusRowAction(entry, value) {
 }
 
 // The declared TUI screens a status entry may open, its `aside`'s, then its
-// `rowActions`', last, in manifest order and without duplicates.
+// `rowActions`', then its `sourceAction`'s, last, in manifest order and
+// without duplicates.
 function statusDeclaredTuis(entry) {
     var seen = Object.create(null);
     var out = [];
     var actions = statusEntryActions(entry).map(function (declared) { return declared.action; });
     if (entry.aside !== undefined) actions.push(entry.aside);
     if (entry.rowActions !== undefined) Object.keys(entry.rowActions).forEach(function (name) { actions.push(entry.rowActions[name]); });
+    if (entry.sourceAction !== undefined) actions.push(entry.sourceAction);
     actions.forEach(function (action) {
         var tui = action.tui;
         if (typeof tui === "string" && !seen[tui]) {
@@ -1812,7 +1856,8 @@ function statusActionIcon(action) {
 // statusDisplayable admits whose `state` value is not hidden (statusStateHidden),
 // in manifest key order, as { key, type, label,
 // group, setup, placement, setting, step, settings, icon, hint, info, link,
-// secrets, declaredTuis, systemStep, action, aside, report, value, tone },
+// secrets, sourceAction, declaredTuis, systemStep, action, aside, report,
+// value, tone },
 // `setup` setupStep's, `placement` statusPlacement's and `tone`
 // statusRowTone's. `group`, `hint`,
 // `info` and `icon` are "" when the manifest omits them; a reported
@@ -1821,7 +1866,9 @@ function statusActionIcon(action) {
 // null when the manifest omits it. `settings` holds for a `rows` entry the Settings tab draws
 // (pagePlacementError). `secrets` holds for the entry that lists the plugin's stored keys,
 // a `presenceList` of a manifest that declares `secrets`, which a page
-// draws with its setup. `declaredTuis` is each TUI the entry's actions may
+// draws with its setup. `sourceAction` is a stored key list's { label,
+// tui }, the action each of its keys offers beside its masked field, null
+// for an entry that declares none. `declaredTuis` is each TUI the entry's actions may
 // open, in declaration order. `systemStep` holds for an entry an action of
 // which runs or undoes a core system step: its plugin reads the step
 // through capability `system`, which lends it no reading until the core's
@@ -1857,6 +1904,7 @@ function statusRows(manifest, values) {
             info: info,
             link: entry.link === undefined ? null : { text: entry.link.text, url: entry.link.url },
             secrets: entry.type === "presenceList" && manifest.secrets !== undefined,
+            sourceAction: entry.sourceAction === undefined ? null : { label: entry.sourceAction.label, tui: entry.sourceAction.tui },
             declaredTuis: statusDeclaredTuis(entry),
             systemStep: statusEntryActions(entry).some(function (declared) { return declared.action.system !== undefined || declared.action.undo !== undefined; }),
             action: statusRowAction(entry, value),
@@ -1929,10 +1977,28 @@ function tuiRunFor(manifest, enabled, sourceDir, runner, name, missing, args) {
 // published row whose `id` is ROW: { ok: true, kind: "tui", name, args },
 // ARGS [ROW], the row's id as the script's one argument, `undeclared` for
 // a name the entry's `rowActions` lack, and `row-changed` while no
-// published row of that id names it.
+// published row of that id names it. On a `presenceList` entry, ROW is a
+// key's account and ROW_ACTION STATUS_SOURCE_ACTION, the entry's
+// `sourceAction`: { ok: true, kind: "tui", name, args }, ARGS the account
+// and the label of the published item whose `secret` it is, read here, so
+// no caller's label or argv reaches the script; `undeclared` for an entry
+// without one or another ROW_ACTION, `disabled`, and `row-changed` while
+// no published item holds that account. Every presence offers it: a key
+// the store cannot read yet is still made the same way.
 function statusActionRequest(manifest, id, enabled, values, key, row, rowAction) {
     if (manifest === null)
         return { ok: false, answer: "unknown: " + tuiLabel(id) };
+    var listEntry = typeof key === "string" && hasOwn(manifest.status, key) && manifest.status[key].type === "presenceList" ? manifest.status[key] : null;
+    if (row !== undefined && listEntry !== null) {
+        if (listEntry.sourceAction === undefined || rowAction !== STATUS_SOURCE_ACTION)
+            return { ok: false, answer: statusActionRefusal(key, "undeclared") };
+        if (!enabled)
+            return { ok: false, answer: statusActionRefusal(key, "disabled") };
+        var item = (hasOwn(values, key) ? values[key] : []).find(function (published) { return published.secret !== undefined && published.secret === row; });
+        if (item === undefined)
+            return { ok: false, answer: statusActionRefusal(key, "row-changed") };
+        return { ok: true, kind: "tui", name: listEntry.sourceAction.tui, args: [row, item.label] };
+    }
     if (row !== undefined) {
         var rowsEntry = typeof key === "string" && hasOwn(manifest.status, key) ? manifest.status[key] : null;
         if (rowsEntry === null || rowsEntry.rowActions === undefined || typeof rowAction !== "string" || !hasOwn(rowsEntry.rowActions, rowAction))
@@ -5849,7 +5915,9 @@ function idleWatchRefusal(seconds, onChange) {
 // a manifest that declares `secrets` (SECRETS), whose masked field is one,
 // beside a field of SCHEMA, and `settings: true` only a displayed `rows`
 // entry the user changes through its `action` or its `rowActions`, such
-// as a list of folder pairs with Add and Remove. Every other entry, with
+// as a list of folder pairs with Add and Remove. A key list's
+// `sourceAction` belongs to its masked fields, so it needs a displayed
+// stored key list placed by `setting` or `step`. Every other entry, with
 // its action, is a fact of Details.
 function pagePlacementError(status, schema, secrets) {
     var keys = Object.keys(status);
@@ -5874,6 +5942,8 @@ function pagePlacementError(status, schema, secrets) {
             if (undrawn !== undefined) return at + "." + undrawn + " is never drawn: Setup draws a key list's items alone under the step it serves, whose own hint and info explain it";
         }
         if ((setupStep(entry) !== "" ? 1 : 0) + (entry.setting !== undefined ? 1 : 0) + (entry.step !== undefined ? 1 : 0) > 1) return at + " declares more than one page placement";
+        if (entry.sourceAction !== undefined && (!secrets || entry.hidden === true || (entry.setting === undefined && entry.step === undefined)))
+            return at + ".sourceAction needs a displayed stored key list placed by setting or step, whose masked fields offer it";
     }
     return "";
 }

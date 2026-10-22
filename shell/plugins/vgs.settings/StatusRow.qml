@@ -28,7 +28,14 @@ import "Steps.js" as Steps
 // in the chip's place while nothing is stored, or Replace and Remove after
 // the chip (Steps.itemView). On Setup (`setup`), a key list stands under
 // the required step it serves, which names it, so it draws its item lines
-// alone. Each line is one group of the row's GroupList, divided from the
+// alone. Beside its Settings field (`settingsContext`), a stored key list
+// draws no head either, since the field names what its keys are for: each
+// key reads as plain text, and while the list has no key to draw, its one
+// sentence (Steps.keyListView) stands under the field. A key of a list
+// that declares a `sourceAction` offers it under its hint while the
+// plugin is on, which the manager opens for that key's account
+// (`panel.actSource`); its refusal reads under the key apart from the
+// key's own write. Each line is one group of the row's GroupList, divided from the
 // next as the rows of a section are. No row takes an edit
 // of a value: a key's step goes to the manager through `panel` (D061).
 GroupList {
@@ -49,6 +56,9 @@ GroupList {
     // run, `typeof` of an unset `property var`).
     property var plugin
     property bool setup: false
+    // Whether the row is a stored key list beside its Settings field, which
+    // needs `plugin`.
+    property bool settingsContext: false
     // The buttons of Steps.detailButtons, each null for none.
     property var action: null
     property var asideAction: null
@@ -64,11 +74,23 @@ GroupList {
     function replyOf(account) {
         return panel === null || entry === null ? "" : panel.replyOf(pluginId, entry.key, account);
     }
+    // The panel's last refusal of ACCOUNT's source action, "" for none.
+    function sourceReplyOf(account) {
+        return panel === null || entry === null ? "" : panel.replyOf(pluginId, entry.key, panel.sourceKey(account));
+    }
+    // Which write of ACCOUNT runs: "store", "clear" or "".
+    function writingOf(account) {
+        return panel === null || entry === null || panel.writing === null || panel.writing.step !== panel.stepKey(pluginId, entry.key, account) ? "" : panel.writing.verb;
+    }
 
     // What the row draws: Steps.statusView of its entry, a time in the
     // shell's one wording of a past moment, which reads Time.now and so
     // moves on with the clock.
     readonly property var view: Steps.statusView(entry, ms => Timestamp.text(ms, Time.now.getTime()), plugin)
+    // What the row draws of a stored key list beside its Settings field.
+    readonly property var keys: settingsContext && entry !== null ? Steps.keyListView(entry, plugin) : null
+    // The key's source action, offered while the plugin is on.
+    readonly property string sourceLabel: entry === null || entry.sourceAction === null || (plugin !== undefined && !plugin.enabled) ? "" : entry.sourceAction.label
 
     // Whether the row's last line ends in sub-text (StatusLine.subText), so
     // a row that holds it takes the room under it a Field takes.
@@ -78,18 +100,18 @@ GroupList {
 
     StatusLine {
         id: head
-        visible: !row.setup
+        visible: !row.setup && (row.keys === null || row.keys.note !== "")
         width: row.width
-        label: row.view.label
-        hint: row.view.hint
-        hintLink: row.view.link === null ? "" : row.view.link.text
+        label: row.keys === null ? row.view.label : ""
+        hint: row.keys === null ? row.view.hint : row.keys.note
+        hintLink: row.keys !== null || row.view.link === null ? "" : row.view.link.text
         onHintLinkActivated: row.openLink(row.view.link)
         onHintPageActivated: (page, tab) => row.openPage(page, tab)
         onInfoPageActivated: (page, tab) => row.openPage(page, tab)
-        info: row.view.info
-        tone: row.view.tone
-        text: row.view.text
-        lines: row.view.lines
+        info: row.keys === null ? row.view.info : ""
+        tone: row.keys === null ? row.view.tone : ""
+        text: row.keys === null ? row.view.text : ""
+        lines: row.keys === null ? row.view.lines : []
         muted: row.view.muted
         error: row.actionReply !== "" ? row.actionReply : row.replyOf()
         actionOffered: row.action !== null
@@ -107,26 +129,34 @@ GroupList {
     Repeater {
         id: itemLines
         model: ScriptModel {
-            values: row.view.items
+            values: row.keys === null ? row.view.items : row.keys.items
             objectProp: "key"
         }
         StatusLine {
             required property var modelData
-            readonly property var presence: Steps.itemView(modelData, row.setup)
+            readonly property var presence: row.settingsContext ? Steps.keyView(modelData, row.plugin) : Steps.itemView(modelData, row.setup)
             width: row.width
             label: modelData.label
             info: modelData.info
-            hint: row.setup && presence.reason !== "" ? presence.reason + (modelData.hint === "" ? "" : ": " + modelData.hint) : modelData.hint
+            hint: [row.setup && presence.reason !== "" ? presence.reason + (modelData.hint === "" ? "" : ": " + modelData.hint) : modelData.hint, row.settingsContext ? presence.note : ""]
+                .filter(part => part !== "").join(" ")
             onHintPageActivated: (page, tab) => row.openPage(page, tab)
             onInfoPageActivated: (page, tab) => row.openPage(page, tab)
-            tone: presence.tone
-            text: presence.text
+            // The key's own write reads in its value's place while it runs.
+            tone: writing !== "" ? "" : presence.tone
+            text: writing !== "" ? Steps.WRITE_WORDS[writing] : presence.text
+            danger: writing === "" && row.settingsContext && presence.danger
             access: modelData.access
             secretLabel: row.secretLabel
-            busy: row.panel !== null && row.panel.writing !== ""
-            error: row.replyOf(modelData.secret)
+            busy: row.panel !== null && row.panel.writing !== null
+            writing: row.writingOf(modelData.secret)
+            // A key's write and its source action each keep their own
+            // reply, so a later success of one never clears the other's.
+            error: [row.replyOf(modelData.secret), row.sourceReplyOf(modelData.secret)].filter(reply => reply !== "").join(" ")
+            sourceLabel: modelData.secret === "" ? "" : row.sourceLabel
             onStoreSecret: value => row.panel.storeSecret(row.pluginId, row.entry.key, modelData.secret, value)
             onClearSecret: row.panel.clearSecret(row.pluginId, row.entry.key, modelData.secret)
+            onSource: row.panel.actSource(row.pluginId, row.entry.key, modelData.secret)
         }
     }
 }

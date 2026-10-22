@@ -1,7 +1,16 @@
 #!/usr/bin/env bash
-# The public app manifest contains no credential. Only Settings' Add key
-# takes the installed app's token, through the core's masked field.
+# setup-slack.sh ACCOUNT LABEL: the guide one workspace's Create Slack app
+# opens, ACCOUNT its `slack:<team id>` key account and LABEL its name as
+# the Settings row reads it, both from the published row
+# (PluginLogic.statusActionRequest). The public app manifest contains no
+# credential. Only the workspace's masked field in Settings takes the
+# installed app's token, through the core.
 set -euo pipefail
+if [[ $# -ne 2 || ! $1 =~ ^slack:[A-Za-z0-9]{1,32}$ || -z $2 || $2 == *[[:cntrl:]]* ]]; then
+  printf 'slack-setup: args=invalid\nWant a slack:<team id> account and its workspace name.\n' >&2
+  exit 64
+fi
+slack_workspace="$2"
 # shellcheck source=/dev/null
 source "$VGS_TUI_LIB"
 slack_manifest="$(dirname -- "${BASH_SOURCE[0]}")/../slack-app.json"
@@ -20,20 +29,20 @@ slack_open_browser() {
 
 slack_header() {
   vgs_tui_clear
-  vgs_tui_header 'Create Slack app' "Create the User OAuth Token used for your workspace's sender photos."
+  vgs_tui_header 'Create Slack app' "$slack_workspace" "Create the User OAuth Token used for this workspace's sender photos."
 }
 
 slack_steps() {
   vgs_tui_step '1. Choose the workspace'
-  vgs_tui_text 'Sign in to Slack if asked. Select the workspace whose photos you want to show.'
+  vgs_tui_text "Sign in if asked. Select $slack_workspace."
   vgs_tui_step '2. Create the app'
   vgs_tui_text 'Review the requested permissions, then select Create.'
   vgs_tui_step '3. Install the app'
   vgs_tui_text 'Open OAuth & Permissions. Select Install to Workspace and allow access.'
   vgs_tui_step '4. Copy the token'
-  vgs_tui_text 'Copy the User OAuth Token for this workspace, not a Bot User OAuth Token.'
+  vgs_tui_text "Copy the User OAuth Token for $slack_workspace, not a Bot User OAuth Token."
   vgs_tui_step '5. Save it in Notifications'
-  vgs_tui_text 'Sign in to this workspace in the Slack desktop app. Return to Notifications and open the Settings tab. Turn on Slack photos. Under Slack tokens, select Add key for this workspace. Paste the token into the masked field and select Save.'
+  vgs_tui_text "Return to the open masked field for $slack_workspace. Paste the token and select Save."
 }
 
 slack_state=intro
@@ -42,7 +51,7 @@ while :; do
   slack_header
   case "$slack_state" in
     intro)
-      vgs_tui_text 'VGS fills the Slack app details. You choose your workspace and approve access in your browser. The app reads sender photos, workspace details and custom emoji. It does not request message or channel access.'$'\n\n''After installation, copy the User OAuth Token and paste it into the masked field in Notifications.'
+      vgs_tui_text "VGS fills the Slack app details. You choose $slack_workspace and approve access in your browser. The app reads sender photos, workspace details and custom emoji. It does not request message or channel access."$'\n\n''After installation, copy the User OAuth Token and paste it into the masked field in Notifications.'
       slack_action="$(vgs_tui_choose --header 'Choose:' -- 'Open Slack' 'Cancel')" || slack_action=Cancel
       ;;
     opening)
@@ -71,11 +80,11 @@ while :; do
       slack_action="$(vgs_tui_choose --header 'Choose:' -- 'Close')" || slack_action=Cancel
       ;;
     approval)
-      vgs_tui_text 'If your workspace requires app approval, ask its administrator to approve VGS notification photos. Then open these steps again to install the app. Your saved tokens have not changed.'
+      vgs_tui_text "$slack_workspace needs an administrator to approve VGS notification photos. Ask its administrator to approve the app, then open these steps again to install it. Your saved token has not changed."
       slack_action="$(vgs_tui_choose --header 'Choose:' -- 'Back to steps' 'Return to Notifications')" || slack_action=Cancel
       ;;
     return)
-      vgs_tui_text 'Return to Notifications and open the Settings tab. Turn on Slack photos. Under Slack tokens, select Add key for the workspace. Paste its User OAuth Token into the masked field and select Save. VGS stores it in your keyring.'
+      vgs_tui_text "In Notifications, paste $slack_workspace's User OAuth Token into its masked field and select Save. VGS stores it in your keyring."
       slack_action="$(vgs_tui_choose --header 'Choose:' -- 'Close')" || slack_action=Cancel
       ;;
     cancelled)

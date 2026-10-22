@@ -674,7 +674,7 @@ function suite(ctx, check) {
     const values = ctx.statusWrite(m, ctx.statusWrite(m, ctx.statusWrite(m, {}, "token", "locked").values, "check", { tone: "ok", text: "Up to date" }).values, "pending", 0).values;
     const rows = ctx.statusRows(m, values);
     check("statusRows: one row per displayable entry, in manifest order", rows.map(r => r.key), ["token", "tokens", "check", "note", "pending", "lastCheck", "health"]);
-    check("statusRows: a reported presence carries its tone and the declaration", rows[0], { key: "token", type: "presence", label: "Token", group: "Keys", setup: "required", placement: "setup", setting: "", step: "", settings: false, icon: "", hint: "Needed", info: "Explains this status", link: null, secrets: false, declaredTuis: ["setup"], systemStep: false, action: { label: "Set up token", icon: "", tone: "", offered: false, tui: "" }, aside: null, report: "reported", value: "locked", tone: "info" });
+    check("statusRows: a reported presence carries its tone and the declaration", rows[0], { key: "token", type: "presence", label: "Token", group: "Keys", setup: "required", placement: "setup", setting: "", step: "", settings: false, icon: "", hint: "Needed", info: "Explains this status", link: null, secrets: false, sourceAction: null, declaredTuis: ["setup"], systemStep: false, action: { label: "Set up token", icon: "", tone: "", offered: false, tui: "" }, aside: null, report: "reported", value: "locked", tone: "info" });
     check("statusRows: a declaration carries info", rows[0].info, "Explains this status");
     check("statusRows: a declaration carries its hint's link", rows[6].link, { text: "vendor page", url: "https://vendor.example/health" });
     check("statusRows: a reported state carries its tone", [rows[2].report, rows[2].value, rows[2].tone], ["reported", { tone: "ok", text: "Up to date" }, "success"]);
@@ -684,7 +684,7 @@ function suite(ctx, check) {
     check("statusRows: state guidance reaches the plain hint", [guidanceRow.hint, guidanceRow.value.lines], ["Try again.", undefined]);
     check("statusRows: an unreported state retains declaration help", ctx.statusRows(m, {}).find(r => r.key === "check").hint, "Check information");
     check("statusRows: clearing state guidance restores declaration help", ctx.statusRows(m, ctx.statusWrite(m, guidance, "check", null).values).find(r => r.key === "check").hint, "Check information");
-    check("statusRows: an unreported entry has no value and no tone", rows[3], { key: "note", type: "text", label: "Note", group: "", setup: "", placement: "details", setting: "", step: "", settings: false, icon: "", hint: "", info: "", link: null, secrets: false, declaredTuis: [], systemStep: false, action: null, aside: null, report: "unreported", value: null, tone: "" });
+    check("statusRows: an unreported entry has no value and no tone", rows[3], { key: "note", type: "text", label: "Note", group: "", setup: "", placement: "details", setting: "", step: "", settings: false, icon: "", hint: "", info: "", link: null, secrets: false, sourceAction: null, declaredTuis: [], systemStep: false, action: null, aside: null, report: "unreported", value: null, tone: "" });
     check("statusRows: a reported count of 0 is reported, drawn without a tone", [rows[4].report, rows[4].value, rows[4].tone], ["reported", 0, ""]);
     // A state its writer publishes hidden leaves the page until it shows one.
     const hiddenHealth = ctx.statusWrite(m, values, "health", { hidden: true }).values;

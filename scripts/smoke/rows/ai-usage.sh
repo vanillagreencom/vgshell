@@ -760,18 +760,25 @@ esac
 SH
 rescan "the gateway key stand-ins are scanned"
 expect "secret-tool resolves to the row's stand-in on the shell's PATH" "$shim/secret-tool" shell_resolves secret-tool
-# usage_key_want absent|present: the texts the key's StatusRow draws, its
-# label and hint the manifest's.
+# usage_key_want absent|present [details]: the texts the key's StatusRow
+# draws, its list's hint the manifest's. Beside its Settings field the list
+# draws no head: the key's line reads what the keyring holds as text, then
+# its steps, then the list's hint, which the key has none of its own to
+# stand in for. On Details the list keeps its head and the key its chip.
 usage_key_want() {
-  python3 - "$usage_plugin/manifest.json" "$1" <<'PY'
+  python3 - "$usage_plugin/manifest.json" "$1" "${2:-settings}" <<'PY'
 import json, sys
 entry = json.load(open(sys.argv[1]))["status"]["gatewayKey"]
-steps = {"absent": ["Add key"], "present": ["Present", "Replace", "Remove"]}
-print(json.dumps([entry["label"], entry["hint"], "AI Gateway"] + steps[sys.argv[2]]))
+if sys.argv[3] == "details":
+    steps = {"absent": ["Add key"], "present": ["Present", "Replace", "Remove"]}
+    print(json.dumps([entry["label"], entry["hint"], "AI Gateway"] + steps[sys.argv[2]]))
+else:
+    steps = {"absent": ["Add key"], "present": ["Saved", "Replace", "Remove"]}
+    print(json.dumps(["AI Gateway"] + steps[sys.argv[2]] + [entry["hint"]]))
 PY
 }
 usage_key_row() { status_row vgs.ai-usage gatewayKey | py_reply 'import json,sys; r=json.load(sys.stdin); print(json.dumps([[i["label"], i["value"], i["secret"], i["access"]] for i in r["value"] or []]))'; }
-usage_key_drawn() { ipc smoke itemTexts window vgs.settings StatusRow | py_reply 'import json,sys; label=json.load(open(sys.argv[1]))["status"]["gatewayKey"]["label"]; r=[r for r in json.load(sys.stdin) if r and r[0] == label]; print(json.dumps(r[0]) if len(r) == 1 else "rows=%d" % len(r))' "$usage_plugin/manifest.json"; }
+usage_key_drawn() { ipc smoke itemTexts window vgs.settings StatusRow | py_reply 'import json,sys; r=[r for r in json.load(sys.stdin) if "AI Gateway" in r]; print(json.dumps(r[0]) if len(r) == 1 else "rows=%d" % len(r))'; }
 usage_key_location() { ipc smoke settingKeyRows window vgs.settings | py_reply 'import json,sys; print(json.dumps([row for row in json.load(sys.stdin) if row["key"]=="gatewayKey"]))'; }
 usage_key_inputs() { ipc smoke statusRowInputs window vgs.settings | py_reply 'import json,sys; print(json.dumps([name for row in json.load(sys.stdin) for name in row]))'; }
 usage_key_change() { [[ $(ipc smoke scopedWindowGeometry window vgs.settings StatusLine "AI Gateway" RowAction "Replace") == \[* ]] && echo true || echo false; }
@@ -805,7 +812,7 @@ type_keys "$usage_typed_key" || fail "typing the key failed"
 type_keys -k Return || fail "sending Enter to the key's field failed"
 expect_poll "Add key stores the key through secret-tool store, naming the account" "store --label=VGS AI Usage AI Gateway key ai-gateway service vgs-ai-usage account ai-gateway" usage_key_last_call
 expect "the key reached secret-tool on stdin alone, whole, with no newline" "b'$usage_typed_key'" usage_key_bytes
-expect_poll "the write's end probes again: the line reads Present with Replace and Remove" "$(usage_key_want present)" usage_key_drawn
+expect_poll "the write's end probes again: the line reads Saved with Replace and Remove" "$(usage_key_want present)" usage_key_drawn
 expect "the stored key's line draws Replace and holds no input" 'true []' usage_key_line
 expect_poll "the check after the store asks the gateway with the stored key" "$(usage_key_hash "$usage_typed_key")" usage_gateway_token
 settings_press --type RowAction "Replace" StatusLine "AI Gateway" || fail "the click on the key's Replace failed"
@@ -816,7 +823,7 @@ expect_poll "Replace stores over the same account" 2 usage_key_call_count
 expect "the second store names the same account" "store --label=VGS AI Usage AI Gateway key ai-gateway service vgs-ai-usage account ai-gateway" usage_key_last_call
 expect "the second key replaced the first on stdin, whole, with no newline" "b'$usage_changed_key'" usage_key_bytes
 expect_poll "the check after the change asks the gateway with the changed key" "$(usage_key_hash "$usage_changed_key")" usage_gateway_token
-expect_poll "the changed key's line still reads Present with Replace and Remove" "$(usage_key_want present)" usage_key_drawn
+expect_poll "the changed key's line still reads Saved with Replace and Remove" "$(usage_key_want present)" usage_key_drawn
 # Both typed keys start with the first, so one search finds either.
 usage_key_leaks() {
   local text
@@ -849,7 +856,7 @@ rescan "a rescan picks the key placement control copy"
 expect "the control copy's page opens" ok ipc shell summon window vgs.settings '{"plugin":"vgs.ai-usage"}'
 expect_poll "the control copy lists the key absent" '[["AI Gateway", "absent", "ai-gateway", "connect"]]' usage_key_row
 settings_details
-expect_poll "control: a page that draws its keys on Details draws the key's line there" "$(usage_key_want absent)" usage_key_drawn
+expect_poll "control: a page that draws its keys on Details draws the key's line there" "$(usage_key_want absent details)" usage_key_drawn
 expect "control: the key on Details has no Settings field ancestor" '[{"key": "gatewayKey", "setting": "aiGateway", "field": ""}]' usage_key_location
 usage_key_placement_control() {
   (failures=0 behaviour_failures=0

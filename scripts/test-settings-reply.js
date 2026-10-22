@@ -144,14 +144,14 @@ function verify(logic) {
 // Like the Dev Tools handler test, execute the QML source under Node with
 // capability doubles. No second implementation or QML parsing library.
 function windowContext(logic, source) {
-    const names = ["stepKey", "replyOf", "keep", "secretStep", "listStep", "addPlugin", "resetVgs", "storeSecret", "clearSecret", "tuiKey", "openTui", "openPage", "openPane"];
+    const names = ["stepKey", "replyOf", "keep", "secretStep", "listStep", "addPlugin", "resetVgs", "storeSecret", "clearSecret", "actSource", "sourceKey", "tuiKey", "openTui", "openPage", "openPane"];
     const functions = names.map(name => {
         const found = [...source.matchAll(new RegExp("^    function " + name + "\\([^\\n]*\\) \\{\\n[\\s\\S]*?^    \\}", "gm"))];
         assert.equal(found.length, 1, `extractor: one actual Window.${name}`);
         return found[0][0];
     });
     const logs = [];
-    const ctx = { Reply: logic, replies: {}, writing: "", notice: "", shell: { manager: {} }, console: { warn: line => logs.push(line) } };
+    const ctx = { Reply: logic, replies: {}, writing: null, notice: "", shell: { manager: {} }, console: { warn: line => logs.push(line) } };
     ctx.root = ctx;
     vm.createContext(ctx);
     vm.runInContext(functions.join("\n"), ctx);
@@ -189,23 +189,43 @@ function verifyCallers(logic, source, page) {
         let done;
         ctx.shell.manager.storeSecret = (id, key, account, value, callback) => { same([id, key, account, value], ["plugin", "accounts", "account", "fixture-key"]); done = callback; return "ok"; };
         assert.equal(ctx.storeSecret("plugin", "accounts", "account", "fixture-key"), "ok");
-        assert.equal(ctx.writing, "plugin/accounts/account");
+        same(ctx.writing, { step: "plugin/accounts/account", verb: "store" });
         done({ ok: false, reason });
-        assert.equal(ctx.writing, "");
+        assert.equal(ctx.writing, null);
         assert.equal(ctx.replyOf("plugin", "accounts", "account"), logic.line("refused: secret write failed " + reason));
         assert.equal(logs.at(-1), "settings: plugin/accounts/account refused: secret write failed " + reason);
     }
     let done;
     ctx.shell.manager.clearSecret = (id, key, account, callback) => { done = callback; return "ok"; };
     assert.equal(ctx.clearSecret("plugin", "accounts", "account"), "ok");
+    same(ctx.writing, { step: "plugin/accounts/account", verb: "clear" }, "a clear names its verb");
     done({ ok: true, reason: null });
-    assert.equal(ctx.writing, "");
+    assert.equal(ctx.writing, null);
     assert.equal(ctx.replyOf("plugin", "accounts", "account"), "");
-    ctx.writing = "other";
-    ctx.secretStep("plugin", callback => { done = callback; return "refused: secret=account reason=busy"; });
-    assert.equal(ctx.writing, "other", "a refused write leaves the current owner alone");
+    const other = { step: "other", verb: "store" };
+    ctx.writing = other;
+    ctx.secretStep("plugin", "store", callback => { done = callback; return "refused: secret=account reason=busy"; });
+    assert.equal(ctx.writing, other, "a refused write leaves the current owner alone");
     done({ ok: false, reason: "exit=1" });
-    assert.equal(ctx.writing, "other", "another owner's completion cannot clear this owner");
+    assert.equal(ctx.writing, other, "another owner's completion cannot clear this owner");
+    ctx.writing = null;
+
+    // A key's source action and its writes keep their replies apart: a
+    // refused source reads under its own key, and a write's success or
+    // failure leaves it, as the source's success leaves the write's.
+    const refusedSource = "refused: tui=make reason=busy-other";
+    ctx.shell.manager.act = (id, key, row, rowAction) => { same([id, key, row, rowAction], ["plugin", "accounts", "account", "source"]); return refusedSource; };
+    assert.equal(ctx.actSource("plugin", "accounts", "account"), refusedSource);
+    assert.equal(ctx.replyOf("plugin", "accounts", ctx.sourceKey("account")), logic.line(refusedSource));
+    ctx.keep(ctx.stepKey("plugin", "accounts", "account"), "refused: secret write failed locked");
+    ctx.keep(ctx.stepKey("plugin", "accounts", "account"), "ok");
+    assert.equal(ctx.replyOf("plugin", "accounts", ctx.sourceKey("account")), logic.line(refusedSource), "a write's success leaves the source's refusal");
+    ctx.keep(ctx.stepKey("plugin", "accounts", "account"), "refused: secret write failed locked");
+    ctx.shell.manager.act = () => "ok";
+    ctx.actSource("plugin", "accounts", "account");
+    assert.equal(ctx.replyOf("plugin", "accounts", ctx.sourceKey("account")), "");
+    assert.equal(ctx.replyOf("plugin", "accounts", "account"), logic.line("refused: secret write failed locked"), "the source's success leaves the write's failure");
+    ctx.keep(ctx.stepKey("plugin", "accounts", "account"), "ok");
 
     // A setup screen and a status entry can have one name, as Jarvis's
     // `accounts` are: each keeps its own reply.

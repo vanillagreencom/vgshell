@@ -28,10 +28,14 @@ import "../../shell/plugins/vgs.settings"
 // Save hands on what was typed. A step declared danger draws in that tone.
 // A line with no value draws its hint in the value column with its
 // `hintLink` words as a link, which emits `hintLinkActivated`.
+// A key's source action stands on the value column under its hint, after
+// the field's Save and Cancel in the Tab order; its press opens the key's
+// empty field first where the line offers one, then asks for the source.
+// A line's own write reads in its value's place and holds its source.
 Item {
     id: root
     width: 880
-    height: 2500
+    height: 3000
 
     GroupList {
         id: list
@@ -269,6 +273,12 @@ Item {
     SignalSpy { id: pagedStatePages; target: pagedState; signalName: "hintPageActivated" }
     StatusLine { id: dangerStep; x: 0; y: 1540; width: 400; label: "Sign-in"; tone: "success"; text: "Signed in"; actionLabel: "Sign out"; actionOffered: true; actionTone: "danger" }
     SignalSpy { id: stores; target: storedKey; signalName: "storeSecret" }
+    // Keys whose list declares a source action: one nothing is stored for,
+    // and one the store cannot be asked for, which offers no field.
+    StatusLine { id: sourcedKey; x: 0; y: 2550; width: 400; label: "Globex"; access: "connect"; secretLabel: "Acme key"; hint: "A token for sender photos."; sourceLabel: "Make key" }
+    StatusLine { id: askedKey; x: 0; y: 2750; width: 400; label: "Initech"; text: "Store unavailable"; danger: true; hint: "A token for sender photos."; sourceLabel: "Make key" }
+    SignalSpy { id: sources; target: sourcedKey; signalName: "source" }
+    SignalSpy { id: askedSources; target: askedKey; signalName: "source" }
 
     TestCase {
         name: "grouplist"
@@ -282,6 +292,9 @@ Item {
             storedKey.width = 400;
             storedKey.label = "Acme";
             absentKey.entering = false;
+            sourcedKey.entering = false;
+            sourcedKey.writing = "";
+            sourcedKey.access = "connect";
         }
 
         function hairlinesOf(owner) {
@@ -855,6 +868,93 @@ Item {
             }
             absentKey.storeSecret.disconnect(beginWrite);
             absentKey.access = "connect";
+        }
+
+        function sourceOf(line) { return actionsOf(line).find(action => action.text === line.sourceLabel); }
+
+        // The source action stands on the value column under the hint and
+        // its press opens the empty field, which takes the keyboard, before
+        // it asks; a second press leaves the open field and what it holds.
+        // A line that offers no field keeps the keyboard on the action.
+        function test_a_key_source_opens_its_field_then_asks() {
+            sources.clear();
+            askedSources.clear();
+            const field = sourcedKey.children.find(child => child.valueX !== undefined);
+            const hint = field.children.find(child => child.height > 0 && child.children.length > 0 && child.children[0].role === "hint");
+            const source = sourceOf(sourcedKey);
+            verify(source !== undefined, "the line draws its source action");
+            compare(box(source, sourcedKey).x, field.valueX, "the source starts on the value column");
+            verify(box(source, sourcedKey).y >= box(hint.children[0], sourcedKey).bottom, "the source stands under the hint");
+            compare(findChild(sourcedKey, TextField), null);
+            source.clicked();
+            compare(sources.count, 1, "the press asks for the source");
+            const input = findChild(sourcedKey, TextField);
+            verify(input !== null && input.password, "the press opened the masked field first");
+            verify(input.activeFocus, "the field holds the keyboard the source's window hands back");
+            compare(input.text, "");
+            input.text = "typed-key";
+            sourceOf(sourcedKey).clicked();
+            compare(sources.count, 2);
+            compare(findChild(sourcedKey, TextField), input, "a second press keeps the open field");
+            compare(input.text, "typed-key", "and what it holds");
+            sourcedKey.cancelEntry();
+            sourceOf(askedKey).forceActiveFocus();
+            sourceOf(askedKey).clicked();
+            compare(askedSources.count, 1);
+            compare(findChild(askedKey, TextField), null, "a line that offers no field opens none");
+            verify(sourceOf(askedKey).activeFocus, "it keeps the keyboard on the source");
+        }
+
+        // Tab runs from the field to Save, Cancel and then the source.
+        function test_a_key_source_follows_the_fields_actions_in_tab_order() {
+            sourceOf(sourcedKey).clicked();
+            const input = findChild(sourcedKey, TextField);
+            input.text = "typed-key";
+            const editor = actionsOf(sourcedKey);
+            const order = [];
+            for (let i = 0; i < 3; i++) {
+                keyClick(Qt.Key_Tab);
+                order.push([editor.find(action => action.activeFocus)].map(action => action === undefined ? "" : action.text)[0]);
+            }
+            compare(order, ["Save", "Cancel", sourcedKey.sourceLabel]);
+            keyClick(Qt.Key_Escape);
+        }
+
+        // While the line's own write runs its source takes no press; a
+        // text value that goes, as a write's does, hands Add key back to
+        // the value column; the danger flag draws a text value in the
+        // danger colour.
+        function test_a_writing_key_holds_its_source() {
+            sourcedKey.writing = "store";
+            verify(!sourceOf(sourcedKey).enabled, "the source takes no press while the line's write runs");
+            sourcedKey.writing = "";
+            verify(sourceOf(sourcedKey).enabled);
+            sourcedKey.text = "Saving";
+            wait(0);
+            sourcedKey.text = "";
+            wait(0);
+            const keyField = sourcedKey.children.find(child => child.valueX !== undefined);
+            const add = actionsOf(sourcedKey).find(action => action.text === "Add key");
+            compare(box(add, sourcedKey).x, keyField.valueX, "Add key returns to the value column once the write's text goes");
+            const danger = [];
+            const stack = [askedKey];
+            while (stack.length) { const at = stack.pop(); if (at instanceof Label && at.visible && at.text === askedKey.text) danger.push(at); for (const child of at.children) stack.push(child); }
+            compare(danger.length, 1);
+            verify(Qt.colorEqual(danger[0].color, Theme.color.danger), "a danger value draws in the danger colour");
+        }
+
+        // While Replace's field is open the hint adds that the stored key
+        // stays until a replacement is saved; Add key's field does not.
+        function test_a_replace_field_says_the_stored_key_stays() {
+            const field = line => line.children.find(child => child.valueX !== undefined);
+            storedKey.hint = "A token for sender photos.";
+            actionsOf(storedKey)[0].clicked();
+            verify(field(storedKey).hint.startsWith(storedKey.hint) && field(storedKey).hint.length > storedKey.hint.length, "Replace's field adds its sentence");
+            storedKey.cancelEntry();
+            compare(field(storedKey).hint, storedKey.hint, "the closed line reads its hint alone");
+            storedKey.hint = "";
+            sourcedKey.entering = true;
+            compare(field(sourcedKey).hint, sourcedKey.hint, "Add key's field adds nothing");
         }
 
         function test_a_groups_own_lines_sit_close() {

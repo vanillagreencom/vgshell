@@ -18,6 +18,9 @@ const helper = path.join(scratch, "opener.js");
 const noise = ["fixture-browser-stdout", "fixture-browser-stderr"];
 const initialSettings = '{"slackPhotos":false}\n';
 const initialKeyring = '{"saved":true}\n';
+// The account and label a workspace row's Create Slack app hands the guide
+// (PluginLogic.statusActionRequest).
+const workspace = ["slack:T0GLOBEX", "Globex Community Workspace"];
 let caseNumber = 0;
 function scopes(manifest) {
     assert.deepEqual(Object.keys(manifest.oauth_config.scopes), ["user"]);
@@ -80,15 +83,15 @@ function result(fixture, run) {
     }
     return { ...run, events, opens, choices, frames };
 }
-function setup(choices, statuses, preparationFails) {
+function setup(choices, statuses, preparationFails, args = workspace) {
     const fixture = caseEnv(choices, statuses, preparationFails);
-    return result(fixture, cp.spawnSync("/bin/bash", [script], {
+    return result(fixture, cp.spawnSync("/bin/bash", [script, ...args], {
         env: fixture.env, encoding: "utf8", timeout: 10000
     }));
 }
 async function cancelHeldOpener() {
     const fixture = caseEnv([1], ["hold"]);
-    const guide = cp.spawn("/bin/bash", [script], {
+    const guide = cp.spawn("/bin/bash", [script, ...workspace], {
         env: fixture.env, detached: true, stdio: ["ignore", "pipe", "pipe", "pipe"]
     });
     let stdout = "", stderr = "", openerReady = false;
@@ -124,7 +127,7 @@ async function cancelHeldOpener() {
         fs.writeFileSync(library, `
 _record() { printf '%s\\0' "$1" "$(($# - 1))" "\${@:2}" >>"$SETUP_CASE/trace"; }
 vgs_tui_clear() { _record clear; printf '\\033[2J\\033[H'; }
-vgs_tui_header() { _record header; printf '%s\\n' "$@"; }
+vgs_tui_header() { _record header "$@"; printf '%s\\n' "$@"; }
 vgs_tui_text() { _record text; printf '%s\\n' "$@"; }
 vgs_tui_step() { _record step; printf '%s\\n' "$@"; }
 vgs_tui_cancelled() { _record cancelled; printf '%s\\n' "$@"; }
@@ -178,6 +181,16 @@ if (status === 'hold') {
         control.oauth_config.scopes.user.push("channels:history");
         assert.throws(() => scopes(control), assert.AssertionError);
 
+        // The guide opens only for one workspace: no arguments, a missing
+        // label, an account that is no Slack team's, a label with a control
+        // character and an extra argument each end it before it draws or
+        // opens anything, with its keyed refusal.
+        for (const args of [[], [workspace[0]], ["T0GLOBEX", workspace[1]], ["slack:T0 GLOBEX", workspace[1]], [workspace[0], ""], [workspace[0], "Globex\tCo"], [...workspace, "--extra"]]) {
+            const refused = setup([1, 1, 1], [0], false, args);
+            assert.equal(refused.status, 64, JSON.stringify(args));
+            assert.match(refused.stderr, /^slack-setup: args=invalid\n/, JSON.stringify(args));
+            assert.deepEqual([refused.events, refused.opens], [[], []], JSON.stringify(args));
+        }
         for (const choice of [2, "cancel"]) {
             const cancelled = setup([choice]);
             assert.equal(cancelled.status, 130, cancelled.stderr);
@@ -189,6 +202,9 @@ if (status === 'hold') {
         assert.deepEqual(success.choices, [2, 4, 1]);
         assert.equal(success.opens.length, 1);
         creationUrl(success.opens[0]);
+        // Every screen is headed by the workspace the row named.
+        const headers = success.events.filter(event => event.kind === "header");
+        assert.equal(headers.length > 0 && headers.every(event => event.args[1] === workspace[1]), true);
         // The old entry point's generic Apps URL is planted into a recorded
         // argv. This control exercises the same judge as the real opener data.
         const recordedControl = success.opens[0].slice();

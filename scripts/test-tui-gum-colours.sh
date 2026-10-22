@@ -92,16 +92,17 @@ stub_dir() {
   chmod +x -- "$dir/bin/gum"
 }
 
-# run_tui DIR PLUGIN_DIR SCRIPT: one presented run of SCRIPT, relative to
-# PLUGIN_DIR, in DIR, a fresh stub directory and scratch world. The gum
+# run_tui DIR PLUGIN_DIR SCRIPT [ARG...]: one presented run of SCRIPT,
+# relative to PLUGIN_DIR, with ARGs after it, in DIR, a fresh stub
+# directory and scratch world. The gum
 # calls land in DIR/gum.log, the terminal's text in DIR/out and the exit
 # status in DIR/status.
 run_tui() {
-  local dir="$1" world="$1/world" cmd status=0
+  local dir="$1" world="$1/world" cmd status=0 args=("${@:4}")
   stub_dir "$dir"
   mkdir -p -- "$world/home" "$world/state/vgshell/theme" "$world/config" "$world/data" "$world/rt"
   cp -- "$synthetic" "$world/state/vgshell/theme/gum.env"
-  cmd="$(printf '%q ' "$presenter" present --presentation plain --plugin "${2##*/}" --dir "$2" -- "$3")"
+  cmd="$(printf '%q ' "$presenter" present --presentation plain --plugin "${2##*/}" --dir "$2" -- "$3" "${args[@]}")"
   timeout -k 2 "$ceiling" env -i PATH="$dir/bin" HOME="$world/home" XDG_STATE_HOME="$world/state" \
     XDG_CONFIG_HOME="$world/config" XDG_DATA_HOME="$world/data" XDG_RUNTIME_DIR="$world/rt" \
     TERM=xterm-256color COLORTERM=truecolor "$script_bin" -qec "$cmd" /dev/null </dev/null >"$dir/out" 2>&1 ||
@@ -142,11 +143,16 @@ scripts=("$repo"/shell/plugins/*/tui/*.sh)
 shopt -u nullglob
 check "discovery finds TUI scripts" test "${#scripts[@]}" -gt 0
 runs=("${scripts[@]}" "$plugin/tui/stripped.sh" "$plugin/tui/recoloured.sh")
+# The arguments a script's caller hands it, by its path in the tree: a
+# stored key's source action opens its script with the key's account and
+# label (PluginLogic.statusActionRequest), which a run with none refuses.
+declare -A args_of=([shell/plugins/vgs.notifications/tui/setup-slack.sh]="slack:T0GUM Gum")
 # Each run's own stderr takes the shell's notice of a run timeout killed.
 pids=()
 mkdir -p -- "$tmp/run"
 for i in "${!runs[@]}"; do
-  run_tui "$tmp/run/$i" "${runs[i]%/tui/*}" "tui/${runs[i]##*/}" 2>"$tmp/run/$i.err" &
+  read -r -a run_args <<<"${args_of[${runs[i]#"$repo"/}]:-}"
+  run_tui "$tmp/run/$i" "${runs[i]%/tui/*}" "tui/${runs[i]##*/}" "${run_args[@]}" 2>"$tmp/run/$i.err" &
   pids+=("$!")
 done
 for i in "${!pids[@]}"; do

@@ -1280,9 +1280,9 @@ function verify(logic) {
     // The Settings rows: one per listed workspace.
     const listedTwo = [{ id: "T1", domain: "acme", name: "Acme Corp" }, { id: "T2", domain: "globex", name: "" }];
     same(logic.slackTokenRows(listedTwo, { "slack:T1": "present", "slack:T2": "locked" }), { ok: true, items: [
-        { label: "Acme Corp (acme)", value: "present", secret: "slack:T1" },
-        { label: "globex", value: "locked", secret: "slack:T2" }
-    ] }, "each workspace carries its own account's state");
+        { label: "Acme Corp (acme)", value: "present", hint: logic.SLACK_TOKEN_HINT, secret: "slack:T1" },
+        { label: "globex", value: "locked", hint: logic.SLACK_TOKEN_HINT, secret: "slack:T2" }
+    ] }, "each workspace carries its own account's state and what its field takes");
     same(logic.slackTokenRows([], {}), { ok: true, items: [] }, "no workspace lists no token row");
     same(logic.slackTokenRows(listedTwo, { "slack:T1": "present" }), { ok: false, missing: "slack:T2" }, "a workspace the probe has not answered for waits");
     for (const [label, workspace, want] of [
@@ -1308,6 +1308,18 @@ function verify(logic) {
     const manifest = pluginLogic.validateManifest(JSON.parse(fs.readFileSync(path.join(__dirname, "..", "shell", "plugins", "vgs.notifications", "manifest.json"), "utf8")), "/x");
     assert.equal(manifest.ok, true, "the notifications manifest is accepted");
     assert.equal(pluginLogic.statusWrite(manifest.manifest, {}, "slackTokens", JSON.parse(JSON.stringify(emojiRows.items))).ok, true, "the core's write judge takes the rows with their accounts");
+    // Each workspace's Create Slack app opens the one guide for that
+    // workspace, its account and label read from the published row, and
+    // the guide is no listed screen of its own. A press with the storage
+    // tool missing raises the requirement notice, as every tool the guide
+    // needs does.
+    const published = { slackTokens: JSON.parse(JSON.stringify(logic.slackTokenRows(listedTwo, { "slack:T1": "absent", "slack:T2": "unavailable" }).items)) };
+    for (const account of ["slack:T1", "slack:T2"])
+        assert.deepEqual(JSON.parse(JSON.stringify(pluginLogic.statusActionRequest(manifest.manifest, "vgs.notifications", true, published, "slackTokens", account, "source"))),
+            { ok: true, kind: "tui", name: "setup-slack", args: [account, published.slackTokens.find(item => item.secret === account).label] }, "Create Slack app opens the guide for " + account);
+    assert.equal(manifest.manifest.tui["setup-slack"].entry, null, "the guide is no listed screen");
+    assert.deepEqual(JSON.parse(JSON.stringify(pluginLogic.tuiRunFor(manifest.manifest, true, "/src", { launcher: "present", busy: [] }, "setup-slack", ["secret-tool"], ["slack:T1", "Acme Corp (acme)"]))),
+        { ok: true, kind: "install", commands: ["secret-tool"] }, "a guide press with no key storage tool raises the requirement notice");
 
     // The photo helper's next run: [label, read, listed, want].
     const DAY = 24 * 60 * 60 * 1000, RETRY = 15 * 60 * 1000, NOW = 10 * DAY;
