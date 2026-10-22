@@ -788,6 +788,40 @@ failed_row() {
   grep -qF '~/state/setup.log' "$tmp/err" && ! grep -qF "$tmp/home" "$tmp/err"
 }
 check "a failure names its log under ~" failed_row
+# A log path wider than the box breaks after the last slash in its row: on
+# an 80-column terminal the box is 74 columns, and these lengths put that
+# wrap point at each character of `clone-voice.log.`, and inside the
+# directories before it. The name stays whole on one row, no row passes the
+# box and no character is lost. A part wider than a row still breaks at the
+# box, the y directory's row.
+cat >"$tmp/path-wrap.py" <<'PY'
+import re
+import sys
+
+text = open(sys.argv[1], encoding="utf-8").read().replace("\r\n", "\n")
+path = sys.argv[2]
+rows = [re.sub(r"\x1b\[[0-9;:]*m", "", line) for line in text.splitlines()]
+assert rows and all(row.startswith("   ") and len(row) <= 77 for row in rows), rows
+shown = [row[3:] for row in rows]
+assert "".join(shown) == "The details are in" + path + ".", shown
+assert any("clone-voice.log." in row for row in shown), shown
+if "/y" in path:
+    assert shown[1:] == [path[:74], path[74:] + "."], shown
+PY
+path_wrap_row() {
+  local n fill path paths=()
+  for n in {28..52}; do
+    printf -v fill '%*s' "$n" ''
+    paths+=("/w/${fill// /x}/state/vgshell/jarvis/clone-voice.log")
+  done
+  printf -v fill '%*s' 100 ''
+  paths+=("/w/${fill// /y}/clone-voice.log")
+  for path in "${paths[@]}"; do
+    on_tty "stty cols 80 </dev/tty; vgs_tui_failed $(printf %q "$path")"
+    [[ $status == 0 ]] && python3 "$tmp/path-wrap.py" "$tmp/out" "$path" 2>/dev/null || return 1
+  done
+}
+check "a log path wraps after a slash, its file name whole" path_wrap_row
 # A cancellation line says what happened, then waits only when a terminal
 # can hold the window open for the user.
 run 'vgs_tui_cancelled "Nothing changed."'
@@ -1054,6 +1088,10 @@ for mode in choose input filter; do
 done
 control break-keeps-space 'then _vgs_tui_out+=("$cur"); cur="" cur_n=0; fi' 'then _vgs_tui_out+=("$cur"); cur="$gap" cur_n=${#gap}; fi'
 check "the break-keeps-space mutant fails the lines edge row" test "$(edge_row "$copy" lines && echo green || echo red)" == red
+control no-slash-break 'if [[ $piece == */* ]] &&' 'if false &&'
+check "the no-slash-break mutant fails the path wrap row" test "$(path_wrap_row && echo green || echo red)" == red
+control wide-part-at-slash '(( next_n > 0 && tail_n + next_n <= width ))' '(( next_n > 0 ))'
+check "the wide-part-at-slash mutant fails the path wrap row" test "$(path_wrap_row && echo green || echo red)" == red
 control gum-help-shown 'GUM_CONFIRM_SHOW_HELP=false gum confirm' 'gum confirm'
 check "the gum-help-shown mutant fails the vgs-dark contrast row" test "$(contrast_row "${contrast_themes[0]}" && echo green || echo red)" == red
 control help-low-colour '"$(vgs_tui_sgr "${GUM_PAGER_HELP_FOREGROUND:-}" 39)"' '"$(vgs_tui_sgr "#3a3a3a" 39)"'

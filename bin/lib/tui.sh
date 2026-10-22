@@ -164,11 +164,15 @@ _vgs_tui_visible() { # VAR TEXT: TEXT's columns, its SGR escapes taking none
 # ARRAY gets TEXT's lines broken to WIDTH columns at the last space that
 # fits. The spaces at a break are dropped, so no continuation starts with
 # one; a line's own leading spaces stay, and a word wider than WIDTH breaks
-# inside it, unless MODE is commands, which keeps each word whole.
+# inside it, unless MODE is commands, which keeps each word whole. Such a
+# word breaks after the last slash in the row, so a path's file name stays
+# whole, when the part after that slash, to the next slash or the word's
+# end, fits a row; otherwise at WIDTH.
 # _vgs_tui_wrapped records which rows continue a width break.
 _vgs_tui_lines() { # ARRAY WIDTH TEXT [MODE]
   local -n _vgs_tui_out="$1"
   local width="$2" text="$3" line rest lead word gap cur cur_n word_n started wrapped more=1
+  local piece tail tail_n next_n
   _vgs_tui_out=()
   _vgs_tui_wrapped=()
   while (( more )); do
@@ -186,14 +190,21 @@ _vgs_tui_lines() { # ARRAY WIDTH TEXT [MODE]
       else
         if [[ -n $started ]]; then _vgs_tui_wrapped+=("$wrapped"); wrapped=1; fi
         if [[ -n $started ]]; then _vgs_tui_out+=("$cur"); cur="" cur_n=0; fi
+        piece=""
         while [[ ${4:-text} != commands ]] && (( cur_n + word_n > width )); do
           if [[ $word =~ ^$_vgs_tui_sgr_rule ]]; then
-            cur+="${BASH_REMATCH[0]}" word="${word#"${BASH_REMATCH[0]}"}"
+            cur+="${BASH_REMATCH[0]}" piece+="${BASH_REMATCH[0]}" word="${word#"${BASH_REMATCH[0]}"}"
           elif (( cur_n == width )); then
-            _vgs_tui_out+=("$cur"); cur="" cur_n=0
+            tail="${piece##*/}"
+            _vgs_tui_visible tail_n "$tail"
+            _vgs_tui_visible next_n "${word%%/*}"
+            if [[ $piece == */* ]] && (( next_n > 0 && tail_n + next_n <= width )); then
+              cur="${cur%"$tail"}" word="$tail$word" word_n=$(( word_n + tail_n ))
+            fi
+            _vgs_tui_out+=("$cur"); cur="" cur_n=0 piece=""
             _vgs_tui_wrapped+=("$wrapped"); wrapped=1
           else
-            cur+="${word:0:1}" word="${word:1}" cur_n=$(( cur_n + 1 )) word_n=$(( word_n - 1 ))
+            cur+="${word:0:1}" piece+="${word:0:1}" word="${word:1}" cur_n=$(( cur_n + 1 )) word_n=$(( word_n - 1 ))
           fi
         done
         cur+="$word" cur_n=$(( cur_n + word_n ))
