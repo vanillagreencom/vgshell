@@ -145,8 +145,8 @@ start=s.index('if [[ ${#config_read[@]} != 0 ]]; then')
 end=s.index('\nfi',start)+len('\nfi')
 block=s[start:end]
 s=s[:start]+s[end:]
-assert s.count('status=0\n')==1
-p.write_text(s.replace('status=0\n',block+'\nstatus=0\n'))
+assert s.count('\nstatus=0\n')==1
+p.write_text(s.replace('\nstatus=0\n','\n'+block+'\nstatus=0\n'))
 PY
 check "control: copying before consent fails the no-write reading" test "$(declined_clean 1; echo $?)" != 0
 cp -- "$tmp/setup-source" "$tree/bin/vgshell-dictation"
