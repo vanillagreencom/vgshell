@@ -2204,7 +2204,7 @@ Scope {
             const item = root.instance(hostKey, id), lines = root.credentialLines(item);
             if (lines === null) return "absent";
             const client = root.credentialEditor(lines.id), secret = root.credentialEditor(lines.secret);
-            const chip = line => root.descendants(line).find(child => child instanceof Ui.Badge && root.visibleInTree(child));
+            const chip = line => root.descendants(line).find(child => child instanceof Ui.Badge && (line.entering || root.visibleInTree(child)));
             const field = label => root.descendants(item).find(child => child instanceof Ui.Field && child.label === label && root.visibleInTree(child));
             const labels = ["Connection", "Client ID", "Other step"];
             if (labels.some(label => field(label) === undefined) || chip(lines.id) === undefined || chip(lines.secret) === undefined) return "incomplete";

@@ -3414,9 +3414,10 @@ rm -rf -- "${keys_copy:?}"
 mkdir -p -- "$(dirname -- "$keys_copy")"
 cp -R -- "$repo/shell/plugins/vgs.settings" "$keys_copy"
 keys_copy_edit() { python3 "$source_repo/scripts/smoke/fixtures/ai-usage/edit.py" "$keys_copy/$1" "$2" "$3"; }
-if keys_copy_edit Steps.js '    field.keyLists.forEach(function (key) {' '    [].forEach(function (key) {' \
+if keys_replace="$(sed -n '/^[[:space:]]*text: "Replace"$/{N;p;}' "$keys_copy/StatusLine.qml")" \
+  && keys_copy_edit Steps.js '    field.keyLists.forEach(function (key) {' '    [].forEach(function (key) {' \
   && keys_copy_edit Steps.js 'entry.placement === "details"' 'entry.type === "presenceList" || entry.placement === "details"' \
-  && keys_copy_edit StatusLine.qml $'text: "Replace"\n                        onClicked: line.entering = true' $'text: "Replace"\n                        onClicked: {}'
+  && keys_copy_edit StatusLine.qml "$keys_replace" "${keys_replace/line.entering = true/line.entering = false}"
 then ok "the control copy draws its keys on Details and its Replace opens nothing"; else fail "the control copy could not be written"; fi
 rescan "a rescan picks the placement control copy"
 control_items="slack:T0ACME,present;slack:T0GLOBEX,absent"
