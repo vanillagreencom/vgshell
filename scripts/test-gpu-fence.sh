@@ -996,6 +996,7 @@ echo '{}' >"$TMP_ROOT/voice/.local/state/vgshell/jarvis/local-ready.json"
 entry() {
   local file="$1" name="$2" tree="$TMP_ROOT/tree-$2"
   entry_words "$name" || return 1
+  [[ ${4:-} != default-log ]] || words=()
   rm -rf -- "$tree" "$TMP_ROOT/entry-tmp"
   mkdir -p "$tree/scripts/smoke" "$tree/shell/plugins/vgs.jarvis/backend" "$TMP_ROOT/entry-tmp"
   cp -- "$file" "$tree/scripts/$name"
@@ -1059,6 +1060,27 @@ for name in "${entry_points[@]}"; do
   if ! mutate "$repo/scripts/$name" '--check || exec ' '--check; exec ' "$mutant"; then fail "control: $name that always enters"; continue; fi
   if goes_on "$mutant" "$name"; then fail "control: $name that always enters the fence stayed green"; else ok "control: $name that always enters the fence"; fi
 done
+
+# Main batches redirect stdout to a file without passing --log-dir. The
+# fence must get that file's directory, never a command child's /proc path.
+logs_beside_stdout() {
+  local tree="$TMP_ROOT/tree-qml-smoke.sh"
+  entry "$1" qml-smoke.sh 1 default-log || return 1
+  [[ $status -eq 0 && $(<"$TMP_ROOT/fence.log") == "check"$'\n'"run [--out] [$tree/tmp/display-record] [--out] [$TMP_ROOT] [$tree/scripts/qml-smoke.sh]" ]]
+}
+if logs_beside_stdout "$repo/scripts/qml-smoke.sh"; then
+  ok "qml-smoke.sh puts default logs beside file stdout"
+else
+  fail "qml-smoke.sh default log directory differs from file stdout's directory"; show
+fi
+mutant="$TMP_ROOT/mutant-stdout"
+if ! mutate "$repo/scripts/qml-smoke.sh" 'smoke_log_file="$(readlink -f -- "$smoke_stdout")"' 'smoke_log_file="$(readlink -f "/proc/$BASHPID/fd/1")"' "$mutant"; then
+  fail "control: qml-smoke.sh with command-substitution stdout"
+elif logs_beside_stdout "$mutant"; then
+  fail "control: qml-smoke.sh with command-substitution stdout stayed green"
+else
+  ok "control: qml-smoke.sh with command-substitution stdout"
+fi
 
 # The harness. Its prerequisites come first, so the stand-ins for its tools
 # are the names it prints as missing with nothing on PATH; each records

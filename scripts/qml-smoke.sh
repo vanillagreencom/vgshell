@@ -253,8 +253,10 @@ fi
 world_args=(--out "$repo/tmp/display-record")
 [[ $keep != true ]] || world_args+=(--keep)
 if [[ -z $smoke_log_dir ]]; then
-  if [[ -f /proc/self/fd/1 ]]; then
-    smoke_log_file="$(readlink -f "/proc/$BASHPID/fd/1")"
+  # Keep the caller's fd: a command substitution gives its child a pipe.
+  smoke_stdout="/proc/$BASHPID/fd/1"
+  if [[ -f $smoke_stdout ]]; then
+    smoke_log_file="$(readlink -f -- "$smoke_stdout")"
     smoke_log_dir="${smoke_log_file%/*}"
   else
     smoke_log_dir="$repo/tmp/qml-smoke"
