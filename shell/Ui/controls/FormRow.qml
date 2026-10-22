@@ -11,8 +11,10 @@ import qs.Ui
 // centred, and the control is centred by its box. A control taller than the
 // row is one of two cases. One that is a single box, such as a text area,
 // grows the row box, and a one-line label and its info button centre on
-// that box. One that wraps into lines, such as a RowActions, declares
-// `firstLineHeight`, the height of its first line while it wraps, and a
+// that box. One that wraps into lines, such as a RowActions or a Select
+// holding a long choice, declares `firstLineHeight`, the height of its
+// first line while it wraps, read through a Loader that holds it as a
+// Settings field holds its editor, and a
 // one-line label and its info button centre on that line, as they do
 // beside a one-line control; such a control grows the row, so its first
 // line starts at the row box's top. A label too long for its
@@ -266,7 +268,8 @@ Item {
     // The first line of a control that wraps into lines, 0 beside a control of one box.
     readonly property real controlFirstLine: {
         for (const child of slot.children) {
-            if (child.visible && child.firstLineHeight > 0) return child.firstLineHeight;
+            const control = child instanceof Loader ? child.item : child;
+            if (child.visible && control !== null && control.firstLineHeight > 0) return control.firstLineHeight;
         }
         return 0;
     }

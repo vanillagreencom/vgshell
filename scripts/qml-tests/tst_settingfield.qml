@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Window as QtWindow
 import QtTest
 import qs.Commons
 import qs.Core
@@ -406,6 +407,51 @@ Item {
         }
     }
 
+    // A preset select whose stored value, a review command, is wider than
+    // its control, between two switches on the surface colour, so the
+    // rendered image reads its rows' ink. Both commands hold hyphens a line
+    // could break after.
+    readonly property string longClaude: "claude --model opus --effort medium --permission-mode default"
+    readonly property string longCodex: "codex -m gpt-6.1-sol -c model_reasoning_effort=medium --sandbox workspace-write --ask-for-approval on-request"
+    Component {
+        id: coveredLong
+        Rectangle {
+            property alias rows: longRows
+            property alias before: longBefore
+            property alias long: longField
+            property alias after: longAfter
+            anchors.fill: parent
+            z: 1
+            color: Theme.color.surface
+            Column {
+                id: longRows
+                width: 420
+                spacing: Theme.stack.row
+                SettingField { id: longBefore; key: "before"; spec: ({ type: "boolean", label: "Before" }); value: true }
+                SettingField {
+                    id: longField
+                    key: "reviewCommand"
+                    spec: ({ type: "string", label: "Review command", allowCustom: true, presets: [{ value: "", label: "Automatic" }, { value: root.longClaude }, { value: root.longCodex }] })
+                    value: root.longCodex
+                }
+                SettingField { id: longAfter; key: "after"; spec: ({ type: "boolean", label: "After" }); value: true }
+            }
+        }
+    }
+    // A window on the screen a test names, which draws at that screen's
+    // scale, for the long value at 2x. The plugin's own Window shadows
+    // Qt's.
+    Component {
+        id: scaledWindow
+        QtWindow.Window { width: 480; height: 360; color: Theme.color.surface }
+    }
+    // A TextEdit lays its text out as a Text of the same width, font and
+    // wrap does, and reports where each character went.
+    Component {
+        id: layoutTwin
+        TextEdit { textFormat: TextEdit.PlainText; readOnly: true; visible: false }
+    }
+
     TestCase {
         name: "settingfield"
         when: windowShown
@@ -589,10 +635,15 @@ Item {
             compare(select.currentIndex, 2, "the Select follows what the configuration holds");
         }
 
-        function selectList(owner) {
+        function selectListWindow(owner) {
             let window = null;
             for (let i = 0; i < owner.resources.length; i++)
                 if (owner.resources[i].anchor !== undefined) window = owner.resources[i];
+            return window;
+        }
+
+        function selectList(owner) {
+            const window = selectListWindow(owner);
             const scope = window.contentItem.children.find(child => child.popup !== undefined);
             return scope.children.find(child => child.currentIndex !== undefined);
         }
@@ -1216,6 +1267,118 @@ Item {
             const img = grabImage(root);
             const width = cover.rows.width;
             const gaps = [["Voice provider/Cloud voice", gapOver(img, fieldRowOf(cover.grouped, "Cloud voice"), width)], ["Cloud voice/After", gapOver(img, fieldRowOf(cover.after, "After"), width)]];
+            const read = gaps.map(entry => entry.join(" ")).join(", ");
+            for (const entry of gaps)
+                verify(Math.abs(entry[1] - Theme.stack.page) <= 1, "each row stands " + Theme.stack.page + " blank rows under the one above: " + read);
+        }
+
+        // The text a reader sees: no character that draws nothing, and a
+        // no-break hyphen read as the hyphen it draws.
+        function seen(text) {
+            return text.replace(/[\u200b-\u200d\u2060\ufeff]/g, "").replace(/\u2011/g, "-");
+        }
+        // The text before each hyphen of LABEL's text that ends a drawn
+        // line while more of the word follows on the next one.
+        function breaksAfterHyphen(label) {
+            const twin = createTemporaryObject(layoutTwin, root, { width: label.width, wrapMode: label.wrapMode, font: label.font, text: label.text });
+            compare(twin.lineCount, label.lineCount, "the twin lays the text out as the label does");
+            const text = label.text;
+            const broken = [];
+            for (let i = 0; i < text.length; i++) {
+                if (text[i] !== "-" && text[i] !== "\u2011") continue;
+                let next = i + 1;
+                while (next < text.length && /[\u200b-\u200d\u2060\ufeff]/.test(text[next])) next++;
+                if (next >= text.length || text[next] === " ") continue;
+                if (twin.positionToRectangle(next).y > twin.positionToRectangle(i).y) broken.push(seen(text.slice(Math.max(0, i - 12), i + 1)));
+            }
+            return broken;
+        }
+        function readsInFull(label, value, where) {
+            compare(seen(label.text), value, where + " draws the whole value");
+            compare(label.truncated, false, where + " elides the value");
+            verify(label.lineCount > 1, where + " wraps a value wider than itself: " + label.lineCount + " line");
+            compare(breaksAfterHyphen(label), [], where + " breaks no line after a hyphen");
+        }
+
+        // The long-value rows in a window on the screen at SCALE, which a
+        // device-pixel font can lay out on other lines than at 1x.
+        function longAt(scale) {
+            const screen = Qt.application.screens[scale - 1];
+            const window = createTemporaryObject(scaledWindow, null, { screen: screen, x: screen.virtualX + 10, y: screen.virtualY + 10 });
+            window.visible = true;
+            const cover = createTemporaryObject(coveredLong, window.contentItem);
+            verify(cover !== null);
+            compare(cover.Screen.devicePixelRatio, scale, "the rows draw at their screen's scale");
+            return cover;
+        }
+
+        function test_a_long_value_reads_in_full_in_its_closed_select_data() {
+            return [{ tag: "1x", scale: 1 }, { tag: "2x", scale: 2 }];
+        }
+
+        // A value too long for its select reads in full: the control
+        // draws the whole value on as many lines as it needs and elides
+        // nothing, its chevron and its row's label stay beside the first
+        // line, a screen reader reads the plain value, and no line breaks
+        // after a hyphen, where a reader would take the break for a space.
+        function test_a_long_value_reads_in_full_in_its_closed_select(data) {
+            const cover = longAt(data.scale);
+            const select = selectOf(cover.long);
+            const shown = select.contentItem;
+            readsInFull(shown, root.longCodex, "the closed select");
+            verify(shown.contentHeight <= shown.height + 0.5, "the control holds every line: " + shown.contentHeight + " in " + shown.height);
+            compare(select.Accessible.name, root.longCodex, "a screen reader reads the plain value");
+            const chevron = select.indicator.y + select.indicator.height / 2;
+            fuzzyCompare(chevron, Theme.textField.height / 2, 1, "the chevron stands beside the first line");
+            const label = labelOf(cover.long);
+            const middle = label.mapToItem(select, 0, label.height / 2).y;
+            verify(middle >= 0 && middle <= Theme.textField.height, "the label stands beside the value's first line: " + middle);
+        }
+
+        function test_a_long_value_reads_in_full_in_the_open_list_data() {
+            return [{ tag: "1x", scale: 1 }, { tag: "2x", scale: 2 }];
+        }
+
+        // Each list entry too long for the list reads in full the same way.
+        // The unit stand-in positions no window, so the test puts the
+        // list's window on its select's screen.
+        function test_a_long_value_reads_in_full_in_the_open_list(data) {
+            const cover = longAt(data.scale);
+            const select = selectOf(cover.long);
+            const screen = Qt.application.screens[data.scale - 1];
+            const window = selectListWindow(select);
+            window.screen = screen;
+            window.x = screen.virtualX + 10;
+            window.y = screen.virtualY + 10;
+            select.openList();
+            const list = selectList(select);
+            tryCompare(list.Screen, "devicePixelRatio", data.scale, 1000, "the list draws at its screen's scale");
+            // The list's window lays its content out once it shows.
+            tryVerify(() => list.width >= select.width - 2 * Theme.border.thin - 0.5, 1000, "the list is as wide as the control: " + list.width);
+            for (const index of [1, 2]) {
+                list.positionViewAtIndex(index, ListView.Contain);
+                tryVerify(() => list.itemAtIndex(index) !== null, 1000, "the list builds entry " + index);
+                const entry = list.itemAtIndex(index);
+                const title = descendants(entry).find(child => child.role === "menuItem" && child.visible);
+                const value = select.model[index].value;
+                readsInFull(title, value, "entry " + index);
+                verify(title.mapToItem(entry, 0, title.contentHeight).y <= entry.height + 0.5, "entry " + index + " holds every line");
+                compare(entry.Accessible.name, value, "a screen reader reads entry " + index + "'s plain value");
+            }
+        }
+
+        // The rows above and under a select that wraps stand `stack.page`
+        // from it by ink, as every key/value row does (design-system §
+        // Layout): the control grows the row, and the next row moves down.
+        function test_rows_around_a_long_value_stand_one_step_apart_by_ink() {
+            const cover = createTemporaryObject(coveredLong, root);
+            verify(cover !== null);
+            verify(selectOf(cover.long).contentItem.lineCount > 1, "the value wraps");
+            verify(waitForRendering(cover));
+            const img = grabImage(root);
+            const width = cover.rows.width;
+            const row = (field, label) => fieldRowOf(field, label);
+            const gaps = [["Before/Review command", gapBetween(img, row(cover.before, "Before"), row(cover.long, "Review command"), width)], ["Review command/After", gapBetween(img, row(cover.long, "Review command"), row(cover.after, "After"), width)]];
             const read = gaps.map(entry => entry.join(" ")).join(", ");
             for (const entry of gaps)
                 verify(Math.abs(entry[1] - Theme.stack.page) <= 1, "each row stands " + Theme.stack.page + " blank rows under the one above: " + read);

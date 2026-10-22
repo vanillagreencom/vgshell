@@ -270,6 +270,7 @@ f share/vgshell/shell/Ui/foundation/ImageTextLogic.js
 f share/vgshell/shell/Ui/foundation/KeyNav.qml
 f share/vgshell/shell/Ui/foundation/KeyNavLogic.js
 f share/vgshell/shell/Ui/foundation/Label.qml
+f share/vgshell/shell/Ui/foundation/LineBreak.js
 f share/vgshell/shell/Ui/foundation/PointerCursor.qml
 f share/vgshell/shell/Ui/foundation/QrMatrix.qml
 f share/vgshell/shell/Ui/foundation/Scrim.qml

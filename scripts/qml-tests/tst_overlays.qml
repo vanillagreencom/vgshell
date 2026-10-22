@@ -31,13 +31,15 @@ import qs.Unit
 // select's chosen fill meet the list's border at the top and both sides,
 // under a square and a rounded theme, and stay inside a rounder corner;
 // the bar of an overflowing list draws over a strip each entry keeps clear,
-// exactly while the bar shows. Under a rounded theme a list is cut to its
+// exactly while the bar shows, and an overflowing menu is as wide as its
+// widest entry with that strip once. Under a rounded theme a list is cut to its
 // window's rounded interior, so a filled row half scrolled past the top and
 // the bar's thumb at the top stay inside the curve; a square list draws no
 // layer. An open select list covers a field under it whose bottom border
 // ends 1 to 4 px below its entries, read from the page's and the list's
-// images in a dark and a light theme. A short menu is as wide as its longest entry, with equal side
-// gaps, and only a menu of one short word takes the minimum width; an
+// images in a dark and a light theme. A short menu opens with no entry
+// wrapped for a bar it never shows, is as wide as its longest entry, with
+// equal side gaps, and only a menu of one short word takes the minimum width; an
 // entry's icon is as tall as its text's capitals. A menu entry's text and
 // shortcut draw a pixel under a field's, a select's and a list item's.
 // A press in the anchor's window closes each overlay and reaches no item
@@ -164,6 +166,7 @@ Item {
     property int reached: 0
     MouseArea { id: under; x: 250; width: 50; height: 30; onPressed: root.reached += 1 }
     SignalSpy { id: activations; target: roled; signalName: "activated" }
+    SignalSpy { id: settingsLines; target: settingsEntry.contentItem.children[1]; signalName: "lineCountChanged" }
     TextField { id: field; visible: false }
     ListItem { id: listRow; visible: false; text: "Row"; secondary: "Detail" }
     FontMetrics { id: itemMetrics; font: settingsEntry.contentItem.children[1].font }
@@ -402,12 +405,17 @@ Item {
             compare(mid.items()[0].contentItem.children[1].truncated, false);
             mid.close();
             menu.open("key");
-            // The long text elides and the shortcut keeps its trailing column.
+            // The long text wraps and never elides, the entry grows by its
+            // lines, and the shortcut keeps its trailing column beside the
+            // first line.
             const title = wide.contentItem.children[1];
             const hint = wide.contentItem.children[2];
-            compare(title.truncated, true);
+            compare(title.truncated, false, "the long text elides");
+            verify(title.lineCount > 1, "the long text wraps: " + title.lineCount + " line");
+            verify(wide.height >= title.contentHeight + wide.topPadding + wide.bottomPadding, "the entry holds every line");
             compare(hint.x + hint.width, wide.contentItem.width);
             verify(title.x + title.width <= hint.x - wide.spacing, "the text stops before the shortcut column");
+            fuzzyCompare(hint.y + hint.capCentre, title.y + title.capCentre, 1, "the shortcut's capitals centre on the first line's");
             menu.close();
         }
 
@@ -456,12 +464,16 @@ Item {
         }
 
         function test_a_short_menu_fits_its_entries() {
+            settingsLines.clear();
             barMenu.open("key");
             const window = windowOf(barMenu);
             const opening = window.width;
             const longest = settingsEntry;
             tryCompare(longest, "width", window.width - 2 * Theme.border.thin);
             compare(window.width, opening, "the menu opens at the width it settles at");
+            // No strip for a bar the menu never shows wraps an entry that
+            // fits, even before the list takes its window's size.
+            compare(settingsLines.count, 0, "Settings keeps one line while its menu opens");
             verify(longest.implicitWidth > hideEntry.implicitWidth, "Settings is the longest entry");
             compare(window.width, Math.ceil(longest.implicitWidth) + 2 * Theme.border.thin);
             const icon = longest.contentItem.children[0];
@@ -534,7 +546,15 @@ Item {
             compare(first.barRoom, Theme.scrollArea.gutter);
             const bar = long.scrollArea.bar;
             verify(bar.x >= first.width - first.barRoom && bar.x + bar.width <= first.width, "the bar lies in the entry's end strip: " + bar.x);
-            verify(first.contentItem.x + first.contentItem.width <= first.width - first.barRoom, "the entry's text stops before the bar");
+            compare(first.contentItem.x + first.contentItem.width, first.width - first.barRoom - first.sidePadding, "the entry's text stops a side padding before the bar");
+            // The menu is as wide as its widest entry with the strip once:
+            // that entry's text ends its right padding, the strip in it,
+            // from the list's end, within the whole pixel the window
+            // rounds up to.
+            const widest = long.items().reduce((wide, item) => item.implicitWidth > wide.implicitWidth ? item : wide);
+            const text = widest.contentItem.children[1];
+            const gap = long.scrollArea.width - (widest.contentItem.x + text.x + text.implicitWidth);
+            verify(gap >= widest.rightPadding && gap < widest.rightPadding + 1, widest.text + "'s text ends " + gap + " from the list's end, its right padding " + widest.rightPadding);
             long.close();
             // A menu that fits keeps no strip.
             UnitTheme.reset();

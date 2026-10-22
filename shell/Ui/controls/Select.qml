@@ -5,6 +5,7 @@ import QtQuick.Templates as T
 import Quickshell
 import qs.Commons
 import qs.Ui
+import "../foundation/LineBreak.js" as LineBreak
 
 // A dropdown choice. `model` is a list of strings, or of objects with
 // `textRole` naming the text; `currentIndex` is the choice. A click, Space
@@ -30,7 +31,14 @@ import qs.Ui
 // shows. Under a rounded corner the list is cut to the window's rounded
 // interior (ListMask), so a row scrolled part way past an edge stays inside
 // the curve. The control draws like a text field; the template owns its
-// click, hover and focus. With nothing to choose the list never opens, so
+// click, hover and focus. A choice wider than the control wraps onto
+// further lines and never elides, as an entry of the list does (MenuItem):
+// the control grows by those lines, its first line and the chevron stand
+// where a one-line choice's do, and `firstLineHeight` keeps its row's label
+// beside that line (FormRow). A line breaks only at a space
+// (LineBreak.atSpaces); the accessible name is the plain text. Page Up and
+// Page Down in the open list step by one-line entries, so over wrapped
+// entries a page moves fewer. With nothing to choose the list never opens, so
 // no popup repeats what the closed control says, and nothing promises it
 // will: the pointer stays the arrow and the chevron draws in the disabled
 // text colour. With `emptyText` set, the control reads that text dimmed.
@@ -164,7 +172,12 @@ T.AbstractButton {
     }
 
     implicitWidth: Theme.size.panel.sm / 2
-    implicitHeight: Theme.textField.height
+    // A wrapped choice keeps a one-line choice's room above its first line
+    // and under its last.
+    readonly property real lineInset: Math.max(0, (Theme.textField.height - shown.lineBox) / 2)
+    // The first line's height while the choice wraps, 0 otherwise.
+    readonly property real firstLineHeight: shown.lineCount > 1 ? Theme.textField.height : 0
+    implicitHeight: Math.max(Theme.textField.height, implicitContentHeight + 2 * lineInset)
     leftPadding: sidePadding
     rightPadding: sidePadding + Theme.icon.size.sm + Theme.textField.gap
     hoverEnabled: !lockState.locked
@@ -190,11 +203,11 @@ T.AbstractButton {
     contentItem: Label {
         id: shown
         role: "item"
-        text: root.showsEmpty ? root.emptyText : root.showsPlaceholder ? root.placeholderText : root.currentText
+        text: LineBreak.atSpaces(root.showsEmpty ? root.emptyText : root.showsPlaceholder ? root.placeholderText : root.currentText)
         color: root.showsEmpty || root.showsPlaceholder ? Theme.textField.placeholder : shown.typography.color
         opacity: lockState.fade
         verticalAlignment: Text.AlignVCenter
-        elide: Text.ElideRight
+        wrapMode: Text.Wrap
     }
 
     indicator: Icon {
@@ -202,7 +215,7 @@ T.AbstractButton {
         size: Theme.icon.size.sm
         color: root.opens ? Theme.textField.icon : Theme.color.textDisabled
         x: root.width - width - root.sidePadding
-        y: (root.height - height) / 2
+        y: (Theme.textField.height - height) / 2
         opacity: lockState.fade
     }
 

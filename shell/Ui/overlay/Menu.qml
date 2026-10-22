@@ -157,17 +157,23 @@ Item {
         nav.reveal(currentIndex);
     }
 
+    // Whether the entries pass `maxHeight`, so the list scrolls and its bar
+    // shows, by the bar's own half-pixel test (ScrollBar.needed). It is read
+    // from the entries' heights, not from the scroll area: the list takes
+    // the window's size only after the window shows and overflows until
+    // then. Read from the scroll area, a menu that fits opened a strip
+    // wider than it settled (scripts/qml-unit.sh, 2026-10-10: 112 px, then
+    // 104), and an entry that fits, its text wrapping by the strip, opened
+    // a line taller than it settled (scripts/qml-unit.sh tst_overlays.qml,
+    // 2026-10-22: Settings on 2 lines, then 1).
+    readonly property bool overflows: column.implicitHeight - maxHeight >= 0.5
+
     // The widest entry by its own content, before the column sets every
-    // entry's width, with the bar's strip while the entries pass
-    // `maxHeight`. The strip is read from the entries' heights, not from
-    // their `barRoom`: the list takes the window's size only after the
-    // window shows and overflows until then. Read from `barRoom`, a menu
-    // that fits opened a strip wider than it settled (scripts/qml-unit.sh,
-    // 2026-10-10: 112 px, then 104).
+    // entry's width, with the bar's strip while the entries overflow.
     readonly property real widest: {
         let width = 0;
         for (const item of items()) width = Math.max(width, item.implicitWidth - item.barRoom);
-        return width + (column.implicitHeight - root.maxHeight >= 0.5 ? Theme.scrollArea.gutter : 0);
+        return width + (overflows ? Theme.scrollArea.gutter : 0);
     }
 
     // A hover changes the index too, so a change reveals nothing: a key
@@ -199,7 +205,7 @@ Item {
             target: modelData
             Component.onCompleted: {
                 modelData.cursor = Qt.binding(() => root.plate);
-                modelData.barRoom = Qt.binding(() => root.scrollArea !== null && root.scrollArea.overflowing ? Theme.scrollArea.gutter : 0);
+                modelData.barRoom = Qt.binding(() => root.overflows ? Theme.scrollArea.gutter : 0);
             }
             function onPointed() { if (root.reachable(modelData)) root.currentIndex = root.items().indexOf(modelData); }
         }
