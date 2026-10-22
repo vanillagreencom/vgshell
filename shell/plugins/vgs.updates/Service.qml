@@ -45,6 +45,7 @@ Item {
     // The reboot-notice system step, which the core probes again after its
     // run in core/system and after each plugin scan.
     readonly property var rebootStep: shell === null ? null : shell.system.state["reboot-notice"]
+    readonly property string rebootRequest: shell === null || typeof shell.settings.rebootNotice !== "string" ? "" : shell.settings.rebootNotice
     readonly property bool pageViewed: shell !== null && shell.status.viewed
     property bool rebootOfferVisited: false
     // The AUR command setting, which decides what the VGS row says installs
@@ -64,6 +65,13 @@ Item {
     onPageViewedChanged: {
         if (!pageViewed) rebootOfferVisited = false;
         offerRebootNotice();
+    }
+    onRebootRequestChanged: {
+        // Qt.callLater runs its callback when the engine returns to the event loop
+        // (doc.qt.io/qt-6/qml-qtqml-qt.html#callLater-method). managerChoose
+        // must read the new setting and report the user's press first. A
+        // stored request or config edit is cleared without starting a step.
+        if (rebootRequest !== "") Qt.callLater(clearRebootRequest);
     }
     onAurCommandChanged: publishNow()
     // Only a run that ends after this instance first read the state starts
@@ -145,6 +153,11 @@ Item {
             const reply = shell.status.act("rebootNotice");
             if (reply !== "ok") console.warn("updates: reboot notice " + reply);
         }
+        clearRebootRequest();
+    }
+
+    function clearRebootRequest() {
+        if (shell === null || rebootRequest === "") return;
         const cleared = shell.configure.unset("rebootNotice");
         if (cleared !== "ok") console.error("updates: " + cleared);
     }

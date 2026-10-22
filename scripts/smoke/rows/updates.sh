@@ -235,6 +235,38 @@ updates_visit() {
   expect "leaving Updates answers ok" ok ipc smoke invokeInstance window vgs.settings back ''
   expect "opening Updates answers ok" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.updates
 }
+updates_reboot_selection() { ipc smoke invokeInstance window vgs.settings fieldChoice '{"id":"vgs.updates","key":"rebootNotice"}' | py_reply 'import json,sys
+t=sys.stdin.read(); f=json.loads(t) if t.startswith("{") else None
+i=f.get("index",-1) if f else -1; rows=f.get("model",[]) if f else []
+print(json.dumps([i, rows[i]["value"]]) if 0 <= i < len(rows) else "absent")'; }
+updates_reboot_config() { # REQUEST: a configuration write, never a page press
+  user_config_write python3 - "$home/.config/vgshell/shell.json" "$1" <<'PY'
+import json,sys
+doc=json.load(open(sys.argv[1]))
+row=next(r for r in doc["plugins"] if r["id"] == "vgs.updates")
+row["rebootNotice"]=sys.argv[2]
+print(json.dumps(doc))
+PY
+  expect "the reboot request config is read" ok ipc shell reloadConfig
+}
+updates_reboot_cleanup_cases() {
+  forget_record
+  expect "the Updates service disables for the saved-choice test" ok ipc shell setPluginEnabled vgs.updates false
+  updates_reboot_config vgsOnly
+  expect "the stopped service has a preexisting request" '"vgsOnly"' updates_reboot_held
+  expect "the Updates service enables with the saved choice" ok ipc shell setPluginEnabled vgs.updates true
+  expect_poll "the rebuilt service publishes the hook state" '"vgsOnly"' updates_reboot_action
+  expect_poll "a preexisting request is cleared without running it" null updates_reboot_held
+  expect_poll "a preexisting request leaves the field on the probed choice" '[0, "both"]' updates_reboot_selection
+  expect "a preexisting request starts no system step" absent recorded
+  # Keep the direct-edit case independent when the preexisting case is red.
+  expect "the page can reset the request to the notice in place" ok updates_reboot_choose both
+  expect_poll "the independent direct-edit case starts with no request" null updates_reboot_held
+  updates_reboot_config vgsOnly
+  expect_poll "a direct config request is cleared without running it" null updates_reboot_held
+  expect_poll "a direct config request leaves the field on the probed choice" '[0, "both"]' updates_reboot_selection
+  expect "a direct config request starts no system step" absent recorded
+}
 expect "the Settings tab draws no Reboot notice field while its step reads absent" absent updates_reboot_field
 expect "an absent hook offers no panel" absent updates_offer
 updates_notice_hook="$devices_system_root/usr/share/libalpm/hooks/cachyos-reboot-required.hook"
@@ -255,9 +287,7 @@ expect_poll "Keep closes the offer" absent updates_offer
 expect "Keep starts no system step" absent recorded
 updates_visit
 expect "Keep suppresses the next visit's offer" absent updates_offer
-expect "the Updates service disables for the saved-choice test" ok ipc shell setPluginEnabled vgs.updates false
-expect "the Updates service enables with the saved choice" ok ipc shell setPluginEnabled vgs.updates true
-expect_poll "the rebuilt service publishes the hook state" '"vgsOnly"' updates_reboot_action
+updates_reboot_cleanup_cases
 updates_visit
 expect "the saved Keep survives the service rebuild" absent updates_offer
 expect "resetting the fixture's answer is allowed" ok ipc smoke invokeInstance window vgs.settings applySetting '{"id":"vgs.updates","key":"rebootNoticeAnswered","value":false}'
