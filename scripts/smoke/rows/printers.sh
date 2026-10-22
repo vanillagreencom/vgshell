@@ -47,7 +47,7 @@
 # pr_stays's: 10 reads 0.2 s apart. The row leaves vgs.printers and
 # vgs.system enabled or disabled as it found them, the world empty and no
 # planted systemctl answer.
-# inputs: shell/plugins/vgs.printers/* shell/plugins/vgs.system/* scripts/smoke/fixtures/devices/* scripts/smoke/devices.sh shell/Ui/layout/DeviceList.qml shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system scripts/smoke/rows/device-fakes.sh
+# inputs: shell/plugins/vgs.printers/* shell/plugins/vgs.lock/bin/sleep-watch shell/plugins/vgs.system/* scripts/smoke/fixtures/devices/* scripts/smoke/devices.sh shell/Ui/layout/DeviceList.qml shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system scripts/smoke/rows/device-fakes.sh
 set -euo pipefail
 
 pr_helper=org.opensuse.CupsPkHelper.Mechanism
@@ -387,17 +387,34 @@ PY
 # TERM enters cancellation; an acknowledged cancellation child then receives
 # root group TERM. The private tools cannot contact CUPS or the system bus.
 pr_cleanup_overlap() {
-  python3 - "$repo/shell/plugins/vgs.printers/bin/printers-watch" "$sandbox/printer-overlap" <<'PY'
-import json, os, pathlib, signal, subprocess, sys, time
+  python3 - "$repo/shell/plugins/vgs.printers/bin/printers-watch" "$repo/shell/plugins/vgs.lock/bin/sleep-watch" "$sandbox/printer-overlap" <<'PY'
+import json, os, pathlib, select, signal, subprocess, sys, time
 
-helper, root = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+helper, lock_helper, root = map(pathlib.Path, sys.argv[1:])
 root.mkdir()
 tools = root / 'tools'
 tools.mkdir()
 (tools / 'dbus-monitor').write_text('''#!/usr/bin/env python3
-import signal
+import os,pathlib,signal
+(pathlib.Path(os.environ['PRINTER_CASE'])/'monitor-pid').write_text(str(os.getpid()))
 print("signal interface=org.freedesktop.DBus; member=NameAcquired", flush=True)
 while True: signal.pause()
+''')
+(tools / 'cat').write_text('''#!/usr/bin/env python3
+import os,pathlib,sys
+(pathlib.Path(os.environ['PRINTER_CASE'])/'reader-pid').write_text(str(os.getpid()))
+sys.stdin.buffer.read()
+''')
+(tools / 'busctl').write_text('''#!/usr/bin/env python3
+import os,pathlib,time
+root=pathlib.Path(os.environ['PRINTER_CASE'])
+assert 'get-property' in __import__('sys').argv
+(root/'startup-query').touch()
+deadline=time.monotonic()+3
+while not (root/'startup-release').exists():
+    assert time.monotonic() < deadline, 'fixture startup gate timeout'
+    time.sleep(0.01)
+print('b false')
 ''')
 (tools / 'ipptool').write_text('''#!/usr/bin/env python3
 import os,pathlib,sys,time
@@ -407,7 +424,10 @@ if sys.argv[-1].endswith('subscribe.test'):
 elif sys.argv[-1].endswith('cancel.test'):
     assert sys.argv[sys.argv.index('-T')+1] == '4'
     (root/'cancel-started').touch()
-    time.sleep(0.3)
+    deadline=time.monotonic()+4
+    while not (root/'cancel-release').exists():
+        assert time.monotonic() < deadline, 'fixture cancellation gate timeout'
+        time.sleep(0.01)
     (root/'cancel-completed').touch()
     if os.environ['PRINTER_REFUSE'] == 'yes':
         print('fixture-cancel-refusal', file=sys.stderr)
@@ -422,6 +442,10 @@ assert source.count(needle) == 1
 mutant.write_text(source.replace(needle, '', 1))
 mutant.chmod(0o755)
 results = []
+def record(result):
+    results.append(result)
+    (root/'results.json').write_text(json.dumps(results, indent=2)+'\n')
+
 for name, program, overlap, refuse, completed in (
         ('single', helper, False, False, True),
         ('overlap', helper, True, False, True),
@@ -435,8 +459,15 @@ for name, program, overlap, refuse, completed in (
     watch = subprocess.Popen([str(program), 'ipp://fixture/'], env=environment,
                              stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                              stderr=subprocess.PIPE, text=True, start_new_session=True)
+    held = []
     try:
         assert watch.stdout.readline().strip() == 'ready subscription=5'
+        deadline = time.monotonic()+3
+        while not (case/'reader-pid').exists():
+            assert time.monotonic() < deadline, 'reader readiness timeout'
+            time.sleep(0.01)
+        held = [os.pidfd_open(int((case/name).read_text()))
+                for name in ('monitor-pid', 'reader-pid')]
         watch.send_signal(signal.SIGTERM)
         deadline = time.monotonic()+3
         while not (case/'cancel-started').exists():
@@ -444,16 +475,27 @@ for name, program, overlap, refuse, completed in (
             assert time.monotonic() < deadline, 'cancellation readiness timeout'
             time.sleep(0.01)
         started = time.monotonic()
-        if overlap: os.killpg(watch.pid, signal.SIGTERM)
+        if overlap:
+            os.killpg(watch.pid, signal.SIGTERM)
+            # Real monitor/reader identities are held before signaling. They
+            # end while cancellation still holds the gate, so cached numeric
+            # PIDs are no longer teardown authority. No reuse is simulated.
+            for fd in held:
+                poll = select.poll()
+                poll.register(fd, select.POLLIN)
+                assert poll.poll(2000), 'fixture child survived group TERM'
+            assert not (case/'cancel-completed').exists()
+        (case/'cancel-release').touch()
         # Keep stdin open until the held watcher completes, matching the
         # reviewed ordering rather than triggering an earlier EOF path.
         status = watch.wait(timeout=4)
         stdout, stderr = watch.communicate(timeout=1)
         result = {'case': name, 'cancelStarted': True,
                   'cancelCompleted': (case/'cancel-completed').exists(),
+                  'childrenExitedBeforeCancelRelease': overlap,
                   'status': status, 'stderr': stderr,
                   'secondsAfterAcknowledgement': time.monotonic()-started}
-        results.append(result)
+        record(result)
         assert result['cancelCompleted'] == completed, result
         assert status == 143, result
         if refuse:
@@ -464,7 +506,39 @@ for name, program, overlap, refuse, completed in (
         if watch.poll() is None:
             os.killpg(watch.pid, signal.SIGKILL)
         watch.communicate(timeout=3)
-(root/'results.json').write_text(json.dumps(results, indent=2)+'\n')
+        for fd in held: os.close(fd)
+# The Lock sibling has the same ownership assumption, but no CUPS work.
+# Hold its real startup read while its real monitor exits, then deliver
+# group TERM. The private busctl only reports false; no sleep is requested.
+case = root/'lock-completed-monitor'
+case.mkdir()
+watch = subprocess.Popen([str(lock_helper)], env={'PATH':str(tools)+':'+os.defpath,
+                         'HOME':str(case), 'LC_ALL':'C', 'PRINTER_CASE':str(case)},
+                         stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                         stderr=subprocess.PIPE, text=True, start_new_session=True)
+monitor = None
+try:
+    deadline = time.monotonic()+3
+    while not (case/'startup-query').exists():
+        assert watch.poll() is None, 'Lock exited before startup query'
+        assert time.monotonic() < deadline, 'Lock startup readiness timeout'
+        time.sleep(0.01)
+    monitor = os.pidfd_open(int((case/'monitor-pid').read_text()))
+    signal.pidfd_send_signal(monitor, signal.SIGTERM)
+    poll = select.poll()
+    poll.register(monitor, select.POLLIN)
+    assert poll.poll(2000), 'Lock monitor did not exit before root TERM'
+    os.killpg(watch.pid, signal.SIGTERM)
+    status = watch.wait(timeout=3)
+    stdout, stderr = watch.communicate(timeout=1)
+    record({'case':'lock-completed-monitor', 'status':status,
+                    'monitorExitedBeforeRootTerm':True, 'stdout':stdout, 'stderr':stderr})
+    assert status == 143, results[-1]
+    assert 'sleep budget_ms=' not in stdout, results[-1]
+finally:
+    if watch.poll() is None: os.killpg(watch.pid, signal.SIGKILL)
+    watch.communicate(timeout=3)
+    if monitor is not None: os.close(monitor)
 print('preserved')
 PY
 }

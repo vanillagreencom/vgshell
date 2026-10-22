@@ -67,7 +67,10 @@ if [[ ${1-} != --held ]]; then
   # An explicit redirection keeps the pipe, not /dev/null, on its stdin.
   cat <&0 >/dev/null &
   reader=$!
-  trap 'kill -TERM "$held" 2>/dev/null || :' TERM INT HUP
+  # These are this wrapper's only asynchronous jobs: one setpriv and one
+  # cat. Bash jobspec kills skip reaped children; cached PIDs can be reused
+  # while the held watch completes cancellation after a group TERM.
+  trap 'builtin kill -TERM -- "%setpriv" 2>/dev/null || :' TERM INT HUP
   waiting=("$held" "$reader")
   status=0
   # A trapped signal ends a wait with nothing ended and `ended` unset; the
@@ -78,10 +81,10 @@ if [[ ${1-} != --held ]]; then
     if [[ ${ended:-} == "$held" ]]; then status=$code; break; fi
     if [[ ${ended:-} == "$reader" ]]; then
       waiting=("$held")
-      kill -TERM "$held" 2>/dev/null || :
+      builtin kill -TERM -- "%setpriv" 2>/dev/null || :
     fi
   done
-  ((${#waiting[@]} == 1)) || kill "$reader" 2>/dev/null || :
+  ((${#waiting[@]} == 1)) || builtin kill -TERM -- "%cat" 2>/dev/null || :
   exit "$status"
 fi
 
@@ -99,7 +102,9 @@ cleanup() {
   if [[ -n $subscription ]] && ! reply="$(ipptool -T 4 -t -d "id=$subscription" "$uri" "$tests/cancel.test" 2>&1)"; then
     printf 'printers-watch: cancel=failed id=%s\n%s\n' "$subscription" "$reply" >&2
   fi
-  [[ -z $monitor_pid ]] || kill "$monitor_pid" 2>/dev/null || :
+  # MONITOR is this held watch's only asynchronous job. It may already
+  # have ended during cancellation; retain Bash authority rather than its PID.
+  [[ -z $monitor_pid ]] || builtin kill -TERM -- %+ 2>/dev/null || :
 }
 trap cleanup EXIT
 trap 'exit 143' TERM

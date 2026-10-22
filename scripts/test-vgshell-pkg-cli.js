@@ -64,9 +64,9 @@ function verifyCli(texts, tmp) {
     for (const command of ["pacman", "yay", "gum", "dnf5"]) fs.writeFileSync(path.join(stubs, command), "#!/bin/sh\nexit 99\n", { mode: 0o755 });
     // bin/vgshell runs under bash and resolves itself with readlink and
     // dirname; node runs bin/vgshell-pkg, which takes its lock through flock
-    // and runs mise's query through env; the stubs use cat and sleep. None
+    // and runs its private query owner with python3; the stubs use cat and sleep. None
     // of them is a manager.
-    for (const tool of ["bash", "readlink", "dirname", "flock", "env", "setpriv", "cat", "sleep"]) {
+    for (const tool of ["bash", "readlink", "dirname", "flock", "env", "setpriv", "python3", "cat", "sleep"]) {
         const found = childProcess.spawnSync("sh", ["-c", "command -v \"$1\"", "sh", tool], { encoding: "utf8" });
         if (found.status !== 0) return { failures: [], missing: tool, counts };
         const target = path.join(tools, tool);

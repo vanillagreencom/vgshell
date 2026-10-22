@@ -76,7 +76,9 @@ coproc MONITOR { exec dbus-monitor --system "type='signal',sender='org.freedeskt
 monitor_pid=$MONITOR_PID
 # Bash unsets MONITOR when the coprocess ends, so the reads use a copy.
 exec {monitor_fd}<&"${MONITOR[0]}"
-trap 'kill "$monitor_pid" 2>/dev/null || :' EXIT
+# MONITOR is this hook's only asynchronous job. Startup's foreground
+# busctl may still be returning after group TERM ended and Bash reaped it.
+trap 'builtin kill -TERM -- %+ 2>/dev/null || :' EXIT
 if ! IFS= read -r -t 2 line <&"$monitor_fd"; then
   kill -0 "$monitor_pid" 2>/dev/null || monitor_exit
   printf 'sleep-watch: refused: monitor=silent\n' >&2
