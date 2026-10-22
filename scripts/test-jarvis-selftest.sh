@@ -17,7 +17,9 @@
 # as a case sets it, logs each call it gets, and owns a second bus name. The
 # world's own filter, a real xdg-dbus-proxy, and the real secret-tool and
 # busctl reach it. Without one of those programs the keyring cases are not
-# measured and the file exits 77 once the others have run.
+# measured and the file exits 77 once the others have run. At exit the file
+# ends the bus by its pids; any other child still running is a leak it
+# names, ends and fails on, so a leaked child cannot hold the row silent.
 # The function cases run the runner's own functions, cut from its file,
 # over planted traces, audit records and folders, with the harness's own
 # py_reply. The comparison, audio and wake cases drive the suite records,
@@ -42,10 +44,29 @@ runner="$repo/scripts/jarvis-selftest.sh"
 tmp="$(mktemp -d)" || { echo "test-jarvis-selftest: scratch=mktemp-failed" >&2; exit 1; }
 [[ -d $tmp && ! -L $tmp ]] || { echo "test-jarvis-selftest: scratch=not-a-directory value=[$tmp]" >&2; exit 1; }
 tmp="$(cd -- "$tmp" && pwd -P)" || { echo "test-jarvis-selftest: scratch=resolve-failed" >&2; exit 1; }
-# The scratch bus and the stand-in service end by the pids this file
-# started, and are reaped before their scratch root goes.
+# teardown, the file's exit: the scratch bus and the stand-in service end by
+# the pids this file started. Any other child still running is a case's
+# leak, which would hold the bare wait: each is named and sent TERM, what
+# still runs after a three-second poll gets KILL, and the file exits 1. All
+# are reaped before their scratch root goes. A pid `jobs -r` lists is a
+# child bash has not reaped, so no later process holds that number.
 bus_pids=()
-trap 'for pid in "${bus_pids[@]}"; do kill "$pid" 2>/dev/null || true; done; wait; rm -rf -- "${tmp:?}"' EXIT
+teardown() {
+  local pid leaked=0 tries=30
+  for pid in "${bus_pids[@]}"; do kill "$pid" 2>/dev/null || true; done
+  for pid in $(jobs -rp); do
+    [[ " ${bus_pids[*]} " != *" $pid "* ]] || continue
+    echo "test-jarvis-selftest: refused: child=still-running pid=$pid" >&2
+    kill "$pid" 2>/dev/null || true
+    leaked=1
+  done
+  while [[ -n $(jobs -rp) ]] && ((tries-- > 0)); do sleep 0.1; done
+  for pid in $(jobs -rp); do kill -KILL "$pid" 2>/dev/null || true; done
+  wait
+  rm -rf -- "${tmp:?}"
+  ((leaked == 0)) || exit 1
+}
+trap teardown EXIT
 failures=0
 ok() { printf '  ok    %s\n' "$*"; }
 fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
@@ -1908,6 +1929,54 @@ control plant "a runner that goes on without the prepared recording" '    [[ -f 
 control plant "a runner that takes the cloned voice with the realtime voice" '  [[ $cloned == false || $voice == local ]] || refuse "argument=--cloned-voice reason=needs-local-voice"' '  :' cloned_realtime
 control cut_functions "a sidecar reader that ignores the recording" 'found = "--reference" in argv' 'found = False' cloned_sidecar yes '{"reference": true}'
 control cut_functions "a comparison that skips the cloned voice" 'if case.get("clonedVoice") and (record.get("sidecar") or {}).get("reference") is not True:' 'if False:' cloned_record
+
+echo "--- this file's own teardown"
+teardown_dir="$tmp/teardown"
+mkdir -p "$teardown_dir"
+sed -n '/^teardown() {/,/^}/p' "$self" >"$teardown_dir/teardown.sh"
+# leaked_children TEARDOWN: the teardown, run as the exit of a bash that
+# leaves a bus pid and two other children running, one that ends on TERM
+# and one that ignores it, returns before the deadline with status 1,
+# having named each of the two and removed its scratch root. The deadline
+# KILLs its whole process group, the planted children with it; the outer
+# redirect takes this shell's notice of that kill.
+leaked_children() {
+  local root="$teardown_dir/root"
+  mkdir -p "$root"
+  rm -f -- "$teardown_dir/pids" "$teardown_dir/ready"
+  teardown_status=0
+  { timeout -s KILL 10 "$BASH" -c '
+set -euo pipefail
+source "$1"
+tmp="$2" bus_pids=()
+trap teardown EXIT
+sleep 600 & bus_pids+=($!)
+sleep 600 & echo "$!" >>"$3"
+"$BASH" -c "trap \"\" TERM; : >\"\$1\"; exec sleep 600" _ "$4" & echo "$!" >>"$3"
+until [[ -e $4 ]]; do sleep 0.05; done' _ "$1" "$root" "$teardown_dir/pids" "$teardown_dir/ready" >"$teardown_dir/out" 2>"$teardown_dir/err"; } 2>/dev/null || teardown_status=$?
+  [[ $teardown_status -eq 1 && ! -e $root && ! -s $teardown_dir/out &&
+    "$(grep -- '^test-jarvis-selftest: ' "$teardown_dir/err")" == "$(sed 's/^/test-jarvis-selftest: refused: child=still-running pid=/' -- "$teardown_dir/pids")" ]]
+}
+holds "a child left running at exit is named, ended and fails the file" leaked_children "$teardown_dir/teardown.sh"
+# The control: the teardown with no step for the other children waits on
+# them until the deadline KILLs it, exit 137.
+if mutate "$teardown_dir/teardown.sh" '  for pid in $(jobs -rp); do
+    [[ " ${bus_pids[*]} " != *" $pid "* ]] || continue
+    echo "test-jarvis-selftest: refused: child=still-running pid=$pid" >&2
+    kill "$pid" 2>/dev/null || true
+    leaked=1
+  done
+  while [[ -n $(jobs -rp) ]] && ((tries-- > 0)); do sleep 0.1; done
+  for pid in $(jobs -rp); do kill -KILL "$pid" 2>/dev/null || true; done
+' '' "$teardown_dir/mutant.sh"; then
+  if ! leaked_children "$teardown_dir/mutant.sh" && [[ $teardown_status -eq 137 ]]; then
+    ok "control: a teardown that leaves other children to the wait"
+  else
+    fail "control: a teardown that leaves other children to the wait did not reach the deadline: exit=$teardown_status"
+  fi
+else
+  fail "control: a teardown that leaves other children to the wait: its defect did not apply"
+fi
 
 if [[ $failures -gt 0 ]]; then
   printf 'test-jarvis-selftest: %d failure(s)\n' "$failures"
