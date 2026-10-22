@@ -198,7 +198,7 @@ control no-refused '      refused) echo "released reason=refused" ;;' '      ref
 control_row "a copy that takes a refusal for a timeout" "ready budget_ms=4000|sleep budget_ms=4000|released reason=refused" refused STUB_WINDOW=5000000
 control any-signal '[[ $line == *"boolean true"* ]] || continue' ':'
 control_row "a copy that takes any bus line for a sleep" "ready budget_ms=4000" closed STUB_WINDOW=5000000 STUB_QUIET=1
-control no-exit-trap "trap 'kill \"\$monitor_pid\" 2>/dev/null || :' EXIT" ':'
+control no-exit-trap "trap 'builtin kill -TERM -- %+ 2>/dev/null || :' EXIT" ':'
 got="$(term_row "$WATCH_CONTROL")"
 if [[ $got == alive ]]; then ok "control: a copy whose monitor outlives TERM"; else fail "control: a copy whose monitor outlives TERM got $got"; fi
 

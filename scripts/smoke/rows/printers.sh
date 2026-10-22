@@ -383,29 +383,38 @@ PY
   rescan "a scan drops the Printers control copy"
 }
 
-# Exercise the real helper's cleanup independently of the UI. The first
-# TERM enters cancellation; an acknowledged cancellation child then receives
-# root group TERM. The private tools cannot contact CUPS or the system bus.
+# Real ipptool talks only to this row's loopback IPP responder. Its received
+# cancellation request acknowledges that it installed its real handlers,
+# before root group TERM overlaps the held watcher's cleanup.
 pr_cleanup_overlap() {
   python3 - "$repo/shell/plugins/vgs.printers/bin/printers-watch" "$repo/shell/plugins/vgs.lock/bin/sleep-watch" "$sandbox/printer-overlap" <<'PY'
-import json, os, pathlib, select, signal, subprocess, sys, time
+import http.server, json, os, pathlib, select, shutil, signal, struct
+import subprocess, sys, threading, time
 
 helper, lock_helper, root = map(pathlib.Path, sys.argv[1:])
 root.mkdir()
 tools = root / 'tools'
 tools.mkdir()
-(tools / 'dbus-monitor').write_text('''#!/usr/bin/env python3
+ipptool = shutil.which('ipptool', path=os.defpath)
+assert ipptool, 'real ipptool unavailable'
+ipptool = pathlib.Path(ipptool).resolve()
+version = subprocess.run([str(ipptool), '--version'], check=True,
+                         capture_output=True, text=True).stdout.strip()
+# The UI part of the row uses the standard CUPS stand-in. This boundary
+# deliberately uses the installed binary, including its handler replacement.
+(tools/'ipptool').symlink_to(ipptool)
+(tools/'dbus-monitor').write_text('''#!/usr/bin/env python3
 import os,pathlib,signal
 (pathlib.Path(os.environ['PRINTER_CASE'])/'monitor-pid').write_text(str(os.getpid()))
 print("signal interface=org.freedesktop.DBus; member=NameAcquired", flush=True)
 while True: signal.pause()
 ''')
-(tools / 'cat').write_text('''#!/usr/bin/env python3
+(tools/'cat').write_text('''#!/usr/bin/env python3
 import os,pathlib,sys
 (pathlib.Path(os.environ['PRINTER_CASE'])/'reader-pid').write_text(str(os.getpid()))
 sys.stdin.buffer.read()
 ''')
-(tools / 'busctl').write_text('''#!/usr/bin/env python3
+(tools/'busctl').write_text('''#!/usr/bin/env python3
 import os,pathlib,time
 root=pathlib.Path(os.environ['PRINTER_CASE'])
 assert 'get-property' in __import__('sys').argv
@@ -416,100 +425,209 @@ while not (root/'startup-release').exists():
     time.sleep(0.01)
 print('b false')
 ''')
-(tools / 'ipptool').write_text('''#!/usr/bin/env python3
-import os,pathlib,sys,time
-root=pathlib.Path(os.environ['PRINTER_CASE'])
-if sys.argv[-1].endswith('subscribe.test'):
-    print('notify-subscription-id (integer) = 5')
-elif sys.argv[-1].endswith('cancel.test'):
-    assert sys.argv[sys.argv.index('-T')+1] == '4'
-    (root/'cancel-started').touch()
-    deadline=time.monotonic()+4
-    while not (root/'cancel-release').exists():
-        assert time.monotonic() < deadline, 'fixture cancellation gate timeout'
-        time.sleep(0.01)
-    (root/'cancel-completed').touch()
-    if os.environ['PRINTER_REFUSE'] == 'yes':
-        print('fixture-cancel-refusal', file=sys.stderr)
-        sys.exit(1)
-else: sys.exit(2)
-''')
-for path in tools.iterdir(): path.chmod(0o755)
-mutant = root / 'printers-watch-mutant'
+for path in tools.iterdir():
+    if not path.is_symlink(): path.chmod(0o755)
 source = helper.read_text()
-needle = "  trap '' TERM INT HUP\n"
-assert source.count(needle) == 1
-mutant.write_text(source.replace(needle, '', 1))
-mutant.chmod(0o755)
+mutants = {}
+for name, needle in (('no-mask', 'env --block-signal=TERM,INT,HUP -- '),):
+    assert source.count(needle) == 1, name
+    # Preserve the plugin-relative ipp files when running the helper copy.
+    directory = root/name
+    directory.mkdir()
+    (directory/'bin').mkdir()
+    (directory/'ipp').symlink_to(helper.parent.parent/'ipp')
+    program = directory/'bin/printers-watch'
+    program.write_text(source.replace(needle, '', 1))
+    program.chmod(0o755)
+    mutants[name] = program
 results = []
 def record(result):
     results.append(result)
     (root/'results.json').write_text(json.dumps(results, indent=2)+'\n')
 
-for name, program, overlap, refuse, completed in (
-        ('single', helper, False, False, True),
-        ('overlap', helper, True, False, True),
-        ('refusal', helper, True, True, True),
-        ('control', mutant, True, False, False)):
-    case = root / name
+def exited(fd, milliseconds):
+    poll = select.poll()
+    poll.register(fd, select.POLLIN)
+    return bool(poll.poll(milliseconds))
+
+def ipp_attribute(tag, name, value):
+    name = name.encode()
+    return bytes([tag])+struct.pack('!H', len(name))+name+struct.pack('!H', len(value))+value
+
+class Responder(http.server.ThreadingHTTPServer):
+    daemon_threads = True
+    def __init__(self, refuse):
+        self.cancel = threading.Event()
+        self.release = threading.Event()
+        self.finished = threading.Event()
+        self.refuse = refuse
+        self.requests = []
+        self.errors = []
+        super().__init__(('127.0.0.1', 0), Request)
+
+class Request(http.server.BaseHTTPRequestHandler):
+    protocol_version = 'HTTP/1.1'
+    def log_message(self, *args): pass
+    def do_POST(self):
+        try:
+            if self.headers.get('Transfer-Encoding', '').lower() == 'chunked':
+                chunks = []
+                while True:
+                    size = int(self.rfile.readline().split(b';')[0], 16)
+                    if size == 0:
+                        assert self.rfile.readline() == b'\r\n'
+                        break
+                    chunks.append(self.rfile.read(size))
+                    assert self.rfile.read(2) == b'\r\n'
+                body = b''.join(chunks)
+            else:
+                body = self.rfile.read(int(self.headers['Content-Length']))
+            operation = int.from_bytes(body[2:4], 'big')
+            self.server.requests.append(operation)
+            assert operation in (0x16, 0x1b), operation
+            if operation == 0x1b:
+                self.server.cancel.set()
+                assert self.server.release.wait(8), 'private response gate timeout'
+            status = 0x0401 if self.server.refuse and operation == 0x1b else 0
+            response = body[:2]+struct.pack('!H', status)+body[4:8]+b'\x01'
+            response += ipp_attribute(0x47, 'attributes-charset', b'utf-8')
+            response += ipp_attribute(0x48, 'attributes-natural-language', b'en')
+            if operation == 0x16:
+                response += b'\x06'+ipp_attribute(0x21, 'notify-subscription-id', struct.pack('!I', 5))
+            response += b'\x03'
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/ipp')
+            self.send_header('Content-Length', str(len(response)))
+            self.end_headers()
+            self.wfile.write(response)
+            self.wfile.flush()
+            if operation == 0x1b: self.server.finished.set()
+        except (BrokenPipeError, ConnectionResetError):
+            # Expected when the no-mask control or the real timeout ends its query.
+            pass
+        except Exception as error:
+            self.server.errors.append(repr(error))
+
+# Success, refusal, timeout and both defects share the real cancellation
+# request barrier. SIGSTOP models an unresponsive residual only for the
+# explicitly labelled five-second root-signal timer case.
+for name, program, overlap, outcome in (
+        ('single', helper, False, 'success'),
+        ('overlap', helper, True, 'success'),
+        ('refusal', helper, True, 'refused'),
+        ('timeout', helper, True, 'timeout'),
+        ('root-kill-model', helper, True, 'killed'),
+        ('control-no-mask', mutants['no-mask'], True, 'interrupted')):
+    case = root/name
     case.mkdir()
-    environment = {'PATH': str(tools)+':'+os.defpath, 'HOME': str(case),
-                   'LC_ALL': 'C', 'PRINTER_CASE': str(case),
-                   'PRINTER_REFUSE': 'yes' if refuse else 'no'}
-    watch = subprocess.Popen([str(program), 'ipp://fixture/'], env=environment,
-                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+    server = Responder(outcome == 'refused')
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    environment = {'PATH': str(tools)+':'+os.defpath, 'HOME': str(case), 'LC_ALL': 'C',
+                   'PRINTER_CASE': str(case)}
+    watch = subprocess.Popen([str(program), f'ipp://127.0.0.1:{server.server_port}/'],
+                             env=environment, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                              stderr=subprocess.PIPE, text=True, start_new_session=True)
     held = []
+    cancel_pid = None
     try:
+        ready, _, _ = select.select([watch.stdout], [], [], 5)
+        assert ready, 'watcher readiness timeout'
         assert watch.stdout.readline().strip() == 'ready subscription=5'
         deadline = time.monotonic()+3
         while not (case/'reader-pid').exists():
             assert time.monotonic() < deadline, 'reader readiness timeout'
             time.sleep(0.01)
-        held = [os.pidfd_open(int((case/name).read_text()))
-                for name in ('monitor-pid', 'reader-pid')]
+        held = [os.pidfd_open(int((case/label).read_text()))
+                for label in ('monitor-pid', 'reader-pid')]
         watch.send_signal(signal.SIGTERM)
-        deadline = time.monotonic()+3
-        while not (case/'cancel-started').exists():
-            assert watch.poll() is None, 'watch ended before cancellation began'
-            assert time.monotonic() < deadline, 'cancellation readiness timeout'
-            time.sleep(0.01)
+        assert server.cancel.wait(3), 'real cancellation request was not reached'
         started = time.monotonic()
+        # The request proves exec/handler registration already happened.
+        # Bind status observations and signals to the real owned child identity.
+        for entry in pathlib.Path('/proc').iterdir():
+            if not entry.name.isdigit(): continue
+            pid = int(entry.name)
+            try:
+                if os.getpgid(pid) == watch.pid and (entry/'exe').resolve() == ipptool:
+                    assert cancel_pid is None, 'multiple cancellation children'
+                    cancel_pid = pid
+                    held.append(os.pidfd_open(pid))
+            except (ProcessLookupError, FileNotFoundError, PermissionError):
+                continue
+        assert cancel_pid is not None, 'real ipptool not held'
+        fields = dict(line.split(':', 1) for line in pathlib.Path(f'/proc/{cancel_pid}/status').read_text().splitlines() if ':' in line)
+        term = 1 << (signal.SIGTERM-1)
+        caught = bool(int(fields['SigCgt'], 16) & term)
+        blocked = bool(int(fields['SigBlk'], 16) & term)
+        assert caught, 'real ipptool did not replace inherited TERM ignore'
+        assert blocked == (name != 'control-no-mask'), fields
+        if outcome == 'killed': signal.pidfd_send_signal(held[-1], signal.SIGSTOP)
+        pending = False
         if overlap:
             os.killpg(watch.pid, signal.SIGTERM)
-            # Real monitor/reader identities are held before signaling. They
-            # end while cancellation still holds the gate, so cached numeric
-            # PIDs are no longer teardown authority. No reuse is simulated.
-            for fd in held:
-                poll = select.poll()
-                poll.register(fd, select.POLLIN)
-                assert poll.poll(2000), 'fixture child survived group TERM'
-            assert not (case/'cancel-completed').exists()
-        (case/'cancel-release').touch()
-        # Keep stdin open until the held watcher completes, matching the
-        # reviewed ordering rather than triggering an earlier EOF path.
-        status = watch.wait(timeout=4)
-        stdout, stderr = watch.communicate(timeout=1)
-        result = {'case': name, 'cancelStarted': True,
-                  'cancelCompleted': (case/'cancel-completed').exists(),
-                  'childrenExitedBeforeCancelRelease': overlap,
-                  'status': status, 'stderr': stderr,
-                  'secondsAfterAcknowledgement': time.monotonic()-started}
-        record(result)
-        assert result['cancelCompleted'] == completed, result
-        assert status == 143, result
-        if refuse:
-            assert 'printers-watch: cancel=failed id=5' in stderr, result
-            assert 'fixture-cancel-refusal' in stderr, result
-        else: assert stderr == '', result
-    finally:
-        if watch.poll() is None:
+            for fd in held[:2]: assert exited(fd, 2000), 'monitor/reader survived root TERM'
+            if blocked:
+                fields = dict(line.split(':', 1) for line in pathlib.Path(f'/proc/{cancel_pid}/status').read_text().splitlines() if ':' in line)
+                pending = bool((int(fields['SigPnd'], 16) | int(fields['ShdPnd'], 16)) & term)
+                assert pending, 'root TERM was not pending on the masked real child'
+            else:
+                # The real ipptool handler sets Cancel and restores SIG_DFL.
+                # Wait for that acknowledgement before releasing the response,
+                # so a fast private server cannot conceal the control's abort.
+                deadline = time.monotonic()+2
+                while not exited(held[-1], 0):
+                    fields = dict(line.split(':', 1) for line in pathlib.Path(f'/proc/{cancel_pid}/status').read_text().splitlines() if ':' in line)
+                    if not int(fields['SigCgt'], 16) & term: break
+                    assert time.monotonic() < deadline, 'unmasked ipptool did not handle TERM'
+                    time.sleep(0.01)
+        # At five seconds root KILL still ends even a stopped blocked child.
+        # This is fixture timer wiring, not the patched engine root-death proof.
+        if outcome not in ('timeout', 'killed'): server.release.set()
+        try:
+            status = watch.wait(timeout=max(0, started+5-time.monotonic()))
+        except subprocess.TimeoutExpired:
+            # wait has not reaped the group leader: this is still our group.
             os.killpg(watch.pid, signal.SIGKILL)
+            status = watch.wait(timeout=1)
+        elapsed = time.monotonic()-started
+        stdout, stderr = watch.communicate(timeout=1)
+        assert exited(held[-1], 500), 'cancellation child survived owner result'
+        result = {'case': name, 'binary': str(ipptool), 'version': version,
+                  'cancelRequestAcknowledged': True, 'termCaught': caught, 'termBlocked': blocked,
+                  'termPendingAfterGroup': pending,
+                  'status': status, 'stderr': stderr, 'secondsAfterAcknowledgement': elapsed,
+                  'responseSent': server.finished.is_set(), 'operations': server.requests,
+                  'monitorReaderExitedBeforeResponse': overlap}
+        record(result)
+        assert not server.errors, server.errors
+        if outcome == 'killed':
+            assert status == -signal.SIGKILL and 5 <= elapsed < 6, result
+        elif outcome == 'timeout':
+            assert status == 143 and 3.5 <= elapsed < 5, result
+            assert 'printers-watch: cancel=failed id=5' in stderr, result
+        elif outcome == 'refused':
+            assert status == 143 and 'printers-watch: cancel=failed id=5' in stderr, result
+            assert 'client-error-forbidden' in stderr and server.finished.is_set(), result
+        elif outcome == 'interrupted':
+            assert status == 143 and 'printers-watch: cancel=failed id=5' in stderr, result
+        else:
+            assert status == 143 and stderr == '' and server.finished.is_set(), result
+    finally:
+        # Group identity remains held by the unreaped watch or cancellation
+        # pidfd through this case; never signal a saved/reaped numeric child.
+        if watch.poll() is None: os.killpg(watch.pid, signal.SIGKILL)
+        for fd in held:
+            if not exited(fd, 0): signal.pidfd_send_signal(fd, signal.SIGKILL)
         watch.communicate(timeout=3)
         for fd in held: os.close(fd)
-# The Lock sibling has the same ownership assumption, but no CUPS work.
-# Hold its real startup read while its real monitor exits, then deliver
-# group TERM. The private busctl only reports false; no sleep is requested.
+        server.release.set()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+# Lock's sole monitor can finish during its startup query. These are real
+# owned children, with no PID reuse or real sleep action in the fixture.
 case = root/'lock-completed-monitor'
 case.mkdir()
 watch = subprocess.Popen([str(lock_helper)], env={'PATH':str(tools)+':'+os.defpath,
@@ -525,16 +643,13 @@ try:
         time.sleep(0.01)
     monitor = os.pidfd_open(int((case/'monitor-pid').read_text()))
     signal.pidfd_send_signal(monitor, signal.SIGTERM)
-    poll = select.poll()
-    poll.register(monitor, select.POLLIN)
-    assert poll.poll(2000), 'Lock monitor did not exit before root TERM'
+    assert exited(monitor, 2000), 'Lock monitor did not exit before root TERM'
     os.killpg(watch.pid, signal.SIGTERM)
     status = watch.wait(timeout=3)
     stdout, stderr = watch.communicate(timeout=1)
     record({'case':'lock-completed-monitor', 'status':status,
-                    'monitorExitedBeforeRootTerm':True, 'stdout':stdout, 'stderr':stderr})
-    assert status == 143, results[-1]
-    assert 'sleep budget_ms=' not in stdout, results[-1]
+            'monitorExitedBeforeRootTerm':True, 'stdout':stdout, 'stderr':stderr})
+    assert status == 143 and 'sleep budget_ms=' not in stdout, results[-1]
 finally:
     if watch.poll() is None: os.killpg(watch.pid, signal.SIGKILL)
     watch.communicate(timeout=3)
@@ -543,7 +658,7 @@ print('preserved')
 PY
 }
 
-expect "overlapping lifetime signals preserve printer cancellation and refusal diagnostics" preserved pr_cleanup_overlap
+expect "real ipptool preserves cancellation through overlapping TERM and keeps its timeout" preserved pr_cleanup_overlap
 [[ ! -f $sandbox/printer-overlap/results.json ]] || cat -- "$sandbox/printer-overlap/results.json"
 
 pr_was_system=""

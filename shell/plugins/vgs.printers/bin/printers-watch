@@ -95,11 +95,12 @@ subscription=""
 monitor_pid=""
 cleanup() {
   local reply
-  # Parent-death forwarding and root group TERM may overlap after cleanup
-  # starts. Ignoring them here also protects the cancellation exec. Leave
-  # one second inside the engine's five-second KILL bound for its result.
+  # ipptool installs its own TERM handler, replacing inherited SIG_IGN.
+  # An exec preserves the signal mask (signal(7)); block cleanup signals
+  # only in the cancel command. Its four-second timeout leaves room for
+  # the result before the engine's five-second group KILL.
   trap '' TERM INT HUP
-  if [[ -n $subscription ]] && ! reply="$(ipptool -T 4 -t -d "id=$subscription" "$uri" "$tests/cancel.test" 2>&1)"; then
+  if [[ -n $subscription ]] && ! reply="$(env --block-signal=TERM,INT,HUP -- ipptool -T 4 -t -d "id=$subscription" "$uri" "$tests/cancel.test" 2>&1)"; then
     printf 'printers-watch: cancel=failed id=%s\n%s\n' "$subscription" "$reply" >&2
   fi
   # MONITOR is this held watch's only asynchronous job. It may already
