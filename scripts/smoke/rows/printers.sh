@@ -383,9 +383,9 @@ PY
   rescan "a scan drops the Printers control copy"
 }
 
-# Real ipptool talks only to this row's loopback IPP responder. Its received
-# cancellation request acknowledges that it installed its real handlers,
-# before root group TERM overlaps the held watcher's cleanup.
+# Real ipptool talks only to this row's loopback IPP responder. A held
+# partial 100 response keeps cupsSendRequest before ipptool's Cancel check;
+# TERM after cupsGetResponse started need not abort its eventual response.
 pr_cleanup_overlap() {
   python3 - "$repo/shell/plugins/vgs.printers/bin/printers-watch" "$repo/shell/plugins/vgs.lock/bin/sleep-watch" "$sandbox/printer-overlap" <<'PY'
 import http.server, json, os, pathlib, select, shutil, signal, struct
@@ -458,6 +458,7 @@ class Responder(http.server.ThreadingHTTPServer):
     daemon_threads = True
     def __init__(self, refuse):
         self.cancel = threading.Event()
+        self.partial_continue = threading.Event()
         self.release = threading.Event()
         self.finished = threading.Event()
         self.refuse = refuse
@@ -468,6 +469,10 @@ class Responder(http.server.ThreadingHTTPServer):
 class Request(http.server.BaseHTTPRequestHandler):
     protocol_version = 'HTTP/1.1'
     def log_message(self, *args): pass
+    def handle_expect_100(self):
+        # CUPS writes the IPP body before waiting for 100 (request.c v2.4.20,
+        # cupsSendRequest). do_POST owns the response barrier below.
+        return True
     def do_POST(self):
         try:
             if self.headers.get('Transfer-Encoding', '').lower() == 'chunked':
@@ -485,9 +490,19 @@ class Request(http.server.BaseHTTPRequestHandler):
             operation = int.from_bytes(body[2:4], 'big')
             self.server.requests.append(operation)
             assert operation in (0x16, 0x1b), operation
+            assert self.headers.get('Expect', '').lower() == '100-continue'
             if operation == 0x1b:
+                # cupsSendRequest writes IPP, then parses the 100 status
+                # (CUPS v2.4.20 cups/request.c:734-800). With no newline its
+                # blocking httpGets cannot finish that call before TERM.
+                self.wfile.write(b'HTTP/1.1 100 Continue')
+                self.wfile.flush()
+                self.server.partial_continue.set()
                 self.server.cancel.set()
                 assert self.server.release.wait(8), 'private response gate timeout'
+                self.wfile.write(b'\r\n\r\n')
+            else:
+                self.wfile.write(b'HTTP/1.1 100 Continue\r\n\r\n')
             status = 0x0401 if self.server.refuse and operation == 0x1b else 0
             response = body[:2]+struct.pack('!H', status)+body[4:8]+b'\x01'
             response += ipp_attribute(0x47, 'attributes-charset', b'utf-8')
@@ -542,6 +557,7 @@ for name, program, overlap, outcome in (
                 for label in ('monitor-pid', 'reader-pid')]
         watch.send_signal(signal.SIGTERM)
         assert server.cancel.wait(3), 'real cancellation request was not reached'
+        assert server.partial_continue.is_set(), '100 status line was not held before TERM'
         started = time.monotonic()
         # The request proves exec/handler registration already happened.
         # Bind status observations and signals to the real owned child identity.
@@ -572,9 +588,9 @@ for name, program, overlap, outcome in (
                 pending = bool((int(fields['SigPnd'], 16) | int(fields['ShdPnd'], 16)) & term)
                 assert pending, 'root TERM was not pending on the masked real child'
             else:
-                # The real ipptool handler sets Cancel and restores SIG_DFL.
-                # Wait for that acknowledgement before releasing the response,
-                # so a fast private server cannot conceal the control's abort.
+                # The real handler sets Cancel and restores SIG_DFL. Complete
+                # the held 100 only after that acknowledgement: the subsequent
+                # ipptool Cancel check must skip cupsGetResponse in this copy.
                 deadline = time.monotonic()+2
                 while not exited(held[-1], 0):
                     fields = dict(line.split(':', 1) for line in pathlib.Path(f'/proc/{cancel_pid}/status').read_text().splitlines() if ':' in line)
@@ -594,7 +610,9 @@ for name, program, overlap, outcome in (
         stdout, stderr = watch.communicate(timeout=1)
         assert exited(held[-1], 500), 'cancellation child survived owner result'
         result = {'case': name, 'binary': str(ipptool), 'version': version,
-                  'cancelRequestAcknowledged': True, 'termCaught': caught, 'termBlocked': blocked,
+                  'cancelRequestAcknowledged': True,
+                  'partialContinueHeld': server.partial_continue.is_set(),
+                  'termCaught': caught, 'termBlocked': blocked,
                   'termPendingAfterGroup': pending,
                   'status': status, 'stderr': stderr, 'secondsAfterAcknowledgement': elapsed,
                   'responseSent': server.finished.is_set(), 'operations': server.requests,
