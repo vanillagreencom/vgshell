@@ -116,16 +116,19 @@ elif mode == "directory":
     assert Path.cwd() == Path(os.environ["HOME"])
     assert not list(expected.iterdir())
 elif mode == "runtime":
-    key, parent = sys.argv[2:]
+    key, parent, starting_cwd = sys.argv[2:]
     runtime = Path(os.environ[key])
     assert runtime == Path(os.environ["XDG_RUNTIME_DIR"])
     assert runtime.parent == Path(parent).resolve() and runtime.name.startswith("jv-")
     assert runtime.is_dir() and not runtime.is_symlink()
     assert runtime.stat().st_mode & 0o777 == 0o700
-    # A default /tmp runtime parent can also contain this invocation's
-    # exclusively-created scratch root; neither is the caller's session.
+    # The helper's cd creates OLDPWD from the outer fixture's private HOME.
+    # A default /tmp parent also contains the inner invocation's scratch.
+    assert os.environ["OLDPWD"] == starting_cwd
     root = Path(os.environ["JARVIS_TEST_ROOT"])
     for name, value in os.environ.items():
+        if name == "OLDPWD":
+            continue
         if value == parent or value.startswith(parent + "/"):
             assert any(value == str(owned) or value.startswith(str(owned) + "/")
                        for owned in (runtime, root)), name

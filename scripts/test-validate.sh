@@ -770,7 +770,6 @@ cases=(
   "share-picker-suite|scripts/test-share-picker.py|cli|python3 scripts/test-share-picker.py"
   "share-picker-consumer|scripts/fixtures/share-picker/xdph-selection.cpp|cli|python3 scripts/test-share-picker.py"
   "jarvis-key-smoke|scripts/smoke/rows/jarvis-keys.sh|all|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-daemon.js"$'\n'"${smoke_plan/smoke_reads_named/$'smoke_reads_named\npython3 scripts/test-smoke-user-config.py'}"
-  "world-consumers|scripts/smoke/gpu-fence.sh|tools|python3 scripts/check-smoke-readers.py"$'\npython3 scripts/test-check-smoke-readers.py\nsmoke_reads_named\npython3 scripts/test-smoke-evidence.py\nscripts/test-sandbox-shots.sh\nscripts/test-gpu-fence.sh\nscripts/test-smoke-owner.sh\nscripts/test-scratch-dirs.sh\nscripts/test-jarvis-selftest.sh\nscripts/test-validate.sh'
   "mode-startup-entry|scripts/qml-smoke.sh|tools|scripts/test-mode-hold.sh"$'\nsmoke_reads_named\npython3 scripts/test-smoke-evidence.py\nscripts/test-gpu-fence.sh\nscripts/test-validate.sh'
   "mode-capture-entry|scripts/sandbox-shots.sh|tools|scripts/test-mode-hold.sh"$'\nscripts/test-smoke-input-guard.sh\nscripts/test-sandbox-shots.sh\nnode scripts/test-google-drive-scene.js\nscripts/test-gpu-fence.sh'
   "compositor-reveal-barrier-suite|scripts/test-compositor-reveal.py|tools|python3 scripts/test-compositor-reveal.py"
@@ -888,6 +887,59 @@ plan_consumer_case() { # SPEC
   done
 }
 parallel_cases plan_consumer_case plan-case "${cases[@]}"
+
+# Ordinary rows read the world through run(), while the other owners select
+# only their declared inputs. The explicit consumers keep a fence edit known,
+# so a missing implicit edge cannot hide behind the unknown-input full run.
+world_expected=(ordinary_logic ordinary_cli explicit_control explicit_entry repository_check
+  '!unrelated_control' '!undeclared_entry' '!container_step' '!nix_step' '!validate: selection=full')
+for variant in real control; do
+  d="$tmp/world-input-$variant"; fresh "$d"
+  python3 - "$d/scripts/validate" "$variant" <<'PYWORLDINPUT'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1]); source = p.read_text()
+a = source.index("rows=(\n")
+b = source.index("\n)\n", a) + 3
+rows = """rows=(
+  "logic|ordinary logic|ordinary_logic|"
+  "cli|ordinary cli|ordinary_cli||row"
+  "tools|explicit control|explicit_control|scripts/smoke/gpu-fence.sh|control"
+  "tools|unrelated control|unrelated_control||control"
+  "unit|explicit entry|explicit_entry|scripts/smoke/gpu-fence.sh|entry"
+  "unit|undeclared entry|undeclared_entry||entry"
+  "package|container step|container_step||container"
+  "nix|nix step|nix_step||container"
+  "repo|repository check|repository_check|"
+)"""
+source = source[:a] + rows + source[b:]
+if sys.argv[2] == "control":
+    edge = 'if [[ ${owner:-row} == row ]]; then'
+    assert source.count(edge) == 1
+    changed = source.replace(edge, 'if false; then')
+    assert changed != source
+    source = changed
+p.write_text(source)
+PYWORLDINPUT
+  "${base_env[@]}" git -C "$d" add scripts/validate
+  "${base_env[@]}" git -C "$d" commit -q -m world-input
+  printf '\n' >>"$d/scripts/smoke/gpu-fence.sh"
+  test_area=all
+  test_args=(--changed HEAD --list)
+  if [[ $variant == real ]]; then
+    row "a world edit selects ordinary rows and preserves declared owners" "$d" 0 "" "${world_expected[@]}"
+  else
+    row "the missing-edge control retains explicit consumers" "$d" 0 "" \
+      explicit_control explicit_entry repository_check '!validate: selection=full'
+    if (failures=0; row "ordinary world dependency" "$d" 0 "" "${world_expected[@]}"; ((failures == 0))) >"$tmp/world-input-control.log"; then
+      fail "control: removing the ordinary-world edge leaves its selector assertion green"
+    else
+      ok "control: removing the ordinary-world edge fails its selector assertion"
+    fi
+  fi
+done
+test_area=offline
+test_args=()
 
 # The Home test loads the menu judge and runs the shipped daemon. Each
 # changed owner must select that consumer independently of the other suites.

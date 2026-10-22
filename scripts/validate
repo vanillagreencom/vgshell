@@ -1688,10 +1688,14 @@ if [[ -n $change_base ]]; then
     for path in "${changed_paths[@]}"; do
       known=false
       for i in "${!rows[@]}"; do
-        IFS='|' read -r row_area label command inputs _ <<<"${rows[i]}"
+        IFS='|' read -r row_area label command inputs owner <<<"${rows[i]}"
         [[ $row_area == repo ]] && continue
         # Command words without a slash, such as node, are not inputs.
         read -r -a patterns <<<"$inputs"
+        # run wraps ordinary rows even when their command never names the world.
+        if [[ ${owner:-row} == row ]]; then
+          patterns+=(scripts/smoke/gpu-fence.sh)
+        fi
         read -r -a words <<<"$command"
         for word in "${words[@]}"; do
           if [[ $word == */* ]]; then patterns+=("$word"); fi

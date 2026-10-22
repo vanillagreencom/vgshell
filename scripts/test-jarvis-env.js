@@ -197,7 +197,7 @@ async function main() {
     }
     function socketEdge(file) {
         const parent = edgeParent(99);
-        const result = run("/bin/bash", [file, standins, "--", "python3", probe, "runtime", "XDG_RUNTIME_DIR", parent],
+        const result = run("/bin/bash", [file, standins, "--", "python3", probe, "runtime", "XDG_RUNTIME_DIR", parent, env.HOME],
             { ...env, XDG_RUNTIME_DIR: parent });
         assert.equal(result.status, 0, result.stderr);
         assert.deepEqual(fs.readdirSync(parent), []);
@@ -214,7 +214,7 @@ async function main() {
     function defaultRuntime(file) {
         const unset = { ...env };
         delete unset.XDG_RUNTIME_DIR;
-        const result = run("/bin/bash", [file, standins, "--", "python3", probe, "runtime", "XDG_RUNTIME_DIR", "/tmp"], unset);
+        const result = run("/bin/bash", [file, standins, "--", "python3", probe, "runtime", "XDG_RUNTIME_DIR", "/tmp", unset.HOME], unset);
         assert.equal(result.status, 0, result.stderr);
     }
     function clearRuntime() {
@@ -504,7 +504,7 @@ async function main() {
         ];
         for (const [key, suffix] of directories) good(helper, "directory", key, suffix);
         const runtimeKeys = ["TMUX_TMPDIR", "XDG_RUNTIME_DIR"];
-        for (const key of runtimeKeys) good(helper, "runtime", key, runtimeParent);
+        for (const key of runtimeKeys) good(helper, "runtime", key, runtimeParent, env.HOME);
         const lock = path.join(root, "orphan.lock");
         function lifetime(file) {
             const result = good(file, "orphan", lock);
@@ -529,7 +529,7 @@ async function main() {
         }
         for (const key of runtimeKeys) {
             mutation("runtime-" + key, key + '="$run"', key + '="' + path.join(root, "parent-home") + '"',
-                file => good(file, "runtime", key, runtimeParent));
+                file => good(file, "runtime", key, runtimeParent, env.HOME));
         }
         mutation("path-fallback", 'PATH="$root/standins:$root/tools"', 'PATH="$root/standins:$root/tools:$PATH"', missingStandin);
         mutation("auth-path-fallback", 'PATH="$root/standins:$root/tools"', 'PATH="$root/standins:$root/tools:$PATH"', missingAuth);
