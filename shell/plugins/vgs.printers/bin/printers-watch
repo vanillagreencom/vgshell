@@ -37,9 +37,8 @@
 # before its pdeathsig was set, so PARENT is no longer its parent, exits.
 #
 # The service holds this first process's stdin open and never writes it.
-# Its end, when the shell exits, or when Quickshell re-executes itself in
-# the same pid after a crash, which closes the pipe but kills no parent
-# (docs/architecture/runtime.md § Why), ends the watch as a TERM does. A
+# Its end, when the shell exits, or when an older stock engine re-executes in the same pid after a crash,
+# ends the watch as a TERM does (docs/architecture/runtime.md § Why). A
 # watch that outlived its shell would hold every descriptor it inherited.
 #
 # No notification is lost between the subscription and listening: it
@@ -93,7 +92,11 @@ subscription=""
 monitor_pid=""
 cleanup() {
   local reply
-  if [[ -n $subscription ]] && ! reply="$(ipptool -T 5 -t -d "id=$subscription" "$uri" "$tests/cancel.test" 2>&1)"; then
+  # Parent-death forwarding and root group TERM may overlap after cleanup
+  # starts. Ignoring them here also protects the cancellation exec. Leave
+  # one second inside the engine's five-second KILL bound for its result.
+  trap '' TERM INT HUP
+  if [[ -n $subscription ]] && ! reply="$(ipptool -T 4 -t -d "id=$subscription" "$uri" "$tests/cancel.test" 2>&1)"; then
     printf 'printers-watch: cancel=failed id=%s\n%s\n' "$subscription" "$reply" >&2
   fi
   [[ -z $monitor_pid ]] || kill "$monitor_pid" 2>/dev/null || :

@@ -9,6 +9,7 @@ mkdir -p -- "$root/bin" "$root/state" "$root/runtime" "$root/home"
 mkdir -p -- "$root/bin/lib"
 ln -s -- "$repo/bin/lib/qml-library.js" "$root/bin/lib/qml-library.js"
 ln -s -- "$repo/bin/lib/owned-group.sh" "$root/bin/lib/owned-group.sh"
+ln -s -- "$repo/bin/lib/owned-group.py" "$root/bin/lib/owned-group.py"
 mkdir -p -- "$root/shell/Commons"
 cp -- "$repo/shell/Commons/PageReference.js" "$root/shell/Commons/"
 trap 'chmod -R u+rwx -- "${root:?}" 2>/dev/null; rm -rf -- "${root:?}"' EXIT
@@ -184,14 +185,14 @@ delayed_run() {
 read -r shipped_left shipped_ack <<<"$(delayed_run shipped "$check")"
 if [[ $shipped_left -eq 0 && $shipped_ack == yes ]]; then ok "TERM waits for a probe's delayed shutdown"; else fail "TERM waits for a probe's delayed shutdown: left=$shipped_left ack=$shipped_ack"; fi
 mutant="$root/check-no-rewait"
-python3 - "$repo/bin/lib/owned-group.sh" "$root/owner-no-rewait" "$check" "$mutant" <<'PY'
+python3 - "$repo/bin/lib/owned-group.py" "$root/owner-no-rewait" "$check" "$mutant" <<'PY'
 import pathlib, sys
 source = pathlib.Path(sys.argv[1]).read_text()
-old = '  [[ -z $child ]] || wait "$child" 2>/dev/null || true'
+old = '    wait_for_children(grace, wakeup)'
 assert source.count(old) == 1
-pathlib.Path(sys.argv[2]).write_text(source.replace(old, '  :'))
+pathlib.Path(sys.argv[2]).write_text(source.replace(old, '    pass'))
 check = pathlib.Path(sys.argv[3]).read_text()
-old = '-- "${vgshell%/*}/lib/owned-group.sh"'
+old = '-- "${vgshell%/*}/lib/owned-group.py"'
 assert check.count(old) == 1
 pathlib.Path(sys.argv[4]).write_text(check.replace(old, '-- "' + sys.argv[2] + '"'))
 PY

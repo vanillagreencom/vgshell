@@ -240,7 +240,7 @@ function runCheck(check) {
             resolve({ error: "absent=" + check.argv[0] });
             return;
         }
-        const child = childProcess.spawn("env", ["--default-signal=TERM,INT,HUP", "setpriv", "--pdeathsig", "TERM", "--", path.join(__dirname, "lib", "owned-group.sh"), String(process.pid), String(KILL_GRACE_MS / 1000), ...check.argv], {
+        const child = childProcess.spawn("env", ["--default-signal=TERM,INT,HUP", "setpriv", "--pdeathsig", "TERM", "--", path.join(__dirname, "lib", "owned-group.py"), String(process.pid), String(KILL_GRACE_MS / 1000), ...check.argv], {
             cwd: process.env.HOME || "/",
             env: Object.assign({}, process.env, { LC_ALL: "C" }),
             stdio: ["ignore", "pipe", "pipe"],

@@ -7,6 +7,7 @@ is started. The control removes the owner's signal handler in a disposable
 copy and must leave the same stubborn descendants running.
 """
 
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -20,7 +21,8 @@ import unittest
 
 
 REPO = Path(__file__).resolve().parent.parent
-OWNER = REPO / "bin/lib/owned-group.sh"
+OWNER = REPO / "bin/lib/owned-group.py"
+BASH_OWNER = REPO / "bin/lib/owned-group.sh"
 ENV = {"PATH": os.defpath, "LC_ALL": "C", "VGS_TEST_RUN": "1"}
 FIXTURE = '''import json,os,pathlib,signal,sys,time
 root=pathlib.Path(sys.argv[1])
@@ -46,10 +48,13 @@ while True: signal.pause()
 '''
 RETURNING = '''import json,os,pathlib,signal,sys,time
 root=pathlib.Path(sys.argv[1])
+lock_fd=int(sys.argv[2])
+os.fstat(lock_fd)
 pids=[]
 for mode in ("responsive", "stubborn"):
     child=os.fork()
     if child == 0:
+        os.close(lock_fd)
         def stop(signum,frame):
             (root/"term-ack").write_text("ack")
             sys.exit(0)
@@ -117,10 +122,10 @@ wait "$running"
                 job.communicate(timeout=5)
 
     def test_owned_job_stop_ignores_completed_jobs(self):
-        self.owned_jobs(OWNER)
+        self.owned_jobs(BASH_OWNER)
         with tempfile.TemporaryDirectory(prefix="owned-group-job-control-") as directory:
             control = Path(directory) / "owned-group.sh"
-            source = OWNER.read_text()
+            source = BASH_OWNER.read_text()
             needle = '[[ $job_pid == "$pid" && $spec == \\[* ]] || continue'
             self.assertEqual(source.count(needle), 1)
             control.write_text(source.replace(needle, '[[ $spec == \\[* ]] || continue', 1))
@@ -132,9 +137,14 @@ wait "$running"
             root = Path(directory)
             fixture = root / "fixture.py"
             fixture.write_text(RETURNING)
-            query = subprocess.Popen([str(owner), str(os.getpid()), "0.2", sys.executable, str(fixture), directory],
+            lock_path = root / "query.lock"
+            lock = lock_path.open("w")
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            query = subprocess.Popen([str(owner), str(os.getpid()), "0.2", sys.executable, str(fixture), directory, str(lock.fileno())],
                                      start_new_session=True, env=ENV, stdin=subprocess.DEVNULL,
-                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                     pass_fds=(lock.fileno(),))
+            lock.close()
             held = []
             try:
                 deadline = time.monotonic() + 5
@@ -146,6 +156,11 @@ wait "$running"
                 self.assertTrue(all(not exited(fd) for fd in held))
                 (root / "return").touch()
                 self.assertEqual(query.wait(timeout=3), 7)
+                with lock_path.open("w") as next_query:
+                    try:
+                        fcntl.flock(next_query, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except BlockingIOError:
+                        self.fail("returned query retained the caller lock")
                 deadline = time.monotonic() + 3
                 while any(not exited(fd) for fd in held) and time.monotonic() < deadline:
                     time.sleep(0.01)
@@ -167,20 +182,66 @@ wait "$running"
     def test_returning_query_cleans_descendants(self):
         self.returning_query(OWNER)
         with tempfile.TemporaryDirectory(prefix="owned-group-return-control-") as directory:
-            control = Path(directory) / "owned-group.sh"
+            control = Path(directory) / "owned-group.py"
             source = OWNER.read_text()
-            needle = '''trap '' TERM INT HUP
-(
-  kill -TERM -- "-$$"
-  sleep "$grace"
-  kill -KILL -- "-$$"
-) </dev/null >/dev/null 2>&1 &
-'''
+            needle = '        finish_descendants(group, grace)\n'
             self.assertEqual(source.count(needle), 1)
-            control.write_text(source.replace(needle, "", 1))
+            control.write_text(source.replace(needle, "        pass\n", 1))
             control.chmod(0o755)
             with self.assertRaisesRegex(AssertionError, "descendants survived a returned query"):
                 self.returning_query(control)
+        with tempfile.TemporaryDirectory(prefix="owned-group-fd-control-") as directory:
+            control = Path(directory) / "owned-group.py"
+            source = OWNER.read_text()
+            needle = '            if fd == acknowledgement:'
+            self.assertEqual(source.count(needle), 1)
+            control.write_text(source.replace(needle, '            if fd == acknowledgement or fd > 2:', 1))
+            control.chmod(0o755)
+            with self.assertRaisesRegex(AssertionError, "returned query retained the caller lock"):
+                self.returning_query(control)
+
+    def empty_query(self, owner):
+        # Hold the real child and all its inherited streams until it exits.
+        # An empty owner must leave neither a cleaner nor a timer in its
+        # session; the picker runs this same entry point on each 100ms poll.
+        query = subprocess.Popen([str(owner), str(os.getpid()), "0.3", "/usr/bin/true"],
+                                 start_new_session=True, env=ENV, stdin=subprocess.DEVNULL,
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        held = []
+        try:
+            self.assertEqual(query.wait(timeout=3), 0)
+            for entry in Path('/proc').iterdir():
+                if not entry.name.isdigit():
+                    continue
+                try:
+                    fields = (entry / 'stat').read_text().rsplit(') ', 1)[1].split()
+                    if fields[0] != 'Z' and int(fields[2]) == query.pid:
+                        held.append(os.pidfd_open(int(entry.name)))
+                except (FileNotFoundError, ProcessLookupError):
+                    continue
+            self.assertFalse(held, "empty query retained cleanup processes")
+            self.assertEqual(query.communicate(timeout=1), (b'', b''))
+        finally:
+            if query.poll() is None:
+                query.kill()
+            query.wait(timeout=3)
+            for fd in held:
+                if not exited(fd):
+                    signal.pidfd_send_signal(fd, signal.SIGKILL)
+                os.close(fd)
+            query.communicate(timeout=3)
+
+    def test_empty_query_releases_cleanup_resources(self):
+        self.empty_query(OWNER)
+        with tempfile.TemporaryDirectory(prefix="owned-group-empty-control-") as directory:
+            control = Path(directory) / "owned-group.py"
+            source = OWNER.read_text()
+            needle = '    if children_remain():\n        finish_descendants(group, grace)'
+            self.assertEqual(source.count(needle), 1)
+            control.write_text(source.replace(needle, '    if True:\n        finish_descendants(group, grace)', 1))
+            control.chmod(0o755)
+            with self.assertRaisesRegex(AssertionError, "empty query retained cleanup processes"):
+                self.empty_query(control)
 
     def exercise(self, owner, mode):
         with tempfile.TemporaryDirectory(prefix="owned-group-") as directory:
@@ -222,11 +283,11 @@ wait "$running"
             with self.subTest(mode=mode):
                 self.exercise(OWNER, mode)
         with tempfile.TemporaryDirectory(prefix="owned-group-control-") as directory:
-            control = Path(directory) / "owned-group.sh"
+            control = Path(directory) / "owned-group.py"
             text = OWNER.read_text()
-            needle = "trap stop_group TERM INT HUP\n"
+            needle = "        signal.signal(signum, requested)\n"
             self.assertEqual(text.count(needle), 1)
-            control.write_text(text.replace(needle, "", 1))
+            control.write_text(text.replace(needle, "        signal.signal(signum, signal.SIG_DFL)\n", 1))
             control.chmod(0o755)
             with self.assertRaisesRegex(AssertionError, "owned descendants survived"):
                 self.exercise(control, "stubborn")

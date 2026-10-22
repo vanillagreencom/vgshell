@@ -49,7 +49,7 @@ start_probe() {
   stat="$state_dir/.${name}.${prefix}.status"
   cleanup_files+=("$out" "$err" "$stat")
   probe_names+=("$name")
-  env --default-signal=TERM,INT,HUP setsid setpriv --pdeathsig TERM -- "${vgshell%/*}/lib/owned-group.sh" "$owner" 5 "$@" >"$out" 2>"$err" &
+  env --default-signal=TERM,INT,HUP setsid setpriv --pdeathsig TERM -- "${vgshell%/*}/lib/owned-group.py" "$owner" 5 "$@" >"$out" 2>"$err" &
   pids+=("$!")
 }
 stop_probes() {

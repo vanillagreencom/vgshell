@@ -148,7 +148,7 @@ class PickerTests(unittest.TestCase):
         self.tools = self.home / "tools"
         self.tools.mkdir()
         (self.home / "lib").mkdir()
-        (self.home / "lib/owned-group.sh").symlink_to(REPO / "bin/lib/owned-group.sh")
+        (self.home / "lib/owned-group.py").symlink_to(REPO / "bin/lib/owned-group.py")
         (self.tools / "qs").write_text(QS)
         (self.tools / "qs").chmod(0o755)
         (self.tools / "systemctl").write_text(SYSTEMCTL)

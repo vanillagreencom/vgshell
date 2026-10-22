@@ -383,6 +383,95 @@ PY
   rescan "a scan drops the Printers control copy"
 }
 
+# Exercise the real helper's cleanup independently of the UI. The first
+# TERM enters cancellation; an acknowledged cancellation child then receives
+# root group TERM. The private tools cannot contact CUPS or the system bus.
+pr_cleanup_overlap() {
+  python3 - "$repo/shell/plugins/vgs.printers/bin/printers-watch" "$sandbox/printer-overlap" <<'PY'
+import json, os, pathlib, signal, subprocess, sys, time
+
+helper, root = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+root.mkdir()
+tools = root / 'tools'
+tools.mkdir()
+(tools / 'dbus-monitor').write_text('''#!/usr/bin/env python3
+import signal
+print("signal interface=org.freedesktop.DBus; member=NameAcquired", flush=True)
+while True: signal.pause()
+''')
+(tools / 'ipptool').write_text('''#!/usr/bin/env python3
+import os,pathlib,sys,time
+root=pathlib.Path(os.environ['PRINTER_CASE'])
+if sys.argv[-1].endswith('subscribe.test'):
+    print('notify-subscription-id (integer) = 5')
+elif sys.argv[-1].endswith('cancel.test'):
+    assert sys.argv[sys.argv.index('-T')+1] == '4'
+    (root/'cancel-started').touch()
+    time.sleep(0.3)
+    (root/'cancel-completed').touch()
+    if os.environ['PRINTER_REFUSE'] == 'yes':
+        print('fixture-cancel-refusal', file=sys.stderr)
+        sys.exit(1)
+else: sys.exit(2)
+''')
+for path in tools.iterdir(): path.chmod(0o755)
+mutant = root / 'printers-watch-mutant'
+source = helper.read_text()
+needle = "  trap '' TERM INT HUP\n"
+assert source.count(needle) == 1
+mutant.write_text(source.replace(needle, '', 1))
+mutant.chmod(0o755)
+results = []
+for name, program, overlap, refuse, completed in (
+        ('single', helper, False, False, True),
+        ('overlap', helper, True, False, True),
+        ('refusal', helper, True, True, True),
+        ('control', mutant, True, False, False)):
+    case = root / name
+    case.mkdir()
+    environment = {'PATH': str(tools)+':'+os.defpath, 'HOME': str(case),
+                   'LC_ALL': 'C', 'PRINTER_CASE': str(case),
+                   'PRINTER_REFUSE': 'yes' if refuse else 'no'}
+    watch = subprocess.Popen([str(program), 'ipp://fixture/'], env=environment,
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, text=True, start_new_session=True)
+    try:
+        assert watch.stdout.readline().strip() == 'ready subscription=5'
+        watch.send_signal(signal.SIGTERM)
+        deadline = time.monotonic()+3
+        while not (case/'cancel-started').exists():
+            assert watch.poll() is None, 'watch ended before cancellation began'
+            assert time.monotonic() < deadline, 'cancellation readiness timeout'
+            time.sleep(0.01)
+        started = time.monotonic()
+        if overlap: os.killpg(watch.pid, signal.SIGTERM)
+        # Keep stdin open until the held watcher completes, matching the
+        # reviewed ordering rather than triggering an earlier EOF path.
+        status = watch.wait(timeout=4)
+        stdout, stderr = watch.communicate(timeout=1)
+        result = {'case': name, 'cancelStarted': True,
+                  'cancelCompleted': (case/'cancel-completed').exists(),
+                  'status': status, 'stderr': stderr,
+                  'secondsAfterAcknowledgement': time.monotonic()-started}
+        results.append(result)
+        assert result['cancelCompleted'] == completed, result
+        assert status == 143, result
+        if refuse:
+            assert 'printers-watch: cancel=failed id=5' in stderr, result
+            assert 'fixture-cancel-refusal' in stderr, result
+        else: assert stderr == '', result
+    finally:
+        if watch.poll() is None:
+            os.killpg(watch.pid, signal.SIGKILL)
+        watch.communicate(timeout=3)
+(root/'results.json').write_text(json.dumps(results, indent=2)+'\n')
+print('preserved')
+PY
+}
+
+expect "overlapping lifetime signals preserve printer cancellation and refusal diagnostics" preserved pr_cleanup_overlap
+[[ ! -f $sandbox/printer-overlap/results.json ]] || cat -- "$sandbox/printer-overlap/results.json"
+
 pr_was_system=""
 pr_was=""
 pr_main

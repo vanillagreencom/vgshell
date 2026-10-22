@@ -246,7 +246,7 @@ stop_graceless_control() {
   local tree="${THEME_BIN%/bin/vgshell}"
   INST_BIN="$THEME_BIN" stop_run TERM plugin outdated --json
   check "the owner alone ends a fetch that ignores TERM before its own end" test "$stop_ended" == no
-  tree_control graceless bin/lib/owned-group.sh '( sleep "$grace"; kill -KILL -- "-$$" ) &' ':'
+  tree_control graceless bin/lib/owned-group.py '    deadline = time.monotonic() + grace' '    deadline = None'
   INST_BIN="$THEME_BIN" stop_run TERM plugin outdated --json
   check "the graceless mutant waits out a fetch that ignores TERM" test "$stop_ended" == yes
   unset THEME_BIN
