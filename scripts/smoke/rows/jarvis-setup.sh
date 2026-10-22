@@ -421,6 +421,10 @@ expect_poll "a fresh profile's Voice step names the local voice's download size"
 cp -- "$setup_tiers" "$sandbox/local-tiers-sized"
 python3 -c 'import json,sys; a=json.load(open(sys.argv[1])); del a["pickSize"]; open(sys.argv[1],"w").write(json.dumps(a))' "$setup_tiers"
 rescan "the Local voice reader reads an answer with no size"
+# The scan lands before the separate choices process can answer. Let its
+# no-size answer reach the Voice step before the control can accept the
+# previous sized hint on its first poll.
+expect_poll "the Voice step drops the size the reader no longer gives" missing setup_voice_size "$setup_fresh_size"
 expect "a reader answer with no size breaks the Voice step's size" 1 local_control_count setup_voice_size_control "$setup_fresh_size"
 cp -- "$sandbox/local-tiers-sized" "$setup_tiers"
 rescan "the Local voice reader reads its sized answer again"
