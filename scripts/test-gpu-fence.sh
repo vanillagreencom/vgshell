@@ -70,7 +70,7 @@ fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
 # run and nothing else: `none` has no bwrap, `broken` a stand-in that
 # records its call and fails, `real` the host's bubblewrap.
 mkdir -p "$TMP_ROOT/bin-none" "$TMP_ROOT/bin-broken" "$TMP_ROOT/bin-real" "$TMP_ROOT/cwd" "$TMP_ROOT/empty"
-for tool in chmod git mkdir mktemp readlink realpath rm sed seq setsid stat sh sleep stty touch true; do
+for tool in chmod dirname env git id ln mkdir mktemp readlink realpath rm sed seq setsid stat sh sleep stty touch true; do
   tool_path="$(type -P "$tool")" || { echo "test-gpu-fence: missing=$tool" >&2; exit 1; }
   for bin in none broken real; do ln -s -- "$tool_path" "$TMP_ROOT/bin-$bin/$tool"; done
 done
