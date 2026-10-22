@@ -87,10 +87,12 @@ log="$state/vgshell/updates/update.log"
 mkfifo "$tmp/terminal-input"
 exec {terminal_input}<>"$tmp/terminal-input"
 
-# Stand-ins. Each first appends `<name> <arguments>` to $CALLS.
+# Stand-ins. Each first appends `<name> <arguments>` to $CALLS as one whole
+# line, written with a single append so stand-ins that run at once never mix
+# their records.
 stubs="$tmp/stubs"; snapper_dir="$tmp/snapper-bin"; tools="$tmp/tools"
 mkdir -p "$stubs" "$snapper_dir" "$tools"
-record='printf "%s" "${0##*/}" >>"$CALLS"; for a; do printf " %s" "$a" >>"$CALLS"; done; echo >>"$CALLS"'
+record='_r="${0##*/}"; for a; do _r="$_r $a"; done; printf "%s\n" "$_r" >>"$CALLS"'
 stub() { # DIR NAME BODY
   printf '#!/bin/sh\n%s\n%s\n' "$record" "$3" >"$1/$2"
   chmod +x "$1/$2"
@@ -1765,7 +1767,35 @@ row_pipeline_plain() {
   assert "the pipeline reaches the window secondary check" out_has "updates-test: secondary=reached"
   assert "the pipeline leaves no page markup in the window secondary" out_has "updates-test: secondary=plain"
 }
-row_facts_plain; row_pipeline_plain
+# Two stand-ins record at once, as the sudo keepalive's `sleep` and `pacman -Q`
+# do. The first runs under sh -x, whose PS4 runs hold before each command: hold
+# stops it at its first command after it wrote to the calls file, if it has,
+# and lets it go once the second has run to its end. A record made of separate
+# appends is left split by the second's line; a whole line is already written.
+row_record_whole() {
+  local dir="$tmp/record-whole" polls=0
+  rm -rf -- "$dir"
+  mkdir -p "$dir/bin"
+  stub "$dir/bin" pacman ''
+  stub "$dir/bin" sleep ''
+  cat >"$dir/hold" <<'SH'
+#!/bin/sh
+{ [ -s "$CALLS" ] && [ ! -e "$HOLD.held" ]; } || exit 0
+: >"$HOLD.held"
+read -r _ <"$HOLD.go"
+SH
+  chmod +x "$dir/hold"
+  mkfifo "$dir/hold.go"
+  : >"$dir/calls"
+  CALLS="$dir/calls" HOLD="$dir/hold" PS4='$("$HOLD")' sh -x "$dir/bin/pacman" -Q 2>/dev/null &
+  local first=$!
+  while kill -0 "$first" 2>/dev/null && [[ ! -e $dir/hold.held ]] && ((polls < 500)); do sleep 0.01; polls=$((polls + 1)); done
+  CALLS="$dir/calls" sh "$dir/bin/sleep" 60
+  [[ ! -e $dir/hold.held ]] || echo >"$dir/hold.go"
+  wait "$first" || :
+  assert "two stand-ins recording at once leave two whole lines" test "$(sort "$dir/calls")" == $'pacman -Q\nsleep 60'
+}
+row_facts_plain; row_pipeline_plain; row_record_whole
 row_full; row_trusted; row_snapshot; row_failure; row_failed_end; row_cause; row_system_failed; row_order; row_answer; row_cause_output; row_stopped; row_interrupted; row_reboot; row_reboot_core; row_reboot_unread; row_orphans; row_yes
 row_declined; row_busy; row_aur_command; row_aur_failure; row_doas; row_vgs_only; row_vgs_helper; row_vgs_git; row_vgs_step; row_rebuild_failed; row_source; row_recheck_failure; row_recheck_replaced_tree; row_recheck_cli; row_reboot_deferred; row_helper_configs; row_log
 row_review_off; row_review_no_agent; row_review_none_pending; row_review_choice; row_review_clean; row_review_start_stable; row_review_flagged; row_review_no_verdict; row_review_rebuild_no_verdict; row_review_no_helper; row_review_custom; row_review_install
@@ -1783,6 +1813,14 @@ control() { # NAME NEEDLE REPLACEMENT ROW [FILE]
   PLUGIN="$copy_dir" QUIET=1 "$4"
   check "the $1 mutant fails $4" test "$red" -gt 0
 }
+# The record helper this suite wrote before VGS-2001: the name, each argument
+# and the newline as separate appends. The row must fail on it.
+record_whole="$record"
+record='printf "%s" "${0##*/}" >>"$CALLS"; for a; do printf " %s" "$a" >>"$CALLS"; done; echo >>"$CALLS"'
+red=0
+QUIET=1 row_record_whole
+record="$record_whole"
+check "the separate-appends record mutant fails row_record_whole" test "$red" -gt 0
 control helper-install-skipped '_updates_source paru Paru _updates_run _updates_install_helper' ':' row_vgs_helper
 for row in row_facts_plain row_pipeline_plain; do
   control "secondary-markup-$row" 'Commons.PageReference.plain(errorText(error, true))' 'errorText(error, true)' "$row" UpdatesLogic.js
