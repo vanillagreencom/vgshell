@@ -16,10 +16,12 @@
 # live key refused busy with its window focused, a destroyed instance's
 # `done` dropped while its run ends, the plugin page's Settings links,
 # which open a listed script through the manager and take no press while
-# the plugin is disabled, a live run that fails harness.sh's
-# expect_run_end at its ceiling, a run that ends past the ceiling and fails
-# with its reading, an in-time run that passes through a reader slower
-# than the ceiling, a presenter copy that writes no ended
+# the plugin is disabled, harness.sh's expect_run_end at a planted host
+# load: a live run that fails at its ceiling below latency_load_limit and
+# at its poll bound above it, a run that ends past the ceiling and fails
+# with its reading below the limit, the same run not measured above it,
+# an in-time run that passes through a reader slower than the ceiling, a
+# presenter copy that writes no ended
 # record, whose run the core's `vgshell-tui wait` ends, and a disabled plugin's
 # list and hold gone.
 # inputs: scripts/smoke/fixtures/plugins/acme.tui/* shell/Core/TuiRunner.qml shell/Core/TuiRecords.qml bin/vgshell-tui bin/lib/tui.sh bin/vgshell scripts/smoke/toplevel/* scripts/smoke/rows/capabilities.sh shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/Commons/Reply.js shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Registry.qml shell/Ui/controls/RowAction.qml
@@ -243,6 +245,10 @@ expect_poll "the tui fixture's service is built again" True record_exists acme.t
 expect_poll "the rebuilt instance reads the run the destroyed one started" '[false, 5, true]' wait_state
 expect "the rebuilt instance received no done" '[]' tui_done
 
+# The 1-minute load the run-end controls plant above harness.sh's
+# latency_load_limit: two runnable tasks per physical core of this host.
+run_end_busy_load="$((${latency_cores:-0} * 2)).00"
+
 # Control: a presenter copy that writes no ended record exits and leaves
 # only its running record. The run's `vgshell-tui wait` then finds the run's
 # lock free and no ended record, ends the run with no code under the key's
@@ -259,14 +265,23 @@ if [[ $(grep -c -F -- "$end_line" "$tui_real") == 1 ]]; then
   expect_poll "the control's run is live" '[true, 5, true]' wait_state
   expect_poll "the control's window maps" 1 wait_window
   expect_poll "the live run has one wait" 1 wait_waits
-  # Control for expect_run_end: the gated run stays live while its gate is
-  # closed, so the row fails once a read begun after the ceiling still
-  # finds it live. The row runs in a subshell whose failure count is its
-  # answer, and its lines are kept aside.
-  never_ended() { (failures=0 behaviour_failures=0; expect_run_end "the never-ending run" acme.tui/wait >"$sandbox/run-end-control.log"; echo "$failures"); }
-  expect "the run-end row fails a run that never ends, at its ceiling" 1 never_ended
+  # Controls for expect_run_end: the gated run stays live while its gate
+  # is closed. Below the load limit the row fails once a read begun after
+  # the ceiling still finds it live; above it the row reads on to its poll
+  # bound and fails there, since load cannot excuse a run that never ends.
+  # The row runs in a subshell whose failure count is its answer, its
+  # lines kept aside.
+  never_ended() { # LOAD
+    (failures=0 behaviour_failures=0 planted="$1"
+     load_average() { echo "$planted"; }
+     cpu_some_us() { echo 0; }
+     expect_run_end "the never-ending run" acme.tui/wait >"$sandbox/run-end-control.log"; echo "$failures")
+  }
+  expect "the run-end row fails a run that never ends, at its ceiling" 1 never_ended 0.00
   expect "the failed row names the ceiling it waited" 1 grep -c -F -- "latency_run_end_ms=over ceiling_ms=$run_end_ceiling_ms" "$sandbox/run-end-control.log"
   expect "the failed row prints the core's view of the live run" 1 grep -c -E -- '^ +core: pending=False running=[0-9]' "$sandbox/run-end-control.log"
+  expect "the run-end row fails a run that never ends above the load limit" 1 never_ended "$run_end_busy_load"
+  expect "the busy failed row reads the planted load" 1 grep -c -F -- "latency_run_end_ms=over ceiling_ms=$run_end_ceiling_ms load=$run_end_busy_load load_per_core=2.00 cpu_some_pct=0.0" "$sandbox/run-end-control.log"
   expect "the live run's done has not fired" '[]' tui_done
   touch -- "$tui_gate"
   expect_poll "the control's presenter exits and its window closes" 0 wait_window
@@ -281,24 +296,31 @@ fi
 
 # Controls for expect_run_end's reading, each a gated run of the wait
 # script with no `done`, read through a reader that sleeps before it asks
-# the probe. run_end_reading: whether the numeric latency_run_end_ms in
-# the control's log is within the ceiling or over it.
+# the probe, at a planted 1-minute load and no CPU pressure.
+# run_end_reading: whether the numeric latency_run_end_ms in the control's
+# log is within the ceiling or over it.
 run_end_log="$sandbox/run-end-reading.log"
 run_end_reading() { local ms; ms="$(sed -n 's/^  latency_run_end_ms=\([0-9][0-9]*\) .*/\1/p' -- "$run_end_log")"; [[ $ms =~ ^[0-9]+$ ]] || { echo "reading=${ms:-none}"; return; }; if ((ms <= run_end_ceiling_ms)); then echo within; else echo over; fi; }
 ms_seconds() { printf '%d.%03d' $(($1 / 1000)) $(($1 % 1000)); } # MS
-slow_run_end() { # LABEL SLEEP_MS
-  (failures=0 behaviour_failures=0
-   pause="$(ms_seconds "$2")"
+# slow_run_end answers its failure count and its not-measured entries.
+slow_run_end() { # LABEL SLEEP_MS LOAD
+  (failures=0 behaviour_failures=0 not_measured_rows=()
+   pause="$(ms_seconds "$2")" planted="$3"
    run_idle_at() { sleep "$pause"; ipc smoke tuiIdleAt "$1"; }
-   expect_run_end "$1" acme.tui/wait >"$run_end_log"; echo "$failures")
+   load_average() { echo "$planted"; }
+   cpu_some_us() { echo 0; }
+   expect_run_end "$1" acme.tui/wait >"$run_end_log"; echo "$failures ${not_measured_rows[*]:-none}")
 }
+# run_end_skipped ANSWER: slow_run_end's answer with each not-measured
+# reading written as N.
+run_end_skipped() { sed -E 's/=[0-9]+ms-/=Nms-/' <<<"$1"; }
 # A run whose gate opens right before the call, read only after the
 # ceiling has passed: a slow read of an in-time end is not a slow run.
 rm -f -- "$tui_gate"
 expect "a gated run for the slow-read control answers ok" ok tui run "wait|$tui_gate|7"
 expect_poll "the slow-read control's run is live" '[true, null, true]' wait_state
 touch -- "$tui_gate"
-expect "the run-end row passes an in-time end read past its ceiling" 0 slow_run_end "the slowly read run" $((run_end_ceiling_ms + 100))
+expect "the run-end row passes an in-time end read past its ceiling" "0 none" slow_run_end "the slowly read run" $((run_end_ceiling_ms + 100)) 0.00
 expect "the slowly read run's reading is within the ceiling" within run_end_reading
 expect_poll "the slow-read control's window closes" 0 wait_window
 # A run whose gate opens 200 ms past the ceiling, its first read asked
@@ -308,11 +330,27 @@ expect "a gated run for the late-end control answers ok" ok tui run "wait|$tui_g
 expect_poll "the late-end control's run is live" '[true, 7, true]' wait_state
 (sleep "$(ms_seconds $((run_end_ceiling_ms + 200)))"; touch -- "$tui_gate") &
 gate_pid=$!
-expect "the run-end row fails a run that ends past its ceiling" 1 slow_run_end "the late run" $((run_end_ceiling_ms + 800))
+expect "the run-end row fails a run that ends past its ceiling below the load limit" "1 none" slow_run_end "the late run" $((run_end_ceiling_ms + 800)) 0.00
 wait "$gate_pid"
 expect "the late run's reading is a number past the ceiling" over run_end_reading
+expect "the late run's reading carries the planted load" 1 grep -c -E -- "^  latency_run_end_ms=[0-9]+ ceiling_ms=$run_end_ceiling_ms load=0\.00 load_per_core=0\.00 cpu_some_pct=0\.0$" "$run_end_log"
 expect "the late run ended with its code" '[false, 8, true]' wait_state
 expect_poll "the late-end control's window closes" 0 wait_window
+# A late end above the load limit is not measured: no failure and one
+# not-measured entry with its reading and the load, never a pass. Its gate
+# opens 800 ms past the ceiling and its reads start at the call, so reads
+# begun past the ceiling find it busy and read on until it ends.
+rm -f -- "$tui_gate"
+expect "a gated run for the busy late-end control answers ok" ok tui run "wait|$tui_gate|9"
+expect_poll "the busy late-end control's run is live" '[true, 8, true]' wait_state
+(sleep "$(ms_seconds $((run_end_ceiling_ms + 800)))"; touch -- "$tui_gate") &
+gate_pid=$!
+run_end_busy="$(slow_run_end "the busy late run" 0 "$run_end_busy_load")" || run_end_busy=unread
+wait "$gate_pid"
+expect "the run-end row does not measure a late end above the load limit" "0 $smoke_row_name:run_end=Nms-at-load_per_core=2.00-above-$latency_load_limit" run_end_skipped "$run_end_busy"
+expect "the busy late run's reading is a number past the ceiling" over run_end_reading
+expect "the busy late run ended with its code" '[false, 9, true]' wait_state
+expect_poll "the busy late-end control's window closes" 0 wait_window
 
 # Control for expect_within's deadline, which notices.sh uses, with the
 # run-end ceiling as its value: a read that answers idle only once the

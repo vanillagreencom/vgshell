@@ -1258,6 +1258,12 @@ load_per_core() {
   hundredths=$(((10#${load%.*} * 100 + 10#${load#*.}) / 10#$latency_cores))
   printf '%d.%02d\n' "$((hundredths / 100))" "$((hundredths % 100))"
 }
+# The host's 1-minute load average, the first field of /proc/loadavg.
+# Prints nothing when /proc/loadavg is unreadable.
+load_average() {
+  local load rest
+  { read -r load rest </proc/loadavg && printf '%s\n' "$load"; } 2>/dev/null || true
+}
 # The host-load limit comes from the VGS-1527 theme-latency readings on
 # cachy (16 physical cores, 32 threads): measured medians 110.5 and
 # 122.5 ms at 1-minute load 12 to 15.9 were within the 150 ms bound,
@@ -3390,16 +3396,24 @@ expect_within() { # LABEL READING WANT CEILING_MS CMD...
 # expect_run_end LABEL KEY reads that stamp through run_idle_at every
 # 0.2 s and prints latency_run_end_ms, the core's idle stamp minus the time
 # of the call. The poll only fetches the stamp, so a slow read adds nothing
-# to the reading. A reading past
-# run_end_ceiling_ms fails, and so does a key that a read begun after the
-# ceiling still finds busy, printed as latency_run_end_ms=over. Both
-# clocks are CLOCK_REALTIME milliseconds. A failure prints what the record
-# directory holds for the key beside the core's view, so a run whose ended
-# record is on disk while the core still reports it running reads as a
-# listing the core missed, not a slow presenter. scripts/smoke/rows/tui.sh
-# holds the controls: a run that never ends fails, a run that ends past
-# the ceiling fails with its reading, and a run that ends in time passes
-# through a reader slower than the ceiling.
+# to the reading. Beside it the line prints the 1-minute load at the read,
+# its load_per_core and the cpu_some_pct of the window from the call to
+# the read. A reading past run_end_ceiling_ms is not measured when that
+# pressure is above latency_pressure_limit or that load per core above
+# latency_load_limit, and fails at or below both. A key that a read begun
+# after the ceiling still finds busy fails at once at or below both
+# limits, printed as latency_run_end_ms=over; above either, the reads go
+# on to the poll bound smoke_poll_tries gives, so a run that ends late
+# under load is not measured and a run that never ends still fails, at
+# any load. Both clocks are CLOCK_REALTIME milliseconds. A failure prints
+# what the record directory holds for the key beside the core's view, so
+# a run whose ended record is on disk while the core still reports it
+# running reads as a listing the core missed, not a slow presenter.
+# scripts/smoke/rows/tui.sh holds the controls, each at a planted load:
+# a run that never ends fails below the load limit and above it, a run
+# that ends past the ceiling fails with its reading below the limit and
+# is not measured above it, and a run that ends in time passes through a
+# reader slower than the ceiling.
 # The ceiling is twice the highest of 108 poll readings, 248 ms, from six
 # runs of scripts/qml-smoke.sh on the owner's machine (host cachy, AMD
 # Ryzen 9 9950X) on 2026-09-29 at host load 4 to 9. On the same host, the
@@ -3407,26 +3421,44 @@ expect_within() { # LABEL READING WANT CEILING_MS CMD...
 # 2026-10-09 to 2026-10-11 (VGS-1336) shows the core read the run ended 2
 # to 87 ms after the presenter's end, median 3 ms, at cpu_some_pct 0.2 to
 # 11.1, while the poll's readings were 48 to 559 ms. Those poll readings
-# are no longer the reading.
+# are no longer the reading. The load limits follow the readings on the
+# same host on 2026-10-22 (VGS-2002): the jarvis-setup and jarvis-input
+# rows through nested-slot.sh read 0 to 99 ms at load_per_core 0.40 to
+# 0.59 and cpu_some_pct 0.0 to 10.9, while main batch 20261022T023613Z
+# read 517 to 574 ms for the same checks at 1-minute load 46 to 67 half
+# an hour before them and 15-minute load 40.84 right after them.
 run_end_ceiling_ms=500
 run_idle_at() { ipc smoke tuiIdleAt "$1"; } # KEY
 expect_run_end() { # LABEL KEY
-  local label="$1" key="$2" start began got reading err="$sandbox/reader-$BASHPID.stderr"
+  local label="$1" key="$2" start start_us began got reading load per_core pressure bound err="$sandbox/reader-$BASHPID.stderr"
+  smoke_poll_tries 200
+  bound=$((smoke_poll_n * 200))
   start="$(now_ms)"
+  start_us="$(cpu_some_us)"
   while :; do
     began="$(now_ms)"
     if ! got="$(run_idle_at "$key" 2>"$err")"; then got="a failed read${got:+: $got}"; fi
     reader_stderr "$label" "$err" || return 0
+    load="$(load_average)"
+    per_core="$(load_per_core "$load")"
+    pressure="$(cpu_some_pct "$start_us" "$(cpu_some_us)" $(( $(now_ms) - start )))"
     if [[ $got =~ ^[0-9]+$ ]]; then
       reading=$(( got > start ? got - start : 0 ))
-      printf '  latency_run_end_ms=%d ceiling_ms=%d\n' "$reading" "$run_end_ceiling_ms"
+      printf '  latency_run_end_ms=%d ceiling_ms=%d load=%s load_per_core=%s cpu_some_pct=%s\n' "$reading" "$run_end_ceiling_ms" "${load:-unmeasured}" "$per_core" "$pressure"
       if (( reading <= run_end_ceiling_ms )); then ok "$label"; return 0; fi
+      if [[ $(latency_load_verdict "$reading" "$pressure" "$per_core" "$run_end_ceiling_ms") == unmeasured ]]; then
+        # sandbox-shots.sh calls this outside a row; its run reports the
+        # entry under its own name.
+        not_measured "${smoke_row_name:-${0##*/}}" "run_end=${reading}ms-at-$(latency_busy_reason "$pressure" "$per_core")"
+        return 0
+      fi
       fail "$label: the core ended the run $reading ms after the call, past the ceiling of $run_end_ceiling_ms ms"
       run_end_records "$key"
       return 0
     fi
-    if (( began - start > run_end_ceiling_ms )); then
-      printf '  latency_run_end_ms=over ceiling_ms=%d\n' "$run_end_ceiling_ms"
+    if (( began - start > run_end_ceiling_ms )) &&
+      { [[ $(latency_load_verdict 0 "$pressure" "$per_core" 0) != unmeasured ]] || (( began - start > bound )); }; then
+      printf '  latency_run_end_ms=over ceiling_ms=%d load=%s load_per_core=%s cpu_some_pct=%s\n' "$run_end_ceiling_ms" "${load:-unmeasured}" "$per_core" "$pressure"
       fail "$label: got $got from a read begun $(( began - start )) ms after the call, past the ceiling of $run_end_ceiling_ms ms"
       run_end_records "$key"
       return 0
