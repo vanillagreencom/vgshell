@@ -492,13 +492,16 @@ expect "the killed shell's recording reached no wtype call" none dictation_wtype
 # The shell's group TERM can reach the daemon before its parent-death KILL.
 # voxtype 1.1.0 on TERM discards the capture, aborts any transcription,
 # removes its state file and exits without output (daemon.rs:4553-4653 at
-# e2638ca63), so either ending is one with no cap and no typed text.
+# e2638ca63), so either ending is one with no cap and no typed text. The
+# KILL can also cut that cleanup short: the stand-in's trap removes the
+# state before it notes `stopped`, so a KILL between the two leaves
+# `start` with no state file, still an ending with no cap.
 dictation_killed_notes() { case "$(dictation_noted)" in start | "start stopped") echo "no cap" ;; *) dictation_noted ;; esac; }
 dictation_killed_state() {
   local state=absent
   [[ ! -e $rt_dir/voxtype/state ]] || state="$(<"$rt_dir/voxtype/state")"
   case "$(dictation_noted) $state" in
-    "start recording" | "start stopped absent") echo matches ;;
+    "start recording" | "start absent" | "start stopped absent") echo matches ;;
     *) echo "notes=$(dictation_noted) state=$state" ;;
   esac
 }
