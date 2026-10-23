@@ -54,7 +54,7 @@
 # No latency budget. The toplevel's map is polled every 0.2 s for 5 s; the
 # per-screen layers every 0.1 s for up to timeout_s; the end reading's
 # files, for the feed, every 50 ms for up to timeout_s.
-# inputs: scripts/smoke/leaks.sh bin/vgshell shell/plugins/vgs.themes/Background.qml shell/plugins/vgs.themes/WallpaperState.qml shell/Hosts/BackgroundHost.qml shell/Commons/WatchedFile.qml
+# inputs: scripts/smoke/leaks.sh scripts/smoke/display-record.sh bin/vgshell shell/plugins/vgs.themes/Background.qml shell/plugins/vgs.themes/WallpaperState.qml shell/Hosts/BackgroundHost.qml shell/Commons/WatchedFile.qml
 set -euo pipefail
 lc_plants="$sandbox/leak-plants"
 mkdir -p -- "$lc_plants"
@@ -197,6 +197,146 @@ hypr() { return 1; }
 SH
 expect "control: a row after which the compositor answers nothing fails once per class read through it" 5 lc_planted leak-plant-unreadable
 expect "control: the failure names the unreadable class and the end" 1 lc_failed leak-plant-unreadable "leak-check reading=unreadable class=clients at=end .*"
+
+# Capture a real owned stop, then plant its layer only in the compositor
+# reply at another row's end. This tests attribution, not a Wayland leak.
+lc_stopped_pid="$shell_qs_pid"
+hypr -j layers >"$lc_plants/stopped.layers"
+lc_stopped_layer="$(py_reply 'import json,sys
+layers=json.load(sys.stdin); pid=int(sys.argv[1])
+print(json.dumps(next(([screen,level,l] for screen,m in layers.items() for level,ls in m["levels"].items() for l in ls if l["pid"]==pid and l["namespace"]=="vgs:bar"), None)))' "$lc_stopped_pid" <"$lc_plants/stopped.layers")"
+stop_shell || fail "the diagnostic control cannot acknowledge its owned stop"
+lc_stop_key="$(py_reply 'import json,sys
+events=[json.loads(line) for line in sys.stdin]; pid=sys.argv[1]
+print(next((e["data"]["layerStop"]["stop"] for e in reversed(events) if e["kind"] in ("local-owner-end","unobserved-adoption-end") and e["data"].get("layerStop",{}).get("instance",{}).get("pid")==pid), "unobserved"))' "$lc_stopped_pid" <"$display_record_dir/events.jsonl")"
+start_shell "$repo" "$sandbox/leak-check-owner-qs.log" || fail "the diagnostic control restores the shell"
+if [[ $lc_stopped_layer == \[* && $lc_stop_key == owner-* ]]; then
+  cat >"$lc_plants/leak-plant-stopped-layer.sh" <<'SH'
+leak_dir_next
+printf '%s\n' "$leak_next" >"$lc_plants/stopped.end"
+lc_native_hypr="$(declare -f hypr)"
+eval "lc_native_$lc_native_hypr"
+hypr() {
+  if [[ $* == '-j layers' ]]; then
+    lc_native_hypr "$@" | py_reply 'import json,sys
+layers=json.load(sys.stdin); screen,level,layer=json.loads(sys.argv[1])
+layers[screen]["levels"][level].append(layer)
+print(json.dumps(layers))' "$lc_stopped_layer"
+  else
+    lc_native_hypr "$@"
+  fi
+}
+SH
+  expect "control: a stopped instance's planted surviving layer fails its end reading once" 1 lc_planted leak-plant-stopped-layer
+  lc_end="$(cat -- "$lc_plants/stopped.end")"
+  expect "control: the stopped layer keeps its raw layer reply and probe" true python3 -c 'import json,pathlib,sys
+root=pathlib.Path(sys.argv[1]); expected=json.loads(sys.argv[2])[2]
+layers=json.loads((root/"layers.raw").read_text())
+print(str(isinstance(json.loads((root/"layers.probe").read_text()),list) and any(l["address"]==expected["address"] and l["pid"]==expected["pid"] for m in layers.values() for ls in m["levels"].values() for l in ls)).lower())' "$lc_end" "$lc_stopped_layer" </dev/null
+  expect "control: the stopped layer reports its independent PID, address and acknowledged stop" true py_reply 'import json,sys
+expected=json.loads(sys.argv[1])[2]; stop=sys.argv[2]
+reports=[json.loads(line.split("layer-owner ",1)[1]) for line in sys.stdin if "layer-owner {" in line]
+print(str(any(l["pid"]==expected["pid"] and l["address"]==expected["address"] and l["stop"]==stop and l["liveness"]["status"] in ("gone","ended") for r in reports for l in r["layers"])).lower())' "$lc_stopped_layer" "$lc_stop_key" <"$sandbox/leak-plant-stopped-layer.log"
+  control_output "$sandbox/leak-plant-stopped-layer.log"
+
+  # The same namespace still satisfies legacy settlement. Its diagnostic
+  # hostOwner must depend on PID, and must never alter that verdict.
+  lc_foreign="$lc_plants/foreign"
+  mkdir -p -- "$lc_foreign"
+  python3 -c 'import json,pathlib,sys
+screen,level,layer=json.loads(sys.argv[1]); root=pathlib.Path(sys.argv[2])
+(root/"layers.raw").write_text(json.dumps({screen:{"levels":{level:[layer]}}}))
+(root/"layers.probe").write_text(json.dumps([dict(screen=screen,namespace=layer["namespace"],visible=True,settling=[])]))' "$lc_stopped_layer" "$lc_foreign" </dev/null
+  expect "control: foreign PID ownership leaves the namespace settlement verdict unchanged" rest leak_layers_state "$(<"$lc_foreign/layers.probe")" "$(<"$lc_foreign/layers.raw")"
+  lc_foreign_report="$(display_record_call layer-reading "$lc_foreign" "$shell_qs_pid")"
+  expect "control: a foreign PID is not the live host's own mapping" false py_reply 'import json,sys; print(str(json.load(sys.stdin)["layers"][0]["hostOwner"]).lower())' <<<"$lc_foreign_report"
+  expect "control: the diagnostic names the PID ownership mismatch" true py_reply 'import json,sys; print(str(json.load(sys.stdin)["layers"][0]["ownershipMismatch"]).lower())' <<<"$lc_foreign_report"
+  lc_same_report="$(display_record_call layer-reading "$lc_foreign" "$lc_stopped_pid")"
+  expect "control: matching PID ownership belongs to the named host" true py_reply 'import json,sys; print(str(json.load(sys.stdin)["layers"][0]["hostOwner"]).lower())' <<<"$lc_same_report"
+  printf 'unreadable-probe\n' >"$lc_foreign/layers.probe"
+  lc_unreadable_report="$(display_record_call layer-reading "$lc_foreign" "$shell_qs_pid")"
+  expect "control: an unreadable probe keeps the layer identities" true py_reply 'import json,sys
+r=json.load(sys.stdin); print(str(r.get("probeStatus")=="unreadable" and r["layers"][0]["pid"]==int(sys.argv[1])).lower())' "$lc_stopped_pid" <<<"$lc_unreadable_report"
+else
+  fail "the stopped-layer control needs an owned bar and stop: layer=[$lc_stopped_layer] stop=$lc_stop_key"
+fi
+
+cat >"$lc_plants/leak-plant-unsettled-layer.sh" <<'SH'
+leak_dir_next
+printf '%s\n' "$leak_next" >"$lc_plants/unsettled.end"
+lc_native_ipc="$(declare -f ipc)"
+eval "lc_native_$lc_native_ipc"
+ipc() {
+  if [[ $1 == smoke && $2 == perScreenLayers ]]; then printf '[{}]\n'; else lc_native_ipc "$@"; fi
+}
+SH
+expect "control: an unjudgeable layer probe keeps the existing unreadable failure" 1 lc_planted leak-plant-unsettled-layer
+lc_end="$(cat -- "$lc_plants/unsettled.end")"
+expect "control: the unsettled boundary retains its exact raw layers and probe" true python3 -c 'import json,pathlib,sys
+root=pathlib.Path(sys.argv[1])
+print(str(json.loads((root/"layers.probe").read_text())==[{}] and isinstance(json.loads((root/"layers.raw").read_text()),dict) and (root/"layers.unsettled").is_file() and not (root/"layers").exists()).lower())' "$lc_end" </dev/null
+printf ':\n' >"$lc_plants/leak-plant-owner-pass.sh"
+expect "a passing boundary still fails nothing" 0 lc_planted leak-plant-owner-pass
+expect "a passing boundary prints no owner diagnostic" 0 python3 -c 'import sys; print(sum("layer-owner " in line for line in sys.stdin))' <"$sandbox/leak-plant-owner-pass.log"
+
+# Drive the actual recorder with a native-query fixture. Namespace-only
+# close events cannot select one of two addresses without a later reply.
+display_record_program >"$lc_plants/recorder.py"
+if python3 - "$lc_plants/recorder.py" "$lc_plants/record-control" <<'PY'
+import json, os, pathlib, runpy, subprocess, sys
+module=runpy.run_path(sys.argv[1]); root=pathlib.Path(sys.argv[2]); root.mkdir()
+r=module["Record"](root)
+child=subprocess.Popen([sys.executable,"-c","import time; time.sleep(600)"],env={"PATH":os.environ["PATH"]})
+try:
+    pid=str(child.pid); owner=r.owner_context(pid)
+    r.shell_owners[pid]=dict(pid=pid,identity=module["process_binding"](pid))
+    r.owner_contexts[owner].update(stopShell=pid,stopInstance=dict(pid=pid,snapshot=module["process_binding"](pid)))
+    child.terminate(); child.wait()
+    def raw(addresses):
+        return json.dumps({"CONTROL":{"levels":{"2":[dict(address=a,namespace="vgs:bar",pid=int(pid)) for a in addresses]}}})
+    r.layers_query=lambda:raw(["0xa","0xb"])
+    r.end_owner(owner,pid)
+    assert set(r.layer_stops)=={"0xa","0xb"}, "stop-addresses"
+    rows=[json.loads(line) for line in (root/"events.jsonl").read_text().splitlines()]
+    assert rows[-1]["data"]["layerStop"]["stillListed"] is True, "stop-still-listed"
+    r.layers_query=lambda:"unreadable:fixture"
+    r.parse_line(dict(source="nested-ipc",kind="ipc"),b"closelayer>>vgs:bar")
+    assert set(r.layer_stops)=={"0xa","0xb"}, "unreadable-stays-pending"
+    r.layers_query=lambda:raw(["0xb"])
+    r.parse_line(dict(source="nested-ipc",kind="ipc"),b"closelayer>>vgs:bar")
+    assert set(r.layer_stops)=={"0xb"}, "still-present-stays-pending"
+    rows=[json.loads(line) for line in (root/"events.jsonl").read_text().splitlines()]
+    joined=[e for e in rows if e["kind"]=="layer-close-join"]
+    assert len(joined)==1 and joined[0]["data"]["address"]=="0xa" and joined[0]["data"]["stop"]==owner, "close-address-stop"
+    assert joined[0]["data"]["closeReceipt"] < joined[0]["data"]["snapshotReceipt"], "receipt-order"
+    r.layer_stops["0xa"]=joined[0]["data"]
+    r.layers_query=lambda:raw([])
+    r.parse_line(dict(source="nested-ipc",kind="ipc"),b"closelayer>>vgs:bar")
+    rows=[json.loads(line) for line in (root/"events.jsonl").read_text().splitlines()]
+    joined=[e for e in rows if e["kind"]=="layer-close-join"]
+    assert len(joined)==3 and all(e["data"]["closeAttribution"]=="ambiguous" for e in joined[-2:]), "namespace-close-ambiguity"
+    pid=str(os.getpid()); current=module["process_binding"](pid)
+    assert current["status"]=="live", "live-generation-prerequisite"
+    r.shell_owners[pid]=dict(pid=pid,identity=dict(startTicks="other-generation"),stop=owner)
+    r.layer_stops["0xb"]=dict(address="0xb",namespace="vgs:bar",pid=int(pid),stop=owner,instance=dict(snapshot=dict(startTicks="other-generation")))
+    report=r.layers_report(raw(["0xb"]),pid)
+    assert report["layers"][0]["stop"]=="none" and report["layers"][0]["instance"]["status"]=="pid-reused", "reused-pid-cannot-inherit-stop"
+    r.layers_query=lambda:raw(["0xb"])
+    r.parse_line(dict(source="nested-ipc",kind="ipc"),b"closelayer>>vgs:bar")
+    assert not r.layer_stops, "observed-new-generation-retires-old-join"
+    print("recorder-layer-controls=proved")
+finally:
+    if child.poll() is None:
+        child.terminate(); child.wait()
+    r.output.close(); r.server.close(); r.selector.close()
+    if r.notify_fd is not None:
+        os.close(r.notify_fd)
+PY
+then
+  ok "control: recorder joins only the absent stopped address and keeps unreadable evidence pending"
+else
+  fail "the recorder layer identity control failed"
+fi
 
 # The crash control: a crash signal past Quickshell's 10 s restart floor.
 lc_ran() { local secs; secs="$(ps -o etimes= -p "$shell_qs_pid")" || { echo gone; return; }; secs="${secs// /}"; if ((secs >= 11)); then echo ran; else echo "secs=$secs"; fi; }

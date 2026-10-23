@@ -206,7 +206,7 @@ class Record:
         self.shell_owners = {}
         self.layer_stops = {}
         self.layer_signature = None
-        self.layer_bound = 10
+        self.layer_bound = None
         self.next_context = 0
         self.scope = None
         self.display_registration = None
@@ -448,6 +448,8 @@ class Record:
     def layers_query(self):
         # Advisory native query by this observer. Its serial wait and child
         # cost are outside terminal observationCost's collector-only claim.
+        if self.layer_signature is None or self.layer_bound is None:
+            return "unreadable:unbound-compositor"
         try:
             result = subprocess.run(["hyprctl", "-i", self.layer_signature, "-j", "layers"],
                 env={k: os.environ[k] for k in ("PATH", "XDG_RUNTIME_DIR") if k in os.environ},
@@ -481,6 +483,8 @@ class Record:
                             stopped = {}
                         identity = owner.get("identity", {})
                         reused = snapshot.get("startTicks") is not None and identity.get("startTicks") is not None and snapshot["startTicks"] != identity["startTicks"]
+                        if reused:
+                            owner = dict(status="pid-reused", pid=pid, previous=owner)
                         report["layers"].append(dict(address=address, namespace=layer["namespace"], screen=screen, pid=layer["pid"],
                             liveness=snapshot, instance=stopped.get("instance", owner), stop=stopped.get("stop", owner.get("stop", "none")),
                             identityMatch="changed" if reused else "unavailable" if not identity else "matched-or-ended",
@@ -491,6 +495,8 @@ class Record:
         return report
 
     def layer_close(self, line):
+        # https://wiki.hypr.land/IPC/: layer events name only a namespace.
+        # This snapshot proves later address absence, not a causal close.
         namespace = line.split(b">>", 1)[1].decode(errors="replace")
         pending = [l for l in self.layer_stops.values() if l["namespace"] == namespace]
         if not pending:
@@ -504,7 +510,7 @@ class Record:
         present = {l["address"] for l in report["layers"]}
         for layer in report["layers"]:
             prior = self.layer_stops.get(layer["address"])
-            if prior and (layer["pid"] != prior["pid"] or layer["identityMatch"] == "changed"):
+            if prior and (layer["pid"] != prior["pid"] or layer["stop"] != prior["stop"] or layer["identityMatch"] == "changed"):
                 self.emit("nested-ipc", "layer-generation-changed", dict(previous=prior, current=layer))
                 del self.layer_stops[layer["address"]]
         gone = [l for l in pending if l["address"] not in present]
@@ -678,12 +684,12 @@ class Record:
                         if context["tag"] == "registered":
                             self.shell_pids[args[2]] = context["registration"]
                         self.emit("harness", "shell-observation-context", context)
-                    if args[0] == "stop-shell" and args[1] in self.owner_contexts:
+                    if args[0] == "stop-shell" and args[1] in self.owner_contexts and args[2]:
                         context = self.owner_contexts[args[1]]
                         context.update(stopShell=args[2], stopInstance=dict(self.shell_owners.get(args[2], {}),
-                            pid=args[2], instanceLog=args[3], snapshot=process_binding(args[2])))
+                            pid=args[2], instanceLog=args[3], binding=context["tag"], snapshot=process_binding(args[2])))
                         self.shell_owners[args[2]] = context["stopInstance"]
-                        self.layer_bound = float(args[4])
+                        self.layer_bound = float(args[4]) if args[4] else None
                     if args[0] == "display-request":
                         self.emit("harness", "outgoing-display-request", dict(operation=args[1], argument=args[2]))
                     elif args[0] == "display-reply":
