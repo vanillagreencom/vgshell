@@ -86,8 +86,8 @@ Item {
         }
 
         // A tab's label centres `tabs.paddingX` in from each side; hover
-        // lifts a closed tab's label short of the open one's, a press fills
-        // the tab, and a disabled row fades.
+        // lifts a closed tab's label short of the open one's, a press keeps
+        // the tab background transparent, and a disabled row fades.
         function test_tabs_centre_and_draw_their_states() {
             const tab = tabs.itemAt(1);
             compare(tab.leftPadding, Theme.tabs.paddingX);
@@ -99,7 +99,7 @@ Item {
             tryCompare(tabLabel(tab), "color", Qt.color(Theme.tabs.hover));
             verify(String(Qt.color(Theme.tabs.hover)) !== String(Qt.color(Theme.tabs.active)), "hover differs from the open tab");
             mousePress(tab, tab.width / 2, tab.height / 2);
-            tryCompare(tab.background, "color", Qt.color(Theme.tabs.pressed));
+            tryCompare(tab.background, "color", Qt.color("transparent"));
             mouseRelease(tab, tab.width / 2, tab.height / 2);
             mouseMove(root, root.width - 1, root.height - 1);
             tabs.enabled = false;

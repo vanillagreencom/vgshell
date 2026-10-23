@@ -788,7 +788,6 @@ var TOKENS = {
         indicatorColor: color("{color.accent}"),
         foreground: color("{color.textMuted}"),
         hover: color("mix({color.textMuted}, {color.text}, 0.5)"),
-        pressed: color("{color.surfaceHover}"),
         active: color("{color.text}"),
         border: color("{color.border}")
     },

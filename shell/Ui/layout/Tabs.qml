@@ -7,7 +7,7 @@ import qs.Ui
 // one. The template owns the index, the left and right keys and the click;
 // this file draws each tab, its label centred `tabs.paddingX` in from each
 // side, and the indicator under the open one. Hover lifts a closed tab's
-// label, a press fills the tab, and a disabled row fades. A view that
+// label, a press leaves its background transparent, and a disabled row fades. A view that
 // draws the row on something other than a resting surface hands it
 // `foreground`, `hover` and `active` label colours and the open tab's
 // `indicatorColor`, and sets
@@ -140,7 +140,7 @@ T.TabBar {
             }
 
             background: Rectangle {
-                color: tab.down ? Theme.tabs.pressed : "transparent"
+                color: "transparent"
                 Rectangle {
                     anchors.left: parent.left
                     anchors.right: parent.right

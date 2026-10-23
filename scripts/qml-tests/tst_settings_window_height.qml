@@ -427,14 +427,14 @@ Item {
                 const button = descendants(strip).find(item => item.text === names[i] && item.checked !== undefined);
                 verify(button !== undefined, "the pinned " + names[i] + " tab can be found");
                 // Read the painted fill, not just TabButton.down: the page's
-                // opaque cover must leave the shared pressed background visible.
+                // opaque cover must leave the shared resting background visible.
                 for (const held of [activeButton, button]) {
                     mousePress(held);
                     tryCompare(held, "down", true);
                     waitForRendering(window);
-                    const pressed = capture();
-                    solidPixels(pressed, held, Qt.rect(Theme.border.thin, Theme.border.thin,
-                        held.width - 2 * Theme.border.thin, Theme.border.thin), Theme.tabs.pressed);
+                    const heldPress = capture();
+                    solidPixels(heldPress, held, Qt.rect(Theme.border.thin, Theme.border.thin,
+                        held.width - 2 * Theme.border.thin, Theme.border.thin), Theme.surface.level.raised.background);
                     mouseRelease(held);
                 }
                 waitForRendering(window);

@@ -65,7 +65,7 @@ FocusScope {
         id: stickyTabsBackground
         Item {
             // A replaced Control background is still a sibling of its
-            // content: keep the cover behind the tabs' own pressed fill.
+            // content: keep the cover behind the tabs' transparent background.
             // https://doc.qt.io/qt-6/qml-qtquick-item.html#z-prop
             z: -1
             Rectangle {
