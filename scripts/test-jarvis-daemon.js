@@ -21,9 +21,10 @@ const TAP_MS = require("../bin/lib/qml-library.js").load(path.join(tree, "shell/
 // The daemon's held snapshot acknowledges the press on its Session clock.
 // Advance only that disposable clock; a parent's write time says nothing
 // about when the child's event loop consumed the press.
+// Stay inside the held interval: adding exactly TAP_MS can round below it.
 function releaseHeld(clock, state, send) {
     assert.equal(state.input.kind, "held", "a held release needs the daemon's press acknowledgment");
-    fs.writeFileSync(clock, String(state.input.since + TAP_MS));
+    fs.writeFileSync(clock, String(state.input.since + 2 * TAP_MS));
     send();
 }
 const daemon = path.join(tree, "shell/plugins/vgs.jarvis/backend/jarvisd.js");
@@ -885,7 +886,7 @@ async function inside() {
     }
     const heldControl = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "jarvis-held-control-"));
     try {
-        const needle = "state.input.since + TAP_MS";
+        const needle = "state.input.since + 2 * TAP_MS";
         assert.equal(releaseHeld.toString().split(needle).length - 1, 1);
         const file = path.join(heldControl, "release.js");
         fs.writeFileSync(file, 'const assert = require("node:assert/strict");\nconst fs = require("node:fs");\n'
@@ -1958,8 +1959,9 @@ exit "$failures"
             }
         } finally { for (const name of ["grim", "magick"]) fs.rmSync(path.join(standins, name), { force: true }); }
     }
-    async function engineConversation(file, said = "What time is it?", caption = said, identicalHello = false) {
-        const clock = holdClock(file);
+    async function engineConversation(file, said = "What time is it?", caption = said, identicalHello = false, pressAt = null) {
+        const clock = holdClock(file, pressAt !== null);
+        if (pressAt !== null) fs.writeFileSync(clock, String(pressAt));
         const child = cp.spawn("node", [file, "--tree", tree], { env: {
             PATH: process.env.PATH, HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR
         }, stdio: ["pipe", "pipe", "pipe"] });
@@ -2063,12 +2065,14 @@ exit "$failures"
         // character or length rules. The brain keeps that original final.
         const tail = "x".repeat(Protocol.TRANSCRIPT_CHARS);
         const finals = [
-            ["ordinary", "What time is it?", "What time is it?"],
-            ["multiline", "What time\nis it?\tPlease tell me.\u0000", "What time is it? Please tell me. "],
-            ["oversized", "Dropped prefix. " + tail, tail]
+            ["ordinary-integer", "What time is it?", "What time is it?", 1024],
+            ["ordinary-fractional", "What time is it?", "What time is it?", 1023.9999999999997],
+            ["multiline-integer", "What time\nis it?\tPlease tell me.\u0000", "What time is it? Please tell me. ", 1024],
+            ["multiline-fractional", "What time\nis it?\tPlease tell me.\u0000", "What time is it? Please tell me. ", 1023.9999999999997],
+            ["oversized", "Dropped prefix. " + tail, tail, null]
         ];
-        for (const [name, said, caption] of finals) {
-            await engineConversation(engineCopy("engine-" + name, said), said, caption);
+        for (const [name, said, caption, pressAt] of finals) {
+            await engineConversation(engineCopy("engine-" + name, said), said, caption, false, pressAt);
             console.log("test-jarvis-daemon: caption=" + name + " passed");
         }
         await engineConversation(engineCopy("engine-identical-hello"), "What time is it?", "What time is it?", true);
