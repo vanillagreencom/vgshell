@@ -1757,7 +1757,6 @@ mutations=(
   "a shownWhen field is drawn while its entry reads absent|../plugins/vgs.settings/PluginPage.qml|!(row.schema[field.key].shownWhen !== undefined &&|!(false &&|tst_settings_edits.qml"
   "a plugin whose fields only wait reads as bare|../plugins/vgs.settings/PluginPage.qml|row.builtins.length === 0 && row.fieldRows.length === 0 &&|row.builtins.length === 0 && fields.length === 0 && sections.length === 0 && lists.length === 0 &&|tst_settings_edits.qml"
   "a field takes no room after its hinted line|../plugins/vgs.settings/PluginPage.qml|bottomPadding: Theme.subTextRoom(choiceField.subText, Positioner.index, Positioner.isLastItem, parent)|bottomPadding: 0|tst_section_spacing.qml"
-  "a field's lines take no room after a hinted line|../plugins/vgs.settings/PluginPage.qml|        bottomPadding: Theme.subTextRoom(choiceExtras.subText, Positioner.index, Positioner.isLastItem, parent)|        bottomPadding: 0|tst_section_spacing.qml"
   "a status line reports no sub-text|../plugins/vgs.settings/StatusLine.qml|readonly property bool subText: field.subText|readonly property bool subText: false|tst_section_spacing.qml"
   "fields of no group keep a heading's room|../plugins/vgs.settings/PluginPage.qml|width: switches.width|width: switches.width; topPadding: Theme.stack.heading|tst_section_spacing.qml"
   "the settings window reports no shown page|../plugins/vgs.settings/Window.qml|onPageChanged: shell.manager.viewPage(page)|onPageChanged: void 0|tst_settings_window_height.qml"

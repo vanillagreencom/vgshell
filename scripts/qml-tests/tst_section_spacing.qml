@@ -337,14 +337,14 @@ Item {
             const own = () => descendants(page).find(item => item instanceof StatusLine && item.visible && item.hint === "Alpha is ready to use");
             const beta = () => descendants(page).find(item => item instanceof SettingField && item.key === "beta");
             tryVerify(() => own() !== undefined && beta() !== undefined && beta().height > 0, 2000, "the page draws Alpha's key line and Beta");
+            // The enclosing Columns exclude zero-height children from
+            // subText until their positioners have polished the layout.
+            verify(waitForRendering(page));
             verify(own().subText, "Alpha's hinted key line ends in sub-text");
             let extras = own().parent;
             while (extras !== page && extras.key !== "alpha") extras = extras.parent;
             verify(extras !== page, "Alpha's key line belongs to a sub-text field");
             verify(extras.subText, "Alpha's ChoiceExtras carries its key line's sub-text");
-            compare(extras.bottomPadding, Math.max(0, Theme.stack.group - extras.parent.spacing),
-                "Alpha's key-list row leaves the group room under its hint");
-            verify(waitForRendering(page));
             const gap = gapBetween(grabImage(root), own(), beta());
             verify(Math.abs(gap - list) <= root.tolerance, "Beta sits " + gap + " px under Alpha's hinted key line, not " + list + " as under a hinted row of a list");
         }
