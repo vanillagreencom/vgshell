@@ -27,6 +27,24 @@ unmeasured 2.9 unread
 CONTROLS
 done
 
+# Exercise the judge's failure effect too: a planted delayed runner must
+# fail when quiet, and a runner with no bar must fail at any pressure.
+diagnostics_control_failures() { # MS CPU_SOME_PCT BUDGET_MS
+  (
+    failures=0
+    behaviour_failures=0
+    latency_pressure_check diagnostics control "$1" "$2" "$3" >"$sandbox/diagnostics-control.log" 2>&1
+    printf '%s %s\n' "$failures" "$behaviour_failures"
+  )
+}
+while IFS='|' read -r diagnostics_control_ms diagnostics_control_pressure; do
+  expect "control: latency judge fails ms=${diagnostics_control_ms:-missing} pressure=$diagnostics_control_pressure" "1 1" diagnostics_control_failures "$diagnostics_control_ms" "$diagnostics_control_pressure" "$first_bar_budget_ms"
+done <<CONTROLS
+$((first_bar_budget_ms + 1))|0.0
+|0.0
+|2.9
+CONTROLS
+
 # The memory sampler finds the shell `vgshell run` started through the runner's
 # lock file and the instance list, and samples it by pid.
 sampler_rows() { awk -F'\t' -v pid="$shell_qs_pid" 'NR > 1 && $2 == pid { n++ } END { print n + 0 }' "$sandbox/memory.tsv"; }

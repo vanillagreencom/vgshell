@@ -94,13 +94,15 @@
 # read at its first stop: docs/architecture/validation.md § Latency budgets.
 # Each reading prints its high-water mark beside it.
 #
-# VGSHELL_SMOKE_FIRST_BAR_BUDGET_MS: ceiling on the time from the runner's exec
+# VGSHELL_SMOKE_FIRST_BAR_BUDGET_MS: ceiling on the time from runner startup
 # to the first bar surface with a client in the compositor's layer list,
-# polled every 10 ms. The default is twice the highest reading of two passes
-# of --first-bar-runs 12 on the owner's machine (host cachy, AMD Ryzen 9
-# 9950X) on 2026-09-29, at load average 10 to 14; each pass lost one start
-# to an unsized nested monitor. The 22 readings, each a start with no
-# compiled QML cache, were 253 to 310 ms with cpu_some_pct at most 1.3.
+# with 10 ms between unsuccessful polls. The default is twice the highest
+# actual diagnostics reading in 20 independent --rows diagnostics runs of
+# main bf2f463a5 on cachy (AMD Ryzen 9 9950X, installed engine VGS 2),
+# 2026-10-22: 536 to 658 ms, cpu_some_pct 0.5 to 1.0, nearby 1-minute load
+# 7.93 to 13.21. Each reading is the session row's final shell restart,
+# with that run's fixture and cache state, rather than --first-bar-runs'
+# initial shell. VGS-2012 holds the raw distribution and timing limits.
 # VGSHELL_SMOKE_DEFAULT_FIRST_BAR_BUDGET_MS: the same ceiling for the start
 # over the default set that rows/start-order.sh reads, where every bundled
 # plugin's bar widget now takes its first presence. The default is twice
@@ -269,7 +271,7 @@ if [[ -n $qml_smoke_only ]]; then
   (IFS=,; printf 'qml-smoke: rows named=%s run=%s\n' "${qml_smoke_named[*]}" "${qml_smoke_run%,}")
 fi
 rss_ceiling_kib="${VGSHELL_SMOKE_RSS_CEILING_KIB:-1174016}"
-first_bar_budget_ms="${VGSHELL_SMOKE_FIRST_BAR_BUDGET_MS:-620}"
+first_bar_budget_ms="${VGSHELL_SMOKE_FIRST_BAR_BUDGET_MS:-1316}"
 default_first_bar_budget_ms="${VGSHELL_SMOKE_DEFAULT_FIRST_BAR_BUDGET_MS:-1426}"
 reconcile_budget_ms="${VGSHELL_SMOKE_RECONCILE_BUDGET_MS:-30}"
 emoji_toast_budget_ms="${VGSHELL_SMOKE_EMOJI_TOAST_BUDGET_MS:-116}"

@@ -93,6 +93,7 @@ The IPC bound uses the `scripts/qml-smoke.sh --rows bar,displays-modes,themes` r
 ### Latency budgets
 
 - Do name the tool and the run that produced every figure in a docstring, comment or document. A budget without its measurement is a blocker. Review holds it.
+- Do calibrate the actual timed event with its source, engine, fixture, cache and compositor context named; an initial shell start does not establish a later restored shell's distribution. Review holds it.
 - Do record beside a ceiling the machine and the CPU pressure its readings ran under. Review holds it.
 - Do fail a reading over its ceiling at any CPU pressure, unless the row's header names the CPU pressure, or the 1-minute load average per physical core, above which a reading is not measured; harness.sh's `latency_load_limit` holds the load limit, 1.00. Review holds it.
 - Do record a run-end reading past harness.sh's 500 ms `run_end_ceiling_ms` as not measured when the call-to-reading window's CPU pressure is above `latency_pressure_limit` or the 1-minute load per physical core is above `latency_load_limit`, and fail it at or below both. A run that never ends fails at any load, at the harness's poll bound when the host is busy. The controls in `scripts/smoke/rows/tui.sh` hold it.
