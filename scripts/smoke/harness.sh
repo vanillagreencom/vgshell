@@ -2217,6 +2217,7 @@ stop_shell() {
   local lock="$rt_dir/vgshell.lock" observation_owner="" stopped_pid="$shell_pid"
   if [[ -n $stopped_pid ]]; then
     observation_owner="$(display_record_call owner-context "$stopped_pid")" || observation_owner=""
+    [[ -z $observation_owner ]] || display_record_call mark stop-shell "$observation_owner" "${shell_qs_pid:-}" "${instance_log:-}" "$hypr_bound_s" >/dev/null || true
   fi
   shell_memory_note
   [[ -z $shell_pid ]] || kill -TERM "$shell_pid" 2>/dev/null || true

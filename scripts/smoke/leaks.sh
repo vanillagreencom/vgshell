@@ -62,8 +62,11 @@ leak_read() { # DIR
   hypr -j clients >"$1/clients" 2>/dev/null || rm -f -- "$1/clients"
   active_window >"$1/focus" 2>/dev/null || rm -f -- "$1/focus"
   key_submap >"$1/submap" 2>/dev/null || rm -f -- "$1/submap"
+  printf 'unavailable:no-probe\n' >"$1/layers.probe"
+  printf '%s\n' "${shell_qs_pid:-}" >"$1/layers.pid"
+  printf 'unavailable:no-layers\n' >"$1/layers.raw"
   if leak_layers_rest "$1"; then
-    hypr -j layers >"$1/layers" 2>/dev/null || rm -f -- "$1/layers"
+    if hypr -j layers >"$1/layers.raw" 2>/dev/null; then cp -- "$1/layers.raw" "$1/layers"; else rm -f -- "$1/layers"; fi
   else
     rm -f -- "$1/layers"
   fi
@@ -100,11 +103,10 @@ leak_layers_rest() { # DIR
     if ! ipc smoke perScreenLayers >"$1/layers.probe" 2>/dev/null || ! probe="$(cat -- "$1/layers.probe")" || [[ $probe != \[* ]]; then
       reason="$(vgs_ipc_reply_failure "$ipc_last_reply")" || reason=unclassified
       [[ $reason == function-not-found ]] || printf 'reason=%s reply=%s\n' "$reason" "${ipc_last_reply:0:200}" >"$1/layers.unprobed"
-      rm -f -- "$1/layers.probe"
       return 0
     fi
-    rm -f -- "$1/layers.probe"
-    layers="$(hypr -j layers 2>/dev/null)" || return 0
+    layers="$(hypr -j layers 2>/dev/null)" || { printf '%s\n' "$layers" >"$1/layers.raw"; return 0; }
+    printf '%s\n' "$layers" >"$1/layers.raw"
     state="$(leak_layers_state "$probe" "$layers")" || break
     if [[ $state == rest ]]; then
       echo "$(( $(now_ms) - start_ms ))" >"$1/layers.rest-ms"
@@ -183,7 +185,7 @@ leak_row_start() {
 # per class it leaves, `NAME: leaves CLASS: +VALUE -VALUE`, and one per
 # class a reading could not read.
 leak_row_end() { # NAME DIR
-  local start="${leak_starts[-1]}" verdicts verdict class values
+  local start="${leak_starts[-1]}" verdicts verdict class values layer_failed=false
   unset 'leak_starts[-1]'
   leak_reading
   if ! verdicts="$(leak_judge "$2/$1.sh" "$start" "$leak_last")"; then
@@ -197,7 +199,26 @@ leak_row_end() { # NAME DIR
       unreadable) fail "$1: leak-check reading=unreadable class=$class at=$values start=$start end=$leak_last$(leak_unsettled "$class" "$values" "$start")" ;;
       refused) fail "$1: leak-check refused: leaves=$class reason=unknown-class" ;;
     esac
+    if [[ $class == layers && ( $verdict == leaves || $verdict == unreadable ) ]]; then
+      layer_failed=true
+      leak_layer_diagnostics "$start"
+      leak_layer_diagnostics "$leak_last"
+    fi
   done <<<"$verdicts"
+  if [[ $layer_failed == false ]]; then
+    rm -f -- "$start/layers.raw" "$start/layers.probe" "$start/layers.pid" "$leak_last/layers.raw" "$leak_last/layers.probe" "$leak_last/layers.pid"
+  fi
+}
+
+# The recorder owns historical PID/instance/stop joins. This report cannot
+# affect the namespace-only settlement or multiset verdict above.
+leak_layer_diagnostics() { # DIR
+  local report
+  if report="$(display_record_call layer-reading "$1" "$(<"$1/layers.pid")")"; then
+    printf '        layer-owner %s\n' "$report"
+  else
+    printf '        layer-owner unavailable raw=%s/layers.raw probe=%s/layers.probe\n' "$1" "$1"
+  fi
 }
 
 # leak_unsettled CLASS SIDE START: ` unsettled=<state>` when the reading

@@ -25,6 +25,7 @@ import shutil
 import socket
 import stat
 import struct
+import subprocess
 import sys
 import termios
 import time
@@ -202,6 +203,10 @@ class Record:
         self.registrations = {}
         self.launches = []
         self.owner_contexts = {}
+        self.shell_owners = {}
+        self.layer_stops = {}
+        self.layer_signature = None
+        self.layer_bound = 10
         self.next_context = 0
         self.scope = None
         self.display_registration = None
@@ -392,6 +397,19 @@ class Record:
             raise ValueError("owner-context-missing-or-ended")
         if context["pid"] != pid:
             raise ValueError("owner-end-wrong-pid")
+        if "stopShell" in context:
+            self.shell_owners[context["stopShell"]]["stop"] = key
+            context["layerStop"] = self.layers_report(self.layers_query(), context["stopShell"])
+            context["layerStop"].update(stop=key, instance=context["stopInstance"])
+            context["layerStop"].pop("raw", None)
+            context["layerStop"]["layers"] = [l for l in context["layerStop"]["layers"] if str(l["pid"]) == context["stopShell"]]
+            for layer in context["layerStop"]["layers"]:
+                if len(self.layer_stops) < CAP_EVENTS:
+                    self.layer_stops[layer["address"]] = dict(layer, stop=key, instance=context["stopInstance"])
+                else:
+                    self.problems.add("layers:capacity")
+            context["layerStop"]["stillListed"] = (any(str(l["pid"]) == context["stopShell"] for l in context["layerStop"]["layers"])
+                                                    if context["layerStop"]["status"] == "read" else "unreadable")
         if context["tag"] == "registered":
             registration = self.registrations[context["registration"]]
             launch = registration["launch"]
@@ -410,6 +428,7 @@ class Record:
                       launch=launch["key"], registration=registration["key"],
                       action="stop_shell instance-lock wait and runner wait/reap",
                       limit="local observation end; not proof that every inherited writer exited",
+                      layerStop=context.get("layerStop", {"status": "unobserved"}),
                       offset=self.streams[fd]["offset"]))
             if not registration["required"]:
                 self.retire_log(fd, "local-owner-end")
@@ -425,6 +444,76 @@ class Record:
         else:
             raise ValueError("owner-context-invalid-state")
         del self.owner_contexts[key]
+
+    def layers_query(self):
+        # Advisory native query by this observer. Its serial wait and child
+        # cost are outside terminal observationCost's collector-only claim.
+        try:
+            result = subprocess.run(["hyprctl", "-i", self.layer_signature, "-j", "layers"],
+                env={k: os.environ[k] for k in ("PATH", "XDG_RUNTIME_DIR") if k in os.environ},
+                capture_output=True, timeout=self.layer_bound, check=False)
+            return result.stdout.decode() if result.returncode == 0 else "unreadable:hyprctl-exit=" + str(result.returncode)
+        except (OSError, ValueError, TypeError, subprocess.TimeoutExpired) as error:
+            return "unreadable:" + str(error)
+
+    def layers_report(self, raw, current, probe="[]"):
+        report = dict(status="read", layers=[], raw=raw)
+        try:
+            hosts = json.loads(probe)
+            host_keys = {(h["screen"], h["namespace"]) for h in hosts}
+        except (ValueError, KeyError, TypeError, AttributeError):
+            host_keys = set()
+            report["probeStatus"] = "unreadable"
+        try:
+            for screen, monitor in json.loads(raw).items():
+                for level in monitor["levels"].values():
+                    for layer in level:
+                        if layer["pid"] == -1:
+                            continue
+                        pid, address = str(layer["pid"]), layer["address"]
+                        snapshot = process_binding(pid)
+                        owner = self.shell_owners.get(pid, {"status": "unobserved"})
+                        stopped = self.layer_stops.get(address, {})
+                        if str(stopped.get("pid")) != pid:
+                            stopped = {}
+                        original = stopped.get("instance", {}).get("snapshot", {})
+                        if snapshot.get("startTicks") and original.get("startTicks") and snapshot["startTicks"] != original["startTicks"]:
+                            stopped = {}
+                        identity = owner.get("identity", {})
+                        reused = snapshot.get("startTicks") is not None and identity.get("startTicks") is not None and snapshot["startTicks"] != identity["startTicks"]
+                        report["layers"].append(dict(address=address, namespace=layer["namespace"], screen=screen, pid=layer["pid"],
+                            liveness=snapshot, instance=stopped.get("instance", owner), stop=stopped.get("stop", owner.get("stop", "none")),
+                            identityMatch="changed" if reused else "unavailable" if not identity else "matched-or-ended",
+                            hostOwner=pid == current and (screen, layer["namespace"]) in host_keys,
+                            ownershipMismatch=pid != current and (screen, layer["namespace"]) in host_keys))
+        except (ValueError, KeyError, TypeError, AttributeError) as error:
+            report.update(status="unreadable", error=type(error).__name__)
+        return report
+
+    def layer_close(self, line):
+        namespace = line.split(b">>", 1)[1].decode(errors="replace")
+        pending = [l for l in self.layer_stops.values() if l["namespace"] == namespace]
+        if not pending:
+            return
+        close_receipt = self.receipts
+        report = self.layers_report(self.layers_query(), "")
+        self.emit("nested-ipc", "layer-close-snapshot", dict(closeReceipt=close_receipt, **report))
+        snapshot_receipt = self.receipts
+        if report["status"] != "read":
+            return
+        present = {l["address"] for l in report["layers"]}
+        for layer in report["layers"]:
+            prior = self.layer_stops.get(layer["address"])
+            if prior and (layer["pid"] != prior["pid"] or layer["identityMatch"] == "changed"):
+                self.emit("nested-ipc", "layer-generation-changed", dict(previous=prior, current=layer))
+                del self.layer_stops[layer["address"]]
+        gone = [l for l in pending if l["address"] not in present]
+        for layer in gone:
+            self.emit("nested-ipc", "layer-close-join", dict(layer, closeEvent=line.decode(errors="replace"),
+                closeReceipt=close_receipt, snapshotReceipt=snapshot_receipt,
+                closeAttribution="ambiguous" if len(gone) > 1 else "address-absent-after-namespace-close",
+                limit="subsequent snapshot absence; no address-bearing close or client-exit proof; unseen close/reopen unresolved"))
+            del self.layer_stops[layer["address"]]
 
     def require_display(self, pid, qs_pid):
         if self.scope is None or not self.scope["displayRequired"]:
@@ -574,6 +663,7 @@ class Record:
                     if self.bound:
                         raise ValueError("ambiguous-nested-binding")
                     self.bound = True
+                    self.layer_signature = signature
                     self.emit("harness", "nested-binding", dict(signature=signature, socket=path,
                               namespacePid=pid, waylandSocket=wayland))
                     self.subscribe("nested-ipc", path)
@@ -581,10 +671,19 @@ class Record:
                     if args[0] in ("display-request", "display-reply"):
                         self.request_counts[args[0]] += 1
                     if args[0] == "shell-identity":
+                        if len(self.shell_owners) >= CAP_EVENTS:
+                            raise ValueError("layers:owner-capacity")
+                        self.shell_owners[args[2]] = dict(runner=args[1], pid=args[2], tree=args[3], log=args[4], identity=process_binding(args[2]))
                         context = self.resolve_owner(args[1])
                         if context["tag"] == "registered":
                             self.shell_pids[args[2]] = context["registration"]
                         self.emit("harness", "shell-observation-context", context)
+                    if args[0] == "stop-shell" and args[1] in self.owner_contexts:
+                        context = self.owner_contexts[args[1]]
+                        context.update(stopShell=args[2], stopInstance=dict(self.shell_owners.get(args[2], {}),
+                            pid=args[2], instanceLog=args[3], snapshot=process_binding(args[2])))
+                        self.shell_owners[args[2]] = context["stopInstance"]
+                        self.layer_bound = float(args[4])
                     if args[0] == "display-request":
                         self.emit("harness", "outgoing-display-request", dict(operation=args[1], argument=args[2]))
                     elif args[0] == "display-reply":
@@ -593,6 +692,13 @@ class Record:
                         self.emit("harness", "boundary", args)
                 elif command == "probe-state":
                     self.emit("harness", "probe-state", json.loads(args[0]))
+                elif command == "layer-reading":
+                    directory, current = args
+                    root = pathlib.Path(directory)
+                    raw = (root / "layers.raw").read_text()
+                    report = self.layers_report(raw, current, (root / "layers.probe").read_text())
+                    self.emit("harness", "layer-reading", dict(directory=directory, **report))
+                    value = json.dumps(report)
                 elif command == "close":
                     self.close_window(*args)
                 elif command == "stop":
@@ -690,11 +796,13 @@ class Record:
         else:
             name = line.split(b">>", 1)[0]
             relevant = (name.startswith((b"monitor", b"openwindow", b"closewindow", b"movewindow"))
-                        or name in (b"configreloaded", b"focusedmon", b"moveworkspace", b"moveworkspacev2"))
+                        or name in (b"configreloaded", b"focusedmon", b"moveworkspace", b"moveworkspacev2", b"openlayer", b"closelayer"))
             if relevant:
                 if name.startswith(b"monitor"):
                     self.monitor_counts[source] += 1
                 self.emit(source, "ipc-observation", line.decode(errors="replace"))
+                if name == b"closelayer":
+                    self.layer_close(line)
 
     def read(self, stream, limit=65536):
         state = self.streams[stream]
