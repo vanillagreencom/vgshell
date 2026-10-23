@@ -7,7 +7,9 @@ import "PluginLogic.js" as Logic
 // Owns the exit-record side of the `tui` capability: the FolderListModel
 // listing, the per-file readers, the reaper, one `bin/vgshell-tui wait`
 // process per live run, the accepted records and runs, and the `done`
-// callbacks with their delivery. The listing is the fast path. The wait is
+// callbacks with their delivery. A successful launch also reads its known
+// running record once: a missed directory wake must not leave it pending.
+// The listing is the fast path. The wait is
 // the guarantee when FolderListModel drops a directory change. A wait can
 // outlive its need: once the listing shows the run ended, a later run of
 // the key may remove the run's records before the wait reads them, and the
@@ -56,6 +58,7 @@ Scope {
     function launched(key, run) {
         launchedRuns = launchedRuns.concat([{ key: key, run: run }]);
         reconcileWaits();
+        syncReaders();
     }
 
     function addWaiter(id, run, done) {
@@ -169,6 +172,7 @@ Scope {
         } else {
             reconcileWaits();
         }
+        syncReaders();
         process.destroy();
     }
 
@@ -181,6 +185,12 @@ Scope {
     function syncReaders() {
         const listed = {};
         for (let i = 0; i < recordFiles.count; i++) listed[recordFiles.get(i, "filePath")] = true;
+        // launch exits only after a running or ended record exists, and the
+        // presenter keeps its running record until the next run of that key.
+        // Keep this read through missed listing updates, then drop it with
+        // the run's lock wait. The listing shares the same reader if it catches up.
+        for (const row of launchedRuns)
+            listed[recordDir + "/" + row.key.replace("/", "@") + "@" + row.run + ".running.json"] = true;
         const next = {};
         for (const path of Object.keys(readers)) {
             if (Object.prototype.hasOwnProperty.call(listed, path)) {

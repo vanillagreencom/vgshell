@@ -268,13 +268,43 @@ Item {
             compare(records.runs.keys[key].running, null);
         }
 
-        function test_launched_run_starts_wait_without_a_listing() {
+        function test_launched_run_starts_wait_without_a_listing_data() {
+            return [
+                { tag: "start-before-end", readFirst: true, listed: false },
+                { tag: "listing-catches-up", readFirst: true, listed: true },
+                { tag: "end-before-read", readFirst: false, listed: false }
+            ];
+        }
+
+        function test_launched_run_starts_wait_without_a_listing(data) {
             addDone();
             records.launched(key, run);
             compare(waitProcesses().length, 1);
+            const reader = readerOf(runningPath);
+            // An unrelated directory update still omits this run's insertion.
+            model.setFiles([], "reset");
+            compare(readerOf(runningPath), reader);
+            if (data.readFirst) {
+                finishRead(runningPath, JSON.stringify(record("running", null)));
+                compare(records.record().runs[key].running, run);
+                compare(JSON.stringify(events), "[]");
+                if (data.listed) {
+                    model.setFiles([runningPath], "insert");
+                    compare(records.readers[runningPath], reader);
+                }
+            }
             finishWait(9);
+            if (!data.readFirst)
+                reader.finish(0, 0, JSON.stringify(record("running", null)), "");
             compare(JSON.stringify(events), JSON.stringify([{ code: 9, reason: null }]));
             compare(records.runs.keys[key].ended.run, run);
+            compare(records.record().runs[key].running, null);
+            compare(records.launchedRuns, []);
+            model.setFiles([], "remove");
+            wait(0);
+            compare(Object.keys(records.readers), []);
+            compare(Object.keys(records.fileRecords), []);
+            compare(JSON.stringify(events), JSON.stringify([{ code: 9, reason: null }]));
         }
 
         // The listing keeps the first run's running record through a second
