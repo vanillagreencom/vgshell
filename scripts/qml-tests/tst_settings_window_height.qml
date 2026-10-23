@@ -280,6 +280,15 @@ Item {
             const restTop = strip.mapToItem(p.page, 0, 0).y;
             const firstRow = descendants(p.settings).find(item => item.label === "Enabled");
             verify(firstRow !== undefined, "the Settings page has its first switch row");
+            const track = descendants(strip.background).find(item => item.objectName === "track");
+            verify(track !== undefined, "the pinned tab strip has its rule");
+            compare(track.mapToItem(p.page, 0, 0).x, p.pane.contentInset,
+                "the tab rule starts at the header's inner edge");
+            compare(track.mapToItem(p.page, track.width, 0).x, p.page.width - p.pane.contentInset,
+                "the tab rule ends at the header's opposite inner edge");
+            compare(track.mapToItem(p.page, 0, 0).x, firstRow.mapToItem(p.page, 0, 0).x,
+                "the tab rule and content rows share their left edge");
+            compare(track.width, firstRow.width, "the tab rule and content rows span the same width");
             const restGap = firstRow.mapToItem(scroll.contentItem, 0, 0).y - scroll.contentPadding - p.tabs.tabs.height;
             compare(restGap, Theme.stack.page, "the first row follows the tab strip by the page spacing token");
 

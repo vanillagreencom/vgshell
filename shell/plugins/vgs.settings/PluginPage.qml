@@ -542,8 +542,6 @@ FocusScope {
                 width: parent.width
                 model: ["Settings", "Details"]
                 warningTabs: page.setupNeeded ? ["Setup"] : []
-                tabs.x: layout.scrollArea.focusInset + layout.ringRoom
-                tabs.width: Math.max(0, layout.scrollArea.contentWidth - layout.ringRoom)
                 tabs.z: 2
                 tabs.objectName: "stickyTabs"
                 // The fade starts after the pinned tab band, which stays
