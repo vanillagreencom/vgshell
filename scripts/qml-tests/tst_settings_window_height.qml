@@ -283,9 +283,11 @@ Item {
             const restGap = firstRow.mapToItem(scroll.contentItem, 0, 0).y - scroll.contentPadding - p.tabs.tabs.height;
             compare(restGap, Theme.stack.page, "the first row follows the tab strip by the page spacing token");
 
-            compare(surface.mapToItem(scroll, 0, 0).y, scroll.contentPadding + scroll.focusInset + scroll.clipPadding,
-                "the masking surface starts at the scroll content inset");
-            compare(surface.height, strip.height + scroll.contentPadding, "the fade becomes visible below the pinned tabs");
+            compare(surface.color, Qt.color(Theme.surface.level.raised.background), "the cover matches the application window's raised background");
+            compare(surface.mapToItem(scroll, 0, 0).y, scroll.focusInset + scroll.clipPadding,
+                "the masking surface covers the clip's top ring room");
+            compare(surface.mapToItem(scroll, 0, 0).y + surface.height, strip.mapToItem(scroll, 0, 0).y + strip.height,
+                "the fade becomes visible below the pinned tabs");
             compare(scroll.fadeTopInset, surface.mapToItem(scroll, 0, 0).y + surface.height - scroll.focusInset - scroll.clipPadding,
                 "the mask keeps the pinned tab band opaque before fading the page");
             const names = ["Settings", "Setup", "Details"];
@@ -297,14 +299,15 @@ Item {
                     verify(label !== undefined && label.visible && label.opacity > 0, "the " + name + " tab label is visible");
                 }
             }
-            function sameRenderedPixels(first, second, item) {
-                const origin = item.mapToItem(p.page, 0, 0);
+            function sameRenderedPixels(first, second, item, box) {
+                const region = box || Qt.rect(0, 0, item.width, item.height);
+                const origin = item.mapToItem(p.page, region.x, region.y);
                 const scaleX = first.width / p.page.width;
                 const scaleY = first.height / p.page.height;
                 const left = Math.floor(origin.x * scaleX);
                 const top = Math.floor(origin.y * scaleY);
-                const right = Math.ceil((origin.x + item.width) * scaleX);
-                const bottom = Math.ceil((origin.y + item.height) * scaleY);
+                const right = Math.ceil((origin.x + region.width) * scaleX);
+                const bottom = Math.ceil((origin.y + region.height) * scaleY);
                 compare(first.width, second.width, "rest and scrolled captures have the same width");
                 compare(first.height, second.height, "rest and scrolled captures have the same height");
                 verify(left >= 0 && top >= 0 && right <= first.width && bottom <= first.height,
@@ -327,11 +330,20 @@ Item {
                 verify(atRest !== null && atEnd !== null, "the page renders at rest and at its scroll end");
                 verify(scroll.contentY > 0, "the plugin page is scrolled before choosing " + names[i]);
                 compare(strip.mapToItem(p.page, 0, 0).y, restTop, "the tabs keep their resting position at the page end");
-                compare(surface.mapToItem(scroll, 0, 0).y, scroll.contentPadding + scroll.focusInset + scroll.clipPadding,
-                    "the tab cover remains at the scroll content inset while scrolled");
+                compare(surface.mapToItem(scroll, 0, 0).y, scroll.focusInset + scroll.clipPadding,
+                    "the tab cover remains at the clip's top while scrolled");
                 compare(scroll.fadeTopInset, surface.mapToItem(scroll, 0, 0).y + surface.height - scroll.focusInset - scroll.clipPadding,
                     "the mask keeps the pinned tab band opaque while scrolled");
                 verifyLabelsDraw();
+                const band = Qt.rect(0, scroll.y - Theme.border.thin, p.page.width,
+                    strip.mapToItem(p.page, 0, strip.height).y - scroll.y + Theme.border.thin);
+                verify(sameRenderedPixels(atRest, atEnd, p.page, band),
+                    "the whole pinned band and its surrounding edges keep their resting paint at the end");
+                scroll.contentY = (scroll.contentHeight - scroll.height) / 2;
+                waitForRendering(window);
+                verify(sameRenderedPixels(atRest, grabImage(p.page), p.page, band),
+                    "the whole pinned band and its surrounding edges keep their resting paint in the middle");
+                scroll.contentY = Math.max(0, scroll.contentHeight - scroll.height);
                 if (atRest !== null && atEnd !== null) {
                     for (const name of names) {
                         const button = descendants(strip).find(item => item.text === name && item.checked !== undefined);
@@ -354,7 +366,18 @@ Item {
                     "the first row keeps its page spacing while content scrolls");
                 const button = descendants(strip).find(item => item.text === names[i] && item.checked !== undefined);
                 verify(button !== undefined, "the pinned " + names[i] + " tab can be found");
-                mouseClick(button);
+                // Read the painted fill, not just TabButton.down: the page's
+                // opaque cover must leave the shared pressed background visible.
+                for (const held of [activeButton, button]) {
+                    mousePress(held);
+                    tryCompare(held, "down", true);
+                    waitForRendering(window);
+                    const pressed = grabImage(p.page);
+                    const at = held.mapToItem(p.page, Theme.border.thin, Theme.border.thin);
+                    compare(pressed.pixel(Math.floor(at.x), Math.floor(at.y)), Qt.color(Theme.tabs.pressed),
+                        "the " + held.text + " tab press paints its shared background at " + at.x + "," + at.y);
+                    mouseRelease(held);
+                }
                 waitForRendering(window);
                 compare(p.tabs.currentIndex, i, "clicking the pinned " + names[i] + " tab switches pages");
             }

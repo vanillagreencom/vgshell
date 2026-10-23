@@ -64,14 +64,17 @@ FocusScope {
     Component {
         id: stickyTabsBackground
         Item {
+            // A replaced Control background is still a sibling of its
+            // content: keep the cover behind the tabs' own pressed fill.
+            // https://doc.qt.io/qt-6/qml-qtquick-item.html#z-prop
+            z: -1
             Rectangle {
                 objectName: "stickyTabsSurface"
-                x: -tabs.x - tabs.tabs.x
-                y: -layout.scrollArea.focusInset - layout.ringRoom
-                width: tabs.x + tabs.width
-                height: layout.scrollArea.focusInset + layout.ringRoom + tabs.tabs.height
-                color: Theme.color.surface
-                z: 1
+                x: -tabs.x - tabs.tabs.x - layout.scrollArea.contentPadding + layout.scrollArea.clipPadding
+                y: -layout.scrollArea.focusInset - layout.ringRoom - layout.scrollArea.contentPadding + layout.scrollArea.clipPadding
+                width: layout.scrollArea.width - 2 * (layout.scrollArea.focusInset + layout.scrollArea.clipPadding)
+                height: layout.scrollArea.focusInset + layout.ringRoom + layout.scrollArea.contentPadding - layout.scrollArea.clipPadding + tabs.tabs.height
+                color: Theme.surface.level.raised.background
             }
             Rectangle {
                 objectName: "track"
@@ -455,6 +458,8 @@ FocusScope {
         anchors.fill: parent
         container: "window"
         bodySpacing: 0
+        // This page's pinned tab track is its scrolling header's line.
+        dividerWidth: 0
 
         titleContent: [
             PageHeader {
