@@ -342,12 +342,39 @@ t,e,b=v
 if abs(t["contentY"])>.5 or abs(b["contentY"])>.5 or e["contentY"]<e["contentHeight"]-e["height"]-.5:print("invalid-endpoint");sys.exit()
 print("stable" if t["contentHeight"]==e["contentHeight"]==b["contentHeight"] and sys.argv[1:]==["0","0"] else "height-changed")' "$down_status" "$up_status" <<<"[$top,$end,$back]"
 }
+# Preserve the failed listing before later controls rebuild the service.
+nk_unlisted_capture() { # DIRECTORY NAME COMMAND...
+  local dir=$1 name=$2 status=0
+  shift 2
+  "$@" >"$dir/$name" 2>"$dir/$name.stderr" || status=$?
+  printf '%s exit=%s\n' "$name" "$status" >>"$dir/exits"
+}
+nk_unlisted_evidence() { # INSTANCE LOG STARTING LINE
+  local dir
+  dir="$(mktemp -d "$sandbox/rows/notifications-keys.unlisted.XXXXXX")" || return
+  printf 'trace-line=%s\ninstance-log=%s\n' "$1" "$instance_log" >"$dir/source" || return
+  nk_unlisted_capture "$dir" bindings.json hypr -j binds || return
+  nk_unlisted_capture "$dir" shortcuts.txt hypr globalshortcuts || return
+  nk_unlisted_capture "$dir" built.json ipc shell built || return
+  nk_unlisted_capture "$dir" registered.txt read_notes registered || return
+  nk_unlisted_capture "$dir" history.txt note_status history || return
+  nk_unlisted_capture "$dir" inbox.txt inbox_shown || return
+  nk_unlisted_capture "$dir" rows.json panel_rows || return
+  nk_unlisted_capture "$dir" view.json panel_current_view || return
+  nk_unlisted_capture "$dir" instance.log tail -n +"$(($1 + 1))" -- "$instance_log" || return
+  printf 'notification-unlisted-evidence: %s\n' "$dir"
+}
 long_inbox_ends() {
   local shown top end view before spot x y plan trace stable
   trace="$(wc -l <"$instance_log")"
   "$@" >/dev/null || { echo toggle-failed; return; }
   shown="$(long_inbox_shown)"
-  [[ $shown == shown ]] || { echo "$shown"; return; }
+  [[ $shown == shown ]] || {
+    if [[ $shown == unlisted ]]; then
+      nk_unlisted_evidence "$trace" >&2 || printf 'notification-unlisted-evidence: write-failed\n' >&2
+    fi
+    echo "$shown"; return
+  }
   top="$(long_inbox_settled)"
   before="$(panel_current_view)" || before=unread
   [[ $before == \{* ]] || { echo "view=$before"; return; }
