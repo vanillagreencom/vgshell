@@ -206,9 +206,11 @@ lc_stopped_layer="$(py_reply 'import json,sys
 layers=json.load(sys.stdin); pid=int(sys.argv[1])
 print(json.dumps(next(([screen,level,l] for screen,m in layers.items() for level,ls in m["levels"].items() for l in ls if l["pid"]==pid and l["namespace"]=="vgs:bar"), None)))' "$lc_stopped_pid" <"$lc_plants/stopped.layers")"
 stop_shell || fail "the diagnostic control cannot acknowledge its owned stop"
-lc_stop_key="$(py_reply 'import json,sys
+if ! lc_stop_key="$(py_reply 'import json,sys
 events=[json.loads(line) for line in sys.stdin]; pid=sys.argv[1]
-print(next((e["data"]["layerStop"]["stop"] for e in reversed(events) if e["kind"] in ("local-owner-end","unobserved-adoption-end") and e["data"].get("layerStop",{}).get("instance",{}).get("pid")==pid), "unobserved"))' "$lc_stopped_pid" <"$display_record_dir/events.jsonl")"
+print(next((e["data"]["layerStop"]["stop"] for e in reversed(events) if e["kind"] in ("local-owner-end","unobserved-adoption-end") and e["data"].get("layerStop",{}).get("instance",{}).get("pid")==pid), "unobserved"))' "$lc_stopped_pid" <"$display_record_dir/events.jsonl")"; then
+  fail "the diagnostic control cannot read its acknowledged stop"
+fi
 start_shell "$repo" "$sandbox/leak-check-owner-qs.log" || fail "the diagnostic control restores the shell"
 if [[ $lc_stopped_layer == \[* && $lc_stop_key == owner-* ]]; then
   cat >"$lc_plants/leak-plant-stopped-layer.sh" <<'SH'
