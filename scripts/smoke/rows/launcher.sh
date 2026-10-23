@@ -361,6 +361,36 @@ done
 # A held core picker leaves its key busy. The second launcher pick follows
 # shell.tui.open's shared shown answer, so it closes without a notice, and
 # IPC sees the same answer while the runner focuses the live window.
+launcher_client() { # CLASS TITLE
+  hypr -j clients | py_reply 'import json,sys
+clients = [c for c in json.load(sys.stdin) if c.get("class") == sys.argv[1] and c.get("title") == sys.argv[2]]
+print(clients[0]["address"] if len(clients) == 1 else "absent")' "$1" "$2"
+}
+launcher_active_client() { # ADDRESS CLASS TITLE
+  hypr -j activewindow | py_reply 'import json,sys
+c = json.load(sys.stdin)
+print([c.get("address"), c.get("class"), c.get("title")] == sys.argv[1:])' "$@"
+}
+launcher_install_run() {
+  ipc shell lent | py_reply 'import json,sys
+print(json.load(sys.stdin)["tui"]["runs"].get("core/pkg-install", {}).get("running") or "absent")'
+}
+launcher_install_mapped() {
+  local address
+  address="$(launcher_client org.vgs.tui "VGS · Install packages")" || return 1
+  if [[ $address =~ ^0x[0-9a-f]+$ ]]; then echo mapped; else echo absent; fi
+}
+launcher_held_install_focused() {
+  local active
+  active="$(launcher_active_client "$launcher_install_address" org.vgs.tui "VGS · Install packages")" || return 1
+  ipc shell lent | py_reply 'import json,sys
+t = json.load(sys.stdin)["tui"]
+run = t["runs"].get("core/pkg-install", {}).get("running")
+print("focused-held" if sys.argv[1] == "True" and run is not None and str(run) == sys.argv[2] else "not-focused-held")' "$active" "$launcher_install_token"
+}
+launcher_install_absent() {
+  hypr -j clients | py_reply 'import json,sys; print(all(c.get("address") != sys.argv[1] for c in json.load(sys.stdin)))' "$launcher_install_address"
+}
 forget_record
 hold_runs
 packages_menu "held Install"
@@ -368,13 +398,29 @@ pick_tui Install
 expect_poll "held Install hands the terminal the core's vgshell pkg install" "$(core_words core/pkg-install "Install packages" org.vgs.tui pkg install)" recorded
 expect_poll "the held install picker stays live" busy key_idle core/pkg-install
 expect_poll "held Install closes the launcher" 0 layer_count vgs:overlay
+expect_poll "the held Install fixture maps one expected client" mapped launcher_install_mapped
+launcher_install_address="$(launcher_client org.vgs.tui "VGS · Install packages")" || return 1
+launcher_install_token="$(launcher_install_run)" || return 1
+[[ $launcher_install_address =~ ^0x[0-9a-f]+$ && $launcher_install_token != absent ]] || { fail "the held Install identity is absent"; return 1; }
+spawn_display "$sandbox/launcher-other.log" "${shell_env[@]}" -- "$sandbox/toplevel" org.example.launcher-other Other
+launcher_other_pid="$spawn_pid"
+expect_poll "another client takes focus before busy Install" '["org.example.launcher-other", "Other"]' active_window
+launcher_other_address="$(launcher_client org.example.launcher-other Other)" || return 1
+expect "the owned other client is active before busy Install" True launcher_active_client "$launcher_other_address" org.example.launcher-other Other
 packages_menu "busy Install"
 pick_tui Install
 expect_poll "busy Install closes the launcher" 0 layer_count vgs:overlay
 expect "busy Install is not logged as a launcher refusal" 0 log_lines 'launcher: tui core/pkg-install refused: tui=core/pkg-install reason=busy'
+expect_poll "busy Install focuses the same held picker" focused-held launcher_held_install_focused
+expect "the owned other client can regain focus before IPC" ok probe dispatch "focusWindow $launcher_other_address"
+expect_poll "the owned other client is active before IPC" True launcher_active_client "$launcher_other_address" org.example.launcher-other Other
 expect "IPC openTui answers ok for the busy install picker" ok ipc shell openTui core/pkg-install
+expect_poll "IPC focuses the same held picker before release" focused-held launcher_held_install_focused
 release_runs
 expect_run_end "the held install picker run ends" core/pkg-install
+expect_poll "the released Install client disappears" True launcher_install_absent
+kill -TERM -- "$launcher_other_pid" 2>/dev/null || true
+wait "$launcher_other_pid" 2>/dev/null || true
 
 updates_revision="$(ipc shell listPlugins | py_reply 'import json,sys; print([p["revision"] for p in json.load(sys.stdin)["plugins"] if p["id"]=="vgs.updates"][0])')" || { fail "vgs.updates revision is readable for Packages"; updates_revision=""; }
 updates_snapshot="$rt_dir/vgshell-sources-$shell_qs_pid/$updates_revision"
