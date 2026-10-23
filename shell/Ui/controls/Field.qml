@@ -29,7 +29,8 @@ import qs.Ui
 // field then takes room under them so the next item of its column that is
 // no key/value row starts `stack.group` below the last line
 // (Theme.subTextRoom). An inline field with a label is a key/value row,
-// as is one with none that sets `standsWithoutLabel` (FormRow), and one under another key/value row of its column (`keyValueRow`) stands
+// as is one with none that sets `standsWithoutLabel` (FormRow), and one
+// under another key/value row of its column (`keyValueRow`) stands
 // `stack.page` under that row's drawn ink, from its lowest drawn part to
 // this row's highest, whatever either control draws in its row box, by
 // the rule a bare FormRow stands by: its FormRow searches for the row

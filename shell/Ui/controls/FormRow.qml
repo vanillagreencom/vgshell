@@ -89,8 +89,8 @@ import qs.Ui
 // A row with a label beside its control is a key/value row
 // (`keyValueRow`), and one under another key/value row of its column
 // (`rowAbove`), or a row with no label that sets `standsWithoutLabel`,
-// stands `stack.page` under that row's drawn ink, from its
-// lowest drawn part (`lineBelow()`) to this row's highest (`lineAbove()`),
+// stands `stack.page` under that row's drawn ink, from its lowest drawn
+// part (`lineBelow()`) to this row's highest (`lineAbove()`),
 // whatever either control draws in its row box: `inkTop` is that space
 // less the room the columns already put there, negative where that room
 // exceeds it. The row is the one place that measures it, for a bare row
@@ -131,8 +131,9 @@ Item {
     // first shown item of. The first group of a GroupList stands at the
     // list's top, so the search goes on above the list; a later group keeps
     // the list's gap and hairline. null for a row with no label beside its
-    // control, save one that `standsWithoutLabel`, under anything that is no key/value row, or under nothing. A
-    // Column lays out only its shown, sized children
+    // control, save one that `standsWithoutLabel`, under anything that is
+    // no key/value row, or under nothing. A Column lays out only its shown,
+    // sized children
     // (https://doc.qt.io/qt-6/qml-qtquick-column.html). A Repeater that
     // moves its rows reorders its parent's children with no change of
     // `children`, so the search reads the place in its column of each item

@@ -343,8 +343,9 @@ function statusView(entry, timeText, plugin) {
 
 // What a stored key reads as beside its masked field on Settings, plain
 // text that says what the key store holds and never that the key works,
-// and the sentence under it, after the key's hint (hintOf), for a presence that has one, of what the
-// user can do, for PLUGIN, { id, name, keyTool }, `keyTool` its
+// and the sentence under it, after the key's hint (hintOf), for a
+// presence that has one, of what the user can do, for PLUGIN,
+// { id, name, keyTool }, `keyTool` its
 // keyToolStep. An unavailable key names the missing KEY_TOOL and links the
 // step that installs it, since turning the plugin off and on reads the
 // keys no better while it is missing. An absent key reads nothing: its Add
