@@ -614,6 +614,9 @@ cases=(
   "recipe|packaging/arch/vgshell/PKGBUILD|offline|$arch_recipe_plan"
   "curl-installer-srcinfo|packaging/arch/vgshell/.SRCINFO|offline|node scripts/check-packaging.js"$'\nnode scripts/test-check-packaging.js\n'"$readme_rows"$'scripts/test-vgshell-requirements.sh\nscripts/test-install-sh.sh\nscripts/test-release.sh\nscripts/test-publish-aur.sh\n'"$repo_plan"
   "recipe-all|packaging/arch/vgshell-git/.SRCINFO|all|$arch_recipe_plan"$'\nscripts/arch-packages.sh'
+  "debian-recipe|packaging/debian/vgshell-quickshell/control|cli|node scripts/check-packaging.js"$'\nnode scripts/test-check-packaging.js\nscripts/test-release.sh'
+  "debian-builder|scripts/debian-packages.sh|cli|node scripts/check-packaging.js"$'\nnode scripts/test-check-packaging.js\nscripts/test-release.sh'
+  "debian-package|packaging/debian/vgshell-quickshell/rules|package|scripts/debian-packages.sh"
   "recipe-package|packaging/arch/vgshell/PKGBUILD|package|scripts/arch-packages.sh"
   # The plugin logic table holds the core's sound table to the files.
   "sound-file|shell/assets/sounds/pop.wav|logic|node scripts/test-plugin-logic.js"

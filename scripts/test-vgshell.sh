@@ -1715,4 +1715,32 @@ help_copy_with per-command \
   "    restart) return 1 <<'EOF_HELP'"
 if help_per_command_blocks "$control_bin"; then fail "per-command control did not reject"; else ok "per-command control rejected"; fi
 
+# The selected release root supplies IPC and logs through the entry PATH.
+selected_engine_ops() { # BIN
+  local tree engine_data engine_root mode status
+  local -a args
+  tree="$(mktemp -d "$tmp/engine-tree.XXXXXX")" || return 1
+  source_tree "$tree" 0.1.0
+  cp "$1" "$tree/bin/vgshell"
+  engine_data="$tree/data"; engine_root="$engine_data/vgshell/.engines/release-0.1.0"
+  mkdir -p "$engine_root/bin" "$tree/runtime"
+  printf '%s\n' "$$" >"$tree/runtime/vgshell.lock"
+  cat >"$engine_root/bin/qs" <<EOF
+#!/bin/bash
+printf '%s\n' selected >"$tree/selected"
+exec "$tmp/qs" "\$@"
+EOF
+  chmod +x "$engine_root/bin/qs"
+  for mode in ipc log; do
+    : >"$tree/selected"; status=0
+    if [[ $mode == ipc ]]; then args=(ipc call shell version); else args=(log); fi
+    "${base_env[@]}" XDG_DATA_HOME="$engine_data" XDG_RUNTIME_DIR="$tree/runtime" STUB_REPLY=ok \
+      "$tree/bin/vgshell" "${args[@]}" >"$tree/out" 2>"$tree/err" || status=$?
+    [[ $status == 0 && -s $tree/selected && $(cat "$tree/out") == ok ]] || return 1
+  done
+}
+check "IPC and logs select the rooted wrapped engine" selected_engine_ops "$repo/bin/vgshell"
+copy_with rooted-path "$repo/bin/vgshell" 'if [[ -n $engine_bin ]]; then' 'if false; then'
+if selected_engine_ops "$copy"; then fail "control: an unused engine root passes selection"; else ok "control: an unused engine root fails selection"; fi
+
 rows_done test-vgshell

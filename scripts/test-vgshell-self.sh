@@ -201,6 +201,8 @@ running_layout() { # DATA: current 0.1.0, the running shell's 0.0.8, a stale 0.0
 }
 rt_running="$tmp/rt-running"; mkdir -p "$rt_running"
 running_data="$tmp/data-running"; running_layout "$running_data"
+mkdir -p "$running_data/vgshell/.engines" "$tmp/retained-store"
+for v in "$version_text" "$release" 0.0.8 0.0.7; do ln -s "$tmp/retained-store" "$running_data/vgshell/.engines/release-$v"; done
 "$stubs/qs" -p "$running_data/vgshell/0.0.8/shell" &
 fake_shell=$!
 trap 'kill "$fake_shell" "$www_pid" 2>/dev/null || true; rm -rf -- "${tmp:?}"' EXIT
@@ -212,6 +214,9 @@ check "the update beside a running shell names the new tree" has_line "ok update
 check "the running shell's tree stays" test -d "$running_data/vgshell/0.0.8/shell"
 check "the tree the update ran from stays" test -d "$running_data/vgshell/$version_text"
 check "a tree nothing runs is removed" test ! -e "$running_data/vgshell/0.0.7"
+for v in "$version_text" "$release" 0.0.8; do check "engine root $v remains current, previous or running" test -L "$running_data/vgshell/.engines/release-$v"; done
+check "the obsolete engine root is unlinked" test ! -L "$running_data/vgshell/.engines/release-0.0.7"
+check "root pruning never deletes a store target" test -d "$tmp/retained-store"
 kill "$fake_shell" 2>/dev/null || true
 inst_env=("${saved_env[@]}")
 
@@ -588,9 +593,12 @@ migration_run() { # NAME DISTRIBUTION IDENTITY ANSWER WANT_EXIT
   printf '%s\n' "$identity" >"$state/owner"
   printf '1\n' >"$state/release"
   printf 'ID=%s\n' "$distro" >"$state/os-release"
+  [[ $distro != debian ]] || printf 'VERSION_CODENAME=forky\n' >>"$state/os-release"
   for binary in qs sudo; do ln -s "$migration_helpers/$binary" "$helperdir/$binary"; done
   if [[ $distro == arch ]]; then
     for binary in pacman paru; do ln -s "$migration_helpers/$binary" "$helperdir/$binary"; done
+  elif [[ $distro == debian ]]; then
+    for binary in apt-get dpkg dpkg-query dpkg-deb sqv; do ln -s "$migration_helpers/$binary" "$helperdir/$binary"; done
   else
     for binary in rpm dnf; do ln -s "$migration_helpers/$binary" "$helperdir/$binary"; done
   fi
@@ -600,6 +608,8 @@ migration_run() { # NAME DISTRIBUTION IDENTITY ANSWER WANT_EXIT
   [[ $name != *failure* ]] || touch "$state/fail"
   [[ $name != *retained* ]] || touch "$state/retain"
   [[ $name != *stale* ]] || touch "$state/stale"
+  [[ $name != *signature* ]] || touch "$state/signature"
+  [[ $name != *revision* ]] || touch "$state/revision"
   migration_invoke "$state" "$mdata" "$helperdir" "$answer" "$mdata/vgshell/$version_text/bin/lib/self.js" || status=$?
   check "migration $name has expected exit" test "$status" == "$wanted"
   if [[ $wanted == 0 ]]; then
@@ -656,6 +666,95 @@ for distro in arch fedora; do
   if ((failures > before)); then failures="$before"; ok "control: $distro replacement rejects a missing migration"; else fail "control: $distro replacement accepted missing migration"; fi
 done
 mv -- "$tmp/migration-installer" "$migration_source/packaging/install-system.sh"
+
+# Debian old-client staging downloads the signed engine through the new
+# migration owner. sqv is a protocol stand-in here; install-sh tests its
+# actual disposable-key verification, and package-run tests local argv.
+cat >"$migration_helpers/dpkg" <<'DPKG'
+#!/bin/bash
+case "$1" in
+ --print-architecture) echo amd64 ;;
+ -S) printf '%s: %s\n' "$(cat "$ENGINE_STATE/owner")" "$2" ;;
+ *) exit 64 ;;
+esac
+DPKG
+cat >"$migration_helpers/dpkg-query" <<'QUERY'
+#!/bin/bash
+if [[ -f $ENGINE_STATE/revision ]]; then echo 0.3.2+git2b4501a+vgs2-0
+else echo 0.3.2+git2b4501a+vgs2-1; fi
+QUERY
+cat >"$migration_helpers/dpkg-deb" <<'DEB'
+#!/bin/bash
+printf 'Package: vgshell-quickshell\nVersion: 0.3.2+git2b4501a+vgs2-1\nArchitecture: amd64\n'
+DEB
+cat >"$migration_helpers/apt-get" <<'APT'
+#!/bin/bash
+[[ $1 == install && $2 == -- && $3 == /*.deb ]] || exit 64
+exec "$ENGINE_HELPERS/paru" -S --needed -- vgshell-quickshell
+APT
+cat >"$migration_helpers/sqv" <<'SQV'
+#!/bin/bash
+[[ ! -f $ENGINE_STATE/signature ]] || exit 41
+[[ $(cat "$3") == fixture-signature ]] || exit 42
+echo 8BC162233D519169B9574148CC6862AD90B7D7EA
+SQV
+chmod +x "$migration_helpers/"*
+migration_pack
+engine_asset=vgshell-quickshell_0.3.2+git2b4501a+vgs2-1_debian-forky_amd64.deb
+printf 'engine fixture\n' >"$www/dl/$engine_asset"
+printf 'public fixture key\n' >"$www/dl/release-key.asc"
+printf 'fixture-signature\n' >"$www/dl/SHA256SUMS.asc"
+(cd "$www/dl" && sha256sum "$engine_asset" >>SHA256SUMS)
+node - "$www/repos/vanillagreencom/vgshell/releases/latest" "$api" "$engine_asset" <<'ASSETS'
+const fs=require("node:fs"), p=process.argv[2], doc=JSON.parse(fs.readFileSync(p));
+for(const name of [process.argv[4],"release-key.asc","SHA256SUMS.asc"]) doc.assets.push({name,browser_download_url:process.argv[3]+"/dl/"+name});
+fs.writeFileSync(p,JSON.stringify(doc));
+ASSETS
+mkdir -p "$www/repos/vanillagreencom/vgshell/releases/tags"
+cp "$www/repos/vanillagreencom/vgshell/releases/latest" "$www/repos/vanillagreencom/vgshell/releases/tags/v$release"
+for row in 'apt|0' 'apt-signature|1' 'apt-revision|1'; do
+  IFS='|' read -r name wanted <<<"$row"
+  migration_run "$name" debian quickshell y "$wanted"
+done
+
+# A detected NixOS primary must propagate realization failure. An unsupported
+# primary keeps the existing no-migration result. The actual flake is tested
+# by test-flake.sh; this stub represents only nix's failed build operation.
+nix_failure="$tmp/nix-failure"; mkdir -p "$nix_failure"
+printf '#!/bin/sh\nexit 41\n' >"$nix_failure/nix"; chmod +x "$nix_failure/nix"
+for distribution in nixos unsupported; do
+  state="$tmp/primary-$distribution"; mkdir -p "$state"
+  printf 'ID=%s\n' "$distribution" >"$state/os-release"
+  status=0
+  printf -v command '%q ' "$unshare_bin" -rm "$BASH" -c 'mount --bind "$1" /etc/os-release && shift && exec "$@"' bash "$state/os-release" \
+    env -i PATH="$nix_failure:$tools" HOME="$tmp/home" XDG_RUNTIME_DIR="$rt_empty" XDG_DATA_HOME="$state/data" TMPDIR="$tmp" \
+    "$node_bin" "$migration_source/bin/lib/self.js" prepare-engine "$migration_source" "$migration_source" - -
+  script -qec "$command" /dev/null </dev/null >"$tmp/primary.out" 2>&1 || status=$?
+  if [[ $distribution == nixos ]]; then check "detected NixOS propagates a realization failure" test "$status" == 1
+  else check "unsupported primary performs no engine migration" test "$status" == 0; fi
+done
+
+# The target updater's preparation is an executable dependency. Its stand-in
+# refuses before the checkout can move, also when the fetched HEAD is unchanged.
+engine_seed="$tmp/engine-seed"; source_tree "$engine_seed" "$version_text"
+python3 - "$engine_seed/bin/lib/self.js" <<'PREPARE'
+import sys
+p=sys.argv[1]; s=open(p).read(); needle='"use strict";'
+assert s.count(needle)==1
+s=s.replace(needle, needle+'\nif (process.argv[2] === "prepare-engine") process.exit(41);')
+open(p,'w').write(s)
+PREPARE
+g init -q "$engine_seed"; g -C "$engine_seed" add -A; g -C "$engine_seed" commit -qm engine
+engine_remote="$tmp/engine-upstream.git"; g init -q --bare "$engine_remote"; g -C "$engine_seed" push -q "$engine_remote" main
+engine_checkout="$tmp/engine-checkout"; g clone -q "$engine_remote" "$engine_checkout"
+engine_old="$(g -C "$engine_checkout" rev-parse HEAD)"
+for changed in unchanged advanced; do
+  if [[ $changed == advanced ]]; then
+    g -C "$engine_seed" commit -q --allow-empty -m next; g -C "$engine_seed" push -q "$engine_remote" main
+  fi
+  INST_BIN="$engine_checkout/bin/vgshell" inst "checkout $changed refuses failed target preparation" "$cfg" "$rt_empty" 1 "" "vgshell: refused: engine=prepare-failed" self update
+  check "checkout $changed keeps HEAD before engine preparation succeeds" test "$(g -C "$engine_checkout" rev-parse HEAD)" == "$engine_old"
+done
 
 # Same-version repair runs against fresh stand-in installs. It never uses
 # the owner machine's package database or a remote release endpoint.
@@ -752,5 +851,22 @@ for helper_case in declined failed installed; do
     check "package helper $helper_case starts no reinstall" test ! -e "$repair_package/reinstall.json"
   fi
 done
+
+root_identity() { # ENGINE_MODULE
+  node - "$1" "$tmp" <<'ROOT_IDENTITY'
+const fs=require("node:fs"), path=require("node:path"), assert=require("node:assert/strict");
+const engine=require(process.argv[2]), root=fs.mkdtempSync(path.join(process.argv[3],"identity-"));
+fs.mkdirSync(path.join(root,"real")); fs.symlinkSync(path.join(root,"real"),path.join(root,"link"));
+const origin=path.join(root,"link","git"), revision="a".repeat(40);
+const planned=engine.rootFor(root,origin,revision);
+fs.mkdirSync(path.join(root,"real","git"));
+assert.equal(engine.rootFor(root,origin,revision),planned);
+assert.notEqual(engine.rootFor(root,origin,"b".repeat(40)),planned);
+assert.equal(engine.rootFor(root,origin,"-","0.1.2"),engine.rootFor(root,path.join(root,"real","git"),"-","0.1.2"));
+ROOT_IDENTITY
+}
+check "engine identity survives checkout publication through a symlink" root_identity "$repo/bin/lib/engine.js"
+copy_with uncanonical-engine "$repo/bin/lib/engine.js" 'path.join(fs.realpathSync(path.dirname(tree)), path.basename(tree))' 'path.resolve(tree)'
+if root_identity "$copy" >"$tmp/identity-control.log" 2>&1; then fail "control: uncanonical origin passes identity"; else ok "control: uncanonical origin fails identity"; fi
 
 rows_done test-vgshell-self

@@ -119,9 +119,9 @@ setpriv    present ^setpriv[[:space:]]from[[:space:]]util-linux[[:space:]]([0-9]
   runtime_packages='
 pacman bash bubblewrap coreutils curl dbus fd ffmpeg file fontconfig fzf gawk git glib2 gpu-screen-recorder grim gum hyprland hyprpicker imagemagick iproute2 less libnotify libpulse libsecret libxkbcommon mise networkmanager nodejs pacman-contrib pipewire pipewire-audio playerctl python qrencode rclone sed slurp systemd tesseract tesseract-data-eng util-linux wireplumber wl-clipboard wtype xdg-terminal-exec xdg-utils xkeyboard-config greetd glibc
 aur vgshell-quickshell vsys
-apt bash bubblewrap coreutils curl dash dbus-bin ffmpeg file fontconfig fzf gawk git gpu-screen-recorder-cli grim gum hyprland hyprpicker imagemagick iproute2 less libglib2.0-bin libnotify-bin libsecret-tools libxkbcommon0 network-manager nodejs pipewire-alsa pipewire-bin playerctl procps pulseaudio-utils python3 qrencode quickshell rfkill sed slurp systemd tesseract-ocr tesseract-ocr-eng util-linux wireplumber wl-clipboard wtype xdg-terminal-exec xdg-utils xkb-data greetd libc-bin
+apt bash bubblewrap coreutils curl dash dbus-bin ffmpeg file fontconfig fzf gawk git gpu-screen-recorder-cli grim gum hyprland hyprpicker imagemagick iproute2 less libglib2.0-bin libnotify-bin libsecret-tools libxkbcommon0 network-manager nodejs pipewire-alsa pipewire-bin playerctl procps pulseaudio-utils python3 qrencode rfkill sed slurp systemd tesseract-ocr tesseract-ocr-eng util-linux wireplumber wl-clipboard wtype xdg-terminal-exec xdg-utils xkb-data greetd libc-bin
 dnf ImageMagick NetworkManager bash bubblewrap coreutils curl dbus-tools fd-find ffmpeg-free file fontconfig fzf gawk git glib2 grim gum hyprland hyprpicker iproute less libnotify libsecret libxkbcommon nodejs pipewire-alsa pipewire-utils playerctl pulseaudio-utils python3 qrencode vgshell-quickshell rclone sed slurp systemd tesseract tesseract-langpack-eng util-linux util-linux-core wireplumber wl-clipboard wtype xdg-terminal-exec xdg-utils xkeyboard-config greetd glibc-common
-nix bash bubblewrap coreutils curl dbus fd ffmpeg file fontconfig fzf gawk git glib gpu-screen-recorder grim gum hyprland hyprpicker imagemagick iproute2 less libnotify libsecret libxkbcommon mise networkmanager nodejs pipewire playerctl pulseaudio python3 qrencode quickshell rclone gnused slurp systemd tesseract util-linux wireplumber wl-clipboard wtype xdg-terminal-exec xdg-utils xkeyboard_config greetd glibc.getent
+nix bash bubblewrap coreutils curl dbus fd ffmpeg file fontconfig fzf gawk git glib gpu-screen-recorder grim gum hyprland hyprpicker imagemagick iproute2 less libnotify libsecret libxkbcommon mise networkmanager nodejs pipewire playerctl pulseaudio python3 qrencode rclone gnused slurp systemd tesseract util-linux wireplumber wl-clipboard wtype xdg-terminal-exec xdg-utils xkeyboard_config greetd glibc.getent
 '
 
   # The package that provides each floor tool, per primary manager. The rows
@@ -129,7 +129,7 @@ nix bash bubblewrap coreutils curl dbus fd ffmpeg file fontconfig fzf gawk git g
   # manager with no entry for quickshell or hyprland has no package in its
   # own repositories that meets the floor (docs/architecture/distribution.md).
   packages='
-quickshell apt=quickshell dnf=vgshell-quickshell nix=quickshell
+quickshell dnf=vgshell-quickshell
 hyprland   pacman=hyprland apt=hyprland nix=hyprland
 node       pacman=nodejs apt=nodejs dnf=nodejs nix=nodejs
 python3    pacman=python apt=python3 dnf=python3 nix=python3
@@ -273,15 +273,13 @@ EOF
   floor_check() { # EXTRA_TOOL...
     local tool need pattern probe out line have status start manager="" binary="" m family release bins elevate args pkg
     local -a argv lines misses=() names=() unread=() unpackaged=()
-    mkdir -m 700 -- "$tmp/runtime" || refuse 1 "runtime=failed path=$tmp/runtime"
+    mkdir -p -m 700 -- "$tmp/runtime" || refuse 1 "runtime=failed path=$tmp/runtime"
     read -r manager binary <<<"$(primary_manager)" || true
     while read -r tool need pattern probe; do
       [[ -n $tool ]] || continue
+      [[ $tool != quickshell || ${engine_delivered:-false} == true || ! $manager =~ ^(pacman|dnf|apt|nix)$ ]] || continue
       read -ra argv <<<"$probe"
       if ! command -v -- "${argv[0]}" >/dev/null; then
-        # Arch's runtime AUR group supplies the missing engine. Installed
-        # engines still pass through the version floor below.
-        [[ $tool != quickshell || $manager != pacman ]] || continue
         misses+=("$tool none $need")
         continue
       fi
@@ -389,11 +387,11 @@ process.stdout.write([...missing].sort().join(" "));
       command=("$tree/bin/vgshell" pkg run install --manager "$manager" "${packages[@]}")
       if [[ $install_terminal == true ]]; then
         code=0
-        "$tree/bin/vgshell-tui" present --presentation plain -- "${command[@]}" </dev/tty || code=$?
+        "$tree/bin/vgshell-tui" present --presentation plain -- "${command[@]}" </dev/tty 9>&- || code=$?
       else
         run="install-$$-$manager"
         "$tree/bin/vgshell-tui" launch --title "Install requirements" --record "$key" --run "$run" -- \
-          "${command[@]}" || refuse 1 "requirements=launch-failed manager=$manager"
+          "${command[@]}" 9>&- || refuse 1 "requirements=launch-failed manager=$manager"
         record="$("$tree/bin/vgshell-tui" wait --record "$key" --run "$run")" || refuse 1 "requirements=wait-failed manager=$manager"
         code="$(node -e '
 const record = JSON.parse(process.argv[1]);
@@ -499,12 +497,22 @@ process.stdout.write(String(record.code));
     printf '%s\n' "$hex"
   }
 
-  # Checks SUMS against SHA256SUMS.asc when the release has one, gpg is on
-  # PATH and holds release_key; prints why it did not otherwise. A signature
-  # that is not a good one by release_key refuses.
+  # Debian uses apt's verifier with only the downloaded public key, pinned
+  # to release_key. Other channels retain their existing source trust.
   signature_check() { # SUMS
-    local url line
+    local url line manager binary signer
     local -a field
+    read -r manager binary <<<"$(primary_manager)"
+    if [[ $manager == apt ]]; then
+      url="$(asset_url release-key.asc)" || refuse 1 "asset=missing name=release-key.asc"
+      fetch download "$url" "$tmp/release-key.asc" "$max_sums" "$download_seconds"
+      url="$(asset_url SHA256SUMS.asc)" || refuse 1 "asset=missing name=SHA256SUMS.asc"
+      fetch download "$url" "$tmp/SHA256SUMS.asc" "$max_sums" "$download_seconds"
+      signer="$(sqv --keyring "$tmp/release-key.asc" "$tmp/SHA256SUMS.asc" "$1" 2>"$tmp/signature.err")" ||
+        refuse 1 "signature=bad name=SHA256SUMS" "$(cat -- "$tmp/signature.err")"
+      [[ $signer == "$release_key" ]] || refuse 1 "signature=wrong-key"
+      return 0
+    fi
     if ! url="$(asset_url SHA256SUMS.asc)"; then
       echo "signature=unchecked reason=no-signature"
       return 0
@@ -565,14 +573,18 @@ process.stdout.write(lines.join("\n") + "\n");
     version="${BASH_REMATCH[1]}"
   }
 
+  prepare_engine() { # SOURCE ORIGIN REVISION [SIGNED-DIRECTORY]
+    local selected
+    node "$1/bin/lib/self.js" prepare-engine "$1" "$2" "$3" "${4:--}" 9>&- || refuse 1 "engine=prepare-failed"
+    selected="$(node "$1/bin/lib/engine.js" path "$data_home" "$2" "$3")" || refuse 1 "engine=path-failed"
+    [[ -z $selected ]] || export PATH="$selected:$PATH"
+    engine_delivered=true
+    floor_check
+  }
+
   install_release() {
     local archive="vgshell-$version.tar.gz" sums_url archive_url want got target="$data/$version" unpacked
     local -a top
-    if [[ -e $target || -L $target ]] && [[ -L $data/current && $(readlink -- "$data/current") == "$version" ]]; then
-      runtime_install "$target"
-      echo "ok up-to-date=vgshell version=$version path=$target"
-      return 0
-    fi
     sums_url="$(asset_url SHA256SUMS)" || refuse 1 "asset=missing name=SHA256SUMS release=v$version"
     archive_url="$(asset_url "$archive")" || refuse 1 "asset=missing name=$archive release=v$version"
     fetch download "$sums_url" "$tmp/SHA256SUMS" "$max_sums" "$download_seconds"
@@ -587,7 +599,7 @@ process.stdout.write(lines.join("\n") + "\n");
     if [[ -e $data/current && ! -L $data/current ]]; then
       refuse 1 "current=not-a-link path=$data/current" "remove it and run install.sh again"
     fi
-    if [[ -e $target || -L $target ]]; then
+    if [[ -e $target || -L $target ]] && [[ ! -L $data/current || $(readlink -- "$data/current") != "$version" ]]; then
       refuse 1 "target=exists path=$target" "remove it and run install.sh again"
     fi
     new_stage
@@ -603,7 +615,19 @@ process.stdout.write(lines.join("\n") + "\n");
     fi
     [[ -f $unpacked/VERSION ]] || refuse 1 "archive=layout name=$archive version=missing"
     [[ "$(cat -- "$unpacked/VERSION"; echo .)" == "$version"$'\n.' ]] || refuse 1 "archive=version name=$archive"
+    local manager binary asset url
+    read -r manager binary <<<"$(primary_manager)"
+    if [[ $manager == apt ]]; then
+      asset="$(node -e 'console.log(require(process.argv[1]).debianAsset(process.argv[2]))' "$unpacked/bin/lib/engine.js" "$(dpkg --print-architecture)")" || refuse 1 "engine=architecture"
+      url="$(asset_url "$asset")" || refuse 1 "asset=missing name=$asset"
+      fetch download "$url" "$tmp/$asset" "$max_archive" "$download_seconds"
+    fi
+    prepare_engine "$unpacked" "$unpacked" - "$tmp"
     runtime_install "$unpacked"
+    if [[ -d $target ]]; then
+      echo "ok up-to-date=vgshell version=$version path=$target"
+      return 0
+    fi
     DESTDIR="$stage/tree" PREFIX=/vgshell bash "$unpacked/packaging/install-system.sh" >/dev/null 2>"$stage/install.err" ||
       refuse 1 "install=failed name=$archive" "$(cat -- "$stage/install.err")"
     mv -T -- "$stage/tree/vgshell/share/vgshell" "$target" 2>/dev/null || refuse 1 "target=failed path=$target"
@@ -622,6 +646,9 @@ process.stdout.write(lines.join("\n") + "\n");
       GIT_TERMINAL_PROMPT=0 GIT_ASKPASS= SSH_ASKPASS_REQUIRE=never GCM_INTERACTIVE=false \
       git -c core.hooksPath=/dev/null -c core.fsmonitor=false clone --quiet --branch main -- "$git_url" "$stage/git" 2>"$stage/git.err" ||
       refuse 1 "git=clone url=$git_url" "$(cat -- "$stage/git.err")"
+    local revision
+    revision="$(git -C "$stage/git" rev-parse HEAD)" || refuse 1 "git=revision-failed"
+    prepare_engine "$stage/git" "$data/git" "$revision"
     runtime_install "$stage/git"
     mv -T -- "$stage/git" "$data/git" 2>/dev/null || refuse 1 "git=failed path=$data/git"
     echo "ok installed=vgshell git=$data/git"
@@ -679,7 +706,7 @@ process.stdout.write(lines.join("\n") + "\n");
       [[ $force == true ]] || git_guard
       shopt -s nullglob dotglob
       for entry in "$data"/*; do
-        if [[ ${entry##*/} =~ ^(current|git|\.self-update-.*|[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+        if [[ ${entry##*/} =~ ^(current|git|\.engines|\.self-update-.*|[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
           rm -rf -- "$entry"
         elif [[ ${entry##*/} != .self.lock ]]; then
           rest+=("$entry")

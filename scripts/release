@@ -102,7 +102,8 @@ done <<<"$remote"
 [[ $remote_object == "$tag_object" ]] || refuse 1 "tag=differs name=$tag local=$tag_object remote=$remote_object"
 
 archive="vgshell-$version.tar.gz"
-assets=("$archive" install.sh SHA256SUMS SHA256SUMS.asc)
+engine_asset="$(node -e 'console.log(require(process.argv[1]).debianAsset("amd64"))' "$repo/bin/lib/engine.js")" || refuse 1 "engine=identity"
+assets=("$archive" install.sh "$engine_asset" release-key.asc SHA256SUMS SHA256SUMS.asc)
 dist="$repo/dist"
 mkdir -p -- "$dist" || refuse 1 "dist=unwritable path=$dist"
 stage="$(mktemp -d -- "$dist/.release.XXXXXX")" || refuse 1 "dist=unwritable path=$dist"
@@ -111,7 +112,11 @@ trap 'rm -rf -- "${stage:?}"' EXIT
 sum="$("$repo/scripts/lib/release-tarball.sh" "$tag_commit" "$version" "$stage/$archive")" ||
   refuse 1 "archive=failed tag=$tag"
 git -C "$repo" show "refs/tags/$tag:install.sh" >"$stage/install.sh" || refuse 1 "archive=failed name=install.sh tag=$tag"
-(cd -- "$stage" && sha256sum -- "$archive" install.sh >SHA256SUMS) || refuse 1 "sha256sum=failed path=$stage"
+"$repo/scripts/debian-packages.sh" --output "$stage" || refuse 1 "engine=build-failed"
+[[ -s $stage/$engine_asset ]] || refuse 1 "engine=asset-missing name=$engine_asset"
+gpg --batch --armor --export -- "$key" >"$stage/release-key.asc" || refuse 1 "gpg=export-failed key=$key"
+[[ -s $stage/release-key.asc ]] || refuse 1 "gpg=export-empty key=$key"
+(cd -- "$stage" && sha256sum -- "$archive" install.sh "$engine_asset" release-key.asc >SHA256SUMS) || refuse 1 "sha256sum=failed path=$stage"
 
 if [[ $dry_run == false ]]; then
   gpg --local-user "$key" --armor --detach-sign --output "$stage/SHA256SUMS.asc" -- "$stage/SHA256SUMS" ||

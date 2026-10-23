@@ -21,9 +21,13 @@
             ./packaging/arch/vgshell-quickshell/vgs-1993-managed-process-lifetime.patch
           ];
           cmakeFlags = builtins.filter (flag: !(lib.hasPrefix "-DDISTRIBUTOR" flag) && !(lib.hasPrefix "-DGIT_REVISION" flag)) old.cmakeFlags ++ [
-            (lib.cmakeFeature "DISTRIBUTOR" "VGS 2 (package: vgshell-quickshell)")
             (lib.cmakeFeature "GIT_REVISION" "2b4501a282689792b62e94f3fb30d8f512324fe6")
           ];
+          # The unstructured cmakeFlags environment splits spaces. Keep the
+          # distributor as one argument through CMake's supported shell array.
+          preConfigure = (old.preConfigure or "") + ''
+            cmakeFlagsArray+=("-DDISTRIBUTOR=VGS 2 (package: vgshell-quickshell)")
+          '';
         });
       })));
 
@@ -85,6 +89,7 @@
     in
     {
       packages = forAllSystems (pkgs: {
+        quickshell = pkgs.quickshell;
         default = pkgs.stdenvNoCC.mkDerivation {
           pname = "vgshell";
           version = lib.fileContents ./VERSION;

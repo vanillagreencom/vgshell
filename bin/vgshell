@@ -396,6 +396,16 @@ shell_dir="$root/shell"
 rt_dir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 lock="$rt_dir/vgshell.lock"
 config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+engine_revision=-
+if [[ -d ${XDG_DATA_HOME:-$HOME/.local/share}/vgshell/.engines ]]; then
+  if [[ -e $root/.git ]]; then
+    engine_revision="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_COMMON_DIR git -C "$root" -c core.fsmonitor=false rev-parse HEAD)"
+  fi
+  engine_bin="$(node "$root/bin/lib/engine.js" path "${XDG_DATA_HOME:-$HOME/.local/share}" "$root" "$engine_revision")"
+  if [[ -n $engine_bin ]]; then
+    export PATH="$engine_bin:$PATH" VGSHELL_ENGINE_ROOT="${engine_bin%/bin}"
+  fi
+fi
 
 help_text() { # [COMMAND]
   case "${1:-main}" in
@@ -1341,7 +1351,10 @@ fast_forward() { # DIR LABEL REVIEW
   [[ -z $dirty ]] || refuse 1 "modified=$dir" "This folder has local changes. Save or undo them before updating."
   git_or_refuse "fetch=$label" -C "$dir" fetch --quiet --no-recurse-submodules
   checkout_commits "$dir"
-  [[ $ff_old == "$ff_new" ]] && return 0
+  if [[ $ff_old == "$ff_new" ]]; then
+    [[ $3 != trusted ]] || prepare_checkout_engine "$dir" "$ff_new"
+    return 0
+  fi
   err="$(git_plain -C "$dir" merge-base --is-ancestor "$ff_old" "$ff_new" 2>&1)" || rc=$?
   case "$rc" in
     0) ;;
@@ -1353,7 +1366,7 @@ fast_forward() { # DIR LABEL REVIEW
       git_or_refuse "git=diff path=$dir" -C "$dir" diff --no-ext-diff --no-textconv "$ff_old" "$ff_new"
       confirm_change update "$label" "VGS keeps the installed version. Open Update again when you are ready."
       ;;
-    trusted) ;;
+    trusted) prepare_checkout_engine "$dir" "$ff_new" ;;
     *) refuse 1 "fast-forward=$3 reason=unknown-review" "VGS cannot read this update request. Close this task and report the details above." ;;
   esac
   git_or_refuse "git=merge path=$dir" -C "$dir" merge --quiet --ff-only "$ff_new"
@@ -2054,6 +2067,21 @@ self_restart() { # VGSHELL
   exec "$1" restart
 }
 
+# Export the exact incoming source before the merge. Its judge prepares the
+# engine under the original checkout identity, including an unchanged HEAD.
+prepare_checkout_engine() { # CHECKOUT REVISION
+  local source
+  source="$(mktemp -d "${TMPDIR:-/tmp}/vgs-checkout-engine.XXXXXX")" || refuse 1 "engine=source-failed"
+  if ! git_plain -C "$1" archive "$2" | tar -x -C "$source"; then
+    rm -rf -- "${source:?}"
+    refuse 1 "engine=source-failed"
+  fi
+  local code=0
+  node "$source/bin/lib/self.js" prepare-engine "$source" "$1" "$2" - 8>&- || code=$?
+  rm -rf -- "${source:?}"
+  [[ $code == 0 ]] || refuse 1 "engine=prepare-failed"
+}
+
 # Updates this tree as its install method allows, as the header states.
 self_update() {
   local version checkout=false line method package manager out running
@@ -2063,6 +2091,7 @@ self_update() {
   read -r method package _ manager <<<"$line"
   case "$method" in
     checkout)
+      self_lock_hold
       fast_forward "$root" vgshell trusted
       if [[ $ff_old == "$ff_new" ]]; then echo "ok up-to-date=vgshell"; return 0; fi
       echo "ok updated=vgshell from=${ff_old:0:12} to=${ff_new:0:12}"
@@ -2121,6 +2150,10 @@ self_repair() {
   rm -f -- "$words"
   if [[ ${command[0]} == git ]]; then
     git_or_refuse "repair=git" "${command[@]:1}" || status=$?
+    if [[ $status == 0 ]]; then
+      engine_revision="$(git_or_refuse "repair=git-revision" -C "$root" rev-parse HEAD)" || return 1
+      prepare_checkout_engine "$root" "$engine_revision"
+    fi
   else
     "${command[@]}" || status=$?
   fi
@@ -2142,7 +2175,7 @@ reset_marker="$state_home/vgshell/reset-backup"
 # which a fresh install has (the curl layout install.sh's header states).
 reset_keeps() { # CLASS ENTRY
   case "$1:$2" in
-    config:theme.lock | data:backups | data:current | data:git | data:.self.lock | data:.self-update-*) return 0 ;;
+    config:theme.lock | data:backups | data:current | data:git | data:.self.lock | data:.self-update-* | data:.engines) return 0 ;;
   esac
   [[ $1 == data ]] || return 1
   if [[ -z ${reset_install_re:-} ]]; then

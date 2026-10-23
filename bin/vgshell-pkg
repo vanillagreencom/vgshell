@@ -420,7 +420,18 @@ function planElevator(plan) {
 // no project's configuration in the caller's directory (a mise.toml) makes
 // a step do other than what the check counted.
 function run(action, manager, names, ignored, installs, config) {
-    const r = installs !== undefined && installs.length > 0 ? table.planOwed(manager, installs, names, onPath) : table.plan(manager, action, names, onPath, ignored);
+    let r;
+    if (action === "engine-archive") {
+        const file = names[0], engine = require(path.join(__dirname, "lib", "engine.js"));
+        if (manager !== "apt" || names.length !== 1 || !path.isAbsolute(file) || !file.endsWith(".deb")) refuse("engine=archive-path");
+        const stat = fs.lstatSync(file);
+        if (!stat.isFile()) refuse("engine=archive-file");
+        const metadata = childProcess.spawnSync("dpkg-deb", ["--field", file, "Package", "Version", "Architecture"], { encoding: "utf8" });
+        if (metadata.error || metadata.status !== 0 || metadata.stdout !== `Package: vgshell-quickshell\nVersion: ${engine.DEBIAN_VERSION}\nArchitecture: amd64\n`) refuse("engine=archive-identity");
+        const found = table.presentManager(manager, onPath);
+        if (!found.ok) refuse(found.error);
+        r = { ok: true, plan: { elevate: true, steps: [[found.binary, ...found.row.engineArchive, file]] } };
+    } else r = installs !== undefined && installs.length > 0 ? table.planOwed(manager, installs, names, onPath) : table.plan(manager, action, names, onPath, ignored);
     if (!r.ok) refuse(r.error);
     if (config !== undefined) {
         if (action !== "upgrade" || !["pacman", "aur"].includes(manager)) refuse("manager=" + manager + " option=config reason=unsupported");
@@ -608,7 +619,7 @@ main(() => {
     }
     case "run": {
         const [action, ...rest] = args;
-        if (!table.ACTIONS.includes(action)) usage("action=" + (action === undefined ? "missing" : action));
+        if (!table.ACTIONS.includes(action) && action !== "engine-archive") usage("action=" + (action === undefined ? "missing" : action));
         let { manager, names } = managerAndNames(rest);
         let config;
         if (names[0] === "--config") {
@@ -694,7 +705,12 @@ main(() => {
         if (found.primary === null) refuse("manager=none");
         const id = found.primary.id;
         const pkg = query(id, "owner", args[0], "path=" + args[0] + " reason=unowned");
-        const version = table.managerRow(id).installed === null ? null : query(id, "installed", pkg, "package=" + pkg + " reason=not-installed");
+        let version = table.managerRow(id).installed === null ? null : query(id, "installed", pkg, "package=" + pkg + " reason=not-installed");
+        if (id === "apt" && pkg === "vgshell-quickshell") {
+            const raw = queryRun(id, "installed", pkg);
+            if (raw.error || raw.status !== 0) refuse("engine=installed-version");
+            version = raw.stdout.trim();
+        }
         process.stdout.write(JSON.stringify({ manager: id, package: pkg, version }) + "\n");
         break;
     }

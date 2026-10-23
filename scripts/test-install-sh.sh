@@ -48,7 +48,7 @@ supported_sentence="$(sed -nE "s/^  supported='(.+)'\$/\1/p" "$installer")" || {
 # the distribution rows leave missing.
 stubs="$tmp/stubs"; tools="$tmp/tools"; tools_nogit="$tmp/tools-nogit"
 mkdir -p "$stubs" "$tools" "$tools_nogit"
-for tool in bash sh env readlink dirname mkdir rmdir mktemp mv rm ln cp cat head sed uname flock setpriv git python3 curl tar gzip sha256sum gpg unshare mount id setsid script; do
+for tool in bash sh env readlink dirname mkdir rmdir mktemp mv rm ln cp cat head sed uname flock setpriv git python3 curl tar gzip sha256sum gpg sqv unshare mount id setsid script; do
   tool_bin="$(command -v "$tool")" || not_measured "$tool"
   ln -s -- "$tool_bin" "$tools/$tool"
   [[ $tool == git ]] || ln -s -- "$tool_bin" "$tools_nogit/$tool"
@@ -144,8 +144,23 @@ const fs = require("fs"), path = require("path");
 const [file, presenter, ...args] = process.argv.slice(2);
 const separator = args.indexOf("--");
 const command = args.slice(separator + 1);
+if (command[2] === "engine-run") {
+    if (process.env.VGS_INSTALL_CODE === "0") {
+        fs.writeFileSync(path.join(process.env.HOME, ".fixture-engine-installed"), "");
+        const qs = command[3] === "nix" ? path.join(command[5], "bin", "qs") : path.join(process.env.PATH.split(":")[0], "qs");
+        if (command[3] === "nix" || !fs.existsSync(qs)) {
+            fs.mkdirSync(path.dirname(qs), {recursive:true});
+            fs.writeFileSync(qs, '#!/bin/sh\necho "Quickshell 0.3.2 (revision fixture, distributed by VGS 2 (package: vgshell-quickshell))"\n', {mode:0o755});
+        }
+    }
+    process.exit(0);
+}
 const manager = command[5];
 const expected = JSON.parse(fs.readFileSync(file, "utf8"))[manager];
+if (manager === "apt") {
+    if (command[0] !== path.join(path.dirname(presenter), "vgshell") || command.slice(1, 5).join(" ") !== "pkg run install --manager") process.exit(2);
+    process.exit(0);
+}
 if (separator < 0 || command[0] !== path.join(path.dirname(presenter), "vgshell") || JSON.stringify(command.slice(1, 5)) !== JSON.stringify(["pkg", "run", "install", "--manager"]) || !Array.isArray(expected) || JSON.stringify(command.slice(6).sort()) !== JSON.stringify(expected.sort())) process.exit(2);
 if (process.env.VGS_INSTALL_CODE === "0" && command.slice(6).includes("vgshell-quickshell"))
     fs.writeFileSync(path.join(process.env.HOME, ".fixture-engine-installed"), "");
@@ -264,8 +279,14 @@ other_fpr="$(gen_key "Another key")"
 [[ $release_fpr =~ ^[0-9A-F]{40}$ && $other_fpr =~ ^[0-9A-F]{40}$ ]] || { echo "$suite: gpg=keygen-failed" >&2; exit 1; }
 signed_release() { # VERSION FINGERPRINT
   release "$1"
-  GNUPGHOME="$keys" gpg --batch --quiet --local-user "$2" --armor --detach-sign --output "$www/dl/v$1/SHA256SUMS.asc" "$www/dl/v$1/SHA256SUMS"
-  release_doc "v$1" "vgshell-$1.tar.gz" SHA256SUMS SHA256SUMS.asc
+  local dir="$www/dl/v$1" asset=vgshell-quickshell_0.3.2+git2b4501a+vgs2-1_debian-forky_amd64.deb
+  sed -i "s/8BC162233D519169B9574148CC6862AD90B7D7EA/$release_fpr/" "$tmp/rel/$1/vgshell-$1/bin/lib/engine.js"
+  tar -C "$tmp/rel/$1" -czf "$dir/vgshell-$1.tar.gz" "vgshell-$1"
+  printf 'Debian engine fixture\n' >"$dir/$asset"
+  GNUPGHOME="$keys" gpg --batch --quiet --armor --export "$2" >"$dir/release-key.asc"
+  (cd "$dir" && sha256sum "vgshell-$1.tar.gz" "$asset" release-key.asc >SHA256SUMS)
+  GNUPGHOME="$keys" gpg --batch --quiet --local-user "$2" --armor --detach-sign --output "$dir/SHA256SUMS.asc" "$dir/SHA256SUMS"
+  release_doc "v$1" "vgshell-$1.tar.gz" "$asset" release-key.asc SHA256SUMS SHA256SUMS.asc
 }
 signed_release 0.5.0 "$release_fpr"
 signed_release 0.6.0 "$other_fpr"
@@ -341,6 +362,7 @@ os_row() { # BIN
 vgs_db="$tmp/vgs-db"; mkdir -p "$vgs_db"
 cat >"$vgs_db/pacman" <<'SH'
 #!/bin/sh
+[ "$1" != -Qoq ] || { [ -f "$HOME/.fixture-engine-installed" ] && echo vgshell-quickshell; exit; }
 [ "$1" = -Q ] && [ "$3" = vgshell-git ] && { echo "vgshell-git 0.1.0.r1.gabc1234-1"; exit 0; }
 exit 1
 SH
@@ -550,7 +572,7 @@ nix_present_row() { # BIN: installed available requirements allow release, curre
   git config --file "$h/.gitconfig" url."file://$bare".insteadOf https://github.com/vanillagreencom/vgshell.git || { RUN_WRAP=(); return 1; }
   RUN_PATH="$nix_present:$nix_manager:$tools" run "$1" --git
   RUN_WRAP=()
-  [[ $status == 0 && -f $d/git/bin/vgshell && ! -s $install_log ]] || return 1
+  [[ $status == 0 && -f $d/git/bin/vgshell && ! $(grep -x pkg "$install_log") ]] || return 1
   installed_head="$(g -C "$d/git" rev-parse HEAD)" || return 1
   expected_head="$(g -C "$bare" rev-parse main)" || return 1
   [[ $installed_head == "$expected_head" ]] && scratch_empty
@@ -563,7 +585,7 @@ nix_missing_row() { # BIN: only the absent available package blocks publication
   RUN_WRAP=()
   refused 78 "install.sh: refused: requirements=configuration manager=nix" &&
     err_has "Add these required packages to the Nix configuration: qrencode" &&
-    [[ ! -e $d/current && ! -e $d/0.1.0 && ! -s $install_log ]] && no_stage && scratch_empty
+    [[ ! -e $d/current && ! -e $d/0.1.0 && ! $(grep -x pkg "$install_log") ]] && no_stage && scratch_empty
 }
 
 # run builds its own environment, not base_env's: a stand-in for install.sh
@@ -706,7 +728,6 @@ floor_rows() {
   RUN_PATH="$low:$pm_all:$tools_nogit" run "$installer" --version 0.1.0
   RUN_WRAP=()
   check "a floor miss exits 78" test "$status" = 78
-  check "an installed engine below the floor names its version" err_has "install.sh: refused: floor=quickshell have=0.3.0 need=0.3.1"
   check "a tool below its floor names its version" err_has "install.sh: refused: floor=hyprland have=0.55.2 need=0.56"
   check "every miss is named, not the first alone" err_has "install.sh: refused: floor=git have=none need=present"
   check "the missing launcher is named with have=none" err_has "install.sh: refused: floor=xdg-terminal-exec have=none need=present"
@@ -720,8 +741,44 @@ debian_floor_row() { # BIN: on Debian the floor miss names apt's Quickshell and 
   with_os "$debian_os"
   RUN_PATH="$low:$pm_all:$tools_nogit" run "$1" --version 0.1.0
   RUN_WRAP=()
-  [[ $status == 78 ]] && err_has "Install them as root: apt-get install quickshell hyprland git xdg-terminal-exec" && [[ ! -e $h/.local ]]
+  [[ $status == 78 ]] && err_has "Install them as root: apt-get install hyprland git xdg-terminal-exec" && [[ ! -e $h/.local ]]
 }
+
+# The installer uses actual sqv with a public-only disposable signing key.
+apt_engine="$tmp/apt-engine"; mkdir -p "$apt_engine"
+stub "$apt_engine" apt-get "" 1
+cat >"$apt_engine/dpkg" <<'DPKG'
+#!/bin/sh
+case "$1" in
+ --print-architecture) echo amd64 ;;
+ -S) [ -f "$HOME/.fixture-engine-installed" ] || exit 1; echo "vgshell-quickshell: $2" ;;
+ *) exit 1 ;;
+esac
+DPKG
+stub "$apt_engine" dpkg-query '0.3.2+git2b4501a+vgs2-1'
+chmod +x "$apt_engine/dpkg"
+apt_engine_row() { # CASE: real signatures, byte tampering, exact installed revision
+  local mode="$1" asset=vgshell-quickshell_0.3.2+git2b4501a+vgs2-1_debian-forky_amd64.deb
+  new_home "apt-$mode"
+  with_os "$debian_os"
+  if [[ $mode == tampered ]]; then printf 'changed\n' >>"$www/dl/v0.5.0/$asset"; fi
+  RUN_PATH="$nix_present:$apt_engine:$tools" run "$signing" --version "$([[ $mode == wrong-key ]] && echo 0.6.0 || echo 0.5.0)"
+  RUN_WRAP=()
+  if [[ $mode == valid ]]; then
+    [[ $status == 0 && $(readlink "$d/current") == 0.5.0 && -f $h/.fixture-engine-installed ]] || return 1
+    with_os "$debian_os"
+    RUN_PATH="$nix_present:$apt_engine:$tools" run "$signing" --version 0.5.0
+    RUN_WRAP=()
+    [[ $status == 0 ]]
+  else
+    [[ $status == 1 && ! -e $d/current && ! -e $h/.fixture-engine-installed ]] || return 1
+    if [[ $mode == tampered ]]; then
+      sed -i '$d' "$www/dl/v0.5.0/$asset"
+      [[ $(first_err) == 'vgshell: refused: checksum=mismatch name='* ]]
+    else [[ $(first_err) == 'install.sh: refused: signature=wrong-key' ]]; fi
+  fi
+}
+for mode in valid wrong-key tampered; do check "Debian signed engine $mode" apt_engine_row "$mode"; done
 
 # Hyprland's main() throws before it parses --version when XDG_RUNTIME_DIR
 # is unset: an uncaught std::runtime_error, so SIGABRT and 134.
@@ -928,17 +985,13 @@ arch_engine_row() { # BIN ENGINE: the curl --git route installs a missing engine
   for tool in "$stubs"/*; do
     [[ ${tool##*/} == qs ]] || cp -- "$tool" "$path/"
   done
-  [[ $engine == none ]] || stub "$path" qs "Quickshell $engine"
+  [[ $engine == none ]] || sed "s/Quickshell 0.3.1/Quickshell $engine/" "$stubs/qs" >"$path/qs"
+  [[ $engine == none ]] || chmod +x "$path/qs"
   new_home "arch-engine-$engine"
   git config --file "$h/.gitconfig" url."file://$bare".insteadOf https://github.com/vanillagreencom/vgshell.git
   RUN_PATH="$path:$install_managers:$tools" run "$1" --git
-  if [[ $engine == none ]]; then
-    [[ $status == 0 && -f $d/git/bin/vgshell && -f $h/.fixture-engine-installed ]] &&
-      grep -qxF aur "$install_log" && grep -qxF vgshell-quickshell "$install_log"
-  else
-    refused 78 "install.sh: refused: floor=quickshell have=$engine need=0.3.1" &&
-      [[ ! -e $install_log && ! -e $d/git ]]
-  fi
+  [[ $status == 0 && -f $d/git/bin/vgshell && -f $h/.fixture-engine-installed ]] &&
+    grep -qxF aur "$install_log" && grep -qxF vgshell-quickshell "$install_log"
 }
 echo "git"
 row_job git_rows
@@ -970,6 +1023,17 @@ lock_kept_row() { # BIN: --uninstall keeps the lock file, the inode a concurrent
   run "$1" --uninstall
   [[ $status == 0 && ! -e $d/current && $(stat -c %i -- "$d/.self.lock" 2>/dev/null) == "$inode" ]]
 }
+engine_uninstall_row() { # BIN
+  new_home engine-uninstall
+  mkdir -p "$d/.engines" "$h/store-target"
+  printf 'retained\n' >"$h/store-target/data"
+  ln -s "$h/store-target" "$d/.engines/release-0.1.0"
+  run "$1" --uninstall --force
+  [[ $status == 0 && ! -e $d/.engines && -f $h/store-target/data ]]
+}
+check "uninstall removes owned roots without deleting store targets" engine_uninstall_row "$installer"
+copy_with kept-engine-root "$installer" '^(current|git|\.engines|\.self-update-' '^(current|git|\.self-update-'
+if engine_uninstall_row "$copy"; then fail "control: an owned engine root is left behind"; else ok "control: retained engine roots fail uninstall"; fi
 echo "uninstall"
 row_job check "--uninstall refuses a clone with changes and removes nothing" modified_row "$installer"
 row_job check "--uninstall refuses a clone with a commit no remote branch has" unpublished_row "$installer"
@@ -1094,12 +1158,11 @@ row_job rule other-branches branch_row 'rev-list --count HEAD --branches --not -
 row_job rule stash stash_row 'if "${git_in[@]}" rev-parse -q --verify refs/stash >/dev/null; then' 'if false; then'
 row_job rule running-shell running_row 'if [[ $tree == "$(readlink -f -- "$data")"/* ]]; then' 'if false; then'
 row_job rule keep-foreign-link keep_foreign_row '[[ $state != ours ]] || rm -f -- "$link"' 'rm -f -- "$link"'
-row_job rule keep-lock lock_kept_row '^(current|git|\.self-update-.*|[0-9]+' '^(current|git|\.self\.lock|\.self-update-.*|[0-9]+'
+row_job rule keep-lock lock_kept_row '^(current|git|\.engines|\.self-update-.*|[0-9]+' '^(current|git|\.engines|\.self\.lock|\.self-update-.*|[0-9]+'
 row_job rule floor-need drift_row 'quickshell 0.3.1   ^Quickshell' 'quickshell 0.3.0   ^Quickshell'
-copy_with arch-missing-engine "$installer" '[[ $tool != quickshell || $manager != pacman ]] || continue' '[[ $tool != quickshell || $manager != pacman ]] || :'
+copy_with arch-missing-engine "$installer" '[[ $tool != quickshell || ${engine_delivered:-false} == true || ! $manager =~ ^(pacman|dnf|apt|nix)$ ]] || continue' ':'
 row_job control "a copy that refuses Arch's missing engine before the AUR group" arch_engine_row none
 row_job rule requirement-package drift_row 'dnf=util-linux-core' 'dnf=util-linux'
-row_job rule debian-floor-package debian_floor_row 'quickshell apt=quickshell dnf=vgshell-quickshell nix=quickshell' 'quickshell dnf=vgshell-quickshell nix=quickshell'
 row_job rule runtime-packages packages_row 'runtime_install() { # TREE' 'runtime_install() { return 0 # TREE'
 row_job rule runtime-result runtime_failure_row '[[ $code == 0 ]] || refuse 1' '[[ $code == "$code" ]] || refuse 1'
 row_job rule package-verb packages_row '"$tree/bin/vgshell" pkg run install' '"$tree/bin/vgshell" pkg plan install'
