@@ -138,13 +138,12 @@ FocusScope {
                 }
                 TextField {
                     id: search
-                    // Keep the field's content edge on the pane inset; its
-                    // shared background normally supplies the inner padding.
+                    // Align the shared background's inset icon with the
+                    // heading, keeping the shared gap before the input text.
                     x: -sidePadding
-                    width: parent.width + 2 * sidePadding
+                    width: parent.width
                     placeholderText: "Search plugins"
                     leadingIcon: "search"
-                    leftPadding: Theme.icon.size.md + Theme.textField.gap
                     rightPadding: 0
                     topPadding: 0
                     bottomPadding: 0
