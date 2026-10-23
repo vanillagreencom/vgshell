@@ -39,7 +39,10 @@ FocusScope {
     // answers the capability's reply.
     function run(action, source) {
         const request = Logic.tuiRequest(action, source);
-        return answered(shell.tui.run(request.name, request.args));
+        const reply = answered(shell.tui.run(request.name, request.args));
+        // Hiding destroys this summoned instance; finish its reply first.
+        if (reply === "ok" && action !== "log") shell.surfaces.hide("window");
+        return reply;
     }
 
     // Ask the service for a check now; answers its reply, `started` or

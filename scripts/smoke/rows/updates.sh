@@ -457,7 +457,7 @@ rows=json.load(sys.stdin)
 print(sum(1 for r in rows if r["type"] == "Label" and r.get("role") == "itemCode" and r["visible"] and r["box"][2] > 0 and r["box"][3] > 0))'; }
 updates_open() { [[ $(ipc smoke readInstance window vgs.updates rows) != absent ]] && echo open || echo closed; }
 # Open the window with a click on the widget, unless it is open: the
-# click toggles it, and a TUI's window leaves it open.
+# click toggles it.
 open_updates() {
   [[ $(updates_open) == open ]] && return 0
   click_centre "$widget_key" vgs.updates || fail "the click on the updates widget failed"
@@ -493,6 +493,11 @@ press_and_launch() { # TEXT KEY WANT [TYPE]
   before="$(checks)"
   click_in window:Updates window vgs.updates "${4:-Button}" "$1" || fail "the click on the window's $1 failed"
   expect_poll "the window's $1 opens its TUI with its argv" "$3" launched
+  if [[ $2 == vgs.updates/log ]]; then
+    expect "Open last log keeps the Updates window open" open updates_open
+  else
+    expect_poll "the window's $1 closes the originating Updates window" closed updates_open
+  fi
   expect_run_end "the window's $1 run ends" "$2"
   expect_poll "the $1 run's end starts one check" "$((before + 1))" checks
   expect_poll "the service is idle after the $1 run" idle updates_idle
@@ -805,6 +810,24 @@ expect_poll "the monitor has its logical width back" "$short_saved_logical_w" fi
 
 # Each button's argv, as the terminal stand-in records it. The first
 # Update is the System row's.
+# Reuse the launcher's missing-terminal response to reach a real refusal.
+# Its first asynchronous failure updates the core's cached launcher state;
+# the window's next request then refuses synchronously and probes again.
+cp -- "$repo/bin/vgshell-tui" "$updates_state/vgshell-tui.shipped"
+printf '#!/bin/sh\nprintf '\''vgshell-tui: refused: terminal=missing\\n'\'' >&2\nexit 69\n' >"$repo/bin/vgshell-tui"
+expected_errors+=('tui: refused: tui=vgs\.updates/finish reason=launcher-missing' 'updates window: refused: tui=update reason=launcher-missing')
+expect "the first missing launcher request starts" ok ipc shell openTui vgs.updates/finish
+expect_poll "the failed launch records the missing terminal" '"missing"' lent tui.launcher
+expect_poll "the failed launcher is released" '[]' lent tui.launching
+cp -- "$updates_state/vgshell-tui.shipped" "$repo/bin/vgshell-tui"
+open_updates
+forget_record
+click_in window:Updates window vgs.updates Button "Update everything" || fail "the click on the refused update failed"
+updates_problem() { ipc smoke readInstance window vgs.updates problem | py_reply 'import json,sys; print(bool(json.load(sys.stdin)))'; }
+expect_poll "a refused update retains its feedback" True updates_problem
+expect "a refused update keeps the Updates window actionable" open updates_open
+expect "a refused update starts no terminal" absent launched
+expect_poll "the refusal's probe finds the restored launcher" '"present"' lent tui.launcher
 press_and_launch Update vgs.updates/update-source '["update-source.sh", "pacman"]' RowAction
 press_and_launch "Update everything" vgs.updates/update '["update.sh"]'
 press_and_launch "Open last log" vgs.updates/log '["log.sh"]'
@@ -821,6 +844,7 @@ click_in window:Updates window vgs.updates Button Refresh || fail "the click on 
 expect_poll "Refresh starts the service's check" "$((before + 1))" checks
 expect_poll "Refresh starts one check" STEADY checks_settle_at "$((before + 1))"
 expect_poll "the service is idle after Refresh" idle updates_idle
+expect "Refresh keeps the Updates window open" open updates_open
 expect "the window closes" ok ipc shell hide window vgs.updates
 
 # AUR exit 1 with stderr must reach the shipped probe, not the tool's
