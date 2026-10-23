@@ -402,6 +402,8 @@ expect_poll "the held Install fixture maps one expected client" mapped launcher_
 launcher_install_address="$(launcher_client org.vgs.tui "VGS · Install packages")" || return 1
 launcher_install_token="$(launcher_install_run)" || return 1
 [[ $launcher_install_address =~ ^0x[0-9a-f]+$ && $launcher_install_token != absent ]] || { fail "the held Install identity is absent"; return 1; }
+expect "the compositor fixture enables for held Install focus" ok ipc shell setPluginEnabled acme.probe true
+expect_poll "the compositor fixture is built for held Install focus" True record_exists acme.probe
 spawn_display "$sandbox/launcher-other.log" "${shell_env[@]}" -- "$sandbox/toplevel" org.example.launcher-other Other
 launcher_other_pid="$spawn_pid"
 expect_poll "another client takes focus before busy Install" '["org.example.launcher-other", "Other"]' active_window
