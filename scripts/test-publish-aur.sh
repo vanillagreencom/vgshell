@@ -138,14 +138,12 @@ has_out() { grep -qxF -- "$1" "$tmp/out"; }
 recipe() { # PACKAGE KEY: the value of KEY in the fixture's .SRCINFO for PACKAGE
   awk -F' = ' -v k=$'\t'"$2" '$1 == k { print $2 }' "$r/packaging/arch/$1/.SRCINFO"
 }
-# aur_holds PACKAGE: the AUR stand-in's master holds exactly the recipe's
-# PKGBUILD, .SRCINFO and scriptlet.
+# aur_holds PACKAGE: the AUR stand-in's master holds the recipe's tracked files.
 aur_holds() {
   local tree="$tmp/check-$fixtures-$1"
   g clone -q "$aur/$1.git" "$tree" 2>/dev/null &&
-    [[ $(g -C "$tree" rev-parse --abbrev-ref HEAD) == master && $(g -C "$tree" ls-files | LC_ALL=C sort) == $'.SRCINFO\nPKGBUILD\n'"$1.install" ]] &&
-    cmp -s -- "$tree/PKGBUILD" "$r/packaging/arch/$1/PKGBUILD" && cmp -s -- "$tree/.SRCINFO" "$r/packaging/arch/$1/.SRCINFO" &&
-    cmp -s -- "$tree/$1.install" "$r/packaging/arch/$1/$1.install"
+    [[ $(g -C "$tree" rev-parse --abbrev-ref HEAD) == master ]] &&
+    diff -r --exclude=.git -- "$r/packaging/arch/$1" "$tree"
 }
 aur_empty() { [[ -z $(g -C "$aur/$1.git" for-each-ref) ]]; }
 
@@ -187,13 +185,22 @@ unchanged_row() { # SCRIPT: a second run finds nothing to commit
     [[ $(g -C "$aur/vgshell-git.git" rev-list --count master) == 1 ]]
 }
 mirror_row() { # SCRIPT: a file only the AUR holds is removed and an AUR edit overwritten
-  local seed
+  local seed missing
   fixture mirror "$1"
   seed="$tmp/seed-$fixtures"
   { g clone -q "$aur/vgshell-git.git" "$seed" 2>/dev/null && printf 'old\n' >"$seed/stale.install" && printf 'edited\n' >"$seed/PKGBUILD" &&
     g -C "$seed" add -A && g -C "$seed" commit -q -m seed && g -C "$seed" push -q origin HEAD:master; } || { echo "$suite: fixture=seed" >&2; exit 1; }
   run vgshell-git
-  [[ $status == 0 ]] && aur_holds vgshell-git
+  [[ $status == 0 ]] && aur_holds vgshell-git || return 1
+  missing="$tmp/missing-$fixtures"
+  g clone -q "$aur/vgshell-git.git" "$missing" 2>/dev/null &&
+    g -C "$missing" rm --quiet -- .gitignore && g -C "$missing" commit -q -m 'drop tracked recipe member' &&
+    g -C "$missing" push -q origin HEAD:master || return 1
+  if aur_holds vgshell-git; then return 1; else ok "aur_holds rejects a missing tracked recipe member"; fi
+  g -C "$missing" checkout HEAD^ -- .gitignore && printf 'unexpected\n' >"$missing/extra" &&
+    g -C "$missing" add -- extra && g -C "$missing" commit -q -m 'add extra AUR member' &&
+    g -C "$missing" push -q origin HEAD:master || return 1
+  if aur_holds vgshell-git; then return 1; else ok "aur_holds rejects an extra AUR member"; fi
 }
 dry_row() { # SCRIPT: --dry-run clones over HTTPS, needs no key and pushes nothing
   fixture dry "$1"
