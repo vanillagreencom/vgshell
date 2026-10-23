@@ -299,11 +299,37 @@ Item {
                     verify(label !== undefined && label.visible && label.opacity > 0, "the " + name + " tab label is visible");
                 }
             }
+            // QtTest 6.12 grabImage crops the window at the item's local
+            // x/y, not its scene position (quicktestresult.cpp). PluginPage
+            // sits at x=window.width in a translated parent; capture the
+            // containing window at the scene origin and map every sample there.
+            // https://github.com/qt/qtdeclarative/blob/v6.12.0/src/qmltest/quicktestresult.cpp
+            const frames = [];
+            function capture() {
+                verify(waitForPolish(window), "the window's layout is ready to capture");
+                verify(waitForRendering(window), "the window has rendered the requested state");
+                compare(window.mapToItem(null, 0, 0), Qt.point(window.x, window.y), "the capture owner's local and scene origins agree");
+                const image = grabImage(window);
+                const thumb = scroll.bar.thumb;
+                const at = thumb.mapToItem(window, 0, 0);
+                const sx = image.width / window.width, sy = image.height / window.height;
+                frames.push({ image: image, thumb: scroll.bar.visible ? Qt.rect(Math.floor(at.x * sx), Math.floor(at.y * sy),
+                    Math.ceil((at.x + thumb.width) * sx) - Math.floor(at.x * sx),
+                    Math.ceil((at.y + thumb.height) * sy) - Math.floor(at.y * sy)) : Qt.rect(0, 0, 0, 0) });
+                return image;
+            }
+            function glyphEdge(color, foreground) {
+                const background = Qt.color(Theme.surface.level.raised.background);
+                const ink = Qt.color(foreground);
+                return !Qt.colorEqual(color, background) && !Qt.colorEqual(color, ink)
+                    && ["r", "g", "b"].every(channel => color[channel] >= Math.min(background[channel], ink[channel])
+                        && color[channel] <= Math.max(background[channel], ink[channel]));
+            }
             function sameRenderedPixels(first, second, item, box) {
                 const region = box || Qt.rect(0, 0, item.width, item.height);
-                const origin = item.mapToItem(p.page, region.x, region.y);
-                const scaleX = first.width / p.page.width;
-                const scaleY = first.height / p.page.height;
+                const origin = item.mapToItem(window, region.x, region.y);
+                const scaleX = first.width / window.width;
+                const scaleY = first.height / window.height;
                 const left = Math.floor(origin.x * scaleX);
                 const top = Math.floor(origin.y * scaleY);
                 const right = Math.ceil((origin.x + region.width) * scaleX);
@@ -312,10 +338,41 @@ Item {
                 compare(first.height, second.height, "rest and scrolled captures have the same height");
                 verify(left >= 0 && top >= 0 && right <= first.width && bottom <= first.height,
                     "the tab ink region fits inside the rendered page");
-                for (let y = top; y < bottom; y++)
-                    for (let x = left; x < right; x++)
-                        if (!Qt.colorEqual(first.pixel(x, y), second.pixel(x, y))) return false;
+                const labels = names.map(name => {
+                    const button = descendants(strip).find(item => item.text === name && item.checked !== undefined);
+                    const label = descendants(button).find(item => item.objectName === "tabLabel");
+                    const at = label.mapToItem(window, 0, 0);
+                    return { x: at.x * scaleX, y: at.y * scaleY, width: label.width * scaleX, height: label.height * scaleY,
+                        color: button.checked ? Theme.tabs.active : Theme.tabs.foreground };
+                });
+                const thumbs = [first, second].map(image => frames.find(frame => frame.image === image).thumb);
+                for (let y = top; y < bottom; y++) {
+                    for (let x = left; x < right; x++) {
+                        const before = first.pixel(x, y), after = second.pixel(x, y);
+                        if (Qt.colorEqual(before, after)) continue;
+                        // ScrollArea's smooth layer resamples antialiased glyph
+                        // edges as its source moves. Keep their ink/background
+                        // boundary exact; only intermediate ink in both frames
+                        // is outside this surrounding-paint comparison.
+                        const label = labels.find(label => x >= label.x && x < label.x + label.width && y >= label.y && y < label.y + label.height);
+                        if (label !== undefined && glyphEdge(before, label.color) && glyphEdge(after, label.color)) continue;
+                        // The existing scrollbar thumb moves between frames;
+                        // tst_scroll owns that behavior. Compare the rest of
+                        // the gutter, including the edge to its right, exactly.
+                        if (thumbs.some(thumb => x >= thumb.x && x < thumb.x + thumb.width && y >= thumb.y && y < thumb.y + thumb.height)) continue;
+                        return false;
+                    }
+                }
                 return true;
+            }
+            function solidPixels(image, item, box, color) {
+                const at = item.mapToItem(window, box.x, box.y);
+                const sx = image.width / window.width, sy = image.height / window.height;
+                verify(Math.ceil(at.x * sx) < Math.floor((at.x + box.width) * sx)
+                    && Math.ceil(at.y * sy) < Math.floor((at.y + box.height) * sy), "the solid paint region contains device pixels");
+                for (let y = Math.ceil(at.y * sy); y < Math.floor((at.y + box.height) * sy); y++)
+                    for (let x = Math.ceil(at.x * sx); x < Math.floor((at.x + box.width) * sx); x++)
+                        compare(image.pixel(x, y), Qt.color(color), "the expected solid paint at " + x + "," + y);
             }
             verifyLabelsDraw();
             for (let i = 0; i < names.length; i++) {
@@ -323,10 +380,10 @@ Item {
                 wait(Theme.motion.duration.fast + 20);
                 scroll.contentY = 0;
                 waitForRendering(window);
-                const atRest = grabImage(p.page);
+                const atRest = capture();
                 scroll.contentY = Math.max(0, scroll.contentHeight - scroll.height);
                 waitForRendering(window);
-                const atEnd = grabImage(p.page);
+                const atEnd = capture();
                 verify(atRest !== null && atEnd !== null, "the page renders at rest and at its scroll end");
                 verify(scroll.contentY > 0, "the plugin page is scrolled before choosing " + names[i]);
                 compare(strip.mapToItem(p.page, 0, 0).y, restTop, "the tabs keep their resting position at the page end");
@@ -335,13 +392,14 @@ Item {
                 compare(scroll.fadeTopInset, surface.mapToItem(scroll, 0, 0).y + surface.height - scroll.focusInset - scroll.clipPadding,
                     "the mask keeps the pinned tab band opaque while scrolled");
                 verifyLabelsDraw();
-                const band = Qt.rect(0, scroll.y - Theme.border.thin, p.page.width,
-                    strip.mapToItem(p.page, 0, strip.height).y - scroll.y + Theme.border.thin);
+                const bandTop = p.pane.contentInset + p.pane.headerHeight;
+                const band = Qt.rect(0, bandTop, p.page.width,
+                    strip.mapToItem(p.page, 0, strip.height).y - bandTop);
                 verify(sameRenderedPixels(atRest, atEnd, p.page, band),
                     "the whole pinned band and its surrounding edges keep their resting paint at the end");
                 scroll.contentY = (scroll.contentHeight - scroll.height) / 2;
                 waitForRendering(window);
-                verify(sameRenderedPixels(atRest, grabImage(p.page), p.page, band),
+                verify(sameRenderedPixels(atRest, capture(), p.page, band),
                     "the whole pinned band and its surrounding edges keep their resting paint in the middle");
                 scroll.contentY = Math.max(0, scroll.contentHeight - scroll.height);
                 if (atRest !== null && atEnd !== null) {
@@ -360,8 +418,10 @@ Item {
                     if (indicator !== undefined && atRest !== null && atEnd !== null) {
                         verify(sameRenderedPixels(atRest, atEnd, indicator),
                             "the active tab indicator's rendered pixels stay unchanged while the page scrolls");
+                        solidPixels(atEnd, indicator, Qt.rect(0, 0, indicator.width, indicator.height), Theme.tabs.indicatorColor);
                     }
                 }
+                solidPixels(atEnd, surface, Qt.rect(0, 0, surface.width, strip.mapToItem(surface, 0, 0).y), Theme.surface.level.raised.background);
                 compare(firstRow.mapToItem(scroll.contentItem, 0, 0).y - scroll.contentPadding - p.tabs.tabs.height, Theme.stack.page,
                     "the first row keeps its page spacing while content scrolls");
                 const button = descendants(strip).find(item => item.text === names[i] && item.checked !== undefined);
@@ -372,10 +432,9 @@ Item {
                     mousePress(held);
                     tryCompare(held, "down", true);
                     waitForRendering(window);
-                    const pressed = grabImage(p.page);
-                    const at = held.mapToItem(p.page, Theme.border.thin, Theme.border.thin);
-                    compare(pressed.pixel(Math.floor(at.x), Math.floor(at.y)), Qt.color(Theme.tabs.pressed),
-                        "the " + held.text + " tab press paints its shared background at " + at.x + "," + at.y);
+                    const pressed = capture();
+                    solidPixels(pressed, held, Qt.rect(Theme.border.thin, Theme.border.thin,
+                        held.width - 2 * Theme.border.thin, Theme.border.thin), Theme.tabs.pressed);
                     mouseRelease(held);
                 }
                 waitForRendering(window);
