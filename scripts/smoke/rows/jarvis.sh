@@ -513,6 +513,8 @@ else:
 
 jarvis_lock_case() { # real | control
   rm -f -- "$jarvis_gate" "$jarvis_seen"
+  # Even an unlocked session needs this fixture to own its lock content.
+  expect "the test-only holder acquires lock content before startup" ok probe lock
   expect "the test-only holder unlocks before startup" ok probe unlock
   expect "the gated Jarvis service enables" ok ipc shell setPluginEnabled vgs.jarvis true
   # Each startup reader sends hello on completion. Finish those sends
