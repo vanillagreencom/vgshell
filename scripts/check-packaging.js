@@ -592,6 +592,8 @@ function readInstaller(recipe) {
         if (!/^[a-zA-Z0-9][a-zA-Z0-9+_.-]*$/.test(name)) refuse("entry=unreadable channel=install text=" + name);
         return { name, op: "", version: "", epoch: "", text: name };
     });
+    // These two curl rows deliver the engine outside the runtime package list.
+    if (recipe.deliveredEngine) hard.push({ name: ENGINE, op: "", version: "", epoch: "", text: ENGINE });
     return { hard, soft: [] };
 }
 
@@ -651,7 +653,22 @@ function engineRules() {
     const paths = patches === null ? [] : patches[1].split("\n").map(line => line.trim()).filter(line => line && !line.startsWith("#"));
     const expected = ENGINE_SOURCES.filter(name => name.endsWith(".patch")).map(name => `./${ENGINE_DIR}/${name}`);
     if (paths.join(",") !== expected.join(",")) refuse("engine=nix-patches");
-    if (!override[1].includes(`(lib.cmakeFeature "DISTRIBUTOR" "VGS ${engineRelease.RELEASE} (package: vgshell-quickshell)")`)) refuse("engine=distributor channel=nix");
+    if (!override[1].includes(`cmakeFlagsArray+=("-DDISTRIBUTOR=VGS ${engineRelease.RELEASE} (package: vgshell-quickshell)")`)) refuse("engine=distributor channel=nix");
+    if (!nix.includes("        quickshell = pkgs.quickshell;")) refuse("engine=nix-export");
+    const debian = "packaging/debian/" + ENGINE + "/";
+    const control = readText(debian + "control", "engine=debian-control");
+    for (const line of ["Package: " + ENGINE, "Architecture: amd64", "Conflicts: quickshell, quickshell-git", "Replaces: quickshell, quickshell-git", "Provides: quickshell (= 0.3.2)"])
+        if (!control.split("\n").includes(line)) refuse("engine=debian-control", "want " + line);
+    if (!readText(debian + "changelog", "engine=debian-version").startsWith(`${ENGINE} (${engineRelease.DEBIAN_VERSION}) `)) refuse("engine=debian-version");
+    const rules = readText(debian + "rules", "engine=debian-rules");
+    if (!rules.includes(`-DDISTRIBUTOR="VGS ${engineRelease.RELEASE} (package: vgshell-quickshell)"`)
+        || !rules.includes(ENGINE_REVISION)) refuse("engine=debian-rules");
+    const builder = readText("scripts/debian-packages.sh", "engine=debian-builder");
+    if (!builder.includes("revision=" + ENGINE_REVISION) || !builder.includes("--fuzz=0")
+        || ENGINE_SOURCES.filter(name => name.endsWith(".patch")).some(name => !builder.includes(name.replace(/\.patch$/, "")))) refuse("engine=debian-builder");
+    const installer = readText("install.sh", "engine=installer");
+    if (!installer.includes(`release_key="${engineRelease.RELEASE_KEY}"`) || !installer.includes("sqv --keyring")) refuse("engine=release-key");
+    if (!installer.includes('node "$1/bin/lib/self.js" prepare-engine') || !installer.includes('fetch download "$url" "$tmp/$asset"')) refuse("engine=curl-delivery");
     return recipe;
 }
 const CHANNELS = {
@@ -699,7 +716,7 @@ const CHANNELS = {
         read: readInstaller, licence: null, rules: () => {}, freshness: null, requiredOnly: true,
     },
     "install-apt": {
-        recipes: [{ name: "apt", manager: "apt" }], managers: ["apt"], hardField: "runtime_packages", softField: "optional",
+        recipes: [{ name: "apt", manager: "apt", deliveredEngine: true }], managers: ["apt"], enginePackage: ENGINE, hardField: "runtime_packages", softField: "optional",
         exact: false, checkFloors: false, epochs: null,
         read: readInstaller, licence: null, rules: () => {}, freshness: null, requiredOnly: true,
     },
@@ -709,7 +726,7 @@ const CHANNELS = {
         read: readInstaller, licence: null, rules: () => {}, freshness: null, requiredOnly: true,
     },
     "install-nix": {
-        recipes: [{ name: "nix", manager: "nix" }], managers: ["nix"], hardField: "runtime_packages", softField: "optional",
+        recipes: [{ name: "nix", manager: "nix", deliveredEngine: true }], managers: ["nix"], enginePackage: ENGINE, hardField: "runtime_packages", softField: "optional",
         exact: false, checkFloors: false, epochs: null,
         read: readInstaller, licence: null, rules: () => {}, freshness: null, requiredOnly: true,
     },

@@ -48,7 +48,7 @@ function git(...args) {
 }
 
 const pristine = path.join(tmp, "pristine");
-const files = ["config/runtime-libraries.json", "packaging/channel-gaps.json", "flake.lock", "flake.nix", "install.sh", "packaging/install-system.sh", "packaging/install-tree.manifest", "packaging/xdg-desktop-portal/hyprland-portals.conf", "VERSION", "config/requirements.json", "bin/vgshell", "docs/architecture/distribution.md"];
+const files = ["scripts/debian-packages.sh","config/runtime-libraries.json", "packaging/channel-gaps.json", "flake.lock", "flake.nix", "install.sh", "packaging/install-system.sh", "packaging/install-tree.manifest", "packaging/xdg-desktop-portal/hyprland-portals.conf", "VERSION", "config/requirements.json", "bin/vgshell", "docs/architecture/distribution.md"];
 for (const plugin of fs.readdirSync(path.join(repo, "shell", "plugins"))) {
     if (fs.existsSync(path.join(repo, "shell", "plugins", plugin, "manifest.json"))) files.push(`shell/plugins/${plugin}/manifest.json`);
 }
@@ -57,6 +57,7 @@ for (const rel of files) {
     fs.copyFileSync(path.join(repo, rel), path.join(pristine, rel));
     fs.chmodSync(path.join(pristine, rel), fs.statSync(path.join(repo, rel)).mode);
 }
+fs.cpSync(path.join(repo, "packaging", "debian"), path.join(pristine, "packaging", "debian"), { recursive: true });
 fs.cpSync(path.join(repo, "packaging", "arch"), path.join(pristine, "packaging", "arch"), { recursive: true });
 for (const spec of ["vgshell.spec", "vgshell-git.spec", "vgshell-quickshell.spec"]) {
     fs.mkdirSync(path.join(pristine, "packaging", "fedora"), { recursive: true });
@@ -383,6 +384,12 @@ const ROWS = [
         fs.writeFileSync(file, JSON.stringify(manifest));
     }, 1, () => refused("gap=stale manager=dnf command=vsys")],
     ["the committed recipes pass", () => {}, 0, tree => ok(countRequirements(tree))],
+    ...[
+        ["Debian replacement", "packaging/debian/vgshell-quickshell/control", "Conflicts: quickshell, quickshell-git", "Conflicts: quickshell", "engine=debian-control"],
+        ["Debian identity", "packaging/debian/vgshell-quickshell/changelog", "0.3.2+git2b4501a+vgs2-1", "0.3.2+git2b4501a+vgs1-1", "engine=debian-version"],
+        ["Nix export", "flake.nix", "        quickshell = pkgs.quickshell;", "", "engine=nix-export"],
+        ["Nix distributor", "flake.nix", "-DDISTRIBUTOR=VGS 2 (package: vgshell-quickshell)", "-DDISTRIBUTOR=VGS", "engine=distributor channel=nix"],
+    ].map(([name, file, before, after, key]) => ["engine: " + name, t => replaceIn(t, [file], before, after), 1, () => refused(key)]),
     ["engine: either stock conflict is required", t => edit(t, "packaging/arch/vgshell-quickshell/.SRCINFO", "^\\tconflicts = quickshell-git\\n", ""),
         1, () => refused("engine=conflicts recipe=vgshell-quickshell")],
     ["engine: a changed patch checksum is refused", t => edit(t, "packaging/arch/vgshell-quickshell/vgs-989-deletelater.patch", "^--- a/", "--- z/"),

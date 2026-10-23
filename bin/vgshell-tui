@@ -209,11 +209,12 @@ parse() { # VERB ARGS...
   shift
   title="" size=default presentation=full plugin_id="" plugin_dir="" argv=()
   record_key="" record_run="" window_dir="" window_app_id="" window_title=""
+  engine_source="" engine_payload="" engine_copy=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --title|--size|--presentation|--plugin|--dir|--record|--run|--record-dir|--app-id|--window-title)
+      --title|--size|--presentation|--plugin|--dir|--record|--run|--record-dir|--app-id|--window-title|--engine-source|--engine-payload|--engine-copy)
         case "$verb:$1" in
-          present:--title|present:--size|launch:--record-dir|launch:--app-id|launch:--window-title) bad_invocation "argument=$1" ;;
+          present:--title|present:--size|launch:--engine-copy|launch:--record-dir|launch:--app-id|launch:--window-title) bad_invocation "argument=$1" ;;
         esac
         [[ $# -ge 2 ]] || bad_invocation "option=$1 value=missing"
         case "$1" in
@@ -227,6 +228,9 @@ parse() { # VERB ARGS...
           --record-dir) window_dir="$2" ;;
           --app-id) window_app_id="$2" ;;
           --window-title) window_title="$2" ;;
+          --engine-source) engine_source="$2" ;;
+          --engine-payload) engine_payload="$2" ;;
+          --engine-copy) engine_copy="$2" ;;
         esac
         shift 2
         ;;
@@ -261,6 +265,12 @@ parse_wait() {
 check_common() {
   [[ ${#argv[@]} -gt 0 && -n ${argv[0]} ]] || bad_invocation "command=missing"
   case "$presentation" in full|plain) ;; *) bad_invocation "presentation=$presentation" ;; esac
+  if [[ -n $engine_copy ]]; then
+    # Only the presenter executing the transferred tree may release it.
+    [[ -z $engine_source && ${engine_copy%/*} == "$rt_dir" && ${engine_copy##*/} == vgs-engine.*
+      && -d $engine_copy && ! -L $engine_copy && ! -L $engine_copy/source
+      && $root == "$(readlink -f -- "$engine_copy/source")" ]] || bad_invocation "engine=copy-owner"
+  fi
   if [[ -n $plugin_id && -z $plugin_dir ]]; then bad_invocation "dir=missing plugin=$plugin_id"; fi
   if [[ -z $plugin_id && -n $plugin_dir ]]; then bad_invocation "plugin=missing dir=$plugin_dir"; fi
   if [[ -n $record_key && -z $record_run ]]; then bad_invocation "run=missing record=$record_key"; fi
@@ -296,8 +306,15 @@ launch() {
   [[ -z $record_key ]] || pass+=(--record "$record_key" --run "$record_run" --record-dir "$record_dir" --app-id "$app_id" --window-title "VGS · $title")
   require_terminal
   unset VGSHELL_RUNNER_PID
+  # This terminal may start after its caller times out or removes staging.
+  # Transfer its inputs before detachment; present alone releases the copy.
+  if [[ -n $engine_source ]]; then
+    copy_engine
+    pass+=(--engine-copy "$engine_copy")
+    self="$engine_copy/source/bin/vgshell-tui"
+  fi
   setsid -f xdg-terminal-exec --app-id="$app_id" --title="VGS · $title" -- \
-    "$self" present --presentation "$presentation" "${pass[@]}" -- "${argv[@]}"
+    "$self" present --presentation "$presentation" "${pass[@]}" -- "${argv[@]}" 8>&- 9>&-
   [[ -z $record_key ]] || await_record
 }
 
@@ -368,6 +385,28 @@ copy_plugin() {
     { refusal="script=$rel reason=outside-tui"; return 1; }
   [[ -x $script ]] || { refusal="script=$rel reason=not-executable"; return 1; }
   argv[0]="$script"
+}
+
+# The engine operation has exactly one source and optionally one verified
+# Debian payload. The independent presenter owns both through command exit.
+copy_engine() {
+  local i arg
+  engine_copy="$(mktemp -d -- "$rt_dir/vgs-engine.XXXXXX")" || bad_invocation "engine=copy-failed"
+  if ! cp -R -- "$engine_source" "$engine_copy/source"; then
+    rm -rf -- "${engine_copy:?}"
+    bad_invocation "engine=copy-failed"
+  fi
+  if [[ -n $engine_payload ]] && ! cp -- "$engine_payload" "$engine_copy/engine.deb"; then
+    rm -rf -- "${engine_copy:?}"
+    bad_invocation "engine=payload-copy-failed"
+  fi
+  for i in "${!argv[@]}"; do
+    arg="${argv[i]}"
+    if [[ -n $engine_payload && $arg == "$engine_payload" ]]; then argv[i]="$engine_copy/engine.deb"
+    elif [[ $arg == "$engine_source" ]]; then argv[i]="$engine_copy/source"
+    elif [[ $arg == "$engine_source/"* ]]; then argv[i]="$engine_copy/source/${arg#"$engine_source/"}"
+    fi
+  done
 }
 
 # The time now as a record carries it.
@@ -462,8 +501,9 @@ present_exit() {
 
 present() {
   local code refusal=""
-  copy_dir="" record_fd="" run_fd="" run_lock="" record_active=0 ran_code="" stem="" started_at="" fail_marker=""
+  copy_dir="$engine_copy" record_fd="" run_fd="" run_lock="" record_active=0 ran_code="" stem="" started_at="" fail_marker=""
   trap present_exit EXIT
+  if [[ -n $engine_source ]]; then copy_engine; copy_dir="$engine_copy"; fi
   trap 'exit 129' HUP
   trap 'exit 143' TERM
   [[ -z $record_key ]] || record_start || :
@@ -498,7 +538,7 @@ present() {
     # The command inherits neither lock: a process it leaves behind would
     # hold the key busy, or keep the run's waiter blocked, after present is
     # gone.
-    if [[ -n $record_fd ]]; then "${argv[@]}" {record_fd}>&- {run_fd}>&-; else "${argv[@]}"; fi
+    if [[ -n $record_fd ]]; then "${argv[@]}" {record_fd}>&- {run_fd}>&- 8>&- 9>&-; else "${argv[@]}" 8>&- 9>&-; fi
     code=$?
     set -e
     trap - INT

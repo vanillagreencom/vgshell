@@ -52,6 +52,7 @@ signed="${*: -1}"
 case " $* " in
   *" --list-secret-keys "*)
     [[ -n ${STUB_GPG_SECRET:-} && $signed == "$STUB_GPG_SECRET" ]] ;;
+  *" --export "*) printf "public-only fixture key\n" ;;
   *" --detach-sign "*)
     [[ -z ${STUB_GPG_FAIL:-} ]] || exit 2
     out=""
@@ -71,7 +72,15 @@ EOF
 cat >"$stubs/podman" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$STUB_RECORD/podman"
+[[ $1 != info ]] || { echo true; exit 0; }
 [[ $1 == run ]] || exit 0
+for ((i=1; i<=$#; i++)); do
+  if [[ ${!i} == *:/output ]]; then
+    output=${!i}; output=${output%:/output}
+    printf 'fixture Debian asset\n' >"$output/vgshell-quickshell_0.3.2+git2b4501a+vgs2-1_debian-forky_amd64.deb"
+    exit 0
+  fi
+done
 while [[ $# -gt 0 ]]; do
   [[ $1 == -v ]] && { cp -R -- "${2%%:*}" "$STUB_RECORD/mount"; exit 0; }
   shift
@@ -93,7 +102,9 @@ fixture() {
   r="$tmp/rows/$fixtures-$1"
   h="$tmp/homes/$fixtures-$1"
   {
-    mkdir -p "$r/scripts/lib" "$r/docs" "$h" &&
+    mkdir -p "$r/scripts/lib" "$r/bin/lib" "$r/docs" "$h" &&
+      cp -- "$repo/bin/lib/engine.js" "$r/bin/lib/engine.js" &&
+      cp -- "$repo/scripts/debian-packages.sh" "$r/scripts/" &&
       cp -- "$2" "$r/scripts/release" && cp -- "$builder" "$r/scripts/lib/release-tarball.sh" &&
       printf '3.4.5\n' >"$r/VERSION" &&
       printf '#!/usr/bin/env bash\n{\nmain() {\n  release_key="%s"\n}\nmain "$@"\n}\n' "$fpr" >"$r/install.sh" &&
@@ -127,7 +138,8 @@ first_err() { local line=""; [[ -s $tmp/err ]] && IFS= read -r line <"$tmp/err";
 last_out() { local line=""; [[ -s $tmp/out ]] && line="$(tail -n 1 -- "$tmp/out")"; printf '%s' "$line"; }
 recorded() { [[ -f $record/$1 ]] && grep -qxF -- "$2" "$record/$1"; }
 sha_of() { local s; s="$(sha256sum -- "$1")" && printf '%s' "${s%% *}"; }
-assets=(vgshell-3.4.5.tar.gz install.sh SHA256SUMS SHA256SUMS.asc)
+engine_asset=vgshell-quickshell_0.3.2+git2b4501a+vgs2-1_debian-forky_amd64.deb
+assets=(vgshell-3.4.5.tar.gz install.sh "$engine_asset" release-key.asc SHA256SUMS SHA256SUMS.asc)
 
 # The rows each judge one rule, on the script SCRIPT names, so a control
 # can run them again on a copy with that rule removed.
@@ -149,7 +161,9 @@ sums_row() { # SCRIPT: SHA256SUMS lists the tarball and the tag's install.sh, on
   [[ $status == 0 ]] || return 1
   cmp -s -- "$r/dist/install.sh" <(g -C "$r" show v3.4.5:install.sh) &&
     [[ $(cat -- "$r/dist/SHA256SUMS") == "$(sha_of "$r/dist/vgshell-3.4.5.tar.gz")  vgshell-3.4.5.tar.gz
-$(sha_of "$r/dist/install.sh")  install.sh" ]]
+$(sha_of "$r/dist/install.sh")  install.sh
+$(sha_of "$r/dist/$engine_asset")  $engine_asset
+$(sha_of "$r/dist/release-key.asc")  release-key.asc" ]]
 }
 sign_row() { # SCRIPT: gpg signs the published SHA256SUMS with the release key
   fixture sign "$1"
@@ -173,7 +187,7 @@ dry_row() { # SCRIPT: --dry-run checks and builds, and neither signs nor uploads
   fixture dry "$1"
   run --dry-run 3.4.5
   [[ $status == 0 && $(last_out) == "release: ok tag=v3.4.5 dry-run=true" ]] &&
-    [[ ! -e $record/gh && $(cat -- "$record/gpg") == "--batch --list-secret-keys -- $fpr" ]] &&
+    [[ ! -e $record/gh && $(cat -- "$record/gpg") == "--batch --list-secret-keys -- $fpr"$'\n'"--batch --armor --export -- $fpr" ]] &&
     [[ -f $r/dist/vgshell-3.4.5.tar.gz && -f $r/dist/SHA256SUMS && -f $r/dist/install.sh && ! -e $r/dist/SHA256SUMS.asc ]] &&
     grep -qxF -- "release: would-sign key=$fpr name=SHA256SUMS" "$tmp/out"
 }
@@ -390,7 +404,7 @@ rule key-set refusal_row '[[ -n $key ]] ||' 'true ||' key-unset
 rule key-format refusal_row '[[ $key =~ ^([0-9A-F]{40}|[0-9A-F]{64})$ ]] ||' 'true ||' key-malformed
 rule secret-key refusal_row 'gpg --batch --list-secret-keys -- "$key" >/dev/null 2>&1 ||' 'true ||' no-secret-key
 rule archive-version archive_row '"$tag_commit" "$version" "$stage/$archive"' '"$tag_commit" "0.0.0" "$stage/$archive"'
-rule sums-cover-installer sums_row 'sha256sum -- "$archive" install.sh >SHA256SUMS' 'sha256sum -- "$archive" >SHA256SUMS'
+rule sums-cover-installer sums_row 'sha256sum -- "$archive" install.sh "$engine_asset" release-key.asc >SHA256SUMS' 'sha256sum -- "$archive" >SHA256SUMS'
 rule signing-key sign_row '--local-user "$key" ' ''
 rule verify-tag upload_row '--repo "$repository" --verify-tag' '--repo "$repository"'
 rule dry-run-signs-nothing dry_row 'if [[ $dry_run == false ]]; then' 'if true; then'

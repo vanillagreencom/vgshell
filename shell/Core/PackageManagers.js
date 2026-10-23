@@ -118,6 +118,7 @@ var MANAGERS = [
         id: "apt", role: "primary", family: ["debian"], release: { key: "VERSION_CODENAME", value: "forky" }, requires: null, binaries: ["apt-get"], elevate: true,
         check: [{ binary: null, argv: ["apt", "list", "--upgradable"], exits: { "0": "rows" }, parser: "apt", timeout: 120 }],
         install: [["{bin}", "install", "{names}"]],
+        engineArchive: ["install", "--"],
         reinstall: [["{bin}", "install", "--reinstall", "{names}"]],
         // apt-get(8): install is also the target that upgrades an installed
         // package without upgrading every package.

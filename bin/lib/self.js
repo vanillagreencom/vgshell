@@ -305,6 +305,7 @@ function run(argv, options, key) {
     const r = childProcess.spawnSync(argv[0], argv.slice(1), Object.assign({ encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }, options));
     if (r.error !== undefined) refuse(key + " error=" + r.error.code);
     if (r.status !== 0) refuse(key + " exit=" + (r.status === null ? r.signal : r.status), undefined, 1, (r.stdout || "") + (r.stderr || ""));
+    return r.stdout;
 }
 
 // The engine's package identity, not its version provision, proves the VGS
@@ -321,53 +322,107 @@ function engineFacts() {
 function engineInstalled(found) {
     if (found.primary === null || found.holders.qs.owners[found.primary.id] !== "vgshell-quickshell") return false;
     const version = childProcess.spawnSync("qs", ["--version"], { encoding: "utf8" });
+    if (found.primary.id === "apt") {
+        const installed = run([process.execPath, path.join(__dirname, "..", "vgshell-pkg"), "owner", found.holders.qs.path], {}, "engine=owner-failed");
+        if (JSON.parse(installed).version !== engine.DEBIAN_VERSION) return false;
+    }
     return version.error === undefined && version.status === 0 && engine.current(version.stdout);
 }
 
 // Run only inside the presenter. It owns the terminal, and the existing
 // package and system runners own elevation and show their plans.
-function engineRun(manager) {
+function engineRun(manager, source, root, payload) {
+    if (manager === "nix") {
+        let rooted = false;
+        try { fs.lstatSync(root); rooted = true; } catch (e) { if (e.code !== "ENOENT") throw e; }
+        if (!rooted) {
+            fs.mkdirSync(path.dirname(root), { recursive: true });
+            run(["nix", "--extra-experimental-features", "nix-command flakes", "build", "--no-update-lock-file", "--out-link", root,
+                "path:" + source + "#quickshell"], { stdio: "inherit" }, "engine=realize-failed");
+        }
+        const text = run([path.join(root, "bin", "qs"), "--version"], {}, "engine=version-failed");
+        if (!engine.current(text)) refuse("engine=not-installed manager=nix");
+        return;
+    }
     if (manager === "dnf")
         run([path.join(__dirname, "..", "vgshell-system"), "apply", "vgs-quickshell-repository"], { stdio: "inherit" }, "engine=repository-failed");
-    run([process.execPath, path.join(__dirname, "..", "vgshell-pkg"), "run", "install", "--manager", manager, "vgshell-quickshell"], { stdio: "inherit" }, "engine=install-failed");
+    const argv = manager === "apt" ? ["engine-archive", "--manager", "apt", payload] : ["install", "--manager", manager, "vgshell-quickshell"];
+    run([process.execPath, path.join(__dirname, "..", "vgshell-pkg"), "run", ...argv], { stdio: "inherit" }, "engine=install-failed");
     if (!engineInstalled(engineFacts())) refuse("engine=not-installed package=vgshell-quickshell");
 }
 
-function migrateEngine() {
+// apt depends on sqv (forky apt 3.3.3, VGS-1999 verifier probe). sqv
+// returns the validated primary fingerprint; no user keyring is consulted.
+function verifyEngine(directory) {
+    const key = path.join(directory, "release-key.asc"), sums = path.join(directory, "SHA256SUMS");
+    const signer = run(["sqv", "--keyring", key, path.join(directory, "SHA256SUMS.asc"), sums], {}, "signature=bad").trim();
+    if (signer !== engine.RELEASE_KEY) refuse("signature=wrong-key");
+    const file = path.join(directory, engine.debianAsset("amd64"));
+    const got = crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
+    if (got !== listedSum(fs.readFileSync(sums, "utf8"), path.basename(file))) refuse("checksum=mismatch name=" + path.basename(file));
+    return file;
+}
+
+async function migrateEngine(source = path.join(__dirname, "..", ".."), origin = source, revision = "-", supplied = "-") {
     const found = engineFacts();
-    if (found.primary === null || !["pacman", "dnf"].includes(found.primary.id) || engineInstalled(found)) return;
-    const manager = found.primary.id === "pacman" ? "aur" : "dnf";
+    if (found.primary === null || !["pacman", "dnf", "apt", "nix"].includes(found.primary.id)) return;
+    const manager = found.primary.id === "pacman" ? "aur" : found.primary.id;
+    const dataHome = process.env.XDG_DATA_HOME || path.join(process.env.HOME, ".local", "share");
+    const version = fs.readFileSync(path.join(source, "VERSION"), "utf8").trim();
+    const root = manager === "nix" ? engine.rootFor(dataHome, origin, revision, version) : "-";
+    if (manager === "nix" && fs.existsSync(root)) {
+        const text = run([path.join(root, "bin", "qs"), "--version"], {}, "engine=version-failed");
+        if (!engine.current(text)) refuse("engine=not-installed manager=nix");
+        return;
+    }
+    if (manager !== "nix" && engineInstalled(found)) return;
     if (manager === "aur" && !found.overlays.some(row => row.id === "aur"))
         refuse("engine=helper-missing manager=aur", undefined, 1, "Open Settings, Updates after installing an AUR helper.");
-    const tui = path.join(__dirname, "..", "vgshell-tui");
-    const command = [process.execPath, __filename, "engine-run", manager];
-    let tty;
-    try { tty = fs.openSync("/dev/tty", "r+"); } catch (e) {
-        if (!["ENXIO", "ENODEV", "ENOENT"].includes(e.code)) refuse("engine=terminal-failed error=" + e.code);
-    }
-    if (tty !== undefined) {
-        try {
-            // The previous updater captures its installer child's streams.
-            // Reopen the controlling terminal for the conflict question.
-            run([tui, "present", "--presentation", "plain", "--", ...command], { stdio: [tty, tty, tty] }, "engine=migration-failed");
-        } finally { fs.closeSync(tty); }
-    } else {
-        const key = "core/curl-engine", id = "engine-" + process.pid;
-        run([tui, "launch", "--title", "Update VGS engine", "--record", key, "--run", id, "--", ...command], {}, "engine=launch-failed");
-        const ended = childProcess.spawnSync(tui, ["wait", "--record", key, "--run", id], { encoding: "utf8" });
-        if (ended.error !== undefined || ended.status !== 0) refuse("engine=wait-failed", undefined, 1, ended.stderr);
-        let record;
-        try { record = JSON.parse(ended.stdout); } catch (e) { refuse("engine=result-unreadable"); }
-        if (record === null || record.state !== "ended" || !Number.isInteger(record.code)) refuse("engine=result-unreadable");
-        if (record.code !== 0) refuse("engine=migration-failed exit=" + record.code);
-    }
-    if (!engineInstalled(engineFacts())) refuse("engine=not-installed package=vgshell-quickshell");
+    let scratch, payload = "-";
+    try {
+        if (manager === "apt") {
+            const architecture = run(["dpkg", "--print-architecture"], {}, "engine=architecture-failed").trim();
+            if (architecture !== "amd64") refuse("engine=architecture unsupported=" + architecture);
+            let directory = supplied;
+            if (directory === "-") {
+                scratch = fs.mkdtempSync(path.join(require("os").tmpdir(), "vgs-engine-"));
+                directory = scratch;
+                const api = apiBase(), release = await latestRelease("vanillagreencom/vgshell", api, version);
+                for (const name of ["release-key.asc", "SHA256SUMS", "SHA256SUMS.asc", engine.debianAsset(architecture)])
+                    await download(release, name, path.join(directory, name), name.endsWith(".deb") ? MAX_ARCHIVE : MAX_SUMS, api);
+            }
+            payload = verifyEngine(directory);
+        }
+        const tui = path.join(__dirname, "..", "vgshell-tui");
+        const command = [process.execPath, path.join(source, "bin", "lib", "self.js"), "engine-run", manager, source, root, payload];
+        const inputs = ["--engine-source", source];
+        if (payload !== "-") inputs.push("--engine-payload", payload);
+        let tty;
+        try { tty = fs.openSync("/dev/tty", "r+"); } catch (e) {
+            if (!["ENXIO", "ENODEV", "ENOENT"].includes(e.code)) refuse("engine=terminal-failed error=" + e.code);
+        }
+        if (tty !== undefined) {
+            try { run([tui, "present", "--presentation", "plain", ...inputs, "--", ...command], { stdio: [tty, tty, tty] }, "engine=migration-failed"); }
+            finally { fs.closeSync(tty); }
+        } else {
+            const key = "core/curl-engine", id = "engine-" + process.pid;
+            run([tui, "launch", "--title", "Update VGS engine", "--record", key, "--run", id, ...inputs, "--", ...command], {}, "engine=launch-failed");
+            const ended = run([tui, "wait", "--record", key, "--run", id], {}, "engine=wait-failed");
+            let record;
+            try { record = JSON.parse(ended); } catch (e) { refuse("engine=result-unreadable"); }
+            if (record === null || record.state !== "ended" || !Number.isInteger(record.code)) refuse("engine=result-unreadable");
+            if (record.code !== 0) refuse("engine=migration-failed exit=" + record.code);
+        }
+        if (manager === "nix") {
+            if (!fs.existsSync(path.join(root, "bin", "qs"))) refuse("engine=not-installed manager=nix");
+        } else if (!engineInstalled(engineFacts())) refuse("engine=not-installed package=vgshell-quickshell");
+    } finally { if (scratch) fs.rmSync(scratch, { recursive: true, force: true }); }
 }
 
 // The previous curl updater already produces this layout. Recognizing its
 // complete transaction reaches the migration on its first new release,
 // without turning package recipe staging into a host package operation.
-function migrateCurlStage(source, dest, prefix) {
+async function migrateCurlStage(source, dest, prefix) {
     if (prefix !== "/vgshell") return;
     const data = real(path.join(process.env.XDG_DATA_HOME || path.join(process.env.HOME, ".local", "share"), "vgshell"));
     const stage = real(path.dirname(dest));
@@ -377,7 +432,7 @@ function migrateCurlStage(source, dest, prefix) {
     const version = fs.readFileSync(path.join(source, "VERSION"), "utf8").trim();
     if (!VERSION_PATTERN.test(version) || real(source) !== real(path.join(stage, "source", "vgshell-" + version))
         || real(dest) !== path.join(stage, "tree")) return;
-    migrateEngine();
+    await migrateEngine(source);
 }
 
 // Replace the curl install whose data directory is DATA and whose tree
@@ -395,13 +450,10 @@ async function install(repository, dataHome, root, current, shellTree, repair = 
     // An update can move current while the user answers Repair's question.
     if (repair && real(path.join(data, "current")) !== real(root)) refuse("repair=selection-changed");
     const api = apiBase();
-    const release = await latestRelease(repository, api, repair ? current : null);
+    let release = await latestRelease(repository, api, repair ? current : null);
     if (repair && release.version !== current) refuse("repair=version expected=" + current + " found=" + release.version);
-    if (!repair && !newer(release.version, current)) {
-        migrateEngine();
-        process.stdout.write("ok up-to-date=vgshell version=" + current + "\n");
-        return;
-    }
+    const upToDate = !repair && !newer(release.version, current);
+    if (upToDate && release.version !== current) release = await latestRelease(repository, api, current);
     // A same-version repair publishes a fresh tree through `current`, just
     // like an update. The running and previous trees never disappear.
     const target = repair ? fs.mkdtempSync(path.join(data, current + "-repair-")) : path.join(data, release.version);
@@ -412,7 +464,7 @@ async function install(repository, dataHome, root, current, shellTree, repair = 
         if (e.code !== "ENOENT") refuse("target=unreadable path=" + target + " error=" + e.code);
         taken = false;
     }
-    if (taken && !repair) refuse("target=exists path=" + target, undefined, 1, "remove it and run vgshell self update again");
+    if (taken && !repair && !upToDate) refuse("target=exists path=" + target, undefined, 1, "remove it and run vgshell self update again");
     let stage;
     writing(data, "data", () => {
         // Under the lock, a staging directory left behind is a dead run's.
@@ -442,6 +494,11 @@ async function install(repository, dataHome, root, current, shellTree, repair = 
         }
         if (shipped !== release.version + "\n") refuse("archive=version name=" + archive + " version=" + JSON.stringify(shipped));
         const destdir = path.join(stage, "tree");
+        run([process.execPath, path.join(unpacked, "bin", "lib", "self.js"), "prepare-engine", unpacked, unpacked, "-", "-"], { stdio: "inherit" }, "engine=prepare-failed");
+        if (upToDate) {
+            process.stdout.write("ok up-to-date=vgshell version=" + current + "\n");
+            return;
+        }
         run(["bash", path.join(unpacked, "packaging", "install-system.sh")], { env: Object.assign({}, process.env, { DESTDIR: destdir, PREFIX: "/vgshell" }) }, "install=failed name=" + archive);
         writing(target, "target", () => fs.renameSync(path.join(destdir, "vgshell", "share", "vgshell"), target));
         const link = path.join(stage, "current");
@@ -463,6 +520,13 @@ async function install(repository, dataHome, root, current, shellTree, repair = 
             if (fs.lstatSync(dir).isDirectory()) fs.rmSync(dir, { recursive: true, force: true });
         }
     });
+    const roots = path.join(data, ".engines");
+    if (fs.existsSync(roots)) {
+        const versions = new Set(kept.map(name => "release-" + name.split("-repair-")[0]));
+        for (const entry of fs.readdirSync(roots))
+            if (/^release-[0-9]+\.[0-9]+\.[0-9]+$/.test(entry) && !versions.has(entry) && fs.lstatSync(path.join(roots, entry)).isSymbolicLink())
+                fs.unlinkSync(path.join(roots, entry));
+    }
     process.stdout.write("ok " + (repair ? "repaired" : "updated") + "=vgshell from=" + current + " to=" + release.version + " path=" + target + "\n");
 }
 
@@ -568,11 +632,13 @@ if (require.main === module) main(() => {
         return undefined;
     case "migrate-curl-stage":
         if (args.length !== 3) usage("migrate-curl-stage-arguments=" + JSON.stringify(args));
-        migrateCurlStage(...args);
-        return undefined;
+        return migrateCurlStage(...args);
+    case "prepare-engine":
+        if (args.length !== 4) usage("prepare-engine-arguments=" + JSON.stringify(args));
+        return migrateEngine(...args);
     case "engine-run":
-        if (args.length !== 1 || !["aur", "dnf"].includes(args[0])) usage("engine-run-arguments=" + JSON.stringify(args));
-        engineRun(args[0]);
+        if (args.length !== 4 || !["aur", "dnf", "apt", "nix"].includes(args[0])) usage("engine-run-arguments=" + JSON.stringify(args));
+        engineRun(...args);
         return undefined;
     case "install":
         if (args.length !== 5) usage("install-arguments=" + JSON.stringify(args));

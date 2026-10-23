@@ -890,6 +890,67 @@ check "an unreadable size table exits 1" test "$plain_status" == 1
 check "an unreadable size table is named after the loader's line" grep -qxF "vgshell-tui: refused: size-table=unreadable exit=2" "$tmp/err"
 check "an unreadable size table opens no terminal" test ! -e "$tmp/term"
 
+# Independent terminals consume staged inputs after caller cancellation or
+# launch timeout. The presenter's command must not inherit the self locks.
+engine_inputs() { # BIN MODE
+  local bin="$1" mode="$2" area source payload launch_pid status=0 i copied
+  area="$(mktemp -d "$tmp/engine-inputs.XXXXXX")" || return 1
+  source="$area/staged"; payload="$area/engine.deb"
+  mkdir -p "$source/bin" "$area/helpers"
+  cp "$subject" "$source/bin/vgshell-tui"
+  cp -R "$repo/bin/lib" "$source/bin/lib"; ln -s "$repo/shell" "$source/shell"
+  printf 'verified payload\n' >"$payload"
+  cat >"$source/input.sh" <<'INPUT'
+#!/bin/bash
+set -e
+cat "$1" >"$2/result"
+printf '%s\n' "${BASH_SOURCE[0]}" >"$2/copied-path"
+for fd in 8 9; do [[ ! -e /proc/$$/fd/$fd ]] || exit 64; done
+INPUT
+  cat >"$area/helpers/xdg-terminal-exec" <<'TERMINAL'
+#!/bin/bash
+set -eu
+while [[ $1 != -- ]]; do shift; done
+shift
+area="${ENGINE_INPUT_AREA:?}"
+: >"$area/ready"
+for ((n=0; n<200; n++)); do [[ ! -e $area/go ]] || break; sleep 0.05; done
+status=0
+"$@" || status=$?
+printf '%s\n' "$status" >"$area/done"
+TERMINAL
+  chmod +x "$area/helpers/xdg-terminal-exec"
+  ln -s "$(command -v setsid)" "$area/helpers/setsid"
+  exec 8>>"$area/self.lock"; flock 8
+  exec 9>>"$area/runner.lock"; flock 9
+  "${tui_env[@]}" PATH="$area/helpers:$base_path" ENGINE_INPUT_AREA="$area" "$bin" launch --title engine --presentation plain \
+    --record core/curl-engine --run "engine-$mode" --engine-source "$source" --engine-payload "$payload" -- \
+    "$BASH" "$source/input.sh" "$payload" "$area" >"$area/launch.log" 2>&1 &
+  launch_pid=$!
+  for ((i=0; i<200; i++)); do [[ ! -e $area/ready ]] || break; sleep 0.05; done
+  if [[ ! -e $area/ready ]]; then wait "$launch_pid" || :; exec 8>&- 9>&-; return 1; fi
+  [[ $mode != cancel ]] || kill -TERM "$launch_pid"
+  wait "$launch_pid" || status=$?
+  exec 8>&- 9>&-
+  flock -w 2 "$area/self.lock" true || return 1
+  rm -rf -- "${source:?}" "${payload:?}"
+  : >"$area/go"
+  for ((i=0; i<200; i++)); do [[ ! -e $area/done ]] || break; sleep 0.05; done
+  [[ -s $area/done ]] || return 1
+  [[ $(cat "$area/done") == 0 && $(cat "$area/result") == 'verified payload' ]] || return 1
+  copied="$(cat "$area/copied-path")"
+  [[ $copied == "$rt/vgs-engine."*/source/input.sh && ! -e ${copied%/source/input.sh} ]] || return 1
+  if [[ $mode == cancel ]]; then [[ $status == 143 ]]; else [[ $status == 1 ]]; fi
+}
+
+engine_copy_owner() { # BIN
+  local unowned
+  unowned="$(mktemp -d "$tmp/unowned.XXXXXX")" || return 1
+  : >"$unowned/keep"
+  plain_run "$1" present --presentation plain --engine-copy "$unowned" -- true
+  [[ $plain_status == 2 && -f $unowned/keep ]]
+}
+
 # Must-fail controls, each on a copy of one file in a copy of the tree.
 # control NAME FILE NEEDLE REPLACEMENT: sets control_bin to the copy of FILE.
 control() {
@@ -901,6 +962,15 @@ control() {
   check "the $1 mutant differs" test "$(cmp -s "$repo/bin/$2" "$dir/bin/$2"; echo $?)" == 1
   control_bin="$dir/bin/$2"
 }
+
+check "a presenter refuses cleanup of an unowned input directory" engine_copy_owner "$subject"
+control engine-copy-owner vgshell-tui '|| bad_invocation "engine=copy-owner"' '|| :'
+check "control: an unowned input directory cannot be accepted" test "$(engine_copy_owner "$control_bin" && echo accepted || echo refused)" == refused
+control engine-timeout vgshell-tui 'start_ceiling=30' 'start_ceiling=1'
+engine_timeout="$control_bin"
+for mode in cancel timeout; do check "engine inputs survive caller $mode and exclude self locks" engine_inputs "$engine_timeout" "$mode"; done
+control unmapped-engine-input vgshell-tui 'arg="${argv[i]}"' 'arg=""'
+check "control: unchanged staged argv cannot survive caller cancellation" test "$(engine_inputs "$control_bin" cancel && echo survived || echo lost)" == lost
 
 control sourced-gum-env vgshell-tui '  while IFS= read -r line || [[ -n $line ]]; do' '  source "$gum_env"; while false; do'
 printf '%s\n' "GUM_CONFIRM_PROMPT_FOREGROUND=\$(touch $tmp/planted)" >"$gum_env"
@@ -959,7 +1029,7 @@ check "the no-bold-line mutant fails the bold rows" test "$(bold_rows "$control_
 control any-bold-value vgshell-tui 'gum_bold_line="^($_vgs_tui_gum_bolds)=true\$"' 'gum_bold_line="^($_vgs_tui_gum_bolds)=[^=]*\$"'
 check "the any-bold-value mutant fails the bold rows" test "$(bold_rows "$control_bin" && echo green || echo red)" == red
 
-control shell-string vgshell-tui 'else "${argv[@]}"; fi' 'else bash -c "${argv[*]}"; fi'
+control shell-string vgshell-tui 'else "${argv[@]}" 8>&- 9>&-; fi' 'else bash -c "${argv[*]}" 8>&- 9>&-; fi'
 rm -f -- "$tmp/argv"
 plain_run "$control_bin" present --presentation plain -- record 'a b' "\$(touch $tmp/planted)"
 check "the shell-string mutant runs an argument as shell code" test -e "$tmp/planted"
@@ -1066,12 +1136,12 @@ control unended-record vgshell-tui '  if [[ $record_active == 1 ]]; then record_
 plain_run "$control_bin" present --presentation plain "${record_opts[@]}" --run 1-1 -- exits 0
 check "the unended-record mutant leaves no ended record" test ! -e "$rdir/acme.tui@hello@1-1.ended.json"
 rm -f -- "$rdir"/*.json
-control inherited-lock vgshell-tui 'then "${argv[@]}" {record_fd}>&- {run_fd}>&-; else' 'then "${argv[@]}" {run_fd}>&-; else'
+control inherited-lock vgshell-tui 'then "${argv[@]}" {record_fd}>&- {run_fd}>&- 8>&- 9>&-; else' 'then "${argv[@]}" {run_fd}>&- 8>&- 9>&-; else'
 plain_run "$control_bin" present --presentation plain "${record_opts[@]}" --run 1-1 -- leaver
 check "the inherited-lock mutant leaves the key held by the process left behind" test "$(key_free && echo free || echo held)" == held
 [[ -s $tmp/leaver ]] && kill "$(cat "$tmp/leaver")" 2>/dev/null
 rm -f -- "$rdir"/*.json
-control inherited-run-lock vgshell-tui 'then "${argv[@]}" {record_fd}>&- {run_fd}>&-; else' 'then "${argv[@]}" {record_fd}>&-; else'
+control inherited-run-lock vgshell-tui 'then "${argv[@]}" {record_fd}>&- {run_fd}>&- 8>&- 9>&-; else' 'then "${argv[@]}" {record_fd}>&- 8>&- 9>&-; else'
 plain_run "$control_bin" present --presentation plain "${record_opts[@]}" --run 1-1 -- fdlocks
 check "the inherited-run-lock mutant hands the command the run lock" test "$(cat "$tmp/fdlocks")" == 1
 rm -f -- "$rdir"/*.json

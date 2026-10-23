@@ -201,6 +201,34 @@ if out="$(nix build "${flags[@]}" path:/src 2>/tmp/build.log)"; then
     ok "control: an entry point without its PATH line fails the PATH row"
   else fail "control: an entry point without its PATH line fails the PATH row"
   fi
+  # The nix image is not NixOS. This identity file is a container-only
+  # stand-in which reaches the curl migration's actual Nix primary route.
+  curl_engine() (
+    set -euo pipefail
+    local entry line root store
+    entry="$(readlink -f "$out/bin/vgshell")"
+    line="$(grep -F '# vgs-nix-path' "$entry")"
+    eval "$line"
+    export HOME=/tmp/curl-home XDG_DATA_HOME=/tmp/curl-home/data XDG_RUNTIME_DIR=/tmp/curl-runtime
+    mkdir -p "$HOME" "$XDG_RUNTIME_DIR" /etc
+    printf 'ID=nixos\nNAME="container-only NixOS identity stand-in"\n' >/etc/os-release
+    cp -r /src /tmp/curl-source
+    sha256sum /tmp/curl-source/flake.nix /tmp/curl-source/flake.lock /tmp/curl-source/bin/lib/{self,engine}.js
+    script -qec 'node /tmp/curl-source/bin/lib/self.js prepare-engine /tmp/curl-source /tmp/curl-source - -' /dev/null
+    root="$(node /tmp/curl-source/bin/lib/engine.js path "$XDG_DATA_HOME" /tmp/curl-source -)"
+    [[ -n $root && $root == "$XDG_DATA_HOME/vgshell/.engines/"*/bin ]]
+    "$root/qs" --version | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.exit(require("/src/bin/lib/engine.js").current(s)?0:1))'
+    store="$(readlink -f "${root%/bin}")"
+    rm -rf /tmp/curl-source
+    [[ $(readlink -f "${root%/bin}") == "$store" ]]
+    "$root/qs" --version | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.exit(require("/src/bin/lib/engine.js").current(s)?0:1))'
+  )
+  curl_status=0
+  curl_engine
+  curl_status=$?
+  if [[ $curl_status == 0 ]]; then ok "curl NixOS realizes the exported engine and retains its root after staging removal"
+  else fail "curl NixOS realizes the exported engine and retains its root after staging removal"; fi
+
 else
   cat /tmp/build.log; fail "nix build succeeds and checks the install tree"
   exit 1

@@ -38,6 +38,8 @@ const EXIT_MEANINGS = ["updates", "none", "rows"];
 // The table's own defects, one string each; empty for a sound table.
 function tableErrors(t) {
     const errors = [];
+    if (JSON.stringify(t.managerRow("apt").engineArchive) !== JSON.stringify(["install", "--"])) errors.push("apt engine archive argv");
+    if (t.managerRow("nix").engineArchive !== undefined) errors.push("Nix engine archive action");
     const ids = t.MANAGERS.map(row => row.id);
     if (t.MANAGERS.length < 7) errors.push("table: fewer than seven managers; the loader read no table");
     if (new Set(ids).size !== ids.length) errors.push("ids: not unique");
@@ -573,6 +575,7 @@ const CONTROLS = [
     ["table", "a package two commands share is installed twice", TABLE, " && names.indexOf(picks[j].name) === -1) names.push", ") names.push"],
     ["table", "the primary's install names its manager", TABLE, "return (group.primary ? [] : [\"--manager\", group.manager]).concat(group.names);", "return [\"--manager\", group.manager].concat(group.names);"],
     ["table", "an overlay's install omits its manager", TABLE, "return (group.primary ? [] : [\"--manager\", group.manager]).concat(group.names);", "return group.names;"],
+    ["table", "apt engine loses its argv boundary", TABLE, 'engineArchive: ["install", "--"]', 'engineArchive: ["install"]'],
     ["table", "nix is offered an install", TABLE, "installs: managerRow(order[i].id).install !== null", "installs: true"],
     ["table", "a mise update keeps the installed version", TABLE, "else if (step[j] === \"{names@latest}\") argv.push.apply(argv, names.map(function (name) { return name + \"@latest\"; }));", "else if (step[j] === \"{names@latest}\") argv.push.apply(argv, names);"],
     ["rule:update steps", "a manager that installs has no update", TABLE, "update: [[\"{bin}\", \"upgrade\", \"{names}\"]],", "update: null,"],

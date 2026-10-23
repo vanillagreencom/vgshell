@@ -1,0 +1,5 @@
+vgshell-quickshell (0.3.2+git2b4501a+vgs2-1) unstable; urgency=medium
+
+  * Package the pinned VGS engine with the shared runtime fixes for amd64.
+
+ -- VanillaGreen <brad@vanillagreen.com>  Thu, 22 Oct 2026 18:00:00 -0700

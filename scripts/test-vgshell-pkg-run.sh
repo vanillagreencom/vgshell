@@ -78,6 +78,7 @@ tree="$tmp/tree"
 # file in the rows' runtime directory it prints shell=not-running.
 make_tree() { # DIR
   mkdir -p "$1/bin" "$1/shell"
+  cp -- "$repo/VERSION" "$1/"
   cp -- "$repo/bin/vgshell-pkg" "$repo/bin/vgshell" "$1/bin/"
   cp -R -- "$repo/bin/lib" "$1/bin/lib"
   cp -R -- "$repo/shell/Core" "$1/shell/Core"
@@ -155,6 +156,19 @@ row_pacman_install() {
     "sudo [-k]" "sudo [/usr/bin/true]" \
     "sudo [pacman] [-S] [--needed] [--] [foo] [bar]" "pacman [-S] [--needed] [--] [foo] [bar]" \
     "sudo [-k]")"
+}
+row_engine_archive() {
+  local file="$tmp/engine local.deb"
+  printf 'engine fixture\n' >"$file"
+  stub "$managers" dpkg-deb 'cat "$ENGINE_METADATA"'
+  printf 'Package: vgshell-quickshell\nVersion: 0.3.2+git2b4501a+vgs2-1\nArchitecture: amd64\n' >"$tmp/engine-metadata"
+  pkg "$1" "$sudo_path" ENGINE_METADATA="$tmp/engine-metadata" -- run engine-archive --manager apt "$file"
+  [[ $status == 0 ]] && grep -qxF "apt-get [install] [--] [$file]" "$log" || return 1
+  printf 'Package: quickshell\nVersion: 0.3.2\nArchitecture: amd64\n' >"$tmp/engine-metadata"
+  pkg "$1" "$sudo_path" ENGINE_METADATA="$tmp/engine-metadata" -- run engine-archive --manager apt "$file"
+  [[ $status == 1 ]] && ! grep -q '^apt-get ' "$log" || return 1
+  pkg "$1" "$sudo_path" -- run install --manager apt "$file"
+  [[ $status == 1 ]] && ! grep -q '^apt-get ' "$log"
 }
 row_apt_upgrade() {
   pkg "$1" "$sudo_path" -- run upgrade --manager apt
@@ -355,6 +369,7 @@ ROWS
 rows=(no_terminal shell_process pacman_install apt_upgrade pacman_ignore aur_ignore ignore_unsupported upgrade_config first_failure doas run0 configured configured_absent
   configured_unknown no_elevator literal_name update update_installs aur_unelevated picker_install picker_remove picker_cancelled
   picker_nothing aur_picker picker_unsupported picker_without_fzf dnf_picker home_directory)
+rows+=(engine_archive)
 for r in "${rows[@]}"; do
   rm -f -- "$tmp/why"
   if "row_$r" "$tree"; then ok "$r"; else fail "$r: status=$status $(cat -- "$tmp/why" 2>/dev/null) out=[$(tr '\n' '|' <"$tmp/out")]"; fi
@@ -397,6 +412,7 @@ control() {
   check "the $1 mutant differs from $2" test "$(cmp -s "$repo/$2" "$dir/$2"; echo $?)" == 1
   if "row_$5" "$dir"; then fail "the $1 mutant passes row $5"; else ok "the $1 mutant fails row $5"; fi
 }
+control archive-metadata bin/vgshell-pkg 'if (metadata.error || metadata.status !== 0 || metadata.stdout !==' 'if (false && metadata.stdout !==' engine_archive
 control runs-without-terminal bin/lib/judge-files.js 'fs.closeSync(fs.openSync("/dev/tty", "r+"));' ';' no_terminal
 control elevates-in-shell bin/lib/judge-files.js 'if (process.env.VGSHELL_RUNNER_PID !== undefined)' 'if (false)' shell_process
 if [[ $chooser_status == 0 ]]; then
