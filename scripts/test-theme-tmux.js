@@ -116,9 +116,9 @@ const disabled = line => {
     return text;
 };
 
-// A socket path holds at most 107 bytes, and an agent or row TMPDIR can be
-// long, so the root, the socket directory and each socket name are short.
-const root = fs.mkdtempSync(path.join(os.tmpdir(), "vt-"));
+// The world backs its short runtime mount with its owned root, so socket
+// paths do not include the caller's arbitrarily long TMPDIR.
+const root = fs.mkdtempSync(path.join(process.env.XDG_RUNTIME_DIR, "owned", "vt-"));
 const env = {
     PATH: process.env.PATH,
     HOME: path.join(root, "home"),
