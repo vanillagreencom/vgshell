@@ -466,6 +466,8 @@ latency_catalog_ready() { latency_theme_value entries | py_reply 'import json,sy
 latency_installed() { latency_theme_value shownCards | py_reply 'import json,sys; print(any(c["name"]=="latency" and c["installed"] for c in json.load(sys.stdin)))'; }
 latency_wall_value() { ipc smoke readDescendant overlay vgs.themes WallpaperView "$1"; }
 
+# Theme applies send notifications, so their drawer stays built through restore.
+notes_on "theme latency"
 expect "the theme service retires before the cold reading" ok ipc shell setPluginEnabled vgs.themes false
 expect "the existing theme reads settle" idle theme_idle
 mkdir -p -- "$home/.config/vgshell/themes/latency/backgrounds"
@@ -724,3 +726,4 @@ mv -T -- "$sandbox/latency-lunar-preview.jpg" "$latency_lunar"
 
 expect "the latency observer drops" ok ipc smoke runnerDrop
 rm -- "$repo/shell/ThemeLatencyProbe.qml"
+notes_off "theme latency"

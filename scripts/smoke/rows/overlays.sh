@@ -235,7 +235,7 @@ if signal:
 pathlib.Path(scope_copy).write_text(text)
 text = pathlib.Path(select).read_text()
 handler = "                onSmokePressed: root.smokeMarks += 1\n" if name == "NoCatch" else "                onSmokeEscaped: root.smokeMarks += 1\n"
-for line, replacement in (("import qs.Ui\n", "import qs.Ui\n" + imports + "\n"), ("    property string emptyText: \"\"\n", "    property string emptyText: \"\"\n    property int smokeMarks: 0\n"), ("        DismissScope {\n", "        DismissScope" + name + " {\n" + handler)):
+for line, replacement in (("import qs.Ui\n", "import qs.Ui\nimport qs.Ui as PublicUi\n" + imports + "\n"), ("    property string emptyText: \"\"\n", "    property string emptyText: \"\"\n    property int smokeMarks: 0\n"), ("        DismissScope {\n", "        DismissScope" + name + " {\n" + handler), ("                ListCursor {\n", "                PublicUi.ListCursor {\n")):
     assert text.count(line) == 1, line + " must occur once in Select.qml"
     text = text.replace(line, replacement)
 pathlib.Path(select_copy).write_text(text)
@@ -250,7 +250,9 @@ assert text.count("        grabFocus: true\n") == 1, "the grab must occur once i
 text = text.replace("        grabFocus: true\n", "        grabFocus: false\n")
 if name == "select":
     assert text.count("import qs.Ui\n") == 1, "the qs.Ui import must occur once in " + source.name
-    text = text.replace("import qs.Ui\n", "import qs.Ui\n" + imports + "\n")
+    text = text.replace("import qs.Ui\n", "import qs.Ui\nimport qs.Ui as PublicUi\n" + imports + "\n")
+    assert text.count("                ListCursor {\n") == 1, "the plate constructor must occur once in " + source.name
+    text = text.replace("                ListCursor {\n", "                PublicUi.ListCursor {\n")
 target.write_text(text)
 PYEDIT
 done
