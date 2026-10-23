@@ -839,16 +839,19 @@ if open_toplevel "$sandbox/toplevel-sender.log" "$sender_class" "Sender window" 
   resident_key="$(key_of "Resident toast")"
   open_card "the resident toast" "Resident toast"
   expect_poll "a click on the resident toast delivers its default action once" 1 delivered "$resident_id" default
+  expect_poll "a click on the resident toast raises the sender's window" "$sender_focused" active_window
   expect "the resident action closes nothing on the server" 0 closed_on_server "$resident_id"
   expect "the resident action keeps the original live key" "$resident_key" key_of "Resident toast"
   focus_other
   act_on "the repeated resident Open" "Resident toast" Open '["Open", "Edit", "Dismiss"]'
   expect_poll "the repeated resident action reaches that id twice" 2 delivered "$resident_id" default
+  expect_poll "the repeated resident Open raises the sender's window" "$sender_focused" active_window
   expect "the repeated action keeps that live key" "$resident_key" key_of "Resident toast"
   expect "the repeated action still closes nothing" 0 closed_on_server "$resident_id"
   notify "$sender_class" "$resident_id" "Resident toast" "" '["default", "Open"]' "{\"desktop-entry\": <\"$sender_class\">, \"resident\": <true>}" 0 >/dev/null
   expect_poll "a producer update removes Edit while the card stays hovered" '["Open", "Dismiss"]' shown_pills "Resident toast"
   expect "the producer update retains the original live key" "$resident_key" key_of "Resident toast"
+  focus_other
   act_on "the resident Dismiss" "Resident toast" Dismiss '["Open", "Dismiss"]'
   expect_poll "Dismiss closes the resident notification once" 1 closed_on_server "$resident_id"
   expect_poll "Dismiss removes the resident toast" none key_of "Resident toast"

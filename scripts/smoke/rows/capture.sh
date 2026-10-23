@@ -1486,7 +1486,7 @@ capture_actions_hold() { # LABEL; the same live identity and ordered argv surviv
     expect "$label $choice keeps its key/id" "$pair" capture_notice_pair
     expect "$label $choice keeps its Open/Edit/Dismiss" '["Open", "Edit", "Dismiss"]' capture_notice_pills
   done
-  expect "$label Dismiss closes the notification" kept capture_choose "Screenshot saved" dismiss
+  expect "$label Dismiss closes the notification" left capture_choose "Screenshot saved" dismiss
   expect_poll "$label Dismiss removes its live key/id" null capture_notice_pair
   expect "$label Dismiss runs no argv" "$expected" capture_notice_calls
   expect_poll "$label Dismiss closes that sender id once" 1 capture_notice_closed_count
@@ -1500,11 +1500,11 @@ capture_actions_hold Edit-first edit default edit
 # Control: change only the shipped sender's action callback in the private
 # product copy. The same identity assertion must reject one-shot delivery.
 capture_quiet "control: one-shot sender"
-python3 - "$capture_helper" "$sandbox" <<'PYCONTROL'
+python3 - "$capture_helper" "$sandbox" "$rt_dir" <<'PYCONTROL'
 from pathlib import Path
 import sys
-helper,sandbox=map(Path,sys.argv[1:])
-assert helper.resolve().is_relative_to(sandbox.resolve())
+helper,sandbox,runtime=map(Path,sys.argv[1:])
+assert any(helper.resolve().is_relative_to(root.resolve()) for root in (sandbox, runtime)), "capture control must stay inside the sandbox or its private runtime"
 source=helper.read_text(); before='                    self.event("action", id=action)'
 assert source.count(before)==1
 changed=source.replace(before,before+'\n                    self.close()')
