@@ -514,7 +514,8 @@ function verify(logic, producer) {
     const finding = keysOf(keyEntry("unreported", null, "None listed"), on);
     same([finding.items.length, finding.note !== "" && finding.note !== offKeys.note && finding.note !== "None listed"], [0, true], "Settings: a starting plugin's key list says it is finding its keys");
     // Its own sentences stand where the list's hint does, so they keep the
-    // hint's copy rule, the manifest judge's (design-system.md § Copy).
+    // hint's copy rule, the manifest judge's
+    // (docs/architecture/design-system.md § Copy).
     same([offKeys.note, finding.note].filter(note => !producer.hintFits(note)), [], "Settings: a key list's own sentences keep the one-sentence hint rule");
     same(keysOf(keyEntry("unreported", null, "None listed"), failedOn), { items: [], note: failedOn.error }, "Settings: a key list of a plugin that could not start says why");
     same(keysOf(keyEntry("reported", [], "None listed"), on), { items: [], note: "None listed" }, "Settings: an empty key list reads its hint");

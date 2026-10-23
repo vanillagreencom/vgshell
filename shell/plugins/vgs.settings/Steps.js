@@ -357,10 +357,10 @@ function keyNote(value, plugin) {
     return "";
 }
 // One hint of PARTS, what a line reads under its value, by the copy rule
-// (design-system.md § Copy): a part alone reads as written, a declared hint
-// the manifest judge holds to that rule or one sentence of the page's own,
-// which ends with no full stop; of two or more, each part that ends with
-// no mark of its own ends with a full stop.
+// (docs/architecture/design-system.md § Copy): a part alone reads as
+// written, a declared hint the manifest judge holds to that rule or one
+// sentence of the page's own, which ends with no full stop; of two or
+// more, each part that ends with no mark of its own ends with a full stop.
 function hintOf(parts) {
     var shown = parts.filter(function (part) { return part !== ""; });
     return shown.length === 1 ? shown[0] : shown.map(function (part) { return /[.?!]$/.test(part) ? part : part + "."; }).join(" ");
