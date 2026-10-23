@@ -38,7 +38,7 @@ function verifyRecovery(logic, source, model = load(dictationModelFile), ownerSo
   assert.ok(ownerRun, "the owner declares its effect runner");
   for (const ending of ["idle", "transcribing", "recording", "failed", "stopped", "", "other-holder", "normal-result", "late-before-next", "late-after-next"]) {
     const pages = [], effects = [], deliveries = [], deferred = [];
-    const owner = { model: Object.assign(model.initial("/fixture/dictation", "/fixture/state"), {
+    const owner = { model: Object.assign(model.initial("/fixture/dictation", "/fixture/state", true, true), {
       holders: ["vgs.voice", "acme.dictation"], daemon: "ready", child: "running", maxSecs: 210, setup: readsReady
     }), waiting: null, Qt: { callLater: fn => deferred.push(fn) } };
     owner.root = owner;
