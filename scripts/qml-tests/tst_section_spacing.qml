@@ -41,6 +41,7 @@ Item {
         property var shell: null
         property var plugins: []
         property var capture: null
+        property var writing: null
         function writeKey() { return "ok"; }
         function writeSetting() { return "ok"; }
         function writePlacement() { return "ok"; }
@@ -55,6 +56,8 @@ Item {
         function leave(next) { next(); }
         function replyOf() { return ""; }
         function tuiKey(name) { return "tui:" + name; }
+        function sourceKey(account) { return "source:" + account; }
+        function stepKey(pluginId, key, account) { return [pluginId, key, account].join(":"); }
         function headReplies() { return []; }
     }
 
@@ -326,7 +329,7 @@ Item {
             const schema = { alpha: { type: "boolean", label: "Alpha" }, beta: { type: "boolean", label: "Beta" } };
             const status = { alphaKeys: { type: "presenceList", label: "Alpha keys", setting: "alpha", hint: "Alpha is ready to use" } };
             const row = rowOf("vgs.notifications");
-            Object.assign(row, { schema: schema, settings: { alpha: true, beta: false }, status: PluginLogic.statusRows({ status: status, secrets: { service: "acme-unit", label: "Key" } }, { alphaKeys: [] }),
+            Object.assign(row, { schema: schema, settings: { alpha: true, beta: false }, status: PluginLogic.statusRows({ status: status, secrets: { service: "acme-unit", label: "Key" } }, { alphaKeys: [{ label: "Alpha key", value: "present", hint: "Alpha is ready to use" }] }),
                 fieldRows: PluginLogic.fieldRows(schema, status) });
             const page = createTemporaryObject(pageComponent, root);
             verify(page !== null);
@@ -334,6 +337,13 @@ Item {
             const own = () => descendants(page).find(item => item instanceof StatusLine && item.visible && item.hint === "Alpha is ready to use");
             const beta = () => descendants(page).find(item => item instanceof SettingField && item.key === "beta");
             tryVerify(() => own() !== undefined && beta() !== undefined && beta().height > 0, 2000, "the page draws Alpha's key line and Beta");
+            verify(own().subText, "Alpha's hinted key line ends in sub-text");
+            let extras = own().parent;
+            while (extras !== page && extras.key !== "alpha") extras = extras.parent;
+            verify(extras !== page, "Alpha's key line belongs to a sub-text field");
+            verify(extras.subText, "Alpha's ChoiceExtras carries its key line's sub-text");
+            compare(extras.bottomPadding, Math.max(0, Theme.stack.group - extras.parent.spacing),
+                "Alpha's key-list row leaves the group room under its hint");
             verify(waitForRendering(page));
             const gap = gapBetween(grabImage(root), own(), beta());
             verify(Math.abs(gap - list) <= root.tolerance, "Beta sits " + gap + " px under Alpha's hinted key line, not " + list + " as under a hinted row of a list");
@@ -349,6 +359,13 @@ Item {
             tryVerify(() => headings(page).length >= 2, 2000, "the page heads two groups or more");
             verify(waitForRendering(page));
             const img = grabImage(root);
+            if (data.id === "vgs.capture") {
+                const choice = descendants(page).find(item => item.key === "constantFrameRate"
+                    && item.children.some(child => child instanceof SettingField));
+                verify(choice !== undefined && choice.subText, "the described capture field ends in sub-text");
+                compare(choice.bottomPadding, Math.max(0, Theme.stack.group - choice.parent.spacing),
+                    "the described capture field leaves the group room under its description");
+            }
             const shown = headings(page);
             for (const label of shown) {
                 const gap = gapAbove(img, label);
