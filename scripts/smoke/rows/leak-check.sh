@@ -285,15 +285,45 @@ expect "a passing boundary prints no owner diagnostic" 0 python3 -c 'import sys;
 # close events cannot select one of two addresses without a later reply.
 display_record_program >"$lc_plants/recorder.py"
 if python3 - "$lc_plants/recorder.py" "$lc_plants/record-control" <<'PY'
-import json, os, pathlib, runpy, subprocess, sys
+import json, os, pathlib, runpy, socket, subprocess, sys
 module=runpy.run_path(sys.argv[1]); root=pathlib.Path(sys.argv[2]); root.mkdir()
 r=module["Record"](root)
 child=subprocess.Popen([sys.executable,"-c","import time; time.sleep(600)"],env={"PATH":os.environ["PATH"]})
 try:
+    def mark(*args):
+        with socket.socket(socket.AF_UNIX,socket.SOCK_SEQPACKET) as client:
+            with module["socket_name"](root/"control") as name:
+                client.connect(name)
+            client.sendall(json.dumps(["mark",*args]).encode())
+            r.control()
+            assert json.loads(client.recv(65536))["ok"], "mark-accepted"
+    pid=str(child.pid); runner=str(os.getpid())
+    for case, recorded, runner_match, generation_match, supplied, expected in [
+        ("known", True, True, True, "/instance/current/log.log", "/instance/current/log.log"),
+        ("adopted-stale-log", False, True, True, "/instance/previous/log.log", None),
+        ("other-runner", True, False, True, "/instance/previous/log.log", None),
+        ("reused-pid", True, True, False, "/instance/previous/log.log", None),
+        ("missing-log", True, True, True, "", None),
+    ]:
+        r.shell_owners.pop(pid,None)
+        owner=r.owner_context(runner)
+        if recorded:
+            mark("shell-identity",runner if runner_match else pid,pid,"/tree/current","/launch/current.log")
+            if not generation_match:
+                r.shell_owners[pid]["identity"]["startTicks"]="previous-generation"
+        mark("stop-shell",owner,pid,supplied,"1")
+        instance=r.owner_contexts.pop(owner)["stopInstance"]
+        assert instance["pid"]==pid and instance["instanceLog"]==expected, case
+        assert instance["instanceLogStatus"]==("bound" if expected else "unavailable"), case
+        assert (instance["instanceLogReason"] is None)==bool(expected), case
+        assert r.shell_owners[pid]==instance, case
     pid=str(child.pid); owner=r.owner_context(pid)
-    r.shell_owners[pid]=dict(pid=pid,identity=module["process_binding"](pid))
     r.owner_contexts[owner].update(stopShell=pid,stopInstance=dict(pid=pid,snapshot=module["process_binding"](pid)))
     child.terminate(); child.wait()
+    ended_owner=r.owner_context(runner)
+    mark("stop-shell",ended_owner,pid,"/instance/current/log.log","1")
+    ended_instance=r.owner_contexts.pop(ended_owner)["stopInstance"]
+    assert ended_instance["instanceLog"]=="/instance/current/log.log" and ended_instance["snapshot"]["status"]=="gone", "known-ended-generation"
     def raw(addresses):
         return json.dumps({"CONTROL":{"levels":{"2":[dict(address=a,namespace="vgs:bar",pid=int(pid)) for a in addresses]}}})
     r.layers_query=lambda:raw(["0xa","0xb"])

@@ -686,8 +686,15 @@ class Record:
                         self.emit("harness", "shell-observation-context", context)
                     if args[0] == "stop-shell" and args[1] in self.owner_contexts and args[2]:
                         context = self.owner_contexts[args[1]]
-                        context.update(stopShell=args[2], stopInstance=dict(self.shell_owners.get(args[2], {}),
-                            pid=args[2], instanceLog=args[3], binding=context["tag"], snapshot=process_binding(args[2])))
+                        owner = self.shell_owners.get(args[2], {})
+                        snapshot = process_binding(args[2])
+                        known = owner.get("runner") == context["pid"] and owner.get("identity", {}).get("startTicks") is not None
+                        known = known and (snapshot["status"] == "gone" or owner["identity"]["startTicks"] == snapshot.get("startTicks"))
+                        context.update(stopShell=args[2], stopInstance=dict(owner if known else {},
+                            pid=args[2], instanceLog=args[3] if known and args[3] else None,
+                            instanceLogStatus="bound" if known and args[3] else "unavailable",
+                            instanceLogReason=None if known and args[3] else "no recorded shell generation binds the supplied instance log",
+                            binding=context["tag"], snapshot=snapshot))
                         self.shell_owners[args[2]] = context["stopInstance"]
                         self.layer_bound = float(args[4]) if args[4] else None
                     if args[0] == "display-request":

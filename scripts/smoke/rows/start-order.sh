@@ -321,7 +321,7 @@ restart_live() {
       expect "stop_shell records the acknowledged shell and compositor layer result" true py_reply 'import json,sys
 events=[json.loads(line) for line in sys.stdin]; pid=sys.argv[1]
 ends=[e["data"].get("layerStop",{}) for e in events if e["kind"] in ("local-owner-end","unobserved-adoption-end")]
-print(str(any(s.get("instance",{}).get("pid")==pid and s.get("stop","").startswith("owner-") and (type(s.get("stillListed")) is bool or s.get("stillListed")=="unreadable") for s in ends)).lower())' "$shell_qs_pid" <"$display_record_dir/events.jsonl"
+print(str(any(s.get("instance",{}).get("pid")==pid and s["instance"].get("instanceLog") is None and s["instance"].get("instanceLogStatus")=="unavailable" and s["instance"].get("instanceLogReason") and s.get("stop","").startswith("owner-") and (type(s.get("stillListed")) is bool or s.get("stillListed")=="unreadable") for s in ends)).lower())' "$shell_qs_pid" <"$display_record_dir/events.jsonl"
     fi
   else
     fail "the stop_shell copy with no lock wait could not be written"
