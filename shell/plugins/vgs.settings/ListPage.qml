@@ -138,10 +138,21 @@ FocusScope {
                 }
                 TextField {
                     id: search
-                    width: parent.width
+                    // Keep the field's content edge on the pane inset; its
+                    // shared background normally supplies the inner padding.
+                    x: -sidePadding
+                    width: parent.width + 2 * sidePadding
                     placeholderText: "Search plugins"
                     leadingIcon: "search"
+                    leftPadding: Theme.icon.size.md + Theme.textField.gap
+                    rightPadding: 0
+                    topPadding: 0
+                    bottomPadding: 0
                     focus: true
+                    Component.onCompleted: {
+                        background.color = "transparent";
+                        background.border.width = 0;
+                    }
                     onTextChanged: page.query = text
                     Keys.onPressed: event => { event.accepted = nav.handle(event); }
                 }
