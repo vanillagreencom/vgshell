@@ -118,6 +118,10 @@
               --replace-fail 'SYSTEM_XKB_LIBRARY = "libxkbcommon.so.0"' 'SYSTEM_XKB_LIBRARY = "${pkgs.libxkbcommon}/lib/libxkbcommon.so.0"'
             substituteInPlace $out/share/vgshell/shell/plugins/vgs.keyboard/Service.qml \
               --replace-fail '"/usr/share/X11/xkb/rules/evdev.xml"' '"${pkgs.xkeyboard_config}/share/X11/xkb/rules/evdev.xml"'
+            substituteInPlace $out/share/vgshell/shell/plugins/vgs.capture/helper/capture.py \
+              --replace-fail 'NOTICE_GIO_LIBRARY = "libgio-2.0.so.0"' 'NOTICE_GIO_LIBRARY = "${pkgs.glib.out}/lib/libgio-2.0.so.0"' \
+              --replace-fail 'NOTICE_GOBJECT_LIBRARY = "libgobject-2.0.so.0"' 'NOTICE_GOBJECT_LIBRARY = "${pkgs.glib.out}/lib/libgobject-2.0.so.0"' \
+              --replace-fail 'NOTICE_GLIB_LIBRARY = "libglib-2.0.so.0"' 'NOTICE_GLIB_LIBRARY = "${pkgs.glib.out}/lib/libglib-2.0.so.0"'
             line='case :$PATH: in *:${runtimePath pkgs}:*) ;; *) PATH=${runtimePath pkgs}''${PATH:+:$PATH} ;; esac; export PATH # vgs-nix-path'
             for entry in $out/share/vgshell/bin/*; do
               [[ -f $entry && ! -L $entry ]] || continue

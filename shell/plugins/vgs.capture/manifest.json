@@ -22,7 +22,6 @@
     {"command": "gpu-screen-recorder", "packages": {"pacman": "gpu-screen-recorder", "apt": "gpu-screen-recorder-cli", "nix": "gpu-screen-recorder"}, "optional": false, "purpose": "Records an area, a window or a whole output on Arch"},
     {"command": "ffmpeg", "packages": {"pacman": "ffmpeg", "apt": "ffmpeg", "dnf": "ffmpeg-free", "nix": "ffmpeg"}, "optional": false, "purpose": "Trims and levels a finished recording and makes its thumbnail"},
     {"command": "pw-dump", "packages": {"pacman": "pipewire", "apt": "pipewire-bin", "dnf": "pipewire-utils", "nix": "pipewire"}, "optional": false, "purpose": "Lists the audio sources and cameras a recording can use, without opening them"},
-    {"command": "notify-send", "packages": {"pacman": "libnotify", "apt": "libnotify-bin", "dnf": "libnotify", "nix": "libnotify"}, "optional": false, "purpose": "Shows the notification of a finished capture"},
     {"command": "gdbus", "packages": {"pacman": "glib2", "apt": "libglib2.0-bin", "dnf": "glib2", "nix": "glib"}, "optional": false, "purpose": "Closes Capture's notifications when Capture stops"},
     {"command": "imv", "packages": {"pacman": "imv", "dnf": "imv", "nix": "imv"}, "optional": true, "purpose": "Opens a saved screenshot from its notification"},
     {"command": "satty", "packages": {"pacman": "satty", "nix": "satty"}, "optional": true, "purpose": "Edits a saved screenshot from its notification"},

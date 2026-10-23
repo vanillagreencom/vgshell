@@ -992,24 +992,24 @@ def service_function(source, name):
 
 
 def service_notices(source=None):
-    """Function 20: Service.qml's notification argv for saved and copied
+    """Function 20: Service.qml's notification requests for saved and copied
     captures and its error notices, run in node with a stand-in notify
     capability. Answers whether every case holds."""
     source = source if source is not None else (HELPER.parent.parent / "Service.qml").read_text()
-    functions = "\n".join(service_function(source, name) for name in ("isRecord", "notice", "errorNotice", "noticeCommand"))
+    functions = "\n".join(service_function(source, name) for name in ("isRecord", "notice", "errorNotice", "noticeRequest"))
     program = r'''
 const input = JSON.parse(process.argv[1]);
 const shown = [];
 const shell = { notify: { send: options => { shown.push(options); return "ok"; } } };
-const api = new Function("shell", "helperPath", input.functions + "; return { noticeCommand, errorNotice };")(shell, "/helper/capture.py");
+const api = new Function("shell", input.functions + "; return { noticeRequest, errorNotice };")(shell);
 const record = { actionName: "record-output" };
 const actions = [{ id: "default", label: "Open", argv: ["imv", "/pictures/a.png"] }, { id: "edit", label: "Edit", argv: ["satty", "/pictures/a.png"] }];
 const commands = [
-    api.noticeCommand({ actionName: "screenshot-area" }, { event: "saved", path: "/pictures/a.png", actions: actions }, 41),
-    api.noticeCommand(record, { event: "saved", path: "/videos/a.mp4", thumbnail: "/state/a.jpg", processing: "failed", detail: "fixture tail line", actions: [] }, 41),
-    api.noticeCommand(record, { event: "saved", path: "/videos/b.mp4", thumbnail: "", processing: "done", detail: "", actions: [actions[0]] }, 41),
-    api.noticeCommand({ actionName: "text" }, { event: "copied" }, 41),
-    api.noticeCommand({ actionName: "screenshot" }, { event: "copied" }, 41),
+    api.noticeRequest({ actionName: "screenshot-area" }, { event: "saved", path: "/pictures/a.png", actions: actions }),
+    api.noticeRequest(record, { event: "saved", path: "/videos/a.mp4", thumbnail: "/state/a.jpg", processing: "failed", detail: "fixture tail line", actions: [] }),
+    api.noticeRequest(record, { event: "saved", path: "/videos/b.mp4", thumbnail: "", processing: "done", detail: "", actions: [actions[0]] }),
+    api.noticeRequest({ actionName: "text" }, { event: "copied" }),
+    api.noticeRequest({ actionName: "screenshot" }, { event: "copied" }),
 ];
 api.errorNotice({ reason: "language-data-unavailable", message: "no deu data" });
 api.errorNotice({ message: "Recording failed (exit 1)\nfixture recorder crash" });
@@ -1019,105 +1019,27 @@ console.log(JSON.stringify([commands, shown]));
                             env={"PATH": os.defpath, "LC_ALL": "C"}, timeout=10)
     assert result.returncode == 0, result.stderr
     (screenshot, failed, done, text, copied), (language, crash) = json.loads(result.stdout)
-    owned = ["python3", "/helper/capture.py", "--owned", str(int(signal.SIGINT)), "41", "notify-send", "--print-id", "--app-name=Capture"]
-    styled = ["--hint=string:x-vgs-icon:camera", "--hint=string:x-vgs-tone:success"]
-    pairs = ["--action=default=Open", "--action=edit=Edit"]
-    return (notice_shape(screenshot, owned, styled + ["--hint=string:image-path:/pictures/a.png"], pairs, "/pictures/a.png")
-            and notice_shape(failed, owned, styled + ["--hint=string:image-path:/state/a.jpg"], [], "/videos/a.mp4")
-            and failed[-1].endswith("\nfixture tail line")
-            and notice_shape(done, owned, styled, pairs[:1], "/videos/b.mp4")
-            and notice_shape(text, owned, styled, [], None)
-            and notice_shape(copied, owned, styled, [], None)
+    styled = {"x-vgs-icon": "camera", "x-vgs-tone": "success"}
+    pairs = [{"id": "default", "label": "Open"}, {"id": "edit", "label": "Edit"}]
+    return (notice_shape(screenshot, {**styled, "image-path": "/pictures/a.png"}, pairs, "/pictures/a.png")
+            and notice_shape(failed, {**styled, "image-path": "/state/a.jpg"}, [], "/videos/a.mp4")
+            and failed["message"].endswith("\nfixture tail line")
+            and notice_shape(done, styled, pairs[:1], "/videos/b.mp4")
+            and notice_shape(text, styled, [], None)
+            and notice_shape(copied, styled, [], None)
             and language["tone"] == crash["tone"] == "danger" and language["icon"] == crash["icon"] == "camera"
             and language["title"] != crash["title"]
             and language["message"] == "no deu data" and crash["message"] == "Recording failed (exit 1)\nfixture recorder crash")
 
 
-def notice_shape(command, owned, hints, actions, path):
-    """Whether COMMAND is OWNED, then exactly HINTS in any order and ACTIONS
-    in button order, then `--`, a title and a body that starts with the
-    saved PATH. The title and body wording is the service's to change."""
-    options = command[len(owned):-3]
-    body = command[-1]
-    return (command[:len(owned)] == owned and command[-3] == "--" and isinstance(command[-2], str) and command[-2] != ""
-            and sorted(item for item in options if item.startswith("--hint=")) == sorted(hints)
-            and [item for item in options if item.startswith("--action=")] == actions
-            and len(options) == len(hints) + len(actions)
-            and isinstance(body, str) and body != ""
+def notice_shape(request, hints, actions, path):
+    """The transport receives presentation data and action keys, never argv."""
+    body = request["message"]
+    return (set(request) == {"title", "message", "hints", "actions"}
+            and isinstance(request["title"], str) and request["title"] != ""
+            and request["hints"] == hints and request["actions"] == actions
+            and isinstance(body, str) and 0 < len(body) <= 200
             and (path is None or body == path or body.startswith(path + "\n")))
-
-
-def notice_command(source, root, parent):
-    """Service.qml's notification argv for a saved screenshot with one
-    button, as a child of PARENT."""
-    program = r'''
-const input = JSON.parse(process.argv[1]);
-const api = new Function("helperPath", input.functions + "; return { noticeCommand };")(input.helper);
-console.log(JSON.stringify(api.noticeCommand({ actionName: "screenshot" }, { event: "saved", path: input.path, actions: [{ id: "default", label: "Open", argv: ["imv", input.path] }] }, input.parent)));
-'''
-    functions = "\n".join(service_function(source, name) for name in ("isRecord", "noticeCommand"))
-    payload = {"functions": functions, "helper": str(HELPER), "path": str(root / "a.png"), "parent": parent}
-    result = subprocess.run(["node", "-e", program, json.dumps(payload)], stdin=subprocess.DEVNULL, capture_output=True, text=True,
-                            env={"PATH": os.defpath, "LC_ALL": "C"}, timeout=10)
-    assert result.returncode == 0, result.stderr
-    return json.loads(result.stdout)
-
-
-# A notify-send stand-in that offers its buttons and waits, as notify-send
-# waits for its notification to close: it records its pid, then the signal
-# that ends the wait.
-NOTIFY_STAND_IN = """#!{python}
-import os, signal, sys
-from pathlib import Path
-root = Path({root!r})
-def ended(signum, frame):
-    (root / "notify-signal").write_text(str(signum))
-    sys.exit(0)
-signal.signal(signal.SIGINT, ended)
-signal.signal(signal.SIGTERM, ended)
-print(7, flush=True)
-(root / "notify-pid").write_text(str(os.getpid()))
-signal.pause()
-"""
-
-
-def notice_owner_holds(base, name, source):
-    """The shell's end closes a waiting notification: the service's argv,
-    started by a stand-in shell that is then killed, ends its notify-send
-    with SIGINT, which closes the notification."""
-    root = base / name
-    (root / "bin").mkdir(parents=True)
-    stand_in = root / "bin/notify-send"
-    stand_in.write_text(NOTIFY_STAND_IN.format(python=sys.executable, root=str(root)))
-    stand_in.chmod(0o755)
-    shell = subprocess.Popen([sys.executable, "-c", "import json, subprocess, sys, signal\nsubprocess.Popen(json.loads(sys.stdin.readline()))\nsignal.pause()"],
-                             env={"PATH": str(root / "bin") + os.pathsep + os.defpath, "LC_ALL": "C"}, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, text=True)
-    pid = None
-    try:
-        command = notice_command(source, root, shell.pid)
-        shell.stdin.write(json.dumps(command) + "\n")
-        shell.stdin.flush()
-        deadline = time.monotonic() + 5
-        while not (root / "notify-pid").exists() and time.monotonic() < deadline:
-            time.sleep(0.01)
-        pid = int((root / "notify-pid").read_text())
-        shell.kill()
-        shell.wait(timeout=5)
-        deadline = time.monotonic() + 2
-        while time.monotonic() < deadline and not process_ended(pid):
-            time.sleep(0.01)
-        if process_ended(pid):
-            pid = None
-        signalled = root / "notify-signal"
-        return pid is None and signalled.exists() and signalled.read_text() == str(int(signal.SIGINT))
-    finally:
-        if shell.poll() is None:
-            shell.kill()
-            shell.wait()
-        if pid is not None:
-            os.kill(pid, signal.SIGKILL)
-            while not process_ended(pid):
-                time.sleep(0.01)
 
 
 def process_ended(pid):
@@ -1173,8 +1095,7 @@ def open_with_cases():
 
 
 def notification_functions(base, source, plant_world):
-    """The buttons each finished capture offers, the shell's end closing a
-    waiting notification, and the control that removes each."""
+    """The argv each finished capture offers, and controls that break it."""
     def holds(name, helper):
         _, action, installed, folder, wanted = cases[name]
         return open_with_holds(plant_world(name + "-" + helper.stem), helper, action, installed, folder, wanted)
@@ -1191,12 +1112,7 @@ def notification_functions(base, source, plant_world):
     assert not holds("screenshot-no-editor", mutated("absent-tool-offered", "if not words or shutil.which(words[0]) is None:", "if not words:")), "control did not fail: absent-tool-offered"
     assert not holds("screenshot-tools", mutated("file-appended", 'if "%f" not in words:', "if True:")), "control did not fail: file-appended"
     assert not holds("screenshot-spaced-path", mutated("file-split", "return [str(path) if word == \"%f\" else word for word in words]", "return \" \".join(str(path) if word == \"%f\" else word for word in words).split()")), "control did not fail: file-split"
-    service = (HELPER.parent.parent / "Service.qml").read_text()
-    assert notice_owner_holds(base, "notice-owner", service), "the shell's end closes a waiting notification"
-    before = '["python3", helperPath, "--owned", "2", String(parent), "notify-send"'
-    assert service.count(before) == 1, "notice owner control match"
-    assert not notice_owner_holds(base, "notice-unowned", service.replace(before, '["notify-send"')), "control did not fail: notice-unowned"
-    return "absent-tool-offered,file-appended,file-split,notice-unowned"
+    return "absent-tool-offered,file-appended,file-split"
 
 
 def failure_log_holds(root, helper, reason):
@@ -1392,10 +1308,9 @@ def recording_functions(base, source):
         ("notice-processing-ignored", 'event.processing === "failed"', 'false'),
         ("notice-detail-dropped", 'if (event.detail !== "") message += "\\n" + event.detail.slice(-Math.max(0, 199 - message.length));', ''),
         ("notice-reason-renamed", 'event.reason === "language-data-unavailable"', 'event.reason === "english-data-unavailable"'),
-        ("notice-unstyled", '"--hint=string:x-vgs-icon:camera", "--hint=string:x-vgs-tone:success"]', ']'),
-        ("notice-imageless", 'if (image !== "") command.push("--hint=string:image-path:" + image);', ''),
-        ("notice-buttonless", 'for (const action of event.actions || []) command.push(', 'for (const action of []) command.push('),
-        ("notice-unseparated", 'return command.concat(["--", title, message.slice(0, 200)]);', 'return command.concat([title, message.slice(0, 200)]);'),
+        ("notice-unstyled", '{ "x-vgs-icon": "camera", "x-vgs-tone": "success" }', '{}'),
+        ("notice-imageless", 'if (image !== "") hints["image-path"] = image;', ''),
+        ("notice-buttonless", '(event.actions || []).map(action => ({ id: action.id, label: action.label }))', '[]'),
         ("notice-pathless", 'message = event.path;', 'message = "";'),
     ]:
         assert service.count(before) == 1, name
@@ -1446,7 +1361,7 @@ def recording_functions(base, source):
             "no-audio-sources,no-missing-check,absent-camera,picker-ignores-cancel,raw-replaced,kept-processing-output,stopped-after-processing,"
             "no-uri-copy,recorder-log-to-stderr,no-log-tail,invalid-languages-accepted,no-interword-spaces,english-only,tui-installs-installed,tui-apt-underscore,"
             "unlocked-processing-output,untimed-processing-wait,shared-log,portal-cancel-failure,notice-processing-ignored,notice-detail-dropped,notice-reason-renamed,"
-            "notice-unstyled,notice-imageless,notice-buttonless,notice-unseparated,notice-pathless")
+            "notice-unstyled,notice-imageless,notice-buttonless,notice-pathless")
 
 
 def main():

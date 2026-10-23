@@ -64,9 +64,9 @@ Item {
     readonly property bool glassOn: service !== null && service.glassOn
     readonly property var plain: Logic.toastMotion(look.motion.duration, false)
 
-    // The hover actions, read when the pointer arrives, since a live
-    // notification's actions are not observable.
-    property var actions: []
+    // Quickshell 0.3.1 exposes actionsChanged. The binding follows the
+    // current held object even when the sender replaces actions mid-hover.
+    readonly property var actions: service !== null && key !== "" ? service.actionsFor(key) : []
 
     Component.onCompleted: {
         if (leaving !== "") play();
@@ -170,7 +170,6 @@ Item {
         edgeBoost: 1 + slot.look.edge.orbBoost * slot.orbness + slot.look.edge.hoverBoost * slot.hover
         onHoverRequested: (key, on) => {
             if (slot.service === null) return;
-            if (on) slot.actions = slot.service.actionsFor(key);
             slot.service.hover(key, on);
         }
         onActionTriggered: id => slot.service.choose(slot.key, id)

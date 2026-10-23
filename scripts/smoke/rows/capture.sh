@@ -1402,18 +1402,16 @@ expect "earlier capture notices expire before the failure notices" 0 capture_wai
 # Notifications. vgs.notifications now shows each finished capture with the
 # worker's buttons. Stand-ins for the viewer, the editor and the player, in
 # the row's own folder, record their argv; nothing opens a real program.
-capture_open="$capture_state/open-with"
-mkdir -p -- "$capture_open"
-for capture_program in viewer editor player; do
-  printf '#!%s\nimport json, sys\nwith open(%s, "a") as log:\n    log.write(json.dumps(sys.argv[1:]) + "\\n")\n' "$(command -v python3)" "'$capture_open/$capture_program.calls'" >"$capture_open/$capture_program"
-  chmod 755 -- "$capture_open/$capture_program"
-done
+source "$source_repo/scripts/smoke/fixtures/capture/notifications.sh"
+capture_notice_tools "$capture_state"
 capture_setting viewer "\"$capture_open/viewer %f\""
 capture_setting editor "\"$capture_open/editor --filename %f --output-filename %f\""
 capture_setting player "\"$capture_open/player\""
 expect "notifications are enabled for capture's notifications" ok ipc shell setPluginEnabled vgs.notifications true
 expect_poll "the notifications service is built" True record_exists vgs.notifications
 expect_poll "the notifications loaded their state with Silence off" True notes_quiet
+capture_notice_monitor "$capture_state/notification-bus.log"
+expect_poll "the private Capture notification observer is ready" True capture_notice_monitor_ready
 # capture_pills SUMMARY: the newest Capture notification's buttons as the
 # History panel lists them, ["key", [label, ...]], or none.
 capture_pills() {
@@ -1433,8 +1431,7 @@ capture_labels() { capture_pills "$1" | py_reply 'import json,sys; t=sys.stdin.r
 # reading can come before its rows, so a choice keyed by it chose nothing.
 capture_key() { ipc smoke modelRows vgs.notifications rows key,app,summary,leaving | py_reply 'import json,sys; print(next((k for k, a, s, l in json.load(sys.stdin) if a == "Capture" and s == sys.argv[1] and l == ""), "none"))' "$1"; }
 # capture_choose SUMMARY CHOICE: the service's reply to CHOICE on that
-# toast. An action or an open answers `kept`: the toast leaves into the
-# history, which the panel lists.
+# toast. A live resident action answers `kept` and retains its identity.
 capture_choose() {
   local key
   key="$(capture_key "$1")" || return 1
@@ -1443,9 +1440,9 @@ capture_choose() {
 capture_choose_unshown() { capture_choose "Screenshot unshown" action:edit; }
 capture_opened() { python3 -c 'import json,pathlib,sys; p=pathlib.Path(sys.argv[1]); print(json.dumps([json.loads(l) for l in p.read_text().splitlines()][-1] if p.exists() else None))' "$capture_open/$1.calls"; }
 capture_held_count() { ipc vgs.notifications invoke status '' | py_reply 'import json,sys; print(json.load(sys.stdin)["held"])'; }
-# capture_notify_left: the notify-send processes on the sandbox's session
-# bus, read from /proc.
-capture_notify_left() { python3 - "unix:path=$rt_dir/bus" <<'PY'
+# capture_notify_left: the managed Capture sender processes on the private
+# session bus, read from /proc.
+capture_notify_left() { python3 - "unix:path=$rt_dir/bus" "$capture_helper" <<'PY'
 import os, sys
 bus = ("DBUS_SESSION_BUS_ADDRESS=" + sys.argv[1]).encode()
 left = 0
@@ -1455,7 +1452,7 @@ for pid in filter(str.isdigit, os.listdir("/proc")):
         env = open(f"/proc/{pid}/environ", "rb").read().split(b"\0")
     except OSError:
         continue
-    if os.path.basename(argv[0]) == b"notify-send" and bus in env:
+    if os.fsencode(sys.argv[2]) in argv and b"--notify" in argv and bus in env:
         left += 1
 print(left)
 PY
@@ -1464,21 +1461,64 @@ capture_quiet() {
   expect "$1: earlier notifications leave" 0 capture_wait_cards
   expect "$1: the history lets go of its notifications" ok ipc vgs.notifications invoke clear-history ''
   expect_poll "$1: no Capture notification is held" 0 capture_held_count
-  expect_poll "$1: no notify-send run waits" 0 capture_notify_left
+  expect_poll "$1: no Capture sender run waits" 0 capture_notify_left
 }
 capture_quiet "screenshot notification"
 expect "a screenshot for its notification" ok ipc vgs.capture invoke screenshot ''
 expect_poll "the screenshot for its notification finishes" idle capture_phase
 expect_poll "the saved screenshot offers Open, Edit and Dismiss" '["Open", "Edit", "Dismiss"]' capture_labels "Screenshot saved"
 expect "control: a choice keyed to no toast on screen fails the Edit reading" False capture_is capture_choose_unshown kept
-expect "Edit is chosen on the screenshot's notification" kept capture_choose "Screenshot saved" action:edit
-expect_poll "Edit hands the editor the saved file" "$(python3 -c 'import json,sys; print(json.dumps(["--filename", sys.argv[1], "--output-filename", sys.argv[1]]))' "$(capture_path)")" capture_opened editor
+capture_actions_hold() { # LABEL; the same live identity and ordered argv survive every action.
+  local label="$1" pair path expected choice program count
+  shift
+  pair="$(capture_notice_pair)"
+  path="$(capture_path)"
+  expected="$(capture_notice_calls)"
+  capture_notice_id="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])[1])' "$pair")"
+  count="$(capture_notice_notify_count)"
+  for choice in "$@"; do
+    [[ $choice == edit ]] && program=editor || program=viewer
+    expected="$(capture_notice_expect_call "$expected" "$program" "$path")"
+    expect "$label $choice reaches the original notification" kept capture_choose "Screenshot saved" "action:$choice"
+    expect_poll "$label $choice delivers exactly one ordered argv" "$expected" capture_notice_calls
+    expect "$label $choice sends no replacement Notify" "$count" capture_notice_notify_count
+    expect "$label $choice emits no close signal" 0 capture_notice_closed_count
+    expect "$label $choice keeps its key/id" "$pair" capture_notice_pair
+    expect "$label $choice keeps its Open/Edit/Dismiss" '["Open", "Edit", "Dismiss"]' capture_notice_pills
+  done
+  expect "$label Dismiss closes the notification" kept capture_choose "Screenshot saved" dismiss
+  expect_poll "$label Dismiss removes its live key/id" null capture_notice_pair
+  expect "$label Dismiss runs no argv" "$expected" capture_notice_calls
+  expect_poll "$label Dismiss closes that sender id once" 1 capture_notice_closed_count
+}
+capture_actions_hold Open-first default default edit edit default
 capture_quiet "screenshot click"
-expect "a screenshot for a click on its notification" ok ipc vgs.capture invoke screenshot ''
-expect_poll "the clicked screenshot finishes" idle capture_phase
-expect_poll "the clicked screenshot's notification shows" '["Open", "Edit", "Dismiss"]' capture_labels "Screenshot saved"
-expect "a click opens the screenshot's notification" kept capture_choose "Screenshot saved" open
-expect_poll "a click hands the viewer the saved file" "$(capture_words "$(capture_path)")" capture_opened viewer
+expect "another screenshot starts for Edit-first actions" ok ipc vgs.capture invoke screenshot ''
+expect_poll "the Edit-first screenshot finishes" idle capture_phase
+expect_poll "the Edit-first screenshot offers its buttons" '["Open", "Edit", "Dismiss"]' capture_labels "Screenshot saved"
+capture_actions_hold Edit-first edit default edit
+# Control: change only the shipped sender's action callback in the private
+# product copy. The same identity assertion must reject one-shot delivery.
+capture_quiet "control: one-shot sender"
+python3 - "$capture_helper" "$sandbox" <<'PYCONTROL'
+from pathlib import Path
+import sys
+helper,sandbox=map(Path,sys.argv[1:])
+assert helper.resolve().is_relative_to(sandbox.resolve())
+source=helper.read_text(); before='                    self.event("action", id=action)'
+assert source.count(before)==1
+changed=source.replace(before,before+'\n                    self.close()')
+assert changed!=source
+helper.write_text(changed)
+PYCONTROL
+expect "control: a screenshot uses the one-shot sender" ok ipc vgs.capture invoke screenshot ''
+expect_poll "control: the one-shot screenshot finishes" idle capture_phase
+expect_poll "control: the one-shot notification offers buttons" '["Open", "Edit", "Dismiss"]' capture_labels "Screenshot saved"
+capture_control_pair="$(capture_notice_pair)"
+expect "control: Open reaches the one-shot sender" kept capture_choose "Screenshot saved" action:default
+expect_poll "control: the one-shot sender loses its live identity" null capture_notice_pair
+expect "control: the identity retention assertion rejects one-shot delivery" False capture_is capture_notice_pair "$capture_control_pair"
+cp -- "$capture_state/helper-original.py" "$capture_helper"
 capture_quiet "recording notification"
 capture_record record-output "notification"
 expect_poll "the saved recording offers Open and Dismiss" '["Open", "Dismiss"]' capture_labels "Recording saved"
@@ -1494,11 +1534,11 @@ capture_waiting() { # LABEL
   capture_quiet "$1"
   expect "$1: a screenshot whose notification waits" ok ipc vgs.capture invoke screenshot ''
   expect_poll "$1: the screenshot finishes" idle capture_phase
-  expect_poll "$1: one notify-send run waits" 1 capture_notify_left
+  expect_poll "$1: one Capture sender run waits" 1 capture_notify_left
   expect_poll "$1: vgs.notifications holds its notification" 1 capture_held_count
   expect "$1: capture is disabled" ok ipc shell setPluginEnabled vgs.capture false
   expect_poll "$1: the disabled service is released" False record_exists vgs.capture
-  expect_poll "$1: no notify-send run is left" 0 capture_notify_left
+  expect_poll "$1: no Capture sender run is left" 0 capture_notify_left
 }
 capture_waiting "disabled capture"
 expect_poll "disabling capture closes its notification" 0 capture_held_count
@@ -1519,10 +1559,10 @@ assert service.resolve().is_relative_to(sandbox.resolve()), "notification contro
 source = original.read_text() if original.exists() else service.read_text()
 original.write_text(source)
 before = {
-    "no-buttons": '        for (const action of event.actions || []) command.push("--action=" + action.id + "=" + action.label);\n',
-    "no-close": "        for (const run of notices) {\n",
+    "no-buttons": 'actions: (event.actions || []).map(action => ({ id: action.id, label: action.label }))',
+    "no-close": "    function closeKnownNotice(run) {\n",
 }[control]
-after = {"no-buttons": "", "no-close": "        for (const run of []) {\n"}[control]
+after = {"no-buttons": "actions: []", "no-close": "    function closeKnownNotice(run) {\n        return;\n"}[control]
 assert source.count(before) == 1, control
 changed = source.replace(before, after)
 assert changed != source
@@ -1564,7 +1604,7 @@ capture_before="$(capture_counts)"
 expect "a screenshot with no notification server" ok ipc vgs.capture invoke screenshot ''
 expect_poll "the screenshot with no notification server finishes" idle capture_phase
 expect "the screenshot with no notification server is saved" "$((capture_before + 1))" capture_counts
-expect_poll "no notify-send run waits with no server" 0 capture_notify_left
+expect_poll "no Capture sender run waits with no server" 0 capture_notify_left
 expect "notifications are enabled again" ok ipc shell setPluginEnabled vgs.notifications true
 expect_poll "the notifications service is built again" True record_exists vgs.notifications
 capture_config crash true

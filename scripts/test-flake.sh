@@ -175,6 +175,35 @@ if out="$(nix build "${flags[@]}" path:/src 2>/tmp/build.log)"; then
   fi
   vgshell="$(readlink -f "$out/bin/vgshell")"
   language_path="$(grep -F -- "$marker" "$vgshell")"
+  # Read the shipped helper's actual library paths in an empty environment.
+  # Loading symbols opens no bus, display, device or notification.
+  capture_libraries() {
+    env -i "$(command -v bash)" -c 'PATH=; eval "$1"; exec python3 - "$2"' _ "$language_path" "$1" <<'PY'
+import ctypes, runpy, sys
+source = runpy.run_path(sys.argv[1])
+for key, symbol in (("NOTICE_GIO_LIBRARY", "g_bus_get"), ("NOTICE_GOBJECT_LIBRARY", "g_object_unref"), ("NOTICE_GLIB_LIBRARY", "g_variant_new_tuple")):
+    path = source[key]
+    if not path.startswith("/nix/store/"):
+        sys.exit("flake: capture-library=outside-store")
+    getattr(ctypes.CDLL(path), symbol)
+PY
+  }
+  capture_helper="$out/share/vgshell/shell/plugins/vgs.capture/helper/capture.py"
+  if capture_libraries "$capture_helper"; then ok "Capture loads its declared GIO, GObject and GLib libraries from the closure"
+  else fail "Capture loads its declared GIO, GObject and GLib libraries from the closure"; fi
+  env -i "$(command -v bash)" -c 'PATH=; eval "$1"; exec python3 - "$2"' _ "$language_path" "$capture_helper" <<'PYCONTROL'
+from pathlib import Path
+import sys
+source=Path(sys.argv[1]).read_text()
+lines=source.splitlines(keepends=True)
+assert sum(line.startswith("NOTICE_GIO_LIBRARY = ") for line in lines)==1
+changed="".join('NOTICE_GIO_LIBRARY = "libgio-2.0.so.0"\n' if line.startswith("NOTICE_GIO_LIBRARY = ") else line for line in lines)
+assert changed!=source
+Path("/tmp/capture-no-gio-path.py").write_text(changed)
+PYCONTROL
+  if [[ $(capture_libraries /tmp/capture-no-gio-path.py 2>&1) == 'flake: capture-library=outside-store' ]]; then
+    ok "control: an unpatched Capture library fails the installed library reader"
+  else fail "control: an unpatched Capture library fails the installed library reader"; fi
   if env -i "$(command -v bash)" -c 'PATH=; eval "$1"; exec python3 "$2" check-route' _ "$language_path" "$out/share/vgshell/bin/lib/voxtype.py"; then
     ok "Dictation loads the native PipeWire ALSA module without an audio server"
   else fail "Dictation loads the native PipeWire ALSA module without an audio server"; fi

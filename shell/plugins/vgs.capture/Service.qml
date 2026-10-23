@@ -7,7 +7,7 @@ import qs.Commons
 // One service owns the worker, every IPC and shortcut, and all status writes.
 // The worker's stdin carries recording stop; its lifetime owns every tool.
 // A probe worker reads the offered devices and missing languages for status.
-// A finished capture raises a notification through one notify-send run each.
+// A finished capture keeps one sender alive for its notification's actions.
 Item {
     id: root
     property var shell: null
@@ -22,7 +22,7 @@ Item {
     // The windows read a selection waits for, counted so a reply to a
     // cancelled or replaced read is dropped.
     property int windowsAsked: 0
-    // The notify-send runs that offer buttons, oldest first. A run waits for
+    // The notification senders, oldest first. A run waits for
     // its notification to close, and vgs.notifications keeps an expired
     // toast's notification open for its History row
     // (NotificationLogic.heldAfterLeave), so a run can wait for good: past
@@ -128,8 +128,7 @@ Item {
     }
 
     function requiredTools(name) {
-        // Every finished capture raises its notification through notify-send.
-        const required = tools[name].concat(["notify-send"]);
+        const required = tools[name];
         if (name.indexOf("screenshot") === 0 && shell.settings.processing !== "save") return required.concat(["wl-copy"]);
         // The worker asks PipeWire for the camera, and for the first offered
         // source of an empty audio source.
@@ -296,12 +295,12 @@ Item {
         case "saved":
             job.answered = true;
             lastPath = event.path;
-            notify(noticeCommand(job, event, Quickshell.processId), event.actions);
+            notify(noticeRequest(job, event), event.actions);
             finishAction(job);
             break;
         case "copied":
             job.answered = true;
-            notify(noticeCommand(job, event, Quickshell.processId), []);
+            notify(noticeRequest(job, event), []);
             finishAction(job);
             break;
         case "cancelled":
@@ -328,15 +327,10 @@ Item {
         notice(event.reason === "language-data-unavailable" ? "Text capture unavailable" : "Capture failed", event.message);
     }
 
-    // The notify-send argv for a saved or copied capture, run as a child of
-    // PARENT, the shell. It execs through the helper's parent-death
-    // trampoline, so the shell's end sends notify-send SIGINT, which closes
-    // the notification. A saved file is its image, a recording's thumbnail;
-    // the x-vgs-icon camera hint draws where there is no image;
-    // each of the worker's actions is a button, and notify-send prints the
-    // id of the one pressed. A failed post-process keeps the recording as
-    // recorded and shows the end of the recorder log.
-    function noticeCommand(job, event, parent) {
+    // The sender gets labels and hints; only this run retains the worker's
+    // argv. A failed post-process keeps the recording as recorded and shows
+    // the end of the recorder log.
+    function noticeRequest(job, event) {
         const recording = isRecord(job.actionName);
         const text = job.actionName === "text";
         let title = text ? "Text copied" : "Screenshot copied";
@@ -351,17 +345,15 @@ Item {
                 if (event.detail !== "") message += "\n" + event.detail.slice(-Math.max(0, 199 - message.length));
             }
         }
-        const command = ["python3", helperPath, "--owned", "2", String(parent), "notify-send", "--print-id", "--app-name=Capture",
-            "--hint=string:x-vgs-icon:camera", "--hint=string:x-vgs-tone:success"];
-        if (image !== "") command.push("--hint=string:image-path:" + image);
-        for (const action of event.actions || []) command.push("--action=" + action.id + "=" + action.label);
-        return command.concat(["--", title, message.slice(0, 200)]);
+        const hints = { "x-vgs-icon": "camera", "x-vgs-tone": "success" };
+        if (image !== "") hints["image-path"] = image;
+        return { title: title, message: message.slice(0, 200), hints: hints,
+            actions: (event.actions || []).map(action => ({ id: action.id, label: action.label })) };
     }
 
-    // One notification run. A run with ACTIONS waits for a press, so past
-    // noticesMax the oldest waiting run gets SIGINT and its notification
-    // closes.
-    function notify(command, actions) {
+    // Every persistent sender counts toward the same limit, including a
+    // copied capture with no actions. The oldest sender closes first.
+    function notify(request, actions) {
         // A list crosses createObject's initial properties as something
         // else, so the run takes its lists after creation.
         const run = noticeComponent.createObject(root);
@@ -370,34 +362,73 @@ Item {
             return;
         }
         run.actions = actions;
-        run.command = command;
-        if (actions.length > 0) {
-            if (notices.length >= noticesMax) {
-                notices[0].signal(2);
-                notices = notices.slice(1);
-            }
-            notices = notices.concat([run]);
+        run.request = request;
+        run.command = ["python3", helperPath, "--owned", "15", String(Quickshell.processId), "python3", helperPath, "--notify"];
+        if (notices.length >= noticesMax) {
+            closeNotice(notices[0]);
+            notices = notices.slice(1);
         }
+        notices = notices.concat([run]);
         run.running = true;
     }
 
-    // notify-send prints the notification's id, then the id of the button
-    // pressed, whose program opens as the user's own.
+    function closeNotice(run) {
+        run.closing = true;
+        if (run.running && run.requestSent) run.write("close\n");
+    }
+
+    // Cleanup addresses the server that accepted this id. A replacement
+    // server may reuse the same numeric id for an unrelated notification.
+    function closeKnownNotice(run) {
+        if (run.noticeId === 0 || run.serverOwner === "") return;
+        Quickshell.execDetached(["gdbus", "call", "--session", "--dest", run.serverOwner, "--object-path", "/org/freedesktop/Notifications",
+            "--method", "org.freedesktop.Notifications.CloseNotification", String(run.noticeId)]);
+        run.noticeId = 0;
+        run.serverOwner = "";
+    }
+
+    // Only a typed action from the live sender can use this run's argv.
     function noticeLine(run, line) {
-        if (run.noticeId === "") {
-            run.noticeId = line.trim();
+        let event;
+        try { event = JSON.parse(line); } catch (error) {
+            console.warn("capture: notice=invalid-answer");
+            closeNotice(run);
             return;
         }
-        const action = run.actions.find(item => item.id === line.trim());
-        if (action === undefined) return;
-        const reply = shell.run.detached(action.argv);
-        if (reply !== "ok") console.error("capture: action=" + action.id + " " + reply);
+        if (event === null || typeof event !== "object" || Array.isArray(event)) {
+            console.warn("capture: notice=invalid-answer");
+            closeNotice(run);
+            return;
+        }
+        if (event.event === "ready" && typeof event.owner === "string" && event.owner.length > 0
+                && Number.isInteger(event.id) && event.id > 0 && event.id <= 4294967295 && run.noticeId === 0) {
+            run.serverOwner = event.owner;
+            run.noticeId = event.id;
+            if (run.closing) run.write("close\n");
+        } else if (event.event === "action" && typeof event.id === "string" && run.noticeId !== 0 && !run.closing) {
+            const action = run.actions.find(item => item.id === event.id);
+            if (action === undefined) return;
+            const reply = shell.run.detached(action.argv);
+            if (reply !== "ok") console.error("capture: action=" + action.id + " " + reply);
+        } else if (event.event === "closed" && Number.isInteger(event.reason) && event.reason >= 0 && event.reason <= 4294967295) {
+            run.closing = true;
+            run.noticeId = 0;
+            run.serverOwner = "";
+        } else if (event.event === "error" && typeof event.operation === "string" && typeof event.message === "string") {
+            console.info("capture: notice=unsent operation=" + event.operation + " " + event.message.replace(/\s+/g, " ").slice(0, 200));
+            closeNotice(run);
+        } else {
+            console.warn("capture: notice=invalid-answer");
+            closeNotice(run);
+        }
     }
 
     // A run ended: COMPLETION is its exit, null when it did not start. With
-    // no notification server on the bus notify-send fails, and the capture
+    // no notification server on the bus the sender fails, and the capture
     // stands without its notification.
     function noticeEnded(run, completion, complaint) {
+        run.closing = true;
+        closeKnownNotice(run);
         notices = notices.filter(item => item !== run);
         if (completion === null || completion.code !== 0 || completion.status !== 0)
             console.info("capture: notice=unsent exit=" + JSON.stringify(completion) + " " + complaint.trim().replace(/\s+/g, " ").slice(0, 200));
@@ -408,11 +439,7 @@ Item {
     // closes no notification, so its buttons would stay and do nothing:
     // each waiting notification closes on the server first.
     Component.onDestruction: {
-        for (const run of notices) {
-            if (run.noticeId !== "")
-                Quickshell.execDetached(["gdbus", "call", "--session", "--dest", "org.freedesktop.Notifications", "--object-path", "/org/freedesktop/Notifications",
-                    "--method", "org.freedesktop.Notifications.CloseNotification", run.noticeId]);
-        }
+        for (const run of notices) closeKnownNotice(run);
     }
 
     function finished(job, error) {
@@ -446,12 +473,25 @@ Item {
         Process {
             id: run
             property var actions: []
-            property string noticeId: ""
+            property var request: null
+            property double noticeId: 0
+            property string serverOwner: ""
+            property bool closing: false
+            property bool requestSent: false
             property var completion: null
+            stdinEnabled: true
             stdout: SplitParser { onRead: line => root.noticeLine(run, line) }
             stderr: StdioCollector { id: complaint }
+            onStarted: {
+                write(JSON.stringify(request) + "\n");
+                requestSent = true;
+                if (closing) write("close\n");
+            }
             onExited: (code, status) => { completion = { code: code, status: status }; }
             onRunningChanged: if (!running) root.noticeEnded(run, completion, complaint.text)
+            // An evicted sender can still be completing its bounded close
+            // when the service is destroyed, after it left notices.
+            Component.onDestruction: root.closeKnownNotice(run)
         }
     }
 

@@ -4,5 +4,6 @@
   {"id": "shell-interpreter", "packages": {"pacman": "bash", "apt": "bash", "dnf": "bash", "nix": "bash"}},
   {"id": "shell-utilities", "packages": {"pacman": "coreutils", "apt": "coreutils", "dnf": "coreutils", "nix": "coreutils"}},
   {"id": "capture-english", "packages": {"pacman": "tesseract-data-eng", "apt": "tesseract-ocr-eng", "dnf": "tesseract-langpack-eng", "nix": "tesseract"}},
+  {"id": "capture-notifications", "packages": {"pacman": "glib2", "apt": "libglib2.0-0t64", "dnf": "glib2", "nix": "glib"}},
   {"id": "dictation-audio", "packages": {"pacman": "pipewire-audio", "apt": "pipewire-alsa", "dnf": "pipewire-alsa", "nix": "pipewire"}}
 ]
