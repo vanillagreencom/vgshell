@@ -257,7 +257,7 @@ for file in "${files[@]}"; do
   file_status=0
   render_command=(env -i)
   render_environment=()
-  if [[ ${file##*/} == tst_notification_scroll.qml || ${file##*/} == tst_scroll.qml ]]; then
+  if [[ ${file##*/} == tst_notification_scroll.qml || ${file##*/} == tst_scroll.qml || ${file##*/} == tst_settings_window_height.qml ]]; then
     # Offscreen defaults to Qt's Software renderer, which cannot paint
     # MultiEffect. An isolated X display supplies a software OpenGL
     # context for these shader tests. xvfb-run owns its auth file and
