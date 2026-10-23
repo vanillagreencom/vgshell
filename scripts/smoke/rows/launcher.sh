@@ -419,6 +419,7 @@ expect_poll "IPC focuses the same held picker before release" focused-held launc
 release_runs
 expect_run_end "the held install picker run ends" core/pkg-install
 expect_poll "the released Install client disappears" True launcher_install_absent
+check_unexpected_log "held Install shell log" "$instance_log"
 kill -TERM -- "$launcher_other_pid" 2>/dev/null || true
 wait "$launcher_other_pid" 2>/dev/null || true
 
