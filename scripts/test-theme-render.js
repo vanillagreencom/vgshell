@@ -2997,6 +2997,8 @@ function verifyAppStyles(render, changedTemplates = {}) {
         const session = tmuxStyle(rendered.tmux, "status-left-style");
         const active = tmuxStyle(rendered.tmux, "window-status-current-style");
         const inactive = tmuxStyle(rendered.tmux, "window-status-style");
+        const right = tmuxStyle(rendered.tmux, "status-right-style");
+        assert.deepEqual(right, { fg: inactive.fg }, name + "/right content uses the readable muted role");
         const slotColor = (value, role = "fg") => {
             if (value === "default" || value === undefined) return pkg.values.palette[role === "fg" ? "foreground" : "background"];
             const match = /^colour(1[0-5]|[0-9])$/.exec(value);
@@ -3012,7 +3014,7 @@ function verifyAppStyles(render, changedTemplates = {}) {
         assert.equal(session.bg, undefined);
         assert.equal(active.bold, true);
         assert.equal(inactive.bold, undefined);
-        const ratios = Object.fromEntries(Object.entries({ status, session, active, inactive }).map(([role, style]) => {
+        const ratios = Object.fromEntries(Object.entries({ status, session, active, inactive, right }).map(([role, style]) => {
             const ratio = logic.contrastRatio(logic.parseColor(slotColor(style.fg)), logic.parseColor(slotColor(style.bg, "bg")));
             assert.deepEqual(ratio < 4.5 ? [{ kind: "app-style-contrast", theme: name, role, ratio, floor: 4.5 }] : [], []);
             return [role, ratio];
@@ -3811,6 +3813,7 @@ try {
 console.log(`test-theme-render: ghostty-faint packages=${appStyleMetrics.length} opacity=0.8 controls=default,absent,normal-foreground,invalid-color model=full-coverage-linear comparisons=${ghosttyFaintModels.length} normal=source-unchanged`);
 const tmuxTemplate = fs.readFileSync(path.join(repo, "themes/targets/tmux/tmux.conf"), "utf8");
 const styleControls = [
+    ["muted right content", 'set -g status-right-style "fg=@{color.textMuted}"', '# set -g status-right-style "fg=@{color.textMuted}"\nset -gqu status-right-style'],
     ["session uses reverse", 'set -g status-left-style "fg=@{bar.active},reverse,bold"', 'set -g status-left-style "fg=@{bar.active},bold"'],
     ["terminal page", 'set -g status-style "bg=@{color.background}', 'set -g status-style "bg=@{palette.accent}'],
     ["active tab remains unfilled", 'set -g window-status-current-style "bg=@{color.background}', 'set -g window-status-current-style "bg=@{palette.accent}'],
@@ -3818,7 +3821,9 @@ const styleControls = [
 ];
 for (const [label, needle, replacement] of styleControls) {
     assert.equal(tmuxTemplate.split(needle).length, 2, label);
-    assert.throws(() => verifyAppStyles(require(rendererFile), { tmux: tmuxTemplate.replace(needle, replacement) }), undefined, label);
+    const changed = tmuxTemplate.replace(needle, replacement);
+    assert.notEqual(changed, tmuxTemplate, label);
+    assert.throws(() => verifyAppStyles(require(rendererFile), { tmux: changed }), undefined, label);
 }
 
 // Alacritty's search, hint labels and footer have explicit colour pairs.

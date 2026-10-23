@@ -96,7 +96,8 @@ const assertSlotColors = (output, label) => {
     for (const [, value] of output.matchAll(/^set -gq? (?:clock-mode-colour|display-panes-colour|display-panes-active-colour) "([^"]+)"$/gm)) color(value);
 };
 assertSlotColors(rendered(template), "vgs");
-for (const name of ["catppuccin", "catppuccin-latte"]) {
+const themes = new Map([["vgs", pkg]]);
+for (const name of ["catppuccin", "catppuccin-latte", "rose-pine-moon"]) {
     const theme = logic.acceptPackage(TOKENS, {
         directoryName: name,
         themeJson: fs.readFileSync(path.join(repo, "themes", "catalog", name, "theme.json"), "utf8"),
@@ -104,6 +105,7 @@ for (const name of ["catppuccin", "catppuccin-latte"]) {
         shipped: false
     });
     assert.equal(theme.ok, true, theme.ok ? "" : logic.refusalLine(theme));
+    themes.set(name, theme);
     assertSlotColors(rendered(template, theme), name);
 }
 // Comment out LINE, retaining its text while disabling its behaviour.
@@ -160,9 +162,9 @@ const tmux = (socket, ...args) => {
 // A server on its own socket, NAME, holding one session whose pane waits
 // until this process ends, that has sourced TEXT rendered. The session's end
 // ends the server, and with it any client attached.
-const server = (name, text, options = []) => {
+const server = (name, text, options = [], theme = pkg) => {
     const include = path.join(root, `${name}.conf`);
-    fs.writeFileSync(include, rendered(text));
+    fs.writeFileSync(include, rendered(text, theme));
     sockets.push(name);
     tmux(name, "new-session", "-d", "-s", "t", "-x", "80", "-y", "24",
         `exec tail --pid=${process.pid} -f /dev/null`);
@@ -203,14 +205,24 @@ const CONTENT = [
 ];
 
 const contentValue = (name, text, row) => {
-    const socket = server(name, text, [["status", "2"], [row.option, row.value]]);
-    const read = () => {
+    const options = [["status", "2"], [row.option, row.value]];
+    if (row.rightStyle) options.push(["status-right-style", "fg=red,bg=blue"]);
+    const socket = server(name, text, options, row.theme);
+    const read = phase => {
         assert.equal(tmux(socket, "show", "-gv", "status"), "2\n");
-        return tmux(socket, "show", "-gv", row.option);
+        const content = tmux(socket, "show", "-gv", row.option);
+        if (row.rightStyle) {
+            const style = tmux(socket, "show", "-gv", "status-right-style");
+            assert.equal(style, row.rightStyle + "\n", "status-right-style");
+            assert.equal(content, row.expected + "\n", row.option);
+            console.log("test-theme-tmux: muted-right " + JSON.stringify({ theme: row.theme.name, phase,
+                style: style.trimEnd(), content: content.slice(0, -1) }));
+        }
+        return content;
     };
-    const first = read();
+    const first = read("first-source");
     tmux(socket, "source-file", path.join(root, `${name}.conf`));
-    assert.equal(read(), first, `${row.option}/reload`);
+    assert.equal(read("reload"), first, `${row.option}/reload`);
     return first;
 };
 
@@ -261,6 +273,19 @@ const stop = async () => {
         const control = clientFeatures("r0", disabled(RGB_LINE));
         assert.ok(!control.includes("RGB"), control.join(","));
         console.log("test-theme-tmux: client-rgb=on control=off");
+
+        for (const [index, [name, rightStyle]] of [["vgs", "fg=colour10"], ["rose-pine-moon", "fg=colour5"]].entries()) {
+            const value = "#(continuum_save.sh) #{user}@#{host_short}";
+            const row = { option: "status-right", value, expected: value, rightStyle, theme: themes.get(name) };
+            assert.equal(contentValue(`m${index}1`, template, row), value + "\n");
+            const former = disabled('set -g status-right-style "fg=@{color.textMuted}"') + "\nset -gqu status-right-style\n";
+            assert.throws(() => contentValue(`m${index}0`, former, row), error => {
+                if (error.code !== "ERR_ASSERTION" || error.actual !== "default\n" || error.expected !== rightStyle + "\n") return false;
+                console.log("test-theme-tmux: muted-right-control " + JSON.stringify({ theme: name,
+                    rejected: true, actual: error.actual.trimEnd(), expected: rightStyle }));
+                return true;
+            });
+        }
 
         for (const [index, row] of CONTENT.entries()) {
             assert.equal(contentValue(`c${index}1`, template, row), row.expected + "\n", row.option);
