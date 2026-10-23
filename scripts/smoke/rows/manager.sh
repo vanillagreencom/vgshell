@@ -219,15 +219,16 @@ type_keys -k BackSpace -k BackSpace -k BackSpace -k BackSpace -k BackSpace || fa
 # icon. Unit mutations in tst_pane, tst_scroll, tst_textfield and
 # tst_layout are the controls for these geometry rules. `[]` is the pass.
 list_alignment() {
-  local rows pad inset maximum
+  local rows pad inset maximum gap
   rows="$(settings_geometry)" || return
   pad="$(ipc smoke themeValue row.paddingX)" || return
   inset="$(ipc smoke themeValue inset.window)" || return
   maximum="$(ipc smoke themeValue control.maxWidth)" || return
-  python3 - "$rows" "$pad" "$inset" "$maximum" <<'PY'
+  gap="$(ipc smoke themeValue textField.gap)" || return
+  python3 - "$rows" "$pad" "$inset" "$maximum" "$gap" <<'PY'
 import json, sys
 sys.argv[1] = open(sys.argv[1]).read()
-rows, pad, inset, maximum = (json.loads(a) for a in sys.argv[1:])
+rows, pad, inset, maximum, gap = (json.loads(a) for a in sys.argv[1:])
 out = []
 def inside(j, i):
     while j != -1:
@@ -250,14 +251,21 @@ search, areas, items = under("TextField"), under("ScrollArea"), under("ListItem"
 heading = [i for i in under("Label") if rows[i].get("role") == "windowTitle" and visible(i)]
 if len(search) != 1 or len(areas) != 1 or len(heading) != 1 or len(items) < 3:
     print(json.dumps(["search=%d areas=%d heading=%d items=%d" % (len(search), len(areas), len(heading), len(items))])); sys.exit()
-edge_l, edge_r = rows[search[0]]["box"][0], right(rows[areas[0]]) - inset
-check("content.leftInset", edge_l - rows[page[0]]["box"][0], inset)
+edge_l, edge_r = rows[page[0]]["box"][0] + inset, right(rows[areas[0]]) - inset
 check("content.rightInset", right(rows[page[0]]) - edge_r, inset)
 check("search.width", rows[search[0]]["box"][2], min(edge_r - edge_l, maximum))
 check("heading.x", rows[heading[0]]["box"][0], edge_l)
 placeholders = [j for j, r in enumerate(rows) if r["type"] == "Label" and r.get("text") == "Search plugins" and inside(j, search[0])]
 if len(placeholders) != 1: out.append("placeholder=%d" % len(placeholders))
-else: check("search.placeholder.y", mid_y(rows[placeholders[0]]), mid_y(rows[search[0]]))
+else:
+    check("search.placeholder.y", mid_y(rows[placeholders[0]]), mid_y(rows[search[0]]))
+    icons = [j for j, r in enumerate(rows) if r["type"] == "Icon" and inside(j, search[0]) and visible(j)]
+    if len(icons) != 1: out.append("search.icons=%d" % len(icons))
+    else:
+        check("search.icon.x", rows[icons[0]]["box"][0], edge_l)
+        check("search.placeholder.x", rows[placeholders[0]]["box"][0], right(rows[icons[0]]) + gap)
+        if rows[search[0]]["box"][0] < rows[page[0]]["box"][0] - 1 or rows[search[0]]["box"][0] > edge_l + 1 or right(rows[search[0]]) > edge_r + 1:
+            out.append("search.hitBounds")
 for n, i in enumerate(items):
     item = rows[i]
     check("item%d.left" % n, item["box"][0], edge_l)
