@@ -41,9 +41,9 @@ Scope {
     // lists the run. It is pruned to the wanted wait set, so it is bounded by
     // live running records.
     property var settled: ({})
-    // Runs whose launcher exited 0 before an ended record was known. They are
-    // pruned as soon as the wait finishes or the run ends, so they are bounded
-    // by launches still awaiting a completion signal.
+    // Runs whose launcher exited 0 before an ended record was known. A failed
+    // wait does not end its presenter, so retain its reader until completion
+    // is accepted. Bounded by launches still awaiting an ended record.
     property var launchedRuns: []
 
     readonly property bool recordsWatched: String(recordFiles.folder) === "file://" + recordDir
@@ -105,6 +105,7 @@ Scope {
         next[path] = judged.record;
         fileRecords = next;
         refresh();
+        syncReaders();
     }
 
     function recordGone(path) {
@@ -162,11 +163,11 @@ Scope {
         const nextWaits = Object.assign({}, waits);
         delete nextWaits[id];
         waits = nextWaits;
-        launchedRuns = launchedRuns.filter(row => waitId(row.key, row.run) !== id);
         const nextSettled = Object.assign({}, settled);
         nextSettled[id] = true;
         settled = nextSettled;
         if (outcome.record !== null) {
+            launchedRuns = launchedRuns.filter(row => waitId(row.key, row.run) !== id);
             waitRecords = waitRecords.filter(record => record.run !== outcome.record.run).concat([outcome.record]);
             refresh();
         } else {
@@ -187,8 +188,8 @@ Scope {
         for (let i = 0; i < recordFiles.count; i++) listed[recordFiles.get(i, "filePath")] = true;
         // launch exits only after a running or ended record exists, and the
         // presenter keeps its running record until the next run of that key.
-        // Keep this read through missed listing updates, then drop it with
-        // the run's lock wait. The listing shares the same reader if it catches up.
+        // Keep this read through missed listing updates until an accepted end.
+        // The listing shares the same reader if it catches up.
         for (const row of launchedRuns)
             listed[recordDir + "/" + row.key.replace("/", "@") + "@" + row.run + ".running.json"] = true;
         const next = {};

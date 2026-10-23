@@ -307,6 +307,54 @@ Item {
             compare(JSON.stringify(events), JSON.stringify([{ code: 9, reason: null }]));
         }
 
+        function test_failed_wait_keeps_the_run_live_until_completion_data() {
+            return [
+                { tag: "helper-exit", code: 1, status: 0, readFirst: true, listed: false },
+                { tag: "failed-start", startFailed: true, readFirst: false, listed: false },
+                { tag: "crash", code: 9, status: 1, readFirst: true, listed: true },
+                { tag: "missing-result", code: 0, status: 0, readFirst: true, listed: false }
+            ];
+        }
+
+        // The smoke shell-log check parses these wait outcome categories.
+        // expected-log: tui: wait=acme.tui/hello run=1-1 reason=failed exit=1 status=0 -- The helper can fail before observing completion.
+        // expected-log: tui: wait=acme.tui/hello run=1-1 reason=unstarted -- A wait Process can fail to start.
+        // expected-log: tui: wait=acme.tui/hello run=1-1 reason=failed exit=9 status=1 -- A crashed wait is not presenter completion.
+        // expected-log: tui: wait=acme.tui/hello run=1-1 reason=stdout-lines count=0 -- A successful process without a result proves no completion.
+        function test_failed_wait_keeps_the_run_live_until_completion(data) {
+            addDone();
+            records.launched(key, run);
+            const reader = readerOf(runningPath);
+            if (data.readFirst)
+                finishRead(runningPath, JSON.stringify(record("running", null)));
+            const pendingWait = waitProcesses()[0];
+            if (data.startFailed) pendingWait.failStart();
+            else pendingWait.finish(data.code, data.status, "", "");
+            if (!data.readFirst)
+                finishRead(runningPath, JSON.stringify(record("running", null)));
+            model.setFiles(data.listed ? [runningPath] : [], "reset");
+            compare(records.readers[runningPath], reader);
+            compare(records.record().runs[key].running, run);
+            compare(JSON.stringify(events), "[]");
+            compare(records.record().waiters, ["core"]);
+            compare(waitProcesses().length, 0);
+            // Completion through the listing releases a failed wait's hold,
+            // even when the listing never included the running record.
+            model.setFiles(data.listed ? [runningPath, endedPath] : [endedPath], "insert");
+            finishRead(endedPath, JSON.stringify(record("ended", 9)));
+            compare(records.record().runs[key].running, null);
+            compare(records.launchedRuns, []);
+            compare(JSON.stringify(events), JSON.stringify([{ code: 9, reason: null }]));
+            if (!data.listed)
+                compare(Object.keys(records.readers), [endedPath]);
+            model.setFiles([], "remove");
+            wait(0);
+            compare(Object.keys(records.readers), []);
+            compare(Object.keys(records.fileRecords), []);
+            compare(waitProcesses().length, 0);
+            compare(JSON.stringify(events), JSON.stringify([{ code: 9, reason: null }]));
+        }
+
         // The listing keeps the first run's running record through a second
         // run of the key: the second run's wait record must not bring the
         // first run back to running, nor start another wait for it.
