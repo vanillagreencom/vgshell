@@ -84,8 +84,11 @@
 # its output (_updates_cause_of), and the run goes on with the next; a run with
 # a failed step exits 1 after the reboot question. After a failed or
 # declined system step the AUR step and the vgshell-git rebuild are
-# skipped, since they build against the system that step left. A step a
-# Ctrl-C ended ends the run with 130. Any other failing step ends the run:
+# skipped, since they build against the system that step left. A package a
+# declined or failed AUR transaction leaves out is not retried by the VGS
+# rebuild: that rebuild is skipped too, including helper installation.
+# A step a Ctrl-C ended ends the run with 130. Any other failing step ends
+# the run:
 # the ERR trap prints `updates: failed exit=<n> log=<file>` and how to
 # recover, and the session's or the guard's EXIT trap drops the credential.
 #
@@ -1378,6 +1381,16 @@ updates_main() {
       else
         if [[ ${#_updates_skip_aur[@]} -gt 0 ]]; then ignore=(--ignore "${_updates_skip_aur[@]}"); fi
         _updates_source aur AUR _updates_pacman_run "$aur_binary" "$_updates_vgshell" pkg run upgrade --manager aur "${ignore[@]}"
+      fi
+      # A second transaction can offer the engine the user just declined.
+      # Only a completed AUR step permits the separate VGS rebuild.
+      if [[ $rebuild_run == 1 && $_updates_outcome != installed ]]; then
+        rebuild_run=0
+        _updates_diagnostic "updates: skipped source=vgshell-git reason=aur-$_updates_outcome"
+        case "$_updates_outcome" in
+          declined) _updates_results+=("VGS package skipped. You declined the AUR update.") ;;
+          failed) _updates_results+=("VGS package skipped. The AUR update failed.") ;;
+        esac
       fi
     fi
     if [[ $rebuild_run == 1 && $vgs_step == install-helper ]]; then

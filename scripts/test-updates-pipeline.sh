@@ -613,8 +613,8 @@ row_failure() {
   assert "a failed source is not a stopped run" out_lacks "The update stopped."
   assert "a failed source still asks to reboot after an upgraded kernel" has_call "gum confirm --affirmative=Reboot --negative=Later --default=false -- The run updated linux, which takes effect after a reboot. Reboot now?"
 }
-# The owner's failed theme change and VGS build, plus an AUR build, leave
-# one end block after the shell restart and reboot answer. These wording
+# A failed theme change and AUR build skip the VGS rebuild and leave one
+# end block after the shell restart and reboot answer. These wording
 # assertions are the issue's explicit acceptance, including its control.
 row_failed_end() {
   local columns
@@ -623,12 +623,12 @@ row_failed_end() {
     reboot_hook
     self_json package '"vgshell-git"' rebuild
     printf '[{"id":"tokyo-night","behind":1,"head":"h","upstream":"u","error":null}]\n' >"$fix/themes.json"
-    touch "$fix/busy-tokyo-night" "$fix/build-aur" "$fix/pkgver-paru" "$fix/owner" "$fix/owner-changes" "$fix/running"
+    touch "$fix/busy-tokyo-night" "$fix/build-aur" "$fix/owner" "$fix/owner-changes" "$fix/running"
     printf 'linux 6.2-1\nmesa 24.1-1\nvgshell-git 0.1.0.r2-1\n' >"$fix/installed-after"
     echo 1 >"$fix/answer-reboot"
     PIPE_COLUMNS="$columns" pipeline update.sh
-    assert "three failed parts keep the failure exit" test "$status" == 1
-    assert "three failed parts still recheck before the reboot answer" none_before "gum confirm --affirmative=Reboot" "vgshell ipc call vgs.updates invoke check "
+    assert "two failed parts keep the failure exit" test "$status" == 1
+    assert "two failed parts still recheck before the reboot answer" none_before "gum confirm --affirmative=Reboot" "vgshell ipc call vgs.updates invoke check "
     assert "the final block wraps sentences and aligns every line at $columns columns" python3 - "$tmp/out" "$columns" <<'PY'
 import pathlib
 import re
@@ -645,7 +645,7 @@ end = text[start:]
 lines = end.splitlines()[1:]
 for line in lines:
     assert len(line) <= columns - indent, (columns, len(line), line)
-count = lines.index(" " * indent + "3 of 7 parts failed")
+count = lines.index(" " * indent + "2 of 7 parts failed")
 results = {}
 part = None
 for line in lines[:count]:
@@ -665,11 +665,14 @@ expected = {
     "mise": "mise installed.",
     "Plugin acme.one": "Plugin acme.one installed.",
     "Theme tokyo-night": "Theme tokyo-night failed. Another theme change is still running. Next: wait for it to finish, then update again from the Updates panel.",
-    "VGS package": "VGS package failed. The package could not determine its version. Next: update again from the Updates panel.",
+    "VGS package": None,
     "AUR packages": "AUR packages failed. A package could not be built. Next: update again from the Updates panel.",
 }
 assert results.keys() == expected.keys(), results
 for part, sentence in expected.items():
+    if sentence is None:
+        assert results[part][0].startswith("VGS package skipped."), results[part]
+        continue
     assert " ".join(results[part]) == sentence, (part, results[part])
     if " failed. " in sentence:
         assert len(results[part]) > 1, (part, results[part])
@@ -678,7 +681,7 @@ assert summary[0].startswith(" " * indent + "Failed parts: "), summary
 hanging = indent + len("Failed parts: ")
 for line in summary[1:]:
     assert line.startswith(" " * hanging) and not line[hanging:].startswith(" "), (hanging, line)
-assert " ".join(line.strip() for line in summary) == "Failed parts: Theme tokyo-night, AUR packages, VGS package", summary
+assert " ".join(line.strip() for line in summary) == "Failed parts: Theme tokyo-night, AUR packages", summary
 assert "pkgver()" not in end and "theme lock" not in end and "Aborting" not in end, end
 PY
   done
@@ -731,9 +734,11 @@ row_system_failed() {
   assert "a failed system upgrade rebuilds no vgshell-git" no_call "paru -S vgshell-git"
   assert "a failed system upgrade lists the rebuild skipped" result_has "VGS package skipped. The system upgrade failed, and AUR packages build against it."
   reset_fix
+  self_json package '"vgshell-git"' rebuild
   touch "$fix/decline-pacman"
   pipeline update.sh
   assert "a declined system upgrade runs no AUR step" no_call "vgshell pkg run upgrade --manager aur"
+  assert "a declined system upgrade rebuilds no VGS package" no_call "paru -S vgshell-git"
   assert "a declined system upgrade lists the AUR skipped with its cause" result_has "AUR skipped. You declined the system upgrade, and AUR packages build against it."
   assert "a later source installs after a declined system upgrade" result_has "mise installed."
 }
@@ -1047,6 +1052,42 @@ row_aur_failure() {
   pipeline update.sh
   assert "an interrupted AUR step ends the run with 130" test "$status" == 130
   assert "an interrupted AUR step drops the credential it cached, last" test "$(tail -n 1 "$tmp/seq")" == "sudo -k"
+}
+# Paru's review refusal exits 1 at the question; yay's review refusal exits
+# 1 after ErrUserAbort prints its cause. Neither may retry the declined
+# engine as a dependency of a separate VGS rebuild, through either route.
+row_aur_rebuild_stopped() {
+  local route ending outcome expected aur_call
+  while read -r route ending outcome expected; do
+    reset_fix
+    self_json package '"vgshell-git"' rebuild
+    aur_call="vgshell pkg run upgrade --manager aur"
+    if [[ $route == custom ]]; then settings "paru -Sua --devel" false; aur_call="paru -Sua --devel"; fi
+    printf '%s\n' "$ending" >"$fix/review-ending"
+    cat >"$fix/transaction" <<'SH'
+#!/bin/sh
+case "$1" in
+  aur|paru)
+    read -r ending <"$FIX/review-ending"
+    printf 'Aur (3) agent-browser-bin vgshell-quickshell vsys-git\n'
+    if [ "$ending" = paru ]; then printf ':: Proceed to review? [Y/n]: n\n'
+    else printf ':: Proceed with install? [Y/n] n\naborting due to user\n'
+    fi
+    exit 1 ;;
+esac
+SH
+    chmod +x "$fix/transaction"
+    pipeline update.sh
+    assert "$route $ending reports its original result" test "$status" == "$expected"
+    assert "$route $ending does not re-offer the engine through VGS" no_call "paru -S vgshell-git"
+    assert "$route $ending records why the rebuild was skipped" diag_has "updates: skipped source=vgshell-git reason=aur-$outcome"
+    assert "$route $ending drops credentials after the AUR" before "$aur_call" "sudo -k"
+  done <<'ROWS'
+table paru declined 0
+custom paru declined 0
+table yay failed 1
+custom yay failed 1
+ROWS
 }
 # packages.elevate names doas: sudo is installed but refuses, and the
 # update runs through doas without a sudo session.
@@ -1797,7 +1838,7 @@ SH
 }
 row_facts_plain; row_pipeline_plain; row_record_whole
 row_full; row_trusted; row_snapshot; row_failure; row_failed_end; row_cause; row_system_failed; row_order; row_answer; row_cause_output; row_stopped; row_interrupted; row_reboot; row_reboot_core; row_reboot_unread; row_orphans; row_yes
-row_declined; row_busy; row_aur_command; row_aur_failure; row_doas; row_vgs_only; row_vgs_helper; row_vgs_git; row_vgs_step; row_rebuild_failed; row_source; row_recheck_failure; row_recheck_replaced_tree; row_recheck_cli; row_reboot_deferred; row_helper_configs; row_log
+row_declined; row_busy; row_aur_command; row_aur_failure; row_aur_rebuild_stopped; row_doas; row_vgs_only; row_vgs_helper; row_vgs_git; row_vgs_step; row_rebuild_failed; row_source; row_recheck_failure; row_recheck_replaced_tree; row_recheck_cli; row_reboot_deferred; row_helper_configs; row_log
 row_review_off; row_review_no_agent; row_review_none_pending; row_review_choice; row_review_clean; row_review_start_stable; row_review_flagged; row_review_no_verdict; row_review_rebuild_no_verdict; row_review_no_helper; row_review_custom; row_review_install
 row_review_install_links; row_review_split
 
@@ -1869,6 +1910,7 @@ control reboot-mask-missing 'ln -s -- /dev/null' 'ln -s -- /dev/zero' row_reboot
 control answered-question-kept '[[ $rest =~ $_updates_answer ]] || line="$rest"' ':' row_cause
 control aur-after-failed-system 'if [[ -n $aur_blocked ]]; then' 'if false; then' row_system_failed
 control aur-after-declined-system '            declined) aur_blocked=' '            declined) ;; x) aur_blocked=' row_system_failed
+control rebuild-after-aur-refusal 'if [[ $rebuild_run == 1 && $_updates_outcome != installed ]]; then' 'if false; then' row_aur_rebuild_stopped
 control reboot-read-silent '  vgs_tui_warn "Could not check which updates need a restart."' '  :' row_reboot_unread
 control reboot-warns-twice '  [[ $_updates_reboot_warned == 0 ]] || return 0' '  :' row_reboot_unread
 control diff-in-fetched-tree '>"$dir/install/$name.diff"' '>"$_updates_install_dir/install.diff"' row_review_install_links
