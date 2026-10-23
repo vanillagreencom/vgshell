@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Controls for scripts/qml-unit.sh and the unit tests under
 # scripts/qml-tests/: a table of mutations, one per guarantee a test pins,
-# each applied to a copy of shell/Ui with its match counted, and the runner
-# is required to fail on every copy and to pass on the unmutated copy. Two
+# each applied to a copy of its source module with its match counted, and the
+# runner is required to fail on every copy and pass on the unmutated copy. Two
 # rows pin the runner's arguments: a missing qmltestrunner is not a pass,
 # and an unknown argument is refused. A second table plants one test file
 # per rule of the runner's log check and pins the exit and the line each
@@ -2024,7 +2024,7 @@ fresh "$copy"
 
 # One mutation row, in a directory of its own, removed after the run.
 mutation_case() { # INDEX
-  local index="$1" label file needle replacement test dir target count mutant_status out plugin tests_dir
+  local index="$1" label file needle replacement test dir target count baseline_status mutant_status baseline_out out tests_dir
   local -a commons_args=() core_args=()
   IFS='|' read -r label file needle replacement test <<<"${mutations[index]}"
   # A `|` inside a field shifts the rest, and a runner handed a test that is
@@ -2046,14 +2046,17 @@ mutation_case() { # INDEX
     core_args=(--core "$dir/core")
   fi
   if [[ $file == ../plugins/* ]]; then
-    plugin="${file#../plugins/}"
-    plugin="${plugin%%/*}"
-    mkdir -p -- "$dir/mirror/scripts" "$dir/mirror/shell/plugins"
+    mkdir -p -- "$dir/mirror/scripts" "$dir/mirror/shell/plugins" "$dir/mirror/shell/Commons" "$dir/mirror/shell/Core"
     cp -R -- "$repo/scripts/qml-tests" "$dir/mirror/scripts/qml-tests"
-    cp -R -- "$repo/shell/plugins/$plugin" "$dir/mirror/shell/plugins/$plugin"
+    # Tests can read manifests from sibling plugins through relative paths.
+    cp -R -- "$repo/shell/plugins/." "$dir/mirror/shell/plugins/"
+    cp -R -- "$repo/shell/Commons/." "$dir/mirror/shell/Commons/"
+    cp -R -- "$repo/shell/Core/." "$dir/mirror/shell/Core/"
     ln -s -- "$repo/themes" "$dir/mirror/themes"
     target="$dir/mirror/shell/${file#../}"
     tests_dir="$dir/mirror/scripts/qml-tests"
+    commons_args=(--commons "$dir/mirror/shell/Commons")
+    core_args=(--core "$dir/mirror/shell/Core")
   fi
   if [[ $file == ../stand-ins/* ]]; then
     mkdir -p -- "$dir/mirror/scripts"
@@ -2067,6 +2070,14 @@ print(open(sys.argv[1], encoding="utf-8").read().count(sys.argv[2]))
 PY
 )"
   if [[ $count -ne 1 ]]; then fail "$label: the text to replace occurs $count times in $file"; return 0; fi
+  baseline_status=0
+  baseline_out="$("$runner" --ui "$dir/ui" "${commons_args[@]}" "${core_args[@]}" --tests "$tests_dir" "$tests_dir/$test" 2>&1)" || baseline_status=$?
+  if [[ $baseline_status -ne 0 ]]; then
+    fail "$label: unchanged baseline failed with runner exit $baseline_status"
+    printf '%s\n' "$baseline_out"
+    rm -rf -- "$dir"
+    return 0
+  fi
   python3 - "$target" "$needle" "$replacement" <<'PY'
 import sys
 path, needle, replacement = sys.argv[1:]
