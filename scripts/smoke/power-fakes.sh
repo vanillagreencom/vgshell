@@ -226,6 +226,7 @@ power_sleep_transport_ready() {
     echo 'power: sleep-transport=not-owned' >&2
     return 1
   }
+  echo ready
 }
 
 
