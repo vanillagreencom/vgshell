@@ -1571,6 +1571,8 @@ PY
   rescan "the $1 control service is rescanned"
   expect "capture enables the $1 control" ok ipc shell setPluginEnabled vgs.capture true
   expect_poll "the $1 control is built" True record_exists vgs.capture
+  capture_helper="$(capture_read helperPath | py_reply 'import json,sys; print(json.load(sys.stdin))')"
+  python3 -c 'import pathlib,sys; h=pathlib.Path(sys.argv[1]).resolve(); assert any(h.is_relative_to(pathlib.Path(r).resolve()) for r in sys.argv[2:]), "capture control must stay inside the sandbox or its private runtime"' "$capture_helper" "$sandbox" "$rt_dir"
 }
 capture_notice_restore() { # NAME
   expect "capture stops after the $1 control" ok ipc shell setPluginEnabled vgs.capture false
@@ -1579,6 +1581,8 @@ capture_notice_restore() { # NAME
   rescan "the original service is rescanned after the $1 control"
   expect "capture enables the restored service after the $1 control" ok ipc shell setPluginEnabled vgs.capture true
   expect_poll "the restored service is built after the $1 control" True record_exists vgs.capture
+  capture_helper="$(capture_read helperPath | py_reply 'import json,sys; print(json.load(sys.stdin))')"
+  python3 -c 'import pathlib,sys; h=pathlib.Path(sys.argv[1]).resolve(); assert any(h.is_relative_to(pathlib.Path(r).resolve()) for r in sys.argv[2:]), "capture control must stay inside the sandbox or its private runtime"' "$capture_helper" "$sandbox" "$rt_dir"
 }
 capture_notice_control no-buttons
 capture_quiet "control: no buttons"
@@ -1595,6 +1599,8 @@ cp -- "$capture_state/notice-service-original.qml" "$capture_notice_service"
 rescan "the original service is rescanned after the no-close control"
 expect "capture enables the restored service after the no-close control" ok ipc shell setPluginEnabled vgs.capture true
 expect_poll "the restored service is built after the no-close control" True record_exists vgs.capture
+capture_helper="$(capture_read helperPath | py_reply 'import json,sys; print(json.load(sys.stdin))')"
+python3 -c 'import pathlib,sys; h=pathlib.Path(sys.argv[1]).resolve(); assert any(h.is_relative_to(pathlib.Path(r).resolve()) for r in sys.argv[2:]), "capture control must stay inside the sandbox or its private runtime"' "$capture_helper" "$sandbox" "$rt_dir"
 # With vgs.notifications disabled no server answers: the capture still
 # saves its file and the service returns to idle.
 capture_quiet "no notification server"
