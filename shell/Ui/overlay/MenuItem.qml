@@ -9,10 +9,10 @@ import qs.Ui
 // menu wraps onto further lines and never elides, so a long value reads in
 // full: a line breaks only at a space (LineBreak.atSpaces), the entry grows
 // by its lines, and the shortcut keeps its column. A one-line entry's text
-// and shortcut centre their capitals on the entry, as a button's label
-// does, since a line box's centre lies below its capitals' centre; a
+// centres its capitals on the entry, as a button's label does, since a
+// line box's centre lies below its capitals' centre; a
 // wrapped entry keeps its first line where a one-line entry's stands, with
-// its icon, shortcut and check mark beside it, and as much room under its
+// its icon, shortcut and check mark on its text's reading centre, and as much room under its
 // last line. Both draw in the menu's own roles, a pixel under a list row's.
 // The accessible name is the plain text. The template owns the click,
 // `triggered` and the hover; the
