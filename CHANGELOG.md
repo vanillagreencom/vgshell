@@ -2,7 +2,81 @@
 
 ## Unreleased
 
+## 0.1.3 (2026-10-23)
+
+- Power has a section in System Settings with the idle timeline, battery alerts and power profiles. Each idle step shows its time and opens the setting that controls it. Battery-only fields stay hidden on desktops, and a missing power profiles service offers installation.
+
+- Power can turn every display off after the chosen idle interval and sooner while the screen is locked. Keyboard or pointer input turns the displays on again, including after system sleep. The screensaver follows the shared idle order and stops while the displays are dark.
+
+- Power can suspend, hibernate or suspend then hibernate after the chosen idle interval. The default is Never. Unsupported saved methods remain visible so you can choose a supported method; a refused request does not silently choose another method.
+
+- The launcher's System > Sleep menu offers only the Sleep and Hibernate actions available on this computer. Sleep uses suspend regardless of the saved idle choice, and a refused request shows a plain failure message.
+
+- Power offers idle hard disk sleep with an explicit Allow step and the tools it needs. Its System Settings row keeps the current state and action together, and waits for the probe and any missing tool before offering a system change.
+
+- Power can restrict USB device wake and set Wake on LAN for managed wired connections. Wake on LAN changes only after you choose it, retains the chosen value across restarts and applies it to later connections. A failed write appears beside the switch in both Power views with a way to retry.
+
+- Tailscale and VPN have separate plugins, bar icons, flyouts and System Settings sections. Existing settings and enabled states move to the new plugins before they start, including the configuration inherited by a bundled plugin split.
+
+- Tailscale shows the connection, account, this device and network devices in its flyout and System Settings. You can switch accounts, sign in, copy addresses or DNS names and choose an exit node, including recommended nodes and Mullvad locations. The exit-node list supports search and keeps offline nodes unavailable.
+
+- VPN lists saved NetworkManager VPN and WireGuard profiles with connection state, details and confirmed removal. It imports WireGuard and OpenVPN files, offers missing OpenVPN support, and opens NetworkManager's editor to add or edit profiles. Supported password prompts send the password for that connection without keeping a VGS copy. Editing or removing a profile clears its stale failure, and a prompt stays attached to the profile it opened for.
+
+- Automations can schedule in local time or UTC without changing the timezone of later local schedules. A scheduled run waits briefly for NetworkManager to report the network online after a wake, and a failed network read keeps its cause.
+
+- Google Drive review rows open their files from the file name and can dismiss rows that need no action. File actions use the file's type, refuse launchable files and distinguish a file that is gone from one that cannot be read. A failed open leaves the notice visible with its cause.
+
+- Screenshot notifications keep Open and Edit after either action, so the same image can be opened or edited again. File actions that fail keep their notification and explain why, and a callback from a closed plugin no longer acts on its replacement.
+
 - Notification icons stand on the middle of the card, on cards of one body line and of several, and a symbol icon, such as an automation failure or the passwordless sudo lock, draws at the size of an application icon. Before, symbol icons were smaller, and icons sat at the top of a card with several lines.
+
+- Notifications has a configurable Mark read shortcut. Mark all read closes the popups as well as the inbox.
+
+- Muted notification sounds stay muted when an application pauses and resumes a stream or reuses it for a later chime. Held sounds use a private sink, release it when the held stream ends and observe a replaced sound rule without losing the mute.
+
+- Jarvis has its own J bar icon; clicking it opens the Console, while its menu and Mute key control mute. Tap or hold Talk starts listening, a second tap or the end of speech sends it, and Talk interrupts a spoken reply. The tooltip names the account, voice and next action, and the Console keeps keyboard focus on its visible composer.
+
+- Jarvis lists Local separately from cloud voice providers and removes the Auto choice. Voice setup follows the selected provider, offers the matching cloud key and selects a sole stored key. Choosing a local model starts its download; setup checks space, the download and a test clip before reporting Ready. Microphone checks survive a voice change and reset when the microphone changes. Voice failures keep their cause, each Realtime reply gets its own context, and Stop can dismiss audio retries or end a start that cannot complete.
+
+- Jarvis keeps required and optional setup steps separate. API keys, Account search, Personality, Browser, Desktop input, Cloned voice, Agent fleet and the Jarvis session are optional. Cloud key and cloned-voice setup stay on the page that owns them. Cloned-voice setup requires the use and permission confirmations before downloading or recording.
+
+- The Jarvis session step reports its account and start state, offers Retry or Repair for the cause it found, and explains when a home folder does not offer a session. Local voice setup and session tasks read their live terminal state from launch, so a late listing no longer holds their completion. Console status and file lines fit the pane, and preview voices use the selected voice.
+
+- Updates asks before a package review and identifies git updates. It offers a VGS restart notice when needed, reports AUR transport failures and failed probes, and explains a skipped rebuild. Declining or failing the AUR transaction does not offer the VGS package again. A successful update handoff closes the Updates window.
+
+- Plugin Setup pages keep setup steps and optional tools on Setup, explain why a step is unavailable and offer Review on the step whose tool is missing. A turned-off plugin shows one Turn on notice. Hints explain the setting instead of repeating its name, and page links take you to the setup that owns the action.
+
+- Plugin Settings tabs stay pinned, legible and keyboard reachable while the page scrolls. Their cover matches the window background, hides content above the tabs and keeps the surrounding edges and tab rules aligned. Tabs no longer draw a pressed fill.
+
+- Secret and key editors stay on the Settings value row, retain action focus while their presence changes and release saved focus when you leave the page. Sentences under key lists and group rows follow the text spacing of other fields.
+
+- Floating setup terminals derive their minimum size from their content, including the current Updates plan. Long paths wrap after a slash instead of splitting a file name.
+
+- tmux uses theme roles for its session label, status text, current window, menus and client colours. The selected status colours match the theme previews, including the active session and right-hand status text.
+
+- Each Slack workspace row opens its own app setup guide, explains the Slack setup steps and waits for a running guide before offering it again. Browser handoffs stay quiet. Missing key tools link to their Setup step, and the AI Gateway key hint belongs to its own field.
+
+- Dragging a bar widget off the bar keeps its image under the pointer and asks about removal at the original slot. The drag retains its pointer grab until the question owns the keyboard and counts movement only from the focused window.
+
+- List hover stays under the pointer when rows rebuild, including Settings, the clipboard, Automations and the Jarvis Console. Keyboard selection and a later pointer crossing keep their own current row.
+
+- Links in running text are underlined at rest, and link icons align to their visible glyphs. Plugin information can contain line breaks. Message and action spacing follows the text's ink instead of leaving an extra device row beneath descenders.
+
+- Closing a menu restores keyboard input to its window.
+
+- Choosing Custom starts an empty editable draft from the current preset without overwriting an existing draft. Settings switches keep the page at the pressed row instead of scrolling it when the value changes.
+
+- Long dropdown values and menu entries wrap at spaces, keep hyphenated words together and use the font's line height. Their action buttons align with the first line of text, including values drawn at another scale.
+
+- The VGS Quickshell engine owns managed child processes and their descendants through shell exit and crash restart, with corrected query and printer-watch cancellation. Curl installs on Debian forky use the signed amd64 engine asset, and curl installs on NixOS use the flake's patched engine. Self-update and repair prepare the verified engine before switching trees, retain the needed Nix roots and stop on cancellation or a failed identity check. Existing direct-child guards remain in this release.
+
+- Dictation uses a bounded PipeWire audio route with the installed supervisor and records setup failures in diagnostics. Package-manager questions stay on the setup terminal, including when a caller captures its output.
+
+- Clipboard image paste sends Ctrl+V in a terminal for Claude Code, Pi, Copilot CLI and Codex CLI. Terminal text paste keeps Ctrl+Shift+V.
+
+- A running setup terminal is reported as running immediately after launch. A failed wait read keeps that live state instead of replacing it with an empty listing.
+
+- The Plugins search field is unboxed, with its search icon aligned to the heading and the shared gap before hint and typed text. Editing, filtering, focus and keyboard navigation keep using the same field.
 
 ## 0.1.2 (2026-10-19)
 

@@ -5,8 +5,8 @@
 # requirement data and the preflight floor.
 
 Name:           vgshell
-Version:        0.1.2
-Release:        2%{?dist}
+Version:        0.1.3
+Release:        1%{?dist}
 Summary:        Desktop shell for Hyprland on Quickshell
 License:        MIT AND OFL-1.1 AND ISC AND Apache-2.0 AND CC-BY-SA-4.0
 URL:            https://github.com/vanillagreencom/vgshell
@@ -130,6 +130,8 @@ if [ "$1" -eq 1 ]; then
 fi
 
 %changelog
+* Fri Oct 23 2026 VanillaGreen <brad@vanillagreen.com> - 0.1.3-1
+- Release Power, VPN, Settings, Jarvis, notification and patched-engine fixes since 0.1.2.
 * Thu Oct 22 2026 VanillaGreen <brad@vanillagreen.com> - 0.1.2-2
 - Require the VGS engine release with managed child lifetime ownership.
 * Mon Oct 19 2026 VanillaGreen <brad@vanillagreen.com> - 0.1.2-1
