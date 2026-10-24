@@ -909,13 +909,13 @@ function tmuxColors(logic, tokens, input) {
     colors["tmux.current_foreground"] = colors["color.info"];
     colors["tmux.inactive_foreground"] = colors["color.textMuted"];
     colors["tmux.status_foreground"] = colors["color.textMuted"];
-    // These preview-authoritative status roles stay fixed over SSH. Moon's
-    // inactive role uses the shared authored success, without changing its palette.
+    // These preview-authoritative status roles stay fixed over SSH. Moon uses
+    // the shared authored danger/info/success roles without changing its palette.
     if (input.name === "vgs" || input.name === "rose-pine-moon") {
         const moon = input.name === "rose-pine-moon";
         const rgb = value => "#" + hex6(value, input.values.color.background);
-        colors["tmux.session"] = rgb(moon ? input.values.palette.danger : input.values.bar.active);
-        colors["tmux.current_foreground"] = rgb(moon ? input.slots.color2 : input.values.color.info);
+        colors["tmux.session"] = rgb(moon ? tokens.palette.danger.value : input.values.bar.active);
+        colors["tmux.current_foreground"] = rgb(moon ? tokens.palette.info.value : input.values.color.info);
         colors["tmux.inactive_foreground"] = rgb(moon ? tokens.palette.success.value : input.values.color.textMuted);
         colors["tmux.status_foreground"] = rgb(input.values.color.textMuted);
     }
