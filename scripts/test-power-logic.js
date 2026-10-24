@@ -29,6 +29,23 @@ function device(overrides) {
 }
 
 function verify(logic) {
+    for (const [code, text, allowed] of [
+        [0, "('yes',)", true], [0, "('yes',)\n", true],
+        [0, "('no',)", false], [0, "('na',)", false], [0, "('challenge',)", false],
+        [1, "('yes',)", false], [-1, "('yes',)", false],
+        [0, "yes", false], [0, "('yes',) extra", false], [0, "", false]
+    ]) assert.equal(logic.sleepAllowed(code, text), allowed, `sleepAllowed: code=${code} text=${text}`);
+    const sleepCases = [
+        [{}, [], ["", "", ""]],
+        [{ suspend: true }, ["suspend"], ["Suspend", "", ""]],
+        [{ suspend: true, hibernate: true }, ["suspend", "hibernate"], ["Suspend", "Hibernate", ""]],
+        [{ hibernate: true, "suspend-then-hibernate": true }, ["hibernate", "suspend-then-hibernate"], ["", "Hibernate", "SuspendThenHibernate"]]
+    ];
+    for (const [allowed, choices, methods] of sleepCases) {
+        same(logic.sleepChoices(allowed).map(choice => choice.value), choices, "sleepChoices: yes-only offers");
+        same(["suspend", "hibernate", "suspend-then-hibernate"].map(action => logic.sleepMethod(action, allowed)), methods, "sleepMethod: only supported fixed methods");
+        assert.equal(logic.sleepMethod("reboot", allowed), "", "sleepMethod: unknown saved setting authorizes nothing");
+    }
     const prepareForSleep = [
         ["the standard resume signal", "/org/freedesktop/login1: org.freedesktop.login1.Manager.PrepareForSleep (false,)", true],
         ["the standard sleep signal", "/org/freedesktop/login1: org.freedesktop.login1.Manager.PrepareForSleep (true,)", false],
@@ -272,6 +289,8 @@ function verify(logic) {
 verify(load(file));
 
 const CONTROLS = [
+    ["sleep capability needs yes", "return code === 0 && /^\\('yes',\\)\\s*$/.test(String(text));", "return code === 0;"],
+    ["sleep request needs the selected capability", "entry !== undefined && allowed[action] === true ? entry.method", "entry !== undefined ? entry.method"],
     ["gamepad wake is disabled", "return { state: \"supported\", current: fields.WakeAllowed === \"true\", allowed: allowed };", "return { state: \"supported\", current: fields.WakeAllowed === \"true\", allowed: true };"],
     ["one notice per threshold latches low", "if (!next.low) out.push({ threshold: \"low\", urgency: \"normal\", level: n });\n        next.low = true;", "if (!next.low) out.push({ threshold: \"low\", urgency: \"normal\", level: n });\n        next.low = false;"],
     ["source change applies the new source", "var key = onBattery === true ? \"batteryProfile\" : \"chargerProfile\";", "var key = onBattery === true ? \"chargerProfile\" : \"chargerProfile\";"],

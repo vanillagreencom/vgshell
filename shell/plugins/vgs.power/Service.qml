@@ -44,6 +44,14 @@ Item {
     readonly property bool locked: shell !== null && shell.session.locked
     property var displayOffDisposer: null
     property var lockedDisplayOffDisposer: null
+    readonly property int sleepAfterSeconds: shell === null ? 0 : shell.settings.sleepAfterSeconds
+    property var sleepDisposer: null
+    property bool sleepAttempted: false
+    property var sleepAllowed: ({})
+    property var sleepReading: ({})
+    property int sleepReadIndex: -1
+    property bool sleepReadStale: false
+    readonly property var logindBus: ["--system", "--dest", "org.freedesktop.login1", "--object-path", "/org/freedesktop/login1"]
     // Longer than a password check, which this plugin cannot read.
     readonly property int lockedDisplayOffSeconds: 10
 
@@ -110,6 +118,7 @@ Item {
     onShellChanged: {
         watchDisplayOff();
         watchLockedDisplayOff();
+        watchSleep();
         if (shell === null || registered) return;
         wakeState = Logic.wakeInitial(shell.settings.wakeOnLanChosen);
         registered = true;
@@ -123,6 +132,8 @@ Item {
         shell.shortcut.register("performance", "Use the performance profile", () => root.setProfile("performance", true));
         profileWatch.running = true;
         prepareForSleepWatch.running = true;
+        shell.status.handleRefresh("sleepActions", () => { root.readSleepActions(); return "ok"; });
+        readSleepActions();
         syncWake();
         publish();
         observeWake();
@@ -147,6 +158,7 @@ Item {
         watchLockedDisplayOff();
     }
     onLockedChanged: watchLockedDisplayOff()
+    onSleepAfterSecondsChanged: watchSleep()
 
     // As vgs.lock's watchIdle: dispose before replacing. The core owns
     // each watch through this instance's lifetime. Hyprland starts its
@@ -172,12 +184,72 @@ Item {
         if (reply !== "ok") console.warn("power: display off " + reply);
     }
 
+    function watchSleep() {
+        if (sleepDisposer !== null) sleepDisposer();
+        sleepDisposer = null;
+        sleepAttempted = false;
+        if (shell === null || sleepAfterSeconds <= 0) return;
+        sleepDisposer = shell.idle.watch(sleepAfterSeconds, idle => {
+            if (!idle) root.sleepAttempted = false;
+            else if (!root.sleepAttempted) {
+                root.sleepAttempted = true;
+                root.requestSleep();
+            }
+        });
+    }
+
+    function requestSleep() {
+        const method = Logic.sleepMethod(shell.settings.sleepAction, sleepAllowed);
+        if (method === "") {
+            report("sleepProblem", "The selected sleep action is not available on this computer.");
+            return;
+        }
+        if (sleepRequest.running) return;
+        report("sleepProblem", null);
+        // logind honors block and delay inhibitors. false prevents an
+        // authorization prompt during an unattended idle action.
+        // https://www.freedesktop.org/software/systemd/man/latest/org.freedesktop.login1.html
+        sleepRequest.command = ["gdbus", "call"].concat(logindBus, ["--method", "org.freedesktop.login1.Manager." + method, "false"]);
+        sleepRequest.completion = null;
+        sleepRequest.running = true;
+    }
+
+    function readSleepActions() {
+        if (shell === null) return;
+        if (sleepReader.running) {
+            sleepReadStale = true;
+            return;
+        }
+        sleepReadStale = false;
+        sleepReading = ({});
+        sleepReadIndex = 0;
+        readNextSleepAction();
+    }
+
+    function readNextSleepAction() {
+        if (sleepReadIndex === Logic.SLEEP_ACTIONS.length) {
+            sleepAllowed = sleepReading;
+            publishSleepActions();
+            if (sleepReadStale) readSleepActions();
+            return;
+        }
+        sleepReader.command = ["gdbus", "call"].concat(logindBus, ["--method", "org.freedesktop.login1.Manager.Can" + Logic.SLEEP_ACTIONS[sleepReadIndex].method]);
+        sleepReader.completion = null;
+        sleepReader.running = true;
+    }
+
+    function publishSleepActions() {
+        report("sleepActions", Logic.sleepChoices(sleepAllowed));
+        report("hibernate", sleepAllowed.hibernate === true || sleepAllowed["suspend-then-hibernate"] === true ? "present" : "absent");
+    }
+
     function resumeFromSleep(line) {
         if (!Logic.isPrepareForSleepResume(line) || shell === null) return;
         const reply = shell.compositor.displayPower("on");
         if (reply !== "ok") console.warn("power: display on after resume " + reply);
         watchDisplayOff();
         watchLockedDisplayOff();
+        watchSleep();
     }
 
     Connections {
@@ -481,8 +553,49 @@ Item {
         id: prepareForSleepWatch
         command: ["setpriv", "--pdeathsig", "TERM", "--", "gdbus", "monitor",
             "--system", "--dest", "org.freedesktop.login1", "--object-path", "/org/freedesktop/login1"]
-        stdout: SplitParser { onRead: line => root.resumeFromSleep(line) }
-        onExited: code => console.warn("power: logind watch ended exit=" + code)
+        stdout: SplitParser { onRead: line => { root.resumeFromSleep(line); root.readSleepActions(); } }
+        onExited: code => {
+            console.warn("power: logind watch ended exit=" + code);
+            root.sleepAllowed = ({});
+            root.publishSleepActions();
+        }
+    }
+
+    // In Quickshell 0.3.1 clearEnvironment with null passes only the
+    // named inherited values. runningChanged also handles FailedToStart,
+    // which emits no exited signal; collectors settle before it.
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/Process
+    Process {
+        id: sleepReader
+        property var completion: null
+        clearEnvironment: true
+        environment: ({ PATH: null, DBUS_SYSTEM_BUS_ADDRESS: null, LC_ALL: "C" })
+        stdout: StdioCollector { id: sleepReaderOut; waitForEnd: true }
+        onExited: (code, status) => { completion = { code: code, status: status }; }
+        onRunningChanged: {
+            if (running) return;
+            const next = Object.assign({}, root.sleepReading);
+            next[Logic.SLEEP_ACTIONS[root.sleepReadIndex].value] = Logic.sleepAllowed(root.codeOf(completion), sleepReaderOut.text);
+            root.sleepReading = next;
+            root.sleepReadIndex++;
+            root.readNextSleepAction();
+        }
+    }
+
+    Process {
+        id: sleepRequest
+        property var completion: null
+        clearEnvironment: true
+        environment: ({ PATH: null, DBUS_SYSTEM_BUS_ADDRESS: null, LC_ALL: "C" })
+        onExited: (code, status) => { completion = { code: code, status: status }; }
+        onRunningChanged: {
+            if (running) return;
+            const code = root.codeOf(completion);
+            if (code !== 0) {
+                console.warn("power: sleep request exit=" + code);
+                root.report("sleepProblem", "The computer could not sleep. VGS will try after your next idle period.");
+            }
+        }
     }
 
     // gdbus has its own bounded call timeout. The device run belongs to

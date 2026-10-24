@@ -6264,6 +6264,9 @@ bluetooth_nearby() { ipc smoke itemTexts window vgs.bluetooth Section | py_reply
 
 scene_power() { # MODE
   devices_ready power-shot || return 0
+  power_logind_start || return
+  printf 'yes\n' >"$power_sleep_replies/CanHibernate"
+  printf 'yes\n' >"$power_sleep_replies/CanSuspendThenHibernate"
   devices_usb_wake disabled
   power_start_mocks shots-power balanced
   tree_rescan "the Power shots' fake daemon is scanned"
@@ -6302,6 +6305,7 @@ scene_power() { # MODE
   expect "Power's widget is unplaced after its shot" ok ipc shell setPluginPlaced vgs.power false
   expect "Power disables after its shot" ok ipc shell setPluginEnabled vgs.power false
   power_stop_mocks
+  power_logind_stop
   devices_usb_wake remove
 }
 # Power's Settings window page while it is on, power-<mode>-page-<tab>SUFFIX
@@ -6362,7 +6366,7 @@ power_shot_pane() { # MODE
   expect "enabling vgs.system for Power's section is allowed" ok ipc shell setPluginEnabled vgs.system true
   expect "the System window summons on Power's section" ok ipc shell summon window vgs.system '{"pane":"vgs.power"}'
   expect_poll "Power's section is mounted" '["vgs.power"]' window_panes
-  expect_poll "Power's section draws four timeline rows and no warning" "4 0" power_shot_timeline
+  expect_poll "Power's section draws every timeline row and no warning" "complete 0" power_shot_timeline
   wake=no
   grep -q '"wakeOnLan"' "$tree/shell/plugins/vgs.power/manifest.json" && wake=yes
   [[ $wake == no ]] || expect_poll "Power's section draws Wake on LAN off" off power_wol_field
@@ -6385,11 +6389,11 @@ power_shot_pane() { # MODE
     power_revealed "$(ipc smoke revealText window vgs.system FormRow Dim)" || fail "the System page does not scroll back to the timeline"
   fi
   power_stage_setting "$home/.config/vgshell/shell.json" lockAfter 120
-  expect_poll "Power's section warns on the lock row" "4 1" power_shot_timeline
+  expect_poll "Power's section warns on the lock row" "complete 1" power_shot_timeline
   park_pointer
   power_shot_pane_pages "power-$1-pane-warning"
   power_stage_setting "$home/.config/vgshell/shell.json" lockAfter null
-  expect_poll "Power's section has no warning again" "4 0" power_shot_timeline
+  expect_poll "Power's section has no warning again" "complete 0" power_shot_timeline
   power_stop_mock "$power_profiles_pid"
   power_profiles_pid=""
   expect_poll "the stopped profiles mock leaves the bus" false power_bus_has org.freedesktop.UPower.PowerProfiles
@@ -6412,9 +6416,14 @@ power_shot_pane() { # MODE
   tree_rescan "a scan drops the idle stage owner fixtures"
 }
 # The timeline rows Power's section draws and how many of them warn.
-power_shot_timeline() { ipc smoke itemValues window vgs.power LinkText text,parent.parent.warning | py_reply 'import json,sys
+power_shot_timeline() {
+  local stages
+  stages="$(ipc smoke readInstance window vgs.power stages)" || return
+  ipc smoke itemValues window vgs.power LinkText text,parent.parent.warning | py_reply 'import json,sys
 rows = [r for r in json.load(sys.stdin) if "](page:" in r["text"]]
-print(len(rows), sum(r["parent.parent.warning"] != "" for r in rows))'; }
+stages = json.loads(sys.argv[1])
+print("complete" if stages and len(rows) == len(stages) else "incomplete", sum(r["parent.parent.warning"] != "" for r in rows))' "$stages"
+}
 power_shot_install() { [[ $(ipc smoke windowGeometry window vgs.power RowAction "Install power profiles") == \[* ]] && echo shown || echo hidden; }
 power_shot_panel() { [[ $(ipc smoke instanceGeometry panel vgs.power) != absent ]] && echo shown || echo hidden; }
 power_shot_level() { ipc smoke statusValues vgs.power | py_reply 'import json,sys; print(json.load(sys.stdin)["power"]["battery"]["level"])'; }

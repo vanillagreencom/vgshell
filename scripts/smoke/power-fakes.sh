@@ -140,3 +140,155 @@ json.dump(config, open(path + ".tmp", "w"), indent=2)
 os.replace(path + ".tmp", path)
 PY_STAGE
 }
+
+# The Power row and its screenshot scene share one inert logind transport.
+power_gdbus_stood=""
+power_gdbus_calls="$sandbox/power-gdbus.calls"
+power_set_hold="$sandbox/power-set.hold"
+power_set_held="$sandbox/power-set.held"
+power_set_release="$sandbox/power-set.release"
+power_set_refuse="$sandbox/power-set.refuse"
+power_set_refused="$sandbox/power-set.refused"
+power_prepare_sleep_1="$sandbox/power-prepare-sleep-1"
+power_prepare_sleep_2="$sandbox/power-prepare-sleep-2"
+power_prepare_sleep_signals="$sandbox/power-prepare-sleep.signals"
+power_sleep_replies="$sandbox/power-logind-replies"
+power_sleep_refuse="$sandbox/power-sleep.refuse"
+power_gdbus_saved=""
+
+power_stand() {
+  local name="$1"
+  if [[ -e $shim/$name ]]; then
+    case "$name" in
+      notify-send) power_notify_stood=yes ;;
+      gdbus) power_gdbus_stood=yes ;;
+    esac
+    sentinel_stand_over "$shim/$name"
+  else
+    case "$name" in
+      notify-send) power_notify_stood=no ;;
+      gdbus) power_gdbus_stood=no ;;
+    esac
+    cat >"$shim/$name" && chmod 755 "$shim/$name"
+  fi
+}
+
+power_restore_stand() {
+  if [[ $2 == yes ]]; then sentinel_restore "$shim/$1"; else power_unlink "$shim/$1"; fi
+}
+
+# Own only the private PATH link the harness created. Keep its exact link
+# value beside it; neither the acquisition nor restoration follows it.
+power_hide_gdbus() {
+  local real_gdbus
+  "$source_repo/scripts/smoke/gpu-fence.sh" --check || {
+    echo 'power: gdbus-path=world-unproved' >&2
+    return 1
+  }
+  real_gdbus="$(command -v gdbus)" || return
+  power_gdbus_saved="$(mktemp -d "$sandbox/power-gdbus.XXXXXX")" || return
+  python3 - "$sandbox" "$shell_host_path" "$power_gdbus_saved" "$real_gdbus" <<'PY_GDBUS_HIDE'
+import os, pathlib, sys
+root, host, saved, expected = map(pathlib.Path, sys.argv[1:])
+if root.resolve(strict=True) != root or host != root / "host-path" or host.resolve(strict=True) != host or saved.parent != root or saved.resolve(strict=True) != saved:
+    raise SystemExit("power: gdbus-path=outside-private-world")
+link = host / "gdbus"
+if not link.is_symlink() or os.readlink(link) != str(expected):
+    raise SystemExit("power: gdbus-path=unexpected-link")
+(saved / "target").write_text(os.readlink(link))
+os.rename(link, saved / "gdbus")
+PY_GDBUS_HIDE
+}
+
+power_restore_gdbus_path() {
+  [[ -n $power_gdbus_saved ]] || return 0
+  python3 - "$sandbox" "$shell_host_path" "$power_gdbus_saved" <<'PY_GDBUS_RESTORE' || return
+import os, pathlib, sys
+root, host, saved = map(pathlib.Path, sys.argv[1:])
+if root.resolve(strict=True) != root or host != root / "host-path" or host.resolve(strict=True) != host or saved.parent != root or saved.resolve(strict=True) != saved:
+    raise SystemExit("power: gdbus-restore=outside-private-world")
+link, held = host / "gdbus", saved / "gdbus"
+if not held.is_symlink() or os.readlink(held) != (saved / "target").read_text():
+    raise SystemExit("power: gdbus-restore=ownership-lost")
+if os.path.lexists(link):
+    raise SystemExit("power: gdbus-restore=destination-changed")
+# Hard-linking the symlink itself refuses an occupied destination.
+os.link(held, link, follow_symlinks=False)
+held.unlink()
+(saved / "target").unlink()
+saved.rmdir()
+PY_GDBUS_RESTORE
+  power_gdbus_saved=""
+}
+
+power_sleep_transport_ready() {
+  [[ ${shell_start_path%%:*} == "$shim" && -x $shim/gdbus && $(shell_resolves gdbus) == "$shim/gdbus" ]] || {
+    echo 'power: sleep-transport=not-owned' >&2
+    return 1
+  }
+}
+
+
+power_logind_start() {
+  local real_gdbus
+  power_hide_gdbus || return
+  real_gdbus="$(readlink -- "$power_gdbus_saved/gdbus")" || return
+  : >"$power_gdbus_calls" || return
+  mkdir -p -- "$power_sleep_replies" || return
+  printf 'yes\n' >"$power_sleep_replies/CanSuspend" || return
+  printf 'no\n' >"$power_sleep_replies/CanHibernate" || return
+  printf 'no\n' >"$power_sleep_replies/CanSuspendThenHibernate" || return
+  power_stand gdbus <<EOF_STAND || return
+#!/usr/bin/env bash
+python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "\$@" >>"$power_gdbus_calls"
+logind=false
+for word in "\$@"; do
+  case "\$word" in org.freedesktop.login1|org.freedesktop.login1.*|--dest=org.freedesktop.login1) logind=true ;; esac
+done
+if [[ \$logind == true ]]; then
+  if [[ \${1:-} == call ]]; then
+    method=""
+    for ((i=1; i<=\$#; i++)); do
+      if [[ \${!i} == --method ]]; then j=\$((i+1)); method="\${!j}"; break; fi
+    done
+    case "\$method" in
+      org.freedesktop.login1.Manager.CanSuspend|org.freedesktop.login1.Manager.CanHibernate|org.freedesktop.login1.Manager.CanSuspendThenHibernate)
+        read -r answer <"$power_sleep_replies/\${method##*.}" || exit 65
+        printf "('%s',)\\n" "\$answer"
+        exit 0 ;;
+      org.freedesktop.login1.Manager.Suspend|org.freedesktop.login1.Manager.Hibernate|org.freedesktop.login1.Manager.SuspendThenHibernate)
+        [[ \${!#} == false ]] || exit 64
+        [[ ! -e "$power_sleep_refuse" ]] || exit 1
+        echo '()'
+        exit 0 ;;
+      *) exit 64 ;;
+    esac
+  fi
+  [[ \${1:-} == monitor ]] || exit 64
+  echo 'Monitoring signals from all objects owned by org.freedesktop.login1'
+  while :; do
+    until [[ -e "$power_prepare_sleep_1" || -e "$power_prepare_sleep_2" ]]; do sleep 0.05; done
+    if [[ -e "$power_prepare_sleep_1" ]]; then trigger="$power_prepare_sleep_1"; else trigger="$power_prepare_sleep_2"; fi
+    rm -f -- "\$trigger"
+    echo '/org/freedesktop/login1: org.freedesktop.login1.Manager.PrepareForSleep (false,)'
+    printf 'power-resume-emission pid=%s ppid=%s trigger=%s\n' "\$\$" "\$PPID" "\${trigger##*/}" >>"$power_prepare_sleep_signals"
+  done
+fi
+if [[ " \$* " == *" org.freedesktop.DBus.Properties.Set "* && " \$* " == *" org.freedesktop.UPower.PowerProfiles "* ]]; then
+  if mv -T -- "$power_set_hold" "$power_set_held" 2>/dev/null; then
+    until [[ -e "$power_set_release" ]]; do sleep 0.05; done
+  elif mv -T -- "$power_set_refuse" "$power_set_refused" 2>/dev/null; then
+    exit 1
+  fi
+fi
+exec env DBUS_SYSTEM_BUS_ADDRESS="unix:path=$rt_dir/system-bus" "$real_gdbus" "\$@"
+EOF_STAND
+
+  power_sleep_transport_ready
+}
+
+power_logind_stop() {
+  [[ -n $power_gdbus_saved ]] || return 0
+  power_restore_stand gdbus "$power_gdbus_stood" || return
+  power_restore_gdbus_path
+}
