@@ -11,7 +11,7 @@
 # holds Plugin settings and, while vgs.system is enabled, System Settings,
 # each opening its window. The row ends with the plugin disabled and every
 # registration released.
-# inputs: shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Service.qml shell/plugins/vgs.system/manifest.json shell/plugins/vgs.system/Service.qml shell/plugins/vgs.updates/* shell/Ui/BarWidget.qml scripts/smoke/fixtures/plugins/acme.tui/* shell/Ui/layout/ListCursor.qml shell/Core/TuiRunner.qml shell/Core/ShortcutRegistry.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/PluginStatus.qml bin/vgshell-tui shell/Commons/DesktopLaunch.js scripts/smoke/rows/capabilities.sh scripts/smoke/rows/tui.sh shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js
+# inputs: shell/plugins/vgs.power/manifest.json shell/plugins/vgs.power/Service.qml shell/plugins/vgs.power/PowerLogic.js scripts/smoke/power-fakes.sh shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Service.qml shell/plugins/vgs.system/manifest.json shell/plugins/vgs.system/Service.qml shell/plugins/vgs.updates/* shell/Ui/BarWidget.qml scripts/smoke/fixtures/plugins/acme.tui/* shell/Ui/layout/ListCursor.qml shell/Core/TuiRunner.qml shell/Core/ShortcutRegistry.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/PluginStatus.qml bin/vgshell-tui shell/Commons/DesktopLaunch.js scripts/smoke/rows/capabilities.sh scripts/smoke/rows/tui.sh shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js
 set -euo pipefail
 launcher() { ipc vgs.launcher invoke "$1" "${2:-}"; }
 tui_fixture() { ipc acme.tui invoke "$1" "${2:-}"; }
@@ -218,6 +218,96 @@ expect_poll "the query searched the rows" True launcher_has_row action Reboot
 focused
 type_keys -k Escape -k Escape || fail "sending Escape failed"
 expect_poll "Escape clears the search, then closes" 0 layer_count vgs:overlay
+
+# Session sleep rows use Power's supported-method judgment, including
+# while its hibernate presence keeps an unsupported idle choice editable.
+# The shared inert transport is installed before Power can start.
+launcher_sleep_calls() {
+  py_reply 'import json,sys
+methods = {"org.freedesktop.login1.Manager." + name for name in ("Suspend", "Hibernate", "SuspendThenHibernate")}
+print(json.dumps([run for run in map(json.loads, sys.stdin) if any(word in methods for word in run)]))' <"$power_gdbus_calls"
+}
+launcher_sleep_rows() { launcher_rows | py_reply 'import json,sys; print(json.dumps([r[1] for r in json.load(sys.stdin) if r[0] == "plugin"]))'; }
+launcher_sleep_restore() {
+  expect "the sleep menu hides before restoration" ok ipc shell hide overlay vgs.launcher
+  expect "Power disables before its transport is restored" ok ipc shell setPluginEnabled vgs.power false
+  expect_poll "Power releases its service before transport restoration" False record_exists vgs.power
+  power_logind_stop
+  launcher_restore_shell_config sleep "session sleep"
+}
+launcher_sleep_menu() {
+  local suspend hibernate wanted
+  source "$repo/scripts/smoke/power-fakes.sh"
+  launcher_save_shell_config sleep
+  power_logind_start
+  smoke_row_abandon=(launcher_sleep_restore)
+  expect "the session sleep checks own the inert transport" ready power_sleep_transport_ready
+  cp -- "$power_gdbus_calls" "$sandbox/launcher-sleep-before-control"
+  mv -T -- "$shim/gdbus" "$power_gdbus_saved/override"
+  (
+    failures=0
+    expect "control: the missing transport refuses before session sleep" ready power_sleep_transport_ready
+    printf 'control-failures=%s\n' "$failures"
+  ) >"$sandbox/launcher-sleep-transport-control.log" 2>&1
+  mv -T -- "$power_gdbus_saved/override" "$shim/gdbus"
+  expect "the missing session sleep transport fails its fence once" 1 sed -n 's/^control-failures=//p' "$sandbox/launcher-sleep-transport-control.log"
+  if cmp -s -- "$power_gdbus_calls" "$sandbox/launcher-sleep-before-control"; then
+    ok "the missing session sleep transport makes no call"
+  else
+    fail "the missing session sleep transport changed the call log"
+  fi
+  power_sleep_transport_ready >/dev/null || return 1
+  expect "Power disables before session sleep configuration" ok ipc shell setPluginEnabled vgs.power false
+  python3 - "$launcher_shell_config" <<'PY_LAUNCHER_SLEEP'
+import json, os, sys
+path = sys.argv[1]
+with open(path) as source:
+    config = json.load(source)
+rows = config.setdefault("plugins", [])
+row = next((row for row in rows if row.get("id") == "vgs.power"), None)
+if row is None:
+    row = {"id": "vgs.power"}
+    rows.append(row)
+row.update(sleepAfterSeconds=0, displayOffSeconds=0, sleepAction="hibernate")
+with open(path + ".next", "w") as out:
+    json.dump(config, out)
+os.replace(path + ".next", path)
+PY_LAUNCHER_SLEEP
+  expect "the session sleep configuration reloads" ok ipc shell reloadConfig
+  expect_poll "the session sleep configuration settles" true ipc smoke configSettled
+  expect "Power enables with its inert transport" ok ipc shell setPluginEnabled vgs.power true
+  expect_poll "Power reads the saved Hibernate idle choice" '"hibernate"' ipc smoke readInstance service vgs.power sleepAction
+  expect_poll "Power leaves idle sleep disabled during launcher checks" 0 ipc smoke readInstance service vgs.power sleepAfterSeconds
+  expect "System opens with Power's Sleep category" ok ipc shell summon overlay vgs.launcher '{"menu":"system"}'
+  expect_poll "System lists the Sleep category" True launcher_has_row menu Sleep
+  expect "System has no static Sleep action" False launcher_has_row action Sleep
+  expect "System has no static Hibernate action" False launcher_has_row action Hibernate
+  while read -r suspend hibernate wanted; do
+    printf '%s\n' "$suspend" >"$power_sleep_replies/CanSuspend"
+    printf '%s\n' "$hibernate" >"$power_sleep_replies/CanHibernate"
+    expect "Power refreshes session sleep support ($suspend/$hibernate)" '' ipc smoke invokeInstance service vgs.power readSleepActions ''
+    expect "the session sleep provider opens ($suspend/$hibernate)" ok ipc shell summon overlay vgs.launcher '{"menu":"system.sleep"}'
+    expect_poll "the session sleep provider is selected" '"system.sleep"' read_launcher activeMenu
+    expect_poll "session sleep offers only yes methods ($suspend/$hibernate)" "$wanted" launcher_sleep_rows
+  done <<'LAUNCHER_SLEEP_CASES'
+yes no ["Sleep"]
+yes yes ["Sleep", "Hibernate"]
+challenge challenge []
+na na []
+LAUNCHER_SLEEP_CASES
+  printf 'yes\n' >"$power_sleep_replies/CanSuspend"
+  expect "Power refreshes Suspend for explicit Sleep" '' ipc smoke invokeInstance service vgs.power readSleepActions ''
+  expect_poll "Sleep stays available while saved Hibernate is unsupported" '["Sleep"]' launcher_sleep_rows
+  expect "an unsupported saved idle choice does not become a launcher request" '[]' launcher_sleep_calls
+  : >"$power_gdbus_calls"
+  focused "the explicit Sleep menu holds the keyboard"
+  type_keys -k Home -k Return || fail "activating the explicit Sleep row failed"
+  expect_poll "one explicit Sleep uses exactly one noninteractive Suspend request" '[["call", "--system", "--dest", "org.freedesktop.login1", "--object-path", "/org/freedesktop/login1", "--method", "org.freedesktop.login1.Manager.Suspend", "false"]]' launcher_sleep_calls
+  expect_poll "explicit Sleep closes the launcher" 0 layer_count vgs:overlay
+  launcher_sleep_restore
+  smoke_row_abandon=()
+}
+launcher_sleep_menu
 
 # The search is a text field: Ctrl+V and Shift+Insert paste the clipboard,
 # Left moves the caret inside the text, a middle click on the field pastes

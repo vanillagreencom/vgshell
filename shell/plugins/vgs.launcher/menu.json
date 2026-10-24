@@ -4,8 +4,6 @@
     "apps": { "icon": "layout-grid", "label": "Apps", "aliases": ["app", "applications"], "provider": "apps" },
     "system": { "icon": "power", "label": "System", "aliases": ["power-menu", "power"] },
     "system.lock": { "icon": "lock", "label": "Lock", "description": "Lock the session with the VGS lock screen", "requires": ["vgshell"], "run": ["vgshell", "lock"] },
-    "system.suspend": { "icon": "moon", "label": "Sleep", "requires": ["systemctl"], "run": ["systemctl", "suspend"] },
-    "system.hibernate": { "icon": "snowflake", "label": "Hibernate", "requires": ["systemctl"], "run": ["systemctl", "hibernate"] },
     "system.logout": { "icon": "log-out", "label": "Log out", "requires": ["loginctl"], "run": ["sh", "-c", "exec loginctl terminate-session ''"] },
     "system.reboot": { "icon": "rotate-ccw", "label": "Reboot", "requires": ["systemctl"], "run": ["vgshell", "power", "reboot"] },
     "system.shutdown": { "icon": "power-off", "label": "Shut down", "requires": ["systemctl"], "run": ["vgshell", "power", "poweroff"] },

@@ -131,6 +131,7 @@ Item {
         shell.shortcut.register("power-saver", "Use the power saver profile", () => root.setProfile("power-saver", true));
         shell.shortcut.register("balanced", "Use the balanced profile", () => root.setProfile("balanced", true));
         shell.shortcut.register("performance", "Use the performance profile", () => root.setProfile("performance", true));
+        shell.shortcut.register("sleep", "Put the computer to sleep", action => root.requestSleep(action));
         profileWatch.running = true;
         prepareForSleepWatch.running = true;
         shell.status.handleRefresh("sleepActions", () => { root.readSleepActions(); return "ok"; });
@@ -195,13 +196,13 @@ Item {
             if (!idle) root.sleepAttempted = false;
             else if (!root.sleepAttempted) {
                 root.sleepAttempted = true;
-                root.requestSleep();
+                root.requestSleep(root.sleepAction);
             }
         });
     }
 
-    function requestSleep() {
-        const method = Logic.sleepMethod(sleepAction, sleepAllowed);
+    function requestSleep(action) {
+        const method = Logic.sleepMethod(action, sleepAllowed);
         if (method === "") {
             report("sleepProblem", "The selected sleep action is not available on this computer.");
             return;
@@ -243,6 +244,11 @@ Item {
     function publishSleepActions() {
         if (shell === null) return;
         report("sleepActions", Logic.sleepChoices(sleepAllowed));
+        // Explicit launcher actions do not inherit the saved idle method.
+        report("sleepRows", [
+            { id: "suspend", label: "Sleep", icon: "moon" },
+            { id: "hibernate", label: "Hibernate", icon: "snowflake" }
+        ].filter(action => Logic.sleepMethod(action.id, sleepAllowed) !== ""));
         // This presence gates the same chooser in Power and Settings.
         // Keep an unsupported saved action editable without replacing it.
         const shown = sleepAllowed.hibernate === true || sleepAllowed["suspend-then-hibernate"] === true
@@ -600,7 +606,7 @@ Item {
             const code = root.codeOf(completion);
             if (code !== 0) {
                 console.warn("power: sleep request exit=" + code);
-                root.report("sleepProblem", "The computer could not sleep. VGS will try after your next idle period.");
+                root.report("sleepProblem", "The computer could not sleep.");
             }
         }
     }

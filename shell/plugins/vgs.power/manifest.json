@@ -253,6 +253,12 @@
     }
   },
   "menu": {
+    "system.sleep": {
+      "label": "Sleep",
+      "icon": "moon",
+      "provider": "sleepRows",
+      "shortcut": "sleep"
+    },
     "power-profile": {
       "label": "Power profile",
       "icon": "battery-medium"
@@ -277,6 +283,10 @@
     }
   },
   "status": {
+    "sleepRows": {
+      "type": "launcherRows",
+      "label": "Sleep actions"
+    },
     "hibernate": {
       "type": "presence",
       "label": "Hibernation",

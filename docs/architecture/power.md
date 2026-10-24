@@ -6,7 +6,7 @@ Read before touching the idle path, a stage of dim, screensaver, display off, lo
 
 The idle path is a set of stages. Each stage has one owner, and each owner holds its own watch on the core's idle source, `shell/Core/IdleRegistry.qml`, lent through capability `idle` ([D062](../decisions/D062-native-lock-and-polkit-plugins.md)). A watch counts from the later of the last input the seat saw and the watch's own creation, since Hyprland starts a notification's timer when the shell creates it. No owner reads another owner's setting, so any order of values has a defined result. `vgs.power` is the one energy plugin. The choice is [D109](../decisions/D109-idle-path-one-owner-per-stage.md).
 
-Today the code holds the idle source, the dim, the screensaver, the lock, the lock before sleep, display off, sleep after idle, disk sleep, wake sources and Wake on LAN. Every other row below is designed: the named child item adds its code and its pin, and until then no code holds it.
+Today the code holds the idle source, the dim, the screensaver, the lock, the lock before sleep, display off, sleep after idle, session Sleep and Hibernate actions, disk sleep, wake sources and Wake on LAN. Every other row below is designed: the named child item adds its code and its pin, and until then no code holds it.
 
 | Stage | Owner | What it does | State |
 |---|---|---|---|
@@ -19,7 +19,7 @@ Today the code holds the idle source, the dim, the screensaver, the lock, the lo
 | Display off | `vgs.power` | turns every panel off after idle, and sooner while locked | holds |
 | Sleep after idle | `vgs.power` | asks logind to suspend, hibernate or suspend then hibernate | holds |
 | Resume | `vgs.power` | turns the panels on and restarts its own watches after a wake from sleep | VGS-1906 |
-| Session Sleep and Hibernate actions | `vgs.power` | launcher rows, offered only while logind answers yes | VGS-1908 |
+| Session Sleep and Hibernate actions | `vgs.power` | launcher rows, offered only while logind answers yes | holds |
 | Power button and lid | logind, set by `vgs.power` through system steps | the action the key or the lid takes | VGS-1909 |
 | Wake sources | `vgs.power` through a system step and BlueZ | keyboards, pointers, the power button and USB connection changes can wake the machine | holds |
 | Wake on LAN | `vgs.power` through NetworkManager | on or off per wired connection | holds |
@@ -92,7 +92,7 @@ The power button and the lid must act while the shell is down: a laptop closed i
 
 - Do default sleep after idle to Never. `scripts/smoke/rows/power.sh` pins the disabled watch and absence of requests.
 - Do suspend and hibernate only through logind, so the lock's delay inhibitor and every block inhibitor apply. `scripts/smoke/rows/power.sh` pins the request through the shared stand-in in `scripts/smoke/power-fakes.sh`.
-- Do offer Hibernate and Suspend then hibernate only while logind answers yes. `scripts/test-power-logic.js` and `scripts/smoke/rows/power.sh` pin the setting choices. Launcher rows and key actions remain designed in VGS-1908.
+- Do offer Hibernate and Suspend then hibernate only while logind answers yes. `scripts/test-power-logic.js` and `scripts/smoke/rows/power.sh` pin the setting choices. `vgs.power` owns the dynamic Sleep and Hibernate rows under System > Sleep through its `launcherRows` provider, offering each only while logind answers yes. Both use the existing supported-method judge and request owner; explicit Sleep requests Suspend regardless of the saved idle choice. `scripts/smoke/rows/launcher.sh` checks these offers and one noninteractive Suspend request through the shared logind stand-in.
 - Never run a check that suspends or hibernates a real machine. Sandbox rows use a stand-in for logind, as `scripts/smoke/rows/lock.sh` does today. Review holds it.
 
 ### Keys, wake and storage
