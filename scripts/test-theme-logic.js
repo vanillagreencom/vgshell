@@ -1732,9 +1732,9 @@ for (const site of LED_LINES) {
 // A menu entry's icon, check mark and chevron take their top from inkTop,
 // which centres each glyph's ink through the title's placement.
 const menuItemSource = fs.readFileSync(path.join(repo, "shell/Ui/overlay/MenuItem.qml"), "utf8");
-const MENU_INK_TOP = /function inkTop\(glyph\) \{\s*const origin = contentItem\.y \+ title\.y;\s*return origin \+ title\.topForLeadingIcon\(glyph\.painted\[1\] \+ glyph\.painted\[3\], origin\);/;
+const MENU_INK_TOP = /readonly property real firstLineCentre: contentItem\.y \+ title\.y \+ title\.leadingIconCentre\r?\n[\s\S]*?function inkTop\(glyph\) \{\s*return title\.leadingIconTop\(glyph\.painted\[1\] \+ glyph\.painted\[3\], 0, firstLineCentre\);/;
 assert.match(menuItemSource, MENU_INK_TOP, "menu entry glyphs use the shared label placement");
-assert.doesNotMatch(menuItemSource.replace("title.topForLeadingIcon(glyph.painted[1] + glyph.painted[3], origin)", "title.capCentre - (glyph.painted[1] + glyph.painted[3]) / 2"), MENU_INK_TOP,
+assert.doesNotMatch(menuItemSource.replace("title.leadingIconTop(glyph.painted[1] + glyph.painted[3], 0, firstLineCentre)", "title.capCentre - (glyph.painted[1] + glyph.painted[3]) / 2"), MENU_INK_TOP,
     "control: menu entry glyphs placed on the capital centre must fail the check");
 
 // The launcher flyout's icon box reads its entry text through a Label that
