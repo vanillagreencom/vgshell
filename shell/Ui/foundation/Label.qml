@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import "LineBreak.js" as LineBreak
 
 // Text in one typography role of the theme: `role` names a group of
 // `Theme.text`, and the family, size, weight, letter spacing, line height,
@@ -46,10 +47,14 @@ import qs.Commons
 // `lastBaseline()` is the last line's baseline from the label top: lines
 // of one label share one line box, so it is the first one
 // `baselineOffset` places, moved down by every line box but the last.
+// `spaceWrappedText`, when set, is the plain value drawn broken only at
+// spaces. Label re-breaks it when the value, width or font changes; the
+// caller keeps the plain value for its accessible name.
 Text {
     id: root
 
     property string role: "body"
+    property var spaceWrappedText: null
     readonly property var typography: typographyOf(role)
     readonly property real fontHeight: metrics.height
     readonly property real lineBox: Math.max(Math.round(typography.size * typography.lineHeight), Math.ceil(fontHeight))
@@ -75,6 +80,22 @@ Text {
     font.capitalization: typography.uppercase ? Font.AllUppercase : Font.MixedCase
     lineHeight: lineBox > fontHeight ? lineBox : 1
     lineHeightMode: lineBox > fontHeight ? Text.FixedHeight : Text.ProportionalHeight
+
+    // Assign from handlers: atSpaces writes the measuring text, so a
+    // binding would read its own writes (Quickshell 0.3.1 QML language:
+    // https://quickshell.org/docs/v0.3.1/guide/qml-language).
+    function breakLines() {
+        if (spaceWrappedText !== null) text = LineBreak.atSpaces(spaceWrappedText, width, lineMetrics);
+    }
+    onSpaceWrappedTextChanged: breakLines()
+    onWidthChanged: breakLines()
+    Component.onCompleted: breakLines()
+
+    TextMetrics {
+        id: lineMetrics
+        font: root.font
+        onFontChanged: root.breakLines()
+    }
 
     function capTop() {
         return baselineOffset - metrics.capitalHeight;
