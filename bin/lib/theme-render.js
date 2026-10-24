@@ -860,10 +860,12 @@ function kittyColors(logic, tokens, input) {
     return colors;
 }
 
-// tmux styles carry roles rather than server-side RGB values: default
-// follows the attached terminal's page/text, and reverse uses its page as
-// the text on a palette-slot fill. Hue selection excludes unreadable slots.
-function tmuxColors(logic, input) {
+// tmux keeps native palette fields and ordinary package roles client-relative.
+// The two preview-authoritative packages fix only their four status roles.
+// Default follows the client page/text; reverse uses that page as label text.
+function tmuxColors(logic, tokens, input) {
+    if (typeof input.name !== "string" || input.name === "")
+        throw new Error("theme-render: tmux rendered without the package identity");
     const background = logic.parseColor(input.values.palette.background);
     const colors = {
         "color.background": "default", "color.surfaceRaised": "default", "color.text": "default",
@@ -889,17 +891,35 @@ function tmuxColors(logic, input) {
     // Channel-distance floor from tmp/tmux-block-role-probe.json, 2026-10-07.
     const separation = color => 255 * Math.hypot(color.r - active.r, color.g - active.g, color.b - active.b);
     const distinct = color => separation(color) >= 55.65;
-    if (readable(inactive) && distinct(inactive)) return { ...colors, "color.textMuted": "colour8", "tmux.inactive_foreground": "colour8" };
     const muted = logic.parseColor(input.values.color.textMuted);
-    let chosen = null, distance = Infinity;
-    for (const [index, name] of logic.terminalSlotNames().entries()) {
-        const candidate = logic.parseColor(input.slots[name]);
-        if (!readable(candidate) || !distinct(candidate)) continue;
-        const next = (candidate.r - muted.r) ** 2 + (candidate.g - muted.g) ** 2 + (candidate.b - muted.b) ** 2;
-        if (next < distance) { chosen = index; distance = next; }
+    let chosen = 8;
+    if (!readable(inactive) || !distinct(inactive)) {
+        chosen = null;
+        let distance = Infinity;
+        for (const [index, name] of logic.terminalSlotNames().entries()) {
+            const candidate = logic.parseColor(input.slots[name]);
+            if (!readable(candidate) || !distinct(candidate)) continue;
+            const next = (candidate.r - muted.r) ** 2 + (candidate.g - muted.g) ** 2 + (candidate.b - muted.b) ** 2;
+            if (next < distance) { chosen = index; distance = next; }
+        }
     }
     if (chosen === null) throw new Error("theme-render: tmux has no readable, distinct inactive colour");
-    return { ...colors, "color.textMuted": "colour" + chosen, "tmux.inactive_foreground": "colour" + chosen };
+    colors["color.textMuted"] = "colour" + chosen;
+    colors["tmux.session"] = colors["bar.active"];
+    colors["tmux.current_foreground"] = colors["color.info"];
+    colors["tmux.inactive_foreground"] = colors["color.textMuted"];
+    colors["tmux.status_foreground"] = colors["color.textMuted"];
+    // These preview-authoritative status roles stay fixed over SSH. Moon's
+    // inactive role uses the shared authored success, without changing its palette.
+    if (input.name === "vgs" || input.name === "rose-pine-moon") {
+        const moon = input.name === "rose-pine-moon";
+        const rgb = value => "#" + hex6(value, input.values.color.background);
+        colors["tmux.session"] = rgb(moon ? input.values.palette.danger : input.values.bar.active);
+        colors["tmux.current_foreground"] = rgb(moon ? input.slots.color2 : input.values.color.info);
+        colors["tmux.inactive_foreground"] = rgb(moon ? tokens.palette.success.value : input.values.color.textMuted);
+        colors["tmux.status_foreground"] = rgb(input.values.color.textMuted);
+    }
+    return colors;
 }
 
 // Each stack is ordered from the page upward. One scale applies to every
@@ -987,7 +1007,7 @@ function editorHighlightTemplate(logic, input, text) {
 
 // Render every file of an accepted TARGET. TEMPLATES maps each template name
 // the target names to its text. INPUT carries the package's resolved token
-// `values`, the terminal `slots` terminalSource chose, `curated`, a Map
+// `values`, its existing package `name`, the terminal `slots` terminalSource chose, `curated`, a Map
 // from destination to the bytes of the package's `targets/<destination>`,
 // `installed`, true for a package under the configuration home's
 // themes/ and false for a shipped one, and `terminalFont`, the user's
@@ -1014,7 +1034,7 @@ function renderTarget(logic, tokens, target, templates, input) {
     const selection = selectValues(logic, tokens, target, input);
     if (selection !== undefined && !selection.ok) return selection;
     if (target.name === "kitty") input = { ...input, targetColors: kittyColors(logic, tokens, input) };
-    if (target.name === "tmux") input = { ...input, targetColors: tmuxColors(logic, input) };
+    if (target.name === "tmux") input = { ...input, targetColors: tmuxColors(logic, tokens, input) };
     const encode = hex => ENCODERS[target.encoder](hex, input.values.color.background, logic, input);
     const rendered = new Map();
     const dropped = [];

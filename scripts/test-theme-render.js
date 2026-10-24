@@ -2003,7 +2003,7 @@ function verifyTmuxPalette(template, render = selectionRender) {
     for (const { pkg, shipped } of selectionPackages) {
         const slots = render.terminalSource(pkg, selectionDefaults).terminal;
         const rendered = render.renderTarget(logic, TOKENS, tmuxPaletteTarget.target,
-            new Map([["tmux.conf", template]]), { values: pkg.values, slots, curated: new Map(), installed: !shipped });
+            new Map([["tmux.conf", template]]), { name: pkg.name, values: pkg.values, slots, curated: new Map(), installed: !shipped });
         assert.equal(rendered.ok, true);
         const output = rendered.files.find(file => file.destination === "tmux.conf").bytes.toString("utf8");
         const fields = new Map([...output.matchAll(/^set -gq ((?:dark|light)-theme-[a-z-]+) "(colour(?:[0-9]|1[0-5])|default)"$/gim)]
@@ -2012,7 +2012,6 @@ function verifyTmuxPalette(template, render = selectionRender) {
             const key = `${mode}-theme-${name}`, actual = fields.get(key) ?? null, expected = `colour${slot.slice("color".length)}`;
             if (actual !== expected) failures.push({ package: pkg.name, key, role: `terminal.${slot}`, actual, expected });
         }
-        assert.doesNotMatch(output, /#[0-9a-f]{6}/i, pkg.name + "/tmux hex colour");
         const page = tmuxStyle(output, "status-style");
         assert.deepEqual(page, { bg: "default", fg: "default" }, pkg.name + "/client page and text");
         for (const option of ["message-style", "menu-style", "popup-style"]) {
@@ -2031,6 +2030,7 @@ function verifyTmuxPalette(template, render = selectionRender) {
             assert.equal(/^set -g clock-mode-colour "([^"]+)"$/m.exec(output)[1], expectedAccent, pkg.name + "/accent hue");
         const slotColor = (name, role) => {
             if (name === "default") return pkg.values.palette[role === "fg" ? "foreground" : "background"];
+            if (/^#[0-9a-f]{6}$/.test(name)) return name;
             const match = /^colour(1[0-5]|[0-9])$/.exec(name);
             assert.ok(match, pkg.name + "/tmux colour slot " + name);
             return slots[`color${match[1]}`];
@@ -2043,8 +2043,10 @@ function verifyTmuxPalette(template, render = selectionRender) {
                 continue;
             }
             const assignments = [...value.matchAll(/\b(?:fg|bg)=/g)].length;
-            const colors = [...value.matchAll(/\b(?:fg|bg)=(colour(?:1[0-5]|[0-9])|default)\b/g)];
-            assert.equal(colors.length, assignments, pkg.name + "/" + option + " colour values use terminal slots");
+            const fixed = ["vgs", "rose-pine-moon"].includes(pkg.name) &&
+                ["status-left-style", "status-right-style", "window-status-style", "window-status-current-style"].includes(option);
+            const pattern = fixed ? /\b(?:fg|bg)=(colour(?:1[0-5]|[0-9])|default|#[0-9a-f]{6})\b/g : /\b(?:fg|bg)=(colour(?:1[0-5]|[0-9])|default)\b/g;
+            assert.equal([...value.matchAll(pattern)].length, assignments, pkg.name + "/" + option + " supported colour values");
             if (option.includes("border")) continue;
             const style = Object.fromEntries(value.split(",").map(part => part.includes("=") ? part.split("=") : [part, true]));
             const foreground = logic.parseColor(slotColor(style.fg ?? "default", "fg"));
@@ -2968,7 +2970,7 @@ function verifyAppStyles(render, changedTemplates = {}) {
         const original = JSON.stringify({ values: pkg.values, slots: pkg.terminal });
         const rendered = Object.fromEntries(Object.entries(targets).map(([app, data]) => {
             const result = render.renderTarget(logic, TOKENS, data.target, data.templates,
-                { values: pkg.values, slots: pkg.terminal, curated: new Map(), installed: name !== "vgs" });
+                { name: pkg.name, values: pkg.values, slots: pkg.terminal, curated: new Map(), installed: name !== "vgs" });
             assert.equal(result.ok, true);
             return [app, result.files[0].bytes.toString("utf8")];
         }));
@@ -2998,9 +3000,11 @@ function verifyAppStyles(render, changedTemplates = {}) {
         const active = tmuxStyle(rendered.tmux, "window-status-current-style");
         const inactive = tmuxStyle(rendered.tmux, "window-status-style");
         const right = tmuxStyle(rendered.tmux, "status-right-style");
-        assert.deepEqual(right, { fg: inactive.fg }, name + "/right content uses the readable muted role");
+        const fixedStatus = name === "vgs" || name === "rose-pine-moon";
+        assert.deepEqual(right, { fg: fixedStatus ? pkg.values.color.textMuted.slice(0, 7) : inactive.fg }, name + "/right content uses the readable muted role");
         const slotColor = (value, role = "fg") => {
             if (value === "default" || value === undefined) return pkg.values.palette[role === "fg" ? "foreground" : "background"];
+            if (/^#[0-9a-f]{6}$/.test(value)) return value;
             const match = /^colour(1[0-5]|[0-9])$/.exec(value);
             assert.ok(match, name + "/tmux colour slot " + value);
             return pkg.terminal[`color${match[1]}`];
@@ -3009,7 +3013,7 @@ function verifyAppStyles(render, changedTemplates = {}) {
         assert.equal(status.fg, "default", name + "/terminal text");
         assert.equal(active.bg, status.bg);
         assert.equal(inactive.bg, status.bg);
-        assert.match(session.fg, /^colour(?:1[0-5]|[0-9])$/);
+        assert.match(session.fg, fixedStatus ? /^#[0-9a-f]{6}$/ : /^colour(?:1[0-5]|[0-9])$/);
         assert.equal(session.reverse, true);
         assert.equal(session.bg, undefined);
         assert.equal(active.bold, true);
@@ -3024,13 +3028,13 @@ function verifyAppStyles(render, changedTemplates = {}) {
             const style = Object.fromEntries(value.split(",").map(part => part.includes("=") ? part.split("=") : [part, true]));
             const ratio = logic.contrastRatio(logic.parseColor(slotColor(style.fg)), logic.parseColor(slotColor(style.bg, "bg")));
             assert.deepEqual(ratio < 4.5 ? [{ kind: "app-style-contrast", theme: name, role: option, ratio, floor: 4.5 }] : [], []);
-            if (option === "copy-mode-line-number-style") assert.equal(style.fg, inactive.fg, name + "/muted and inactive share their readable dim slot");
+            if (option === "copy-mode-line-number-style" && !fixedStatus) assert.equal(style.fg, inactive.fg, name + "/muted and inactive share their readable dim slot");
         }
         const separation = channelSeparation(slotColor(active.fg), slotColor(inactive.fg));
         assert.ok(separation >= 55.65, name + "/inactive RGB separation=" + separation);
         const old = "colour8";
         const oldRatio = logic.contrastRatio(logic.parseColor(pkg.terminal.color8), logic.parseColor(slotColor(status.bg, "bg")));
-        if (oldRatio >= 4.5 && channelSeparation(pkg.terminal.color8, slotColor(active.fg)) >= 55.65) {
+        if (!fixedStatus && oldRatio >= 4.5 && channelSeparation(pkg.terminal.color8, slotColor(active.fg)) >= 55.65) {
             assert.equal(inactive.fg, old, name + "/preserve distinct readable inactive text");
         }
         metrics.push({ name, background: bg, session, active, inactive, ratios, separation, preserved: inactive.fg === old,
@@ -3813,8 +3817,8 @@ try {
 console.log(`test-theme-render: ghostty-faint packages=${appStyleMetrics.length} opacity=0.8 controls=default,absent,normal-foreground,invalid-color model=full-coverage-linear comparisons=${ghosttyFaintModels.length} normal=source-unchanged`);
 const tmuxTemplate = fs.readFileSync(path.join(repo, "themes/targets/tmux/tmux.conf"), "utf8");
 const styleControls = [
-    ["muted right content", 'set -g status-right-style "fg=@{color.textMuted}"', '# set -g status-right-style "fg=@{color.textMuted}"\nset -gqu status-right-style'],
-    ["session uses reverse", 'set -g status-left-style "fg=@{bar.active},reverse,bold"', 'set -g status-left-style "fg=@{bar.active},bold"'],
+    ["muted right content", 'set -g status-right-style "fg=@{tmux.status_foreground}"', '# set -g status-right-style "fg=@{tmux.status_foreground}"\nset -gqu status-right-style'],
+    ["session uses reverse", 'set -g status-left-style "fg=@{tmux.session},reverse,bold"', 'set -g status-left-style "fg=@{tmux.session},bold"'],
     ["terminal page", 'set -g status-style "bg=@{color.background}', 'set -g status-style "bg=@{palette.accent}'],
     ["active tab remains unfilled", 'set -g window-status-current-style "bg=@{color.background}', 'set -g window-status-current-style "bg=@{palette.accent}'],
     ["unreadable menu text", 'set -gq menu-style "bg=@{color.surfaceRaised},fg=@{color.text}"', 'set -gq menu-style "bg=@{palette.accent},fg=@{palette.accent}"']
