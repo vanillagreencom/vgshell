@@ -106,9 +106,8 @@ ORCH_REPORT_QUIET_HOURS = "0-7"
 # flight. Owner Slack 1792275992 (2026-10-17): 16 lanes.
 ORCH_OVERSEER_LANES = "16"
 
-# Successor overseer order for oversee-succeed, as harness:rank:effort on the
-# tier ladder: top Claude tier, top Codex tier, then the second tier of each.
-ORCH_OVERSEER_PREFERENCE = "claude:claude-opus-5-5:high,codex:gpt-6.1-sol:high"
+# Overseer provider order, using the shared model class at medium effort.
+ORCH_OVERSEER_PREFERENCE = "claude:standard:medium,codex:standard:medium"
 ORCH_HANDOFF_HEADROOM_PCT = "3"
 ORCH_LANE_MAX_PCT = "95"
 ORCH_LANE_CODEX_CREDIT_FLOOR = "0"
