@@ -515,6 +515,53 @@ power_sleep_after_idle() {
     expect "$action uses its exact noninteractive logind method" "[[\"call\", \"--system\", \"--dest\", \"org.freedesktop.login1\", \"--object-path\", \"/org/freedesktop/login1\", \"--method\", \"org.freedesktop.login1.Manager.$method\", \"false\"]]" power_sleep_calls
     expect "the $action watch stops between cases" ok power_idle_set vgs.power sleepAfterSeconds 0
   done
+  # A saved method can outlive its capability. Both existing field owners
+  # must keep that choice repairable without choosing a substitute.
+  for action in hibernate suspend-then-hibernate; do
+    expect "the supported $action is saved before capability loss" ok power_idle_set vgs.power sleepAction "\"$action\""
+    printf 'no\n' >"$power_sleep_replies/CanHibernate"
+    printf 'no\n' >"$power_sleep_replies/CanSuspendThenHibernate"
+    expect "the existing choices refresh reads $action capability loss" ok ipc smoke invokeInstanceArgs window vgs.settings refreshChoices '{"args":["vgs.power","sleepActions"]}'
+    expect_poll "only Suspend is supported after $action capability loss" '["suspend"]' power_sleep_choices
+    expect "capability loss preserves the saved $action" "\"$action\"" power_setting sleepAction
+    expect_poll "Settings keeps the unsupported $action repairable" shown power_sleep_field vgs.settings sleepAction
+    expect "the pane opens on the unsupported $action" ok ipc shell summon window vgs.system '{"pane":"vgs.power"}'
+    expect_poll "the pane keeps the unsupported $action repairable" shown power_sleep_field vgs.power sleepAction
+    expect "the pane hides before the unsupported $action idle period" ok ipc shell hide window vgs.system
+    : >"$power_gdbus_calls"
+    type_keys -k Shift_L || fail "the unsupported $action period's nested input failed"
+    expect "the unsupported $action idle period starts" ok power_idle_set vgs.power sleepAfterSeconds 2
+    expect_poll "the unsupported $action publishes a plain refusal" reported power_sleep_problem
+    expect "no method substitutes for the unsupported $action" 0 power_sleep_no_call_for 2500
+    expect "the refused $action remains saved" "\"$action\"" power_setting sleepAction
+    expect "Never stops the unsupported $action period" ok power_idle_set vgs.power sleepAfterSeconds 0
+    if [[ $action == hibernate ]]; then
+      expect "the pane opens to repair the unsupported $action" ok ipc shell summon window vgs.system '{"pane":"vgs.power"}'
+      power_pane_pick "Sleep action" Select "Sleep action (unavailable)" || fail "the unsupported $action chooser does not open in the pane"
+      expect_poll "the pane's existing sleep chooser opens" True power_pane_list_open
+    else
+      expect "the pane opens beside Settings' repair" ok ipc shell summon window vgs.system '{"pane":"vgs.power"}'
+      expect "Settings opens to repair the unsupported $action" ok ipc shell summon window vgs.settings '{"plugin":"vgs.power","tab":"Settings"}'
+      power_revealed "$(ipc smoke revealScopedText window vgs.settings Field "Sleep action" Select "Sleep action (unavailable)")" || fail "Settings does not reveal the unsupported $action chooser"
+      click_scoped_in "window:Plugins" window vgs.settings Field "Sleep action" Select "Sleep action (unavailable)" || fail "the unsupported $action chooser does not open in Settings"
+      expect_poll "Settings' existing sleep chooser opens" true ipc smoke readMatchingDescendant window vgs.settings Select currentText "Sleep action (unavailable)" listOpen
+    fi
+    type_keys -k Home -k Return || fail "the explicit supported sleep choice failed"
+    expect_poll "the explicit choice replaces $action with Suspend" '"suspend"' power_setting sleepAction
+    expect_poll "Settings hides the repaired supported sleep choice" hidden power_sleep_field vgs.settings sleepAction
+    expect_poll "the pane hides the repaired supported sleep choice" hidden power_sleep_field vgs.power sleepAction
+    expect "the pane hides before the repaired sleep period" ok ipc shell hide window vgs.system
+    : >"$power_gdbus_calls"
+    type_keys -k Shift_L || fail "the repaired $action period's nested input failed"
+    expect "the explicitly repaired sleep period starts" ok power_idle_set vgs.power sleepAfterSeconds 2
+    expect_poll "the explicit supported repair makes one request" 1 power_sleep_count
+    expect "the explicit repair requests only noninteractive Suspend" '[["call", "--system", "--dest", "org.freedesktop.login1", "--object-path", "/org/freedesktop/login1", "--method", "org.freedesktop.login1.Manager.Suspend", "false"]]' power_sleep_calls
+    expect "Never stops the repaired sleep period" ok power_idle_set vgs.power sleepAfterSeconds 0
+    printf 'yes\n' >"$power_sleep_replies/CanHibernate"
+    printf 'yes\n' >"$power_sleep_replies/CanSuspendThenHibernate"
+    expect "the existing refresh restores supported sleep choices" ok ipc smoke invokeInstanceArgs window vgs.settings refreshChoices '{"args":["vgs.power","sleepActions"]}'
+    expect_poll "the stand-in supports all sleep actions again" '["suspend", "hibernate", "suspend-then-hibernate"]' power_sleep_choices
+  done
   : >"$power_sleep_refuse"
   expected_errors+=('power: sleep request exit=1$')
   : >"$power_gdbus_calls"

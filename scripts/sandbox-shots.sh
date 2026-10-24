@@ -6408,6 +6408,26 @@ power_shot_pane() { # MODE
   tree_rescan "a scan finds the profiles service again"
   expect_poll "Power's service reads the profiles service again" True power_shot_profiles
   power_shot_pages "$1" ""
+  expect "Settings opens for the saved sleep choice" ok ipc shell summon window vgs.settings '{"plugin":"vgs.power","tab":"Settings"}'
+  expect "the shot saves a supported Hibernate choice" ok ipc smoke invokeInstanceArgs window vgs.settings writeSetting '{"args":["vgs.power","sleepAction","hibernate"]}'
+  printf 'no\n' >"$power_sleep_replies/CanHibernate"
+  printf 'no\n' >"$power_sleep_replies/CanSuspendThenHibernate"
+  expect "the shot refreshes the lost hibernation capabilities" ok ipc smoke invokeInstanceArgs window vgs.settings refreshChoices '{"args":["vgs.power","sleepActions"]}'
+  expect_poll "Settings preserves the unavailable saved sleep choice" '"Sleep action (unavailable)"' ipc smoke readMatchingDescendant window vgs.settings Select currentText "Sleep action (unavailable)" currentText
+  power_revealed "$(ipc smoke revealScopedText window vgs.settings Field "Sleep action" Select "Sleep action (unavailable)")" || fail "Settings does not reveal its sleep repair"
+  park_pointer
+  take "power-$1-page-sleep-unavailable"
+  expect "Power's pane opens for the saved sleep choice" ok ipc shell summon window vgs.system '{"pane":"vgs.power"}'
+  expect_poll "the pane preserves the unavailable saved sleep choice" '"Sleep action (unavailable)"' ipc smoke readMatchingDescendant window vgs.power Select currentText "Sleep action (unavailable)" currentText
+  power_revealed "$(ipc smoke revealScopedText window vgs.system Field "Sleep action" Select "Sleep action (unavailable)")" || fail "the pane does not reveal its sleep repair"
+  park_pointer
+  take "power-$1-pane-sleep-unavailable"
+  expect "the pane hides after the saved sleep choice shot" ok ipc shell hide window vgs.system
+  expect "the shot explicitly restores its supported sleep choice" ok ipc smoke invokeInstanceArgs window vgs.settings writeSetting '{"args":["vgs.power","sleepAction","suspend"]}'
+  printf 'yes\n' >"$power_sleep_replies/CanHibernate"
+  printf 'yes\n' >"$power_sleep_replies/CanSuspendThenHibernate"
+  expect "the shot refreshes its restored sleep capabilities" ok ipc smoke invokeInstanceArgs window vgs.settings refreshChoices '{"args":["vgs.power","sleepActions"]}'
+  settings_close
   expect "Power's section's wired fake devices go" ok python3 "$repo/scripts/smoke/fixtures/devices/network.py" "unix:path=$rt_dir/system-bus" unwired
   expect "disabling vgs.system after Power's section is allowed" ok ipc shell setPluginEnabled vgs.system false
   expect "the dim owner fixture disables" ok ipc shell setPluginEnabled acme.power-dim false

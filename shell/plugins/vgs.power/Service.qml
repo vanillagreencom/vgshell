@@ -45,6 +45,7 @@ Item {
     property var displayOffDisposer: null
     property var lockedDisplayOffDisposer: null
     readonly property int sleepAfterSeconds: shell === null ? 0 : shell.settings.sleepAfterSeconds
+    readonly property string sleepAction: shell === null ? "suspend" : shell.settings.sleepAction
     property var sleepDisposer: null
     property bool sleepAttempted: false
     property var sleepAllowed: ({})
@@ -159,6 +160,7 @@ Item {
     }
     onLockedChanged: watchLockedDisplayOff()
     onSleepAfterSecondsChanged: watchSleep()
+    onSleepActionChanged: publishSleepActions()
 
     // As vgs.lock's watchIdle: dispose before replacing. The core owns
     // each watch through this instance's lifetime. Hyprland starts its
@@ -199,7 +201,7 @@ Item {
     }
 
     function requestSleep() {
-        const method = Logic.sleepMethod(shell.settings.sleepAction, sleepAllowed);
+        const method = Logic.sleepMethod(sleepAction, sleepAllowed);
         if (method === "") {
             report("sleepProblem", "The selected sleep action is not available on this computer.");
             return;
@@ -239,8 +241,13 @@ Item {
     }
 
     function publishSleepActions() {
+        if (shell === null) return;
         report("sleepActions", Logic.sleepChoices(sleepAllowed));
-        report("hibernate", sleepAllowed.hibernate === true || sleepAllowed["suspend-then-hibernate"] === true ? "present" : "absent");
+        // This presence gates the same chooser in Power and Settings.
+        // Keep an unsupported saved action editable without replacing it.
+        const shown = sleepAllowed.hibernate === true || sleepAllowed["suspend-then-hibernate"] === true
+            || Logic.sleepMethod(sleepAction, sleepAllowed) === "";
+        report("hibernate", shown ? "present" : "absent");
     }
 
     function resumeFromSleep(line) {
