@@ -2277,12 +2277,14 @@ for calendar_case in first first-unguarded; do
   fi
   stop_shell
 done
+# Button's content starts after leftPadding. Cancel that inset and the
+# glyph bearing to put the horizontal control's ink at the square's edge.
 # The centring's controls: a number drawn from its square's left edge
 # reads off centre across, and one drawn from its top edge reads off
 # centre down, for one-digit and two-digit days alike.
 for calendar_case in left top; do
   case "$calendar_case" in
-    left) calendar_old='x: Math.round(parent.width / 2 - ink.tightBoundingRect.x - ink.tightBoundingRect.width / 2)'; calendar_new='x: 0'; calendar_axis=0 ;;
+    left) calendar_old='x: Math.round(parent.width / 2 - ink.tightBoundingRect.x - ink.tightBoundingRect.width / 2)'; calendar_new='x: -cell.leftPadding - ink.tightBoundingRect.x'; calendar_axis=0 ;;
     top) calendar_old='y: Math.round(parent.height / 2 - baselineOffset - ink.tightBoundingRect.y - ink.tightBoundingRect.height / 2)'; calendar_new='y: 0'; calendar_axis=1 ;;
   esac
   copy_tree "calendar-$calendar_case" \
