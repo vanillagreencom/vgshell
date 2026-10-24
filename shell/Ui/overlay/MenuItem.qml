@@ -12,8 +12,9 @@ import qs.Ui
 // centres its capitals on the entry, as a button's label does, since a
 // line box's centre lies below its capitals' centre; a
 // wrapped entry keeps its first line where a one-line entry's stands, with
-// its icon, shortcut and check mark on its text's reading centre, and as much room under its
-// last line. Both draw in the menu's own roles, a pixel under a list row's.
+// its icon, shortcut and check mark on its text's reading centre, and as
+// much room under its last line. Both draw in the menu's own roles, a pixel
+// under a list row's.
 // The accessible name is the plain text. The template owns the click,
 // `triggered` and the hover; the
 // menu sets `highlighted` for the keyboard. `shortcut` is a hint drawn
@@ -60,10 +61,7 @@ T.MenuItem {
     // The centre of the first line from the entry's top, where a control
     // drawn beside the text centres. Label chooses the reading from its
     // text and case, shared by the shortcut, marks and select action.
-    readonly property real firstLineCentre: {
-        const origin = contentItem.y + title.y;
-        return origin + title.topForLeadingIcon(0, origin);
-    }
+    readonly property real firstLineCentre: contentItem.y + title.y + title.leadingIconCentre
     // Under a rounded theme the side padding grows until the content
     // clears the drawn corner.
     readonly property real sidePadding: Theme.controlPadding(Theme.menu.item.paddingX, Theme.menu.item.radius, Math.max(Theme.menu.item.height, height), implicitContentHeight)
