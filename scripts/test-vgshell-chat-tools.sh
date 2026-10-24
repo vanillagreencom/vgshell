@@ -222,7 +222,7 @@ tmux_options() {
 user_left='#[fg=black,bg=blue,bold] #S #[bg=default] '
 tmux_own=$'set -g mouse on\nset -g status-left "'"$user_left"$'"\nset -g status-right-length 40'
 tmux_line="source-file -q '$live/tmux.conf'"
-theme_reads=$'fg=colour4,reverse,bold\n #S  '
+theme_reads=$'fg=colour4,bg=default,reverse,bold\n #S  '
 printf '%s\n' "$tmux_own" >"$tmp/home/.tmux.conf"
 tinst "Flexoki Light installs from the catalog" "$cfg" "$rt_empty" 0 "ok installed=flexoki-light path=$cfg/vgshell/themes/flexoki-light" "" theme install flexoki-light
 # Controls: the target without fallbacks and last skips a ~/.tmux.conf

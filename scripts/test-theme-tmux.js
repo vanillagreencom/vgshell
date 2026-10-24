@@ -74,7 +74,7 @@ const template = fs.readFileSync(process.argv[2] ?? path.join(targetDir, "tmux.c
 
 const rendered = (text, theme = pkg) => {
     const result = render.renderTarget(logic, TOKENS, judged.target, new Map([["tmux.conf", text]]),
-        { values: theme.values, slots: render.terminalSource(theme, theme).terminal, curated: new Map(), installed: false });
+        { name: theme.name, values: theme.values, slots: render.terminalSource(theme, theme).terminal, curated: new Map(), installed: false });
     assert.equal(result.ok, true, result.ok ? "" : render.refusalLine("tmux", result));
     return result.files[0].bytes.toString("utf8");
 };
@@ -82,21 +82,23 @@ const assertSlotColors = (output, label) => {
     const color = value => {
         assert.match(value, /^(?:colour(?:1[0-5]|[0-9])|default)$/, `${label}: terminal colour ${value}`);
     };
-    assert.doesNotMatch(output, /#[0-9a-f]{6}/i, `${label}: no rendered hex colors`);
     for (const [, option, value] of output.matchAll(/^set -gq? ([a-z-]+-style) "([^"]+)"$/gm)) {
         if (option === "tree-mode-preview-style") {
             assert.match(value, /^fg=#\{\?#\{\|\|:#\{&&:#\{pane_format},#\{pane_active}},#\{&&:#\{window_format},#\{window_active}}},colour(?:1[0-5]|[0-9]),colour8}$/);
             continue;
         }
         const assignments = [...value.matchAll(/\b(?:fg|bg)=/g)].length;
-        const colors = [...value.matchAll(/\b(?:fg|bg)=(colour(?:1[0-5]|[0-9])|default)\b/g)];
-        assert.equal(colors.length, assignments, `${label}/${option}: every color is a terminal slot or default`);
+        const fixed = ["vgs", "rose-pine-moon"].includes(label) &&
+            ["status-left-style", "status-right-style", "window-status-style", "window-status-current-style"].includes(option);
+        const pattern = fixed ? /\b(?:fg|bg)=(colour(?:1[0-5]|[0-9])|default|#[0-9a-f]{6})\b/g : /\b(?:fg|bg)=(colour(?:1[0-5]|[0-9])|default)\b/g;
+        assert.equal([...value.matchAll(pattern)].length, assignments, `${label}/${option}: supported colour values`);
     }
     for (const [, value] of output.matchAll(/^set -gq (?:dark|light)-theme-[a-z-]+ "([^"]+)"$/gm)) color(value);
     for (const [, value] of output.matchAll(/^set -gq? (?:clock-mode-colour|display-panes-colour|display-panes-active-colour) "([^"]+)"$/gm)) color(value);
 };
 assertSlotColors(rendered(template), "vgs");
-for (const name of ["catppuccin", "catppuccin-latte"]) {
+const themes = new Map([["vgs", pkg]]);
+for (const name of ["catppuccin", "catppuccin-latte", "rose-pine-moon"]) {
     const theme = logic.acceptPackage(TOKENS, {
         directoryName: name,
         themeJson: fs.readFileSync(path.join(repo, "themes", "catalog", name, "theme.json"), "utf8"),
@@ -104,6 +106,7 @@ for (const name of ["catppuccin", "catppuccin-latte"]) {
         shipped: false
     });
     assert.equal(theme.ok, true, theme.ok ? "" : logic.refusalLine(theme));
+    themes.set(name, theme);
     assertSlotColors(rendered(template, theme), name);
 }
 // Comment out LINE, retaining its text while disabling its behaviour.
@@ -114,9 +117,9 @@ const disabled = line => {
     return text;
 };
 
-// A socket path holds at most 107 bytes, and an agent or row TMPDIR can be
-// long, so the root, the socket directory and each socket name are short.
-const root = fs.mkdtempSync(path.join(os.tmpdir(), "vt-"));
+// The world backs its short runtime mount with its owned root, so socket
+// paths do not include the caller's arbitrarily long TMPDIR.
+const root = fs.mkdtempSync(path.join(process.env.XDG_RUNTIME_DIR, "owned", "vt-"));
 const env = {
     PATH: process.env.PATH,
     HOME: path.join(root, "home"),
@@ -160,9 +163,9 @@ const tmux = (socket, ...args) => {
 // A server on its own socket, NAME, holding one session whose pane waits
 // until this process ends, that has sourced TEXT rendered. The session's end
 // ends the server, and with it any client attached.
-const server = (name, text, options = []) => {
+const server = (name, text, options = [], theme = pkg) => {
     const include = path.join(root, `${name}.conf`);
-    fs.writeFileSync(include, rendered(text));
+    fs.writeFileSync(include, rendered(text, theme));
     sockets.push(name);
     tmux(name, "new-session", "-d", "-s", "t", "-x", "80", "-y", "24",
         `exec tail --pid=${process.pid} -f /dev/null`);
@@ -203,14 +206,24 @@ const CONTENT = [
 ];
 
 const contentValue = (name, text, row) => {
-    const socket = server(name, text, [["status", "2"], [row.option, row.value]]);
-    const read = () => {
+    const options = [["status", "2"], [row.option, row.value]];
+    if (row.rightStyle) options.push(["status-right-style", "fg=red,bg=blue"]);
+    const socket = server(name, text, options, row.theme);
+    const read = phase => {
         assert.equal(tmux(socket, "show", "-gv", "status"), "2\n");
-        return tmux(socket, "show", "-gv", row.option);
+        const content = tmux(socket, "show", "-gv", row.option);
+        if (row.rightStyle) {
+            const style = tmux(socket, "show", "-gv", "status-right-style");
+            assert.equal(style, row.rightStyle + "\n", "status-right-style");
+            assert.equal(content, row.expected + "\n", row.option);
+            console.log("test-theme-tmux: muted-right " + JSON.stringify({ theme: row.theme.name, phase,
+                style: style.trimEnd(), content: content.slice(0, -1) }));
+        }
+        return content;
     };
-    const first = read();
+    const first = read("first-source");
     tmux(socket, "source-file", path.join(root, `${name}.conf`));
-    assert.equal(read(), first, `${row.option}/reload`);
+    assert.equal(read("reload"), first, `${row.option}/reload`);
     return first;
 };
 
@@ -261,6 +274,19 @@ const stop = async () => {
         const control = clientFeatures("r0", disabled(RGB_LINE));
         assert.ok(!control.includes("RGB"), control.join(","));
         console.log("test-theme-tmux: client-rgb=on control=off");
+
+        for (const [index, [name, rightStyle]] of [["vgs", "fg=#aaaaab"], ["rose-pine-moon", "fg=#b8b6cc"]].entries()) {
+            const value = "#(continuum_save.sh) #{user}@#{host_short}";
+            const row = { option: "status-right", value, expected: value, rightStyle, theme: themes.get(name) };
+            assert.equal(contentValue(`m${index}1`, template, row), value + "\n");
+            const former = disabled('set -g status-right-style "fg=@{tmux.status_foreground}"') + "\nset -gqu status-right-style\n";
+            assert.throws(() => contentValue(`m${index}0`, former, row), error => {
+                if (error.code !== "ERR_ASSERTION" || error.actual !== "default\n" || error.expected !== rightStyle + "\n") return false;
+                console.log("test-theme-tmux: muted-right-control " + JSON.stringify({ theme: name,
+                    rejected: true, actual: error.actual.trimEnd(), expected: rightStyle }));
+                return true;
+            });
+        }
 
         for (const [index, row] of CONTENT.entries()) {
             assert.equal(contentValue(`c${index}1`, template, row), row.expected + "\n", row.option);
