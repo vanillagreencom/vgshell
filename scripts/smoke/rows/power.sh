@@ -472,9 +472,9 @@ power_sleep_after_idle() {
   power_sleep_transport_ready || return 1
   cp -- "$config" "$sandbox/power-sleep-config.json"
   expect "Settings opens for the sleep setting" ok ipc shell summon window vgs.settings '{"plugin":"vgs.power","tab":"Settings"}'
-  expect "the display timer is Never during sleep checks" ok power_idle_set vgs.power displayOffSeconds 0
   : >"$power_gdbus_calls"
   expect "Power enables behind its sleep transport fence" ok ipc shell setPluginEnabled vgs.power true
+  expect "the display timer is Never during sleep checks" ok power_idle_set vgs.power displayOffSeconds 0
   expect_poll "only suspend is offered without hibernation support" '["suspend"]' power_sleep_choices
   expect_poll "hibernation support reads absent" absent power_sleep_presence
   expect_poll "Settings hides the unsupported action field" hidden power_sleep_field vgs.settings sleepAction
@@ -483,9 +483,9 @@ power_sleep_after_idle() {
   expect "the System window hides before timer checks" ok ipc shell hide window vgs.system
   expect "the default Never creates no idle watch" '[]' power_idle_watches
   expect "Never makes no sleep call past the short timeout" 0 power_sleep_no_call_for 3000
+  type_keys -k Shift_L || fail "the sleep check's nested input failed"
   expect "sleep accepts a two-second idle time" ok power_idle_set vgs.power sleepAfterSeconds 2
   expect_poll "sleep holds exactly one two-second watch" '[2]' power_idle_watches
-  type_keys -k Shift_L || fail "the sleep check's nested input failed"
   expect_poll "the first idle period makes one sleep request" 1 power_sleep_count
   expect "suspend uses the exact system-bus noninteractive logind request" '[["call", "--system", "--dest", "org.freedesktop.login1", "--object-path", "/org/freedesktop/login1", "--method", "org.freedesktop.login1.Manager.Suspend", "false"]]' power_sleep_calls
   expect "one idle period never repeats its sleep request" 1 power_sleep_no_call_for 2500
@@ -509,8 +509,8 @@ power_sleep_after_idle() {
     if [[ $action == hibernate ]]; then method=Hibernate; else method=SuspendThenHibernate; fi
     expect "the supported $action value is stored" ok power_idle_set vgs.power sleepAction "\"$action\""
     : >"$power_gdbus_calls"
-    expect "the $action sleep watch starts" ok power_idle_set vgs.power sleepAfterSeconds 2
     type_keys -k Shift_L || fail "the $action period's nested input failed"
+    expect "the $action sleep watch starts" ok power_idle_set vgs.power sleepAfterSeconds 2
     expect_poll "the $action period makes one request" 1 power_sleep_count
     expect "$action uses its exact noninteractive logind method" "[[\"call\", \"--system\", \"--dest\", \"org.freedesktop.login1\", \"--object-path\", \"/org/freedesktop/login1\", \"--method\", \"org.freedesktop.login1.Manager.$method\", \"false\"]]" power_sleep_calls
     expect "the $action watch stops between cases" ok power_idle_set vgs.power sleepAfterSeconds 0
@@ -518,8 +518,8 @@ power_sleep_after_idle() {
   : >"$power_sleep_refuse"
   expected_errors+=('power: sleep request exit=1$')
   : >"$power_gdbus_calls"
-  expect "the refused sleep period starts" ok power_idle_set vgs.power sleepAfterSeconds 2
   type_keys -k Shift_L || fail "the refused period's nested input failed"
+  expect "the refused sleep period starts" ok power_idle_set vgs.power sleepAfterSeconds 2
   expect_poll "the stand-in refuses one sleep request" 1 power_sleep_count
   expect_poll "the refused request publishes a plain status line" reported power_sleep_problem
   expect "a refusal never retries in the same idle period" 1 power_sleep_no_call_for 2500

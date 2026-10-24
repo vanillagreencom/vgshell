@@ -186,7 +186,7 @@ FocusScope {
                         width: content.width
                         inline: true
                         label: entry.label
-                        hint: entry.description
+                        hint: entry.description ?? ""
                         info: entry.info ?? ""
                         error: entry.problem === undefined ? "" : root.presence[entry.problem] ?? ""
 
