@@ -2135,11 +2135,13 @@ power_scene_case() {
     source "$1"
     devices_ready() { :; }
     devices_usb_wake() { :; }
+    power_logind_start() { logind=ready; power_sleep_replies="$tree/replies"; mkdir -p -- "$power_sleep_replies"; }
+    power_logind_stop() { logind=stopped; }
     power_start_mocks() { daemon=up; }
     tree_rescan() { [[ ${daemon:-} == up ]] && scanned=yes; }
     ipc() {
       if [[ $* == "shell setPluginEnabled vgs.power true" ]]; then
-        [[ ${daemon:-} == up && ${scanned:-} == yes ]] || return 1
+        [[ ${daemon:-} == up && ${scanned:-} == yes && ${logind:-} == ready ]] || return 1
       fi
       echo ok
     }
@@ -2160,6 +2162,7 @@ power_scene_case() {
     fail() { exit 1; }
     take() { printf "%s\n" "$1"; }
     scene_power dark
+    [[ $logind == stopped ]]
   ' _ "$1" >"$tmp/power-scene.out" &&
     [[ $(<"$tmp/power-scene.out") == $'power-dark-bar\npower-dark-panel\npower-dark-pane\npower-dark-notice-low\npower-dark-notice-critical\npower-dark-panel-no-battery' ]]
 }

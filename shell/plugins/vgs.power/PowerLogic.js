@@ -264,6 +264,29 @@ function isPrepareForSleepResume(line) {
         && line === "/org/freedesktop/login1: org.freedesktop.login1.Manager.PrepareForSleep (false,)";
 }
 
+// logind's Can methods return a string. Only yes authorizes an unattended
+// request; challenge needs an interactive authorization dialog.
+// https://www.freedesktop.org/software/systemd/man/latest/org.freedesktop.login1.html
+function sleepAllowed(code, text) {
+    return code === 0 && /^\('yes',\)\s*$/.test(String(text));
+}
+
+var SLEEP_ACTIONS = [
+    { value: "suspend", label: "Suspend", method: "Suspend" },
+    { value: "hibernate", label: "Hibernate", method: "Hibernate" },
+    { value: "suspend-then-hibernate", label: "Suspend then hibernate", method: "SuspendThenHibernate" }
+];
+
+function sleepChoices(allowed) {
+    return SLEEP_ACTIONS.filter(function (action) { return allowed[action.value] === true; })
+        .map(function (action) { return { value: action.value, label: action.label }; });
+}
+
+function sleepMethod(action, allowed) {
+    var entry = SLEEP_ACTIONS.find(function (entry) { return entry.value === action; });
+    return entry !== undefined && allowed[action] === true ? entry.method : "";
+}
+
 // The UUIDs of the wired connections in nmcli's terse UUID,TYPE table.
 // nmcli escapes a colon inside a field; a UUID and a connection type hold
 // none, so each line splits on its one colon.

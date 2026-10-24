@@ -26,6 +26,7 @@ FocusScope {
     readonly property var stages: shell === null ? [] : shell.idle.stages
     readonly property var schema: shell === null ? ({}) : shell.manifest.schema
     readonly property var presence: shell === null ? ({}) : shell.status.values
+    readonly property var settingChoices: shell === null ? ({}) : (shell.manager.plugins.find(plugin => plugin.id === shell.manifest.id)?.settingChoices ?? ({}))
     readonly property var wakeRow: shell === null ? null : shell.status.rows.find(row => row.key === "wakeSources") || null
     readonly property string profilesService: "org.freedesktop.UPower.PowerProfiles"
     readonly property bool profilesMissing: shell !== null && shell.requirements.missing.indexOf(profilesService) !== -1
@@ -82,6 +83,7 @@ FocusScope {
         const entry = schema[key];
         if (entry.type === "boolean") return [];
         if (entry.type === "enum") return entry.options.map(option => ({ label: option.label, value: option.value }));
+        if (entry.optionsFrom !== undefined) return settingChoices[key] ?? [];
         const value = shell.settings[key];
         const choices = entry.presets.map(preset => ({ label: SettingValues.presetText(entry, preset), value: preset.value }));
         if (!choices.some(choice => choice.value === value)) choices.push({ label: SettingValues.presetText(entry, { value: value }), value: value });
@@ -184,7 +186,7 @@ FocusScope {
                         width: content.width
                         inline: true
                         label: entry.label
-                        hint: entry.description
+                        hint: entry.description ?? ""
                         info: entry.info ?? ""
                         error: entry.problem === undefined ? "" : root.presence[entry.problem] ?? ""
 
@@ -218,13 +220,17 @@ FocusScope {
                         }
 
                         Select {
-                            visible: field.entry.type === "number"
+                            visible: field.entry.type === "number" || field.entry.type === "string"
                             height: visible ? implicitHeight : 0
                             width: parent.width
                             model: field.choices
                             textRole: "label"
                             currentIndex: field.current
                             Accessible.name: field.entry.label
+                            onOpened: {
+                                if (field.entry.optionsFrom !== undefined)
+                                    root.shell.manager.refreshChoices(root.shell.manifest.id, field.entry.optionsFrom);
+                            }
                             onActivated: index => {
                                 root.configure(field.modelData, field.choices[index].value);
                                 currentIndex = Qt.binding(() => field.current);

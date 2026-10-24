@@ -120,7 +120,6 @@ source "$repo/scripts/smoke/power-fakes.sh"
 power_upower_pid=""
 power_profiles_pid=""
 power_notify_stood=""
-power_gdbus_stood=""
 power_was_enabled=""
 power_was_placed=""
 power_system_was=""
@@ -134,15 +133,6 @@ power_quiet_dir="$home/.config/vgshell/plugins/acme.power-quiet"
 power_order_dir="$home/.config/vgshell/plugins/acme.power-order"
 power_wol_dir="$home/.config/vgshell/plugins/acme.power-wol"
 power_notify_calls="$sandbox/power-notify-send.calls"
-power_gdbus_calls="$sandbox/power-gdbus.calls"
-power_set_hold="$sandbox/power-set.hold"
-power_set_held="$sandbox/power-set.held"
-power_set_release="$sandbox/power-set.release"
-power_set_refuse="$sandbox/power-set.refuse"
-power_set_refused="$sandbox/power-set.refused"
-power_prepare_sleep_1="$sandbox/power-prepare-sleep-1"
-power_prepare_sleep_2="$sandbox/power-prepare-sleep-2"
-power_prepare_sleep_signals="$sandbox/power-prepare-sleep.signals"
 power_moved_count=0
 power_watch_ends=0
 power_notify_base=0
@@ -155,32 +145,6 @@ power_move_away() { # PATH
   mv -T -- "$path" "$dest"
 }
 
-power_unlink() { python3 - "$1" <<'PY_UNLINK'
-import pathlib, sys
-pathlib.Path(sys.argv[1]).unlink(missing_ok=True)
-PY_UNLINK
-}
-
-power_stand() {
-  local name="$1"
-  if [[ -e $shim/$name ]]; then
-    case "$name" in
-      notify-send) power_notify_stood=yes ;;
-      gdbus) power_gdbus_stood=yes ;;
-    esac
-    sentinel_stand_over "$shim/$name"
-  else
-    case "$name" in
-      notify-send) power_notify_stood=no ;;
-      gdbus) power_gdbus_stood=no ;;
-    esac
-    cat >"$shim/$name" && chmod 755 "$shim/$name"
-  fi
-}
-
-power_restore_stand() {
-  if [[ $2 == yes ]]; then sentinel_restore "$shim/$1"; else power_unlink "$shim/$1"; fi
-}
 
 power_widget() { ipc smoke readInstance "$(bar_key)" "${power_id:-vgs.power}" "$1"; }
 power_requirement_state() { ipc shell listPlugins | py_reply 'import json,sys; p=[p for p in json.load(sys.stdin)["plugins"] if p["id"]=="vgs.power"][0]; print(next((r["state"] for r in p["requirements"] if r["name"]==sys.argv[1]), "undeclared"))' "${1:-org.freedesktop.UPower.PowerProfiles}"; }
@@ -473,6 +437,157 @@ power_idle_stays_on() { # MILLISECONDS: absence over a timer window
   echo True
 }
 
+power_sleep_calls() {
+  if [[ ! -s $power_gdbus_calls ]]; then echo '[]'; return; fi
+  py_reply 'import json,sys
+methods = {"org.freedesktop.login1.Manager." + name for name in ("Suspend", "Hibernate", "SuspendThenHibernate")}
+runs = [json.loads(line) for line in sys.stdin]
+print(json.dumps([run for run in runs if any(word in methods for word in run)]))' <"$power_gdbus_calls"
+}
+power_sleep_count() { power_sleep_calls | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
+power_sleep_choices() { ipc smoke statusValues vgs.power | py_reply 'import json,sys; print(json.dumps([row["value"] for row in json.load(sys.stdin).get("sleepActions", [])]))'; }
+power_sleep_presence() { ipc smoke statusValues vgs.power | py_reply 'import json,sys; print(json.load(sys.stdin).get("hibernate", "unreported"))'; }
+power_sleep_problem() { ipc smoke statusValues vgs.power | py_reply 'import json,sys; value=json.load(sys.stdin).get("sleepProblem"); print("reported" if isinstance(value,str) and value.strip() else "clear")'; }
+power_sleep_field() { # PLUGIN KEY: a drawn field, with the timer anchoring the page
+  ipc smoke itemValues window "$1" Field label,visible | py_reply 'import json,sys
+schema = json.load(open(sys.argv[1]))["schema"]
+shown = {row["label"].casefold() for row in json.load(sys.stdin) if row["visible"]}
+print("page-absent" if schema["sleepAfterSeconds"]["label"].casefold() not in shown else "shown" if schema[sys.argv[2]]["label"].casefold() in shown else "hidden")' "$repo/shell/plugins/vgs.power/manifest.json" "$2"
+}
+power_sleep_no_call_for() { # MILLISECONDS: timer wiring only, sampled every 0.2 s
+  local before current deadline
+  before="$(power_sleep_count)" || return
+  current="$before"
+  deadline=$(( $(now_ms) + $1 ))
+  while (( $(now_ms) < deadline )); do
+    current="$(power_sleep_count)" || return
+    [[ $current == "$before" ]] || { echo "$current"; return; }
+    sleep 0.2
+  done
+  echo "$current"
+}
+
+power_sleep_after_idle() {
+  local config="$home/.config/vgshell/shell.json" before action method
+  power_sleep_transport_ready || return 1
+  cp -- "$config" "$sandbox/power-sleep-config.json"
+  expect "Settings opens for the sleep setting" ok ipc shell summon window vgs.settings '{"plugin":"vgs.power","tab":"Settings"}'
+  : >"$power_gdbus_calls"
+  expect "Power enables behind its sleep transport fence" ok ipc shell setPluginEnabled vgs.power true
+  expect "the display timer is Never during sleep checks" ok power_idle_set vgs.power displayOffSeconds 0
+  expect_poll "only suspend is offered without hibernation support" '["suspend"]' power_sleep_choices
+  expect_poll "hibernation support reads absent" absent power_sleep_presence
+  expect_poll "Settings hides the unsupported action field" hidden power_sleep_field vgs.settings sleepAction
+  expect "System Settings opens the Sleep section" ok ipc shell summon window vgs.system '{"pane":"vgs.power"}'
+  expect_poll "the pane hides the unsupported action field" hidden power_sleep_field vgs.power sleepAction
+  expect "the System window hides before timer checks" ok ipc shell hide window vgs.system
+  expect "the default Never creates no idle watch" '[]' power_idle_watches
+  expect "Never makes no sleep call past the short timeout" 0 power_sleep_no_call_for 3000
+  type_keys -k Shift_L || fail "the sleep check's nested input failed"
+  expect "sleep accepts a two-second idle time" ok power_idle_set vgs.power sleepAfterSeconds 2
+  expect_poll "sleep holds exactly one two-second watch" '[2]' power_idle_watches
+  expect_poll "the first idle period makes one sleep request" 1 power_sleep_count
+  expect "suspend uses the exact system-bus noninteractive logind request" '[["call", "--system", "--dest", "org.freedesktop.login1", "--object-path", "/org/freedesktop/login1", "--method", "org.freedesktop.login1.Manager.Suspend", "false"]]' power_sleep_calls
+  expect "one idle period never repeats its sleep request" 1 power_sleep_no_call_for 2500
+  type_keys -k Shift_L || fail "the next sleep period's nested input failed"
+  expect_poll "the next idle period makes the second sleep request" 2 power_sleep_count
+  expect "Never can stop the sleep watch" ok power_idle_set vgs.power sleepAfterSeconds 0
+  expect_poll "Never disposes the sleep watch" '[]' power_idle_watches
+  expect "Never makes no later request" 2 power_sleep_no_call_for 3000
+
+  expect "Power disables before hibernation capabilities change" ok ipc shell setPluginEnabled vgs.power false
+  printf 'yes\n' >"$power_sleep_replies/CanHibernate"
+  printf 'yes\n' >"$power_sleep_replies/CanSuspendThenHibernate"
+  expect "Power reads the hibernation-capable stand-in" ok ipc shell setPluginEnabled vgs.power true
+  expect_poll "each yes capability offers its action" '["suspend", "hibernate", "suspend-then-hibernate"]' power_sleep_choices
+  expect_poll "hibernation support reads present" present power_sleep_presence
+  expect_poll "Settings shows the supported action field" shown power_sleep_field vgs.settings sleepAction
+  expect "the pane opens with hibernation supported" ok ipc shell summon window vgs.system '{"pane":"vgs.power"}'
+  expect_poll "the pane shows the supported action field" shown power_sleep_field vgs.power sleepAction
+  expect "the pane hides before the remaining idle periods" ok ipc shell hide window vgs.system
+  for action in hibernate suspend-then-hibernate; do
+    if [[ $action == hibernate ]]; then method=Hibernate; else method=SuspendThenHibernate; fi
+    expect "the supported $action value is stored" ok power_idle_set vgs.power sleepAction "\"$action\""
+    : >"$power_gdbus_calls"
+    type_keys -k Shift_L || fail "the $action period's nested input failed"
+    expect "the $action sleep watch starts" ok power_idle_set vgs.power sleepAfterSeconds 2
+    expect_poll "the $action period makes one request" 1 power_sleep_count
+    expect "$action uses its exact noninteractive logind method" "[[\"call\", \"--system\", \"--dest\", \"org.freedesktop.login1\", \"--object-path\", \"/org/freedesktop/login1\", \"--method\", \"org.freedesktop.login1.Manager.$method\", \"false\"]]" power_sleep_calls
+    expect "the $action watch stops between cases" ok power_idle_set vgs.power sleepAfterSeconds 0
+  done
+  # A saved method can outlive its capability. Both existing field owners
+  # must keep that choice repairable without choosing a substitute.
+  for action in hibernate suspend-then-hibernate; do
+    expect "the supported $action is saved before capability loss" ok power_idle_set vgs.power sleepAction "\"$action\""
+    printf 'no\n' >"$power_sleep_replies/CanHibernate"
+    printf 'no\n' >"$power_sleep_replies/CanSuspendThenHibernate"
+    expect "the existing choices refresh reads $action capability loss" ok ipc smoke invokeInstanceArgs window vgs.settings refreshChoices '{"args":["vgs.power","sleepActions"]}'
+    expect_poll "only Suspend is supported after $action capability loss" '["suspend"]' power_sleep_choices
+    expect "capability loss preserves the saved $action" "\"$action\"" power_setting sleepAction
+    expect_poll "Settings keeps the unsupported $action repairable" shown power_sleep_field vgs.settings sleepAction
+    expect "the pane opens on the unsupported $action" ok ipc shell summon window vgs.system '{"pane":"vgs.power"}'
+    expect_poll "the pane keeps the unsupported $action repairable" shown power_sleep_field vgs.power sleepAction
+    expect "the pane hides before the unsupported $action idle period" ok ipc shell hide window vgs.system
+    : >"$power_gdbus_calls"
+    type_keys -k Shift_L || fail "the unsupported $action period's nested input failed"
+    expect "the unsupported $action idle period starts" ok power_idle_set vgs.power sleepAfterSeconds 2
+    expect_poll "the unsupported $action publishes a plain refusal" reported power_sleep_problem
+    expect "no method substitutes for the unsupported $action" 0 power_sleep_no_call_for 2500
+    expect "the refused $action remains saved" "\"$action\"" power_setting sleepAction
+    expect "Never stops the unsupported $action period" ok power_idle_set vgs.power sleepAfterSeconds 0
+    if [[ $action == hibernate ]]; then
+      expect "the pane opens to repair the unsupported $action" ok ipc shell summon window vgs.system '{"pane":"vgs.power"}'
+      power_pane_pick "Sleep action" Select "Sleep action (unavailable)" || fail "the unsupported $action chooser does not open in the pane"
+      expect_poll "the pane's existing sleep chooser opens" True power_pane_list_open
+    else
+      expect "Settings hides before mapping its repair above the pane" ok ipc shell hide window vgs.settings
+      expect_poll "the old Settings window unmaps before repair" 0 window_count Plugins
+      expect "the pane opens beside Settings' repair" ok ipc shell summon window vgs.system '{"pane":"vgs.power"}'
+      expect_poll "the pane maps before the new Settings window" 1 window_count "System Settings"
+      expect "Settings opens to repair the unsupported $action" ok ipc shell summon window vgs.settings '{"plugin":"vgs.power","tab":"Settings"}'
+      expect_poll "the new Settings window maps above the pane" 1 window_count Plugins
+      settings_press --type Select "Sleep action (unavailable)" Field "Sleep action" || fail "the unsupported $action chooser does not open in Settings"
+      expect_poll "Settings' existing sleep chooser opens" true ipc smoke readMatchingDescendant window vgs.settings Select currentText "Sleep action (unavailable)" listOpen
+    fi
+    type_keys -k Home -k Return || fail "the explicit supported sleep choice failed"
+    expect_poll "the explicit choice replaces $action with Suspend" '"suspend"' power_setting sleepAction
+    expect_poll "Settings hides the repaired supported sleep choice" hidden power_sleep_field vgs.settings sleepAction
+    expect_poll "the pane hides the repaired supported sleep choice" hidden power_sleep_field vgs.power sleepAction
+    expect "the pane hides before the repaired sleep period" ok ipc shell hide window vgs.system
+    : >"$power_gdbus_calls"
+    type_keys -k Shift_L || fail "the repaired $action period's nested input failed"
+    expect "the explicitly repaired sleep period starts" ok power_idle_set vgs.power sleepAfterSeconds 2
+    expect_poll "the explicit supported repair makes one request" 1 power_sleep_count
+    expect "the explicit repair requests only noninteractive Suspend" '[["call", "--system", "--dest", "org.freedesktop.login1", "--object-path", "/org/freedesktop/login1", "--method", "org.freedesktop.login1.Manager.Suspend", "false"]]' power_sleep_calls
+    expect "Never stops the repaired sleep period" ok power_idle_set vgs.power sleepAfterSeconds 0
+    printf 'yes\n' >"$power_sleep_replies/CanHibernate"
+    printf 'yes\n' >"$power_sleep_replies/CanSuspendThenHibernate"
+    expect "the existing refresh restores supported sleep choices" ok ipc smoke invokeInstanceArgs window vgs.settings refreshChoices '{"args":["vgs.power","sleepActions"]}'
+    expect_poll "the stand-in supports all sleep actions again" '["suspend", "hibernate", "suspend-then-hibernate"]' power_sleep_choices
+  done
+  : >"$power_sleep_refuse"
+  expected_errors+=('power: sleep request exit=1$')
+  : >"$power_gdbus_calls"
+  type_keys -k Shift_L || fail "the refused period's nested input failed"
+  expect "the refused sleep period starts" ok power_idle_set vgs.power sleepAfterSeconds 2
+  expect_poll "the stand-in refuses one sleep request" 1 power_sleep_count
+  expect_poll "the refused request publishes a plain status line" reported power_sleep_problem
+  expect "a refusal never retries in the same idle period" 1 power_sleep_no_call_for 2500
+  type_keys -k Shift_L || fail "the refusal retry's nested input failed"
+  expect_poll "the next idle period tries the refused request again" 2 power_sleep_count
+  expect "Power disables after the sleep checks" ok ipc shell setPluginEnabled vgs.power false
+  expect_poll "unloading Power releases its sleep watch" '[]' power_idle_watches
+  before="$(power_sleep_count)" || return
+  expect "a disposed sleep watch makes no request" "$before" power_sleep_no_call_for 2500
+  power_unlink "$power_sleep_refuse"
+  printf 'no\n' >"$power_sleep_replies/CanHibernate"
+  printf 'no\n' >"$power_sleep_replies/CanSuspendThenHibernate"
+  expect "Settings closes after the sleep checks" ok ipc shell hide window vgs.settings
+  cp -- "$sandbox/power-sleep-config.json" "$config.power-sleep"
+  mv -T -- "$config.power-sleep" "$config"
+  expect_poll "the sleep checks restore Power disabled" False plugin_enabled vgs.power
+}
+
 power_display_off() {
   local config="$home/.config/vgshell/shell.json" before count
   cp -- "$config" "$sandbox/power-idle-config.json"
@@ -577,6 +692,8 @@ EOF_IDLE
 
 power_main() {
   devices_ready power || return 0
+  power_logind_start
+  smoke_row_abandon=(power_logind_stop)
   expect "Power's system step resolves in the fake tree" prefixed devices_system_tree
   devices_usb_wake disabled
   local mac name class allowed path
@@ -596,29 +713,23 @@ WAKE_DEVICES
 #!/usr/bin/env bash
 python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "\$@" >>"$power_notify_calls"
 EOF_STAND
-  : >"$power_gdbus_calls"
-  power_stand gdbus <<EOF_STAND
-#!/usr/bin/env bash
-python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "\$@" >>"$power_gdbus_calls"
-if [[ " \$* " == *" --dest org.freedesktop.login1 "* ]]; then
-  echo 'Monitoring signals from all objects owned by org.freedesktop.login1'
-  while :; do
-    until [[ -e "$power_prepare_sleep_1" || -e "$power_prepare_sleep_2" ]]; do sleep 0.05; done
-    if [[ -e "$power_prepare_sleep_1" ]]; then trigger="$power_prepare_sleep_1"; else trigger="$power_prepare_sleep_2"; fi
-    rm -f -- "\$trigger"
-    echo '/org/freedesktop/login1: org.freedesktop.login1.Manager.PrepareForSleep (false,)'
-    printf 'power-resume-emission pid=%s ppid=%s trigger=%s\n' "\$\$" "\$PPID" "\${trigger##*/}" >>"$power_prepare_sleep_signals"
-  done
-fi
-if [[ " \$* " == *" org.freedesktop.DBus.Properties.Set "* && " \$* " == *" org.freedesktop.UPower.PowerProfiles "* ]]; then
-  if mv -T -- "$power_set_hold" "$power_set_held" 2>/dev/null; then
-    until [[ -e "$power_set_release" ]]; do sleep 0.05; done
-  elif mv -T -- "$power_set_refuse" "$power_set_refused" 2>/dev/null; then
-    exit 1
+
+  # The same fence must refuse a missing override without invoking gdbus.
+  cp -- "$power_gdbus_calls" "$sandbox/power-gdbus-before-control"
+  mv -T -- "$shim/gdbus" "$power_gdbus_saved/override"
+  (
+    failures=0
+    expect "control: the missing sleep transport fails before a call" ready power_sleep_transport_ready
+    printf 'control-failures=%s\n' "$failures"
+  ) >"$sandbox/power-sleep-transport-control.log" 2>&1
+  mv -T -- "$power_gdbus_saved/override" "$shim/gdbus"
+  expect "the missing-transport control fails the row fence once" 1 sed -n 's/^control-failures=//p' "$sandbox/power-sleep-transport-control.log"
+  if cmp -s "$power_gdbus_calls" "$sandbox/power-gdbus-before-control"; then
+    ok "the missing-transport control made no call"
+  else
+    fail "the missing-transport control changed the call log"
   fi
-fi
-exec env DBUS_SYSTEM_BUS_ADDRESS="unix:path=$rt_dir/system-bus" $(command -v gdbus) "\$@"
-EOF_STAND
+  power_sleep_transport_ready || return 1
 
   expect "disabling vgs.power before the UPower restart is allowed" ok ipc shell setPluginEnabled vgs.power false
   rescan "rescan before the PowerProfiles mock starts answers ok"
@@ -721,7 +832,7 @@ EOF_STAND
   expect "enabling System Settings for Power's section is allowed" ok ipc shell setPluginEnabled vgs.system true
   expect "System Settings opens on Power's section" ok ipc shell summon window vgs.system '{"pane":"vgs.power"}'
   expect_poll "Power's section is mounted" '["vgs.power"]' window_panes
-  power_timeline_defaults='[["[After 2 minutes](page:acme.power-dim/Settings/dimAfter)", false], ["[After 150 seconds](page:acme.power-away/Settings/saverAfter)", false], ["[After 5 minutes](page:acme.power-away/Settings/lockAfter)", false], ["[After 10 minutes](page:vgs.power/Settings/displayOffSeconds)", false]]'
+  power_timeline_defaults='[["[After 2 minutes](page:acme.power-dim/Settings/dimAfter)", false], ["[After 150 seconds](page:acme.power-away/Settings/saverAfter)", false], ["[After 5 minutes](page:acme.power-away/Settings/lockAfter)", false], ["[After 10 minutes](page:vgs.power/Settings/displayOffSeconds)", false], ["[Never](page:vgs.power/Settings/sleepAfterSeconds)", false]]'
   expect_poll "the timeline reads each stage in order with its default time, a link to its field and no warning" "$power_timeline_defaults" power_timeline
   expect_poll "with a battery and the profiles service the section draws Power's four battery fields" "$power_battery_keys" power_pane_fields
   expect "with the profiles service present the section offers no install" no power_install_shown
@@ -792,7 +903,7 @@ EOF_STAND
   expect_poll "the lock row's link opens Settings at the lock owner's field" '"acme.power-away" "lockAfter"' power_settings_reveal
   expect "Settings hides after the timeline link" ok ipc shell hide window vgs.settings
   power_stage_setting "$home/.config/vgshell/shell.json" lockAfter 120
-  expect_poll "with the lock set below the screensaver the lock row alone warns" '[["[After 2 minutes](page:acme.power-dim/Settings/dimAfter)", false], ["[After 150 seconds](page:acme.power-away/Settings/saverAfter)", false], ["[After 2 minutes](page:acme.power-away/Settings/lockAfter)", true], ["[After 10 minutes](page:vgs.power/Settings/displayOffSeconds)", false]]' power_timeline
+  expect_poll "with the lock set below the screensaver the lock row alone warns" '[["[After 2 minutes](page:acme.power-dim/Settings/dimAfter)", false], ["[After 150 seconds](page:acme.power-away/Settings/saverAfter)", false], ["[After 2 minutes](page:acme.power-away/Settings/lockAfter)", true], ["[After 10 minutes](page:vgs.power/Settings/displayOffSeconds)", false], ["[Never](page:vgs.power/Settings/sleepAfterSeconds)", false]]' power_timeline
   power_stage_setting "$home/.config/vgshell/shell.json" lockAfter null
   expect_poll "the lock's default time clears the warning" "$power_timeline_defaults" power_timeline
   # The section's own writes: a segment and a list entry, each picked as a
@@ -807,13 +918,13 @@ EOF_STAND
   expect_poll "a click on On battery's Performance stores it" '"performance"' power_setting batteryProfile
   expect_poll "On battery marks Performance again" '[2, 2]' power_pane_choices SegmentedControl
   expect "before the pane's pick the low alert holds no stored value" null power_setting lowThreshold
-  expect "before the pane's pick the display and alert lists mark their defaults" '[3, 1, 1]' power_pane_choices Select
+  expect "before the pane's pick the display and alert lists mark their defaults" '[3, 0, 1, 1]' power_pane_choices Select
   power_pane_pick "Low battery alert" Select "20%" || fail "the click on Low battery alert's list failed"
   expect_poll "Low battery alert's list opens" True power_pane_list_open
   type_keys -k Down -k Return || fail "typing Down and Return in Low battery alert's list failed"
   expect_poll "Return closes Low battery alert's list" False power_pane_list_open
   expect_poll "Down and Return in the list store 25 percent" 25 power_setting lowThreshold
-  expect_poll "Low battery alert marks 25 percent while the other lists keep their defaults" '[3, 2, 1]' power_pane_choices Select
+  expect_poll "Low battery alert marks 25 percent while the other lists keep their defaults" '[3, 0, 2, 1]' power_pane_choices Select
   expect "System Settings hides after Power's section" ok ipc shell hide window vgs.system
   expect "disabling the dim owner fixture is allowed" ok ipc shell setPluginEnabled acme.power-dim false
   expect "disabling the away owner fixture is allowed" ok ipc shell setPluginEnabled acme.power-away false
@@ -1038,10 +1149,12 @@ import Quickshell.Io
   rescan "rescan after removing the once and quiet fixtures answers ok"
   power_wake_on_lan
   power_display_off
+  power_sleep_after_idle
 
   expect "restoring vgs.system's enablement is allowed" ok ipc shell setPluginEnabled vgs.system "$([[ $power_system_was == True ]] && echo true || echo false)"
   power_restore_stand notify-send "$power_notify_stood"
-  power_restore_stand gdbus "$power_gdbus_stood"
+  power_logind_stop
+  smoke_row_abandon=()
   power_stop_mocks
   stop_shell || fail "power: the shell stops after UPower mocks"
   start_shell "$repo" "$sandbox/qs-power-restored.log" || return 0
