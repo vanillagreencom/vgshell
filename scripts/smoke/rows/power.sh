@@ -540,10 +540,13 @@ power_sleep_after_idle() {
       power_pane_pick "Sleep action" Select "Sleep action (unavailable)" || fail "the unsupported $action chooser does not open in the pane"
       expect_poll "the pane's existing sleep chooser opens" True power_pane_list_open
     else
+      expect "Settings hides before mapping its repair above the pane" ok ipc shell hide window vgs.settings
+      expect_poll "the old Settings window unmaps before repair" 0 window_count Plugins
       expect "the pane opens beside Settings' repair" ok ipc shell summon window vgs.system '{"pane":"vgs.power"}'
+      expect_poll "the pane maps before the new Settings window" 1 window_count "System Settings"
       expect "Settings opens to repair the unsupported $action" ok ipc shell summon window vgs.settings '{"plugin":"vgs.power","tab":"Settings"}'
-      power_revealed "$(ipc smoke revealScopedText window vgs.settings Field "Sleep action" Select "Sleep action (unavailable)")" || fail "Settings does not reveal the unsupported $action chooser"
-      click_scoped_in "window:Plugins" window vgs.settings Field "Sleep action" Select "Sleep action (unavailable)" || fail "the unsupported $action chooser does not open in Settings"
+      expect_poll "the new Settings window maps above the pane" 1 window_count Plugins
+      settings_press --type Select "Sleep action (unavailable)" Field "Sleep action" || fail "the unsupported $action chooser does not open in Settings"
       expect_poll "Settings' existing sleep chooser opens" true ipc smoke readMatchingDescendant window vgs.settings Select currentText "Sleep action (unavailable)" listOpen
     fi
     type_keys -k Home -k Return || fail "the explicit supported sleep choice failed"
