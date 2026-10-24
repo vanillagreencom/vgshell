@@ -2021,7 +2021,8 @@ function verifyTmuxPalette(template, render = selectionRender) {
         for (const option of ["status-left-style", "mode-style", "menu-selected-style", "copy-mode-match-style", "copy-mode-current-match-style", "copy-mode-mark-style", "switch-mode-match-style"]) {
             const style = tmuxStyle(output, option);
             assert.equal(style.reverse, true, pkg.name + "/" + option + " terminal page on slot fill");
-            assert.equal(style.bg, undefined, pkg.name + "/" + option + " inherits client page before reverse");
+            const ink = option === "status-left-style" ? (pkg.name === "rose-pine-moon" ? TOKENS.palette.background.value : "default") : undefined;
+            assert.equal(style.bg, ink, pkg.name + "/" + option + " ink before reverse");
         }
         for (const option of ["pane-border-style", "menu-border-style", "popup-border-style", "display-panes-border-style", "tree-mode-border-style"])
             assert.equal(tmuxStyle(output, option).fg, "colour8", pkg.name + "/" + option + " dim border");
@@ -3015,7 +3016,7 @@ function verifyAppStyles(render, changedTemplates = {}) {
         assert.equal(inactive.bg, status.bg);
         assert.match(session.fg, fixedStatus ? /^#[0-9a-f]{6}$/ : /^colour(?:1[0-5]|[0-9])$/);
         assert.equal(session.reverse, true);
-        assert.equal(session.bg, undefined);
+        assert.equal(session.bg, name === "rose-pine-moon" ? TOKENS.palette.background.value : "default");
         assert.equal(active.bold, true);
         assert.equal(inactive.bold, undefined);
         const ratios = Object.fromEntries(Object.entries({ status, session, active, inactive, right }).map(([role, style]) => {
@@ -3818,7 +3819,7 @@ console.log(`test-theme-render: ghostty-faint packages=${appStyleMetrics.length}
 const tmuxTemplate = fs.readFileSync(path.join(repo, "themes/targets/tmux/tmux.conf"), "utf8");
 const styleControls = [
     ["muted right content", 'set -g status-right-style "fg=@{tmux.status_foreground}"', '# set -g status-right-style "fg=@{tmux.status_foreground}"\nset -gqu status-right-style'],
-    ["session uses reverse", 'set -g status-left-style "fg=@{tmux.session},reverse,bold"', 'set -g status-left-style "fg=@{tmux.session},bold"'],
+    ["session uses reverse", 'set -g status-left-style "fg=@{tmux.session},bg=@{bar.onActive},reverse,bold"', 'set -g status-left-style "fg=@{tmux.session},bg=@{bar.onActive},bold"'],
     ["terminal page", 'set -g status-style "bg=@{color.background}', 'set -g status-style "bg=@{palette.accent}'],
     ["active tab remains unfilled", 'set -g window-status-current-style "bg=@{color.background}', 'set -g window-status-current-style "bg=@{palette.accent}'],
     ["unreadable menu text", 'set -gq menu-style "bg=@{color.surfaceRaised},fg=@{color.text}"', 'set -gq menu-style "bg=@{palette.accent},fg=@{palette.accent}"']

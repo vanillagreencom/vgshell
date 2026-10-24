@@ -869,7 +869,8 @@ function tmuxColors(logic, tokens, input) {
     const background = logic.parseColor(input.values.palette.background);
     const colors = {
         "color.background": "default", "color.surfaceRaised": "default", "color.text": "default",
-        "color.textMuted": "colour8", "color.border": "colour8", "color.borderStrong": "colour8"
+        "color.textMuted": "colour8", "color.border": "colour8", "color.borderStrong": "colour8",
+        "bar.onActive": "default"
     };
     for (const [index, name] of logic.terminalSlotNames().entries()) colors["terminal." + name] = "colour" + index;
     const readable = color => color.a === 1 && logic.contrastRatio(color, background) >= logic.READABILITY_FLOOR;
@@ -915,6 +916,7 @@ function tmuxColors(logic, tokens, input) {
         const moon = input.name === "rose-pine-moon";
         const rgb = value => "#" + hex6(value, input.values.color.background);
         colors["tmux.session"] = rgb(moon ? tokens.palette.danger.value : input.values.bar.active);
+        if (moon) colors["bar.onActive"] = rgb(tokens.palette.background.value);
         colors["tmux.current_foreground"] = rgb(moon ? tokens.palette.info.value : input.values.color.info);
         colors["tmux.inactive_foreground"] = rgb(moon ? tokens.palette.success.value : input.values.color.textMuted);
         colors["tmux.status_foreground"] = rgb(input.values.color.textMuted);
