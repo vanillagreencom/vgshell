@@ -712,8 +712,8 @@ left_into_history "the toast clicked for its first action stays in the history" 
 # the inbox rows of a notification its sender closed and of one whose
 # toast was dismissed deliver nothing, and still raise. A dismissed toast
 # goes into the history, and so does every row an action ran on. A resident
-# notification, which the server keeps open after its action, closes on
-# the server once its toast or its inbox row is opened. Where the window
+# notification keeps its live toast and action authority until Dismiss;
+# opening its expired inbox row closes it. Where the window
 # is on the screen is the reveal row's (rows/compositor-reveal.sh).
 sender_class=smoke.sender
 sender_focused="[\"$sender_class\", \"Sender window\"]"
@@ -833,15 +833,31 @@ if open_toplevel "$sandbox/toplevel-sender.log" "$sender_class" "Sender window" 
   clear_entry "the entry of the toast opened by its pill is cleared" "Opened from its pill"
 
   focus_other
-  resident_id="$(resident_note "Resident toast" 1)"
+  resident_id="$(notify "$sender_class" 0 "Resident toast" "" '["default", "Open", "edit", "Edit"]' "{\"desktop-entry\": <\"$sender_class\">, \"resident\": <true>}" 0)"
   expect_poll "the resident toast shows" True has_row live "Resident toast"
   expect_poll "the resident toast is stored as on screen" True in_live "Resident toast"
+  resident_key="$(key_of "Resident toast")"
   open_card "the resident toast" "Resident toast"
   expect_poll "a click on the resident toast delivers its default action once" 1 delivered "$resident_id" default
-  expect_poll "a click on the resident toast closes it on the server" 1 closed_on_server "$resident_id"
-  expect_poll "the opened resident toast leaves" none key_of "Resident toast"
-  left_into_history "the opened resident toast stays in the history" "Resident toast"
-  clear_entry "the opened resident toast's entry is cleared" "Resident toast"
+  expect_poll "a click on the resident toast raises the sender's window" "$sender_focused" active_window
+  expect "the resident action closes nothing on the server" 0 closed_on_server "$resident_id"
+  expect "the resident action keeps the original live key" "$resident_key" key_of "Resident toast"
+  focus_other
+  act_on "the repeated resident Open" "Resident toast" Open '["Open", "Edit", "Dismiss"]'
+  expect_poll "the repeated resident action reaches that id twice" 2 delivered "$resident_id" default
+  expect_poll "the repeated resident Open raises the sender's window" "$sender_focused" active_window
+  expect "the repeated action keeps that live key" "$resident_key" key_of "Resident toast"
+  expect "the repeated action still closes nothing" 0 closed_on_server "$resident_id"
+  notify "$sender_class" "$resident_id" "Resident toast" "" '["default", "Open"]' "{\"desktop-entry\": <\"$sender_class\">, \"resident\": <true>}" 0 >/dev/null
+  expect_poll "a producer update removes Edit while the card stays hovered" '["Open", "Dismiss"]' shown_pills "Resident toast"
+  expect "the producer update retains the original live key" "$resident_key" key_of "Resident toast"
+  focus_other
+  act_on "the resident Dismiss" "Resident toast" Dismiss '["Open", "Dismiss"]'
+  expect_poll "Dismiss closes the resident notification once" 1 closed_on_server "$resident_id"
+  expect_poll "Dismiss removes the resident toast" none key_of "Resident toast"
+  expect "Dismiss delivers no further action" 2 delivered "$resident_id" default
+  left_into_history "the dismissed resident toast stays in the history" "Resident toast"
+  clear_entry "the dismissed resident toast's entry is cleared" "Resident toast"
 
   dismissed_id="$(sender_note "Dismissed from its toast" 1)"
   expect_poll "the toast to dismiss shows" True has_row live "Dismissed from its toast"

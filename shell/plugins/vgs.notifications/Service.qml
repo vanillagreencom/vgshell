@@ -21,7 +21,8 @@ import "NotificationLogic.js" as Logic
 // primary action, the sender's default, else its first; a pill runs its
 // own. Each is delivered while the service still holds the notification,
 // brings the sender's window into view (NotificationLogic.choicePlan) and
-// closes the notification on the server; its history entry stays. Opening
+// closes a nonresident notification on the server; its history entry stays.
+// A live resident notification stays for further actions. Opening
 // a Slack card also opens its message in Slack (readMessage). Silence,
 // which the header draws as Do Not Disturb, keeps notifications off the
 // screen and records them in the history, bar a critical one from the bare
@@ -528,6 +529,7 @@ Item {
             links.push([name, fn]);
         };
         connect("closed", () => root.senderClosed(key, n));
+        connect("actionsChanged", () => root.bumpPanel());
         for (const name of updateSignals) connect(name, () => root.noteChange(key));
         const next = Object.assign({}, held);
         next[key] = { notification: n, links: links };
@@ -854,12 +856,11 @@ Item {
     // the hinted file in the `open` TUI or only dismisses; every other
     // choice goes as NotificationLogic.choicePlan says: an open runs the
     // primary action, the sender's default, else its first. Then the row
-    // leaves, bar a page the core refuses, which keeps the row (the core
-    // logs its reply), and a file that did not open, whether the TUI refuses
-    // it or the core's file route ends without opening it (a file that is
-    // gone, an editor busy with another file), which keeps the row and
-    // shows why (NotificationLogic.openOutcome) when the open ends; its
-    // history entry stays (leaveChosen).
+    // leaves unless a delivered live resident action keeps it available.
+    // A refused page or a file that did not open also keeps the row; the
+    // core logs a refused page, and openOutcome shows why a file failed
+    // (a file that is gone, an editor busy with another file). A row that
+    // leaves keeps its history entry (leaveChosen).
     // The sender's window comes into view through the core's reveal, which
     // after a delivered action first gives the sender the chance to raise
     // it itself. Logs what the choice reached, with no content. A card
@@ -882,7 +883,8 @@ Item {
             return true;
         }
         const offeredIds = offered(key).map(a => a.identifier);
-        const plan = Logic.choicePlan(choice, offeredIds);
+        const residentOnScreen = onScreen(key) && Logic.hasOwn(held, key) && held[key].notification.resident;
+        const plan = Logic.choicePlan(choice, offeredIds, residentOnScreen);
         if (plan === null) {
             console.error("notifications: refused: choice=" + choice + " want=open|action:<id>|dismiss");
             return false;
@@ -909,7 +911,7 @@ Item {
             if (reply !== "ok") console.warn("notifications: reveal " + reply);
         }
         if (plan.raise) console.info("notifications: chose delivered=" + (delivered ? plan.deliver : "none") + " windows=" + senders.length);
-        leaveChosen(key, plan.leave);
+        if (plan.leave !== "") leaveChosen(key, plan.leave);
         if (message !== null) readMessage(message);
         return true;
     }

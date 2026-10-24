@@ -1043,7 +1043,18 @@ function verify(logic) {
         ["a choice no card offers", "focus", ["default"], null],
         ["an action with no identifier", "action:", ["default"], null]
     ])
-        same(logic.choicePlan(choice, offered), want, "choice: " + label);
+        same(logic.choicePlan(choice, offered, false), want, "choice away from a live resident toast: " + label);
+    for (const [choice, offered, want] of [
+        ["open", ["default", "reply"], { deliver: "default", raise: true, leave: "" }],
+        ["open", ["reply"], { deliver: "reply", raise: true, leave: "" }],
+        ["action:default", ["default"], { deliver: "default", raise: true, leave: "" }],
+        ["action:reply", ["default", "reply"], { deliver: "reply", raise: true, leave: "" }],
+        ["action:reply", ["default"], { deliver: "", raise: true, leave: "invoke" }],
+        ["open", [], { deliver: "", raise: true, leave: "invoke" }],
+        ["dismiss", ["default"], { deliver: "", raise: false, leave: "dismiss" }],
+        ["focus", ["default"], null]
+    ])
+        same(logic.choicePlan(choice, offered, true), want, "choice on a live resident toast: " + choice);
 
     // The act shortcut's target: [label, live, history, key]. The newest by
     // arrival, on screen or in the history, past an entry the Inbox
@@ -1592,9 +1603,12 @@ const CONTROLS = [
     ["an open falls back to the first offered action", 'for (var i = 0; i < offered.length; i++) if (String(offered[i] || "") !== "") return String(offered[i]);', ""],
     ["default wins over the first action", 'if (offered.indexOf("default") !== -1) return "default";', ""],
     ["an open skips an action with no identifier", 'if (String(offered[i] || "") !== "") return', "if (true) return"],
-    ["only an offered action is delivered", "deliver: offered.indexOf(id) !== -1 ? id : \"\"", "deliver: id"],
-    ["an open raises", "raise: true, leave: \"invoke\"", "raise: id !== \"default\", leave: \"invoke\""],
-    ["another action raises too", "raise: true, leave: \"invoke\"", "raise: id === \"default\", leave: \"invoke\""],
+    ["only an offered action is delivered", 'var deliver = offered.indexOf(id) !== -1 ? id : "";', 'var deliver = id;'],
+    ["an open raises", "raise: true, leave:", "raise: id !== \"default\", leave:"],
+    ["another action raises too", "raise: true, leave:", "raise: id === \"default\", leave:"],
+    ["a resident action stays on screen", 'residentOnScreen && deliver !== "" ? "" : "invoke"', '"invoke"'],
+    ["an expired resident action leaves", 'residentOnScreen && deliver !== "" ? "" : "invoke"', 'deliver !== "" ? "" : "invoke"'],
+    ["a resident choice without delivery leaves", 'residentOnScreen && deliver !== "" ? "" : "invoke"', 'residentOnScreen ? "" : "invoke"'],
     ["dismiss delivers nothing", 'if (c === "dismiss") return { deliver: "", raise: false, leave: "dismiss" };', ""],
     ["an unknown choice is refused", 'if (id === "" && c !== "open") return null;', ""],
     ["the act target is the newest", "if (all[i].timestamp > newest) {", "if (all[i].timestamp < newest || i === 0) {"],

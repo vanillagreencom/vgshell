@@ -15,6 +15,9 @@ saved carries `actions`, its notification's buttons: one `{id, label, argv}`
 for each program that opens the file and is installed; `default` opens it.
 probe emits the offered audio sources and cameras and the missing languages.
 SIGTERM releases all owned children, including during service replacement.
+
+--notify reads one JSON request, then close or EOF on stdin. Its resident
+notification emits ready, action, closed and error JSON lines until closed.
 """
 import fcntl
 import json
@@ -77,6 +80,11 @@ SELECTION_CANCELLED = b"selection cancelled"
 # Captures of the selection, scaled down, compared until two agree.
 SETTLE_SCALE = "0.125"
 SETTLE_TRIES = 40
+
+# Nix substitutes these constants in its existing install phase.
+NOTICE_GIO_LIBRARY = "libgio-2.0.so.0"
+NOTICE_GOBJECT_LIBRARY = "libgobject-2.0.so.0"
+NOTICE_GLIB_LIBRARY = "libglib-2.0.so.0"
 
 # The CLI has no structured initialization error. --list-langs lists files,
 # but cannot prove that a model loads. This fallback maps Tesseract's own
@@ -803,7 +811,384 @@ def new_file(folder, prefix, suffix):
     return Path(name)
 
 
+class NoticeError(ctypes.Structure):
+    _fields_ = [("domain", ctypes.c_uint), ("code", ctypes.c_int), ("message", ctypes.c_char_p)]
+
+
+class CaptureNotice:
+    """One managed notification run owns its bus reference and native callbacks."""
+
+    destination = b"org.freedesktop.Notifications"
+    object_path = b"/org/freedesktop/Notifications"
+    cleanup_ms = 4000  # Capture.release's existing shared cleanup allowance.
+
+    def __init__(self, request, control):
+        self.request, self.control = request, control
+        self.gio = ctypes.CDLL(NOTICE_GIO_LIBRARY)
+        self.object = ctypes.CDLL(NOTICE_GOBJECT_LIBRARY)
+        self.glib = ctypes.CDLL(NOTICE_GLIB_LIBRARY)
+        pointer, string, integer, unsigned = ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int, ctypes.c_uint
+        self.async_type = ctypes.CFUNCTYPE(None, pointer, pointer, pointer)
+        self.signal_type = ctypes.CFUNCTYPE(None, pointer, string, string, string, string, pointer, pointer)
+        self.destroy_type = ctypes.CFUNCTYPE(None, pointer)
+        self.source_type = ctypes.CFUNCTYPE(integer, pointer)
+        self.fd_type = ctypes.CFUNCTYPE(integer, integer, integer, pointer)
+        self.appeared_type = ctypes.CFUNCTYPE(None, pointer, string, string, pointer)
+        self.vanished_type = ctypes.CFUNCTYPE(None, pointer, string, pointer)
+        self.closed_type = ctypes.CFUNCTYPE(None, pointer, integer, pointer, pointer)
+        self.bind(self.glib, {
+            "g_main_loop_new": (pointer, [pointer, integer]), "g_main_loop_run": (None, [pointer]),
+            "g_main_loop_quit": (None, [pointer]), "g_main_loop_unref": (None, [pointer]),
+            "g_timeout_add": (unsigned, [unsigned, self.source_type, pointer]),
+            "g_unix_signal_add": (unsigned, [integer, self.source_type, pointer]),
+            "g_unix_fd_add": (unsigned, [integer, integer, self.fd_type, pointer]),
+            "g_source_remove": (integer, [unsigned]), "g_error_free": (None, [pointer]),
+            "g_variant_type_new": (pointer, [string]), "g_variant_type_free": (None, [pointer]),
+            "g_variant_new_string": (pointer, [string]), "g_variant_new_uint32": (pointer, [ctypes.c_uint32]),
+            "g_variant_new_int32": (pointer, [ctypes.c_int32]), "g_variant_new_boolean": (pointer, [integer]),
+            "g_variant_new_variant": (pointer, [pointer]),
+            "g_variant_new_array": (pointer, [pointer, ctypes.POINTER(pointer), ctypes.c_size_t]),
+            "g_variant_new_tuple": (pointer, [ctypes.POINTER(pointer), ctypes.c_size_t]),
+            "g_variant_new_dict_entry": (pointer, [pointer, pointer]), "g_variant_unref": (None, [pointer]),
+            "g_variant_is_of_type": (integer, [pointer, pointer]),
+            "g_variant_get_child_value": (pointer, [pointer, ctypes.c_size_t]),
+            "g_variant_get_uint32": (ctypes.c_uint32, [pointer]),
+            "g_variant_get_string": (string, [pointer, ctypes.POINTER(ctypes.c_size_t)]),
+        })
+        self.bind(self.object, {
+            "g_object_unref": (None, [pointer]),
+            "g_signal_connect_data": (ctypes.c_ulong, [pointer, string, pointer, pointer, pointer, integer]),
+            "g_signal_handler_disconnect": (None, [pointer, ctypes.c_ulong]),
+        })
+        self.bind(self.gio, {
+            "g_bus_get": (None, [integer, pointer, self.async_type, pointer]),
+            "g_bus_get_finish": (pointer, [pointer, ctypes.POINTER(pointer)]),
+            "g_cancellable_new": (pointer, []), "g_cancellable_cancel": (None, [pointer]),
+            "g_bus_watch_name_on_connection": (unsigned, [pointer, string, integer, self.appeared_type, self.vanished_type, pointer, self.destroy_type]),
+            "g_bus_unwatch_name": (None, [unsigned]), "g_dbus_is_unique_name": (integer, [string]),
+            "g_dbus_connection_set_exit_on_close": (None, [pointer, integer]),
+            "g_dbus_connection_signal_subscribe": (unsigned, [pointer, string, string, string, string, string, integer, self.signal_type, pointer, self.destroy_type]),
+            "g_dbus_connection_signal_unsubscribe": (None, [pointer, unsigned]),
+            "g_dbus_connection_call": (None, [pointer, string, string, string, string, pointer, pointer, integer, integer, pointer, self.async_type, pointer]),
+            "g_dbus_connection_call_finish": (pointer, [pointer, pointer, ctypes.POINTER(pointer)]),
+        })
+        self.callbacks, self.sources, self.types = [], {}, {}
+        self.connection, self.owner, self.id, self.watch, self.closed_handler = None, None, 0, 0, 0
+        self.pending, self.subscriptions, self.releasing = {}, {}, set()
+        self.closing = self.close_started = self.released = self.closed_sent = False
+        self.exit_code = 0
+        self.loop = self.glib.g_main_loop_new(None, False)
+        self.bus_callback = self.callback(self.async_type, self.bus_ready)
+        self.call_callback = self.callback(self.async_type, self.call_ready)
+        self.signal_callback = self.callback(self.signal_type, self.notification_signal)
+        self.destroy_callback = self.callback(self.destroy_type, self.native_released)
+        self.appeared_callback = self.callback(self.appeared_type, self.owner_appeared)
+        self.vanished_callback = self.callback(self.vanished_type, self.owner_vanished)
+        self.closed_callback = self.callback(self.closed_type, self.connection_closed)
+
+    @staticmethod
+    def bind(library, functions):
+        for name, (result, arguments) in functions.items():
+            function = getattr(library, name)
+            function.restype, function.argtypes = result, arguments
+
+    def callback(self, signature, function):
+        def invoke(*args):
+            try:
+                return function(*args)
+            except Exception as error:
+                self.fail("callback", str(error))
+                return False
+        result = signature(invoke)
+        self.callbacks.append(result)
+        return result
+
+    def event(self, event, **fields):
+        try:
+            print(json.dumps({"event": event, **fields}), flush=True)
+        except BrokenPipeError:
+            self.exit_code = 1
+            self.close()
+
+    def error_message(self, error):
+        return ctypes.cast(error, ctypes.POINTER(NoticeError)).contents.message.decode(errors="replace")
+
+    def fail(self, operation, message):
+        self.exit_code = 1
+        self.event("error", operation=operation, message=message)
+        self.close()
+
+    def type(self, signature):
+        if signature not in self.types:
+            self.types[signature] = self.glib.g_variant_type_new(signature.encode())
+        return self.types[signature]
+
+    def text(self, value):
+        if not isinstance(value, str) or "\0" in value:
+            raise ValueError("Notification text must be a NUL-free string")
+        return self.glib.g_variant_new_string(value.encode())
+
+    def tuple(self, children):
+        values = (ctypes.c_void_p * len(children))(*children)
+        return self.glib.g_variant_new_tuple(values, len(children))
+
+    def array(self, signature, children):
+        values = (ctypes.c_void_p * len(children))(*children)
+        return self.glib.g_variant_new_array(self.type(signature), values, len(children))
+
+    def parameters(self):
+        actions = self.request["actions"]
+        self.actions = {action["id"] for action in actions}
+        offered = self.array("s", [self.text(action[key]) for action in actions for key in ("id", "label")])
+        hints = [self.glib.g_variant_new_dict_entry(self.text(key), self.glib.g_variant_new_variant(self.text(value)))
+                 for key, value in self.request["hints"].items() if key != "resident"]
+        hints.append(self.glib.g_variant_new_dict_entry(self.text("resident"), self.glib.g_variant_new_variant(self.glib.g_variant_new_boolean(True))))
+        return self.tuple([self.text("Capture"), self.glib.g_variant_new_uint32(0), self.text(""),
+                           self.text(self.request["title"]), self.text(self.request["message"]), offered,
+                           self.array("{sv}", hints), self.glib.g_variant_new_int32(-1)])
+
+    def source(self, name, interval, function):
+        callback = self.callback(self.source_type, function)
+        self.sources[name] = self.glib.g_timeout_add(interval, callback, None)
+
+    def remove_source(self, name):
+        identifier = self.sources.pop(name, 0)
+        if identifier:
+            self.glib.g_source_remove(identifier)
+
+    def run(self):
+        os.set_blocking(sys.stdin.fileno(), False)
+        # GLibUnix sources dispatch on this same main context; GLib is not
+        # reentrant from a Unix/Python signal handler (GLib 2.36 API).
+        for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+            self.sources[str(signum)] = self.glib.g_unix_signal_add(signum, self.callback(self.source_type, self.stop_signal), None)
+        self.sources["stdin"] = self.glib.g_unix_fd_add(sys.stdin.fileno(), 1 | 8 | 16, self.callback(self.fd_type, self.control_ready), None)
+        self.source("startup", CAPTURE_TIMEOUT * 1000, self.startup_timeout)
+        self.pending["bus"] = self.gio.g_cancellable_new()
+        self.gio.g_bus_get(2, self.pending["bus"], self.bus_callback, None)  # G_BUS_TYPE_SESSION
+        if self.control:
+            self.control_ready(sys.stdin.fileno(), 0, None)
+        self.glib.g_main_loop_run(self.loop)
+        self.glib.g_main_loop_unref(self.loop)
+        return self.exit_code
+
+    def stop_signal(self, _):
+        self.close()
+        return True
+
+    def control_ready(self, descriptor, condition, _):
+        try:
+            data = os.read(descriptor, 4096)
+        except BlockingIOError:
+            data = None
+        if data:
+            self.control += data
+        while b"\n" in self.control:
+            line, self.control = self.control.split(b"\n", 1)
+            if line == b"close":
+                self.close()
+            else:
+                self.fail("control", "Unknown notification control")
+        if data == b"" or condition & (8 | 16):
+            self.close()
+        return not self.closing
+
+    def startup_timeout(self, _):
+        self.sources.pop("startup", None)
+        self.fail("startup", "Notification startup exceeded its time limit")
+        return False
+
+    def cleanup_timeout(self, _):
+        self.exit_code = 1
+        self.event("error", operation="cleanup", message="Notification cleanup exceeded its time limit")
+        # A native operation that cannot finish must not outlive this run.
+        # Exit without freeing callback pointers that C still owns.
+        os._exit(1)
+
+    def bus_ready(self, _, result, __):
+        error = ctypes.c_void_p()
+        self.connection = self.gio.g_bus_get_finish(result, ctypes.byref(error))
+        self.object.g_object_unref(self.pending.pop("bus"))
+        if error:
+            message = self.error_message(error)
+            self.glib.g_error_free(error)
+            if not self.closing:
+                self.fail("bus", message)
+        elif not self.closing:
+            # g_bus_get returns a shared connection in this helper process.
+            # Own/unref our reference, never explicitly close the shared bus.
+            self.gio.g_dbus_connection_set_exit_on_close(self.connection, False)
+            self.closed_handler = self.object.g_signal_connect_data(self.connection, b"closed", ctypes.cast(self.closed_callback, ctypes.c_void_p), None, None, 0)
+            self.watch = self.gio.g_bus_watch_name_on_connection(self.connection, self.destination, 0, self.appeared_callback, self.vanished_callback, 3, self.destroy_callback)
+        self.settle()
+
+    def owner_appeared(self, _, __, owner, ___):
+        if self.closing:
+            return
+        if self.owner is not None:
+            raise RuntimeError("Notification server identity changed without retirement")
+        if not self.gio.g_dbus_is_unique_name(owner):
+            raise RuntimeError("Notification server has no unique owner")
+        self.owner = owner
+        for token, member in ((1, b"ActionInvoked"), (2, b"NotificationClosed")):
+            identifier = self.gio.g_dbus_connection_signal_subscribe(self.connection, owner, self.destination, member, self.object_path, None, 0, self.signal_callback, token, self.destroy_callback)
+            self.subscriptions[identifier] = token
+        self.call("notify", b"Notify", self.parameters(), "(u)", CAPTURE_TIMEOUT * 1000, 1)
+
+    def owner_vanished(self, _, __, ___):
+        if self.closing:
+            return
+        self.id = 0
+        self.fail("server", "Notification server has no owner" if self.owner is None else "Notification server lost its owner")
+
+    def connection_closed(self, _, __, error, ___):
+        self.id = 0
+        self.fail("bus", self.error_message(error) if error else "Notification connection closed")
+
+    def call(self, name, method, parameters, reply, timeout, token):
+        self.pending[name] = self.gio.g_cancellable_new()
+        self.gio.g_dbus_connection_call(self.connection, self.owner, self.object_path, self.destination, method, parameters,
+                                       self.type(reply), 0, timeout, self.pending[name], self.call_callback, token)
+
+    def call_ready(self, connection, result, token):
+        name = "notify" if token == 1 else "close"
+        error = ctypes.c_void_p()
+        reply = self.gio.g_dbus_connection_call_finish(connection, result, ctypes.byref(error))
+        self.object.g_object_unref(self.pending.pop(name))
+        if error:
+            message = self.error_message(error)
+            self.glib.g_error_free(error)
+            self.fail(name, message)
+        else:
+            try:
+                if name == "notify":
+                    child = self.glib.g_variant_get_child_value(reply, 0)
+                    try:
+                        self.id = self.glib.g_variant_get_uint32(child)
+                    finally:
+                        self.glib.g_variant_unref(child)
+                    if not self.id:
+                        raise RuntimeError("Notification server returned an invalid id")
+                    if not self.closing:
+                        self.remove_source("startup")
+                        self.event("ready", owner=self.owner.decode(), id=self.id)
+                else:
+                    self.id = 0
+                    self.closed(3)
+            finally:
+                self.glib.g_variant_unref(reply)
+        self.settle()
+
+    def notification_signal(self, _, sender, __, ___, member, parameters, ____):
+        if sender != self.owner or not self.id:
+            return
+        signature = "(us)" if member == b"ActionInvoked" else "(uu)"
+        if not self.glib.g_variant_is_of_type(parameters, self.type(signature)):
+            self.fail("signal", "Notification signal has an invalid type")
+            return
+        first = self.glib.g_variant_get_child_value(parameters, 0)
+        try:
+            identifier = self.glib.g_variant_get_uint32(first)
+        finally:
+            self.glib.g_variant_unref(first)
+        if identifier != self.id:
+            return
+        second = self.glib.g_variant_get_child_value(parameters, 1)
+        try:
+            if member == b"ActionInvoked":
+                action = self.glib.g_variant_get_string(second, None).decode()
+                if not self.closing and action in self.actions:
+                    self.event("action", id=action)
+            else:
+                reason = self.glib.g_variant_get_uint32(second)
+                self.id = 0
+                self.closed(reason)
+                self.close()
+        finally:
+            self.glib.g_variant_unref(second)
+
+    def closed(self, reason):
+        if not self.closed_sent:
+            self.closed_sent = True
+            self.event("closed", reason=reason)
+
+    def close(self):
+        if not self.closing:
+            self.closing = True
+            self.remove_source("startup")
+            self.remove_source("stdin")
+            self.source("cleanup", self.cleanup_ms, self.cleanup_timeout)
+            if "bus" in self.pending:
+                self.gio.g_cancellable_cancel(self.pending["bus"])
+            # Keep one in-flight Notify reply within this shared deadline:
+            # cancelling it could discard the id of an accepted notification.
+            # Once learned, settle closes that id at its retained unique owner.
+        self.settle()
+
+    def settle(self):
+        if not self.closing or self.released or self.pending:
+            return
+        if self.id and not self.close_started:
+            self.close_started = True
+            self.call("close", b"CloseNotification", self.tuple([self.glib.g_variant_new_uint32(self.id)]), "()", self.cleanup_ms, 2)
+            return
+        watch, self.watch = self.watch, 0
+        subscriptions, self.subscriptions = self.subscriptions, {}
+        self.releasing.update(subscriptions.values())
+        if watch:
+            self.releasing.add(3)
+        if watch:
+            self.gio.g_bus_unwatch_name(watch)
+        for identifier in subscriptions:
+            self.gio.g_dbus_connection_signal_unsubscribe(self.connection, identifier)
+        # GLib 2.88.3 signal_unsubscribe requires draining the same context
+        # until its destroy notifications run, even after unsubscribe returns.
+        if self.releasing or self.released:
+            return
+        self.released = True
+        if self.closed_handler:
+            self.object.g_signal_handler_disconnect(self.connection, self.closed_handler)
+        for name in list(self.sources):
+            self.remove_source(name)
+        if self.connection:
+            self.object.g_object_unref(self.connection)
+        for value in self.types.values():
+            self.glib.g_variant_type_free(value)
+        self.glib.g_main_loop_quit(self.loop)
+
+    def native_released(self, token):
+        self.releasing.discard(token)
+        if not self.releasing and not self.released:
+            # DestroyNotify can run inside an unsubscribe/unwatch call.
+            # Let that native stack return before releasing the connection.
+            self.source("release", 0, self.release_ready)
+
+    def release_ready(self, _):
+        self.sources.pop("release", None)
+        self.settle()
+        return False
+
+
+def notification():
+    """Read the producer request without buffering later control lines away."""
+    initial = b""
+    try:
+        while b"\n" not in initial:
+            data = os.read(sys.stdin.fileno(), 4096)
+            if not data:
+                raise ValueError("Notification request is missing")
+            initial += data
+        line, control = initial.split(b"\n", 1)
+        request = json.loads(line)
+        return CaptureNotice(request, control).run()
+    except (OSError, ValueError, TypeError, KeyError) as error:
+        print(json.dumps({"event": "error", "operation": "startup", "message": str(error)}), flush=True)
+        return 1
+
+
 def main():
+    if sys.argv[1:] == ["--notify"]:
+        return notification()
     request = json.loads(sys.argv[1])
     capture = Capture()
     try:

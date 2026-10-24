@@ -632,6 +632,7 @@ PY_HEIGHT_TRACE
 rescan "a rescan reads height tracing"
 expect "enabling height tracing is allowed" ok ipc shell setPluginEnabled vgs.notifications true
 expect_poll "the height-traced service is built" True record_exists vgs.notifications
+expect_poll "the inbox shortcut is listed beside the height-traced service" 1 note_shortcuts
 geometry expect "the long inbox list reaches the panel bottom at both scroll ends" "top=fits end=fits" long_inbox_ends nk_press
 # Control: returning a real collapsed extent to its initial estimate
 # must change the established range during the same native roundtrip.
@@ -723,6 +724,7 @@ PY_BOTTOM_GAP
 rescan "a rescan reads the bottom-gap copy"
 expect "enabling notifications with the bottom-gap copy is allowed" ok ipc shell setPluginEnabled vgs.notifications true
 expect_poll "the bottom-gap service is built" True record_exists vgs.notifications
+expect_poll "the inbox shortcut is listed beside the bottom-gap service" 1 note_shortcuts
 geometry expect "control: a real reserved bottom gap fails at both ends" "top=bottom-gap=list end=bottom-gap=list" long_inbox_ends nk_press
 cp -- "$sandbox/Panel.qml.keys-kept" "$nk_panel"
 rescan "a rescan restores the row-free panel"

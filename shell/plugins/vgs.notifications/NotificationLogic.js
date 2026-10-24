@@ -1831,13 +1831,15 @@ function actionsFor(actions, canRaise) {
 // Wayland cannot raise itself without the activation token the server
 // never sends. Dismissing delivers and raises nothing. `deliver` is ""
 // when there is nothing to deliver; `leave` is the reason the row leaves
-// with. Null for a choice no card offers.
-function choicePlan(choice, offered) {
+// with, or "" for a delivered live resident action. Null for a choice no
+// card offers. History rows and nonresident notifications still leave.
+function choicePlan(choice, offered, residentOnScreen) {
     var c = String(choice || "");
     if (c === "dismiss") return { deliver: "", raise: false, leave: "dismiss" };
     var id = c === "open" ? primaryAction(offered) : c.indexOf("action:") === 0 ? c.slice(7) : "";
     if (id === "" && c !== "open") return null;
-    return { deliver: offered.indexOf(id) !== -1 ? id : "", raise: true, leave: "invoke" };
+    var deliver = offered.indexOf(id) !== -1 ? id : "";
+    return { deliver: deliver, raise: true, leave: residentOnScreen && deliver !== "" ? "" : "invoke" };
 }
 
 // The action a click on a card runs: the freedesktop `default` when the

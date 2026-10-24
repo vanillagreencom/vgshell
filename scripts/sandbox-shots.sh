@@ -22,7 +22,7 @@
 
 # SCENE is gallery, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, tailscale, tailscale-starting, tailscale-locked, tailscale-flyout, vpn, vpn-locked, bluetooth, power, dialog, by-hand, reset, lock, polkit,
-# greeter, narrow, theme-browser, wallpaper-browser, automations, googledrive, tooltips, capture,
+# greeter, narrow, theme-browser, wallpaper-browser, automations, googledrive, tooltips, capture, capture-notifications,
 # info-dialog, keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, jarvis-console, jarvis-audit, jarvis-setup, elevenlabs-voices, jarvis-fleet, outdated, jarvis-causes, jarvis-restart, plugin-messages, page-links, tooltip-link, traffic, ai-usage, ai-usage-states, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice, displays-override or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
@@ -411,7 +411,7 @@ while [[ $# -gt 0 ]]; do
     --title-inventory) title_inventory=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    link-icons|sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-audit|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|jarvis-restart|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|tailscale-flyout|tailscale-section|vpn|vpn-locked|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|googledrive|tooltips|screensaver|theme-previews|setup-tab|updates|clone-voice|displays-override) scenes+=("$1"); shift ;;
+    link-icons|sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|capture-notifications|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-audit|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|jarvis-restart|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|tailscale-flyout|tailscale-section|vpn|vpn-locked|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|googledrive|tooltips|screensaver|theme-previews|setup-tab|updates|clone-voice|displays-override) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -561,6 +561,7 @@ scene_ships() {
     tooltips) scene_ships bar ;;
     panels) ships_plugin vgs.agent-warden vgs.updates vgs.themes ;;
     capture) ships_plugin vgs.capture ;;
+    capture-notifications) ships_plugin vgs.capture vgs.notifications ;;
     keyhints) ships_plugin vgs.keyhints vgs.launcher vgs.settings vgs.themes ;;
     clipboard) ships_plugin vgs.clipboard ;;
     jarvis-console|jarvis-audit|jarvis-restart) ships_plugin vgs.jarvis ;;
@@ -3075,6 +3076,114 @@ scene_capture() { # MODE
   expect_poll "the Capture page shows Settings" 0 settings_tab
   jarvis_anchor_shot "capture-settings-$1-recording" SectionHeader Recording
   settings_close
+}
+
+# The shipped Capture producer, with the existing confined tool fixture.
+# --rev exports only product sources; this scene and its readers stay current.
+scene_capture-notifications() { # MODE
+  local mode="$1" real_grim state tool sequence index label program pair expected path at result notify_before held_before
+  local -a labels=()
+  state="$sandbox/capture-notifications-$mode"
+  expect "Capture stops before its notification fixture" ok ipc shell setPluginEnabled vgs.capture false
+  expect_poll "Capture releases its earlier workers" False record_exists vgs.capture
+  real_grim="$(command -v grim)" || { fail "Capture's nested grim is missing"; return; }
+  mkdir -p -- "$state/shims"
+  python3 - "$checkout/scripts/test-capture.py" "$state" "$real_grim" "$nested_socket" "$rt_dir" <<'PY'
+import importlib.util,sys
+source,state,grim,display,runtime=sys.argv[1:]
+spec=importlib.util.spec_from_file_location("capture_fixture",source)
+module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+module.plant(module.Path(state),{"real":{"grim":grim},"display":display,"runtime":runtime,"clipboardHold":True})
+PY
+  for tool in grim slurp hyprpicker tesseract wl-copy gpu-screen-recorder ffmpeg pw-dump; do
+    if [[ -e $shim/$tool ]]; then mv -- "$shim/$tool" "$state/shims/$tool"; fi
+    ln -s -- "$state/bin/$tool" "$shim/$tool"
+  done
+  source "$checkout/scripts/smoke/fixtures/capture/notifications.sh"
+  capture_notice_tools "$state"
+  expect "notifications enable for Capture's live actions" ok ipc shell setPluginEnabled vgs.notifications true
+  expect_poll "the notification service is built" True record_exists vgs.notifications
+  expect "Capture enables over its confined tools" ok ipc shell setPluginEnabled vgs.capture true
+  expect_poll "Capture's fixture service is built" True record_exists vgs.capture
+  for tool in viewer editor; do
+    expect "Capture uses its $tool stand-in" ok ipc vgs.capture invoke setting "$(python3 -c 'import json,sys; print(json.dumps({"key":sys.argv[1],"value":sys.argv[2]}))' "$tool" "$capture_open/$tool %f")"
+  done
+  expect "Capture's editor receives the existing editor argument pattern" ok ipc vgs.capture invoke setting "$(python3 -c 'import json,sys; print(json.dumps({"key":"editor","value":sys.argv[1]+" --filename %f --output-filename %f"}))' "$capture_open/editor")"
+  expect "capture notifications are not silenced" off notes silence off
+  expect "capture notification sounds are off" off notes sound off
+  capture_notice_monitor "$state/notification-bus.log"
+  expect_poll "the private notification observer is ready" True capture_notice_monitor_ready
+  expected='[]'
+  for sequence in open-first edit-first; do
+    result="$(notes dismiss-all)" || { fail "earlier fixture notifications could not close"; return; }
+    case $result in ok|none) ;; *) fail "dismissing earlier fixture notifications answered $result"; return ;; esac
+    expect "earlier fixture history clears" ok notes clear-history
+    notify_before="$(capture_notice_notify_count)"
+    held_before="$(capture_notice_held)"
+    expect "the $sequence screenshot starts" ok ipc vgs.capture invoke screenshot ''
+    expect_poll "the $sequence screenshot finishes" '"idle"' ipc smoke readInstance service vgs.capture phase
+    capture_notice_has_pair() { [[ $(capture_notice_pair) != null ]] && echo True || echo False; }
+    expect_poll "the $sequence screenshot has a real key and id" True capture_notice_has_pair
+    pair="$(capture_notice_pair)"
+    capture_notice_id="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])[1])' "$pair")"
+    expect_poll "$sequence accepts one producer Notify request" "$((notify_before + 1))" capture_notice_notify_count
+    path="$(ipc smoke readInstance service vgs.capture lastPath | py_reply 'import json,sys; print(json.load(sys.stdin))')"
+    at="$(card_centre "Screenshot saved")" || at=""
+    [[ -n $at ]] || { fail "the Screenshot saved card is missing"; break; }
+    # shellcheck disable=SC2086
+    hover $at || fail "the pointer did not reach the screenshot card"
+    expect_poll "the screenshot card is hovered" True card_hovered "Screenshot saved"
+    expect_poll "the screenshot offers current Open/Edit/Dismiss" '["Open", "Edit", "Dismiss"]' capture_notice_pills
+    capture_notice_record "$SHOT_DIR/capture-notifications-$mode.jsonl" "$sequence-initial" "$pair" "$(capture_notice_pills)" "$(capture_notice_calls)"
+    take_posed "capture-notifications-$mode-$sequence-initial"
+    index=0
+    if [[ $sequence == open-first ]]; then labels=(Open Open Edit Edit Open); else labels=(Edit Open Edit); fi
+    for label in "${labels[@]}"; do
+      index=$((index + 1))
+      [[ $label != Edit ]] && program=viewer || program=editor
+      expected="$(capture_notice_expect_call "$expected" "$program" "$path")"
+      click_item vgs:layer vgs.notifications PillButton text "$label" || { fail "the $label pill was not clicked"; break; }
+      expect_poll "$sequence $index: exactly one ordered $label argv is delivered" "$expected" capture_notice_calls
+      result="$(capture_notice_pair)"
+      capture_notice_record "$SHOT_DIR/capture-notifications-$mode.jsonl" "$sequence-$index-$label" "$result" "$(capture_notice_pills)" "$(capture_notice_calls)"
+      if [[ -n $rev ]]; then
+        expect_poll "before failure: the first action loses that live key/id" null capture_notice_pair
+        capture_notice_record "$SHOT_DIR/capture-notifications-$mode.jsonl" "$sequence-before-failure" "$(capture_notice_pair)" "$(capture_notice_pills)" "$(capture_notice_calls)"
+        take_posed "capture-notifications-$mode-$sequence-after-first"
+        printf 'capture-notifications: before-failure key-id=%s action=%s calls=%s\n' "$pair" "$label" "$(capture_notice_calls)"
+        break
+      fi
+      expect "$sequence $index: the same key and real id remain" "$pair" capture_notice_pair
+      expect "$sequence $index: no replacement Notify is sent" "$((notify_before + 1))" capture_notice_notify_count
+      expect "$sequence $index: no close signal is emitted" 0 capture_notice_closed_count
+      expect "$sequence $index: the notification remains held" "$((held_before + 1))" capture_notice_held
+      expect "$sequence $index: current Open/Edit/Dismiss remain" '["Open", "Edit", "Dismiss"]' capture_notice_pills
+      # A repeated click can draw identical pixels; ordered logs prove that
+      # delivery. Capture the first action and each changed action pose.
+      if [[ $index == 1 || $index == 3 || ( $sequence == edit-first && $index == 2 ) || $index == 5 ]]; then
+        take_posed "capture-notifications-$mode-$sequence-$index-${label,,}"
+      fi
+    done
+    if [[ -z $rev ]]; then
+      click_item vgs:layer vgs.notifications PillButton text Dismiss || fail "Dismiss was not clicked"
+      expect_poll "Dismiss removes the screenshot's live identity" null capture_notice_pair
+      expect "Dismiss launches no viewer or editor" "$expected" capture_notice_calls
+      expect_poll "Dismiss closes the original sender id once" 1 capture_notice_closed_count
+      expect_poll "Dismiss releases the held notification" "$held_before" capture_notice_held
+      expect_poll "Dismiss removes the rendered screenshot card" null capture_notice_pills
+      capture_notice_record "$SHOT_DIR/capture-notifications-$mode.jsonl" "$sequence-dismissed" "$(capture_notice_pair)" "$(capture_notice_pills)" "$(capture_notice_calls)"
+      take_posed "capture-notifications-$mode-$sequence-dismissed"
+    fi
+  done
+  expect "Capture stops after its notification scene" ok ipc shell setPluginEnabled vgs.capture false
+  expect_poll "Capture releases its notification scene workers" False record_exists vgs.capture
+  result="$(notes dismiss-all)" || { fail "scene notifications could not close"; return; }
+  case $result in ok|none) ;; *) fail "dismissing scene notifications answered $result"; return ;; esac
+  expect "scene history is cleared" ok notes clear-history
+  for tool in grim slurp hyprpicker tesseract wl-copy gpu-screen-recorder ffmpeg pw-dump; do
+    rm -- "$shim/$tool"
+    if [[ -e $state/shims/$tool ]]; then mv -- "$state/shims/$tool" "$shim/$tool"; fi
+  done
 }
 
 # AI Usage's dropdown from its widget, at rest, then scrolled halfway down
@@ -8584,7 +8693,7 @@ done
 shots_vsys_line='vsys found one warning on this computer.'
 for scene in "${setups[@]}"; do
   case $scene in
-    gallery|manager|polkit|greeter|theme-browser|wallpaper-browser|setup-tab) ;;
+    gallery|manager|polkit|greeter|theme-browser|wallpaper-browser|setup-tab|capture-notifications) ;;
     info-dialog)
       # Use the existing popup readers and pointer helpers from their rows.
       eval "$(sed -n '/^info_link_shown() {/p; /^info_link_click() {/,/^}/p' "$checkout/scripts/smoke/rows/settings.sh")"
