@@ -415,7 +415,7 @@ Item {
             verify(wide.height >= title.contentHeight + wide.topPadding + wide.bottomPadding, "the entry holds every line");
             compare(hint.x + hint.width, wide.contentItem.width);
             verify(title.x + title.width <= hint.x - wide.spacing, "the text stops before the shortcut column");
-            fuzzyCompare(hint.y + hint.capCentre, title.y + title.capCentre, 1, "the shortcut's capitals centre on the first line's");
+            fuzzyCompare(hint.y + hint.capCentre, title.y + title.xCentre, 1, "the shortcut's capitals centre on the mixed-case first line's x-height");
             menu.close();
         }
 

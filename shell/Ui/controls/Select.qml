@@ -5,7 +5,6 @@ import QtQuick.Templates as T
 import Quickshell
 import qs.Commons
 import qs.Ui
-import "../foundation/LineBreak.js" as LineBreak
 
 // A dropdown choice. `model` is a list of strings, or of objects with
 // `textRole` naming the text; `currentIndex` is the choice. A click, Space
@@ -202,19 +201,12 @@ T.AbstractButton {
 
     contentItem: Label {
         id: shown
-        // The text shown, which `text` draws broken at its spaces each time
-        // it, the width or the font changes.
-        readonly property string value: root.showsEmpty ? root.emptyText : root.showsPlaceholder ? root.placeholderText : root.currentText
-        function breakLines() { text = LineBreak.atSpaces(value, width, lineMetrics); }
-        onValueChanged: breakLines()
-        onWidthChanged: breakLines()
-        Component.onCompleted: breakLines()
+        spaceWrappedText: root.showsEmpty ? root.emptyText : root.showsPlaceholder ? root.placeholderText : root.currentText
         role: "item"
         color: root.showsEmpty || root.showsPlaceholder ? Theme.textField.placeholder : shown.typography.color
         opacity: lockState.fade
         verticalAlignment: Text.AlignVCenter
         wrapMode: Text.Wrap
-        TextMetrics { id: lineMetrics; font: shown.font; onFontChanged: shown.breakLines() }
     }
 
     indicator: Icon {

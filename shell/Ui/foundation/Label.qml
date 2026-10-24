@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import "LineBreak.js" as LineBreak
 
 // Text in one typography role of the theme: `role` names a group of
 // `Theme.text`, and the family, size, weight, letter spacing, line height,
@@ -26,6 +27,8 @@ import qs.Commons
 // for a capitals line. The icon's top lands on a device pixel of the
 // frame the label top sits `origin` into (default 0, a label top on a
 // whole pixel).
+// `leadingIconCentre` is that reading before placement snaps a glyph's
+// top, so controls sharing the reading do not round the centre first.
 // A true `link` centres a single mixed-case line between its highest ink
 // and baseline, excluding descenders. FontMetrics.tightBoundingRect is
 // relative to the baseline (Qt 6.12.0, qml-unit run actual-font-metrics,
@@ -46,10 +49,14 @@ import qs.Commons
 // `lastBaseline()` is the last line's baseline from the label top: lines
 // of one label share one line box, so it is the first one
 // `baselineOffset` places, moved down by every line box but the last.
+// `spaceWrappedText`, when set, is the plain value drawn broken only at
+// spaces. Label re-breaks it when the value, width or font changes; the
+// caller keeps the plain value for its accessible name.
 Text {
     id: root
 
     property string role: "body"
+    property var spaceWrappedText: null
     readonly property var typography: typographyOf(role)
     readonly property real fontHeight: metrics.height
     readonly property real lineBox: Math.max(Math.round(typography.size * typography.lineHeight), Math.ceil(fontHeight))
@@ -57,6 +64,7 @@ Text {
     readonly property real capCentre: metrics.ascent - metrics.capitalHeight / 2
     readonly property real xCentre: metrics.ascent - metrics.xHeight / 2
     readonly property bool capitalsLine: font.capitalization === Font.AllUppercase || (text !== "" && text.toUpperCase() === text)
+    readonly property real leadingIconCentre: capitalsLine ? capCentre : xCentre
     readonly property real opticalWidth: Math.max(0, implicitWidth - (text === "" ? 0 : font.letterSpacing))
 
     function typographyOf(name) {
@@ -75,6 +83,22 @@ Text {
     font.capitalization: typography.uppercase ? Font.AllUppercase : Font.MixedCase
     lineHeight: lineBox > fontHeight ? lineBox : 1
     lineHeightMode: lineBox > fontHeight ? Text.FixedHeight : Text.ProportionalHeight
+
+    // Assign from handlers: atSpaces writes the measuring text, so a
+    // binding would read its own writes (Quickshell 0.3.1 QML language:
+    // https://quickshell.org/docs/v0.3.1/guide/qml-language).
+    function breakLines() {
+        if (spaceWrappedText !== null) text = LineBreak.atSpaces(spaceWrappedText, width, lineMetrics);
+    }
+    onSpaceWrappedTextChanged: breakLines()
+    onWidthChanged: breakLines()
+    Component.onCompleted: breakLines()
+
+    TextMetrics {
+        id: lineMetrics
+        font: root.font
+        onFontChanged: root.breakLines()
+    }
 
     function capTop() {
         return baselineOffset - metrics.capitalHeight;
@@ -118,7 +142,7 @@ Text {
     }
 
     function topForLeadingIcon(iconHeight, origin, link) {
-        const centre = capitalsLine ? capCentre : xCentre;
+        const centre = leadingIconCentre;
         if (link === true && !capitalsLine && text !== "" && lineCount === 1) {
             const ink = metrics.tightBoundingRect(text);
             return leadingIconTop(iconHeight, origin, baselineOffset + ink.y / 2);

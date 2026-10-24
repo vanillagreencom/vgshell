@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Templates as T
 import qs.Commons
 import qs.Ui
-import "../foundation/LineBreak.js" as LineBreak
 
 // One entry of a Menu: an optional icon, the text, an optional key
 // shortcut hint in a trailing column, and a check mark at the end while
@@ -10,11 +9,12 @@ import "../foundation/LineBreak.js" as LineBreak
 // menu wraps onto further lines and never elides, so a long value reads in
 // full: a line breaks only at a space (LineBreak.atSpaces), the entry grows
 // by its lines, and the shortcut keeps its column. A one-line entry's text
-// and shortcut centre their capitals on the entry, as a button's label
-// does, since a line box's centre lies below its capitals' centre; a
+// centres its capitals on the entry, as a button's label does, since a
+// line box's centre lies below its capitals' centre; a
 // wrapped entry keeps its first line where a one-line entry's stands, with
-// its icon, shortcut and check mark beside it, and as much room under its
-// last line. Both draw in the menu's own roles, a pixel under a list row's.
+// its icon, shortcut and check mark on its text's reading centre, and as
+// much room under its last line. Both draw in the menu's own roles, a pixel
+// under a list row's.
 // The accessible name is the plain text. The template owns the click,
 // `triggered` and the hover; the
 // menu sets `highlighted` for the keyboard. `shortcut` is a hint drawn
@@ -59,9 +59,9 @@ T.MenuItem {
     bottomPadding: wraps ? lineInset : 0
     implicitHeight: Math.max(Theme.menu.item.height, implicitContentHeight + topPadding + bottomPadding)
     // The centre of the first line from the entry's top, where a control
-    // drawn beside the text centres, such as a select's entry action: the
-    // entry's centre while the text holds one line.
-    readonly property real firstLineCentre: wraps ? topPadding + title.y + title.lineBox / 2 : height / 2
+    // drawn beside the text centres. Label chooses the reading from its
+    // text and case, shared by the shortcut, marks and select action.
+    readonly property real firstLineCentre: contentItem.y + title.y + title.leadingIconCentre
     // Under a rounded theme the side padding grows until the content
     // clears the drawn corner.
     readonly property real sidePadding: Theme.controlPadding(Theme.menu.item.paddingX, Theme.menu.item.radius, Math.max(Theme.menu.item.height, height), implicitContentHeight)
@@ -79,8 +79,7 @@ T.MenuItem {
     // A box as tall as the ink's top and bottom together centres on the
     // ink's centre.
     function inkTop(glyph) {
-        const origin = contentItem.y + title.y;
-        return origin + title.topForLeadingIcon(glyph.painted[1] + glyph.painted[3], origin);
+        return title.leadingIconTop(glyph.painted[1] + glyph.painted[3], 0, firstLineCentre);
     }
     hoverEnabled: true
     focusPolicy: Qt.NoFocus
@@ -113,19 +112,12 @@ T.MenuItem {
         Label {
             id: title
             role: "menuItem"
-            // The entry's text, which `text` draws broken at its spaces
-            // each time it, the width or the font changes.
-            readonly property string value: root.text
-            function breakLines() { text = LineBreak.atSpaces(value, width, lineMetrics); }
-            onValueChanged: breakLines()
-            onWidthChanged: breakLines()
-            Component.onCompleted: breakLines()
+            spaceWrappedText: root.text
             color: root.lit ? Theme.listItem.selectedForeground : Theme.menu.item.foreground
             x: parent.lead
             width: Math.max(0, parent.width - parent.lead - parent.tail)
             wrapMode: Text.Wrap
             y: root.wraps ? 0 : topForCapCenter(parent.height)
-            TextMetrics { id: lineMetrics; font: title.font; onFontChanged: title.breakLines() }
             TextMetrics { id: oneLine; font: title.font; text: root.text }
         }
         Label {
@@ -135,10 +127,9 @@ T.MenuItem {
             visible: root.shortcut !== ""
             color: root.lit ? Theme.listItem.selectedForeground : Theme.menu.item.shortcut
             x: parent.width - width
-            // Beside a wrapped title, its capitals centre on the first
-            // line's: a box twice as tall as that centre's depth centres
-            // there.
-            y: topForCapCenter(root.wraps ? 2 * (title.y + title.capCentre) : parent.height)
+            // The shortcut's capitals read on the title's first-line
+            // centre, including a mixed-case title's x-height reading.
+            y: topForCapCenter(2 * (root.firstLineCentre - parent.y))
         }
     }
 
