@@ -111,9 +111,15 @@
 # logind and the row never sleeps the host. Negative windows sample every
 # 0.2 s; they are timer checks, not latency budgets. A transport control
 # drops an off request and must fail the same output assertion once.
+# The pane reads both effective input-wake prerequisites after later user
+# lines and reloads, including both mixed boolean orders, and only a
+# disabled one carries the override message that links the user's Hyprland
+# config. A shell-only options-batch refusal makes them unreadable without
+# changing Hyprland; restoring the transport recovers them. The private
+# file returns unchanged.
 # Never is observed past the locked delay with no DPMS request, and unload
 # must leave no Power watch in the core's lending record. No password is typed.
-# inputs: shell/plugins/vgs.power/* shell/plugins/vgs.lock/* shell/Core/SessionLock.qml shell/Commons/SessionLockState.js shell/Hosts/LockHost.qml shell/Core/Compositor.qml shell/Core/Dispatch.js shell/Core/HyprlandLayer.js shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/SettingField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/plugins/vgs.system/* shell/Hosts/PaneHost.qml shell/Core/IdleRegistry.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/Field.qml shell/Ui/controls/Select.qml shell/Ui/controls/SegmentedControl.qml shell/Ui/controls/Switch.qml shell/Ui/controls/InfoButton.qml shell/Ui/controls/RowAction.qml shell/Ui/layout/Section.qml shell/Ui/layout/SectionHeader.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Commons/SettingValues.js shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/Notifier.qml shell/Hosts/NoticeHost.qml shell/Hosts/SummonHost.qml bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/power-fakes.sh bin/vgshell-system config/system/udev/69-vgs-disk-sleep.rules scripts/smoke/rows/system-steps.sh scripts/smoke/fixtures/devices/network.py shell/Core/SystemSteps.qml config/system/udev/* scripts/smoke/fixtures/devices/*
+# inputs: shell/plugins/vgs.power/* shell/plugins/vgs.lock/* shell/Core/SessionLock.qml shell/Commons/SessionLockState.js shell/Hosts/LockHost.qml shell/Core/Compositor.qml shell/Core/Dispatch.js shell/Core/HyprlandLayer.js shell/Core/HyprlandState.js shell/Core/HyprlandState.qml shell/Core/HyprctlReader.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/SettingField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/plugins/vgs.system/* shell/Hosts/PaneHost.qml shell/Core/IdleRegistry.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/Field.qml shell/Ui/controls/Select.qml shell/Ui/controls/SegmentedControl.qml shell/Ui/controls/Switch.qml shell/Ui/controls/InfoButton.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/ValueSourceRow.qml shell/Ui/layout/Section.qml shell/Ui/layout/SectionHeader.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Commons/SettingValues.js shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/Notifier.qml shell/Hosts/NoticeHost.qml shell/Hosts/SummonHost.qml bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/power-fakes.sh bin/vgshell-system config/system/udev/69-vgs-disk-sleep.rules scripts/smoke/rows/system-steps.sh scripts/smoke/fixtures/devices/network.py shell/Core/SystemSteps.qml config/system/udev/* scripts/smoke/fixtures/devices/*
 set -euo pipefail
 source "$repo/scripts/smoke/power-fakes.sh"
 
@@ -209,6 +215,49 @@ print(json.dumps(sorted(k for k in json.loads(sys.argv[2]) if schema[k]["label"]
 # and On battery, or the Selects of Low and Critical battery alert.
 power_pane_choices() { ipc smoke itemValues window vgs.power "$1" currentIndex,visible | py_reply 'import json,sys; print(json.dumps([r["currentIndex"] for r in json.load(sys.stdin) if r["visible"]]))'; }
 power_pane_list_open() { ipc smoke itemValues window vgs.power Select listOpen | py_reply 'import json,sys; print(any(r["listOpen"] for r in json.load(sys.stdin)))'; }
+
+# The message kind (ValueSourceRow) of Power's Key press wake and Pointer
+# movement wake rows.
+power_display_wake_messages() {
+  local label kind kinds=()
+  for label in "Key press wake" "Pointer movement wake"; do
+    kind="$(ipc smoke readMatchingDescendant window vgs.power ValueSourceRow label "$label" messageKind)" || return
+    kinds+=("$kind")
+  done
+  printf '[%s, %s]\n' "${kinds[@]}"
+}
+
+power_display_wake_check() {
+  local key pointer key_state pointer_state key_kind pointer_kind before
+  before="$(sha256sum "$home/.config/hypr/hyprland.lua")" || return
+  power_display_wake_begin || { fail "Power's display wake fixture could not start"; return; }
+  while read -r key pointer key_state pointer_state key_kind pointer_kind; do
+    expect "the user's later display wake values reload ($key/$pointer)" ok power_display_wake_set "$key" "$pointer"
+    expect_poll "Hyprland keeps the user's effective wake values ($key/$pointer)" "[$key, $pointer]" power_display_wake_effective
+    expect_poll "Power reads each effective prerequisite ($key_state/$pointer_state)" "[\"$key_state\", \"$pointer_state\"]" power_display_wake_read
+    expect_poll "only a disabled prerequisite names the user's Hyprland config ($key_state/$pointer_state)" "[$key_kind, $pointer_kind]" power_display_wake_messages
+  done <<'DISPLAY_WAKE'
+true true enabled enabled "" ""
+false false disabled disabled "overridden" "overridden"
+true false enabled disabled "" "overridden"
+false true disabled enabled "overridden" ""
+DISPLAY_WAKE
+  expect "the user's disabled prerequisites reload before the transport refusal" ok power_display_wake_set false false
+  expect_poll "Power reads both disabled before another reload" '["disabled", "disabled"]' power_display_wake_read
+  expect "another reload preserves the user's later lines" ok hypr reload config-only
+  expect_poll "the generated defaults do not replace the user's disabled values" '[false, false]' power_display_wake_effective
+  expect_poll "Power keeps the effective disabled reading after reload" '["disabled", "disabled"]' power_display_wake_read
+  power_display_wake_transport unreadable || fail "Power's options transport refusal could not start"
+  expect "the private compositor reloads while the options reader is refused" ok hypr reload config-only
+  expect_poll "an unreadable batch makes both Power prerequisites unreadable" '["unreadable", "unreadable"]' power_display_wake_read
+  expect_poll "an unreadable prerequisite names no override" '["", ""]' power_display_wake_messages
+  expect "the transport refusal changes no effective compositor value" '[false, false]' power_display_wake_effective
+  power_display_wake_transport real || fail "Power's options transport could not be restored"
+  expect "the private compositor reloads after the options refusal" ok hypr reload config-only
+  expect_poll "Power recovers the effective reading after the options refusal" '["disabled", "disabled"]' power_display_wake_read
+  expect "the display wake fixture restores the private compositor configuration" ok power_display_wake_end
+  expect "the display wake fixture preserves the user's configuration bytes" "$before" sha256sum "$home/.config/hypr/hyprland.lua"
+}
 # power_pane_pick FIELD TYPE TEXT: bring the TYPE reading TEXT inside the
 # Field labelled FIELD into view and click it. The System window holds the
 # page's scroll area, so the reveal goes through it.
@@ -831,6 +880,7 @@ EOF_STAND
   expect "enabling System Settings for Power's section is allowed" ok ipc shell setPluginEnabled vgs.system true
   expect "System Settings opens on Power's section" ok ipc shell summon window vgs.system '{"pane":"vgs.power"}'
   expect_poll "Power's section is mounted" '["vgs.power"]' window_panes
+  power_display_wake_check
   power_timeline_defaults='[["[After 2 minutes](page:acme.power-dim/Settings/dimAfter)", false], ["[After 150 seconds](page:acme.power-away/Settings/saverAfter)", false], ["[After 5 minutes](page:acme.power-away/Settings/lockAfter)", false], ["[After 10 minutes](page:vgs.power/Settings/displayOffSeconds)", false], ["[Never](page:vgs.power/Settings/sleepAfterSeconds)", false]]'
   expect_poll "the timeline reads each stage in order with its default time, a link to its field and no warning" "$power_timeline_defaults" power_timeline
   expect_poll "with a battery and the profiles service the section draws Power's four battery fields" "$power_battery_keys" power_pane_fields

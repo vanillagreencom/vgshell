@@ -164,10 +164,18 @@ function readable(written) {
     return written.filter(function (option) { return Layer.readType(option.path) !== null; });
 }
 
+// These effective prerequisites are readings only. Layer.OPTIONS would
+// also grant a manifest permission to write them, which no consumer needs.
+var READ_ONLY = { "misc.key_press_enables_dpms": "bool", "misc.mouse_move_enables_dpms": "bool" };
+
+function readType(path) {
+    return READ_ONLY[path] || Layer.readType(path);
+}
+
 // The paths `getoption` reads: every OPTIONS path but the per-device row,
-// and each applied group's Appearance path.
+// each applied group's Appearance path, and the read-only prerequisites.
 var READABLE = Object.keys(Layer.OPTIONS).concat(Object.keys(Layer.APPEARANCE_PATHS).map(function (group) { return Layer.APPEARANCE_PATHS[group].path; }))
-    .filter(function (path) { return Layer.readType(path) !== null; });
+    .filter(function (path) { return Layer.readType(path) !== null; }).concat(Object.keys(READ_ONLY));
 
 // The one `hyprctl --batch` argv that reads every READABLE option: the
 // layer's written ones back, and the rest for a plugin that sets none.
@@ -197,14 +205,25 @@ function optionValues(text) {
     for (var i = 0; i < READABLE.length; i++) {
         var path = READABLE[i];
         var read = parsed(replies.parts[i]);
-        var field = REPLY_FIELD[Layer.readType(path)];
-        if (!read.ok || read.value === null || typeof read.value !== "object" || read.value.option !== path || !Object.prototype.hasOwnProperty.call(read.value, field)) {
+        var field = REPLY_FIELD[readType(path)];
+        if (!read.ok || read.value === null || typeof read.value !== "object" || read.value.option !== path || !Object.prototype.hasOwnProperty.call(read.value, field)
+                || Object.prototype.hasOwnProperty.call(READ_ONLY, path) && typeof read.value[field] !== "boolean") {
             errors.push("refused: options=unread path=" + path + " reply=" + JSON.stringify(replies.parts[i].slice(0, 120)));
             continue;
         }
         values[path] = field === "str" ? optionString(read.value.str) : read.value[field];
     }
     return { ok: true, values: values, errors: errors };
+}
+
+// Generated defaults say nothing about later user configuration. Only a
+// boolean from the effective getoption reading establishes a prerequisite.
+function displayWake(values) {
+    var state = function (path) {
+        var value = values === null ? undefined : values[path];
+        return value === true ? "enabled" : value === false ? "disabled" : "unreadable";
+    };
+    return { keyPress: state("misc.key_press_enables_dpms"), pointerMovement: state("misc.mouse_move_enables_dpms") };
 }
 
 // The options of WRITTEN whose value Hyprland reads back otherwise, from

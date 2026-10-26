@@ -13,6 +13,42 @@ power_call() { "${shell_env[@]}" gdbus call --system "$@"; }
 # shown area holds, both with exit 0, and Power's section scrolls in the
 # System window, so neither is a reveal there.
 power_revealed() { [[ $1 =~ ^[0-9]+(\.[0-9]+)?$ ]]; }
+# The Power row and shots read effective DPMS prerequisites through the
+# pane, over later user lines in the private compositor configuration.
+# The options-only refusal leaves every other Hyprland request real.
+power_display_wake_read() { ipc smoke readInstance window vgs.power displayWake | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([d["keyPress"], d["pointerMovement"]]))'; }
+power_display_wake_effective() {
+  local key pointer
+  key="$(hypr -j getoption misc.key_press_enables_dpms)" || return
+  pointer="$(hypr -j getoption misc.mouse_move_enables_dpms)" || return
+  python3 -c 'import json,sys; print(json.dumps([json.loads(v)["bool"] for v in sys.argv[1:]]))' "$key" "$pointer"
+}
+power_display_wake_begin() {
+  power_display_wake_saved="$(mktemp -d "$sandbox/power-display-wake.XXXXXX")" || return
+  cp -p -- "$home/.config/hypr/hyprland.lua" "$power_display_wake_saved/hyprland.lua" || return
+  cp -p -- "$shim/hyprctl" "$power_display_wake_saved/hyprctl" || return
+  printf '#!/usr/bin/env bash\nif [[ ${1:-} == --batch && ${2:-} == *"j/getoption misc.key_press_enables_dpms"* ]]; then exit 1; fi\nexec %q "$@"\n' "$hyprctl_bin" >"$power_display_wake_saved/refuse" || return
+  chmod 755 "$power_display_wake_saved/refuse" || return
+  expected_errors+=('hyprland: options=failed status=1$')
+}
+power_display_wake_set() { # KEY_BOOL POINTER_BOOL
+  cp -p -- "$power_display_wake_saved/hyprland.lua" "$home/.config/hypr/hyprland.lua.next" || return
+  printf 'hl.config({ misc = { key_press_enables_dpms = %s, mouse_move_enables_dpms = %s } })\n' "$1" "$2" >>"$home/.config/hypr/hyprland.lua.next" || return
+  mv -T -- "$home/.config/hypr/hyprland.lua.next" "$home/.config/hypr/hyprland.lua" || return
+  hypr reload config-only
+}
+power_display_wake_transport() { # real|unreadable
+  local source="$power_display_wake_saved/hyprctl"
+  [[ $1 != unreadable ]] || source="$power_display_wake_saved/refuse"
+  cp -p -- "$source" "$shim/hyprctl.next" && mv -T -- "$shim/hyprctl.next" "$shim/hyprctl"
+}
+power_display_wake_end() {
+  power_display_wake_transport real || return
+  cp -p -- "$power_display_wake_saved/hyprland.lua" "$home/.config/hypr/hyprland.lua.next" || return
+  mv -T -- "$home/.config/hypr/hyprland.lua.next" "$home/.config/hypr/hyprland.lua" || return
+  rm -rf -- "${power_display_wake_saved:?}" || return
+  hypr reload config-only
+}
 # power_wol_field [ID]: whether the section of ID (vgs.power) draws the Wake
 # on LAN field, and its switch's state when it does.
 power_wol_field() { ipc smoke itemValues window "${1:-vgs.power}" Switch checked,visible,Accessible.name | py_reply 'import json,sys

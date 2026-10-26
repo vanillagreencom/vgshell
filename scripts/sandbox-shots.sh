@@ -6405,27 +6405,72 @@ power_shot_pages() { # MODE SUFFIX
 # write the nmcli stand-in refuses, over a stand-in list of one wired
 # connection, and a second click, whose write the stand-in takes, turns it
 # off and clears the error.
+# NAME at the section's top, NAME-middle when a frame at its end would not
+# overlap the top frame, and NAME-end at its end; each frame overlaps the one
+# before by at least 40 px, as page shots do, so the set shows every row.
+# "Sleep after" is the field the middle frame reveals: it sits near the
+# middle of the scroll of a section tall enough to need that frame.
 power_shot_pane_pages() { # NAME
-  local name="$1"
+  local name="$1" from=0 reach
   # The System window has separate navigation and content scroll areas.
   # Revealing a content field selects the latter without a new probe API.
   ipc smoke revealText window vgs.system FormRow Dim >/dev/null || { fail "Power's section did not reveal its first field"; return; }
-  expect_poll "Power's section is at its top" True power_shot_pane_coverage top
+  expect_poll "Power's section is at its top" True power_shot_pane_coverage top 0
   take "$name"
+  reach="$(power_shot_pane_coverage reach 0)" || reach=""
+  case $reach in
+    True) ;;
+    False)
+      from="$(ipc smoke revealText window vgs.system Field "Sleep after")" || from=""
+      power_revealed "$from" || { fail "Power's section did not reveal its middle field: ${from:-no reply}"; return; }
+      expect_poll "Power's middle shot overlaps its top shot" True power_shot_pane_coverage next 0
+      take "$name-middle" ;;
+    *) fail "Power's section scroll is unreadable: ${reach:-no reply}"; return ;;
+  esac
   ipc smoke revealText window vgs.system Field "Wake sources" >/dev/null || { fail "Power's section did not reveal its wake field"; return; }
-  expect_poll "Power's top and end shots cover the section with overlap" True power_shot_pane_coverage end
+  expect_poll "Power's end shot reaches the section's end and overlaps the shot before" True power_shot_pane_coverage end "$from"
   take "$name-end"
   ipc smoke revealText window vgs.system FormRow Dim >/dev/null || fail "Power's section did not return to its top"
 }
 
-power_shot_pane_coverage() { # top|end
+# Whether the section's scroll is at its top; whether a frame at its end
+# would overlap the frame at FROM (reach); whether the frame below FROM
+# overlaps it (next); or whether it is at its end and overlaps the frame at
+# FROM (end).
+power_shot_pane_coverage() { # top|reach|next|end FROM
   ipc smoke viewHolding window vgs.system "Wake sources" | py_reply 'import json,sys
 d=json.load(sys.stdin)
 if not isinstance(d,dict) or not all(k in d for k in ("contentY","contentHeight","height")):
     print("unreadable")
 else:
     y,ch,h=(float(d[k]) for k in ("contentY","contentHeight","height"))
-    print(y==0 if sys.argv[1]=="top" else y+h+1>=ch and y<=h-40)' "$1"
+    kind,at=sys.argv[1],float(sys.argv[2])
+    print({"top": y==0, "reach": ch-h<=at+h-40, "next": at<y<=at+h-40, "end": y+h+1>=ch and y<=at+h-40}[kind])' "$1" "$2"
+}
+
+power_shot_display_wake() { # MODE
+  local mode="$1" key pointer key_state pointer_state state
+  power_display_wake_begin || { fail "Power's display wake shot fixture could not start"; return; }
+  while read -r key pointer key_state pointer_state state; do
+    expect "the display wake $state shot loads later user values" ok power_display_wake_set "$key" "$pointer"
+    expect_poll "the display wake $state shot has effective values" "[$key, $pointer]" power_display_wake_effective
+    expect_poll "Power draws the effective $state prerequisites" "[\"$key_state\", \"$pointer_state\"]" power_display_wake_read
+    power_revealed "$(ipc smoke revealText window vgs.system ValueSourceRow "Key press wake")" || fail "Power's display wake prerequisites were not revealed"
+    park_pointer
+    take "power-$mode-pane-display-wake-$state"
+  done <<'DISPLAY_WAKE_SHOTS'
+true true enabled enabled enabled
+false false disabled disabled disabled
+true false enabled disabled mixed
+DISPLAY_WAKE_SHOTS
+  power_display_wake_transport unreadable || fail "Power's unreadable display wake shot could not start"
+  expect "the display wake unreadable shot reloads with the options refusal" ok hypr reload config-only
+  expect_poll "Power draws unreadable prerequisites after the refused read" '["unreadable", "unreadable"]' power_display_wake_read
+  power_revealed "$(ipc smoke revealText window vgs.system ValueSourceRow "Key press wake")" || fail "Power's unreadable display wake prerequisites were not revealed"
+  park_pointer
+  take "power-$mode-pane-display-wake-unreadable"
+  expect "the display wake shots restore the private compositor configuration" ok power_display_wake_end
+  power_revealed "$(ipc smoke revealText window vgs.system FormRow Dim)" || fail "Power's section did not return to its top after the prerequisite shots"
 }
 
 power_shot_pane() { # MODE
@@ -6444,6 +6489,7 @@ power_shot_pane() { # MODE
   [[ $wake == no ]] || expect_poll "Power's section draws Wake on LAN off" off power_wol_field
   park_pointer
   power_shot_pane_pages "power-$1-pane"
+  if grep -qF displayWake "$tree/shell/plugins/vgs.power/Pane.qml"; then power_shot_display_wake "$1"; fi
   if [[ $wake == yes ]]; then
     power_revealed "$(ipc smoke revealScopedText window vgs.system Field "Wake on LAN" Switch "")" || fail "the System page does not scroll to Wake on LAN"
     # Both reveals can clamp to the pane end. Capture the switch's hover

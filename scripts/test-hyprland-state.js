@@ -287,7 +287,38 @@ function suite(lib, check) {
     for (const [name, file, want] of editable) check("bind file editable: " + name, lib.bindFileEditable(file, "/h/.config/hypr"), want);
 }
 
+// Effective DPMS prerequisites share the production batch reader. Other
+// options are deliberately unread here; none can supply a wake default.
+function wakeSuite(lib, check) {
+    const key = "misc.key_press_enables_dpms", pointer = "misc.mouse_move_enables_dpms";
+    const asked = lib.OPTIONS_REQUEST[2].split(";").map(part => part.slice("j/getoption ".length));
+    check("display wake request: key press", asked.includes(key), true);
+    check("display wake request: pointer movement", asked.includes(pointer), true);
+    const rows = [
+        ["both enabled", getoption(key, "bool", true), getoption(pointer, "bool", true), { keyPress: "enabled", pointerMovement: "enabled" }],
+        ["later user values disable both", getoption(key, "bool", false), getoption(pointer, "bool", false), { keyPress: "disabled", pointerMovement: "disabled" }],
+        ["only key press enabled", getoption(key, "bool", true), getoption(pointer, "bool", false), { keyPress: "enabled", pointerMovement: "disabled" }],
+        ["only pointer movement enabled", getoption(key, "bool", false), getoption(pointer, "bool", true), { keyPress: "disabled", pointerMovement: "enabled" }],
+        ["key press unreadable", "no such option", getoption(pointer, "bool", false), { keyPress: "unreadable", pointerMovement: "disabled" }],
+        ["pointer movement unreadable", getoption(key, "bool", true), "no such option", { keyPress: "enabled", pointerMovement: "unreadable" }],
+        ["both unreadable", "no such option", "no such option", { keyPress: "unreadable", pointerMovement: "unreadable" }],
+        ["wrong reply field", getoption(key, "int", 1), getoption(pointer, "bool", true), { keyPress: "unreadable", pointerMovement: "enabled" }],
+        ["non-boolean reply values", getoption(key, "bool", "false"), getoption(pointer, "bool", 1), { keyPress: "unreadable", pointerMovement: "unreadable" }]
+    ];
+    for (const [name, keyReply, pointerReply, want] of rows) {
+        const text = asked.map(path => path === key ? keyReply : path === pointer ? pointerReply : "no such option").join("\n\n\n") + "\n";
+        const read = lib.optionValues(text);
+        check("display wake: " + name, read.ok ? lib.displayWake(read.values) : read, want);
+    }
+    const unreadable = { keyPress: "unreadable", pointerMovement: "unreadable" };
+    check("display wake: before read and after transport failure", lib.displayWake(null), unreadable);
+    check("display wake: malformed values never enable", lib.displayWake({ [key]: "true", [pointer]: 0 }), unreadable);
+    const failed = lib.optionValues("Couldn't connect to the socket");
+    check("display wake: whole batch failure", [failed.ok, lib.displayWake(failed.ok ? failed.values : null)], [false, unreadable]);
+}
+
 suite(load(STATE), report);
+wakeSuite(load(STATE), report);
 
 // Each control removes one rule from a copy of the file and keeps the text
 // around it; the suite must fail on every copy. The copy sits in a
@@ -301,13 +332,13 @@ const CONTROLS = [
     ["touchpads are the pointers named so", "return devices.mice.filter(function (mouse) { return mouse.touchpad; })", "return devices.mice.filter(function (mouse) { return true; })"],
     ["unread devices have no touchpads", "if (devices === null) return null;", "if (devices === null) return [];"],
     ["the device row is not read back", "return Layer.readType(option.path) !== null; });", "return true; });"],
-    ["the request reads no device row", ".filter(function (path) { return Layer.readType(path) !== null; });", ";"],
+    ["the request reads no device row", ".filter(function (path) { return Layer.readType(path) !== null; }).concat(Object.keys(READ_ONLY));", ".concat(Object.keys(READ_ONLY));"],
     ["the request reads the Appearance paths", ".concat(Object.keys(Layer.APPEARANCE_PATHS).map(function (group) { return Layer.APPEARANCE_PATHS[group].path; }))", ""],
     ["one reply per option", 'var replies = Dispatch.batchReplies(text, READABLE.length, "options");', 'var replies = { ok: true, parts: String(text).split("\\n\\n\\n").map(function (part) { return part.trim(); }).filter(function (part) { return part !== ""; }) };'],
     ["each reply names its option", "read.value.option !== path || ", ""],
     ["an empty string option reads empty", 'values[path] = field === "str" ? optionString(read.value.str) : read.value[field];', "values[path] = read.value[field];"],
     ["an unread option has no value", "replies.parts[i].slice(0, 120)));\n            continue;", "replies.parts[i].slice(0, 120)));"],
-    ["each reply holds its type's field", " || !Object.prototype.hasOwnProperty.call(read.value, field))", ")"],
+    ["each reply holds its type's field", " || !Object.prototype.hasOwnProperty.call(read.value, field)\n", "\n"],
     ["a float within a millionth is the same", "Math.abs(read - want) > 0.000001", "read !== want"],
     ["a differing value is overridden", "return differs(Layer.readType(row.path), row.value, values[row.path]);", "return false;"],
     ["a written option has no unwritten value", "if (held.indexOf(path) === -1 && ", "if ("],
@@ -354,7 +385,8 @@ const CONTROLS = [
     ["a bind file is Lua", '&& /\\.lua$/.test(file) && ', "&& "],
     ["a bind file names no climbing segment", ' && !/\\/\\.\\.?(\\/|$)/.test(file);', ";"],
     ["a user bind outside the hypr directory is not removable", " && bindFileEditable(row.file, hyprDir) });", " });"],
-    ["the lines keep their breaks", "return text.match(/[^\\n]*\\n|[^\\n]+$/g) || [];", "return text.split(\"\\n\");"]
+    ["the lines keep their breaks", "return text.match(/[^\\n]*\\n|[^\\n]+$/g) || [];", "return text.split(\"\\n\");"],
+    ["effective wake never substitutes generated true defaults", 'return value === true ? "enabled" : value === false ? "disabled" : "unreadable";', 'return value === true ? "enabled" : value === false ? "enabled" : "enabled";', wakeSuite]
 ];
 
 fs.mkdirSync(os.tmpdir(), { recursive: true });
@@ -364,7 +396,7 @@ try {
     for (const name of ["ConfigLogic.js", "HyprlandLayer.js", "MonitorLogic.js", "PackageManagers.js", "Dispatch.js"])
         fs.symlinkSync(path.join(__dirname, "..", "shell", "Core", name), path.join(temp, "shell", "Core", name));
     const source = fs.readFileSync(STATE, "utf8");
-    for (const [label, needle, replacement] of CONTROLS) {
+    for (const [label, needle, replacement, controlSuite] of CONTROLS) {
         const count = source.split(needle).length - 1;
         if (count !== 1) { report("control: " + label + ": the text to replace occurs once", count, 1); continue; }
         const mutant = path.join(temp, "shell", "Core", "HyprlandState.js");
@@ -374,7 +406,7 @@ try {
         const lib = load(mutant);
         let red = 0;
         try {
-            suite(lib, (name, got, want) => { if (JSON.stringify(got) !== JSON.stringify(want)) red += 1; });
+            (controlSuite || suite)(lib, (name, got, want) => { if (JSON.stringify(got) !== JSON.stringify(want)) red += 1; });
         } catch (e) {
             red += 1;
         }

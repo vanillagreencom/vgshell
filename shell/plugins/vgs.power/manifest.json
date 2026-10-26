@@ -24,6 +24,7 @@
   "capabilities": [
     "compositor",
     "configure",
+    "hyprland",
     "idle",
     "ipc",
     "manager",
@@ -33,14 +34,17 @@
     "shortcut",
     "status",
     "surfaces",
-    "system"
+    "system",
+    "tui"
   ],
   "capabilityKinds": {
     "compositor": ["service"],
+    "hyprland": ["pane"],
     "idle": ["service", "pane"],
     "manager": ["pane"],
     "session": ["service"],
-    "system": ["service"]
+    "system": ["service"],
+    "tui": ["pane"]
   },
   "idleStages": { "displayOff": { "seconds": "displayOffSeconds" }, "sleep": { "seconds": "sleepAfterSeconds" } },
   "systemSteps": ["disk-sleep", "wake-sources"],
@@ -136,7 +140,7 @@
       "type": "number",
       "label": "Turn displays off",
       "description": "After you stop using the computer",
-      "info": "While the screen is locked, the displays turn off after 10 seconds without input. A key press or pointer move turns them on. Never keeps them on while locked too.",
+      "info": "While the screen is locked, the displays turn off after 10 seconds without input. Never keeps them on while locked too.\nA key press or pointer movement turns the displays on only if [your Hyprland config](file:hypr%2Fhyprland.lua) lets it. [Power in System Settings](page:vgs.power) shows if each one can. Some displays do not wake even then.",
       "unit": "seconds",
       "min": 0,
       "max": 7200,

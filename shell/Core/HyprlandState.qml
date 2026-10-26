@@ -45,6 +45,7 @@ Scope {
     property var overriddenRows: null
     // State.optionValues' values, read with overriddenRows; null alike.
     property var optionValues: null
+    readonly property var displayWake: Logic.frozenJson(State.displayWake(optionValues))
     property var foreignKeys: null
     // [{ id, path, value }] for each written option the user's
     // configuration gave another value, which the layer then replaced; null
@@ -89,6 +90,7 @@ Scope {
             get overridden() { return root.overriddenFor(ctx.id); },
             get userValues() { return root.userValuesFor(ctx.id); },
             get values() { return root.optionValues === null ? null : Logic.frozenJson(State.unwrittenValues(ctx.manifest.hyprland === undefined ? undefined : ctx.manifest.hyprland.options, root.written, ctx.id, root.optionValues, root.appearanceWritten)); },
+            get displayWake() { return root.displayWake; },
             get devices() { return root.devices === null ? null : Logic.frozenJson(root.devices); },
             get foreignBinds() { return root.foreignKeys === null ? null : Logic.frozenJson(root.foreignKeys); },
             resolveKeys: (keys, done) => {

@@ -15,7 +15,9 @@ import qs.Ui
 // the Settings page draws it, with its info, and written through
 // `configure`. A field whose setting the service applies elsewhere also
 // shows the service's last failure through the schema's `problem`, as
-// the Settings page does. While the last scan misses the optional power profiles service,
+// the Settings page does. Under Turn displays off, a row per input that
+// can turn the displays on shows whether Hyprland lets it
+// (`hyprland.displayWake`). While the last scan misses the optional power profiles service,
 // the section offers its install, which raises the core's requirement
 // notice.
 FocusScope {
@@ -28,6 +30,16 @@ FocusScope {
     readonly property var presence: shell === null ? ({}) : shell.status.values
     readonly property var settingChoices: shell === null ? ({}) : (shell.manager.plugins.find(plugin => plugin.id === shell.manifest.id)?.settingChoices ?? ({}))
     readonly property var wakeRow: shell === null ? null : shell.status.rows.find(row => row.key === "wakeSources") || null
+    readonly property var displayWake: shell === null ? { keyPress: "unreadable", pointerMovement: "unreadable" } : shell.hyprland.displayWake
+    readonly property var displayWakeRows: [
+        { label: "Key press wake", state: displayWake.keyPress, path: "misc.key_press_enables_dpms" },
+        { label: "Pointer movement wake", state: displayWake.pointerMovement, path: "misc.mouse_move_enables_dpms" }
+    ]
+    readonly property var wakeStates: ({
+        enabled: { label: "Enabled", tone: "success" },
+        disabled: { label: "Disabled", tone: "warning" },
+        unreadable: { label: "Unreadable", tone: "neutral" }
+    })
     readonly property string profilesService: "org.freedesktop.UPower.PowerProfiles"
     readonly property bool profilesMissing: shell !== null && shell.requirements.missing.indexOf(profilesService) !== -1
     readonly property var diskSleep: shell === null ? null : shell.status.rows.find(row => row.key === "diskSleep" && row.report === "reported") || null
@@ -58,6 +70,22 @@ FocusScope {
 
     function open(payloadJson) {}
     function close() {}
+
+    function openHyprlandConfig() {
+        const reply = shell.tui.edit("hypr/hyprland.lua");
+        if (reply !== "ok") console.warn("power pane: edit " + reply);
+    }
+
+    // INFO with each reference to this section reduced to its words: the
+    // help names this section for the Settings page, which opens it, and
+    // `surfaces.openPage` here would open the Settings page instead
+    // (Plugins.openSettingsPage). Other references keep their links.
+    function infoHere(info) {
+        let out = info;
+        for (const link of PageReference.references(info).links)
+            if (link.page === shell.manifest.id) out = out.replace(link.reference, () => link.words);
+        return out;
+    }
 
     function timeReference(stage) {
         const words = stage.seconds === 0 ? "Never" : "After " + SettingValues.quantityText(stage.seconds, "seconds");
@@ -187,8 +215,9 @@ FocusScope {
                         inline: true
                         label: entry.label
                         hint: entry.description ?? ""
-                        info: entry.info ?? ""
+                        info: root.shell === null ? "" : root.infoHere(entry.info ?? "")
                         error: entry.problem === undefined ? "" : root.presence[entry.problem] ?? ""
+                        onInfoPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
 
                         // The binding comes back after a choice, so the
                         // control shows the value the configuration holds.
@@ -235,6 +264,32 @@ FocusScope {
                                 root.configure(field.modelData, field.choices[index].value);
                                 currentIndex = Qt.binding(() => field.current);
                             }
+                        }
+                    }
+                }
+
+                Repeater {
+                    model: group.keys.includes("displayOffSeconds") ? root.displayWakeRows : []
+
+                    // The core layer writes both options true
+                    // (HyprlandLayer.js sessionLockLines), so a disabled
+                    // reading is a later line of the user's own Hyprland
+                    // config: the row's override message and its link to
+                    // that file, as Hyprland reading back another value
+                    // than VGS wrote reads in every ValueSourceRow.
+                    ValueSourceRow {
+                        id: wakeInput
+                        required property var modelData
+                        width: content.width
+                        label: modelData.label
+                        path: modelData.path
+                        hyprland: ({ values: {}, userValues: [], overridden: modelData.state === "disabled" ? [modelData.path] : [] })
+                        warning: modelData.state === "unreadable" ? "Could not check if this turns displays on" : wakeInput.messageText(wakeInput.messageKind)
+                        onOpenHyprlandConfig: root.openHyprlandConfig()
+
+                        Badge {
+                            text: root.wakeStates[modelData.state].label
+                            tone: root.wakeStates[modelData.state].tone
                         }
                     }
                 }
