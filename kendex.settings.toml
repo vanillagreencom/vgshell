@@ -98,7 +98,6 @@ ORCH_LANE_OUTPUT = "quiet"
 # a separate instruction; changing these hours needs the owner.
 ORCH_OWNER_TIME_ZONE = "America/Los_Angeles"
 ORCH_REPORT_QUIET_HOURS = "0-7"
-ORCH_REPORT_EVERY_MINUTES = "10"
 
 # Owner asks bound to an item post on it, assigned to the owner
 # (KENDEX_USER_EMAIL), under this label.
