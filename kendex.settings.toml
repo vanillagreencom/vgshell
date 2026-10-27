@@ -103,8 +103,8 @@ ORCH_REPORT_QUIET_HOURS = "0-7"
 # Discovery owns the lane inventory; ORCH_LANE_DIRS covers other layouts.
 
 # Used by: orch (`oversee`). Max concurrent lanes the overseer keeps in
-# flight. Owner Slack 1792275992 (2026-10-17): 16 lanes.
-ORCH_OVERSEER_LANES = "16"
+# flight.
+ORCH_OVERSEER_LANES = "6"
 
 # Overseer provider order, using the shared model class at medium effort.
 ORCH_OVERSEER_PREFERENCE = "claude:standard:medium,codex:standard:medium"
