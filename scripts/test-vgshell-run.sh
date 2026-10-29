@@ -49,7 +49,7 @@ trap cleanup EXIT
 # `yes` when the user's applications directory exists as it starts.
 cat >"$tmp/qs" <<'EOF'
 #!/usr/bin/env bash
-if [[ ${1:-} == --version ]]; then echo "Quickshell 0.3.1"; exit 0; fi
+if [[ ${1:-} == --version ]]; then echo "Quickshell 0.3.1 (revision stub, distributed by VGS 2 (package: vgshell-quickshell))"; exit 0; fi
 if [[ ${1:-} == ipc ]]; then
   case "${5:-} ${6:-}" in
     "shell locked") echo false ;;

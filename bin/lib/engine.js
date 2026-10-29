@@ -1,6 +1,6 @@
 // VGS's engine release uses Quickshell's supported DISTRIBUTOR metadata;
 // --version prints it as `distributed by VGS N (package: vgshell-quickshell)`.
-// Upstream keeps its own version. Stock channels retain the upstream floor.
+// Upstream keeps its own version. Every channel requires the VGS engine.
 "use strict";
 const RELEASE = 2;
 const DEBIAN_VERSION = "0.3.2+git2b4501a+vgs2-1";
@@ -53,8 +53,10 @@ if (require.main === module) {
     } else {
         const text = require("node:fs").readFileSync(0, "utf8");
         const read = classify(text);
-        if (read.kind === "stock") console.log("stock");
-        else {
+        if (read.kind === "stock") {
+            console.log(`stock ${RELEASE}`);
+            process.exitCode = 1;
+        } else {
             console.log(`${read.release === null ? "unknown" : read.release} ${RELEASE}`);
             process.exitCode = current(text) ? 0 : 1;
         }

@@ -669,19 +669,6 @@ function verify(logic) {
         observed = logic.soundRuleUpdate(observed, JSON.stringify(objects));
         same(observed, { ok: true, id: want[0], version: want[1], held: want[2], invalidHeld: want[3] }, "rule monitor: " + label);
     }
-    // The guard: the program runs only under the pid it names as its
-    // parent, as its own pid.
-    const guarded = (shellPid, argv) => {
-        const a = logic.guardedArgv(shellPid, argv);
-        return childProcess.spawnSync(a[0], a.slice(1), { encoding: "utf8", env: { PATH: process.env.PATH } });
-    };
-    const run = guarded(process.pid, ["sh", "-c", 'echo "$$ $PPID"']);
-    assert.equal(run.status, 0, "guarded: runs under its own parent");
-    const [childPid, childParent] = run.stdout.trim().split(" ").map(Number);
-    assert.equal(childPid, run.pid, "guarded: the program keeps the launched pid");
-    assert.equal(childParent, process.pid, "guarded: the program's parent is the shell");
-    assert.equal(guarded(process.pid + 1000000, ["true"]).status, 1, "guarded: refuses under another parent");
-    assert.equal(logic.guardedArgv(1, ["true"]).slice(0, 4).join(" "), "setpriv --pdeathsig KILL --", "guarded: SIGKILL when the parent dies");
     // The removal on disable, run on a scratch tree: the plugin's own
     // fragment, copy and marker go; a symbolic link, a file the plugin did
     // not write and a marker that is no version stay.
@@ -1765,7 +1752,6 @@ const CONTROLS = [
     ["the shell's own sound is not below its sounds directory", " && file.indexOf(\"/\", sounds.length + 1) === -1;", ";"],
     ["only the plugin's disable removes", "config.disabledPlugins.indexOf(id) !== -1", "config.disabledPlugins.length > 0"],
     ["a configuration that is no JSON disables nothing", "    } catch (e) {\n        return false;\n    }\n    return isPlainObject(config) && Array.isArray(config.disabledPlugins)", "    } catch (e) {\n        return true;\n    }\n    return isPlainObject(config) && Array.isArray(config.disabledPlugins)"],
-    ["the guard checks the parent", "[ \\\"$PPID\\\" = \\\"$1\\\" ] || exit 1; shift; exec", "shift; exec"],
     ["a healthy run starts a new streak", "var next = ran >= RESTART_HEALTHY ? 0 : streak;", "var next = streak;"],
     ["the supervision gives up", "delay: next < RESTART_DELAYS.length ? RESTART_DELAYS[next] : -1", "delay: RESTART_DELAYS[Math.min(next, RESTART_DELAYS.length - 1)]"],
     ["replacement entries restore running without another observer", 'if (m.key === "version") next.version = typeof m.value === "string" ? m.value : "";', 'if (m.key === "version") next.version = next.version;'],

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # printers-watch: vgs.printers's change listener, run by the service as
-#   setpriv --pdeathsig TERM -- printers-watch URI
+#   printers-watch URI
 # while the Printers section is shown. URI is the scheduler ipptool asks,
 # PrintersLogic.CUPS_URI: cupsd's domain socket, where it authenticates
 # the subscription's owner for the renewal and the cancel.
@@ -37,9 +37,9 @@
 # before its pdeathsig was set, so PARENT is no longer its parent, exits.
 #
 # The service holds this first process's stdin open and never writes it.
-# Its end, when the shell exits, or when an older stock engine re-executes in the same pid after a crash,
-# ends the watch as a TERM does (docs/architecture/runtime.md § Why). A
-# watch that outlived its shell would hold every descriptor it inherited.
+# Its end, when the service is removed or the shell exits, ends the watch
+# as a TERM does. A watch that outlived its shell would hold every descriptor
+# it inherited.
 #
 # No notification is lost between the subscription and listening: it
 # subscribes on the bus first and waits for dbus-monitor's first line, the

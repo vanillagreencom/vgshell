@@ -108,8 +108,8 @@ def supervise(role, argv):
         # Pass the caller's selected environment unchanged apart from the
         # child-only ALSA route; the core owns session environment selection.
         # Each fork needs its own parent-death guard: prctl's setting is not
-        # inherited by fork. The same exec/PPID contract as the core's guard
-        # closes the race if this supervisor ended before setpriv started.
+        # inherited by fork. The PPID check closes the race if this supervisor
+        # ended before setpriv started.
         guarded = ["setpriv", "--pdeathsig", "KILL", "--", "bash", "-c",
                    '[[ $PPID == "$1" ]] || exit 1; shift; exec "$@"', "bash", str(os.getpid()), *argv]
         environment["ALSA_CONFIG_PATH"] = "/proc/self/fd/" + str(config_fd)

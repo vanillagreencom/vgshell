@@ -13,16 +13,19 @@
 #   - gpg without that key's secret key;
 #   - GitHub's refs/tags/vX.Y.Z missing or naming another object than the
 #     local tag, since `gh release create --verify-tag` publishes GitHub's.
-# Then it writes four files into dist/:
+# Then it writes six files into dist/:
 #   vgshell-X.Y.Z.tar.gz  the tag's commit under vgshell-X.Y.Z/, built by
 #                     scripts/lib/release-tarball.sh; no architecture in the
 #                     name
 #   install.sh        the tag's install.sh, the curl installer
-#   SHA256SUMS        the sha256 of those two, one line each
+#   vgshell-quickshell_..._debian-forky_amd64.deb
+#                     the engine built by scripts/debian-packages.sh
+#   release-key.asc   the signing key's public-only export
+#   SHA256SUMS        the sha256 of those four, one line each
 #   SHA256SUMS.asc    `gpg --armor --detach-sign` of SHA256SUMS by release_key
-# and runs `gh release create vX.Y.Z --verify-tag` with those four files and
+# and runs `gh release create vX.Y.Z --verify-tag` with those six files and
 # generated notes. Other files in dist/ are never touched or uploaded.
-# --dry-run makes every check and the first three files, then prints the
+# --dry-run makes every check and the first five files, then prints the
 # signing key and the gh command instead of running them.
 #
 # Output, on stdout: `release: sha256 name=vgshell-X.Y.Z.tar.gz value=<hex>`,

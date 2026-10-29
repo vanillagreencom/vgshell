@@ -15,11 +15,10 @@ A lock descriptor the shell inherits is held by every child the shell starts, so
 ### Process
 
 - Never start a second shell against the live session, and never kill Quickshell processes by name; other Quickshell applications share the seat. Validation runs in the nested sandbox alone.
-- Do enforce managed child lifetime at the patched Quickshell `Process` launcher. Keep a wrapper only for descendant cleanup or the engine delivery gap below. Review holds this boundary.
+- Do enforce managed child lifetime at the patched Quickshell `Process` launcher. Keep a wrapper only for independent descendant or helper cleanup. Review holds this boundary.
 - Do give the lifetime group SIGTERM, allow a cleanup grace of five seconds, then send SIGKILL. Replacement does not wait for cleanup; old descendants may overlap the replacement during that grace. Keep helper cleanup within that bound, including the printer helper's `ipptool -T 4` cancellation. Review holds the bound; `scripts/smoke/rows/child-lifetime.sh` checks termination.
 - Do keep a descendant's cleanup ownership when its parent forks or creates another process group. A parent-death signal is not inherited by a forked child. `bin/lib/owned-group.py` owns explicitly isolated query groups. Review holds this boundary.
 - Do preserve explicit lifetime handoffs: `bin/vgshell-tui` starts independent terminals so user tasks survive shell restart; `Core/Capabilities.qml` detaches user applications so opened apps keep running; `Core/MonitorState.qml` detaches display rollback so recovery survives shell failure; `Core/Notices.qml` detaches restart and reset so each can finish after its requesting shell ends. Detached cleanup requests likewise finish their cleanup. Review holds these exceptions.
-- Engine delivery gap: curl apt and curl on NixOS use stock Quickshell. Keep existing direct-child guards uniformly for Dictation, notification PipeWire clients, the voice bridge, power watches, the clipboard watcher, screensaver conversion and the printer watcher until [VGS-1999](https://linear.app/vanillagreen/issue/VGS-1999/distribution-the-curl-apt-and-nixos-installs-run-the-patched-engine) delivers the patched engine and removes them. These guards protect their direct programs; they do not cover every forked or regrouped descendant, the unguarded sound subscriber or the lock inhibitor itself. Add no separate engine probe, alternate reader or version-based guard branch. Review holds this limit.
 - Do exit a shell through the runner, never `Qt.quit()` from the root; `Qt.exit` does nothing while the root is still loading. Review holds it.
 - Do read the shell's pid from the lock file for every command that contacts it, and exit 69 on no pid, a dead pid or a failed call. `scripts/test-vgshell.sh` pins it.
 - Do judge every `qs ipc call` reply by its text through `bin/lib/ipc-reply.sh`; `qs ipc call` exits 0 when the client fails. `scripts/test-ipc-reply.sh` pins it.
@@ -30,7 +29,7 @@ A lock descriptor the shell inherits is held by every child the shell starts, so
 - Never relaunch, restart or refuse a run from anywhere but the runner's supervision table in `bin/vgshell`; `scripts/test-vgshell-run.sh` and `scripts/smoke/rows/supervise.sh` pin it.
 - Do keep the next sentence byte for byte; `scripts/check-readme.js` reads it and holds the README's install text to it. Autostart is `hl.on("hyprland.start", function () hl.exec_cmd("vgshell start") end)` in `hyprland.lua`.
 - Never ship a systemd unit for the shell. Review holds it.
-- Do start voxtype's daemon only from `shell/Core/Dictation.qml`, through `bin/vgshell-dictation`, while a plugin holds capability `dictation`; the helper and its direct child each use SIGKILL as their parent-death signal, and no plugin or user unit starts a daemon ([D106](../decisions/D106-dictation-core-lent-over-voxtype.md)). `scripts/smoke/rows/dictation.sh` pins it.
+- Do start voxtype's daemon only from `shell/Core/Dictation.qml`, through `bin/vgshell-dictation`, while a plugin holds capability `dictation`; the engine owns the helper's lifetime, the helper gives its direct child SIGKILL as its parent-death signal, and no plugin or user unit starts a daemon ([D106](../decisions/D106-dictation-core-lent-over-voxtype.md)). `scripts/smoke/rows/dictation.sh` pins it.
 
 ### Memory
 
