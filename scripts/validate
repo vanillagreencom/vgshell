@@ -63,7 +63,7 @@
 #   `validate: smoke-input row=<row> ...` self-check lines on stderr:
 #   smoke_rows_selected below. Those lines leave that run's exit status
 #   alone; the tools row `smoke rows name the rows they read` fails on a
-#   `function=`, `variable=` or `unparsed` line and exits 77 when the scan
+#   `function=`, `variable=`, `source=` or `unparsed` line and exits 77 when the scan
 #   could not run: smoke_reads_named below.
 #
 # VGS_VALIDATE_BASE: the commit the whitespace row diffs the tree against;
@@ -520,7 +520,7 @@ rows=(
   "tools|smoke Xwayland off controls|scripts/test-smoke-xwayland.sh|scripts/test-smoke-xwayland.sh scripts/smoke/harness.sh scripts/smoke/hypr-call.sh"
   "tools|smoke stand-in terminal writers|python3 scripts/check-smoke-terminal.py|scripts/smoke/rows/*"
   "tools|smoke stand-in terminal writer controls|python3 scripts/test-check-smoke-terminal.py|scripts/check-smoke-terminal.py scripts/smoke/rows/*"
-  "tools|smoke rows name the rows they read|smoke_reads_named|scripts/smoke/* scripts/qml-smoke.sh"
+  "tools|smoke rows name the rows they read|smoke_reads_named|scripts/validate scripts/smoke/* scripts/qml-smoke.sh"
   "tools|smoke teardown controls|scripts/test-smoke-teardown.sh|scripts/smoke/teardown.sh scripts/smoke/harness.sh scripts/smoke/rows/read-only-prefix.sh"
   "tools|smoke failed row evidence controls|python3 scripts/test-smoke-evidence.py|scripts/test-smoke-evidence.py scripts/smoke/evidence.py scripts/smoke/harness.sh scripts/smoke/teardown.sh scripts/smoke/gpu-fence.sh scripts/qml-smoke.sh scripts/smoke/rows/notifications.sh"
   "tools|smoke display record arm controls|scripts/test-smoke-display-record.sh|scripts/test-smoke-display-record.sh scripts/smoke/harness.sh scripts/smoke/display-record.sh"
@@ -553,7 +553,7 @@ rows=(
   "repo|no private key in the tree|private_keys_check|"
   "repo|markdown references and source citations|md_refs_check|"
   "tools|document byte ceilings|doc_limits_check|*.md docs/* tools/doc-limits-excludes kendex.settings.toml .kendex/settings.toml .kendex-generated.json .agents/skills/doc-limits/scripts/* .agents/skills/commit-guards/scripts/lib/generated-paths.sh .agents/skills/commit-guards/scripts/lib/messages.sh"
-  "tools|validate self-check controls|scripts/test-validate.sh|scripts/validate scripts/smoke/gpu-fence.sh docs/architecture/validation.md scripts/smoke/rows/tailscale.sh scripts/smoke/rows/vpn.sh packaging/install-tree.manifest scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/rows.list scripts/smoke/rows/bar.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/session.sh scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/auth-sentinel.sh scripts/test-qml-unit.sh .agents/skills/orch/scripts/lib/kendex-env.sh .agents/skills/doc-limits/scripts/* bin/lib/check-manifests.js scripts/test-check-manifests.js bin/lib/qml-library.js shell/* bin/vgshell-scan scripts/smoke/fixtures/*"
+  "tools|validate self-check controls|scripts/test-validate.sh|scripts/validate scripts/smoke/gpu-fence.sh docs/architecture/validation.md scripts/smoke/rows/tailscale.sh scripts/smoke/rows/vpn.sh packaging/install-tree.manifest scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/rows.list scripts/smoke/rows/bar.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/session.sh scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/auth-sentinel.sh scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/jarvis-bubble.sh scripts/test-qml-unit.sh .agents/skills/orch/scripts/lib/kendex-env.sh .agents/skills/doc-limits/scripts/* bin/lib/check-manifests.js scripts/test-check-manifests.js bin/lib/qml-library.js shell/* bin/vgshell-scan scripts/smoke/fixtures/*"
   "tools|theme package judge controls|node scripts/test-vgshell-theme-judge.js|scripts/test-vgshell-theme-judge.js bin/vgshell-theme-judge bin/lib/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js shell/Commons/Glass.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Ui/icons/Own.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js shell/Commons/PageReference.js themes/* config/shell.json"
   "unit|Keyboard UI contracts|scripts/test-keyboard-ui.sh|shell/plugins/vgs.keyboard/* scripts/fixtures/keyboard-ui/* scripts/qml-tests/stand-ins/* scripts/qml-unit.sh shell/Ui/* shell/Commons/* shell/Core/* shell/assets/* scripts/smoke/gpu-fence.sh"
   "unit|qml unit tests|scripts/qml-unit.sh|shell/Ui/* shell/Commons/* shell/Core/Config.qml shell/Core/TuiRecords.qml shell/Core/ThemeRunner.qml shell/Core/SessionLock.qml shell/Core/ShortcutRegistry.qml shell/Core/KeyCapture.qml shell/Core/HyprlandLayer.qml shell/Core/HyprlandState.qml shell/Core/HyprlandState.js shell/Core/HyprctlReader.qml shell/Core/Dispatch.js shell/Core/PluginLogic.js shell/Commons/PageReference.js shell/Core/ConfigLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Core/HyprlandLayer.js shell/assets/* scripts/qml-tests/* shell/plugins/vgs.tailscale/* shell/plugins/vgs.google-drive/Service.qml shell/plugins/vgs.google-drive/RunnerClient.qml shell/plugins/vgs.google-drive/GoogleDriveLogic.js shell/plugins/vgs.google-drive/Panel.qml shell/plugins/vgs.sysmon/* shell/plugins/vgs.traffic/* shell/plugins/vgs.notifications/* shell/plugins/vgs.themes/* shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/* shell/plugins/vgs.displays/* shell/plugins/vgs.automations/* shell/plugins/vgs.jarvis/Widget.qml shell/plugins/vgs.jarvis/Console.qml shell/plugins/vgs.jarvis/WidgetView.js shell/plugins/vgs.jarvis/Session.js shell/plugins/vgs.jarvis/Service.qml shell/plugins/vgs.jarvis/Conversation.js shell/plugins/vgs.jarvis/Bubble.qml shell/plugins/vgs.jarvis/LocalTier.qml shell/plugins/vgs.jarvis/CloneRuntime.qml shell/plugins/vgs.jarvis/BrowserRuntime.qml shell/plugins/vgs.jarvis/FleetRuntime.qml shell/plugins/vgs.jarvis/SessionStart.qml shell/plugins/vgs.jarvis/Keys.qml shell/plugins/vgs.jarvis/LocalRuntime.qml shell/plugins/vgs.jarvis/SetupGate.js shell/plugins/vgs.jarvis/Accounts.qml shell/plugins/vgs.jarvis/AccountProviders.js shell/plugins/vgs.jarvis/AccountStatus.js shell/plugins/vgs.jarvis/JarvisProtocol.js shell/plugins/vgs.agent-warden/Widget.qml shell/plugins/vgs.agent-warden/ViewLogic.js shell/plugins/vgs.agent-warden/WardenLogic.js shell/plugins/vgs.ai-usage/Widget.qml shell/plugins/vgs.ai-usage/UsageView.js shell/plugins/vgs.sudo/Widget.qml shell/plugins/vgs.sudo/SudoView.js themes/vgs/theme.json themes/catalog/flexoki-light/theme.json scripts/smoke/gpu-fence.sh shell/plugins/vgs.vpn/*"
@@ -958,7 +958,8 @@ smoke_input_read() { # KEY FILE
 # the row then fails whenever the defining row is not selected. The
 # definitions are those of the row files, scripts/qml-smoke.sh,
 # scripts/smoke/harness.sh and the libraries it sources; a row file a row
-# runs through smoke_row and no name lists counts as that row's own. A
+# runs through smoke_row and no name lists counts as that row's own. Each
+# row file sourced by those parts must also appear on the caller's input line. A
 # file the scan cannot read to its end, a quote, heredoc or substitution
 # left open, prints its own line, and its names count nowhere. Reads
 # lines[] and reads[] from smoke_rows_selected.
@@ -1012,6 +1013,7 @@ class Scan:
     def __init__(self, text):
         self.t, self.n, self.broken = text, len(text), False
         self.funcs, self.sets, self.reads, self.rows = set(), set(), set(), set()
+        self.sources = set()
         self.commands, self.runners, self.heredocs = [], {}, []
         self.depth, self.defining, self.bodies = 0, None, []
         self.code(0, None)
@@ -1246,6 +1248,9 @@ class Scan:
         body each shift and the "$@" it runs: a body runs its arguments when
         it holds at most one literal shift and then runs "$@"."""
         self.commands.append(list(words))
+        source = SOURCE.match(" ".join(word[2] for word in words[head(words):]))
+        if source and re.fullmatch(r"scripts/smoke/rows/[a-z0-9-]+\.sh", source[1]):
+            self.sources.add(pathlib.Path(source[1]).stem)
         if not self.bodies or self.bodies[-1][2][-1:] == ["runs"]:
             return
         at, shifts = head(words), self.bodies[-1][2]
@@ -1294,6 +1299,8 @@ for row in listed:
             parts.append(scans[rel])
             queue += [f"scripts/smoke/rows/{child}.sh" for child in scans[rel].rows if child not in listed]
     owned[row] = {field: set().union(*(s.__dict__[field] for s in parts)) for field in ("funcs", "sets", "calls", "reads")}
+    for source in sorted(set().union(*(s.sources for s in parts))):
+        print("read", row, "source", source, source)
 for row in listed:
     for kind, used, field in (("function", "calls", "funcs"), ("variable", "reads", "sets")):
         for name in sorted(owned[row][used] - owned[row][field] - side_owned[field]):
@@ -1313,7 +1320,12 @@ PY
     esac
     named=false
     for definer in ${definers//,/ }; do
-      [[ " ${reads[$row]-} " != *" $definer "* ]] || named=true
+      if [[ $kind == source ]]; then
+        [[ " ${lines[$row]-} " == *" scripts/smoke/rows/$definer.sh "* ]] || continue
+      else
+        [[ " ${reads[$row]-} " == *" $definer "* ]] || continue
+      fi
+      named=true
     done
     [[ $named == false ]] || continue
     printf 'validate: smoke-input row=%s %s=%s from=scripts/smoke/rows/%s.sh; add to the line in scripts/smoke/rows/%s.sh: # inputs: %s scripts/smoke/rows/%s.sh\n' \
@@ -1477,14 +1489,14 @@ smoke_rows_selected() { # CHANGED_PATH...
 # smoke_reads_named: the function and variable check as a row that fails.
 # It reads the lines smoke_rows_selected prints for no changed path, in a
 # subshell, so the selection it makes there reaches no caller. A
-# `function=`, `variable=` or `unparsed` line fails the row; `reads=unreadable`
+# `function=`, `variable=`, `source=` or `unparsed` line fails the row; `reads=unreadable`
 # or a reason that returns before the scan, a row list, core row or tracked
 # list this cannot read, means the scan did not run, which is exit 77 and
 # not a pass. A line of another kind, such as a glob that matches nothing,
 # still selects its row on every change and fails nothing here.
 smoke_reads_named() {
   local out line status=0
-  local gap='^validate: smoke-input (row=[^ ]+ (function|variable)=|unparsed path=)'
+  local gap='^validate: smoke-input (row=[^ ]+ (function|variable|source)=|unparsed path=)'
   local unread='^validate: (smoke-input reads=unreadable|smoke-rows=all reason=(row-list-unreadable|core-row-missing|tracked-list-unreadable))'
   if ! out="$(smoke_rows_selected 2>&1 >/dev/null)"; then
     printf 'smoke-reads: selector=failed\n%s\n' "$out" >&2; return 77

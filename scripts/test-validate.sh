@@ -530,6 +530,7 @@ dispatch_plan=$'node scripts/test-input-facts.js\nnode scripts/test-dispatch.js\
 session_plan=$'node scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\npython3 scripts/check-plugin-boundary.py\npython3 scripts/check-design-tokens.py\npython3 scripts/check-pointer-cursor.py\npython3 scripts/test-check-pointer-cursor.py\npython3 scripts/check-user-commands.py\n'"$keyboard_check$repo_plan"$'\nscripts/test-validate.sh\nscripts/test-keyboard-ui.sh\nscripts/qml-unit.sh\nscripts/test-qml-unit.sh\nscripts/test-session-lock.sh\nscripts/test-flake.sh\nscripts/qml-smoke.sh'
 fixture_plan=$'node bin/lib/check-manifests.js --base scripts/smoke/fixtures/plugins\npython3 scripts/check-plugin-boundary.py --shell scripts/smoke/fixtures\npython3 scripts/check-design-tokens.py\nsmoke_reads_named\n'"$repo_plan"$'\nscripts/test-validate.sh\nscripts/qml-smoke.sh'
 smoke_plan=$'python3 scripts/check-smoke-readers.py\npython3 scripts/test-check-smoke-readers.py\npython3 scripts/check-smoke-terminal.py\npython3 scripts/test-check-smoke-terminal.py\nsmoke_reads_named\n'"$repo_plan"$'\nscripts/qml-smoke.sh'
+jarvis_key_plan="${smoke_plan/smoke_reads_named/$'smoke_reads_named\npython3 scripts/test-smoke-user-config.py'}"
 orb_shader_plan=$'scripts/test-install-tree.sh\npython3 scripts/check-plugin-boundary.py\npython3 scripts/check-design-tokens.py\npython3 scripts/check-voiceorb-shader.py\npython3 scripts/test-check-voiceorb-shader.py\npython3 scripts/test-measure-shader.py\npython3 scripts/check-pointer-cursor.py\npython3 scripts/test-check-pointer-cursor.py\npython3 scripts/check-user-commands.py\n'"$keyboard_rows$repo_plan"$'\nscripts/test-validate.sh\nscripts/test-keyboard-ui.sh\nscripts/qml-unit.sh\nscripts/test-qml-unit.sh\nnode scripts/test-key-labels.js\nscripts/test-flake.sh\nscripts/qml-smoke.sh\nscripts/measure-shader.sh'
 orb_check_plan=$'python3 scripts/check-voiceorb-shader.py\npython3 scripts/test-check-voiceorb-shader.py\npython3 scripts/check-plasma-shader.py\npython3 scripts/test-check-plasma-shader.py\npython3 scripts/test-measure-shader.py\n'"$repo_plan"
 shader_measure_plan=$'python3 scripts/test-measure-shader.py\n'"$repo_plan"$'\nscripts/measure-shader.sh'
@@ -772,7 +773,7 @@ cases=(
   "capture-worker-suite|scripts/test-capture.py|cli|python3 scripts/test-capture.py"
   "share-picker-suite|scripts/test-share-picker.py|cli|python3 scripts/test-share-picker.py"
   "share-picker-consumer|scripts/fixtures/share-picker/xdph-selection.cpp|cli|python3 scripts/test-share-picker.py"
-  "jarvis-key-smoke|scripts/smoke/rows/jarvis-keys.sh|all|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-daemon.js"$'\n'"${smoke_plan/smoke_reads_named/$'smoke_reads_named\npython3 scripts/test-smoke-user-config.py'}"
+  "jarvis-key-smoke|scripts/smoke/rows/jarvis-keys.sh|all|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-daemon.js"$'\n'"${jarvis_key_plan%$'\nscripts/qml-smoke.sh'}"$'\nscripts/test-validate.sh\nscripts/qml-smoke.sh'
   "mode-startup-entry|scripts/qml-smoke.sh|tools|scripts/test-mode-hold.sh"$'\nsmoke_reads_named\npython3 scripts/test-smoke-evidence.py\nscripts/test-gpu-fence.sh\nscripts/test-validate.sh'
   "mode-capture-entry|scripts/sandbox-shots.sh|tools|scripts/test-mode-hold.sh"$'\nscripts/test-smoke-input-guard.sh\nscripts/test-sandbox-shots.sh\nnode scripts/test-google-drive-scene.js\nscripts/test-gpu-fence.sh'
   "compositor-reveal-barrier-suite|scripts/test-compositor-reveal.py|tools|python3 scripts/test-compositor-reveal.py"
@@ -1728,6 +1729,44 @@ commit() {
   "${base_env[@]}" git -C "$1" commit -q -m "$2"
 }
 
+# Keys owns the unlisted bubble row, whose diagnostics source needs the
+# listed caller's input declaration even without a direct symbol read.
+# Copy the actual keys input contract; only the diagnostics edge varies.
+test_area=tools
+test_args=(--changed HEAD)
+for source_case in nested-missing nested-named direct-missing direct-named; do
+  d="$tmp/smoke-source-$source_case"; smoke_fixture "$d"
+  plant "$d/scripts/smoke/rows/other.sh" '# inputs: shell/plugins/acme.other/*' '# inputs: shell/plugins/acme.other/* scripts/smoke/rows/launcher.sh'
+  printf 'EOF\n' >>"$d/scripts/smoke/rows/twice.sh"
+  python3 - "$repo" "$d" "$source_case" <<'PYSOURCEROW'
+from pathlib import Path
+import re, sys
+repo, target = map(Path, sys.argv[1:3])
+route, declaration = sys.argv[3].split('-')
+inputs = re.findall(r'^# inputs: .+$', (repo / 'scripts/smoke/rows/jarvis-keys.sh').read_text(), re.M)
+assert len(inputs) == 1
+edge = ' scripts/smoke/rows/diagnostics.sh'
+assert inputs[0].count(edge) == 1
+line = inputs[0] if declaration == 'named' else inputs[0].replace(edge, '')
+source = 'source "$repo/scripts/smoke/rows/diagnostics.sh"\n'
+assert (repo / 'scripts/smoke/rows/jarvis-bubble.sh').read_text().count(source) == 1
+rows = target / 'scripts/smoke/rows'
+(rows / 'jarvis-keys.sh').write_text(line + '\n' + (source if route == 'direct' else 'smoke_row jarvis-bubble\n'))
+(rows / 'jarvis-bubble.sh').write_text(source if route == 'nested' else '# No nested source.\n')
+(rows / 'diagnostics.sh').write_text('# inputs: scripts/smoke/helper/*\n')
+with (target / 'scripts/smoke/rows.list').open('a') as f:
+    f.write('jarvis-keys\ndiagnostics\n')
+PYSOURCEROW
+  commit "$d" source-contract
+  printf 'changed\n' >>"$d/scripts/smoke/helper/click.c"
+  source_want=0 source_line='!row=jarvis-keys source=diagnostics'
+  if [[ $source_case == *-missing ]]; then
+    source_want=1
+    source_line='~row=jarvis-keys source=diagnostics from=scripts/smoke/rows/diagnostics.sh;'
+  fi
+  row_re "a $source_case row source checks the copied keys input contract" "$d" "$source_want" "" "$source_line"
+done
+
 # The tools row that fails on what the self-check only names. In the
 # fixture a helper change selects that row alone. `named` gives other the
 # launcher file on its line and `closed` ends the heredoc of twice, so each
@@ -2237,7 +2276,7 @@ fi
 
 d="$tmp/plan-selector"; fresh "$d"
 printf '\n' >>"$d/scripts/validate"
-selector_plan="$repo_plan"$'\nscripts/test-validate.sh'
+selector_plan=$'smoke_reads_named\n'"$repo_plan"$'\nscripts/test-validate.sh'
 if out="$(cd -- "$d" && "${base_env[@]}" bash scripts/validate --list 2>"$tmp/plan.err")" && [[ $out == "$selector_plan" ]]; then
   ok "selector changes run their control without unrelated product suites"
 else
