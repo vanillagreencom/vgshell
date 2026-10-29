@@ -1422,17 +1422,19 @@ PY
       both) scenes=(screensaver power capture) ;;
       failure) scenes=(capture); failures=1 ;;
       failure-registry) scenes=(power capture); failures=1 ;;
+      mode-drift) scenes=(mode-drift capture) ;;
       *) exit 2 ;;
     esac
     devices_state=missing=pipewire
     devices_up() { return 77; }
     enable_ids=() disable_ids=()
     park_pointer() { :; }
-    set_mode() { :; }
+    set_mode() { mode_theme="$1"; }
     scene_desktop() { :; }
     capture_state_record() { :; }
     take() { printf "frame\n" >"$SHOT_DIR/$1.png"; printf "%s\ts\tp\tsettled\tclean\n" "$1" >>"$SHOT_DIR/shots.tsv"; }
-    scene_capture() { take "capture-$1-panel"; }
+    scene_capture() { [[ $mode_theme == "$1" ]]; take "capture-$1-panel"; }
+    scene_mode-drift() { mode_theme=other; }
     ok() { :; }
     fail() { failures=$((failures + 1)); }
     source "$1/runner.sh"
@@ -1462,6 +1464,7 @@ registry 77
 both 77
 failure 1
 failure-registry 1
+mode-drift 0
 CONTINUATION_CASES
 }
 if scene_continuation_cases "$repo/scripts/sandbox-shots.sh"; then
@@ -1470,6 +1473,7 @@ else
   fail "scene continuation or unavailable verdict contract"
 fi
 continuation_controls=(
+  'a mode written only before the scene list leaks scene state' $'  for scene in "${scenes[@]}"; do\n    set_mode "$mode" || { fail "the $scene $mode capture theme could not be set"; continue; }' $'  set_mode "$mode"\n  for scene in "${scenes[@]}"; do'
   'the old whole-run exit stops later Capture' '    return 0' '    exit 77'
   'a missing scene becomes a passing run' 'if [[ $unmeasured -ne 0 || ${#not_measured_rows[@]} -gt 0 ]]; then' 'if false; then'
   'a device registry entry becomes a passing run' ' || ${#not_measured_rows[@]} -gt 0' ''
@@ -2007,6 +2011,7 @@ catalog_run() {
     theme_file="$home/.config/vgshell/theme.json"
     mkdir -p -- "$home/.config/vgshell"
     expect_poll() { :; }
+    theme_idle() { echo idle; }
     source "$5"
     eval "$6"
   ' _ "$catalog_sandbox" "$catalog_repo" "$home" "$tmp/catalog-wallpaper.png" "$1" "$2"
@@ -2029,13 +2034,15 @@ preview_reader="$tmp/preview-package.sh"
 mode_reader="$tmp/set-mode.sh"
 catalog_extract preview_package "$preview_reader"
 catalog_extract set_mode "$mode_reader"
+catalog_extract capture_mode_name "$tmp/mode-name.sh"
+cat -- "$tmp/mode-name.sh" >>"$mode_reader"
 if preview_case "$preview_reader"; then ok "a revision's preview package holds its catalog values"; else fail "a revision's preview package holds its catalog values"; fi
 if mode_case "$mode_reader" catalog-demo demo; then ok "a revision's catalog mode holds its catalog values"; else fail "a revision's catalog mode holds its catalog values"; fi
 if mode_case "$mode_reader" light flexoki-light; then ok "a revision's light mode holds its catalog values"; else fail "a revision's light mode holds its catalog values"; fi
 catalog_controls=(
   "preview package reads the checkout's catalog|$preview_reader|5|\$repo/themes/catalog|preview_case|"
-  "catalog mode reads the checkout's catalog|$mode_reader|1|\"\$repo/themes/catalog/\${1#catalog-}/theme.json\"|mode_case|catalog-demo demo"
-  "light mode reads the checkout's catalog|$mode_reader|1|\"\$repo/themes/catalog/flexoki-light/theme.json\"|mode_case|light flexoki-light"
+  "catalog mode reads the checkout's catalog|$mode_reader|1|\"\$repo/themes/catalog/\$name/theme.json\"|mode_case|catalog-demo demo"
+  "light mode reads the checkout's catalog|$mode_reader|1|\"\$repo/themes/catalog/\$name/theme.json\"|mode_case|light flexoki-light"
 )
 for spec in "${catalog_controls[@]}"; do
   IFS='|' read -r label reader count needle check check_args <<<"$spec"
@@ -2120,6 +2127,349 @@ else
   fail "control: the ImageMagick check could not be planted"
 fi
 
+# Drive scene ownership through the real functions, with a failed theme
+# operation, an initially disabled notification service and duplicate bottom
+# views. These callbacks model the scene's external producers, not its cleanup.
+if python3 - "$repo" "$tmp" "$BASH" <<'PYSCENES'
+from pathlib import Path
+import json
+import os
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+import tempfile
+
+repo, scratch, bash = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
+source = (repo / 'scripts/sandbox-shots.sh').read_text()
+harness = (repo / 'scripts/smoke/harness.sh').read_text()
+devices = (repo / 'scripts/smoke/devices.sh').read_text()
+registry = re.search(r'(?m)^device_stand_in_names=\([^)]*\)', devices).group()
+
+def functions(text, names):
+    result = []
+    for name in names:
+        marker = name + '() {'
+        if marker not in text:
+            assert name == 'dictation_setup_capture', name
+            continue
+        assert text.count(marker) == 1, name
+        start = text.index(marker)
+        result.append(text[start:text.index('\n}\n', start) + 3])
+    return '\n'.join(result)
+
+def run_case(text, case):
+    world = Path(tempfile.mkdtemp(prefix='capture-scenes-', dir=scratch))
+    environment = {'PATH': os.environ['PATH'], 'LC_ALL': 'C'}
+    if case.startswith('dictation-'):
+        for directory in ('repo/bin', 'repo/themes/targets/chromium', 'repo/scripts/smoke/fixtures', 'home', 'shim', 'sandbox', 'devices'):
+            (world / directory).mkdir(parents=True)
+        daemon = world / 'repo/bin/vgshell-dictation'
+        daemon.write_text('#!/bin/sh\nexit 99\n'); daemon.chmod(0o755)
+        (world / 'repo/themes/targets/chromium/owner').write_text('other scene\n')
+        shutil.copytree(repo / 'scripts/smoke/fixtures/voxtype', world / 'repo/scripts/smoke/fixtures/voxtype')
+        shutil.copytree(repo / 'themes/targets/gum', world / 'targets/gum')
+        body = r'''
+repo="$world/repo" home="$world/home" shim="$world/shim" sandbox="$world/sandbox"
+fixtures="$original/scripts/smoke/fixtures/plugins" fixture_targets="$world/targets"
+devices_dir="$world/devices" devices_fixtures="$original/scripts/smoke/fixtures/devices"
+tui_terminal="$world/terminal" tui_self="$world/presenter" core_vgshell="$world/vgshell" settings_kind=window
+devices_write_stand_ins
+cp -p -- "$shim/gum" "$world/original-gum"
+case $scenario in
+  *-symlink) mv -- "$shim/gum" "$world/gum-target"; ln -s ../gum-target "$shim/gum" ;;
+  *-dangling) rm -- "$shim/gum"; ln -s missing-gum "$shim/gum" ;;
+  *-absent) rm -- "$shim/gum" ;;
+esac
+failures=0
+kitty() { :; }
+gum() { :; }
+rescan() { :; }
+set_mode() { :; }
+shell_resolves() { echo "$shim/$1"; }
+record_exists() { :; }
+expect_poll() { :; }
+close_notices() { :; }
+fail() { failures=$((failures + 1)); }
+expect() { local label="$1" want="$2" got; shift 2; got="$("$@")"; [[ $got == "$want" ]]; }
+ipc() {
+  if [[ $* == 'shell setPluginEnabled acme.dictation true' ]]; then : >"$world/holder";
+  elif [[ $* == 'shell setPluginEnabled acme.dictation false' ]]; then rm -f -- "$world/holder";
+  elif [[ $* == 'smoke themeName' ]]; then
+    [[ $scenario != dictation-theme-name ]] || return 1
+    echo vgs; return
+  elif [[ $* == 'smoke themeValue color.background' ]]; then echo '"#000000"'; return
+  elif [[ $* == 'smoke themeValue color.text' ]]; then echo '"#ffffff"'; return
+  fi
+  echo ok
+}
+sandbox_vgshell() {
+  : >"$world/apply"
+  if [[ ! -f $repo/themes/targets/gum/target.json || -e $repo/themes/targets/chromium ]]; then : >"$world/wrong-targets"; fi
+  [[ $scenario != dictation-wrapper-* ]] || return 0
+  return 1
+}
+terminal_stand_in() { : >"$world/terminal-restored"; }
+voice_setup_launcher_ready() { :; }
+settings_setup() {
+  ! cmp -s -- "$world/original-gum" "$shim/gum" || return 1
+  : >"$world/wrapper-reached"
+  return 1
+}
+settings_count() { :; }
+scene_dictation-setup dark
+[[ $failures -gt 0 && ! -e $world/holder && -e $world/terminal-restored ]]
+[[ ! -e $shim/voxtype && ! -e $shim/wtype ]]
+case $scenario in
+  *-symlink) [[ -L $shim/gum && $(readlink -- "$shim/gum") == ../gum-target ]]; cmp -s -- "$world/original-gum" "$world/gum-target" ;;
+  *-dangling) [[ -L $shim/gum && ! -e $shim/gum && $(readlink -- "$shim/gum") == missing-gum ]] ;;
+  *-absent) [[ ! -e $shim/gum && ! -L $shim/gum ]] ;;
+  *) [[ -f $shim/gum && -x $shim/gum && ! -L $shim/gum ]]; cmp -s -- "$world/original-gum" "$shim/gum" ;;
+esac
+[[ $(<"$repo/themes/targets/chromium/owner") == 'other scene' && ! -e $repo/themes/targets/gum ]]
+[[ ! -e $world/wrong-targets ]]
+[[ $scenario == dictation-theme-name || -e $world/apply ]]
+[[ $scenario != dictation-wrapper-* || -e $world/wrapper-reached ]]
+'''
+        code = functions(devices, ('devices_write_stand_ins',)) + '\n' + registry + '\n' + functions(text, ('scene_dictation-setup', 'dictation_setup_capture'))
+        expected = 0
+    elif case == 'notifications-light':
+        body = r'''
+notes_on() { : >"$world/notifications-enabled"; }
+notify() { [[ -e $world/notifications-enabled ]] || exit 88; exit 42; }
+scene_notifications light
+'''
+        code = functions(text, ('scene_notifications',))
+        expected = 42  # The first notification reaches an enabled service.
+    else:
+        context = {'home': world / 'home', 'tree': world / 'tree', 'repo': world / 'tree',
+                   'rt_dir': world / 'runtime', 'power_sleep_replies': world / 'replies',
+                   'power_profiles_pid': 'fixture'}
+        for directory in (context['home'] / '.config/vgshell/plugins', context['tree'] / 'shell/plugins/vgs.power',
+                          context['rt_dir'], context['power_sleep_replies']):
+            directory.mkdir(parents=True)
+        (context['tree'] / 'shell/plugins/vgs.power/manifest.json').write_text('{"wakeOnLan":true}\n')
+        body = '\n'.join(name + '=' + shlex.quote(str(value)) for name, value in context.items()) + r'''
+hovered=no
+fail() { exit 1; }
+power_stage_owners() { :; }
+tree_rescan() { :; }
+expect() { :; }
+expect_poll() { :; }
+ipc() { echo 477.90625; }
+power_revealed() { [[ $1 == 477.90625 ]]; }
+park_pointer() { hovered=no; }
+power_shot_pane_pages() { :; }
+point_item() {
+  [[ $# == 7 && $1 == 'scoped:System Settings' && $2 == window && $3 == vgs.power && $4 == Field && $5 == 'Wake on LAN' && $6 == Switch && -z $7 ]] || return 1
+  hovered=yes
+}
+take() { [[ $1 != power-dark-pane-wake ]] || { park_pointer; [[ $hovered == yes ]]; }; }
+take_posed() { [[ $1 != power-dark-pane-wake ]] || { [[ $hovered == yes ]]; : >"$world/wake-captured"; }; }
+device_reply() { :; }
+click_scoped_in() { :; }
+power_stage_setting() { :; }
+power_stop_mock() { :; }
+power_shot_pages() { :; }
+power_start_profiles() { :; }
+settings_close() { :; }
+power_shot_pane dark
+[[ -e $world/wake-captured ]]
+'''
+        code = functions(text, ('power_shot_pane',))
+        expected = 0
+    runner = world / 'case.sh'
+    runner.write_text('set -euo pipefail\nworld=$1 original=$2 scenario=$3\n' + code + '\n' + body)
+    result = subprocess.run([bash, str(runner), str(world), str(repo), case],
+                            env=environment, text=True, capture_output=True, timeout=20)
+    return result.returncode == expected, (case, result.returncode, result.stderr)
+
+cases = ('dictation-apply', 'dictation-theme-name', 'dictation-wrapper-file', 'dictation-wrapper-symlink',
+         'dictation-wrapper-dangling', 'dictation-apply-absent', 'notifications-light', 'power-wake')
+for case in cases:
+    passed, detail = run_case(source, case)
+    assert passed, detail
+
+controls = (
+    ('dictation-targets', 'dictation-apply',
+     '    dictation_setup_capture "$mode" "$phase" "$key" "$holder"',
+     '    cp -R -- "$target_store/targets/chromium" "$repo/themes/targets/chromium"\n    dictation_setup_capture "$mode" "$phase" "$key" "$holder"'),
+    ('dictation-holder', 'dictation-apply',
+     '  expect "the setup holder disables" ok ipc shell setPluginEnabled "$holder" false', '  :'),
+    ('dictation-gum-restore', 'dictation-wrapper-file',
+     '    mv -- "$target_store/gum" "$shim/gum"',
+     '    if false; then mv -- "$target_store/gum" "$shim/gum"; else rm -f -- "$target_store/gum"; fi'),
+    ('notifications-enable', 'notifications-light', '  notes_on "Notifications shots"', '  :'),
+    ('power-posed', 'power-wake', '      take_posed "power-$1-pane-wake"', '      take "power-$1-pane-wake"'),
+)
+for name, case, before, after in controls:
+    assert source.count(before) == 1, name
+    passed, detail = run_case(source.replace(before, after), case)
+    assert not passed, (name, 'control stayed green', detail)
+
+# A scan's follow uses the real judge and its applied.json, not a model of
+# package/digest rules. Dictation removes targets before its rescan; the
+# prior dark apply must not replace the requested mode at the terminal.
+def mode_case(text, mode, want, mismatch=''):
+    world = Path(tempfile.mkdtemp(prefix='capture-mode-', dir=scratch))
+    files = ('bin/vgshell-theme-judge', 'bin/lib/qml-library.js', 'bin/lib/judge-files.js',
+             'bin/lib/theme-render.js', 'bin/lib/theme-backgrounds.js', 'bin/lib/theme-select.js',
+             'bin/lib/theme-catalog.js', 'bin/lib/account-folders.js', 'bin/lib/anchored.js',
+             'shell/Commons/ThemeLogic.js', 'shell/Commons/Tokens.js', 'shell/Commons/AccountDirectories.js', 'shell/Commons/Glass.js',
+             'shell/Core/ConfigLogic.js', 'shell/Core/PackageManagers.js')
+    for file in files:
+        dest = world / 'repo' / file
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(repo / file, dest)
+    for directory in ('home/.config/vgshell', 'home/.local/state/vgshell', 'shim', 'sandbox',
+                      'repo/config', 'repo/themes/targets', 'repo/bin'):
+        (world / directory).mkdir(parents=True, exist_ok=True)
+    terminal = {'schemaVersion': 1, 'slots': {'color'+str(i): '#222222' for i in range(16)}}
+    for name, directory in (('vgs', 'repo/themes/vgs'), ('flexoki-light', 'repo/themes/catalog/flexoki-light'),
+                            ('demo', 'repo/themes/catalog/demo')):
+        package = world / directory
+        package.mkdir(parents=True)
+        (package / 'theme.json').write_text(json.dumps({'schemaVersion': 1, 'name': name, 'tokens': {}}))
+        (package / 'terminal.json').write_text(json.dumps(terminal))
+    (world / 'repo/config/shell.json').write_text('{}')
+    shutil.copytree(repo / 'themes/targets/gum', world / 'repo/themes/targets/gum')
+    shutil.copytree(repo / 'themes/targets/gum', world / 'targets/gum')
+    shutil.copytree(repo / 'scripts/smoke/fixtures/voxtype', world / 'repo/scripts/smoke/fixtures/voxtype')
+    (world / 'repo/bin/vgshell-dictation').touch(mode=0o755)
+    code = functions(text, ('capture_mode_name', 'capture_theme_check', 'set_mode',
+                            'scene_dictation-setup', 'dictation_setup_capture',
+                            'clone_terminal_on',
+                            'capture_state_record', 'page_state_record'))
+    runner = world / 'case.sh'
+    runner.write_text('set -euo pipefail\nworld=$1 original=$2 mode=$3 want=$4 mismatch=$5 node_bin=$6\n' + code + r'''
+repo="$world/repo" home="$world/home" shim="$world/shim" sandbox="$world/sandbox"
+fixtures="$original/scripts/smoke/fixtures/plugins" fixture_targets="$world/targets"
+tui_terminal="$world/terminal" tui_self="$world/presenter" core_vgshell="$world/vgshell" settings_kind=window
+theme_file="$home/.config/vgshell/theme.json" theme_state_dir="$home/.local/state/vgshell"
+SHOT_DIR="$world" capture_source=fixture enable_ids=() disable_ids=()
+failures=0
+fail() { failures=$((failures + 1)); }
+judge() {
+  local verb="$1"; shift
+  env -i PATH="$PATH" HOME="$home" XDG_CONFIG_HOME="$home/.config" XDG_STATE_HOME="$home/.local/state" TMPDIR="$world" VGS_TEST_RUN=1 \
+    "$node_bin" "$repo/bin/vgshell-theme-judge" "$verb" json "$home/.config/vgshell" "$theme_state_dir" held "$@"
+}
+exec 9>>"$home/.config/vgshell/theme.lock"
+flock 9
+judge apply vgs >"$world/dark-apply.json"
+rescan() { judge follow >"$world/follow.json"; }
+theme_idle() { rescan; echo idle; }
+ipc() {
+  case "$*" in
+    'smoke themeName') python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["name"])' "$theme_file"; return ;;
+    'smoke themeValue color.background') [[ $mismatch != clone ]] || exit 42; echo '"#000000"'; return ;;
+    'smoke themeValue color.text') [[ $mismatch != clone ]] || exit 42; echo '"#ffffff"'; return ;;
+    'shell listPlugins') echo '{"plugins":[{"id":"vgs.voice","enabled":true,"kinds":["service"],"requirements":[]}]}'; return ;;
+    'smoke readInstance window vgs.settings plugins') echo '[{"id":"vgs.voice","enabled":true,"kinds":["service"],"settings":{},"settingChoices":{},"status":[],"requirements":[],"errors":[]}]'; return ;;
+  esac
+  echo ok
+}
+expect() { local label="$1" want="$2" got; shift 2; got="$("$@")" && [[ $got == "$want" ]]; }
+expect_poll() { [[ $1 != *'theme ('* ]] || expect "$@"; }
+kitty() { :; }
+gum() { :; }
+shell_resolves() { echo "$shim/$1"; }
+record_exists() { :; }
+close_notices() { :; }
+sandbox_vgshell() { [[ $1 == theme && $2 == apply ]]; judge apply "$3"; }
+terminal_stand_in() { :; }
+voice_setup_launcher_ready() { :; }
+settings_count() { echo 1; }
+settings_setup() {
+  [[ $(ipc smoke themeName) == "$want" ]] || return 99
+  python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["name"]==sys.argv[2]' "$theme_state_dir/applied.json" "$want"
+  : >"$world/terminal-theme-correct"
+  return 1
+}
+py_reply() { python3 -c "$@"; }
+set_mode "$mode"
+if [[ $mismatch == clone ]]; then
+  printf '\n' >>"$repo/themes/targets/gum/gum.env"
+  rescan
+  clone_terminal_on kitty gum "$mode"
+  exit 93
+fi
+scene_dictation-setup "$mode"
+[[ $failures == 1 && -f $world/terminal-theme-correct ]]
+capture_state_record dictation-setup "$mode"
+page_state_record terminal "$mode" vgs.voice
+if [[ -n $mismatch ]]; then
+  printf '{"schemaVersion":1,"name":"vgs","tokens":{}}\n' >"$theme_file"
+  if [[ $mismatch == scene ]]; then
+    capture_state_record observe light && exit 91
+  else
+    page_state_record observe light vgs.voice && exit 92
+  fi
+  [[ $failures == 2 ]]
+fi
+''')
+    result = subprocess.run([bash, str(runner), str(world), str(repo), mode, want, mismatch, shutil.which('node')],
+                            env={'PATH': os.environ['PATH'], 'LC_ALL': 'C'}, text=True, capture_output=True, timeout=20)
+    if mismatch == 'clone':
+        name = json.loads((world / 'home/.config/vgshell/theme.json').read_text())['name']
+        return result.returncode == 42 and name == want, (mode, mismatch, result.returncode, name, result.stderr)
+    return result.returncode == 0, (mode, mismatch, result.returncode, result.stderr)
+
+for mode, want in (('dark', 'vgs'), ('light', 'flexoki-light'), ('rounded', 'rounded'), ('catalog-demo', 'demo')):
+    passed, detail = mode_case(source, mode, want)
+    assert passed, detail
+for record in ('scene', 'page'):
+    passed, detail = mode_case(source, 'light', 'flexoki-light', record)
+    assert passed, detail
+    guard = '  [[ $2 == "$want" ]] || { fail "capture-theme: mode=$1 actual=$2 expected=$want"; return 1; }'
+    assert source.count(guard) == 1
+    passed, detail = mode_case(source.replace(guard, '  [[ $2 == "$want" ]] || true'), 'light', 'flexoki-light', record)
+    assert not passed, ('mode mismatch control stayed green', detail)
+restore = '  set_mode "$mode" || { fail "dictation-setup: the requested capture mode is not published"; return; }'
+assert source.count(restore) == 1
+passed, detail = mode_case(source.replace(restore, '  :'), 'light', 'flexoki-light')
+assert not passed, ('Dictation follow control stayed green', detail)
+passed, detail = mode_case(source, 'light', 'flexoki-light', 'clone')
+assert passed, detail
+clone_restore = '  set_mode "$3" || return 1'
+assert source.count(clone_restore) == 1
+passed, detail = mode_case(source.replace(clone_restore, '  :'), 'light', 'flexoki-light', 'clone')
+assert not passed, ('clone follow control stayed green', detail)
+
+def tab_case(text, reply, ipc_status, click_status, expected, clicked):
+    world = Path(tempfile.mkdtemp(prefix='capture-tabs-', dir=scratch))
+    runner = world / 'case.sh'
+    runner.write_text('set -euo pipefail\nworld=$1 reply=$2 ipc_status=$3 click_status=$4\n' +
+        functions(text, ('settings_tab_click',)) + r'''
+ipc() {
+  [[ $* == 'smoke revealText window vgs.settings QQuickTabButton Setup' ]] || return 99
+  printf '%s\n' "$reply"
+  return "$ipc_status"
+}
+click_item() {
+  [[ $* == 'window:Plugins window vgs.settings QQuickTabButton Setup' ]] || return 98
+  : >"$world/clicked"
+  return "$click_status"
+}
+settings_tab_click Setup
+''')
+    result = subprocess.run([bash, str(runner), str(world), reply, str(ipc_status), str(click_status)],
+                            env={'PATH': os.environ['PATH'], 'LC_ALL': 'C'}, capture_output=True, timeout=5)
+    return result.returncode == expected and (world / 'clicked').exists() == clicked
+
+for case in (('0', 0, 0, 0, True), ('477.90625', 0, 0, 0, True), ('unscrolled', 0, 0, 0, True),
+             ('absent', 0, 0, 1, False), ('bad-state', 0, 0, 1, False), ('unscrolled', 69, 0, 1, False),
+             ('unscrolled', 0, 1, 1, True)):
+    assert tab_case(harness, *case), case
+guard = '[[ $shown =~ ^[0-9.]+$ || $shown == unscrolled ]]'
+assert harness.count(guard) == 1
+assert not tab_case(harness.replace(' || $shown == unscrolled', ''), 'unscrolled', 0, 0, 0, True)
+assert not tab_case(harness.replace(guard, guard[:-3] + ' || true ]]'), 'absent', 0, 0, 1, False)
+print('capture-scenes: gum-only=true teardown=true gum-restored=true notifications-ready=true wake-hover=true tab-clicks=guarded controls=failed-as-required')
+PYSCENES
+then ok "capture scenes isolate theme targets, release failed setup, enable Notifications and pose the wake switch"; else fail "capture scene ownership and visible state"; fi
+
 # Drive the Power scene's setup order without starting a sandbox. The
 # plugin check must read a scan made after the fake daemon owns its name.
 # The tree ships Power's section, whose shots, its page's among them,
@@ -2199,7 +2549,7 @@ capture_state_case() { # SCRIPT
 import pathlib,sys
 script,harness,dst=map(pathlib.Path,sys.argv[1:])
 parts=[]
-for source,names in ((script,("capture_probe_release","capture_plugin_states","capture_state_record","page_state_record","lock_row_quiet","scene_desktop","close_notices","notice_plugin","notice_moved_from")),(harness,("py_reply","notice_shown"))):
+for source,names in ((script,("capture_mode_name","capture_theme_check","capture_probe_release","capture_plugin_states","capture_state_record","page_state_record","lock_row_quiet","scene_desktop","close_notices","notice_plugin","notice_moved_from")),(harness,("py_reply","notice_shown"))):
     text=source.read_text()
     for name in names:
         start=text.index(name+"() {")
@@ -2269,15 +2619,18 @@ PY
     background_image_on() { fail "an off Themes service was read"; }
     source "$at/helpers.sh"
     lock_row_quiet
-    for mode_theme in vgs flexoki-light; do
-      capture_plugin_states "$mode_theme"
+    while read -r mode mode_theme; do
+      capture_plugin_states "$mode"
       [[ $(plugin_enabled vgs.gallery) == True && $(plugin_enabled vgs.fonts) == True && $(record_exists vgs.lock) == True ]]
       [[ $(plugin_enabled vgs.notifications) == False && $(plugin_enabled vgs.devtools) == False && $(plugin_enabled vgs.themes) == False && $(plugin_enabled vgs.bar) == True ]]
       [[ $(notice_shown) == null && $(layer_count vgs:notice) == 0 ]]
-      scene_desktop plugin-pages "$mode_theme"
-      capture_state_record plugin-pages "$mode_theme"
-      page_state_record "jarvis-$mode_theme" "$mode_theme" vgs.jarvis
-    done
+      scene_desktop plugin-pages "$mode"
+      capture_state_record plugin-pages "$mode"
+      page_state_record "jarvis-$mode_theme" "$mode" vgs.jarvis
+    done <<MODES
+dark vgs
+light flexoki-light
+MODES
   ' _ "$dir" "$repo" >"$dir/out" 2>"$dir/err" || { cat -- "$dir/err" >&2; return 1; }
   python3 - "$dir" <<'PY'
 import csv,json,pathlib,sys

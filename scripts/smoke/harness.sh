@@ -2831,7 +2831,7 @@ settings_tab() { ipc smoke readDescendant window vgs.settings TabPages currentIn
 settings_tab_click() {
   local shown
   shown="$(ipc smoke revealText window vgs.settings QQuickTabButton "$1")" || return 1
-  [[ $shown =~ ^[0-9.]+$ ]] || { echo "settings_tab_click: no tab $1 to reveal: $shown" >&2; return 1; }
+  [[ $shown =~ ^[0-9.]+$ || $shown == unscrolled ]] || { echo "settings_tab_click: no tab $1 to reveal: $shown" >&2; return 1; }
   sleep 0.2
   click_item window:Plugins window vgs.settings QQuickTabButton "$1" || { echo "settings_tab_click: pointer-not-ready=$1" >&2; return 1; }
 }

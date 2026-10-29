@@ -599,7 +599,7 @@ cases=(
   "shader-tests|scripts/test-measure-shader.py|offline|python3 scripts/test-measure-shader.py"$'\n'"$repo_plan"
   "keyboard-source|scripts/smoke/keyboard/keyboard.c|all|$keyboard_plan"
   "keyboard-protocol|scripts/smoke/keyboard/virtual-keyboard-unstable-v1.xml|all|$keyboard_plan"
-  "device-fakes-harness|scripts/smoke/devices.sh|all|python3 scripts/check-smoke-readers.py"$'\npython3 scripts/test-check-smoke-readers.py\nsmoke_reads_named\nscripts/test-jarvis-selftest.sh\n'"$repo_plan"$'\nscripts/qml-smoke.sh\nscripts/measure-shader.sh'
+  "device-fakes-harness|scripts/smoke/devices.sh|all|python3 scripts/check-smoke-readers.py"$'\npython3 scripts/test-check-smoke-readers.py\nsmoke_reads_named\nscripts/test-sandbox-shots.sh\nscripts/test-jarvis-selftest.sh\n'"$repo_plan"$'\nscripts/qml-smoke.sh\nscripts/measure-shader.sh'
   "device-fakes-fixture|scripts/smoke/fixtures/devices/stand-in.py|all|python3 scripts/test-displays-brightness.py"$'\n'"$fixture_plan"$'\nscripts/measure-shader.sh'
   "docs|docs/architecture/overview.md|offline|$repo_plan"$'\ndoc_limits_check'
   "runtime-doc|docs/architecture/runtime.md|offline|$readme_plan"$'\ndoc_limits_check'

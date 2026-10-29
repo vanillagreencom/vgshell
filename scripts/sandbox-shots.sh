@@ -974,16 +974,34 @@ narrow_end() {
 }
 
 theme_file="$home/.config/vgshell/theme.json"
-set_mode() { # dark|light|rounded|catalog-NAME
-  local name
+capture_mode_name() { # dark|light|rounded|catalog-NAME
   case $1 in
-    catalog-*) cp -- "$repo/themes/catalog/${1#catalog-}/theme.json" "$theme_file.tmp"; name="${1#catalog-}" ;;
-    dark) printf '{ "schemaVersion": 1, "name": "vgs", "tokens": {} }\n' >"$theme_file.tmp"; name=vgs ;;
-    rounded) printf '{ "schemaVersion": 1, "name": "rounded", "tokens": { "radius": { "sm": 6, "md": 12, "lg": 16 } } }\n' >"$theme_file.tmp"; name=rounded ;;
-    light) cp -- "$repo/themes/catalog/flexoki-light/theme.json" "$theme_file.tmp"; name=flexoki-light ;;
+    catalog-*) printf '%s\n' "${1#catalog-}" ;;
+    dark) echo vgs ;;
+    rounded) echo rounded ;;
+    light) echo flexoki-light ;;
+    *) fail "the capture mode is unknown: $1"; return 1 ;;
   esac
-  mv -T -- "$theme_file.tmp" "$theme_file"
+}
+set_mode() { # dark|light|rounded|catalog-NAME
+  local name state
+  name="$(capture_mode_name "$1")" || return 1
+  # A preceding scene can change targets and queue follow of its applied
+  # package. Let that owner finish before publishing this scene's mode.
+  state="$(theme_idle)" && [[ $state == idle ]] || { fail "the $1 capture theme is busy: ${state:-unreadable}"; return 1; }
+  case $1 in
+    catalog-*|light) cp -- "$repo/themes/catalog/$name/theme.json" "$theme_file.tmp" || return 1 ;;
+    dark) printf '{ "schemaVersion": 1, "name": "vgs", "tokens": {} }\n' >"$theme_file.tmp" ;;
+    rounded) printf '{ "schemaVersion": 1, "name": "rounded", "tokens": { "radius": { "sm": 6, "md": 12, "lg": 16 } } }\n' >"$theme_file.tmp" ;;
+  esac
+  mv -T -- "$theme_file.tmp" "$theme_file" || return 1
   expect_poll "the $1 theme ($name) is published" "$name" ipc smoke themeName
+}
+
+capture_theme_check() { # MODE ACTUAL
+  local want
+  want="$(capture_mode_name "$1")" || return 1
+  [[ $2 == "$want" ]] || { fail "capture-theme: mode=$1 actual=$2 expected=$want"; return 1; }
 }
 
 # Sample before opening the scene: a modal scrim changes the displayed
@@ -1844,6 +1862,7 @@ plugin_pages_list() {
 page_state_record() { # IMAGE MODE ID
   local state theme
   theme="$(ipc smoke themeName)" || { fail "the $3 page theme is unreadable"; return 1; }
+  capture_theme_check "$2" "$theme" || return 1
   state="$(ipc smoke readInstance "$settings_kind" vgs.settings plugins | py_reply 'import json,sys
 rows=json.load(sys.stdin)
 row=next((r for r in rows if r.get("id")==sys.argv[1]),None) if isinstance(rows,list) else None
@@ -2797,6 +2816,7 @@ notification_header_shots() { # MODE
 }
 scene_notifications() { # MODE
   local ids=() at
+  notes_on "Notifications shots"
   ids+=("$(notify smoke-build "Build finished" "vgs main is green in 2 min" '[]' '{}')")
   ids+=("$(notify smoke-power "Battery low" "12% left" '[]' '{"urgency": <byte 2>}')")
   ids+=("$(notify smoke-chat "New message" "Lunch at noon?" '["default", "Open", "reply", "Reply"]' '{}')")
@@ -4423,10 +4443,11 @@ clone_tui_requirements() {
 # and runs it with the world's doubles first on PATH and its state and data
 # roots, so the script's own setup-local runs every step and reaches no
 # network, model, microphone or the daemon's roots.
-clone_terminal_on() { # KITTY GUM
+clone_terminal_on() { # KITTY GUM MODE
   local bg fg theme_name
   # Only gum is applied: terminal reload targets can signal host terminals.
   cp -RT -- "$fixture_targets/gum" "$repo/themes/targets/gum" || { fail "clone-voice: gum's theme target is not copied"; return 1; }
+  set_mode "$3" || return 1
   theme_name="$(ipc smoke themeName)" || { fail "clone-voice: the theme is unreadable"; return 1; }
   if [[ $theme_name != vgs ]]; then
     mkdir -p -- "$home/.config/vgshell/themes/$theme_name"
@@ -4642,7 +4663,7 @@ print(row["actions"]["setup"]["label"]); print(row["actions"]["remove"]["label"]
     # each moved beside the Settings window (clone_arrange_consent),
     # then alone once the Settings window closes; then its later steps.
     if kitty_bin="$(command -v kitty)" && gum_bin="$(command -v gum)"; then
-      if clone_terminal_on "$kitty_bin" "$gum_bin"; then
+      if clone_terminal_on "$kitty_bin" "$gum_bin" "$mode"; then
         clone_prepare_world "$mode" || return
         printf '%s\n' "$clone_world" >"$sandbox/clone-voice-steps"
         rm -f -- "${sandbox:?}/clone-voice-confirm" "${sandbox:?}/clone-voice-confirms"
@@ -5096,11 +5117,42 @@ voice_level_flowing() { ipc smoke readInstance service vgs.voice level | py_repl
 
 scene_dictation-setup() { # MODE
   local mode="$1" phase=after key=core/dictation-setup holder=acme.dictation
-  local kitty_bin gum_bin bg fg theme_name
-  kitty_bin="$(command -v kitty)" && gum_bin="$(command -v gum)" || { fail "dictation-setup: kitty or gum is missing"; return; }
+  local target_store
   if [[ ! -x $repo/bin/vgshell-dictation ]]; then
     phase=before key=vgs.voice/setup holder=vgs.voice
   fi
+  # Other scenes prepare reload targets before this scene runs. Keep them
+  # out of the gum-only apply, and restore them even when capture returns early.
+  target_store="$(mktemp -d "$sandbox/dictation-setup-targets.XXXXXX")" || { fail "dictation-setup: target storage could not be made"; return; }
+  if ! mv -- "$repo/themes/targets" "$target_store/targets"; then
+    rmdir -- "$target_store"
+    fail "dictation-setup: theme targets could not be held"
+    return
+  fi
+  if [[ -e $shim/gum || -L $shim/gum ]]; then
+    mv -- "$shim/gum" "$target_store/gum"
+  fi
+  if mkdir -- "$repo/themes/targets"; then
+    dictation_setup_capture "$mode" "$phase" "$key" "$holder"
+  else
+    fail "dictation-setup: gum's target directory could not be made"
+  fi
+  expect "the setup holder disables" ok ipc shell setPluginEnabled "$holder" false
+  expect_poll "the setup holder is gone" False record_exists "$holder"
+  rm -f -- "$shim/gum" "$shim/voxtype" "$shim/wtype"
+  if [[ -e $target_store/gum || -L $target_store/gum ]]; then
+    mv -- "$target_store/gum" "$shim/gum"
+  fi
+  terminal_stand_in
+  rm -rf -- "${repo:?}/themes/targets"
+  mv -- "$target_store/targets" "$repo/themes/targets"
+  rmdir -- "$target_store"
+}
+
+dictation_setup_capture() { # MODE PHASE KEY HOLDER
+  local mode="$1" phase="$2" key="$3" holder="$4"
+  local kitty_bin gum_bin bg fg theme_name
+  kitty_bin="$(command -v kitty)" && gum_bin="$(command -v gum)" || { fail "dictation-setup: kitty or gum is missing"; return; }
   cp -- "$repo/scripts/smoke/fixtures/voxtype/voxtype" "$shim/voxtype"
   cp -- "$repo/scripts/smoke/fixtures/voxtype/wtype" "$shim/wtype"
   chmod 755 "$shim/voxtype" "$shim/wtype"
@@ -5119,6 +5171,7 @@ scene_dictation-setup() { # MODE
 
   # Only gum is applied: terminal reload targets can signal host terminals.
   cp -RT -- "$fixture_targets/gum" "$repo/themes/targets/gum" || { fail "dictation-setup: gum's theme target is not copied"; return; }
+  set_mode "$mode" || { fail "dictation-setup: the requested capture mode is not published"; return; }
   theme_name="$(ipc smoke themeName)" || { fail "dictation-setup: the theme is unreadable"; return; }
   if [[ $theme_name != vgs ]]; then
     mkdir -p -- "$home/.config/vgshell/themes/$theme_name"
@@ -5196,9 +5249,6 @@ EOF
   [[ $address == 0x* ]] || { fail "dictation-setup: the floating terminal is unreadable"; return; }
   expect "the setup terminal closes before any download" ok hypr dispatch "hl.dsp.window.close({ window = \"address:$address\" })"
   expect_poll "the core sees the closed setup run" idle key_idle "$key"
-  expect "the setup holder disables" ok ipc shell setPluginEnabled "$holder" false
-  rm -f -- "$shim/gum" "$shim/voxtype" "$shim/wtype"
-  terminal_stand_in
 }
 
 # Voice's Set up as a first-time user meets it. A tree whose Voice requires
@@ -6328,7 +6378,7 @@ power_shot_pages() { # MODE SUFFIX
 # state; the profiles mock then starts again, for Power's page with it and
 # the scene's later shots. The NetworkManager mock's wired devices stand
 # for the whole section, so a tree that ships Wake on LAN draws it, and
-# power-<mode>-pane-wake shows it scrolled into view;
+# power-<mode>-pane-wake shows its switch scrolled into view and hovered;
 # power-<mode>-pane-wake-error shows it after a click on its switch whose
 # write the nmcli stand-in refuses, over a stand-in list of one wired
 # connection, and a second click, whose write the stand-in takes, turns it
@@ -6374,8 +6424,14 @@ power_shot_pane() { # MODE
   power_shot_pane_pages "power-$1-pane"
   if [[ $wake == yes ]]; then
     power_revealed "$(ipc smoke revealScopedText window vgs.system Field "Wake on LAN" Switch "")" || fail "the System page does not scroll to Wake on LAN"
+    # Both reveals can clamp to the pane end. Capture the switch's hover
+    # state so this planned view differs from that resting bottom frame.
+    if point_item "scoped:System Settings" window vgs.power Field "Wake on LAN" Switch "" >/dev/null; then
+      take_posed "power-$1-pane-wake"
+    else
+      fail "the pointer did not reach Wake on LAN's switch"
+    fi
     park_pointer
-    take "power-$1-pane-wake"
     device_reply nmcli 0 'shot-wired:802-3-ethernet' -t -f UUID,TYPE connection show
     device_reply nmcli 0 default -g 802-3-ethernet.wake-on-lan connection show shot-wired
     device_reply nmcli 4 "" connection modify shot-wired 802-3-ethernet.wake-on-lan magic
@@ -8689,6 +8745,7 @@ capture_plugin_states() { # MODE
 capture_state_record() { # SCENE MODE
   local state theme
   theme="$(ipc smoke themeName)" || { fail "the capture theme is unreadable"; return 1; }
+  capture_theme_check "$2" "$theme" || return 1
   state="$(ipc shell listPlugins | py_reply 'import json,sys
 rows=json.load(sys.stdin).get("plugins")
 enabled,disabled=(set(a.split()) for a in sys.argv[1:])
@@ -9680,11 +9737,11 @@ LINKKEYS
 park_pointer
 take "00-desktop"
 for mode in "${mode_list[@]}"; do
-  set_mode "$mode"
   if [[ ${#enable_ids[@]} -gt 0 || ${#disable_ids[@]} -gt 0 ]]; then capture_plugin_states "$mode"; fi
   for scene in "${scenes[@]}"; do
+    set_mode "$mode" || { fail "the $scene $mode capture theme could not be set"; continue; }
     scene_desktop "$scene" "$mode" || { fail "the $scene $mode desktop could not be set"; continue; }
-    capture_state_record "$scene" "$mode"
+    capture_state_record "$scene" "$mode" || continue
     "scene_$scene" "$mode"
   done
 done
