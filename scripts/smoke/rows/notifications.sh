@@ -218,7 +218,7 @@ note_shortcut_readiness_control() {
   local reply fixture state
   reply="$(hypr --batch 'globalshortcuts ; j/binds')" || return
   for state in binding-missing client-missing; do
-    fixture="$(python3 -c 'import json,sys
+    fixture="$(py_reply 'import json,sys
 clients,raw=sys.stdin.read().split("\n\n\n",1)
 bindings=json.loads(raw)
 assert sum(line.split(" -> ",1)[0]=="vgs.notifications:inbox" for line in clients.splitlines())==1
