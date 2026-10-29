@@ -15,6 +15,11 @@
 # These row costs are inclusive of nested calls and are not additive wall
 # time when a row is called inside another row.
 #
+# Jarvis producer/control costs: one native final selection on cachy,
+# 2026-10-29, vgs-2051-final-validation.service; measured row-secs 0/272
+# in tmp/validation-VGS-2051.log. VGS-2051 approves these lane samples.
+# Source validation is reused after this data-only cost refresh.
+#
 # Refresh: take the `qml-smoke: row-secs row=<row> secs=<seconds>` lines
 # that scripts/smoke/harness.sh prints for each row, from the qml.log of the
 # batch runs under the main checkout's tmp/main-run/, keep the rows
@@ -70,7 +75,8 @@ device-fakes 5
 system-steps 10
 greeter 13
 bluetooth-agent 4
-jarvis 266
+jarvis 0
+jarvis-controls 272
 jarvis-setup 191
 jarvis-home-repair 25
 jarvis-page 70
