@@ -466,8 +466,14 @@ latency_catalog_ready() { latency_theme_value entries | py_reply 'import json,sy
 latency_installed() { latency_theme_value shownCards | py_reply 'import json,sys; print(any(c["name"]=="latency" and c["installed"] for c in json.load(sys.stdin)))'; }
 latency_wall_value() { ipc smoke readDescendant overlay vgs.themes WallpaperView "$1"; }
 
-# Theme applies send notifications, so their drawer stays built through restore.
+# Theme apply problems send notifications; keep their drawer built through restore.
 notes_on "theme latency"
+# Read a known first card before theme notices can replace its shader effect.
+"${shell_env[@]}" gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications \
+  --method org.freedesktop.Notifications.Notify "Theme latency" 0 "" "Shader check" "" '[]' '{"urgency": <byte 2>}' 0 >/dev/null \
+  || fail "theme latency: the shader card was not sent"
+notes_first_card "the theme latency card"
+notes_clear "theme latency: the shader card"
 expect "the theme service retires before the cold reading" ok ipc shell setPluginEnabled vgs.themes false
 expect "the existing theme reads settle" idle theme_idle
 mkdir -p -- "$home/.config/vgshell/themes/latency/backgrounds"

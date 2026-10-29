@@ -71,6 +71,7 @@ notes_on "notify"
 # a click that only dismisses, and the message escaped.
 expect "a message with every option is sent" ok notify_send '{"title": "Probe saved", "message": "a<b> & c", "tone": "success", "icon": "circle-check", "urgency": "critical"}'
 expect_poll "its card names the fixture and carries its options" '["a&lt;b&gt; &amp; c", 2, "success", "circle-check", "none"]' probe_card "Probe saved"
+# This row can draw the first card when theme-latency is not selected.
 notes_first_card "the critical card"
 expect "a transient low message is sent" ok notify_send '{"title": "Probe passing", "tone": "info", "icon": "bell", "urgency": "low", "transient": true}'
 expect_poll "its card carries low urgency" '["", 0, "info", "bell", "none"]' probe_card "Probe passing"
