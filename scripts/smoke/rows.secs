@@ -3,102 +3,138 @@
 # row over its bound, smoke_bound_secs, which --full and the batch run on
 # main still run. A row with no line counts as fast and runs.
 #
-# Measured on cachy on 2026-10-05, on main and on lane branches: the time
-# from the start of each row's output file under the sandbox's rows/ to the
-# start of the next row's, read from 19 nested smoke runs, one batch run of
-# every row and lane runs of some rows, the row's harness steps included.
-# The medians of the 88 rows measured add up to 2112 s; the 2026-10-05
-# 20:12Z batch run's nested smoke row took 2119 s.
+# Measured on cachy on 2026-10-29 from emitted qml-smoke: row-secs lines
+# in main tmp/main-run/unit+qml/{20261029T081048Z,20261029T101142Z,
+# 20261029T113400Z,20261029T125818Z}/qml.log. Only 081048Z completed
+# every row; 101142Z and 113400Z ended early, and 125818Z was still running.
+# Completed-row samples from these partial runs are included. Keep only
+# rows.list members, so nested jarvis-bubble and leak-plant timings are
+# excluded. Medians round to whole seconds, halves up, for this format.
+# Snapshot hashes, sample counts and exact medians:
+# tmp/vgs-2049-measurement.json (VGS-2049 evidence artifact).
+# These row costs are inclusive of nested calls and are not additive wall
+# time when a row is called inside another row.
 #
 # Refresh: take the `qml-smoke: row-secs row=<row> secs=<seconds>` lines
 # that scripts/smoke/harness.sh prints for each row, from the qml.log of the
 # batch runs under the main checkout's tmp/main-run/, keep the rows
 # scripts/smoke/rows.list names, and write each row's median over those
 # runs, in the order of rows.list.
-bar 2
-hyprland-consent 2
-plugins 11
-sources 4
-capabilities 4
-leak-check 3
-session 1
-status 3
-manager 28
-updates 41
-settings 33
-placement 3
-windows 14
-compositor-dispatchers 2
-compositor-reveal 6
-agent-warden 42
-capability-release 2
-surfaces 13
-failed-builds 3
-monitors 1
-configuration 1
-theme 1
-themes 84
-theme-browse 18
-theme-browser 60
-theme-latency 25
-layers 12
+bar 308
+hyprland-consent 1
+plugins 16
+sources 5
+capabilities 6
+leak-check 28
+session 14
+status 9
+manager 43
+updates 34
+settings 154
+placement 218
+windows 18
+compositor-dispatchers 7
+windows-group-lock 3
+compositor-reveal 9
+agent-warden 53
+capability-release 5
+surfaces 81
+failed-builds 10
+monitors 3
+configuration 25
+theme 8
+themes 136
+collector 3
+theme-browse 15
+theme-browser 112
+portal-accent 33
+theme-latency 26
+notify 42
+layers 15
 shader-frames 11
-tui 9
-notices 8
-devtools 47
-overlays 9
-gallery 22
-launcher 37
-webapps 7
-list-motion 3
-notifications 90
-notifications-keys 76
-automations 27
-polkit 10
-device-fakes 2
-system-steps 4
-greeter 2
+tui 20
+sudo 12
+notices 16
+overlays 7
+gallery 28
+launcher 45
+devtools 58
+webapps 8
+list-motion 16
+notifications 658
+notifications-keys 118
+automations 23
+googledrive 37
+polkit 11
+device-fakes 5
+system-steps 10
+greeter 13
 bluetooth-agent 4
-jarvis 136
-jarvis-setup 27
-jarvis-page 13
-jarvis-input 4
-jarvis-browser 37
-jarvis-tasks 50
-hyprland 15
-hyprland-options 10
-input-facts 4
-clipboard 33
-monitor-outputs 1
-hold-shortcuts 4
-voice 33
-jarvis-keys 82
-jarvis-widget 46
-jarvis-desktop 14
-instance-guard 4
-diagnostics 3
-supervise 35
-lock 21
-read-only-prefix 7
-hyprland-consent-decline 13
+jarvis 266
+jarvis-setup 191
+jarvis-home-repair 25
+jarvis-page 70
+jarvis-input 18
+jarvis-browser 81
+jarvis-tasks 109
+jarvis-session 102
+hyprland 12
+hyprland-options 7
+input-facts 5
+clipboard 58
+monitor-outputs 3
+displays-modes 61
+hold-shortcuts 9
+voice 91
+jarvis-keys 298
+jarvis-widget 74
+jarvis-follow-up 32
+jarvis-desktop 29
+jarvis-console 74
+instance-guard 2
+diagnostics 2
+supervise 37
+child-lifetime 19
+start 6
+lock 23
+screensaver 74
+read-only-prefix 17
+hyprland-consent-decline 15
 notices-control 2
-hidpi 27
-start-order 45
-overlay-capture 28
+hidpi 23
+start-order 56
+startup-migrations 5
+overlay-capture 14
 key-capture 9
-key-passthrough 59
-keyhints 23
-scratchpads 71
-settings-unsaved 42
-panes 36
-system-window 20
-mouse 4
-displays 31
-sound 49
-capture 133
-ai-usage 10
-network 16
-bluetooth 44
-vpn 58
-style 13
-core-drift 8
+key-passthrough 40
+keyhints 62
+scratchpads 81
+settings-unsaved 46
+dictation 43
+panes 31
+system-window 27
+mouse 9
+appearance 10
+sounds 18
+keyboard 58
+displays 89
+sound 57
+power 153
+capture 208
+share-picker 122
+ai-usage 57
+traffic 43
+network 66
+sysmon 7
+bluetooth 95
+tailscale 170
+vpn 91
+printers 58
+style 15
+core-drift 5
+reset 20
+widget-hide 18
+tray 29
+tui-guard 1
+plugin-pages 2
+auth-sentinel 1
