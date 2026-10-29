@@ -198,7 +198,42 @@ notify() {
 }
 close_note() { "${shell_env[@]}" gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications --method org.freedesktop.Notifications.CloseNotification "$1" >/dev/null; }
 lent_notes() { ipc shell lent | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([[s for s in d["shortcuts"] if s.startswith("vgs.notifications")], [t for t in d["ipcTargets"] if t == "vgs.notifications"], [s for s in d["subscribers"] if s == "vgs.notifications"], [l["plugin"] for l in d["layers"] if l["plugin"] == "vgs.notifications"]]))'; }
-note_shortcuts() { hypr globalshortcuts | python3 -c 'import sys; print(sum(1 for line in sys.stdin if "vgs.notifications:inbox" in line))'; }
+# Registration precedes the layer's deferred write/reload. Both sides must
+# agree, including removal, so an old binding cannot acknowledge a new client.
+note_shortcut_state() {
+  py_reply 'import json,sys
+parts=sys.stdin.read().split("\n\n\n",1)
+if len(parts)!=2: print("unread"); sys.exit()
+try: bindings=json.loads(parts[1])
+except json.JSONDecodeError: print("unread"); sys.exit()
+clients=[line for line in parts[0].splitlines() if line]
+if not isinstance(bindings,list) or any(not isinstance(b,dict) or "description" not in b or "submap" not in b for b in bindings) or any(" -> " not in line for line in clients):
+    print("unread"); sys.exit()
+registered=sum(line.split(" -> ",1)[0]=="vgs.notifications:inbox" for line in clients)
+installed=sum(b["description"]=="vgs.notifications:inbox" and b["submap"]=="" for b in bindings)
+print(registered if registered==installed and registered in (0,1) else "pending")'
+}
+note_shortcuts() { hypr --batch 'globalshortcuts ; j/binds' | note_shortcut_state; }
+note_shortcut_readiness_control() {
+  local reply fixture state
+  reply="$(hypr --batch 'globalshortcuts ; j/binds')" || return
+  for state in binding-missing client-missing; do
+    fixture="$(python3 -c 'import json,sys
+clients,raw=sys.stdin.read().split("\n\n\n",1)
+bindings=json.loads(raw)
+assert sum(line.split(" -> ",1)[0]=="vgs.notifications:inbox" for line in clients.splitlines())==1
+if sys.argv[1]=="binding-missing":
+    kept=[b for b in bindings if not (b["description"]=="vgs.notifications:inbox" and b["submap"]=="")]
+    assert len(kept)<len(bindings)
+    bindings=kept
+else:
+    kept=[line for line in clients.splitlines() if line.split(" -> ",1)[0]!="vgs.notifications:inbox"]
+    assert len(kept)<len(clients.splitlines())
+    clients="\n".join(kept)
+print(clients+"\n\n\n"+json.dumps(bindings))' "$state" <<<"$reply")" || return
+    expect "control: $state cannot acknowledge inbox readiness" pending note_shortcut_state <<<"$fixture"
+  done
+}
 
 # Controls for the state readers, pointed at planted files: with no file,
 # as before the store's first save, each answers absent; a path past the
@@ -300,6 +335,7 @@ expect "enabling the notifications is allowed" ok ipc shell setPluginEnabled vgs
 expect_poll "the notification service is built" True record_exists vgs.notifications
 expect_poll "the service registered its shortcuts, IPC target and subscriber and holds no layer" '[["vgs.notifications:act", "vgs.notifications:inbox", "vgs.notifications:mark-read"], ["vgs.notifications"], ["vgs.notifications"], []]' lent_notes
 expect_poll "the compositor lists the inbox shortcut" 1 note_shortcuts
+note_shortcut_readiness_control
 expect "the notification server exists" true lent notificationServer
 expect "a first start finds no state file" '"absent"' note_status store.state
 expect "no layer surface shows with nothing to show" 0 layer_count vgs:layer

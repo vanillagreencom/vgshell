@@ -37,7 +37,7 @@
 # No latency is measured; each reading polls every 200 ms for up to 5 s.
 # A press that reaches nothing changes nothing to poll for, so the
 # controls read after a native key marker on the same virtual keyboard.
-# inputs: shell/plugins/vgs.notifications/* shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Ui/layout/SurfaceHeight.qml shell/Ui/foundation/KeyNav.qml shell/Ui/foundation/KeyNavLogic.js scripts/smoke/toplevel/* scripts/smoke/rows/notifications.sh scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.notifications/* shell/Core/HyprlandLayer.js shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Ui/layout/SurfaceHeight.qml shell/Ui/foundation/KeyNav.qml shell/Ui/foundation/KeyNavLogic.js scripts/smoke/toplevel/* scripts/smoke/rows/notifications.sh scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 
 nk_hypr_lua="$home/.config/hypr/hyprland.lua"
@@ -200,9 +200,14 @@ nk_layer_gone() {
 # long_inbox_shown: `shown` once the open panel lists the long inbox's
 # newest row and has drawn, else `unlisted` or `not-drawn`.
 long_inbox_shown() {
-  local listed=False
-  for _ in $(seq 1 25); do
-    listed="$(has_row panel "Long newest")" || listed=False
+  local listed=False status poll
+  for poll in $(seq 1 25); do
+    status=0
+    listed="$(has_row panel "Long newest")" || status=$?
+    if [[ -n ${nk_listing_log:-} ]]; then
+      printf '%s poll=%s exit=%s listed=%s\n' "$EPOCHREALTIME" "$poll" "$status" "$listed" >>"$nk_listing_log"
+    fi
+    [[ $status == 0 ]] || listed=False
     [[ $listed == True ]] && break
     sleep 0.2
   done
@@ -266,10 +271,22 @@ long_inbox_readings() { if [[ -f $sandbox/long-inbox.txt ]]; then cat -- "$sandb
 # the sandbox on 2026-10-02 the refresh-only copy's first open fit and its
 # other seven were cut.
 long_inbox_warm() {
-  "$@" >/dev/null || return
-  summon_drawn panel vgs.notifications || return
-  "$@" >/dev/null || return
-  nk_layer_gone
+  local trace status nk_binding_mark nk_press_start nk_listing_end nk_listing_log nk_close_start=""
+  nk_binding_mark="$(stat -c %s -- "$nk_binding_log")" || return
+  nk_listing_log="$(mktemp "$sandbox/rows/notifications-keys.listing.XXXXXX")" || return
+  trace="$(wc -l <"$instance_log")" || return
+  nk_press_start="$EPOCHREALTIME"
+  "$@" >/dev/null || { status=$?; nk_warm_evidence "$trace" opening-key "$status"; return "$status"; }
+  summon_drawn panel vgs.notifications || { status=$?; nk_warm_evidence "$trace" drawn-wait "$status"; return "$status"; }
+  nk_listing_end="$EPOCHREALTIME"
+  nk_close_start="$EPOCHREALTIME"
+  "$@" >/dev/null || { status=$?; nk_warm_evidence "$trace" closing-key "$status"; return "$status"; }
+  nk_layer_gone || { status=$?; nk_warm_evidence "$trace" layer-gone "$status"; return "$status"; }
+  nk_event_control "$trace" warm
+}
+nk_warm_evidence() { # PRE-KEY INSTANCE LOG LINE STAGE STATUS
+  nk_listing_end="${nk_listing_end:-$EPOCHREALTIME}"
+  nk_unlisted_evidence "$1" "$2" "$3" warm >&2 || printf 'notification-unlisted-evidence: write-failed\n' >&2
 }
 # One open, read at the list top and at the full scroll travel. The end
 # reading checks the bottom without requiring the first card in view.
@@ -349,7 +366,7 @@ nk_unlisted_capture() { # DIRECTORY NAME COMMAND...
   "$@" >"$dir/$name" 2>"$dir/$name.stderr" || status=$?
   printf '%s exit=%s\n' "$name" "$status" >>"$dir/exits"
 }
-nk_unlisted_evidence() { # INSTANCE LOG STARTING LINE
+nk_unlisted_evidence() { # INSTANCE LOG STARTING LINE [STAGE [STATUS [PHASE]]]
   local dir
   dir="$(mktemp -d "$sandbox/rows/notifications-keys.unlisted.XXXXXX")" || return
   printf 'trace-line=%s\ninstance-log=%s\n' "$1" "$instance_log" >"$dir/source" || return
@@ -362,13 +379,107 @@ nk_unlisted_evidence() { # INSTANCE LOG STARTING LINE
   nk_unlisted_capture "$dir" rows.json panel_rows || return
   nk_unlisted_capture "$dir" view.json panel_current_view || return
   nk_unlisted_capture "$dir" instance.log tail -n +"$(($1 + 1))" -- "$instance_log" || return
+  nk_unlisted_capture "$dir" key-events.jsonl tail -c +"$((nk_binding_mark + 1))" -- "$nk_binding_log" || return
+  nk_unlisted_capture "$dir" binding-journal.jsonl cat -- "$nk_binding_log" || return
+  nk_unlisted_capture "$dir" listing.log cat -- "$nk_listing_log" || return
+  printf 'phase=%s\nstage=%s\nstatus=%s\npress-start=%s\nlisting-end=%s\nclosing-key-start=%s\ncapture-end=%s\n' \
+    "${4:-ends}" "${2:-listing}" "${3:-0}" "$nk_press_start" "$nk_listing_end" "${nk_close_start:-}" "$EPOCHREALTIME" >>"$dir/source" || return
   printf 'notification-unlisted-evidence: %s\n' "$dir"
+}
+nk_events_complete() { # DIRECTORY
+  python3 - "$1" <<'PY_EVENTS'
+import json, sys
+from pathlib import Path
+root = Path(sys.argv[1])
+binding = [json.loads(line) for line in (root / "key-events.jsonl").read_text().splitlines()]
+journal = [json.loads(line) for line in (root / "binding-journal.jsonl").read_text().splitlines()]
+shell = [json.loads(line.split("notification-key-event:", 1)[1])
+         for line in (root / "instance.log").read_text().splitlines() if "notification-key-event:" in line]
+required = {"binding-match", "inbox-callback", "panel-created", "panel-closed", "observer-load", "binding-installed", "configuration-applied"}
+present = {row["event"] for row in binding + shell}
+present |= {row["event"] for row in journal if row["event"] in {"observer-load", "binding-installed", "configuration-applied"}}
+loads = {row["load_id"]: row for row in journal if row["event"] == "observer-load"}
+installs = [row for row in journal if row["event"] == "binding-installed"]
+applied = {row["load_id"] for row in journal if row["event"] == "configuration-applied"}
+matches = [row for row in binding if row["event"] == "binding-match"]
+linked = all(row["load_id"] in loads for row in binding) and bool(matches) and all(
+    match["load_id"] in loads and match["load_id"] in applied
+    and loads[match["load_id"]]["sequence"] < match["sequence"]
+    and any(install["load_id"] == match["load_id"]
+            and install["binding_submap"] == match["binding_submap"]
+            and install["key"] == match["key"] and install["enabled"]
+            and install["sequence"] < match["sequence"] for install in installs)
+    for match in matches)
+events = [row["event"] for row in shell]
+ordered = all(event in events for event in ("inbox-callback", "panel-created", "panel-open", "panel-closed"))
+if ordered:
+    ordered = events.index("inbox-callback") < events.index("panel-created") < events.index("panel-open") < events.index("panel-closed")
+print(json.dumps({"compositor_order": binding, "shell_order": shell,
+                  "missing": sorted(required - present),
+                  "ordered": ordered, "load_install_linked": linked,
+                  "cross_process_order": "binding-match is written before forwarding its global dispatch; callback and panel events follow instance-log order"}))
+sys.exit(0 if required <= present and ordered and linked else 1)
+PY_EVENTS
+}
+nk_event_control() { # PRE-KEY INSTANCE LOG LINE [PHASE]
+  local collected dir scratch event status
+  collected="$(nk_unlisted_evidence "$1" completed 0 "${2:-ends}")" || return
+  dir="${collected#notification-unlisted-evidence: }"
+  nk_events_complete "$dir" >&2 || return
+  # The real passing opening and closing must supply every boundary. Each
+  # missing-record control removes one producer's event from those inputs.
+  scratch="$(mktemp -d)" || return
+  for event in binding-match inbox-callback panel-created panel-closed observer-load binding-installed configuration-applied wrong-install-load; do
+    cp -- "$dir/key-events.jsonl" "$dir/binding-journal.jsonl" "$dir/instance.log" "$scratch/" || { rm -rf -- "$scratch"; return 1; }
+    python3 - "$scratch" "$event" <<'PY_MISSING_EVENT'
+from pathlib import Path
+import json, sys
+root, missing = Path(sys.argv[1]), sys.argv[2]
+count = 0
+for name in ("key-events.jsonl", "binding-journal.jsonl", "instance.log"):
+    path = root / name
+    before = path.read_text()
+    kept = []
+    for line in before.splitlines(keepends=True):
+        payload = line.split("notification-key-event:", 1)[-1]
+        if name.endswith(".jsonl") or "notification-key-event:" in line:
+            row = json.loads(payload)
+            if missing == "wrong-install-load" and row["event"] == "binding-installed":
+                row["load_id"] = -1
+                count += 1
+                kept.append(json.dumps(row) + "\n")
+                continue
+            if row["event"] == missing:
+                count += 1
+                continue
+        kept.append(line)
+    path.write_text("".join(kept))
+assert count > 0, "passing record must contain the removed event"
+PY_MISSING_EVENT
+    status=0
+    nk_events_complete "$scratch" >"$scratch/result" || status=$?
+    if [[ $status != 1 ]]; then
+      rm -rf -- "$scratch"
+      echo "event=$event control-exit=$status"
+      return 1
+    fi
+  done
+  rm -rf -- "$scratch" || return
+  local retained
+  retained="$(mktemp -d "$smoke_log_dir/notifications-key-events.XXXXXX")" || return
+  cp -R -- "$dir/." "$retained/" || return
+  printf 'notification-key-passing-evidence: %s\n' "$retained" >&2
 }
 long_inbox_ends() {
   local shown top end view before spot x y plan trace stable
+  local nk_binding_mark nk_press_start nk_listing_end nk_listing_log nk_close_start=""
+  nk_binding_mark="$(stat -c %s -- "$nk_binding_log")" || return
+  nk_listing_log="$(mktemp "$sandbox/rows/notifications-keys.listing.XXXXXX")" || return
   trace="$(wc -l <"$instance_log")"
+  nk_press_start="$EPOCHREALTIME"
   "$@" >/dev/null || { echo toggle-failed; return; }
   shown="$(long_inbox_shown)"
+  nk_listing_end="$EPOCHREALTIME"
   [[ $shown == shown ]] || {
     if [[ $shown == unlisted ]]; then
       nk_unlisted_evidence "$trace" >&2 || printf 'notification-unlisted-evidence: write-failed\n' >&2
@@ -402,8 +513,10 @@ print("end" if v["contentY"]>0 and v["contentY"]>=v["contentHeight"]-v["height"]
   cp -- "$nk_panel" "$artifact/Panel.qml"
   printf 'notification-height-artifact: %s\n' "$artifact" >&2
   read -r x y < <(nk_panel_outside_point) && hover "$x" "$y"
+  nk_close_start="$EPOCHREALTIME"
   "$@" >/dev/null || { echo close-toggle-failed; return; }
   nk_layer_gone || { echo close-still-open; return; }
+  nk_event_control "$trace" || { echo event-control-failed; return; }
   if [[ ${nk_require_estimate_distinct:-false} == true && $(nk_estimate_fixture_distinct) != True ]]; then
     echo invalid-estimate-fixture
     return
@@ -563,6 +676,73 @@ nk_presses() {
 }
 
 hypr_lua_save notifications-keys
+nk_binding_log="$sandbox/rows/notifications-keys.binding-events.jsonl"
+: >"$nk_binding_log"
+# Wrap only the sandbox's existing inbox dispatcher. The wrapper records an
+# actual matched bind, then forwards its original dispatcher unchanged.
+# hl.bind callbacks and hl.dispatch are Hyprland's Lua interface:
+# https://wiki.hypr.land/Configuring/Binds/
+python3 - "$nk_hypr_lua" "$nk_binding_log" <<'PY_BIND_EVENTS'
+import json, sys
+from pathlib import Path
+path, log = Path(sys.argv[1]), json.dumps(sys.argv[2])
+before = path.read_text()
+trace = '''do
+    local bind = hl.bind
+    local sequence = 0
+    local inbox_bindings = {}
+    -- The append offset identifies this actual observer load, including
+    -- two loads within the same second, without another recorder or file.
+    local journal = assert(io.open(LOG, "a"))
+    local load_id = assert(journal:seek("end"))
+    assert(journal:close())
+    local function record(event, extra)
+        sequence = sequence + 1
+        local submap = hl.get_current_submap()
+        local installed, enabled = 0, 0
+        for _, binding in ipairs(inbox_bindings) do
+            if binding.submap == submap then
+                installed = installed + 1
+                if binding.enabled then enabled = enabled + 1 end
+            end
+        end
+        local stream = assert(io.open(LOG, "a"))
+        stream:write(string.format('{"event":%q,"load_id":%d,"sequence":%d,"at_s":%d,"submap":%q,"global_resolve_by_sym":%s,"inbox_bindings_in_submap":%d,"enabled_inbox_bindings_in_submap":%d%s}\\n', event, load_id, sequence, os.time(), submap, tostring(hl.get_config("input.resolve_binds_by_sym")), installed, enabled, extra or ""))
+        assert(stream:close())
+    end
+    record("observer-load")
+    -- The native key event supplies input state even when no bind matches.
+    -- https://wiki.hypr.land/Configuring/Advanced-configuration/Events/
+    hl.on("input.keyboard.key", function(code, ms, state)
+        record("key", string.format(',"code":%d,"input_ms":%d,"state":%d,"resolved_symbol":"unavailable","modifier_mask":"unavailable","per_keyboard_resolve_by_sym":"unavailable"', code, ms, state))
+    end)
+    hl.on("config.reloaded", function() record("configuration-applied") end)
+    hl.bind = function(key, action, options)
+        if options and options.description == "vgs.notifications:inbox" then
+            local binding
+            binding = bind(key, function()
+                record("binding-match", string.format(',"key":%q,"binding_submap":%q', key, binding.submap))
+                return hl.dispatch(action)
+            end, options)
+            -- hl.bind returns the actual registered Keybind object; these
+            -- are its native submap/enabled values, not the rendered plan.
+            -- https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/lua/bindings/LuaBindingsToplevel.cpp
+            -- https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/lua/objects/LuaKeybind.cpp
+            if binding ~= nil then
+                table.insert(inbox_bindings, binding)
+                record("binding-installed", string.format(',"key":%q,"binding_submap":%q,"enabled":%s', key, binding.submap, tostring(binding.enabled)))
+            else
+                record("binding-install-failed", string.format(',"key":%q', key))
+            end
+            return binding
+        end
+        return bind(key, action, options)
+    end
+end
+'''.replace("LOG", log)
+assert not before.startswith(trace)
+path.write_text(trace + before)
+PY_BIND_EVENTS
 printf '%s\n' 'hl.bind("code:67", hl.dsp.global("smoke:hold-marker"), { description = "smoke:hold-marker", ignore_mods = true })' >>"$nk_hypr_lua"
 printf '%s\n' 'hl.bind("code:75", hl.dsp.global("smoke:hold-marker"), { description = "smoke:hold-marker", ignore_mods = true })' >>"$nk_hypr_lua"
 printf '%s\n' 'hl.bind("F9", hl.dsp.global("smoke:hold-marker"), { description = "smoke:hold-marker", ignore_mods = true })' >>"$nk_hypr_lua"
@@ -620,6 +800,40 @@ expect "a second Super+N that reaches the shell while the first closes the long 
 nk_panel="$repo/shell/plugins/vgs.notifications/Panel.qml"
 cp -- "$nk_panel" "$sandbox/Panel.qml.keys-pristine"
 expect "disabling notifications before height tracing is allowed" ok ipc shell setPluginEnabled vgs.notifications false
+expect_poll "the height-trace copy has no registered or installed inbox binding" 0 note_shortcuts
+nk_service="$repo/shell/plugins/vgs.notifications/Service.qml"
+cp -- "$nk_service" "$sandbox/Service.qml.keys-events-pristine"
+# These are sandbox copies, not a product diagnostics API. The callback
+# marker is inside the registered handler; panel construction and close
+# markers follow the same instance log, so their ordering is retained even
+# if the panel disappears before the first listing read.
+python3 - "$nk_service" "$nk_panel" <<'PY_OPEN_EVENTS'
+from pathlib import Path
+import sys
+for file, changes in (
+    (sys.argv[1], [
+        ('shell.shortcut.register("inbox", "Notification inbox", () => root.togglePanel());',
+         'shell.shortcut.register("inbox", "Notification inbox", () => { console.log("notification-key-event:" + JSON.stringify({ event: "inbox-callback", at_ms: Date.now(), panelOpen: root.panelOpen })); return root.togglePanel(); });'),
+    ]),
+    (sys.argv[2], [
+        ('Component.onCompleted: Qt.callLater(() => initialLayoutReady = true)',
+         'Component.onCompleted: { console.log("notification-key-event:" + JSON.stringify({ event: "panel-created", at_ms: Date.now() })); Qt.callLater(() => initialLayoutReady = true); }'),
+        ('    function open(payloadJson) {',
+         '    function open(payloadJson) {\n        console.log("notification-key-event:" + JSON.stringify({ event: "panel-open", at_ms: Date.now() }));'),
+        ('    function close() {',
+         '    function close() {\n        console.log("notification-key-event:" + JSON.stringify({ event: "panel-closed", at_ms: Date.now() }));'),
+    ]),
+):
+    path = Path(file)
+    before = path.read_text()
+    after = before
+    for needle, replacement in changes:
+        assert after.count(needle) == 1, needle
+        after = after.replace(needle, replacement)
+    assert after != before
+    path.write_text(after)
+PY_OPEN_EVENTS
+cp -- "$nk_panel" "$sandbox/Panel.qml.keys-open-events"
 python3 - "$nk_panel" <<'PY_HEIGHT_TRACE'
 from pathlib import Path
 import sys
@@ -650,6 +864,7 @@ r=rows[0];path=r["image"].removeprefix("file://")
 if not os.path.isfile(path): raise SystemExit("estimate fixture image is not stored")
 print(r["key"],path)') || fail "the estimate fixture's stored image is unreadable"
 expect "disabling notifications before estimate restoration is allowed" ok ipc shell setPluginEnabled vgs.notifications false
+expect_poll "the estimate-restoration copy has no registered or installed inbox binding" 0 note_shortcuts
 python3 - "$nk_panel" <<'PY_ESTIMATE_RESTORE'
 from pathlib import Path
 import sys
@@ -697,6 +912,7 @@ PY_ESTIMATE_RESTORE
 rescan "a rescan reads estimate restoration"
 expect "enabling estimate restoration is allowed" ok ipc shell setPluginEnabled vgs.notifications true
 expect_poll "the estimate-restoration service is built" True record_exists vgs.notifications
+expect_poll "the estimate-restoration inbox binding is installed" 1 note_shortcuts
 nk_require_estimate_distinct=true
 geometry expect "control: restoring estimates changes the established content height" height-changed long_inbox_ends nk_press
 nk_require_estimate_distinct=false
@@ -729,7 +945,7 @@ geometry expect "control: a real reserved bottom gap fails at both ends" "top=bo
 cp -- "$sandbox/Panel.qml.keys-kept" "$nk_panel"
 rescan "a rescan restores the row-free panel"
 expect_poll "the restored panel service is built" True record_exists vgs.notifications
-cp -- "$sandbox/Panel.qml.keys-pristine" "$nk_panel"
+cp -- "$sandbox/Panel.qml.keys-open-events" "$nk_panel"
 rescan "a rescan removes the temporary height trace"
 notes dismiss-all >/dev/null # `none` once every toast's clock ran out
 expect "clearing the long inbox's history is allowed" ok notes clear-history
@@ -845,6 +1061,7 @@ type_keys -k Escape || fail "control summon-only: Escape failed"
 expect_poll "control summon-only: Escape closes the inbox" closed inbox_shown
 expect "disabling the summon-only service copy is allowed" ok ipc shell setPluginEnabled vgs.notifications false
 expect_poll "the summon-only service copy is gone" False record_exists vgs.notifications
+expect_poll "the summon-only copy releases its registered and installed inbox binding" 0 note_shortcuts
 cp -- "$sandbox/Service.qml.keys-kept" "$nk_service"
 rescan "a rescan restores the service"
 # A service can summon the same live panel again. Its selected row stays,
@@ -871,6 +1088,7 @@ expect_poll "keyboard action selection still works after reopen" 0 nk_action_ind
 type_keys -k Escape || fail "Escape closes the reopen focus proof"
 expect_poll "the reopen focus inbox closes" closed inbox_shown
 expect "disabling notifications for the retained-action control is allowed" ok ipc shell setPluginEnabled vgs.notifications false
+expect_poll "the retained-action copy has no registered or installed inbox binding" 0 note_shortcuts
 cp -- "$nk_panel" "$sandbox/Panel.qml.focus-kept"
 python3 - "$nk_panel" <<'PYCONTROL'
 import sys
@@ -890,6 +1108,7 @@ expect "control: retaining the prior action fails the same reopen assertion" 1 n
 sed 's/^/  CONTROL  /' "$sandbox/notifications-reopen-focus-control.log"
 type_keys -k Escape || fail "Escape closes the retained-action control"
 expect "disabling the retained-action control is allowed" ok ipc shell setPluginEnabled vgs.notifications false
+expect_poll "the retained-action control releases its registered and installed inbox binding" 0 note_shortcuts
 cp -- "$sandbox/Panel.qml.focus-kept" "$nk_panel"
 rescan "a rescan restores the shipped reopen focus owner"
 expect "the observer releases the notifications key ordering marker" ok ipc smoke holdMarkerStop
@@ -913,9 +1132,13 @@ if copy_tree unlatched-host \
   notes dismiss-all >/dev/null # `none` once every toast's clock ran out
   expect "clearing the unlatched host's history is allowed" ok notes clear-history
   expect "disabling the notifications on the unlatched host is allowed" ok ipc shell setPluginEnabled vgs.notifications false
+  expect_poll "the unlatched host releases its registered and installed inbox binding" 0 note_shortcuts
   expect "the unlatched host's observer releases the key ordering marker" ok ipc smoke holdMarkerStop
   stop_shell
   start_shell "$repo" "$sandbox/notifications-keys-restored.log" || fail "the shell starts after the unlatched host control"
 fi
+cp -- "$sandbox/Panel.qml.keys-pristine" "$nk_panel"
+cp -- "$sandbox/Service.qml.keys-events-pristine" "$nk_service"
+rescan "a rescan removes the inbox event instrumentation at row cleanup"
 hypr_lua_restore notifications-keys || fail "the key rows put the harness hyprland.lua back"
 expect "the nested instance reloads the harness hyprland.lua after the key rows" ok hypr reload config-only
