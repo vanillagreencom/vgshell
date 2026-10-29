@@ -180,7 +180,7 @@ The overseer also publishes `vgshell-quickshell` when its recipe or local source
    AUR_SSH_KEY_FILE=<the AUR account's private key> scripts/publish-aur.sh vgshell-quickshell vgshell vgshell-git
    ```
 
-7. Publish the Fedora engine before the shell packages that depend on it: [§ Fedora](#fedora). Set `vgshell.spec`'s `Version`, `Release` and `%changelog` with `VERSION`, then run `copr-cli edit-package-scm vgshell --name vgshell --commit vX.Y.Z` and `copr-cli build-package vgshell --name vgshell`. The GitHub webhook rebuilds `vgshell-git` on every push to `main`.
+7. Publish the Fedora engine before the shell packages that depend on it: [§ Fedora](#fedora). Set `vgshell.spec`'s `Version`, `Release` and `%changelog` with `VERSION`, then run `copr-cli edit-package-scm vgshell --name vgshell --clone-url https://github.com/vanillagreencom/vgshell.git --commit vX.Y.Z --spec packaging/fedora/vgshell.spec --method make_srpm` and `copr-cli build-package vgshell --name vgshell`. The GitHub webhook rebuilds `vgshell-git` on every push to `main`.
 8. Verify every channel, as below.
 
 ### Fedora
