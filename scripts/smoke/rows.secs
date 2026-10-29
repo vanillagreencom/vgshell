@@ -15,9 +15,9 @@
 # These row costs are inclusive of nested calls and are not additive wall
 # time when a row is called inside another row.
 #
-# Jarvis producer/control costs: one native final selection on cachy,
-# 2026-10-29, vgs-2051-final-validation.service; measured row-secs 0/272
-# in tmp/validation-VGS-2051.log. VGS-2051 approves these lane samples.
+# Jarvis producer/control costs: one native fix-range selection on cachy,
+# 2026-10-29, vgs-2051-fix-validation.service; measured row-secs 0/272
+# in tmp/validation-fix-VGS-2051.log. VGS-2051 approves these lane samples.
 # Source validation is reused after this data-only cost refresh.
 #
 # Refresh: take the `qml-smoke: row-secs row=<row> secs=<seconds>` lines

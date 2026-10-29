@@ -938,7 +938,6 @@ cp -- "$sandbox/jarvis-backend-original" "$jarvis_backend"
 jarvis_rescan
 
 jarvis_gate="$sandbox/jarvis-first-reply-gate"
-jarvis_seen="$sandbox/jarvis-first-hello"
 expect "the test-only session holder enables" ok ipc shell setPluginEnabled acme.probe true
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/prepare.js" --gate-daemon "$jarvis_backend" "$jarvis_gate" "$jarvis_seen"
 # The gate holds every reply until the compositor confirms the lock, a poll

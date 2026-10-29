@@ -213,6 +213,7 @@ else:
     print("session" if ok else "wrong-session")
 ' "$1"
 }
+jarvis_seen="$sandbox/jarvis-first-hello"
 jarvis_seen_hello() {
   py_reply '
 import json,sys
