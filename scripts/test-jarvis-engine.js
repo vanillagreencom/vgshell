@@ -592,6 +592,20 @@ async function localSetupRun(server, edits = []) {
     assert.equal(source.split(needle).length - 1, 1);
     fs.writeFileSync(engineFile, source.replace(needle, "const SPEECH = Object.freeze({ local: LocalSpeech.row });"));
     fs.copyFileSync(path.join(tree, "shell/plugins/vgs.jarvis/artifacts.json"), path.join(kit.folder, "artifacts.json"));
+    const launches = [], launchFile = path.join(kit.folder, "backend/setup-launch.js");
+    fs.writeFileSync(launchFile, "module.exports = {};\n");
+    require(launchFile).spawn = (...args) => {
+        const child = cp.spawn(...args), attempt = { child, closed: false };
+        attempt.done = new Promise(resolve => child.once("close", () => { attempt.closed = true; resolve(); }));
+        launches.push(attempt);
+        return child;
+    };
+    // Only this disposable adapter records launches; forward every real child unchanged.
+    const speechFile = path.join(kit.folder, "backend/LocalSpeech.js"), speech = fs.readFileSync(speechFile, "utf8");
+    const spawnNeedle = 'const cp = require("node:child_process");';
+    assert.equal(speech.split(spawnNeedle).length - 1, 1);
+    fs.writeFileSync(speechFile, speech.replace(spawnNeedle, 'const cp = require("./setup-launch.js");'));
+    delete require.cache[speechFile];
     delete require.cache[engineFile];
     kit.Engine = require(engineFile);
     const root = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "local-setup-"));
@@ -604,27 +618,25 @@ async function localSetupRun(server, edits = []) {
         utterances: Array.from({ length: 2 }, () => ({ speech: true })), speech: [] }));
     const marker = path.join(state, "local-ready.json");
     fs.writeFileSync(marker, JSON.stringify({ tier: "small", data: fs.realpathSync(local) }));
-    const logs = () => fs.existsSync(path.join(local, "log.jsonl")) ? fs.readFileSync(path.join(local, "log.jsonl"), "utf8")
-        .trim().split("\n").filter(Boolean).map(JSON.parse) : [];
-    const starts = () => logs().filter(row => row.start).map(row => row.start);
-    const alive = pid => { try { process.kill(pid, 0); return true; } catch (error) { if (error.code === "ESRCH") return false; throw error; } };
     const w = rig(kit, server, { directories: { state, data: root, runtime: root }, rejudge: () => w.configure(w.s().settings) });
     w.dictation.text = "Fixture request.";
     try {
-        await until(() => starts().length === 1, "sidecar starts before any conversation");
-        const first = starts()[0].pid;
+        await until(() => w.engine.checkReady(), "sidecar is ready before any conversation");
+        assert.equal(launches.length, 1, "one sidecar starts before any conversation");
+        const first = launches[0];
         // Whether setup-local could take the lock alone now.
         const lockFree = () => cp.spawnSync("python3", ["-I", "-c", "import fcntl,sys\nfcntl.flock(open(sys.argv[1], 'a'), fcntl.LOCK_EX | fcntl.LOCK_NB)",
             path.join(state, "local-setup.lock")]).status === 0;
         assert.equal(lockFree(), false, "the sidecar holds the setup lock");
         w.runner.dispatch({ type: "talk-down" });
         await until(() => w.s().conversation.kind === "active" && w.s().capture.kind === "open", "a live local conversation");
-        const answer = w.engine.localSetup(true).then(() => alive(first));
+        const answer = w.engine.localSetup(true).then(() => first.closed);
         assert.deepEqual([w.s().gate.kind, w.s().conversation.kind], ["down", "ended"], "the start ends the live conversation");
         assert.equal(w.engine.localSetup(true) instanceof Promise, true);
-        assert.equal(await answer, false, "the answer follows the sidecar's exit");
+        assert.equal(await answer, true, "the answer follows the sidecar's exit");
         assert.equal(lockFree(), true, "the answer follows the lock's release");
         assert.deepEqual(w.configure(w.s().settings).causes, ["speech=local-setting-up"]);
+        assert.equal(launches.length, 1, "no sidecar starts during setup");
         w.runner.dispatch({ type: "talk-down" });
         assert.equal(w.s().conversation.kind, "ended", "Talk waits for the setup");
         // setup-local publishes the replacement with rename.
@@ -632,18 +644,19 @@ async function localSetupRun(server, edits = []) {
         fs.writeFileSync(replacement, JSON.stringify({ tier: "medium", data: fs.realpathSync(local) }));
         fs.renameSync(replacement, marker);
         assert.deepEqual(w.configure(w.s().settings).causes, ["speech=local-setting-up"]);
+        assert.equal(launches.length, 1, "no sidecar starts on the held publication");
         w.engine.localSetup(false);
         assert.equal(w.s().gate.kind, "up", "the end judges again");
-        // A sidecar a judge started during the run was spawned before the
-        // end's, so it has logged its start once the end's one is ready.
+        assert.equal(launches.length, 2, "the setup end starts one replacement");
         await until(() => w.engine.checkReady(), "the end starts the sidecar on the new publication");
-        assert.equal(starts().length, 2, "no sidecar starts while the setup runs");
     } finally {
-        await w.close();
-        await turn();
-        try { await until(() => starts().every(row => !alive(row.pid)), "daemon teardown releases speech child"); }
+        try {
+            await w.close();
+            await until(() => launches.every(attempt => attempt.closed), "daemon teardown releases speech child");
+        }
         finally {
-            for (const row of starts()) if (alive(row.pid)) process.kill(row.pid, "SIGKILL");
+            for (const { child, closed } of launches) if (!closed) child.kill("SIGKILL");
+            await Promise.all(launches.map(attempt => attempt.done));
             server.closeAll();
         }
     }
