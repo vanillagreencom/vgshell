@@ -1,10 +1,10 @@
 # Every QML warning and error the shell logged, minus the lines rows
 # provoked on purpose, plus the engine's own error classes.
 # First-bar and reconcile use harness.sh's shared CPU pressure limit.
-# Above that limit every reading is unmeasured. bar.sh samples reconcile's
+# Above that limit every reading is unmeasured. bar-reconcile.sh samples reconcile's
 # reply-to-built window, one IPC round trip per poll with a 5 ms wait
 # between unsuccessful polls.
-# inputs: shell/* scripts/sample-shell-memory.sh bin/vgshell scripts/smoke/rows/bar.sh
+# inputs: shell/* scripts/sample-shell-memory.sh bin/vgshell scripts/smoke/rows/bar-reconcile.sh
 set -euo pipefail
 check_unexpected_log "shell log" "$instance_log"
 

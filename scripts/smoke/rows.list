@@ -8,6 +8,8 @@
 # and runs those rows, with the core rows and the rows they read:
 # docs/architecture/validation.md.
 bar
+bar-reconcile
+bar-controls
 hyprland-consent
 plugins
 sources
