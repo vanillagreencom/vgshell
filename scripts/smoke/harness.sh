@@ -195,7 +195,7 @@ hl.monitor({ output = "", mode = "preferred", position = "auto", scale = 1 })
 local logs = io.open(os.getenv("XDG_RUNTIME_DIR") .. "/compositor-logs")
 if logs then logs:close() end
 hl.config({
-    misc = { disable_hyprland_logo = true, disable_splash_rendering = true, disable_autoreload = true },
+    misc = { disable_hyprland_logo = true, disable_splash_rendering = true, disable_autoreload = true, enable_anr_dialog = true },
     animations = { enabled = false },
     -- Hyprland 0.56.2 with hyprgraphics 0.5.1 draws the configuration
     -- error overlay's text through the async resource gatherer, which can
@@ -813,6 +813,7 @@ display_record_close "$status" smoke_finish || true
 [[ $status -eq 0 ]] || exit "$status"
 }
 source "$repo/scripts/smoke/hypr-call.sh"
+display_record_call anr-arm "$sandbox" "$rt_dir" "$hypr_bound_s" >/dev/null || { printf 'qml-smoke: anr=arm-failed\n'; exit 1; }
 
 # The nested output can take a moment to appear. The shell starts once the
 # compositor lists monitors and every one has a size, so no bar is built
@@ -3533,6 +3534,23 @@ source "$repo/scripts/smoke/leaks.sh"
 # `qml-smoke: row-secs row=NAME secs=<whole seconds>`, its harness steps
 # included, the reading scripts/smoke/rows.secs is refreshed from.
 smoke_row_drain_s=5
+anr_row_boundary() { # PHASE ROW
+  local report lines line owner="$BASHPID"
+  if ! report="$(display_record_call anr-row "$1" "$2" "$owner")"; then
+    row_class=operation fail "anr-dialog: row=$2 evidence=unavailable boundary=$1"
+    return 0
+  fi
+  if ! lines="$(py_reply 'import json,sys
+for incident in json.load(sys.stdin):
+    print(json.dumps(incident, separators=(",", ":")))' <<<"$report")"; then
+    row_class=operation fail "anr-dialog: row=$2 evidence=invalid boundary=$1"
+    return 0
+  fi
+  while IFS= read -r line; do
+    [[ -n $line ]] || continue
+    row_class=behaviour fail "anr-dialog: row=$2 observation=$line"
+  done <<<"$lines"
+}
 smoke_row() { # NAME [DIR]
   local smoke_row_name="$1" smoke_row_dir="${2:-$repo/scripts/smoke/rows}" smoke_row_marker smoke_row_count="" smoke_row_line smoke_row_pong
   local smoke_row_out="$sandbox/rows/$1.out" smoke_row_result="$sandbox/rows/$1.result" smoke_row_started=$EPOCHSECONDS
@@ -3544,16 +3562,20 @@ smoke_row() { # NAME [DIR]
   smoke_row_marker="qml-smoke: row-end $1 $$ $SRANDOM"
   mkdir -p -- "$sandbox/rows"
   : >"$ipc_timeout_log"
+  anr_row_boundary begin "$smoke_row_name"
   if ! devices_check "$smoke_row_name"; then
+    anr_row_boundary end "$smoke_row_name"
     printf 'qml-smoke: row-secs row=%s secs=%s\n' "$smoke_row_name" "$((EPOCHSECONDS - smoke_row_started))"
     return 0
   fi
   if ! smoke_row_pong="$(ipc shell ping 2>/dev/null)" || [[ $smoke_row_pong != ok ]]; then
     if ! ipc_timeout_check "$smoke_row_name"; then
+      anr_row_boundary end "$smoke_row_name"
       printf 'qml-smoke: row-secs row=%s secs=%s\n' "$smoke_row_name" "$((EPOCHSECONDS - smoke_row_started))"
       return 0
     fi
     fail "$smoke_row_name: shell=not-answering before the row"
+    anr_row_boundary end "$smoke_row_name"
     printf 'qml-smoke: row-secs row=%s secs=%s\n' "$smoke_row_name" "$((EPOCHSECONDS - smoke_row_started))"
     return 0
   fi
@@ -3697,6 +3719,8 @@ PY
   fi
   sink_check
   leak_row_end "$smoke_row_name" "$smoke_row_dir"
+  # Judge the original leak state before removing this harness-owned dialog.
+  anr_row_boundary end "$smoke_row_name"
   ipc_timeout_check "$smoke_row_name" || true
   printf 'qml-smoke: row-secs row=%s secs=%s\n' "$smoke_row_name" "$((EPOCHSECONDS - smoke_row_started))"
   # A failed restoration leaves no valid starting world for a later row.

@@ -308,6 +308,43 @@ exit 19
     # must reject that disposable production implementation.
     copier = REPO / "scripts/smoke/evidence.py"
     source = copier.read_text()
+    def incident_snapshot(name, program):
+        sandbox, runtime, output = fixture(root / name, oversized=True)
+        incident = sandbox / "rows/example.anr/1"
+        incident.mkdir(parents=True)
+        (incident / "incident.json").write_text('{"receiptMonotonicNs":123,"spans":[{"start":0,"end":18}]}\n')
+        frozen = b"appearance-marker\n" + b"before\n" * 100000
+        (incident / "compositor.log").write_bytes(frozen)
+        # Later output replaces the generic retained tail, not the frozen
+        # incident. Oversized ordinary row dumps compete for the same cap.
+        with (runtime / "hypr/example/hyprland.log").open("ab") as stream:
+            stream.write(b"later\n" * 200000)
+        result = subprocess.run(["python3", str(program), str(sandbox.parent), str(sandbox), str(output)],
+                                env=ENV, capture_output=True, text=True, timeout=30)
+        assert result.returncode == 0, result.stderr
+        retained = next(output.glob("smoke-evidence-*/example"))
+        saved = retained / "row/example.anr/1/compositor.log"
+        assert saved.is_file() and saved.read_bytes() == frozen, "appearance span lost"
+        assert (retained / "row/example.anr/1/incident.json").read_bytes() == (incident / "incident.json").read_bytes()
+        files = [p for p in retained.rglob("*") if p.is_file()]
+        assert sum(p.stat().st_size for p in files) <= BOUND
+        assert all(p.stat().st_size <= 1024 * 1024 for p in files)
+
+    incident_snapshot("anr", copier)
+    print("smoke-evidence: anr-appearance=retained later-output=excluded cap=held")
+    first = source.index('        incident_root = sandbox / "rows" / (row + ".anr")\n')
+    last = source.index('        instances = ', first)
+    changed = source[:first] + source[last:]
+    assert changed != source
+    late = root / "late-anr.py"
+    late.write_text(changed)
+    try:
+        incident_snapshot("anr-control", late)
+    except AssertionError:
+        print("smoke-evidence: control=late-anr-span-rejected")
+    else:
+        raise AssertionError("unprioritized ANR span passed")
+
     needle = 'entry.rglob("*")'
     assert source.count(needle) == 1
     changed = source.replace(needle, 'entry.glob("*")')

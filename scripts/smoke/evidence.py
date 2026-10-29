@@ -3,8 +3,9 @@
 
 The harness writes private metadata under its sandbox's evidence directory.
 The world calls this once after all namespace processes stop.
-Each row keeps at most 8 MiB, including its index; each file keeps its last
-1 MiB. This is a storage cap, not a latency or product memory budget.
+Each row keeps at most 8 MiB, including its index; each file keeps at most
+1 MiB. ANR spans are frozen at observation; other files keep their tail.
+This is a storage cap, not a latency or product memory budget.
 """
 import os
 from pathlib import Path
@@ -46,6 +47,9 @@ def retain(root, sandbox, outputs):
             continue
         target.mkdir(parents=True, exist_ok=True)
         candidates = []
+        incident_root = sandbox / "rows" / (row + ".anr")
+        candidates += [(p, "row/" + str(p.relative_to(sandbox / "rows")))
+                       for p in sorted(incident_root.rglob("*"), key=lambda p: (p.name != "incident.json", str(p))) if p.is_file()]
         instances = sorted(runtime.glob("quickshell/by-id/*/log.log"),
                            key=lambda p: p.stat().st_mtime_ns, reverse=True)
         logs = [str(instances[0]) if instances else "", initial_log]

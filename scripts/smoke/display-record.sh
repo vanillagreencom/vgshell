@@ -97,6 +97,11 @@ def process_binding(pid):
     except (OSError, IndexError, ValueError) as error:
         return dict(status="unavailable", error=str(error))
 
+def descriptor_flags(pid, number):
+    info = (pathlib.Path("/proc") / str(pid) / "fdinfo" / str(number)).read_text()
+    fields = dict(line.split(":", 1) for line in info.splitlines() if ":" in line)
+    return int(fields.get("flags", ""), 8)
+
 @contextlib.contextmanager
 def socket_name(path):
     # sun_path holds 108 bytes (unix(7)), and the record directory under a
@@ -230,6 +235,13 @@ class Record:
         self.closed = False
         self.stop_reason = "interrupted"
         self.input_span = None
+        self.anr_root = None
+        self.anr_runtime = None
+        self.anr_compositor = None
+        self.anr_rows = []
+        self.anr_incidents = []
+        self.anr_handles = {}
+        self.anr_bytes = 0
         self.emit("recorder", "arm", {
             "schema": "vgs.display-record.v1", "run": self.directory.name,
             "capacityEvents": CAP_EVENTS, "capacityBytes": CAP_BYTES,
@@ -458,6 +470,276 @@ class Record:
         except (OSError, ValueError, TypeError, subprocess.TimeoutExpired) as error:
             return "unreadable:" + str(error)
 
+    def anr_clients(self, bound):
+        if bound <= 0:
+            raise ValueError("anr-clients-deadline")
+        result = subprocess.run(["hyprctl", "-i", self.layer_signature, "-j", "clients"],
+            env={k: os.environ[k] for k in ("PATH", "XDG_RUNTIME_DIR") if k in os.environ},
+            capture_output=True, timeout=min(bound, self.anr_bound), check=False)
+        if result.returncode:
+            raise ValueError("anr-clients-exit=" + str(result.returncode))
+        clients = json.loads(result.stdout)
+        if not isinstance(clients, list) or any(not isinstance(c, dict)
+                or any(not isinstance(c.get(key), str) for key in ("address", "class", "title"))
+                or type(c.get("pid")) is not int for c in clients):
+            raise ValueError("anr-clients-shape")
+        return clients
+
+    def anr_span(self, path):
+        # Freeze the receipt-centered span now, before later rows append.
+        # These are byte offsets and receipt times, not missed-ping times.
+        report = dict(path=str(path), status="unavailable")
+        data = b""
+        try:
+            fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+            with os.fdopen(fd, "rb") as stream:
+                actual = pathlib.Path("/proc/self/fd/" + str(fd)).resolve()
+                if not any(actual.is_relative_to(root) for root in self.anr_sources):
+                    raise ValueError("span-outside-owned-root")
+                info = os.fstat(stream.fileno())
+                if not stat.S_ISREG(info.st_mode):
+                    raise ValueError("not-regular")
+                length = min(info.st_size, CAP_LINE, max(0, CAP_BYTES - self.anr_bytes))
+                start = max(0, info.st_size - length)
+                stream.seek(start)
+                data = stream.read(length)
+                self.anr_bytes += len(data)
+                report.update(status="captured" if data else "empty-or-capacity", start=start,
+                              end=start + len(data), sourceBytes=info.st_size,
+                              clipped=start > 0, device=info.st_dev, inode=info.st_ino)
+        except (OSError, ValueError) as error:
+            report["error"] = str(error)
+        return report, data
+
+    def anr_owned_handle(self, pid):
+        if pid == self.anr_compositor["pid"]:
+            raise ValueError("dialog-is-compositor")
+        fd = os.pidfd_open(pid)
+        try:
+            # clients names the dialog PID but exposes no launch owner.
+            # Hyprutils 0.14.3 runAsync double-forks; ancestry is lost.
+            # AsyncDialogBox holds the read end of this dialog's stdout
+            # pipe. Compare both endpoints in the bound generations;
+            # pidfd signalling cannot target a subsequently reused PID.
+            # https://github.com/hyprwm/hyprutils/blob/v0.14.3/src/os/Process.cpp
+            # https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/helpers/AsyncDialogBox.cpp
+            # https://man7.org/linux/man-pages/man5/proc_pid_fdinfo.5.html
+            original = process_binding(str(pid))
+            compositor_pid = str(self.anr_compositor["pid"])
+            before = process_binding(compositor_pid)
+            stdout = (pathlib.Path("/proc") / str(pid) / "fd/1").stat()
+            pipe = (stdout.st_dev, stdout.st_ino)
+            if not stat.S_ISFIFO(stdout.st_mode) or descriptor_flags(pid, 1) & os.O_ACCMODE != os.O_WRONLY:
+                raise ValueError("dialog-stdout-not-write-pipe")
+            peer = None
+            for entry in (pathlib.Path("/proc") / compositor_pid / "fd").iterdir():
+                try:
+                    first = entry.stat()
+                    if (first.st_dev, first.st_ino) != pipe:
+                        continue
+                    flags = descriptor_flags(compositor_pid, entry.name)
+                    after = entry.stat()
+                except FileNotFoundError:
+                    continue
+                if (flags & os.O_ACCMODE == os.O_RDONLY
+                        and (after.st_dev, after.st_ino) == pipe):
+                    peer = int(entry.name)
+                    break
+            compositor = process_binding(compositor_pid)
+            if (peer is None or original.get("status") != "live" or before.get("status") != "live"
+                    or compositor.get("status") != "live"
+                    or before.get("startTicks") != self.anr_compositor["identity"].get("startTicks")
+                    or compositor.get("startTicks") != before.get("startTicks")
+                    or tuple(original.get("stdout", ())) != pipe
+                    or process_binding(str(pid)).get("startTicks") != original.get("startTicks")):
+                raise ValueError("dialog-identity-unproved")
+            original["dialogPipe"] = dict(device=pipe[0], inode=pipe[1], compositorFd=peer)
+            return fd, original
+        except BaseException:
+            os.close(fd)
+            raise
+
+    def anr_save(self, incident, row):
+        folder = self.anr_root / "rows" / (row + ".anr") / str(incident["id"])
+        if "evidence" not in incident:
+            folder.parent.mkdir(parents=True, exist_ok=True)
+            folder.mkdir()
+        for name, data in incident.pop("pendingSpans", {}).items():
+            (folder / name).write_bytes(data)
+        incident["evidence"] = str(folder)
+        (folder / "incident.json").write_text(json.dumps(incident) + "\n")
+
+    def anr_client_state(self, incident, clients):
+        expected = incident.get("dialog", {}).get("pid")
+        matched = any(c.get("class") == "hyprland-dialog" and c.get("address") == incident["address"]
+                      and (expected is None or c.get("pid") == expected) for c in clients)
+        if not matched:
+            return "absent"
+        if expected is None:
+            return "unavailable"
+        try:
+            current = process_binding(str(expected))
+        except ValueError:
+            return "unavailable"
+        if current.get("status") in ("gone", "ended"):
+            return "ended"
+        original = incident.get("identity", {}).get("startTicks")
+        if current.get("status") != "live" or original is None or current.get("startTicks") is None:
+            return "unavailable"
+        return "same" if current["startTicks"] == original else "replaced"
+
+    def anr_observe(self, address, appearance="openwindow", clients=None):
+        if self.anr_root is None:
+            return
+        address = "0x" + address.removeprefix("0x")
+        if clients is not None and any(i["address"] == address and not i.get("closed")
+                and self.anr_client_state(i, clients) in ("same", "ended", "unavailable") for i in self.anr_incidents):
+            return
+        if len(self.anr_incidents) >= CAP_EVENTS:
+            raise ValueError("anr-incident-capacity")
+        self.anr_prune_rows()
+        incident = dict(id=len(self.anr_incidents) + 1, address=address,
+                        appearance=appearance, receiptRealtimeNs=time.time_ns(),
+                        receiptMonotonicNs=time.monotonic_ns(), signature=self.layer_signature,
+                        row=self.anr_rows[-1]["row"] if self.anr_rows else None,
+                        target=dict(attribution="unavailable"), ownership="unproved", spans=[])
+        self.anr_incidents.append(incident)
+        pending = {}
+        paths = [(self.anr_runtime / "hypr" / self.layer_signature / "hyprland.log", "compositor.log"),
+                 (self.anr_root / "hyprland.log", "compositor-launch.log")]
+        for path, name in paths:
+            span, data = self.anr_span(path)
+            if name == "compositor.log":
+                span["logging"] = "enabled" if (self.anr_runtime / "compositor-logs").exists() else "disabled"
+            incident["spans"].append(dict(span, file=name))
+            pending[name] = data
+        incident["pendingSpans"] = pending
+        try:
+            clients = self.anr_clients(self.anr_bound) if clients is None else clients
+            if any(i is not incident and i["address"] == address and not i.get("closed")
+                    and self.anr_client_state(i, clients) in ("same", "ended", "unavailable") for i in self.anr_incidents):
+                assert self.anr_incidents[-1] is incident
+                self.anr_incidents.pop()
+                self.anr_bytes -= sum(len(data) for data in pending.values())
+                return
+            incident["clients"] = clients
+            dialogs = [c for c in clients if c.get("address") == address and c.get("class") == "hyprland-dialog"]
+            if len(dialogs) != 1:
+                raise ValueError("dialog-client-unavailable")
+            dialog = dialogs[0]
+            incident["dialog"] = dialog
+            pid = dialog["pid"]
+            incident["identity"] = process_binding(str(pid))
+            fd, identity = self.anr_owned_handle(pid)
+            self.anr_handles[incident["id"]] = fd
+            incident.update(ownership="compositor-dialog-pipe", identity=identity)
+            argv = (pathlib.Path("/proc") / str(pid) / "cmdline").read_bytes().split(b"\0")
+            argv = [word.decode(errors="replace") for word in argv if word]
+            incident["argv"] = argv
+            # Hyprland 0.56.2 AsyncDialogBox passes description only, not
+            # the target PID. ANRManager keeps that PID in its callback:
+            # https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/managers/ANRManager.cpp
+            description = argv[argv.index("--text") + 1] if "--text" in argv else ""
+            candidates = [c for c in clients if c.get("class") != "hyprland-dialog"
+                          and c.get("class") and c.get("title")
+                          and description.startswith("An application " + c["title"] + " - " + c["class"] + " is not responding.")]
+            incident["target"] = dict(attribution="inferred" if len(candidates) == 1 else "unavailable",
+                                      candidates=candidates)
+        except (OSError, ValueError, KeyError, TypeError, IndexError, subprocess.TimeoutExpired) as error:
+            incident["unavailable"] = str(error)
+        if incident["row"] is not None:
+            self.anr_save(incident, incident["row"])
+        # The durable incident keeps raw spans; the receipt names its file.
+        self.emit("recorder", "anr-dialog", {k: v for k, v in incident.items() if k != "pendingSpans"})
+
+    def anr_prune_rows(self):
+        # A planted row can end its subshell without reaching its boundary.
+        # Retire only ended generations, never another live row's context.
+        while self.anr_rows:
+            context = self.anr_rows[-1]
+            current = process_binding(context["pid"])
+            if current.get("status") == "live" and current.get("startTicks") == context["identity"].get("startTicks"):
+                break
+            if current.get("status") not in ("live", "gone", "ended"):
+                raise ValueError("anr-row-owner-unreadable")
+            self.anr_rows.pop()
+
+    def anr_boundary(self, phase, row, owner):
+        if self.anr_root is None or not re.fullmatch(r"[a-z0-9-]+", row):
+            raise ValueError("anr-boundary-unbound-or-invalid")
+        self.drain()
+        if not any(s["source"] == "nested-ipc" and not s["ended"] for s in self.streams.values()):
+            raise ValueError("anr-events-unavailable")
+        self.anr_prune_rows()
+        if phase == "begin":
+            pending = [i for i in self.anr_incidents if i["row"] is None]
+            for incident in pending:
+                incident["row"] = row
+                incident["appearance"] = "between-rows"
+                self.anr_save(incident, row)
+            identity = process_binding(owner)
+            if identity.get("status") != "live":
+                raise ValueError("anr-row-owner-unavailable")
+            self.anr_rows.append(dict(row=row, pid=owner, identity=identity))
+        elif (phase != "end" or not self.anr_rows or self.anr_rows[-1]["row"] != row
+              or self.anr_rows[-1]["pid"] != owner):
+            raise ValueError("anr-boundary-order")
+        try:
+            return self.anr_row_report(row)
+        finally:
+            if phase == "end":
+                self.anr_rows.pop()
+
+    def anr_row_report(self, row):
+        clients = self.anr_clients(self.anr_bound)
+        for client in clients:
+            if client.get("class") == "hyprland-dialog":
+                self.anr_observe(client["address"], "boundary-only", clients)
+        # Begin handles dialogs present before row commands. End also
+        # latches appearances which disappeared before the final snapshot.
+        reports = []
+        for incident in self.anr_incidents:
+            if incident["row"] != row or incident.get("reported"):
+                continue
+            state = self.anr_client_state(incident, clients)
+            fd = self.anr_handles.pop(incident["id"], None)
+            try:
+                if state == "absent":
+                    incident["cleanup"] = "already-closed"
+                    incident["closed"] = True
+                elif state == "replaced":
+                    incident["cleanup"] = "replaced-generation"
+                    incident["closed"] = True
+                elif state == "ended":
+                    incident["cleanup"] = "stale-client"
+                elif state == "unavailable":
+                    incident["cleanup"] = "identity-unavailable"
+                elif state == "same" and fd is None:
+                    incident["cleanup"] = "ownership-unproved"
+                elif state == "same":
+                    try:
+                        signal.pidfd_send_signal(fd, signal.SIGTERM)
+                    except ProcessLookupError:
+                        pass
+                    deadline = time.monotonic() + self.anr_bound
+                    while self.anr_client_state(incident, self.anr_clients(deadline - time.monotonic())) not in ("absent", "replaced"):
+                        if time.monotonic() >= deadline:
+                            raise ValueError("dialog-window-remains")
+                        time.sleep(0.05)
+                    incident["cleanup"] = "removed"
+                    incident["closed"] = True
+                else:
+                    raise ValueError("anr-client-state=" + state)
+            except (OSError, ValueError, TypeError, subprocess.TimeoutExpired) as error:
+                incident["cleanup"] = "failed:" + str(error)
+            finally:
+                if fd is not None:
+                    os.close(fd)
+            incident["reported"] = True
+            self.anr_save(incident, row)
+            reports.append(incident)
+        return reports
+
     def layers_report(self, raw, current, probe="[]"):
         report = dict(status="read", layers=[], raw=raw)
         try:
@@ -673,6 +955,17 @@ class Record:
                     self.emit("harness", "nested-binding", dict(signature=signature, socket=path,
                               namespacePid=pid, waylandSocket=wayland))
                     self.subscribe("nested-ipc", path)
+                    self.anr_compositor = dict(pid=int(pid), identity=process_binding(pid))
+                elif command == "anr-arm":
+                    sandbox, runtime, bound = args
+                    if (not self.bound or self.anr_root is not None
+                            or not any(s["source"] == "nested-ipc" and not s["ended"] for s in self.streams.values())):
+                        raise ValueError("anr-arm-unbound-or-repeated")
+                    self.anr_root, self.anr_runtime = pathlib.Path(sandbox), pathlib.Path(runtime)
+                    self.anr_sources = (self.anr_root.resolve(), self.anr_runtime.resolve())
+                    self.anr_bound = float(bound)
+                elif command == "anr-row":
+                    value = json.dumps(self.anr_boundary(*args))
                 elif command == "mark":
                     if args[0] in ("display-request", "display-reply"):
                         self.request_counts[args[0]] += 1
@@ -814,6 +1107,17 @@ class Record:
                 if name.startswith(b"monitor"):
                     self.monitor_counts[source] += 1
                 self.emit(source, "ipc-observation", line.decode(errors="replace"))
+                if name == b"openwindow" and source == "nested-ipc":
+                    fields = line.split(b">>", 1)[1].decode(errors="replace").split(",", 3)
+                    if len(fields) == 4 and fields[2] == "hyprland-dialog":
+                        self.anr_observe(fields[0])
+                elif name == b"closewindow" and source == "nested-ipc":
+                    address = "0x" + line.split(b">>", 1)[1].decode().strip().removeprefix("0x")
+                    for incident in self.anr_incidents:
+                        if incident["address"] == address:
+                            # socket2 carries no PID/generation here. A
+                            # current client snapshot can already be newer.
+                            incident["closeObserved"] = True
                 if name == b"closelayer":
                     self.layer_close(line)
 
@@ -916,6 +1220,9 @@ class Record:
             # no flush acknowledgement, so later delivery remains unknown.
             self.drain()
         finally:
+            for fd in self.anr_handles.values():
+                os.close(fd)
+            self.anr_handles.clear()
             if self.stop_reason != "normal":
                 self.problems.add("interrupted:" + self.stop_reason)
             if not self.closed:
