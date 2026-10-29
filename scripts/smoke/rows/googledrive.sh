@@ -379,6 +379,34 @@ PY
   ) 2>&1 | tee "$log" | tail -n 1
 }
 
+# Replay the Dismiss count read and its arithmetic with the probe's absent
+# reply. The later check and row markers must survive the labelled failure.
+cs_fold_count_control() {
+  python3 - "$repo/scripts/smoke/rows/googledrive.sh" "$repo/scripts/smoke/verdict.sh" "$BASH" <<'PY'
+import os, pathlib, subprocess, sys
+row, verdict, bash = sys.argv[1:]
+block = pathlib.Path(row).read_text().split('  local dismissed_key folded\n', 1)[1].split('  # Pause stops', 1)[0]
+read = [line for line in block.splitlines() if line.lstrip().startswith(('read_count ', 'folded='))]
+check = [line for line in block.splitlines() if line.lstrip().startswith('expect_poll "the fold line counts one row fewer"')]
+if len(read) != 1 or len(check) != 1:
+    sys.exit('dismiss-count-control: operations-unread')
+script = '''set -euo pipefail
+source "$1"
+cs_folded_count() { echo absent; }
+expect_poll() { printf 'later-check=%s\n' "$2"; }
+''' + read[0] + '\n' + check[0] + '''
+echo later-row=ran
+smoke_verdict "$failures" "$behaviour_failures" /dev/null
+'''
+run = subprocess.run([bash, '-c', script, '_', verdict], env={'PATH': os.environ['PATH']}, capture_output=True, text=True)
+lines = run.stdout.splitlines()
+if run.returncode == 1 and len(lines) == 4 and lines[0].startswith('  FAIL  googledrive: fold count before Dismiss:') and lines[1:] == ['later-check=-1', 'later-row=ran', 'qml-smoke: failed=1']:
+    print('red-and-continued')
+else:
+    print(f'status={run.returncode} stdout={run.stdout!r} stderr={run.stderr!r}')
+PY
+}
+
 googledrive_row() {
   local host_rclone shell_path
   host_rclone="$(command -v rclone)"
@@ -665,7 +693,7 @@ SH
   expect_poll "the fold line unfolds for Dismiss" true cs_notes_open
   expect_poll "the first Dismiss holds its box" stable cs_item_settled RowAction Dismiss
   dismissed_key="$(cs_first_folded_key)" || dismissed_key=none
-  folded="$(cs_folded_count)" || folded=0
+  read_count folded "googledrive: fold count before Dismiss" cs_folded_count
   expect "the first folded row is listed before Dismiss" listed cs_published_has "$dismissed_key"
   expect "Dismiss is clicked" ok cs_panel_press RowAction Dismiss
   expect_poll "the runner keeps the dismissed key" "[\"$dismissed_key\"]" cs_record_dismissed
@@ -693,6 +721,7 @@ SH
   expect "the add made while paused reaches the mirror" "while paused" cs_read d.txt
 
   # Controls: each runner rule broken in a copy, in a world of its own.
+  expect "control: an absent fold count fails its check and later checks and rows run" red-and-continued cs_fold_count_control
   expect "control: a dry-run download copy fails the copy check" red control_red copy '["copy", "--update", remotePath(pair), pair.local,' '["copy", "--dry-run", remotePath(pair), pair.local,' check_copy
   expect "control: a dry-run upload copy fails the local add check" red control_red upload-copy '["copy", "--update", pair.local, remotePath(pair)]' '["copy", "--dry-run", pair.local, remotePath(pair)]' check_copy check_local_add
   expect "control: removed-locally record branch is needed" red control_red removed-locally 'addRecord(records, { kind: "removed-locally", path: rel });' '' check_copy check_removed_locally
