@@ -1510,15 +1510,36 @@ import json,sys
 rows=json.load(sys.stdin)["status"].get("accounts", [])
 claude=[row for row in rows if row["label"] == "Claude Code" or row["label"].startswith("Claude Code, ")]
 want=json.load(open(sys.argv[1]))
-print("matched" if len(claude) - len(want) in (0, 1) else "pending")
-' "$sandbox/jarvis-world/account-labels"
+print(len(claude) if sys.argv[2] == "count" else "matched" if len(claude) - len(want) in (0, 1) else "pending")
+' "$sandbox/jarvis-world/account-labels" "${1:-match}"
 }
+# A real default account is collected before the bounded parent walk,
+# independent of whether that walk reaches any of the fixture's home names.
+jarvis_account_world="$repo/scripts/fixtures/jarvis/accounts-world.js"
+python3 - "$jarvis_account_world" "$jarvis_accounts" "$source_repo/scripts/fixtures/jarvis/accounts-world.js" <<'PY'
+from pathlib import Path
+import sys
+world, accounts = map(Path, sys.argv[1:3])
+assert not world.is_symlink() and not accounts.is_symlink()
+s = world.read_text()
+needle = 'if (mode === "entry-limit") {'
+assert s.count(needle) == 1
+world.write_text(s.replace(needle, needle + '\n        fs.mkdirSync(path.join(env.HOME, ".claude"));'))
+s = accounts.read_text()
+assert s.count(sys.argv[3]) == 2
+accounts.write_text(s.replace(sys.argv[3], str(world)))
+PY
+jarvis_rescan
 rm -f -- "${sandbox:?}/jarvis-world/account-labels"
 printf 'entry-limit\n' >"$sandbox/jarvis-world/account-mode"
 jarvis_open_accounts
 expect_poll "a partial search warns and offers Accounts" '["warning", true, false, false]' jarvis_account_search
 expect_poll "a partial search keeps the folders read before its bound" matched jarvis_account_labels
 expect "the partial search shows no diagnostic" plain jarvis_status_plain
+# The fixture may list only the config-home folder; the default-account
+# allowance then also accepts a mutant that drops the default. Compare the
+# count with this passing discovery so losing even that account fails.
+jarvis_account_kept="$(jarvis_account_labels count)"
 # A copy that drops the folders read once the bound is met.
 jarvis_folders="$repo/bin/lib/account-folders.js"
 cp -- "$jarvis_folders" "$sandbox/jarvis-folders-original"
@@ -1542,7 +1563,7 @@ expect_poll "the bound control's discovery is published" idle jarvis_accounts_re
 expect_poll "the bound control publishes its partial search" '["warning", true, false, false]' jarvis_account_search
 jarvis_account_bound_control() {
   (failures=0 behaviour_failures=0
-   expect "the folders read before the bound must stay" matched jarvis_account_labels >"$sandbox/jarvis-account-bound-control.log"
+   expect "the folders read before the bound must stay" "$jarvis_account_kept" jarvis_account_labels count >"$sandbox/jarvis-account-bound-control.log"
    echo "$failures")
 }
 expect "dropping the folders read before the bound breaks the folder read" 1 jarvis_account_bound_control
@@ -1551,6 +1572,9 @@ rm -f -- "${sandbox:?}/jarvis-world/account-labels"
 jarvis_open_accounts
 expect_poll "the restored search's discovery is published" idle jarvis_accounts_reader_idle
 expect_poll "the restored search keeps its folders again" matched jarvis_account_labels
+cp -- "$source_repo/scripts/fixtures/jarvis/accounts-world.js" "$jarvis_account_world"
+cp -- "$sandbox/jarvis-accounts-original" "$jarvis_accounts"
+jarvis_rescan
 # A linked config home is not followed: the search is partial, keeps the
 # home's folders, warns and offers Accounts.
 printf 'parent-unreadable\n' >"$sandbox/jarvis-world/account-mode"
