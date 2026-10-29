@@ -345,8 +345,6 @@ expect_poll "the active bar's toggle is bound to SUPER+SHIFT+SPACE" '[[65, "SPAC
 expect_poll "the nested instance holds no other vgs bind than Plugins' SUPER+M and Windows' SUPER+CTRL+G" '[[64, "M", "__lua", "vgs.settings:toggle"], [68, "G", "__lua", "vgs.windows:group-lock"]]' vgs_binds
 expect "the nested configuration, the floating TUIs' window rules included, holds no error" '[]' hypr_reload_errors
 
-border_before="$(hypr_option general:border_size)" || fail "the nested border_size is readable"
-radius_before="$(hypr_option decoration:rounding)" || fail "the nested rounding is readable"
 cp -- "$user_config" "$sandbox/shell-before-appearance.json"
 expect "enabling the themes plugin for the appearance rows is allowed" ok ipc shell setPluginEnabled vgs.themes true
 probe_theme="$home/.config/vgshell/themes/hyprland-probe"
@@ -369,10 +367,10 @@ expect "the shell reloads Use my Hyprland value for borders and radius for the b
 expect_poll "the effective config keeps the user's own borders and radius for the baseline" "$own_hyprland" appearance_members
 expect_poll "with the user's own values the layer writes no border size" no layer_matches '^[[:space:]]*border_size ='
 expect_poll "with the user's own values the layer writes no window rounding" no layer_matches '^[[:space:]]*rounding ='
-border_before="$(hypr_option general:border_size)" || fail "the nested border_size baseline is readable"
-radius_before="$(hypr_option decoration:rounding)" || fail "the nested rounding baseline is readable"
-expect "the own-value border baseline is Hyprland's default" 1 printf '%s\n' "$border_before"
-expect "the own-value radius baseline is Hyprland's default" 0 printf '%s\n' "$radius_before"
+# The layer's file save precedes its asynchronous compositor reload.
+# Restoration keeps the independent defaults even if this wait fails.
+expect_poll "the own-value border baseline is Hyprland's default" 1 hypr_option general:border_size
+expect_poll "the own-value radius baseline is Hyprland's default" 0 hypr_option decoration:rounding
 motion_before="$(animation_leaf windows)" || fail "the nested windows animation baseline is readable"
 expect "the own-value motion baseline has no VGS curve" no animation_curve vgsSnappy
 expect "the own-value appearance baseline holds no configuration error" '[]' hypr_reload_errors
@@ -402,8 +400,8 @@ expect_poll "Use my Hyprland value for the radius removes the window rounding li
 expect_poll "Use my Hyprland value for the border leaves the user's border size" 7 hypr_option general:border_size
 restore_hypr_lua || fail "hyprland.lua is put back after the user's border size"
 expect "the nested instance reloads without the user's border size" ok hypr reload config-only
-expect_poll "without the user's line the border size is Hyprland's own" "$border_before" hypr_option general:border_size
-expect_poll "Use my Hyprland value for the radius leaves Hyprland's own rounding" "$radius_before" hypr_option decoration:rounding
+expect_poll "without the user's line the border size is Hyprland's own" 1 hypr_option general:border_size
+expect_poll "Use my Hyprland value for the radius leaves Hyprland's own rounding" 0 hypr_option decoration:rounding
 expect "the user's own appearance holds no configuration error" '[]' hypr_reload_errors
 set_appearance "$own_motion"
 expect "the shell reloads with window animations on" ok ipc shell reloadConfig
