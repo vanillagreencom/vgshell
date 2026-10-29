@@ -1022,6 +1022,34 @@ review_argv() { python3 -c 'import json,os,sys; p=sys.argv[1]; print(json.dumps(
 review_window() { hypr -j clients | py_reply 'import json,sys; print(sum(1 for c in json.load(sys.stdin) if c["class"] == "org.vgs.tui.tall" and c["title"] == "VGS · Review third-party packages"))'; }
 review_started() { if [[ -e $review_dir/started ]]; then echo started; else echo waiting; fi; }
 review_end_writes() { ipc smoke readInstance service vgs.updates smokeReviewEndWrites; }
+# Replay the count read and its arithmetic with the probe's absent reply.
+# The labelled failure must leave the later check and row reachable.
+updates_review_count_control() {
+  python3 - "$repo/scripts/smoke/rows/updates.sh" "$repo/scripts/smoke/verdict.sh" "$BASH" <<'PY'
+import os, pathlib, subprocess, sys
+row, verdict, bash = sys.argv[1:]
+lines = pathlib.Path(row).read_text().splitlines()
+read = [line for line in lines if line.startswith(('read_count review_writes_before ', 'review_writes_before='))]
+check = [line for line in lines if line.startswith('expect_poll "the second review end writer exited"')]
+if len(read) != 1 or len(check) != 1:
+    sys.exit('review-count-control: operations-unread')
+script = '''set -euo pipefail
+source "$1"
+review_end_writes() { echo absent; }
+expect_poll() { printf 'later-check=%s\\n' "$2"; }
+''' + read[0] + '\n' + check[0] + '''
+echo later-row=ran
+smoke_verdict "$failures" "$behaviour_failures" /dev/null
+'''
+run = subprocess.run([bash, '-c', script, '_', verdict], env={'PATH': os.environ['PATH']}, capture_output=True, text=True)
+lines = run.stdout.splitlines()
+if run.returncode == 1 and len(lines) == 4 and lines[0].startswith('  FAIL  updates: review end writes before:') and lines[1:] == ['later-check=1', 'later-row=ran', 'qml-smoke: failed=1']:
+    print('red-and-continued')
+else:
+    print(f'status={run.returncode} stdout={run.stdout!r} stderr={run.stderr!r}')
+PY
+}
+expect "control: an absent review count fails its check and later checks and rows run" red-and-continued updates_review_count_control
 before="$(checks)"
 expect "the review handler opens the review TUI" ok ipc vgs.updates invoke review "$review_dir"
 expect_poll "the shipped review script holds its lock and says it started" started review_started
@@ -1044,7 +1072,7 @@ expect_poll "the review run's end starts no check, which the update run's own en
 rm -f -- "${updates_state:?}/review-gate"
 mkdir -p -- "$review_dir"
 printf '%s\n' "$review_bin/agent" "$updates_state" --effort medium >"$review_dir/command"
-review_writes_before="$(review_end_writes)"
+read_count review_writes_before "updates: review end writes before" review_end_writes
 expect "the review handler opens a second review" ok ipc vgs.updates invoke review "$review_dir"
 expect_poll "the second review's script started" started review_started
 rm -rf -- "${review_dir:?}"
