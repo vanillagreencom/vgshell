@@ -223,7 +223,7 @@ expect "the holder answers its next choice with a refusal" ok ipc smoke invokeIn
 expect "the holder's refusal is the choice's answer" "refused: relay=stuck" sfx_choose "$sfx_relay_on"
 expect "a core sound for the held event is refused" "refused: sound=relay reason=value" sfx_choose '{"id":"acme.sounds","event":"relay","value":"pop"}'
 expect "a refused value never reaches the holder" '["","own"]' sfx_read relayAsked
-sfx_reads="$(sfx_read relayReads)" || sfx_reads=unread
+read_count sfx_reads "sounds: relay reads before refresh" sfx_read relayReads
 expect "refresh is allowed" ok sfx_refresh
 expect "refresh has the holder read once" "$((sfx_reads + 1))" sfx_read relayReads
 

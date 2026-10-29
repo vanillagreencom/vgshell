@@ -373,7 +373,33 @@ categories() {
 # user-opened submenu, and Right opens only menus.
 row_count() { launcher_rows | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
 categories "keyboard-only list"
-last_index="$(row_count)"
+launcher_count_control() {
+  python3 - "$repo/scripts/smoke/rows/launcher.sh" "$repo/scripts/smoke/verdict.sh" "$BASH" <<'PY'
+import os, pathlib, subprocess, sys
+row, verdict, bash = sys.argv[1:]
+lines = pathlib.Path(row).read_text().splitlines()
+read = [line for line in lines if line.startswith(('read_count last_index ', 'last_index="$(row_count)'))]
+check = [line for line in lines if line.startswith('last_index="$((last_index - 1))"')]
+if len(read) != 1 or len(check) != 1:
+    sys.exit('launcher-count-control: operations-unread')
+script = '''set -euo pipefail
+source "$1"
+row_count() { echo absent; }
+''' + read[0] + '\n' + check[0] + '''
+printf "later-check=%s\\n" "$last_index"
+echo later-row=ran
+smoke_verdict "$failures" "$behaviour_failures" /dev/null
+'''
+run = subprocess.run([bash, '-c', script, '_', verdict], env={'PATH': os.environ['PATH']}, capture_output=True, text=True)
+lines = run.stdout.splitlines()
+if run.returncode == 1 and len(lines) == 4 and lines[0].startswith('  FAIL  launcher: launcher row count:') and lines[1:] == ['later-check=-1', 'later-row=ran', 'qml-smoke: failed=1']:
+    print('red-and-continued')
+else:
+    print(f'status={run.returncode} stdout={run.stdout!r} stderr={run.stderr!r}')
+PY
+}
+expect "control: a passed-through state word fails and later checks and rows run" red-and-continued launcher_count_control
+read_count last_index "launcher: launcher row count" row_count
 last_index="$((last_index - 1))"
 type_keys -k End || fail "sending End in the launcher failed"
 expect_poll "End moves to the last launcher row" "$last_index" read_launcher selectedIndex

@@ -322,7 +322,7 @@ jarvis_key_active_stop() { # PHASE
   jarvis_key_stop
   jarvis_key_stop_assertion
   expect "active physical Stop delivers $effect" "$((before + 1))" jarvis_key_effects "$effect"
-  stale="$(jarvis_key_state stale)"
+  read_count stale "jarvis-keys: stale callbacks before" jarvis_key_state stale
   jarvis_key_gate "$late"
   # The scripted fixture emits transcript, play and brain-done callbacks for
   # the late brain; the speech path waits only for its late playback callback.
@@ -553,7 +553,7 @@ cp -- "$sandbox/jarvis-key-backend-before" "$jarvis_key_backend"
 jarvis_rescan
 expect "the permanent-problem key service enables" ok ipc shell setPluginEnabled vgs.jarvis true
 expect_poll "the real service reports its permanent cause" permanent jarvis_permanent
-jarvis_key_refused="$(jarvis_key_refusals 'Jarvis needs Node 22 or later')"
+read_count jarvis_key_refused "jarvis-keys: refusals before mute" jarvis_key_refusals 'Jarvis needs Node 22 or later'
 jarvis_key_mute
 hold_barrier
 jarvis_key_refusal_assertion "$((jarvis_key_refused + 1))" 'Jarvis needs Node 22 or later'
@@ -571,7 +571,7 @@ PY
 jarvis_rescan
 expect "the refusal control enables without changing the key trigger" ok ipc shell setPluginEnabled vgs.jarvis true
 expect_poll "the refusal control reaches the same permanent cause" permanent jarvis_permanent
-jarvis_key_refused="$(jarvis_key_refusals 'Jarvis needs Node 22 or later')"
+read_count jarvis_key_refused "jarvis-keys: control refusals before mute" jarvis_key_refusals 'Jarvis needs Node 22 or later'
 jarvis_key_mute
 hold_barrier
 expect "dropping refusal breaks its same cause assertion" 1 jarvis_key_refusal_control "$((jarvis_key_refused + 1))" 'Jarvis needs Node 22 or later'

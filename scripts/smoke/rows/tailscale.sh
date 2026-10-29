@@ -848,7 +848,7 @@ device_reply xdg-open 0 "" https://login.tailscale.com/admin
 device_reply tailscale 0 "" set --exit-node=attic-nas.tail-fixture.ts.net
 device_reply tailscale 0 "" logout
 expect_poll "no view holds a lease before the starting reading" 30000 tailscale_interval
-tailscale_suggests_before="$(tailscale_suggests)" || { fail "tailscale: the suggestion count is unreadable"; return 0; }
+read_count tailscale_suggests_before "tailscale: suggestion reads before running" tailscale_suggests
 tailscale_calls_mark="$(tailscale_call_count tailscale)" || { fail "tailscale: the tailscale stand-in's calls are unreadable"; return 0; }
 expect "a refresh reads Tailscale starting" ok tailscale_sheet_as Starting
 expect_poll "the service publishes starting" '"starting"' tailscale_value state
@@ -1029,7 +1029,7 @@ expect "Tab reaches the exit node row after the devices" reached tailscale_tab_u
 
 # The Exit nodes view: Recommended, None, your exit nodes, Mullvad by
 # country, read on its open; search, no match, a country, Back and Escape.
-tailscale_suggests_before="$(tailscale_suggests)" || { fail "tailscale: the suggestion count is unreadable"; return 0; }
+read_count tailscale_suggests_before "tailscale: suggestion reads before chooser" tailscale_suggests
 tailscale_key Return
 expect_poll "Enter on the exit node row opens the Exit nodes view" '"exit-nodes"' tailscale_view
 expect_poll "the Exit nodes view opens on its search field" '["TextField",""]' tailscale_focus

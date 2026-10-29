@@ -27,7 +27,34 @@ expect "the fixture's shortcut is registered under its id" '["acme.probe:ping"]'
 count_lines() { python3 -c 'import sys; print(sum(1 for line in sys.stdin if sys.argv[1] in line))' "$1"; }
 hypr_shortcuts() { hypr globalshortcuts | count_lines 'acme.probe:ping'; }
 expect_poll "the compositor lists the fixture's shortcut" 1 hypr_shortcuts
-presses_before="$(read_service presses)"
+declare presses_before
+capabilities_count_control() {
+  python3 - "$repo/scripts/smoke/rows/capabilities.sh" "$repo/scripts/smoke/verdict.sh" "$BASH" <<'PY'
+import os, pathlib, subprocess, sys
+row, verdict, bash = sys.argv[1:]
+lines = pathlib.Path(row).read_text().splitlines()
+read = [line for line in lines if line.startswith(('read_count presses_before ', 'presses_before='))]
+check = [line for line in lines if line.startswith("expect_poll \"the fixture's shortcut handler ran\"")]
+if len(read) != 1 or len(check) != 1:
+    sys.exit('capabilities-count-control: operations-unread')
+script = '''set -euo pipefail
+source "$1"
+read_service() { echo absent; }
+expect_poll() { printf 'later-check=%s\n' "$2"; }
+''' + read[0] + '\n' + check[0] + '''
+echo later-row=ran
+smoke_verdict "$failures" "$behaviour_failures" /dev/null
+'''
+run = subprocess.run([bash, '-c', script, '_', verdict], env={'PATH': os.environ['PATH']}, capture_output=True, text=True)
+lines = run.stdout.splitlines()
+if run.returncode == 1 and len(lines) == 4 and lines[0].startswith('  FAIL  capabilities: shortcut presses before:') and lines[1:] == ['later-check=1', 'later-row=ran', 'qml-smoke: failed=1']:
+    print('red-and-continued')
+else:
+    print(f'status={run.returncode} stdout={run.stdout!r} stderr={run.stderr!r}')
+PY
+}
+expect "control: an absent probe count fails and later checks and rows run" red-and-continued capabilities_count_control
+read_count presses_before "capabilities: shortcut presses before" read_service presses
 expect "the compositor triggers the fixture's shortcut" ok hypr dispatch 'hl.dsp.global("acme.probe:ping")'
 expect_poll "the fixture's shortcut handler ran" "$((presses_before + 1))" read_service presses
 expect "a second shortcut with the same name is refused" '"refused: shortcut=acme.probe:ping held"' read_service duplicateShortcut
@@ -129,7 +156,7 @@ if before="$(builds)"; then
   expect_poll "the rebuilt holder handed its screen over again" true lock_content
   expect "the session stayed locked through the rebuild" true read_service lockSecure
   expect "the rebuilt fixture answers on its IPC target" hello probe echo hello
-  presses_before="$(read_service presses)"
+  read_count presses_before "capabilities: rebuilt shortcut presses before" read_service presses
   expect "the compositor triggers the rebuilt fixture's shortcut" ok hypr dispatch 'hl.dsp.global("acme.probe:ping")'
   expect_poll "the rebuilt fixture's shortcut handler ran" "$((presses_before + 1))" read_service presses
 else

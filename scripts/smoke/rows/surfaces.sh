@@ -396,7 +396,7 @@ summon_drawn panel acme.surfaces || fail "the panel never drew before the inside
 # centred control, so no item of the plugin takes the press and the catcher
 # under it must leave it.
 if panel_inside="$(python3 -c 'import json,sys; b=json.loads(sys.argv[1]); print(int(b[0] + 6), int(b[1] + 6))' "$(summon_box panel)")"; then
-  inside_mark="$(smoke_marks)" || fail "the press marker is readable before the inside press"
+  read_count inside_mark "surfaces: press marks before inside press" smoke_marks
   layer_press "the press inside the panel" "$panel_inside"
   expect "the marker press after the inside press is sent" ok smoke_marker_press
   expect_poll "the panel processes input after the inside press" "$((inside_mark + 1))" smoke_marks
@@ -430,12 +430,12 @@ if open_other "$sandbox/toplevel-surfaces-outside-press.log"; then
   expect_poll "the catchless layer copy has opened its panel" 1 ipc smoke readInstance panel acme.surfaces opened
   expect_poll "the catchless layer copy is mapped" "0 1" layer_copy_state layer-nocatch
   summon_drawn panel acme.surfaces || fail "the catchless layer copy never drew"
-  client_mark="$(smoke_marks)" || fail "the press marker is readable before the catchless client-window press"
+  read_count client_mark "surfaces: press marks before client press" smoke_marks
   layer_press "the press on the other window beside the catchless copy" "$layer_window_point"
   expect "the marker press after the client-window press is sent" ok smoke_marker_press
   expect_poll "the catchless copy processes input after the client-window press" "$((client_mark + 1))" smoke_marks
   expect "control: a press on a client window leaves the catchless copy open" "0 1" layer_copy_state layer-nocatch
-  desktop_mark="$(smoke_marks)" || fail "the press marker is readable before the catchless desktop press"
+  read_count desktop_mark "surfaces: press marks before desktop press" smoke_marks
   layer_press "the press on the desktop beside the catchless copy" "$layer_desktop_point"
   expect "the marker press after the desktop press is sent" ok smoke_marker_press
   expect_poll "the catchless copy processes input after the desktop press" "$((desktop_mark + 1))" smoke_marks
@@ -600,7 +600,7 @@ else
 fi
 expect "the panel summons its own menu beside the far monitor" ok ipc smoke invokeInstance panel acme.surfaces menuHere '{}'
 expect_poll "the panel's menu is open" 1 ipc smoke readInstance menu acme.surfaces opened
-popup_mark="$(menu_marks)" || fail "the menu's press marker is readable"
+read_count popup_mark "surfaces: menu press marks before" menu_marks
 expect_poll "the press on the panel's own menu is sent" ok menu_marker_press
 expect_poll "the press reached the panel's own menu" "$((popup_mark + 1))" menu_marks
 expect "a press inside the panel and one on its own menu leave the panel open" 1 layer_count vgs:panel

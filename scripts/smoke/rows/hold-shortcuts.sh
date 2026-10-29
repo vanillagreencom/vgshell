@@ -48,7 +48,33 @@ hold_start_keyboard() { # LABEL EXECUTABLE LAYOUT OPTIONS
 hold_send() { printf '%s\n' "$@" >&"$hold_fd"; }
 expect "the guarded observer creates its ordering marker for this row" ok ipc smoke holdMarkerStart
 expect_poll "the observer's native ordering marker is registered" 1 hold_native smoke:hold-marker
-hold_markers="$(ipc smoke holdMarkerCount)"
+hold_count_control() {
+  python3 - "$repo/scripts/smoke/rows/hold-shortcuts.sh" "$repo/scripts/smoke/verdict.sh" "$BASH" <<'PY'
+import os, pathlib, subprocess, sys
+row, verdict, bash = sys.argv[1:]
+lines = pathlib.Path(row).read_text().splitlines()
+read = [line for line in lines if line.startswith(('read_count hold_markers ', 'hold_markers='))]
+check = [line for line in lines if line.strip() == 'hold_markers=$((hold_markers + 1))']
+if len(read) != 1 or len(check) != 1:
+    sys.exit('hold-shortcuts-count-control: operations-unread')
+script = '''set -euo pipefail
+source "$1"
+ipc() { echo ipc-failed; return 1; }
+''' + read[0] + '\n' + check[0] + '''
+printf "later-check=%s\\n" "$hold_markers"
+echo later-row=ran
+smoke_verdict "$failures" "$behaviour_failures" /dev/null
+'''
+run = subprocess.run([bash, '-c', script, '_', verdict], env={'PATH': os.environ['PATH']}, capture_output=True, text=True)
+lines = run.stdout.splitlines()
+if run.returncode == 1 and len(lines) == 4 and lines[0].startswith('  FAIL  hold-shortcuts: ordering markers before:') and lines[1:] == ['later-check=1', 'later-row=ran', 'qml-smoke: failed=1']:
+    print('red-and-continued')
+else:
+    print(f'status={run.returncode} stdout={run.stdout!r} stderr={run.stderr!r}')
+PY
+}
+expect "control: a failed marker read fails and later checks and rows run" red-and-continued hold_count_control
+read_count hold_markers "hold-shortcuts: ordering markers before" ipc smoke holdMarkerCount
 hold_delayed_keyboard=""
 hold_marker_count() {
   # A delayed healthy control resumes only when the marker reader runs.

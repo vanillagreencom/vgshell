@@ -130,7 +130,7 @@ hover "$tx" "$ty" || fail "hovering the target under the popover failed"
 expect_poll "the tooltip target processed the hover before the popover" true tooltip_resting
 expect "the widget opens its popover beside the tooltip target" ok ovw openPopover
 expect_poll "the popover is open under the hover" true ovr popoverOpen
-tip_delay_before="$(ovr tipDelayRuns)" || fail "the tooltip delay count is readable before the blocked hover"
+read_count tip_delay_before "overlays: tooltip delay runs before" ovr tipDelayRuns
 expect "the tooltip delay probe starts under the popover" ok ovw startTipDelayProbe
 expect_poll "the tooltip delay ran out under the popover" "$((tip_delay_before + 1))" ovr tipDelayRuns
 expect "a tooltip does not open while a popover is open" false ovr tooltipOpen

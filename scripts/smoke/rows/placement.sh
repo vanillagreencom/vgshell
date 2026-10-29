@@ -767,11 +767,11 @@ expect "Escape on a drag held far below leaves the user file as it was" unchange
 geometry expect_poll "Escape on a drag held far below keeps the rendered order" "$placement_drawn_after" placement_visual_order
 hypr_lua_restore placement || fail "placement puts the harness hyprland.lua back"
 expect "the nested instance reloads the harness hyprland.lua" ok hypr reload config-only
-tick_clicks_before="$(ipc smoke readInstance "$(bar_key)" acme.tick clicks)" || fail "the tick click count is unreadable"
+read_count tick_clicks_before "placement: tick clicks before" ipc smoke readInstance "$(bar_key)" acme.tick clicks
 placement_click_widget acme.tick || fail "clicking acme.tick failed"
 expect_poll "a click without movement reaches acme.tick" "$((tick_clicks_before + 1))" ipc smoke readInstance "$(bar_key)" acme.tick clicks
 tick_clicks_before="$(ipc smoke readInstance "$(bar_key)" acme.tick clicks)" || fail "the tick click count is unreadable before a drag"
-tick_cancels_before="$(ipc smoke readInstance "$(bar_key)" acme.tick cancels)" || fail "the tick cancel count is unreadable before a drag"
+read_count tick_cancels_before "placement: tick cancels before drag" ipc smoke readInstance "$(bar_key)" acme.tick cancels
 cp -- "$placement_file" "$sandbox/shell-before-tick-drag.json"
 read -r below_x below_y < <(placement_below acme.tick) || fail "the point below acme.tick is unreadable"
 tick_capture="$(placement_capture_generation)" || fail "the key capture count is unreadable before the tick drag"
@@ -962,7 +962,7 @@ if copy_tree placement-drag-control \
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
   start_shell "$sandbox/tree-placement-drag-control" "$sandbox/placement-drag-control.log" || fail "the placement drag control shell starts"
-  tick_presses_before="$(ipc smoke readInstance "$(bar_key)" acme.tick presses)" || fail "control: the tick press count is unreadable"
+  read_count tick_presses_before "placement: control tick presses before" ipc smoke readInstance "$(bar_key)" acme.tick presses
   read -r left_x left_y < <(placement_bar_left_inside) || fail "control: the point in the bar's left third is unreadable"
   placement_drag_widget acme.tick "$left_x" "$left_y" || fail "control: dragging acme.tick into the left third failed"
   expect_poll "control: the pointer still reached acme.tick without frame drag" "$((tick_presses_before + 1))" ipc smoke readInstance "$(bar_key)" acme.tick presses

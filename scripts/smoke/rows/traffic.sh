@@ -73,7 +73,8 @@ traffic_started_since() { local now; now="$(traffic_read ssStarts)" || return; (
 # and traffic_rows_kept compares. A control's polls end after 5 s, so the
 # wait for samples stays outside a control.
 traffic_rows_mark() {
-  traffic_mark_built="$(traffic_rows_built)" traffic_mark_started="$(traffic_read ssStarts)"
+  traffic_mark_built="$(traffic_rows_built)"
+  read_count traffic_mark_started "traffic: samples started before" traffic_read ssStarts
   expect_poll "two more samples land" true traffic_started_since "$((traffic_mark_started + 3))"
 }
 traffic_rows_kept() { # LABEL

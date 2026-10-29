@@ -235,7 +235,7 @@ release_runs
 expect_run_end "the short grant run ends" core/sudo-grant
 expect_poll "the run's end reads the short grant" "active $sudo_until current" sudo_core
 expect "the core arms the short grant's deadline" true sudo_record deadline
-sudo_reads_before="$(sudo_record reads)"
+read_count sudo_reads_before "sudo: reads before deadline" sudo_record reads
 expect_poll "the deadline's read closes the lock" "inactive  current" sudo_core
 expect "the deadline's read is the one read after the grant" "$((sudo_reads_before + 1))" sudo_record reads
 expect "no deadline timer runs once the grant ended" false sudo_record deadline

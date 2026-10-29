@@ -42,7 +42,7 @@ expect_poll "the input facts service builds" True record_exists acme.input-facts
 input_facts_read() { ipc smoke readInstance service acme.input-facts "$1"; }
 input_facts_keys() {
   local before
-  before="$(input_facts_read keyAnswers)" || return 1
+  read_count before "input-facts: key answers before" input_facts_read keyAnswers
   # Quickshell's CLI parser expands bracketed argv into multiple arguments.
   # JSON whitespace keeps the key list in one string for the fixture.
   expect "the core accepts a layout resolution request" ok ipc acme.input-facts invoke keys " $1"
@@ -50,7 +50,7 @@ input_facts_keys() {
 }
 input_facts_observe() {
   local before
-  before="$(input_facts_read observationAnswers)" || return 1
+  read_count before "input-facts: observation answers before" input_facts_read observationAnswers
   expect "the core accepts an input observation" ok ipc acme.input-facts invoke "${2:-observe}" "$1"
   expect_poll "the core completes the input observation" "$((before + 1))" input_facts_read observationAnswers
 }

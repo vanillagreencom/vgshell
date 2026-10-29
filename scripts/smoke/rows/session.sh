@@ -153,7 +153,7 @@ session_gate_ready() { [[ -e $sandbox/session-power-ready ]] && echo yes || echo
 session_gate_cycle() {
   local label="$1" publications reads
   publications="$(session_read offPublications)"
-  reads="$(read_service groupLockReads)"
+  read_count reads "session: group lock reads before" read_service groupLockReads
   rm -f -- "${sandbox:?}/session-power-ready" "${sandbox:?}/session-power-release"
   : >"$sandbox/session-power-arm"
   shim_hyprctl power-read-gated

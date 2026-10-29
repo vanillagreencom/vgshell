@@ -337,7 +337,7 @@ expect_poll "the widget reads the permanent problem" '["circle-alert", "danger"]
 # The refusal is a Jarvis card, read while vgs.notifications draws with
 # Silence off; it goes back to disabled, as the row found it, after.
 notes_on "the problem-state refusal"
-jarvis_widget_refused="$(jarvis_key_refusals 'Jarvis needs Node 22 or later')"
+read_count jarvis_widget_refused "jarvis-widget: refusals before mute" jarvis_key_refusals 'Jarvis needs Node 22 or later'
 jarvis_widget_menu_choose "Mute Jarvis"
 expect_poll "the menu's Mute row in the problem state reports the refusal" "$((jarvis_widget_refused + 1))" jarvis_key_refusals 'Jarvis needs Node 22 or later'
 expect "the permanent-problem service disables" ok ipc shell setPluginEnabled vgs.jarvis false

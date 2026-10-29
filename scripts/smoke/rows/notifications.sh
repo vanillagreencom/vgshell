@@ -2209,7 +2209,7 @@ expect "the inbox closes after the shortcut" ok notes close
 # the screen, leave no popup, no unread entry and nothing for Super+N to
 # show, and the history keeps all eight. The control is main before this
 # change, where the seven popups stay.
-history_before="$(note_status history)"
+read_count history_before "notifications: history before mark all read" note_status history
 # The even ones are critical, which stay until closed, so a popup left on
 # screen cannot pass as expired.
 for i in $(seq 1 8); do notify smoke-mark 0 "Mark all $i" "" '[]' "{\"urgency\": <byte $((i % 2 == 0 ? 2 : 1))>}" 0 >/dev/null; done
