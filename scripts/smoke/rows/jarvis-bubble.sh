@@ -794,19 +794,31 @@ expect_poll "control: the two-binding request is drawn" drawn jarvis_bubble_ackn
 jarvis_key_stop
 expect_poll "control: clearing the two-binding hold ends approval" none jarvis_key_state approval
 unexpected_log_errors "$instance_log" >"$sandbox/jarvis-bubble-bindings-errors.log"
-jarvis_bubble_control_pattern="$(python3 - "$sandbox/jarvis-bubble-bindings-errors.log" <<'PY'
+jarvis_bubble_warning_pattern() { # LOG
+  python3 - "$1" <<'PY'
 import re,sys
-rows=open(sys.argv[1]).read().splitlines()
-assert rows
+try:
+    rows=open(sys.argv[1]).read().splitlines()
+except OSError:
+    print("unreadable"); sys.exit()
+if not rows:
+    print("missing"); sys.exit()
 uris=[]
 for row in rows:
     match=re.search(r' WARN scene: (file://[^ ]+/Bubble\.qml)\[[0-9]+:[0-9]+\]:',row)
-    assert match,row
+    if not match:
+        print("unexpected"); sys.exit()
     uris.append(match[1])
-assert len(set(uris))==1
+if len(set(uris))!=1:
+    print("ambiguous"); sys.exit()
 print(re.escape(uris[0])+r'\[[0-9]+:[0-9]+\]:')
 PY
-)"
+}
+jarvis_bubble_control_pattern="$(jarvis_bubble_warning_pattern "$sandbox/jarvis-bubble-bindings-errors.log")"
+if [[ $jarvis_bubble_control_pattern == file://* ]]; then
+cp -- "$sandbox/jarvis-bubble-bindings-errors.log" "$sandbox/jarvis-bubble-unexpected.log"
+printf '%s\n' ' WARN quickshell.hyprland.ipc: Got removal for monitor "SMOKE-VOICE" which was not previously tracked.' >>"$sandbox/jarvis-bubble-unexpected.log"
+expect "control: an unrelated warning answers a state without raising" unexpected jarvis_bubble_warning_pattern "$sandbox/jarvis-bubble-unexpected.log"
 # This reader consumes check_unexpected_log's failure block. Other
 # diagnostics failures do not change whether it holds this copy's warning.
 jarvis_bubble_binding_failure() { # DIAGNOSTICS_LOG WARNING_PATTERN
@@ -855,6 +867,9 @@ jarvis_bubble_binding_control="$(
 )"
 expect "control: unrelated failures cannot stand in for the binding warning" 1 printf '%s\n' "$jarvis_bubble_binding_control"
 expected_errors+=("$jarvis_bubble_control_pattern")
+else
+  fail "the binding control warning pattern is $jarvis_bubble_control_pattern"
+fi
 jarvis_disable
 cp -- "$jarvis_bubble_snapshots/bubble" "$jarvis_bubble_file"
 python3 - "$jarvis_bubble_file" <<'PY'

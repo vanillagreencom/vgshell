@@ -977,6 +977,9 @@ expect_poll "recording presents the display again after the widget's menu" prese
 # the cursor and the focus that the later rows' selectors and pads start from.
 printf '%s\n' 'hl.config({ input = { follow_mouse = 0 }, cursor = { no_warps = true }, misc = { mouse_move_focuses_monitor = false } })' >>"$home/.config/hypr/hyprland.lua"
 expect "the nested instance holds monitor focus for the second output" ok hypr reload config-only
+# Quickshell's snapshot refresh can prune the removed output before its
+# monitorremoved event arrives (connection.cpp, pinned 2b4501a, lines 845-911).
+expected_errors+=('WARN quickshell\.hyprland\.ipc: Got removal for monitor "SMOKE-VOICE" which was not previously tracked\.$')
 expect "the nested compositor adds a second output for Voice" ok hypr output create headless SMOKE-VOICE
 expect_poll "the second output gets its own display copy" 2 voice_osd_copies
 expect_poll "only the focused output shows the display" focused voice_osd_focused
