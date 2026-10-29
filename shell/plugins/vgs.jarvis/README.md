@@ -256,7 +256,7 @@ The recording is a 24 kHz WAV file only you can read, in Jarvis's private state 
 <details>
 <summary>Show command details</summary>
 
-Set up cloned voice runs `setup-local clone install`, then `pw-record --raw --rate 24000 --channels 1 --format s16 -` for 10 seconds into `setup-local clone record`. Remove recording runs `setup-local clone remove`. The recording is `~/.local/state/vgshell/jarvis/voice-reference.wav`.
+Set up cloned voice uses `setup-local clone install` and `setup-local clone record`. Remove recording runs `setup-local clone remove`. The recording is `~/.local/state/vgshell/jarvis/voice-reference.wav`.
 
 </details>
 

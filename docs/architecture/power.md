@@ -56,7 +56,7 @@ Omarchy runs one idle monitor and timers for later stages, because its screensav
 
 A plugin cannot read another plugin ([overview.md](overview.md)), so stage order cannot be a check across owners. Counting each stage on its own gives every order a defined result: a screensaver due after the lock never starts, because it refuses while locked; panels off before the lock stay off until input; a sleep before the lock still locks first through the delay inhibitor while Lock before sleep is on. The core already holds every plugin's effective settings, so the one place that can show the order without one plugin reading another is a core record built from what each plugin declares.
 
-`vgs.power` already owns power profiles and battery alerts. Energy is one concern, so it grows and keeps its id; a new `vgs.energy` would need `formerIds` ([D108](../decisions/D108-renamed-plugin-declares-former-ids.md)) and gain nothing.
+Keep energy features in `vgs.power`, including power profiles and battery alerts, under [D109](../decisions/D109-idle-path-one-owner-per-stage.md).
 
 DPMS is one compositor state for the whole session, with no per-panel backend in VGS. `vgs.displays` keeps brightness and the dim. Once the wake options are written, Hyprland wakes the panels on input before any shell code runs, so the shell sends DPMS on only at a wake from sleep, where the waking event may never reach Hyprland as input. A plugin cannot read the lock's password check, so the locked delay is longer than a check takes instead of a guard on it.
 

@@ -6,8 +6,6 @@ Notifications shows application notifications on each screen and keeps them in a
 
 ![The inbox with three notifications](../../../docs/images/plugins/vgs.notifications-inbox.webp)
 
-VGS uses a summoned panel to give the list keyboard focus.
-
 ## Features
 
 - Super+N opens and closes the panel. Escape closes it too.

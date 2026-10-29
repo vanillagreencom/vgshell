@@ -3,7 +3,7 @@
 ## A sync
 
 - One systemd user service, `vgs-google-drive.service`, runs every sync: the hourly timer, Sync now in the popover and `start` on the command line all ask for that service, so a sync never runs twice at once. The timer runs hourly while the user is logged in, and once at the next login after a missed hour.
-- The hourly sync is no setup step. A `pair-add` on a home with neither unit installs both and enables the timer before it writes the pair, under the state lock, and prints install's `installed=` line after `added=<id>`. A `pair-add` on a home whose units exist calls no `systemctl`. A failed install keeps the pair, exits 0, prints `install=failed <refusal>`, and leaves no unit it wrote, so the status record reads `units` `absent` beside the pair until the next `pair-add` or Set up again installs them. Add a folder pair says so on its screen.
+- Adding a folder pair sets up hourly sync automatically when both units are absent. An install failure keeps the pair and leaves no newly written unit; status reports `units` `absent`, and Add a folder pair explains the failure. The next add or Set up again retries setup. Existing units are not reinstalled by an add. [`bin/google-drive::pairAddVerb`](bin/google-drive) owns the state lock, install order and output contract.
 - Every invocation but `install` rewrites stale units, units an earlier runner wrote, to name itself. Units that stay stale, because the user manager refused the rewrite, read `units` `stale`, and Set up again (`tui/setup.sh`) runs `install`.
 - A sync copies each folder pair two ways, and only files that are newer: Drive to this computer, then this computer to Drive.
 - The runner never deletes, moves or mirrors a file on either side.
@@ -26,7 +26,7 @@
 
 The unreadable and duplicate records stand only while the last download met the file: a sync where the file copies removes its record, and the 30-day removal does not apply to them.
 
-A duplicate record holds `mine`, true when the signed-in account, the token's `user` attribute, owns one of the copies, and, when `mine` is false, `owner`, the first copy's owner Drive names. A copy with no owner, as on a shared drive, and a token that names no account never count as the user's. The runner reads the copies' sizes, md5s and owners with one read-only `rclone lsjson --hash --metadata --drive-metadata-owner read` of each folder that holds a doubled name, only in a sync whose download met one.
+A duplicate record holds `mine`, true when the signed-in account, the token's `user` attribute, owns one of the copies, and, when `mine` is false, `owner`, the first copy's owner Drive names. A copy with no owner, as on a shared drive, and a token that names no account never count as the user's. Only a sync whose download meets a doubled name reads that folder's copy metadata, read-only. [`bin/google-drive::duplicateRecords`](bin/google-drive) owns the listing contract.
 
 In the status record each of `conflicts` carries `needs`, `you` or `nothing`, from the table, and `needsYou` counts the `you` rows. The `conflicts` attention reason and its key take only the `you` rows, so a row that needs no action never notifies.
 
@@ -50,7 +50,7 @@ A pair that another run holds reads `busy` and copies nothing.
 
 ### Dismissed rows
 
-Dismiss asks the service's `dismiss` IPC, which runs `google-drive dismiss <key>`. Under the state lock the runner adds the key to `dismissed` in `control.json` and writes the status record again, whose `dismissed` lists the kept keys; the row leaves the popover then, and the fold line goes with the last row. The runner refuses a key that names no current row, `dismiss=unknown`, and a row that needs the user, `dismiss=needs-you`. There is no undo and no list of dismissed rows: the record stays, so a change to it shows the row again under its new key. At each status write the runner drops a dismissed key that names no current row, so the list never outgrows the rows and an old dismissal never hides a later record. While the pair list cannot be read no row is known, and the runner drops none.
+Dismiss hides a row that needs no user action until its record changes. [`bin/google-drive::dismissVerb`](bin/google-drive) owns the locked update and refuses a key that names no current row, `dismiss=unknown`, or a row that needs the user, `dismiss=needs-you`. The row leaves the popover, and the fold line goes with the last row. There is no undo or list of dismissed rows. The record stays, so a change shows it again under a new key. A status write retains only dismissed keys for current rows, so an old dismissal never hides a later record and the list cannot outgrow the rows. An unreadable pair list drops no keys.
 
 A `control.json` with no `dismissed`, as every one before dismissals, dismisses nothing, so it needs no converter step. A doubled name recorded before records held `version` gets one at the next sync that lists its copies, which changes its key; that sync carries a dismissal of the earlier key to the new one, since only the version was added.
 
@@ -70,16 +70,11 @@ A `control.json` with no `dismissed`, as every one before dismissals, dismisses 
 - `~/.local/state/vgshell/google-drive/setup.log`: what the setup windows logged. `setup.before-rename.log` beside it holds the earlier name's log when a setup window had begun this one before the rename below.
 - `~/.local/state/vgshell/google-drive/rename.pending`: present from the rename's first move until its last step ends. It names each keyring account still held under the earlier name.
 
-The plugin had another name before Google Drive. For an enabled plugin, the runner's first invocation on a home that holds that name's directories or units runs the rename under the state lock, before its normal verb:
+The runner migrates the plugin's earlier name in place before a normal verb. [`bin/google-drive::migrateRenameIfNeeded`](bin/google-drive), including its `the rename` section, owns the old paths and ordered moves. Keep the migration under the state lock and keep `rename.pending` until every step finishes. Never replace a file held under both names. Never clear an old keyring item until its copy under `vgs-google-drive`, including the token's `user` attribute, is checked. Replace installed units and clear their old failed state without losing the retry record.
 
-1. While that name's service runs a sync, the runner refuses the invocation with `migration=held` and exit 75, and leaves that name's timer enabled, so the hourly sync goes on under the earlier units. The plugin's service asks for the status and the probe again every 15 seconds while the runner answers 75; the first call after the sync ends runs the rename. Until then, the Google Drive sync row on the plugin page's Details tab reads Waiting and gives the reason from the runner's `migration=held` line. A failed disable and an `is-active` answer that names no state also refuse with exit 75.
-2. Once no sync runs, the runner disables that name's timer. If the timer started a sync just before the disable, the runner enables the timer again and refuses as in step 1.
-3. The runner writes `rename.pending`, then moves the directories here. A file that both names hold stays and logs `migration=held`.
-4. It copies each keyring item to the `vgs-google-drive` service with the token's `user` attribute, checks the copy and clears the old item.
-5. When the old units were installed, it installs the units under this name, removes the old unit files and reloads the user manager. It then clears the failed state the manager can keep for the old units, so `systemctl --user --failed` does not list them.
-6. When every step finished, it removes `rename.pending`.
+An enabled plugin must leave the earlier timer enabled while an earlier sync runs, including a sync that starts during timer disable. A failed disable or an unreadable service state also holds the invocation with `migration=held` and exit 75. The plugin retries status and probe every 15 seconds; its Google Drive sync row on Details reads Waiting with the runner's reason until migration can proceed.
 
-A step that cannot finish, such as the keyring step while the keyring is locked, logs `migration=held` and lets the verb go on. Every later invocation takes the state lock and retries the steps left. Until then, `probe`, a sync, Sign in and Sign out read an account still under the earlier name as locked, or as unreadable after a failed copy, never as missing. The runner's `the rename` section names the old paths.
+A step that cannot finish, such as the keyring step while the keyring is locked, logs `migration=held` and lets the verb go on. Every later invocation takes the state lock and retries the steps left. Until then, `probe`, a sync, Sign in and Sign out read an account still under the earlier name as locked, or as unreadable after a failed copy, never as missing.
 
 For a disabled plugin, the root `migrate` entry calls the runner's internal `migrate disabled` verb under the [startup migration contract](../../../.agents/skills/vgs-plugin/references/api.md#startup-migrations). It stops and disables the old and partially installed units before taking the state lock. It never starts a sync or enables a timer. A failed stop or incomplete keyring move returns failure and keeps the data and retry records for the next shell start.
 
