@@ -2,6 +2,7 @@
 # Diagnostics reads the measured reply-to-built result from this row.
 set -euo pipefail
 
+
 # Disable only lists the id: the layout entry and the settings row stay,
 # so re-enabling restores the exact screen. The effective configuration is
 # read back for the entry, the user file for what the manager wrote.
@@ -43,4 +44,3 @@ expect "disable wrote only the disabled list" "bar,disabledPlugins,plugins,versi
 expect "re-enabling the widget is allowed" ok ipc shell setPluginEnabled acme.tick true
 expect_widgets "the bar rebuilt the re-enabled widget" '["acme.tick"]'
 expect "re-enable wrote only the disabled list" "bar,disabledPlugins,plugins,version" user_keys
-
