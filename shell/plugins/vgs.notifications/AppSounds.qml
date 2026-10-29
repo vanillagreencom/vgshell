@@ -6,7 +6,7 @@ import "NotificationLogic.js" as Logic
 
 // The rule routes a notification stream to its private silent output. This
 // instance publishes the complete held/released serial sets; it never changes
-// the stream's volume, mute or saved target. A guarded pw-cli client leases
+// the stream's volume, mute or saved target. A pw-cli client leases
 // the hold, so destroying this instance or losing its writer frees the routes.
 // appSoundStep keeps a chime held across pauses and frees a possible call
 // once its notification wait expires. The rule's actual held serials, observed
@@ -267,9 +267,9 @@ Item {
         onTriggered: root.expire()
     }
 
-    // A PipeWire client whose lifetime leases the hold. Supervised guards
-    // it with the shell's parent-death signal and restarts it after a server
-    // loss. No stream parameter writes are sent to this client's stdin.
+    // A PipeWire client whose lifetime leases the hold. Supervised
+    // restarts it after a server loss. No stream parameter writes are
+    // sent to this client's stdin.
     Supervised {
         id: writer
         label: "app sounds: writer"
@@ -286,8 +286,8 @@ Item {
     }
 
     // One hold write; a write asked while one runs is sent once it ends,
-    // with the hold as it then stands. It is guarded like the writer, so a
-    // write still under way when the shell dies is not left to land.
+    // with the hold as it then stands. The engine ends a write still under
+    // way when the shell dies.
     Process {
         id: holdWriter
         property bool again: false
@@ -296,7 +296,7 @@ Item {
         function send() {
             if (root.ruleHold === null || !root.ruleRunning || !writer.running) return;
             sentPid = writer.processId;
-            command = Logic.guardedArgv(Quickshell.processId, ["pw-metadata", "-n", Logic.SOUND_RULE_METADATA, "0", "hold", root.holdEntry(sentPid), "Spa:String:JSON"]);
+            command = ["pw-metadata", "-n", Logic.SOUND_RULE_METADATA, "0", "hold", root.holdEntry(sentPid), "Spa:String:JSON"];
             running = true;
         }
         clearEnvironment: true

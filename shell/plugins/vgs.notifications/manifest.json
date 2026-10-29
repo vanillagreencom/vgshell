@@ -61,7 +61,6 @@
     {"command": "pw-dump", "packages": {"pacman": "pipewire", "apt": "pipewire-bin", "dnf": "pipewire-utils", "nix": "pipewire"}, "optional": true, "purpose": "Finds app sounds a stopped shell left muted, and checks that notification sound muting runs"},
     {"command": "pw-metadata", "packages": {"pacman": "pipewire", "apt": "pipewire-bin", "dnf": "pipewire-utils", "nix": "pipewire"}, "optional": true, "purpose": "Tells WirePlumber which apps to keep silent while Sound is off or Do Not Disturb is on"},
     {"command": "systemctl", "packages": {"pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd"}, "optional": true, "purpose": "Restarts WirePlumber once so it can mute app notification sounds"},
-    {"command": "setpriv", "packages": {"pacman": "util-linux", "apt": "util-linux", "dnf": "util-linux", "nix": "util-linux"}, "optional": true, "purpose": "Stops muting app notification sounds when the shell stops"},
     {"command": "xdg-open", "packages": {"pacman": "xdg-utils", "apt": "xdg-utils", "dnf": "xdg-utils", "nix": "xdg-utils"}, "optional": false, "purpose": "Opens files and Slack messages from notifications"},
     {"command": "tail", "packages": {"pacman": "coreutils", "apt": "coreutils", "dnf": "coreutils", "nix": "coreutils"}, "optional": true, "purpose": "Finds the Slack message a notification opens"},
     {"command": "node", "packages": {"pacman": "nodejs", "apt": "nodejs", "dnf": "nodejs", "nix": "nodejs"}, "optional": true, "purpose": "Shows Slack workspace icons, photos and custom emoji"},

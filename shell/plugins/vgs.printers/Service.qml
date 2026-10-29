@@ -305,7 +305,7 @@ Item {
         id: watcher
         property var completion: null
         stdinEnabled: true
-        command: ["setpriv", "--pdeathsig", "TERM", "--", String(Qt.resolvedUrl("bin/printers-watch")).replace(/^file:\/\//, ""), Logic.CUPS_URI]
+        command: [String(Qt.resolvedUrl("bin/printers-watch")).replace(/^file:\/\//, ""), Logic.CUPS_URI]
         clearEnvironment: true
         environment: root.childEnvironment
         stdout: SplitParser {

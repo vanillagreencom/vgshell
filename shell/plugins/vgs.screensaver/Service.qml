@@ -115,8 +115,7 @@ Item {
         artProblem = "";
         convertCancelled = false;
         publishArt();
-        // The PPID check closes the gap before setpriv arms pdeathsig.
-        artConvert.command = ["setpriv", "--pdeathsig", "KILL", "--", "bash", "-c", '[[ $PPID == "$1" ]] || exit 1; shift; exec "$@"', "held", String(Quickshell.processId), Logic.fileUrlPath(Qt.resolvedUrl("bin/transcode-ascii")), art, convertedArt];
+        artConvert.command = [Logic.fileUrlPath(Qt.resolvedUrl("bin/transcode-ascii")), art, convertedArt];
         artConvert.running = true;
     }
 
@@ -125,8 +124,9 @@ Item {
             convertAgain = restart;
             convertCancelled = !restart && !convertTimedOut;
             // Setting `running` to false sends SIGTERM (Quickshell 0.3.1,
-            // Process.running; shell/Core/Sounds.qml). The command's
-            // pdeathsig ends its grandchildren if this service is removed.
+            // Process.running; shell/Core/Sounds.qml). The helper's own
+            // per-fork parent-death signals end its children if this
+            // service is removed.
             artConvert.running = false;
         } else if (restart) {
             Qt.callLater(root.updateArt);

@@ -546,13 +546,12 @@ Item {
         }
     }
 
-    // The watch ends with the shell: setpriv hands gdbus the parent-death
-    // signal. It ends early when gdbus cannot connect to the system bus or
-    // that bus closes; neither leaves a daemon to read, so it is not started
-    // again.
+    // The engine ends the watch with the shell. It ends early when gdbus
+    // cannot connect to the system bus or that bus closes; neither leaves
+    // a daemon to read, so it is not started again.
     Process {
         id: profileWatch
-        command: ["setpriv", "--pdeathsig", "TERM", "--", "gdbus", "monitor"].concat(root.profilesBus)
+        command: ["gdbus", "monitor"].concat(root.profilesBus)
         stdout: SplitParser { onRead: () => root.readProfiles() }
         onExited: code => {
             console.warn("power: profile watch ended exit=" + code);
@@ -564,7 +563,7 @@ Item {
     // The SplitParser is installed before running is set on shell activation.
     Process {
         id: prepareForSleepWatch
-        command: ["setpriv", "--pdeathsig", "TERM", "--", "gdbus", "monitor",
+        command: ["gdbus", "monitor",
             "--system", "--dest", "org.freedesktop.login1", "--object-path", "/org/freedesktop/login1"]
         stdout: SplitParser { onRead: line => { root.resumeFromSleep(line); root.readSleepActions(); } }
         onExited: code => {

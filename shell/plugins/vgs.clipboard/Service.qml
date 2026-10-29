@@ -18,9 +18,9 @@ import "ClipboardHistory.js" as History
 // a notification.
 //
 // One watcher, `wl-paste --watch`, runs the helper's `capture` for each
-// copy, the first for the copy on the clipboard as it starts. setpriv ends
-// it with the shell, however the shell ends, and a capture puts an image's
-// file in place before it prints the entry's line. Every other run of the
+// copy, the first for the copy on the clipboard as it starts. The engine
+// ends it with the shell, and a capture puts an image's file in place
+// before it prints the entry's line. Every other run of the
 // helper goes through one queue, one at a time and in order: a file is
 // deleted only while no entry names it.
 //
@@ -293,7 +293,7 @@ Item {
     Process {
         id: watcher
         running: root.watching && !retry.running
-        command: ["setpriv", "--pdeathsig", "TERM", "--", "wl-paste", "--watch", "python3", root.helperPath, root.storeDir, "capture"]
+        command: ["wl-paste", "--watch", "python3", root.helperPath, root.storeDir, "capture"]
         stdout: SplitParser { onRead: line => root.captured(line) }
         // The helper's refusals, one keyed line each; none holds copied data.
         stderr: SplitParser { onRead: line => console.warn("clipboard: watcher " + line) }

@@ -45,17 +45,6 @@ Scope {
         PIPEWIRE_RUNTIME_DIR: null, PIPEWIRE_REMOTE: null, PULSE_SERVER: null
     })
 
-    // ARGV as a child that cannot outlive the shell. setpriv sets SIGKILL
-    // as the parent-death signal and execs bash in the same process; bash
-    // reads PPID when it starts, so a shell that died before the signal
-    // was set is seen and nothing runs; bash then execs ARGV in the same
-    // process, so the Process's pid is the program's and a signal reaches
-    // it. /usr/bin/voxtype is a script that execs the engine's binary, and
-    // the signal setting survives an exec (prctl(2), PR_SET_PDEATHSIG).
-    function guarded(argv) {
-        return ["setpriv", "--pdeathsig", "KILL", "--", "bash", "-c", '[[ $PPID == "$1" ]] || exit 1; shift; exec "$@"', "bash", String(Quickshell.processId)].concat(argv);
-    }
-
     onHoldersChanged: {
         for (const id of holders)
             if (model.holders.indexOf(id) === -1) apply(Model.lease(model, id));
@@ -149,7 +138,7 @@ Scope {
         runner.tag = next.tag;
         runner.aborted = false;
         runner.completion = null;
-        runner.command = guarded([transport, "run", "--"].concat(next.argv));
+        runner.command = [transport, "run", "--"].concat(next.argv);
         runner.running = true;
     }
 
@@ -204,7 +193,7 @@ Scope {
         property var completion: null
         // The helper bounds raw bytes before QProcess. A null parser
         // alone still drains the pipe in Qt (Qt 6.12 qprocess.cpp).
-        command: root.guarded([root.transport, "daemon"])
+        command: [root.transport, "daemon"]
         clearEnvironment: true
         environment: root.environment
         stderr: StdioCollector { id: daemonErr }
@@ -224,7 +213,7 @@ Scope {
         property bool wanted: false
         property bool stopping: false
         property var completion: null
-        command: root.guarded([root.transport, "follow"])
+        command: [root.transport, "follow"]
         clearEnvironment: true
         environment: root.environment
         stdout: SplitParser { onRead: line => root.apply(Model.status(root.model, line)) }

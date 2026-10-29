@@ -6,8 +6,7 @@ import "NotificationLogic.js" as Logic
 
 // One long-lived child that talks to the session's PipeWire: the pw-cli
 // writer and the sound rule's metadata watcher. It runs while `wanted` is true
-// and PipeWire is ready, launched through NotificationLogic.guardedArgv so
-// it cannot outlive the shell, and is started again after an exit nobody
+// and PipeWire is ready, and is started again after an exit nobody
 // asked for, as NotificationLogic.restartStep spaces the starts, since
 // pw-cli, pw-metadata and pw-dump each exit when PipeWire restarts
 // (measured in the nested sandbox, PipeWire 1.6.9, VGS-1424). `label`
@@ -21,7 +20,7 @@ Item {
     visible: false
 
     required property string label
-    // The program and its arguments, without the guard.
+    // The program and its arguments.
     required property var argv
     property bool wanted: true
     property bool stdinEnabled: false
@@ -50,7 +49,7 @@ Item {
 
     function start() {
         if (!canRun || proc.running || backoff.running) return;
-        proc.command = Logic.guardedArgv(Quickshell.processId, argv);
+        proc.command = argv;
         proc.running = true;
     }
 

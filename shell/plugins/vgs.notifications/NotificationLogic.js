@@ -1118,16 +1118,6 @@ function shellPlayer(props, sounds) {
     return typeof file === "string" && file.indexOf(sounds + "/") === 0 && file.indexOf("/", sounds.length + 1) === -1;
 }
 
-// A long-lived child, such as the pw-cli writer, started so it cannot
-// outlive the shell: setpriv sets SIGKILL as its parent-death signal and
-// execs sh, which reads its parent's pid once the signal is set, so a
-// shell that died before is seen and nothing runs; sh then execs ARGV in
-// the same process, so the child's pid is the program's. The shape of the
-// core's Dictation.guarded, which a plugin cannot import.
-function guardedArgv(shellPid, argv) {
-    return ["setpriv", "--pdeathsig", "KILL", "--", "sh", "-c", "[ \"$PPID\" = \"$1\" ] || exit 1; shift; exec \"$@\"", "sh", String(shellPid)].concat(argv);
-}
-
 // The supervision of a long-lived child, as the runner supervises the
 // shell (bin/vgshell's supervision table): after an exit nobody asked for,
 // RESTART_DELAYS[n] ms before the n-th start of a streak of exits, and the

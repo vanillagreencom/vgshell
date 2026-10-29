@@ -242,7 +242,7 @@ Item {
     // The bridge logs through tracing: warnings only, without colour codes.
     function startBridge() {
         if (!bridgeWanted || bridgeProcess.running) return;
-        bridgeProcess.command = ["setpriv", "--pdeathsig", "TERM", "--", "env", "RUST_LOG=warn", "NO_COLOR=1", "voxtype-audio-bridge"];
+        bridgeProcess.command = ["env", "RUST_LOG=warn", "NO_COLOR=1", "voxtype-audio-bridge"];
         bridgeProcess.running = true;
     }
 
