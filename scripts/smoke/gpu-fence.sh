@@ -30,6 +30,8 @@
 # --out DIR declares a writable output directory. A directory which is or
 # contains the checkout, its git directory or the caller HOME is refused.
 # --input DIR preserves prepared input through private mounts, read-only.
+# --nix-store DIR copies an exported /nix into the owned root and binds that
+# copy at /nix, writable. D113 owns the root built from host mounts.
 # --secrets starts the selftest's filtered bus outside the namespace and
 # binds only its socket inside. --sign-in VARIABLE DIR declares the selected
 # account directory, its variable and its writable bind. Neither exception
@@ -110,6 +112,7 @@ self="$(readlink -f -- "${BASH_SOURCE[0]}")"
 checkout="$(cd -- "${self%/*}/../.." && pwd -P)"
 outputs=()
 inputs=()
+nix_store=""
 output_roots=()
 keep=false
 fresh=false
@@ -118,11 +121,12 @@ secrets=false
 sign_in_name="" sign_in_dir=""
 while (($#)); do
   case "$1" in
-    --out|--input|--checkout|--sign-in)
+    --out|--input|--nix-store|--checkout|--sign-in)
       [[ $# -ge 2 && -n $2 ]] || { note "refused: argument=$1"; exit 2; }
       case "$1" in
         --out) outputs+=("$2"); shift 2 ;;
         --input) inputs+=("$2"); shift 2 ;;
+        --nix-store) nix_store="$(realpath -e -- "$2")" && [[ -d $nix_store ]] || { note 'refused: nix-store=unreadable'; exit 2; }; shift 2 ;;
         --checkout) checkout="$2"; shift 2 ;;
         --sign-in)
           [[ $# -ge 3 && -d $3 ]] || { note "refused: argument=--sign-in"; exit 2; }
@@ -372,6 +376,23 @@ case "$mode" in
     trap release EXIT
     mkdir -p -- "$fence_dir"/{home,config,data,state,cache,tmp,runtime}
     chmod 700 -- "$fence_dir" "$fence_dir/runtime"
+    root_mounts=()
+    # D113: bubblewrap's empty root admits /nix even when the host lacks it.
+    # A top-level host entry created after this enumeration stays invisible.
+    for host_entry in /* /.[!.]* /..?*; do
+      [[ -e $host_entry || -L $host_entry ]] || continue
+      [[ $host_entry != /nix || -z $nix_store ]] || continue
+      if [[ -L $host_entry ]]; then
+        root_mounts+=(--symlink "$(readlink -- "$host_entry")" "$host_entry")
+      else
+        root_mounts+=(--ro-bind "$host_entry" "$host_entry")
+      fi
+    done
+    if [[ -n $nix_store ]]; then
+      mkdir -- "$fence_dir/nix"
+      cp -a --reflink=auto -- "$nix_store/." "$fence_dir/nix/"
+      root_mounts+=(--bind "$fence_dir/nix" /nix)
+    fi
     # Version-manager shims need the caller's trust state. Resolve the
     # native node before HOME is redirected, as the harness requires. PATH
     # leads with a directory that holds that node alone: the directory it
@@ -485,12 +506,12 @@ case "$mode" in
     # bubblewrap --help: ro-bind is nodev; dev-bind restores device access.
     # The private runtime's child uses root-owned backing storage so the
     # after-namespace copier can still read logs after tmpfs disappears.
-    fence=(bwrap --ro-bind / / --dev-bind /dev /dev
+    fence=(bwrap "${root_mounts[@]}" --dev-bind /dev /dev
       --tmpfs /dev/shm --tmpfs /tmp --perms 0700 --tmpfs "$world_runtime"
       "${parent_mounts[@]}" --bind "$fence_dir" "$fence_dir"
       --bind "$fence_dir/runtime" "$world_runtime/owned"
       "${mounts[@]}" "${rebuild[@]}" "${network[@]}" --unshare-pid --proc /proc --die-with-parent --new-session
-      "${environment[@]}")
+      "${environment[@]}" --remount-ro /)
     proof=(-- "$BASH" "$self" --inside "${hidden[@]}" -- "${kept[@]}" --)
     status=0
     probe="$(

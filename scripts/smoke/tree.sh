@@ -16,8 +16,7 @@ tree_export() {
 
 # tree_harness_copy CHECKOUT TARGET TREE: make the sandbox copy the smoke
 # harness runs. TREE is the product tree under test. CHECKOUT supplies the
-# packaging and the smoke scripts. TREE supplies its own VERSION,
-# LICENSE and README.md.
+# packaging, smoke scripts and documentation. TREE supplies its own VERSION.
 tree_harness_copy() {
   python3 - "$1" "$2" "$3" <<'PY'
 import pathlib, shutil, sys
@@ -34,9 +33,25 @@ for package in map(pathlib.Path, (".agents/skills/jarvis", "packaging/jarvis-hom
         shutil.copytree(tree / package, target / package)
 shutil.copytree(source / "scripts", target / "scripts")
 for file_name in ("VERSION", "LICENSE", "README.md"):
-    origin = tree / file_name
+    origin = (tree if file_name == "VERSION" else source) / file_name
     shutil.copyfile(origin, target / file_name)
 PY
+}
+
+# Restore the one exported install's managed engine using the runtime's
+# identity owner. The sandbox copy has no .git, so its identity is a release.
+tree_harness_engine() { # TREE TARGET DATA_HOME
+  local tree="$1" target="$2" data="$3" engine root
+  [[ -d $tree/.engines ]] || return 0
+  local engines=("$tree/.engines/"*)
+  [[ ${#engines[@]} -eq 1 && -e ${engines[0]}/bin/qs ]] || return 1
+  engine="$(readlink -f -- "${engines[0]}")" || return
+  root="$(node - "$target/bin/lib/engine.js" "$data" "$target" <<'JS'
+process.stdout.write(require(process.argv[2]).rootFor(process.argv[3], process.argv[4]));
+JS
+)" || return
+  mkdir -p -- "${root%/*}"
+  ln -s -- "$engine" "$root"
 }
 
 # tree_smoke_observer CHECKOUT TARGET: instrument a disposable runtime tree,

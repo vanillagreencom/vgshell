@@ -134,6 +134,7 @@ home="$sandbox/home"; mkdir -p "$home/.config/hypr"
 # and the fixtures come from this checkout. The export stays in the world's
 # root until that owner removes the whole root after namespace exit.
 tree_harness_copy "$repo" "$sandbox/repo" "${source_tree:-$repo}"
+tree_harness_engine "${source_tree:-$repo}" "$sandbox/repo" "$home/.local/share"
 python3 - "$repo" "$sandbox/repo" <<'PY'
 import pathlib, shutil, sys
 source, target = map(pathlib.Path, sys.argv[1:])

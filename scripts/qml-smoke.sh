@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Run the shell inside a nested Hyprland sandbox and check it end to end.
 #
-# Usage: scripts/qml-smoke.sh [--timeout SECONDS] [--keep] [--rows NAME[,NAME...]] [--log-dir DIR]
+# Usage: scripts/qml-smoke.sh [--tree DIR] [--nix-store STORE] [--timeout SECONDS] [--keep] [--rows NAME[,NAME...]] [--log-dir DIR]
 #        scripts/qml-smoke.sh --first-bar-runs N [--plugin-set smoke|default] [--timeout SECONDS]
 #        scripts/qml-smoke.sh --list-rows
 #
-# The sandbox is built from the repository alone: its own HOME, XDG dirs and
+# --tree selects an installed runtime tree; rows, probes and fixtures come
+# from this checkout. --nix-store supplies its exported /nix for the world
+# to copy and mount privately. The tested tree enters the world read-only.
+# The sandbox has its own HOME, XDG dirs and
 # runtime dir, a minimal compositor config, no user state. It never touches
 # the live session: the nested compositor gets its own runtime dir and
 # draws to the harness's own sink compositor (scripts/smoke/sink/sink.c),
@@ -165,6 +168,8 @@ argv=("$@")
 timeout_s=60
 keep=false
 smoke_log_dir=""
+source_tree="$repo"
+nix_store=""
 first_bar_runs=""
 plugin_set=smoke
 qml_smoke_only=""
@@ -174,6 +179,10 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --timeout) timeout_s="$2"; shift 2 ;;
     --keep) keep=true; shift ;;
+    --tree|--nix-store)
+      if [[ $# -lt 2 || ! -d $2 ]]; then printf 'qml-smoke: refused: argument=%s value=%s\n' "$1" "${2-}" >&2; exit 2; fi
+      if [[ $1 == --tree ]]; then source_tree="$(realpath -e -- "$2")"; else nix_store="$(realpath -e -- "$2")"; fi
+      shift 2 ;;
     --log-dir)
       if [[ $# -lt 2 || -z $2 ]]; then printf 'qml-smoke: refused: argument=--log-dir value=missing\n' >&2; exit 2; fi
       smoke_log_dir="$(realpath -m -- "$2")"; shift 2 ;;
@@ -253,6 +262,8 @@ fi
 # No process this run starts may open an amdgpu node, so the run goes on
 # only where none is visible: scripts/smoke/gpu-fence.sh.
 world_args=(--out "$repo/tmp/display-record")
+[[ $source_tree == "$repo" ]] || world_args+=(--input "$source_tree")
+[[ -z $nix_store ]] || world_args+=(--nix-store "$nix_store")
 [[ $keep != true ]] || world_args+=(--keep)
 if [[ -z $smoke_log_dir ]]; then
   # Keep the caller's fd: a command substitution gives its child a pipe.

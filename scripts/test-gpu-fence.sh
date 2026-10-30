@@ -989,7 +989,7 @@ pathlib.Path(output, "result.json").write_text(json.dumps(result))
     controls = (
         ("writable-input", 'mounts+=(--ro-bind "$input" "$input")', 'mounts+=(--bind "$input" "$input")', "input", "writable"),
         ("parent-world-marker", "if fenced /; then", 'if [[ -n ${VGSHELL_WORLD_ROOT:-} ]]; then', "tmp", "connected"),
-        ("writable-host", "bwrap --ro-bind / /", "bwrap --bind / /", "checkout", "deleted"),
+        ("writable-host", 'root_mounts+=(--ro-bind "$host_entry" "$host_entry")', 'root_mounts+=(--bind "$host_entry" "$host_entry")', "checkout", "deleted"),
         ("runtime-mask", 'mounts+=(--perms 0700 --tmpfs "$XDG_RUNTIME_DIR")', 'mounts+=()', "runtime", "connected"),
         ("session-pass", "passed=(PATH USER", "passed=(WAYLAND_DISPLAY PATH USER", "session", ["WAYLAND_DISPLAY"]),
         ("network", "network=(--unshare-net)", "network=()", "abstract", "connected"),
@@ -1020,6 +1020,27 @@ pathlib.Path(output, "result.json").write_text(json.dumps(result))
         completed = subprocess.run([bash, fence, "--out", directory, "true"], env={"PATH": os.environ["PATH"], "HOME": str(base / "refuse-home"), "TMPDIR": str(base)}, capture_output=True, text=True, timeout=10)
         assert completed.returncode == 2 and "refused: output=" in completed.stderr, (name, completed.returncode, completed.stderr)
         print("world-contract: output-refused=" + name)
+    store = base / "exported-nix"
+    store.mkdir()
+    (store / "fixture").write_text("exported\n")
+    host_nix = os.path.lexists("/nix")
+    nix_probe = '''import errno, pathlib, subprocess, sys
+assert pathlib.Path("/nix/fixture").read_text() == "exported\\n"
+pathlib.Path("/nix/fixture").write_text("private\\n")
+try:
+    pathlib.Path("/world-root-write").write_text("forbidden")
+except OSError as error:
+    assert error.errno == errno.EROFS, error
+else:
+    raise AssertionError("world root is writable")
+subprocess.run([sys.argv[1], sys.argv[2], "--check"], check=True)
+'''
+    completed = subprocess.run([bash, fence, "--nix-store", str(store), "python3", "-c", nix_probe, bash, fence],
+                               env={"PATH": os.environ["PATH"], "TMPDIR": str(base)}, capture_output=True, text=True, timeout=20)
+    assert completed.returncode == 0, (completed.returncode, completed.stderr)
+    assert os.path.lexists("/nix") == host_nix
+    assert (store / "fixture").read_text() == "exported\n"
+    print("world-contract: nix=private-writable root=readonly host-nix=unchanged check=pass")
     for item in (caller, tmp_socket, abstract, tcp, named_socket): item.close()
 PYWORLD
 then
@@ -1048,7 +1069,7 @@ chmod +x "$TMP_ROOT/fence-stand-in" "$TMP_ROOT/runner"
 entry_points=(qml-smoke.sh sandbox-shots.sh measure-shader.sh qml-unit.sh jarvis-selftest.sh test-smoke-sink.sh)
 entry_words() {
   case "$1" in
-    qml-smoke.sh) words=(--timeout "6 0" --keep --log-dir "$TMP_ROOT/smoke-logs") ;;
+    qml-smoke.sh) words=(--tree "$TMP_ROOT/installed tree" --nix-store "$TMP_ROOT/exported nix" --timeout "6 0" --keep --log-dir "$TMP_ROOT/smoke-logs") ;;
     sandbox-shots.sh) words=(--out "$TMP_ROOT/tree-$1/tmp/o ut" --scale 2 --keep gallery) ;;
     measure-shader.sh) words=(--calibrate "out file.json" --keep) ;;
     qml-unit.sh) words=(--ui "$TMP_ROOT/u i") ;;
@@ -1096,7 +1117,7 @@ entry() {
   entry_words "$name" || return 1
   [[ ${4:-} != default-log ]] || words=()
   rm -rf -- "$tree" "$TMP_ROOT/entry-tmp"
-  mkdir -p "$tree/scripts/smoke" "$tree/shell/plugins/vgs.jarvis/backend" "$TMP_ROOT/entry-tmp"
+  mkdir -p "$tree/scripts/smoke" "$tree/shell/plugins/vgs.jarvis/backend" "$TMP_ROOT/entry-tmp" "$TMP_ROOT/installed tree" "$TMP_ROOT/exported nix"
   cp -- "$file" "$tree/scripts/$name"
   python3 - "$tree/scripts/$name" "$voxtype_builds" "$voxtype_cpuinfo" <<'PY'
 import re, sys
@@ -1130,7 +1151,7 @@ enters() {
   local want word tree="$TMP_ROOT/tree-$2" declarations=()
   entry "$1" "$2" 1 || return 1
   case "$2" in
-    qml-smoke.sh) declarations=(--out "$tree/tmp/display-record" --keep --out "$TMP_ROOT/smoke-logs") ;;
+    qml-smoke.sh) declarations=(--out "$tree/tmp/display-record" --input "$TMP_ROOT/installed tree" --nix-store "$TMP_ROOT/exported nix" --keep --out "$TMP_ROOT/smoke-logs") ;;
     sandbox-shots.sh) declarations=(--out "$tree/tmp/o ut" --out "$tree/tmp/display-record" --out "$tree/tmp/qml-smoke" --keep) ;;
     measure-shader.sh) declarations=(--out "$tree/tmp/shader-cost" --out "$tree/tmp/display-record" --out "$tree/tmp/qml-smoke" --keep --out "$TMP_ROOT/cwd") ;;
     jarvis-selftest.sh) declarations=(--net --out "$tree/tmp/display-record" --out "$tree/tmp/selftest-records" --out "$tree/tmp/qml-smoke" --out "$TMP_ROOT" --sign-in COPILOT_HOME "$TMP_ROOT/entry-account" --secrets) ;;
