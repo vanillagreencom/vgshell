@@ -182,12 +182,16 @@ FocusScope {
                 readonly property bool selected: key === list.selectedKey
                 width: column.width
                 focus: selected
-                activeFocusOnTab: selected
                 // A locked row takes no press: no plate, no hand and no
                 // keyboard, as under the shield of a list with no row
                 // that opens.
                 clickable: !locked
-                focusPolicy: locked ? Qt.TabFocus : Qt.StrongFocus
+                // Qt's setFocusPolicy also writes activeFocusOnTab, so
+                // this one policy owns the selected row's Tab membership
+                // across lock changes. Qt 6.12.0 qquickitem.cpp:
+                // https://github.com/qt/qtdeclarative/blob/v6.12.0/src/quick/items/qquickitem.cpp#L8285
+                focusPolicy: locked ? (selected ? Qt.TabFocus : Qt.NoFocus)
+                    : (selected ? Qt.StrongFocus : Qt.ClickFocus)
                 cursor: plate
                 highlighted: list.engaged && selected && !locked
                 // By its key: the rows can change before the model moves

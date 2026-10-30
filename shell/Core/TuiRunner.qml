@@ -90,8 +90,7 @@ Scope {
     }
 
     // runFor: plugin ID's own declared script NAME, with ARGS after it as
-    // tuiRun takes them, absent for none, and no
-    // `done`, for the `manager` capability's step runner
+    // tuiRun takes them, absent for none, for the `manager` capability's step runner
     // (Capabilities.managerStep): its act on a status action (D061), whose
     // row action hands the row's id as the one argument, and
     // its open of a listed setup screen, the Settings page's Setup button.
@@ -102,8 +101,9 @@ Scope {
     // arguments, and `reason=busy-other` when that window is another row's,
     // as PluginLogic.tuiArgsShownAnswer decides. The plugin reads the run's end
     // from its `state`.
-    function runFor(id, name, args) {
-        const answer = request(id, Registry.manifests[id], { name: name, args: args, ctx: null, done: undefined });
+    function runFor(id, name, args, ctx, done) {
+        const answer = request(id, Registry.manifests[id], { name: name, args: args, ctx: done === undefined ? null : ctx, done: done, manager: true });
+        if (done !== undefined && answer === Logic.tuiRefusal(name, "busy").answer) return "busy";
         return Logic.tuiArgsShownAnswer(Logic.tuiOwnKey(id, name), name, answer, args, startedArgs);
     }
 
@@ -137,7 +137,7 @@ Scope {
     function resume(id, held) {
         const live = held.ctx !== null && held.ctx.active;
         const answer = live
-            ? request(id, held.ctx.manifest, held)
+            ? request(id, held.manager === true ? Registry.manifests[id] : held.ctx.manifest, held)
             : request(id, Registry.manifests[id], { name: held.name, args: held.args, ctx: null, done: undefined });
         if (answer !== "ok") unstarted(held);
         return Logic.tuiArgsShownAnswer(Logic.tuiOwnKey(id, held.name), held.name, answer, held.args, startedArgs);

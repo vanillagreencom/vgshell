@@ -13,7 +13,11 @@ import "../../shell/plugins/vgs.tailscale/TailscaleLogic.js" as Logic
 // Gothenburg in Sweden and Zurich in Switzerland. The stub answers each
 // action as the service's command judge does and records the ones it
 // takes. The flyout opens on its header switch and draws no poll
-// setting; Tab reaches Add account and Sign out after the account list;
+// setting; Tab reaches Add account, Sign out and the selected account;
+// a fresh Checking status keeps body focus when access becomes ready,
+// and the card keeps the same one-stop account list; signed out, the
+// card's sentence names a control that acts: Sign in over a read list,
+// else the offered setup step, else Add account;
 // Sign out asks first, and only the dialog's accept sends `logout`; Copy
 // puts this device's address on the clipboard; the Exit node row opens the
 // chooser on its search field and asks for a suggestion, at its top, and
@@ -45,11 +49,21 @@ Item {
     // Whether the service has read its suggestion, which a case clears
     // and cleanup() restores.
     property bool suggested: true
+    property bool checkingSetup: false
+    // Whether the service read the accounts list, which a case clears and
+    // cleanup() restores.
+    property bool accountsRead: true
+    // Whether the status read names the account, which a case clears and
+    // cleanup() restores: NeedsLogin status carries no User entry.
+    property bool statusAccount: true
+    // Whether the core offers the Allow step, which a case sets and
+    // cleanup() restores; the operator is then not yet this login.
+    property bool allowOffered: false
     readonly property var snapshot: Logic.snapshot(0, JSON.stringify({
         BackendState: root.backend,
         Self: { ID: "nDESK", HostName: "desk", DNSName: "desk.tail-fixture.ts.net.", OS: "linux", UserID: 1, TailscaleIPs: ["100.64.0.1"] },
         CurrentTailnet: { Name: "example.com" },
-        User: { "1": { LoginName: "amelie@example.com" } },
+        User: root.statusAccount ? { "1": { LoginName: "amelie@example.com" } } : {},
         Peer: {
             a: { ID: "nGATE", HostName: "gateway", DNSName: "gateway.tail-fixture.ts.net.", OS: "linux", Tags: ["tag:server"], TailscaleIPs: ["100.64.0.2"], Online: true, ExitNodeOption: true },
             b: { ID: "nATTIC", HostName: "attic-nas", DNSName: "attic-nas.tail-fixture.ts.net.", OS: "linux", TailscaleIPs: ["100.64.0.3"], Online: false, ExitNodeOption: true },
@@ -66,11 +80,11 @@ Item {
         { id: "a1", tailnet: "example.com", account: "amelie@example.com", current: true },
         { id: "a2", tailnet: "example.org", account: "amelie@example.org", current: false }
     ]
-    readonly property var setupLine: Logic.setup({ missing: false, state: "running", service: "ready", operator: "ready" })
+    readonly property var setupLine: Logic.setup({ missing: false, state: "running", service: "ready", operator: allowOffered ? "needed" : "ready" })
 
     function values() {
         return {
-            tailscale: Logic.published(false, snapshot, setupLine, { accounts: accounts, action: "", login: "idle", problem: "",
+            tailscale: Logic.published(false, snapshot, checkingSetup ? null : setupLine, { accounts: root.accountsRead ? accounts : [], accountsRead: root.accountsRead, action: "", login: "idle", problem: "",
                 suggestion: root.suggested ? Logic.suggestion("se-sto-wg-001.mullvad.ts.net", snapshot) : null }),
             devices: snapshot.devices,
             exitNodes: snapshot.exitNodes
@@ -90,12 +104,17 @@ Item {
     QtObject {
         id: stub
         readonly property var settings: ({ pollSeconds: 30 })
-        readonly property var status: ({ values: root.values(), rows: [], act: key => "ok" })
+        readonly property var status: ({ values: root.values(), act: key => "ok",
+            rows: root.allowOffered ? [{ key: "setup", hint: root.setupLine.hint, action: { offered: true, label: "Allow" } }] : [] })
         readonly property var ipc: ({ call: (name, arg) => root.call(name, arg) })
         readonly property var surfaces: ({ summon: () => "ok", hide: () => "ok" })
     }
 
     Tailscale.Panel { id: panel; width: implicitWidth; height: 900 }
+    Component {
+        id: freshPanel
+        Tailscale.Panel { width: implicitWidth; height: 900; z: 1; shell: stub }
+    }
     // The System pane's body, made by the cases that read it, over the
     // flyout, which they hide.
     Component {
@@ -147,6 +166,10 @@ Item {
             panel.visible = true;
             root.backend = "Running";
             root.suggested = true;
+            root.checkingSetup = false;
+            root.accountsRead = true;
+            root.statusAccount = true;
+            root.allowOffered = false;
         }
 
         function find(item, wanted) {
@@ -179,25 +202,149 @@ Item {
             compare(find(panel, item => item.objectName === "tailscale-poll"), null, "the flyout draws no Check every");
         }
 
-        function test_tab_reaches_add_account_and_sign_out_after_the_list() {
-            const account = named("tailscale-account");
-            account.focusItem.forceActiveFocus(Qt.TabFocusReason);
-            keyClick(Qt.Key_Space);
-            verify(account.expanded, "Space opens the account row");
+        function test_accounts_card_has_header_actions_and_a_keyboard_list_data() {
+            return [
+                { tag: "fresh ready", checking: false },
+                { tag: "fresh checking then ready", checking: true }
+            ];
+        }
+        function test_accounts_card_has_header_actions_and_a_keyboard_list(data) {
+            panel.visible = false;
+            root.checkingSetup = data.checking;
+            const made = createTemporaryObject(freshPanel, root);
+            made.open("{}");
+            waitForRendering(made);
+            verify(root.calls.some(entry => entry[0] === "lease" && JSON.parse(entry[1]).open), "the fresh view opens its service lease");
+            const card = findIn(made, "tailscale-accounts-card");
+            const accounts = findIn(made, "tailscale-accounts");
+            compare(accounts.rows.map(row => row.key), ["a1", "a2"]);
+            compare(accounts.current, 0, "the fresh list starts on the first account");
+            compare(accounts.selectedKey, "a1");
+            compare(accounts.chosenByUser, false);
+            const initial = made.initialFocus;
+            initial.forceActiveFocus(Qt.OtherFocusReason);
+            const trace = [];
+            function snapshot(stage) {
+                trace.push({ stage: stage, current: accounts.current, selectedKey: accounts.selectedKey,
+                    focusText: focused() === null ? null : focused().text,
+                    focusName: focused() === null ? null : focused().Accessible.name,
+                    listActiveFocus: accounts.activeFocus,
+                    rows: [0, 1].map(index => ({ key: accounts.rowAt(index).key,
+                        activeFocusOnTab: accounts.rowAt(index).activeFocusOnTab,
+                        focusPolicy: accounts.rowAt(index).focusPolicy,
+                        activeFocus: accounts.rowAt(index).activeFocus })) });
+            }
+            snapshot("opened");
+            compare(accounts.lock.locked, data.checking);
+            if (data.checking) {
+                verify(initial.lockReason !== undefined, "Checking opens on the body");
+                root.checkingSetup = false;
+                tryCompare(accounts.lock, "locked", false);
+                snapshot("access-ready");
+                compare(focused(), initial, "access becoming ready keeps body focus");
+            }
+            verify(card.visible);
+            compare(findIn(made, "tailscale-accounts-header").text, "Accounts");
+            const add = findIn(made, "tailscale-add-account");
+            const signOut = findIn(made, "tailscale-sign-out");
+            compare(add.label, "Add account");
+            compare(signOut.label, "Sign out");
+            verify(add.y + add.height < accounts.y);
+            add.forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Return);
+            compare(root.actions, [["add-account", ""]]);
             keyClick(Qt.Key_Tab);
-            verify(within(focused(), named("tailscale-accounts")), "the account list follows the row");
+            compare(focused(), signOut);
+            snapshot("before-account-entry");
+            const beforeCurrent = accounts.current;
+            const beforeKey = accounts.selectedKey;
             keyClick(Qt.Key_Tab);
-            compare(focused(), named("tailscale-add-account"));
+            const entered = focused();
+            snapshot("entered");
             keyClick(Qt.Key_Tab);
-            compare(focused(), named("tailscale-sign-out"));
-            keyClick(Qt.Key_Tab);
-            verify(within(focused(), named("tailscale-this-device")), "this device follows Sign out");
+            const next = focused();
+            snapshot("one-tab-after-entry");
+            console.info("tailscale-account-tab-trace " + JSON.stringify({ tag: data.tag, states: trace }));
+            compare(beforeCurrent, 0, "the fresh checking transition keeps the selected position");
+            compare(beforeKey, "a1", "the fresh checking transition keeps the selected account");
+            compare(entered, accounts.rowAt(0), "Tab enters amelie@example.com exactly");
+            compare(entered.text, "amelie@example.com");
+            compare(next, findIn(made, "tailscale-this-device"), "one Tab leaves the accounts for This device");
+            made.close();
+        }
+
+        function test_signed_out_saved_account_sign_in_targets_its_id() {
+            root.backend = "NeedsLogin";
+            // A Column places its children at polish, so the geometry below
+            // reads the card only after a frame.
+            waitForRendering(panel);
+            const list = named("tailscale-accounts");
+            compare(list.actionOf(list.rows[1]).text, "Sign in");
+            // The why stands once, inside the card before the rows it explains.
+            const hint = named("tailscale-signed-out-hint");
+            verify(within(hint, named("tailscale-accounts-card")));
+            verify(hint.y + hint.height <= list.y, "the hint stands before the rows");
+            compare(find(panel, item => item.objectName === "tailscale-state-hint"), null, "the hint draws once");
+            list.forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Down);
+            keyClick(Qt.Key_Return);
+            compare(root.actions, [["sign-in", "a2"]]);
+        }
+
+        // An accounts read that failed still names the signed-in account
+        // and its tailnet, as the status read gives them, and sends nothing
+        // for that row; signed out, it offers no first sign-in, since saved
+        // accounts may exist.
+        function test_failed_accounts_read_draws_the_status_account() {
+            root.accountsRead = false;
+            const list = named("tailscale-accounts");
+            compare(list.rows.map(row => [row.text, row.secondary]), [["amelie@example.com", "example.com"]]);
+            compare(list.rowAt(0).text, "amelie@example.com");
+            verify(list.rowAt(0).visible, "the account row is drawn");
+            compare(list.actionOf(list.rows[0]), null);
+            list.forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Return);
+            compare(root.actions, [], "the status row sends no request");
+            root.backend = "NeedsLogin";
+            compare(find(panel, item => item.objectName === "tailscale-sign-in"), null, "no first sign-in over an unread list");
+        }
+
+        // Signed out, the card's sentence names a control the card or the
+        // setup step offers now: over an unread list with no status
+        // account the view draws no Sign in, so the sentence must name
+        // another control that can act.
+        function test_signed_out_hint_names_a_control_that_acts_data() {
+            return [
+                { tag: "read list", read: true, account: true, allow: false, control: "sign-in" },
+                { tag: "unread list, Allow offered", read: false, account: false, allow: true, control: "setup" },
+                { tag: "unread list, no step", read: false, account: false, allow: false, control: "add-account" }
+            ];
+        }
+        function test_signed_out_hint_names_a_control_that_acts(data) {
+            root.accountsRead = data.read;
+            root.statusAccount = data.account;
+            root.allowOffered = data.allow;
+            root.backend = "NeedsLogin";
+            waitForRendering(panel);
+            verify(named("tailscale-signed-out-hint").text !== "", "the card says what to do");
+            const body = find(panel, item => item.stateHint !== undefined && item.signInReason !== undefined);
+            const control = body.stateHint.control;
+            compare(control, data.control);
+            if (control === "setup") {
+                const step = named("tailscale-setup");
+                verify(step.enabled, "the setup step acts");
+            } else if (control === "add-account") {
+                compare(named("tailscale-add-account").disabledReason, "", "Add account acts");
+            } else {
+                verify(control === "sign-in", "the hint names a known control: " + control);
+                const first = find(panel, item => item.objectName === "tailscale-sign-in");
+                const list = find(panel, item => item.objectName === "tailscale-accounts");
+                const rowAction = list !== null && list.rows.some(row => list.actionOf(row) !== null);
+                verify(first !== null || rowAction, "a Sign in is drawn");
+            }
         }
 
         function test_sign_out_asks_and_only_its_accept_signs_out() {
-            const account = named("tailscale-account");
-            account.focusItem.forceActiveFocus(Qt.TabFocusReason);
-            keyClick(Qt.Key_Space);
             const signOut = named("tailscale-sign-out");
             signOut.forceActiveFocus(Qt.TabFocusReason);
             keyClick(Qt.Key_Return);
@@ -352,14 +499,66 @@ Item {
         }
 
         // Tailscale stopping, as from another client, ends every choice.
-        function test_tailscale_stopping_leaves_the_chooser() {
+        function test_tailscale_stopping_leaves_the_chooser_data() {
+            return [
+                { tag: "ready returns to header", checking: false },
+                { tag: "checking returns to body without a late focus steal", checking: true }
+            ];
+        }
+        function test_tailscale_stopping_leaves_the_chooser(data) {
+            const body = find(panel, item => item.focusExitRow !== undefined);
+            const frame = find(panel, item => item.headerSwitch !== undefined);
+            verify(body !== null && frame !== null);
             named("tailscale-exit-row").forceActiveFocus(Qt.TabFocusReason);
             keyClick(Qt.Key_Return);
             compare(panel.view, "exit-nodes");
+            const search = named("tailscale-exit-search-field");
+            const chooser = named("tailscale-exit-nodes");
+            compare(focused(), search);
+            root.checkingSetup = data.checking;
+            compare(stub.status.values.tailscale.checkingSetup, data.checking);
+            compare(body.lockReason !== "", data.checking, "the handoff's access state is set before Stopped");
+            const trace = [];
+            function snapshot(stage) {
+                const current = focused();
+                const state = { stage: stage, state: stub.status.values.tailscale.state,
+                    checkingSetup: stub.status.values.tailscale.checkingSetup,
+                    writable: stub.status.values.tailscale.writable, lockReason: body.lockReason,
+                    view: panel.view, headerPresent: frame.headerSwitch !== null,
+                    headerEnabled: frame.headerSwitch !== null && frame.headerSwitch.enabled,
+                    headerVisible: frame.headerSwitch !== null && frame.headerSwitch.visible,
+                    bodyVisible: body.visible, bodyFocused: current === body,
+                    headerFocused: current !== null && current === frame.headerSwitch, searchFocused: search.activeFocus,
+                    chooserFocused: chooser.activeFocus,
+                    focusText: current === null ? null : current.text,
+                    focusName: current === null ? null : current.Accessible.name };
+                trace.push(state);
+                return state;
+            }
+            snapshot("before-stop");
             root.backend = "Stopped";
             tryCompare(panel, "view", "main");
-            tryCompare(root.Window.window, "activeFocusItem", panel.initialFocus);
-            compare(panel.initialFocus.Accessible.name, "Tailscale", "the keys land on the header switch");
+            // Let the production deferred handoff run while the fixture
+            // holds its declared access state, before clearing Checking.
+            tryVerify(() => focused() !== search, 1000, "the main view takes the keyboard from the hidden search");
+            const landed = focused();
+            const handoff = snapshot("handoff");
+            if (data.checking) root.checkingSetup = false;
+            tryCompare(body, "lockReason", "");
+            waitForRendering(panel);
+            snapshot("ready-after-handoff");
+            console.info("tailscale-stop-focus-trace " + JSON.stringify({ tag: data.tag, states: trace }));
+
+            const header = frame.headerSwitch;
+            verify(header !== null, "the stopped main view shows its header switch");
+            const expected = data.checking ? body : header;
+            compare(landed, expected, "the declared access state selects the exact main target");
+            compare(handoff.checkingSetup, data.checking, "Checking stays held through the actual handoff");
+            compare(handoff.bodyVisible, true);
+            compare(handoff.searchFocused, false, "the hidden chooser search gives up focus");
+            compare(handoff.chooserFocused, false, "the hidden chooser gives up focus");
+            compare(focused(), expected, "a later ready publication never steals the placed focus");
+            if (!data.checking) compare(header.Accessible.name, "Tailscale");
         }
 
         function findIn(item, name) {
@@ -376,10 +575,9 @@ Item {
         }
 
         function test_the_pane_shows_its_lists_in_open_sections() {
-            compare(named("tailscale-account").expanded, false, "the flyout opens its account closed");
             compare(named("tailscale-network-devices").expanded, false, "the flyout opens its devices closed");
             const body = openPane();
-            for (const name of ["tailscale-account-section", "tailscale-device-section", "tailscale-exit-section",
+            for (const name of ["tailscale-accounts-card", "tailscale-device-section", "tailscale-exit-section",
                 "tailscale-network-section", "tailscale-admin-section", "tailscale-updates-section"])
                 verify(findIn(body, name).visible, name + " is open");
             compare(findIn(body, "tailscale-accounts").rows.map(row => row.key), ["a1", "a2"]);
@@ -391,9 +589,9 @@ Item {
         function test_the_pane_keeps_the_account_while_waiting_for_approval() {
             root.backend = "NeedsMachineAuth";
             tryVerify(() => find(panel, item => item.objectName === "tailscale-approval-console") !== null, 1000, "the flyout shows the approval step");
-            compare(find(panel, item => item.objectName === "tailscale-account"), null, "the flyout shows no account while waiting");
+            verify(named("tailscale-accounts-card").visible, "accounts remain available while approval waits");
             const body = openPane();
-            findIn(body, "tailscale-account-section");
+            findIn(body, "tailscale-accounts-card");
             findIn(body, "tailscale-accounts");
             findIn(body, "tailscale-device-section");
             findIn(body, "tailscale-self-address");

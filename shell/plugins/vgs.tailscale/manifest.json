@@ -65,7 +65,19 @@
         "nix": "tailscale"
       },
       "optional": true,
-      "purpose": "Reads and controls your Tailscale connection"
+      "purpose": "Reads and controls your Tailscale connection",
+      "floor": "1.104.1"
+    },
+    {
+      "command": "sh",
+      "packages": {
+        "pacman": "bash",
+        "apt": "dash",
+        "dnf": "bash",
+        "nix": "bash"
+      },
+      "optional": true,
+      "purpose": "Opens the Tailscale sign-in page"
     },
     {
       "command": "xdg-open",
@@ -81,7 +93,8 @@
   ],
   "systemSteps": [
     "service-tailscaled",
-    "tailscale-operator"
+    "tailscale-operator",
+    "tailscale-account-add"
   ],
   "status": {
     "connection": {
@@ -115,6 +128,15 @@
     "exitNodes": {
       "type": "data",
       "label": "Exit nodes"
+    },
+    "accountAdd": {
+      "type": "state",
+      "label": "Add account",
+      "hidden": true,
+      "action": {
+        "label": "Add account",
+        "system": "tailscale-account-add"
+      }
     }
   },
   "splitFrom": "vgs.vpn"

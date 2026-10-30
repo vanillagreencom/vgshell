@@ -177,7 +177,7 @@ Singleton {
             add: () => root.managerCoreTui("plugin-add", []),
             reset: () => Notices.askReset(),
             rescan: () => Registry.rescan().answer,
-            act: (id, key, row, rowAction) => root.managerAct(id, key, row, rowAction),
+            act: (id, key, row, rowAction, done) => root.managerAct(id, key, row, rowAction, ctx, done),
             refreshChoices: (id, key) => PluginStatus.refresh(id, key),
             previewChoice: (id, key, value) => PluginStatus.preview(id, key, value),
             viewPage: id => { PluginStatus.viewed = id; },
@@ -235,7 +235,7 @@ Singleton {
             handleRefresh: (key, handler) => PluginStatus.handleRefresh(ctx, key, handler),
             handlePreview: (key, handler) => PluginStatus.handlePreview(ctx, key, handler),
             handleChoice: (key, handler) => PluginStatus.handleChoice(ctx, key, handler),
-            act: (key, row, rowAction) => root.managerAct(ctx.id, key, row, rowAction),
+            act: (key, row, rowAction, done) => root.managerAct(ctx.id, key, row, rowAction, ctx, done),
             get rows() { return Logic.statusRows(Registry.manifests[ctx.id], PluginStatus.valuesOf(ctx.id)); },
             get values() { return PluginStatus.valuesOf(ctx.id); },
             get viewed() { return PluginStatus.viewed === ctx.id; },
@@ -413,10 +413,28 @@ Singleton {
     // The manager's act on plugin ID's status entry KEY (D061), or with ROW
     // its ROW_ACTION on the published row of that id, as
     // PluginLogic.statusActionRequest decides from its published values.
-    function managerAct(id, key, row, rowAction) {
+    function managerAct(id, key, row, rowAction, ctx, done) {
+        if (ctx !== undefined && !ctx.active) return "refused: action=" + key + " reason=released";
+        if (done !== undefined && typeof done !== "function") throw new Error("refused: status=act done=not-a-function");
         const subject = managerSubject(id);
         const request = Logic.statusActionRequest(subject.manifest, id, subject.enabled, subject.values, key, row, rowAction);
-        return request.ok ? root.managerStep(id, request) : request.answer;
+        if (request.ok && done !== undefined && ["tui", "system"].indexOf(request.kind) === -1)
+            return "refused: action=" + key + " reason=no-completion";
+        let scoped;
+        let releaseDone = () => {};
+        if (request.ok && done !== undefined) {
+            let callback = done;
+            const release = ctx.onDispose(() => { callback = null; });
+            releaseDone = release;
+            scoped = end => {
+                const current = callback;
+                release();
+                if (current !== null && ctx.active) current(end);
+            };
+        }
+        const reply = request.ok ? root.managerStep(id, request, ctx, scoped) : request.answer;
+        if (reply !== "ok") releaseDone();
+        return reply;
     }
 
     // The manager's open of plugin ID's window or panel, as
@@ -477,10 +495,18 @@ Singleton {
     // as its own run (TuiRunner.editFor), or its summonable surface. Every step
     // of the manager's that opens a plugin's TUI or surface goes through
     // here.
-    function managerStep(id, request) {
+    function managerStep(id, request, ctx, done) {
         switch (request.kind) {
-        case "tui": return tuis.runFor(id, request.name, request.args);
-        case "system": return root.managerCoreTui("system", request.args, () => systemSteps.probe());
+        case "tui": return tuis.runFor(id, request.name, request.args, ctx, done);
+        case "system": {
+            const reply = tuis.openCore("system", request.args, end => {
+                systemSteps.probe();
+                if (done !== undefined) done(end);
+            });
+            // A busy run starts no callback. A caller awaiting completion
+            // must retry after the existing terminal finishes.
+            return done !== undefined && reply === Logic.tuiRefusal("core/system", "busy").answer ? "busy" : Logic.tuiShownAnswer("core/system", reply);
+        }
         case "core": return root.managerCoreTui(request.name, [], end => {
             if (end.code === 0) dictation.restart();
         });

@@ -40,6 +40,14 @@ var MULLVAD_TAG = "tag:mullvad-exit-node";
 // device removal stay there; VGS rebuilds none of it.
 var ADMIN_URL = "https://login.tailscale.com/admin";
 var IN_USE = "In use";
+// The requests that need the manifest's tailscale `floor`: the add
+// transaction reads `debug prefs` and Status.AuthURL as v1.104.1 prints
+// them (bin/lib/tailscale-account.py), and sign-in's `up` authenticates
+// the selected profile as v1.104.1 cli/up.go does. Every other request
+// works on an older Tailscale.
+var FLOOR_KINDS = ["add-account", "sign-in"];
+var BUSY_TEXT = "A Tailscale change is still in progress.";
+var CHECKING_TEXT = "VGS is checking Tailscale access.";
 
 // The CLI's failure texts this plugin tells apart, first match wins.
 var FAILURES = [
@@ -371,7 +379,7 @@ function suggestion(name, snap) {
     return null;
 }
 
-// The first https address in a line `tailscale login` prints, "" for none.
+// The first https address in a line `tailscale up` prints, "" for none.
 function loginUrl(text) {
     var found = /https:\/\/[^\s"'<>]+/.exec(String(text));
     return found === null ? "" : found[0];
@@ -380,12 +388,16 @@ function loginUrl(text) {
 var REACHED = ["running", "stopped", "signed-out", "needs-approval", "starting"];
 
 // The argv of REQUEST, { kind, id? }, over what the service holds, DATA
-// { state, targets, accounts }: { argv }, or { refusal } for a request
-// the state does not take or that names nothing listed. An exit node goes
-// by its target; "" as the id turns the exit node off. An offline node of
-// your own is refused, as Tailscale would route nothing through it.
+// { state, targets, accounts, outdated }: { argv }, or { refusal } for a
+// request the state does not take or that names nothing listed, with
+// `update` true when only a newer Tailscale takes it (FLOOR_KINDS while
+// OUTDATED). An exit node goes by its target; "" as the id turns the exit
+// node off. An offline node of your own is refused, as Tailscale would
+// route nothing through it.
 function command(request, data) {
     if (!isPlain(request) || typeof request.kind !== "string") return { refusal: "refused: action=malformed" };
+    if (data.outdated === true && FLOOR_KINDS.indexOf(request.kind) !== -1)
+        return { refusal: "refused: action=" + request.kind + " state=outdated", update: true };
     var refused = { refusal: "refused: action=" + request.kind + " state=" + data.state };
     switch (request.kind) {
     case "connect":
@@ -399,13 +411,14 @@ function command(request, data) {
         var node = data.targets[request.id];
         if (!node.mullvad && !node.online) return { refusal: "refused: exit-node=offline" };
         return { argv: ["tailscale", "set", "--exit-node=" + node.target] };
+    case "sign-in":
     case "switch":
         if (REACHED.indexOf(data.state) === -1) return refused;
         var account = data.accounts.filter(function (row) { return row.id === request.id; })[0];
         if (account === undefined) return { refusal: "refused: account=absent" };
         return { argv: ["tailscale", "switch", account.id] };
-    case "login":
-        return REACHED.indexOf(data.state) !== -1 ? { argv: ["tailscale", "login", "--timeout", "0"] } : refused;
+    case "add-account":
+        return REACHED.indexOf(data.state) !== -1 ? { system: "accountAdd" } : refused;
     case "logout":
         return REACHED.indexOf(data.state) !== -1 ? { argv: ["tailscale", "logout"] } : refused;
     case "admin-console":
@@ -419,7 +432,7 @@ function command(request, data) {
 function replyText(reply) {
     switch (reply) {
     case "ok": return "";
-    case "busy": return "A Tailscale change is still in progress.";
+    case "busy": return BUSY_TEXT;
     case "refused: exit-node=offline": return "This exit node is offline.";
     case "refused: admin-console=missing-tool":
     case "refused: login=missing-tool": return "This needs a tool to open your browser. Use the installation notice to add it.";
@@ -435,7 +448,8 @@ function stepOffered(step) { return step === "needed" || step === "nixos"; }
 // `allow`, or "" for none. CONTEXT is { missing, state, service, operator }:
 // whether the `tailscale` command is absent, the snapshot's state and the
 // two system steps' states, each "" while it has no reading, before the
-// core's first probe ends. The line is null, which clears the entry, while
+// core's first probe ends. An outdated command sets no line: it locks only
+// FLOOR_KINDS, and Setup's Optional tools step offers its update. The line is null, which clears the entry, while
 // a step it reads has no reading. A missing command offers no step: the
 // Review action of the page's Optional tools step installs it, and the
 // requirement is optional, so the line reads info. A step Tailscale needs
@@ -459,7 +473,7 @@ function setup(context) {
     if (stepOffered(context.operator)) return setupState("warning", "Access needed", "The administrator holds Tailscale. After this step, VGS connects and disconnects for you without a password.", "allow");
     if (context.operator === "denied") return setupState("info", "Another account", "Another account controls Tailscale. Only that account can change it.", "");
     // The core's probe could not read the operator, so Ready would be a guess.
-    if (context.operator === "unknown" && REACHED.indexOf(context.state) !== -1)
+    if (context.operator !== "ready")
         return setupState("info", "Not checked", "VGS could not read who controls Tailscale.", "");
     return setupState("ok", "Ready", "", "");
 }
@@ -485,22 +499,25 @@ function connection(missing, snap) {
 // The `tailscale` value the service publishes and the views draw: the
 // connection line, the account, this device and the exit node in use,
 // with `writable`, false while the command is MISSING or the Allow step or
-// another setup step must run first, and true while SETUPLINE is null,
-// before the steps' first reading, as for a step that could not be
-// checked, and LIVE { accounts, action, login, problem, suggestion,
-// backendPresent }, what the service holds beside the snapshot. The
-// network devices and the exit nodes are values of their own (statusWrites).
+// another setup step must run first or its fresh reading is pending,
+// and LIVE { accounts, accountsRead, outdated, action, login, problem,
+// suggestion, backendPresent }, what the service holds beside the
+// snapshot: `accountsRead` is true once the last accounts read gave a
+// list, so an empty list means no saved account only then, and
+// `outdated` that the command is below the manifest's floor. The network
+// devices and the exit nodes are values of their own (statusWrites).
 function published(missing, snap, setupLine, live) {
     var shown = connection(missing, snap);
-    return { state: shown.state, tone: shown.tone, text: shown.text, writable: !missing && (setupLine === null || setupLine.action === ""),
+    return { state: shown.state, tone: shown.tone, text: shown.text, writable: !missing && setupLine !== null && setupLine.tone === "ok",
+        checkingSetup: setupLine === null, outdated: live.outdated === true,
         backendPresent: live.backendPresent !== false, device: snap.device, tailnet: snap.tailnet, account: snap.account, exit: snap.exit,
-        suggestion: live.suggestion === undefined ? null : live.suggestion, accounts: live.accounts, action: live.action, login: live.login,
-        problem: live.problem };
+        suggestion: live.suggestion === undefined ? null : live.suggestion, accounts: live.accounts, accountsRead: live.accountsRead === true,
+        action: live.action, login: live.login, problem: live.problem };
 }
 
 // What a view draws before the service's first write.
 function unread() {
-    return published(false, emptySnapshot("checking"), { action: "" }, { accounts: [], action: "", login: "idle", problem: "", suggestion: null });
+    return published(false, emptySnapshot("checking"), { action: "" }, { accounts: [], accountsRead: false, action: "", login: "idle", problem: "", suggestion: null });
 }
 
 // Why the controls `tailscale.writable` enables cannot change Tailscale now, as
@@ -510,10 +527,25 @@ function unread() {
 // writable has one cause (published, setup): the command is missing, the
 // service is off, or the administrator holds Tailscale.
 function lockReason(tailscale, step) {
+    if (tailscale.action !== "") return BUSY_TEXT;
+    if (tailscale.checkingSetup) return CHECKING_TEXT;
     if (tailscale.writable) return "";
     if (tailscale.state === "missing") return "Tailscale is not installed, so choose Review all missing or outdated tools under [Optional tools in Tailscale Setup](page:vgs.tailscale/Setup) to use it.";
     var cause = tailscale.state === "service-off" ? "The Tailscale service is off" : "The administrator holds Tailscale";
     return step === "" ? cause + "; review [Tailscale service in Tailscale Setup](page:vgs.tailscale/Setup)." : cause + " until you choose " + step + " beside [Tailscale service in Tailscale Setup](page:vgs.tailscale/Setup).";
+}
+
+// Why the account control for KIND, one of FLOOR_KINDS, cannot act now,
+// "" while it can. Both need the floor. Sign-in also needs what every
+// change needs (lockReason); the add transaction runs while operator
+// access is unset, since it sets that access itself, so only a change in
+// progress or a pending fresh reading holds it.
+function accountReason(tailscale, step, kind) {
+    if (FLOOR_KINDS.indexOf(kind) === -1) throw new Error("tailscale: account control " + JSON.stringify(kind) + " is not one of " + FLOOR_KINDS.join(", "));
+    if (tailscale.action !== "") return BUSY_TEXT;
+    if (tailscale.outdated) return "This Tailscale is too old to add accounts or sign in, so choose Review all missing or outdated tools under [Optional tools in Tailscale Setup](page:vgs.tailscale/Setup) to update it.";
+    if (kind === "sign-in") return lockReason(tailscale, step);
+    return tailscale.checkingSetup ? CHECKING_TEXT : "";
 }
 
 // The backend probe hides the icon without removing its saved placement.
@@ -526,15 +558,25 @@ function barView(tailscale) {
         tooltip: "Tailscale: " + tailscale.text };
 }
 
-// The sentence under the flyout's title for a state that has one, "" for
-// the rest.
-function stateHint(tailscale) {
+// The sentence a state shows, { text, control }: `text` "" for a state
+// with none, and `control` the one the sentence tells the user to choose,
+// `sign-in` (a saved account's Sign in, or the first Sign in while the
+// list is empty), `add-account`, `setup` (the setup step the core offers)
+// or "" for none. TAILSCALE is the published value and STEP the words of
+// the setup step offered now, "" for none. Signed out over an unread
+// list, the view draws no Sign in (it would hide saved accounts), so the
+// sentence names the setup step while one is offered, else Add account.
+function hintState(text, control) { return { text: text, control: control }; }
+function stateHint(tailscale, step) {
     switch (tailscale.state) {
-    case "signed-out": return "Sign in to connect this computer to your tailnet.";
-    case "needs-approval": return "An admin of " + (tailscale.tailnet !== "" ? tailscale.tailnet : "your tailnet") + " must approve this device.";
-    case "unavailable": return "Tailscale did not answer.";
+    case "signed-out":
+        if (tailscale.accountsRead) return hintState("Sign in to connect this computer to your tailnet.", "sign-in");
+        if (step !== "") return hintState("VGS could not read your saved accounts, so choose " + step + " below.", "setup");
+        return hintState("VGS could not read your saved accounts, so choose Add account to sign in.", "add-account");
+    case "needs-approval": return hintState("An admin of " + (tailscale.tailnet !== "" ? tailscale.tailnet : "your tailnet") + " must approve this device.", "");
+    case "unavailable": return hintState("Tailscale did not answer.", "");
     }
-    return "";
+    return hintState("", "");
 }
 
 // The sign-out confirmation for TAILNET: { title, message }.
@@ -549,9 +591,16 @@ function badge(active) { return active ? IN_USE : ""; }
 // The rows the views draw, each a DeviceList row: { key, text, secondary,
 // iconName, badge, badgeTone } and, for an exit node, `id`, the node the
 // row chooses, "" for None, which the view sends and never a target.
-function accountRows(list) {
-    return list.map(function (row) {
-        return { key: row.id, text: row.account, secondary: row.tailnet, iconName: "user", badge: badge(row.current), badgeTone: "success" };
+// The account rows of TAILSCALE, the published value: its saved accounts
+// while the list was read, else the account `status --json` names, as
+// the one current row, or none. The view sends no request for that row:
+// a request names a listed account.
+function accountRows(tailscale) {
+    var signedOut = tailscale.state === "signed-out";
+    if (!tailscale.accountsRead)
+        return tailscale.account === "" ? [] : [{ key: "current", text: tailscale.account, secondary: tailscale.tailnet, iconName: "user", badge: badge(!signedOut), badgeTone: "success" }];
+    return tailscale.accounts.map(function (row) {
+        return { key: row.id, text: row.account, secondary: row.tailnet, iconName: "user", badge: badge(row.current && !signedOut), badgeTone: "success" };
     });
 }
 

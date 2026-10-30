@@ -9,8 +9,8 @@ Tailscale connects this computer to your tailnet. It turns the connection on and
 ## Features
 
 - A route icon shows the connection state and changes to a globe with a lock while an exit node is in use. It hides while Tailscale or its service is absent.
-- The flyout holds the connection switch and its state, your account and tailnet, this device, your network devices and the exit node. Open admin console opens the Tailscale admin console in your browser, and Tailscale settings opens the System Settings section.
-- The account row lists your accounts. Select one to switch to it. Add account opens the Tailscale sign-in page in your browser. Sign out asks first, because an admin may need to approve this computer again after it signs in.
+- The flyout holds the connection switch and its state, the Accounts card, this device, your network devices and the exit node. Open admin console opens the Tailscale admin console in your browser, and Tailscale settings opens the System Settings section.
+- The Accounts card, at the top of the flyout and of System Settings › Tailscale, lists your saved accounts and their tailnets. Select one to switch to it. While this computer is signed out, each saved account has Sign in, which opens the Tailscale sign-in page in your browser when Tailscale asks for it. Add account opens a setup window that asks first, then opens the sign-in page; if you cancel, the previous account stays selected. Sign out asks first, because an admin may need to approve this computer again after it signs in.
 - System Settings shows this device’s name, Tailscale address, DNS name and network. Copy beside the address or DNS name puts that value on the clipboard. Each network device has Copy for its address and Copy DNS name in its row menu.
 - The Exit node row opens the exit nodes: Recommended, the node Tailscale suggests, then None, your own exit nodes and Mullvad by country and city. Best available in a country picks the city Tailscale ranks highest at that moment. Type in the search field to find a country, a city or a device. An offline exit node of your own cannot be chosen.
 - The switch turns Tailscale on and off and leaves your Tailscale settings as they are. Users, access, device approval and device removal stay in the admin console.
@@ -23,6 +23,8 @@ The Tailscale service step on the plugin's Setup tab offers one step at a time. 
 | --- | --- | --- |
 | Enable | The Tailscale service is off | Starts the service and keeps it on after a restart. |
 | Let my login control Tailscale | The administrator holds Tailscale | Lets VGS connect, disconnect and choose an exit node for you without a password. |
+
+Add account and Sign in need a recent Tailscale. With an older one, they say so, and the Optional tools step on the Setup tab offers the update; the connection switch and the exit node still work.
 
 Updates, the last section in System Settings › Tailscale, holds Check every. It sets how often VGS reads Tailscale while the flyout and the section are closed.
 

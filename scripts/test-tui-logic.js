@@ -768,7 +768,7 @@ function requestSuite(source, logic, check) {
         "acme.req": { live: judged(needingRaw, "r3"), registered: judged(needingRaw, "r9") },
         "vgs.jarvis": { live: judged(jarvisRaw, "j3"), registered: judged(jarvisRaw, "j9") },
     };
-    const functions = ["run(ctx, name, args, done)", "runFor(id, name, args)", "request(id, manifest, held)", "recordStarted(launch, args)", "resume(id, held)", "unstarted(held)"]
+    const functions = ["run(ctx, name, args, done)", "runFor(id, name, args, ctx, done)", "request(id, manifest, held)", "recordStarted(launch, args)", "resume(id, held)", "unstarted(held)"]
         .map(header => runnerFunction(source, header)).join("")
         + ["handOver(id, done, result)", "frozen(value)"].map(header => runnerFunction(RECORDS, header)).join("")
         + "const recordStore = { handOver: handOver };\n";
@@ -826,6 +826,12 @@ function requestSuite(source, logic, check) {
         ["runFor with a row's id starts the script with that id as its one argument", "acme.req",
             [[[], [], "runFor(\"acme.req\", \"sync\", [\"/file\"])"]],
             { answers: ["ok"], notices: [], started: [sync("r9", false)], ends: [] }],
+        ["a scoped manager action uses the target's registered snapshot", "acme.req",
+            [[[], [], "runFor(\"acme.req\", \"sync\", [\"/file\"], ctx, done)"]],
+            { answers: ["ok"], notices: [], started: [sync("r9", true)], ends: [] }],
+        ["a scoped manager action held for tools resumes the target manifest", "acme.req",
+            [[["acme-sync"], [], "runFor(\"acme.req\", \"sync\", [\"/file\"], ctx, done)"], [[], [], "resume(\"acme.req\", captured)"]],
+            { answers: ["ok", "ok"], notices: [["acme.req", ["acme-sync"], "sync", ["/file"]]], started: [sync("r9", true)], ends: [] }],
         ["runFor of a status action with no argument starts the script alone", "acme.req",
             [[[], [], "runFor(\"acme.req\", \"sync\", undefined)"]],
             { answers: ["ok"], notices: [], started: [{ dir: "/run/src/r9", script: ["tui/sync.sh"], done: false }], ends: [] }],
@@ -1339,7 +1345,7 @@ function managerSuite(source, logic, check) {
     const raw = JSON.parse(fs.readFileSync(path.join(__dirname, "smoke/fixtures/plugins/acme.rows/manifest.json"), "utf8"));
     const manifest = logic.validateManifest(raw, "/q").manifest;
     const values = logic.statusWrite(manifest, {}, "pairs", [{ id: "documents", label: "Documents", actions: ["remove"] }]).values;
-    const functions = ["managerSubject(id)", "managerAct(id, key, row, rowAction)", "managerStep(id, request)"].map(header => runnerFunction(source, header)).join("");
+    const functions = ["managerSubject(id)", "managerAct(id, key, row, rowAction, ctx, done)", "managerStep(id, request, ctx, done)"].map(header => runnerFunction(source, header)).join("");
     const act = call => {
         const runs = [];
         const sandbox = vm.createContext({
@@ -1356,10 +1362,40 @@ function managerSuite(source, logic, check) {
         { answer: "ok", runs: [["acme.rows", "remove", ["documents"]]] });
     check("manager act: the list's Add runs its TUI with no argument", act("managerAct(\"acme.rows\", \"pairs\")"),
         { answer: "ok", runs: [["acme.rows", "add", "absent"]] });
+    const systemRaw = JSON.parse(fs.readFileSync(path.join(__dirname, "smoke/fixtures/plugins/acme.system/manifest.json"), "utf8"));
+    const systemManifest = logic.validateManifest(systemRaw, "/q").manifest;
+    const systemScenario = mode => {
+        const lifetime = load(path.join(CORE, "Lifetime.js")).create(error => { throw error; });
+        const scope = { onDispose: lifetime.register, get active() { return lifetime.active; } };
+        let end;
+        let probes = 0;
+        const delivered = [];
+        const sandbox = vm.createContext({
+            Logic: logic, Error: Error, JSON: JSON,
+            Registry: { has: () => true, manifests: { "acme.system": systemManifest }, isEnabled: () => true },
+            PluginStatus: { valuesOf: () => ({ apple: { tone: "warning", text: "needed", action: true } }) },
+            systemSteps: { probe: () => probes++ },
+            tuis: { openCore: (name, args, done) => { end = done; return mode === "busy" ? "refused: tui=core/system reason=busy" : "ok"; } },
+            scope, finished: result => delivered.push(result)
+        });
+        sandbox.root = sandbox;
+        vm.runInContext(functions, sandbox);
+        const answer = vm.runInContext('managerAct("acme.system", "apple", undefined, undefined, scope, finished)', sandbox);
+        const held = lifetime.count;
+        if (mode === "disposed") lifetime.drain();
+        if (mode !== "busy") end({ code: 1, reason: "ended" });
+        return { answer, held, remaining: lifetime.count, probes, delivered };
+    };
+    check("system action completion is scoped and still probes after failure", systemScenario("live"),
+        { answer: "ok", held: 1, remaining: 0, probes: 1, delivered: [{ code: 1, reason: "ended" }] });
+    check("a disposed action drops completion while core still probes", systemScenario("disposed"),
+        { answer: "ok", held: 1, remaining: 0, probes: 1, delivered: [] });
+    check("a busy action promises no completion and releases its callback", systemScenario("busy"),
+        { answer: "busy", held: 0, remaining: 0, probes: 0, delivered: [] });
 }
 managerSuite(CAPABILITIES, load(LOGIC), report);
 {
-    const hop = "        case \"tui\": return tuis.runFor(id, request.name, request.args);\n";
+    const hop = "        case \"tui\": return tuis.runFor(id, request.name, request.args, ctx, done);\n";
     report("control: managerStep hands runFor the request once", CAPABILITIES.split(hop).length - 1, 1);
     let red = 0;
     try {

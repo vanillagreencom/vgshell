@@ -13,6 +13,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const assert = require("node:assert/strict");
+const { execFileSync } = require("node:child_process");
 const { load } = require("../bin/lib/qml-library.js");
 const PageReference = load(path.join(__dirname, "../shell/Commons/PageReference.js"));
 const file = path.join(__dirname, "../shell/plugins/vgs.tailscale/TailscaleLogic.js");
@@ -165,11 +166,26 @@ function suite(logic, service = serviceSource) {
         [{ kind: "switch", id: "c3d4" }, "running", { argv: ["tailscale", "switch", "c3d4"] }],
         [{ kind: "switch", id: "amelie@example.org" }, "running", { refusal: "refused: account=absent" }],
         [{ kind: "switch", id: "c3d4" }, "service-off", { refusal: "refused: action=switch state=service-off" }],
-        [{ kind: "login" }, "signed-out", { argv: ["tailscale", "login", "--timeout", "0"] }],
-        [{ kind: "login" }, "unavailable", { refusal: "refused: action=login state=unavailable" }],
+        [{ kind: "add-account" }, "signed-out", { system: "accountAdd" }],
+        [{ kind: "add-account" }, "unavailable", { refusal: "refused: action=add-account state=unavailable" }],
+        [{ kind: "sign-in", id: "c3d4" }, "signed-out", { argv: ["tailscale", "switch", "c3d4"] }],
+        [{ kind: "sign-in", id: "absent" }, "signed-out", { refusal: "refused: account=absent" }],
+        [{ kind: "login" }, "signed-out", { refusal: "refused: action=unknown" }],
         [{ kind: "restart" }, "running", { refusal: "refused: action=unknown" }],
         [null, "running", { refusal: "refused: action=malformed" }]
     ]) assert.deepEqual(plain(logic.command(request, held(state))), want);
+    // Below the manifest's floor only Add account and Sign in are refused,
+    // each with the update; every other request plans as it does on a
+    // current Tailscale.
+    for (const [request, state, want] of [
+        [{ kind: "add-account" }, "running", { refusal: "refused: action=add-account state=outdated", update: true }],
+        [{ kind: "sign-in", id: "c3d4" }, "signed-out", { refusal: "refused: action=sign-in state=outdated", update: true }],
+        [{ kind: "connect" }, "stopped", { argv: ["tailscale", "up"] }],
+        [{ kind: "disconnect" }, "running", { argv: ["tailscale", "down"] }],
+        [{ kind: "exit-node", id: "" }, "running", { argv: ["tailscale", "set", "--exit-node="] }],
+        [{ kind: "switch", id: "c3d4" }, "running", { argv: ["tailscale", "switch", "c3d4"] }],
+        [{ kind: "logout" }, "running", { argv: ["tailscale", "logout"] }]
+    ]) assert.deepEqual(plain(logic.command(request, Object.assign(held(state), { outdated: true }))), want, "outdated " + request.kind);
 
     // The poll: one run in flight, and only a start arms the watchdog.
     const idle = plain(logic.pollIdle());
@@ -225,6 +241,7 @@ function suite(logic, service = serviceSource) {
         [{ missing: false, state: "running", service: "ready", operator: "denied" }, "", "info"],
         [{ missing: false, state: "running", service: "ready", operator: "unknown" }, "", "info"],
         [{ missing: false, state: "stopped", service: "ready", operator: "unknown" }, "", "info"],
+        [{ missing: false, state: "unavailable", service: "unknown", operator: "unknown" }, "", "info"],
         [{ missing: false, state: "running", service: "ready", operator: "ready" }, "", "ok"]
     ];
     for (const [context, action, tone] of SETUP_ROWS) {
@@ -266,12 +283,13 @@ function suite(logic, service = serviceSource) {
     const ready = logic.setup({ missing: false, state: "running", service: "ready", operator: "ready" });
     const denied = logic.setup({ missing: false, state: "running", service: "ready", operator: "needed" });
     // The action names its result for the user, and the sentence before it holds none of its words.
-    assert.equal(manifest.status.setup.actions.allow.label, "Let my login control Tailscale");
+    assert.equal(manifest.status.accountAdd.action.system, "tailscale-account-add");
     const shown = plain(logic.published(false, running, ready, live));
     assert.deepEqual([shown.state, shown.tone, shown.writable], ["running", "ok", true]);
     assert.equal(logic.published(false, running, denied, live).writable, false);
-    assert.equal(logic.published(false, running, null, live).writable, true, "no step reading locks nothing, as a step that could not be checked");
-    assert.equal(logic.published(true, running, logic.setup({ missing: true, state: "running", service: "ready", operator: "ready" }), live).writable, false,
+    assert.equal(logic.published(false, running, null, live).writable, false, "a pending fresh setup read cannot lend cached access");
+    assert.equal(logic.published(false, running, null, live).checkingSetup, true);
+    assert.equal(logic.published(true, running, ready, live).writable, false,
         "a missing command takes no change, though it offers no step");
     // Each locked value says why in one sentence, names the step the core
     // offers, and tells its cause apart even with no step.
@@ -292,6 +310,50 @@ function suite(logic, service = serviceSource) {
             assert.deepEqual([link.page, link.tab], [manifest.id, "Setup"], "offered and unoffered reasons open the Tailscale service step on Setup");
         }
     }
+    // An outdated command keeps the connection line, its tone and every
+    // connection control; only the account controls wait, each saying
+    // why and opening Setup, where Optional tools offers the update.
+    const current = plain(logic.published(false, running, ready, live));
+    const old = plain(logic.published(false, running, ready, Object.assign({}, live, { outdated: true })));
+    assert.deepEqual([old.state, old.tone, old.writable, old.outdated], [current.state, current.tone, true, true]);
+    assert.equal(logic.lockReason(old, ""), "", "the connection controls stay open below the floor");
+    const busyValue = plain(logic.published(false, running, ready, Object.assign({}, live, { action: "connect" })));
+    const checkingValue = plain(logic.published(false, running, null, live));
+    const deniedValue = plain(logic.published(false, running, denied, live));
+    const oldDenied = plain(logic.published(false, running, denied, Object.assign({}, live, { outdated: true })));
+    const updateReason = logic.accountReason(old, "", "add-account");
+    assert.deepEqual([PageReference.parse(updateReason).page, PageReference.parse(updateReason).tab], [manifest.id, "Setup"]);
+    // Each row: the value, then the reason Add account and Sign in give.
+    // Add runs while operator access is unset, since it sets that access.
+    for (const [tag, value, add, signIn] of [
+        ["current", current, "", ""],
+        ["outdated", old, updateReason, updateReason],
+        ["outdated and denied", oldDenied, updateReason, updateReason],
+        ["busy", busyValue, logic.replyText("busy"), logic.replyText("busy")],
+        ["checking", checkingValue, logic.lockReason(checkingValue, ""), logic.lockReason(checkingValue, "")],
+        ["denied", deniedValue, "", logic.lockReason(deniedValue, steps.allow.label)]
+    ]) {
+        assert.equal(logic.accountReason(value, steps.allow.label, "add-account"), add, "add-account " + tag);
+        assert.equal(logic.accountReason(value, steps.allow.label, "sign-in"), signIn, "sign-in " + tag);
+    }
+    assert.notEqual(logic.lockReason(checkingValue, ""), "");
+    assert.notEqual(logic.lockReason(deniedValue, steps.allow.label), "");
+    assert.throws(() => logic.accountReason(current, "", "switch"));
+    // The account rows: the saved list once it was read, else the status
+    // account as the one current row, so a failed read never draws an
+    // empty card or reads as no saved account.
+    const failedRead = Object.assign({}, live, { accounts: [], accountsRead: false });
+    const signedOutSnap = Object.assign({}, running, { state: "signed-out" });
+    for (const [tag, value, want] of [
+        ["read", logic.published(false, running, ready, Object.assign({}, live, { accountsRead: true })),
+            [["a1b2", "amelie@example.com", "example.com", "In use"], ["c3d4", "amelie@example.org", "example.org", ""]]],
+        ["read empty", logic.published(false, running, ready, Object.assign({}, live, { accounts: [], accountsRead: true })), []],
+        ["unread", logic.published(false, running, ready, failedRead), [["current", running.account, running.tailnet, "In use"]]],
+        ["unread signed out", logic.published(false, signedOutSnap, ready, failedRead), [["current", running.account, running.tailnet, ""]]],
+        ["unread with no status account", logic.published(false, Object.assign({}, running, { account: "" }), ready, failedRead), []]
+    ]) assert.deepEqual(plain(logic.accountRows(value)).map(row => [row.key, row.text, row.secondary, row.badge]), want, tag);
+    assert.notEqual(running.account, "", "the fixture names its status account");
+    assert.equal(plain(logic.unread()).accountsRead, false);
     // Distinct lock causes retain distinct reasons.
     const causes = locked.map(([tailscale]) => logic.lockReason(tailscale, ""));
     assert.equal(new Set(causes).size, causes.length, "each cause says its own why");
@@ -371,7 +433,7 @@ function suite(logic, service = serviceSource) {
     // shrink/grow transitions and a null setup that clears its state entry.
     const publishBody = /function publish\(\) \{([\s\S]*?)\n    \}\n    onPublishedChanged/.exec(service);
     assert.ok(publishBody);
-    const publish = new Function("shell", "connection", "setup", "published", "snapshot", "Logic", publishBody[1]);
+    const publish = new Function("shell", "connection", "setup", "published", "snapshot", "Logic", "stepState", "outdated", publishBody[1]);
     let values = {};
     const shell = { status: { set(key, value) {
         const result = core.statusWrite(manifest, values, key, value);
@@ -382,22 +444,74 @@ function suite(logic, service = serviceSource) {
     } } };
     for (const [data, snap, setupLine] of [[bigValue, largest, ready], [shown, running, denied], [bigValue, largest, denied], [shown, running, null]]) {
         const original = JSON.stringify([data, snap]);
-        publish(shell, { tone: data.tone, text: data.text }, setupLine, data, snap, logic);
+        publish(shell, { tone: data.tone, text: data.text }, setupLine, data, snap, logic, () => "needed", false);
         assert.equal(JSON.stringify([data, snap]), original);
         assert.equal(values.devices.count, snap.devices.count);
         assert.equal(values.exitNodes.cityCount, snap.exitNodes.cityCount);
         assert.deepEqual(values.exitNodes.own.filter(row => row.active), snap.exitNodes.own.filter(row => row.active));
         for (const row of values.exitNodes.own) assert.deepEqual(row, snap.exitNodes.own.find(input => input.id === row.id));
-        assert.deepEqual(Object.keys(values), setupLine === null ? ["connection", "tailscale", "devices", "exitNodes"] : ["connection", "setup", "tailscale", "devices", "exitNodes"]);
+        assert.deepEqual(Object.keys(values), setupLine === null ? ["connection", "tailscale", "devices", "exitNodes", "accountAdd"] : ["connection", "setup", "tailscale", "devices", "exitNodes", "accountAdd"]);
     }
 }
 
+// Execute the production stop body with children that have not acknowledged
+// termination. Injected time tests ownership of the first cleanup deadline;
+// the QML service cases cover Process completion and action release.
+function loginStop(service) {
+    const body = /function endLogin\(\) \{([\s\S]*?)\n    \}\n\n    function finishLogin/.exec(service);
+    assert.ok(body, "the production sign-in stop is readable");
+    const stop = new Function("signIn", "browser", "loginDeadline", "browserDeadline", "loginCleanup", "finishLogin", body[1]);
+    const signIn = { ended: false, get running() { return true; }, set running(value) { assert.equal(value, false); } };
+    const browser = { environment: {}, get running() { return true; }, set running(value) { assert.equal(value, false); } };
+    let now = 100;
+    let deadline = null;
+    const producerStops = [];
+    const invoke = () => stop(signIn, browser, { stop() { producerStops.push("login"); } }, { stop() { producerStops.push("browser"); } },
+        { restart() { deadline = now + 5000; } }, () => {});
+    invoke();
+    const first = deadline;
+    assert.notEqual(first, null, "first stop arms cleanup while children remain owned");
+    now += 2000;
+    invoke();
+    assert.equal(deadline, first, "repeated Cancel cannot postpone owned-child cleanup");
+    assert.deepEqual(producerStops.sort(), ["browser", "login"], "first stop ends both producer deadlines once");
+    for (const owner of ["browserDeadline", "loginDeadline"]) {
+        const handler = new RegExp("id: " + owner + "[\\s\\S]*?onTriggered: \\{([\\s\\S]*?)\\n        \\}").exec(service);
+        assert.ok(handler, owner + " has a production timeout handler");
+        const root = { problem: "", endLogin() { assert.fail("a cancelled run cannot end again"); } };
+        new Function("root", "signIn", "Logic", handler[1])(root, signIn, { failureText() { return "timeout"; } });
+        assert.equal(root.problem, "", "late " + owner + " cannot turn cancellation into failure");
+    }
+}
+
+// Run the actual fixed command in a private PATH, with no inherited session.
+// A caller's exported generic variable must not re-export the private URL.
+function openerPrivacy(service) {
+    const command = /id: browser\n[\s\S]*?\n        command: (\[[^\n]+\])/.exec(service);
+    assert.ok(command, "the production opener argv is readable");
+    const argv = JSON.parse(command[1]);
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "tailscale-opener-"));
+    const privateUrl = "https://login.example.test/private-$(literal-data)";
+    try {
+        fs.symlinkSync("/bin/sh", path.join(scratch, "sh"));
+        fs.writeFileSync(path.join(scratch, "xdg-open"), '#!/bin/sh\nprintf "argv=%s\\n" "$1"\n/usr/bin/env\n', { mode: 0o700, flag: "wx" });
+        const result = execFileSync(argv[0], argv.slice(1), {
+            env: { PATH: scratch, VGS_TEST_RUN: "1", VGS_TAILSCALE_AUTH_URL: privateUrl, url: "public-caller-value" },
+            encoding: "utf8", timeout: 10000, killSignal: "SIGKILL", stdio: ["ignore", "pipe", "pipe"]
+        }).trim().split("\n");
+        assert.equal(result[0], "argv=" + privateUrl, "the address remains one literal opener argument");
+        assert.equal(result.slice(1).some(line => line.includes(privateUrl)), false, "descendants inherit no private address");
+    } finally { fs.rmSync(scratch, { recursive: true, force: true }); }
+}
+
+openerPrivacy(serviceSource);
+loginStop(serviceSource);
 suite(load(file, commons));
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "tailscale-logic-"));
 try {
     const source = fs.readFileSync(file, "utf8");
     for (const [name, needle, replacement] of [
-        ["a missing command takes no change", 'writable: !missing && (setupLine === null || setupLine.action === ""),', 'writable: (setupLine === null || setupLine.action === ""),'],
+        ["a missing command takes no change", 'writable: !missing && setupLine !== null && setupLine.tone === "ok",', 'writable: setupLine !== null && setupLine.tone === "ok",'],
         ["a writable value gives no reason", 'if (tailscale.writable) return "";', ''],
         ["a service that is off is told apart", 'tailscale.state === "service-off" ? "The', 'false ? "The'],
         ["the reason names the step", 'return step === "" ? cause +', 'return true ? cause +'],
@@ -419,7 +533,7 @@ try {
         ["each unoffered service state names why", '    denied: { text: "Off", hint: "The system turned the Tailscale service off, and VGS leaves it off." }\n', ''],
         ["another account's operator reads info", 'return setupState("info", "Another account"', 'return setupState("warning", "Another account"'],
         ["the published setup value keeps its hint", 'if (setupLine.hint !== "") setupValue.hint = setupLine.hint;', ''],
-        ["an unread operator is not Ready", 'context.operator === "unknown" && REACHED', 'context.operator === "unread" && REACHED'],
+        ["an unread operator is not Ready", 'context.operator !== "ready"', 'context.operator === "unread"'],
         ["an operator with no reading reads Ready", '    if (context.operator === "") return null;\n', ''],
         ["a service with no reading reads Not checked", '        if (context.service === "") return null;\n', ''],
         ["an exit node goes by its target", '"--exit-node=" + node.target]', '"--exit-node=" + node.id]'],
@@ -442,6 +556,10 @@ try {
         ["best available is the highest ranked", 'if (country.best === null || beats(ranked, country.best.node))', 'if (country.best === null)'],
         ["best available ranks online nodes first", 'var ranked = { active: false, online: node.online, rank: node.rank };', 'var ranked = { active: false, online: true, rank: node.rank };'],
         ["the devices value keeps its budget", 'while (bytes(devicesOut) > DEVICES_BYTES', 'while (bytes(devicesOut) > 2 * DEVICES_BYTES'],
+        ["the floor stops only the account requests", 'var FLOOR_KINDS = ["add-account", "sign-in"];', 'var FLOOR_KINDS = ["add-account", "sign-in", "connect"];'],
+        ["the floor stops the account requests", '    if (data.outdated === true && FLOOR_KINDS.indexOf(request.kind) !== -1)\n        return { refusal: "refused: action=" + request.kind + " state=outdated", update: true };\n', ''],
+        ["the add transaction waits on no operator access", '    return tailscale.checkingSetup ? CHECKING_TEXT : "";\n}', '    return lockReason(tailscale, step);\n}'],
+        ["an unread list draws the status account", '    if (!tailscale.accountsRead)\n', '    if (false)\n'],
         ["the online count covers every device", 'online: all.filter(function (row) { return row.online; }).length', 'online: all.slice(0, PEER_MAX).filter(function (row) { return row.online; }).length']
     ]) {
         assert.equal(source.split(needle).length - 1, 1, name + " mutation must match once");

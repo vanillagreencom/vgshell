@@ -894,7 +894,7 @@ function suite(ctx, configLogic, check) {
         ["a data entry with an action", { capabilities: ["status"], status: { a: { type: "data", label: "A", action: { label: "Go", tui: "setup" } } } }, "status.a.action needs a type whose value says when it applies"],
         // systemSteps (D081): steps of the core's closed table, read through capability system.
         ["systemSteps naming two steps", { capabilities: ["system"], systemSteps: ["apple-displays", "i2c-dev"] }, null],
-        ["every step of the table", { capabilities: ["system"], systemSteps: ["apple-displays", "i2c-dev", "service-bluetooth", "service-tailscaled", "service-cups", "tailscale-operator", "greeter", "bandwhich-capture", "reboot-notice", "voxtype-engine"] }, null],
+        ["every step of the table", { capabilities: ["system"], systemSteps: ["apple-displays", "i2c-dev", "service-bluetooth", "service-tailscaled", "service-cups", "tailscale-operator", "tailscale-account-add", "greeter", "bandwhich-capture", "reboot-notice", "voxtype-engine"] }, null],
         ["systemSteps that is not a list", { capabilities: ["system"], systemSteps: "i2c-dev" }, "systemSteps must be a non-empty list of steps of the core's table"],
         ["an empty systemSteps", { capabilities: ["system"], systemSteps: [] }, "systemSteps must be a non-empty list"],
         ["a step outside the table", { capabilities: ["system"], systemSteps: ["etc-shadow"] }, "systemSteps.0 must be one of"],
@@ -1188,7 +1188,7 @@ function suite(ctx, configLogic, check) {
     check("validateManifest normalizes absent requirements to a list", ctx.validateManifest(bar, "/p").manifest.requirements, []);
     check("validateManifest normalizes an absent systemSteps to a list", ctx.validateManifest(bar, "/p").manifest.systemSteps, []);
     check("validateManifest keeps the declared systemSteps", ctx.validateManifest(Object.assign({}, bar, { capabilities: ["system"], systemSteps: ["i2c-dev", "apple-displays"] }), "/p").manifest.systemSteps, ["i2c-dev", "apple-displays"]);
-    check("the system step table is bin/vgshell-system's", ctx.SYSTEM_STEPS, ["apple-displays", "disk-sleep", "i2c-dev", "service-bluetooth", "service-tailscaled", "service-cups", "tailscale-operator", "greeter", "bandwhich-capture", "reboot-notice", "voxtype-engine", "vgs-quickshell-repository", "wake-sources"]);
+    check("the system step table is bin/vgshell-system's", ctx.SYSTEM_STEPS, ["apple-displays", "disk-sleep", "i2c-dev", "service-bluetooth", "service-tailscaled", "service-cups", "tailscale-operator", "tailscale-account-add", "greeter", "bandwhich-capture", "reboot-notice", "voxtype-engine", "vgs-quickshell-repository", "wake-sources"]);
     const trafficManifest = ctx.validateManifest(JSON.parse(fs.readFileSync(path.join(__dirname, "../shell/plugins/vgs.traffic/manifest.json"), "utf8")), "/traffic");
     check("traffic declares its judged capture system step", trafficManifest.ok, true);
     if (trafficManifest.ok) {

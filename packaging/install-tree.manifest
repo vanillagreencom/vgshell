@@ -19,6 +19,7 @@ f share/vgshell/bin/lib/pkg-run.sh
 f share/vgshell/bin/lib/post-install.txt
 f share/vgshell/bin/lib/qml-library.js
 f share/vgshell/bin/lib/self.js
+f share/vgshell/bin/lib/tailscale-account.py
 f share/vgshell/bin/lib/theme-backgrounds.js
 f share/vgshell/bin/lib/theme-catalog.js
 f share/vgshell/bin/lib/theme-download.js
