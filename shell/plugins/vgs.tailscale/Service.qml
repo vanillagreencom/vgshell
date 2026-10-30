@@ -60,7 +60,7 @@ Item {
     property int suggestsStarted: 0
     // The command that runs now, "" for none.
     property string action: ""
-    // `idle`, `waiting` for the sign-in page's address, or `opened`.
+    // `idle`, `waiting` for the address, `opening` the page, or `opened`.
     property string login: "idle"
     // The lines the sign-in run printed that hold no address, which name
     // a failed run's cause.
@@ -325,7 +325,7 @@ Item {
     function act(arg) {
         const request = JSON.parse(arg);
         if (request.kind === "cancel-login") {
-            if (signIn.running) root.endLogin();
+            if (login !== "idle") root.endLogin();
             return "ok";
         }
         if (request.kind === "admin-console") return openAdminConsole();
@@ -409,7 +409,7 @@ Item {
     // `tailscale up` prints the sign-in page's address and waits until
     // the user finishes there. The first address opens in the browser.
     function startLogin(argv) {
-        if (signIn.running) return "busy";
+        if (signIn.running || browser.running) return "busy";
         if (shell.requirements.missing.indexOf("xdg-open") !== -1) {
             shell.requirements.offer(["xdg-open"]);
             problem = "A browser tool is missing; use the installation notice to add it.";
@@ -430,31 +430,97 @@ Item {
     // Ends the sign-in run as the service's own stop, which is no failure.
     function endLogin() {
         signIn.ended = true;
+        loginCleanup.restart();
+        browser.environment = ({});
+        browser.running = false;
         signIn.running = false;
+        finishLogin();
+    }
+
+    function finishLogin() {
+        if (login === "idle" || signIn.running || browser.running) return;
+        loginDeadline.stop();
+        browserDeadline.stop();
+        loginCleanup.stop();
+        login = "idle";
+        finishAction();
     }
 
     function loginLine(text) {
+        if (signIn.ended || action !== "sign-in") return;
         const url = Logic.loginUrl(text);
         if (url === "") {
             if (loginSaid.length < Logic.LOGIN_SAID_MAX) loginSaid += text + "\n";
             return;
         }
         if (login !== "waiting") return;
-        const reply = shell.run.detached(["xdg-open", url]);
-        if (reply === "ok") {
-            login = "opened";
-            return;
+        login = "opening";
+        browser.completion = null;
+        browser.environment = ({ VGSHELL_RUNNER_PID: null, VGS_TAILSCALE_AUTH_URL: url });
+        browserDeadline.restart();
+        browser.running = true;
+    }
+
+    Timer {
+        id: browserDeadline
+        objectName: "tailscale-browser-deadline"
+        interval: Logic.WATCHDOG_MS
+        repeat: false
+        onTriggered: {
+            root.problem = "The browser tool did not answer; try signing in again.";
+            root.endLogin();
         }
-        console.warn("tailscale: sign-in page " + reply);
-        problem = "VGS could not open the sign-in page.";
-        endLogin();
+    }
+
+    Timer {
+        id: loginCleanup
+        // The managed-child cleanup grace is runtime.md's five seconds.
+        interval: 5000
+        repeat: false
+        onTriggered: {
+            if (browser.running) browser.signal(9);
+            if (signIn.running) signIn.signal(9);
+        }
+    }
+
+    Process {
+        id: browser
+        property var completion: null
+        // Process FailedToStart logs argv. Keep the address out of that
+        // diagnostic and out of descendants' environment. Fixed shell
+        // source reads data only; it never evaluates the private address.
+        command: ["/bin/sh", "-c", "url=$VGS_TAILSCALE_AUTH_URL; unset VGS_TAILSCALE_AUTH_URL; exec xdg-open \"$url\""]
+        // Drain neither channel into a log or status: browser errors may
+        // repeat the authentication address.
+        onStarted: browser.environment = ({})
+        onExited: (code, status) => { browser.completion = { code: code, status: status }; }
+        onRunningChanged: {
+            if (running) return;
+            browserDeadline.stop();
+            browser.environment = ({});
+            // v0.3.1 Process emits exited before runningChanged; failed
+            // startup emits only runningChanged. Both owners must stop
+            // before action release, so no old completion crosses a retry.
+            // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/Process/
+            if (!signIn.ended && root.login === "opening") {
+                if (root.codeOf(completion) === 0) root.login = "opened";
+                else {
+                    root.problem = completion === null ? "VGS could not start the browser tool." : "The browser tool could not open the sign-in page.";
+                    root.endLogin();
+                }
+            }
+            root.finishLogin();
+        }
     }
 
     Timer {
         id: loginDeadline
         interval: Logic.LOGIN_MS
         repeat: false
-        onTriggered: signIn.signal(9)
+        onTriggered: {
+            root.problem = Logic.failureText("timeout");
+            root.endLogin();
+        }
     }
 
     Process {
@@ -467,17 +533,16 @@ Item {
         onExited: (code, status) => { signIn.completion = { code: code, status: status }; }
         onRunningChanged: {
             if (running) return;
-            loginDeadline.stop();
             const code = root.codeOf(completion);
             if (!ended && code !== 0) {
                 const kind = code === -1 ? "timeout" : Logic.failureKind(root.loginSaid);
                 console.warn("tailscale: login failed kind=" + kind + " " + root.loginSaid.trim());
                 root.problem = Logic.failureText(kind);
+                root.endLogin();
             } else if (!ended && root.login === "waiting") {
                 root.problem = "Tailscale gave no sign-in page.";
             }
-            root.login = "idle";
-            root.finishAction();
+            root.finishLogin();
         }
     }
 }

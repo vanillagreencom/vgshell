@@ -10,8 +10,6 @@ Item {
     id: root
     property var setupDone: []
     property var actionDone: null
-    property var opened: []
-    property string browserReply: "ok"
     property var writes: ({})
     property bool oldTools: false
     property var offers: []
@@ -25,7 +23,7 @@ Item {
         status: { set: (key, value) => { root.writes = Object.assign({}, root.writes, { [key]: value }); return "ok"; },
             act: (key, row, action, done) => { root.actionDone = done; return "ok"; } },
         ipc: { handle: () => "ok" },
-        run: { detached: argv => { root.opened = root.opened.concat([argv]); return root.browserReply; } }
+        run: { detached: argv => "ok" }
     })
     Component { id: serviceComponent; Tailscale.Service {} }
     TestCase {
@@ -44,9 +42,19 @@ Item {
         }
         function fresh() { status(); accounts(); setup(); }
         function act(kind, id) { return service.act(JSON.stringify({ kind: kind, id: id === undefined ? "" : id })); }
+        function signIn() {
+            compare(act("sign-in", "saved"), "ok");
+            process("switch").finish(0, 0, "", ""); accounts();
+            return process("up");
+        }
+        function opener() {
+            const found = ProcessRegistry.processes.filter(row => row.running && row.command[0] === "/bin/sh");
+            compare(found.length, 1, "one tracked opener owns the browser result");
+            return found[0];
+        }
         function init() {
             ProcessRegistry.clear();
-            root.setupDone = []; root.actionDone = null; root.opened = []; root.writes = {}; root.browserReply = "ok"; root.oldTools = false; root.offers = [];
+            root.setupDone = []; root.actionDone = null; root.writes = {}; root.oldTools = false; root.offers = [];
             service = createTemporaryObject(serviceComponent, root);
             service.shell = root.facade;
             fresh();
@@ -94,7 +102,11 @@ Item {
             const auth = process("up");
             compare(auth.command, ["tailscale", "up", "--timeout", "0"]);
             auth.stderr.read("https://login.example.test/auth");
-            compare(root.opened, [["xdg-open", "https://login.example.test/auth"]]);
+            const browser = opener();
+            compare(browser.environment.VGS_TAILSCALE_AUTH_URL, "https://login.example.test/auth");
+            verify(browser.command.join(" ").indexOf("https://") === -1, "startup diagnostics cannot print the private address");
+            compare(service.login, "opening");
+            browser.finish(0, 0, "", "");
             compare(service.login, "opened");
             compare(act("logout"), "busy");
             auth.finish(0, 0, "", "");
@@ -118,15 +130,51 @@ Item {
             verify(service.problem !== "");
             verify(service.checkingSetup);
         }
-        // expected-log: tailscale: sign-in page refused: browser=missing -- The failed browser launch has a typed refusal.
-        function test_browser_handover_refusal_ends_auth_and_keeps_a_reason() {
-            root.browserReply = "refused: browser=missing";
-            compare(act("sign-in", "saved"), "ok");
-            process("switch").finish(0, 0, "", ""); accounts();
-            process("up").stderr.read("https://login.example.test/auth");
-            compare(ProcessRegistry.runningWithVerb("up").length, 0);
+        function test_opener_failure_data() {
+            return [{ tag: "failed-start", ending: "start" }, { tag: "nonzero", ending: "exit" }, { tag: "deadline", ending: "deadline" }];
+        }
+        function test_opener_failure(data) {
+            const auth = signIn();
+            auth.stderr.read("https://login.example.test/private-auth");
+            const browser = opener();
+            compare(act("add-account"), "busy");
+            if (data.ending === "start") browser.failStart();
+            else if (data.ending === "exit") browser.finish(1, 0, "", "private output is not a cause");
+            else findChild(service, "tailscale-browser-deadline").triggered();
             verify(service.problem !== "");
+            verify(service.problem.indexOf("private") === -1);
+            compare(service.login, "idle");
+            compare(service.action, "");
+            compare(ProcessRegistry.runningWithVerb("up").length, 0);
             verify(service.checkingSetup);
+            auth.stderr.read("https://login.example.test/late-address");
+            compare(ProcessRegistry.processes.filter(row => row.running && row.command[0] === "/bin/sh").length, 0);
+            fresh();
+            compare(act("add-account"), "ok");
+            browser.exited(0, 0);
+            compare(service.action, "add-account");
+        }
+        function test_cancel_stops_the_owned_opener_and_ignores_late_address() {
+            const auth = signIn();
+            auth.stderr.read("https://login.example.test/private-auth");
+            const browser = opener();
+            compare(act("cancel-login"), "ok");
+            compare(browser.running, false);
+            compare(auth.running, false);
+            compare(service.action, "");
+            compare(service.problem, "");
+            auth.stderr.read("https://login.example.test/late-address");
+            compare(browser.running, false);
+        }
+        function test_auth_completion_waits_for_the_opener_result() {
+            const auth = signIn();
+            auth.stderr.read("https://login.example.test/private-auth");
+            const browser = opener();
+            auth.finish(0, 0, "", "");
+            compare(act("add-account"), "busy");
+            browser.finish(1, 0, "", "");
+            verify(service.problem !== "");
+            compare(service.action, "");
         }
     }
 }
