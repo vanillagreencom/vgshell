@@ -10,6 +10,11 @@
 # fixture polls its gates every 10 ms.
 # inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/Core/TuiRunner.qml shell/Core/PluginStatus.qml shell/Core/Notifier.qml shell/plugins/vgs.notifications/* scripts/smoke/rows/jarvis.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/SessionLock.qml bin/vgshell-tui
 set -euo pipefail
+jarvis_tasks_probe_was="$(plugin_enabled acme.probe)"
+case "${jarvis_tasks_probe_was}" in
+  True|False) ;;
+  *) fail "the shared probe enablement is unreadable: ${jarvis_tasks_probe_was}"; return 1 ;;
+esac
 expected_errors+=('WARN qml: jarvis: task-stop=not-alive task=smoke-task-[0-9]+')
 # The planted floating-notice control reaches the keyed refusal warning.
 expected_errors+=('WARN qml: jarvis: task-open=floating task=smoke-task-[0-9]+')
@@ -279,3 +284,7 @@ jarvis_rescan
 jarvis_notice_close
 
 rm -f -- "${task_prompts:?}"/*.prompt.json "${task_prompts:?}"/*.answer.json
+
+expect "jarvis-tasks restores its incoming probe enablement" ok ipc shell setPluginEnabled acme.probe "${jarvis_tasks_probe_was,,}"
+expect_poll "jarvis-tasks leaves the probe enablement as found" "${jarvis_tasks_probe_was}" plugin_enabled acme.probe
+expect_poll "jarvis-tasks leaves the probe built state as found" "${jarvis_tasks_probe_was}" record_exists acme.probe

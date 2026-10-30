@@ -18,7 +18,7 @@
 # A popover and a dialog in the summoned panel's popup cap their height at
 # their share of the output; copies that find the output as the Qt window's
 # own `screen` cap at the fallback.
-# inputs: scripts/smoke/fixtures/plugins/acme.overlays/* shell/Ui/overlay/* shell/Commons/AnchorTracker.qml shell/Ui/qmldir shell/Ui/controls/Select.qml shell/Ui/controls/InputWidth.qml shell/Ui/feedback/Dialog.qml
+# inputs: scripts/smoke/fixtures/plugins/acme.overlays/* shell/Ui/overlay/* shell/Commons/AnchorTracker.qml shell/Ui/qmldir shell/Ui/controls/Select.qml shell/Ui/controls/InputWidth.qml shell/Ui/feedback/Dialog.qml scripts/smoke/rows/plugins.sh
 set -euo pipefail
 ov="$home/.config/vgshell/plugins/acme.overlays"
 mkdir -p "$ov"
@@ -425,6 +425,17 @@ expect_poll "the popover is open before teardown" true ovr popoverOpen
 expect "disabling the overlay fixture is allowed" ok ipc shell setPluginEnabled acme.overlays false
 expect_poll "the disabled fixture leaves the build records" False record_exists acme.overlays
 
+user_config_write python3 - "$home/.config/vgshell/shell.json" <<'PY_UNPLACE'
+import json, sys
+with open(sys.argv[1]) as source:
+    config = json.load(source)
+layout = config["bar"]["layout"]
+for section, entries in layout.items():
+    layout[section] = [entry for entry in entries if entry["id"] != "acme.overlays"]
+json.dump(config, sys.stdout)
+print()
+PY_UNPLACE
+expect_poll "overlays leaves no placement for its removed fixture" False plugin_placed acme.overlays
 rm -rf -- "${ov:?}"
 rescan "a rescan removes overlays's disabled row-only fixtures"
 expect_poll "acme.overlays is absent after overlays cleanup" False plugin_known acme.overlays

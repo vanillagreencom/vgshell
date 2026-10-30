@@ -1,5 +1,3 @@
-# read-only-prefix.sh and start-order.sh consume the enabled screensaver startup profile documented by harness.sh.
-# leaves: plugins
 # Screensaver plugin Phase B row. It uses a ttfx stand-in whose help carries
 # one planted effect and whose frames are deterministic. Latency polls use
 # expect_poll's 0.2 s cadence. Measured row runtime on host cachy on
@@ -7,6 +5,11 @@
 # deadline checks add an unmeasured wait.
 # inputs: shell/plugins/vgs.screensaver/* shell/plugins/vgs.screensaver/bin/transcode-ascii shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Compositor.qml shell/Hosts/BackgroundHost.qml scripts/smoke/toplevel/* scripts/smoke/mode-hold.sh scripts/smoke/fixtures/screensaver-ttfx scripts/smoke/rows/capability-release.sh scripts/smoke/rows/lock.sh scripts/smoke/rows/capabilities.sh
 set -euo pipefail
+ss_screensaver_enabled="$(plugin_enabled vgs.screensaver)"
+case "$ss_screensaver_enabled" in
+  True|False) ;;
+  *) fail "the screensaver plugin's enabled state is unreadable: $ss_screensaver_enabled"; return 1 ;;
+esac
 # lock is exclusive: acme.probe can hold it and block vgs.lock from building.
 # Free it for this row, then restore acme.probe and vgs.lock to their starting
 # states. setPluginEnabled persists across the mid-row shell restart.
@@ -518,7 +521,7 @@ done
 expect "lock alone locks at its time" locked session_lock
 release "screensaver lock-alone"
 expect "disabling lock after lock-alone check" ok ipc shell setPluginEnabled vgs.lock false
-expect "enabling screensaver is allowed for later rows" ok ipc shell setPluginEnabled vgs.screensaver true
+expect "enabling screensaver before restoring its settings is allowed" ok ipc shell setPluginEnabled vgs.screensaver true
 set_lock_seconds 300
 set_screensaver '{"idleEnabled": true, "idleSeconds": 150, "effect": "random", "frameRate": 30}'
 expect "reload after screensaver row restore" ok ipc shell reloadConfig
@@ -533,3 +536,8 @@ if [[ $ss_probe_enabled == True ]]; then
   expect_poll "the capability fixture is built again after the row" True record_exists acme.probe
 fi
 rm -f -- "${shim:?}/ttfx"
+
+expect "screensaver restores its incoming enablement" ok ipc shell setPluginEnabled vgs.screensaver "${ss_screensaver_enabled,,}"
+expect_poll "screensaver enablement is as the row found it" "$ss_screensaver_enabled" plugin_enabled vgs.screensaver
+expect_poll "screensaver service state is as the row found it" "$ss_screensaver_enabled" record_exists vgs.screensaver
+notifications_restore_owner

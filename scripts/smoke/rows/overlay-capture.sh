@@ -8,6 +8,14 @@
 # inputs: shell/Core/HyprlandLayer.js shell/Hosts/SummonLayer.qml shell/Ui/layout/SurfaceHeight.qml shell/plugins/vgs.launcher/* shell/plugins/vgs.themes/* bin/vgshell scripts/smoke/toplevel/* shell/Core/ShortcutRegistry.qml shell/Core/Plugins.qml scripts/smoke/rows/theme-browser.sh scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 overlay_capture_launcher_enabled="$(plugin_enabled vgs.launcher)"
+overlay_capture_entry="${leak_starts[-1]}"
+printf 'overlay-capture: entry snapshot=%s\n' "$overlay_capture_entry"
+printf 'overlay-capture: entry launcher='
+py_reply 'import json,sys; print(next((p["enabled"] for p in json.load(sys.stdin)["plugins"] if p["id"] == "vgs.launcher"), "absent"))' <"$overlay_capture_entry/plugins"
+printf 'overlay-capture: entry submap='
+cat -- "$overlay_capture_entry/submap"
+printf 'overlay-capture: entry focused-client='
+cat -- "$overlay_capture_entry/focus"
 
 overlay_capture_themes_enabled="$(python3 -c 'import json,sys; print("false" if "vgs.themes" in json.load(open(sys.argv[1])).get("disabledPlugins",[]) else "true")' "$home/.config/vgshell/shell.json")"
 restore_overlay_capture_themes() {

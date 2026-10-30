@@ -21,6 +21,11 @@
 # runs. Each read polls once per nested IPC round trip.
 # inputs: scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js shell/plugins/vgs.voice/* scripts/fixtures/jarvis-local-speech/standin.py shell/Core/Sounds.qml shell/plugins/vgs.launcher/* shell/plugins/vgs.jarvis/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js scripts/fixtures/jarvis/* scripts/fixtures/jarvis-setup/status.py scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml shell/Core/SessionLock.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Core/Notifier.qml shell/plugins/vgs.notifications/* scripts/smoke/rows/jarvis.sh
 set -euo pipefail
+jarvis_controls_probe_was="$(plugin_enabled acme.probe)"
+case "${jarvis_controls_probe_was}" in
+  True|False) ;;
+  *) fail "the shared probe enablement is unreadable: ${jarvis_controls_probe_was}"; return 1 ;;
+esac
 
 jarvis_reject_timeout_start() {
   (failures=0 behaviour_failures=0
@@ -1647,3 +1652,7 @@ rm -f -- "${jarvis_local_marker:?}" "${jarvis_voxtype:?}" "${jarvis_voice_bridge
 dictation_stand_ins off
 jarvis_rescan
 jarvis_notice_close
+
+expect "jarvis-controls restores its incoming probe enablement" ok ipc shell setPluginEnabled acme.probe "${jarvis_controls_probe_was,,}"
+expect_poll "jarvis-controls leaves the probe enablement as found" "${jarvis_controls_probe_was}" plugin_enabled acme.probe
+expect_poll "jarvis-controls leaves the probe built state as found" "${jarvis_controls_probe_was}" record_exists acme.probe

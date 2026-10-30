@@ -13,7 +13,7 @@
 # page reference in a FormRow's message opens the Settings window on that
 # page, by a click and by Tab then Enter. A page no plugin has and a shell
 # with the manager window off each answer a refusal.
-# inputs: shell/Ui/controls/FormRow.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Core/Capabilities.qml shell/Core/Plugins.qml shell/Core/Registry.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml scripts/smoke/fixtures/plugins/acme.surfaces/* shell/plugins/vgs.launcher/* shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Ui/layout/SurfaceHeight.qml shell/Hosts/SummonPopup.qml shell/Commons/AnchorTracker.qml shell/Ui/BarWidget.qml shell/Ui/overlay/Menu.qml shell/Hosts/PluginSlot.qml shell/Hosts/BackgroundHost.qml shell/Hosts/AppWindow.qml scripts/smoke/toplevel/* scripts/smoke/rows/sources.sh shell/Ui/foundation/FocusRing.qml shell/Ui/overlay/ModalDialog.qml shell/Ui/feedback/Dialog.qml shell/Ui/layout/Pane.qml shell/Commons/Tokens.js shell/Ui/foundation/KeyNavLogic.js scripts/smoke/rows/hyprland-consent.sh shell/Core/HyprlandLayer.js scripts/smoke/rows/capabilities.sh
+# inputs: shell/Ui/controls/FormRow.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Core/Capabilities.qml shell/Core/Plugins.qml shell/Core/Registry.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml scripts/smoke/fixtures/plugins/acme.surfaces/* shell/plugins/vgs.launcher/* shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Ui/layout/SurfaceHeight.qml shell/Hosts/SummonPopup.qml shell/Commons/AnchorTracker.qml shell/Ui/BarWidget.qml shell/Ui/overlay/Menu.qml shell/Hosts/PluginSlot.qml shell/Hosts/BackgroundHost.qml shell/Hosts/AppWindow.qml scripts/smoke/toplevel/* scripts/smoke/rows/sources.sh shell/Ui/foundation/FocusRing.qml shell/Ui/overlay/ModalDialog.qml shell/Ui/feedback/Dialog.qml shell/Ui/layout/Pane.qml shell/Commons/Tokens.js shell/Ui/foundation/KeyNavLogic.js scripts/smoke/rows/hyprland-consent.sh shell/Core/HyprlandLayer.js scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh
 set -euo pipefail
 surf="$home/.config/vgshell/plugins/acme.surfaces"
 mkdir -p "$surf"
@@ -1539,6 +1539,17 @@ start_shell "$repo" "$sandbox/page-reference-restored.log" || fail "the page ref
 
 notifications_restore_owner
 
+user_config_write python3 - "$home/.config/vgshell/shell.json" <<'PY_UNPLACE'
+import json, sys
+with open(sys.argv[1]) as source:
+    config = json.load(source)
+layout = config["bar"]["layout"]
+for section, entries in layout.items():
+    layout[section] = [entry for entry in entries if entry["id"] != "acme.surfaces"]
+json.dump(config, sys.stdout)
+print()
+PY_UNPLACE
+expect_poll "surfaces leaves no placement for its removed fixture" False plugin_placed acme.surfaces
 rm -rf -- "${surf:?}"
 rescan "a rescan removes surfaces's disabled row-only fixtures"
 expect_poll "acme.surfaces is absent after surfaces cleanup" False plugin_known acme.surfaces

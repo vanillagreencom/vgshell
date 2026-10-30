@@ -933,7 +933,7 @@ nested_xwayland_check
 # launcher's reason; rows/keyhints.sh enables it and disables it again.
 # vgs.scratchpads starts disabled for the launcher's reason;
 # rows/scratchpads.sh enables it and disables it again. The screensaver
-# row enables vgs.screensaver for the smoke set. vgs.sudo starts disabled,
+# row restores its incoming enablement after its checks. vgs.sudo starts disabled,
 # so no earlier row counts its widget in the bar or its hold of `sudo`;
 # rows/sudo.sh enables it and disables it again.
 # The System family's ids, vgs.system, vgs.sound, vgs.bluetooth,
