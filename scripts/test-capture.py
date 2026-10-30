@@ -197,13 +197,14 @@ const launch = new Function("shell", "Hyprland", "Paths", "outputRectangles", "w
 console.log(JSON.stringify([launch("screenshot", "NESTED", []), requests]));
 """
     def launched(source):
-        reply, requests = run(start, {"body": service_function(source, "launch"), "settings": {**manifest["settings"], "delay": 7, "timeout": 30}})
-        return reply == "ok" and len(requests) == 1 and requests[0].get("delay") == 7 and "timeout" not in requests[0]
-    assert launched(service), "the worker's request carries the stored delay and no time limit"
+        reply, requests = run(start, {"body": service_function(source, "launch"), "settings": {**manifest["settings"], "delay": 7, "timeout": 30, "browser": "fixture-browser --select %f"}})
+        return reply == "ok" and len(requests) == 1 and requests[0].get("delay") == 7 and "timeout" not in requests[0] and requests[0].get("browser") == "fixture-browser --select %f"
+    assert launched(service), "the worker's request carries the stored delay and browser, with no time limit"
     for name, before, after in [
         ("delay-unread", " delay: s.delay,", " delay: 0,"),
         ("delay-overwritten", "        const job = workerComponent.createObject(", "        request.delay = 0;\n        const job = workerComponent.createObject("),
         ("timeout-sent", " delay: s.delay,", " delay: s.delay, timeout: s.timeout,"),
+        ("browser-unread", "browser: s.browser,", "browser: s.player,"),
     ]:
         assert service.count(before) == 1, name
         assert not launched(service.replace(before, after)), "control did not fail: " + name
@@ -252,7 +253,7 @@ def request(root, action):
     return {"action": action, "output": "NESTED", "folder": str(root / "pictures"), "recordFolder": str(root / "videos"), "audio": "desktop", "smart": False,
             "quality": "very_high", "frameRate": 60, "codec": "auto", "constantFrameRate": True, "recordCursor": False, "audioSources": [],
             "webcam": False, "webcamDevice": "", "postProcess": True, "ocrLanguages": "eng", "stateDir": str(root / "state"),
-            "viewer": "imv %f", "editor": "satty --filename %f --output-filename %f", "player": "mpv %f",
+            "viewer": "imv %f", "editor": "satty --filename %f --output-filename %f", "player": "mpv %f", "browser": "nautilus --select %f",
             "outputs": [{"x": 0, "y": 0, "width": 320, "height": 240, "name": "NESTED", "scale": 1, "transform": 0}]}
 
 
@@ -1088,7 +1089,9 @@ def open_with_cases():
          [("default", "Open", ["imv", "--title=%f", "FILE"]), ("edit", "Edit", ["satty", "--filename", "FILE", "--output-filename", "FILE"])]),
         ("screenshot-no-editor", "screenshot", ("imv",), "pictures", [("default", "Open", ["imv", "--title=%f", "FILE"])]),
         ("screenshot-no-tools", "screenshot", (), "pictures", []),
+        ("recording-browser", "record-output", ("mpv", "nautilus"), "my recordings", [("default", "Open", ["mpv", "FILE"]), ("show", "Show", ["nautilus", "--select", "FILE"])]),
         ("recording-player", "record-output", ("imv", "satty", "mpv"), "pictures", [("default", "Open", ["mpv", "FILE"])]),
+        ("recording-browser-no-player", "record-output", ("nautilus",), "pictures", [("show", "Show", ["nautilus", "--select", "FILE"])]),
         ("recording-no-player", "record-output", ("imv", "satty"), "pictures", []),
         ("text", "text", ("imv", "satty", "mpv"), "pictures", []),
     ]
@@ -1112,7 +1115,8 @@ def notification_functions(base, source, plant_world):
     assert not holds("screenshot-no-editor", mutated("absent-tool-offered", "if not words or shutil.which(words[0]) is None:", "if not words:")), "control did not fail: absent-tool-offered"
     assert not holds("screenshot-tools", mutated("file-appended", 'if "%f" not in words:', "if True:")), "control did not fail: file-appended"
     assert not holds("screenshot-spaced-path", mutated("file-split", "return [str(path) if word == \"%f\" else word for word in words]", "return \" \".join(str(path) if word == \"%f\" else word for word in words).split()")), "control did not fail: file-split"
-    return "absent-tool-offered,file-appended,file-split"
+    assert not holds("recording-browser", mutated("recording-show-dropped", '("show", "Show", "browser")', '("show", "Show", "player")')), "control did not fail: recording-show-dropped"
+    return "absent-tool-offered,file-appended,file-split,recording-show-dropped"
 
 
 def failure_log_holds(root, helper, reason):

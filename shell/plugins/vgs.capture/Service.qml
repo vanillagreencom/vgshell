@@ -229,7 +229,7 @@ Item {
         const s = shell.settings;
         const request = { action: name, output: output, folder: s.folder, recordFolder: s.recordFolder, audio: s.audio, smart: s.smart, delay: s.delay, cursor: s.cursor, processing: s.processing,
             quality: s.quality, frameRate: s.frameRate, codec: s.codec, constantFrameRate: s.constantFrameRate, recordCursor: s.recordCursor, audioSources: s.audioSources, webcam: s.webcam, webcamDevice: s.webcamDevice,
-            postProcess: s.postProcess, ocrLanguages: s.ocrLanguages, editor: s.editor, viewer: s.viewer, player: s.player, stateDir: Paths.stateDir, windows: windows, outputs: outputRectangles() };
+            postProcess: s.postProcess, ocrLanguages: s.ocrLanguages, editor: s.editor, viewer: s.viewer, player: s.player, browser: s.browser, stateDir: Paths.stateDir, windows: windows, outputs: outputRectangles() };
         const job = workerComponent.createObject(root, { actionName: name, focusAddress: focused === null ? "" : focused.address, command: ["python3", helperPath, JSON.stringify(request)] });
         if (job === null) {
             phase = "idle";

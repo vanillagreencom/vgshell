@@ -93,6 +93,7 @@ Recommends:     tmux
 Recommends:     ydotool
 Recommends:     imv
 Recommends:     mpv
+Recommends:     nautilus
 # end runtime dependencies
 
 %description

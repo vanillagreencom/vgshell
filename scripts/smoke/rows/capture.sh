@@ -1520,11 +1520,19 @@ expect_poll "control: the one-shot sender loses its live identity" null capture_
 expect "control: the identity retention assertion rejects one-shot delivery" False capture_is capture_notice_pair "$capture_control_pair"
 cp -- "$capture_state/helper-original.py" "$capture_helper"
 capture_quiet "recording notification"
+cp -- "$capture_open/player" "$capture_open/browser"
+capture_setting browser "\"$capture_open/browser --select %f\""
 capture_record record-output "notification"
-expect_poll "the saved recording offers Open and Dismiss" '["Open", "Dismiss"]' capture_labels "Recording saved"
+expect_poll "the saved recording offers Open, Show and Dismiss" '["Open", "Show", "Dismiss"]' capture_labels "Recording saved"
 expect "Open is chosen on the recording's notification" kept capture_choose "Recording saved" action:default
 expect_poll "Open hands the player the saved file last" "$(capture_words "$(capture_path)")" capture_opened player
+expect "Show is chosen on the recording's notification" kept capture_choose "Recording saved" action:show
+expect_poll "Show hands the browser the selected recording" "$(capture_words --select "$(capture_path)")" capture_opened browser
 expect "the recording's link is on the clipboard" True capture_uri
+capture_quiet "missing recording browser"
+rm -- "$capture_open/browser"
+capture_record record-output "missing browser notification"
+expect_poll "a missing browser leaves Open and Dismiss" '["Open", "Dismiss"]' capture_labels "Recording saved"
 capture_quiet "text notification"
 expect "text capture for its notification" ok ipc vgs.capture invoke text ''
 expect_poll "the text capture finishes" idle capture_phase

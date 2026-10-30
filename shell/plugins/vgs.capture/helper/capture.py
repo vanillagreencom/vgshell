@@ -543,7 +543,7 @@ class Capture:
         except (OSError, RuntimeError) as error:
             raise RuntimeError(f"Recording saved to {path}; clipboard failed: {error}") from error
         emit("saved", path=str(path), thumbnail=thumbnail, processing=processing, detail=detail,
-             actions=actions(request, path, (("default", "Open", "player"),)))
+             actions=actions(request, path, (("default", "Open", "player"), ("show", "Show", "browser"))))
         self.clipboard_exit(child)
 
     def wait(self, child):

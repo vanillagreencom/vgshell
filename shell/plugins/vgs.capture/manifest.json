@@ -25,11 +25,12 @@
     {"command": "gdbus", "packages": {"pacman": "glib2", "apt": "libglib2.0-bin", "dnf": "glib2", "nix": "glib"}, "optional": false, "purpose": "Closes Capture's notifications when Capture stops"},
     {"command": "imv", "packages": {"pacman": "imv", "dnf": "imv", "nix": "imv"}, "optional": true, "purpose": "Opens a saved screenshot from its notification"},
     {"command": "satty", "packages": {"pacman": "satty", "nix": "satty"}, "optional": true, "purpose": "Edits a saved screenshot from its notification"},
-    {"command": "mpv", "packages": {"pacman": "mpv", "apt": "mpv", "dnf": "mpv", "nix": "mpv"}, "optional": true, "purpose": "Plays a saved recording from its notification"}
+    {"command": "mpv", "packages": {"pacman": "mpv", "apt": "mpv", "dnf": "mpv", "nix": "mpv"}, "optional": true, "purpose": "Plays a saved recording from its notification"},
+    {"command": "nautilus", "packages": {"pacman": "nautilus", "apt": "nautilus", "dnf": "nautilus", "nix": "nautilus"}, "optional": true, "purpose": "Shows a saved recording in its folder from the notification"}
   ],
   "settings": { "folder": "", "recordFolder": "", "audio": "desktop", "smart": true, "delay": 0, "cursor": false, "processing": "save-copy",
     "quality": "very_high", "frameRate": 60, "codec": "auto", "constantFrameRate": true, "recordCursor": false, "audioSources": [], "webcam": false, "webcamDevice": "", "postProcess": true, "ocrLanguages": "eng",
-    "viewer": "imv %f", "editor": "satty --filename %f --output-filename %f", "player": "mpv %f" },
+    "viewer": "imv %f", "editor": "satty --filename %f --output-filename %f", "player": "mpv %f", "browser": "nautilus --select %f" },
   "schema": {
     "smart": {"type": "boolean", "label": "Click to select a window or display", "tooltip": "In an area capture, a click takes the window or display under it and a drag takes an area.", "group": "Screenshots"},
     "cursor": {"type": "boolean", "label": "Include pointer", "group": "Screenshots"},
@@ -49,7 +50,8 @@
     "ocrLanguages": {"type": "string", "label": "Text languages", "group": "Text", "presets": [{"value": "eng", "label": "English"}, {"value": "deu", "label": "German"}, {"value": "fra", "label": "French"}, {"value": "spa", "label": "Spanish"}, {"value": "ita", "label": "Italian"}, {"value": "por", "label": "Portuguese"}, {"value": "nld", "label": "Dutch"}, {"value": "pol", "label": "Polish"}, {"value": "rus", "label": "Russian"}, {"value": "ukr", "label": "Ukrainian"}, {"value": "chi_sim", "label": "Chinese, simplified"}, {"value": "jpn", "label": "Japanese"}, {"value": "kor", "label": "Korean"}], "allowCustom": true, "separator": "+"},
     "viewer": {"type": "string", "label": "Image viewer", "group": "Open with", "presets": [{"value": "imv %f", "label": "imv"}], "allowCustom": true},
     "editor": {"type": "string", "label": "Image editor", "group": "Open with", "presets": [{"value": "satty --filename %f --output-filename %f", "label": "Satty"}], "allowCustom": true},
-    "player": {"type": "string", "label": "Video player", "group": "Open with", "presets": [{"value": "mpv %f", "label": "mpv"}], "allowCustom": true}
+    "player": {"type": "string", "label": "Video player", "group": "Open with", "presets": [{"value": "mpv %f", "label": "mpv"}], "allowCustom": true},
+    "browser": {"type": "string", "label": "File browser", "group": "Open with", "presets": [{"value": "nautilus --select %f", "label": "Nautilus"}], "allowCustom": true}
   },
   "hyprland": { "binds": [
     { "shortcut": "screenshot", "key": "PRINT", "info": "Takes a screenshot of the screen that has focus right away." },
