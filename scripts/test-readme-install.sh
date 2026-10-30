@@ -123,7 +123,8 @@ case "$1" in
     shift 2
     [[ $1 != install ]] || exit 0
     if [[ $1 == chown ]]; then printf 'private-owner %s %s\n' "$container" "${@: -1}" >>"$STUB_RECORD"; exit 0; fi
-    [[ $1 != nix-store || $2 != --import ]] || exit 0
+    # An early consumer exit can SIGPIPE the export under pipefail.
+    if [[ $1 == nix-store && $2 == --import ]]; then exec cat >/dev/null; fi
     [[ $1 != nix-store || $2 != --add-root ]] || exit 0
     [[ $1 != rm || ${@: -1} != */dependency-proof ]] || exit 0
     [[ $1 != bash || $2 != -n ]] || exec "$@"
