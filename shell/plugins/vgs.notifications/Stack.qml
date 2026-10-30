@@ -101,6 +101,7 @@ Item {
                         image: ""
                         desktopEntry: ""
                         urgency: Logic.URGENCY.normal
+                        hintAvatar: ""
                         hintIcon: ""
                         hintTone: ""
                         hintPage: ""

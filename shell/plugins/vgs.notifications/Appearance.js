@@ -201,7 +201,21 @@ var TOKENS = {
     // `radius`; an application icon and a hinted Lucide icon are both drawn
     // `icon` wide, centred in it, so a symbol matches an application icon;
     // people fill it as faces.
-    media: { size: length(40), icon: length(40), radius: length(8) },
+    media: {
+        size: length(40), icon: length(40), radius: length(8),
+        avatar: { size: length(36), icon: length(28), fill: color("{face.chip}") },
+        outcome: {
+            size: length(20), icon: length(12), ringWidth: length(2),
+            // Filled marks take contrasting ink even in LIGHT, where the
+            // ordinary success and danger glyphs draw in dark tones.
+            ink: {
+                success: color("contrast({tone.success})"),
+                warning: color("contrast({tone.warning})"),
+                danger: color("contrast({tone.danger})"),
+                info: color("contrast({tone.info})")
+            }
+        }
+    },
 
     // The people a notification names, as faces in the media slot, laid
     // out by the AvatarGroup of qs.Ui: one alone fills the slot; two to

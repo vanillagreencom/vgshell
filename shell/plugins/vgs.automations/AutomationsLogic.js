@@ -1295,7 +1295,7 @@ function replaceIdFor(notice, server) {
 // as an option. It prints the id a later notification replaces.
 function notifySendArgs(n, replaceId) {
     var args = ["--app-name=Automations", "--urgency=" + n.urgency, "--print-id",
-        "--hint=string:x-vgs-icon:" + n.icon, "--hint=string:x-vgs-tone:" + n.tone, "--hint=string:x-vgs-click:" + n.click];
+        "--hint=string:x-vgs-avatar:calendar-clock", "--hint=string:x-vgs-icon:" + n.icon, "--hint=string:x-vgs-tone:" + n.tone, "--hint=string:x-vgs-click:" + n.click];
     if (n.open !== "") args.push("--hint=string:x-vgs-open:" + n.open);
     if (isWhole(replaceId) && replaceId > 0) args.push("--replace-id=" + replaceId);
     return args.concat(["--", n.summary, n.body]);

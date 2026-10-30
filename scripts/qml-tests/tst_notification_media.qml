@@ -1,6 +1,7 @@
 import QtQuick
 import QtTest
 import qs.Commons
+import qs.Unit
 import "../../shell/plugins/vgs.notifications" as Notifications
 import "../../shell/plugins/vgs.notifications/Appearance.js" as Appearance
 
@@ -30,6 +31,8 @@ Item {
     TestCase {
         name: "notification_media"
         when: windowShown
+
+        function cleanup() { UnitTheme.reset(); }
 
         readonly property var symbols: [
             { summary: "Shot failure failed", icon: "circle-x", tone: "danger" },
@@ -62,6 +65,52 @@ Item {
 
         function symbolCard(symbol, body) {
             return build({ summary: symbol.summary, body: body, hintIcon: symbol.icon, hintTone: symbol.tone });
+        }
+
+        function test_avatarAndOutcome_data() {
+            const rows = [];
+            for (const mode of ["dark", "light"])
+                for (const mark of [
+                    { icon: "circle-check", glyph: "check", tone: "success" },
+                    { icon: "circle-x", glyph: "x", tone: "danger" }
+                ])
+                    for (const avatar of ["calendar-clock", "cloud"])
+                        rows.push({ tag: mode + "/" + avatar + "/" + mark.icon, mode: mode, avatar: avatar, mark: mark });
+            return rows;
+        }
+
+        function test_avatarAndOutcome(data) {
+            compare(UnitTheme.override({ scheme: { mode: data.mode } }), "ok");
+            const card = build({ summary: "Outcome", body: scene.oneLine, hintAvatar: data.avatar, hintIcon: data.mark.icon, hintTone: data.mark.tone });
+            compare(card.mediaKind, "avatar");
+            const slot = findChild(card, "notificationMediaSlot");
+            const plates = Array.from(slot.children).filter(child => child.visible && child.radius !== undefined && child.color !== undefined);
+            compare(plates.length, 2, "the shared slot draws an avatar and a badge");
+            const avatar = plates.find(child => child.width > scene.look.media.outcome.size);
+            const badge = plates.find(child => child.width === scene.look.media.outcome.size);
+            verify(avatar !== undefined && badge !== undefined);
+            verify(avatar.width > badge.width, "the avatar is larger than its outcome");
+            verify(badge.x > avatar.x && badge.y < avatar.y, "the badge is staggered to the top right");
+            verify(badge.x < avatar.x + avatar.width && badge.y + badge.height > avatar.y, "the badge overlaps the avatar");
+            verify(badge.x + badge.width <= slot.width && badge.y >= 0, "the badge stays in the shared media square");
+            const plugin = Array.from(avatar.children).find(child => child.name !== undefined);
+            const mark = Array.from(badge.children).find(child => child.name !== undefined);
+            compare(plugin.name, data.avatar, "the avatar uses the sender's plugin glyph");
+            compare(mark.name, data.mark.glyph, "the filled badge draws only the inner outcome mark");
+            verify(Qt.colorEqual(badge.color, scene.look.tone[data.mark.tone]));
+            verify(Theme.contrastRatio(mark.color, badge.color) >= 4.5, "badge ink holds the text floor in both themes");
+            verify(waitForPolish(card));
+            verify(waitForRendering(card));
+            const image = grabImage(scene);
+            const at = badge.mapToItem(scene, 0, 0);
+            const fill = image.pixel(Math.round(at.x + 3), Math.round(at.y + 10));
+            verify(Math.abs(fill.r - badge.color.r) < 1 / 255 && Math.abs(fill.g - badge.color.g) < 1 / 255 && Math.abs(fill.b - badge.color.b) < 1 / 255, "the badge paints its tone fill: " + fill + " expected " + badge.color + " at " + at + " scene " + image.width + "/" + image.height);
+            const strokes = [];
+            for (let y = 5; y < badge.height - 5; y++)
+                for (let x = 5; x < badge.width - 5; x++)
+                    if (Theme.contrastRatio(image.pixel(Math.round(at.x + x), Math.round(at.y + y)), badge.color) >= 3) strokes.push([x, y]);
+            verify(strokes.length >= 6, "the rendered inner mark contains readable stroke pixels");
+            fuzzyCompare(slot.mapToItem(card, 0, slot.height / 2).y, card.height / 2, 0.5, "the shared media square stays centred");
         }
 
         function test_symbolMatchesApplicationIcon_data() {

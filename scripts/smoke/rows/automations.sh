@@ -420,7 +420,7 @@ expect_poll "the UI-created automation is gone before the controls" absent auto_
 
 expect "Run now starts" started=nightly automations run-now nightly
 expect "Run now goes through systemd-run" '["--user", "--collect", "--quiet"]' last_systemd_run_prefix
-expect "the failure sends the error notification with its hints" '["x-vgs-icon=circle-x", "x-vgs-tone=danger", "x-vgs-click=open", "x-vgs-open=<path>"]' auto_hints
+expect "the failure sends the error notification with its hints" '["x-vgs-avatar=calendar-clock", "x-vgs-icon=circle-x", "x-vgs-tone=danger", "x-vgs-click=open", "x-vgs-open=<path>"]' auto_hints
 expect_poll "the run's records reach Last runs" danger auto_status_tone lastRuns
 
 forget_record

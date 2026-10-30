@@ -32,6 +32,7 @@ Item {
     required property string image
     required property string desktopEntry
     required property int urgency
+    required property string hintAvatar
     required property string hintIcon
     required property string hintTone
     required property string hintPage
@@ -151,6 +152,7 @@ Item {
         image: slot.image
         desktopEntry: slot.desktopEntry
         urgency: slot.urgency
+        hintAvatar: slot.hintAvatar
         hintIcon: slot.hintIcon
         hintTone: slot.hintTone
         hintPage: slot.hintPage

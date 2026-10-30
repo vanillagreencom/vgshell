@@ -77,12 +77,13 @@ ColumnLayout {
         const faces = enrichment !== null && enrichment.faces.length > 0;
         const glyph = single && Logic.summaryStartsWithGlyph(entry.summary || "");
         let hint = false;
-        if ((entry.hintIcon || "").length > 0) {
+        const glyphHint = entry.hintAvatar || entry.hintIcon || "";
+        if (glyphHint.length > 0) {
             hintMeasure.active = true;
-            hintMeasure.item.name = entry.hintIcon;
+            hintMeasure.item.name = glyphHint;
             hint = hintMeasure.item.paths[0] !== "";
         }
-        const hasMedia = faces || (!glyph && (entry.hintIcon && !entry.image ? hint : source.length > 0 && imageStatus(source) !== Image.Error));
+        const hasMedia = faces || (!glyph && (glyphHint && !entry.image ? hint : source.length > 0 && imageStatus(source) !== Image.Error));
         const badge = enrichment !== null && (entry.workspace || "").length > 0 && imageStatus(entry.workspaceIcon || "", true) === Image.Ready;
         rowCard = { look: look, pad: look.card.pad, summary: entry.summary || "", title: badge ? enrichment.title : entry.summary || "",
             singleLine: single, showsBadge: badge, enrichment: enrichment, workspace: entry.workspace || "", workspaceIcon: entry.workspaceIcon || "",

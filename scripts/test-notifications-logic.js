@@ -199,7 +199,7 @@ const same = (got, want, message) => assert.deepEqual(JSON.parse(JSON.stringify(
 
 // An entry as the state file stores it.
 function stored(timestamp, id, extra) {
-    return Object.assign({ key: timestamp + "-" + id, originalId: id, app: "app", appIcon: "", summary: "s" + id, body: "", image: "", desktopEntry: "", urgency: 1, expireTimeout: 0, timestamp: timestamp, hintIcon: "", hintTone: "", hintOpen: "", hintClick: "", hintPage: "" }, extra || {});
+    return Object.assign({ key: timestamp + "-" + id, originalId: id, app: "app", appIcon: "", summary: "s" + id, body: "", image: "", desktopEntry: "", urgency: 1, expireTimeout: 0, timestamp: timestamp, hintAvatar: "", hintIcon: "", hintTone: "", hintOpen: "", hintClick: "", hintPage: "" }, extra || {});
 }
 const BOOT = "4b1c0e2a-6d55-4d2e-9a0f-3f1b2c4d5e6f";
 function stateText(value) {
@@ -283,16 +283,20 @@ const STATE_REFUSED = [
 
 // The VGS hints: [label, hints map, the roles an entry keeps, the names
 // refused, what a click does]. shell/plugins/vgs.notifications/developer.md § Hints.
-const NO_HINTS = { hintIcon: "", hintTone: "", hintOpen: "", hintClick: "", hintPage: "" };
+const NO_HINTS = { hintAvatar: "", hintIcon: "", hintTone: "", hintOpen: "", hintClick: "", hintPage: "" };
 const SETUP = "[Setup](page:acme.probe/Setup)";
 const HINT_ROWS = [
     ["no hints", {}, NO_HINTS, [], "default"],
     ["hints that are not a map", "x-vgs-icon", NO_HINTS, [], "default"],
     ["an automation's error", { "x-vgs-icon": "circle-x", "x-vgs-tone": "danger", "x-vgs-open": "/state/runs/a@1.log", "x-vgs-click": "open" },
-        { hintIcon: "circle-x", hintTone: "danger", hintOpen: "/state/runs/a@1.log", hintClick: "open", hintPage: "" }, [], "open"],
+        { hintAvatar: "", hintIcon: "circle-x", hintTone: "danger", hintOpen: "/state/runs/a@1.log", hintClick: "open", hintPage: "" }, [], "open"],
     ["an automation's start", { "x-vgs-icon": "play", "x-vgs-tone": "warning", "x-vgs-click": "none" },
-        { hintIcon: "play", hintTone: "warning", hintOpen: "", hintClick: "none", hintPage: "" }, [], "dismiss"],
+        { hintAvatar: "", hintIcon: "play", hintTone: "warning", hintOpen: "", hintClick: "none", hintPage: "" }, [], "dismiss"],
     ["a file with no click hint keeps the default click", { "x-vgs-open": "/tmp/a.log" }, Object.assign({}, NO_HINTS, { hintOpen: "/tmp/a.log" }), [], "default"],
+    ["a plugin avatar", { "x-vgs-avatar": "calendar-clock", "x-vgs-icon": "circle-check", "x-vgs-tone": "success" }, Object.assign({}, NO_HINTS, { hintAvatar: "calendar-clock", hintIcon: "circle-check", hintTone: "success" }), [], "default"],
+    ["another plugin avatar", { "x-vgs-avatar": "cloud", "x-vgs-icon": "x", "x-vgs-tone": "danger" }, Object.assign({}, NO_HINTS, { hintAvatar: "cloud", hintIcon: "x", hintTone: "danger" }), [], "default"],
+    ["an avatar outside the grammar", { "x-vgs-avatar": "Calendar Clock" }, NO_HINTS, ["x-vgs-avatar"], "default"],
+    ["an avatar past its length", { "x-vgs-avatar": "a".repeat(65) }, NO_HINTS, ["x-vgs-avatar"], "default"],
     ["an icon outside the grammar", { "x-vgs-icon": "Circle X" }, NO_HINTS, ["x-vgs-icon"], "default"],
     ["an icon past its length", { "x-vgs-icon": "a".repeat(65) }, NO_HINTS, ["x-vgs-icon"], "default"],
     ["a tone outside the status tones", { "x-vgs-tone": "red" }, NO_HINTS, ["x-vgs-tone"], "default"],
@@ -763,7 +767,7 @@ function verify(logic) {
 
     // Entries.
     const fields = { id: 7, appName: "Chat", appIcon: "chat", summary: "Hi", body: "b", image: "image://icon//tmp/a.png", desktopEntry: "chat", urgency: U.critical, expireTimeout: 4000 };
-    same(logic.entryOf(fields, 1000, null), { key: "1000-7", originalId: 7, app: "Chat", appIcon: "chat", summary: "Hi", body: "b", image: "file:///tmp/a.png", desktopEntry: "chat", urgency: 2, expireTimeout: 4000, timestamp: 1000, hintIcon: "", hintTone: "", hintOpen: "", hintClick: "", hintPage: "" });
+    same(logic.entryOf(fields, 1000, null), { key: "1000-7", originalId: 7, app: "Chat", appIcon: "chat", summary: "Hi", body: "b", image: "file:///tmp/a.png", desktopEntry: "chat", urgency: 2, expireTimeout: 4000, timestamp: 1000, hintAvatar: "", hintIcon: "", hintTone: "", hintOpen: "", hintClick: "", hintPage: "" });
 
     // Hints: an entry keeps the ones the judge accepts, and a click follows them.
     for (const [label, hints, roles, refused, route] of HINT_ROWS) {
@@ -771,7 +775,7 @@ function verify(logic) {
         same(read.roles, roles, "hint roles: " + label);
         same(read.refused, refused, "hints refused: " + label);
         const made = logic.entryOf(Object.assign({}, fields, { hints: hints }), 1000, null);
-        same([made.hintIcon, made.hintTone, made.hintOpen, made.hintClick, made.hintPage], [roles.hintIcon, roles.hintTone, roles.hintOpen, roles.hintClick, roles.hintPage], "entry hints: " + label);
+        same([made.hintAvatar, made.hintIcon, made.hintTone, made.hintOpen, made.hintClick, made.hintPage], [roles.hintAvatar, roles.hintIcon, roles.hintTone, roles.hintOpen, roles.hintClick, roles.hintPage], "entry hints: " + label);
         assert.equal(logic.clickRoute("open", made), route, "click: " + label);
         assert.equal(logic.clickRoute("action:reply", made), "default", "a pill ignores the click hints: " + label);
         assert.equal(logic.clickRoute("dismiss", made), "default", "dismiss ignores the click hints: " + label);
@@ -873,7 +877,7 @@ function verify(logic) {
     same(logic.parseState(JSON.stringify(good)), { ok: true, state: { boot: BOOT, sound: false, dnd: true, readBefore: 50, live: good.live, history: good.history } });
     // An entry stored before senders could add hints has no hint roles,
     // and reads back with each one empty.
-    const unhinted = (timestamp, id) => (({ hintIcon, hintTone, hintOpen, hintClick, hintPage, ...rest }) => rest)(stored(timestamp, id));
+    const unhinted = (timestamp, id) => (({ hintAvatar, hintIcon, hintTone, hintOpen, hintClick, hintPage, ...rest }) => rest)(stored(timestamp, id));
     same(logic.parseState(stateText({ live: [unhinted(8, 4)], history: [unhinted(7, 3)] })), { ok: true, state: { boot: BOOT, sound: true, dnd: false, readBefore: 0, live: [stored(8, 4)], history: [stored(7, 3)] } }, "entries without hint roles read back with each empty");
     same(logic.parseState(logic.serializeState(logic.emptyState(BOOT))), { ok: true, state: { boot: BOOT, sound: true, dnd: false, readBefore: 0, live: [], history: [] } }, "an empty state reads back");
     same(logic.parseState(logic.serializeState({ boot: BOOT, sound: false, dnd: true, readBefore: 50, live: good.live, history: good.history })).state, { boot: BOOT, sound: false, dnd: true, readBefore: 50, live: good.live, history: good.history }, "a state reads back as written");
@@ -918,7 +922,7 @@ function verify(logic) {
     same([third.version, third.sound, third.dnd, third.history.length], [3, true, true, 100], "the fixture is the version 3 file");
     const moved = logic.migrateState(STATE_V3);
     // Its entries name no page hint and read back with none.
-    const paged = third.history.map(entry => Object.assign({}, entry, { hintPage: "" }));
+    const paged = third.history.map(entry => Object.assign({}, entry, { hintAvatar: "", hintPage: "" }));
     same(moved.migrated, true, "a version 3 file is migrated");
     same(logic.parseState(moved.text), { ok: true, state: { boot: third.boot, sound: true, dnd: true, readBefore: third.readBefore, live: [], history: paged } }, "a migrated file reads with its history, Silence and Sound");
     same(JSON.parse(logic.serializeState(logic.fromBoot(logic.parseState(moved.text).state, third.boot).state)), Object.assign({}, third, { version: 4, history: paged }), "a migrated file is written as version 4 with every other value kept");

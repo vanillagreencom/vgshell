@@ -30,6 +30,7 @@ Item {
     // The VGS hint roles (NotificationLogic.entryOf): a Lucide name, for a
     // VGS plugin's notice that names none its tone's, and a status tone, or
     // "".
+    property string hintAvatar: ""
     property string hintIcon: ""
     property string hintTone: ""
     // The x-vgs-page hint, whose words the body draws as a link.
@@ -105,7 +106,7 @@ Item {
     // else its application's icon; none when the one-line summary opens
     // with its own icon glyph. A hint name the Lucide set lacks draws no
     // media, and Icon logs it.
-    readonly property string mediaKind: showsFaces ? "faces" : iconInSummary ? "" : image.length > 0 ? "thumbnail" : hintIcon.length > 0 ? "glyph" : iconSource.length > 0 ? "icon" : ""
+    readonly property string mediaKind: showsFaces ? "faces" : iconInSummary ? "" : image.length > 0 ? "thumbnail" : hintAvatar.length > 0 ? "avatar" : hintIcon.length > 0 ? "glyph" : iconSource.length > 0 ? "icon" : ""
     readonly property bool showsSlot: mediaKind !== "" && mediaSlot.drawable
     readonly property real contentLeftInset: showsSlot ? pad : textColumn
     readonly property real contentWidth: Math.max(0, fullWidth - contentLeftInset - textColumn)
@@ -175,7 +176,9 @@ Item {
             more: card.showsFaces ? card.enrichment.more : 0
             images: card.showsFaces ? card.faceImages : []
             carried: card.image
-            glyph: card.hintIcon
+            glyph: card.mediaKind === "avatar" ? card.hintAvatar : card.hintIcon
+            badgeGlyph: card.mediaKind === "avatar" ? card.hintIcon : ""
+            badgeTone: card.hintTone
             glyphColor: card.hintTone === "" ? card.look.text.foreground : card.look.tone[card.hintTone]
         }
 

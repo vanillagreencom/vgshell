@@ -64,6 +64,7 @@ fi
 # shipped themes by a relative path. The replacement keeps the text around the
 # behaviour and removes the behaviour. A field holds no `|`, the separator.
 mutations=(
+  "a notification avatar loses its outcome badge|../plugins/vgs.notifications/MediaSlot.qml|visible: slot.showsOutcome|visible: false|tst_notification_media.qml"
   "a detached automation row loses its owning width|../plugins/vgs.automations/AutomationListPage.qml|width: listColumn.width|width: parent.width|tst_automation_signal_values.qml"
   "a removed Field hint measures an absent line|controls/Field.qml|if (last !== hintLine) return last === null ? null : controlRow.fontBelow(last);|if (last !== hintLine) return false && last === null ? null : controlRow.fontBelow(last);|tst_automation_network_hint.qml"
   "section descriptions keep the hint metrics|layout/SectionHeader.qml|        role: \"hint\"|        role: \"body\"|tst_sectionheader.qml"

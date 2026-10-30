@@ -638,6 +638,7 @@ FocusScope {
                                     image: slot.entry.image || ""
                                     desktopEntry: slot.entry.desktopEntry || ""
                                     urgency: slot.entry.urgency === undefined ? Logic.URGENCY.normal : slot.entry.urgency
+                                    hintAvatar: slot.entry.hintAvatar || ""
                                     hintIcon: slot.entry.hintIcon || ""
                                     hintTone: slot.entry.hintTone || ""
                                     hintPage: slot.entry.hintPage || ""

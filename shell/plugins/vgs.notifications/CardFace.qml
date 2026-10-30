@@ -18,6 +18,7 @@ Item {
     property string image: ""
     property string desktopEntry: ""
     property int urgency: Logic.URGENCY.normal
+    property string hintAvatar: ""
     property string hintIcon: ""
     property string hintTone: ""
     property string hintPage: ""
@@ -75,6 +76,7 @@ Item {
         body: face.body
         image: face.image
         desktopEntry: face.desktopEntry
+        hintAvatar: face.hintAvatar
         hintIcon: face.hintIcon
         hintTone: face.hintTone
         hintPage: face.hintPage

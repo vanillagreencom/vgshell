@@ -387,7 +387,7 @@ function verify(logic) {
     assert.throws(() => logic.notificationFor("middle", automation({}), failed), /is not start or end/);
     same(logic.notifySendArgs(logic.notificationFor("end", automation({}), failed, null), 17), [
         "--app-name=Automations", "--urgency=critical", "--print-id",
-        "--hint=string:x-vgs-icon:circle-x", "--hint=string:x-vgs-tone:danger", "--hint=string:x-vgs-click:open",
+        "--hint=string:x-vgs-avatar:calendar-clock", "--hint=string:x-vgs-icon:circle-x", "--hint=string:x-vgs-tone:danger", "--hint=string:x-vgs-click:open",
         "--hint=string:x-vgs-open:/r/t.log", "--replace-id=17", "--", "Back up failed", "The automation failed. Open Automations to read its output."]);
     same(logic.notifySendArgs({ summary: "-s", body: "--b", urgency: "low", icon: "play", tone: "warning", click: "none", open: "" }, null).slice(-3), ["--", "-s", "--b"], "the text follows --");
 
@@ -719,6 +719,7 @@ const compared = analyze === null ? 0 : comparePreview(load(file, modules), anal
 // ---------------------------------------------------------------- controls
 
 const CONTROLS = [
+    ["a notification carries its plugin avatar", '"--hint=string:x-vgs-avatar:calendar-clock", ', ""],
     ["a UTC recurrence searches by its selected date", "if (schedule.zone !== \"utc\") return localDate(ms);", "return localDate(ms);"],
     ["the optional While logged out step reads info", 'case "no": linger = { tone: "info"', 'case "no": linger = { tone: "warning"'],
     ["notifications round duration to seconds", "Math.round(rec.durationMs / 1000)", "Math.floor(rec.durationMs / 1000)"],

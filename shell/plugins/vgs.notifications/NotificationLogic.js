@@ -43,7 +43,7 @@ var STATE_HISTORY_MAX = 720;
 // entry, named <key>-<role> in the images directory.
 var IMAGE_ROLES = ["appIcon", "image"];
 // Every role of a toast row, the model's and the state file's, in order.
-var ENTRY_ROLES = ["key", "originalId", "app", "appIcon", "summary", "body", "image", "desktopEntry", "urgency", "expireTimeout", "timestamp", "hintIcon", "hintTone", "hintOpen", "hintClick", "hintPage"];
+var ENTRY_ROLES = ["key", "originalId", "app", "appIcon", "summary", "body", "image", "desktopEntry", "urgency", "expireTimeout", "timestamp", "hintAvatar", "hintIcon", "hintTone", "hintOpen", "hintClick", "hintPage"];
 
 // The urgency values Quickshell's NotificationUrgency enum takes, which the
 // state file stores as numbers.
@@ -1247,6 +1247,8 @@ function lifetimeFor(urgency, expireTimeout, normal) {
 
 // The VGS hints any sender may add, each a string hint, and the roles an
 // entry keeps them in (developer.md § Hints):
+//   x-vgs-avatar a Lucide name drawn as an avatar, with x-vgs-icon as
+//                its optional outcome badge
 //   x-vgs-icon   a Lucide icon name the card draws in its left slot
 //   x-vgs-tone   the design-system status tone the icon draws in
 //   x-vgs-open   an absolute path a click opens in the user's editor
@@ -1260,14 +1262,14 @@ function lifetimeFor(urgency, expireTimeout, normal) {
 //                the file through the core's reference route
 //                (shell.surfaces.openPage), ahead of x-vgs-click. The core
 //                adds it from a reference in a plugin notice's message.
-// The core adds a fifth, x-vgs-plugin, the sending plugin's id, which
+// The core also adds x-vgs-plugin, the sending plugin's id, which
 // bypassesSilence reads and no card keeps.
 // A hint of another shape is refused whole: its role stays "" and the
 // service logs its name.
-var HINTS = { "x-vgs-icon": "hintIcon", "x-vgs-tone": "hintTone", "x-vgs-open": "hintOpen", "x-vgs-click": "hintClick", "x-vgs-page": "hintPage" };
+var HINTS = { "x-vgs-avatar": "hintAvatar", "x-vgs-icon": "hintIcon", "x-vgs-tone": "hintTone", "x-vgs-open": "hintOpen", "x-vgs-click": "hintClick", "x-vgs-page": "hintPage" };
 // The hint roles, which a stored entry may leave out: an entry stored
 // before a sender could add hints has none, and reads back with each "".
-var HINT_ROLES = ["hintIcon", "hintTone", "hintOpen", "hintClick", "hintPage"];
+var HINT_ROLES = ["hintAvatar", "hintIcon", "hintTone", "hintOpen", "hintClick", "hintPage"];
 var HINT_TONES = ["success", "warning", "danger", "info"];
 // The Lucide icon a VGS plugin's notice draws when it names none, by its
 // x-vgs-tone hint, "" for a notice with no tone.
@@ -1291,6 +1293,7 @@ function pageReferenceFits(value) {
 
 function hintValueFits(role, value) {
     switch (role) {
+    case "hintAvatar":
     case "hintIcon": return value === "" || (value.length <= HINT_ICON_MAX && HINT_ICON.test(value));
     case "hintTone": return value === "" || HINT_TONES.indexOf(value) !== -1;
     case "hintOpen": return value === "" || (value.charAt(0) === "/" && value.length <= HINT_OPEN_MAX && !/[\u0000-\u001f\u007f]/.test(value));
@@ -1304,7 +1307,7 @@ function hintValueFits(role, value) {
 // VGS hints it refused: { roles: { hintIcon, hintTone, hintOpen, hintClick,
 // hintPage }, refused }. `x-vgs-click: open` without an x-vgs-open to open is refused.
 function readHints(hints) {
-    var roles = { hintIcon: "", hintTone: "", hintOpen: "", hintClick: "", hintPage: "" };
+    var roles = { hintAvatar: "", hintIcon: "", hintTone: "", hintOpen: "", hintClick: "", hintPage: "" };
     var refused = [];
     var map = isPlainObject(hints) ? hints : {};
     var names = Object.keys(HINTS);
@@ -1433,6 +1436,7 @@ function entryOf(fields, timestamp, taken) {
         urgency: urgency,
         expireTimeout: expire,
         timestamp: at,
+        hintAvatar: hints.hintAvatar,
         hintIcon: hintIcon,
         hintTone: hints.hintTone,
         hintOpen: hints.hintOpen,
