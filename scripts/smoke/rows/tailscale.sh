@@ -67,7 +67,7 @@
 # keeping Copied, which the same clipboard judge rejects.
 # Controls, a copy of the plugin whose widget polls on its own, whose
 # refresh restarts the watchdog, whose busy suggestion ask restarts the
-# suggestion's deadline and which does not know the access-denied text:
+# suggestion's deadline, retains a killed suggestion and does not know the access-denied text:
 # the stand-in records a call the service did not start, the held poll
 # and the held suggestion read outlive 20 s of asks, and the denied change
 # leaves the plain one's problem. The reason's place moved onto a text
@@ -121,6 +121,9 @@ elif [[ "$*" == "exit-node suggest" ]] && mv -- "$dir/suggest-hang" "$dir/sugges
   "$saved" "$@" >/dev/null 2>&1 || true
   echo $$ >"$dir/suggest-hang.pid.next" && mv -f -- "$dir/suggest-hang.pid.next" "$dir/suggest-hang.pid"
   exec sleep 60
+elif [[ "$*" == "exit-node suggest" && -e $dir/suggest-barrier ]]; then
+  echo $$ >"$dir/suggest-replacement.pid.next" && mv -f -- "$dir/suggest-replacement.pid.next" "$dir/suggest-replacement.pid"
+  while [[ -e $dir/suggest-barrier ]]; do sleep 0.1; done
 elif [[ "$*" == "logout" ]]; then
   # tailscaled removes the signed-out account and lands on a new empty
   # profile that needs a login (LocalBackend.Logout, ipn/ipnlocal/local.go
@@ -528,6 +531,9 @@ tailscale_search_reading() {
 tailscale_suggest_hang() {
   local pid start elapsed started reply extra=0
   rm -f -- "${tailscale_dir:?}/suggest-hang.pid" "${tailscale_dir:?}/suggest-hang.taken"
+  rm -f -- "${tailscale_dir:?}/suggest-replacement.pid"
+  printf '0\n' >"$tailscale_dir/suggest-hang.extra"
+  : >"$tailscale_dir/suggest-barrier"
   : >"$tailscale_dir/suggest-hang"
   started="$(tailscale_suggests)" || return 1
   reply="$(ipc vgs.tailscale invoke suggest "")" || return 1
@@ -545,7 +551,7 @@ tailscale_suggest_hang() {
     reply="$(ipc vgs.tailscale invoke suggest "")" || return 1
     # An ask that lands after the kill starts the next read, which is no
     # second read in flight.
-    if [[ $reply == ok ]] && ! kill -0 "$pid" 2>/dev/null; then extra=1; break; fi
+    if [[ $reply == ok ]] && ! kill -0 "$pid" 2>/dev/null; then extra=1; printf '1\n' >"$tailscale_dir/suggest-hang.extra"; break; fi
     [[ $reply == busy ]] || { echo "not-busy reply=$reply"; return 0; }
     sleep 1
   done
@@ -557,6 +563,27 @@ tailscale_suggest_hang() {
 # `held` while the suggestion read tailscale_suggest_hang held runs, else
 # `gone`.
 tailscale_suggest_held() { kill -0 "$(<"$tailscale_dir/suggest-hang.pid")" 2>/dev/null && echo held || echo gone; }
+# The replacement cannot supply the null: it must still hold its fixture
+# reply after the status read, before its own deadline can clear anything.
+tailscale_killed_suggestion() {
+  local value
+  value="$(tailscale_value suggestion)" || return 1
+  if [[ ! -e $tailscale_dir/suggest-replacement.pid ]]; then echo replacement-pending
+  elif kill -0 "$(<"$tailscale_dir/suggest-replacement.pid")" 2>/dev/null; then printf '%s\n' "$value"
+  else echo replacement-ended; fi
+}
+tailscale_suggest_clear() {
+  local status=0
+  if [[ $(<"$tailscale_dir/suggest-hang.extra") == 0 ]]; then
+    expect "an ask after the kill starts the held replacement" ok ipc vgs.tailscale invoke suggest ""
+  fi
+  expect_poll "a suggestion read the deadline killed names none" null tailscale_killed_suggestion || status=$?
+  # expect_poll records an assertion failure without returning nonzero.
+  # Release on either result so no replacement remains held after it.
+  rm -f -- "${tailscale_dir:?}/suggest-barrier" || return 1
+  ((status == 0)) || return "$status"
+  expect_poll "the released replacement finishes without a fault" '""' ipc smoke readInstance service vgs.tailscale suggestFault
+}
 tailscale_leave_pane() { # LABEL
   type_keys -k Escape
   type_keys -k Escape
@@ -865,7 +892,7 @@ expect "the running poll starts nothing for 4 s" still tailscale_polls_still
 # One suggestion read at a time, killed at its deadline while asks arrive.
 expect "a held suggestion read answers busy to every ask and is killed by the 10 s deadline" killed tailscale_suggest_hang
 if [[ -e $tailscale_dir/suggest-hang.ms ]]; then printf '        the held suggestion read ended %s ms after its start\n' "$(<"$tailscale_dir/suggest-hang.ms")"; fi
-expect_poll "a suggestion read the deadline killed names none" null tailscale_value suggestion
+tailscale_suggest_clear
 device_reply tailscale 0 "$(<"$tailscale_fixtures/suggest-none.txt")" exit-node suggest
 expect "an ask reads the suggestion again" ok ipc vgs.tailscale invoke suggest ""
 expect_poll "no suggestion is read as none, not as a fault" '[null, ""]' tailscale_suggest_reading
@@ -1313,7 +1340,8 @@ expect_poll "Tailscale restores its running tailnet" '"running"' tailscale_value
 
 # Controls, on a copy: a widget that polls on its own, a refresh that
 # restarts the watchdog, a busy ask that restarts the suggestion's
-# deadline, and a failure table without the access-denied text.
+# deadline, a killed read that retains its suggestion, and a failure table
+# without the access-denied text.
 expect "Tailscale disables before its control copy" ok ipc shell setPluginEnabled vgs.tailscale false
 expect_poll "the disabled service's build record is gone" False record_exists vgs.tailscale
 expect_poll "the disabled plugin holds no status record" absent tailscale_record
@@ -1336,6 +1364,9 @@ for old, new in (
 ):
     assert text.count(old) == 1, old
     text = text.replace(old, new)
+old = 'root.suggestedName = root.snapshot.state === "running" ? read.name : "";'
+assert text.count(old) == 1, old
+text = text.replace(old, 'if (code !== -1) ' + old)
 service.write_text(text)
 text = body.read_text()
 for old, new in (
@@ -1364,9 +1395,14 @@ expect "the clipboard control pane closes" ok ipc shell hide window vgs.system
 expect_poll "control: a widget that polls on its own is a call the service did not start" extra tailscale_surplus "$tailscale_control_before"
 expect "control: a service that does not know the access-denied text leaves the plain failure's problem" same tailscale_failures
 expect "control: a refresh that restarts the watchdog holds the poll past 20 s" postponed tailscale_hang
+expect "the suggestion control reads the design's tailnet" ok tailscale_sheet_as Running
 expect_poll "the control's service reads Tailscale running before its suggestion control" '"running"' tailscale_value state
+expect_poll "the suggestion control starts with the old suggestion published" '{"id": "nSHEET0024CNTRL", "name": "Stockholm, Sweden"}' tailscale_value suggestion
 expect "control: an ask that restarts the suggestion deadline holds the read past 20 s" postponed tailscale_suggest_hang
 expect_poll "the control's held suggestion read ends once the asks stop" gone tailscale_suggest_held
+tailscale_stale_control() { (failures=0 behaviour_failures=0; tailscale_suggest_clear >"$tailscale_dir/stale-control.log"; echo "$failures"); }
+expect "control: retaining the killed read's old suggestion fails the null check with its replacement held" 1 tailscale_stale_control
+control_output "$tailscale_dir/stale-control.log"
 device_reply tailscale 0 "" get operator
 expect "the unmarked Setup control resets its earlier errors" ok ipc shell setPluginEnabled vgs.tailscale false
 rescan "the unmarked Setup control needs Allow again"
