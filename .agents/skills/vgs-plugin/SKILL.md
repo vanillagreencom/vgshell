@@ -50,7 +50,7 @@ Write a plugin for the VGS shell. The contract is [`docs/architecture/overview.m
 - Follow [D075](../../../docs/decisions/D075-consumer-features-need-no-developer-setup.md) for automated setup and permitted user-only steps with a clear Settings path. Features without that path do not ship.
 - A command the user must see or answer runs in a floating TUI: a script under the plugin's `tui/`, declared as data in the manifest's `tui` key and opened with `shell.tui.run`, never a command string: [`docs/architecture/commands-are-data.md` § Commands as data](../../../docs/architecture/commands-are-data.md#commands-as-data).
 - No cache keyed by data other applications supply without a ceiling.
-- Every Quickshell type, property and signal comes from the 0.3.1 reference on Context7: `ctx7 docs /websites/quickshell_v0_3_1 <query>`.
+- Every Quickshell type, property and signal comes from the 0.3.1 reference on Context7: `ctx7 docs /websites/quickshell/v0.3.1 <query>`.
 - A first-party plugin's README shows a screenshot made by `scripts/readme-shots.sh`, with its row in `docs/images/plugins/shots.tsv`: [DEVELOPMENT.md § Regenerate](../../../DEVELOPMENT.md#regenerate).
 - Land with `scripts/validate manifests`, `scripts/validate boundary` and `scripts/validate qml` clean, the last with the readback rows [`workflows/new-plugin.md`](workflows/new-plugin.md) step 9 names.
 
