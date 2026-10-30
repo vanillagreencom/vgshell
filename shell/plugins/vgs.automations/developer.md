@@ -8,7 +8,11 @@ Saving an automation writes a timer and a service for it under `~/.config/system
 
 At each run the runner starts the command in the user's login shell and stops it at its timeout. It saves a transcript, each output line with its time, and a record of the outcome under `~/.local/state/vgshell/automations/runs/`.
 
-A scheduled run, the catch-up of a slot missed in a suspend included, first reads NetworkManager's `State` on the system bus with `busctl`. While it reads anything but connected-global (70), the run waits for NetworkManager's `StateChanged` signal, at most 60 seconds, then starts either way. The engine cannot tell from a command whether it needs the network, so an automation that needs none is held too, only while the computer reads offline. A scheduled run on a computer without NetworkManager or `busctl`, or one already online, starts at once, as Run now always does. The wait counts time on a clock that stops while the computer sleeps. The transcript's header names how the wait ended, and a run that waited, or whose `busctl` call failed, logs one `automations: network=` line to the journal with busctl's exit status, signal and first line. The run holds its automation's lock while it waits, so Run now reads it as running.
+A definition with `requiresNetwork` waits until NetworkManager reports `Connectivity` FULL. The existing runner owns the wait, including Run now and Test run. Neither an unavailable reading nor the end of the active-time grace permits a command to start. Local definitions make no network call. `AutomationsLogic.js` owns the connectivity and missed-run decisions.
+
+The runner retains the original due time in an owned pending marker. The window reads that marker through the engine, shows waiting work and offers Cancel. Edit, Disable and Remove cancel a waiting attempt before changing its definition; they do not stop an admitted command. The engine checks the marker's process start and boot identity, so a crashed runner leaves no live waiting row. Waiting does not require VGS to stay open.
+
+A scheduled wait keeps the existing latest-unhandled-occurrence rule. A late non-catch-up attempt records a neutral skip without a failure alert or streak change. Manual attempts wait until full connectivity or cancellation. The store's first read converts version 1 definitions to version 2 under its lock, preserving their fields and adding `requiresNetwork: false`. Current readers accept only version 2.
 
 A failure sends a red notification. Each failure after it replaces that notification and counts the failures since the first one, and the first success after them replaces it with a green recovered notification. The runner keeps the open failure notification's id per automation under `~/.local/state/vgshell/automations/streak/`, with the notification server that gave it: the session bus's id and the unique name owning `org.freedesktop.Notifications`, read with `busctl`. An id names a notification of that one server, so after a shell restart, a new login or a reboot the next notification replaces nothing. With "notify on every run" on, a start and a green finish notification come too, and while runs fail the start replaces the failure notification. Under the VGS notifications, a click on a finish or failure notification opens the transcript in the user's `$EDITOR`, or with `xdg-open`.
 
@@ -18,13 +22,13 @@ Lingering, the systemd setting that keeps the user manager running after logout,
 
 ## Definitions
 
-Each automation's definition holds `enabled`, `timeoutSeconds`, `catchUp`, `workingDirectory` and `notifyEveryRun`, defaulting to enabled, 3600 seconds, off, the user's home and off. `AutomationsLogic.js` states every key of a definition and of a schedule. The plugin's one manifest setting is `historyDays`, from 1 to 30 and 30 by default, in its `plugins` row of `~/.config/vgshell/shell.json`.
+`AutomationsLogic.js` states the definition fields, their defaults and the schedule model. `requiresNetwork` is explicit; the engine never infers it from a command or name. The plugin's manifest setting is `historyDays`, stored in its `plugins` row of `~/.config/vgshell/shell.json`.
 
 ## The automations command
 
 The plugin's developer command is `bin/automations`. It takes the VGS tree first, `/usr/share/vgshell` for an installed VGS, or a checkout. Its header states every verb, its output and its refusals.
 
-The verbs are `list`, `add`, `edit`, `enable`, `disable`, `remove`, `run-now`, `history`, `clear`, `prune` and `preview`; `list` and `history` take `--json` for a program to read. The service runs `sync`, `scheduler` and `run` itself.
+The verbs are `list`, `add`, `edit`, `enable`, `disable`, `remove`, `cancel`, `run-now`, `history`, `clear`, `prune` and `preview`; `list` and `history` take `--json` for a program to read. The service runs `sync`, `scheduler` and `run` itself.
 
 Examples against a checkout:
 

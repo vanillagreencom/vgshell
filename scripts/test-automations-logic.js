@@ -5,8 +5,8 @@
 // occurrences, the runner's guard, the store, guard-state and streak
 // judges, the unit and crontab text, the run records and history rows,
 // pruning, the notifications a run sends with its failure streak, the
-// notification server a notice is replaced on, and a scheduled run's
-// bounded wait for NetworkManager. Every expected value is written out by
+// notification server a notice is replaced on, and command admission from
+// NetworkManager connectivity. Every expected value is written out by
 // hand.
 //
 // The preview rows compare the judge's next ten occurrences with
@@ -41,7 +41,7 @@ function schedule(extra) {
     return Object.assign({ frequency: "daily", interval: 1, times: ["09:00"], start: "2026-01-01", end: { type: "never" } }, extra);
 }
 function automation(extra) {
-    return Object.assign({ id: "backup", name: "Back up", command: "rsync -a ~/notes /mnt/b", enabled: true, schedule: schedule({}), timeoutSeconds: 3600, catchUp: false, workingDirectory: "", notifyEveryRun: false }, extra);
+    return Object.assign({ id: "backup", name: "Back up", command: "rsync -a ~/notes /mnt/b", enabled: true, schedule: schedule({}), timeoutSeconds: 3600, catchUp: false, requiresNetwork: false, workingDirectory: "", notifyEveryRun: false }, extra);
 }
 
 const WEEKDAYS = schedule({ frequency: "weekly", weekdays: ["mon", "tue", "wed", "thu", "fri"] });
@@ -178,17 +178,17 @@ const REFUSED = [
 // Refused stores: [label, text, the defect].
 const STORE_REFUSED = [
     ["not JSON", "{", "store: not-json"],
-    ["another version", JSON.stringify({ version: 2, automations: [] }), "store.version: want=1"],
-    ["an unknown key", JSON.stringify({ version: 1, automations: [], x: 1 }), "store.x: unknown"],
-    ["a missing key", JSON.stringify({ version: 1, automations: [(({ catchUp, ...rest }) => rest)(automation({}))] }), "store.automations.0.catchUp: missing"],
-    ["an id with capitals", JSON.stringify({ version: 1, automations: [automation({ id: "Backup" })] }), "store.automations.0.id: want=lower-case letters, digits and inner dashes, 1..40"],
-    ["a command with a NUL", JSON.stringify({ version: 1, automations: [automation({ command: "a\u0000b" })] }), "store.automations.0.command: want=command of 1..4096 without control characters except newline and tab"],
-    ["a blank command", JSON.stringify({ version: 1, automations: [automation({ command: "  " })] }), "store.automations.0.command: want=command of 1..4096 without control characters except newline and tab"],
-    ["a name with a control character", JSON.stringify({ version: 1, automations: [automation({ name: "a\u0007" })] }), "store.automations.0.name: want=printable line of 1..80"],
-    ["a timeout past a day", JSON.stringify({ version: 1, automations: [automation({ timeoutSeconds: 86401 })] }), "store.automations.0.timeoutSeconds: want=1..86400"],
-    ["a relative working directory", JSON.stringify({ version: 1, automations: [automation({ workingDirectory: "notes" })] }), "store.automations.0.workingDirectory: want=\"\" or an absolute path"],
-    ["a bad schedule", JSON.stringify({ version: 1, automations: [automation({ schedule: schedule({ interval: 0 }) })] }), "store.automations.0.schedule.interval: want=1..99"],
-    ["an id twice", JSON.stringify({ version: 1, automations: [automation({}), automation({})] }), "store.automations.1.id: duplicate"]
+    ["another version", JSON.stringify({ version: 3, automations: [] }), "store.version: want=2"],
+    ["an unknown key", JSON.stringify({ version: 2, automations: [], x: 1 }), "store.x: unknown"],
+    ["a missing key", JSON.stringify({ version: 2, automations: [(({ catchUp, ...rest }) => rest)(automation({}))] }), "store.automations.0.catchUp: missing"],
+    ["an id with capitals", JSON.stringify({ version: 2, automations: [automation({ id: "Backup" })] }), "store.automations.0.id: want=lower-case letters, digits and inner dashes, 1..40"],
+    ["a command with a NUL", JSON.stringify({ version: 2, automations: [automation({ command: "a\u0000b" })] }), "store.automations.0.command: want=command of 1..4096 without control characters except newline and tab"],
+    ["a blank command", JSON.stringify({ version: 2, automations: [automation({ command: "  " })] }), "store.automations.0.command: want=command of 1..4096 without control characters except newline and tab"],
+    ["a name with a control character", JSON.stringify({ version: 2, automations: [automation({ name: "a\u0007" })] }), "store.automations.0.name: want=printable line of 1..80"],
+    ["a timeout past a day", JSON.stringify({ version: 2, automations: [automation({ timeoutSeconds: 86401 })] }), "store.automations.0.timeoutSeconds: want=1..86400"],
+    ["a relative working directory", JSON.stringify({ version: 2, automations: [automation({ workingDirectory: "notes" })] }), "store.automations.0.workingDirectory: want=\"\" or an absolute path"],
+    ["a bad schedule", JSON.stringify({ version: 2, automations: [automation({ schedule: schedule({ interval: 0 }) })] }), "store.automations.0.schedule.interval: want=1..99"],
+    ["an id twice", JSON.stringify({ version: 2, automations: [automation({}), automation({})] }), "store.automations.1.id: duplicate"]
 ];
 
 function verify(logic) {
@@ -259,11 +259,11 @@ function verify(logic) {
 
     // The store.
     for (const [label, text, want] of STORE_REFUSED) same(logic.parseStore(text), { ok: false, error: want }, "store: " + label);
-    same(logic.parseStore(JSON.stringify({ version: 1, automations: [automation({ command: "echo one\necho two" })] })).ok, true, "a multi-line command is accepted");
-    const one = { version: 1, automations: [automation({})] };
+    same(logic.parseStore(JSON.stringify({ version: 2, automations: [automation({ command: "echo one\necho two" })] })).ok, true, "a multi-line command is accepted");
+    const one = { version: 2, automations: [automation({})] };
     same(logic.parseStore(logic.serializeStore(one)), { ok: true, store: one }, "a store reads back as written");
     const added = logic.addAutomation(logic.emptyStore(), { name: "Back up notes!", command: "true", schedule: schedule({}) });
-    same(added.automation, { name: "Back up notes!", command: "true", enabled: true, schedule: schedule({}), timeoutSeconds: 3600, catchUp: false, workingDirectory: "", notifyEveryRun: false, id: "back-up-notes" }, "add fills the defaults and derives the id");
+    same(added.automation, { name: "Back up notes!", command: "true", enabled: true, schedule: schedule({}), timeoutSeconds: 3600, catchUp: false, requiresNetwork: false, workingDirectory: "", notifyEveryRun: false, id: "back-up-notes" }, "add fills the defaults and derives the id");
     same(logic.addAutomation(added.store, { name: "Back up notes", command: "true", schedule: schedule({}) }).automation.id, "back-up-notes-2", "a derived id steps past a taken one");
     same(logic.addAutomation(added.store, { id: "back-up-notes", name: "x", command: "true", schedule: schedule({}) }), { ok: false, error: "definition.id: taken=back-up-notes" });
     same(logic.addAutomation(added.store, { name: "x", command: "true", schedule: schedule({}), colour: "red" }), { ok: false, error: "definition.colour: unknown" });
@@ -316,7 +316,7 @@ function verify(logic) {
     const ended = (id, run, startedAt, outcome) => Object.assign(started(id, run, startedAt), { endedAt: startedAt + 10, durationMs: 10, outcome: outcome, exitCode: outcome === "succeeded" ? 0 : 1, signal: null, reason: "", transcriptBytes: 5, truncated: false, snippet: "" });
     assert.equal(logic.recordError(started("a", "1767225600000-1", 1), "started"), "");
     assert.equal(logic.recordError(ended("a", "1767225600000-1", 1, "succeeded"), "ended"), "");
-    assert.equal(logic.recordError(Object.assign(ended("a", "1767225600000-1", 1, "succeeded"), { outcome: "running" }), "ended"), "record.outcome: want=succeeded|failed|timeout|failed-start");
+    assert.equal(logic.recordError(Object.assign(ended("a", "1767225600000-1", 1, "succeeded"), { outcome: "running" }), "ended"), "record.outcome: want=succeeded|failed|timeout|failed-start|skipped");
     assert.equal(logic.recordError(Object.assign(started("a", "1767225600000-1", 1), { trigger: "cron" }), "started"), "record.trigger: want=scheduled|manual");
     assert.equal(logic.recordError(Object.assign(ended("a", "1767225600000-1", 5, "failed"), { endedAt: 4 }), "ended"), "record.endedAt: want=ms>=startedAt");
     const records = {
@@ -461,43 +461,51 @@ function verify(logic) {
     ]) same(logic.replaceIdFor(notice, server), want, "replace: " + why);
     same(logic.replaceIdFor(null, SERVER), null, "no notice replaces none");
 
-    // A scheduled run's wait for the network: NetworkManager's State from
-    // busctl --json=short get-property, each bounded wait's seconds, and
-    // the transcript and journal lines of how the wait ended.
-    same(logic.nmState(JSON.stringify({ type: "u", data: 70 })), 70);
-    for (const [reply, why] of [
-        ["", "no reply"],
-        ["u 70", "not json"],
-        [JSON.stringify({ type: "u", data: [70] }), "a StateChanged signal's list"],
-        [JSON.stringify({ type: "s", data: "70" }), "not a number"],
-        [JSON.stringify({ type: "u", data: 7.5 }), "not whole"]
-    ]) same(logic.nmState(reply), null, "no state: " + why);
-    for (const [waitedMs, want] of [[0, 5], [57000, 3], [59500, 1], [60000, 0], [61000, 0]]) same(logic.networkWaitSeconds(waitedMs), want, "the wait after " + waitedMs + " ms");
-    let waited = 0;
-    for (let s = logic.networkWaitSeconds(waited); s > 0; s = logic.networkWaitSeconds(waited)) waited += s * 1000;
-    same(waited, 60000, "back-to-back waits end at the bound");
-    // A busctl call as the runner hands it: verb, exit, signal, the bound
-    // that killed it in seconds, and its first line.
-    const call = (verb, exit, signal, timeoutS, detail) => ({ verb: verb, exit: exit, signal: signal, timeoutS: timeoutS, detail: detail });
-    for (const [outcome, log] of [
-        [{ kind: "no-busctl", waitedMs: 0 }, ""],
-        [{ kind: "absent", call: call("get-property", 1, null, null, "Failed to get property State"), waitedMs: 0 }, ""],
-        [{ kind: "absent", call: call("get-property", 1, null, null, "Access denied"), waitedMs: 5000 }, "network=absent waited=5s verb=get-property exit=1 signal=null detail=\"Access denied\""],
-        [{ kind: "online", state: 70, waitedMs: 0 }, ""],
-        [{ kind: "online", state: 70, waitedMs: 7400 }, "network=online waited=7s"],
-        [{ kind: "offline", state: 20, waitedMs: 60200 }, "network=offline waited=60s state=20"],
-        [{ kind: "failed", call: call("wait", 1, null, null, "Unknown command verb wait."), state: 20, waitedMs: 3 }, "network=failed waited=0s state=20 verb=wait exit=1 signal=null detail=\"Unknown command verb wait.\""],
-        [{ kind: "failed", call: call("get-property", null, "SIGTERM", 5, ""), state: null, waitedMs: 0 }, "network=failed waited=0s state=null verb=get-property exit=null signal=SIGTERM timeout=5s detail=\"\""],
-        [{ kind: "failed", call: call("wait", null, "SIGTERM", 10, ""), state: 20, waitedMs: 10004 }, "network=failed waited=10s state=20 verb=wait exit=null signal=SIGTERM timeout=10s detail=\"\""]
-    ]) {
-        const lines = logic.networkLines(outcome);
-        same(lines.log, log, "the journal line of " + JSON.stringify(outcome));
-        assert.match(lines.transcript, /^network: /, "the transcript line of " + JSON.stringify(outcome));
+    // The connectivity producer returns a uint enum; UNKNOWN and an unread
+    // result cannot establish connectivity. Grace expiry never admits.
+    for (const value of [0, 1, 2, 3, 4]) {
+        same(logic.nmConnectivity(JSON.stringify({ type: "u", data: value })), value);
+        for (const elapsed of [0, 59999, 60000, 900000]) {
+            const result = logic.networkAdmission(true, value, elapsed);
+            same(result.admit, value === 4);
+            same(result.diagnostic, value === 4 ? null : value === 0 ? "unavailable" : elapsed < 60000 ? "grace" : "offline");
+            same(logic.networkAdmission(false, value, elapsed), { admit: true, diagnostic: null });
+        }
     }
-    assert.throws(() => logic.networkLines({ kind: "late", waitedMs: 0 }), /network outcome "late"/);
+    for (const reply of ["", "u 4", '{"type":"u","data":[4]}', '{"type":"s","data":"4"}', '{"type":"u","data":4.5}', '{"type":"u","data":5}', '{"type":"u","data":-1}'])
+        same(logic.nmConnectivity(reply), null);
+    same(logic.networkAdmission(true, null, 900000), { admit: false, diagnostic: "unavailable" });
+    for (const [elapsed, seconds] of [[0, 5], [57000, 3], [59500, 1], [60000, 5], [900000, 5]])
+        same(logic.networkWaitSeconds(elapsed), seconds);
+    const oldAutomation = automation({ catchUp: true, command: "printf preserve", workingDirectory: "/tmp", notifyEveryRun: true });
+    delete oldAutomation.requiresNetwork;
+    const oldStore = { version: 1, automations: [oldAutomation] };
+    const converted = logic.convertStoreV1(JSON.stringify(oldStore));
+    same(converted, { ok: true, store: { version: 2, automations: [Object.assign({}, oldAutomation, { requiresNetwork: false })] } });
+    same(logic.parseStore(JSON.stringify(oldStore)).ok, false, "current reader never accepts v1");
+    for (const rejected of [converted.store, { version: 3, automations: [] }, { version: 1, automations: [automation({})] }, { version: 1, automations: [{ name: "Broken" }] }])
+        same(logic.convertStoreV1(JSON.stringify(rejected)).ok, false, "conversion is not an old-form reader");
+    for (const value of [null, 1, "true"]) same(logic.automationError(automation({ requiresNetwork: value }), "definition"), "definition.requiresNetwork: want=boolean");
+    const pending = { version: 1, kind: "network", phase: "waiting", token: "token", owner: { pid: 42, startTime: "100", bootId: "boot" }, dueAt: at("2026-01-04T09:00:00Z"), trigger: "scheduled", diagnostic: "unavailable", definition: automation({ requiresNetwork: true }), engine: "/engine" };
+    same(logic.parsePending(JSON.stringify(pending)), { ok: true, pending });
+    for (const change of [{ dueAt: null }, { phase: "other" }, { diagnostic: "online" }, { owner: { pid: 42, startTime: 100, bootId: "boot" } }, { definition: oldAutomation }, { engine: "relative" }])
+        same(logic.parsePending(JSON.stringify(Object.assign({}, pending, change))).ok, false);
+    const waitingRows = logic.listRows({ version: 2, automations: [automation({ schedule: UNTIL })] }, [], at("2026-02-01T12:00:00Z"), { backup: pending });
+    same([waitingRows[0].state, waitingRows[0].pending.dueAt, waitingRows[0].nextRun], ["waiting", pending.dueAt, null], "a waiting Once or ended schedule retains original due time");
+    same(logic.refreshDelay({ automations: waitingRows }, 0), 5000, "waiting markers are reread for liveness");
+    same(logic.statusValues({ scheduler: "systemd", linger: "yes", automations: waitingRows }).active, 1);
+    const pausedStore = { version: 2, automations: [automation({ enabled: false })] };
+    same(logic.listRows(pausedStore, [], 0, { backup: pending })[0].state, "paused");
+    same(logic.listRows(pausedStore, [], 0, { backup: Object.assign({}, pending, { trigger: "manual" }) })[0].state, "waiting", "manual work may wait on a paused automation");
+    const runningRows = [{ automation: "backup", outcome: "running", tone: "warning", run: "live", startedAt: 1, endedAt: null, transcript: "/run" }];
+    same(logic.listRows({ version: 2, automations: [automation({})] }, runningRows, 0, { backup: pending })[0].pending, null);
+    const skipped = { outcome: "skipped" };
+    const priorStreak = { failures: 3, since: 1, notice: null };
+    same(logic.notificationFor("end", automation({ notifyEveryRun: true }), skipped, priorStreak), null);
+    same(logic.streakAfter(skipped, priorStreak, null), priorStreak);
 
     // List rows, status and the refresh.
-    const listed = logic.listRows({ version: 1, automations: [automation({}), automation({ id: "off", name: "Off", enabled: false }), automation({ id: "done", name: "Done", schedule: UNTIL })] },
+    const listed = logic.listRows({ version: 2, automations: [automation({}), automation({ id: "off", name: "Off", enabled: false }), automation({ id: "done", name: "Done", schedule: UNTIL })] },
         [{ automation: "backup", run: "r2", outcome: "failed", tone: "danger", startedAt: 5, endedAt: 6, transcript: "/t2" }, { automation: "backup", run: "r1", outcome: "succeeded", tone: "success", startedAt: 1, endedAt: 2, transcript: "/t1" }],
         at("2026-02-01T12:00:00Z"));
     same(listed.map(r => [r.id, r.state, r.nextRun === null ? null : iso(r.nextRun), r.lastRun === null ? null : r.lastRun.run]), [["backup", "scheduled", "2026-02-02T09:00:00Z", "r2"], ["off", "paused", null, null], ["done", "ended", null, null]]);
@@ -804,11 +812,8 @@ const CONTROLS = [
     ["a success clears its own operation's failure alone", "if (failure === \"\") delete next[operation];", "if (failure === \"\") next = {};"],
     ["a failure is kept until its operation succeeds", "else next[operation] = String(failure).slice(0, 200);", "else next = { list: String(failure) };"],
     ["the Engine status names a failure", "if (hasOwn(failures, ENGINE_OPERATIONS[i])) return { tone: \"danger\", text: failureText(failures[ENGINE_OPERATIONS[i]]) };", "if (false) return null;"],
-    ["the network wait ends at its bound", "return remaining <= 0 ? 0 : Math.min(NETWORK_POLL_SECONDS, Math.ceil(remaining / 1000));", "return Math.min(NETWORK_POLL_SECONDS, Math.max(1, Math.ceil(remaining / 1000)));"],
-    ["a signal's list is no State", "doc.type === \"u\" && isWhole(doc.data) ? doc.data : null;", "doc.type === \"u\" ? doc.data : null;"],
-    ["a killed call names its bound", "(call.timeoutS !== null ? \" timeout=\" + call.timeoutS + \"s\" : \"\")", "\"\""],
-    ["a failed call names its signal", "\" exit=\" + call.exit + \" signal=\" + call.signal", "\" exit=\" + call.exit"],
-    ["a run that waited is logged", "log: outcome.waitedMs > 0 ? \"network=online waited=\" + waited : \"\"", "log: \"\""],
+    ["v1 migration preserves local-only defaults", "converted.push(withKeys(old, { requiresNetwork: false }));", "converted.push(withKeys(old, { requiresNetwork: true }));"],
+    ["waiting rows retain their due time", "pending: pending,", "pending: null,"],
     ["a failing last run is reported", "if (rows[i].lastRun !== null && OUTCOMES[rows[i].lastRun.outcome].error) failing.push(rows[i].name);", ""]
 ];
 

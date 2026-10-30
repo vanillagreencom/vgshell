@@ -39,7 +39,7 @@ process.env.TZ = "UTC";
 const repo = path.join(__dirname, "..");
 const pluginDir = path.join(repo, "shell", "plugins", "vgs.automations");
 const Logic = load(path.join(pluginDir, "AutomationsLogic.js"), modules);
-const scratch = path.join(os.tmpdir(), "test-automations-engine-" + process.pid);
+const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "test-automations-engine-"));
 // The host tools a case may run: the engine's own, the ones vgshell plugin
 // settings needs, and the ones the commands under test use. systemctl,
 // systemd-run, loginctl, crontab, notify-send and busctl are stand-ins alone.
@@ -73,7 +73,7 @@ function write(file, text, mode) {
 // it, else the next one; busctl answers the session bus's id from
 // $STUB/bus and the owner of org.freedesktop.Notifications from
 // $STUB/owner, refusing as busctl does when the file is empty, and
-// NetworkManager's State on the system bus from $STUB/nm, absent while the
+// NetworkManager's Connectivity on the system bus from $STUB/nm, absent while the
 // file is empty, ended by SIGTERM when it reads `kill` and hung past any
 // bound when it reads `hang`, as a system bus slow to answer just after a
 // resume leaves it; its wait for StateChanged reads the State, then appends
@@ -104,16 +104,18 @@ printf '%s\\n' "$n"
     busctl: `#!/usr/bin/env bash
 nm="org.freedesktop.NetworkManager /org/freedesktop/NetworkManager org.freedesktop.NetworkManager"
 case "$*" in
-  "--system --json=short get-property $nm State")
+  "--system --json=short get-property $nm Connectivity")
+    printf read\\n >>"$STUB/nm-reads"
     v=$(<"$STUB/nm")
     [[ $v == kill ]] && kill -TERM $$
     # exec, so the runner's bound kills the process holding the pipes.
     [[ $v == hang ]] && exec sleep 30
     [[ -n $v ]] || { echo "Failed to get property State on interface org.freedesktop.NetworkManager: The name org.freedesktop.NetworkManager was not provided by any .service files" >&2; exit 1; }
     printf '{"type":"u","data":%s}\\n' "$v"; exit 0 ;;
-  "--system --json=short wait --timeout="*" $nm StateChanged")
+  "--system --json=short wait --timeout="*" org.freedesktop.NetworkManager /org/freedesktop/NetworkManager org.freedesktop.DBus.Properties PropertiesChanged")
     was=$(<"$STUB/nm")
     printf '%s\\n' "$4" >>"$STUB/nm-waits"
+    if [[ -f $STUB/nm-wait-failure ]]; then cat "$STUB/nm-wait-failure" >&2; exit 23; fi
     for ((i = 0; i < \${4#--timeout=} * 20; i++)); do
       v=$(<"$STUB/nm")
       [[ $v == "$was" ]] || { printf '{"type":"u","data":[%s]}\\n' "$v"; exit 0; }
@@ -172,7 +174,9 @@ function world(options) {
     const env = { HOME: path.join(root, "home"), PATH: bin + ":" + tools, XDG_RUNTIME_DIR: path.join(root, "run"), STUB: stub, LANG: "C.UTF-8", TZ: opts.timezone };
     if (opts.nowMs !== undefined) {
         const clock = path.join(root, "fixed-date.js");
-        write(clock, "const RealDate = Date; global.Date = class FixedDate extends RealDate { constructor(...args) { super(...(args.length === 0 ? [" + opts.nowMs + "] : args)); } static now() { return " + opts.nowMs + "; } };\n");
+        const state = path.join(root, "clock.json");
+        write(state, JSON.stringify({ now: opts.nowMs, mono: 0 }));
+        write(clock, "const fs = require('fs'); const read = () => JSON.parse(fs.readFileSync(" + JSON.stringify(state) + ", 'utf8')); const RealDate = Date; global.Date = class FixedDate extends RealDate { constructor(...args) { super(...(args.length === 0 ? [read().now] : args)); } static now() { return read().now; } }; process.hrtime.bigint = () => BigInt(read().mono) * 1000000n;\n");
         env.NODE_OPTIONS = "--require=" + clock;
     }
     const home = path.join(root, "home");
@@ -517,68 +521,334 @@ const CASES = {
         assert.equal(cli(w, engine, ["run", "--scheduled", id]).first, "automations: skipped=job reason=paused");
     },
 
-    "a missed run waits for NetworkManager to read online"(engine) {
-        const { w, id, err } = missedRun(engine, {});
-        waitFor(() => waits(w) >= 1, "the runner's wait for StateChanged");
-        same(runFiles(w), [], "no run starts while NetworkManager reads offline");
-        const online = Date.now();
-        write(path.join(w.stub, "nm"), "70\n");
-        waitFor(() => runFiles(w).some(n => n.endsWith(".ended.json")), "the run after the network came up");
-        const rec = ended(w, id);
-        same([rec.trigger, rec.outcome, rec.startedAt >= online], ["scheduled", "succeeded", true], "the run started once NetworkManager read online");
-        assert.match(fs.readFileSync(err, "utf8"), /^automations: network=online waited=\d+s id=pull$/m);
-    },
+    "network requirements admit FULL alone and local commands bypass NM"(engine) {
+        const table = [
+            ["0", "unavailable", "connectivity", 0, null, null],
+            ["1", "grace", "connectivity", 0, null, null],
+            ["2", "grace", "connectivity", 0, null, null],
+            ["3", "grace", "connectivity", 0, null, null],
+            ["99", "unavailable", "invalid-reply", 0, null, null],
+            ["", "unavailable", "exit", 1, null, null],
+            ["kill", "unavailable", "signal", null, "SIGTERM", null],
+            ["hang", "unavailable", "timeout", null, "SIGTERM", 5000],
+            [null, "unavailable", "missing-command", null, null, null]
+        ];
+        for (const [value, diagnostic, category, exit, signal, timeoutMs] of table) {
+            const { w, id, due } = networkWorld(engine, { value: value });
+            const runner = startRunner(w, engine, id, "scheduled");
+            try {
+                waitFor(() => {
+                    same(runFiles(w).filter(n => n.endsWith(".started.json")), [], "a non-FULL prerequisite never starts a command");
+                    return listed(w, engine, id).pending?.diagnostic === diagnostic;
+                }, "the pending diagnostic " + value);
+                // nm-reads is an acknowledgement that the production read
+                // reached the stub; missing busctl has no such child.
+                if (value !== null) waitFor(() => fs.existsSync(path.join(w.stub, "nm-reads")), "the connectivity read");
+                waitFor(() => networkLogs(runner).some(out => out.operation === "get-property"), "the structured connectivity result");
+                const cause = networkLogs(runner).find(out => out.operation === "get-property");
+                same([cause.id, cause.command, cause.category, cause.exit, cause.signal, cause.timeoutMs], [id, "busctl", category, exit, signal, timeoutMs]);
+                if (category === "connectivity") same(cause.connectivity, Number(value));
+                if (category === "invalid-reply" || category === "exit") assert.ok(cause.detail.length > 0 && cause.detail.length <= 512);
 
-    "a wall-clock jump during the wait leaves it to NetworkManager"(engine) {
-        // Date.now reads two hours ahead once $STUB/jump exists, as after a
-        // suspend inside the wait or an NTP step; the runner loads this
-        // before the engine through node's --require.
-        const preload = path.join(scratch, "jump.js");
-        write(preload, "const real = Date.now; Date.now = () => real() + (require(\"fs\").existsSync(process.env.STUB + \"/jump\") ? 7200000 : 0);\n");
-        const { w, id, err } = missedRun(engine, { NODE_OPTIONS: "--require=" + preload });
-        waitFor(() => waits(w) >= 1, "the runner's first wait");
-        write(path.join(w.stub, "jump"), "");
-        const before = waits(w);
-        // Connecting, still offline: the signal ends the first wait and the
-        // runner waits again.
-        write(path.join(w.stub, "nm"), "40\n");
-        waitFor(() => waits(w) > before, "the runner's next wait after the jump");
-        same(runFiles(w), [], "no run starts while NetworkManager reads connecting");
-        write(path.join(w.stub, "nm"), "70\n");
-        waitFor(() => runFiles(w).some(n => n.endsWith(".ended.json")), "the run after the network came up");
-        same(ended(w, id).outcome, "succeeded");
-        const waited = /^automations: network=online waited=(\d+)s id=pull$/m.exec(fs.readFileSync(err, "utf8"));
-        assert.ok(waited !== null && Number(waited[1]) < 60, "the wait counts the time it spent, not the jump: " + fs.readFileSync(err, "utf8"));
-    },
-
-    "a run with nothing to wait for starts at once, past a hung read at its bound"(engine) {
-        // [the run, $STUB/nm, the stand-ins, the wait's outcome as the
-        // runner hands it to the judge, null for none]. A read that ends
-        // without an exit status fails the wait; the run starts once the
-        // read's bound has passed, when one killed it. The killed read comes
-        // before the hung one, so a control the killed read fails does not
-        // spend the bound.
-        for (const [trigger, state, stubs, outcome] of [
-            ["scheduled", "70", FORBIDDEN, { kind: "online", state: 70, waitedMs: 0 }],
-            ["scheduled", "", FORBIDDEN, { kind: "absent", call: { verb: "get-property", exit: 1, signal: null, timeoutS: null, detail: "Failed to get property State on interface org.freedesktop.NetworkManager: The name org.freedesktop.NetworkManager was not provided by any .service files" }, waitedMs: 0 }],
-            ["scheduled", "kill", FORBIDDEN, { kind: "failed", call: { verb: "get-property", exit: null, signal: "SIGTERM", timeoutS: null, detail: "" }, state: null, waitedMs: 0 }],
-            ["scheduled", "hang", FORBIDDEN, { kind: "failed", call: { verb: "get-property", exit: null, signal: "SIGTERM", timeoutS: 5, detail: "" }, state: null, waitedMs: 0 }],
-            ["scheduled", "20", FORBIDDEN.filter(name => name !== "busctl"), { kind: "no-busctl", waitedMs: 0 }],
-            ["manual", "20", FORBIDDEN, null]
-        ]) {
-            const w = world({ stubs: stubs });
-            const id = add(w, engine, { schedule: { frequency: "daily", interval: 1, times: ["00:00"], start: "2026-01-01", end: { type: "never" } }, catchUp: true });
-            write(path.join(w.home, ".local", "state", "vgshell", "automations", "guard", id + ".json"), JSON.stringify({ handledThrough: 0 }));
-            write(path.join(w.stub, "nm"), state + "\n");
-            const began = Date.now();
+                same([runFiles(w).filter(n => n.includes("@")), calls(w, "notify-send")], [[], []], "non-FULL " + value + " starts and notifies nothing");
+                same([listed(w, engine, id).state, listed(w, engine, id).pending.dueAt], ["waiting", due]);
+                assert.equal(cli(w, engine, ["cancel", id]).stdout, "cancelled=" + id + "\n");
+                same([ended(w, id).outcome, ended(w, id).reason, ended(w, id).durationMs, ended(w, id).exitCode], ["skipped", "cancelled-before-start", 0, null]);
+                same(calls(w, "notify-send"), [], "cancellation stays quiet");
+            } finally { stopRunner(runner); }
+            const local = world();
+            write(path.join(local.stub, "nm"), "hang");
+            const localId = add(local, engine, { requiresNetwork: false });
+            assert.equal(manual(local, engine, localId).status, 0);
+            assert.equal(fs.existsSync(path.join(local.stub, "nm-reads")), false, "local work reads no NM property");
+        }
+        for (const trigger of ["scheduled", "manual"]) {
+            const { w, id } = networkWorld(engine, { value: "4" });
             const out = cli(w, engine, ["run", "--" + trigger, id]);
-            const rec = ended(w, id);
-            const label = trigger + " with " + JSON.stringify(state) + " and " + stubs.length + " stand-ins";
-            const bound = outcome !== null && outcome.call !== undefined && outcome.call.timeoutS !== null ? outcome.call.timeoutS * 1000 : 0;
-            same([out.status, rec.trigger, rec.startedAt - began < bound + 5000, waits(w)], [0, trigger, true, 0], label + " starts at once");
-            const lines = outcome === null ? null : Logic.networkLines(outcome);
-            same(fs.readFileSync(rec.transcript, "utf8").split("\n").filter(line => line.startsWith("# network: ")), lines === null ? [] : ["# " + lines.transcript], label);
-            same(out.stderr.split("\n").filter(line => line.includes("network=")), lines === null || lines.log === "" ? [] : ["automations: " + lines.log + " id=" + id], label + " journal line");
+            assert.equal(out.status, 0, out.stderr);
+            same([ended(w, id).trigger, ended(w, id).outcome], [trigger, "succeeded"]);
+            assert.equal(listed(w, engine, id).pending, null);
+        }
+    },
+
+    "network wait failure transitions retain causes and suppress identical retries"(engine) {
+        const { w, id } = networkWorld(engine);
+        // A refused busctl wait is a supported older/unavailable bus path.
+        // Its arbitrarily long stderr must remain bounded in the journal.
+        write(path.join(w.stub, "nm-wait-failure"), "x".repeat(8192) + "\n");
+        const runner = startRunner(w, engine, id, "manual");
+        try {
+            waitFor(() => waits(w) >= 1, "the actual failed signal-wait operation");
+            waitFor(() => networkLogs(runner).some(out => out.operation === "wait"), "the wait operation's structured cause");
+            waitFor(() => waits(w) >= 3, "two completed retry/backoff iterations", 20000);
+            const logs = networkLogs(runner);
+            const failures = logs.filter(out => out.operation === "wait");
+            same(failures.length, 1, "identical wait failures emit one transition");
+            const cause = failures[0];
+            same([cause.id, cause.command, cause.category, cause.exit, cause.signal, cause.timeoutMs, cause.detail.length], [id, "busctl", "exit", 23, null, null, 512]);
+            same(logs.filter(out => out.operation === "get-property").map(out => out.connectivity), [1], "unchanged reads do not alternate into repeated wait errors");
+            same([runFiles(w).filter(n => n.includes("@")), calls(w, "notify-send")], [[], []]);
+            write(path.join(w.stub, "nm"), "4");
+            waitFor(() => runFiles(w).some(n => n.endsWith(".ended.json")), "FULL admission after failed signal waits");
+            same(ended(w, id).outcome, "succeeded");
+            same(networkLogs(runner).filter(out => out.operation === "get-property").map(out => out.connectivity), [1, 4], "the changed read logs recovery");
+        } finally { stopRunner(runner); }
+    },
+
+    "scheduled finalization never moves handled time backward"(engine) {
+        // The scheduler's Date.now can move backward after time correction.
+        // Every scheduled finalizer consumes the same persisted high water.
+        for (const [requiresNetwork, action] of [[false, "trigger"], [true, "trigger"], [true, "cancel"], [true, "edit"], [true, "disable"]]) {
+            const w = world({ nowMs: NETWORK_DUE });
+            write(path.join(w.stub, "nm"), "4");
+            const events = path.join(w.root, "commands");
+            const id = add(w, engine, { requiresNetwork, command: "echo once >> " + JSON.stringify(events), schedule: { frequency: "minutely", interval: 1, start: "2026-10-30", end: { type: "never" }, zone: "utc" } });
+            const guard = path.join(w.home, ".local/state/vgshell/automations/guard", id + ".json");
+            write(guard, JSON.stringify({ handledThrough: 0 }));
+            const fire = () => { const out = cli(w, engine, ["run", "--scheduled", id]); assert.equal(out.status, 0, out.stderr); };
+            const handled = () => JSON.parse(fs.readFileSync(guard, "utf8")).handledThrough;
+            const commands = () => fs.readFileSync(events, "utf8").trim().split("\n").length;
+            fire();
+            same([handled(), commands()], [NETWORK_DUE, 1]);
+            let runner = null;
+            try {
+                if (action !== "trigger") {
+                    clockAt(w, NETWORK_DUE + 60000, 1);
+                    write(path.join(w.stub, "nm"), "1");
+                    runner = startRunner(w, engine, id, "scheduled");
+                    waitFor(() => waits(w) >= 1, "the future slot's retained wait before clock correction");
+                }
+                clockAt(w, NETWORK_DUE - 4 * 60000, 2);
+                if (action === "trigger") fire();
+                else {
+                    const args = action === "edit" ? ["edit", id, "--definition", JSON.stringify({ name: "Edited" })] : [action, id];
+                    assert.equal(cli(w, engine, args).status, 0);
+                }
+                same([handled(), commands()], [NETWORK_DUE, 1], "the " + action + " finalizer preserves newer handled time, network=" + requiresNetwork);
+                if (action === "trigger") {
+                    for (const offset of [-3, 0]) { clockAt(w, NETWORK_DUE + offset * 60000, 3); fire(); }
+                    same([handled(), commands()], [NETWORK_DUE, 1], "no occurrence before the clock correction repeats");
+                    clockAt(w, NETWORK_DUE + 60000, 4); fire();
+                    same([handled(), commands()], [NETWORK_DUE + 60000, 2], "a strictly newer slot still runs");
+                }
+            } finally { if (runner !== null) stopRunner(runner); }
+        }
+    },
+
+    "reconnect admits once after grace without spending wall-clock grace"(engine) {
+        const { w, id, due } = networkWorld(engine);
+        const runner = startRunner(w, engine, id, "scheduled");
+        try {
+            waitFor(() => waits(w) >= 1, "the PropertiesChanged wait");
+            same([listed(w, engine, id).pending.diagnostic, runFiles(w).filter(n => n.includes("@"))], ["grace", []]);
+            // A forward wall step inside the ten-minute rule cannot spend
+            // active grace, whose monotonic source is separately injected.
+            clockAt(w, due + 6 * 60000, 1);
+            write(path.join(w.stub, "nm"), "2");
+            waitFor(() => waits(w) >= 2, "the next property wait after the wall step");
+            same(listed(w, engine, id).pending.diagnostic, "grace");
+            clockAt(w, due + 6 * 60000, 60001);
+            write(path.join(w.stub, "nm"), "3");
+            waitFor(() => listed(w, engine, id).pending?.diagnostic === "offline", "active grace expiry");
+            same(runFiles(w).filter(n => n.includes("@")), [], "grace expiry grants no offline admission");
+            const admittedAt = due + 6 * 60000;
+            write(path.join(w.stub, "nm"), "4");
+            waitFor(() => runFiles(w).some(n => n.endsWith(".ended.json")), "the reconnect run");
+            same([ended(w, id).outcome, ended(w, id).startedAt, ended(w, id).slot], ["succeeded", admittedAt, due]);
+            waitFor(() => !runnerAlive(runner), "the reconnect owner releases its lock");
+            assert.equal(cli(w, engine, ["run", "--scheduled", id]).status, 0);
+            same(runFiles(w).filter(n => n.endsWith(".ended.json")).length, 1, "one retained wait runs once");
+        } finally { stopRunner(runner); }
+    },
+
+    "offline lateness skips neutrally or catches up the latest once"(engine) {
+        for (const [catchUp, latest, outcome] of [[false, false, "skipped"], [true, false, "succeeded"], [true, true, "succeeded"]]) {
+            const { w, id, due } = networkWorld(engine, { catchUp: catchUp, minutely: latest });
+            const runner = startRunner(w, engine, id, "scheduled");
+            try {
+                waitFor(() => waits(w) >= 1, "the retained offline attempt");
+                const original = listed(w, engine, id).pending.dueAt;
+                clockAt(w, due + 2 * 60 * 60000, 60001);
+                write(path.join(w.stub, "nm"), "2");
+                if (!catchUp) {
+                    waitFor(() => runFiles(w).some(n => n.endsWith(".ended.json")), "the ordinary late skip while still offline");
+                    same([ended(w, id).reason, ended(w, id).exitCode, ended(w, id).signal, ended(w, id).durationMs], ["network-offline-late", null, null, 0]);
+                    same(runFiles(w).filter(n => n.endsWith(".started.json")), [], "a skip starts no command");
+                    same(calls(w, "notify-send"), [], "a skip sends no notice even with notifyEveryRun");
+                } else {
+                    waitFor(() => listed(w, engine, id).pending?.diagnostic === "offline", "offline after active grace");
+                    same(listed(w, engine, id).pending.dueAt, original, "the original due time survives later slots");
+                    write(path.join(w.stub, "nm"), "4");
+                    waitFor(() => runFiles(w).some(n => n.endsWith(".ended.json")), "the latest catch-up command");
+                }
+                same([ended(w, id).outcome, ended(w, id).slot], [outcome, latest ? due + 2 * 60 * 60000 : due]);
+                assert.equal(Logic.recordError(ended(w, id), "ended"), "");
+                waitFor(() => !runnerAlive(runner), "the finalized attempt releases its lock");
+                assert.equal(cli(w, engine, ["run", "--scheduled", id]).status, 0);
+                same(runFiles(w).filter(n => n.endsWith(".ended.json")).length, 1);
+            } finally { stopRunner(runner); }
+        }
+    },
+
+    "edit disable remove and explicit Cancel invalidate only waiting attempts"(engine) {
+        for (const action of ["edit", "disable", "remove", "cancel"]) {
+            const { w, id } = networkWorld(engine);
+            const runner = startRunner(w, installedEngine(w, id), id, "scheduled");
+            try {
+                waitFor(() => waits(w) >= 1, "the cancellable wait");
+                const args = action === "edit" ? ["edit", id, "--definition", JSON.stringify({ command: "echo edited", requiresNetwork: false })] : [action, id];
+                const out = cli(w, engine, args);
+                assert.equal(out.status, 0, out.stderr);
+                if (action !== "remove") same([ended(w, id).outcome, ended(w, id).reason], ["skipped", "cancelled-before-start"]);
+                write(path.join(w.stub, "nm"), "4");
+                waitFor(() => !runnerAlive(runner), "the cancelled owner exit");
+                same(runFiles(w).filter(n => n.endsWith(".started.json")), [], "no old captured command starts after " + action);
+                same(calls(w, "notify-send"), []);
+                if (action === "remove") {
+                    same(runFiles(w), [], "remove leaves no resurrected record or marker");
+                    assert.equal(fs.existsSync(path.join(w.home, ".local/state/vgshell/automations/guard", id + ".json")), false);
+                    const reused = add(w, engine, { name: "Pull", requiresNetwork: true });
+                    same(reused, id);
+                    same(listed(w, engine, id).pending, null, "reusing an id inherits no wait");
+                }
+            } finally { stopRunner(runner); }
+        }
+    },
+
+    "manual run-now remains visible with NM unavailable and Cancel ends it"(engine) {
+        const { w, id, due } = networkWorld(engine, { value: "", systemd: "down" });
+        assert.equal(cli(w, engine, ["run-now", id]).status, 0);
+        waitFor(() => listed(w, engine, id).pending?.diagnostic === "unavailable", "the visible manual unavailable attempt");
+        same([listed(w, engine, id).state, listed(w, engine, id).pending.trigger, listed(w, engine, id).pending.dueAt], ["waiting", "manual", due + 5 * 60000]);
+        clockAt(w, due + 2 * 86400000, 60001);
+        same(runFiles(w).filter(n => n.includes("@")), [], "manual work has no schedule expiry");
+        const marker = JSON.parse(fs.readFileSync(path.join(w.runs, id + ".pending.json"), "utf8"));
+        assert.equal(cli(w, engine, ["cancel", id]).stdout, "cancelled=" + id + "\n");
+        same([ended(w, id).trigger, ended(w, id).reason], ["manual", "cancelled-before-start"]);
+        write(path.join(w.stub, "nm"), "4");
+        waitFor(() => !identityAlive(marker.owner), "the cancelled detached manual owner exit");
+        same(runFiles(w).filter(n => n.endsWith(".started.json")), []);
+        same(calls(w, "notify-send"), []);
+    },
+
+    "dead owner markers are invisible and retired by the next runner"(engine) {
+        const { w, id } = networkWorld(engine);
+        plant(w, id, NETWORK_DUE - 1000, true);
+        const runner = startRunner(w, engine, id, "scheduled");
+        waitFor(() => waits(w) >= 1, "the first owner's wait");
+        same(listed(w, engine, id).state, "waiting", "a crashed started record cannot borrow the waiter lock and hide its wait");
+        const token = listed(w, engine, id).pending.token;
+        stopRunner(runner);
+        same(listed(w, engine, id).pending, null, "a crashed owner's marker is not a live wait");
+        const replacement = startRunner(w, engine, id, "scheduled");
+        try {
+            waitFor(() => listed(w, engine, id).pending?.token !== token && listed(w, engine, id).pending !== null, "the replacement's token");
+            write(path.join(w.stub, "nm"), "4");
+            waitFor(() => runFiles(w).some(n => n.endsWith(".ended.json")), "the replacement's command");
+            same(ended(w, id).outcome, "succeeded");
+        } finally { stopRunner(replacement); }
+    },
+
+    "an admitted command survives Cancel and a saved edit"(engine) {
+        const { w, id } = networkWorld(engine, { value: "4" });
+        const started = path.join(w.root, "command-started");
+        const release = path.join(w.root, "command-release");
+        const script = path.join(w.root, "admitted.sh");
+        write(script, '#!/bin/sh\n: >"$1"\nwhile test ! -e "$2"; do sleep 0.05; done\n', 0o755);
+        const command = "sh " + JSON.stringify(script) + " " + JSON.stringify(started) + " " + JSON.stringify(release);
+        assert.equal(cli(w, engine, ["edit", id, "--definition", JSON.stringify({ command })]).status, 0);
+        const runner = startRunner(w, installedEngine(w, id), id, "manual");
+        try {
+            waitFor(() => fs.existsSync(started), "the admitted command's acknowledgement");
+            same([listed(w, engine, id).state, listed(w, engine, id).pending], ["running", null]);
+            assert.equal(cli(w, engine, ["cancel", id]).stdout, "cancelled=none\n");
+            assert.equal(cli(w, engine, ["edit", id, "--definition", JSON.stringify({ command: "false", requiresNetwork: false })]).status, 0);
+            same(runFiles(w).filter(n => n.endsWith(".ended.json")), [], "edit does not cancel the admitted command");
+            write(release, "");
+            waitFor(() => runFiles(w).some(n => n.endsWith(".ended.json")), "the admitted command's ordinary end");
+            same([ended(w, id).outcome, ended(w, id).command], ["succeeded", command]);
+        } finally { stopRunner(runner); }
+    },
+
+    "a late network skip preserves a real failure streak"(engine) {
+        const { w, id, due } = networkWorld(engine, { value: "4" });
+        assert.equal(cli(w, engine, ["edit", id, "--definition", JSON.stringify({ command: "exit 7" })]).status, 0);
+        assert.equal(manual(w, engine, id).status, 1);
+        const streakFile = path.join(w.home, ".local/state/vgshell/automations/streak", id + ".json");
+        const before = fs.readFileSync(streakFile, "utf8");
+        const sends = calls(w, "notify-send").length;
+        assert.equal(cli(w, engine, ["clear", id]).status, 0);
+        assert.equal(cli(w, engine, ["edit", id, "--definition", JSON.stringify({ command: "true" })]).status, 0);
+        write(path.join(w.stub, "nm"), "1");
+        const runner = startRunner(w, engine, id, "scheduled");
+        try {
+            waitFor(() => waits(w) >= 1, "the wait following a real failure");
+            clockAt(w, due + 600001, 60001);
+            write(path.join(w.stub, "nm"), "2");
+            waitFor(() => runFiles(w).some(n => n.endsWith(".ended.json")), "the late skip following the failure");
+            same([ended(w, id).outcome, calls(w, "notify-send").length, fs.readFileSync(streakFile, "utf8")], ["skipped", sends, before]);
+        } finally { stopRunner(runner); }
+    },
+
+    "first-read conversion and a concurrent edit share the store lock"(engine) {
+        const w = world();
+        const id = add(w, engine, {});
+        const old = JSON.parse(fs.readFileSync(w.store, "utf8"));
+        old.version = 1;
+        for (const automation of old.automations) delete automation.requiresNetwork;
+        write(w.store, JSON.stringify(old));
+        const lock = path.join(w.home, ".local/state/vgshell/automations/locks/store.lock");
+        const release = holdLock(w, lock);
+        let held = true;
+        const barrier = path.join(w.root, "flock-arrivals");
+        fs.mkdirSync(barrier);
+        // Both real engine entries acknowledge their arrival at flock
+        // before the fixture releases the store lock. The real flock still
+        // orders every transaction; this wrapper changes no lock result.
+        write(path.join(w.root, "bin/flock"), "#!/bin/sh\nfor word do case \"$word\" in */store.lock) touch " + JSON.stringify(barrier) + "/$$ ;; esac; done\nexec " + JSON.stringify(path.join(w.root, "tools/flock")) + " \"$@\"\n", 0o755);
+        const children = [];
+        try {
+            for (const args of [["list", "--json"], ["edit", id, "--definition", JSON.stringify({ command: "echo concurrent" })]]) {
+                const file = path.join(w.root, "concurrent-" + children.length + ".out");
+                const fd = fs.openSync(file, "w");
+                const child = childProcess.spawn(engine, ["--tree", repo].concat(args), { env: w.env, cwd: w.home, detached: true, stdio: ["ignore", fd, fd] });
+                fs.closeSync(fd);
+                runners.add(child);
+                children.push({ child, file });
+            }
+            waitFor(() => fs.readdirSync(barrier).length >= 2, "both first-read callers reaching the store lock");
+            same(JSON.parse(fs.readFileSync(w.store, "utf8")).version, 1, "conversion cannot write past the held lock");
+            release();
+            held = false;
+            for (const { child, file } of children) {
+                waitFor(() => !runnerAlive(child), "the concurrent reader/editor to finish");
+                assert.doesNotMatch(fs.readFileSync(file, "utf8"), /automations: refused:/);
+            }
+            const current = JSON.parse(fs.readFileSync(w.store, "utf8"));
+            same([current.version, current.automations[0].requiresNetwork, current.automations[0].command], [2, false, "echo concurrent"]);
+        } finally {
+            if (held) release();
+            for (const { child } of children) stopRunner(child);
+        }
+    },
+
+    "v1 store conversion precedes list and engine-copy reads"(engine) {
+        for (const verb of ["list", "run"]) {
+            const w = world();
+            const id = add(w, engine, { command: "echo converted", catchUp: true });
+            const service = fs.readFileSync(path.join(w.units, "vgs-automation-" + id + ".service"), "utf8");
+            const copy = /"([^"\n]*\/engine\/[0-9a-f]{16}\/bin\/automations)"/.exec(service)[1];
+            const current = JSON.parse(fs.readFileSync(w.store, "utf8"));
+            const old = JSON.parse(JSON.stringify(current));
+            old.version = 1;
+            for (const automation of old.automations) delete automation.requiresNetwork;
+            write(w.store, JSON.stringify(old));
+            const out = cli(w, verb === "run" ? copy : engine, verb === "run" ? ["run", "--manual", id] : ["list", "--json"]);
+            assert.equal(out.status, 0, out.stderr);
+            same(JSON.parse(fs.readFileSync(w.store, "utf8")), current, "conversion preserves every old value and adds the false default");
+            const stamp = fs.statSync(w.store).mtimeMs;
+            assert.equal(cli(w, engine, ["list", "--json"]).status, 0);
+            same(fs.statSync(w.store).mtimeMs, stamp, "the current store is not converted again");
         }
     },
 
@@ -775,8 +1045,8 @@ function same(got, want, message) {
 
 // Polls CHECK every 50 ms for at most 10 s: a process the case started
 // takes its lock or writes its record on its own clock.
-function waitFor(check, what) {
-    const until = Date.now() + 10000;
+function waitFor(check, what, boundMs = 10000) {
+    const until = Date.now() + boundMs;
     while (Date.now() < until) {
         if (check()) return;
         childProcess.spawnSync("sleep", ["0.05"]);
@@ -817,25 +1087,76 @@ function plant(w, id, ms, open) {
     write(path.join(w.runs, Logic.runFile(id, run, "ended")), JSON.stringify(Object.assign(rec, { endedAt: ms + 1, durationMs: 1, outcome: "succeeded", exitCode: 0, signal: null, reason: "", transcriptBytes: 10, truncated: false, snippet: "" })));
 }
 
-// A world whose automation's daily slot five minutes back passed while the
-// machine slept: the guard last handled a slot before it, NetworkManager
-// reads disconnected (20), and the resume's trigger runs with ENV added,
-// its stderr in the returned `err` file.
-function missedRun(engine, env) {
-    const w = world();
-    const missed = new Date(Date.now() - 5 * 60 * 1000);
-    const time = String(missed.getUTCHours()).padStart(2, "0") + ":" + String(missed.getUTCMinutes()).padStart(2, "0");
-    const id = add(w, engine, { name: "Pull", schedule: { frequency: "daily", interval: 1, times: [time], start: "2026-01-01", end: { type: "never" } }, catchUp: true });
-    write(path.join(w.home, ".local", "state", "vgshell", "automations", "guard", id + ".json"), JSON.stringify({ handledThrough: 0 }));
-    write(path.join(w.stub, "nm"), "20\n");
-    const err = path.join(w.root, "runner.err");
-    const fd = fs.openSync(err, "w");
-    childProcess.spawn(engine, ["--tree", repo, "run", "--scheduled", id], { env: Object.assign({}, w.env, env), cwd: w.home, stdio: ["ignore", "ignore", fd] });
-    fs.closeSync(fd);
-    return { w, id, err };
+const NETWORK_DUE = Date.parse("2026-10-30T09:00:00Z");
+function networkWorld(engine, options) {
+    const opts = Object.assign({ value: "1", catchUp: false, minutely: false }, options);
+    const w = world({ nowMs: NETWORK_DUE + 5 * 60000, systemd: opts.systemd || "up", stubs: opts.value === null ? FORBIDDEN.filter(name => name !== "busctl") : FORBIDDEN });
+    const id = add(w, engine, { name: "Pull", requiresNetwork: true, catchUp: opts.catchUp,
+        schedule: opts.minutely ? { frequency: "minutely", interval: 10, start: "2026-10-30", end: { type: "never" }, zone: "utc" }
+            : { frequency: "daily", interval: 1, times: ["09:00"], start: "2026-10-30", end: { type: "never" }, zone: "utc" } });
+    write(path.join(w.home, ".local/state/vgshell/automations/guard", id + ".json"), JSON.stringify({ handledThrough: 0 }));
+    write(path.join(w.stub, "nm"), opts.value === null ? "" : opts.value);
+    return { w, id, due: NETWORK_DUE };
 }
 
-// How many StateChanged waits the busctl stand-in began.
+function installedEngine(w, id) {
+    const service = fs.readFileSync(path.join(w.units, "vgs-automation-" + id + ".service"), "utf8");
+    return /"([^"\n]*\/engine\/[0-9a-f]{16}\/bin\/automations)"/.exec(service)[1];
+}
+
+function clockAt(w, now, mono) {
+    const file = path.join(w.root, "clock.json");
+    write(file + ".new", JSON.stringify({ now, mono }));
+    fs.renameSync(file + ".new", file);
+}
+
+function listed(w, engine, id) {
+    const out = cli(w, engine, ["list", "--json"]);
+    assert.equal(out.status, 0, out.stderr);
+    return JSON.parse(out.stdout).automations.find(row => row.id === id);
+}
+
+const runners = new Set();
+function startRunner(w, engine, id, trigger) {
+    const logFile = path.join(w.root, "runner-" + runners.size + ".log");
+    const log = fs.openSync(logFile, "w");
+    const lock = path.join(w.home, ".local/state/vgshell/automations/locks", id + ".lock");
+    const child = childProcess.spawn("flock", ["-n", "-E", "75", "-o", lock, engine, "--tree", repo, "run", "--" + trigger, id], { env: w.env, cwd: w.home, stdio: ["ignore", log, log], detached: true });
+    fs.closeSync(log);
+    runners.add(child);
+    child.logFile = logFile;
+    return child;
+}
+
+// The runner journal's stable machine line keeps operation causes apart
+// from the UI's plain pending diagnostic and command notifications.
+function networkLogs(child) {
+    return fs.readFileSync(child.logFile, "utf8").split("\n").slice(0, -1)
+        .filter(line => line.startsWith("automations: network="))
+        .map(line => JSON.parse(line.slice("automations: network=".length)));
+}
+
+function identityAlive(owner) {
+    try {
+        const fields = fs.readFileSync("/proc/" + owner.pid + "/stat", "utf8").split(") ").pop().split(" ");
+        return fields[0] !== "Z" && fields[19] === owner.startTime;
+    } catch (e) { if (e.code === "ENOENT") return false; throw e; }
+}
+function runnerAlive(child) {
+    try { return !/[)] [ZX] /.test(fs.readFileSync("/proc/" + child.pid + "/stat", "utf8")); }
+    catch (e) { if (e.code === "ENOENT") return false; throw e; }
+}
+function stopRunner(child) {
+    if (!runners.has(child)) return;
+    if (runnerAlive(child)) {
+        try { process.kill(-child.pid, "SIGKILL"); }
+        catch (e) { if (e.code !== "ESRCH") throw e; }
+        waitFor(() => !runnerAlive(child), "the owned runner group to end");
+    }
+    runners.delete(child);
+}
+
+// How many PropertiesChanged waits the busctl stand-in began.
 function waits(w) {
     const file = path.join(w.stub, "nm-waits");
     return fs.existsSync(file) ? fs.readFileSync(file, "utf8").split("\n").filter(Boolean).length : 0;
@@ -845,6 +1166,7 @@ function waits(w) {
 
 // [label, the case, text in bin/automations, its replacement].
 const CONTROLS = [
+    ["FULL admission cannot be bypassed", "network requirements admit FULL alone and local commands bypass NM", "if (!admission.admit) {", "if (false && !admission.admit) {"],
     ["sync starts nothing with nothing to schedule", "sync with nothing runs nothing", "if (store.automations.length === 0 && ownedUnits().length === 0 && !fs.existsSync(engineRoot)) {", "if (false) {"],
     ["sync reloads after a unit change", "add writes the units, reloads and enables the timer", "if (removed.length + changed.length > 0) systemctl([\"daemon-reload\"]);", ""],
     ["the units run a copy of the engine", "add writes the units, reloads and enables the timer", "if (fs.existsSync(path.join(dir, \"bin\", \"automations\"))) return dir;", "return PLUGIN_DIR;"],
@@ -870,16 +1192,8 @@ const CONTROLS = [
     ["a long line ending in a break is split too", "output with no line break reaches the transcript in pieces", "        for (let at = 0; at < line.length; at += Logic.TRANSCRIPT_LINE_MAX) onLine(line.slice(at, at + Logic.TRANSCRIPT_LINE_MAX));\n        if (line === \"\") onLine(line);", "        onLine(line);"],
     ["a long line is split into pieces", "output with no line break reaches the transcript in pieces", "        while (pending.length > Logic.TRANSCRIPT_LINE_MAX) {", "        while (false) {"],
     ["a missing directory fails the start", "a missing working directory is a failed start", "return finish({ started: false, timedOut: false, exitCode: null, signal: null, reason: \"directory=\" + e.code + \" path=\" + directory });", "directory; // unchecked"],
-    ["a refused store fails the start", "a refused store is a failed start the user is told of", "if (!judged.ok) return execute(standIn(id), trigger, null, now, \"store=\" + judged.error.replace(/\\s+/g, \"-\"), null);", "if (!judged.ok) process.exit(1);"],
-    ["a scheduled run waits for the network", "a missed run waits for NetworkManager to read online", "Logic.networkLines(waitForNetwork(sessionEnvironment()))", "Logic.networkLines({ kind: \"no-busctl\", waitedMs: 0 })"],
-    ["a run starts after its wait", "a missed run waits for NetworkManager to read online", "execute(automation, trigger, decision.slot, Date.now(), \"\", network.transcript);", "execute(automation, trigger, decision.slot, now, \"\", network.transcript);"],
-    ["the wait reads the State again after each wait", "a missed run waits for NetworkManager to read online", "if (wait.out.status !== 0) return { kind: \"failed\", call: wait.ending, state: state, waitedMs: waitedMs };", "return { kind: \"offline\", state: state, waitedMs: waitedMs };"],
-    ["a read with no exit status fails the wait", "a run with nothing to wait for starts at once, past a hung read at its bound", "if (read.out.status === null) return { kind: \"failed\", call: read.ending, state: state, waitedMs: waitedMs };", ""],
-    ["the wait is measured on the monotonic clock", "a wall-clock jump during the wait leaves it to NetworkManager", "return Number(process.hrtime.bigint() / 1000000n);", "return Date.now();"],
     ["the transcript keeps its cap", "the transcript stops at its cap and the run goes on", "if (body + bytes > Logic.TRANSCRIPT_MAX_BYTES) {", "if (false) {"],
     ["the footer follows the cap", "the transcript stops at its cap and the run goes on", "put(footer.map(line => \"# \" + line + \"\\n\").join(\"\"));", ""],
-    ["a scheduled trigger asks the guard", "a scheduled trigger runs only what the guard allows", "if (!decision.run) {\n        log(\"skipped=\" + id + \" reason=\" + decision.reason);\n        return;\n    }", ""],
-    ["the guard records the handled occurrence", "a scheduled trigger runs only what the guard allows", "if (decision.slot !== null && (handled === null || decision.slot > handled)) markHandled(id, decision.slot);", ""],
     ["run-now goes through systemd-run", "run-now goes through systemd-run and refuses a busy automation", "if (scheduler() === \"systemd\") {\n        const unit", "if (false) {\n        const unit"],
     ["run-now refuses a busy automation", "run-now goes through systemd-run and refuses a busy automation", "if (lockHeld(id)) refuse(\"run=busy id=\" + id, \"a run of it is live\");", ""],
     ["a held lock is a running run", "history names a running and a vanished run", "if (out.status === 75) return true;", "if (out.status === 75) return false;"],
@@ -892,17 +1206,21 @@ const CONTROLS = [
     ["no scheduler refuses", "with neither scheduler sync refuses", "if (chosen === \"none\") refuse(\"scheduler=none\", \"neither a systemd user manager nor crontab answered\");", ""]
 ];
 
-fs.rmSync(scratch, { recursive: true, force: true });
-fs.mkdirSync(scratch, { recursive: true });
+
 let passed = 0;
 try {
     const engine = path.join(pluginDir, "bin", "automations");
+    const selected = process.argv.slice(2);
+    for (const name of selected) assert.ok(Object.hasOwn(CASES, name), "unknown engine case: " + name);
     for (const [name, check] of Object.entries(CASES)) {
+        if (selected.length && !selected.includes(name)) continue;
         check(engine);
         passed += 1;
     }
     const source = fs.readFileSync(engine, "utf8");
+    let controls = 0;
     CONTROLS.forEach(([label, name, needle, replacement], i) => {
+        if (selected.length && !selected.includes(name)) return;
         assert.ok(Object.prototype.hasOwnProperty.call(CASES, name), `control "${label}": no case "${name}"`);
         assert.equal(source.split(needle).length, 2, `control "${label}": the text to replace must occur once`);
         const copy = path.join(scratch, "control-" + i, "vgs.automations");
@@ -911,12 +1229,16 @@ try {
         let failed = false;
         try {
             CASES[name](path.join(copy, "bin", "automations"));
-        } catch (_e) {
+        } catch (e) {
+            if (label === "FULL admission cannot be bypassed" && !(e instanceof assert.AssertionError)) throw e;
             failed = true;
         }
         assert.ok(failed, `control "${label}": case "${name}" passed on an engine without that rule`);
+        controls += 1;
+        if (label === "FULL admission cannot be bypassed") console.log("control: FULL admission bypass rejected by non-FULL command-start assertion");
     });
+    console.log(`test-automations-engine: ok cases=${passed} controls=${controls}`);
 } finally {
+    for (const runner of runners) stopRunner(runner);
     fs.rmSync(scratch, { recursive: true, force: true });
 }
-console.log(`test-automations-engine: ok cases=${passed} controls=${CONTROLS.length}`);

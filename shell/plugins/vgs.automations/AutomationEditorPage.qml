@@ -14,11 +14,13 @@ FocusScope {
     required property var previewRows
     required property var testRun
     required property string testTranscript
+    property var pending: null
     property int timeoutUnitIndex: View.timeoutAmount(draft.timeoutSeconds).unit === "hours" ? 1 : 0
 
     signal backRequested()
     signal saveRequested()
     signal testRequested()
+    signal cancelRequested()
     signal copyRequested()
     signal removeRequested()
     signal openTranscriptRequested(string path)
@@ -99,11 +101,23 @@ FocusScope {
                             text: page.draft.saved ? "Test run" : "Save before test run"
                             iconName: "play"
                             variant: "secondary"
-                            enabled: page.draft.saved
+                            disabledReason: !page.draft.saved ? "Save this automation before a test run." : page.pending !== null ? "Cancel the waiting run before starting another." : ""
                             onClicked: page.testRequested()
                         }
                         Button { text: "Copy command"; iconName: "copy"; variant: "tertiary"; onClicked: page.copyRequested() }
                         Button { text: "Remove"; iconName: "trash"; variant: "danger"; visible: page.draft.saved; onClicked: page.removeRequested() }
+                    }
+                    Label {
+                        width: parent.width
+                        role: "body"
+                        text: page.pending === null ? "" : "Waiting for network · Due " + View.formatWhen(page.pending.dueAt)
+                        visible: page.pending !== null
+                        wrapMode: Text.Wrap
+                    }
+                    RowAction {
+                        text: "Cancel waiting run"
+                        visible: page.pending !== null
+                        onClicked: page.cancelRequested()
                     }
                 }
 
@@ -133,6 +147,21 @@ FocusScope {
                     headerInset: 0
                     width: parent.width
 
+                    Field {
+                        width: parent.width
+                        label: "Network"
+                        inline: true
+                        hint: page.pending === null ? "" : [View.networkExplanation(page.pending), "Saving changes cancels the waiting run."].filter(text => text !== "").join(" ")
+                        Switch {
+                            size: "sm"
+                            text: "Needs internet"
+                            checked: page.draft.requiresNetwork
+                            onToggled: {
+                                checked = Qt.binding(() => page.draft.requiresNetwork);
+                                page.change("requiresNetwork", !page.draft.requiresNetwork);
+                            }
+                        }
+                    }
                     Field { width: parent.width; label: "Notify"; inline: true; Switch { size: "sm"; text: "Notify on every run"; checked: page.draft.notifyEveryRun; onToggled: { checked = Qt.binding(() => page.draft.notifyEveryRun); page.change("notifyEveryRun", !page.draft.notifyEveryRun); } } }
                     Field { width: parent.width; label: "Catch up"; inline: true; Switch { size: "sm"; text: "Catch up missed runs"; checked: page.draft.catchUp; onToggled: { checked = Qt.binding(() => page.draft.catchUp); page.change("catchUp", !page.draft.catchUp); } } }
                     Field { width: parent.width; label: "Paused"; inline: true; Switch { size: "sm"; text: "Pause this automation"; checked: !page.draft.enabled; onToggled: { checked = Qt.binding(() => !page.draft.enabled); page.change("enabled", page.draft.enabled ? false : true); } } }

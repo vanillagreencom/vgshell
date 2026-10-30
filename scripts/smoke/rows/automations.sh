@@ -41,14 +41,34 @@
 # NetworkManager mock reads disconnected and starts once the row sets it
 # online, and three failing runs and a success keep one notice, the
 # notify-send stand-in's later calls each replacing the first's id. The
-# row ends with the plugin disabled, the mock's State as the row found it,
+# row ends with the plugin disabled, the mock's Connectivity as the row found it,
 # its stand-ins removed and the shim files they covered restored.
-# inputs: shell/plugins/vgs.automations/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/SettingField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Commons/Reply.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml bin/vgshell-tui shell/Ui/feedback/Dialog.qml shell/Commons/Duration.js shell/Commons/qmldir shell/Ui/controls/RowAction.qml shell/Core/NotificationHub.qml scripts/smoke/rows/capabilities.sh
+# inputs: shell/plugins/vgs.automations/* shell/plugins/vgs.automations/bin/automations shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/SettingField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Commons/Reply.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml bin/vgshell-tui bin/vgshell bin/lib/qml-library.js shell/Ui/feedback/Dialog.qml shell/Commons/Duration.js shell/Commons/qmldir shell/Ui/controls/RowAction.qml shell/Core/NotificationHub.qml scripts/smoke/rows/capabilities.sh
 set -euo pipefail
 auto_stub="$sandbox/automations-stub"
 # The systemctl stand-in fails daemon-reload while $auto_stub/fail-reload
 # exists, so a row can make a sync fail.
 automations_stand_ins "$auto_stub"
+auto_nm_original=""
+auto_copy=""
+auto_net_control=""
+# The harness stops this row's children before invoking its registered
+# abandonment cleanup. Restore owned state even when a fixture step fails.
+auto_abandon() {
+  local result=0 saved
+  if [[ -n $auto_nm_original ]]; then nm_set "$auto_nm_original" >/dev/null || result=1; fi
+  if [[ -n $auto_net_control && -d $auto_net_control ]]; then rm -rf -- "${auto_net_control:?}" || result=1; fi
+  if [[ -n $auto_copy && -d $auto_copy ]]; then
+    rm -rf -- "${auto_copy:?}" || result=1
+    rescan "abandonment restores the shipped automations plugin"
+  fi
+  ipc shell setPluginEnabled vgs.automations false >/dev/null || result=1
+  saved="$(sentinel_saved "$shim/loginctl")" || return
+  if [[ -e $saved ]]; then sentinel_restore "$shim/loginctl" || result=1; fi
+  automations_stand_ins_restore "$auto_stub" || result=1
+  return "$result"
+}
+smoke_row_abandon=(auto_abandon)
 terminal_stand_in
 
 auto_engine="$repo/shell/plugins/vgs.automations/bin/automations"
@@ -153,7 +173,7 @@ auto_row_value() { auto_rows_json | py_reply 'import json,sys; rows=json.load(sy
 if not found:
     print("absent"); raise SystemExit
 row=found[0]; value=row;
-for part in sys.argv[2].split("."): value=value[part]
+for part in sys.argv[2].split("."): value=value.get(part) if isinstance(value,dict) else None
 print(json.dumps(value))' "$1" "$2"; }
 auto_id_by_name() { auto_rows_json | py_reply 'import json,sys; rows=[r for r in json.load(sys.stdin) if r["name"] == sys.argv[1]]; print(rows[0]["id"] if rows else "")' "$1"; }
 auto_preview_first() { auto_rows_json | py_reply 'import json,subprocess,sys; rows=json.load(sys.stdin); row=[r for r in rows if r["id"] == sys.argv[1]][0]; out=subprocess.check_output([sys.argv[2],"--tree",sys.argv[3],"preview","--schedule",json.dumps(row["schedule"]),"--count","1"], text=True); print(str(json.loads(out)["occurrences"][0]))' "$1" "$auto_engine" "$repo"; }
@@ -232,6 +252,20 @@ expect_poll "the window takes the keyboard when it opens" true ipc smoke activeF
 expect "the pointer creates Smoke UI through the editor" ok ui_create "Smoke UI" "echo smoke-ui"
 expect_poll "the CLI reads the automation the window created" '"echo smoke-ui"' auto_row_value smoke-ui command
 expect "the window's draft is the saved automation" '"smoke-ui"' ui_draft id
+
+# A pointer toggles the requirement and saves it. Space on that same
+# focused switch toggles it back; Ctrl+S round-trips the keyboard edit.
+expect "a new automation does not require the network" false auto_row_value smoke-ui requiresNetwork
+expect "the pointer enables Needs internet" ok ui_click Switch "Needs internet"
+expect_poll "the requirement reaches the draft" true ui_draft requiresNetwork
+expect "Save stores the network requirement" ok ui_click Button Save
+expect_poll "the CLI reads the network requirement" true auto_row_value smoke-ui requiresNetwork
+expect "the pointer focuses Needs internet for its keyboard toggle" ok ui_click Switch "Needs internet"
+expect_poll "the focused switch is off" false ui_draft requiresNetwork
+expect "Space toggles the focused requirement on" ok ui_keys -k space
+expect_poll "Space reaches the checked draft" true ui_draft requiresNetwork
+expect "Space toggles it off and Ctrl+S stores the keyboard edit" ok ui_keys -k space -M ctrl -k s -m ctrl
+expect_poll "the CLI reads the unchecked keyboard edit" false auto_row_value smoke-ui requiresNetwork
 
 # Edit the recurrence: the preset menu to Custom by its typed letter, the
 # interval to 2, Save; the engine stores it and the drawn preview's first
@@ -511,50 +545,183 @@ expect_poll "the shipped service lists the paused automation" 0 auto_status acti
 auto_runs_dir="$(automations list --json | py_reply 'import json,sys; print(json.load(sys.stdin)["runsDir"])')" || fail "the engine's runs directory is unreadable"
 auto_guard_dir="${auto_runs_dir%/runs}/guard"
 
-# A missed slot waits for the network: the sandbox's NetworkManager mock
-# (scripts/smoke/devices.sh) reads disconnected, 20, through its own
-# SetGlobalConnectionState, which also sends NetworkManager's StateChanged;
-# a scheduled run of a slot 5 minutes back, the guard planted as a resume
-# leaves it, starts nothing while its runner waits on that signal, and
-# once the row sets it online, 70, the run's started record shows the start
-# after that and the runner's journal line names the wait. The mock gets
-# back the State the row found.
-nm_state() { "${shell_env[@]}" busctl --system --json=short get-property org.freedesktop.NetworkManager /org/freedesktop/NetworkManager org.freedesktop.NetworkManager State | py_reply 'import json,sys; print(json.load(sys.stdin)["data"])'; }
-nm_set() { "${shell_env[@]}" busctl --system call org.freedesktop.NetworkManager /org/freedesktop/NetworkManager org.freedesktop.DBus.Mock SetGlobalConnectionState u "$1" && echo ok; }
-auto_records() { # ID KIND: how many KIND records, started or ended, ID's runs left
+# The private NetworkManager mock exposes the generic UpdateProperties
+# interface, which emits PropertiesChanged. Only this mock changes; no
+# CheckConnectivity or real device action belongs to this row. The fixed
+# wall/monotonic clocks below exercise grace and the existing late rule
+# without a sixty-second or ten-minute sleep.
+nm_state() { "${shell_env[@]}" busctl --system --json=short get-property org.freedesktop.NetworkManager /org/freedesktop/NetworkManager org.freedesktop.NetworkManager Connectivity | py_reply 'import json,sys; print(json.load(sys.stdin)["data"])'; }
+nm_set() { "${shell_env[@]}" busctl --system call org.freedesktop.NetworkManager /org/freedesktop/NetworkManager org.freedesktop.DBus.Mock UpdateProperties 'sa{sv}' org.freedesktop.NetworkManager 1 Connectivity u "$1" && echo ok; }
+auto_records() { # ID KIND in the ordinary UI world
   python3 -c 'import glob,sys; print(len(glob.glob(sys.argv[1] + "/" + sys.argv[2] + "@*." + sys.argv[3] + ".json")))' "$auto_runs_dir" "$1" "$2"
 }
-# auto_waited_run ONLINE_AT: the one ended run of smoke-net as its
-# trigger, its outcome and whether it started at or after ONLINE_AT (ms).
-auto_waited_run() {
-  python3 - "$auto_runs_dir" "$1" <<'PY'
-import glob, json, sys
-ended = [json.load(open(f)) for f in glob.glob(sys.argv[1] + "/smoke-net@*.ended.json")]
-if len(ended) != 1:
-    print("ended=%d" % len(ended))
-    raise SystemExit
-rec = ended[0]
-print(json.dumps([rec["trigger"], rec["outcome"], rec["startedAt"] >= int(sys.argv[2])]))
-PY
+auto_net="$sandbox/automations-network"
+mkdir -p -- "$auto_net/home" "$auto_net/config" "$auto_net/state" "$auto_net/data" "$auto_net/run"
+chmod 700 -- "$auto_net/run"
+cat >"$auto_net/clock.js" <<'EOF'
+const fs = require("fs");
+const clock = () => JSON.parse(fs.readFileSync(process.env.NETWORK_CLOCK, "utf8"));
+const RealDate = Date;
+global.Date = class extends RealDate {
+    constructor(...args) { super(...(args.length ? args : [clock().now])); }
+    static now() { return clock().now; }
+};
+process.hrtime.bigint = () => BigInt(clock().mono) * 1000000n;
+EOF
+auto_net_due=1793350800000 # 2026-10-30 09:00 UTC, read by the fixture schedule below
+auto_net_clock() {
+  printf '{"now":%s,"mono":%s}\n' "$1" "$2" >"$auto_net/clock.next"
+  mv -- "$auto_net/clock.next" "$auto_net/clock.json"
+}
+auto_net_env=("${shell_env[@]}" PATH="$shell_path" HOME="$auto_net/home" XDG_CONFIG_HOME="$auto_net/config" XDG_STATE_HOME="$auto_net/state" XDG_DATA_HOME="$auto_net/data" XDG_RUNTIME_DIR="$auto_net/run" NETWORK_CLOCK="$auto_net/clock.json" NODE_OPTIONS="--require=$auto_net/clock.js" TZ=UTC)
+auto_net_cli() { "${auto_net_env[@]}" "$auto_engine" --tree "$repo" "$@" 2>>"$sandbox/automations-network.err"; }
+auto_net_last() { local out; out="$(auto_net_cli "$@")" || return; printf '%s\n' "${out##*$'\n'}"; }
+auto_net_add() {
+  auto_net_last add --definition '{"name":"'"$1"'","command":"true","requiresNetwork":true,"catchUp":'"$2"',"schedule":{"frequency":"daily","interval":1,"times":["09:00"],"start":"2026-10-30","end":{"type":"never"},"zone":"utc"}}' || return
+  printf '{"handledThrough":0}\n' >"$auto_net/state/vgshell/automations/guard/$3.json"
+}
+auto_net_value() {
+  auto_net_cli list --json | py_reply 'import json,sys; r=next(r for r in json.load(sys.stdin)["automations"] if r["id"]==sys.argv[1]); value=r
+for part in sys.argv[2].split("."): value=value.get(part) if isinstance(value,dict) else None
+print(json.dumps(value))' "$1" "$2"
+}
+auto_net_marker() { [[ -e $auto_net/state/vgshell/automations/runs/$1.pending.json ]] && echo present || echo absent; }
+auto_net_records() { python3 -c 'import glob,sys; print(len(glob.glob(sys.argv[1]+"/"+sys.argv[2]+"@*."+sys.argv[3]+".json")))' "$auto_net/state/vgshell/automations/runs" "$1" "$2"; }
+auto_net_ending() {
+  python3 - "$auto_net/state/vgshell/automations/runs" "$1" <<'PYEND'
+import glob,json,sys
+files=glob.glob(sys.argv[1]+"/"+sys.argv[2]+"@*.ended.json")
+if len(files)!=1:
+    print("records="+str(len(files))); raise SystemExit
+r=json.load(open(files[0]))
+print(json.dumps([r["outcome"],r["reason"],r["slot"],r["durationMs"]]))
+PYEND
+}
+# This is the assertion the FULL-bypass control must fail: an acknowledged
+# waiting marker cannot coexist with a started command.
+auto_net_prerequisite() {
+  local pending started
+  pending="$(auto_net_value "$1" state)" || return
+  started="$(auto_net_records "$1" started)" || return
+  [[ $pending == '"waiting"' && $started == 0 ]] && echo waiting || echo rejected
+}
+auto_net_spawn() {
+  spawn "$sandbox/automations-network-$2.err" "${auto_net_env[@]}" "$1" --tree "$repo" run --scheduled "$2"
 }
 if devices_ready automations; then
-  nm_found="$(nm_state)" || fail "the NetworkManager mock's State is unreadable"
-  expect "the NetworkManager mock reads disconnected" ok nm_set 20
-  missed="$("${shell_env[@]}" python3 -c 'import time; print(time.strftime("%H:%M", time.localtime(time.time() - 300)))')" || fail "the missed slot's time is unreadable"
-  expect "the engine adds a scheduled automation" added=smoke-net auto_last add --definition '{"name": "Smoke net", "command": "true", "catchUp": true, "schedule": {"frequency": "daily", "interval": 1, "times": ["'"$missed"'"], "start": "2026-01-01", "end": {"type": "never"}}}'
-  printf '{"handledThrough": 0}\n' >"$auto_guard_dir/smoke-net.json"
-  spawn "$sandbox/automations-net.err" "${shell_env[@]}" PATH="$shell_path" "$auto_engine" --tree "$repo" run --scheduled smoke-net
-  # spawn's setsid makes the runner its own process group, so its busctl
-  # wait is the one this reads, never the poller's own.
-  expect_poll "the runner waits on NetworkManager's StateChanged" 1 pgrep -c -g "$spawn_pid" -f 'busctl --system --json=short wait '
-  expect "no run starts while NetworkManager reads disconnected" 0 auto_records smoke-net started
-  online_at="$(date +%s%3N)"
-  expect "the NetworkManager mock reads online" ok nm_set 70
-  expect_poll "the waiting run ends once the network is up" 1 auto_records smoke-net ended
-  expect "the missed run started after the network came up" '["scheduled", "succeeded", true]' auto_waited_run "$online_at"
-  expect "the runner logs its wait to the journal" 1 grep -c '^automations: network=online waited=[0-9]*s id=smoke-net$' "$sandbox/automations-net.err"
-  expect "the NetworkManager mock gets back the State the row found" ok nm_set "$nm_found"
-  expect "the engine removes the network automation" removed=smoke-net auto_last remove smoke-net
+  auto_nm_original="$(nm_state)" || fail "the NetworkManager mock's Connectivity is unreadable"
+  expect "the NetworkManager mock reads NONE" ok nm_set 1
+  auto_net_clock "$((auto_net_due + 300000))" 0
+  expect "the engine adds the reconnect fixture" added=net-reconnect auto_net_add "Net reconnect" true net-reconnect
+  auto_net_spawn "$auto_engine" net-reconnect
+  expect_poll "the reconnect attempt is waiting in grace" '"grace"' auto_net_value net-reconnect pending.diagnostic
+  expect "a non-FULL prerequisite starts no command" waiting auto_net_prerequisite net-reconnect
+  expect "the NetworkManager mock reports FULL" ok nm_set 4
+  expect_poll "the reconnect command ends once" 1 auto_net_records net-reconnect ended
+  expect_poll "the ended reconnect owner clears its marker" absent auto_net_marker net-reconnect
+  expect "another scheduled trigger handles no second run" '' auto_net_cli run --scheduled net-reconnect
+  expect "the reconnect attempt ran once" 1 auto_net_records net-reconnect ended
+  expect "the engine removes the reconnect fixture" removed=net-reconnect auto_net_last remove net-reconnect
+
+  expect "the mock reads NONE for grace" ok nm_set 1
+  expect "the engine adds the grace fixture" added=net-grace auto_net_add "Net grace" true net-grace
+  auto_net_spawn "$auto_engine" net-grace
+  expect_poll "the new attempt starts in grace" '"grace"' auto_net_value net-grace pending.diagnostic
+  auto_net_clock "$((auto_net_due + 300000))" 60001
+  expect "a LIMITED change wakes the grace attempt" ok nm_set 3
+  expect_poll "active grace expiry becomes offline" '"offline"' auto_net_value net-grace pending.diagnostic
+  expect "active grace expiry never grants offline admission" waiting auto_net_prerequisite net-grace
+  expect "Cancel invalidates only the waiting attempt" cancelled=net-grace auto_net_cli cancel net-grace
+  expect_poll "Cancel has a neutral ended record" '["skipped", "cancelled-before-start", 1793350800000, 0]' auto_net_ending net-grace
+  expect "the engine removes the grace fixture" removed=net-grace auto_net_last remove net-grace
+
+  auto_net_clock "$((auto_net_due + 300000))" 0
+  expect "the mock reads NONE for the late fixture" ok nm_set 1
+  expect "the engine adds the ordinary missed-rule fixture" added=net-late auto_net_add "Net late" false net-late
+  auto_net_spawn "$auto_engine" net-late
+  expect_poll "the late fixture first waits" '"grace"' auto_net_value net-late pending.diagnostic
+  auto_net_clock "$((auto_net_due + 600001))" 60001
+  expect "a property change wakes the now-late attempt" ok nm_set 2
+  expect_poll "the ordinary late rule records a neutral skip while offline" '["skipped", "network-offline-late", 1793350800000, 0]' auto_net_ending net-late
+  expect "a late skip starts no command" 0 auto_net_records net-late started
+  expect "the engine removes the late fixture" removed=net-late auto_net_last remove net-late
+
+  # Disposable control outside the checkout. Keep the FULL decision text
+  # but bypass its branch, then require the same prerequisite assertion to
+  # reject a command admitted with Connectivity NONE.
+  auto_net_control="$(mktemp -d)" || fail "the FULL control scratch could not be created"
+  cp -R -- "$repo/shell/plugins/vgs.automations" "$auto_net_control/vgs.automations"
+  python3 - "$auto_net_control/vgs.automations/bin/automations" <<'PYCONTROL'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1]); before=p.read_text(); needle="if (!admission.admit) {"
+assert before.count(needle)==1
+result=before.replace(needle,"if (false && !admission.admit) {",1)
+assert result!=before
+p.write_text(result)
+PYCONTROL
+  auto_net_clock "$((auto_net_due + 300000))" 0
+  expect "the mock reads NONE for the FULL control" ok nm_set 1
+  expect "the engine adds the FULL control fixture" added=net-control auto_net_add "Net control" true net-control
+  auto_net_spawn "$auto_net_control/vgs.automations/bin/automations" net-control
+  expect_poll "the control reaches the forbidden command start" 1 auto_net_records net-control started
+  expect "the prerequisite assertion rejects the bypassed FULL guard" rejected auto_net_prerequisite net-control
+  expect_poll "the control command ends before its scratch is removed" 1 auto_net_records net-control ended
+  expect "the engine removes the FULL control fixture" removed=net-control auto_net_last remove net-control
+  rm -rf -- "${auto_net_control:?}"
+
+  # The ordinary UI world receives a real manual wait with a deliberately
+  # absent private bus address for that runner alone. Window and Service
+  # retain the sandbox buses and read its diagnostic through normal list.
+  expect "the engine adds the visible manual fixture" added=network-manual auto_last add --definition '{"name":"Network manual","command":"true","requiresNetwork":true,"schedule":{"frequency":"daily","interval":1,"times":["09:00"],"start":"2026-01-01","end":{"type":"never"}}}'
+  spawn "$sandbox/automations-manual-unavailable.err" "${shell_env[@]}" PATH="$shell_path" DBUS_SYSTEM_BUS_ADDRESS="unix:path=$sandbox/no-network-bus" "$auto_engine" --tree "$repo" run --manual network-manual
+  expect_poll "the manual attempt reports unavailable" '"unavailable"' auto_row_value network-manual pending.diagnostic
+  expect "the real window summons for the waiting manual run" ok ipc shell summon window vgs.automations '{}'
+  expect_poll "the real window maps for the pending run" 1 window_count Automations
+  auto_ui_pending() { ipc smoke readInstance window vgs.automations automations | py_reply 'import json,sys; r=next((r for r in json.load(sys.stdin) if r["id"]=="network-manual"),None); print(json.dumps([r["state"],r["pending"]["trigger"],r["pending"]["diagnostic"]]) if r and r.get("pending") else "absent")'; }
+  expect_poll "the row exposes a visible unavailable manual wait" '["waiting", "manual", "unavailable"]' auto_ui_pending
+  expect "the waiting row opens its editor" ok ui_click AutomationRow "Network manual"
+  expect_poll "the editor follows the pending manual attempt" '"network-manual"' ui_draft id
+  auto_ui_editor_pending() { ipc smoke readInstance window vgs.automations draftPending | py_reply 'import json,sys; r=json.load(sys.stdin); print(json.dumps(r["diagnostic"]) if r else "absent")'; }
+  expect_poll "the editor exposes its unavailable diagnostic" '"unavailable"' auto_ui_editor_pending
+  expect "the editor's one-click Cancel runs" ok ui_click RowAction "Cancel waiting run"
+  expect_poll "Cancel ends the manual wait without starting a command" 1 auto_records network-manual ended
+  expect "the cancelled manual attempt has no started record" 0 auto_records network-manual started
+
+  # A real systemd manager takes ownership before returning. For this one
+  # Test run, its private stand-in only records and acknowledges the launch;
+  # the harness then starts exactly that recorded argv as a peer. A child
+  # of EngineClient would be reaped by its Process lifetime on return.
+  cp -- "$shim/systemd-run" "$auto_net/systemd-run.saved"
+  cat >"$shim/systemd-run" <<EOFTEST
+#!/usr/bin/env bash
+python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "\$@" >>"$auto_stub/systemd-run.calls"
+exit 0
+EOFTEST
+  expect_poll "the editor clears its cancelled pending answer" null ipc smoke readInstance window vgs.automations draftPending
+  expect "the editor's Test run requests the real runner" ok ui_click Button "Test run"
+  auto_ui_test_requested() { tail -n 1 -- "$auto_stub/systemd-run.calls" | py_reply 'import json,sys; a=json.load(sys.stdin); print(json.dumps(a[-3:]))'; }
+  expect_poll "Test run records the manual runner argv" '["run", "--manual", "network-manual"]' auto_ui_test_requested
+  auto_test_words_file="$auto_net/test-run.words"
+  python3 - "$auto_stub/systemd-run.calls" >"$auto_test_words_file" <<'PYWORDS'
+import json,sys
+args=json.loads(open(sys.argv[1]).read().splitlines()[-1]); cut=args.index("--")
+pairs=[a.split("=",1)[1] for a in args[:cut] if a.startswith("--setenv=")]
+assert len(pairs)==3
+assert args[-3:]==["run","--manual","network-manual"]
+for word in pairs+args[cut+1:]:
+    sys.stdout.buffer.write(word.encode()+b"\0")
+PYWORDS
+  mapfile -d '' -t auto_test_words <"$auto_test_words_file"
+  spawn "$sandbox/automations-test-run-unavailable.err" "${shell_env[@]}" PATH="$shell_path" DBUS_SYSTEM_BUS_ADDRESS="unix:path=$sandbox/no-network-bus" "${auto_test_words[@]}"
+  expect_poll "Test run follows its visible unavailable wait" '"unavailable"' auto_ui_editor_pending
+  expect "a waiting Test run has no false running result" null ipc smoke readInstance window vgs.automations testRun
+  expect "Test run's one-click Cancel runs through the queued engine" ok ui_click RowAction "Cancel waiting run"
+  expect_poll "Cancel finalizes the second manual attempt" 2 auto_records network-manual ended
+  expect "neither manual wait starts a command" 0 auto_records network-manual started
+  mv -- "$auto_net/systemd-run.saved" "$shim/systemd-run"
+  expect "Escape returns from the cancelled editor" ok ui_keys -k Escape
+  expect "the engine removes the visible manual fixture" removed=network-manual auto_last remove network-manual
+  expect "the NetworkManager mock gets back the Connectivity the row found" ok nm_set "$auto_nm_original"
 fi
 
 # One notice for a failing automation: three failing runs and a success,
@@ -592,3 +759,4 @@ expect "its units are gone" '[]' auto_units
 expect "disabling the automations is allowed" ok ipc shell setPluginEnabled vgs.automations false
 expect_poll "the disabled service holds no status record or IPC target" '[null, false]' auto_lent
 automations_stand_ins_restore "$auto_stub"
+smoke_row_abandon=()

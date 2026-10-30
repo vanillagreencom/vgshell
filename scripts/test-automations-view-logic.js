@@ -33,6 +33,7 @@ function run(view, logic) {
     assert.equal(draft.times.length, 1);
     assert.equal(draft.zone, "local");
     assert.equal(draft.preset, "weekdays");
+    assert.equal(draft.requiresNetwork, false);
 
     const once = view.blankDraft(now, logic);
     once.name = "Once";
@@ -95,6 +96,7 @@ function run(view, logic) {
         enabled: true,
         timeoutSeconds: 60,
         catchUp: false,
+        requiresNetwork: false,
         workingDirectory: "",
         notifyEveryRun: false,
         schedule: logic.presetSchedule("weekly", "2026-01-05", "09:00")
@@ -138,6 +140,13 @@ function run(view, logic) {
     same(view.frequencyChanges(Object.assign(view.clone(custom), { interval: 7 }), "hourly", logic), [["frequency", "hourly"], ["interval", 1]], "hours take a step when 7 is none");
     same(view.frequencyChanges(counted, "daily", logic), [["frequency", "daily"]], "days keep the interval and the end");
 
+    for (const requiresNetwork of [false, true]) {
+        const networkRow = Object.assign({}, row, { requiresNetwork });
+        const networkDraft = view.draftFromAutomation(networkRow, logic);
+        assert.equal(networkDraft.requiresNetwork, requiresNetwork);
+        assert.equal(view.definitionFromDraft(networkDraft, logic).requiresNetwork, requiresNetwork);
+        assert.equal(view.duplicateDraft(networkRow, [], logic).requiresNetwork, requiresNetwork);
+    }
     const copy = view.duplicateDraft(row, ["Backup copy"], logic);
     assert.equal(copy.name, "Backup copy 2");
     assert.equal(copy.saved, false);
@@ -186,6 +195,7 @@ fs.rmSync(scratch, { recursive: true, force: true });
 fs.mkdirSync(scratch, { recursive: true });
 try {
     const controls = [
+        ["network requirement survives editor save", "requiresNetwork: draft.requiresNetwork,", "requiresNetwork: false,"],
         ["history rounds duration to seconds", "Math.round(row.durationMs / 1000)", "Math.floor(row.durationMs / 1000)"],
         ["outcomes use plain display labels", "function outcomeLabel(outcome) {", "function outcomeLabel(outcome) { return outcome;"],
         ["Once no longer ends after one run", "if (draft.preset === \"once\") return { type: \"count\", count: 1 };", "if (draft.preset === \"once\") return { type: \"never\" };"],

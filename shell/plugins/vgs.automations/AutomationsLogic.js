@@ -15,7 +15,7 @@
 // decisions. A time a daylight saving change skips does not occur that day,
 // and a time it repeats occurs once, at its first instant.
 
-var STORE_VERSION = 1;
+var STORE_VERSION = 2;
 var RECORD_VERSION = 1;
 
 var ID_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
@@ -86,13 +86,14 @@ var CRON_END = "# END vgs.automations";
 // runner holds the automation's lock, or no runner does.
 var OUTCOMES = {
     succeeded: { tone: "success", icon: "circle-check", error: false },
+    skipped: { tone: "neutral", icon: "circle-minus", error: false },
     failed: { tone: "danger", icon: "circle-x", error: true },
     timeout: { tone: "danger", icon: "circle-x", error: true },
     "failed-start": { tone: "danger", icon: "circle-x", error: true },
     running: { tone: "warning", icon: "loader", error: false },
     vanished: { tone: "danger", icon: "circle-x", error: true }
 };
-var ENDED_OUTCOMES = ["succeeded", "failed", "timeout", "failed-start"];
+var ENDED_OUTCOMES = ["succeeded", "failed", "timeout", "failed-start", "skipped"];
 var TRIGGERS = ["scheduled", "manual"];
 var SCHEDULERS = ["systemd", "cron", "none"];
 var LINGER_STATES = ["yes", "no", "unknown"];
@@ -693,9 +694,9 @@ function summaryText(s) {
 
 // --------------------------------------------------------------- store
 
-var AUTOMATION_KEYS = ["id", "name", "command", "enabled", "schedule", "timeoutSeconds", "catchUp", "workingDirectory", "notifyEveryRun"];
+var AUTOMATION_KEYS = ["id", "name", "command", "enabled", "schedule", "timeoutSeconds", "catchUp", "requiresNetwork", "workingDirectory", "notifyEveryRun"];
 // What `add` fills in when a definition leaves it out.
-var AUTOMATION_DEFAULTS = { enabled: true, timeoutSeconds: TIMEOUT_DEFAULT, catchUp: false, workingDirectory: "", notifyEveryRun: false };
+var AUTOMATION_DEFAULTS = { enabled: true, timeoutSeconds: TIMEOUT_DEFAULT, catchUp: false, requiresNetwork: false, workingDirectory: "", notifyEveryRun: false };
 
 // An absolute path with no control character: a working directory, or one
 // a unit or crontab line names.
@@ -713,6 +714,7 @@ function isAbsolutePath(value) {
 //   schedule          scheduleError's model
 //   timeoutSeconds    TIMEOUT_MIN..TIMEOUT_MAX
 //   catchUp           run a missed occurrence at the next boot or trigger
+//   requiresNetwork   admit a command only after full internet connectivity
 //   workingDirectory  "" for the home directory, else an absolute path
 //   notifyEveryRun    notify each start and success, not only errors
 function automationError(a, where) {
@@ -730,6 +732,7 @@ function automationError(a, where) {
     if (scheduleDefect !== "") return where + "." + scheduleDefect;
     if (!isWhole(a.timeoutSeconds) || a.timeoutSeconds < TIMEOUT_MIN || a.timeoutSeconds > TIMEOUT_MAX) return where + ".timeoutSeconds: want=" + TIMEOUT_MIN + ".." + TIMEOUT_MAX;
     if (typeof a.catchUp !== "boolean") return where + ".catchUp: want=boolean";
+    if (typeof a.requiresNetwork !== "boolean") return where + ".requiresNetwork: want=boolean";
     if (a.workingDirectory !== "" && !isAbsolutePath(a.workingDirectory)) return where + ".workingDirectory: want=\"\" or an absolute path";
     if (typeof a.notifyEveryRun !== "boolean") return where + ".notifyEveryRun: want=boolean";
     return "";
@@ -762,6 +765,26 @@ function parseStore(text) {
 
 function emptyStore() {
     return { version: STORE_VERSION, automations: [] };
+}
+
+// D107: migration alone reads the previous format. Current readers accept
+// only v2, and the engine commits this conversion under its store lock.
+function convertStoreV1(text) {
+    var doc;
+    try { doc = JSON.parse(String(text)); }
+    catch (e) { return { ok: false, error: "store: not-json" }; }
+    if (!isPlainObject(doc) || doc.version !== 1 || !Array.isArray(doc.automations))
+        return { ok: false, error: "store.migration: want=version-1" };
+    var unknown = unknownKey(doc, ["version", "automations"], "store");
+    if (unknown !== "") return { ok: false, error: unknown };
+    var converted = [];
+    for (var i = 0; i < doc.automations.length; i++) {
+        var old = doc.automations[i];
+        if (!isPlainObject(old) || hasOwn(old, "requiresNetwork"))
+            return { ok: false, error: "store.migration: invalid-version-1-automation" };
+        converted.push(withKeys(old, { requiresNetwork: false }));
+    }
+    return parseStore(serializeStore({ version: STORE_VERSION, automations: converted }));
 }
 
 function serializeStore(store) {
@@ -1126,7 +1149,7 @@ function prunable(rows, nowMs, days) {
 // bin/automations supplies the keyed reasons. UI callers keep the raw
 // failure in the log and use this table for notices and status.
 var FAILURE_TEXT = [
-    [/run=busy/, "This automation is already running. Wait for it to finish."],
+    [/run=busy/, "This automation is running or waiting. Let it finish, or cancel its waiting run."],
     [/id=unknown|id: unknown/, "This automation no longer exists. Choose another automation."],
     [/store=|store:/, "The saved automations could not be read. Open Automations to check them."],
     [/directory=/, "The work folder is unavailable. Choose another folder in Automations."],
@@ -1163,6 +1186,7 @@ function failureLine(rec) {
 // for none); a failure after the first of a streak counts the failures since
 // the first one.
 function notificationFor(event, automation, rec, streak) {
+    if (rec !== null && rec.outcome === "skipped") return null;
     if (event === "start") {
         if (automation.notifyEveryRun !== true) return null;
         return { summary: automation.name + " started", body: "The automation is running.", urgency: "low", icon: "play", tone: "warning", click: "none", open: "" };
@@ -1191,6 +1215,7 @@ function sinceText(sinceMs, nowMs) {
 // The failure streak an automation's run leaves: none after a success,
 // else one failure more than `streak`, whose notice is now `notice`.
 function streakAfter(rec, streak, notice) {
+    if (rec.outcome === "skipped") return streak;
     if (rec.outcome === "succeeded") return null;
     return {
         notice: isNotice(notice) ? notice : null,
@@ -1278,99 +1303,81 @@ function notifySendArgs(n, replaceId) {
 
 // ------------------------------------------------------------- network
 
-// A scheduled run waits while NetworkManager reads a State other than
-// NM_STATE_CONNECTED_GLOBAL (NetworkManager's nm-dbus-interface.h), since a
-// slot missed in a suspend fires within a second of the resume, before
-// NetworkManager has the network back. The engine cannot tell from a
-// command whether it needs the network, so the wait is bounded: a command
-// that needs none starts at most NETWORK_WAIT_MS late, and one that needs
-// it runs at the bound and fails with its own error. One busctl wait for
-// NetworkManager's StateChanged lasts at most NETWORK_POLL_SECONDS, and the
-// State is read again after each, so a change between a read and the next
-// wait costs at most that.
-var NM_STATE_CONNECTED_GLOBAL = 70;
-var NETWORK_WAIT_MS = 60000;
+// Only NetworkManager's latest Connectivity result FULL admits a command.
+// UNKNOWN may mean connectivity checks are disabled; it proves no outage.
+// https://networkmanager.dev/docs/api/latest/nm-dbus-types.html
+var NM_CONNECTIVITY_FULL = 4;
+// Preserve the previous network wait's active-time grace. Expiry classifies
+// the wait; it never grants permission or extends the schedule's late bound.
+var NETWORK_GRACE_MS = 60000;
 var NETWORK_POLL_SECONDS = 5;
 
-// NetworkManager's State from busctl --json=short get-property's reply,
-// `{"type":"u","data":70}`, or null.
-function nmState(reply) {
+function nmConnectivity(reply) {
     var doc;
-    try {
-        doc = JSON.parse(String(reply));
-    } catch (e) {
-        return null;
-    }
-    return isPlainObject(doc) && doc.type === "u" && isWhole(doc.data) ? doc.data : null;
+    try { doc = JSON.parse(String(reply)); }
+    catch (e) { return null; }
+    return isPlainObject(doc) && doc.type === "u" && isWhole(doc.data)
+        && doc.data >= 0 && doc.data <= NM_CONNECTIVITY_FULL ? doc.data : null;
 }
 
-// The seconds of the next busctl wait after `waitedMs` of waiting: at
-// least 1 while time remains, 0 once the bound is reached.
+function networkAdmission(requiresNetwork, connectivity, waitedMs) {
+    if (!requiresNetwork || connectivity === NM_CONNECTIVITY_FULL)
+        return { admit: true, diagnostic: null };
+    return { admit: false, diagnostic: connectivity === null || connectivity === 0 ? "unavailable"
+        : waitedMs < NETWORK_GRACE_MS ? "grace" : "offline" };
+}
+
+// Polls remain bounded after grace, so missing signals cannot lose a
+// reconnect or cancellation. The runner owns one child at a time.
 function networkWaitSeconds(waitedMs) {
-    var remaining = NETWORK_WAIT_MS - waitedMs;
-    return remaining <= 0 ? 0 : Math.min(NETWORK_POLL_SECONDS, Math.ceil(remaining / 1000));
+    var remaining = NETWORK_GRACE_MS - waitedMs;
+    return remaining <= 0 ? NETWORK_POLL_SECONDS : Math.min(NETWORK_POLL_SECONDS, Math.max(1, Math.ceil(remaining / 1000)));
 }
 
-// How a busctl call of the wait ended, as the transcript words it: killed
-// at the runner's bound, its exit status, the signal that ended it, or a
-// start that failed, with the first line it wrote when there is one.
-function busctlText(call) {
-    var how = call.timeoutS !== null ? " timed out after " + call.timeoutS + "s"
-        : call.exit !== null ? " exit=" + call.exit
-        : call.signal !== null ? " signal=" + call.signal
-        : " did not start";
-    return "busctl " + call.verb + how + (call.detail !== "" ? " detail=" + JSON.stringify(call.detail) : "");
-}
-
-// The same call as the journal line's fields.
-function busctlFields(call) {
-    return "verb=" + call.verb + " exit=" + call.exit + " signal=" + call.signal
-        + (call.timeoutS !== null ? " timeout=" + call.timeoutS + "s" : "") + " detail=" + JSON.stringify(call.detail);
-}
-
-// The transcript header line and the runner's stderr line (empty when the
-// run neither waited nor failed to wait) for how the wait ended, after
-// `waitedMs`: `kind` no-busctl (no busctl on PATH, so no wait), absent (a
-// get-property `call` exited non-zero: no NetworkManager on the system
-// bus, or the bus error its detail names), online or offline (the bound
-// reached) with the last `state` read, or failed (a get-property or wait
-// `call` ended otherwise) with the last `state` read, null when none was.
-// A `call` is `{ verb, exit, signal, timeoutS, detail }`: busctl's verb,
-// its exit status or null, the signal that ended it or null, the runner's
-// bound in seconds when that bound killed it, else null, and the first
-// line it wrote, or the start's error code.
-function networkLines(outcome) {
-    var waited = Math.round(outcome.waitedMs / 1000) + "s";
-    var after = outcome.waitedMs > 0 ? " after " + waited : "";
-    switch (outcome.kind) {
-    case "no-busctl":
-        return { transcript: "network: no busctl to read NetworkManager; ran without waiting", log: "" };
-    case "absent":
-        return { transcript: "network: no NetworkManager" + after + " (" + busctlText(outcome.call) + ")", log: outcome.waitedMs > 0 ? "network=absent waited=" + waited + " " + busctlFields(outcome.call) : "" };
-    case "online":
-        return { transcript: "network: online" + after + " (NetworkManager state " + outcome.state + ")", log: outcome.waitedMs > 0 ? "network=online waited=" + waited : "" };
-    case "offline":
-        return { transcript: "network: still offline" + after + " (state " + outcome.state + "); ran anyway", log: "network=offline waited=" + waited + " state=" + outcome.state };
-    case "failed":
-        return { transcript: "network: " + busctlText(outcome.call) + after + (outcome.state === null ? "" : " (state " + outcome.state + ")") + "; ran anyway", log: "network=failed waited=" + waited + " state=" + outcome.state + " " + busctlFields(outcome.call) };
-    default:
-        throw new Error("automations: network outcome " + JSON.stringify(outcome.kind) + " is not no-busctl, absent, online, offline or failed");
-    }
+// The engine validates process identity and phase before publishing this
+// marker. A saved definition lets a cancellation record what never started.
+function parsePending(text) {
+    var doc;
+    try { doc = JSON.parse(String(text)); }
+    catch (e) { return { ok: false, error: "pending: not-json" }; }
+    if (!isPlainObject(doc)) return { ok: false, error: "pending: want=object" };
+    var keys = ["version", "kind", "phase", "token", "owner", "dueAt", "trigger", "diagnostic", "definition", "engine"];
+    var unknown = unknownKey(doc, keys, "pending");
+    if (unknown !== "") return { ok: false, error: unknown };
+    for (var i = 0; i < keys.length; i++)
+        if (!hasOwn(doc, keys[i])) return { ok: false, error: "pending." + keys[i] + ": missing" };
+    if (doc.version !== 1 || doc.kind !== "network" || ["waiting", "admitted"].indexOf(doc.phase) === -1
+        || typeof doc.token !== "string" || doc.token === ""
+        || !isWhole(doc.dueAt) || doc.dueAt < 0 || TRIGGERS.indexOf(doc.trigger) === -1
+        || ["grace", "offline", "unavailable"].indexOf(doc.diagnostic) === -1 || !isAbsolutePath(doc.engine))
+        return { ok: false, error: "pending: invalid-state" };
+    var owner = doc.owner;
+    if (!isPlainObject(owner) || unknownKey(owner, ["pid", "startTime", "bootId"], "pending.owner") !== ""
+        || !isWhole(owner.pid) || owner.pid <= 0 || typeof owner.startTime !== "string"
+        || !/^\d+$/.test(owner.startTime) || typeof owner.bootId !== "string" || owner.bootId === "")
+        return { ok: false, error: "pending.owner: invalid-identity" };
+    var error = automationError(doc.definition, "pending.definition");
+    return error === "" ? { ok: true, pending: doc } : { ok: false, error: error };
 }
 
 // --------------------------------------------------------------- status
 
 // The rows `list --json` prints, one per automation, from the store, the
 // history rows newest first and the time: its settings, its summary, its
-// state (paused, ended or scheduled), its next occurrence (null when paused
-// or ended) and its last run (null before one).
-function listRows(store, rows, nowMs) {
+// state, its next occurrence (null when paused or ended), its last run and
+// the engine's live waiting marker, if any. A manual wait can be paused;
+// scheduled pauses and an actual running command take precedence.
+function listRows(store, rows, nowMs, pendingById) {
+    pendingById = pendingById || {};
     var latest = {};
     for (var i = 0; i < rows.length; i++)
         if (!hasOwn(latest, rows[i].automation)) latest[rows[i].automation] = rows[i];
     return store.automations.map(function (a) {
         var next = occurrencesFrom(a.schedule, nowMs, 1);
         var last = hasOwn(latest, a.id) ? latest[a.id] : null;
+        var pending = hasOwn(pendingById, a.id) ? pendingById[a.id] : null;
+        if (last !== null && last.outcome === "running") pending = null;
+        if (!a.enabled && (pending === null || pending.trigger !== "manual")) pending = null;
         return {
             id: a.id,
             name: a.name,
@@ -1379,10 +1386,12 @@ function listRows(store, rows, nowMs) {
             schedule: a.schedule,
             timeoutSeconds: a.timeoutSeconds,
             catchUp: a.catchUp,
+            requiresNetwork: a.requiresNetwork,
+            pending: pending,
             workingDirectory: a.workingDirectory,
             notifyEveryRun: a.notifyEveryRun,
             summary: summaryText(a.schedule),
-            state: !a.enabled ? "paused" : next.length === 0 ? "ended" : "scheduled",
+            state: pending !== null ? "waiting" : !a.enabled ? "paused" : last !== null && last.outcome === "running" ? "running" : next.length === 0 ? "ended" : "scheduled",
             nextRun: a.enabled && next.length > 0 ? next[0] : null,
             lastRun: last === null ? null : { run: last.run, outcome: last.outcome, tone: last.tone, startedAt: last.startedAt, endedAt: last.endedAt, transcript: last.transcript }
         };
@@ -1428,7 +1437,7 @@ function statusValues(listed) {
     return {
         scheduler: scheduler,
         linger: linger,
-        active: rows.filter(function (r) { return r.state === "scheduled"; }).length,
+        active: rows.filter(function (r) { return r.enabled && (r.state === "scheduled" || r.state === "waiting" || r.state === "running"); }).length,
         nextRun: next === null ? "None scheduled" : formatWhen(next),
         lastRuns: failing.length === 0 ? { tone: "ok", text: rows.length === 0 ? "No automations" : "No failures" }
             : { tone: "danger", text: ("Failing: " + failing.join(", ")).slice(0, 200) }
@@ -1440,9 +1449,12 @@ function statusValues(listed) {
 // guard skips writes no record, and at most a day. `listed` is `list
 // --json`'s document.
 var REFRESH_MAX_MS = DAY_MS;
+var PENDING_REFRESH_MS = NETWORK_POLL_SECONDS * 1000;
 function refreshDelay(listed, nowMs) {
     var next = null;
     for (var i = 0; i < listed.automations.length; i++) {
+        if (listed.automations[i].pending !== null && listed.automations[i].pending !== undefined)
+            return PENDING_REFRESH_MS;
         var at = listed.automations[i].nextRun;
         if (at !== null && (next === null || at < next)) next = at;
     }

@@ -18,7 +18,8 @@
   },
   "requirements": [
     {"command": "notify-send", "packages": {"pacman": "libnotify", "apt": "libnotify-bin", "dnf": "libnotify", "nix": "libnotify"}, "optional": false, "purpose": "Sends run alerts"},
-    {"command": "busctl", "packages": {"pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd"}, "optional": true, "purpose": "Keeps one alert for an automation that keeps failing"},
+    {"command": "busctl", "packages": {"pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd"}, "optional": true, "purpose": "Checks internet access and updates run alerts"},
+    {"dbus": {"bus": "system", "name": "org.freedesktop.NetworkManager", "label": "NetworkManager"}, "packages": {"pacman": "networkmanager", "apt": "network-manager", "dnf": "NetworkManager", "nix": "networkmanager"}, "optional": true, "purpose": "Checks internet access for automations that need it"},
     {"command": "systemctl", "packages": {"pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd"}, "optional": false, "purpose": "Manages automation schedules"},
     {"command": "systemd-run", "packages": {"pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd"}, "optional": false, "purpose": "Starts a run that continues if VGS closes"},
     {"command": "systemd-analyze", "packages": {"pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd"}, "optional": false, "purpose": "Checks automation schedules"},

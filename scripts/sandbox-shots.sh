@@ -159,6 +159,12 @@
 # the tooltip and the row once that resume ran, and the card a Reboot draws
 # while the session saves, over the stand-in Jarvis package command, taken
 # only when named;
+# automations captures its real list, editor, history and notifications;
+# where the tree has a network requirement, it also captures the switch,
+# scheduled and manual waits with Cancel, and an unavailable NetworkManager
+# explanation. Connectivity changes only on the private device mock. The
+# unavailable runner uses the sandbox's session bus, which has no
+# NetworkManager name. No live-session network or systemd manager is used.
 # googledrive is Google Drive's bar widget, its tooltip, its popover with its
 # notes folded and unfolded and every
 # screen of its page's Settings, Setup and Details tabs in each state the plugin's runner reaches,
@@ -8147,6 +8153,10 @@ scene_automations() { # MODE
   expect_poll "the preset preview has a first occurrence" True auto_shot_preview_ready
   expect "the Automations window's root takes the focus for the preset image" focused ipc smoke invokeInstance window vgs.automations focusInstance ""
   take "automations-$1-editor-preset-next"
+  if grep -qF 'requiresNetwork' "$tree/shell/plugins/vgs.automations/AutomationsLogic.js"; then
+    automation_reveal Switch "Needs internet" || fail "revealing the network requirement failed"
+    take "automations-$1-editor-network-off"
+  fi
   automation_click Button "Test run" || fail "starting a test run from the editor failed"
   expect_poll "the editor test run reaches history" 1 automation_history_count shot-success
   auto_shot_transcript_ready() { ipc smoke readInstance window vgs.automations testTranscript | py_reply 'import json,sys; print(json.load(sys.stdin) != "")'; }
@@ -8211,6 +8221,84 @@ scene_automations() { # MODE
   expect_poll "the empty Automations window maps" 1 window_count Automations
   expect_poll "the automations list is empty" True automation_list_empty
   take "automations-$1-empty-state"
+  # The production runner owns these waits. Connectivity changes only on
+  # the existing private mock; an unavailable attempt uses the sandbox's
+  # own session bus, which has no NetworkManager name. No host bus is read.
+  if grep -qF 'requiresNetwork' "$tree/shell/plugins/vgs.automations/AutomationsLogic.js"; then
+    devices_ready automations-shot || return 1
+    local auto_nm_found auto_runs auto_guard auto_due
+    auto_nm_found="$("${shell_env[@]}" busctl --system --json=short get-property org.freedesktop.NetworkManager /org/freedesktop/NetworkManager org.freedesktop.NetworkManager Connectivity | py_reply 'import json,sys; print(json.load(sys.stdin)["data"])')" || fail "the fixture Connectivity is unreadable"
+    automation_connectivity() {
+      "${shell_env[@]}" busctl --system call org.freedesktop.NetworkManager /org/freedesktop/NetworkManager org.freedesktop.DBus.Mock UpdateProperties 'sa{sv}' org.freedesktop.NetworkManager 1 Connectivity u "$1"
+    }
+    automation_pending_state() {
+      ipc smoke readInstance window vgs.automations automations | py_reply 'import json,sys; rows=[r for r in json.load(sys.stdin) if r["id"]==sys.argv[1]]; r=rows[0] if rows else {}; p=r.get("pending"); print("none" if p is None else r["state"]+" "+p["trigger"]+" "+p["diagnostic"])' "$1"
+    }
+    automation_wait_record() {
+      ipc smoke readInstance window vgs.automations automations >"$SHOT_DIR/automations-$1-$2-state.json" || fail "the waiting image state is unreadable"
+    }
+    automation_editor_trigger() { ipc smoke readInstance window vgs.automations draftPending | py_reply 'import json,sys; p=json.load(sys.stdin); print(p["trigger"] if p is not None else "none")'; }
+    automation_connectivity 1 || fail "the private mock did not become offline"
+    local waiting='{"name":"Shot waiting","command":"printf waiting","requiresNetwork":true,"catchUp":true,"schedule":{"frequency":"daily","interval":1,"times":["09:00"],"start":"2026-01-05","end":{"type":"count","count":1}}}'
+    local manual='{"name":"Shot manual","command":"printf manual","requiresNetwork":true,"schedule":{"frequency":"daily","interval":1,"times":["09:00"],"start":"2026-01-05","end":{"type":"never"}}}'
+    automations_shot add --definition "$waiting" >/dev/null || fail "the waiting fixture could not be added"
+    automations_shot add --definition "$manual" >/dev/null || fail "the manual fixture could not be added"
+    auto_runs="$(automations_shot list --json | py_reply 'import json,sys; print(json.load(sys.stdin)["runsDir"])')" || fail "the waiting fixtures runs folder is unreadable"
+    auto_guard="${auto_runs%/runs}/guard"
+    printf '{"handledThrough":0}\n' >"$auto_guard/shot-waiting.json"
+    spawn "$sandbox/automations-shot-scheduled.log" "${shell_env[@]}" PATH="$shell_path" "$auto_engine" --tree "$repo" run --scheduled shot-waiting
+    spawn "$sandbox/automations-shot-manual.log" "${shell_env[@]}" PATH="$shell_path" "$auto_engine" --tree "$repo" run --manual shot-manual
+    expect_poll "the scheduled waiting row is visible" 'waiting scheduled grace' automation_pending_state shot-waiting
+    expect_poll "the manual waiting row is visible" 'waiting manual grace' automation_pending_state shot-manual
+    auto_due="$(ipc smoke readInstance window vgs.automations automations | py_reply 'import json,sys; print(next(r["pending"]["dueAt"] for r in json.load(sys.stdin) if r["id"]=="shot-waiting"))')" || fail "the original due time is unreadable"
+    automation_wait_record "$1" waiting
+    take "automations-$1-waiting-list"
+    click_in window:Automations window vgs.automations AutomationRow "Shot manual" || fail "the waiting manual editor did not open"
+    expect_poll "the editor reads the manual pending attempt" manual automation_editor_trigger
+    take "automations-$1-waiting-editor"
+    automation_reveal Switch "Needs internet" || fail "the enabled network requirement was not revealed"
+    take "automations-$1-editor-network-on"
+    automation_reveal RowAction "Cancel waiting run" || fail "the manual Cancel action was not revealed"
+    automation_click RowAction "Cancel waiting run" || fail "the manual waiting run was not cancelled"
+    expect_poll "the manual waiting row clears after Cancel" none automation_pending_state shot-manual
+    automation_click IconButton "Back to automations" || fail "returning after manual Cancel failed"
+    take "automations-$1-cancelled-list"
+    automations_shot add --definition "$success" >/dev/null || fail "adding the surrounding success history fixture failed"
+    automations_shot add --definition "$failure" >/dev/null || fail "adding the surrounding failure history fixture failed"
+    automations_shot run-now shot-success >/dev/null || fail "starting the surrounding success history fixture failed"
+    automations_shot run-now shot-failure >/dev/null || fail "starting the surrounding failure history fixture failed"
+    automation_click Label History || fail "opening the cancelled run's history failed"
+    automation_history_outcomes() {
+      ipc smoke itemValues window vgs.automations HistoryRow row.automation,row.outcome | py_reply 'import json,sys; print(json.dumps(sorted([[r["row.automation"],r["row.outcome"]] for r in json.load(sys.stdin)])))'
+    }
+    expect_poll "History draws the cancelled run with the surrounding finished runs" '[["shot-failure", "failed"], ["shot-manual", "skipped"], ["shot-success", "succeeded"]]' automation_history_outcomes
+    automation_read historyRows >"$SHOT_DIR/automations-$1-history-skipped-state.json" || fail "the skipped history image state is unreadable"
+    take "automations-$1-history-skipped"
+    automation_click Label Automations || fail "returning from the cancelled run's history failed"
+    automations_shot remove shot-success >/dev/null || fail "removing the surrounding success history fixture failed"
+    automations_shot remove shot-failure >/dev/null || fail "removing the surrounding failure history fixture failed"
+    automations_shot cancel shot-waiting >/dev/null || fail "the scheduled fixture was not cancelled"
+    automations_shot remove shot-waiting >/dev/null || fail "the scheduled fixture was not removed"
+    automations_shot remove shot-manual >/dev/null || fail "the manual fixture was not removed"
+    local unavailable='{"name":"Shot unavailable","command":"printf unavailable","requiresNetwork":true,"schedule":{"frequency":"daily","interval":1,"times":["09:00"],"start":"2026-01-05","end":{"type":"never"}}}'
+    automations_shot add --definition "$unavailable" >/dev/null || fail "the unavailable fixture could not be added"
+    spawn "$sandbox/automations-shot-unavailable.log" "${shell_env[@]}" PATH="$shell_path" DBUS_SYSTEM_BUS_ADDRESS="unix:path=$rt_dir/bus" "$auto_engine" --tree "$repo" run --manual shot-unavailable
+    expect_poll "the unavailable manual row is visible" 'waiting manual unavailable' automation_pending_state shot-unavailable
+    click_in window:Automations window vgs.automations AutomationRow "Shot unavailable" || fail "the unavailable editor did not open to clear the prior notice"
+    automation_click IconButton "Back to automations" || fail "returning to the unavailable list failed"
+    automation_wait_record "$1" unavailable
+    take "automations-$1-unavailable-list"
+    click_in window:Automations window vgs.automations AutomationRow "Shot unavailable" || fail "the unavailable editor did not open"
+    take "automations-$1-unavailable-editor-wait"
+    automation_reveal Switch "Needs internet" || fail "the unavailable network explanation was not revealed"
+    take "automations-$1-unavailable-editor-network"
+    automation_click RowAction "Cancel waiting run" || fail "the unavailable wait was not cancelled"
+    expect_poll "the unavailable row clears after Cancel" none automation_pending_state shot-unavailable
+    automation_click IconButton "Back to automations" || fail "returning after unavailable Cancel failed"
+    automations_shot remove shot-unavailable >/dev/null || fail "the unavailable fixture was not removed"
+    automation_connectivity "$auto_nm_found" || fail "the private mock Connectivity was not restored"
+    printf 'sandbox-shots: automations-wait source=%s mode=%s original-due=%s unavailable=private-bus-with-no-NetworkManager\n' "$capture_source" "$1" "$auto_due"
+  fi
   expect "enabling vgs.notifications is allowed" ok ipc shell setPluginEnabled vgs.notifications true
   expect_poll "vgs.notifications is built" True record_exists vgs.notifications
   local ids=()

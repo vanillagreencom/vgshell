@@ -27,6 +27,9 @@
 //       `systemd-run --user` when the systemd user manager answers, so the
 //       run outlives the caller, else as a detached process; prints
 //       `started=<id>`.
+//   automations --tree <dir> cancel <id>
+//       cancels a waiting prerequisite without signalling its runner or
+//       an admitted command; prints `cancelled=<id>` or `cancelled=none`.
 //   automations --tree <dir> history [<id>] [--json]
 //       runs newest first. --json prints { rows, refused }, the rows
 //       AutomationsLogic.historyRows makes; text prints one
@@ -51,8 +54,9 @@
 //   automations --tree <dir> run --scheduled|--manual <id>
 //       the runner, which the units, the crontab lines and run-now start
 //       under the automation's lock; a scheduled trigger runs only what
-//       AutomationsLogic.guard allows, and first waits while NetworkManager
-//       reads offline, at most AutomationsLogic.NETWORK_WAIT_MS.
+//       AutomationsLogic.guard allows. A definition with requiresNetwork
+//       waits until NetworkManager Connectivity is FULL or it is cancelled
+//       or its ordinary schedule guard expires. Manual waits have no expiry.
 //
 // Files: the store is $XDG_CONFIG_HOME/vgshell/automations/automations.json;
 // the units are $XDG_CONFIG_HOME/systemd/user/vgs-automation-<id>.timer
@@ -79,9 +83,7 @@
 // `settings=failed exit=<n>`, `home=unset`. The runner logs
 // `automations: skipped=<id> reason=<reason>`, `automations: notify=failed
 // ...`, `automations: notify-server=...`, `automations: streak=refused ...`,
-// `automations: network=... id=<id>` after a scheduled run waited for the
-// network or a busctl call of that wait failed, and `automations:
-// prune=skipped ...` lines on stderr, which systemd keeps in the journal;
+// `automations: prune=skipped ...` lines on stderr, which systemd keeps in the journal;
 // it exits 0 when the run succeeded or was skipped, 1 when it failed.
 "use strict";
 const childProcess = require("child_process");
@@ -94,8 +96,8 @@ const PLUGIN_ID = "vgs.automations";
 const PLUGIN_DIR = path.join(__dirname, "..");
 // The files a runner copy needs: this engine and the judge it loads.
 const ENGINE_FILES = ["bin/automations", "AutomationsLogic.js"];
-const USAGE = "usage: automations --tree <dir> list [--json] | add --definition <json> | edit <id> --definition <json> | enable <id> | disable <id> | remove <id> | run-now <id> | history [<id>] [--json] | clear <id>|--all | prune [--days <n>] | preview --schedule <json> [--count <n>] [--after <ms>] | sync | scheduler | run --scheduled|--manual <id>";
-const MUTATING = ["add", "edit", "enable", "disable", "remove", "clear", "prune", "sync"];
+const USAGE = "usage: automations --tree <dir> list [--json] | add --definition <json> | edit <id> --definition <json> | enable <id> | disable <id> | remove <id> | run-now <id> | cancel <id> | history [<id>] [--json] | clear <id>|--all | prune [--days <n>] | preview --schedule <json> [--count <n>] [--after <ms>] | sync | scheduler | run --scheduled|--manual <id>";
+const MUTATING = ["add", "edit", "enable", "disable", "remove", "clear", "prune", "sync", "cancel"];
 
 function bad(first) {
     process.stderr.write("automations: refused: " + first + "\n" + USAGE + "\n");
@@ -196,10 +198,25 @@ function readText(file) {
 
 // ----------------------------------------------------------------- store
 
-function readStore() {
+function storeResult() {
     const text = readText(storeFile);
-    if (text === null) return Logic.emptyStore();
+    if (text === null) return { ok: true, store: Logic.emptyStore() };
     const judged = Logic.parseStore(text);
+    if (judged.ok) return judged;
+    const converted = Logic.convertStoreV1(text);
+    if (!converted.ok) return judged;
+    // Conversion rereads under the same lock as mutations, including when
+    // this reader is an installed engine copy or already owns that lock.
+    if (process.env.VGS_AUTOMATIONS_STORE_LOCK !== storeLock) {
+        const migrated = transaction({ kind: "migrate" });
+        return migrated.ok ? storeResult() : migrated;
+    }
+    writeStore(converted.store);
+    return converted;
+}
+
+function readStore() {
+    const judged = storeResult();
     if (!judged.ok) refuse("store=" + judged.error.replace(/\s+/g, "-"), "path=" + storeFile);
     return judged.store;
 }
@@ -322,8 +339,22 @@ function dropOtherEngines(keep) {
         if (e.code === "ENOENT") return;
         throw e;
     }
+    const active = new Set(pendingMarkers().filter(pendingLive).map(marker => marker.engine));
+    // Cancellation removes its marker before sync. A still exiting runner
+    // must retain its executable for its last admission transaction too.
+    // This scan only retains files; process ids grant no signalling rights.
+    for (const pid of fs.readdirSync("/proc").filter(name => /^\d+$/.test(name))) {
+        let args;
+        try { args = fs.readFileSync("/proc/" + pid + "/cmdline", "utf8").split("\0"); }
+        catch (e) { if (["ENOENT", "ESRCH", "EACCES"].includes(e.code)) continue; throw e; }
+        if (!args[1] || !args[1].endsWith("/bin/automations")) continue;
+        try { if (fs.readlinkSync("/proc/" + pid + "/exe") !== process.execPath) continue; }
+        catch (e) { if (["ENOENT", "ESRCH", "EACCES"].includes(e.code)) continue; throw e; }
+        const engine = path.dirname(path.dirname(args[1]));
+        if (path.dirname(engine) === engineRoot) active.add(engine);
+    }
     for (const name of names)
-        if (path.join(engineRoot, name) !== keep) fs.rmSync(path.join(engineRoot, name), { recursive: true, force: true });
+        if (path.join(engineRoot, name) !== keep && !active.has(path.join(engineRoot, name))) fs.rmSync(path.join(engineRoot, name), { recursive: true, force: true });
 }
 
 // The argv a run starts with: flock holding the automation's lock, then
@@ -416,8 +447,7 @@ function sync() {
         fs.mkdirSync(lockDir, { recursive: true });
         changed = writeCrontab(requireCommand("crontab"), Logic.cronLines(store.automations, a => runnerArgv(engine, a.id, "scheduled"), runnerEnvironment));
     }
-    if (store.automations.length === 0) fs.rmSync(engineRoot, { recursive: true, force: true });
-    else dropOtherEngines(engine);
+    dropOtherEngines(store.automations.length === 0 ? null : engine);
     process.stdout.write("sync=" + chosen + " changed=" + changed + "\n");
 }
 
@@ -469,7 +499,12 @@ function history(filterId) {
     const open = new Set();
     for (const key of Object.keys(groups))
         if (groups[key].ended === null && groups[key].started !== null) open.add(key.slice(0, key.indexOf("@")));
-    const live = [...open].filter(id => filterId === null || id === filterId).filter(lockHeld);
+    const live = [...open].filter(id => filterId === null || id === filterId).filter(id => {
+        // An old crashed command's started record must not borrow the new
+        // waiter's id lock and hide the visible prerequisite wait.
+        const marker = pendingMarker(id);
+        return !(marker !== null && marker.phase === "waiting" && pendingLive(marker)) && lockHeld(id);
+    });
     const records = {};
     for (const key of Object.keys(groups))
         if (filterId === null || key.startsWith(filterId + "@")) records[key] = { started: groups[key].started, ended: groups[key].ended };
@@ -521,7 +556,10 @@ function flagged(words, allowed) {
 function listVerb(words) {
     flagged(words, ["--json"]);
     const store = readStore();
-    const rows = Logic.listRows(store, history(null).rows, Date.now());
+    const pending = {};
+    for (const marker of pendingMarkers())
+        if (marker.phase === "waiting" && pendingLive(marker)) pending[marker.definition.id] = marker;
+    const rows = Logic.listRows(store, history(null).rows, Date.now(), pending);
     if (words.indexOf("--json") !== -1) {
         // The service lists the runs directory to learn of a run and watches
         // the store for a change another caller made, and a watch sees
@@ -552,6 +590,7 @@ function editVerb(words) {
     const id = words[0];
     const before = Logic.indexOfAutomation(store, id);
     const judged = accept(Logic.editAutomation(store, id, readJsonArg("--definition", words, "definition")));
+    cancelPending(id, false);
     writeStore(judged.store);
     if (judged.automation.enabled && !store.automations[before].enabled) markHandled(id, Date.now());
     sync();
@@ -562,6 +601,7 @@ function enableVerb(words, enabled) {
     const id = one(words, "id");
     const store = readStore();
     const judged = accept(Logic.editAutomation(store, id, { enabled: enabled }));
+    cancelPending(id, false);
     writeStore(judged.store);
     if (enabled) markHandled(id, Date.now());
     sync();
@@ -571,6 +611,7 @@ function enableVerb(words, enabled) {
 function removeVerb(words) {
     const id = one(words, "id");
     const judged = accept(Logic.removeAutomation(readStore(), id));
+    cancelPending(id, true);
     writeStore(judged.store);
     sync();
     clearRuns(id);
@@ -777,92 +818,263 @@ function lineReader(stream, onLine) {
     });
 }
 
+// A marker is diagnostic state in the watched directory, never a run
+// record or a durable queue. Only a store-lock transaction changes it.
+function pendingFile(id) {
+    return path.join(runsDir, id + ".pending.json");
+}
+
+function pendingMarker(id) {
+    const text = readText(pendingFile(id));
+    if (text === null) return null;
+    const judged = Logic.parsePending(text);
+    return judged.ok && judged.pending.definition.id === id ? judged.pending : null;
+}
+
+function pendingMarkers() {
+    let names;
+    try { names = fs.readdirSync(runsDir); }
+    catch (e) { if (e.code === "ENOENT") return []; throw e; }
+    return names.filter(name => name.endsWith(".pending.json"))
+        .map(name => pendingMarker(name.slice(0, -".pending.json".length))).filter(marker => marker !== null);
+}
+
+// Linux starttime (stat field 22) and boot_id identify a process without
+// signalling a saved pid. A zombie owns no useful wait. comm may contain
+// spaces and parentheses, so fields start after its final closing paren.
+function processOwner(pid) {
+    try {
+        const stat = fs.readFileSync("/proc/" + pid + "/stat", "utf8");
+        const fields = stat.slice(stat.lastIndexOf(")") + 2).trim().split(/\s+/);
+        if (fields[0] === "Z" || fields[0] === "X") return null;
+        return { pid: pid, startTime: fields[19], bootId: fs.readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim() };
+    } catch (e) {
+        if (["ENOENT", "ESRCH", "EACCES"].includes(e.code)) return null;
+        throw e;
+    }
+}
+
+function pendingLive(marker) {
+    const owner = processOwner(marker.owner.pid);
+    return owner !== null && owner.startTime === marker.owner.startTime && owner.bootId === marker.owner.bootId;
+}
+
+function savePending(marker) {
+    writeAtomic(pendingFile(marker.definition.id), JSON.stringify(marker) + "\n", 0o600);
+}
+
+// Re-execution is private to this engine. flock closes its lock descriptor
+// in the transaction child; neither network waits nor commands inherit it.
+function transaction(request) {
+    fs.mkdirSync(lockDir, { recursive: true });
+    const out = run(requireCommand("flock"), ["-o", storeLock, process.execPath, __filename].concat(argv), {
+        env: Object.assign({}, process.env, { VGS_AUTOMATIONS_STORE_LOCK: storeLock, VGS_AUTOMATIONS_TRANSACTION: JSON.stringify(request) })
+    });
+    if (out.status !== 0) refuse("transaction=failed kind=" + request.kind + " exit=" + out.status, firstLine(out.stderr));
+    return JSON.parse(out.stdout);
+}
+
+function handledDecision(automation, now) {
+    const text = readText(guardFile(automation.id));
+    const state = text === null ? { ok: true, handledThrough: null } : Logic.parseGuardState(text);
+    if (!state.ok) return { refusal: "guard=" + state.error.replace(/\s+/g, "-") + " path=" + guardFile(automation.id) };
+    return Object.assign(Logic.guard(automation.schedule, now, state.handledThrough, automation.catchUp), { handledThrough: state.handledThrough });
+}
+
+function finalizeSlot(automation, decision) {
+    // A wall-clock correction can select an older, already handled slot.
+    // Every scheduled finalizer shares this high-water invariant under the
+    // store lock; add/enable deliberately establish their own baseline.
+    if (decision.slot !== null && (decision.handledThrough === null || decision.slot > decision.handledThrough)) markHandled(automation.id, decision.slot);
+}
+
+// Skips have no command lifetime, notification or streak transition. Their
+// ended record and transcript land before the waiting marker disappears.
+function skipped(marker, reason, slot, now) {
+    const automation = marker.definition;
+    const id = automation.id;
+    const runId = now + "-" + process.pid;
+    const file = path.join(runsDir, Logic.runFile(id, runId, "log"));
+    const transcript = Transcript(file, ["vgs.automations run " + runId, "automation: " + id + " (" + automation.name + ")",
+        "trigger: " + marker.trigger, "due: " + new Date(marker.dueAt).toString(), "decision: " + new Date(now).toString(), "command not started: " + reason]);
+    const written = transcript.close(["outcome: skipped reason=" + reason, "duration: 0s"]);
+    const record = { version: Logic.RECORD_VERSION, automation: id, run: runId, name: automation.name, command: automation.command,
+        directory: automation.workingDirectory === "" ? home : automation.workingDirectory, trigger: marker.trigger, slot: slot,
+        startedAt: now, endedAt: now, durationMs: 0, outcome: "skipped", exitCode: null, signal: null, reason: reason,
+        transcript: file, transcriptBytes: written.bytes, truncated: written.truncated, snippet: "" };
+    writeAtomic(path.join(runsDir, Logic.runFile(id, runId, "ended")), JSON.stringify(record) + "\n", 0o600);
+    const days = settingsDays();
+    if (days.ok) prune(days.days, id);
+    else log("prune=skipped " + days.error);
+}
+
+function cancelPending(id, removing) {
+    const marker = pendingMarker(id);
+    if (marker === null || marker.phase !== "waiting" || !pendingLive(marker)) return false;
+    if (!removing) {
+        const now = Date.now();
+        const decision = marker.trigger === "scheduled" ? handledDecision(marker.definition, now) : { slot: null };
+        if (decision.refusal) refuse(decision.refusal);
+        if (marker.trigger === "scheduled") finalizeSlot(marker.definition, decision);
+        skipped(marker, "cancelled-before-start", decision.slot, now);
+    }
+    fs.rmSync(pendingFile(id), { force: true });
+    return true;
+}
+
+function cancelVerb(words) {
+    const id = one(words, "id");
+    if (!Logic.ID_PATTERN.test(id)) bad("id=" + id);
+    process.stdout.write("cancelled=" + (cancelPending(id, false) ? id : "none") + "\n");
+}
+
+function storeTransaction(request) {
+    if (request.kind === "migrate") return storeResult();
+    const id = request.id;
+    let marker = pendingMarker(id);
+    if (request.kind === "cleanup") {
+        if (marker !== null && marker.token === request.token && marker.owner.pid === request.owner.pid && marker.owner.startTime === request.owner.startTime && marker.owner.bootId === request.owner.bootId)
+            fs.rmSync(pendingFile(id), { force: true });
+        return { kind: "done" };
+    }
+    const store = readStore();
+    const at = Logic.indexOfAutomation(store, id);
+    if (request.kind === "advance" && (marker === null || marker.token !== request.token || !pendingLive(marker))) return { kind: "cancelled" };
+    if (at === -1) return { kind: "skip", reason: "unknown" };
+    const automation = store.automations[at];
+    const now = Date.now();
+    if (request.kind === "begin" && marker !== null && pendingLive(marker)) return { kind: "busy" };
+    if (request.kind === "advance" && JSON.stringify(automation) !== JSON.stringify(marker.definition)) {
+        cancelPending(id, false);
+        return { kind: "cancelled" };
+    }
+    if (request.trigger === "scheduled" && !automation.enabled) return { kind: "skip", reason: "paused" };
+    const decision = request.trigger === "scheduled" ? handledDecision(automation, now) : { run: true, slot: null };
+    if (decision.refusal) return { kind: "refused", automation: automation, refusal: decision.refusal };
+    if (!decision.run) {
+        finalizeSlot(automation, decision);
+        if (request.kind === "advance") {
+            if (decision.reason === "late") skipped(marker, "network-offline-late", decision.slot, now);
+            fs.rmSync(pendingFile(id), { force: true });
+        }
+        return { kind: "skip", reason: decision.reason };
+    }
+    if (request.kind === "begin") {
+        fs.rmSync(pendingFile(id), { force: true });
+        if (!automation.requiresNetwork) {
+            if (request.trigger === "scheduled") finalizeSlot(automation, decision);
+            return { kind: "run", automation: automation, slot: decision.slot, network: null };
+        }
+        marker = { version: 1, kind: "network", phase: "waiting", token: request.token, owner: request.owner, engine: PLUGIN_DIR,
+            definition: automation, dueAt: decision.slot === null ? now : decision.slot, trigger: request.trigger, diagnostic: "grace" };
+        savePending(marker);
+        return { kind: "wait", marker: marker };
+    }
+    if (request.kind !== "advance") throw new Error("invalid transaction kind=" + request.kind);
+    const admission = Logic.networkAdmission(automation.requiresNetwork, request.connectivity, request.waitedMs);
+    if (!admission.admit) {
+        marker.diagnostic = admission.diagnostic;
+        savePending(marker);
+        return { kind: "wait", marker: marker };
+    }
+    if (request.trigger === "scheduled") finalizeSlot(automation, decision);
+    marker.phase = "admitted";
+    savePending(marker);
+    return { kind: "run", automation: automation, slot: decision.slot,
+        network: "network: full after " + Math.round(request.waitedMs / 1000) + "s; due " + new Date(marker.dueAt).toString()
+            + (decision.slot !== null && decision.slot !== marker.dueAt ? "; selected " + new Date(decision.slot).toString() : "") };
+}
+
+let ownedPending = null;
 function runVerb(words) {
     if (words.length !== 2 || (words[0] !== "--scheduled" && words[0] !== "--manual") || !Logic.ID_PATTERN.test(words[1])) bad("usage=run --scheduled|--manual <id>");
     const trigger = words[0].slice(2);
     const id = words[1];
     const now = Date.now();
-    // A store or guard state the judge refuses is a run that failed to
-    // start, recorded and notified like any other, so the user learns why
-    // nothing ran.
-    const text = readText(storeFile);
-    const judged = text === null ? { ok: true, store: Logic.emptyStore() } : Logic.parseStore(text);
+    const judged = storeResult();
     if (!judged.ok) return execute(standIn(id), trigger, null, now, "store=" + judged.error.replace(/\s+/g, "-"), null);
-    const at = Logic.indexOfAutomation(judged.store, id);
-    if (at === -1) {
-        log("skipped=" + id + " reason=unknown");
-        process.exit(1);
+    const owner = processOwner(process.pid);
+    if (owner === null) refuse("owner=unavailable");
+    const token = crypto.randomBytes(16).toString("hex");
+    const request = { kind: "begin", id: id, trigger: trigger, owner: owner, token: token };
+    let answer = transaction(request);
+    const began = monotonicMs();
+    const env = sessionEnvironment();
+    // The user journal consumes these machine fields. Retain one bounded
+    // line per operation: a successful read between identical failed waits
+    // must not turn every retry into another copy of the same error.
+    const previousNetwork = { "get-property": null, wait: null };
+    const reportNetwork = outcome => {
+        if (outcome === null) return;
+        const line = JSON.stringify(Object.assign({ id: id }, outcome));
+        if (previousNetwork[outcome.operation] === line) return;
+        previousNetwork[outcome.operation] = line;
+        log("network=" + line);
+    };
+    while (answer.kind === "wait") {
+        ownedPending = { id: id, owner: owner, token: token };
+        const reading = readConnectivity(env);
+        reportNetwork(reading.outcome);
+        answer = transaction(Object.assign({}, request, { kind: "advance", connectivity: reading.connectivity, waitedMs: Math.max(0, monotonicMs() - began) }));
+        if (answer.kind === "wait") reportNetwork(waitForNetwork(env, reading.connectivity, Math.max(0, monotonicMs() - began)));
     }
-    const automation = judged.store.automations[at];
-    if (trigger === "manual") return execute(automation, trigger, null, now, "", null);
-    if (!automation.enabled) {
-        log("skipped=" + id + " reason=paused");
-        return;
-    }
-    const guardText = readText(guardFile(id));
-    let handled = null;
-    if (guardText !== null) {
-        const state = Logic.parseGuardState(guardText);
-        if (!state.ok) return execute(automation, trigger, null, now, "guard=" + state.error.replace(/\s+/g, "-") + " path=" + guardFile(id), null);
-        handled = state.handledThrough;
-    }
-    const decision = Logic.guard(automation.schedule, now, handled, automation.catchUp);
-    if (decision.slot !== null && (handled === null || decision.slot > handled)) markHandled(id, decision.slot);
-    if (!decision.run) {
-        log("skipped=" + id + " reason=" + decision.reason);
-        return;
-    }
-    // The run starts once the wait ends, so its records and transcript
-    // show when the command began.
-    const network = Logic.networkLines(waitForNetwork(sessionEnvironment()));
-    if (network.log !== "") log(network.log + " id=" + id);
-    execute(automation, trigger, decision.slot, Date.now(), "", network.transcript);
+    if (answer.kind === "run") return execute(answer.automation, trigger, answer.slot, Date.now(), "", answer.network);
+    if (answer.kind === "refused") return execute(answer.automation, trigger, null, Date.now(), answer.refusal, null);
+    if (answer.kind === "busy") refuse("run=busy id=" + id);
+    log("skipped=" + id + " reason=" + (answer.reason || "cancelled"));
 }
 
-// Milliseconds on CLOCK_MONOTONIC, which stops in a suspend and ignores a
-// wall-clock step, so neither can spend a bound the runner measures: the
-// wait for the network and the wait for a killed group. process.hrtime reads it (libuv's
-// uv_hrtime): node 26 in a time namespace whose monotonic and boot offsets
-// differ reads the monotonic one.
+// CLOCK_MONOTONIC excludes suspend and wall-clock steps. It measures active
+// grace only; the schedule guard continues to use current wall time.
 function monotonicMs() {
     return Number(process.hrtime.bigint() / 1000000n);
 }
 
-// Waits while NetworkManager reads offline, on its own StateChanged signal
-// and at most Logic.NETWORK_WAIT_MS, and answers how the wait ended, as
-// Logic.networkLines reads it. busctl get-property exits 1 while no
-// NetworkManager owns its name on the system bus, and busctl wait exits 0
-// whether the signal came or its timeout passed, so the State is read
-// again after each wait. A call that ends otherwise, killed at its bound,
-// a busctl without the wait verb or a bus error, ends the wait.
-function waitForNetwork(env) {
+// busctl is the one producer for both NM operations. Its stderr and an
+// invalid reply can be arbitrarily long; each journal detail keeps at most
+// 512 characters from the first line, never the whole output accumulator.
+function networkCall(env, operation, args, boundMs) {
+    const outcome = { operation: operation, command: "busctl", category: "missing-command", exit: null, signal: null, timeoutMs: null, detail: "" };
     const bin = which("busctl");
-    if (bin === null) return { kind: "no-busctl", waitedMs: 0 };
-    const nm = ["org.freedesktop.NetworkManager", "/org/freedesktop/NetworkManager", "org.freedesktop.NetworkManager"];
-    const call = (verb, args, boundMs) => {
-        const out = run(bin, ["--system", "--json=short", verb].concat(args), { env: env, timeout: boundMs });
-        const killed = out.error !== undefined && out.error.code === "ETIMEDOUT";
-        const detail = firstLine(out.stderr) || (out.error !== undefined && !killed ? out.error.code : "");
-        return { out: out, ending: { verb: verb, exit: out.status, signal: out.signal, timeoutS: killed ? boundMs / 1000 : null, detail: detail } };
-    };
+    if (bin === null) return { outcome: outcome, stdout: "" };
+    const out = run(bin, ["--system", "--json=short", operation].concat(args), { env: env, timeout: boundMs });
+    outcome.exit = out.status;
+    outcome.signal = out.signal;
+    outcome.detail = firstLine(out.stderr || (out.error ? out.error.code : "")).slice(0, 512);
+    if (out.error && out.error.code === "ETIMEDOUT") {
+        outcome.category = "timeout";
+        outcome.timeoutMs = boundMs;
+    } else if (out.error) outcome.category = "spawn";
+    else if (out.signal !== null) outcome.category = "signal";
+    else outcome.category = out.status === 0 ? "completed" : "exit";
+    return { outcome: outcome, stdout: out.stdout };
+}
+
+function readConnectivity(env) {
+    const result = networkCall(env, "get-property", ["org.freedesktop.NetworkManager", "/org/freedesktop/NetworkManager", "org.freedesktop.NetworkManager", "Connectivity"], 5000);
+    if (result.outcome.category !== "completed") return { connectivity: null, outcome: result.outcome };
+    const connectivity = Logic.nmConnectivity(result.stdout);
+    result.outcome.category = connectivity === null ? "invalid-reply" : "connectivity";
+    if (connectivity === null) result.outcome.detail = firstLine(result.stdout).slice(0, 512);
+    else result.outcome.connectivity = connectivity;
+    return { connectivity: connectivity, outcome: result.outcome };
+}
+
+function waitForNetwork(env, connectivity, waitedMs) {
+    const seconds = Logic.networkWaitSeconds(waitedMs);
     const began = monotonicMs();
-    // 0 until the first wait, so a run that waited for nothing reads so.
-    let waitedMs = 0;
-    let state = null;
-    for (;;) {
-        const read = call("get-property", nm.concat(["State"]), 5000);
-        if (read.out.status === null) return { kind: "failed", call: read.ending, state: state, waitedMs: waitedMs };
-        if (read.out.status !== 0) return { kind: "absent", call: read.ending, waitedMs: waitedMs };
-        const now = Logic.nmState(read.out.stdout);
-        if (now === null) return { kind: "failed", call: Object.assign(read.ending, { detail: "reply=" + JSON.stringify(firstLine(read.out.stdout)) }), state: state, waitedMs: waitedMs };
-        state = now;
-        if (state === Logic.NM_STATE_CONNECTED_GLOBAL) return { kind: "online", state: state, waitedMs: waitedMs };
-        const seconds = Logic.networkWaitSeconds(waitedMs);
-        if (seconds === 0) return { kind: "offline", state: state, waitedMs: waitedMs };
-        const wait = call("wait", ["--timeout=" + seconds].concat(nm, ["StateChanged"]), seconds * 1000 + 5000);
-        waitedMs = Math.max(1, monotonicMs() - began);
-        if (wait.out.status !== 0) return { kind: "failed", call: wait.ending, state: state, waitedMs: waitedMs };
-    }
+    // The manager's Connectivity is updated via PropertiesChanged, not its
+    // StateChanged signal. busctl wait may also end on timeout: always read
+    // again. https://www.freedesktop.org/software/systemd/man/latest/busctl.html
+    let outcome = null;
+    if (connectivity !== null && connectivity !== 0)
+        outcome = networkCall(env, "wait", ["--timeout=" + seconds, "org.freedesktop.NetworkManager", "/org/freedesktop/NetworkManager", "org.freedesktop.DBus.Properties", "PropertiesChanged"], seconds * 1000 + 1000).outcome;
+    // Missing NM, invalid replies and unsupported/failed signal waits must
+    // back off rather than fork in a tight loop. One bounded child at a time.
+    const remaining = seconds * 1000 - (monotonicMs() - began);
+    if (remaining > 0 && (outcome === null || outcome.category !== "completed"))
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, remaining);
+    return outcome;
 }
 
 // The automation a run whose store was refused reports under: its id as
@@ -874,9 +1086,9 @@ function standIn(id) {
 // One run: its started record, its transcript, the command under the
 // login shell with its timeout, its ended record, its notifications and
 // the prune of its automation's history. A non-empty `refusal` ends it as
-// failed to start before anything runs. `network`, a scheduled run's wait
-// for the network as Logic.networkLines words it, heads the transcript
-// after the trigger; null for a manual run or a refused start.
+// failed to start before anything runs. `network`, a prerequisite wait
+// for the network, heads the transcript after the trigger; null when no
+// prerequisite was needed or a start was refused.
 function execute(automation, trigger, slot, startedAt, refusal, network) {
     const id = automation.id;
     const runId = startedAt + "-" + process.pid;
@@ -932,6 +1144,7 @@ function execute(automation, trigger, slot, startedAt, refusal, network) {
         const days = settingsDays();
         if (days.ok) prune(days.days, id);
         else log("prune=skipped " + days.error);
+        if (ownedPending !== null) transaction(Object.assign({ kind: "cleanup" }, ownedPending));
         process.exit(outcome === "succeeded" ? 0 : 1);
     };
     if (refusal !== "") return finish({ started: false, timedOut: false, exitCode: null, signal: null, reason: refusal });
@@ -1016,6 +1229,11 @@ if (MUTATING.indexOf(verb) !== -1 && process.env.VGS_AUTOMATIONS_STORE_LOCK !== 
     process.exit(out.status === null ? 1 : out.status);
 }
 
+if (process.env.VGS_AUTOMATIONS_TRANSACTION && process.env.VGS_AUTOMATIONS_STORE_LOCK === storeLock) {
+    process.stdout.write(JSON.stringify(storeTransaction(JSON.parse(process.env.VGS_AUTOMATIONS_TRANSACTION))) + "\n");
+    process.exit(0);
+}
+
 switch (verb) {
 case "list": listVerb(rest); break;
 case "add": addVerb(rest); break;
@@ -1024,6 +1242,7 @@ case "enable": enableVerb(rest, true); break;
 case "disable": enableVerb(rest, false); break;
 case "remove": removeVerb(rest); break;
 case "run-now": runNowVerb(rest); break;
+case "cancel": cancelVerb(rest); break;
 case "history": historyVerb(rest); break;
 case "clear": clearVerb(rest); break;
 case "prune": pruneVerb(rest); break;

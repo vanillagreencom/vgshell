@@ -8,6 +8,7 @@
 
 var OUTCOME_LABELS = {
     succeeded: "Done",
+    skipped: "Skipped",
     failed: "Failed",
     "failed-start": "Could not start",
     timeout: "Time limit reached",
@@ -99,6 +100,7 @@ function blankDraft(nowMs, logic) {
         enabled: true,
         timeoutSeconds: logic.TIMEOUT_DEFAULT,
         catchUp: false,
+        requiresNetwork: false,
         workingDirectory: "",
         notifyEveryRun: false
     };
@@ -166,6 +168,7 @@ function draftFromAutomation(row, logic) {
     draft.enabled = row.enabled;
     draft.timeoutSeconds = row.timeoutSeconds;
     draft.catchUp = row.catchUp;
+    draft.requiresNetwork = row.requiresNetwork;
     draft.workingDirectory = row.workingDirectory;
     draft.notifyEveryRun = row.notifyEveryRun;
     draft.frequency = schedule.frequency;
@@ -274,6 +277,7 @@ function definitionFromDraft(draft, logic) {
         schedule: scheduleFromDraft(draft, logic),
         timeoutSeconds: Number(draft.timeoutSeconds),
         catchUp: draft.catchUp,
+        requiresNetwork: draft.requiresNetwork,
         workingDirectory: draft.workingDirectory,
         notifyEveryRun: draft.notifyEveryRun
     };
@@ -362,6 +366,12 @@ function formatWhen(ms) {
     var hh = (at.getHours() < 10 ? "0" : "") + at.getHours();
     var mm = (at.getMinutes() < 10 ? "0" : "") + at.getMinutes();
     return weekdays[(at.getDay() + 6) % 7] + " " + at.getDate() + " " + months[at.getMonth()] + " " + hh + ":" + mm;
+}
+
+function networkExplanation(pending) {
+    return pending !== null && pending.diagnostic === "unavailable"
+        ? "NetworkManager cannot check internet access. This run keeps waiting."
+        : "";
 }
 
 function historySecondary(row) {

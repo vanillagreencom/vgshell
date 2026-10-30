@@ -46,6 +46,30 @@ Item {
 
         function cleanup() { UnitTheme.reset(); }
 
+        function test_a_detached_list_delegate_keeps_its_owning_column_width() {
+            failOnWarning(/.*/);
+            const window = opened();
+            const definition = View.definitionFromDraft(window.draft, Engine);
+            definition.id = "waiting";
+            window.automations = [Object.assign({}, definition, { pending: null, nextRun: null, lastRun: null, summary: "" })];
+            window.editorOpen = false;
+            const row = descendants(window).find(item => item instanceof Automations.AutomationRow);
+            verify(row !== undefined);
+            const owner = row.parent;
+            verify(owner !== null);
+            verify(waitForRendering(window));
+            compare(row.width, owner.width);
+            // Repeater/window teardown can detach this real delegate before
+            // it dies, as the VGS-2077 nested cleanup warning demonstrates.
+            row.parent = null;
+            const previousWidth = owner.width;
+            window.width += 80;
+            tryVerify(() => owner.width !== previousWidth && row.width === owner.width);
+            row.parent = owner;
+            window.automations = [];
+            tryVerify(() => !descendants(window).some(item => item instanceof Automations.AutomationRow));
+        }
+
         function test_weekday_edit_reaches_the_draft_and_engine_definition() {
             const window = opened();
             const weekdays = descendants(window).find(item => item instanceof WeekdayChipGroup && !item.exclusive);
@@ -90,7 +114,39 @@ Item {
             paused.toggled();
             compare(window.draft.enabled, false);
             compare(typeof window.draft.enabled, "boolean");
+            const network = descendants(editor).find(item => item instanceof Switch && item.text === "Needs internet");
+            verify(network !== undefined);
+            compare(network.checked, false);
+            network.toggled();
+            compare(window.draft.requiresNetwork, true);
+            compare(typeof window.draft.requiresNetwork, "boolean");
+            compare(View.definitionFromDraft(window.draft, Engine).requiresNetwork, true);
             compare(window.validationResult.ok, true);
+        }
+
+        function test_waiting_manual_run_has_keyboard_cancel_without_claiming_a_start() {
+            const window = opened();
+            const definition = View.definitionFromDraft(window.draft, Engine);
+            definition.id = "waiting";
+            definition.requiresNetwork = true;
+            const pending = { kind: "network", dueAt: Date.now(), trigger: "manual", diagnostic: "unavailable" };
+            window.automations = [Object.assign({}, definition, { pending: null, nextRun: null, lastRun: null, summary: Engine.summaryText(definition.schedule) })];
+            compare(window.selectAutomation("waiting"), "ok");
+            compare(window.runNow("waiting"), "ok");
+            compare(window.testRun, null);
+            window.automations = [Object.assign({}, window.automations[0], { pending: pending })];
+            compare(window.draftPending.trigger, "manual");
+            window.historyAnswer = [{ automation: "waiting", startedAt: window.testStartedAt, outcome: "skipped", transcript: "", exitCode: null }];
+            window.followTestRun();
+            compare(window.testRun, null);
+            const editor = descendants(window).find(item => item instanceof Automations.AutomationEditorPage);
+            const cancel = descendants(editor).find(item => item instanceof RowAction && item.text === "Cancel waiting run");
+            verify(cancel !== undefined);
+            verify(cancel.visible);
+            cancel.forceActiveFocus();
+            keyClick(Qt.Key_Return);
+            const client = descendants(window).find(item => item instanceof Automations.EngineClient);
+            verify(client.queue.some(request => request.args[0] === "cancel" && request.args[1] === "waiting"));
         }
     }
 }

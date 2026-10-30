@@ -16,6 +16,7 @@ FocusScope {
     signal duplicateRequested(string id)
     signal removeRequested(string id)
     signal runRequested(string id)
+    signal cancelRequested(string id)
     signal toggleRequested(string id, bool enabled)
 
     focus: true
@@ -124,13 +125,15 @@ FocusScope {
                         required property var modelData
                         required property int index
                         row: modelData
-                        width: parent.width
+                        // A detached row still takes its owning column's width.
+                        width: listColumn.width
                         highlighted: index === page.current
                         cursorItem: plate
                         onOpenRequested: page.openRequested(modelData.id)
                         onDuplicateRequested: page.duplicateRequested(modelData.id)
                         onRemoveRequested: page.removeRequested(modelData.id)
                         onRunRequested: page.runRequested(modelData.id)
+                        onCancelRequested: page.cancelRequested(modelData.id)
                         onToggleRequested: enabled => page.toggleRequested(modelData.id, enabled)
                     }
                 }

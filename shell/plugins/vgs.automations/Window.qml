@@ -50,6 +50,10 @@ FocusScope {
     readonly property var validationResult: View.validation(draft, Engine, Date.now())
     readonly property string previewFirst: previewRows.length > 0 ? String(previewRows[0]) : ""
     readonly property int listCurrent: automationList.current
+    readonly property var draftPending: {
+        const row = automations.find(item => item.id === draft.id);
+        return row === undefined ? null : row.pending;
+    }
 
     implicitWidth: Math.floor(Math.min(Theme.size.window.width, OverlayState.room(screen).width))
     implicitHeight: Math.floor(Math.min(Theme.size.panel.maxHeight, OverlayState.windowRoom(screen).height))
@@ -119,6 +123,8 @@ FocusScope {
             automations = doc.automations;
             listStoreFile = doc.storeFile || "";
             listRunsDir = doc.runsDir || "";
+            if (draftPending !== null) testRun = null;
+            if (automations.some(row => row.pending !== null)) historyFollow.restart();
             // The shown automation left the store, through this window's
             // Remove or any other caller: its draft goes, and the editor
             // returns to the list rather than opening a blank draft.
@@ -259,20 +265,35 @@ FocusScope {
             return "refused: unsaved";
         }
         testStartedAt = Date.now();
-        testRun = { outcome: "running", exitCode: null, transcript: "" };
+        testRun = null;
         testTranscript = "";
         testTranscriptPath = "";
         run(["run-now", target], ok => {
             if (!ok) return;
-            setNotice("info", "Test run started.", "Waiting for the newest history row.");
+            setNotice("info", "Run requested.", "");
+            refreshAll();
             historyFollow.restart();
         });
         return "ok";
     }
 
+    function cancelPending(id) {
+        run(["cancel", id], (ok, out) => {
+            if (!ok) return;
+            setNotice("info", String(out).trim().split("\n").pop() === "cancelled=none" ? "This run is no longer waiting." : "Waiting run cancelled.", "");
+            refreshAll();
+        });
+    }
+
     function followTestRun() {
         if (testStartedAt === 0 || draft.id === "") return;
-        const rows = historyAnswer.filter(row => row.automation === draft.id && row.startedAt >= testStartedAt - 1000);
+        // A prior cancellation is history, never the result of a new
+        // request whose command has not passed its prerequisite yet.
+        if (draftPending !== null) {
+            testRun = null;
+            return;
+        }
+        const rows = historyAnswer.filter(row => row.automation === draft.id && row.startedAt >= testStartedAt);
         if (rows.length === 0) return;
         const row = rows[0];
         testRun = row;
@@ -284,7 +305,7 @@ FocusScope {
             transcriptReader.reload();
         }
         if (row.outcome === "running") historyFollow.restart();
-        else setNotice(row.tone === "danger" ? "danger" : "success", "Test run " + row.outcome + ".", row.exitCode === null ? "" : "Exit " + row.exitCode);
+        else setNotice(row.tone === "danger" ? "danger" : row.tone === "success" ? "success" : "info", "Test run: " + View.outcomeLabel(row.outcome) + ".", row.exitCode === null ? "" : "Exit " + row.exitCode);
     }
 
     function toggleEnabled(id, enabled) {
@@ -387,7 +408,9 @@ FocusScope {
     EngineClient { id: client }
 
     Timer { id: previewSoon; interval: 200; onTriggered: root.updatePreview() }
-    Timer { id: historyFollow; interval: 500; onTriggered: root.refreshHistory() }
+    // Pending liveness and diagnostics come from the engine, never a QML
+    // connectivity watcher. Reuse the test-run follow path for their reads.
+    Timer { id: historyFollow; interval: root.automations.some(row => row.pending !== null) ? Engine.PENDING_REFRESH_MS : 500; onTriggered: { root.refreshHistory(); root.refreshList(); } }
     Timer { id: listSoon; interval: 250; onTriggered: root.refreshList() }
     // A run's start, its end and the prune after it each change the runs
     // folder's count; one quiet spell lists and reads the history once.
@@ -479,6 +502,7 @@ FocusScope {
                 onDuplicateRequested: id => root.duplicateAutomation(id)
                 onRemoveRequested: id => root.removeAutomation(id)
                 onRunRequested: id => root.runNow(id)
+                onCancelRequested: id => root.cancelPending(id)
                 onToggleRequested: (id, enabled) => root.toggleEnabled(id, enabled)
             }
 
@@ -494,9 +518,11 @@ FocusScope {
                 previewRows: root.previewRows
                 testRun: root.testRun
                 testTranscript: root.testTranscript
+                pending: root.draftPending
                 onBackRequested: { root.editorOpen = false; automationList.focusList(); }
                 onSaveRequested: root.saveDraft()
                 onTestRequested: root.runNow(root.draft.id)
+                onCancelRequested: root.cancelPending(root.draft.id)
                 onCopyRequested: root.copyCommand()
                 onRemoveRequested: root.removeAutomation(root.draft.id)
                 onOpenTranscriptRequested: path => root.openTranscript(path)

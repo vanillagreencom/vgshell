@@ -110,9 +110,10 @@ Column {
     function inkBelow() {
         const room = hintSlot.visible && hintSlot.height > 0 ? spacing + hintSlot.height : 0;
         const below = bottomPadding + room + controlRow.inkBelow();
-        if (!subText) return below;
+        const text = hintSlot.textInkBelow();
+        if (text === null) return below;
         const slotTop = bottomPadding + room - spacing;
-        return Math.min(below, slotTop - hintSlot.textBottom + hintSlot.textInkBelow());
+        return Math.min(below, slotTop - hintSlot.textBottom + text);
     }
 
     // inkBelow() with each text line read by its font: where a key/value
@@ -120,9 +121,10 @@ Column {
     function lineBelow() {
         const room = hintSlot.visible && hintSlot.height > 0 ? spacing + hintSlot.height : 0;
         const below = bottomPadding + room + controlRow.lineBelow();
-        if (!subText) return below;
+        const text = hintSlot.textLineBelow();
+        if (text === null) return below;
         const slotTop = bottomPadding + room - spacing;
-        return Math.min(below, slotTop - hintSlot.textBottom + hintSlot.textLineBelow());
+        return Math.min(below, slotTop - hintSlot.textBottom + text);
     }
 
     Item {
@@ -180,14 +182,23 @@ Column {
         // of them ends the text, and the text or the row box the slot.
         readonly property real linesHeight: root.lines.length > 0 ? subLines.implicitHeight + (hintLine.text !== "" ? Theme.field.gap : 0) : 0
         readonly property real textBottom: textTop + linesHeight + (hintLine.text !== "" ? hintLine.implicitHeight : 0)
-        function textInkBelow() { return hintLine.text !== "" ? hintLine.inkBelow() : Theme.inkBelow(subLines); }
+        // A following row can measure a disappearing hint before subText
+        // clears: reproduced under Quickshell 0.3.1 in VGS-2077. Select the
+        // actual text here; no line leaves the control as the lowest part.
+        function lastTextLine() {
+            if (hintLine.text !== "") return hintLine;
+            const lines = Array.from(subLines.children).filter(child => child instanceof Label && child.visible);
+            return lines.length === 0 ? null : lines[lines.length - 1];
+        }
+        function textInkBelow() {
+            const last = lastTextLine();
+            return last === null ? null : last === hintLine ? hintLine.inkBelow() : Theme.inkBelow(subLines);
+        }
         // The same by the text's font (FormRow.fontBelow): the hint's role
         // through a probe line of it, a link's underline still counted.
         function textLineBelow() {
-            if (hintLine.text === "") {
-                const lines = Array.from(subLines.children).filter(child => child instanceof Label);
-                return controlRow.fontBelow(lines[lines.length - 1]);
-            }
+            const last = lastTextLine();
+            if (last !== hintLine) return last === null ? null : controlRow.fontBelow(last);
             const line = controlRow.fontBelow(hintProbe);
             return hintLine.linked ? Math.min(line, hintLine.inkBelow()) : line;
         }
