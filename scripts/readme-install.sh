@@ -175,7 +175,11 @@ nixos_prepared_made=false
 nixos_volume=""
 cleanup() {
   local name
-  for name in "${containers[@]}"; do podman rm -f -t 0 -- "$name" >/dev/null 2>&1 || true; done
+  local remove_args=(-f -t 0)
+  # Before a volume handle is admitted, its owned container still owns
+  # anonymous-volume cleanup. Podman keeps named caches under --volumes.
+  [[ -n $nixos_volume ]] || remove_args+=(--volumes)
+  for name in "${containers[@]}"; do podman rm "${remove_args[@]}" -- "$name" >/dev/null 2>&1 || true; done
   [[ $prepared_made == false ]] || podman rmi -f -- "$prepared" >/dev/null 2>&1 || true
   [[ $fedora_prepared_made == false ]] || podman rmi -f -- "$fedora_prepared" >/dev/null 2>&1 || true
   [[ $debian_prepared_made == false ]] || podman rmi -f -- "$debian_prepared" >/dev/null 2>&1 || true
@@ -439,8 +443,10 @@ run_block_start() { # BLOCK
   [[ $user != root ]] || home=/root runtime=/run/user/0
   container_env=()
   if [[ ${block_image[$1]} == nixos ]]; then
-    nixos_volume="$(podman inspect --format '{{range .Mounts}}{{if eq .Destination "/nix"}}{{.Name}}{{end}}{{end}}' "$container")" || not_measured "container-setup step=private-store"
-    [[ -n $nixos_volume && $nixos_volume != "$nix_volume" ]] || not_measured "container-setup step=private-store"
+    local candidate
+    candidate="$(podman inspect --format '{{range .Mounts}}{{if eq .Destination "/nix"}}{{.Name}}{{end}}{{end}}' "$container")" || not_measured "container-setup step=private-store"
+    [[ -n $candidate && $candidate != "$nix_volume" ]] || not_measured "container-setup step=private-store"
+    nixos_volume="$candidate"
     # Nix's export/import carries registrations and references to the new
     # private store. Only that volume is handed to the curl install's user.
     local transfer="vgs-readme-install-nixos-closure.$$"

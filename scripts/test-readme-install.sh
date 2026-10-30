@@ -80,6 +80,7 @@ cat >"$stubs/podman" <<'EOF'
 case "$1" in
   image|commit|rm|rmi) exit 0 ;;
   inspect)
+    if [[ -n ${STUB_VOLUME_CANDIDATE:-} ]]; then printf '%s\n' "$STUB_VOLUME_CANDIDATE"; exit 0; fi
     cat "$STUB_RECORD.${@: -1}.volume"
     exit ;;
   volume)
@@ -323,6 +324,11 @@ row "selected added channels reuse only their curl blocks" 0 "readme-install: ok
 if [[ $(sed -n -E 's/^start vgs-readme-install-([0-9]+)\.[0-9]+$/\1/p' -- "$record") == $'6\n7' ]]; then ok "selection starts no completed channel"; else fail "selection started another channel"; fi
 row "NixOS curl runs as its nonroot user with a private writable store" 0 "readme-install: ok line=$curl_line channel=curl-nixos exit=0 seconds=*" "${published[@]}" STUB_REQUIRE_NONROOT=1 -- --channel curl-nixos
 if grep -q -E '^private-owner vgs-readme-install-7\.[0-9]+ /nix$' "$record" && grep -qxF 'volume-rm private-nix' "$record"; then ok "only the private store is handed over and removed"; else fail "private Nix store ownership or cleanup was not exercised"; fi
+private_store_refusal() {
+  row "a shared volume candidate is refused before cleanup ownership" 77 'readme-install: status=not-measured reason=container-setup step=private-store' "${published[@]}" STUB_VOLUME_CANDIDATE=vgs-validate-nix-2.35.2 -- --channel curl-nixos
+  if grep -qxF 'volume-rm vgs-validate-nix-2.35.2' "$record"; then fail "cleanup removed the rejected shared candidate"; else ok "cleanup never removes the rejected shared candidate"; fi
+}
+private_store_refusal
 row "an export that would leave less than 3 GB is refused" 1 "readme-install: ok line=${aur_first%%:*} channel=aur exit=0 seconds=*" "${published[@]}" STUB_CLOSURE_BYTES=1000000000000 -- --export "$tmp/no-space-exports"
 if [[ $row_output == *' export=space'* ]] && ! compgen -G "$tmp/no-space-exports/line-*-nix" >/dev/null; then ok "the closure space refusal precedes the Nix copy"; else fail "the Nix closure ignored the available space"; fi
 # The new export assertion must reject a runner that never hands trees out.
@@ -369,6 +375,19 @@ readme_edit 'AUR helper: paru or yay.' 'AUR helper: yay.'
 row "the image installs the helper named by the README" 77 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" --
 if grep -qxF 'prepare yay' "$record"; then ok "the image reads the README helper"; else fail "the image did not read the README helper"; fi
 cp -p -- "$tmp/README.md.orig" "$tree/README.md"
+cp -p -- "$tree/scripts/readme-install.sh" "$tmp/readme-install-owner.orig"
+python3 - "$tree/scripts/readme-install.sh" <<'PY'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+text = path.read_text()
+old = '    [[ -n $candidate && $candidate != "$nix_volume" ]]'
+assert text.count(old) == 1
+path.write_text(text.replace(old, '    nixos_volume="$candidate"\n' + old))
+PY
+owner_before=$failures
+private_store_refusal >"$tmp/owner-control.log" 2>&1
+cp -p -- "$tmp/readme-install-owner.orig" "$tree/scripts/readme-install.sh"
+if ((failures == owner_before + 1)); then failures=$owner_before; ok "control: old cleanup publication order fails its ownership assertion"; else fail "control: old cleanup publication order passed its ownership assertion"; fi
 row "curl receives a controlling terminal" 77 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_REQUIRE_TTY=1 --
 row "curl receives a noninteractive recipe pager" 77 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_REQUIRE_PAGER=1 --
 row "checkout versions use the canonical version and describe report" 77 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_DESCRIBE="$version.r14.g797b0cb" --
