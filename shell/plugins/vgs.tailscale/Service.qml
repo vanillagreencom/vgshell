@@ -10,7 +10,7 @@ import "TailscaleLogic.js" as Logic
 // invoke <name> <arg>` reaches too:
 //   lease {"id","open"}   a view opens or closes; an open view makes the
 //                         poll fast; answers `ok` or a refusal
-//   action {"kind","id"}  connect, disconnect, exit-node, switch, login,
+//   action {"kind","id"}  connect, disconnect, exit-node, switch, add-account, sign-in,
 //                         cancel-login, logout or admin-console; answers
 //                         `ok`, `busy` or a refusal
 //   refresh               read Tailscale now; answers `ok`
@@ -37,6 +37,7 @@ Item {
     property var leases: ({})
     readonly property int leaseCount: Object.keys(leases).length
     readonly property bool missing: commandMissing()
+    readonly property bool outdated: shell !== null && shell.requirements.outdated.indexOf("tailscale") !== -1
     readonly property int scans: shell === null ? 0 : shell.requirements.revision
     readonly property int pollInterval: Logic.pollInterval(leaseCount > 0, snapshot.state, shell === null ? 30 : shell.settings.pollSeconds)
     readonly property var steps: shell === null ? ({}) : shell.system.state
@@ -66,9 +67,17 @@ Item {
     property string loginSaid: ""
     // The line the last failed command left, "" for none.
     property string problem: ""
+    property bool setupPending: true
+    property int setupRequest: 0
+    property string pendingProfile: ""
+    property int statusReads: 0
+    property int accountReads: 0
+    property int freshStatusAfter: 0
+    property int freshAccountsAfter: 0
+    readonly property bool checkingSetup: setupPending || statusReads < freshStatusAfter || accountReads < freshAccountsAfter
 
     readonly property var connection: Logic.connection(missing, snapshot)
-    readonly property var setup: Logic.setup({ missing: missing, state: snapshot.state,
+    readonly property var setup: checkingSetup && !missing && !outdated ? null : Logic.setup({ missing: missing, outdated: outdated, state: snapshot.state,
         service: stepState("service-tailscaled"), operator: stepState("tailscale-operator") })
     readonly property var published: Logic.published(missing, snapshot, setup,
         { accounts: accounts, action: action, login: login, problem: problem, suggestion: Logic.suggestion(suggestedName, snapshot),
@@ -85,7 +94,8 @@ Item {
 
     function publish() {
         if (shell === null) return;
-        const writes = Logic.statusWrites(connection, setup, published, snapshot.devices, snapshot.exitNodes);
+        const writes = Logic.statusWrites(connection, setup, published, snapshot.devices, snapshot.exitNodes)
+            .concat([["accountAdd", { tone: "info", text: "Add account", action: !outdated && stepState("tailscale-account-add") === "needed" }]]);
         for (const write of writes) {
             const reply = shell.status.set(write[0], write[1]);
             if (reply !== "ok") console.warn("tailscale: status " + write[0] + " " + reply);
@@ -110,10 +120,23 @@ Item {
     // A scan ends each requirement install, so the command may be new.
     onScansChanged: refresh()
     onMissingChanged: if (missing) snapshot = Logic.emptySnapshot("checking")
+    onOutdatedChanged: if (outdated) snapshot = Logic.emptySnapshot("unavailable")
 
     function refresh() {
         if (!registered) return "ok";
-        if (commandMissing()) return "ok";
+        const serial = ++setupRequest;
+        setupPending = true;
+        const readable = !commandMissing() && !outdated;
+        freshStatusAfter = statusReads + (readable ? reader.running ? 2 : 1 : 0);
+        freshAccountsAfter = accountReads + (readable ? accountsReader.running ? 2 : 1 : 0);
+        const reply = shell.system.refresh(() => {
+            if (serial === root.setupRequest) root.setupPending = false;
+        });
+        if (reply !== "ok") {
+            console.warn("tailscale: setup " + reply);
+            problem = "VGS could not check Tailscale access.";
+        }
+        if (!readable) return "ok";
         runPoll("refresh");
         readAccounts();
         return "ok";
@@ -160,7 +183,7 @@ Item {
     Timer {
         interval: root.pollInterval
         repeat: true
-        running: root.registered && !root.missing
+        running: root.registered && !root.missing && !root.outdated
         onTriggered: root.runPoll("tick")
     }
 
@@ -193,6 +216,7 @@ Item {
                 console.info("tailscale: status=unavailable code=" + code + " " + statusErrors.text.trim());
             const was = root.snapshot.state;
             root.snapshot = next;
+            root.statusReads++;
             if (next.state !== "running") root.suggestedName = "";
             else if (was !== "running") root.suggest();
             root.runPoll("exit");
@@ -205,8 +229,9 @@ Item {
             return;
         }
         accountsReader.completion = null;
-        accountsReader.running = true;
+        accountsReader.verifying = pendingProfile;
         accountsDeadline.restart();
+        accountsReader.running = true;
     }
 
     Timer {
@@ -220,6 +245,7 @@ Item {
         id: accountsReader
         property var completion: null
         property bool again: false
+        property string verifying: ""
         command: ["tailscale", "switch", "--list", "--json"]
         stdout: StdioCollector { id: accountsText; waitForEnd: true }
         stderr: StdioCollector { id: accountsErrors; waitForEnd: true }
@@ -233,6 +259,20 @@ Item {
                 console.info("tailscale: accounts=" + read.fault + " code=" + code + " " + accountsErrors.text.trim());
             root.accountsFault = read.fault;
             root.accounts = read.rows;
+            root.accountReads++;
+            if (verifying !== "") {
+                const selected = read.fault === "" && read.rows.some(row => row.id === verifying && row.current);
+                root.pendingProfile = "";
+                if (!selected) {
+                    root.problem = "Tailscale could not select this account.";
+                    root.finishAction();
+                } else if (root.action === "sign-in") {
+                    // up authenticates the selected profile and refuses a
+                    // preference reset: tailscale v1.104.1 cli/up.go.
+                    root.startLogin(["tailscale", "up", "--timeout", "0"]);
+                } else root.finishAction();
+                verifying = "";
+            }
             if (again) {
                 again = false;
                 root.readAccounts();
@@ -285,23 +325,44 @@ Item {
     function act(arg) {
         const request = JSON.parse(arg);
         if (request.kind === "cancel-login") {
-            login = "idle";
             if (signIn.running) root.endLogin();
             return "ok";
         }
         if (request.kind === "admin-console") return openAdminConsole();
+        if (action !== "") return "busy";
+        if (outdated) {
+            shell.requirements.offer(["tailscale"]);
+            return "refused: action=" + request.kind + " state=outdated";
+        }
         if (commandMissing()) return "refused: action=" + request.kind + " state=missing";
         const plan = Logic.command(request, { state: snapshot.state, targets: snapshot.targets, accounts: accounts });
         if (plan.refusal !== undefined) return plan.refusal;
-        if (request.kind === "login") return startLogin(plan.argv);
-        if (actor.running) return "busy";
+        if (request.kind !== "add-account" && !published.writable) return "refused: action=" + request.kind + " access=unchecked";
         action = request.kind;
+        setupPending = true;
         problem = "";
+        if (request.kind === "add-account") {
+            const reply = shell.status.act(plan.system, undefined, undefined, end => {
+                if (end.code !== 0) root.problem = "The account was not added; review the result in the setup window.";
+                root.finishAction();
+            });
+            if (reply !== "ok") {
+                problem = reply === "busy" ? Logic.replyText(reply) : "VGS could not open the account setup window.";
+                finishAction();
+            }
+            return reply;
+        }
+        pendingProfile = request.kind === "switch" || request.kind === "sign-in" ? request.id : "";
         actor.completion = null;
         actor.command = plan.argv;
-        actor.running = true;
         actionDeadline.restart();
+        actor.running = true;
         return "ok";
+    }
+
+    function finishAction() {
+        action = "";
+        refresh();
     }
 
     Timer {
@@ -320,13 +381,18 @@ Item {
             if (running) return;
             actionDeadline.stop();
             const code = root.codeOf(completion);
+            // A stopped profile can be selected even when switch exits
+            // nonzero. Verify the stable selected ID before up or success.
+            if (root.pendingProfile !== "") {
+                root.readAccounts();
+                return;
+            }
             if (code !== 0) {
                 const kind = code === -1 ? "timeout" : Logic.failureKind(actionErrors.text);
                 console.warn("tailscale: " + root.action + " failed kind=" + kind + " " + actionErrors.text.trim());
                 root.problem = Logic.failureText(kind);
             }
-            root.action = "";
-            root.refresh();
+            root.finishAction();
         }
     }
 
@@ -340,12 +406,14 @@ Item {
         return reply;
     }
 
-    // `tailscale login` prints the sign-in page's address and waits until
+    // `tailscale up` prints the sign-in page's address and waits until
     // the user finishes there. The first address opens in the browser.
     function startLogin(argv) {
         if (signIn.running) return "busy";
         if (shell.requirements.missing.indexOf("xdg-open") !== -1) {
             shell.requirements.offer(["xdg-open"]);
+            problem = "A browser tool is missing; use the installation notice to add it.";
+            finishAction();
             return "refused: login=missing-tool";
         }
         login = "waiting";
@@ -354,8 +422,8 @@ Item {
         signIn.completion = null;
         signIn.ended = false;
         signIn.command = argv;
-        signIn.running = true;
         loginDeadline.restart();
+        signIn.running = true;
         return "ok";
     }
 
@@ -409,7 +477,7 @@ Item {
                 root.problem = "Tailscale gave no sign-in page.";
             }
             root.login = "idle";
-            root.refresh();
+            root.finishAction();
         }
     }
 }

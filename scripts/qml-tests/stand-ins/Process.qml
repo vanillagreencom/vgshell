@@ -19,14 +19,18 @@ QtObject {
     signal exited(int code, int status)
 
     function finish(code, status, out, err) {
-        if (stdout !== null) stdout.text = out === undefined ? "" : out;
-        if (stderr !== null) stderr.text = err === undefined ? "" : err;
+        if (stdout !== null && stdout.text !== undefined) stdout.text = out === undefined ? "" : out;
+        if (stderr !== null && stderr.text !== undefined) stderr.text = err === undefined ? "" : err;
         exited(code, status);
         running = false;
     }
 
     function failStart() {
         running = false;
+    }
+
+    function signal(number) {
+        finish(-1, 1, "", "");
     }
 
     Component.onCompleted: ProcessRegistry.add(process)

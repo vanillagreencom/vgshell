@@ -6,6 +6,7 @@ import QtQml
 // Tests replace them to exercise the shipped provider and the layer without
 // a compositor.
 QtObject {
+    signal scanFinished()
     property var hyprlandSections: []
     property var manifests: ({})
     property bool scanned: true

@@ -24,6 +24,7 @@ Scope {
     property int revision: 0
     property int probes: 0
     property bool again: false
+    property var pending: []
 
     // The core's bin/ beside the shell directory: the shell's PATH need not
     // hold the core's commands.
@@ -48,8 +49,26 @@ Scope {
                 for (const step of Object.keys(out)) Object.freeze(out[step]);
                 return Object.freeze(out);
             },
-            get revision() { return root.revision; }
+            get revision() { return root.revision; },
+            refresh: done => root.refresh(ctx, done)
         };
+    }
+
+    // A request during a probe belongs to the following probe. Revision
+    // describes changed values; completion describes a fresh reading.
+    function refresh(ctx, done) {
+        if (done !== undefined && typeof done !== "function") throw new Error("refused: system=refresh done=not-a-function");
+        if (!ctx.active) return "refused: system=refresh released";
+        if (done !== undefined) {
+            const entry = { after: probes + (prober.running ? 2 : 1), id: ctx.id, done: done, release: null };
+            entry.release = ctx.onDispose(() => {
+                entry.done = null;
+                root.pending = root.pending.filter(item => item !== entry);
+            });
+            pending = pending.concat([entry]);
+        }
+        probe();
+        return "ok";
     }
 
     function probe() {
@@ -58,7 +77,19 @@ Scope {
             return;
         }
         prober.completion = null;
+        prober.expired = false;
+        deadline.restart();
         prober.running = true;
+    }
+
+    Timer {
+        id: deadline
+        interval: 10000
+        repeat: false
+        onTriggered: {
+            prober.expired = true;
+            prober.signal(9);
+        }
     }
 
     // The probe state and the steps, null before the first report, for
@@ -67,23 +98,39 @@ Scope {
         return { probing: prober.running, probes: probes, revision: revision, steps: steps };
     }
 
-    // A command that fails to start emits only runningChanged, so the end
-    // is read there: no exit recorded is a failed start.
+    // Quickshell 0.3.1 Process supports restarting in runningChanged and
+    // signal(9) kills the current child; StdioCollector waitForEnd exposes
+    // final output. https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/Process/
+    // A missing completion is an unstarted probe, never an access reading.
     Process {
         id: prober
         property var completion: null
+        property bool expired: false
         command: [root.coreBin + "/vgshell-system", "status", "--json"]
-        stdout: StdioCollector { id: probeOutput }
-        stderr: StdioCollector { id: probeErrors }
+        stdout: StdioCollector { id: probeOutput; waitForEnd: true }
+        stderr: StdioCollector { id: probeErrors; waitForEnd: true }
         onExited: (code, status) => { prober.completion = { code: code, status: status }; }
         onRunningChanged: {
             if (running) return;
-            const report = Logic.systemReport(prober.completion, probeOutput.text, probeErrors.text);
+            deadline.stop();
+            const report = prober.expired
+                ? { steps: Logic.systemUnknown("probe-timeout"), line: "system: probe=timeout" }
+                : Logic.systemReport(prober.completion, probeOutput.text, probeErrors.text);
             if (report.line !== "") console.error(report.line);
             root.probes += 1;
             if (root.steps === null || !Logic.systemStepsEqual(root.steps, report.steps)) {
                 root.steps = report.steps;
                 root.revision += 1;
+            }
+            const ended = root.pending.filter(entry => entry.after <= root.probes);
+            root.pending = root.pending.filter(entry => entry.after > root.probes);
+            for (const entry of ended) {
+                const done = entry.done;
+                entry.release();
+                if (done !== null) {
+                    try { done(); }
+                    catch (error) { console.error("capabilities: system refresh of " + entry.id + " threw: " + error.message); }
+                }
             }
             if (root.again) {
                 root.again = false;

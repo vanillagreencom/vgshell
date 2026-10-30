@@ -179,25 +179,34 @@ Item {
             compare(find(panel, item => item.objectName === "tailscale-poll"), null, "the flyout draws no Check every");
         }
 
-        function test_tab_reaches_add_account_and_sign_out_after_the_list() {
-            const account = named("tailscale-account");
-            account.focusItem.forceActiveFocus(Qt.TabFocusReason);
-            keyClick(Qt.Key_Space);
-            verify(account.expanded, "Space opens the account row");
-            keyClick(Qt.Key_Tab);
-            verify(within(focused(), named("tailscale-accounts")), "the account list follows the row");
-            keyClick(Qt.Key_Tab);
-            compare(focused(), named("tailscale-add-account"));
+        function test_accounts_card_has_header_actions_and_a_keyboard_list() {
+            const card = named("tailscale-accounts-card");
+            verify(card.visible);
+            compare(named("tailscale-accounts-header").text, "Accounts");
+            const add = named("tailscale-add-account");
+            compare(add.label, "Add account");
+            compare(named("tailscale-sign-out").label, "Sign out");
+            verify(add.y + add.height < named("tailscale-accounts").y);
+            add.forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Return);
+            compare(root.actions, [["add-account", ""]]);
             keyClick(Qt.Key_Tab);
             compare(focused(), named("tailscale-sign-out"));
             keyClick(Qt.Key_Tab);
-            verify(within(focused(), named("tailscale-this-device")), "this device follows Sign out");
+            verify(within(focused(), named("tailscale-accounts")));
+        }
+
+        function test_signed_out_saved_account_sign_in_targets_its_id() {
+            root.backend = "NeedsLogin";
+            const list = named("tailscale-accounts");
+            compare(list.actionOf(list.rows[1]).text, "Sign in");
+            list.forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Down);
+            keyClick(Qt.Key_Return);
+            compare(root.actions, [["sign-in", "a2"]]);
         }
 
         function test_sign_out_asks_and_only_its_accept_signs_out() {
-            const account = named("tailscale-account");
-            account.focusItem.forceActiveFocus(Qt.TabFocusReason);
-            keyClick(Qt.Key_Space);
             const signOut = named("tailscale-sign-out");
             signOut.forceActiveFocus(Qt.TabFocusReason);
             keyClick(Qt.Key_Return);
@@ -376,10 +385,9 @@ Item {
         }
 
         function test_the_pane_shows_its_lists_in_open_sections() {
-            compare(named("tailscale-account").expanded, false, "the flyout opens its account closed");
             compare(named("tailscale-network-devices").expanded, false, "the flyout opens its devices closed");
             const body = openPane();
-            for (const name of ["tailscale-account-section", "tailscale-device-section", "tailscale-exit-section",
+            for (const name of ["tailscale-accounts-card", "tailscale-device-section", "tailscale-exit-section",
                 "tailscale-network-section", "tailscale-admin-section", "tailscale-updates-section"])
                 verify(findIn(body, name).visible, name + " is open");
             compare(findIn(body, "tailscale-accounts").rows.map(row => row.key), ["a1", "a2"]);
@@ -391,9 +399,9 @@ Item {
         function test_the_pane_keeps_the_account_while_waiting_for_approval() {
             root.backend = "NeedsMachineAuth";
             tryVerify(() => find(panel, item => item.objectName === "tailscale-approval-console") !== null, 1000, "the flyout shows the approval step");
-            compare(find(panel, item => item.objectName === "tailscale-account"), null, "the flyout shows no account while waiting");
+            verify(named("tailscale-accounts-card").visible, "accounts remain available while approval waits");
             const body = openPane();
-            findIn(body, "tailscale-account-section");
+            findIn(body, "tailscale-accounts-card");
             findIn(body, "tailscale-accounts");
             findIn(body, "tailscale-device-section");
             findIn(body, "tailscale-self-address");

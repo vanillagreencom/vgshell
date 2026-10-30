@@ -13,8 +13,8 @@ import "TailscaleLogic.js" as Logic
 // takes no change, its controls say why (`lockReason`), and the connection
 // switch's unlock mark runs the same step.
 //
-// The flyout keeps its account and network device lists in disclosures;
-// the pane uses the same content in open sections. Its device fields copy
+// Accounts share one card in both views. Network devices use a flyout
+// disclosure and an open section in the pane. Its device fields copy
 // through the same CopyText as the lists. The pane expands exit countries
 // in place and ends with Updates. Each list is one Tab stop; arrows move
 // inside it and Shift+F10 opens a device's menu. Sign out asks first and
@@ -57,8 +57,7 @@ FocusScope {
     readonly property bool signedOut: tailscale.state === "signed-out"
     readonly property bool connected: tailscale.state === "running"
     readonly property bool approvalPane: expanded && tailscale.state === "needs-approval"
-    readonly property var currentAccount: tailscale.accounts.find(row => row.current) || null
-    readonly property bool accountShown: switchable || approvalPane || (signedOut && tailscale.accounts.length > 0)
+    readonly property bool accountShown: reached
     readonly property bool deviceShown: (switchable || approvalPane) && tailscale.device.address !== ""
     // The setup step the core offers now, { label, hint }, else null.
     // `hint` is the sentence that says what the step does.
@@ -95,10 +94,7 @@ FocusScope {
     function open() {
         if (leaseId === "") leaseId = String(root);
         if (shell !== null && !leased) leased = shell.ipc.call("lease", JSON.stringify({ id: leaseId, open: true })) === "ok";
-        // The flyout opens with both disclosures closed, the account's open
-        // while signed out, where it lists the accounts to switch to; the
-        // pane opens both.
-        accountRow.expanded = signedOut || expanded;
+        // The pane opens its network device list.
         devicesRow.expanded = expanded;
         signingOut = false;
         localProblem = "";
@@ -186,48 +182,12 @@ FocusScope {
             request("logout", "");
             root.forceActiveFocus();
         } else {
-            const account = root.expanded ? paneAccounts.item : flyoutAccounts.item;
-            if (account !== null) account.signOutControl.forceActiveFocus(Qt.TabFocusReason);
+            signOutAction.forceActiveFocus(Qt.TabFocusReason);
         }
     }
 
     CopyText { id: copier }
 
-    Component {
-        id: accountContents
-        Column {
-            readonly property alias signOutControl: signOutAction
-            width: parent.width
-            spacing: Theme.stack.group
-            DeviceList {
-                objectName: "tailscale-accounts"
-                width: parent.width
-                visible: rows.length > 0
-                disabledReason: root.lockReason
-                rows: Logic.accountRows(root.tailscale.accounts)
-                onActed: key => { if (!root.tailscale.accounts.some(row => row.id === key && row.current)) root.request("switch", key); }
-            }
-            RowActions {
-                RowAction {
-                    objectName: "tailscale-add-account"
-                    visible: root.tailscale.login === "idle"
-                    disabledReason: root.lockReason
-                    text: "Add account"
-                    onClicked: root.request("login", "")
-                }
-                RowAction {
-                    id: signOutAction
-                    objectName: "tailscale-sign-out"
-                    visible: !root.signedOut
-                    disabledReason: root.lockReason
-                    text: "Sign out"
-                    tone: "danger"
-                    markName: "log-out"
-                    onClicked: root.askSignOut()
-                }
-            }
-        }
-    }
     Component {
         id: networkContents
         Column {
@@ -272,6 +232,66 @@ FocusScope {
         id: content
         width: root.width
         spacing: Theme.stack.group
+
+        Card {
+            objectName: "tailscale-accounts-card"
+            visible: root.accountShown
+            Row {
+                width: parent.width
+                spacing: Theme.stack.inline
+                SectionHeader {
+                    objectName: "tailscale-accounts-header"
+                    width: parent.width - accountButtons.width - parent.spacing
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "Accounts"
+                    bottomPadding: 0
+                }
+                Row {
+                    id: accountButtons
+                    spacing: Theme.stack.inline
+                    IconButton {
+                        objectName: "tailscale-add-account"
+                        iconName: "plus"
+                        label: "Add account"
+                        size: "sm"
+                        disabledReason: root.busy || root.tailscale.needsToolUpdate ? root.lockReason : root.tailscale.checkingSetup ? "VGS is checking Tailscale access." : ""
+                        onClicked: root.request("add-account", "")
+                    }
+                    IconButton {
+                        id: signOutAction
+                        objectName: "tailscale-sign-out"
+                        visible: !root.signedOut
+                        iconName: "log-out"
+                        label: "Sign out"
+                        tone: "danger"
+                        size: "sm"
+                        disabledReason: root.lockReason
+                        onClicked: root.askSignOut()
+                    }
+                }
+            }
+            DeviceList {
+                objectName: "tailscale-accounts"
+                width: parent.width
+                visible: rows.length > 0
+                disabledReason: root.lockReason
+                rows: Logic.accountRows(root.tailscale.accounts, root.signedOut)
+                actionOf: row => root.signedOut ? ({ text: "Sign in" }) : null
+                onActed: key => {
+                    if (root.signedOut) root.request("sign-in", key);
+                    else if (!root.tailscale.accounts.some(row => row.id === key && row.current)) root.request("switch", key);
+                }
+            }
+            Button {
+                objectName: "tailscale-sign-in"
+                visible: root.signedOut && root.tailscale.accounts.length === 0 && root.tailscale.login === "idle"
+                disabledReason: root.busy || root.tailscale.needsToolUpdate ? root.lockReason : root.tailscale.checkingSetup ? "VGS is checking Tailscale access." : ""
+                variant: "primary"
+                text: "Sign in"
+                iconName: "log-in"
+                onClicked: root.request("add-account", "")
+            }
+        }
 
         Field {
             id: connectField
@@ -344,15 +364,6 @@ FocusScope {
             text: root.stateHint
             wrapMode: Text.Wrap
         }
-        Button {
-            objectName: "tailscale-sign-in"
-            visible: root.signedOut && root.tailscale.login === "idle"
-            disabledReason: root.lockReason
-            variant: "primary"
-            text: "Sign in"
-            iconName: "log-in"
-            onClicked: root.request("login", "")
-        }
         Row {
             visible: root.tailscale.login !== "idle"
             spacing: Theme.control.gap
@@ -393,28 +404,11 @@ FocusScope {
         Item {
             width: parent.width
             height: rowColumn.implicitHeight
-            visible: !root.expanded && (root.accountShown || root.deviceShown)
+            visible: !root.expanded && (root.deviceShown || root.connected)
             ListCursor { id: rowCursor }
             Column {
                 id: rowColumn
                 width: parent.width
-                Disclosure {
-                    id: accountRow
-                    objectName: "tailscale-account"
-                    width: parent.width
-                    visible: root.accountShown
-                    cursor: rowCursor
-                    iconName: "user"
-                    text: root.signedOut ? "Accounts" : root.tailscale.account !== "" ? root.tailscale.account
-                        : root.currentAccount !== null ? root.currentAccount.account : "Account"
-                    secondary: root.signedOut ? "Not signed in" : root.tailscale.tailnet
-                    Loader {
-                        id: flyoutAccounts
-                        width: parent.width
-                        active: !root.expanded
-                        sourceComponent: accountContents
-                    }
-                }
                 DeviceRow {
                     objectName: "tailscale-this-device"
                     width: parent.width
@@ -463,31 +457,6 @@ FocusScope {
                     Keys.onSpacePressed: root.exitNodesRequested()
                     trailing: [Icon { anchors.verticalCenter: parent.verticalCenter; name: "chevron-right"; size: Theme.icon.size.md; color: Theme.color.textMuted }]
                 }
-            }
-        }
-        Section {
-            objectName: "tailscale-account-section"
-            visible: root.expanded && root.accountShown
-            title: "Account"
-            rowSpacing: Theme.stack.group
-            Row {
-                visible: !root.signedOut
-                spacing: Theme.stack.inline
-                AvatarGroup {
-                    anchors.verticalCenter: parent.verticalCenter
-                    people: [{ initials: root.tailscale.account.split("@").map(part => part.charAt(0)).join("").toUpperCase() }]
-                }
-                Column {
-                    anchors.verticalCenter: parent.verticalCenter
-                    Label { text: root.tailscale.account; role: "body" }
-                    Label { text: root.tailscale.tailnet; role: "hint"; color: Theme.color.textMuted }
-                }
-            }
-            Loader {
-                id: paneAccounts
-                width: parent.width
-                active: root.expanded
-                sourceComponent: accountContents
             }
         }
         Section {
@@ -630,8 +599,7 @@ FocusScope {
         // Keep the question beside Sign out, whose keyboard focus already
         // placed it in view, rather than at the body's offscreen centre.
         readonly property real questionY: {
-            const account = root.expanded ? paneAccounts.item : null;
-            return account === null ? parent.height / 2 : account.signOutControl.mapToItem(root, 0, account.signOutControl.height / 2).y;
+            return root.expanded ? signOutAction.mapToItem(root, 0, signOutAction.height / 2).y : parent.height / 2;
         }
         y: Math.max(0, Math.min(parent.height - height, questionY - height / 2))
         width: Math.min(implicitWidth, parent.width - 2 * Theme.dialog.margin)

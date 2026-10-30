@@ -9,12 +9,22 @@ Item {
     readonly property int systemRevision: shell === null ? -1 : shell.system.revision
     readonly property var statusValues: shell === null ? null : shell.status.values
     property string lastReply: ""
+    property int refreshes: 0
+    property int completions: 0
+    property var lastCompletion: null
 
     onSystemStateChanged: publish()
 
     // The plugin's own Allow, as a section's pane presses it: the
     // `status` capability's act on KEY, scoped to this plugin.
-    function statusAct(key) { return shell.status.act(key); }
+    function statusAct(key) {
+        return shell.status.act(key, undefined, undefined, end => {
+            root.lastCompletion = end;
+            root.completions++;
+        });
+    }
+
+    function refresh() { return shell.system.refresh(() => root.refreshes++); }
 
     function publish() {
         if (systemState === null) return;

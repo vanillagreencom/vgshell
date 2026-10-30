@@ -371,7 +371,7 @@ function suggestion(name, snap) {
     return null;
 }
 
-// The first https address in a line `tailscale login` prints, "" for none.
+// The first https address in a line `tailscale up` prints, "" for none.
 function loginUrl(text) {
     var found = /https:\/\/[^\s"'<>]+/.exec(String(text));
     return found === null ? "" : found[0];
@@ -399,13 +399,14 @@ function command(request, data) {
         var node = data.targets[request.id];
         if (!node.mullvad && !node.online) return { refusal: "refused: exit-node=offline" };
         return { argv: ["tailscale", "set", "--exit-node=" + node.target] };
+    case "sign-in":
     case "switch":
         if (REACHED.indexOf(data.state) === -1) return refused;
         var account = data.accounts.filter(function (row) { return row.id === request.id; })[0];
         if (account === undefined) return { refusal: "refused: account=absent" };
         return { argv: ["tailscale", "switch", account.id] };
-    case "login":
-        return REACHED.indexOf(data.state) !== -1 ? { argv: ["tailscale", "login", "--timeout", "0"] } : refused;
+    case "add-account":
+        return REACHED.indexOf(data.state) !== -1 ? { system: "accountAdd" } : refused;
     case "logout":
         return REACHED.indexOf(data.state) !== -1 ? { argv: ["tailscale", "logout"] } : refused;
     case "admin-console":
@@ -448,6 +449,7 @@ var SERVICE_UNOFFERED = {
 function setupState(tone, text, hint, action) { return { tone: tone, text: text, hint: hint, action: action }; }
 function setup(context) {
     if (context.missing) return setupState("info", "Not installed", "Tailscale is optional. Choose Review all missing or outdated tools to use it.", "");
+    if (context.outdated) return setupState("warning", "Update needed", "Update Tailscale to use account controls.", "tools");
     if (context.state === "service-off") {
         if (context.service === "") return null;
         if (stepOffered(context.service)) return setupState("warning", "Off", "The Tailscale service is off. Enable turns it on.", "enable");
@@ -459,7 +461,7 @@ function setup(context) {
     if (stepOffered(context.operator)) return setupState("warning", "Access needed", "The administrator holds Tailscale. After this step, VGS connects and disconnects for you without a password.", "allow");
     if (context.operator === "denied") return setupState("info", "Another account", "Another account controls Tailscale. Only that account can change it.", "");
     // The core's probe could not read the operator, so Ready would be a guess.
-    if (context.operator === "unknown" && REACHED.indexOf(context.state) !== -1)
+    if (context.operator !== "ready")
         return setupState("info", "Not checked", "VGS could not read who controls Tailscale.", "");
     return setupState("ok", "Ready", "", "");
 }
@@ -485,14 +487,14 @@ function connection(missing, snap) {
 // The `tailscale` value the service publishes and the views draw: the
 // connection line, the account, this device and the exit node in use,
 // with `writable`, false while the command is MISSING or the Allow step or
-// another setup step must run first, and true while SETUPLINE is null,
-// before the steps' first reading, as for a step that could not be
-// checked, and LIVE { accounts, action, login, problem, suggestion,
+// another setup step must run first or its fresh reading is pending,
+// and LIVE { accounts, action, login, problem, suggestion,
 // backendPresent }, what the service holds beside the snapshot. The
 // network devices and the exit nodes are values of their own (statusWrites).
 function published(missing, snap, setupLine, live) {
     var shown = connection(missing, snap);
-    return { state: shown.state, tone: shown.tone, text: shown.text, writable: !missing && (setupLine === null || setupLine.action === ""),
+    return { state: shown.state, tone: shown.tone, text: shown.text, writable: !missing && setupLine !== null && setupLine.tone === "ok",
+        checkingSetup: setupLine === null, needsToolUpdate: setupLine !== null && setupLine.action === "tools",
         backendPresent: live.backendPresent !== false, device: snap.device, tailnet: snap.tailnet, account: snap.account, exit: snap.exit,
         suggestion: live.suggestion === undefined ? null : live.suggestion, accounts: live.accounts, action: live.action, login: live.login,
         problem: live.problem };
@@ -510,6 +512,9 @@ function unread() {
 // writable has one cause (published, setup): the command is missing, the
 // service is off, or the administrator holds Tailscale.
 function lockReason(tailscale, step) {
+    if (tailscale.action !== "") return "A Tailscale change is still in progress.";
+    if (tailscale.needsToolUpdate) return "Update Tailscale through [Tailscale Setup](page:vgs.tailscale/Setup) to use account controls.";
+    if (tailscale.checkingSetup) return "VGS is checking Tailscale access.";
     if (tailscale.writable) return "";
     if (tailscale.state === "missing") return "Tailscale is not installed, so choose Review all missing or outdated tools under [Optional tools in Tailscale Setup](page:vgs.tailscale/Setup) to use it.";
     var cause = tailscale.state === "service-off" ? "The Tailscale service is off" : "The administrator holds Tailscale";
@@ -549,9 +554,9 @@ function badge(active) { return active ? IN_USE : ""; }
 // The rows the views draw, each a DeviceList row: { key, text, secondary,
 // iconName, badge, badgeTone } and, for an exit node, `id`, the node the
 // row chooses, "" for None, which the view sends and never a target.
-function accountRows(list) {
+function accountRows(list, signedOut) {
     return list.map(function (row) {
-        return { key: row.id, text: row.account, secondary: row.tailnet, iconName: "user", badge: badge(row.current), badgeTone: "success" };
+        return { key: row.id, text: row.account, secondary: row.tailnet, iconName: "user", badge: badge(row.current && !signedOut), badgeTone: "success" };
     });
 }
 

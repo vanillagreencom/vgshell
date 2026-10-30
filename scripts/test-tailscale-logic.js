@@ -165,8 +165,11 @@ function suite(logic, service = serviceSource) {
         [{ kind: "switch", id: "c3d4" }, "running", { argv: ["tailscale", "switch", "c3d4"] }],
         [{ kind: "switch", id: "amelie@example.org" }, "running", { refusal: "refused: account=absent" }],
         [{ kind: "switch", id: "c3d4" }, "service-off", { refusal: "refused: action=switch state=service-off" }],
-        [{ kind: "login" }, "signed-out", { argv: ["tailscale", "login", "--timeout", "0"] }],
-        [{ kind: "login" }, "unavailable", { refusal: "refused: action=login state=unavailable" }],
+        [{ kind: "add-account" }, "signed-out", { system: "accountAdd" }],
+        [{ kind: "add-account" }, "unavailable", { refusal: "refused: action=add-account state=unavailable" }],
+        [{ kind: "sign-in", id: "c3d4" }, "signed-out", { argv: ["tailscale", "switch", "c3d4"] }],
+        [{ kind: "sign-in", id: "absent" }, "signed-out", { refusal: "refused: account=absent" }],
+        [{ kind: "login" }, "signed-out", { refusal: "refused: action=unknown" }],
         [{ kind: "restart" }, "running", { refusal: "refused: action=unknown" }],
         [null, "running", { refusal: "refused: action=malformed" }]
     ]) assert.deepEqual(plain(logic.command(request, held(state))), want);
@@ -225,6 +228,8 @@ function suite(logic, service = serviceSource) {
         [{ missing: false, state: "running", service: "ready", operator: "denied" }, "", "info"],
         [{ missing: false, state: "running", service: "ready", operator: "unknown" }, "", "info"],
         [{ missing: false, state: "stopped", service: "ready", operator: "unknown" }, "", "info"],
+        [{ missing: false, state: "unavailable", service: "unknown", operator: "unknown" }, "", "info"],
+        [{ missing: false, outdated: true, state: "running", service: "ready", operator: "ready" }, "tools", "warning"],
         [{ missing: false, state: "running", service: "ready", operator: "ready" }, "", "ok"]
     ];
     for (const [context, action, tone] of SETUP_ROWS) {
@@ -266,12 +271,13 @@ function suite(logic, service = serviceSource) {
     const ready = logic.setup({ missing: false, state: "running", service: "ready", operator: "ready" });
     const denied = logic.setup({ missing: false, state: "running", service: "ready", operator: "needed" });
     // The action names its result for the user, and the sentence before it holds none of its words.
-    assert.equal(manifest.status.setup.actions.allow.label, "Let my login control Tailscale");
+    assert.equal(manifest.status.accountAdd.action.system, "tailscale-account-add");
     const shown = plain(logic.published(false, running, ready, live));
     assert.deepEqual([shown.state, shown.tone, shown.writable], ["running", "ok", true]);
     assert.equal(logic.published(false, running, denied, live).writable, false);
-    assert.equal(logic.published(false, running, null, live).writable, true, "no step reading locks nothing, as a step that could not be checked");
-    assert.equal(logic.published(true, running, logic.setup({ missing: true, state: "running", service: "ready", operator: "ready" }), live).writable, false,
+    assert.equal(logic.published(false, running, null, live).writable, false, "a pending fresh setup read cannot lend cached access");
+    assert.equal(logic.published(false, running, null, live).checkingSetup, true);
+    assert.equal(logic.published(true, running, ready, live).writable, false,
         "a missing command takes no change, though it offers no step");
     // Each locked value says why in one sentence, names the step the core
     // offers, and tells its cause apart even with no step.
@@ -371,7 +377,7 @@ function suite(logic, service = serviceSource) {
     // shrink/grow transitions and a null setup that clears its state entry.
     const publishBody = /function publish\(\) \{([\s\S]*?)\n    \}\n    onPublishedChanged/.exec(service);
     assert.ok(publishBody);
-    const publish = new Function("shell", "connection", "setup", "published", "snapshot", "Logic", publishBody[1]);
+    const publish = new Function("shell", "connection", "setup", "published", "snapshot", "Logic", "stepState", "outdated", publishBody[1]);
     let values = {};
     const shell = { status: { set(key, value) {
         const result = core.statusWrite(manifest, values, key, value);
@@ -382,13 +388,13 @@ function suite(logic, service = serviceSource) {
     } } };
     for (const [data, snap, setupLine] of [[bigValue, largest, ready], [shown, running, denied], [bigValue, largest, denied], [shown, running, null]]) {
         const original = JSON.stringify([data, snap]);
-        publish(shell, { tone: data.tone, text: data.text }, setupLine, data, snap, logic);
+        publish(shell, { tone: data.tone, text: data.text }, setupLine, data, snap, logic, () => "needed", false);
         assert.equal(JSON.stringify([data, snap]), original);
         assert.equal(values.devices.count, snap.devices.count);
         assert.equal(values.exitNodes.cityCount, snap.exitNodes.cityCount);
         assert.deepEqual(values.exitNodes.own.filter(row => row.active), snap.exitNodes.own.filter(row => row.active));
         for (const row of values.exitNodes.own) assert.deepEqual(row, snap.exitNodes.own.find(input => input.id === row.id));
-        assert.deepEqual(Object.keys(values), setupLine === null ? ["connection", "tailscale", "devices", "exitNodes"] : ["connection", "setup", "tailscale", "devices", "exitNodes"]);
+        assert.deepEqual(Object.keys(values), setupLine === null ? ["connection", "tailscale", "devices", "exitNodes", "accountAdd"] : ["connection", "setup", "tailscale", "devices", "exitNodes", "accountAdd"]);
     }
 }
 
@@ -397,7 +403,7 @@ const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "tailscale-logic-"));
 try {
     const source = fs.readFileSync(file, "utf8");
     for (const [name, needle, replacement] of [
-        ["a missing command takes no change", 'writable: !missing && (setupLine === null || setupLine.action === ""),', 'writable: (setupLine === null || setupLine.action === ""),'],
+        ["a missing command takes no change", 'writable: !missing && setupLine !== null && setupLine.tone === "ok",', 'writable: setupLine !== null && setupLine.tone === "ok",'],
         ["a writable value gives no reason", 'if (tailscale.writable) return "";', ''],
         ["a service that is off is told apart", 'tailscale.state === "service-off" ? "The', 'false ? "The'],
         ["the reason names the step", 'return step === "" ? cause +', 'return true ? cause +'],
@@ -419,7 +425,7 @@ try {
         ["each unoffered service state names why", '    denied: { text: "Off", hint: "The system turned the Tailscale service off, and VGS leaves it off." }\n', ''],
         ["another account's operator reads info", 'return setupState("info", "Another account"', 'return setupState("warning", "Another account"'],
         ["the published setup value keeps its hint", 'if (setupLine.hint !== "") setupValue.hint = setupLine.hint;', ''],
-        ["an unread operator is not Ready", 'context.operator === "unknown" && REACHED', 'context.operator === "unread" && REACHED'],
+        ["an unread operator is not Ready", 'context.operator !== "ready"', 'context.operator === "unread"'],
         ["an operator with no reading reads Ready", '    if (context.operator === "") return null;\n', ''],
         ["a service with no reading reads Not checked", '        if (context.service === "") return null;\n', ''],
         ["an exit node goes by its target", '"--exit-node=" + node.target]', '"--exit-node=" + node.id]'],
