@@ -44,7 +44,7 @@ cat >"$tmp/qs" <<'EOF2'
 #!/usr/bin/env bash
 if [[ ${1:-} == --version ]]; then
   [[ -n ${STUB_QS_STDERR:-} ]] && printf '%s\n' "$STUB_QS_STDERR" >&2
-  printf '%s\n' "${STUB_QS_VERSION-Quickshell 0.3.1 (revision stub, distributed by VGS 2 (package: vgshell-quickshell))}"
+  printf '%s\n' "${STUB_QS_VERSION-Quickshell 0.3.1 (revision stub, distributed by VGS 3 (package: vgshell-quickshell))}"
   exit "${STUB_QS_VERSION_EXIT:-0}"
 fi
 if [[ ${1:-} != ipc && ${1:-} != log ]]; then
@@ -497,13 +497,13 @@ while IFS='|' read -r name kind assignment want_exit want_err; do
 done <<'ROWS'
 run starts the shell with every tool at or above its floor|full||0|
 Quickshell 0.3.0 is below the floor|full|STUB_QS_VERSION=Quickshell 0.3.0 (revision x)|78|vgshell: refused: preflight=quickshell have=0.3.0 need=0.3.1
-stock Quickshell at the upstream floor is refused|full|STUB_QS_VERSION=Quickshell 0.3.1|78|vgshell: refused: preflight=vgshell-quickshell have=stock need=2
-newer stock Quickshell is refused|full|STUB_QS_VERSION=Quickshell 0.10.0|78|vgshell: refused: preflight=vgshell-quickshell have=stock need=2
-Quickshell 0.10.0 meets 0.3.1: components compare as numbers|full|STUB_QS_VERSION=Quickshell 0.10.0 (revision x, distributed by VGS 2 (package: vgshell-quickshell))|0|
-an old VGS distributor is below the engine release floor|full|STUB_QS_VERSION=Quickshell 0.3.2 (revision x, distributed by VGS (package: vgshell-quickshell))|78|vgshell: refused: preflight=vgshell-quickshell have=unknown need=2
-a numbered old VGS distributor is below the engine release floor|full|STUB_QS_VERSION=Quickshell 0.3.2 (revision x, distributed by VGS 1 (package: vgshell-quickshell))|78|vgshell: refused: preflight=vgshell-quickshell have=1 need=2
-the current VGS distributor meets the engine release floor|full|STUB_QS_VERSION=Quickshell 0.3.2 (revision x, distributed by VGS 2 (package: vgshell-quickshell))|0|
-a future VGS distributor meets the engine release floor|full|STUB_QS_VERSION=Quickshell 0.3.2 (revision x, distributed by VGS 3 (package: vgshell-quickshell))|0|
+stock Quickshell at the upstream floor is refused|full|STUB_QS_VERSION=Quickshell 0.3.1|78|vgshell: refused: preflight=vgshell-quickshell have=stock need=3
+newer stock Quickshell is refused|full|STUB_QS_VERSION=Quickshell 0.10.0|78|vgshell: refused: preflight=vgshell-quickshell have=stock need=3
+Quickshell 0.10.0 meets 0.3.1: components compare as numbers|full|STUB_QS_VERSION=Quickshell 0.10.0 (revision x, distributed by VGS 3 (package: vgshell-quickshell))|0|
+an old VGS distributor is below the engine release floor|full|STUB_QS_VERSION=Quickshell 0.3.2 (revision x, distributed by VGS (package: vgshell-quickshell))|78|vgshell: refused: preflight=vgshell-quickshell have=unknown need=3
+a numbered old VGS distributor is below the engine release floor|full|STUB_QS_VERSION=Quickshell 0.3.2 (revision x, distributed by VGS 2 (package: vgshell-quickshell))|78|vgshell: refused: preflight=vgshell-quickshell have=2 need=3
+the current VGS distributor meets the engine release floor|full|STUB_QS_VERSION=Quickshell 0.3.2 (revision x, distributed by VGS 3 (package: vgshell-quickshell))|0|
+a future VGS distributor meets the engine release floor|full|STUB_QS_VERSION=Quickshell 0.3.2 (revision x, distributed by VGS 4 (package: vgshell-quickshell))|0|
 a warning qs prints on stderr ahead of its version is not read|full|STUB_QS_STDERR=qt.qpa: warning|0|
 a Quickshell version line with no number is unknown|full|STUB_QS_VERSION=Quickshell git|78|vgshell: refused: preflight=quickshell have=unknown need=0.3.1
 a failed qs --version is unknown|full|STUB_QS_VERSION_EXIT=1|78|vgshell: refused: preflight=quickshell have=unknown need=0.3.1
@@ -563,15 +563,15 @@ pre_control() { # NAME KIND ASSIGNMENT WANT_EXIT WANT_ERR NEEDLE REPLACEMENT [NE
 probe_line='"${argv[@]}" 1>&"${scratch_fds[i]}" 2>/dev/null </dev/null &'
 pre_control "floor row" full STUB_HYPR_VERSION=0.55.9 78 "vgshell: refused: preflight=hyprland have=0.55.9 need=0.56" \
   'hyprland   0.56    "version"' 'hyprland   present "version"'
-pre_control "numeric compare" full "STUB_QS_VERSION=Quickshell 0.10.0 (revision x, distributed by VGS 2 (package: vgshell-quickshell))" 0 "" \
+pre_control "numeric compare" full "STUB_QS_VERSION=Quickshell 0.10.0 (revision x, distributed by VGS 3 (package: vgshell-quickshell))" 0 "" \
   $'    ((h > w)) && return 0\n' ''
 pre_control "failed probe" full STUB_HYPR_VERSION_EXIT=4 78 "vgshell: refused: preflight=hyprland have=unknown need=0.56" \
   '[[ ${statuses[i]} == 0 ]] ||' '[[ ${statuses[i]} == 0 ]] || true ||'
 pre_control "stdout only" full "STUB_QS_STDERR=qt.qpa: warning" 0 "" \
   "$probe_line" '"${argv[@]}" 1>&"${scratch_fds[i]}" 2>&1 </dev/null &'
-pre_control "VGS engine release" full "STUB_QS_VERSION=Quickshell 0.3.2 (revision x, distributed by VGS 1 (package: vgshell-quickshell))" 78 "vgshell: refused: preflight=vgshell-quickshell have=1 need=2" \
+pre_control "VGS engine release" full "STUB_QS_VERSION=Quickshell 0.3.2 (revision x, distributed by VGS 2 (package: vgshell-quickshell))" 78 "vgshell: refused: preflight=vgshell-quickshell have=2 need=3" \
   'if [[ $engine_status != 0 ]]; then' 'if false; then'
-pre_control "stock engine refusal" full "STUB_QS_VERSION=Quickshell 0.3.1" 78 "vgshell: refused: preflight=vgshell-quickshell have=stock need=2" \
+pre_control "stock engine refusal" full "STUB_QS_VERSION=Quickshell 0.3.1" 78 "vgshell: refused: preflight=vgshell-quickshell have=stock need=3" \
   'if [[ $engine_status != 0 ]]; then' 'if false; then'
 pre_control "unread version" full "STUB_QS_VERSION=Quickshell git" 78 "vgshell: refused: preflight=quickshell have=unknown need=0.3.1" \
   '[[ ${outs[i]} =~ $pattern ]] ||' '[[ ${outs[i]} =~ $pattern ]] || true ||'

@@ -608,7 +608,7 @@ const ENGINE = "vgshell-quickshell";
 const engineRelease = require("../bin/lib/engine.js");
 const ENGINE_REVISION = "2b4501a282689792b62e94f3fb30d8f512324fe6";
 const ENGINE_DIR = "packaging/arch/" + ENGINE;
-const ENGINE_SOURCES = ["quickshell-check.hook", "vgs-989-deletelater.patch", "vgs-1109-log-filter-mutex.patch", "vgs-1993-managed-process-lifetime.patch"];
+const ENGINE_SOURCES = ["quickshell-check.hook", "vgs-989-deletelater.patch", "vgs-1109-log-filter-mutex.patch", "vgs-1993-managed-process-lifetime.patch", "vgs-1129-fileview-read.patch"];
 function engineRules() {
     const recipe = { name: ENGINE, dir: ENGINE_DIR };
     const { info } = readSrcinfo(recipe);

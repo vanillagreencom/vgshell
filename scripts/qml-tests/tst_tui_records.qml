@@ -58,27 +58,23 @@ Item {
             return ProcessRegistry.runningWithVerb("wait");
         }
 
-        function reads() {
-            return ProcessRegistry.processes.filter(process => process.running && process.command[0] === "cat");
-        }
-
-        // The reader the listing started for path: one cat of that path
-        // under the PATH-only environment.
+        // The listing arms one native read, with no watcher or helper.
         function readerOf(path) {
             verify(Object.prototype.hasOwnProperty.call(records.readers, path), "the record gets a reader: " + path);
             const reader = records.readers[path];
-            verify(reader.running, "the listing started the read of " + path);
-            compare(reader.command, ["cat", "--", path]);
-            compare(reader.clearEnvironment, true);
-            compare(reader.environment, { PATH: "env:PATH" });
-            compare(ProcessRegistry.runningWithVerb("-e").length, 0);
+            compare(reader.path, path);
+            compare(reader.reads, 1);
+            compare(reader.watchers, 0);
+            compare(reader.printErrors, false);
+            compare(reader.watchChanges, false);
+            verify(ProcessRegistry.processes.every(process => ["reap", "wait"].indexOf(process.command[1]) !== -1));
             return reader;
         }
 
-        // A read that succeeds starts no existence probe.
         function finishRead(path, text) {
-            readerOf(path).finish(0, 0, text, "");
-            compare(ProcessRegistry.runningWithVerb("-e").length, 0);
+            const reader = readerOf(path);
+            compare(reader.live, "read");
+            reader.finishRead(text);
         }
 
         function listRunning() {
@@ -86,51 +82,23 @@ Item {
             finishRead(runningPath, JSON.stringify(record("running", null)));
         }
 
-        function probeOf(path) {
-            const probes = ProcessRegistry.runningWithVerb("-e");
-            compare(probes.length, 1);
-            compare(probes[0].command, ["test", "-e", path]);
-            compare(probes[0].clearEnvironment, true);
-            compare(probes[0].environment, { PATH: "env:PATH" });
-            return probes[0];
-        }
-
-        // Ends the listed record's read as end says: a failed start, or an
-        // exit with its code, status and cat's message.
-        function failListedRead(end, removed) {
+        function failListedRead(error, removed) {
             model.setFiles([runningPath], "reset");
             const reader = readerOf(runningPath);
             // A removed file stays listed until the directory change arrives.
             if (removed) model.setFiles([], "drop");
-            if (end.startFailed) reader.failStart();
-            else reader.finish(end.code, end.status, "", end.err);
+            reader.failRead(error);
             compare(Object.keys(records.fileRecords), []);
-            return probeOf(runningPath);
+            compare(reader.live, "");
+            compare(reader.reads, 1);
         }
 
-        readonly property var denied: ({ code: 1, status: 0, err: "cat: /unit/tui/acme.tui@hello@1-1.running.json: Permission denied\n" })
-
-        function test_removed_record_read_failure_data() {
-            // A removal can also end the read without cat's not-found exit.
-            return [
-                { tag: "crash", end: { code: 9, status: 1, err: "" } }
-            ];
-        }
-
-        function test_removed_record_read_failure(data) {
-            const probe = failListedRead(data.end, true);
-            probe.finish(1, 0);
-            compare(Object.keys(records.fileRecords), []);
-            compare(waitProcesses().length, 0);
-        }
-
-        // The writer removes a listed record before the shell reads it: cat
-        // exits 1 not found and the probe confirms the removal. The case
+        // The engine reports confirmed absence after a listed record is
+        // removed before its read completes. The case
         // declares no expected log, so qml-unit.sh fails it on any warning
         // or error line, the failed read's included.
         function test_a_record_removed_during_its_read_logs_nothing() {
-            const probe = failListedRead({ code: 1, status: 0, err: "cat: " + runningPath + ": No such file or directory\n" }, true);
-            probe.finish(1, 0);
+            failListedRead(FileViewError.FileNotFound, true);
             model.setFiles([], "remove");
             compare(Object.keys(records.readers), []);
             compare(Object.keys(records.fileRecords), []);
@@ -149,10 +117,9 @@ Item {
             model.setFiles([runningPath], "reset");
             const reader = readerOf(runningPath);
             model.setFiles([], "remove");
-            if (data.ok) reader.finish(0, 0, JSON.stringify(record("running", null)), "");
-            else reader.finish(1, 0, "", denied.err);
+            if (data.ok) reader.finishRead(JSON.stringify(record("running", null)));
+            else reader.failRead(FileViewError.PermissionDenied);
             compare(Object.keys(records.fileRecords), []);
-            compare(ProcessRegistry.runningWithVerb("-e").length, 0);
             wait(0);
             compare(Object.keys(records.readers), []);
             compare(Object.keys(records.fileRecords), []);
@@ -160,59 +127,46 @@ Item {
 
         function test_existing_record_read_failure_data() {
             return [
-                { tag: "unreadable", end: denied },
-                { tag: "failed-start", end: { startFailed: true } },
-                { tag: "crash", end: { code: 9, status: 1, err: "" } },
-                { tag: "reappeared", end: { code: 1, status: 0, err: "cat: /unit/tui/acme.tui@hello@1-1.running.json: No such file or directory\n" } }
+                { tag: "permission-denied", error: FileViewError.PermissionDenied },
+                { tag: "not-a-file", error: FileViewError.NotAFile },
+                { tag: "present-or-unconfirmed", error: FileViewError.Unknown }
             ];
         }
 
         // The smoke shell-log check parses the tui: record= error line.
-        // expected-log: tui: record=/unit/tui/acme.tui@hello@1-1.running.json unreadable: start=failed -- An existing record whose read failed to start must remain an error.
-        // expected-log: tui: record=/unit/tui/acme.tui@hello@1-1.running.json unreadable: code=9 status=1 -- An existing record whose read crashed must remain an error.
-        // expected-log: tui: record=/unit/tui/acme.tui@hello@1-1.running.json unreadable: code=1 status=0 -- An existing record whose read exited 1 must remain an error.
+        // expected-log: tui: record=/unit/tui/acme.tui@hello@1-1.running.json unreadable: error=3 -- Permission failures remain errors.
+        // expected-log: tui: record=/unit/tui/acme.tui@hello@1-1.running.json unreadable: error=4 -- A path that is not a file remains an error.
+        // expected-log: tui: record=/unit/tui/acme.tui@hello@1-1.running.json unreadable: error=1 -- Present or unconfirmed failures remain errors.
         function test_existing_record_read_failure(data) {
-            const probe = failListedRead(data.end);
-            probe.finish(0, 0);
-            compare(Object.keys(records.fileRecords), []);
-            compare(ProcessRegistry.runningWithVerb("-e").length, 0);
-        }
-
-        function test_unconfirmed_existence_data() {
-            return [
-                { tag: "failed-start", startFailed: true, code: 0, status: 0 },
-                { tag: "crash", startFailed: false, code: 1, status: 1 },
-                { tag: "unexpected-exit", startFailed: false, code: 2, status: 0 }
-            ];
-        }
-
-        // expected-log: tui: record=/unit/tui/acme.tui@hello@1-1.running.json unreadable: code=1 status=0 -- A failed existence check cannot confirm a removal.
-        function test_unconfirmed_existence(data) {
-            const probe = failListedRead(denied);
-            if (data.startFailed) probe.failStart();
-            else probe.finish(data.code, data.status);
+            failListedRead(data.error, false);
             compare(Object.keys(records.fileRecords), []);
         }
 
-        function test_removal_destroys_an_outstanding_reader_process_data() {
-            return [
-                { tag: "read", failed: false },
-                { tag: "existence-check", failed: true }
-            ];
+        // expected-log: tui: record=/unit/tui/acme.tui@hello@1-1.running.json unreadable: error=1 -- A missed listing change cannot confirm absence.
+        function test_a_listing_removal_does_not_suppress_unconfirmed_failure() {
+            failListedRead(FileViewError.Unknown, true);
+            compare(Object.keys(records.fileRecords), []);
         }
 
-        function test_removal_destroys_an_outstanding_reader_process(data) {
-            if (data.failed) {
-                failListedRead(denied);
-            } else {
-                model.setFiles([runningPath], "reset");
-                readerOf(runningPath);
-            }
+        function test_a_listed_file_is_read_once_across_listing_changes() {
+            listRunning();
+            const reader = readerOf(runningPath);
+            model.setFiles([runningPath], "reset");
+            compare(readerOf(runningPath), reader);
+            compare(reader.live, "");
+            compare(reader.reloads, 0);
+            compare(waitProcesses().length, 1);
+        }
+
+        function test_removal_destroys_an_outstanding_reader() {
+            model.setFiles([runningPath], "reset");
+            const reader = readerOf(runningPath);
+            let destroyed = false;
+            reader.Component.destruction.connect(() => { destroyed = true; });
             model.setFiles([], "remove");
             wait(0);
+            verify(destroyed);
             compare(Object.keys(records.readers), []);
-            compare(reads().length, 0);
-            compare(ProcessRegistry.runningWithVerb("-e").length, 0);
         }
 
         function addDone() {
@@ -295,7 +249,7 @@ Item {
             }
             finishWait(9);
             if (!data.readFirst)
-                reader.finish(0, 0, JSON.stringify(record("running", null)), "");
+                reader.finishRead(JSON.stringify(record("running", null)));
             compare(JSON.stringify(events), JSON.stringify([{ code: 9, reason: null }]));
             compare(records.runs.keys[key].ended.run, run);
             compare(records.record().runs[key].running, null);

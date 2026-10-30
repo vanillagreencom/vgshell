@@ -62,7 +62,7 @@ stub() { # DIR NAME STDOUT [STATUS]
 cat >"$stubs/qs" <<'QS'
 #!/bin/sh
 if [ -f "$HOME/.fixture-engine-installed" ]; then
-  printf '%s\n' 'Quickshell 0.3.2 (revision 41651d7, distributed by VGS 2 (package: vgshell-quickshell))'
+  printf '%s\n' 'Quickshell 0.3.2 (revision 41651d7, distributed by VGS 3 (package: vgshell-quickshell))'
 else
   printf '%s\n' 'Quickshell 0.3.1 (revision 41651d7, distributed by fixture)'
 fi
@@ -150,7 +150,7 @@ if (command[2] === "engine-run") {
         const qs = command[3] === "nix" ? path.join(command[5], "bin", "qs") : path.join(process.env.PATH.split(":")[0], "qs");
         if (command[3] === "nix" || !fs.existsSync(qs)) {
             fs.mkdirSync(path.dirname(qs), {recursive:true});
-            fs.writeFileSync(qs, '#!/bin/sh\necho "Quickshell 0.3.2 (revision fixture, distributed by VGS 2 (package: vgshell-quickshell))"\n', {mode:0o755});
+            fs.writeFileSync(qs, '#!/bin/sh\necho "Quickshell 0.3.2 (revision fixture, distributed by VGS 3 (package: vgshell-quickshell))"\n', {mode:0o755});
         }
     }
     process.exit(0);
@@ -279,7 +279,7 @@ other_fpr="$(gen_key "Another key")"
 [[ $release_fpr =~ ^[0-9A-F]{40}$ && $other_fpr =~ ^[0-9A-F]{40}$ ]] || { echo "$suite: gpg=keygen-failed" >&2; exit 1; }
 signed_release() { # VERSION FINGERPRINT
   release "$1"
-  local dir="$www/dl/v$1" asset=vgshell-quickshell_0.3.2+git2b4501a+vgs2-1_debian-forky_amd64.deb
+  local dir="$www/dl/v$1" asset=vgshell-quickshell_0.3.2+git2b4501a+vgs3-1_debian-forky_amd64.deb
   sed -i "s/8BC162233D519169B9574148CC6862AD90B7D7EA/$release_fpr/" "$tmp/rel/$1/vgshell-$1/bin/lib/engine.js"
   tar -C "$tmp/rel/$1" -czf "$dir/vgshell-$1.tar.gz" "vgshell-$1"
   printf 'Debian engine fixture\n' >"$dir/$asset"
@@ -755,10 +755,10 @@ case "$1" in
  *) exit 1 ;;
 esac
 DPKG
-stub "$apt_engine" dpkg-query '0.3.2+git2b4501a+vgs2-1'
+stub "$apt_engine" dpkg-query '0.3.2+git2b4501a+vgs3-1'
 chmod +x "$apt_engine/dpkg"
 apt_engine_row() { # CASE: real signatures, byte tampering, exact installed revision
-  local mode="$1" asset=vgshell-quickshell_0.3.2+git2b4501a+vgs2-1_debian-forky_amd64.deb
+  local mode="$1" asset=vgshell-quickshell_0.3.2+git2b4501a+vgs3-1_debian-forky_amd64.deb
   new_home "apt-$mode"
   with_os "$debian_os"
   if [[ $mode == tampered ]]; then printf 'changed\n' >>"$www/dl/v0.5.0/$asset"; fi

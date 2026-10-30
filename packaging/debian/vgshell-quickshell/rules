@@ -9,7 +9,7 @@ export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 override_dh_auto_configure:
 	dh_auto_configure -- \
 		-DCMAKE_BUILD_TYPE=RelWithDebInfo \
-		-DDISTRIBUTOR="VGS 2 (package: vgshell-quickshell)" \
+		-DDISTRIBUTOR="VGS 3 (package: vgshell-quickshell)" \
 		-DGIT_REVISION=2b4501a282689792b62e94f3fb30d8f512324fe6 \
 		-DNO_PCH=ON \
 		-DINSTALL_QML_PREFIX=lib/$(DEB_HOST_MULTIARCH)/qt6/qml

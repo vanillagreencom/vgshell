@@ -1,3 +1,9 @@
+vgshell-quickshell (0.3.2+git2b4501a+vgs3-1) unstable; urgency=medium
+
+  * Guard FileView warnings and distinguish confirmed disappearance on read failure.
+
+ -- VanillaGreen <brad@vanillagreen.com>  Thu, 29 Oct 2026 19:00:00 -0700
+
 vgshell-quickshell (0.3.2+git2b4501a+vgs2-1) unstable; urgency=medium
 
   * Package the pinned VGS engine with the shared runtime fixes for amd64.

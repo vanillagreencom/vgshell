@@ -37,7 +37,7 @@ A package manager or Nix owns the tree it installed, and its next update would o
 
 ### Quickshell engine
 
-VGS carries the Hyprland request-socket lifetime fix, the log-filter mutex fix and managed child lifetime ownership on pinned upstream Quickshell. The socket lifetime defect can crash the whole shell during a request reply. Without memory poisoning, the crash is rare and delayed. The logging patch protects the filter hashes from concurrent readers and writers. Managed child lifetime ownership ends shell-owned processes when the shell ends, including a crash restart. VGS keeps the fixes with its package recipes, without a separate engine repository or an upstream pull request.
+VGS carries the Hyprland request-socket lifetime fix, the log-filter mutex fix, managed child lifetime ownership and FileView read-error handling on pinned upstream Quickshell. FileView honors `printErrors` at every read warning and confirms native path absence before reporting disappearance; an existing or unconfirmed failure remains an error. The socket lifetime defect can crash the whole shell during a request reply. Without memory poisoning, the crash is rare and delayed. The logging patch protects the filter hashes from concurrent readers and writers. Managed child lifetime ownership ends shell-owned processes when the shell ends, including a crash restart. VGS keeps the fixes with its package recipes, without a separate engine repository or an upstream pull request.
 
 | Channel | Engine | Reason |
 | --- | --- | --- |
@@ -68,7 +68,7 @@ The git channels and Nix receive the patched engine through publication after la
 - Let the existing terminal presenter own copies of migration code, Debian payload and Nix source until its command ends, including a late terminal launch or caller cancellation. Exclude the caller's self lock from the terminal. `scripts/test-vgshell-tui.sh` pins this handoff.
 - Keep the old-client trust boundary explicit: clients older than the delivery release trust the downloaded installer bytes as before. Signed engine verification starts with that release. Pinned Nix inputs establish the Nix dependency identity; this change makes no retroactive source-authentication claim.
 - Keep publication in the existing overseer route. `DEVELOPMENT.md` § Release names the source recipes and publication steps.
-- Keep the patches until an upstream release contains the fixes for upstream issues #947 and #1285 and provides the managed child lifetime guarantee in [runtime.md](runtime.md). VGS-996 tracks the upstream fixes. Then raise the runtime floor, remove the patches and dedicated engine recipes, and move the patched channels to stock in one change. Prove package replacement from `vgshell-quickshell` before retiring it. Review holds this retirement rule.
+- Keep the patches until an upstream release contains the fixes for upstream issues #947 and #1285, provides the managed child lifetime guarantee in [runtime.md](runtime.md), and honors FileView `printErrors` while distinguishing confirmed absence from existing or unconfirmed read failures. VGS-996 tracks the upstream fixes. Then raise the runtime floor, remove the patches and dedicated engine recipes, and move the patched channels to stock in one change. Prove package replacement from `vgshell-quickshell` before retiring it. Review holds this retirement rule.
 
 ### Licence
 

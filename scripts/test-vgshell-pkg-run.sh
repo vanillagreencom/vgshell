@@ -161,7 +161,7 @@ row_engine_archive() {
   local file="$tmp/engine local.deb"
   printf 'engine fixture\n' >"$file"
   stub "$managers" dpkg-deb 'cat "$ENGINE_METADATA"'
-  printf 'Package: vgshell-quickshell\nVersion: 0.3.2+git2b4501a+vgs2-1\nArchitecture: amd64\n' >"$tmp/engine-metadata"
+  printf 'Package: vgshell-quickshell\nVersion: 0.3.2+git2b4501a+vgs3-1\nArchitecture: amd64\n' >"$tmp/engine-metadata"
   pkg "$1" "$sudo_path" ENGINE_METADATA="$tmp/engine-metadata" -- run engine-archive --manager apt "$file"
   [[ $status == 0 ]] && grep -qxF "apt-get [install] [--] [$file]" "$log" || return 1
   printf 'Package: quickshell\nVersion: 0.3.2\nArchitecture: amd64\n' >"$tmp/engine-metadata"

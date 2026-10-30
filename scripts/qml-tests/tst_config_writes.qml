@@ -1,6 +1,7 @@
 import QtQuick
 import QtTest
 import qs.Core
+import Quickshell.Io
 
 // Config's one writer against the stand-in FileView, whose reads the test
 // finishes by hand: a user-file write made from a handler of a change that
@@ -215,7 +216,7 @@ Item {
         function test_missing_file_marks_every_split_without_copying_new_disables() {
             Config.adoptRenames({}, splitClaims.concat([{ from: "acme.other", to: "acme.another", keys: [] }]));
             watched(Config.userPath).read();
-            view(Config.userPath).failRead(1); // FileViewError.FileNotFound in the stand-in.
+            view(Config.userPath).failRead(FileViewError.FileNotFound);
             compare(Config.userState, "absent");
             compare(Config.writeUser({ version: 2, disabledPlugins: ["acme.source"] }), "ok");
             const want = { version: 2, disabledPlugins: ["acme.source"], plugins: [{ id: "acme.split" }, { id: "acme.another" }] };

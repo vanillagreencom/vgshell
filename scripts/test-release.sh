@@ -77,7 +77,7 @@ printf '%s\n' "$*" >>"$STUB_RECORD/podman"
 for ((i=1; i<=$#; i++)); do
   if [[ ${!i} == *:/output ]]; then
     output=${!i}; output=${output%:/output}
-    printf 'fixture Debian asset\n' >"$output/vgshell-quickshell_0.3.2+git2b4501a+vgs2-1_debian-forky_amd64.deb"
+    printf 'fixture Debian asset\n' >"$output/vgshell-quickshell_0.3.2+git2b4501a+vgs3-1_debian-forky_amd64.deb"
     exit 0
   fi
 done
@@ -138,7 +138,7 @@ first_err() { local line=""; [[ -s $tmp/err ]] && IFS= read -r line <"$tmp/err";
 last_out() { local line=""; [[ -s $tmp/out ]] && line="$(tail -n 1 -- "$tmp/out")"; printf '%s' "$line"; }
 recorded() { [[ -f $record/$1 ]] && grep -qxF -- "$2" "$record/$1"; }
 sha_of() { local s; s="$(sha256sum -- "$1")" && printf '%s' "${s%% *}"; }
-engine_asset=vgshell-quickshell_0.3.2+git2b4501a+vgs2-1_debian-forky_amd64.deb
+engine_asset=vgshell-quickshell_0.3.2+git2b4501a+vgs3-1_debian-forky_amd64.deb
 assets=(vgshell-3.4.5.tar.gz install.sh "$engine_asset" release-key.asc SHA256SUMS SHA256SUMS.asc)
 
 # The rows each judge one rule, on the script SCRIPT names, so a control

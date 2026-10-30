@@ -2,10 +2,13 @@ pragma Singleton
 import QtQuick
 
 // Stands in for Quickshell.Io's FileViewError enum, whose plugin does not
-// load outside the shell. The record reader only needs FileNotFound so it
-// can ignore a file removed between a listing row and the read.
+// load outside the shell. Values match src/io/fileview.hpp at VGS's pin.
 QtObject {
     enum Error {
-        FileNotFound = 1
+        Success = 0,
+        Unknown = 1,
+        FileNotFound = 2,
+        PermissionDenied = 3,
+        NotAFile = 4
     }
 }

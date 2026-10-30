@@ -45,7 +45,7 @@ mkdir /build/quickshell
 tar -xzf /build/source.tar.gz --strip-components=1 -C /build/quickshell
 mv /build/debian /build/quickshell/debian
 cd /build/quickshell
-for name in vgs-989-deletelater vgs-1109-log-filter-mutex vgs-1993-managed-process-lifetime; do
+for name in vgs-989-deletelater vgs-1109-log-filter-mutex vgs-1993-managed-process-lifetime vgs-1129-fileview-read; do
   patch --forward --fuzz=0 -p1 <"/source/packaging/arch/vgshell-quickshell/$name.patch"
 done
 chmod +x debian/rules

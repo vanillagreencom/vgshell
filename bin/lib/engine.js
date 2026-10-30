@@ -2,8 +2,8 @@
 // --version prints it as `distributed by VGS N (package: vgshell-quickshell)`.
 // Upstream keeps its own version. Every channel requires the VGS engine.
 "use strict";
-const RELEASE = 2;
-const DEBIAN_VERSION = "0.3.2+git2b4501a+vgs2-1";
+const RELEASE = 3;
+const DEBIAN_VERSION = "0.3.2+git2b4501a+vgs3-1";
 const RELEASE_KEY = "8BC162233D519169B9574148CC6862AD90B7D7EA";
 const PACKAGE_FLOORS = Object.freeze({
     pacman: `0.3.2.r7.g2b4501a-${RELEASE}`,

@@ -2,7 +2,7 @@
 
 Name:           vgshell-quickshell
 Version:        0.3.2
-Release:        2.2b4501a%{?dist}
+Release:        3.2b4501a%{?dist}
 Summary:        Quickshell with the VGS lifetime and crash fixes
 License:        LGPL-3.0-only
 URL:            https://git.outfoxxed.me/quickshell/quickshell
@@ -10,6 +10,7 @@ Source0:        %{url}/archive/%{commit}.tar.gz
 Patch0:         vgs-989-deletelater.patch
 Patch1:         vgs-1109-log-filter-mutex.patch
 Patch2:         vgs-1993-managed-process-lifetime.patch
+Patch3:         vgs-1129-fileview-read.patch
 Provides:       quickshell = %{version}
 Conflicts:      quickshell
 Conflicts:      quickshell-git
@@ -24,14 +25,15 @@ BuildRequires:  vulkan-headers spirv-tools libzstd-devel
 
 %description
 Pinned upstream Quickshell with the Hyprland request socket lifetime fix and
-thread-safe logging filters and shell-owned process cleanup used by VGS.
+thread-safe logging filters, shell-owned process cleanup and quiet FileView
+read failures with confirmed absence classification used by VGS.
 
 %prep
 %autosetup -n quickshell -p1
 
 %build
 %cmake -GNinja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-    -DDISTRIBUTOR="VGS 2 (package: vgshell-quickshell)" \
+    -DDISTRIBUTOR="VGS 3 (package: vgshell-quickshell)" \
     -DGIT_REVISION=%{commit} -DINSTALL_QMLDIR=%{_libdir}/qt6/qml
 %cmake_build
 
@@ -47,6 +49,8 @@ thread-safe logging filters and shell-owned process cleanup used by VGS.
 %{_datadir}/icons/hicolor/*/apps/org.quickshell.*
 
 %changelog
+* Thu Oct 29 2026 VanillaGreen <brad@vanillagreen.com> - 0.3.2-3.2b4501a
+- Guard FileView warnings and classify confirmed disappearance on read failure.
 * Wed Oct 21 2026 VanillaGreen <brad@vanillagreen.com> - 0.3.2-2.2b4501a
 - End managed children and their descendants when their shell ends.
 * Sat Oct 17 2026 VanillaGreen <brad@vanillagreen.com> - 0.3.2-1.2b4501a
