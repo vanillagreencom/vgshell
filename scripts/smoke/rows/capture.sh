@@ -6,7 +6,7 @@
 # reading. Late in the row it is enabled for the notification readings, and
 # shell.json's restore at the end puts it back as found.
 # SUPER+SHIFT+S is typed on the bind hyprland-consent's wired layer holds.
-# inputs: shell/plugins/vgs.capture/* shell/plugins/vgs.notifications/* shell/plugins/vgs.sysmon/* shell/plugins/vgs.launcher/* shell/Core/HyprlandLayer.* scripts/smoke/rows/hyprland-consent.sh shell/Core/NotificationHub.qml shell/Core/Layers.qml shell/Core/Capabilities.qml shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/IpcRegistry.qml shell/Core/Lifetime.js shell/Core/MonitorLogic.js shell/Core/MonitorState.qml shell/Core/Notices.qml shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Plugins.qml shell/Core/PluginStatus.qml shell/Core/Registry.qml shell/Core/ServiceGate.qml shell/Core/ShortcutRegistry.qml shell/Core/Notifier.qml shell/Core/TuiRecords.qml shell/Core/TuiRunner.qml bin/vgshell-tui shell/Hosts/BarHost.qml shell/Hosts/NoticeHost.qml shell/Hosts/OverlaySurface.qml shell/Hosts/PluginSlot.qml shell/Hosts/ServiceHost.qml shell/Hosts/Summon* shell/Ui/* shell/Commons/* bin/vgshell-scan bin/lib/check-manifests.js bin/lib/qml-library.js scripts/test-capture.py scripts/smoke/fixtures/capture/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/SettingField.qml shell/plugins/vgs.settings/ListField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml
+# inputs: shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.bar/*.qml shell/plugins/vgs.capture/* shell/plugins/vgs.notifications/* shell/plugins/vgs.sysmon/* shell/plugins/vgs.launcher/* shell/Core/HyprlandLayer.* scripts/smoke/rows/hyprland-consent.sh shell/Core/NotificationHub.qml shell/Core/Layers.qml shell/Core/Capabilities.qml shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/IpcRegistry.qml shell/Core/Lifetime.js shell/Core/MonitorLogic.js shell/Core/MonitorState.qml shell/Core/Notices.qml shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Plugins.qml shell/Core/PluginStatus.qml shell/Core/Registry.qml shell/Core/ServiceGate.qml shell/Core/ShortcutRegistry.qml shell/Core/Notifier.qml shell/Core/TuiRecords.qml shell/Core/TuiRunner.qml bin/vgshell-tui shell/Hosts/BarHost.qml shell/Hosts/NoticeHost.qml shell/Hosts/OverlaySurface.qml shell/Hosts/PluginSlot.qml shell/Hosts/ServiceHost.qml shell/Hosts/Summon* shell/Ui/* shell/Commons/* bin/vgshell-scan bin/lib/check-manifests.js bin/lib/qml-library.js scripts/test-capture.py scripts/smoke/fixtures/capture/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/SettingField.qml shell/plugins/vgs.settings/ListField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml
 # Expected rectangles come from Hyprland. Disposable copies remove each
 # screenshot choice and the owned tool deadline, and
 # the panel's mode and target choices, its press, its opening focus and its
@@ -42,6 +42,81 @@ capture_path() { capture_read lastPath | py_reply 'import json,sys; print(json.l
 capture_panel() { ipc smoke readInstance panel vgs.capture recording; }
 capture_panel_geometry() { layers_of vgs:panel | py_reply 'import json,sys; rows=json.load(sys.stdin); print(len(rows) == 1 and rows[0][2] > 0 and rows[0][3] > 0)'; }
 capture_status() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["status"].get("vgs.capture")))'; }
+capture_bar_read() { ipc smoke readInstance "$(bar_key)" vgs.capture "$1"; }
+capture_bar_button() { ipc smoke readDescendant "$(bar_key)" vgs.capture BarItem "$1"; }
+# All sections are inspected so a second indicator cannot hide in another zone.
+capture_bar_mount() { ipc smoke barParticipationGeometry "$(bar_key)" | py_reply 'import json,sys
+doc=json.load(sys.stdin)
+rows=[(section["section"], entry) for section in doc["sections"] for entry in section["entries"] if entry["id"]=="vgs.capture"]
+if len(rows)!=1:
+    print(json.dumps([len(rows)]))
+else:
+    section,entry=rows[0]
+    peers=next(s["entries"] for s in doc["sections"] if s["section"]==section)
+    shown=[e for e in peers if e["present"] and e["visible"] and e["box"][2]>0]
+    leftmost=entry in shown and all(entry["box"][0]<=e["box"][0] for e in shown)
+    print(json.dumps([len(rows),section,entry["visible"],leftmost]))'; }
+capture_bar_counts() { bar_widget_ids | py_reply 'import json,sys; print(json.dumps([rows.count("vgs.capture") for rows in json.load(sys.stdin)]))'; }
+capture_bar_drop_candidate() { ipc smoke barParticipationGeometry "$(bar_key)" | py_reply 'import json,sys; print(any(widget["locator"]["id"]=="vgs.capture" for section in json.load(sys.stdin)["sections"] for widget in section["drop"]["widgets"]))'; }
+capture_bar_identity_kept() { ipc smoke barWidgetIdentities | py_reply 'import json,sys; print("vgs.capture" not in json.load(sys.stdin))'; }
+capture_bar_remember() { ipc smoke rememberBarWidgets "$(bar_key)" | py_reply 'import json,sys; print("vgs.capture" in json.load(sys.stdin))'; }
+capture_bar_saved() { ipc shell listPlugins | py_reply 'import json,sys; rows=[r for r in json.load(sys.stdin)["plugins"] if r["id"]=="vgs.capture"]; print(rows[0]["placed"] if rows else "absent")'; }
+capture_bar_danger() {
+  local colours danger
+  colours="$(ipc smoke itemColours "$(bar_key)" vgs.capture BarItem Icon)" && danger="$(ipc smoke themeValue color.danger)" || return 1
+  # The theme publishes ARGB; itemColours formats the drawn QColor as RGBA.
+  py_reply 'import json,sys; token=json.loads(sys.argv[1]); print(json.load(sys.stdin)==[["#"+token[3:]+token[1:3]]])' "$danger" <<<"$colours"
+}
+capture_bar_menu() {
+  local box point x y
+  box="$(ipc smoke instanceGeometry "$(bar_key)" vgs.capture)" || return 1
+  [[ $box == \[* ]] || return 1
+  point="$(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(int(x+w/2),int(y+h/2))' "$box")" || return 1
+  read -r x y <<<"$point"
+  hover "$((x - 1))" "$y" && right_click "$x" "$y"
+}
+# Hold the real pointer press until the row either withdraws its frame or
+# releases it far below the bar to open the existing Remove question.
+capture_bar_drag_hold() {
+  local id="$1" box x y far line
+  nested_input_check "$sandbox/click" || return 1
+  box="$(ipc smoke instanceGeometry "$(bar_key)" "$id")" || return 1
+  read -r x y < <(py_reply 'import json,sys; b=json.load(sys.stdin); print(int(b[0]+b[2]/2),int(b[1]+b[3]/2))' <<<"$box") || return 1
+  far="$(surface_box vgs:bar | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print(int(y+2*h+40))')" || return 1
+  hover "$((x + 1))" "$y" || return 1
+  coproc capture_held { "${shell_env[@]}" "$sandbox/click" "$x" "$y" "$mon_w" "$mon_h" drag "$((x - 24))" "$y" "$x" "$far" hold; }
+  capture_drag_out="${capture_held[0]}" capture_drag_in="${capture_held[1]}" capture_drag_pid="$capture_held_PID"
+  read -r -t 10 line <&"$capture_drag_out" && [[ $line == "holding $x $far" ]] || return 1
+  pointer_at="$x $far"
+}
+capture_bar_drag_release() {
+  local line status=0
+  printf '\n' >&"$capture_drag_in"
+  exec {capture_drag_in}>&-
+  read -r -t 10 line <&"$capture_drag_out" || return 1
+  wait "$capture_drag_pid" || status=$?
+  exec {capture_drag_out}<&-
+  return "$status"
+}
+capture_bar_dragging() { ipc smoke barDragGeometry "$(bar_key)" | py_reply 'import sys; print(sys.stdin.read().startswith("{"))'; }
+capture_bar_capture_ended() { ipc smoke keyCaptureState | py_reply 'import json,sys; generation,held=json.load(sys.stdin); print(generation>int(sys.argv[1]) and not held)' "$1"; }
+capture_bar_question_focused() { ipc smoke popupFocus "$(bar_key)" "$1" | py_reply 'import json,sys; value=sys.stdin.read().strip(); print(value.startswith("[") and json.loads(value)[0]=="Button")'; }
+capture_bar_fixture_keys() { python3 -c 'import pathlib,sys; p=pathlib.Path(sys.argv[1]); print(sum(line.startswith("key ") for line in p.read_text().splitlines()) if p.exists() else "absent")' "$capture_state/bar-focus.log"; }
+capture_bar_fixture_focused() { python3 -c 'import pathlib,sys; p=pathlib.Path(sys.argv[1]); events=[line for line in p.read_text().splitlines() if line.startswith("keyboard ")] if p.exists() else []; print(events[-1]=="keyboard enter" if events else "absent")' "$capture_state/bar-focus.log"; }
+# A client receiving keys after the pointer re-enters the bar proves the
+# retired press grant cannot let that bar take the keyboard again.
+capture_bar_keyboard_released() {
+  local box x y keys
+  box="$(hypr -j clients | py_reply 'import json,sys; rows=[w for w in json.load(sys.stdin) if w["pid"]==int(sys.argv[1]) and w["mapped"]]; print(json.dumps(rows[0]["at"]+rows[0]["size"]) if len(rows)==1 else "absent")' "$capture_focus_pid")" || return 1
+  read -r x y < <(py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print(int(x+w/2),int(y+h/2))' <<<"$box") || return 1
+  click "$x" "$y" || return 1
+  box="$(surface_box vgs:bar)" || return 1
+  read -r x y < <(py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print(int(x+w/2),int(y+h/2))' <<<"$box") || return 1
+  hover "$x" "$y" || return 1
+  keys="$(capture_bar_fixture_keys)" || return 1
+  type_keys -k F8 || return 1
+  expect_poll "$1: after frame withdrawal and bar hover the client receives a key" "$((keys + 2))" capture_bar_fixture_keys
+}
 # The service's exclusive recording action, not a compositor session.
 capture_recording_actions() { ipc smoke statusValues vgs.capture | py_reply 'import json,sys; s=json.load(sys.stdin)["capture"]; print(int(s["action"].startswith("record") and s["phase"]!="idle"))'; }
 capture_recording_counts() { python3 - "$capture_state" "$(capture_recording_actions)" <<'PY'
@@ -397,6 +472,113 @@ capture_notes_found="$(record_exists vgs.notifications)"
 expect_poll "capture service is built" True record_exists vgs.capture
 expect_poll "capture is idle" idle capture_phase
 expect_poll "capture has the focused nested output" True capture_outputs
+# The service and the widget remain the same objects while saved placement
+# changes. Only the existing recorder fixture holds finalization open.
+expect_poll "placed capture is visible before the transient checks" true capture_bar_read visible
+capture_bar_placed="$(capture_bar_mount)"
+capture_bar_expected_counts="$(python3 -c 'import json,sys; print(json.dumps([1]*int(sys.argv[1])))' "$monitors")"
+expect "the bar remembers its capture widget instance" True capture_bar_remember
+expect "capture is removed from saved placement" ok ipc shell setPluginPlaced vgs.capture false
+expect_poll "unplaced capture is hidden while idle with one center mount" '[1, "center", false, false]' capture_bar_mount
+expect "unplaced capture has no saved layout entry" False capture_bar_saved
+expect "the unplaced capture mount is marked unplaced" true capture_bar_read unplaced
+expect "the unplaced capture mount has no saved-placement frame" absent ipc smoke barWidgetFrameFacts "$(bar_key)" vgs.capture
+expect "unplacing capture retains its widget instance" True capture_bar_identity_kept
+cp -- "$home/.config/vgshell/shell.json" "$capture_state/unplaced-shell.json"
+capture_config holdFinalize true
+rm -f -- "${capture_state:?}/finalize-release" "${capture_state:?}/signal"
+: >"$capture_state/calls.jsonl"
+expect "unplaced capture starts a recording" ok ipc vgs.capture invoke record-output ''
+expect_poll "unplaced capture publishes recording" recording capture_phase
+expect_poll "unplaced recording draws one indicator at leftmost center" '[1, "center", true, true]' capture_bar_mount
+expect "the unplaced recording is absent from saved-placement drop targets" False capture_bar_drop_candidate
+expect "each bar holds one capture widget during unplaced recording" "$capture_bar_expected_counts" capture_bar_counts
+expect "the unplaced recording draws only an icon" true capture_bar_button iconOnly
+expect "the unplaced recording uses the stop icon" '"circle-stop"' capture_bar_button iconName
+expect "the unplaced recording draws in the danger color" True capture_bar_danger
+click_centre "$(bar_key)" vgs.capture || fail "the unplaced recording indicator could not be clicked"
+expect_poll "one click on the unplaced indicator stops its recorder" stopping capture_phase
+expect "the unplaced indicator stays at leftmost center while stopping" '[1, "center", true, true]' capture_bar_mount
+touch -- "$capture_state/finalize-release"
+expect_poll "the unplaced recording finishes" idle capture_phase
+expect_poll "the unplaced indicator hides after finalization" '[1, "center", false, false]' capture_bar_mount
+expect "the unplaced click finalizes one recorder through SIGINT" True capture_recorded
+expect "the unplaced recording leaves no owned recorder" False capture_recorder_left
+cmp -s -- "$capture_state/unplaced-shell.json" "$home/.config/vgshell/shell.json" && ok "the transient recording never writes saved placement" || fail "the transient recording changed shell.json"
+capture_config holdFinalize false
+expect "another unplaced recording starts for placement transitions" ok ipc vgs.capture invoke record-output ''
+expect_poll "the transition recording is active" recording capture_phase
+expect "capture is placed during the recording" ok ipc shell setPluginPlaced vgs.capture true
+expect_poll "placed recording restores its original zone without a second indicator" "$capture_bar_placed" capture_bar_mount
+expect "the placed recording is a saved-placement drop target" True capture_bar_drop_candidate
+expect "the placed recording has one widget per bar" "$capture_bar_expected_counts" capture_bar_counts
+expect "placing an active capture clears unplaced mode" false capture_bar_read unplaced
+expect "placing capture retains its widget instance" True capture_bar_identity_kept
+capture_bar_menu || fail "the configured recording widget's context menu could not be opened"
+expect_poll "saved placement restores the recording widget's frame menu" true capture_bar_read frameMenuOpen
+expect "capture becomes unplaced while recording" ok ipc shell setPluginPlaced vgs.capture false
+expect_poll "the active widget returns to leftmost center without duplication" '[1, "center", true, true]' capture_bar_mount
+expect_poll "unplacing the widget closes its saved-placement menu" false capture_bar_read frameMenuOpen
+expect "unplacing active capture retains its widget instance" True capture_bar_identity_kept
+# setPluginPlaced is the shipped producer of a saved-frame withdrawal.
+# Exercise every grant state at that transition; a different question's
+# owner must keep its keyboard until that question closes normally.
+open_toplevel "$capture_state/bar-focus.log" smoke.capture-bar-focus "Capture bar focus" || fail "the frame-withdrawal keyboard client did not map"
+capture_focus_pid="$toplevel_pid"
+capture_focus_address="$(toplevel_address "$capture_focus_pid")"
+capture_owned_pid="$(cat "$capture_state/owned-recorder")"
+for capture_frame_case in question drag other-question; do
+  expect "$capture_frame_case: Capture has a saved frame" ok ipc shell setPluginPlaced vgs.capture true
+  expect_poll "$capture_frame_case: the placed recording is visible" "$capture_bar_placed" capture_bar_mount
+  expect "$capture_frame_case: the keyboard starts on the client" ok hypr dispatch "hl.dsp.focus({ window = \"address:$capture_focus_address\" })"
+  expect_poll "$capture_frame_case: the client receives keyboard focus before the drag" True capture_bar_fixture_focused
+  capture_frame_owner=vgs.capture
+  # The left builtin keeps its parent when temporary Capture joins center;
+  # a center owner's reparented popup would close independently of its grant.
+  [[ $capture_frame_case != other-question ]] || capture_frame_owner=vgs.bar/left-workspaces
+  capture_frame_generation="$(ipc smoke keyCaptureState | py_reply 'import json,sys; print(json.load(sys.stdin)[0])')"
+  capture_bar_drag_hold "$capture_frame_owner" || fail "$capture_frame_case: the widget drag could not be held"
+  expect_poll "$capture_frame_case: the pointer owns an active bar drag" True capture_bar_dragging
+  expect_poll "$capture_frame_case: the drag takes keyboard focus from the client" False capture_bar_fixture_focused
+  if [[ $capture_frame_case != drag ]]; then
+    capture_bar_drag_release || fail "$capture_frame_case: the far drag could not be released"
+    expect_poll "$capture_frame_case: the far release opens the Remove question" true ipc smoke readInstance "$(bar_key)" "$capture_frame_owner" frameDialogOpen
+    expect_poll "$capture_frame_case: the Remove question holds keyboard focus" True capture_bar_question_focused "$capture_frame_owner"
+  fi
+  expect "$capture_frame_case: saved placement is withdrawn through shell IPC" ok ipc shell setPluginPlaced vgs.capture false
+  expect_poll "$capture_frame_case: one recording indicator remains at leftmost center" '[1, "center", true, true]' capture_bar_mount
+  expect_poll "$capture_frame_case: frame withdrawal leaves no active bar drag" absent ipc smoke barDragGeometry "$(bar_key)"
+  expect_poll "$capture_frame_case: the drag releases its key capture" True capture_bar_capture_ended "$capture_frame_generation"
+  expect "$capture_frame_case: frame withdrawal preserves the widget" True capture_bar_identity_kept
+  expect "$capture_frame_case: frame withdrawal preserves the recording phase" recording capture_phase
+  expect "$capture_frame_case: frame withdrawal preserves the owned recorder" "$capture_owned_pid" cat "$capture_state/owned-recorder"
+  if [[ $capture_frame_case == other-question ]]; then
+    expect_poll "another widget keeps its Remove question after Capture loses its frame" true ipc smoke readInstance "$(bar_key)" "$capture_frame_owner" frameDialogOpen
+    expect_poll "another widget keeps its question's keyboard focus" True capture_bar_question_focused "$capture_frame_owner"
+    type_keys -k Escape || fail "the other widget's Remove question could not be cancelled"
+    expect_poll "Escape reaches and closes the other widget's question" false ipc smoke readInstance "$(bar_key)" "$capture_frame_owner" frameDialogOpen
+  else
+    [[ $capture_frame_case != drag ]] || capture_bar_drag_release || fail "the withdrawn widget's held pointer could not be released"
+    expect_poll "$capture_frame_case: frame withdrawal closes the widget's Remove question" false capture_bar_read frameDialogOpen
+  fi
+  capture_bar_keyboard_released "$capture_frame_case" || fail "$capture_frame_case: the keyboard release could not be measured"
+done
+close_toplevel "$capture_focus_pid" "the frame-withdrawal keyboard client closes"
+click_centre "$(bar_key)" vgs.capture || fail "the recording indicator after a placement transition could not be clicked"
+expect_poll "the transitioned recording ends" idle capture_phase
+expect_poll "the transitioned recording hides its indicator" '[1, "center", false, false]' capture_bar_mount
+expect "unplaced capture disables after its recording" ok ipc shell setPluginEnabled vgs.capture false
+expect_poll "disabling unplaced capture releases its mount" '[0]' capture_bar_mount
+expect_poll "disabling unplaced capture releases its service" False record_exists vgs.capture
+expect "unplaced capture enables again" ok ipc shell setPluginEnabled vgs.capture true
+expect_poll "enabling capture restores its normal saved placement" "$capture_bar_placed" capture_bar_mount
+expect "the enabled capture is unplaced again" ok ipc shell setPluginPlaced vgs.capture false
+expect_poll "removing restored placement rebuilds one hidden center mount" '[1, "center", false, false]' capture_bar_mount
+expect "capture returns to saved placement for the existing row" ok ipc shell setPluginPlaced vgs.capture true
+expect_poll "idle placed capture is visible in its original zone" "$capture_bar_placed" capture_bar_mount
+expect "the placement transition reader releases its remembered objects" ok ipc smoke forgetBarWidgets
+expect_poll "capture service is rebuilt after the mount lifetime check" True record_exists vgs.capture
+rm -f -- "${capture_state:?}/finalize-release"
 expect "capture takes the focused output" ok ipc vgs.capture invoke screenshot ''
 expect_poll "capture finishes the screenshot" idle capture_phase
 expect_poll "screenshot equals the output mode and clipboard bytes" True capture_png

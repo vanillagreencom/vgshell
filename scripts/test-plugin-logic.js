@@ -121,7 +121,30 @@ function nmVpnRequirements(ctx, check) {
 
 // Every row against one loaded judge, `ctx`, and the configuration judge it
 // imports, `configLogic`, each result handed to `check`.
+function unplacedMounts(ctx, check) {
+    const raw = { schemaVersion: 1, id: "acme.record", name: "Record", version: "1", author: "a", description: "d", kinds: ["service", "bar-widget"], entryPoints: { service: "S.qml", "bar-widget": "W.qml" }, unplacedSection: "center" };
+    const judged = ctx.validateManifest(raw, "/p");
+    check("unplaced mounts: manifest admitted", judged.ok, true);
+    if (!judged.ok) return;
+    const manifests = { "acme.record": judged.manifest };
+    const configured = section => ({ plugins: [{ id: "acme.record" }], bar: { layout: { left: [], center: [{ id: "other.clock" }], right: [], [section]: [{ id: "acme.record" }] } } });
+    const absent = { plugins: [{ id: "acme.record" }], bar: { layout: { left: [], center: [], right: [] } } };
+    for (const [name, config, want] of [
+        ["enabled unplaced widget is temporary", absent, { left: [], center: [{ id: "acme.record", transient: true }], right: [] }],
+        ["disabled widget is absent", Object.assign({}, absent, { disabledPlugins: ["acme.record"] }), { left: [], center: [], right: [] }],
+        ["unlisted third-party widget is absent", { bar: absent.bar }, { left: [], center: [], right: [] }],
+        ...["left", "center", "right"].map(section => ["saved " + section + " suppresses temporary mount", configured(section), { left: [], center: [], right: [], [section]: [{ id: "acme.record" }] }])
+    ]) check("unplaced mounts: " + name, ctx.effectiveLayout(config, manifests, "bar"), want);
+    const withNeighbor = Object.assign({}, manifests, { "other.clock": { id: "other.clock", kinds: ["bar-widget"] } });
+    const neighbor = { plugins: absent.plugins, bar: { layout: { center: [{ id: "other.clock" }] } } };
+    check("unplaced mounts: prepended before saved widgets", ctx.effectiveLayout(neighbor, withNeighbor, "bar").center, [{ id: "acme.record", transient: true }, { id: "other.clock" }]);
+    const before = JSON.stringify(neighbor);
+    ctx.effectiveLayout(neighbor, withNeighbor, "bar").center[0].id = "changed";
+    check("unplaced mounts: saved configuration untouched", JSON.stringify(neighbor), before);
+}
+
 function suite(ctx, configLogic, check) {
+    unplacedMounts(ctx, check);
     nmVpnRequirements(ctx, check);
     infoLines(ctx, check);
     // Published state and key-list hints use the same visible words as their
@@ -578,6 +601,9 @@ function suite(ctx, configLogic, check) {
         ["settings placement outside PLACEMENTS", { settings: { placement: "middle" } }, "settings.placement must be one of"],
         ["settings placement in PLACEMENTS", { settings: { placement: "top-right" } }, null],
         ["defaultSection without the widget kind", { defaultSection: "left" }, "defaultSection needs kind bar-widget"],
+        ["unplacedSection without the widget kind", { unplacedSection: "center" }, "unplacedSection needs kind bar-widget"],
+        ["unplacedSection unknown", { kinds: ["bar-widget"], entryPoints: { "bar-widget": "W.qml" }, unplacedSection: "top" }, "unplacedSection must be one of"],
+        ["unplacedSection not text", { kinds: ["bar-widget"], entryPoints: { "bar-widget": "W.qml" }, unplacedSection: null }, "unplacedSection must be one of"],
         ["alwaysOn on a first-party service", { id: "vgs.always", kinds: ["service"], entryPoints: { service: "S.qml" }, alwaysOn: true }, null],
         ["alwaysOn false on a third-party service", { id: "acme.always", kinds: ["service"], entryPoints: { service: "S.qml" }, alwaysOn: false }, null],
         ["alwaysOn not a boolean", { id: "vgs.always", kinds: ["service"], entryPoints: { service: "S.qml" }, alwaysOn: "yes" }, "alwaysOn must be a boolean"],
@@ -2697,6 +2723,7 @@ require("node:assert/strict").throws(() => verifyUpdatesNoticeOwner(withoutNotic
 // judge's own place in a temporary tree, beside the other judge, the icon
 // set, the package-manager table and the Hyprland layer's table they import.
 const CONTROLS = [
+    ["an unplaced widget is mounted", 'out[manifest.unplacedSection].unshift({ id: id, transient: true });', 'out[manifest.unplacedSection].slice();', "unplaced mounts:"],
     ["splitFrom refuses its own id", "raw.splitFrom === raw.id ||", "false ||", "validateManifest:"],
     ["idleStages is a manifest key", '"schema", "idleStages", "defaultSection"', '"schema", "defaultSection"'],
     ["idle stages need capability idle", 'if (capabilities.indexOf("idle") === -1)\n        return "idleStages needs', 'if (false)\n        return "idleStages needs'],
@@ -2776,7 +2803,7 @@ const CONTROLS = [
     ["builtin placement needs the active bar prefix", 'id.indexOf(prefix) === 0', 'true'],
     ["builtin placement needs an enabled owner", 'isEnabled(config, bar, defaultBarId)', 'true'],
     ["builtin registration appears once", 'if (seenBuiltins.indexOf(entry.id) !== -1) return false;', ''],
-    ["builtin and plugin entries keep declared order", '}).map(clone);\n    });\n    return out;\n}\n\n// Enabled bar widgets', '}).map(clone).reverse();\n    });\n    return out;\n}\n\n// Enabled bar widgets'],
+    ["builtin and plugin entries keep declared order", '}).map(clone);\n    });\n    // Temporary mounts', '}).map(clone).reverse();\n    });\n    // Temporary mounts'],
     ["a schema entry may declare a link", '"tooltip", "link", "options"', '"tooltip", "options"'],
     ["a status entry may declare a link", 'var STATUS_ENTRY_KEYS = ["type", "label", "group", "hint", "info", "link",', 'var STATUS_ENTRY_KEYS = ["type", "label", "group", "hint", "info",'],
     ["a status hint link is judged", 'var statusLink = linkError(entry, at, "hint");', 'var statusLink = "";'],
@@ -3063,8 +3090,8 @@ const CONTROLS = [
     ["a third-party plugin of another kind is enabled by its row", "return manifest.id.indexOf(FIRST_PARTY_PREFIX) === 0 ? \"first-party\" : \"row\";", "return \"first-party\";"],
     ["a first-party plugin of another kind is enabled unlisted", "return manifest.id.indexOf(FIRST_PARTY_PREFIX) === 0 ? \"first-party\" : \"row\";", "return \"row\";"],
     ["moving reads enablement from isEnabled", "placed && !isEnabled(config, manifest, defaultBarId)", "placed && (Array.isArray(config.disabledPlugins) ? config.disabledPlugins : []).indexOf(manifest.id) !== -1"],
-    ["alwaysOn is a manifest key", "\"sounds\", \"alwaysOn\", \"setupGuide\"];", "\"sounds\", \"setupGuide\"];"],
-    ["setupGuide is a manifest key", "\"alwaysOn\", \"setupGuide\"];", "\"alwaysOn\"];"],
+    ["alwaysOn is a manifest key", "\"sounds\", \"alwaysOn\", \"setupGuide\",", "\"sounds\", \"setupGuide\","],
+    ["setupGuide is a manifest key", "\"alwaysOn\", \"setupGuide\",", "\"alwaysOn\","],
     ["a guide anchor is a README heading's", "|| !README_ANCHOR.test(guide.readme))", ")"],
     ["a guide heads a Setup step", "if (!Object.keys(status).some(function (key) { return status[key].setup === true; }))\n        return \"setupGuide needs", "if (false)\n        return \"setupGuide needs"],
     ["a guide links its README section", "url: readme === \"\" ? \"\" : readme + \"#\" + guide.readme", "url: readme"],
@@ -3305,7 +3332,8 @@ try {
             let red = 0;
             try {
                 const check = (name, got, want) => { if ((!filter || name.includes(filter)) && JSON.stringify(got) !== JSON.stringify(want)) red += 1; };
-                if (filter === "nmVpn:") nmVpnRequirements(ctx, check);
+                if (filter === "unplaced mounts:") unplacedMounts(ctx, check);
+                else if (filter === "nmVpn:") nmVpnRequirements(ctx, check);
                 else suite(ctx, configLogic, check);
             } catch (e) {
                 red += 1;

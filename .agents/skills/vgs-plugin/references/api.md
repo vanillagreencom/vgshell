@@ -19,7 +19,7 @@ A bundled plugin may provide an executable file named `migrate` at its root. Thi
 
 | Kind | Entry point key | Base | Host today | Built when |
 |---|---|---|---|---|
-| `bar-widget` | `bar-widget` | `BarWidget` from `qs.Ui` | the active bar's sections | placed in `bar.layout.<section>`, not in `disabledPlugins`, and a bar is active |
+| `bar-widget` | `bar-widget` | `BarWidget` from `qs.Ui` | the active bar's sections | enabled, a bar is active, and either placed in `bar.layout.<section>` or declaring `unplacedSection` while unplaced |
 | `bar` | `bar` | `Item` declaring the three section containers below, and optionally `property bool shown`: the host maps no surface on a screen while the bar there declares it false, and an unmapped bar reserves no space; declare it false while the bar has nothing to draw | the bar host, one per screen | it is `bar.id` in the configuration and is not in `disabledPlugins` |
 | `service` | `service` | `Item`, optionally with `turnedOff()` | the service host | enabled |
 | `background` | `background` | `Item` declaring `property var screen: null`, and optionally `property bool shown`: the host maps no surface on a screen while every instance there declares it false; declare it false while the background has nothing to draw | the background host, one per screen, under every window | enabled |
@@ -51,7 +51,8 @@ Declare it as `property var shell: null`, or inherit it from `BarWidget`.
 | `bar` | object | the bar API below |
 | `moduleName` | string | the plugin id; the core assigns it after creation |
 | `settings` | object | the manifest's `settings` under the plugin's `plugins` row, the same settings every other kind of the plugin receives, for example `{ "units": "metric" }`; the row id is excluded; reassigned when the row changes |
-| `frame` | object | what `BarWidget`'s right-click Hide reads and calls; a widget calls only `frame.openPage(page, tab)`, with what its `BarItem`'s `tooltipPageActivated` names, and reads nothing else from it; a third argument `done(answer)` receives the open's end as `shell.surfaces.openPage` hands it, dropped once the widget is gone |
+| `unplaced` | boolean | true for an `unplacedSection` mount, false for a saved placement; the same instance survives changes between the two modes |
+| `frame` | object or null | null for a transient mount, which offers neither Hide nor drag; otherwise what `BarWidget`'s right-click Hide reads and calls; a widget calls only `frame.openPage(page, tab)`, with what its `BarItem`'s `tooltipPageActivated` names, and reads nothing else from it; a third argument `done(answer)` receives the open's end as `shell.surfaces.openPage` hands it, dropped once the widget is gone |
 
 `BarWidget` adds `barSize`, `setting(name, fallback)` and `frameActions`, a list of `{ label, icon, action }` the widget's right-click menu shows after Hide and before Readme and Settings.
 
@@ -332,6 +333,7 @@ A plugin's script that sends a desktop notification, such as `notify-send` from 
 | `settings` | no | The plugin's default settings; its `plugins` row overrides them key by key. `placement` is reserved: where an unanchored `panel` or `menu` sits, one of `PluginLogic.PLACEMENTS`, `center` when absent. |
 | `schema` | no | The settings a user or the plugin may change, keyed by setting name; § Settings schema. Each entry is a value the user changes on its row; an optional feature's action is its status entry's, an optional Setup step (`setup: "optional"`). Required with capability `configure`. |
 | `defaultSection` | no | `left`, `center` or `right`: the bar section an enable places an unplaced widget in. `center` when absent. |
+| `unplacedSection` | no | Requests a temporary mount at the start of this section while the plugin is enabled and absent from every saved bar zone. Uses the same section values as `defaultSection` and requires kind `bar-widget`. The widget receives `unplaced: true` and controls its own visibility. Saved layout and the manager's Show in bar state stay unchanged. |
 | `idleStages` | no | The stages of the idle path the plugin owns, each of `dim`, `screensaver`, `lock`, `displayOff` and `sleep`: `{ "lock": { "seconds": "idleLockSeconds" } }`. `seconds` names a number schema entry with a `min` of 0 or more that holds the stage's time, 0 for Never; `enabled`, optional, names a boolean schema entry that turns the stage off. Needs capability `idle`. Of two enabled plugins that declare one stage, the first by id owns it and the other's page lists the problem. The core lends the stages through `shell.idle.stages`. |
 | `alwaysOn` | no | `true` keeps a first-party plugin enabled whatever the configuration says; its disable is refused. |
 | `pane` | no | `{ group, order }` for kind `pane`: the heading the panes holder lists the pane under, and its order inside that group. |

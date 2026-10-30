@@ -4,7 +4,7 @@ import qs.Commons
 import qs.Ui
 
 // Base item for plugin widgets and registered builtin wrappers. The core
-// assigns five properties to plugin widgets after it builds the widget:
+// assigns these properties to plugin widgets after it builds the widget:
 // `shell` (the widget's own scoped object), `bar` (the bar API),
 // `moduleName` (the plugin id), `settings` (the manifest defaults under
 // the plugin's plugins[] row, as every kind receives them) and `frame`,
@@ -18,6 +18,8 @@ import qs.Ui
 // `dragEnd` take the drag's points,
 // and `dragCancel()` ends a remove
 // question.
+// `unplaced` marks an unplacedSection mount. Its frame is null, so it
+// offers neither Hide nor drag for a position absent from saved layout.
 //
 // Every widget gets the same right-click menu, with no code in the plugin:
 // Hide, then the entries the widget hands in `frameActions`, each
@@ -49,6 +51,10 @@ Item {
     property string moduleName: ""
     property var settings: ({})
     property var frame: null
+    property bool unplaced: false
+    // A saved widget can become unplaced without being destroyed. Close
+    // its frame UI before any menu action can use the withdrawn locator.
+    onFrameChanged: if (frame === null) frameUi.active = false
     // The widget's own menu entries after Hide, each { label, icon, action }.
     property var frameActions: []
     // The first entry's text and icon. It runs Hide; a builtin the user

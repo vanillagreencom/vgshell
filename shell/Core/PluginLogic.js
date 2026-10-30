@@ -128,7 +128,7 @@ var SOUNDS = [
 
 // Every key a manifest may carry. An unknown key is refused, so a misspelt
 // key fails loudly instead of being carried and ignored.
-var MANIFEST_KEYS = ["schemaVersion", "id", "formerIds", "splitFrom", "name", "version", "author", "description", "license", "icon", "kinds", "entryPoints", "capabilities", "capabilityKinds", "systemSteps", "settings", "schema", "idleStages", "defaultSection", "pane", "appearance", "hyprland", "requirements", "status", "tui", "menu", "secrets", "sounds", "alwaysOn", "setupGuide"];
+var MANIFEST_KEYS = ["schemaVersion", "id", "formerIds", "splitFrom", "name", "version", "author", "description", "license", "icon", "kinds", "entryPoints", "capabilities", "capabilityKinds", "systemSteps", "settings", "schema", "idleStages", "defaultSection", "pane", "appearance", "hyprland", "requirements", "status", "tui", "menu", "secrets", "sounds", "alwaysOn", "setupGuide", "unplacedSection"];
 
 // The stages of the idle path in the order they are meant to fire
 // (docs/architecture/power.md). A manifest's `idleStages` names each one the
@@ -4699,6 +4699,12 @@ function validateManifest(raw, sourceDir) {
         if (ConfigLogic.SECTIONS.indexOf(raw.defaultSection) === -1)
             return { ok: false, error: "defaultSection must be one of " + ConfigLogic.SECTIONS.join(", ") + ", got " + JSON.stringify(raw.defaultSection) };
     }
+    if (raw.unplacedSection !== undefined) {
+        if (raw.kinds.indexOf("bar-widget") === -1)
+            return { ok: false, error: "unplacedSection needs kind bar-widget" };
+        if (ConfigLogic.SECTIONS.indexOf(raw.unplacedSection) === -1)
+            return { ok: false, error: "unplacedSection must be one of " + ConfigLogic.SECTIONS.join(", ") + ", got " + JSON.stringify(raw.unplacedSection) };
+    }
     // `alwaysOn` holds the "first-party" rule of enablementRule against
     // every disable, so only a manifest that rule serves may set it.
     if (raw.alwaysOn !== undefined) {
@@ -5115,14 +5121,20 @@ function effectiveLayout(config, manifests, defaultBarId, builtinNames) {
             return m !== undefined && m.kinds.indexOf("bar-widget") !== -1 && isEnabled(config, m, defaultBarId);
         }).map(clone);
     });
+    // Temporary mounts borrow the existing widget lifetime, never a saved
+    // locator. A saved entry in any section suppresses the temporary one.
+    Object.keys(manifests).sort().reverse().forEach(function (id) {
+        var manifest = manifests[id];
+        if (manifest.unplacedSection !== undefined && !isPlaced(config, manifest) && isEnabled(config, manifest, defaultBarId))
+            out[manifest.unplacedSection].unshift({ id: id, transient: true });
+    });
     return out;
 }
 
-// Enabled bar widgets that stop showing when `id`, the active bar, is
+// Saved bar widgets that stop showing when `id`, the active bar, is
 // disabled. They stay enabled and keep every other kind they declare; the
-// manager reports them so the user knows what leaves the screen. Only a
-// placed widget shows, so a plugin enabled for another kind while its
-// widget is unplaced hides nothing.
+// manager reports them so the user knows which saved placements leave the
+// screen. Temporary mounts stay out of this saved-placement summary.
 function hiddenByDisabling(manifests, config, id, defaultBarId) {
     var m = hasOwn(manifests, id) ? manifests[id] : undefined;
     if (!m || m.kinds.indexOf("bar") === -1 || activeBarId(config, defaultBarId) !== id)

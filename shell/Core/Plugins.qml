@@ -333,13 +333,13 @@ Singleton {
     }
 
     // A bar widget: built like any instance on its bar's screen, then given
-    // the five properties BarWidget declares. `frame` is what the shared
+    // the properties BarWidget declares. `frame` is what the shared
     // widget frame reads and calls: the plugin's name, its Settings page,
     // the keys in effect, whether hiding also turns the plugin off, the
     // unplace, the README link, the pane-shared Settings link, and drag hooks.
     // `locator` is { id, section, nth }: which layout entry with this id the
     // widget's drag moves. A widget that does not declare them is destroyed.
-    function createWidget(id, parent, barRow, hostKey, locator) {
+    function createWidget(id, parent, barRow, hostKey, locator, unplaced) {
         const result = createInstance(id, "bar-widget", parent, hostKey, null, barRow.screen);
         if (result.state !== "built") return null;
         const instance = result.instance;
@@ -347,7 +347,8 @@ Singleton {
             instance.bar = barRow.instance;
             instance.moduleName = id;
             instance.settings = instance.shell.settings;
-            instance.frame = widgetFrame(hostKey, id, locator, instance);
+            instance.unplaced = unplaced;
+            instance.frame = unplaced ? null : widgetFrame(hostKey, id, locator, instance);
         } catch (e) {
             const error = "bar-widget not built: " + e.message;
             console.error("plugins: " + id + " " + error);
@@ -531,7 +532,9 @@ Singleton {
         const placed = mount.sections[section].placed;
         const widgets = [];
         for (const entry of mount.sections[section].entries) {
-            if (entry.widget === null || !barItemParticipates(entry.widget) || (barDrag !== null && entry.locator.id === barDrag.id && entry.locator.section === barDrag.from.section && entry.locator.nth === barDrag.from.nth))
+            // A temporary mount has no saved locator to drop before. Its
+            // prefix stays ahead of every saved widget and preview gap.
+            if (entry.widget === null || entry.widget.unplaced || !barItemParticipates(entry.widget) || (barDrag !== null && entry.locator.id === barDrag.id && entry.locator.section === barDrag.from.section && entry.locator.nth === barDrag.from.nth))
                 continue;
             // While a drag is on a neighbour slides to its place (BarWidget,
             // Behavior on x), so its drawn x lags the layout. The slot comes
@@ -643,10 +646,11 @@ Singleton {
         return "drop";
     }
 
-    // The remove question about `item` closed: the bar gives back the
-    // keyboard. A press grab a new drag holds stays.
-    function cancelRemoveAsk(item) {
-        if (barPressGrab !== null && barPressGrab.owner === item && barPressGrab.asking) endPressGrab();
+    // A closed remove question gives back the keyboard, leaving a new
+    // drag's press alone. Withdrawing the saved frame also ends its press:
+    // reconcileBar has canceled the drag, but retains the widget owner.
+    function cancelRemoveAsk(item, frameWithdrawn = false) {
+        if (barPressGrab !== null && barPressGrab.owner === item && (barPressGrab.asking || frameWithdrawn)) endPressGrab();
     }
 
     // What the widget frame's menu and Hide and Remove dialogs say about
@@ -792,15 +796,19 @@ Singleton {
                     const locator = { id: spec.id, section: section, nth: nth };
                     const registered = origin === "plugin" ? (built[hostKey] || []).find(row => row.id === spec.id && row.origin === "plugin") : null;
                     entry = { revision: revision, locator: locator, origin: origin,
-                        widget: origin === "core" ? createWidget(spec.id, container, mount.row, hostKey, locator) : registered ? registered.instance : null };
+                        widget: origin === "core" ? createWidget(spec.id, container, mount.row, hostKey, locator, spec.transient === true) : registered ? registered.instance : null };
                 }
                 if (entry.origin === "plugin") {
                     const registered = (built[hostKey] || []).find(row => row.id === spec.id && row.origin === "plugin");
                     entry.widget = registered ? registered.instance : null;
-                    if (entry.widget !== null) {
-                        const item = entry.widget;
-                        item.frame = widgetFrame(hostKey, spec.id, entry.locator, item);
-                    }
+                }
+                if (entry.widget !== null) {
+                    const item = entry.widget;
+                    if (spec.transient === true && item.frame !== null) cancelRemoveAsk(item, true);
+                    item.unplaced = spec.transient === true;
+                    // The pooled instance can move between saved and temporary
+                    // placement. Only a saved locator may offer Hide or drag.
+                    item.frame = item.unplaced ? null : widgetFrame(hostKey, spec.id, entry.locator, item);
                 }
                 entries.push(entry);
             }

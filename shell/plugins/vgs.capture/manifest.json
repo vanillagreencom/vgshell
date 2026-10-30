@@ -11,6 +11,7 @@
   "entryPoints": { "service": "Service.qml", "bar-widget": "Widget.qml", "panel": "Panel.qml", "window": "Window.qml" },
   "capabilities": ["compositor", "configure", "ipc", "monitors", "notify", "requirements", "run", "screens", "screencopy", "shortcut", "status", "surfaces", "tui"],
   "defaultSection": "right",
+  "unplacedSection": "center",
   "requirements": [
     {"command": "systemctl", "packages": {"pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd"}, "optional": true, "purpose": "Applies the screen sharing picker to the portal service"},
     {"command": "busctl", "packages": {"pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd"}, "optional": true, "purpose": "Checks when the screen sharing portal loaded its picker"},
