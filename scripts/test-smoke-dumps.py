@@ -91,7 +91,8 @@ with tempfile.TemporaryDirectory(prefix="smoke-ipc-") as scratch:
     production = root / "production.sh"
     names = ("ipc_call_last", "ipc_failed", "ipc_page", "ipc_via", "ipc",
              "ipc_at", "ipc_timeout_check", "ipc_oversize_check", "smoke_row",
-             "reader_stderr", "expect_poll", "now_ms")
+             "reader_stderr", "expect_poll", "now_ms", "cpu_some_us",
+             "cpu_some_pct", "load_average", "smoke_row_secs")
     production.write_text("".join(function(name) for name in names))
     stub = root / "qs"
     stub.write_text('''#!/usr/bin/env bash
@@ -187,6 +188,10 @@ fi
              "yes" if name == "cleanup" else "no"],
             env=ENV, stdin=subprocess.DEVNULL, capture_output=True, text=True)
         assert result.returncode == 0, (name, result.returncode, result.stdout, result.stderr, str(folder))
+        # The overseer compares row windows before changing slot holds.
+        assert re.search(r"(?m)^qml-smoke: row-secs row=example secs=[0-9]+ "
+                         r"cpu_some_pct=(?:[0-9]+\.[0-9]|unmeasured) "
+                         r"load1=(?:[0-9]+\.[0-9]{2}|unmeasured)$", result.stdout), result.stdout
         # smoke_row consumes this machine-read record to fail the row.
         records = (folder / "rows/example.ipc-timeout.log").read_text().splitlines()
         expected = "ipc-timeout: target=%s function=%s bound_s=0.1" % (target, method)
@@ -196,9 +201,41 @@ fi
         if name == "cleanup":
             assert "result failures=1 behaviour=1" in result.stdout, result.stdout
 
+    timing = root / "timing.sh"
+    timing.write_text(function("smoke_row_secs") + function("cpu_some_pct"))
+    result = subprocess.run([BASH, "-c", '''set -euo pipefail
+source "$1"
+now_ms() { echo 3000; }
+cpu_some_us() { echo 1100000; }
+load_average() { echo 12.34; }
+smoke_row_secs example 1000 100000
+smoke_row_secs unread 1000 ""
+load_average() { :; }
+smoke_row_secs empty 3000 ""
+''', "_", str(timing)], env=ENV, capture_output=True, text=True, timeout=3)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == [
+        "qml-smoke: row-secs row=example secs=2 cpu_some_pct=50.0 load1=12.34",
+        "qml-smoke: row-secs row=unread secs=2 cpu_some_pct=unmeasured load1=12.34",
+        "qml-smoke: row-secs row=empty secs=0 cpu_some_pct=unmeasured load1=unmeasured",
+    ], result.stdout
+
     for case in cases:
         ipc_case(production, case)
         print("smoke-ipc: bounded-row=" + case[0])
+
+    mutant_timing = root / "missing-pressure.sh"
+    text = production.read_text()
+    needle = " cpu_some_pct=%s"
+    assert text.count(needle) == 1
+    mutant_timing.write_text(text.replace(needle, " pressure=%s"))
+    try:
+        ipc_case(mutant_timing, cases[0])
+    except AssertionError as failure:
+        assert isinstance(failure.args[0], str) and "row-secs" in failure.args[0], failure
+        print("smoke-row-secs: control=missing-pressure-rejected")
+    else:
+        raise AssertionError("row timing accepted a missing CPU pressure field")
 
     # Keep the call intact while removing its deadline. The same row test
     # must reject that disposable implementation at its parent deadline.

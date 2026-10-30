@@ -597,7 +597,7 @@ for planted in updates-bare-refused:77 updates-bare-nested:1 updates-bare-multil
   expect "control: ${planted%:*}'s failure names the row and status=${planted#*:}" 1 grep -c -E -- "^  FAIL  ${planted%:*}: .*status=${planted#*:}," "$sandbox/row-plant-${planted%:*}.log"
   expect "control: ${planted%:*}'s failure preserves its source and line" 1 grep -c -E -- "^  FAIL  ${planted%:*}: .* at=.*/${planted%:*}.sh:[0-9]+," "$sandbox/row-plant-${planted%:*}.log"
   expect "control: ${planted%:*} runs nothing after its failed call" 0 awk 'index($0, "went on") { n++ } END { print n + 0 }' "$sandbox/row-plant-${planted%:*}.log"
-  expect "control: ${planted%:*} still prints its row time" 1 grep -c -E -- "^qml-smoke: row-secs row=${planted%:*} secs=[0-9]+$" "$sandbox/row-plant-${planted%:*}.log"
+  expect "control: ${planted%:*} still prints its row time" 1 grep -c -E -- "^qml-smoke: row-secs row=${planted%:*} secs=[0-9]+ cpu_some_pct=([0-9]+[.][0-9]|unmeasured) load1=([0-9]+[.][0-9]{2}|unmeasured)$" "$sandbox/row-plant-${planted%:*}.log"
 done
 expect "control: the failures the row handles fail nothing" 3 grep -c -E -- "^updates-bare-refused: handled (after \|\||in a substitution|under set \+e)$" "$sandbox/row-plant-updates-bare-refused.log"
 

@@ -122,7 +122,7 @@ with tempfile.TemporaryDirectory(prefix="smoke-anr-") as scratch:
         namespace["subprocess"] = transport
     print("smoke-anr: required-client-evidence=checked empty-input=allowed")
     helpers = root / "functions.sh"
-    helpers.write_text("".join(function(name) for name in ("py_dumps", "py_reply", "anr_row_boundary", "smoke_row")))
+    helpers.write_text("".join(function(name) for name in ("py_dumps", "py_reply", "anr_row_boundary", "smoke_row", "now_ms", "cpu_some_us", "cpu_some_pct", "load_average", "smoke_row_secs")))
     driver = root / "driver.sh"
     driver.write_text('''set -euo pipefail
 repo="$1" sandbox="$2" display_record_dir="$3"

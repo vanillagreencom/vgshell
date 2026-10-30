@@ -3531,8 +3531,11 @@ source "$repo/scripts/smoke/leaks.sh"
 # command substitution, as rows/leak-check.sh runs its plants, then never
 # returns.
 # rows/updates.sh holds the controls. A row prints
-# `qml-smoke: row-secs row=NAME secs=<whole seconds>`, its harness steps
-# included, the reading scripts/smoke/rows.secs is refreshed from.
+# `qml-smoke: row-secs row=NAME secs=<whole seconds> cpu_some_pct=<pct>
+# load1=<load>`, including harness steps. CPU pressure covers the row window;
+# load1 is the host 1-minute load at its end. The time refreshes rows.secs.
+# The overseer uses pressure and load to compare faults and slot holds
+# (VGS-2062 design note § 6 item 4; validation.md § Faults).
 smoke_row_drain_s=5
 anr_row_boundary() { # PHASE ROW
   local report lines line owner="$BASHPID"
@@ -3551,9 +3554,16 @@ for incident in json.load(sys.stdin):
     row_class=behaviour fail "anr-dialog: row=$2 observation=$line"
   done <<<"$lines"
 }
+smoke_row_secs() { # NAME START_MS START_CPU_US
+  local ended_ms pressure load
+  ended_ms="$(now_ms)"
+  pressure="$(cpu_some_pct "$3" "$(cpu_some_us)" "$((ended_ms - $2))")"
+  load="$(load_average)"
+  printf 'qml-smoke: row-secs row=%s secs=%s cpu_some_pct=%s load1=%s\n' "$1" "$(((ended_ms - $2) / 1000))" "$pressure" "${load:-unmeasured}"
+}
 smoke_row() { # NAME [DIR]
   local smoke_row_name="$1" smoke_row_dir="${2:-$repo/scripts/smoke/rows}" smoke_row_marker smoke_row_count="" smoke_row_line smoke_row_pong
-  local smoke_row_out="$sandbox/rows/$1.out" smoke_row_result="$sandbox/rows/$1.result" smoke_row_started=$EPOCHSECONDS
+  local smoke_row_out="$sandbox/rows/$1.out" smoke_row_result="$sandbox/rows/$1.result" smoke_row_started="$(now_ms)" smoke_row_cpu_started="$(cpu_some_us)"
   local smoke_row_flags smoke_row_trap smoke_row_err=0 smoke_row_status=0 smoke_row_abandon=()
   local ipc_timeout_log="$sandbox/rows/$1.ipc-timeout.log"
   local smoke_row_children smoke_row_owner=$BASHPID smoke_row_child smoke_row_source_status=0 smoke_row_abandon_status=0
@@ -3565,18 +3575,18 @@ smoke_row() { # NAME [DIR]
   anr_row_boundary begin "$smoke_row_name"
   if ! devices_check "$smoke_row_name"; then
     anr_row_boundary end "$smoke_row_name"
-    printf 'qml-smoke: row-secs row=%s secs=%s\n' "$smoke_row_name" "$((EPOCHSECONDS - smoke_row_started))"
+    smoke_row_secs "$smoke_row_name" "$smoke_row_started" "$smoke_row_cpu_started"
     return 0
   fi
   if ! smoke_row_pong="$(ipc shell ping 2>/dev/null)" || [[ $smoke_row_pong != ok ]]; then
     if ! ipc_timeout_check "$smoke_row_name"; then
       anr_row_boundary end "$smoke_row_name"
-      printf 'qml-smoke: row-secs row=%s secs=%s\n' "$smoke_row_name" "$((EPOCHSECONDS - smoke_row_started))"
+      smoke_row_secs "$smoke_row_name" "$smoke_row_started" "$smoke_row_cpu_started"
       return 0
     fi
     fail "$smoke_row_name: shell=not-answering before the row"
     anr_row_boundary end "$smoke_row_name"
-    printf 'qml-smoke: row-secs row=%s secs=%s\n' "$smoke_row_name" "$((EPOCHSECONDS - smoke_row_started))"
+    smoke_row_secs "$smoke_row_name" "$smoke_row_started" "$smoke_row_cpu_started"
     return 0
   fi
   # Every row starts with the pointer at rest, wherever the row before it
@@ -3722,7 +3732,7 @@ PY
   # Judge the original leak state before removing this harness-owned dialog.
   anr_row_boundary end "$smoke_row_name"
   ipc_timeout_check "$smoke_row_name" || true
-  printf 'qml-smoke: row-secs row=%s secs=%s\n' "$smoke_row_name" "$((EPOCHSECONDS - smoke_row_started))"
+  smoke_row_secs "$smoke_row_name" "$smoke_row_started" "$smoke_row_cpu_started"
   # A failed restoration leaves no valid starting world for a later row.
   [[ $smoke_row_abandon_status == 0 ]] || exit "$smoke_row_source_status"
 }
