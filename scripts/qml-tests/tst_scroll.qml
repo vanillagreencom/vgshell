@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Window
 import QtQuick.Templates as T
 import QtTest
 import qs.Commons
@@ -99,6 +100,46 @@ Item {
     }
     Select { id: long; y: 300; model: ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p"] }
 
+    // A flyout initially focuses its list's scope, whose box contains all
+    // rows, rather than an individual row, as NetworkBody does.
+    Component {
+        id: focusedListCase
+        ScrollArea {
+            property alias list: listScope
+            width: 180
+            height: 100
+            Column {
+                width: parent.width
+                Item { width: parent.width; height: 40 }
+                FocusScope {
+                    id: listScope
+                    width: parent.width
+                    height: 600
+                }
+            }
+        }
+    }
+
+    // AutomationEditorPage's command editor grows with its text and can
+    // exceed the viewport; it remains an editable field, not a list scope.
+    Component {
+        id: oversizedFieldCase
+        ScrollArea {
+            property alias field: commandField
+            width: 300
+            height: 100
+            Column {
+                width: parent.width
+                Item { width: parent.width; height: 160 }
+                TextArea {
+                    id: commandField
+                    width: parent.width
+                    text: "A long command line\n".repeat(30)
+                }
+            }
+        }
+    }
+
     TestCase {
         name: "scroll"
         when: windowShown
@@ -163,6 +204,41 @@ Item {
             hideParent.visible = true;
             compare(hiddenArea.contentHeight, beforeHeight);
             compare(hiddenArea.contentY, beforeY);
+        }
+
+        function test_initial_focus_on_a_long_list_keeps_the_scroll_at_the_top_data() {
+            return [
+                { tag: "new list", from: 0 },
+                { tag: "retained list on a close-cancel reopen", from: 60 }
+            ];
+        }
+
+        function test_initial_focus_on_a_long_list_keeps_the_scroll_at_the_top(data) {
+            const view = createTemporaryObject(focusedListCase, root);
+            tryVerify(() => view.contentHeight > view.height);
+            verify(view.list instanceof FocusScope);
+            compare(view.contentY, 0);
+            view.contentY = data.from;
+            view.list.forceActiveFocus(Qt.OtherFocusReason);
+            tryCompare(view.list, "activeFocus", true);
+            compare(view.contentY, 0, "focusing the list does not reveal its bottom");
+            view.contentY = 60;
+            view.height -= 20;
+            compare(view.contentY, 60, "a shrink keeps an oversized focused list where the user scrolled it");
+        }
+
+        function test_an_oversized_editable_field_keeps_its_focus_reveal() {
+            const view = createTemporaryObject(oversizedFieldCase, root);
+            tryVerify(() => view.field.height > view.height);
+            verify(!(view.field instanceof FocusScope));
+            verify(waitForRendering(view));
+            root.Window.window.requestActivate();
+            tryCompare(root.Window.window, "active", true);
+            view.field.forceActiveFocus(Qt.OtherFocusReason);
+            tryCompare(view.field, "activeFocus", true);
+            const top = view.field.mapToItem(view, 0, 0).y;
+            verify(top < view.height && top + view.field.height > 0,
+                "the focused field intersects the viewport rather than being hidden below it");
         }
 
         function test_the_bar_can_sit_inside_a_container_inset() {

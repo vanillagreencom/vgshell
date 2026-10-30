@@ -129,17 +129,27 @@ Flickable {
     }
 
     // Reveal the window's focused item when it lies in the content.
-    function revealFocus() {
+    function revealFocus(focusChanged = false) {
         if (root.Window.window === null) return;
         const item = root.Window.window.activeFocusItem;
-        if (item !== null && item !== root && contentItem !== null && KeyNavLogic.contains(contentItem, item))
-            reveal(item);
+        if (item === null || item === root || contentItem === null || !KeyNavLogic.contains(contentItem, item)) return;
+        // A list's FocusScope holds its whole content (tst_scroll.qml's
+        // initial-focus case). Start that composite at the top when it
+        // takes focus, including a retained flyout whose close was canceled.
+        // A shrink keeps the user's scroll position within that list.
+        // TextArea is a TextEdit, not a FocusScope, and still needs reveal
+        // when its text grows past the viewport (tst_scroll.qml).
+        if (item instanceof FocusScope && item.height > contentClip.height) {
+            if (focusChanged) contentY = 0;
+            return;
+        }
+        reveal(item);
     }
 
     Connections {
         target: root === null ? null : root.Window.window
         function onActiveFocusItemChanged() {
-            if (root !== null) root.revealFocus();
+            if (root !== null) root.revealFocus(true);
         }
     }
 
