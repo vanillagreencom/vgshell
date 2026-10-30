@@ -7038,6 +7038,7 @@ tailscale_flyout_bar_shot() { # MODE NAME ICON SPINNING
 scene_tailscale-flyout() { # MODE
   local mode="$1" dir="$sandbox/tailscale-flyout-shot" link="$devices_system_root/usr/bin/tailscale"
   devices_ready tailscale-flyout-shot || return 0
+  device_reply tailscale 0 '1.104.1' --version
   mkdir -p -- "$dir"
   rm -f -- "${dir:?}/service-off"
   {
@@ -7107,16 +7108,14 @@ EOF
   expect_poll "Tailscale publishes the suggestion again" '"Stockholm, Sweden"' tailscale_flyout_suggestion
   tailscale_flyout_open "the main shot" || return
   tailscale_flyout_take "tailscale-flyout-$mode-main"
-  tailscale_flyout_tab_to '["ListItem","amelie@example.com"]' || return
-  type_keys -k space || fail "Space on the account row failed"
-  expect_poll "the account row opens" true tailscale_flyout_named Disclosure tailscale-account expanded
-  tailscale_flyout_tab_to '["RowAction","Sign out"]' || return
+  expect_poll "the account card is visible" true tailscale_flyout_named Card tailscale-accounts-card visible
+  tailscale_flyout_tab_to '["IconButton","Sign out"]' || return
   tailscale_flyout_take "tailscale-flyout-$mode-account-sign-out-focus" posed
   type_keys -k Return || fail "Return on Sign out failed"
   expect_poll "Sign out's confirmation opens on Cancel" '["Button","Cancel"]' tailscale_flyout_focus
   tailscale_flyout_take "tailscale-flyout-$mode-sign-out-confirm" posed
   type_keys -k Return || fail "Return on Cancel failed"
-  expect_poll "Cancel returns the keys to Sign out" '["RowAction","Sign out"]' tailscale_flyout_focus
+  expect_poll "Cancel returns the keys to Sign out" '["IconButton","Sign out"]' tailscale_flyout_focus
   tailscale_flyout_tab_to '["ListItem","Network devices"]' || return
   type_keys -k space || fail "Space on the network devices row failed"
   expect_poll "the network devices row opens" true tailscale_flyout_named Disclosure tailscale-network-devices expanded
@@ -7181,7 +7180,7 @@ EOF
   expect_poll "Tailscale publishes Signed out for its flyout" '["signed-out", "Signed out"]' tailscale_flyout_published
   expect_poll "Tailscale publishes the other account alone" '["c3d4"]' tailscale_flyout_accounts
   tailscale_flyout_open "the signed-out shot" || return
-  expect_poll "the signed-out flyout opens its account list" true tailscale_flyout_named Disclosure tailscale-account expanded
+  expect_poll "the signed-out flyout retains its account list" true tailscale_flyout_named DeviceList tailscale-accounts visible
   tailscale_flyout_take "tailscale-flyout-$mode-signed-out"
   device_reply tailscale 0 "$(<"$(tailscale_fixture accounts.json)")" switch --list --json
   expect "Tailscale reads the tailnet waiting for approval" ok tailscale_flyout_status NeedsMachineAuth
@@ -7231,6 +7230,7 @@ tailscale_section_reveal() { # TYPE TEXT
 scene_tailscale-section() { # MODE
   local mode="$1" dir="$sandbox/tailscale-section-shot" link="$devices_system_root/usr/bin/tailscale"
   devices_ready tailscale-section-shot || return 0
+  device_reply tailscale 0 '1.104.1' --version
   mkdir -p -- "$dir"
   rm -f -- "${dir:?}/service-off"
   {
@@ -7261,7 +7261,7 @@ TSSECTION
   tailscale_section_take "$mode" top "System Settings › Tailscale · Top"
 
   park_pointer
-  click_item "window:System Settings" window vgs.tailscale RowAction "Sign out" || fail "the section's Sign out click failed"
+  click_item "window:System Settings" window vgs.tailscale IconButton "Sign out" || fail "the section's Sign out click failed"
   expect_poll "the section sign-out question opens" true tailscale_section_named Dialog tailscale-sign-out-prompt visible
   expect_poll "the question opens on Cancel" '["Button","Cancel"]' ipc smoke activeFocusItem window vgs.tailscale
   park_pointer

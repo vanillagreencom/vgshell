@@ -128,6 +128,11 @@ expect_poll "the system fixture's service is built" True record_exists acme.syst
 expect_poll "the fixture holds the system capability" '["acme.system"]' system_holders
 expect_poll "the core probes the tree once a plugin holds system" "needed hidraw-denied" system_core
 expect_poll "the capability lends the declared step alone" '{"apple-displays": {"reason": "hidraw-denied", "state": "needed"}}' system_lent
+system_refreshes() { ipc smoke readInstance service acme.system refreshes; }
+expect "the fixture requests a fresh unchanged probe" ok ipc smoke invokeInstance service acme.system refresh ""
+expect_poll "the unchanged probe acknowledges its requesting scope" 1 system_refreshes
+expect "the fixture requests another unchanged probe" ok ipc smoke invokeInstance service acme.system refresh ""
+expect_poll "a second unchanged value still acknowledges freshness" 2 system_refreshes
 
 terminal_stand_in
 terminal_ready "system steps"
@@ -194,8 +199,13 @@ hold_runs
 expect "the fixture's own Allow, through status.act, answers ok" ok system_act apple
 expect_poll "status.act hands the terminal vgshell system apply with its step" \
   "$(core_words core/system "System setup" org.vgs.tui system apply apple-displays)" recorded
+expect "a repeated scoped status action reports busy without another callback" busy system_act apple
+expect "completion stays pending while the terminal is held" 0 ipc smoke readInstance service acme.system completions
 release_runs
 expect_run_end "the status.act core/system run ends" core/system
+expect_poll "the status action completes once for its requester" 1 ipc smoke readInstance service acme.system completions
+system_completion_code() { ipc smoke readInstance service acme.system lastCompletion | py_reply 'import json,sys; result=json.load(sys.stdin); print("pending" if result is None else result["code"])'; }
+expect "the completed terminal supplies its exit code" 0 system_completion_code
 forget_record
 expect "disabling the system fixture is allowed" ok ipc shell setPluginEnabled acme.system false
 expect_poll "no plugin holds system once the fixture is disabled" '[]' system_holders

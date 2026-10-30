@@ -259,7 +259,10 @@ class Transaction:
 
     def login(self):
         self.check_cancel()
-        argv = [self.sudo, "--", self.tailscale, "login", "--operator=" + self.user, "--timeout", "0", "--json"]
+        # v1.104.1 newUpFlagSet registers --json for up only. Login's private
+        # text is drained, never interpreted or logged; the same bounded wait
+        # reads public Status.AuthURL/HaveNodeKey instead (ipnstate.Status).
+        argv = [self.sudo, "--", self.tailscale, "login", "--operator=" + self.user, "--timeout", "0"]
         print(shlex.join(argv), flush=True)
         try:
             child = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
@@ -267,51 +270,48 @@ class Transaction:
         except OSError:
             raise Refused("login-start") from None
         opened = False
-        text = ""
+        began = False
+        next_status = 0
         start = time.monotonic()
         try:
             with selectors.DefaultSelector() as reader:
                 reader.register(child.stdout, selectors.EVENT_READ)
                 while True:
                     self.check_cancel()
-                    elapsed = time.monotonic() - start
-                    if elapsed >= LOGIN_TIMEOUT:
+                    now = time.monotonic()
+                    if now - start >= LOGIN_TIMEOUT:
                         raise Refused("login-timeout")
-                    if not opened and elapsed >= ADDRESS_TIMEOUT:
-                        raise Refused("login-address-missing")
                     for key, _ in reader.select(0.1):
                         block = os.read(key.fd, 4096)
                         if not block:
                             reader.unregister(child.stdout)
-                            continue
-                        text = (text + block.decode("utf-8", errors="replace"))[-16384:]
-                        # CLI up.go's upOutputJSON provides AuthURL and state.
-                        # NeedsMachineAuth emits a JSON notification but keeps
-                        # waiting for Running; finish this owned CLI wait and
-                        # read back the authenticated pending-approval account.
-                        for match in re.finditer(r"(?m)^\{", text):
+                        else:
+                            # login.go switches to its empty profile before
+                            # runUp can print. Do not open a prior AuthURL before
+                            # this owned CLI has reached that transaction phase.
+                            began = True
+                    if began and now >= next_status:
+                        report = self.json_ts("status", "--json")
+                        if (not isinstance(report, dict) or not isinstance(report.get("AuthURL"), str)
+                                or not isinstance(report.get("BackendState"), str)):
+                            raise Refused("daemon-report")
+                        next_status = time.monotonic() + 0.5
+                        url = report["AuthURL"]
+                        if url and not opened:
+                            if any(ord(char) <= 32 or ord(char) == 127 for char in url):
+                                raise Refused("login-address-invalid")
+                            parsed = urlsplit(url)
+                            if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+                                raise Refused("login-address-invalid")
                             try:
-                                report, _ = json.JSONDecoder().raw_decode(text[match.start():])
-                            except ValueError:
-                                continue
-                            if not isinstance(report, dict):
-                                continue
-                            if report.get("BackendState") == "NeedsMachineAuth":
-                                return
-                            url = report.get("AuthURL")
-                            if url and not opened:
-                                if not isinstance(url, str) or any(ord(char) <= 32 or ord(char) == 127 for char in url):
-                                    raise Refused("login-address-invalid")
-                                parsed = urlsplit(url)
-                                if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
-                                    raise Refused("login-address-invalid")
-                                try:
-                                    self.run([program("xdg-open"), url], root=False)
-                                except Refused:
-                                    self.check_cancel()
-                                    raise Refused("browser-open") from None
-                                opened = True
-                                print("Complete sign-in in your browser. Press Ctrl-C here to cancel.", flush=True)
+                                self.run([program("xdg-open"), url], root=False)
+                            except Refused:
+                                self.check_cancel()
+                                raise Refused("browser-open") from None
+                            opened = True
+                            print("Complete sign-in in your browser. Press Ctrl-C here to cancel.", flush=True)
+                        if report["BackendState"] == "NeedsMachineAuth" and report.get("HaveNodeKey") is True:
+                            return
                     result = child.poll()
                     if result is not None and not reader.get_map():
                         if result:
@@ -319,6 +319,8 @@ class Transaction:
                         if not opened:
                             raise Refused("login-address-missing")
                         return
+                    if not opened and time.monotonic() - start >= ADDRESS_TIMEOUT:
+                        raise Refused("login-address-missing")
         finally:
             if child.poll() is None:
                 child.terminate()

@@ -1526,7 +1526,7 @@ tailscale_transaction() { # apply|undo STEP
     "sudo$(printf ' %q' "$tailscale" get operator)"
     "sudo$(printf ' %q' "$tailscale" status --json)")
   if [[ $action == add ]]; then
-    commands+=("sudo$(printf ' %q' "$tailscale" login "--operator=$user" --timeout 0 --json)")
+    commands+=("sudo$(printf ' %q' "$tailscale" login "--operator=$user" --timeout 0)")
   elif [[ $action == operator ]]; then
     commands+=("sudo$(printf ' %q' "$tailscale" set "--operator=$user")")
   else

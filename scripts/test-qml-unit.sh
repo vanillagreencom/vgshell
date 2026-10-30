@@ -67,6 +67,8 @@ mutations=(
   "a notification avatar loses its outcome badge|../plugins/vgs.notifications/MediaSlot.qml|visible: slot.showsOutcome|visible: false|tst_notification_media.qml"
   "a detached automation row loses its owning width|../plugins/vgs.automations/AutomationListPage.qml|width: listColumn.width|width: parent.width|tst_automation_signal_values.qml"
   "a removed Field hint measures an absent line|controls/Field.qml|if (last !== hintLine) return last === null ? null : controlRow.fontBelow(last);|if (last !== hintLine) return false && last === null ? null : controlRow.fontBelow(last);|tst_automation_network_hint.qml"
+  "Tailscale account actions reject a second request during system completion|../plugins/vgs.tailscale/Service.qml|if (action !== \"\") return \"busy\";|if (false) return \"busy\";|tst_tailscale_service.qml"
+  "system refresh waits for the probe after an in-flight read|../Core/SystemSteps.qml|probes + (prober.running ? 2 : 1)|probes + 1|tst_system_steps.qml"
   "section descriptions keep the hint metrics|layout/SectionHeader.qml|        role: \"hint\"|        role: \"body\"|tst_sectionheader.qml"
   "section descriptions forward the link|layout/SectionHeader.qml|onPageActivated: (page, tab) => root.pageActivated(page, tab)|onPageActivated: (page, tab) => {}|tst_sectionheader.qml"
   "sections forward their header link|layout/Section.qml|onPageActivated: (page, tab) => root.pageActivated(page, tab)|onPageActivated: (page, tab) => {}|tst_sectionheader.qml"

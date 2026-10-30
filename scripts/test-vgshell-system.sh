@@ -217,6 +217,10 @@ root = Path("$tmp")
 args = sys.argv[1:]
 with (root / "tailscale.log").open("a") as log:
     log.write(" ".join(args) + "\n")
+# newUpFlagSet in v1.104.1 registers --json only for up, never login.
+if args and args[0] == "login" and "--json" in args:
+    (root / "unsupported-login-json").touch()
+    sys.exit(2)
 if (root / "tailscaled-down").exists():
     sys.exit(1)
 state_path = root / "profiles"
@@ -239,10 +243,14 @@ elif args == ["debug", "prefs"]:
     print(json.dumps({"WantRunning": state["running"]}))
 elif args == ["status", "--json"]:
     backend = "NeedsLogin" if not state["selected"] else ("Running" if state["running"] else "Stopped")
+    waiting = state["selected"] == "b2c3" and not (root / "browser-opened").exists()
+    if waiting:
+        backend = "NeedsLogin"
     if mode == "device-approval" and state["selected"] == "b2c3":
         backend = "NeedsMachineAuth"
-    authenticated = bool(state["selected"]) and not (mode == "unauthenticated" and state["selected"] == "b2c3")
-    print(json.dumps({"BackendState": backend, "HaveNodeKey": authenticated}))
+    authenticated = bool(state["selected"]) and not waiting and not (mode == "unauthenticated" and state["selected"] == "b2c3")
+    address = "https://login.tailscale.com/a/fixture-secret" if waiting and mode != "missing-address" else ""
+    print(json.dumps({"BackendState": backend, "HaveNodeKey": authenticated, "AuthURL": address}))
 elif len(args) == 2 and args[0] == "switch":
     if mode == "restore-fail":
         sys.exit(1)
@@ -262,7 +270,7 @@ elif args == ["logout"]:
     state["running"] = False
     operator.write_text("")
     save()
-elif len(args) == 5 and args[0] == "login" and args[1].startswith("--operator=") and args[2:] == ["--timeout", "0", "--json"]:
+elif len(args) == 4 and args[0] == "login" and args[1].startswith("--operator=") and args[2:] == ["--timeout", "0"]:
     state["operators"][state["selected"]] = operator.read_text()
     state["selected"] = "b2c3"
     state["ids"] = list(dict.fromkeys(state["ids"] + ["b2c3"]))
@@ -273,7 +281,7 @@ elif len(args) == 5 and args[0] == "login" and args[1].startswith("--operator=")
         sys.exit(1)
     if mode == "missing-address":
         sys.exit(0)
-    print(json.dumps({"AuthURL": "https://login.tailscale.com/a/fixture-secret", "BackendState": "NeedsLogin"}), flush=True)
+    print("To authenticate, visit: https://login.tailscale.com/a/private-cli-text", flush=True)
     def ended(signum, frame):
         (root / "login-ended").touch()
         sys.exit(1)
@@ -284,10 +292,7 @@ elif len(args) == 5 and args[0] == "login" and args[1].startswith("--operator=")
         os.killpg(os.getpgrp(), signal.SIGINT)
     deadline = time.monotonic() + 5
     while time.monotonic() < deadline:
-        if mode == "device-approval" and (root / "browser-opened").exists():
-            print(json.dumps({"BackendState": "NeedsMachineAuth"}), flush=True)
-            mode = "deadline"
-        if mode not in ("deadline", "cancel", "cancel-group") and (root / "browser-opened").exists():
+        if mode not in ("deadline", "cancel", "cancel-group", "device-approval") and (root / "browser-opened").exists():
             sys.exit(0)
         time.sleep(0.01)
     sys.exit(1)
@@ -354,7 +359,7 @@ fresh() {
   printf '%s\n' "$boot_a" >"$root/proc/sys/kernel/random/boot_id"
   touch "$tmp/units/tailscaled.service.missing"
   : >"$tmp/operator"
-  rm -f -- "${tmp:?}"/{profiles,login-mode,browser-opened,browser-fail,browser-uid,browser-address,login-ended}
+  rm -f -- "${tmp:?}"/{profiles,login-mode,browser-opened,browser-fail,browser-uid,browser-address,login-ended,unsupported-login-json}
   rm -f -- "$tmp"/{sudo.log,udevadm.log,systemctl.log,modprobe.log,tailscale.log,gum.log,gum-hook,foreign,sudo-exit,udev-fail,other-rule,i2c-rule,tailscaled-down,before-tree,after-tree,no-greeter,getent-fail,owners,greeter-name}
   printf '0\n' >"$tmp/gum-answer"
   rm -f -- "${bin:?}/voxtype" "${tmp:?}/voxtype-compiled" "${tmp:?}/voxtype.log"
@@ -566,6 +571,8 @@ run_tty "Add verifies the new authenticated account" 0 apply tailscale-account-a
 check "Add retains the old account and selects the new one" json_is "$tmp/profiles" 'd["selected"] == "b2c3" and d["ids"] == ["a1b2", "b2c3"]'
 check "Add records the new profile grant" json_is "$records/tailscale-operator" 'd["profiles"]["b2c3"]["previous"] == ""'
 check "the browser runs as the desktop user" test "$(cat "$tmp/browser-uid")" == "$uid"
+check "the browser uses typed public status instead of CLI prose" test "$(cat "$tmp/browser-address")" == 'https://login.tailscale.com/a/fixture-secret'
+check "the provider uses only supported login flags" test ! -e "$tmp/unsupported-login-json"
 check "the authentication address never enters the transcript" test "$(grep -cF 'fixture-secret' "$tmp/out" || true)" == 0
 check "success clears the recovery record" test ! -e "$records/tailscale-account-add"
 check "success asks once" test "$(grep -c -- '^Run this Tailscale transaction as root?' "$tmp/gum.log")" == 1
