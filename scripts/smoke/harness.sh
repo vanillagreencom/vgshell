@@ -3535,7 +3535,7 @@ source "$repo/scripts/smoke/leaks.sh"
 # load1=<load>`, including harness steps. CPU pressure covers the row window;
 # load1 is the host 1-minute load at its end. The time refreshes rows.secs.
 # The overseer uses pressure and load to compare faults and slot holds
-# (VGS-2062 design note § 6 item 4; validation.md § Faults).
+# (VGS-2062 design note § 6 item 4; docs/architecture/validation.md § Faults).
 smoke_row_drain_s=5
 anr_row_boundary() { # PHASE ROW
   local report lines line owner="$BASHPID"
