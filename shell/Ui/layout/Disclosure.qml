@@ -16,7 +16,8 @@ import qs.Ui
 // ends at the row's padding. The caller sets the width. A list of
 // disclosures declares one ListCursor beside the positioner that holds
 // them and names it in each one's `cursor`, which the row takes as a
-// ListItem does.
+// ListItem does. Hovering the content releases that plate and keeps the
+// header's accent through ListItem.active.
 Column {
     id: root
 
@@ -36,6 +37,7 @@ Column {
         width: root.width
         focusPolicy: Qt.StrongFocus
         clickable: root.expandable
+        active: contentHover.hovered
         onClicked: if (root.expandable) root.expanded = !root.expanded
         Keys.onReturnPressed: if (root.expandable) root.expanded = !root.expanded
         Keys.onEnterPressed: if (root.expandable) root.expanded = !root.expanded
@@ -64,5 +66,11 @@ Column {
         x: inset
         width: Math.max(0, root.width - inset - row.rightPadding)
         visible: root.expandable && root.expanded
+        // HoverHandler covers its parent, including nested controls:
+        // https://doc.qt.io/qt-6/qml-qtquick-hoverhandler.html#hovered-prop
+        HoverHandler {
+            id: contentHover
+            onHoveredChanged: if (hovered && row.cursor !== null) row.cursor.pointerLeave()
+        }
     }
 }

@@ -123,6 +123,36 @@ Item {
     SignalSpy { id: pointed; signalName: "pointed" }
     SignalSpy { id: leftSpy; target: plate; signalName: "pointerLeft" }
 
+    Component {
+        id: nestedLists
+        Item {
+            width: 300
+            height: 350
+            property alias outer: outer
+            property alias middle: middle
+            property alias inner: inner
+            property alias outerRow: outerRow
+            property alias middleRow: middleRow
+            property alias innerRow: innerRow
+            ListCursor { id: outer }
+            ListItem { id: outerRow; width: parent.width; text: "Outer"; cursor: outer }
+            Item {
+                y: 80
+                width: parent.width
+                height: 250
+                ListCursor { id: middle }
+                ListItem { id: middleRow; width: parent.width; text: "Middle"; cursor: middle }
+                Item {
+                    y: 80
+                    width: parent.width
+                    height: 150
+                    ListCursor { id: inner }
+                    ListItem { id: innerRow; width: parent.width; text: "Inner"; cursor: inner }
+                }
+            }
+        }
+    }
+
     TestCase {
         name: "listcursor"
         when: windowShown
@@ -148,6 +178,35 @@ Item {
         function cleanupTestCase() { UnitTheme.reset(); }
 
         function row(index) { return repeater.itemAt(index); }
+
+        function test_a_nested_list_releases_every_outer_hover() {
+            holder.visible = false;
+            const lists = createTemporaryObject(nestedLists, root);
+            verify(lists !== null);
+            lists.outer.arm();
+            lists.middle.arm();
+            lists.inner.arm();
+            mouseMove(lists.outerRow, 20, 10);
+            compare(lists.outer.hovered, lists.outerRow);
+            mouseMove(lists.middleRow, 20, 10);
+            compare(lists.middle.hovered, lists.middleRow);
+            compare(lists.outer.hovered, null, "a nested list releases its outer cursor");
+            compare(lists.outer.shown, false);
+            mouseMove(lists.innerRow, 20, 10);
+            compare(lists.inner.hovered, lists.innerRow);
+            compare(lists.middle.hovered, null);
+            compare(lists.outer.hovered, null);
+            // An outer hover can precede a jump straight to the deepest list.
+            mouseMove(lists.outerRow, 22, 10);
+            compare(lists.outer.hovered, lists.outerRow);
+            compare(lists.inner.hovered, null);
+            mouseMove(lists.innerRow, 22, 10);
+            compare(lists.inner.hovered, lists.innerRow);
+            compare(lists.middle.hovered, null);
+            compare(lists.outer.hovered, null, "all containing lists release their hover");
+        }
+
+        function cleanup() { holder.visible = true; }
 
         function test_the_cursor_travels_to_the_highlighted_row() {
             compare(UnitTheme.override({ motion: { list: { travel: { duration: 2000 }, resize: { duration: 2000 } } } }), "ok");

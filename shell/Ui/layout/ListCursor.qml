@@ -74,7 +74,8 @@ Item {
     // afterwards hands nothing back.
     onPressedChanged: if (pressed) state.restore = null
 
-    // The pointer left the cursor's parent after a hover took the plate. A
+    // The pointer left this list for its outside, a nested list or a
+    // disclosure's content after a hover took the plate. A
     // list that clears its selection then, as a menu with no keyboard
     // choice does, sets it here, before the cursor hands it back.
     signal pointerLeft()
@@ -220,11 +221,21 @@ Item {
     // launcher's, calls it from its own pointer path and keeps what it
     // hands back itself, on `pointerLeft()`.
     function hover(row) {
+        if (chainOf(row) === null) return;
+        // Item.children contains visual children:
+        // https://doc.qt.io/qt-6/qml-qtquick-item.html#children-prop
+        // so each ancestor exposes the cursor declared beside its rows.
+        // Releasing only containing lists leaves same-list gaps untouched.
+        for (let at = root.parent; at !== null; at = at.parent) {
+            for (const child of at.children) {
+                if (child !== root && child instanceof ListCursor) child.pointerLeave();
+            }
+        }
         if (!state.hovering) {
             state.hovering = true;
             state.restore = state.target !== null && state.holder !== null && state.holder.parent === state.target ? state.holder : null;
         }
-        if (chainOf(row) !== null) state.hovered = row;
+        state.hovered = row;
     }
 
     function pointerLeave() {

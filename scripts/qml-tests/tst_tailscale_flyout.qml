@@ -223,15 +223,43 @@ Item {
         }
 
         function test_copy_puts_this_devices_address_on_the_clipboard() {
-            const device = named("tailscale-this-device");
-            const row = device.rowAt(0);
-            const before = row.rowAction.text;
+            const row = named("tailscale-this-device");
+            const action = named("tailscale-self-copy");
+            const before = action.text;
             mouseClick(row);
             paste.text = "";
             paste.paste();
             compare(paste.text, "100.64.0.1");
-            verify(row.rowAction.text !== before, "the action reads its confirmation");
-            tryVerify(() => row.rowAction.text === before, 5000, "the action returns once the copy stops confirming");
+            verify(action.text !== before, "the action reads its confirmation");
+            tryVerify(() => action.text === before, 5000, "the action returns once the copy stops confirming");
+        }
+
+        function test_this_device_and_network_devices_share_one_hover_plate() {
+            compare(UnitTheme.override({ motion: { scale: 0 } }), "ok");
+            const device = named("tailscale-this-device");
+            const network = named("tailscale-network-devices");
+            network.expanded = true;
+            waitForRendering(network);
+            const child = named("tailscale-devices").rowAt(0);
+            compare(device.cursor, network.cursor, "This device belongs to the flyout's row list");
+            const cursor = network.cursor;
+            cursor.arm();
+            mouseMove(network.focusItem, 20, 10);
+            compare(cursor.hovered, network.focusItem);
+            mouseMove(device, 20, 10);
+            compare(cursor.hovered, device);
+            mouseMove(network.focusItem, 22, 10);
+            compare(cursor.hovered, network.focusItem);
+            mouseMove(child, 20, 10);
+            mouseMove(child, 22, 10);
+            compare(child.cursor.hovered, child);
+            compare(cursor.shown, false);
+            compare(network.focusItem.active, true);
+            mouseMove(device, 22, 10);
+            compare(cursor.hovered, device);
+            compare(child.cursor.hovered, null);
+            compare(network.focusItem.active, false);
+            UnitTheme.reset();
         }
 
         function test_back_and_escape_return_to_the_exit_node_row() {

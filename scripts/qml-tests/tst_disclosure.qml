@@ -15,8 +15,17 @@ Item {
     width: 400
     height: 400
 
+    Item {
+        id: listArea
+        width: 300
+        height: 300
+        ListCursor { id: cursor }
+    }
+
     Disclosure {
         id: disclosure
+        parent: listArea
+        cursor: cursor
         width: 300
         text: "System"
         secondary: "2 updates"
@@ -25,6 +34,12 @@ Item {
             Button { id: action; text: "Update"; size: "sm"; anchors.verticalCenter: parent.verticalCenter }
         ]
         Label { id: line; role: "code"; text: "linux 6.1 → 6.2" }
+        DeviceList {
+            id: nested
+            width: parent.width
+            visible: false
+            rows: [{ key: "package", text: "Package", secondary: "Available" }]
+        }
     }
     SignalSpy { id: actions; target: action; signalName: "clicked" }
 
@@ -44,6 +59,9 @@ Item {
             UnitTheme.reset();
             disclosure.expanded = false;
             disclosure.expandable = true;
+            nested.visible = false;
+            cursor.disarm();
+            mouseMove(root, 390, 390);
             actions.clear();
         }
 
@@ -52,6 +70,33 @@ Item {
             verify(!line.visible, "the content shows before a click");
             tryCompare(disclosure, "height", row().height);
             compare(chevron().name, "chevron-down");
+        }
+
+        function test_content_releases_the_header_plate_and_keeps_its_accent() {
+            compare(UnitTheme.override({ motion: { scale: 0 } }), "ok");
+            disclosure.expanded = true;
+            nested.visible = true;
+            waitForRendering(disclosure);
+            cursor.arm();
+            mouseMove(row(), 20, 10);
+            compare(cursor.hovered, row());
+            mouseMove(line, 20, line.height / 2);
+            compare(cursor.hovered, null, "plain content releases the header plate");
+            compare(cursor.shown, false);
+            compare(row().active, true);
+            compare(row().lit, true);
+            mouseMove(nested.rowAt(0), 20, 10);
+            mouseMove(nested.rowAt(0), 22, 10);
+            compare(nested.rowAt(0).cursor.hovered, nested.rowAt(0));
+            compare(cursor.shown, false, "only the child row draws a plate");
+            compare(row().active, true, "the header keeps its accent over a child row");
+            mouseMove(row(), 22, 10);
+            compare(cursor.hovered, row());
+            compare(row().active, false);
+            compare(nested.rowAt(0).cursor.hovered, null);
+            mouseMove(root, 390, 390);
+            compare(row().active, false);
+            compare(row().lit, false);
         }
 
         function test_a_click_on_the_row_toggles_the_content() {

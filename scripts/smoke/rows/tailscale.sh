@@ -480,7 +480,7 @@ tailscale_key() { type_keys -k "$1" || fail "tailscale: the key $1 failed"; }
 tailscale_copy_reading() {
   local confirming drawn
   confirming="$(ipc smoke readDescendant panel vgs.tailscale CopyText confirming)" || return 1
-  drawn="$(tailscale_drawn panel DeviceList tailscale-this-device)" || return 1
+  drawn="$(tailscale_drawn panel DeviceRow tailscale-this-device)" || return 1
   printf '[%s, %s]\n' "$confirming" "$drawn"
 }
 # The nested clipboard's text, read after the input check.
@@ -680,7 +680,7 @@ expect "the flyout opens before Tailscale answers" ok ipc shell summon panel vgs
 expect_poll "the first poll is held" held tailscale_held
 expect_poll "the checking flyout's state line reads Checking Tailscale" '["Checking Tailscale"]' tailscale_label tailscale-state
 expect "the checking flyout draws no header switch" '[false]' tailscale_header_switch
-for tailscale_row in Disclosure:tailscale-account DeviceList:tailscale-this-device Disclosure:tailscale-network-devices ListItem:tailscale-exit-row; do
+for tailscale_row in Disclosure:tailscale-account DeviceRow:tailscale-this-device Disclosure:tailscale-network-devices ListItem:tailscale-exit-row; do
   expect "the checking flyout draws no ${tailscale_row#*:}" hidden tailscale_shown_of panel "${tailscale_row%%:*}" "${tailscale_row#*:}"
 done
 expect "the checking flyout closes" ok ipc shell hide panel vgs.tailscale
@@ -1005,7 +1005,7 @@ expect "the main view is titled Tailscale" '"Tailscale"' tailscale_title
 expect "the header switch is shown and on" '[true, true, true]' tailscale_header_switch
 expect_poll "the state line names the exit node" '["Connected through Stockholm, Sweden"]' tailscale_label tailscale-state
 expect "the account row reads the account and tailnet, closed" '["amelie@example.com", "example.com"]' tailscale_drawn panel Disclosure tailscale-account
-expect "this device reads its name, address and Copy" "$(words desk "This device · 100.64.0.1" Copy)" tailscale_drawn panel DeviceList tailscale-this-device
+expect "this device reads its name, address and Copy" "$(words desk "This device · 100.64.0.1" Copy)" tailscale_drawn panel DeviceRow tailscale-this-device
 expect "the network devices row reads 3 of 5 online, closed" '["Network devices", "3 of 5 online"]' tailscale_drawn panel Disclosure tailscale-network-devices
 expect "the exit node row reads the node in use" '["Exit node", "Stockholm, Sweden"]' tailscale_drawn panel ListItem tailscale-exit-row
 expect "the footer offers Open admin console" '["Open admin console"]' tailscale_drawn panel Button tailscale-admin-console
@@ -1173,19 +1173,19 @@ expect_poll "Tailscale stopping leaves the Exit nodes view" '"main"' tailscale_v
 expect_poll "the keys move to the header switch once Tailscale stops" '["Switch",""]' tailscale_focus
 expect_poll "the off flyout's state line reads Off" '["Off"]' tailscale_label tailscale-state
 expect "the off flyout's switch is shown and off" '[true, false, true]' tailscale_header_switch
-expect "the off flyout keeps the account and this device" '["shown", "shown"]' tailscale_rows_of Disclosure:tailscale-account DeviceList:tailscale-this-device
+expect "the off flyout keeps the account and this device" '["shown", "shown"]' tailscale_rows_of Disclosure:tailscale-account DeviceRow:tailscale-this-device
 expect "the off flyout draws no network devices and no exit node" '["hidden", "hidden"]' tailscale_rows_of Disclosure:tailscale-network-devices ListItem:tailscale-exit-row
 expect "a refresh reads Tailscale starting with the flyout open" ok tailscale_sheet_as Starting
 expect_poll "the starting flyout's state line reads Starting" '["Starting"]' tailscale_label tailscale-state
 expect "the starting flyout's switch is shown and on" '[true, true, true]' tailscale_header_switch
-expect "the starting flyout keeps the account and this device" '["shown", "shown"]' tailscale_rows_of Disclosure:tailscale-account DeviceList:tailscale-this-device
+expect "the starting flyout keeps the account and this device" '["shown", "shown"]' tailscale_rows_of Disclosure:tailscale-account DeviceRow:tailscale-this-device
 expect "the starting flyout draws no network devices and no exit node" '["hidden", "hidden"]' tailscale_rows_of Disclosure:tailscale-network-devices ListItem:tailscale-exit-row
 expect "a refresh reads Tailscale waiting for approval" ok tailscale_sheet_as NeedsMachineAuth
 expect_poll "the approval flyout's state line reads Waiting for approval" '["Waiting for approval"]' tailscale_label tailscale-state
 expect "the approval flyout draws no header switch" '[false]' tailscale_header_switch
 expect "the approval flyout names the tailnet's admin" '["An admin of example.com must approve this device."]' tailscale_label tailscale-state-hint
 expect "the approval flyout offers Open admin console" '["Open admin console"]' tailscale_drawn panel RowAction tailscale-approval-console
-expect "the approval flyout draws no account, device or exit node row" '["hidden", "hidden", "hidden", "hidden"]' tailscale_rows_of Disclosure:tailscale-account DeviceList:tailscale-this-device Disclosure:tailscale-network-devices ListItem:tailscale-exit-row
+expect "the approval flyout draws no account, device or exit node row" '["hidden", "hidden", "hidden", "hidden"]' tailscale_rows_of Disclosure:tailscale-account DeviceRow:tailscale-this-device Disclosure:tailscale-network-devices ListItem:tailscale-exit-row
 device_reply tailscale 1 "" status --json
 expect "a refresh reads Tailscale not answering" ok tailscale_refresh
 expect_poll "the flyout's state line reads Not answering" '["Not answering"]' tailscale_label tailscale-state

@@ -415,13 +415,20 @@ FocusScope {
                         sourceComponent: accountContents
                     }
                 }
-                DeviceList {
+                DeviceRow {
                     objectName: "tailscale-this-device"
                     width: parent.width
                     visible: root.deviceShown
-                    rows: [{ key: "self", text: root.tailscale.device.name, secondary: "This device · " + root.tailscale.device.address, iconName: "laptop" }]
-                    actionOf: row => ({ text: copier.confirming && root.copiedKey === "self" ? "Copied" : "Copy" })
-                    onActed: key => root.copy("self", root.tailscale.device.address)
+                    cursor: rowCursor
+                    text: root.tailscale.device.name
+                    secondary: "This device · " + root.tailscale.device.address
+                    iconName: "laptop"
+                    onClicked: root.copy("self", root.tailscale.device.address)
+                    actions: RowAction {
+                        objectName: "tailscale-self-copy"
+                        text: copier.confirming && root.copiedKey === "self" ? "Copied" : "Copy"
+                        onClicked: root.copy("self", root.tailscale.device.address)
+                    }
                 }
                 Disclosure {
                     id: devicesRow
