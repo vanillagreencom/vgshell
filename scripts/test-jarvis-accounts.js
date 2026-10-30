@@ -1014,8 +1014,11 @@ world(async () => {
     // as fs.opendirSync hands them out, plus every other parent's.
     const full = worldOf("full");
     const fullConfig = seed(full.env.XDG_CONFIG_HOME, ".claude-config");
-    for (let i = 0; i < 12; i++) seed(full.env.HOME, ".claude-" + i);
-    for (let i = 0; i <= 10000; i++) fs.writeFileSync(path.join(full.env.HOME, String(i)), "");
+    const fullHome = [seed(full.env.HOME, ".claude-0")];
+    for (let i = 0; i <= 10000; i++) {
+        fs.writeFileSync(path.join(full.env.HOME, String(i)), "");
+        if (i % 1000 === 0) fullHome.push(seed(full.env.HOME, ".claude-" + (i / 1000 + 1)));
+    }
     const readFirst = [];
     const listing = fs.opendirSync(full.env.HOME);
     try {
@@ -1025,6 +1028,7 @@ world(async () => {
     const expectedHome = readFirst.filter(entry => entry.isDirectory() && /^\.claude-[0-9]+$/.test(entry.name))
         .map(entry => path.join(full.env.HOME, entry.name)).sort();
     assert.ok(expectedHome.length > 0, "the names read before the bound hold an account folder");
+    assert.ok(fullHome.some(directory => !expectedHome.includes(directory)), "an account folder is past the bound");
     const boundReached = folder => {
         const accountFolders = foldersIn(folder);
         let found;
