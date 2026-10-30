@@ -489,6 +489,45 @@ pre_held() { # WANT_EXIT WANT_ERR
   fi
 }
 
+# The package owner carries the VGS release across distro epochs and rebuilds.
+check "engine package release encodings" "${base_env[@]}" "$node_bin" - "$repo/bin/lib/engine.js" <<'JS'
+const assert = require("node:assert/strict"), fs = require("node:fs"), vm = require("node:vm"), engine = require(process.argv[2]);
+for (const [manager, text, want] of [
+    ["pacman", `2:0.3.2.r7.g2b4501a-${engine.RELEASE}.1`, true],
+    ["pacman", `9:0.3.2.r7.g2b4501a-${engine.RELEASE - 1}.9`, false],
+    ["pacman", `0.3.2.r7.g2b4501a-${engine.RELEASE + 1}`, true],
+    ["dnf", `1:0.3.2-${engine.RELEASE}.2b4501a.fc44`, true],
+    ["dnf", `8:0.3.2-${engine.RELEASE - 1}.2b4501a.fc44`, false],
+    ["dnf", `0.3.2-${engine.RELEASE + 1}.2b4501a.el10`, true],
+    ["apt", `1:0.3.2+git2b4501a+vgs${engine.RELEASE}-1+b1`, true],
+    ["apt", `2:0.3.2+git2b4501a+vgs${engine.RELEASE - 1}-99`, false],
+    ["apt", `0.3.2+git2b4501a+vgs${engine.RELEASE + 1}-1`, true],
+]) assert.equal(engine.packageCurrent(manager, text), want, manager + " " + text);
+// An upstream adoption changes complete floors without changing RELEASE.
+const source = fs.readFileSync(process.argv[2], "utf8"), candidate = { exports: {} };
+const replacements = [
+    [/pacman: `[^`]+`/g, `pacman: "0.3.3.r9.gabcdef0-${engine.RELEASE}.2"`],
+    [/dnf: `[^`]+`/g, `dnf: "0.3.3-${engine.RELEASE}.abcdef0.fc44"`],
+    [/const DEBIAN_VERSION = "[^"]+"/g, `const DEBIAN_VERSION = "0.3.3+gitabcdef0+vgs${engine.RELEASE}-2"`],
+];
+let changed = source;
+for (const [pattern, replacement] of replacements) { assert.equal([...changed.matchAll(pattern)].length, 1); changed = changed.replace(pattern, replacement); }
+vm.runInNewContext(changed, { module: candidate, require, process });
+for (const [manager, text, want] of [
+    ["pacman", engine.PACKAGE_FLOORS.pacman, false], ["dnf", engine.PACKAGE_FLOORS.dnf, false], ["apt", engine.DEBIAN_VERSION, false],
+    ["pacman", `0.3.3.r8.gabcdef0-${engine.RELEASE}.2`, false],
+    ["pacman", `0.3.3.r9.gabcdef0-${engine.RELEASE}.1`, false],
+    ["pacman", `0.3.3.r9.gabcdef0-${engine.RELEASE}.3`, true],
+    ["pacman", `1:0.3.2.r7.g2b4501a-${engine.RELEASE}`, true],
+    ["dnf", `0.3.3-${engine.RELEASE}.abcdef0.fc43`, false],
+    ["dnf", `0.3.3-${engine.RELEASE}.abcdef0.fc45`, true],
+    ["apt", `0.3.3+gitabcdef0+vgs${engine.RELEASE}-1`, false],
+    ["apt", `0.3.3+gitabcdef0+vgs${engine.RELEASE}-3`, true],
+    ["apt", `0.3.4+gitabcdef0+vgs${engine.RELEASE}-1`, true],
+]) assert.equal(candidate.exports.packageCurrent(manager, text), want, manager + " " + text);
+for (const [manager, text] of [["pacman", "0.3.2"], ["dnf", "0.3.2-3"], ["apt", "0.3.2+vgs3-1"], ["apt", "0.3.2+gitBAD+vgs3-1"]]) assert.throws(() => engine.packageCurrent(manager, text));
+JS
+
 # rows: name | PATH kind | assignment | want exit | want stderr (first line)
 while IFS='|' read -r name kind assignment want_exit want_err; do
   [[ -n $name ]] || continue

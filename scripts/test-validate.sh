@@ -98,8 +98,9 @@ template() {
   cp -- "$repo/scripts/smoke/row-inputs.sh" "$dir/scripts/smoke/row-inputs.sh"
   # Selection and scheduler cases have a transparent world stand-in. The
   # boundary cases below replace it with the production world.
-  printf '#!/bin/sh\n[ "$1" != --fresh ] || shift\n[ "$1" != -- ] || shift\nexec "$@"\n' >"$dir/scripts/smoke/gpu-fence.sh"
+  printf '#!/bin/sh\nwhile [ "$1" != -- ]; do shift; done\nshift\nexec "$@"\n' >"$dir/scripts/smoke/gpu-fence.sh"
   chmod +x "$dir/scripts/smoke/gpu-fence.sh"
+  printf 'console.log(JSON.stringify({status: "pass"}));\n' >"$dir/scripts/check-packaging.js"
   cp -- "$repo/.agents/skills/orch/scripts/lib/kendex-env.sh" "$dir/.agents/skills/orch/scripts/lib/kendex-env.sh"
   cp -R -- "$repo/.agents/skills/commit-guards/scripts" "$dir/.agents/skills/commit-guards/"
   printf '# kendex-guard-dialect: legacy-glob\n.agents/*\tcopies of checkers, whose citations name their own repository\n' >"$dir/tools/md-excludes"
@@ -536,7 +537,7 @@ orb_check_plan=$'python3 scripts/check-voiceorb-shader.py\npython3 scripts/test-
 shader_measure_plan=$'python3 scripts/test-measure-shader.py\n'"$repo_plan"$'\nscripts/measure-shader.sh'
 keyboard_plan=$'smoke_reads_named\n'"$repo_plan"$'\nscripts/qml-smoke.sh\nscripts/measure-shader.sh'
 fedora_plan=$'scripts/test-fedora-srpm.sh\n'
-version_plan=$'scripts/test-vgshell-version.sh\nscripts/test-install-tree.sh\n'"$fedora_plan"$'node scripts/check-packaging.js\nnode scripts/test-check-packaging.js\n'"$readme_rows"$'scripts/test-release.sh\nscripts/test-publish-aur.sh\n'"$repo_plan"
+version_plan=$'scripts/test-vgshell-version.sh\nscripts/test-install-tree.sh\n'"$fedora_plan"$'node scripts/check-packaging.js\nnode scripts/test-check-packaging.js\nnode scripts/test-engine-availability.js\n'"$readme_rows"$'scripts/test-release.sh\nscripts/test-publish-aur.sh\n'"$repo_plan"
 # A recipe change runs the recipe check and its controls, never the product
 # smoke; the container build runs only where the area admits it, never
 # offline.
@@ -607,16 +608,16 @@ cases=(
   "root-markdown|NOTES.md|offline|$repo_plan"$'\ndoc_limits_check'
   "version|VERSION|offline|$version_plan"
   "licence|LICENSE|all|$install_plan"
-  "flake|flake.nix|all|node scripts/check-packaging.js"$'\nnode scripts/test-check-packaging.js\nscripts/test-publish-aur.sh\n'"$repo_plan"$'\nscripts/test-flake.sh'
-  "flake-offline|flake.nix|offline|node scripts/check-packaging.js"$'\nnode scripts/test-check-packaging.js\nscripts/test-publish-aur.sh\n'"$repo_plan"
+  "flake|flake.nix|all|node scripts/check-packaging.js"$'\nnode scripts/test-check-packaging.js\nnode scripts/check-packaging.js --engine-availability\nnode scripts/test-engine-availability.js\nscripts/test-publish-aur.sh\n'"$repo_plan"$'\nscripts/test-flake.sh'
+  "flake-offline|flake.nix|offline|node scripts/check-packaging.js"$'\nnode scripts/test-check-packaging.js\nnode scripts/test-engine-availability.js\nscripts/test-publish-aur.sh\n'"$repo_plan"
   "installer|packaging/install-system.sh|offline|$installer_plan"
   "portal-config|packaging/xdg-desktop-portal/hyprland-portals.conf|offline|node scripts/check-packaging.js"$'\nnode scripts/test-check-packaging.js\n'"$repo_plan"
   "curl-installer|install.sh|offline|$curl_installer_plan"
   "recipe|packaging/arch/vgshell/PKGBUILD|offline|$arch_recipe_plan"
   "curl-installer-srcinfo|packaging/arch/vgshell/.SRCINFO|offline|node scripts/check-packaging.js"$'\nnode scripts/test-check-packaging.js\n'"$readme_rows"$'scripts/test-vgshell-requirements.sh\nscripts/test-install-sh.sh\nscripts/test-release.sh\nscripts/test-publish-aur.sh\n'"$repo_plan"
   "recipe-all|packaging/arch/vgshell-git/.SRCINFO|all|$arch_recipe_plan"$'\nscripts/arch-packages.sh'
-  "debian-recipe|packaging/debian/vgshell-quickshell/control|cli|node scripts/check-packaging.js"$'\nnode scripts/test-check-packaging.js\nscripts/test-release.sh'
-  "debian-builder|scripts/debian-packages.sh|cli|node scripts/check-packaging.js"$'\nnode scripts/test-check-packaging.js\nscripts/test-release.sh'
+  "debian-recipe|packaging/debian/vgshell-quickshell/control|cli|node scripts/check-packaging.js"$'\nnode scripts/test-check-packaging.js\nnode scripts/check-packaging.js --engine-availability\nnode scripts/test-engine-availability.js\nscripts/test-release.sh'
+  "debian-builder|scripts/debian-packages.sh|cli|node scripts/check-packaging.js"$'\nnode scripts/test-check-packaging.js\nnode scripts/check-packaging.js --engine-availability\nnode scripts/test-engine-availability.js\nscripts/test-release.sh'
   "debian-package|packaging/debian/vgshell-quickshell/rules|package|scripts/debian-packages.sh"
   "recipe-package|packaging/arch/vgshell/PKGBUILD|package|scripts/arch-packages.sh"
   # The plugin logic table holds the core's sound table to the files.
@@ -896,7 +897,7 @@ parallel_cases plan_consumer_case plan-case "${cases[@]}"
 # Ordinary rows read the world through run(), while the other owners select
 # only their declared inputs. The explicit consumers keep a fence edit known,
 # so a missing implicit edge cannot hide behind the unknown-input full run.
-world_expected=(ordinary_logic ordinary_cli explicit_control explicit_entry repository_check
+world_expected=(ordinary_logic ordinary_cli network_cli explicit_control explicit_entry repository_check
   '!unrelated_control' '!undeclared_entry' '!container_step' '!nix_step' '!validate: selection=full')
 for variant in real control; do
   d="$tmp/world-input-$variant"; fresh "$d"
@@ -909,6 +910,7 @@ b = source.index("\n)\n", a) + 3
 rows = """rows=(
   "logic|ordinary logic|ordinary_logic|"
   "cli|ordinary cli|ordinary_cli||row"
+  "cli|network cli|network_cli||network"
   "tools|explicit control|explicit_control|scripts/smoke/gpu-fence.sh|control"
   "tools|unrelated control|unrelated_control||control"
   "unit|explicit entry|explicit_entry|scripts/smoke/gpu-fence.sh|entry"
@@ -919,7 +921,7 @@ rows = """rows=(
 )"""
 source = source[:a] + rows + source[b:]
 if sys.argv[2] == "control":
-    edge = 'if [[ ${owner:-row} == row ]]; then'
+    edge = 'if [[ ${owner:-row} == row || $owner == network ]]; then'
     assert source.count(edge) == 1
     changed = source.replace(edge, 'if false; then')
     assert changed != source
@@ -1231,6 +1233,33 @@ out="$(cd -- "$d" && "${base_env[@]}" bash scripts/validate offline --changed HE
 for consumer in 'node scripts/check-packaging.js' 'node scripts/test-check-packaging.js' 'node scripts/test-check-readme.js' 'scripts/test-readme-install.sh'; do
   if grep -qxF "$consumer" <<<"$out"; then ok "a bin/vgshell change selects $consumer"; else fail "a bin/vgshell change omitted $consumer"; fi
 done
+
+# The live operation follows only engine publication inputs. Its controls
+# remain available offline; a floor cannot hide behind a known-input skip.
+for file in bin/lib/engine.js packaging/arch/vgshell-quickshell/PKGBUILD packaging/arch/vgshell-quickshell/vgs-1129-fileview-read.patch packaging/fedora/vgshell-quickshell.spec packaging/fedora/copr-project packaging/debian/vgshell-quickshell/rules scripts/debian-packages.sh flake.lock; do
+  d="$tmp/engine-input-${file//\//-}"; fresh "$d"
+  mkdir -p -- "$d/$(dirname -- "$file")"
+  printf 'changed\n' >>"$d/$file"
+  test_area=cli; test_args=(--changed HEAD --list)
+  row "engine publication input $file selects the live operation and controls" "$d" 0 "" \
+    'node scripts/check-packaging.js --engine-availability' 'node scripts/test-engine-availability.js' '!validate: selection=full'
+  test_area=offline
+  row "engine publication input $file keeps only controls offline" "$d" 0 "" \
+    '!node scripts/check-packaging.js --engine-availability' 'node scripts/test-engine-availability.js' '!validate: selection=full'
+done
+test_area=offline; test_args=()
+
+# Every actual graphical entry reads the installed prerequisite before it
+# dispatches. Changes to that guard or its package owner select the entries.
+for file in scripts/lib/engine-availability.js scripts/check-packaging.js scripts/preflight-floor.js bin/lib/engine.js bin/lib/judge-files.js bin/vgshell-pkg bin/lib/qml-library.js shell/Core/PackageManagers.js; do
+  d="$tmp/engine-entry-input-${file//\//-}"; fresh "$d"
+  mkdir -p -- "$d/$(dirname -- "$file")"
+  printf 'changed\n' >>"$d/$file"
+  test_area=qml; test_args=(--changed HEAD --list)
+  row "installed prerequisite input $file selects each graphical entry" "$d" 0 "" \
+    'scripts/qml-smoke.sh' 'scripts/measure-shader.sh' '!validate: selection=full'
+done
+test_area=offline; test_args=()
 
 d="$tmp/plan-full"; fresh "$d"
 full_plan="$(cd -- "$d" && "${base_env[@]}" bash scripts/validate offline --full --list 2>"$tmp/plan.err")"
@@ -2277,7 +2306,7 @@ fi
 
 d="$tmp/plan-selector"; fresh "$d"
 printf '\n' >>"$d/scripts/validate"
-selector_plan=$'smoke_reads_named\n'"$repo_plan"$'\nscripts/test-validate.sh'
+selector_plan=$'node scripts/test-engine-availability.js\nsmoke_reads_named\n'"$repo_plan"$'\nscripts/test-validate.sh'
 if out="$(cd -- "$d" && "${base_env[@]}" bash scripts/validate --list 2>"$tmp/plan.err")" && [[ $out == "$selector_plan" ]]; then
   ok "selector changes run their control without unrelated product suites"
 else
@@ -2567,6 +2596,41 @@ row "control: omitting preparation fails the actual catalog consumer" "$d" 1 "" 
   "validate: failed=catalog input (exit 1)" '!consumer=read-only-world'
 test_args=()
 
+# An entry must wait for the installed-engine prerequisite even when the
+# caller explicitly selected qml and no packaging row will execute.
+for spec in pass:0 refuse:1 unreadable:77 bypass:1; do
+  state="${spec%:*}"; expected="${spec#*:}"
+  d="$tmp/installed-entry-$state"; fresh "$d"
+  printf '#!/bin/sh\nprintf "nested-entry=started\\n"\n' >"$d/scripts/qml-smoke.sh"
+  chmod +x "$d/scripts/qml-smoke.sh"
+  printf 'console.log(JSON.stringify({status: "%s", channel: "installed"})); process.exit(%s);\n' "${state/bypass/refuse}" "$expected" >"$d/scripts/check-packaging.js"
+  python3 - "$d/scripts/validate" "$state" <<'PYENGINE'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1]); text = p.read_text()
+a = text.index('rows=(\n'); b = text.index('\n)\n', a) + 3
+text = text[:a] + 'rows=(\n  "qml|nested entry|scripts/qml-smoke.sh||entry"\n)' + text[b:]
+if sys.argv[2] == 'bypass':
+    line = '      "$repo/scripts/smoke/gpu-fence.sh" --fresh -- node "$repo/scripts/check-packaging.js" --installed-engine || exit "$?"'
+    assert text.count(line) == 1
+    text = text.replace(line, '      if false; then\n' + line + '\n      fi')
+p.write_text(text)
+PYENGINE
+  test_area=qml; test_args=(--full)
+  if [[ $state == pass ]]; then
+    row "installed engine permits explicit qml dispatch" "$d" 0 "" 'nested-entry=started' 'validate: ok'
+  elif [[ $state == bypass ]]; then
+    if (failures=0; row "installed refusal before dispatch" "$d" 1 "" '!nested-entry=started'; ((failures == 0))) >"$tmp/installed-control.log"; then
+      fail "control: bypassing installed prerequisite leaves its dispatch assertion green"
+    else
+      ok "control: bypassing installed prerequisite fails its dispatch assertion"
+    fi
+  else
+    row "installed engine $state prevents explicit qml dispatch" "$d" "$expected" "" '!nested-entry=started'
+  fi
+done
+test_area=offline; test_args=()
+
 # Selection cases use a transparent world stand-in. These cases use the
 # production boundary and a planted reader independent of its implementation.
 world_fixture() {
@@ -2585,6 +2649,13 @@ mkdir -p "$XDG_CONFIG_HOME/row"
 printf 'planted\n' >"$XDG_CONFIG_HOME/row/file"
 SH
   chmod +x "$1/scripts/test-world.sh"
+  cat >"$1/scripts/test-network-world.sh" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ -n ${VGSHELL_WORLD_ROOT:-} && ! -w $PWD && ! -w $PWD/.git ]]
+printf 'network-namespace=%s\n' "$(readlink /proc/self/ns/net)"
+SH
+  chmod +x "$1/scripts/test-network-world.sh"
   cat >"$1/scripts/test-outside.sh" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -2614,6 +2685,7 @@ b = s.index('\n)\n', a) + 3
 areas = ('logic', 'manifests', 'boundary', 'cli', 'tools', 'repo', 'unit', 'qml')
 rows = ['  "' + area + '|world ' + area + '|scripts/test-world.sh|"' for area in areas]
 rows += ['  "repo|scratch under row root|world_scratch|"']
+rows += ['  "cli|live world|scripts/test-network-world.sh||network"']
 rows += ['  "' + area + '|outside ' + area + '|scripts/test-outside.sh||container"' for area in ('package', 'nix')]
 rows += ['  "tools|world control exception|scripts/test-gpu-fence.sh||control"']
 rows += ['  "qml|graphical entry owner|scripts/qml-smoke.sh --log-dir tmp/qml-output||entry"']
@@ -2635,8 +2707,12 @@ world_run() { # DIR AREA: leave output and status for assertions and controls
     bash scripts/validate "$2" --full 2>&1)" || status=$?
 }
 d="$tmp/row-world"; world_fixture "$d"
+network_namespace="$(readlink /proc/self/ns/net)"
 for area in logic manifests boundary cli tools repo unit qml; do
   world_run "$d" "$area"
+  if [[ $area == cli ]]; then
+    if grep -qxF "network-namespace=$network_namespace" <<<"$out"; then ok "the live row retains its caller's network inside the read-only world"; else fail "the live row lost its declared network"; fi
+  fi
   world_root="$(sed -n 's/^world-root=//p' <<<"$out")" || world_root=""
   if [[ $status == 0 && -n $world_root && $world_root != none && ! -e $world_root ]] &&
      "${base_env[@]}" git -C "$d" diff --quiet HEAD && [[ ! -e $d/.git/vgs-validate-tmp && -s $d/.git/vgs-validated-$area ]]; then
@@ -2645,6 +2721,27 @@ for area in logic manifests boundary cli tools repo unit qml; do
     fail "the $area area world: exit=$status root=$world_root"; printf '%s\n' "$out" | sed 's/^/        /'
   fi
 done
+qml_output="$out"
+cp -- "$d/scripts/validate" "$tmp/network-world-validate"
+python3 - "$d/scripts/validate" <<'PYNET'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1]); text = p.read_text()
+old = '[[ $owner != network ]] || declarations+=(--net)'
+assert text.count(old) == 1
+p.write_text(text.replace(old, '[[ $owner != network ]] || declarations+=()'))
+PYNET
+world_run "$d" cli
+if [[ $status != 0 ]] || ! grep -q '^network-namespace=net:\[[0-9]*\]$' <<<"$out"; then
+  fail "control: the network operation ended without readable namespace evidence"
+elif grep -qxF "network-namespace=$network_namespace" <<<"$out"; then
+  fail "control: omitting network declaration leaves its namespace assertion green"
+else
+  ok "control: omitting network declaration fails its namespace assertion"
+fi
+cp -- "$tmp/network-world-validate" "$d/scripts/validate"
+# Keep the graphical row's output for the existing teardown assertions.
+out="$qml_output"
 qml_world_root="$(sed -n 's/^qml-world-root=//p' <<<"$out")" || qml_world_root=""
 if [[ -n $qml_world_root && ! -e $qml_world_root && $(<"$d/tmp/qml-output/world-output") == written ]]; then
   ok "the graphical entry owns its world and declared output"

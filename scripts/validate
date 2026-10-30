@@ -18,8 +18,8 @@
 #   unit runs the QML unit tests, which need Qt and no Wayland session;
 #   package builds and installs the Arch recipes in a podman container; nix
 #   builds the flake in a container, which needs podman or docker and the
-#   network; offline runs every row but unit, package, nix and the nested
-#   smoke.
+#   network; offline excludes unit, package, nix, nested smoke and the
+#   explicitly network-enabled publication row.
 #   --changed BASE selects rows whose inputs changed against BASE, including
 #   staged, unstaged and untracked files. Renames include both paths. Unknown
 #   inputs or an unreadable diff select the whole area. Repository checks
@@ -216,9 +216,12 @@ run() { # SCRATCH WORLD-OWNER LABEL CMD...
       [[ -z $node_bin ]] || export PATH="${node_bin%/*}:$PATH"
       "$@"
     elif [[ $owner == entry ]]; then
+      # A parallel packaging row cannot stop a nested entry from starting.
+      "$repo/scripts/smoke/gpu-fence.sh" --fresh -- node "$repo/scripts/check-packaging.js" --installed-engine || exit "$?"
       # Graphical runners own their output declarations before world entry.
       "$@"
     else
+      [[ $owner != network ]] || declarations+=(--net)
       if [[ -n ${VGS_VALIDATE_CHANGED:-} ]]; then
         mapfile -d '' -t paths <"$VGS_VALIDATE_CHANGED" || exit 1
         path_count=${#paths[@]}
@@ -253,7 +256,8 @@ catalog_wallpaper_names() {
 # Rows: area | label | command | additional input globs, space-delimited,
 # and the `$NAME` environment inputs and `@NAME` shared state the header
 # names | world owner (default row). An entry owns its world's declarations;
-# a container supplies its own boundary. The world's control needs the
+# network retains the world with live network access; a container supplies
+# its own boundary. The world's control needs the
 # caller's writable checkout to prove entry and read-only checks.
 # The command's words that hold a slash are also inputs. Every input glob
 # counts, a root file such as VERSION included.
@@ -441,6 +445,8 @@ rows=(
   "cli|fedora source RPM controls|scripts/test-fedora-srpm.sh|packaging/fedora/* .copr/Makefile scripts/fedora-container.sh scripts/lib/release-tarball.sh scripts/vgshell-rows.sh bin/vgshell VERSION"
   "cli|packaging recipe check|node scripts/check-packaging.js|scripts/preflight-floor.js bin/lib/engine.js packaging/arch/* packaging/fedora/* packaging/debian/* scripts/debian-packages.sh packaging/xdg-desktop-portal/* bin/vgshell config/requirements.json shell/plugins/*/manifest.json VERSION shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Ui/icons/Own.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js shell/Commons/PageReference.js bin/lib/qml-library.js bin/vgshell-scan packaging/install-tree.manifest bin/lib/first-start.sh packaging/install-system.sh flake.nix flake.lock install.sh config/runtime-libraries.json packaging/channel-gaps.json docs/architecture/distribution.md"
   "cli|packaging recipe check controls|node scripts/test-check-packaging.js|scripts/check-packaging.js scripts/preflight-floor.js bin/lib/engine.js config/runtime-libraries.json packaging/arch/* packaging/fedora/* packaging/debian/* scripts/debian-packages.sh packaging/xdg-desktop-portal/* bin/vgshell config/requirements.json shell/plugins/*/manifest.json VERSION shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Ui/icons/Own.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js shell/Commons/PageReference.js bin/lib/qml-library.js bin/vgshell-scan packaging/install-tree.manifest bin/lib/first-start.sh packaging/install-system.sh flake.nix flake.lock install.sh config/runtime-libraries.json packaging/channel-gaps.json docs/architecture/distribution.md"
+  "cli|engine publication availability|node scripts/check-packaging.js --engine-availability|scripts/lib/engine-availability.js scripts/preflight-floor.js bin/lib/engine.js packaging/arch/vgshell-quickshell/* packaging/fedora/vgshell-quickshell.spec packaging/fedora/copr-project packaging/debian/vgshell-quickshell/* scripts/debian-packages.sh flake.nix flake.lock VERSION|network"
+  "cli|engine availability controls|node scripts/test-engine-availability.js|scripts/check-packaging.js scripts/validate scripts/smoke/row-inputs.sh scripts/lib/engine-availability.js scripts/preflight-floor.js bin/lib/engine.js bin/lib/judge-files.js bin/vgshell-pkg bin/lib/qml-library.js shell/Core/PackageManagers.js packaging/arch/vgshell-quickshell/* packaging/fedora/vgshell-quickshell.spec packaging/fedora/copr-project packaging/debian/vgshell-quickshell/* scripts/debian-packages.sh flake.nix flake.lock VERSION"
   "cli|README install section check controls|node scripts/test-check-readme.js|scripts/check-readme.js bin/lib/qml-library.js shell/Core/PackageManagers.js README.md VERSION bin/vgshell bin/vgshell-scan install.sh docs/architecture/runtime.md packaging/arch/* shell/plugins/*"
   "cli|README install runner host-side controls|scripts/test-readme-install.sh|scripts/readme-install.sh scripts/check-readme.js bin/lib/qml-library.js shell/Core/PackageManagers.js README.md VERSION bin/vgshell bin/vgshell-scan install.sh docs/architecture/runtime.md packaging/arch/* shell/plugins/*"
   "cli|plugin list controls|scripts/test-vgshell-plugin-list.sh|scripts/vgshell-rows.sh bin/vgshell bin/vgshell-plugin-judge bin/vgshell-pkg bin/lib/* shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Ui/icons/Own.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js shell/Commons/PageReference.js"
@@ -564,8 +570,8 @@ rows=(
   "nix|nix flake package|scripts/test-flake.sh|flake.nix flake.lock packaging/arch/vgshell-quickshell/* config/requirements.json packaging/install-system.sh packaging/install-tree.manifest scripts/check-install-tree.sh bin/* shell/* config/* themes/* VERSION @alone|container"
   "package|Debian engine build|scripts/debian-packages.sh|scripts/debian-packages.sh packaging/debian/* packaging/arch/vgshell-quickshell/* @alone|container"
   "package|Arch package build|scripts/arch-packages.sh|scripts/lib/release-tarball.sh packaging/arch/* packaging/install-system.sh bin/lib/post-install.txt bin/lib/first-start.sh bin/vgshell-browser-policy themes/targets/chromium/* config/requirements.json config/shell.json shell/plugins/*/manifest.json @alone|container"
-  "qml|nested smoke|scripts/qml-smoke.sh|shell/* bin/* config/* themes/* packaging/install-system.sh packaging/install-tree.manifest VERSION scripts/smoke/* scripts/sample-shell-memory.sh scripts/lib/jarvis-env.sh scripts/fixtures/jarvis/* scripts/fixtures/jarvis-setup/status.py scripts/fixtures/jarvis-setup/installed.py scripts/fixtures/jarvis-voice/installed.js scripts/test-task-event.js @alone|entry"
-  "qml|shader GPU cost|scripts/measure-shader.sh|scripts/measure-shader.sh scripts/shader/* scripts/smoke/user-config.sh scripts/check-voiceorb-shader.py shell/Ui/feedback/VoiceOrb.qml shell/Ui/feedback/shaders/* shell/plugins/vgs.voice/Plasma.qml shell/plugins/vgs.voice/Appearance.js shell/plugins/vgs.voice/shaders/* shell/Commons/* config/shell.json bin/lib/qml-library.js shell/Core/HyprlandLayer.js scripts/smoke/harness.sh scripts/smoke/gpu-fence.sh scripts/smoke/devices.sh scripts/smoke/fixtures/devices/* scripts/smoke/mode-hold.sh scripts/smoke/teardown.sh scripts/smoke/hypr-call.sh scripts/smoke/verdict.sh scripts/smoke/tree.sh scripts/smoke/shot.sh scripts/smoke/app-window.sh scripts/smoke/pointer/* scripts/smoke/toplevel/* scripts/smoke/keyboard/* scripts/smoke/sink/* @alone|entry"
+  "qml|nested smoke|scripts/qml-smoke.sh|shell/* bin/* config/* themes/* packaging/install-system.sh packaging/install-tree.manifest VERSION scripts/smoke/* scripts/sample-shell-memory.sh scripts/lib/jarvis-env.sh scripts/fixtures/jarvis/* scripts/fixtures/jarvis-setup/status.py scripts/fixtures/jarvis-setup/installed.py scripts/fixtures/jarvis-voice/installed.js scripts/test-task-event.js scripts/check-packaging.js scripts/preflight-floor.js scripts/lib/engine-availability.js @alone|entry"
+  "qml|shader GPU cost|scripts/measure-shader.sh|scripts/measure-shader.sh scripts/shader/* scripts/smoke/user-config.sh scripts/check-voiceorb-shader.py shell/Ui/feedback/VoiceOrb.qml shell/Ui/feedback/shaders/* shell/plugins/vgs.voice/Plasma.qml shell/plugins/vgs.voice/Appearance.js shell/plugins/vgs.voice/shaders/* shell/Commons/* config/shell.json bin/lib/qml-library.js shell/Core/HyprlandLayer.js scripts/smoke/harness.sh scripts/smoke/gpu-fence.sh scripts/smoke/devices.sh scripts/smoke/fixtures/devices/* scripts/smoke/mode-hold.sh scripts/smoke/teardown.sh scripts/smoke/hypr-call.sh scripts/smoke/verdict.sh scripts/smoke/tree.sh scripts/smoke/shot.sh scripts/smoke/app-window.sh scripts/smoke/pointer/* scripts/smoke/toplevel/* scripts/smoke/keyboard/* scripts/smoke/sink/* scripts/check-packaging.js scripts/preflight-floor.js scripts/lib/engine-availability.js bin/lib/engine.js bin/lib/judge-files.js bin/vgshell-pkg shell/Core/PackageManagers.js @alone|entry"
 )
 
 # The branch point, printed on stdout: the merge base of COMMIT, HEAD by
@@ -1709,7 +1715,7 @@ if [[ -n $change_base ]]; then
         # Command words without a slash, such as node, are not inputs.
         read -r -a patterns <<<"$inputs"
         # run wraps ordinary rows even when their command never names the world.
-        if [[ ${owner:-row} == row ]]; then
+        if [[ ${owner:-row} == row || $owner == network ]]; then
           patterns+=(scripts/smoke/gpu-fence.sh)
         fi
         read -r -a words <<<"$command"
@@ -1748,10 +1754,10 @@ selected=()
 row_command=()
 validate_started=$SECONDS
 for i in "${!rows[@]}"; do
-  IFS='|' read -r row_area label command inputs _ <<<"${rows[i]}"
+  IFS='|' read -r row_area label command inputs owner <<<"${rows[i]}"
   case "$area" in
     all) ;;
-    offline) [[ $row_area == qml || $row_area == unit || $row_area == nix || $row_area == package ]] && continue ;;
+    offline) [[ $row_area == qml || $row_area == unit || $row_area == nix || $row_area == package || $owner == network ]] && continue ;;
     *) [[ $area != "$row_area" ]] && continue ;;
   esac
   [[ ${affected[i]} == true || $row_area == repo ]] || continue

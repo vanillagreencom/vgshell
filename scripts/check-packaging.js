@@ -3,6 +3,17 @@
 // requirements VGS declares. One checker serves every channel.
 //
 //   node scripts/check-packaging.js [--root DIR]
+//   node scripts/check-packaging.js --engine-availability [--root DIR] [--source-ref REF]
+//   node scripts/check-packaging.js --installed-engine [--root DIR] [--executable FILE]
+//
+// The explicit engine operations print one JSON result. status is pass (0),
+// refuse (1), or unreadable (77); channel, need, reason and step identify the
+// evidence and remedy. Availability reads every public channel live and adds
+// its checks array. REF names the public Nix source; by default the latest
+// commit of the local flake, lock or shared patches identifies it. The
+// installed operation reads only the selected executable's --version and its
+// package owner. FILE selects an absolute target executable after any exported
+// Nix store has been mounted by the world. No operation installs an engine.
 //
 // DIR, this repository by default, holds the data judged: VERSION,
 // bin/vgshell's preflight_floor table, config/requirements.json, the plugins
@@ -118,6 +129,12 @@ const { parseFloors, DOTTED } = require("./preflight-floor.js");
 
 // The repository this script runs from: the judge, its loader and the scan.
 const codeRoot = path.resolve(__dirname, "..");
+// Publication deliberately stays separate: the AUR publisher calls the
+// offline judge while preparing the engine which is not published yet.
+if (["--engine-availability", "--installed-engine"].includes(process.argv[2])) {
+    require("./lib/engine-availability.js").main(process.argv.slice(2), codeRoot);
+    return;
+}
 // The data judged: codeRoot, or --root DIR.
 const root = (() => {
     const args = process.argv.slice(2);

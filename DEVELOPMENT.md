@@ -117,7 +117,13 @@ Both take `--dry-run`, which makes every check and changes nothing outside `dist
 
 At each landing on `main` that changes `packaging/arch/vgshell-git/`, the overseer publishes `vgshell-git` to the AUR through `scripts/publish-aur.sh` on the maintainer's machine. The landing notice names the AUR commit or the refusal. A refusal leaves the publication acceptance box open.
 
-The overseer also publishes `vgshell-quickshell` when its recipe or local sources change. Keep the engine's upstream pin and patches consistent across AUR, COPR, Debian and the Nix flake. The git channels and Nix receive the patched engine through publication after landing. AUR `vgshell` and Fedora `vgshell` receive the dependency at the next VGS release tag containing this change. Jarvis cuts a patch release (`X.Y.Z`, `Z > 0`) or a minor release for the owner when the work needs it, after one clean main batch run with measured timings. The release runs on the maintainer's machine. Only an `x.0` release waits for the owner. Group any steps that need the owner's own hand, such as a passphrase or a sign-in, into one question to the owner. Keep the Fedora release tag check in `packaging/fedora/srpm.sh`. [distribution.md § Quickshell engine](docs/architecture/distribution.md#quickshell-engine) holds the channel gaps and retirement rule.
+The overseer also publishes `vgshell-quickshell` when its recipe or local sources change. Keep the engine's upstream pin and patches consistent across AUR, COPR, Debian and the Nix flake. Before raising the engine floor on `main`, commit a coherent candidate and push its revision without advancing `main`. Run the offline recipe check, publish the AUR engine from that checkout, and build the COPR engine from that exact public revision for every target in `packaging/fedora/copr-project`. Wait for the RPMs to appear in repository metadata. The public candidate must also contain the matching flake lock and shared patches.
+
+Debian checkout installation and checkout update run the incoming tree's engine preparer, which requests the exact Debian asset from that tree's `VERSION` tag. Publish that asset with its signature and checksum assets through the normal signed release before landing a floor those consumers cannot install. Tagged release installers use the engine declaration in their own archive; an older tag does not inherit `main`'s floor. AUR `vgshell` and Fedora `vgshell` receive the dependency at the next VGS release tag containing the change.
+
+Have the fleet owner install the published engine on every executor that will run nested validation. Check the actual executable and package ownership; an installer exit alone does not prove replacement. Then run `node scripts/check-packaging.js --engine-availability --source-ref <candidate revision>` against the final candidate and `node scripts/check-packaging.js --installed-engine` on each executor. An unreadable publication state exits 77. A refusal names the channel, required engine and publication or installation step. These checks install nothing. Only after availability and installation pass does the landing workflow advance `main`. The default `node scripts/check-packaging.js` stays offline, including when the AUR publisher calls it before publication.
+
+Jarvis cuts a patch release (`X.Y.Z`, `Z > 0`) or a minor release for the owner when the work needs it, after one clean main batch run with measured timings. The release runs on the maintainer's machine. Only an `x.0` release waits for the owner. Group any steps that need the owner's own hand, such as a passphrase or a sign-in, into one question to the owner. Keep the Fedora release tag check in `packaging/fedora/srpm.sh`. [distribution.md § Quickshell engine](docs/architecture/distribution.md#quickshell-engine) holds the channel gaps and retirement rule.
 
 ### Before the first release
 
@@ -149,7 +155,7 @@ The overseer also publishes `vgshell-quickshell` when its recipe or local source
    node scripts/check-packaging.js
    ```
 
-2. Run `scripts/validate --full` once. A release is an explicit full sweep. Then commit on `main` and push.
+2. Run `scripts/validate --full` once. A release is an explicit full sweep. Then commit and push. When this release supplies a new engine floor, publish the candidate revision without advancing `main` and complete the engine availability and fleet installation order above before landing it.
 3. Tag and push the tag:
 
    ```bash
@@ -197,7 +203,7 @@ copr-cli add-package-scm vgshell --name vgshell-quickshell --clone-url https://g
 copr-cli build-package vgshell --name vgshell-quickshell
 ```
 
-Wait for the engine build to succeed. Then add and build the shell packages:
+For a new engine candidate, set the engine package's SCM committish to its exact public candidate revision before building it. Wait for the engine build to succeed and its RPMs to appear in every declared target's repository metadata. Then add and build the shell packages:
 
 ```bash
 copr-cli add-package-scm vgshell --name vgshell-git --clone-url https://github.com/vanillagreencom/vgshell.git \
