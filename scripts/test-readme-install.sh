@@ -45,6 +45,14 @@ for rel in "${files[@]}"; do
   mkdir -p -- "$tree/$(dirname -- "$rel")"
   cp -p -- "$repo/$rel" "$tree/$rel"
 done
+python3 - "$tree/scripts/check-readme.js" <<'PY'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+text = path.read_text()
+old = 'command: c.command })'
+assert text.count(old) == 1
+path.write_text(text.replace(old, 'command: c.command + (process.env.STUB_MALFORMED_COMMAND ? " )" : "") })'))
+PY
 version="$(<"$tree/VERSION")"
 
 # --- PATH -------------------------------------------------------------------
@@ -53,7 +61,7 @@ version="$(<"$tree/VERSION")"
 farm="$tmp/farm"
 stubs="$tmp/stubs"
 mkdir -p -- "$farm" "$stubs"
-for tool in bash env readlink dirname mkdir rm cat tail sed grep python3 yes sleep timeout script chmod; do
+for tool in bash env readlink realpath dirname mkdir mktemp rm cp ln mv chown cat tail sed grep python3 yes sleep timeout script chmod bwrap; do
   found="$(command -v -- "$tool")" || { echo "test-readme-install: status=not-measured missing=$tool"; exit 77; }
   ln -s -- "$(readlink -f -- "$found")" "$farm/$tool"
 done
@@ -71,27 +79,65 @@ cat >"$stubs/podman" <<'EOF'
 [[ -n ${STUB_PODMAN_WORKS:-} ]] || exit 1
 case "$1" in
   image|commit|rm|rmi) exit 0 ;;
+  inspect)
+    if [[ -n ${STUB_VOLUME_CANDIDATE:-} ]]; then printf '%s\n' "$STUB_VOLUME_CANDIDATE"; exit 0; fi
+    cat "$STUB_RECORD.${@: -1}.volume"
+    exit ;;
+  volume)
+    if [[ $2 == inspect ]]; then printf '%s\n' "$STUB_HOME"; exit 0; fi
+    printf 'volume-rm %s\n' "${@: -1}" >>"$STUB_RECORD"
+    exit 0 ;;
+  cp)
+    shift
+    [[ $1 != -- ]] || shift
+    source="${1#*:}"
+    [[ $source != /nix/store/* ]] || source="$STUB_HOME/store/store/${source#/nix/store/}"
+    cp -a -- "$source" "$2"
+    exit ;;
   run)
     nix=false
     [[ $* != *nixos/nix* ]] || nix=true
     shift
     [[ $1 == -d ]] || { printf 'prepare %s\n' "${@: -1}" >>"$STUB_RECORD"; exit 0; }
     printf 'start %s\n' "$3" >>"$STUB_RECORD"
+    if [[ $* == *'vgs-validate-nix-2.35.2:/nix'* ]]; then
+      printf 'vgs-validate-nix-2.35.2\n' >"$STUB_RECORD.$3.volume"
+    else
+      printf 'private-nix\n' >"$STUB_RECORD.$3.volume"
+    fi
     [[ $nix == false ]] || : >"$STUB_RECORD.$3.nix"
     exit 0 ;;
   exec)
+    export STUB_OCI_USER=root
     while [[ $1 != -- ]]; do
       if [[ $1 == -e ]]; then export "$2"; shift; fi
+      if [[ $1 == --user ]]; then export STUB_OCI_USER="$2"; shift; fi
       shift
     done
     container="$2"
     case "$container" in
-      vgs-readme-install-3.*|vgs-readme-install-5.*) export STUB_VERSION="${STUB_CHECKOUT_VERSION:-$STUB_VERSION}" ;;
+      vgs-readme-install-3.*|vgs-readme-install-5.*|vgs-readme-install-6.*|vgs-readme-install-7.*) export STUB_VERSION="${STUB_CHECKOUT_VERSION:-$STUB_VERSION}" ;;
       *) export STUB_VERSION="${STUB_PACKAGE_VERSION:-$STUB_VERSION}" ;;
     esac
     [[ ! -e $STUB_RECORD.$container.nix ]] || export PATH="$STUB_NIX_PATH"
     shift 2
     [[ $1 != install ]] || exit 0
+    if [[ $1 == chown ]]; then printf 'private-owner %s %s\n' "$container" "${@: -1}" >>"$STUB_RECORD"; exit 0; fi
+    # An early consumer exit can SIGPIPE the export under pipefail.
+    if [[ $1 == nix-store && $2 == --import ]]; then exec cat >/dev/null; fi
+    [[ $1 != nix-store || $2 != --add-root ]] || exit 0
+    [[ $1 != rm || ${@: -1} != */dependency-proof ]] || exit 0
+    [[ $1 != bash || $2 != -n ]] || exec "$@"
+    if [[ $* == *'VGS install test'* ]]; then
+      [[ -n ${STUB_REAL_ACCOUNT_FILES:-} ]] || exit 0
+      exec bwrap --ro-bind / / --bind "$STUB_ACCOUNT_ETC" /etc --bind "$STUB_ACCOUNT_HOME" /home "$@"
+    fi
+    if [[ $* == *'id -u'* ]]; then [[ $STUB_OCI_USER == user ]]; exit; fi
+    if [[ $1 == cat && $2 == /vgs-runtime-path ]]; then printf '%s\n' "$PATH"; exit 0; fi
+    if [[ $1 == cat && $2 == /vgs-runtime-output ]]; then printf '%s\n' "$STUB_HOME/vgshell"; exit 0; fi
+    if [[ $1 == cat && $2 == /vgs-runtime-closure ]]; then printf '/nix/store/fixture\n'; exit 0; fi
+    if [[ $* == *'engine.js" path'* ]]; then printf '%s\n' "$STUB_HOME/.engines/git-original/bin"; exit 0; fi
+    if [[ $1 == du ]]; then printf '%s\t/nix/store/fixture\n' "${STUB_CLOSURE_BYTES:-15}"; exit 0; fi
     printf 'exec %s %s\n' "$container" "${@: -1}" >>"$STUB_RECORD"
     cd -- "$STUB_HOME" && HOME="$STUB_HOME" exec "$@" ;;
   *) exit 64 ;;
@@ -121,6 +167,9 @@ fi
 if [[ -n ${STUB_REQUIRE_PAGER:-} ]]; then
   printf '%s\n' '[[ ${PARU_PAGER:-} == cat ]] || exit 69'
 fi
+if [[ -n ${STUB_REQUIRE_NONROOT:-} ]]; then
+  printf '%s\n' '[[ ${STUB_OCI_USER:-root} != root ]] || exit 79'
+fi
 if [[ -n ${STUB_REQUIRE_TTY:-} ]]; then
   printf '%s\n' 'if ! { : 2>/dev/null <>/dev/tty; }; then echo "install.sh: refused: floor=xdg-terminal-exec have=none need=present" >&2; exit 78; fi'
 fi
@@ -146,12 +195,24 @@ exit 0
 EOF
 cat >"$stubs/nix" <<'EOF'
 #!/usr/bin/env bash
+if [[ $1 == build ]]; then echo "$STUB_HOME/vgshell"; exit 0; fi
 if [[ $* == *--version ]]; then echo "vgshell $STUB_VERSION"; exit 0; fi
 echo 'vgshell: refused: hyprland=unreachable' >&2
 exit 69
 EOF
+cat >"$stubs/nix-store" <<'EOF'
+#!/usr/bin/env bash
+printf '/nix/store/fixture\n'
+[[ $# -le 2 ]] || printf '/nix/store/engine\n'
+EOF
 home="$tmp/home"
 mkdir -p -- "$home/vgshell/bin"
+mkdir -p -- "$home/vgshell/shell" "$home/vgshell/config" "$home/vgshell/themes" "$home/store/store"
+mkdir -p -- "$home/store/store/engine/bin" "$home/.engines"
+: >"$home/store/store/engine/bin/qs"
+ln -s -- "$home/store/store/engine" "$home/.engines/git-original"
+printf 'runtime\n' >"$home/vgshell/VERSION"
+printf 'exported store\n' >"$home/store/store/fixture"
 cat >"$home/vgshell/bin/vgshell" <<'EOF'
 #!/usr/bin/env bash
 if [[ $* == *'version --json' ]]; then
@@ -185,7 +246,8 @@ row() {
   : >"$record"
   out="$(env -i PATH="$path" HOME="$tmp" LC_ALL=C STUB_RECORD="$record" STUB_HOME="$home" STUB_VERSION="$version" STUB_NIX_PATH="$stubs:$farm_nix" "${vars[@]}" "$tree/scripts/readme-install.sh" "$@" 2>&1)" || status=$?
   row_output="$out"
-  first="${out%%$'\n'*}"
+  if ! first="$(sed '/^readme-install: syntax /d; /^readme-install: space /d' <<<"$out")"; then fail "$name: syntax receipt filter failed"; return; fi
+  first="${first%%$'\n'*}"
   # WANT_FIRST is a glob pattern: only the timing row uses `*`.
   # shellcheck disable=SC2053
   if [[ $status == "$want_exit" && $first == $want_first ]]; then
@@ -200,6 +262,7 @@ stubbed="$stubs:$farm"
 empty_aur='{"results":[]}'
 
 row "an unknown argument is refused" 2 "readme-install: refused: argument=--bogus" "$stubbed" -- --bogus
+row "an unknown channel is refused" 2 "readme-install: refused: channel=missing reason=unknown" "$stubbed" -- --channel missing
 row "no podman is not measured" 77 "readme-install: status=not-measured reason=podman-missing" "$farm" --
 row "a failed AUR probe is not measured" 77 "readme-install: status=not-measured reason=aur-probe package=vgshell-git" "$stubbed" STUB_CURL_EXIT=7 --
 row "an AUR answer with no result list is not measured" 77 "readme-install: status=not-measured reason=aur-probe package=vgshell-git" "$stubbed" STUB_CURL_OUT='{}' --
@@ -213,17 +276,76 @@ row "a COPR answer neither 200 nor 404 is not measured" 77 "readme-install: stat
 row "a curl download that fails with no output is refused" 1 "$download_first" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_FETCH_EXIT=22 --
 aur_first="$(grep -n -F -x -- "paru -S vgshell-git" "$tree/README.md")" || { echo "test-readme-install: readme=no-paru-line"; exit 1; }
 published=("$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT='{"results":[{"Name":"vgshell-git"}]}' STUB_COPR_PUBLISHED=1)
+row "malformed commands fail syntax before an install starts" 1 "readme-install: refused: block=1 syntax=refused" "${published[@]}" STUB_MALFORMED_COMMAND=1 -- --export "$tmp/syntax-exports"
 row "the published commands run" 0 "readme-install: ok line=${aur_first%%:*} channel=aur exit=0 seconds=*" "${published[@]}" --
 # Each command the record names, after its fence's number in the README.
 fence_want=$'1 paru -S vgshell-git\n1 vgshell --version\n2 sudo dnf copr enable vanillagreen/vgshell\n2 sudo dnf install vgshell\n2 vgshell --version\n3 '"$curl_command"$'\n3 ~/.local/bin/vgshell --version\n3 ~/.local/bin/vgshell version --json\n4 nix run github:vanillagreencom/vgshell -- start\n4 nix run github:vanillagreencom/vgshell -- --version\n5 git clone https://github.com/vanillagreencom/vgshell\n5 vgshell/bin/vgshell start\n5 vgshell/bin/vgshell --version\n5 vgshell/bin/vgshell version --json'
+for block in 6 7; do fence_want+=$'\n'"$block $curl_command"$'\n'"$block ~/.local/bin/vgshell --version"$'\n'"$block ~/.local/bin/vgshell version --json"; done
 fence_have="$(sed -n -E 's/^exec vgs-readme-install-([0-9]+)\.[0-9]+ /\1 /p' -- "$record")"
 fence_starts="$(sed -n -E 's/^start vgs-readme-install-([0-9]+)\.[0-9]+$/\1/p' -- "$record")"
-if [[ $fence_have == "$fence_want" && $fence_starts == $'1\n2\n3\n4\n5' ]]; then
+if [[ $fence_have == "$fence_want" && $fence_starts == $'1\n2\n3\n4\n5\n6\n7' ]]; then
   ok "each fence runs in its own container"
 else
   fail "each fence runs in its own container"
   sed 's/^/        /' -- "$record"
 fi
+
+export_row() {
+  rm -rf -- "$tmp/exports"
+  row "published installs export their runtime trees and Nix store" 0 "readme-install: ok line=${aur_first%%:*} channel=aur exit=0 seconds=*" "${published[@]}" -- --export "$tmp/exports"
+  if python3 - "$tmp/exports" "$row_output" <<'PY'
+import pathlib, re, sys
+root = pathlib.Path(sys.argv[1])
+trees = {}
+for line in sys.argv[2].splitlines():
+    if not line.startswith("readme-install: tree "): continue
+    match = re.fullmatch(r"readme-install: tree line=(\d+) channel=([\w-]+) path=(\S+)(?: store=(\S+))?", line)
+    assert match, line
+    number, channel, path, store = match.groups()
+    assert channel not in trees, channel
+    tree = pathlib.Path(path)
+    assert tree == root / f"line-{number}-{channel}", path
+    assert (tree / "bin/vgshell").is_file(), path
+    assert (tree / "VERSION").read_text() == "runtime\n", path
+    assert not (tree / "README.md").exists(), path
+    if channel in ("nix", "curl-nixos"):
+        assert pathlib.Path(store) == tree / "nix"
+        assert (pathlib.Path(store) / "store/fixture").read_text() == "exported store\n"
+    else: assert store is None, line
+    trees[channel] = tree
+    if channel == "curl-nixos":
+        assert len(list((tree / ".engines").iterdir())) == 1
+        assert (tree / "nix/store/engine/bin/qs").is_file()
+assert set(trees) == {"aur", "fedora", "curl", "checkout", "nix", "curl-debian", "curl-nixos"}, trees
+PY
+  then ok "each installed block exports once, without installed documentation"; else fail "installed tree/store exports differ"; fi
+}
+export_row
+row "selected added channels reuse only their curl blocks" 0 "readme-install: ok line=$curl_line channel=curl-debian exit=0 seconds=*" "${published[@]}" -- --channel curl-debian --channel curl-nixos
+if [[ $(sed -n -E 's/^start vgs-readme-install-([0-9]+)\.[0-9]+$/\1/p' -- "$record") == $'6\n7' ]]; then ok "selection starts no completed channel"; else fail "selection started another channel"; fi
+row "NixOS curl runs as its nonroot user with a private writable store" 0 "readme-install: ok line=$curl_line channel=curl-nixos exit=0 seconds=*" "${published[@]}" STUB_REQUIRE_NONROOT=1 -- --channel curl-nixos
+if grep -q -E '^private-owner vgs-readme-install-7\.[0-9]+ /nix$' "$record" && grep -qxF 'volume-rm private-nix' "$record"; then ok "only the private store is handed over and removed"; else fail "private Nix store ownership or cleanup was not exercised"; fi
+private_store_refusal() {
+  row "a shared volume candidate is refused before cleanup ownership" 77 'readme-install: status=not-measured reason=container-setup step=private-store' "${published[@]}" STUB_VOLUME_CANDIDATE=vgs-validate-nix-2.35.2 -- --channel curl-nixos
+  if grep -qxF 'volume-rm vgs-validate-nix-2.35.2' "$record"; then fail "cleanup removed the rejected shared candidate"; else ok "cleanup never removes the rejected shared candidate"; fi
+}
+private_store_refusal
+row "an export that would leave less than 3 GB is refused" 1 "readme-install: ok line=${aur_first%%:*} channel=aur exit=0 seconds=*" "${published[@]}" STUB_CLOSURE_BYTES=1000000000000 -- --export "$tmp/no-space-exports"
+if [[ $row_output == *' export=space'* ]] && ! compgen -G "$tmp/no-space-exports/line-*-nix" >/dev/null; then ok "the closure space refusal precedes the Nix copy"; else fail "the Nix closure ignored the available space"; fi
+# The new export assertion must reject a runner that never hands trees out.
+cp -p -- "$tree/scripts/readme-install.sh" "$tmp/readme-install-export.orig"
+python3 - "$tree/scripts/readme-install.sh" <<'PY'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+text = path.read_text()
+old = '    export_tree "$version_command"'
+assert text.count(old) == 1
+path.write_text(text.replace(old, '    : "$version_command"'))
+PY
+export_before=$failures
+export_row >"$tmp/export-control.log" 2>&1
+cp -p -- "$tmp/readme-install-export.orig" "$tree/scripts/readme-install.sh"
+if ((failures == export_before + 1)); then failures=$export_before; ok "control: an absent export fails its row"; else fail "control: an absent export passed its row"; fi
 
 row "dnf's prompts are answered y" 0 "readme-install: ok line=${aur_first%%:*} channel=aur exit=0 seconds=*" "${published[@]}" STUB_REQUIRE_YES=1 --
 dnf_line="$(grep -n -F -x -- "sudo dnf install vgshell" "$tree/README.md")" || { echo "test-readme-install: readme=no-dnf-line"; exit 1; }
@@ -254,6 +376,19 @@ readme_edit 'AUR helper: paru or yay.' 'AUR helper: yay.'
 row "the image installs the helper named by the README" 77 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" --
 if grep -qxF 'prepare yay' "$record"; then ok "the image reads the README helper"; else fail "the image did not read the README helper"; fi
 cp -p -- "$tmp/README.md.orig" "$tree/README.md"
+cp -p -- "$tree/scripts/readme-install.sh" "$tmp/readme-install-owner.orig"
+python3 - "$tree/scripts/readme-install.sh" <<'PY'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+text = path.read_text()
+old = '    [[ -n $candidate && $candidate != "$nix_volume" ]]'
+assert text.count(old) == 1
+path.write_text(text.replace(old, '    nixos_volume="$candidate"\n' + old))
+PY
+owner_before=$failures
+private_store_refusal >"$tmp/owner-control.log" 2>&1
+cp -p -- "$tmp/readme-install-owner.orig" "$tree/scripts/readme-install.sh"
+if ((failures == owner_before + 1)); then failures=$owner_before; ok "control: old cleanup publication order fails its ownership assertion"; else fail "control: old cleanup publication order passed its ownership assertion"; fi
 row "curl receives a controlling terminal" 77 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_REQUIRE_TTY=1 --
 row "curl receives a noninteractive recipe pager" 77 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_REQUIRE_PAGER=1 --
 row "checkout versions use the canonical version and describe report" 77 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_DESCRIBE="$version.r14.g797b0cb" --
@@ -296,7 +431,43 @@ PY
   fi
 }
 # The OLD and NEW texts are the runner's own shell, never expanded here.
+cp -p -- "$tmp/README.md.orig" "$tree/README.md"
 # shellcheck disable=SC2016
+control "an omitted same-image syntax check" 'container_exec bash -n -c "$syntax"' 'true' \
+  "syntax" 1 "readme-install: refused: block=1 syntax=refused" "${published[@]}" STUB_MALFORMED_COMMAND=1 -- --export "$tmp/syntax-exports"
+control "NixOS curl using root" 'image="$nixos_prepared" user=user' 'image="$nixos_prepared" user=root' \
+  "nonroot" 0 "readme-install: ok line=$curl_line channel=curl-nixos exit=0 seconds=*" "${published[@]}" STUB_REQUIRE_NONROOT=1 -- --channel curl-nixos
+# shellcheck disable=SC2016
+control "a shared store selected for handover" 'run_args+=(-v /nix ' 'run_args+=(-v "$nix_volume:/nix" ' \
+  "private-store" 0 "readme-install: ok line=$curl_line channel=curl-nixos exit=0 seconds=*" "${published[@]}" STUB_REQUIRE_NONROOT=1 -- --channel curl-nixos
+mkdir -p "$tmp/account-files/etc" "$tmp/account-files/home" "$tmp/account-files/store"
+printf 'root:x:0:0:fixture:/root:/bin/sh\n' >"$tmp/account-files/store/passwd"
+printf 'root:x:0:\n' >"$tmp/account-files/store/group"
+cp -- "$tmp/account-files/store/passwd" "$tmp/account-files/passwd.before"
+cp -- "$tmp/account-files/store/group" "$tmp/account-files/group.before"
+chmod 444 "$tmp/account-files/store/passwd" "$tmp/account-files/store/group"
+ln -s "$tmp/account-files/store/passwd" "$tmp/account-files/etc/passwd"
+ln -s "$tmp/account-files/store/group" "$tmp/account-files/etc/group"
+account_case=("${published[@]}" STUB_REQUIRE_NONROOT=1 STUB_REAL_ACCOUNT_FILES=1 "STUB_ACCOUNT_ETC=$tmp/account-files/etc" "STUB_ACCOUNT_HOME=$tmp/account-files/home" -- --channel curl-nixos)
+# shellcheck disable=SC2016
+control "account writes through the store link" 'mv -T -- "$copy" "$file"' 'cat "$copy" >"$file"' \
+  "image-owned accounts" 0 "readme-install: ok line=$curl_line channel=curl-nixos exit=0 seconds=*" "${account_case[@]}"
+row "account files detach from the store before the fixture is appended" 0 "readme-install: ok line=$curl_line channel=curl-nixos exit=0 seconds=*" "${account_case[@]}"
+if python3 - "$tmp/account-files" <<'PY'
+from pathlib import Path
+import sys
+root = Path(sys.argv[1])
+for name in ("passwd", "group"):
+    assert not (root / "etc" / name).is_symlink()
+    assert (root / "store" / name).read_bytes() == (root / (name + ".before")).read_bytes()
+assert "user:x:1000:1000:" in (root / "etc/passwd").read_text()
+assert (root / "home/user").is_dir()
+PY
+then ok "the container account changed and the shared-store fixture stayed byte-identical"; else fail "the shared-store account fixture changed"; fi
+control "an omitted closure space check" 'if free - size < 3_000_000_000:' 'if False:' \
+  "space" 1 "readme-install: ok line=${aur_first%%:*} channel=aur exit=0 seconds=*" "${published[@]}" STUB_CLOSURE_BYTES=1000000000000 -- --export "$tmp/space-control-exports"
+# shellcheck disable=SC2016
+readme_edit "$curl_command" "curl -fsSL $curl_url | bash"
 control "a runner that reads a failed release probe as an answer" \
   '2>&1)" ||
         not_measured "release-probe tag=${1#release:}" "$out"' '2>&1)" || true' \
@@ -317,7 +488,7 @@ control "a runner without pipefail" 'printf -v argv "%q " timeout "$1" bash -o p
 control "curl without a controlling terminal" 'script -qE never -ec "$argv" /dev/null' 'bash -c "$argv"' \
   "terminal" 77 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_REQUIRE_TTY=1 --
 # shellcheck disable=SC2016
-control "an interactive recipe pager" '-e PARU_PAGER=cat ' '' \
+control "an interactive recipe pager" 'env PARU_PAGER=cat ' 'env ' \
   "pager" 77 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_REQUIRE_PAGER=1 --
 # shellcheck disable=SC2016
 control "an unchecked checkout base version" 'if (report.version !== process.argv[2]) process.exit(1);' '' \
@@ -330,7 +501,7 @@ control "an unchecked packaged version" '[[ $version_out == "vgshell $(<"$repo/V
   "package version" 1 "readme-install: ok line=${aur_first%%:*} channel=aur exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT='{"results":[{"Name":"vgshell-git"}]}' STUB_PACKAGE_VERSION=broken --
 
 # shellcheck disable=SC2016
-control "the Nix image without script cannot use the Arch wrapper" '    arch) wrapper=' '    arch|nix) wrapper=' \
+control "the Nix image without script cannot use the Arch wrapper" '    arch|debian|nixos) wrapper=' '    arch|debian|nixos|nix) wrapper=' \
   "Nix image" 0 "readme-install: ok line=${aur_first%%:*} channel=aur exit=0 seconds=*" "${published[@]}" --
 
 if ((failures > 0)); then

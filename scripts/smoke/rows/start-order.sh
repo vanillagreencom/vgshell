@@ -327,26 +327,32 @@ print(str(any(s.get("instance",{}).get("pid")==pid and s["instance"].get("instan
     fail "the stop_shell copy with no lock wait could not be written"
   fi
 }
-# A restart whose engine check refuses, under a qs first on PATH that
-# prints no version, fails the row once, naming the check, and leaves the
-# shell running under the same runner. Its lines go to their own file.
+# A restart whose engine probe prints no version fails once and leaves the
+# shell running. Installed Nix runners prepend their own PATH or managed
+# engine, so the disposable copy names its probe explicitly.
 refused_restart_log="$sandbox/refused-restart-control.log"
 no_version_engine="$sandbox/no-version-engine"
 mkdir -p -- "$no_version_engine"
-printf '#!/bin/sh\nexit 0\n' >"$no_version_engine/qs"
-chmod +x -- "$no_version_engine/qs"
+printf '#!/bin/sh\nexit 0\n' >"$no_version_engine/vgs-smoke-no-version-qs"
+chmod +x -- "$no_version_engine/vgs-smoke-no-version-qs"
 refused_restart_control() {
   local counted
   counted="$(
     failures=0 behaviour_failures=0
-    restart_live "$repo/bin/vgshell" PATH="$no_version_engine:$PATH" >"$refused_restart_log"
+    restart_live "$sandbox/tree-no-version-engine/bin/vgshell" PATH="$no_version_engine:$PATH" >"$refused_restart_log"
     echo "$failures"
   )" || return
   printf '%s %s\n' "$counted" "$(pid_state "$shell_qs_pid")"
 }
-plant restart
-expect "control: a restart the engine check refuses fails once and leaves the shell running" "1 running" refused_restart_control
-expect "control: the refused restart's failure names the engine check" 1 grep -c -F -- "preflight=quickshell have=unknown" "$refused_restart_log"
+if no_version_probe="$(grep '^quickshell ' "$repo/bin/vgshell")" && [[ $no_version_probe == *'qs --version' ]] \
+  && copy_tree no-version-engine \
+  && edit_tree no-version-engine bin/vgshell "$no_version_probe" "${no_version_probe%qs --version}vgs-smoke-no-version-qs --version"; then
+  plant restart
+  expect "control: a restart the engine check refuses fails once and leaves the shell running" "1 running" refused_restart_control
+  expect "control: the refused restart's failure names the engine check" 1 grep -c -F -- "preflight=quickshell have=unknown" "$refused_restart_log"
+else
+  fail "the no-version engine control could not be prepared"
+fi
 restart_live "$repo/bin/vgshell"
 : >"$gate"
 

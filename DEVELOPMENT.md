@@ -227,24 +227,36 @@ curl -fsS 'https://aur.archlinux.org/rpc/v5/info?arg[]=vgshell-quickshell&arg[]=
 # Each AUR package, installed through paru in a clean Arch container, as a
 # user does: paru also builds the depends only the AUR holds.
 for pkg in vgshell vgshell-git; do
-  podman run --rm docker.io/library/archlinux:latest bash -euc '
+  mkdir -p "tmp/release-installs/aur-$pkg"
+  podman run --rm -v "$PWD/tmp/release-installs/aur-$pkg:/export" docker.io/library/archlinux:latest bash -euc '
     pacman -Syu --noconfirm --needed base-devel git sudo
     useradd -m builder
     echo "builder ALL=(ALL) NOPASSWD: ALL" >/etc/sudoers.d/builder
     runuser -u builder -- bash -c "cd && git clone https://aur.archlinux.org/paru.git && cd paru && makepkg -si --noconfirm"
     runuser -u builder -- bash -c "cd && paru -S --noconfirm --skipreview $1"
-    vgshell --version' _ "$pkg"
+    vgshell --version
+    entry="$(readlink -f -- "$(command -v vgshell)")"
+    tree="$(dirname -- "$(dirname -- "$entry")")"
+    cp -a -- "$tree/." /export/' _ "$pkg"
 done
 
 # The README's published installs, including curl in its prepared Arch image.
-scripts/readme-install.sh
+scripts/readme-install.sh --export tmp/release-installs
 
 # The flake at the tag.
 podman run --rm -e NIX_CONFIG='experimental-features = nix-command flakes' docker.io/nixos/nix:2.35.2 \
   nix run github:vanillagreencom/vgshell/vX.Y.Z -- --version
 ```
 
-Packaged installs print `vgshell X.Y.Z`; checkout installs report `X.Y.Z` in `version --json` and print that report's `describe` value when present. Then run `vgshell run` from each install inside the nested sandbox: [validation.md](docs/architecture/validation.md#nested-sandbox).
+Packaged installs print `vgshell X.Y.Z`; checkout installs report `X.Y.Z` in `version --json` and print that report's `describe` value when present. The export command above and this loop start each installed tree through the [nested sandbox](docs/architecture/validation.md#nested-sandbox). Nix uses the exported store in the world's private `/nix`: [D113](docs/decisions/D113-world-root-from-host-mounts.md).
+
+```bash
+for tree in tmp/release-installs/*; do
+  args=(--tree "$tree" --rows bar)
+  [[ ! -d $tree/nix ]] || args+=(--nix-store "$tree/nix")
+  scripts/qml-smoke.sh "${args[@]}"
+done
+```
 
 ## Licence
 

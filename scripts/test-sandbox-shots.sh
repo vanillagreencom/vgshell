@@ -1876,11 +1876,17 @@ fi
 # files and this checkout's smoke scripts, without starting a compositor.
 helper_repo="$tmp/helper-repo"
 mkdir -p "$helper_repo/bin/lib" "$helper_repo/shell" "$helper_repo/config" "$helper_repo/themes" "$helper_repo/packaging/jarvis-home"
+mkdir -p "$helper_repo/themes/targets"
+: >"$helper_repo/themes/targets/fixture"
 printf 'revision persona\n' >"$helper_repo/packaging/jarvis-home/persona.md"
 printf 'module.exports = { where: "bin/lib" };\n' >"$helper_repo/bin/lib/qml-library.js"
 printf 'process.stdout.write(require(require("path").join(__dirname, "lib", "qml-library.js")).where);\n' >"$helper_repo/bin/judge"
 : >"$helper_repo/shell/shell.qml"; : >"$helper_repo/config/shell.json"; : >"$helper_repo/themes/.keep"
 for file in VERSION LICENSE README.md; do printf 'revision %s\n' "$file" >"$helper_repo/$file"; done
+printf '9.9.9\n' >"$helper_repo/VERSION"
+cp -- "$repo/bin/lib/engine.js" "$helper_repo/bin/lib/engine.js"
+mkdir -p "$tmp/managed-engine/bin"
+: >"$tmp/managed-engine/bin/qs"
 helper_git() { git -C "$helper_repo" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@" >/dev/null; }
 helper_git init -q
 helper_git add -A
@@ -1894,28 +1900,41 @@ harness_copy_case() { # LIB
   out="$({
     source "$lib"
     tree_export "$helper_repo" "$product_rev" "$dir" || { echo "tree_export failed"; exit 1; }
+    rm -- "$dir/README.md" "$dir/LICENSE"
+    mkdir -- "$dir/.engines"
+    ln -s -- "$tmp/managed-engine" "$dir/.engines/git-original-identity"
+    chmod -R a-w -- "$dir"
     tree_harness_copy "$repo" "$target" "$dir"
+    printf 'observer edit\n' >>"$target/shell/shell.qml" || { echo "sandbox copy is not writable"; exit 1; }
+    rm -r -- "$target/themes/targets" || { echo "sandbox copied directory is not removable"; exit 1; }
+    [[ ! -s $dir/shell/shell.qml && ! -w $dir/shell/shell.qml && ! -w $dir/themes/targets ]] || { echo "read-only input changed"; exit 1; }
+    tree_harness_engine "$dir" "$target" "$target/data"
+    [[ $(readlink -f -- "$target/data/vgshell/.engines/release-9.9.9") == "$tmp/managed-engine" ]] || { echo "managed engine not restored"; exit 1; }
     [[ -e "$target/packaging/install-system.sh" ]] || { echo "packaging missing"; exit 1; }
     [[ -e "$target/scripts/qml-smoke.sh" ]] || { echo "scripts missing"; exit 1; }
     [[ $(node "$target/bin/judge") == bin/lib ]] || { echo "runtime helper missing"; exit 1; }
     cmp -s -- "$helper_repo/packaging/jarvis-home/persona.md" "$target/packaging/jarvis-home/persona.md" || { echo "revision base package missing"; exit 1; }
-    for file in VERSION LICENSE README.md; do
-      cmp -s -- "$helper_repo/$file" "$target/$file" || { echo "revision file missing: $file"; exit 1; }
+    cmp -s -- "$helper_repo/VERSION" "$target/VERSION" || { echo "revision version missing"; exit 1; }
+    for file in LICENSE README.md; do
+      cmp -s -- "$repo/$file" "$target/$file" || { echo "checkout documentation missing: $file"; exit 1; }
     done
     echo ok
   } 2>&1)" || status=$?
+  # These are this case's exclusively owned disposable fixtures. Restore
+  # their write bits only after the source-preservation assertions.
+  chmod -R u+w -- "$dir" "$target" || return 1
   [[ $status -eq 0 && $out == ok ]] && return 0
   echo "exit=$status out=$(head -n 1 <<<"$out")"
   return 1
 }
 if harness_copy_case "$repo/scripts/smoke/tree.sh"; then ok "the harness copies the revision's product and current smoke scripts"; else fail "the harness copies the revision's product and current smoke scripts"; fi
-# A control copies the wrong revision's installer files.
+# A control copies the checkout's version instead of the tested tree's.
 copy_mutant="$tmp/tree-copy-mutant.sh"
 if python3 - "$repo/scripts/smoke/tree.sh" "$copy_mutant" <<'PYCONTROL'
 import sys
 src, dst = sys.argv[1:]
 text = open(src).read()
-needle = 'origin = tree / file_name'
+needle = 'origin = (tree if file_name == "VERSION" else source) / file_name'
 assert text.count(needle) == 1, "installer file source must match once"
 open(dst, "w").write(text.replace(needle, 'origin = source / file_name'))
 PYCONTROL
@@ -1926,6 +1945,8 @@ else
 fi
 # A control exports no base package, and one copies the checkout's.
 package_controls=(
+  'read-only sandbox copy|owned.chmod(mode | stat.S_IWUSR)|pass'
+  'managed engine under the wrong identity|ln -s -- "$engine" "$root"|ln -s -- "$engine" "$root.wrong"'
   'a revision exported without its base package|package+=("$at")|:'
   'the checkout base package|shutil.copytree(tree / package, target / package)|shutil.copytree(source / package, target / package)'
 )

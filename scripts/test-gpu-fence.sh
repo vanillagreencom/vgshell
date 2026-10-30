@@ -60,7 +60,11 @@ export PATH="${native_node%/*}:$PATH"
 TMP_ROOT="$(mktemp -d /var/tmp/test-gpu-fence.XXXXXX)" || { echo "test-gpu-fence: scratch=mktemp-failed" >&2; exit 1; }
 [[ -d $TMP_ROOT && ! -L $TMP_ROOT ]] || { echo "test-gpu-fence: scratch=not-a-directory value=[$TMP_ROOT]" >&2; exit 1; }
 TMP_ROOT="$(cd -- "$TMP_ROOT" && pwd -P)" || { echo "test-gpu-fence: scratch=resolve-failed" >&2; exit 1; }
-trap 'rm -rf -- "${TMP_ROOT:?}"' EXIT
+cleanup() {
+  chmod -R u+rwX -- "${TMP_ROOT:?}"
+  rm -rf -- "${TMP_ROOT:?}"
+}
+trap cleanup EXIT
 failures=0
 unmeasured=0
 ok() { printf '  ok    %s\n' "$*"; }
@@ -862,6 +866,7 @@ import os
 from pathlib import Path
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 import tempfile
@@ -989,7 +994,7 @@ pathlib.Path(output, "result.json").write_text(json.dumps(result))
     controls = (
         ("writable-input", 'mounts+=(--ro-bind "$input" "$input")', 'mounts+=(--bind "$input" "$input")', "input", "writable"),
         ("parent-world-marker", "if fenced /; then", 'if [[ -n ${VGSHELL_WORLD_ROOT:-} ]]; then', "tmp", "connected"),
-        ("writable-host", "bwrap --ro-bind / /", "bwrap --bind / /", "checkout", "deleted"),
+        ("writable-host", 'root_mounts+=(--ro-bind "$host_entry" "$host_entry")', 'root_mounts+=(--bind "$host_entry" "$host_entry")', "checkout", "deleted"),
         ("runtime-mask", 'mounts+=(--perms 0700 --tmpfs "$XDG_RUNTIME_DIR")', 'mounts+=()', "runtime", "connected"),
         ("session-pass", "passed=(PATH USER", "passed=(WAYLAND_DISPLAY PATH USER", "session", ["WAYLAND_DISPLAY"]),
         ("network", "network=(--unshare-net)", "network=()", "abstract", "connected"),
@@ -1020,6 +1025,68 @@ pathlib.Path(output, "result.json").write_text(json.dumps(result))
         completed = subprocess.run([bash, fence, "--out", directory, "true"], env={"PATH": os.environ["PATH"], "HOME": str(base / "refuse-home"), "TMPDIR": str(base)}, capture_output=True, text=True, timeout=10)
         assert completed.returncode == 2 and "refused: output=" in completed.stderr, (name, completed.returncode, completed.stderr)
         print("world-contract: output-refused=" + name)
+    store = base / "exported-nix"
+    store.mkdir()
+    (store / "fixture").write_text("exported\n")
+    readonly = store / "store/readonly"
+    readonly.mkdir(parents=True)
+    (readonly / "asset").write_text("immutable\n")
+    (readonly / "asset").chmod(0o444)
+    readonly.chmod(0o555)
+    external = base / "external-sentinel"
+    external.write_text("outside\n")
+    external.chmod(0o400)
+    (store / "external").symlink_to(external)
+    host_nix = os.path.lexists("/nix")
+    nix_probe = '''import errno, os, pathlib, stat, subprocess, sys
+assert pathlib.Path("/nix/fixture").read_text() == "exported\\n"
+assert pathlib.Path("/nix/store/readonly/asset").read_text() == "immutable\\n"
+assert stat.S_IMODE(pathlib.Path("/nix/store/readonly").stat().st_mode) == 0o555
+pathlib.Path("/nix/fixture").write_text("private\\n")
+try:
+    pathlib.Path("/world-root-write").write_text("forbidden")
+except OSError as error:
+    assert error.errno == errno.EROFS, error
+else:
+    raise AssertionError("world root is writable")
+subprocess.run([sys.argv[1], sys.argv[2], "--check"], check=True)
+print(os.environ["VGSHELL_WORLD_ROOT"])
+'''
+    def nix_run(file):
+        completed = subprocess.run([bash, str(file), "--input", mutants, "--nix-store", str(store), "python3", "-c", nix_probe, bash, str(file)],
+                                   env={"PATH": os.environ["PATH"], "TMPDIR": str(base)}, capture_output=True, text=True, timeout=20)
+        assert completed.returncode == 0, (completed.returncode, completed.stderr)
+        owned = Path(completed.stdout.strip())
+        assert owned.parent == base and owned.name.startswith("vgshell-world."), owned
+        removed = not owned.exists()
+        # A failed teardown mutant leaves only its exclusively acquired
+        # test root. This fixture owner releases it without following links.
+        if not removed:
+            for directory, _, files in os.walk(owned, followlinks=False):
+                Path(directory).chmod(Path(directory).stat().st_mode | 0o700)
+                for name in files:
+                    path = Path(directory, name)
+                    if not path.is_symlink(): path.chmod(path.stat().st_mode | 0o600)
+            shutil.rmtree(owned)
+        assert os.path.lexists("/nix") == host_nix
+        assert (store / "fixture").read_text() == "exported\n"
+        assert (readonly / "asset").read_text() == "immutable\n"
+        assert stat.S_IMODE(readonly.stat().st_mode) == 0o555
+        assert stat.S_IMODE((readonly / "asset").stat().st_mode) == 0o444
+        assert external.read_text() == "outside\n" and stat.S_IMODE(external.stat().st_mode) == 0o400
+        return removed
+    assert nix_run(fence), "read-only store copy was not removed"
+    old = 'chmod -R u+rwX -- "$fence_dir"'
+    assert source.count(old) == 1
+    teardown_mutant = Path(mutants) / "readonly-teardown.sh"
+    teardown_changed = source.replace(old, "true")
+    assert teardown_changed != source
+    teardown_mutant.write_text(teardown_changed)
+    assert not nix_run(teardown_mutant), "teardown without permission restoration passed"
+    # The input fixture's owner releases its own read-only directory only
+    # after both production/mutant source-preservation assertions.
+    readonly.chmod(0o755)
+    print("world-contract: nix=private-writable root=readonly host-nix=unchanged check=pass teardown=removed source-modes=unchanged external-link=untouched control=teardown-rejected")
     for item in (caller, tmp_socket, abstract, tcp, named_socket): item.close()
 PYWORLD
 then
@@ -1048,7 +1115,7 @@ chmod +x "$TMP_ROOT/fence-stand-in" "$TMP_ROOT/runner"
 entry_points=(qml-smoke.sh sandbox-shots.sh measure-shader.sh qml-unit.sh jarvis-selftest.sh test-smoke-sink.sh)
 entry_words() {
   case "$1" in
-    qml-smoke.sh) words=(--timeout "6 0" --keep --log-dir "$TMP_ROOT/smoke-logs") ;;
+    qml-smoke.sh) words=(--tree "$TMP_ROOT/installed tree" --nix-store "$TMP_ROOT/exported nix" --timeout "6 0" --keep --log-dir "$TMP_ROOT/smoke-logs") ;;
     sandbox-shots.sh) words=(--out "$TMP_ROOT/tree-$1/tmp/o ut" --scale 2 --keep gallery) ;;
     measure-shader.sh) words=(--calibrate "out file.json" --keep) ;;
     qml-unit.sh) words=(--ui "$TMP_ROOT/u i") ;;
@@ -1096,7 +1163,7 @@ entry() {
   entry_words "$name" || return 1
   [[ ${4:-} != default-log ]] || words=()
   rm -rf -- "$tree" "$TMP_ROOT/entry-tmp"
-  mkdir -p "$tree/scripts/smoke" "$tree/shell/plugins/vgs.jarvis/backend" "$TMP_ROOT/entry-tmp"
+  mkdir -p "$tree/scripts/smoke" "$tree/shell/plugins/vgs.jarvis/backend" "$TMP_ROOT/entry-tmp" "$TMP_ROOT/installed tree" "$TMP_ROOT/exported nix"
   cp -- "$file" "$tree/scripts/$name"
   python3 - "$tree/scripts/$name" "$voxtype_builds" "$voxtype_cpuinfo" <<'PY'
 import re, sys
@@ -1130,7 +1197,7 @@ enters() {
   local want word tree="$TMP_ROOT/tree-$2" declarations=()
   entry "$1" "$2" 1 || return 1
   case "$2" in
-    qml-smoke.sh) declarations=(--out "$tree/tmp/display-record" --keep --out "$TMP_ROOT/smoke-logs") ;;
+    qml-smoke.sh) declarations=(--out "$tree/tmp/display-record" --input "$TMP_ROOT/installed tree" --nix-store "$TMP_ROOT/exported nix" --keep --out "$TMP_ROOT/smoke-logs") ;;
     sandbox-shots.sh) declarations=(--out "$tree/tmp/o ut" --out "$tree/tmp/display-record" --out "$tree/tmp/qml-smoke" --keep) ;;
     measure-shader.sh) declarations=(--out "$tree/tmp/shader-cost" --out "$tree/tmp/display-record" --out "$tree/tmp/qml-smoke" --keep --out "$TMP_ROOT/cwd") ;;
     jarvis-selftest.sh) declarations=(--net --out "$tree/tmp/display-record" --out "$tree/tmp/selftest-records" --out "$tree/tmp/qml-smoke" --out "$TMP_ROOT" --sign-in COPILOT_HOME "$TMP_ROOT/entry-account" --secrets) ;;

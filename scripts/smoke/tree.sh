@@ -16,11 +16,10 @@ tree_export() {
 
 # tree_harness_copy CHECKOUT TARGET TREE: make the sandbox copy the smoke
 # harness runs. TREE is the product tree under test. CHECKOUT supplies the
-# packaging and the smoke scripts. TREE supplies its own VERSION,
-# LICENSE and README.md.
+# packaging, smoke scripts and documentation. TREE supplies its own VERSION.
 tree_harness_copy() {
   python3 - "$1" "$2" "$3" <<'PY'
-import pathlib, shutil, sys
+import os, pathlib, shutil, stat, sys
 source, target, tree = map(pathlib.Path, sys.argv[1:])
 for directory in ("shell", "bin", "config", "themes"):
     shutil.copytree(tree / directory, target / directory)
@@ -34,9 +33,35 @@ for package in map(pathlib.Path, (".agents/skills/jarvis", "packaging/jarvis-hom
         shutil.copytree(tree / package, target / package)
 shutil.copytree(source / "scripts", target / "scripts")
 for file_name in ("VERSION", "LICENSE", "README.md"):
-    origin = tree / file_name
+    origin = (tree if file_name == "VERSION" else source) / file_name
     shutil.copyfile(origin, target / file_name)
+# Nix store inputs have read-only modes. Instrumentation edits this owned
+# copy, while the input and any links outside the copy stay untouched.
+for directory, _, files in os.walk(target, followlinks=False):
+    owned = pathlib.Path(directory)
+    owned.chmod(owned.stat().st_mode | stat.S_IWUSR)
+    for name in files:
+        owned = pathlib.Path(directory, name)
+        mode = owned.lstat().st_mode
+        if not stat.S_ISLNK(mode):
+            owned.chmod(mode | stat.S_IWUSR)
 PY
+}
+
+# Restore the one exported install's managed engine using the runtime's
+# identity owner. The sandbox copy has no .git, so its identity is a release.
+tree_harness_engine() { # TREE TARGET DATA_HOME
+  local tree="$1" target="$2" data="$3" engine root
+  [[ -d $tree/.engines ]] || return 0
+  local engines=("$tree/.engines/"*)
+  [[ ${#engines[@]} -eq 1 && -e ${engines[0]}/bin/qs ]] || return 1
+  engine="$(readlink -f -- "${engines[0]}")" || return
+  root="$(node - "$target/bin/lib/engine.js" "$data" "$target" <<'JS'
+process.stdout.write(require(process.argv[2]).rootFor(process.argv[3], process.argv[4]));
+JS
+)" || return
+  mkdir -p -- "${root%/*}"
+  ln -s -- "$engine" "$root"
 }
 
 # tree_smoke_observer CHECKOUT TARGET: instrument a disposable runtime tree,
