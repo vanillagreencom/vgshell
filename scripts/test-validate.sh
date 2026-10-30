@@ -101,6 +101,9 @@ template() {
   printf '#!/bin/sh\nwhile [ "$1" != -- ]; do shift; done\nshift\nexec "$@"\n' >"$dir/scripts/smoke/gpu-fence.sh"
   chmod +x "$dir/scripts/smoke/gpu-fence.sh"
   printf 'console.log(JSON.stringify({status: "pass"}));\n' >"$dir/scripts/check-packaging.js"
+  # Consumer-selection fixtures never start a real nested runtime.
+  printf '#!/bin/sh\nexit 0\n' >"$dir/scripts/test-qml-smoke.sh"
+  chmod +x "$dir/scripts/test-qml-smoke.sh"
   cp -- "$repo/.agents/skills/orch/scripts/lib/kendex-env.sh" "$dir/.agents/skills/orch/scripts/lib/kendex-env.sh"
   cp -R -- "$repo/.agents/skills/commit-guards/scripts" "$dir/.agents/skills/commit-guards/"
   printf '# kendex-guard-dialect: legacy-glob\n.agents/*\tcopies of checkers, whose citations name their own repository\n' >"$dir/tools/md-excludes"
@@ -856,6 +859,12 @@ if area in ["cli", "offline", "all"] and session not in lines and session_input:
 power = "node scripts/test-jarvis-power-wait.js"
 if area in ["cli", "offline", "all"] and power not in lines and session_input:
     lines.insert(lines.index(session) + 1, power)
+# The fatal-row suite starts a real disposable runtime and is the last QML
+# row, so product inputs also select it, without widening non-QML areas.
+fatal_smoke_input = (file.startswith(("shell/", "bin/", "config/", "themes/", "packaging/", "scripts/smoke/", "scripts/fixtures/jarvis/"))
+                     or file in {"scripts/qml-smoke.sh", "scripts/test-qml-smoke.sh", "scripts/lib/jarvis-env.sh", "VERSION", "LICENSE", "README.md"})
+if area in ["qml", "all"] and fatal_smoke_input and "scripts/test-qml-smoke.sh" not in lines:
+    lines.append("scripts/test-qml-smoke.sh")
 print("\n".join(lines), end="")
 PYLIVE
 }
@@ -2201,6 +2210,10 @@ fi
 for dir in runner-reads runner-deep-control runner-refusal-control runner-short runner-short-control runner-filter runner-filter-control; do
   mkdir -p "$tmp/$dir/scripts/smoke/rows"
   cp -- "$repo/scripts/qml-smoke.sh" "$tmp/$dir/scripts/qml-smoke.sh"
+  # These fixtures exercise row selection inside one attempt. The fatal
+  # controls in test-qml-smoke.sh exercise the real world/resume driver.
+  plant "$tmp/$dir/scripts/qml-smoke.sh" 'if [[ -z ${qml_smoke_attempt:-} ]]; then' 'if false; then'
+  plant "$tmp/$dir/scripts/qml-smoke.sh" 'if [[ -n $first_bar_runs || -n ${qml_smoke_attempt:-} ]]; then' 'if true; then'
   cp -- "$repo/scripts/smoke/row-inputs.sh" "$tmp/$dir/scripts/smoke/row-inputs.sh"
   printf '%s\n' '# Rows.' bar hyprland-consent seat session base own top gone start-order auth-sentinel >"$tmp/$dir/scripts/smoke/rows.list"
   for smoke_row_name in bar hyprland-consent seat base start-order auth-sentinel; do
@@ -2213,9 +2226,9 @@ for dir in runner-reads runner-deep-control runner-refusal-control runner-short 
   printf '# inputs: scripts/smoke/rows/left.sh\n' >"$tmp/$dir/scripts/smoke/rows/gone.sh"
   printf '#!/usr/bin/env bash\necho fence >>"%s"\n' "$tmp/$dir/fence.log" >"$tmp/$dir/scripts/smoke/gpu-fence.sh"
   chmod +x "$tmp/$dir/scripts/smoke/gpu-fence.sh"
-  mkdir -p "$tmp/$dir/sandbox/evidence/failed"
-  printf 'sandbox=%q\nfailures=0\nleak_seq=0\n' "$tmp/$dir/sandbox" >"$tmp/$dir/scripts/smoke/harness.sh"
-  printf '%s\n' 'smoke_row() { printf "row=%s\n" "$1"; }' 'compositor_logs_on() { :; }' 'ok() { :; }' 'smoke_finish() { :; }' >>"$tmp/$dir/scripts/smoke/harness.sh"
+  mkdir -p "$tmp/$dir/sandbox/evidence/failed" "$tmp/$dir/sandbox/results"
+  printf 'sandbox=%q\nqml_smoke_attempt=$sandbox\nfailures=0\nnot_measured_rows=()\nleak_seq=0\n' "$tmp/$dir/sandbox" >"$tmp/$dir/scripts/smoke/harness.sh"
+  printf '%s\n' 'smoke_row() { printf "row=%s\n" "$1"; }' 'compositor_logs_on() { :; }' 'ok() { :; }' 'smoke_outcome_journal() { :; }' 'smoke_finish() { :; }' >>"$tmp/$dir/scripts/smoke/harness.sh"
 done
 # The registry owner hides device commands. The runner retains earlier
 # runner-specific hidden names when it appends its own absent tools.
@@ -2666,6 +2679,10 @@ SH
   chmod +x "$1/scripts/test-outside.sh"
   cp -- "$1/scripts/test-outside.sh" "$1/scripts/test-gpu-fence.sh"
   cp -- "$repo/scripts/qml-smoke.sh" "$1/scripts/qml-smoke.sh"
+  # This fixture tests the entry's world declarations with a stand-in
+  # harness. The real driver and resumed worlds have their own controls.
+  plant "$1/scripts/qml-smoke.sh" 'if [[ -z ${qml_smoke_attempt:-} ]]; then' 'if false; then'
+  plant "$1/scripts/qml-smoke.sh" 'if [[ -n $first_bar_runs || -n ${qml_smoke_attempt:-} ]]; then' 'if true; then'
   cp -- "$repo/scripts/smoke/rows.list" "$1/scripts/smoke/rows.list"
   printf 'tmp/\n' >"$1/.gitignore"
   cat >"$1/scripts/smoke/harness.sh" <<'SH'

@@ -30,16 +30,41 @@ mode_hold_run_base=false
 # The row stops there and every other row still runs; a run with no
 # failure and any such row is not measured, never a pass.
 not_measured_rows=()
+# qml-smoke's driver reads the last partial outcome if this row fatals.
+# Planted controls reset their own counters; neither a subshell nor a
+# nested row may replace the containing row's projection.
+smoke_outcome_journal() {
+  [[ ${qml_smoke_attempt_owner:-} == "$BASHPID" ]] || return 0
+  local qml_smoke_journal_path
+  local -a qml_smoke_journal_fields
+  if [[ -n ${smoke_row_name:-} ]]; then
+    [[ $smoke_row_name == "$qml_smoke_row" ]] || return 0
+    qml_smoke_journal_path="$qml_smoke_attempt/partial/$qml_smoke_row"
+    qml_smoke_journal_fields=("$((failures - qml_smoke_failures_before))" "${not_measured_rows[@]:qml_smoke_not_measured_before}")
+  else
+    qml_smoke_journal_path="$qml_smoke_attempt/outside-failures"
+    qml_smoke_journal_fields=("$((failures - qml_smoke_row_failures))")
+  fi
+  if ! {
+    printf '%s\0' "${qml_smoke_journal_fields[@]}" >"$qml_smoke_journal_path.new" &&
+      mv -- "$qml_smoke_journal_path.new" "$qml_smoke_journal_path"
+  }; then
+    printf 'qml-smoke: outcome-journal=write-failed path=%s\n' "$qml_smoke_journal_path" >&2
+    return 1
+  fi
+}
 # not_measured ROW REASON: the row ROW recorded as not measured and printed.
 not_measured() {
   not_measured_rows+=("$1:$2")
   printf '  SKIP  %s: not measured: %s\n' "$1" "$2"
+  smoke_outcome_journal
 }
 # fail MESSAGE: one failed row, counted by its class and printed.
 fail() {
   failures=$((failures + 1))
   [[ $row_class == geometry || $row_class == render ]] || behaviour_failures=$((behaviour_failures + 1))
   printf '  FAIL  %s\n' "$*"
+  smoke_outcome_journal
 }
 # read_count VAR LABEL CMD...: VAR takes CMD's last stdout line when CMD
 # succeeds and that line is a count, a run of digits. Any other reading,
@@ -47,7 +72,8 @@ fail() {
 # fails the row under LABEL and leaves VAR 0, so the row goes on to its
 # own cleanup. A row adds to a count it read: bash takes a word inside
 # $(( )) as a variable's name, and under set -u an unset one ends the
-# sourced row and the run with it, every later row unreported.
+# sourced row's world. qml-smoke.sh resumes the remaining independent rows;
+# a count guard lets this row finish and keep its own cleanup instead.
 read_count() {
   local -n read_count_var="$1"
   local read_count_label="$2" read_count_got read_count_status=0

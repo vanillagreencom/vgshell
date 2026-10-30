@@ -23,7 +23,7 @@
 # the fence and require the case that rule owns to go red.
 #
 # --live runs scripts/qml-smoke.sh --rows bar twice, in a namespace of the
-# suite's own, and interrupts the harness, with INT and then with SIGKILL.
+# suite's own, and interrupts the harness, with TERM and then with SIGKILL.
 # It reads that the sandbox's qs, nested Hyprland and both D-Bus daemons
 # ran before the signal, and that no process naming the sandbox and no
 # sandbox directory is left after. It needs the nested sandbox's
@@ -78,7 +78,8 @@ if [[ ${1-} == --live ]]; then
   }
   # live SIGNAL: one smoke run, its harness sent SIGNAL once its shell runs.
   live() {
-    local signal="$1" out="$TMP_ROOT/live-$1.out" runner fence="" monitor="" binit="" harness="" sandbox="" before="" status=0 _
+    local signal="$1" out="$TMP_ROOT/live-$1.out" runner driver="" fence="" monitor="" binit="" harness="" sandbox="" before="" status=0 _ child word
+    local children=() child_argv=()
     "${contain[@]}" env --default-signal=INT "$repo/scripts/qml-smoke.sh" --rows bar >"$out" 2>&1 &
     runner=$!
     for _ in $(seq 1 600); do
@@ -87,10 +88,21 @@ if [[ ${1-} == --live ]]; then
       if [[ -n $sandbox ]] && before="$(left_naming "$sandbox")" && shell_runs "$before"; then break; fi
       sleep 0.1
     done
-    # unshare -> its PID 1, the fence -> bubblewrap's monitor -> its init
-    # -> the harness. A children file ends with no newline, so read
+    # unshare -> its PID 1, the driver -> the fence -> bubblewrap's monitor
+    # -> its init -> the harness. A children file ends with no newline, so read
     # answers 1 while it fills its variables.
-    read -r fence _ <"/proc/$runner/task/$runner/children" || true
+    read -r driver _ <"/proc/$runner/task/$runner/children" || true
+    # The driver also owns its log reader. Select its world owner by argv,
+    # rather than treating the first sibling as the fence.
+    if [[ -n $driver ]]; then
+      read -r -a children <"/proc/$driver/task/$driver/children" || true
+      for child in "${children[@]}"; do
+        mapfile -d '' -t child_argv <"/proc/$child/cmdline" 2>/dev/null || continue
+        for word in "${child_argv[@]}"; do
+          [[ $word != "$repo/scripts/smoke/gpu-fence.sh" ]] || fence=$child
+        done
+      done
+    fi
     [[ -z $fence ]] || read -r monitor _ <"/proc/$fence/task/$fence/children" || true
     [[ -z $monitor ]] || read -r binit _ <"/proc/$monitor/task/$monitor/children" || true
     [[ -z $binit ]] || read -r harness _ <"/proc/$binit/task/$binit/children" || true
@@ -120,7 +132,10 @@ if [[ ${1-} == --live ]]; then
       fail "live $signal: left after the run (sandbox exists: $([[ -e $sandbox ]] && echo yes || echo no)):"; printf '        %s\n' "$after"
     fi
   }
-  live INT
+  # The fleet slot forwards a stop to its command as TERM. A PID-only INT
+  # does not model terminal Ctrl-C: Bash can continue when the foreground
+  # child did not also end from INT (Bash manual, SIGNALS).
+  live TERM
   live KILL
   if [[ $failures -gt 0 ]]; then echo "test-smoke-owner: failed=$failures"; exit 1; fi
   echo "test-smoke-owner: ok"

@@ -46,7 +46,7 @@ Quickshell links jemalloc, so glibc's `MALLOC_PERTURB_` does nothing. Start a sh
 ## Smoke rows and shots
 
 - Run a row through `scripts/validate qml --changed <base>` or name it to `scripts/qml-smoke.sh --rows`. Both add the core rows `bar`, `hyprland-consent`, `session`, `start-order` and `auth-sentinel`, and the rows the input lines of the rows in the run name: without `hyprland-consent` the first-start notice keeps the keyboard, and without `bar` the device fakes never start and `share-picker` waits on `pw-dump` with no bound.
-- Rows run in one bash shell. Give a new row's helpers a prefix no other row uses.
+- Rows share one bash shell within each world; fatal Bash errors restart the world for independent remaining rows. Give a new row's helpers a prefix no other row uses.
 - Enabling `vgs.jarvis` raises the requirement notice, which takes the keyboard, because the sandbox hides `tesseract`. A Jarvis row that reads focus or pixels calls `jarvis_setup_requirements` from `scripts/smoke/rows/jarvis.sh` before it enables the plugin.
 - `diagnostics` reads the log of the last shell a row started, and `jarvis-input` and `hyprland` restart the shell before it in a full run. A warning an earlier row logs can fail a scoped run and never a full one; compare the instance-log paths the rows print.
 - A scripted edit of a row or of `scripts/smoke/harness.sh` goes in a file run with `python3 FILE`. An inline here-document ends at the row's own `PY` line, and bash runs the rest as commands.

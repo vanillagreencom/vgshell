@@ -623,25 +623,41 @@ display_record_close() { # ORIGINAL_STATUS ORIGIN, before producer TERM
 
 display_record_finish() { # ORIGINAL_EXIT, after the producer groups end
   local original_exit="$1" recorder_exit=0 finalizer_errors=0 reason=normal group
-  [[ $original_exit == 0 || $original_exit == 1 || $original_exit == 77 ]] || reason="interrupted:$original_exit"
+  if [[ -n ${qml_smoke_completion:-} ]]; then
+    reason="world-exit:$original_exit"
+  else
+    [[ $original_exit == 0 || $original_exit == 1 || $original_exit == 77 ]] || reason="interrupted:$original_exit"
+  fi
   for group in "${pgids[@]}"; do
     [[ $group == "$display_record_pid" ]] || wait "$group" 2>/dev/null || true
   done
-  display_record_call mark original-result "$original_exit" "${failures:-unreported}" "${behaviour_failures:-unreported}" >/dev/null || finalizer_errors=1
+  if [[ -n ${qml_smoke_completion:-} ]]; then
+    display_record_call mark world-result "$original_exit" "${failures:-unreported}" "${behaviour_failures:-unreported}" "$qml_smoke_completion" >/dev/null || finalizer_errors=1
+  else
+    display_record_call mark original-result "$original_exit" "${failures:-unreported}" "${behaviour_failures:-unreported}" >/dev/null || finalizer_errors=1
+  fi
   if ! display_record_call stop "$reason" >/dev/null; then
     finalizer_errors=1
     kill -TERM -- "-$display_record_pid" 2>/dev/null || true
   fi
   wait "$display_record_pid" || recorder_exit=$?
   [[ $recorder_exit == 0 ]] || finalizer_errors=1
-  printf 'original_exit=%s\nrecorder_exit=%s\nproducer_groups=terminated-before-recorder-drain\n' "$original_exit" "$recorder_exit" >"$display_record_dir/teardown"
+  if [[ -n ${qml_smoke_completion:-} ]]; then
+    printf 'world_exit=%s\nrecorder_exit=%s\nproducer_groups=terminated-before-recorder-drain\ncompletion=%s\n' "$original_exit" "$recorder_exit" "$qml_smoke_completion" >"$display_record_dir/teardown"
+  else
+    printf 'original_exit=%s\nrecorder_exit=%s\nproducer_groups=terminated-before-recorder-drain\n' "$original_exit" "$recorder_exit" >"$display_record_dir/teardown"
+  fi
   python3 "$display_record_dir/recorder.py" retain "$display_record_dir" "$sandbox" "$rt_dir" "$home" || finalizer_errors=1
   if ! python3 "$display_record_dir/recorder.py" complete "$display_record_dir" "$finalizer_errors"; then
     printf 'qml-smoke: display-record=finalization-unavailable path=%s\n' "$display_record_dir" >&2
     printf '{"localRecord":"incomplete","problems":["finalizer:receipt-unavailable"]}\n' >"$display_record_dir/completeness.json"
     finalizer_errors=1
   fi
-  printf 'qml-smoke: display-record-retained=%s original_exit=%s recorder_exit=%s\n' "$display_record_dir" "$original_exit" "$recorder_exit"
+  if [[ -n ${qml_smoke_completion:-} ]]; then
+    printf 'qml-smoke: display-record-retained=%s world_exit=%s recorder_exit=%s completion=%s\n' "$display_record_dir" "$original_exit" "$recorder_exit" "$qml_smoke_completion"
+  else
+    printf 'qml-smoke: display-record-retained=%s original_exit=%s recorder_exit=%s\n' "$display_record_dir" "$original_exit" "$recorder_exit"
+  fi
   return "$finalizer_errors"
 }
 # display_record_arm DIR CMD...: spawn CMD, the recorder serving DIR, and
@@ -676,8 +692,13 @@ display_record_arm() { # DIR CMD...
   exit 77
 }
 display_record_dir="$(mktemp -d "$source_repo/tmp/display-record/run.XXXXXX")"
+if [[ -n ${qml_smoke_completion:-} ]]; then
+  printf '%s\0' "$VGSHELL_WORLD_ROOT" "$sandbox" "$display_record_dir" "$qml_smoke_completion" >"$qml_smoke_attempt/world"
+fi
 display_record_program >"$display_record_dir/recorder.py"
-display_record_arm "$display_record_dir" "${sandbox_env[@]}" python3 -u "$display_record_dir/recorder.py" serve "$display_record_dir"
+display_record_arguments=()
+[[ -z ${qml_smoke_completion:-} ]] || display_record_arguments+=("$qml_smoke_completion")
+display_record_arm "$display_record_dir" "${sandbox_env[@]}" python3 -u "$display_record_dir/recorder.py" serve "$display_record_dir" "${display_record_arguments[@]}"
 display_record_scope() {
   display_scope=unknown
   display_rows=()
@@ -3519,7 +3540,8 @@ source "$repo/scripts/smoke/leaks.sh"
 # on 2026-10-17). A command substitution, which bash runs with errexit
 # off, and a condition or `||` list, where neither errexit nor the trap
 # fires, go on as before. An unbound variable under set -u reaches no
-# ERR trap and still ends the run. The ERR trap, errexit and errtrace in
+# ERR trap and ends this world; qml-smoke.sh resumes independent remaining
+# rows in a fresh world. The ERR trap, errexit and errtrace in
 # force before the row come back after it. A row that must undo its
 # state when it ends early names the command in smoke_row_abandon, which
 # runs only then, with the same failed-command trap. The first trap writes

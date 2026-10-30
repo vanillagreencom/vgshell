@@ -187,7 +187,7 @@ def complete_record(directory, finalizer_errors):
         state="failed" if finalizer_errors != "0" else "finished", errors=finalizer_errors)) + "\n")
 
 class Record:
-    def __init__(self, directory):
+    def __init__(self, directory, outcome_authority=None):
         self.directory = pathlib.Path(directory)
         self.output = (self.directory / "events.jsonl").open("xb", buffering=0)
         self.selector = selectors.DefaultSelector()
@@ -234,6 +234,7 @@ class Record:
         self.stopping = False
         self.closed = False
         self.stop_reason = "interrupted"
+        self.outcome_authority = outcome_authority
         self.input_span = None
         self.anr_root = None
         self.anr_runtime = None
@@ -1223,7 +1224,8 @@ class Record:
             for fd in self.anr_handles.values():
                 os.close(fd)
             self.anr_handles.clear()
-            if self.stop_reason != "normal":
+            local_finish = self.stop_reason in ("world-exit:0", "world-exit:1", "world-exit:77") if self.outcome_authority else self.stop_reason == "normal"
+            if not local_finish:
                 self.problems.add("interrupted:" + self.stop_reason)
             if not self.closed:
                 self.problems.add("window-end:missing")
@@ -1304,7 +1306,7 @@ class Record:
                       observationCost=cost,
                       upstreamDelivery="unknown: no socket2 acknowledgement or terminal marker",
                       configureAttribution="owned launch output stream only; protocol connection identity unresolved",
-                      productResult="separate original smoke verdict"), terminal=True)
+                      productResult=dict(authority=self.outcome_authority, scope="driver-owned managed attempt; this terminal contains local collection facts") if self.outcome_authority else "separate original smoke verdict"), terminal=True)
             self.output.close()
             self.server.close()
             self.selector.close()
@@ -1318,7 +1320,7 @@ class Record:
 
 if __name__ == "__main__":
     if sys.argv[1] == "serve":
-        Record(sys.argv[2]).run()
+        Record(sys.argv[2], *sys.argv[3:]).run()
     elif sys.argv[1] == "read":
         print(json.dumps(read_record(sys.argv[2])))
     elif sys.argv[1] == "retain":

@@ -1160,6 +1160,7 @@ echo '{}' >"$TMP_ROOT/voice/.local/state/vgshell/jarvis/local-ready.json"
 # account judge. Leaves the calls in fence.log.
 entry() {
   local file="$1" name="$2" tree="$TMP_ROOT/tree-$2"
+  local invocation=()
   entry_words "$name" || return 1
   [[ ${4:-} != default-log ]] || words=()
   rm -rf -- "$tree" "$TMP_ROOT/entry-tmp"
@@ -1185,10 +1186,16 @@ PY
   : >"$TMP_ROOT/fence.log"
   echo "$3" >"$TMP_ROOT/fence-answer"
   status=0
+  invocation=("$BASH" "$tree/scripts/$name")
+  if [[ $name == qml-smoke.sh && ${4:-} != driver ]]; then
+    # The generic entry checks exercise its measurement/attempt boundary.
+    # The ordinary resume driver has its fresh-world contract below.
+    invocation=("$BASH" -c 'qml_smoke_attempt=fixture; entry_source=$1; shift; source "$entry_source" "$@"' "$tree/scripts/$name" "$tree/scripts/$name")
+  fi
   (cd -- "$TMP_ROOT/cwd" && env -i PATH="$TMP_ROOT/entry-bin:$(dirname -- "$node_bin"):$PATH" HOME="$TMP_ROOT" TMPDIR="$TMP_ROOT/entry-tmp" QML_UNIT_RUNNER="$TMP_ROOT/runner" \
     DBUS_SESSION_BUS_ADDRESS="unix:path=$TMP_ROOT/fixture-bus" \
     JARVIS_LOCAL_MODELS="$voice_root/models" JARVIS_LOCAL_PYTHON="$voice_root/venv/bin/python" VOXTYPE_MODELS="$voxtype_models" \
-    "$BASH" "$tree/scripts/$name" "${words[@]}") >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" || status=$?
+    "${invocation[@]}" "${words[@]}") >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" || status=$?
 }
 # enters FILE NAME: where the check fails, the fence gets the script's own
 # path and every argument, the script's status is the fence's, and nothing
@@ -1225,6 +1232,35 @@ for name in "${entry_points[@]}"; do
   if ! mutate "$repo/scripts/$name" '--check || exec ' '--check; exec ' "$mutant"; then fail "control: $name that always enters"; continue; fi
   if goes_on "$mutant" "$name"; then fail "control: $name that always enters the fence stayed green"; else ok "control: $name that always enters the fence"; fi
 done
+
+# A public smoke entry owns bookkeeping outside the attempt namespace and
+# always requests a fresh world. The stand-in deliberately starts no worker;
+# successful world status without target outcomes must remain a failure.
+driver_enters() {
+  local calls=() word
+  entry "$1" qml-smoke.sh 0 driver || return 1
+  mapfile -t calls <"$TMP_ROOT/fence.log"
+  [[ $status == 1 && ${#calls[@]} == 1 && ${calls[0]} == 'run [--fresh] '* ]] || return 1
+  [[ ! -e $TMP_ROOT/smoke-logs ]] || return 1
+  for word in "[--out] [$TMP_ROOT/tree-qml-smoke.sh/tmp/display-record]" \
+    "[--input] [$TMP_ROOT/installed tree]" "[--nix-store] [$TMP_ROOT/exported nix]" \
+    "[--out] [$TMP_ROOT/smoke-logs]" "[$TMP_ROOT/tree-qml-smoke.sh/scripts/qml-smoke.sh]"; do
+    [[ ${calls[0]} == *"$word"* ]] || return 1
+  done
+}
+if driver_enters "$repo/scripts/qml-smoke.sh"; then
+  ok "qml-smoke's driver starts a fresh world and rejects missing outcomes"
+else
+  fail "qml-smoke's driver fresh-world contract"; show
+fi
+mutant="$TMP_ROOT/mutant-smoke-fresh"
+if ! mutate "$repo/scripts/qml-smoke.sh" '"$repo/scripts/smoke/gpu-fence.sh" --fresh' '"$repo/scripts/smoke/gpu-fence.sh"' "$mutant"; then
+  fail "control: qml-smoke's driver without --fresh"
+elif driver_enters "$mutant"; then
+  fail "control: qml-smoke's driver without --fresh stayed green"
+else
+  ok "control: qml-smoke's driver without --fresh"
+fi
 
 # Main batches redirect stdout to a file without passing --log-dir. The
 # fence must get that file's directory, never a command child's /proc path.
