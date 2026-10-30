@@ -36,6 +36,10 @@
 #   tailscale-operator   `tailscale set --operator=<the caller's own login name>`; a
 #                        login name outside `[a-z_][a-z0-9_-]*$?` reads this step
 #                        unknown, reason user-unsupported
+#   tailscale-account-add  repeatable account sign-in with the caller as operator;
+#                        one TUI sudo session owns login, browser opening as the
+#                        desktop user, verified completion and previous-profile
+#                        recovery after cancellation or failure
 #   bandwhich-capture    grant cap_sys_ptrace, cap_dac_read_search, cap_net_raw
 #                        and cap_net_admin, effective and permitted, on the
 #                        resolved, root-owned bandwhich binary; undo removes
@@ -132,8 +136,7 @@
 # each step records only what it changed: `rule=<sha256>` of the rule it
 # installs; `loaded=1` with the `boot` id for the module it loaded;
 # `enabled=1` for a unit that was not enabled, `started=1` with the `boot`
-# id for one that was not active; `operator=<name>` and `previous=<name>`
-# for the operator it set; `config=`, `pam=` and `dropin=` <sha256> of the
+# id for one that was not active; `config=`, `pam=` and `dropin=` <sha256> of the
 # greeter's files, `enabled=1` when greetd.service was not enabled,
 # `target=<unit>` for the default target it replaced, and `dropin-dir=1`,
 # `greeter-dir=1`, `theme-dir=1`, `copy-dir=1` and `state-dir=1` for each
@@ -152,6 +155,17 @@
 # later undo removes them once greetd is inactive or a later boot started
 # it. With no record it prints
 # `ok system=<step> state=untouched` and runs nothing.
+#
+# Tailscale records are version 2 JSON owned by lib/tailscale-account.py:
+# tailscale-operator keeps uid and operator/previous grants keyed by the daemon's
+# saved profile ID. Its old uid/operator/previous file migrates in place on first
+# transaction read, retaining the grant as unbound because no historical profile
+# ID exists; that entry can never authorize undo on the current profile.
+# tailscale-account-add retains the previous profile, operator and WantRunning
+# before login starts, and remains after failed recovery for the next press to
+# retry. Success and verified recovery remove it. Add reports ready only for an
+# authenticated Running profile, or a distinct needs-approval completion for an
+# authenticated profile whose administrator must approve the device.
 #
 # A destination the table names is refused when it is a symbolic link, and
 # a file at it whose bytes no record of VGS's hashes to is refused as
@@ -244,7 +258,7 @@ disk_rule_source="$install_root/config/system/udev/69-vgs-disk-sleep.rules"
 disk_rule_dest="$rules_dir/69-vgs-disk-sleep.rules"
 
 # The closed table, in the order status prints it.
-steps=(apple-displays disk-sleep i2c-dev service-bluetooth service-tailscaled service-cups tailscale-operator greeter bandwhich-capture reboot-notice voxtype-engine vgs-quickshell-repository wake-sources)
+steps=(apple-displays disk-sleep i2c-dev service-bluetooth service-tailscaled service-cups tailscale-operator tailscale-account-add greeter bandwhich-capture reboot-notice voxtype-engine vgs-quickshell-repository wake-sources)
 declare -A step_description=(
   [apply:apple-displays]='Give this desktop access to Apple display controls. This lets VGS change their brightness.'
   [undo:apple-displays]='Remove the Apple display access rule that VGS added. This removes the brightness access from that rule.'
@@ -262,6 +276,8 @@ declare -A step_description=(
   [undo:service-cups]='Undo the print service changes that VGS made. This restores when the service starts.'
   [apply:tailscale-operator]='Tailscale lets only the administrator change it. This lets VGS connect and disconnect for you without a password.'
   [undo:tailscale-operator]='Restore the Tailscale access setting that VGS changed. Your account will need its previous permission to connect and disconnect.'
+  [apply:tailscale-account-add]='Add a Tailscale account and let your login control it. If sign-in fails or you cancel here, VGS restores the previous account and connection setting.'
+  [undo:tailscale-account-add]='An account add has no setup change to undo. Sign out of the account from the Tailscale card.'
   [apply:greeter]='Set VGS as the login screen for the next start of the computer. This lets you sign in through VGS when the computer starts.'
   [undo:greeter]='Undo the login screen changes that VGS made. This removes the VGS login screen setup and restores how the computer starts.'
   [apply:bandwhich-capture]='Give the network monitor access to connection details. This lets VGS show which applications use your network.'
@@ -912,6 +928,11 @@ probe() { # STEP
     service-bluetooth|service-tailscaled) unit_of "$1"; probe_service "$unit" ;;
     service-cups) probe_cups ;;
     tailscale-operator) probe_tailscale_operator ;;
+    tailscale-account-add)
+      if ! command -v tailscale >/dev/null; then set_probe absent tailscale-missing
+      elif [[ ! $user =~ $name_pattern ]]; then set_probe unknown user-unsupported
+      else set_probe needed account-add
+      fi ;;
     greeter) probe_greeter ;;
     bandwhich-capture) probe_bandwhich_capture ;;
     reboot-notice) probe_reboot_notice ;;
@@ -998,7 +1019,6 @@ read_record() { # STEP
     apple-displays|disk-sleep|wake-sources) allowed=' uid rule ' ;;
     i2c-dev) allowed=' uid loaded boot ' ;;
     service-*) allowed=' uid enabled started boot ' ;;
-    tailscale-operator) allowed=' uid operator previous ' ;;
     greeter) allowed=' uid config pam dropin enabled target deferred dropin-dir greeter-dir theme-dir copy-dir state-dir ' ;;
     bandwhich-capture) allowed=' uid binary hash ' ;;
     reboot-notice) allowed=' uid link hooks-dir ' ;;
@@ -1016,8 +1036,6 @@ read_record() { # STEP
       loaded|enabled|started|link|*-dir) [[ $value == 1 ]] ;;
       boot|deferred) [[ $value =~ ^($hex|-){36}$ ]] ;;
       target) [[ $value =~ ^($lower|$digit|[@._:-])+\.target$ ]] ;;
-      operator) [[ $value =~ $name_pattern ]] ;;
-      previous) [[ -z $value || $value =~ $name_pattern ]] ;;
     esac || refuse 1 "record=malformed path=$file"
     record[$key]="$value"
   done <"$file" || refuse 1 "record=unreadable path=$file"
@@ -1183,14 +1201,6 @@ apply_service() { # STEP
   text+=$'\n'"started=1"$'\n'"boot=$boot"
   record_put "$1" "$text"
   cmd "$systemctl" enable --now "$unit"
-}
-
-apply_tailscale_operator() {
-  local tailscale
-  read_record tailscale-operator || true
-  program tailscale tailscale
-  record_put tailscale-operator "uid=$uid"$'\n'"operator=$user"$'\n'"previous="
-  cmd "$tailscale" set "--operator=$user"
 }
 
 apply_vgs_quickshell_repository() {
@@ -1438,14 +1448,6 @@ undo_service() { # STEP
   record_drop "$1"
 }
 
-undo_tailscale_operator() {
-  local tailscale
-  program tailscale tailscale
-  read_operator || refuse 1 "operator=unreadable" "tailscaled did not answer; nothing was changed"
-  [[ $operator != "${record[operator]}" ]] || cmd "$tailscale" set "--operator=${record[previous]}"
-  record_drop tailscale-operator
-}
-
 # Calls VERB's plan for STEP in the current mode.
 plan() { # VERB STEP
   case "$2" in
@@ -1453,7 +1455,6 @@ plan() { # VERB STEP
     disk-sleep) "$1_disk_sleep" ;;
     i2c-dev) "$1_i2c_dev" ;;
     service-bluetooth|service-tailscaled|service-cups) "$1_service" "$2" ;;
-    tailscale-operator) "$1_tailscale_operator" ;;
     greeter) "$1_greeter" ;;
     bandwhich-capture) "$1_bandwhich_capture" ;;
     reboot-notice) "$1_reboot_notice" ;;
@@ -1502,6 +1503,72 @@ confirm_and_run() { # VERB STEP
   vgs_tui_sudo_session end
 }
 
+# Profile IDs and recovery intent are read by the transaction, never supplied
+# by a plugin. Keep the session and record lock until its children are reaped
+# and recovery is verified; the independent TUI owns this whole lifetime.
+tailscale_transaction() { # apply|undo STEP
+  local verb="$1" step="$2" python tailscale install tee mv rm record_name answer=0 lock result=0 action
+  local commands=()
+  program python python3
+  program tailscale tailscale
+  program install install
+  program tee tee
+  program mv mv
+  program rm rm
+  case "$verb:$step" in
+    apply:tailscale-account-add) action=add ;;
+    apply:tailscale-operator) action=operator ;;
+    undo:tailscale-operator) action=undo-operator ;;
+    *) refuse 1 "operation=not-undoable step=$step" ;;
+  esac
+  commands=("sudo$(printf ' %q' "$tailscale" switch --list --json)"
+    "sudo$(printf ' %q' "$tailscale" debug prefs)"
+    "sudo$(printf ' %q' "$tailscale" get operator)"
+    "sudo$(printf ' %q' "$tailscale" status --json)")
+  if [[ $action == add ]]; then
+    commands+=("sudo$(printf ' %q' "$tailscale" login "--operator=$user" --timeout 0 --json)")
+  elif [[ $action == operator ]]; then
+    commands+=("sudo$(printf ' %q' "$tailscale" set "--operator=$user")")
+  else
+    commands+=("sudo $tailscale set --operator=<previous operator recorded for this profile>")
+  fi
+  # These conditional commands take only the retained daemon reading. Their
+  # exact argv is displayed by the owner before execution, after preflight.
+  commands+=("On failure: sudo $tailscale switch <previous profile ID>, then sudo $tailscale up or down to restore its connection setting."
+    "With no previous profile: sudo $tailscale logout.")
+  if [[ ! -d $record_dir ]]; then
+    commands+=("sudo$(printf ' %q' "$install" -d -m 0755 -o root -g root -- "$record_dir")")
+  fi
+  for record_name in tailscale-operator tailscale-account-add; do
+    commands+=("sudo$(printf ' %q' "$tee" -- "$record_dir/.$record_name") (verified profile data on stdin)"
+      "sudo$(printf ' %q' "$mv" -fT -- "$record_dir/.$record_name" "$record_dir/$record_name")")
+  done
+  commands+=("sudo$(printf ' %q' "$rm" -f -- "$record_dir/tailscale-account-add")")
+  source "$lib_dir/tui.sh" || refuse 1 "library=missing path=$lib_dir/tui.sh"
+  vgs_tui_step "${step_description[${verb}:${step}]}"
+  vgs_tui_text 'This transaction runs these commands as root. The browser runs as your own login.'
+  vgs_tui_commands "${commands[@]}"
+  VGS_TUI_UNATTENDED="" vgs_tui_confirm 'Run this Tailscale transaction as root?' || answer=$?
+  case "$answer" in
+    0) ;;
+    1) refuse 1 "declined=$verb step=$step" "No change made." ;;
+    *) return "$answer" ;;
+  esac
+  vgs_tui_sudo_session start || refuse 1 "sudo=not-authorized"
+  mode=run
+  if [[ ! -d $record_dir ]]; then cmd "$install" -d -m 0755 -o root -g root -- "$record_dir"; fi
+  trusted "$record_dir" || refuse 1 "untrusted=$record_dir"
+  exec {lock}<"$record_dir" || refuse 1 "lock=open path=$record_dir"
+  flock -w 60 "$lock" || refuse 1 "lock=busy path=$record_dir"
+  # Terminal group signals also reach the transaction. Keep the sudo session
+  # alive while its foreground owner handles them and verifies recovery.
+  trap ':' HUP INT TERM
+  "$python" -I "$lib_dir/tailscale-account.py" "$action" || result=$?
+  exec {lock}>&-
+  vgs_tui_sudo_session end
+  return "$result"
+}
+
 # ---------------------------------------------------------------- verbs
 
 json_status() {
@@ -1518,6 +1585,7 @@ json_status() {
 # is missing, which its configuration snippet installs and enables
 # (nixos_snippet).
 nixos_grants() { # STEP
+  [[ $1 != tailscale-account-add ]] || return 1
   [[ $probe_state == needed ]] || [[ $1 == service-* && $probe_state == absent && $probe_reason == unit-missing ]]
 }
 
@@ -1566,6 +1634,10 @@ verb_apply() { # STEP
     denied|unknown) refuse 1 "state=$probe_state reason=$probe_reason step=$step${probe_fix:+ fix=$probe_fix}" ${probe_hint[@]+"${probe_hint[@]}"} ;;
     *) refuse 1 "internal=state value=$probe_state" ;;
   esac
+  if [[ $step == tailscale-account-add ]]; then
+    tailscale_transaction apply "$step"
+    return
+  fi
   detect_or_refuse
   if [[ $detected_system == nix ]]; then
     printf 'ok system=%s skipped=nixos-config\n' "$step"
@@ -1575,6 +1647,10 @@ verb_apply() { # STEP
     return
   fi
   read_boot_id
+  if [[ $step == tailscale-operator ]]; then
+    tailscale_transaction apply "$step"
+    return
+  fi
   confirm_and_run apply "$step"
   probe "$step"
   [[ $probe_state == ready ]] ||
@@ -1588,6 +1664,10 @@ verb_undo() { # STEP
   if [[ $detected_system == nix ]]; then
     printf 'ok system=%s skipped=nixos-config\n' "$step"
     printf 'VGS changed nothing on NixOS. Remove the lines from your system configuration and rebuild it.\n'
+    return
+  fi
+  if [[ $step == tailscale-operator || $step == tailscale-account-add ]]; then
+    tailscale_transaction undo "$step"
     return
   fi
   if ! read_record "$step"; then

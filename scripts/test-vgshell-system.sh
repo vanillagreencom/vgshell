@@ -19,6 +19,11 @@ set -euo pipefail
 source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgshell-rows.sh"
 suite=test-vgshell-system
 source_file="$repo/bin/vgshell-system"
+case "${1-}" in
+  "") (($# == 0)) || exit 2 ;;
+  --tailscale) (($# == 1)) || exit 2 ;;
+  *) exit 2 ;;
+esac
 uid="$(id -u)"; gid="$(id -g)"; user="$(id -un)"
 ((uid != 0)) || { echo "$suite: status=not-measured reason=runs-as-root"; exit 77; }
 for tool in unshare setsid script find mount sh sha256sum; do
@@ -92,6 +97,10 @@ printf '%s\n' "\$*" >>"$tmp/sudo.log"
 case "\$1" in -k|-n) exit 0 ;; esac
 [ "\$1" = -- ] && shift
 if [ -f "$tmp/sudo-exit" ]; then read -r st <"$tmp/sudo-exit"; exit "\$st"; fi
+if [ "\$1 \${2-}" = "$bin/tailscale login" ] && [ -f "$tmp/login-mode" ]; then
+  read -r login_mode <"$tmp/login-mode" || :
+  [ "\$login_mode" != failed-start ] || exit 127
+fi
 if [ "\${1##*/}" = install ]; then
   args="" prev=""
   for a; do
@@ -198,18 +207,101 @@ case "\$*" in
   *) exit 64 ;;
 esac
 EOF
-# tailscale: the operator lives in $tmp/operator; get fails while
-# $tmp/tailscaled-down exists.
+# Per-profile fixture: login switches selection before reporting refusal,
+# matching cli/login.go in Tailscale v1.104.1. No call reaches a daemon.
 cat >"$bin/tailscale" <<EOF
-#!/bin/sh
-printf '%s\n' "\$*" >>"$tmp/tailscale.log"
-[ -e "$tmp/tailscaled-down" ] && { echo 'failed to connect to local tailscaled' >&2; exit 1; }
-case "\$1" in
-  get) [ "\$2" = operator ] || exit 64; cat "$tmp/operator" ;;
-  set) case "\$2" in --operator=*) printf '%s' "\${2#--operator=}" >"$tmp/operator" ;; *) exit 64 ;; esac ;;
-  *) exit 64 ;;
-esac
+#!$(command -v python3)
+import json, os, signal, sys, time
+from pathlib import Path
+root = Path("$tmp")
+args = sys.argv[1:]
+with (root / "tailscale.log").open("a") as log:
+    log.write(" ".join(args) + "\n")
+if (root / "tailscaled-down").exists():
+    sys.exit(1)
+state_path = root / "profiles"
+state = json.loads(state_path.read_text()) if state_path.exists() else {"selected": "a1b2", "ids": ["a1b2"], "operators": {}, "running": True}
+operator = root / "operator"
+mode_path = root / "login-mode"
+mode = mode_path.read_text().strip() if mode_path.exists() else "success"
+def save():
+    state_path.write_text(json.dumps(state))
+if args == ["get", "operator"]:
+    print(operator.read_text())
+elif len(args) == 2 and args[0] == "set" and args[1].startswith("--operator="):
+    operator.write_text(args[1].partition("=")[2])
+elif args == ["switch", "--list", "--json"]:
+    if mode == "bad-preflight" and state["selected"] == "a1b2":
+        print("unreadable")
+    else:
+        print(json.dumps([{"id": ident, "selected": ident == state["selected"]} for ident in state["ids"]]))
+elif args == ["debug", "prefs"]:
+    print(json.dumps({"WantRunning": state["running"]}))
+elif args == ["status", "--json"]:
+    backend = "NeedsLogin" if not state["selected"] else ("Running" if state["running"] else "Stopped")
+    if mode == "device-approval" and state["selected"] == "b2c3":
+        backend = "NeedsMachineAuth"
+    authenticated = bool(state["selected"]) and not (mode == "unauthenticated" and state["selected"] == "b2c3")
+    print(json.dumps({"BackendState": backend, "HaveNodeKey": authenticated}))
+elif len(args) == 2 and args[0] == "switch":
+    if mode == "restore-fail":
+        sys.exit(1)
+    state["operators"][state["selected"]] = operator.read_text()
+    if args[1] not in state["ids"]:
+        sys.exit(1)
+    state["selected"] = args[1]
+    operator.write_text(state["operators"].get(args[1], ""))
+    state["running"] = True
+    save()
+elif args in (["up"], ["down"]):
+    state["running"] = args[0] == "up"
+    save()
+elif args == ["logout"]:
+    state["ids"] = [ident for ident in state["ids"] if ident != state["selected"]]
+    state["selected"] = ""
+    state["running"] = False
+    operator.write_text("")
+    save()
+elif len(args) == 5 and args[0] == "login" and args[1].startswith("--operator=") and args[2:] == ["--timeout", "0", "--json"]:
+    state["operators"][state["selected"]] = operator.read_text()
+    state["selected"] = "b2c3"
+    state["ids"] = list(dict.fromkeys(state["ids"] + ["b2c3"]))
+    state["running"] = True
+    operator.write_text(args[1].partition("=")[2])
+    save()
+    if mode in ("refused", "restore-fail"):
+        sys.exit(1)
+    if mode == "missing-address":
+        sys.exit(0)
+    print(json.dumps({"AuthURL": "https://login.tailscale.com/a/fixture-secret", "BackendState": "NeedsLogin"}), flush=True)
+    def ended(signum, frame):
+        (root / "login-ended").touch()
+        sys.exit(1)
+    signal.signal(signal.SIGTERM, ended)
+    if mode == "cancel":
+        os.kill(os.getppid(), signal.SIGTERM)
+    if mode == "cancel-group":
+        os.killpg(os.getpgrp(), signal.SIGINT)
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        if mode == "device-approval" and (root / "browser-opened").exists():
+            print(json.dumps({"BackendState": "NeedsMachineAuth"}), flush=True)
+            mode = "deadline"
+        if mode not in ("deadline", "cancel", "cancel-group") and (root / "browser-opened").exists():
+            sys.exit(0)
+        time.sleep(0.01)
+    sys.exit(1)
+else:
+    sys.exit(64)
 EOF
+cat >"$bin/xdg-open" <<EOF
+#!/bin/sh
+printf '%s\n' "\$(id -u)" >"$tmp/browser-uid"
+printf '%s\n' "\$1" >"$tmp/browser-address"
+: >"$tmp/browser-opened"
+[ ! -e "$tmp/browser-fail" ]
+EOF
+chmod +x "$bin/xdg-open"
 # gum confirm records its arguments, runs $tmp/gum-hook when present and
 # answers with $tmp/gum-answer.
 cat >"$bin/gum" <<EOF
@@ -228,6 +320,15 @@ place() { # SOURCE
   check "the helper's prefix line occurs once" test "$(grep -c '^prefix=$' "$1")" == 1
   sed "s|^prefix=\$|prefix=$root|" "$1" >"$helper"
   chmod +x "$helper"
+  python3 - "$repo/bin/lib/tailscale-account.py" "$vgs/bin/lib/tailscale-account.py" "$root" <<'PYACCOUNT'
+from pathlib import Path
+import sys
+source = Path(sys.argv[1]).read_text()
+for before, after in [('PREFIX = ""', 'PREFIX = ' + repr(sys.argv[3])), ('LOGIN_TIMEOUT = 300', 'LOGIN_TIMEOUT = 1'), ('ADDRESS_TIMEOUT = 30', 'ADDRESS_TIMEOUT = 0.5')]:
+    assert source.count(before) == 1
+    source = source.replace(before, after)
+Path(sys.argv[2]).write_text(source)
+PYACCOUNT
   check "the placed helper names the tree" test "$(grep -c "^prefix=$root\$" "$helper")" == 1
 }
 boot_a=11111111-2222-3333-4444-555555555555
@@ -253,6 +354,7 @@ fresh() {
   printf '%s\n' "$boot_a" >"$root/proc/sys/kernel/random/boot_id"
   touch "$tmp/units/tailscaled.service.missing"
   : >"$tmp/operator"
+  rm -f -- "${tmp:?}"/{profiles,login-mode,browser-opened,browser-fail,browser-uid,browser-address,login-ended}
   rm -f -- "$tmp"/{sudo.log,udevadm.log,systemctl.log,modprobe.log,tailscale.log,gum.log,gum-hook,foreign,sudo-exit,udev-fail,other-rule,i2c-rule,tailscaled-down,before-tree,after-tree,no-greeter,getent-fail,owners,greeter-name}
   printf '0\n' >"$tmp/gum-answer"
   rm -f -- "${bin:?}/voxtype" "${tmp:?}/voxtype-compiled" "${tmp:?}/voxtype.log"
@@ -371,7 +473,7 @@ last_out_is() { test "$(tail -n 1 "$tmp/out")" == "$1"; }
 sudo_calls() { cat -- "$tmp/sudo.log" 2>/dev/null; }
 no_sudo() { test ! -e "$tmp/sudo.log"; }
 state_json() { # STATE-REASON per step, table order
-  printf '{"steps":{"apple-displays":{"state":"%s","reason":"%s"},"disk-sleep":{"state":"absent","reason":"no-disk"},"i2c-dev":{"state":"%s","reason":"%s"},"service-bluetooth":{"state":"%s","reason":"%s"},"service-tailscaled":{"state":"%s","reason":"%s"},"service-cups":{"state":"%s","reason":"%s"},"tailscale-operator":{"state":"%s","reason":"%s"},"greeter":{"state":"%s","reason":"%s"},"bandwhich-capture":{"state":"absent","reason":"bandwhich-missing"},"reboot-notice":{"state":"absent","reason":"hook-missing"},"voxtype-engine":{"state":"absent","reason":"command-missing"},"vgs-quickshell-repository":{"state":"absent","reason":"command-missing"},"wake-sources":{"state":"absent","reason":"no-device"}}}' "$@"
+  printf '{"steps":{"apple-displays":{"state":"%s","reason":"%s"},"disk-sleep":{"state":"absent","reason":"no-disk"},"i2c-dev":{"state":"%s","reason":"%s"},"service-bluetooth":{"state":"%s","reason":"%s"},"service-tailscaled":{"state":"%s","reason":"%s"},"service-cups":{"state":"%s","reason":"%s"},"tailscale-operator":{"state":"%s","reason":"%s"},"tailscale-account-add":{"state":"needed","reason":"account-add"},"greeter":{"state":"%s","reason":"%s"},"bandwhich-capture":{"state":"absent","reason":"bandwhich-missing"},"reboot-notice":{"state":"absent","reason":"hook-missing"},"voxtype-engine":{"state":"absent","reason":"command-missing"},"vgs-quickshell-repository":{"state":"absent","reason":"command-missing"},"wake-sources":{"state":"absent","reason":"no-device"}}}' "$@"
 }
 step_state() { # STEP: the state status --json reads for it
   "${row_env[@]}" "$vgs/bin/vgshell" system status --json </dev/null 2>/dev/null |
@@ -432,6 +534,130 @@ before = " ".join(plain.split("│", 1)[0].split())
 assert " ".join(descriptions[sys.argv[3]].split()) in before
 PY
 }
+tailscale_rows() {
+# The operator: the caller's own login name; undo resets it only while it
+# still names the caller.
+fresh
+run_tty "apply tailscale-operator succeeds" 0 apply tailscale-operator
+check "the step's description precedes the Tailscale commands" description_precedes_commands apply tailscale-operator
+check "the grant names the selected profile" json_is "$records/tailscale-operator" 'd["version"] == 2 and d["profiles"]["a1b2"]["previous"] == ""'
+check "the operator is the caller" test "$(cat "$tmp/operator")" == "$user"
+rm -f -- "$tmp/sudo.log"
+run_tty "undo tailscale-operator" 0 undo tailscale-operator
+check "undo resets the operator VGS set" grep -qxF -- "-- $(p tailscale) set --operator=" "$tmp/sudo.log"
+check "the operator is unset again" test ! -s "$tmp/operator"
+fresh
+run_tty "apply the operator before another change" 0 apply tailscale-operator
+printf 'someone' >"$tmp/operator"; rm -f -- "$tmp/sudo.log"
+run_tty "undo after someone else set the operator" 0 undo tailscale-operator
+check "undo never resets an operator it did not set" test "$(grep -c -- 'tailscale set' "$tmp/sudo.log" || true)" == 0
+check "the other operator stays" test "$(cat "$tmp/operator")" == someone
+fresh; printf 'someone' >"$tmp/operator"
+run "apply refuses another user's operator" 1 "vgs-system: refused: state=denied reason=operator-other step=tailscale-operator" apply tailscale-operator
+
+# Add owns the real transaction helper through the simulated profile change.
+# The fixtures replace only command boundaries and deadlines in scratch copies.
+account_restored() { # JSON boolean intent [JSON saved profile IDs]
+  json_is "$tmp/profiles" 'd["selected"] == "a1b2" and d["ids"] == '"${2:-[\"a1b2\", \"b2c3\"]}"' and d["running"] == '"$1" &&
+    [[ $(cat "$tmp/operator") == "$user" && ! -e $records/tailscale-account-add ]]
+}
+fresh; printf '%s' "$user" >"$tmp/operator"
+run_tty "Add verifies the new authenticated account" 0 apply tailscale-account-add
+check "Add retains the old account and selects the new one" json_is "$tmp/profiles" 'd["selected"] == "b2c3" and d["ids"] == ["a1b2", "b2c3"]'
+check "Add records the new profile grant" json_is "$records/tailscale-operator" 'd["profiles"]["b2c3"]["previous"] == ""'
+check "the browser runs as the desktop user" test "$(cat "$tmp/browser-uid")" == "$uid"
+check "the authentication address never enters the transcript" test "$(grep -cF 'fixture-secret' "$tmp/out" || true)" == 0
+check "success clears the recovery record" test ! -e "$records/tailscale-account-add"
+check "success asks once" test "$(grep -c -- '^Run this Tailscale transaction as root?' "$tmp/gum.log")" == 1
+for account_case in refused failed-start missing-address browser-fail cancel cancel-group deadline unauthenticated; do
+  fresh; printf '%s' "$user" >"$tmp/operator"
+  printf '%s' "$account_case" >"$tmp/login-mode"
+  [[ $account_case != browser-fail ]] || touch "$tmp/browser-fail"
+  account_exit=1
+  account_profiles='["a1b2", "b2c3"]'
+  [[ $account_case != failed-start ]] || account_profiles='["a1b2"]'
+  [[ $account_case != cancel && $account_case != cancel-group ]] || account_exit=130
+  run_tty "Add $account_case returns unsuccessful" "$account_exit" apply tailscale-account-add
+  check "Add $account_case restores selection, accounts, access and connected intent" account_restored True "$account_profiles"
+  if [[ $account_case == cancel || $account_case == deadline ]]; then
+    check "Add $account_case reaps the waiting login" test -e "$tmp/login-ended"
+  fi
+done
+fresh; printf '%s' "$user" >"$tmp/operator"; printf 'device-approval' >"$tmp/login-mode"
+run_tty "an authenticated account waiting for device approval stays selected" 0 apply tailscale-account-add
+check "approval remains a distinct pending state" out_has 'vgs-system: account-add state=needs-approval reason=device-approval'
+check "pending approval retains the authenticated account" json_is "$tmp/profiles" 'd["selected"] == "b2c3" and d["ids"] == ["a1b2", "b2c3"]'
+check "pending approval ends its CLI wait" test -e "$tmp/login-ended"
+fresh; printf '%s' "$user" >"$tmp/operator"
+printf '%s\n' '{"selected":"a1b2","ids":["a1b2"],"operators":{},"running":false}' >"$tmp/profiles"
+printf 'refused' >"$tmp/login-mode"
+run_tty "failed Add preserves an intentionally stopped account" 1 apply tailscale-account-add
+check "recovery restores stopped intent" account_restored False
+fresh
+printf '%s\n' '{"selected":"","ids":[],"operators":{},"running":false}' >"$tmp/profiles"
+printf 'refused' >"$tmp/login-mode"
+run_tty "first sign-in failure stays explicitly signed out" 1 apply tailscale-account-add
+check "no previous profile leaves an empty signed-out selection" json_is "$tmp/profiles" 'd["selected"] == "" and d["ids"] == [] and not d["running"]'
+check "the completion distinguishes signed out" out_has 'vgs-system: account-add state=signed-out reason=login-refused'
+fresh
+printf '%s\n' '{"selected":"","ids":["c3d4"],"operators":{},"running":false}' >"$tmp/profiles"
+printf 'refused' >"$tmp/login-mode"
+run_tty "failed sign-in with no selected account preserves other saved accounts" 1 apply tailscale-account-add
+check "signed-out recovery keeps every pre-existing saved account" json_is "$tmp/profiles" 'd["selected"] == "" and d["ids"] == ["c3d4"]'
+fresh; printf '%s' "$user" >"$tmp/operator"; printf 'bad-preflight' >"$tmp/login-mode"
+run_tty "Add refuses an unreadable profile preflight" 1 apply tailscale-account-add
+check "unreadable preflight starts no login" test "$(grep -c '^login ' "$tmp/tailscale.log" || true)" == 0
+fresh; printf '%s' "$user" >"$tmp/operator"; printf 'restore-fail' >"$tmp/login-mode"
+run_tty "failed restore never reports success" 1 apply tailscale-account-add
+check "failed restore retains previous identity for retry" json_is "$records/tailscale-account-add" 'd["profile"] == "a1b2" and d["running"]'
+check "failed restore reports its typed cause" out_has 'vgs-system: refused: account=recovery-failed'
+printf 'success' >"$tmp/login-mode"
+run_tty "the next press retries the retained recovery" 1 apply tailscale-account-add
+check "retry restores the previous account before releasing authority" account_restored True
+fresh; mkdir -p "$records"
+printf 'uid=%s\noperator=%s\nprevious=\n' "$uid" "$user" >"$records/tailscale-operator"
+printf '%s' "$user" >"$tmp/operator"
+run_tty "legacy operator records migrate without guessing a profile" 1 undo tailscale-operator
+check "migration retains the old grant as unbound" json_is "$records/tailscale-operator" 'd["version"] == 2 and d["profiles"] == {} and d["unbound"]["previous"] == ""'
+check "unbound migration cannot reset the selected operator" test "$(cat "$tmp/operator")" == "$user"
+fresh
+run_tty "record the grant on the original profile" 0 apply tailscale-operator
+printf '%s\n' '{"selected":"b2c3","ids":["a1b2","b2c3"],"operators":{},"running":true}' >"$tmp/profiles"
+run_tty "undo on a different profile leaves its access alone" 0 undo tailscale-operator
+check "another profile cannot consume the original grant" json_is "$records/tailscale-operator" '"a1b2" in d["profiles"]'
+check "another profile keeps its current operator" test "$(cat "$tmp/operator")" == "$user"
+fresh; printf '1\n' >"$tmp/gum-answer"
+run_tty "declined Add changes no profile" 1 apply tailscale-account-add
+check "declined Add runs no sudo" no_sudo
+check "declined Add performs no daemon read or write" test ! -e "$tmp/tailscale.log"
+
+# The restoration assertion rejects a production copy that never switches.
+fresh; printf '%s' "$user" >"$tmp/operator"; printf 'refused' >"$tmp/login-mode"
+python3 - "$vgs/bin/lib/tailscale-account.py" <<'PYACCOUNTCONTROL'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+text = path.read_text()
+before = 'self.ts("switch", saved["profile"])'
+assert text.count(before) == 1
+path.write_text(text.replace(before, 'self.ts("status", "--json")'))
+PYACCOUNTCONTROL
+run_tty "the recovery mutant fails Add" 1 apply tailscale-account-add
+check "the restoration assertion kills the recovery mutant" test "$(account_restored True && echo green || echo red)" == red
+place "$source_file"
+
+}
+
+# The focused route executes these same production-owner rows before the core
+# manifest admission arrives; the full suite still checks table consistency.
+if [[ ${1-} == --tailscale ]]; then
+  place "$source_file"
+  tailscale_rows
+  if ((failures)); then printf '%s: failed=%s\n' "$suite" "$failures"; exit 1; fi
+  printf '%s: tailscale rows passed\n' "$suite"
+  exit 0
+fi
+
 check "every system step has its own apply and undo description" descriptions_complete "$source_file"
 
 # The real stdin planner and runner, with only main omitted and sudo
@@ -557,7 +783,8 @@ printf '#!/bin/sh\nif [ -e %q ] && [ "$1" = -un ]; then echo john.doe; exit 0; f
 chmod +x "$bin/id"
 fresh; touch "$tmp/odd-user"
 run "status with an unsupported login name" 0 "" status --json
-check "an unsupported login name reads only the operator unknown" out_is "$(state_json needed hidraw-denied needed module-not-loaded needed inactive absent unit-missing needed inactive unknown user-unsupported needed not-set-up)"
+check "an unsupported login name refuses both account operations" out_has '"tailscale-account-add":{"state":"unknown","reason":"user-unsupported"}'
+check "an unsupported login name refuses the operator" test "$(step_state tailscale-operator)" == 'unknown user-unsupported'
 run "apply refuses the operator for an unsupported login name" 1 "vgs-system: refused: state=unknown reason=user-unsupported step=tailscale-operator" apply tailscale-operator
 check "the refused operator runs no sudo" no_sudo
 rm -f -- "${tmp:?}/odd-user"
@@ -849,30 +1076,7 @@ fresh; touch "$tmp/units/cups.socket.active"
 run "apply over an active cups.socket runs nothing" 0 "" apply service-cups
 check "printing that the socket serves reads ready and runs no sudo" no_sudo
 
-# The operator: the caller's own login name; undo resets it only while it
-# still names the caller.
-fresh
-run_tty "apply tailscale-operator succeeds" 0 apply tailscale-operator
-check "the step's description precedes the Tailscale commands" description_precedes_commands apply tailscale-operator
-check "tailscale-operator records, then sets the caller" test "$(sudo_calls)" == "$(session \
-  "-- $(p install) -d -m 0755 -o root -g root -- $records" \
-  "-- $(p tee) -- $records/.tailscale-operator" \
-  "-- $(p mv) -fT -- $records/.tailscale-operator $records/tailscale-operator" \
-  "-- $(p tailscale) set --operator=$user")"
-check "the operator record names the caller and the empty previous operator" test "$(cat "$records/tailscale-operator")" == "$(printf 'uid=%s\noperator=%s\nprevious=' "$uid" "$user")"
-check "the operator is the caller" test "$(cat "$tmp/operator")" == "$user"
-rm -f -- "$tmp/sudo.log"
-run_tty "undo tailscale-operator" 0 undo tailscale-operator
-check "undo resets the operator VGS set" grep -qxF -- "-- $(p tailscale) set --operator=" "$tmp/sudo.log"
-check "the operator is unset again" test ! -s "$tmp/operator"
-fresh
-run_tty "apply the operator before another change" 0 apply tailscale-operator
-printf 'someone' >"$tmp/operator"; rm -f -- "$tmp/sudo.log"
-run_tty "undo after someone else set the operator" 0 undo tailscale-operator
-check "undo never resets an operator it did not set" test "$(sudo_calls)" == "$(session "-- $(p rm) -f -- $records/tailscale-operator")"
-check "the other operator stays" test "$(cat "$tmp/operator")" == someone
-fresh; printf 'someone' >"$tmp/operator"
-run "apply refuses another user's operator" 1 "vgs-system: refused: state=denied reason=operator-other step=tailscale-operator" apply tailscale-operator
+tailscale_rows
 
 # bandwhich capture: the real helper probes the resolved binary, requires
 # every grant, records before setcap and uses only the isolated stand-ins.
@@ -1486,10 +1690,6 @@ run_tty "the plan-blind mutant runs a plan it did not show" 0 apply service-blue
 control uid-blind '  [[ ${record[uid]} == "$uid" ]] ||' '  true ||'
 mkdir -p "$records"; printf 'uid=4242\nenabled=1\n' >"$records/service-bluetooth"
 run_tty "the uid-blind mutant undoes another uid's record" 0 undo service-bluetooth
-control operator-blind '  [[ $operator != "${record[operator]}" ]] ||' '  false ||'
-mkdir -p "$records"; printf 'uid=%s\noperator=%s\nprevious=\n' "$uid" "$user" >"$records/tailscale-operator"; printf 'someone' >"$tmp/operator"
-run_tty "the operator-blind mutant undoes" 0 undo tailscale-operator
-check "the operator-blind mutant resets another user's operator" test ! -s "$tmp/operator"
 control boot-blind '  [[ -z ${record[started]+set} || ${record[boot]} != "$boot" ]] ||' '  [[ -z ${record[started]+set} ]] ||'
 mkdir -p "$records"; printf 'uid=%s\nstarted=1\nboot=%s\n' "$uid" "$boot_b" >"$records/service-bluetooth"
 run_tty "the boot-blind mutant undoes" 0 undo service-bluetooth
