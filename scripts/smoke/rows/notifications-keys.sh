@@ -37,7 +37,7 @@
 # No latency is measured; each reading polls every 200 ms for up to 5 s.
 # A press that reaches nothing changes nothing to poll for, so the
 # controls read after a native key marker on the same virtual keyboard.
-# inputs: shell/plugins/vgs.notifications/* shell/Core/HyprlandLayer.js shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Ui/layout/SurfaceHeight.qml shell/Ui/foundation/KeyNav.qml shell/Ui/foundation/KeyNavLogic.js scripts/smoke/toplevel/* scripts/smoke/rows/notifications.sh scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.notifications/* shell/Core/HyprlandLayer.js shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Ui/layout/SurfaceHeight.qml shell/Ui/foundation/KeyNav.qml shell/Ui/foundation/KeyNavLogic.js scripts/smoke/toplevel/* scripts/smoke/rows/notifications.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/capabilities.sh
 set -euo pipefail
 
 nk_hypr_lua="$home/.config/hypr/hyprland.lua"
@@ -1142,3 +1142,4 @@ cp -- "$sandbox/Service.qml.keys-events-pristine" "$nk_service"
 rescan "a rescan removes the inbox event instrumentation at row cleanup"
 hypr_lua_restore notifications-keys || fail "the key rows put the harness hyprland.lua back"
 expect "the nested instance reloads the harness hyprland.lua after the key rows" ok hypr reload config-only
+notifications_restore_owner

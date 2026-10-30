@@ -194,3 +194,7 @@ rm -f -- "${shim:?}/hyprctl.power-read-gated"
 expect "disable releases the session reader" ok ipc shell setPluginEnabled acme.session false
 expect_poll "the session hold is gone" null lent holders.session
 expect "the lock holder remains built after the reader leaves" True record_exists acme.probe
+
+rm -rf -- "${session_dir:?}"
+rescan "a rescan removes session's disabled row-only fixtures"
+expect_poll "acme.session is absent after session cleanup" False plugin_known acme.session

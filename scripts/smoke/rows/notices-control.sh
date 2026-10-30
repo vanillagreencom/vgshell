@@ -100,3 +100,10 @@ expect_poll "the copy's offered notice holds the keyboard" true ipc smoke notice
 type_keys -k Escape || fail "sending Escape to the copy's notice failed"
 expect_poll "Escape closes the copy's notice" null notice_shown
 expect "control: a Not now that records no rest fails the rest check" false notice_rests acme.needs
+
+expect "the notice control disables its row-only fixture" ok ipc shell setPluginEnabled acme.needs false
+expect_poll "the notice control releases its fixture service" False record_exists acme.needs
+
+rm -rf -- "${home:?}/.config/vgshell/plugins/acme.needs"
+rescan "a rescan removes notices-control's disabled row-only fixtures"
+expect_poll "acme.needs is absent after notices-control cleanup" False plugin_known acme.needs

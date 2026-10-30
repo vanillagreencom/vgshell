@@ -13,7 +13,7 @@
 # page reference in a FormRow's message opens the Settings window on that
 # page, by a click and by Tab then Enter. A page no plugin has and a shell
 # with the manager window off each answer a refusal.
-# inputs: shell/Ui/controls/FormRow.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Core/Capabilities.qml shell/Core/Plugins.qml shell/Core/Registry.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml scripts/smoke/fixtures/plugins/acme.surfaces/* shell/plugins/vgs.launcher/* shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Ui/layout/SurfaceHeight.qml shell/Hosts/SummonPopup.qml shell/Commons/AnchorTracker.qml shell/Ui/BarWidget.qml shell/Ui/overlay/Menu.qml shell/Hosts/PluginSlot.qml shell/Hosts/BackgroundHost.qml shell/Hosts/AppWindow.qml scripts/smoke/toplevel/* scripts/smoke/rows/sources.sh shell/Ui/foundation/FocusRing.qml shell/Ui/overlay/ModalDialog.qml shell/Ui/feedback/Dialog.qml shell/Ui/layout/Pane.qml shell/Commons/Tokens.js shell/Ui/foundation/KeyNavLogic.js scripts/smoke/rows/hyprland-consent.sh shell/Core/HyprlandLayer.js
+# inputs: shell/Ui/controls/FormRow.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Core/Capabilities.qml shell/Core/Plugins.qml shell/Core/Registry.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml scripts/smoke/fixtures/plugins/acme.surfaces/* shell/plugins/vgs.launcher/* shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Ui/layout/SurfaceHeight.qml shell/Hosts/SummonPopup.qml shell/Commons/AnchorTracker.qml shell/Ui/BarWidget.qml shell/Ui/overlay/Menu.qml shell/Hosts/PluginSlot.qml shell/Hosts/BackgroundHost.qml shell/Hosts/AppWindow.qml scripts/smoke/toplevel/* scripts/smoke/rows/sources.sh shell/Ui/foundation/FocusRing.qml shell/Ui/overlay/ModalDialog.qml shell/Ui/feedback/Dialog.qml shell/Ui/layout/Pane.qml shell/Commons/Tokens.js shell/Ui/foundation/KeyNavLogic.js scripts/smoke/rows/hyprland-consent.sh shell/Core/HyprlandLayer.js scripts/smoke/rows/capabilities.sh
 set -euo pipefail
 surf="$home/.config/vgshell/plugins/acme.surfaces"
 mkdir -p "$surf"
@@ -1536,3 +1536,9 @@ expect "the page reference control disables its fixture" ok ipc shell setPluginE
 stop_shell
 user_config_restore "$sandbox/page-reference-config-before.json" || fail "the page reference control puts back the shell.json it found"
 start_shell "$repo" "$sandbox/page-reference-restored.log" || fail "the page reference control restores the shipped shell"
+
+notifications_restore_owner
+
+rm -rf -- "${surf:?}"
+rescan "a rescan removes surfaces's disabled row-only fixtures"
+expect_poll "acme.surfaces is absent after surfaces cleanup" False plugin_known acme.surfaces

@@ -1,3 +1,5 @@
+# settings.sh, notifications.sh and devtools.sh consume the retained disabled status fixture.
+# leaves: plugins
 # Plugin status, D037. The fixture's service publishes typed values through
 # its `status` capability, and every instance of the plugin reads the one
 # record the core holds for the plugin: the service, a bar widget on each of

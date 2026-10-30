@@ -706,3 +706,7 @@ expect "disabling Launcher after Dev Tools rows is allowed" ok ipc shell setPlug
 expect_poll "a disabled Dev Tools holds no status record" null dev_lent
 expect "disabling the requirement fixture is allowed" ok ipc shell setPluginEnabled acme.requires false
 rm -f -- "$shim/mise" "$shim/docker" "$shim/podman" "$shim/pacman"
+
+rm -rf -- "${requires_dir:?}"
+rescan "a rescan removes devtools's disabled row-only fixtures"
+expect_poll "acme.requires is absent after devtools cleanup" False plugin_known acme.requires

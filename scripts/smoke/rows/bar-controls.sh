@@ -2131,3 +2131,7 @@ if [[ $(bar_welcome_answers) != unanswered ]]; then
   fi
 fi
 start_shell "$repo" "$sandbox/calendar-restored.log" || fail "the shell returns after the calendar control"
+
+rm -rf -- "${idle:?}"
+rescan "a rescan removes bar-controls's disabled row-only fixtures"
+expect_poll "acme.idle is absent after bar-controls cleanup" False plugin_known acme.idle

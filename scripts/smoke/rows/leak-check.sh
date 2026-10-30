@@ -18,7 +18,10 @@
 # - shell: shell_qs_pid pointed at a process holding the shell's
 #   environment with a PATH that holds no stand-in, which breaks
 #   devices_guard's path-shim rule;
-# - shim: a file written into the shell's stand-in directory.
+# - shim: a file written into the shell's stand-in directory;
+# - plugins: a fixture enabled without restoring its enablement;
+# - bus-names: a restart with no notification holder loses the name,
+#   while a restart with a holder keeps the shell relation unassisted.
 # A planted row whose header declares `# leaves: options` sets the same
 # option, fails nothing and prints what it left; a header word that names
 # no class fails its row once; a row after which the compositor answers
@@ -53,9 +56,11 @@
 # runner started anew.
 # No latency budget. The toplevel's map is polled every 0.2 s for 5 s; the
 # per-screen layers every 0.1 s for up to timeout_s; the end reading's
-# files, for the feed, every 50 ms for up to timeout_s.
-# inputs: scripts/smoke/leaks.sh scripts/smoke/display-record.sh bin/vgshell shell/plugins/vgs.themes/Background.qml shell/plugins/vgs.themes/WallpaperState.qml shell/Hosts/BackgroundHost.qml shell/Commons/WatchedFile.qml
+# files, for the feed, every 50 ms for up to timeout_s. Notification owner
+# waits poll every 0.2 s at the harness's state-wait bound.
+# inputs: scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/NotificationHub.qml shell/Core/Capabilities.qml scripts/smoke/leaks.sh scripts/smoke/display-record.sh bin/vgshell shell/plugins/vgs.themes/Background.qml shell/plugins/vgs.themes/WallpaperState.qml shell/Hosts/BackgroundHost.qml shell/Commons/WatchedFile.qml scripts/smoke/rows/capabilities.sh
 set -euo pipefail
+lc_notification_owner_was="$(leak_bus_names org.freedesktop.Notifications)"
 lc_plants="$sandbox/leak-plants"
 mkdir -p -- "$lc_plants"
 lc_class=vgs-leak-quiet
@@ -172,6 +177,9 @@ expect "control: a row that leaves a start variable assigned fails once" 1 lc_pl
 expect "control: the failure names the variables class and the value" 1 lc_failed leak-plant-variables "leaves variables: \\+declare -[-a-zA-Z]* shell_start_path=\"$sandbox/leak-plant:.*"
 
 cat >"$lc_plants/leak-plant-shell.sh" <<'SH'
+# Changing the identity under test also reclassifies the real shell's bus
+# names; this plant isolates the environment guard from that separate class.
+leak_classes=(shell)
 mapfile -d '' lc_environ <"/proc/$shell_qs_pid/environ"
 spawn "$sandbox/leak-plant-shell-process.log" env -i "${lc_environ[@]}" PATH=/usr/bin:/bin sleep 600
 printf '%s\n' "$spawn_pid" >"$lc_plants/shell.pid"
@@ -588,6 +596,9 @@ SH
   # is noted first, as lc_restart notes its own, so rows/diagnostics.sh
   # reads every shell the run started.
   cat >"$lc_plants/leak-plant-ended.sh" <<'SH'
+# This control deliberately keeps a dead shell identity. Its environment
+# assertion is independent of names now held by the runner's replacement.
+leak_classes=(shell)
 printf '%s\n' "$shell_qs_pid" >"$lc_plants/ended.killed"
 lc_ended_bars="$(bar_count)" || fail "the bar count is unreadable before the planted end"
 kill -KILL -- "$shell_qs_pid" || fail "the planted end's kill failed"
@@ -608,3 +619,65 @@ SH
 else
   fail "the background controls need no background mapped and a readable screen list: backgrounds=$lc_bg_before screens=[$lc_screen_list]"
 fi
+
+# The holder creates the per-process notification server without retaining
+# its enablement. Each planted restart runs the product path unchanged.
+lc_probe_was="$(plugin_enabled acme.probe)"
+lc_notes_was="$(plugin_enabled vgs.notifications)"
+expect "the notification controls start without the shipped holder" ok ipc shell setPluginEnabled vgs.notifications false
+expect "the probe establishes the controls' notification server" ok ipc shell setPluginEnabled acme.probe true
+expect_poll "the control starts with the notification name owned by the shell" 'org.freedesktop.Notifications shell' leak_bus_names org.freedesktop.Notifications
+expect "the control releases the probe's enablement" ok ipc shell setPluginEnabled acme.probe false
+expect_poll "the probe is disabled before the enablement control" False plugin_enabled acme.probe
+cat >"$lc_plants/leak-plant-plugins-unscanned.sh" <<'SH'
+lc_native_ipc="$(declare -f ipc)"
+eval "lc_native_$lc_native_ipc"
+ipc() {
+  if [[ $* == 'shell listPlugins' ]]; then echo '{"scanned":false,"plugins":[]}'; else lc_native_ipc "$@"; fi
+}
+SH
+expect "control: an incomplete registry report fails its row once" 1 lc_planted leak-plant-plugins-unscanned
+expect "control: incomplete discovery is unreadable rather than plugin removal" 1 lc_failed leak-plant-plugins-unscanned "leak-check reading=unreadable class=plugins at=end .*"
+cat >"$lc_plants/leak-plant-plugins.sh" <<'SH'
+expect "the planted row enables its plugin" ok ipc shell setPluginEnabled acme.probe true
+expect_poll "the planted enablement is reported" True plugin_enabled acme.probe
+SH
+expect "control: a row that changes plugin enablement fails once" 1 lc_planted leak-plant-plugins
+expect "control: the failure names the plugin and both enablement states" 1 lc_failed leak-plant-plugins 'leaves plugins: \+acme.probe=true -acme.probe=false'
+expect "the enablement control restores the disabled holder" ok ipc shell setPluginEnabled acme.probe false
+expect_poll "the restarted row will have no notification holder" False plugin_enabled acme.probe
+cat >"$lc_plants/leak-plant-bus-names.sh" <<'SH'
+printf '%s\n' "$shell_qs_pid" >"$lc_plants/bus-names.killed"
+lc_bus_bars="$(bar_count)"
+kill -KILL -- "$shell_qs_pid" || fail "the notification control's kill failed"
+adopt_shell "$(cat -- "$lc_plants/bus-names.killed")" || fail "the notification control could not adopt its restarted shell"
+expect_poll "the notification control's bars return" "$lc_bus_bars" bar_count
+SH
+shell_memory_note
+expect "control: restarting with no holder and losing the name fails once" 1 lc_planted leak-plant-bus-names
+expect "control: the leaking row names the notification relation from shell to none" 1 lc_failed leak-plant-bus-names 'leaves bus-names: \+org.freedesktop.Notifications none -org.freedesktop.Notifications shell'
+adopt_shell "$(cat -- "$lc_plants/bus-names.killed")" || fail "the bus-name control leaves an adopted shell"
+expect "the product restart with no holder leaves no name" 'org.freedesktop.Notifications none' leak_bus_names org.freedesktop.Notifications
+control_output "$sandbox/leak-plant-bus-names.log"
+notifications_restore_owner
+expect "the row-end repair keeps the disabled holder disabled" False plugin_enabled acme.probe
+expect "the row-end repair restores shell ownership" 'org.freedesktop.Notifications shell' leak_bus_names org.freedesktop.Notifications
+expect "the restart control enables its notification holder" ok ipc shell setPluginEnabled acme.probe true
+expect_poll "the holder takes the notification name before restart" 'org.freedesktop.Notifications shell' leak_bus_names org.freedesktop.Notifications
+cp -- "$lc_plants/leak-plant-bus-names.sh" "$lc_plants/leak-plant-bus-holder.sh"
+cat >>"$lc_plants/leak-plant-bus-holder.sh" <<'SH'
+expect_poll "the product takes the name with its holder enabled after restart" 'org.freedesktop.Notifications shell' leak_bus_names org.freedesktop.Notifications
+SH
+shell_memory_note
+expect "control: restarting with a holder preserves the owner relation without a harness step" 0 lc_planted leak-plant-bus-holder
+adopt_shell "$(cat -- "$lc_plants/bus-names.killed")" || fail "the holder control leaves an adopted shell"
+expect "the controls restore the probe enablement" ok ipc shell setPluginEnabled acme.probe "${lc_probe_was,,}"
+expect "the controls restore the notifications enablement" ok ipc shell setPluginEnabled vgs.notifications "${lc_notes_was,,}"
+stop_shell || fail "the notification controls stop their runner"
+start_shell "$repo" "$sandbox/leak-check-bus-final.log" || fail "the notification controls leave a live shell"
+if [[ $lc_notification_owner_was == 'org.freedesktop.Notifications shell' ]]; then
+  expect "the leak row restores its initial notification owner" ok ipc shell setPluginEnabled acme.probe true
+  expect_poll "the leak row's initial owner returns" "$lc_notification_owner_was" leak_bus_names org.freedesktop.Notifications
+  expect "the leak row restores its probe enablement after ownership" ok ipc shell setPluginEnabled acme.probe "${lc_probe_was,,}"
+fi
+expect_poll "the leak row leaves its initial notification relation" "$lc_notification_owner_was" leak_bus_names org.freedesktop.Notifications

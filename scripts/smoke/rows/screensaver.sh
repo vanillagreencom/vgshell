@@ -1,3 +1,5 @@
+# read-only-prefix.sh and start-order.sh consume the enabled screensaver startup profile documented by harness.sh.
+# leaves: plugins
 # Screensaver plugin Phase B row. It uses a ttfx stand-in whose help carries
 # one planted effect and whose frames are deterministic. Latency polls use
 # expect_poll's 0.2 s cadence. Measured row runtime on host cachy on

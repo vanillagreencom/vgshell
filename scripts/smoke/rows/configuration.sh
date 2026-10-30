@@ -7,7 +7,7 @@
 # plugin's former id and places its widget names the plugin by its new id
 # before the scan publishes it, so the plugin is never built; a copy that
 # renames after the scan publishes is its control, and builds it.
-# inputs: scripts/smoke/fixtures/plugins/vgs.fixture-renamed/* scripts/smoke/fixtures/plugins/vgs.fixture-split/* shell/Core/Config.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/Capabilities.qml shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.bar/Bar.qml shell/plugins/vgs.bar/Service.qml bin/vgshell shell/Commons/WatchedFile.qml bin/vgshell-plugin-judge scripts/smoke/rows/capability-release.sh
+# inputs: scripts/smoke/fixtures/plugins/vgs.fixture-renamed/* scripts/smoke/fixtures/plugins/vgs.fixture-split/* shell/Core/Config.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/Capabilities.qml shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.bar/Bar.qml shell/plugins/vgs.bar/Service.qml bin/vgshell shell/Commons/WatchedFile.qml bin/vgshell-plugin-judge scripts/smoke/rows/capability-release.sh scripts/smoke/rows/capabilities.sh
 set -euo pipefail
 config_user_state() { ipc shell listPlugins | py_reply 'import json,sys; print(json.load(sys.stdin)["config"]["user"])'; }
 expected_errors+=('config: user file unreadable at ')
@@ -359,3 +359,5 @@ PY
   printf '%s\n' "$user_good" >"$home/.config/vgshell/shell.json.tmp" && mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.json"
   expect_poll "the user file reads as loaded after the unknown-row control" loaded config_user_state
 fi
+
+notifications_restore_owner

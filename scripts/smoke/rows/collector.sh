@@ -9,7 +9,7 @@
 # to qs. The row ends with the tree's shell under the harness's own
 # environment.
 # No latency budget. A start's ping is polled every 0.2 s.
-# inputs: shell/shell.qml bin/vgshell
+# inputs: shell/shell.qml bin/vgshell scripts/smoke/rows/capabilities.sh
 set -euo pipefail
 
 stop_shell || :
@@ -26,3 +26,5 @@ fi
 
 stop_shell || :
 start_shell "$repo" "$sandbox/collector-restored-qs.log" || fail "the collector row restores the tree's shell"
+
+notifications_restore_owner

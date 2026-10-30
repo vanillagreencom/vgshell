@@ -137,3 +137,8 @@ expect "the record reads off once the refused lease is released" "{\"leases\": [
 expect "disabling the pairing fixture is allowed" ok ipc shell setPluginEnabled acme.pairing false
 expect_poll "no plugin holds the agent at the row's end" null agent_holders
 device_transcript -
+
+rm -rf -- "${pairing_dir:?}" "${rival_dir:?}"
+rescan "a rescan removes bluetooth-agent's disabled row-only fixtures"
+expect_poll "acme.pairing is absent after bluetooth-agent cleanup" False plugin_known acme.pairing
+expect_poll "acme.pairing-rival is absent after bluetooth-agent cleanup" False plugin_known acme.pairing-rival

@@ -162,3 +162,9 @@ if copy_tree failed-builds-duplicate-errors && edit_tree failed-builds-duplicate
   fi
   failed_builds_control_restore
 fi
+
+notifications_restore_owner
+
+rm -rf -- "${nowidget:?}"
+rescan "a rescan removes failed-builds's disabled row-only fixtures"
+expect_poll "acme.nowidget is absent after failed-builds cleanup" False plugin_known acme.nowidget

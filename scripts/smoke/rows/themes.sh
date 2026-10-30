@@ -1,3 +1,5 @@
+# theme-browse.sh consumes the disabled themes profile; theme-browser.sh tests its explicit enable transition.
+# leaves: plugins
 # The theme capability, driven through the fixture service and read back
 # from what its callbacks received, from its `shell.theme` members, from
 # Theme itself and from the core's lending record. rows/theme.sh ends at

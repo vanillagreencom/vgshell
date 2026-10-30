@@ -1,6 +1,6 @@
 # A monitor that goes away takes its bar with it, under the key the bar
 # was built under, and leaves no build record behind.
-# inputs: shell/Hosts/BarHost.qml shell/Core/Registry.qml shell/Core/Plugins.qml
+# inputs: shell/Hosts/BarHost.qml shell/Core/Registry.qml shell/Core/Plugins.qml scripts/smoke/rows/capabilities.sh
 set -euo pipefail
 extra_output=SMOKE-2
 bar_hosts() { ipc shell built | py_reply 'import json,sys; print(json.dumps(sorted(k for k in json.load(sys.stdin) if k.startswith("bar:"))))'; }
@@ -33,3 +33,5 @@ if copy_tree monitors-keeps-empty-record && edit_tree monitors-keeps-empty-recor
   fi
   monitors_control_restore
 fi
+
+notifications_restore_owner

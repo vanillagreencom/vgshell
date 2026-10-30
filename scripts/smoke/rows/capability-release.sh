@@ -1,3 +1,5 @@
+# failed-builds.sh consumes the disabled probe/bare profile for lock-free and widget-isolation checks.
+# leaves: plugins
 # The fixture widget check reads what rows/settings.sh leaves: the Settings
 # plugin disabled, so its widget is out of the centre section.
 # The dictation daemon, the core's child while a plugin holds `dictation`
@@ -117,3 +119,11 @@ fi
 stop_shell || :
 start_shell "$repo" "$sandbox/capability-release-restored.log"
 expect_poll "the sandbox tree is restored after the release control" null lent holders.lock
+
+notifications_restore_owner
+
+rm -rf -- "${locker:?}" "${home:?}/.config/vgshell/plugins/acme.contend-a" "${home:?}/.config/vgshell/plugins/acme.contend-b"
+rescan "a rescan removes capability-release's disabled row-only fixtures"
+expect_poll "acme.locker is absent after capability-release cleanup" False plugin_known acme.locker
+expect_poll "acme.contend-a is absent after capability-release cleanup" False plugin_known acme.contend-a
+expect_poll "acme.contend-b is absent after capability-release cleanup" False plugin_known acme.contend-b

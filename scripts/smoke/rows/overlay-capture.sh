@@ -7,6 +7,7 @@
 # without the hl.bind wrapper that learns the user's focus bind.
 # inputs: shell/Core/HyprlandLayer.js shell/Hosts/SummonLayer.qml shell/Ui/layout/SurfaceHeight.qml shell/plugins/vgs.launcher/* shell/plugins/vgs.themes/* bin/vgshell scripts/smoke/toplevel/* shell/Core/ShortcutRegistry.qml shell/Core/Plugins.qml scripts/smoke/rows/theme-browser.sh scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
+overlay_capture_launcher_enabled="$(plugin_enabled vgs.launcher)"
 
 overlay_capture_themes_enabled="$(python3 -c 'import json,sys; print("false" if "vgs.themes" in json.load(open(sys.argv[1])).get("disabledPlugins",[]) else "true")' "$home/.config/vgshell/shell.json")"
 restore_overlay_capture_themes() {
@@ -304,3 +305,7 @@ stop_shell
 hypr_lua_restore overlay-capture || fail "overlay capture restores the harness hyprland.lua"
 restore_overlay_capture_themes
 start_shell "$repo" "$sandbox/overlay-capture-final.log" || fail "overlay capture leaves a live shell for smoke teardown"
+
+expect "overlay capture restores the launcher's incoming enablement" ok ipc shell setPluginEnabled vgs.launcher "${overlay_capture_launcher_enabled,,}"
+expect_poll "overlay capture leaves the launcher as it found it" "$overlay_capture_launcher_enabled" plugin_enabled vgs.launcher
+expect_poll "overlay capture restores the launcher's built state" "$overlay_capture_launcher_enabled" record_exists vgs.launcher

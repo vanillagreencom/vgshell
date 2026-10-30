@@ -1,3 +1,5 @@
+# settings.sh consumes the disabled long-page fixture this row creates for scrolling and Details checks.
+# leaves: plugins
 # The Settings plugin, vgs.settings, the plugin manager's user interface.
 # Always on, it binds SUPER+M and refuses every disable; shown here, its
 # plug sits last in every bar and opens a Hyprland window centred across

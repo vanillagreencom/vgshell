@@ -1,3 +1,5 @@
+# capabilities.sh and session.sh consume the enabled shared probe/bare; automations.sh consumes its process notification server.
+# leaves: plugins bus-names
 # A fixture plugin in the sandbox user directory: kind service plus a bar
 # widget, naming every capability. Proves user-directory discovery, the
 # service host, that each instance receives exactly the capabilities its

@@ -1,3 +1,5 @@
+# shader-frames.sh and notices.sh consume the disabled layer fixture for frame and scrim-input checks.
+# leaves: plugins
 # Passive layers, drawn by the fixture service through its `layers`
 # capability and read back from the compositor's layer list, the core's
 # lending record, the fixture and the probe. One surface per screen, on the

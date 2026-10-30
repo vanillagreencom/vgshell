@@ -131,6 +131,10 @@ source "$repo/scripts/smoke/leaks.sh"
 source "$4"
 display_record_call() { python3 "$display_record_dir/recorder.py" request "$display_record_dir/control" "$@"; }
 ipc() { if [[ "$*" == 'shell ping' ]]; then echo ok; else echo '[]'; fi; }
+# This recorder-only fixture starts no registry or bus. Stable neutral
+# sensors keep the successor assertion about ANR cleanup.
+leak_plugins() { echo '{"scanned":true,"plugins":[{"id":"vgs.bar","enabled":true}]}'; }
+leak_bus_names() { echo 'org.freedesktop.DBus run:fixture'; }
 hypr() {
   case "$*" in
     '-j clients') cat "$sandbox/clients.json" ;;

@@ -124,6 +124,10 @@ source "$repo/bin/lib/ipc-reply.sh"
 source "$repo/scripts/smoke/verdict.sh"
 source "$repo/scripts/smoke/leaks.sh"
 source "$4"
+# Registry/bus sensors are outside these IPC deadline cases. Keep the real
+# perScreenLayers calls and each case's explicit paged registry request.
+leak_plugins() { echo '{"scanned":true,"plugins":[{"id":"vgs.bar","enabled":true}]}'; }
+leak_bus_names() { echo 'org.freedesktop.DBus run:fixture'; }
 block=""
 [[ $want_timeout != yes ]] || block="$6 $7"
 shell_env=(env -i PATH="$root:$PATH" HOME="$sandbox" XDG_RUNTIME_DIR="$sandbox" CASE_DIR="$sandbox" CASE_BLOCK="$block" CASE_DEFER="$8" VGS_TEST_RUN=1)

@@ -1,3 +1,5 @@
+# settings.sh is the final consumer of manager.sh's long-page fixture and removes it after its checks.
+# leaves: plugins
 # Settings edits and the dispatch queue. The Settings window opens from a
 # real click on the gear, so the compositor gives its window the keyboard,
 # and a click on a text field gives that field keyboard focus. A write is

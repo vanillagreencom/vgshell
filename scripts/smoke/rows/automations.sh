@@ -562,9 +562,8 @@ fi
 # recovered notice each replacing the id the stand-in printed for the
 # first. A notice is replaced only on the server that showed it, so this
 # needs the shell to own org.freedesktop.Notifications on the sandbox's
-# session bus, which it holds from the capabilities row's notification
-# server on (shell/Core/NotificationHub.qml).
-auto_notifications_owned() { "${shell_env[@]}" busctl --user --json=short call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus NameHasOwner s org.freedesktop.Notifications; }
+# session bus. NotificationHub.qml:12-18 keeps the server for one process;
+# rows that restart that process put the name back after their checks.
 auto_manual() { if automations run --manual "$1"; then echo exit=0; else echo "exit=$?"; fi; }
 # auto_notices_since N: each notify-send call after the first N as its
 # urgency, the id it replaces (null for none) and its summary.
@@ -576,7 +575,7 @@ flag = lambda call, name: next((a.split("=", 1)[1] for a in call if a.startswith
 print(json.dumps([[flag(c, "urgency"), flag(c, "replace-id"), c[-2]] for c in calls]))
 PY
 }
-expect "the shell owns the sandbox's notification server name" '{"type":"b","data":[true]}' auto_notifications_owned
+expect_poll "the shell owns the sandbox's notification server name" 'org.freedesktop.Notifications shell' leak_bus_names org.freedesktop.Notifications
 auto_streak_flag="$sandbox/automations-streak-fails"
 : >"$auto_streak_flag"
 expect "the engine adds an automation that fails while the flag exists" added=smoke-streak auto_last add --definition '{"name": "Smoke streak", "command": "test ! -e '"$auto_streak_flag"'", "schedule": {"frequency": "weekly", "interval": 2, "weekdays": ["mon"], "times": ["03:00"], "start": "2026-01-05", "end": {"type": "never"}}}'

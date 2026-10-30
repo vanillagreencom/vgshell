@@ -424,3 +424,7 @@ expect "the widget opens its popover before teardown" ok ovw openPopover
 expect_poll "the popover is open before teardown" true ovr popoverOpen
 expect "disabling the overlay fixture is allowed" ok ipc shell setPluginEnabled acme.overlays false
 expect_poll "the disabled fixture leaves the build records" False record_exists acme.overlays
+
+rm -rf -- "${ov:?}"
+rescan "a rescan removes overlays's disabled row-only fixtures"
+expect_poll "acme.overlays is absent after overlays cleanup" False plugin_known acme.overlays

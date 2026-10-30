@@ -18,6 +18,7 @@
 # acme.notifier's message is dropped and the shell logs one unsent line.
 # inputs: scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.notifier/* shell/Core/Notifier.qml shell/Core/PluginLogic.js shell/Commons/PageReference.js shell/Core/ConfigLogic.js shell/Core/Capabilities.qml shell/Core/NotificationHub.qml shell/Core/Plugins.qml shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/SettingField.qml scripts/smoke/rows/plugins.sh
 set -euo pipefail
+notify_probe_was="$(plugin_enabled acme.probe)"
 notify_send() { ipc acme.probe invoke notify "$1"; }
 # notify_refused_key OPTIONS_JSON: the key a refusal names, the word after
 # `refused: notify=`, or the whole reply when it is no refusal.
@@ -193,5 +194,6 @@ expect_poll "the notifier fixture service is gone" False record_exists acme.noti
 rm -rf -- "${notifier_dir:?}"
 rescan "rescan after removing the notifier fixture answers ok"
 expect_poll "the notifier fixture is forgotten" False plugin_known acme.notifier
-expect "re-enabling the fixture is allowed" ok ipc shell setPluginEnabled acme.probe true
-expect_poll "the fixture is back" True record_exists acme.probe
+expect "restoring the fixture's incoming enablement is allowed" ok ipc shell setPluginEnabled acme.probe "${notify_probe_was,,}"
+expect_poll "the fixture's enablement is as the row found it" "$notify_probe_was" plugin_enabled acme.probe
+expect_poll "the fixture's built state is as the row found it" "$notify_probe_was" record_exists acme.probe

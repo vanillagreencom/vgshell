@@ -1,3 +1,5 @@
+# capability-release.sh and dictation.sh consume the retained disabled dictation fixture.
+# leaves: plugins
 # Capabilities, each driven through the fixture's own IPC target and read
 # back from the fixture, the core's lending record and the compositor or bus
 # the capability reaches.
@@ -8,6 +10,21 @@
 # stand-ins away again and leaves the fixture disabled.
 # inputs: scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.dictation/* scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js shell/Core/Capabilities.qml shell/Core/ShortcutRegistry.qml shell/Core/IpcRegistry.qml shell/Core/IdleRegistry.qml shell/Core/PluginLogic.js shell/Core/Registry.qml shell/plugins/vgs.lock/manifest.json shell/Core/SessionLock.qml shell/Core/NotificationHub.qml shell/Core/Compositor.qml shell/Core/Dispatch.js bin/vgshell-dictation bin/lib/voxtype.sh bin/lib/voxtype.py scripts/smoke/rows/plugins.sh
 set -euo pipefail
+# NotificationHub.qml:12-18 owns one static server per process and never
+# releases it. Restart checks run first; only then restore the name for
+# later rows, without leaving the fixture's enablement changed.
+notifications_restore_owner() {
+  local owner was
+  owner="$(leak_bus_names org.freedesktop.Notifications)" || { fail "notifications: bus owner unreadable at cleanup"; return 1; }
+  [[ $owner != 'org.freedesktop.Notifications shell' ]] || return 0
+  was="$(plugin_enabled acme.probe)" || return 1
+  case "$was" in True|False) ;; *) fail "notifications: acme.probe enablement=$was"; return 1 ;; esac
+  expect "the row restores its notification name through the holder" ok ipc shell setPluginEnabled acme.probe true
+  expect_poll "the row leaves the notification name with the shell" 'org.freedesktop.Notifications shell' leak_bus_names org.freedesktop.Notifications
+  expect "the notification holder enablement returns to its found value" ok ipc shell setPluginEnabled acme.probe "${was,,}"
+  expect_poll "the notification holder reports its found enablement" "$was" plugin_enabled acme.probe
+  expect_poll "the notification holder restores its built state" "$was" record_exists acme.probe
+}
 lent() { ipc shell lent | py_reply 'import json,sys; d=json.load(sys.stdin); v=d
 for k in sys.argv[1].split("."): v=v.get(k) if isinstance(v, dict) else None
 print(json.dumps(v))' "$1"; }

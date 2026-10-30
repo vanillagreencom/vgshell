@@ -339,3 +339,7 @@ cp -- "$sandbox/hold-before.lua" "$hold_lua"
 expect "restore the hold row's configuration" ok ipc shell reloadConfig
 expect "restore the nested compositor's input settings without configuration errors" '[]' hypr_reload_errors
 expect_poll "the hold fixture remains disabled" False record_exists acme.hold
+
+rm -rf -- "${hold_dir:?}"
+rescan "a rescan removes hold-shortcuts's disabled row-only fixtures"
+expect_poll "acme.hold is absent after hold-shortcuts cleanup" False plugin_known acme.hold

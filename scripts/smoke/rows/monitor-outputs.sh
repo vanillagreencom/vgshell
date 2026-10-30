@@ -105,3 +105,7 @@ cp -- "$sandbox/shell-before-monitors.json" "$user_config.next" && mv -T -- "$us
 expect "disabling the monitors fixture is allowed" ok ipc shell setPluginEnabled acme.monitors false
 expect_poll "the monitors fixture is disabled" False plugin_enabled acme.monitors
 expect_poll "the core stops reading the outputs once no plugin holds monitors" false reads_active
+
+rm -rf -- "${fixture_dir:?}"
+rescan "a rescan removes monitor-outputs's disabled row-only fixtures"
+expect_poll "acme.monitors is absent after monitor-outputs cleanup" False plugin_known acme.monitors

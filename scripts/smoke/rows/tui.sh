@@ -1,3 +1,5 @@
+# launcher.sh consumes the disabled TUI fixture for Update and provider transitions.
+# leaves: plugins
 # Floating TUIs through the `tui` capability and the core's `listTuis` and
 # `openTui`, read back from a stand-in xdg-terminal-exec in the shell's own
 # PATH directory. The real bin/vgshell-tui launches it; it records the argv it

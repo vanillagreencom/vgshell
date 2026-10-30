@@ -4,7 +4,7 @@
 # leaves the last accepted theme; an absent file publishes the defaults.
 # The row starts with no theme file and ends by removing its own, so the
 # rows after it start from the defaults, Hyprland's border colours too.
-# inputs: shell/Commons/Theme.qml shell/Commons/ThemeLogic.js shell/Commons/Tokens.js shell/Commons/ThemeSource.qml shell/plugins/vgs.bar/* shell/assets/* shell/Commons/WatchedFile.qml
+# inputs: shell/Commons/Theme.qml shell/Commons/ThemeLogic.js shell/Commons/Tokens.js shell/Commons/ThemeSource.qml shell/plugins/vgs.bar/* shell/assets/* shell/Commons/WatchedFile.qml scripts/smoke/rows/capabilities.sh
 set -euo pipefail
 theme="$home/.config/vgshell/theme.json"
 # A QML color reads back as its channel object; the row compares its hex.
@@ -155,3 +155,5 @@ theme_control_reset_file
 stop_shell || :
 start_shell "$repo" "$sandbox/theme-restored.log"
 expect_poll "the sandbox tree is restored with the default theme after the controls" '#d7d7d9' bar_foreground
+
+notifications_restore_owner

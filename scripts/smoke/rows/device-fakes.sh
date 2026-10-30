@@ -401,3 +401,7 @@ control_output "$sandbox/device-loss-control.log"
 
 expect "disabling the device reader is allowed" ok ipc shell setPluginEnabled acme.devices false
 expect_poll "the device reader is gone" False record_exists acme.devices
+
+rm -rf -- "${devices_fixture:?}"
+rescan "a rescan removes device-fakes's disabled row-only fixtures"
+expect_poll "acme.devices is absent after device-fakes cleanup" False plugin_known acme.devices

@@ -17,6 +17,9 @@
 #   (leak_layers_rest);
 # - options: every Hyprland option `hyprctl -j descriptions` lists, with
 #   its live value from `hyprctl -j getoption`;
+# - plugins: each plugin's enablement in `shell listPlugins`;
+# - bus-names: each well-known session-bus name's owner, `shell`,
+#   `run:<comm>` for another harness-tree process, or `none`;
 # - variables: leak_start_variables, each by `declare -p`;
 # - shell: devices_guard's reading of the running shell, shell_qs_pid,
 #   `no-shell` with no pid and `environ=unreadable` for a dead shell, with
@@ -37,7 +40,7 @@
 # and shell_start_words, and the PATH shell_resolves reads,
 # shell_start_path, all defined in harness.sh.
 leak_start_variables=(shell_start_path shell_start_words shell_env)
-leak_classes=(clients focus submap layers options variables shell shim)
+leak_classes=(clients focus submap layers options variables shell shim plugins bus-names)
 # leak_starts: the start reading of each row running, innermost last.
 leak_starts=()
 leak_seq=0
@@ -75,7 +78,53 @@ leak_read() { # DIR
     declare -p "$name" 2>/dev/null || printf '%s unset\n' "$name"
   done >"$1/variables"
   leak_shell >"$1/shell"
+  leak_plugins >"$1/plugins" 2>"$1/plugins.error" || rm -f -- "$1/plugins"
+  leak_bus_names >"$1/bus-names" 2>"$1/bus-names.error" || rm -f -- "$1/bus-names"
   (cd -- "$shim" && find -L . -mindepth 1 -type f -executable -print0 | sort -z | xargs -0r sha1sum --) >"$1/shim" 2>/dev/null || rm -f -- "$1/shim"
+}
+
+# Isolated IPC and ANR fixtures replace the registry sensor without
+# changing the IPC operations whose boundaries they exercise.
+leak_plugins() { ipc shell listPlugins; }
+
+# leak_bus_names [NAME]: all well-known names, or NAME even when unowned.
+# GetConnectionUnixProcessID accepts well-known names (D-Bus specification,
+# message-bus methods). No PID enters a reading, so a product restart with
+# the same owners compares equal. Discovery and owner failures stay unreadable.
+leak_bus_names() {
+  local owners name pid relation comm
+  owners="$("${shell_env[@]}" python3 - "$rt_dir/bus" "${1:-}" <<'PYBUS'
+import sys
+try:
+    import dbus
+    bus = dbus.bus.BusConnection("unix:path=" + sys.argv[1])
+    daemon = dbus.Interface(bus.get_object("org.freedesktop.DBus", "/org/freedesktop/DBus", introspect=False), "org.freedesktop.DBus")
+    names = [sys.argv[2]] if sys.argv[2] else list(daemon.ListNames(timeout=10))
+    if not sys.argv[2] and "org.freedesktop.DBus" not in names:
+        raise ValueError("discovery=incomplete")
+    for name in sorted(n for n in names if not n.startswith(":")):
+        try:
+            pid = daemon.GetConnectionUnixProcessID(name, timeout=10)
+        except dbus.DBusException as error:
+            if error.get_dbus_name() != "org.freedesktop.DBus.Error.NameHasNoOwner":
+                raise
+            pid = "none"
+        print(name, pid)
+except Exception as error:
+    print("bus-names: reading=unavailable reason=" + str(error), file=sys.stderr)
+    sys.exit(1)
+PYBUS
+)" || return 1
+  while read -r name pid; do
+    if [[ $pid == none ]]; then relation=none
+    elif [[ $pid == "${shell_qs_pid:-}" ]]; then relation=shell
+    elif [[ $(in_harness_tree "$pid") == yes ]] && IFS= read -r comm <"/proc/$pid/comm"; then relation="run:$comm"
+    else
+      printf 'bus-names: name=%s owner=unreadable\n' "$name" >&2
+      return 1
+    fi
+    printf '%s %s\n' "$name" "$relation"
+  done <<<"$owners"
 }
 
 # leak_layers_rest DIR: waits for the per-screen layers to be at rest: the
@@ -251,6 +300,16 @@ def items(directory, name):
             return [f'{c["address"]} {c["class"]} {json.dumps(c["title"], ensure_ascii=False)}' for c in json.loads(text) if c["mapped"]]
         if name == "layers":
             return [l["namespace"] for m in json.loads(text).values() for level in m["levels"].values() for l in level if l["pid"] != -1]
+        if name == "plugins":
+            registry = json.loads(text)
+            rows = registry["plugins"]
+            # Registry.listJson reports scanned=false until discovery completes;
+            # the shell has already built vgs.bar before any smoke row starts.
+            if registry["scanned"] is not True or not isinstance(rows, list) or any(not isinstance(p["id"], str) or type(p["enabled"]) is not bool for p in rows):
+                raise ValueError("plugins: scan")
+            if not any(p["id"] == "vgs.bar" for p in rows):
+                raise ValueError("plugins: coverage")
+            return [f'{p["id"]}={str(p["enabled"]).lower()}' for p in rows]
         if name == "options":
             return options(directory, text)
         if name == "shim":
@@ -303,6 +362,10 @@ for name in classes:
             print(f"unreadable\t{name}\t{side}")
     if before is None or after is None:
         continue
+    if name == "bus-names":
+        before, after = (dict(line.split(" ", 1) for line in reading) for reading in (before, after))
+        names = before.keys() | after.keys()
+        before, after = ([f'{key} {reading.get(key, "none")}' for key in names] for reading in (before, after))
     added = collections.Counter(after) - collections.Counter(before)
     gone = collections.Counter(before) - collections.Counter(after)
     if added or gone:
