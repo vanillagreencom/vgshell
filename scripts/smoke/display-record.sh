@@ -20,6 +20,7 @@ import pathlib
 import re
 import resource
 import selectors
+import select
 import signal
 import shutil
 import socket
@@ -34,6 +35,10 @@ CAP_EVENTS = 65536
 CAP_BYTES = 67108864
 CAP_LINE = 1048576
 CAP_STREAMS = 128
+# A cleanup helper's parent SIGKILLs it this many seconds after the
+# operation's own deadline, so the helper's escalation and finally run first.
+REAP_MARGIN = 1
+OPERATION_COMMANDS = {"anr-cleanup", "row-acquire", "row-release", "row-verify-bus", "row-stop-shells", "row-close-added", "stop-process", "stop-shell-owner", "close-reporter"}
 PREFIX = b"VGS_DISPLAY_EVENT "
 IN_MODIFY = 0x00000002
 IN_ATTRIB = 0x00000004
@@ -114,6 +119,9 @@ def socket_name(path):
     finally:
         os.close(directory)
 
+class OperationFailure(RuntimeError):
+    pass
+
 def request(path, command, *args):
     with socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET) as client:
         with socket_name(path) as name:
@@ -121,6 +129,8 @@ def request(path, command, *args):
         client.sendall(json.dumps([command, *args]).encode())
         reply = json.loads(client.recv(CAP_LINE))
         if not reply["ok"]:
+            if reply.get("operation"):
+                raise OperationFailure(reply["error"])
             raise RuntimeError(reply["error"])
         return reply.get("value", "ok")
 
@@ -242,6 +252,7 @@ class Record:
         self.anr_rows = []
         self.anr_incidents = []
         self.anr_handles = {}
+        self.row_handles = {}
         self.anr_bytes = 0
         self.emit("recorder", "arm", {
             "schema": "vgs.display-record.v1", "run": self.directory.name,
@@ -700,7 +711,17 @@ class Record:
         # latches appearances which disappeared before the final snapshot.
         reports = []
         for incident in self.anr_incidents:
-            if incident["row"] != row or incident.get("reported"):
+            if incident["row"] == row and not incident.get("reported"):
+                incident["reported"] = True
+                self.anr_save(incident, row)
+                reports.append(incident)
+        return reports
+
+    def anr_cleanup(self, row):
+        clients = self.anr_clients(self.anr_bound)
+        reports = []
+        for incident in self.anr_incidents:
+            if incident["row"] != row or incident.get("closed"):
                 continue
             state = self.anr_client_state(incident, clients)
             fd = self.anr_handles.pop(incident["id"], None)
@@ -736,10 +757,327 @@ class Record:
             finally:
                 if fd is not None:
                     os.close(fd)
-            incident["reported"] = True
             self.anr_save(incident, row)
             reports.append(incident)
+        if any(not incident.get("closed") for incident in reports):
+            raise ValueError("anr-cleanup-incomplete:" + json.dumps(reports))
         return reports
+
+    def row_acquire(self, directory, owner, runner, shell):
+        if directory in self.row_handles:
+            raise ValueError("row-context-repeated")
+        root = pathlib.Path(directory)
+        clients = json.loads((root / "clients").read_text())
+        layers = json.loads((root / "layers.raw").read_text())
+        pids = {str(c["pid"]) for c in clients if c["mapped"]}
+        pids.update(str(l["pid"]) for m in layers.values() for level in m["levels"].values() for l in level if l["pid"] != -1)
+        bus = dict(line.split() for line in (root / "bus-pids").read_text().splitlines())
+        pids.update(bus.values())
+        pids.update(p for p in (runner, shell) if p)
+        held = {}
+        try:
+            for pid in pids:
+                fd = os.pidfd_open(int(pid))
+                identity = process_binding(pid)
+                if identity.get("status") != "live" or select.select([fd], [], [], 0)[0]:
+                    os.close(fd)
+                    raise ValueError("row-entry-owner-ended:" + pid)
+                held[pid] = (fd, identity)
+            self.row_handles[directory] = dict(held=held, bus=bus, owner=owner, runner=runner, shell=shell)
+        except BaseException:
+            for fd, _ in held.values():
+                os.close(fd)
+            raise
+
+    def row_release(self, directory):
+        context = self.row_handles.pop(directory)
+        for fd, _ in context["held"].values():
+            os.close(fd)
+
+    def row_verify_bus(self, directory, current_file):
+        context = self.row_handles[directory]
+        current_bus = dict(line.split() for line in pathlib.Path(current_file).read_text().splitlines())
+        relations = dict(line.rstrip().split(" ", 1) for line in (pathlib.Path(directory) / "bus-names").read_text().splitlines())
+        for name, relation in relations.items():
+            if relation.startswith("run:"):
+                pid = context["bus"][name]
+                fd, identity = context["held"][pid]
+                if current_bus.get(name) != pid or select.select([fd], [], [], 0)[0] or process_binding(pid) != identity:
+                    raise ValueError("row-bus-owner-ended:" + name)
+
+    def stop_process(self, pid, root, expected=None, detached=False, orderly=None):
+        # Acquire before reading ancestry and retain through exit. A stopped
+        # parent cannot fork or reparent its children during acquisition.
+        # An orderly stop sends one TERM to the root alone and waits up to
+        # `orderly` seconds on its pidfd, as `kill -TERM` and the lock wait
+        # did, so the root ends its own children. A stop that froze the tree
+        # first left a stopped shell's surfaces listed after it exited (cause
+        # not identified). The tree is acquired and forced only when the root
+        # outlives that wait, within what remains of the operation's one
+        # deadline (bounded_cleanup), and then the stop answers "forced".
+        deadline = self.operation_deadline
+        if orderly is not None:
+            try:
+                handle = os.pidfd_open(int(pid))
+            except ProcessLookupError:
+                return
+            try:
+                identity = process_binding(str(pid))
+                if identity.get("status") in ("gone", "ended") or select.select([handle], [], [], 0)[0]:
+                    return
+                if expected is not None and identity.get("startTicks") != expected.get("startTicks"):
+                    raise ValueError("row-owner-generation-changed:" + str(pid))
+                with contextlib.suppress(ProcessLookupError):
+                    signal.pidfd_send_signal(handle, signal.SIGTERM)
+                if select.select([handle], [], [], max(0, min(float(orderly), deadline - time.monotonic())))[0]:
+                    return
+            finally:
+                os.close(handle)
+        held = []
+        def acquire(child, parent=None):
+            if time.monotonic() >= deadline:
+                raise ValueError("row-owner-acquisition-timeout")
+            try:
+                fd = os.pidfd_open(int(child))
+            except ProcessLookupError:
+                return
+            identity = process_binding(str(child))
+            try:
+                if parent is None and expected is not None and identity.get("status") == "live" and identity.get("startTicks") != expected.get("startTicks"):
+                    raise ValueError("row-owner-generation-changed:" + str(child))
+                if identity.get("status") in ("gone", "ended") or select.select([fd], [], [], 0)[0]:
+                    os.close(fd)
+                    return
+                cursor = str(child)
+                seen = set()
+                while cursor != root:
+                    if cursor in seen or cursor == "1" or time.monotonic() >= deadline:
+                        # The world owns a private PID namespace (D112).
+                        # Detached descendants may lose ancestry, but cannot
+                        # cross that namespace while this pidfd is held.
+                        proc = pathlib.Path("/proc")
+                        if detached:
+                            child_ns, root_ns = ((proc / p / "ns/pid").stat() for p in (str(child), root))
+                            if (child_ns.st_dev, child_ns.st_ino) == (root_ns.st_dev, root_ns.st_ino):
+                                break
+                        raise ValueError("row-owner-outside-run:" + str(child))
+                    seen.add(cursor)
+                    state = (pathlib.Path("/proc") / cursor / "stat").read_text().rsplit(")", 1)[1].split()
+                    if parent is not None and cursor == str(child) and state[1] != str(parent):
+                        raise ValueError("row-owner-parent-changed")
+                    cursor = state[1]
+                command = (pathlib.Path("/proc") / str(child) / "comm").read_text().strip()
+                if command in {"claude", "codex", "copilot", "pi"}:
+                    raise ValueError("row-owner-agent:" + str(child))
+                signal.pidfd_send_signal(fd, signal.SIGSTOP)
+                held.append(fd)
+                while True:
+                    state = (pathlib.Path("/proc") / str(child) / "stat").read_text().rsplit(")", 1)[1].split()[0]
+                    if state in ("T", "t", "Z", "X"):
+                        break
+                    if time.monotonic() >= deadline:
+                        raise ValueError("row-owner-stop-timeout")
+                    time.sleep(0.01)
+                children = (pathlib.Path("/proc") / str(child) / "task" / str(child) / "children").read_text().split()
+                for descendant in children:
+                    acquire(descendant, child)
+            except (ProcessLookupError, FileNotFoundError):
+                if fd not in held:
+                    os.close(fd)
+            except BaseException:
+                if fd not in held:
+                    os.close(fd)
+                raise
+        try:
+            acquire(pid)
+            for fd in held:
+                with contextlib.suppress(ProcessLookupError):
+                    signal.pidfd_send_signal(fd, signal.SIGTERM)
+                    signal.pidfd_send_signal(fd, signal.SIGCONT)
+            # The orderly stop's TERM already had its wait.
+            grace = time.monotonic() if orderly is not None else min(deadline, time.monotonic() + 5)
+            while held and not all(select.select([fd], [], [], 0)[0] for fd in held) and time.monotonic() < grace:
+                time.sleep(0.01)
+            for fd in held:
+                if not select.select([fd], [], [], 0)[0]:
+                    with contextlib.suppress(ProcessLookupError):
+                        signal.pidfd_send_signal(fd, signal.SIGKILL)
+            for fd in held:
+                if not select.select([fd], [], [], max(0, deadline - time.monotonic()))[0]:
+                    raise ValueError("row-owner-exit-timeout")
+            return "forced" if orderly is not None else None
+        finally:
+            for fd in held:
+                with contextlib.suppress(ProcessLookupError):
+                    signal.pidfd_send_signal(fd, signal.SIGCONT)
+                os.close(fd)
+
+    def stop_shell_owner(self, pid, root, orderly):
+        owners = [owner for owner in self.shell_owners.values() if "identity" in owner and
+                  (owner.get("runner") == pid or owner.get("pid") == pid)]
+        if owners:
+            owner = owners[-1]
+            identity = owner["identity"] if pid == owner["pid"] else owner["runnerIdentity"]
+            return self.stop_process(pid, root, identity, detached=True, orderly=orderly)
+        # `vgshell restart` creates a detached runner without a launch
+        # registration. Its private instance-lock descriptor is the run's
+        # ownership proof; an observed PID alone grants no right to stop it.
+        try:
+            fd = os.pidfd_open(int(pid))
+        except ProcessLookupError:
+            return
+        try:
+            identity = process_binding(pid)
+            if identity.get("status") in ("gone", "ended"):
+                return
+            lock = (self.anr_runtime / "vgshell.lock").stat()
+            namespace, own_namespace = ((pathlib.Path("/proc") / p / "ns/pid").stat() for p in (pid, root))
+            if (namespace.st_dev, namespace.st_ino) != (own_namespace.st_dev, own_namespace.st_ino):
+                raise ValueError("row-runner-namespace-unproved:" + pid)
+            descriptors = pathlib.Path("/proc") / pid / "fd"
+            deadline = self.operation_deadline
+            owns = False
+            for descriptor in descriptors.iterdir():
+                if time.monotonic() >= deadline:
+                    raise ValueError("row-runner-acquisition-timeout:" + pid)
+                try:
+                    value = descriptor.stat()
+                except FileNotFoundError:
+                    continue
+                if (value.st_dev, value.st_ino) == (lock.st_dev, lock.st_ino):
+                    owns = True
+                    break
+            if not owns or select.select([fd], [], [], 0)[0] or process_binding(pid) != identity:
+                raise ValueError("row-runner-lock-unproved:" + pid)
+            return self.stop_process(pid, root, identity, detached=True, orderly=orderly)
+        finally:
+            os.close(fd)
+
+    def bounded_cleanup(self, operation, args, bound):
+        # A parent deadline also bounds a helper that never reaches its
+        # own poll. Handles and immutable row context stay with this owner.
+        # One deadline per operation, the caller's bound: every bounded call
+        # in the helper uses what remains of it, and the parent's SIGKILL
+        # lands REAP_MARGIN after it, so the helper's own escalation, keyed
+        # cause and SIGCONT finally run before that backstop.
+        deadline = time.monotonic() + float(bound)
+        read_fd, write_fd = os.pipe2(os.O_CLOEXEC)
+        child = os.fork()
+        if child == 0:
+            os.close(read_fd)
+            signal.signal(signal.SIGTERM, signal.SIG_DFL)
+            signal.signal(signal.SIGINT, signal.SIG_DFL)
+            self.operation_deadline = deadline
+            try:
+                result = b"forced" if getattr(self, operation)(*args) == "forced" else b"ok"
+            except BaseException as error:
+                result = (type(error).__name__ + ":" + str(error)).encode()[:2048]
+            os.write(write_fd, result)
+            os._exit(0)
+        os.close(write_fd)
+        handle = os.pidfd_open(child)
+        try:
+            timed_out = not select.select([handle], [], [], max(0, deadline + REAP_MARGIN - time.monotonic()))[0]
+            if timed_out:
+                with contextlib.suppress(ProcessLookupError):
+                    signal.pidfd_send_signal(handle, signal.SIGKILL)
+                if not select.select([handle], [], [], 1)[0]:
+                    raise ValueError("row-cleanup-helper-unreapable:" + operation)
+            os.waitpid(child, 0)  # The held child generation has exited.
+            result = os.read(read_fd, 4096)
+            if timed_out or result not in (b"ok", b"forced"):
+                raise ValueError("row-cleanup=" + operation + " result=" + ("deadline" if timed_out else result.decode(errors="replace")))
+            return "forced" if result == b"forced" else None
+        finally:
+            os.close(handle)
+            os.close(read_fd)
+
+    def row_stop_shells(self, directory, root):
+        # Recorded shell generations survive row replacements. A stale PID
+        # can identify no current owner, even when its old layer is listed.
+        for pid, owner in self.shell_owners.items():
+            if "identity" not in owner:
+                continue
+            current = process_binding(pid)
+            if current.get("status") in ("gone", "ended"):
+                continue
+            if current.get("startTicks") != owner["identity"].get("startTicks"):
+                # An ended historical shell grants no claim on a new user
+                # of its PID. Any stale mapped layer still fails comparison.
+                continue
+            self.stop_process(pid, root, owner["identity"])
+
+    def row_close_added(self, directory, root, shell, shell_class, reporter_class):
+        context = self.row_handles[directory]
+        before = json.loads((pathlib.Path(directory) / "clients").read_text())
+        retained = {(c["address"], str(c["pid"])) for c in before if c["mapped"]}
+        clients = self.anr_clients(self.remaining())
+        completed = set()
+        for client in clients:
+            pid = str(client["pid"])
+            if not client["mapped"] or (client["address"], pid) in retained or pid == shell or pid in completed:
+                continue
+            if pid in context["held"]:
+                raise ValueError("row-added-client-entry-owner:" + pid)
+            identity = self.row_candidate_identity(pid, client.get("class") in (shell_class, reporter_class))
+            self.stop_process(pid, root, identity, detached=True)
+            completed.add(pid)
+        if self.remaining() <= 0:
+            raise ValueError("row-layers-deadline")
+        result = subprocess.run(["hyprctl", "-i", self.layer_signature, "-j", "layers"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=self.remaining())
+        if result.returncode:
+            raise ValueError("row-layers-unreadable")
+        baseline = json.loads((pathlib.Path(directory) / "layers.raw").read_text())
+        entry = {(l["address"], str(l["pid"])) for m in baseline.values() for level in m["levels"].values() for l in level if l["pid"] != -1}
+        for monitor in json.loads(result.stdout).values():
+            for level in monitor["levels"].values():
+                for layer in level:
+                    pid = str(layer["pid"])
+                    if pid in ("-1", shell) or (layer["address"], pid) in entry or pid in completed:
+                        continue
+                    if pid in context["held"]:
+                        raise ValueError("row-added-layer-entry-owner:" + pid)
+                    identity = self.row_candidate_identity(pid)
+                    self.stop_process(pid, root, identity, detached=True)
+                    completed.add(pid)
+
+    def close_reporter(self, pid, root, shell_class, reporter_class):
+        # An expected crash's reporter window, closed only on the reporter
+        # proof row_close_added uses: a mapped client of the shell's or
+        # Quickshell's class whose process descends from, or inherited the
+        # log of, a recorded shell launch.
+        clients = [c for c in self.anr_clients(self.remaining()) if str(c["pid"]) == pid and c["mapped"]]
+        if not clients or any(c.get("class") not in (shell_class, reporter_class) for c in clients):
+            raise ValueError("reporter-client-unmatched:" + pid)
+        identity = self.row_candidate_identity(pid, True)
+        self.stop_process(pid, root, identity, detached=True)
+
+    def remaining(self):
+        return max(0.0, self.operation_deadline - time.monotonic())
+
+    def row_candidate_identity(self, pid, reporter=False):
+        identity = process_binding(pid)
+        if identity.get("status") != "live":
+            raise ValueError("row-client-owner-unavailable:" + pid)
+        cursor, seen = pid, set()
+        while cursor not in seen and cursor != "1" and self.remaining() > 0:
+            seen.add(cursor)
+            observed = process_binding(cursor)
+            for launch in self.launches:
+                if launch["kind"] != "probe":
+                    continue
+                original = launch["identity"]
+                if launch["pid"] == cursor and original.get("startTicks") == observed.get("startTicks"):
+                    return identity
+                # Quickshell's detached crash reporter inherits its log fd.
+                # Only reporter candidates may use that issued-log proof.
+                if reporter and original.get("stdout") == identity.get("stdout"):
+                    return identity
+            try:
+                cursor = (pathlib.Path("/proc") / cursor / "stat").read_text().rsplit(")", 1)[1].split()[1]
+            except FileNotFoundError:
+                break
+        raise ValueError("row-client-owner-unproved:" + pid)
 
     def layers_report(self, raw, current, probe="[]"):
         report = dict(status="read", layers=[], raw=raw)
@@ -920,6 +1258,7 @@ class Record:
     def control(self):
         client, _ = self.server.accept()
         with client:
+            command = None
             try:
                 packet, _, flags, _ = client.recvmsg(CAP_LINE)
                 if flags & socket.MSG_TRUNC:
@@ -967,13 +1306,34 @@ class Record:
                     self.anr_bound = float(bound)
                 elif command == "anr-row":
                     value = json.dumps(self.anr_boundary(*args))
+                elif command == "anr-cleanup":
+                    value = json.dumps(self.anr_cleanup(*args))
+                elif command == "row-acquire":
+                    self.row_acquire(*args)
+                elif command == "row-release":
+                    self.row_release(*args)
+                elif command == "row-verify-bus":
+                    self.row_verify_bus(*args)
+                elif command == "row-stop-shells":
+                    self.bounded_cleanup("row_stop_shells", args, self.anr_bound)
+                elif command == "row-close-added":
+                    self.bounded_cleanup("row_close_added", args, self.anr_bound)
+                elif command == "stop-process":
+                    self.bounded_cleanup("stop_process", args[:2], args[2])
+                elif command == "stop-shell-owner":
+                    # args[2] is the orderly TERM wait; the forced kill gets a
+                    # bound of its own as long, after it.
+                    orderly = float(args[2])
+                    value = self.bounded_cleanup("stop_shell_owner", (args[0], args[1], orderly), 2 * orderly) or "stopped"
+                elif command == "close-reporter":
+                    self.bounded_cleanup("close_reporter", args, self.anr_bound)
                 elif command == "mark":
                     if args[0] in ("display-request", "display-reply"):
                         self.request_counts[args[0]] += 1
                     if args[0] == "shell-identity":
                         if len(self.shell_owners) >= CAP_EVENTS:
                             raise ValueError("layers:owner-capacity")
-                        self.shell_owners[args[2]] = dict(runner=args[1], pid=args[2], tree=args[3], log=args[4], identity=process_binding(args[2]))
+                        self.shell_owners[args[2]] = dict(runner=args[1], pid=args[2], tree=args[3], log=args[4], identity=process_binding(args[2]), runnerIdentity=process_binding(args[1]))
                         context = self.resolve_owner(args[1])
                         if context["tag"] == "registered":
                             self.shell_pids[args[2]] = context["registration"]
@@ -1015,8 +1375,12 @@ class Record:
                     raise ValueError("unknown-command")
                 client.sendall(json.dumps(dict(ok=True, value=value)).encode())
             except (OSError, ValueError, TypeError) as error:
-                self.problems.add("control:" + str(error))
-                client.sendall(json.dumps(dict(ok=False, error=str(error))).encode())
+                # Restoration is a row operation, not collection integrity
+                # or a second product verdict. Its caller keeps the failure.
+                operation = command in OPERATION_COMMANDS
+                if not operation:
+                    self.problems.add("control:" + str(error))
+                client.sendall(json.dumps(dict(ok=False, error=str(error), operation=operation)).encode())
 
     def line(self, state, line):
         self.input_span = dict(source=state["source"], start=state["line_start"],
@@ -1221,6 +1585,8 @@ class Record:
             # no flush acknowledgement, so later delivery remains unknown.
             self.drain()
         finally:
+            for directory in list(self.row_handles):
+                self.row_release(directory)
             for fd in self.anr_handles.values():
                 os.close(fd)
             self.anr_handles.clear()
@@ -1330,6 +1696,9 @@ if __name__ == "__main__":
     else:
         try:
             print(request(sys.argv[2], *sys.argv[3:]))
+        except OperationFailure as error:
+            print("display-record: operation=failed cause=" + str(error), file=sys.stderr)
+            sys.exit(74)
         except (OSError, ValueError, RuntimeError) as error:
             print("display-record: unavailable=" + str(error), file=sys.stderr)
             sys.exit(1)

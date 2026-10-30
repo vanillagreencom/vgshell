@@ -20,6 +20,8 @@
 # removed and workspace 1 focused.
 # inputs: scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/Compositor.qml shell/Core/Dispatch.js scripts/smoke/toplevel/* scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh
 set -euo pipefail
+leak_plugin_setup acme.probe true || { fail "compositor-reveal: fixture precondition failed"; return 1; }
+expect_poll "the shared fixture is built before its dependent reads" True record_exists acme.probe
 reveal_events="$sandbox/reveal-events.log"
 # Every line of Hyprland's event socket, as it arrives.
 spawn "$reveal_events" python3 -u -c '

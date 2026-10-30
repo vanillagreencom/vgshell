@@ -325,6 +325,11 @@ devices_loss_control() (
   trap devices_loss_stop EXIT
   mkdir -p -- "$control"
   control_rt="$(mktemp -d "$rt_dir/vs.XXXXXX")" || exit 1
+  # This fixture replaces only the system bus. Its entry readings still
+  # use the actual shell's private session bus. Guard attribution is the
+  # subject; the nested leak controls exercise the restoration operation.
+  ln -s -- "$rt_dir/bus" "$control_rt/bus" || exit 1
+  leak_row_restore() { display_record_call row-release "${leak_starts[-1]}" >/dev/null; unset 'leak_starts[-1]'; }
   rt_dir="$control_rt"
   devices_dir="$control/devices"
   mkdir -p -- "$devices_dir"
@@ -401,3 +406,7 @@ control_output "$sandbox/device-loss-control.log"
 
 expect "disabling the device reader is allowed" ok ipc shell setPluginEnabled acme.devices false
 expect_poll "the device reader is gone" False record_exists acme.devices
+
+rm -rf -- "${devices_fixture:?}"
+rescan "a rescan removes device-fakes's disabled row-only fixtures"
+expect_poll "acme.devices is absent after device-fakes cleanup" False plugin_known acme.devices

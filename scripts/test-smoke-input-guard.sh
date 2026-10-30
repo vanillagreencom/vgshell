@@ -183,6 +183,7 @@ run_world() {
     mon_w=100 mon_h=100 pointer_at="" failures=0
     dir="$sandbox" shader=fixture base_path="$PATH"
     share_world="$sandbox" traffic_dir="$sandbox" lc_class=smoke.leak shell_reporter_class=smoke.reporter
+    lc_toplevel_log="$sandbox/leak-plant-toplevel.log" leak_seq=1
     tui_record="$sandbox/terminal.calls" tui_refused="$sandbox/refused" tui_fixtures="$sandbox/fixtures"
     tui_terminal="$sandbox/terminal" tui_terminal_written="$sandbox/terminal-written"
     wa_dir="$sandbox" wa_launches="$sandbox/browser.calls" jd_entry="$sandbox/app.desktop"
@@ -358,8 +359,8 @@ helpers=(
   'lock client|scripts/smoke/rows/lock.sh|fn:start_lock_client|spawn_display|start_lock_client probe|@sandbox/lock-client|nonzero|spawn_display'
   'application window|scripts/smoke/app-window.sh|fn:open_toplevel|spawn_display|open_toplevel @sandbox/app.log smoke.app App|@sandbox/toplevel|nonzero|spawn_display'
   'Hyprland window|scripts/smoke/rows/hyprland.sh|fn:open_tui|spawn_display|open_tui smoke.hyprland|@sandbox/toplevel|nonzero|spawn_display'
-  'leak client|scripts/smoke/rows/leak-check.sh|line:spawn_display "$sandbox/leak-plant-toplevel.log" "${shell_env[@]}" -- "$sandbox/toplevel" "$lc_class"|spawn_display|:|@sandbox/toplevel|nonzero|spawn_display'
-  'leak reporter|scripts/smoke/rows/leak-check.sh|line:  spawn_display "$sandbox/leak-plant-reporter.log" "${shell_env[@]}" -- "$sandbox/toplevel" "$shell_reporter_class"|spawn_display|:|@sandbox/toplevel|nonzero|spawn_display'
+  'leak client|scripts/smoke/rows/leak-check.sh|line:spawn_display "$lc_toplevel_log" "${shell_env[@]}" -- "$sandbox/toplevel" "$lc_class"|spawn_display|:|@sandbox/toplevel|nonzero|spawn_display'
+  'leak reporter|scripts/smoke/rows/leak-check.sh|line:spawn_display "$sandbox/leak-plant-reporter-$leak_seq.log" "${shell_env[@]}" -- "$sandbox/toplevel" "$shell_reporter_class"|spawn_display|:|@sandbox/toplevel|nonzero|spawn_display'
   'traffic window|scripts/smoke/rows/traffic.sh|line:spawn_display "$traffic_dir/other.log" "${shell_env[@]}" -- "$sandbox/toplevel" org.example.traffic Traffic-other|spawn_display|:|@sandbox/toplevel|nonzero|spawn_display'
   'TUI other window|scripts/smoke/rows/tui.sh|line:spawn_display "$sandbox/toplevel-other.log" "${shell_env[@]}" -- "$sandbox/toplevel" org.example.other Other|spawn_display|:|@sandbox/toplevel|nonzero|spawn_display'
   'share target|scripts/smoke/rows/share-picker.sh|line:spawn_display "$share_world/other.log" "${shell_env[@]}" -- "$share_world/other" smoke.share-other "Other share target"|spawn_display|:|@sandbox/other|nonzero|spawn_display'

@@ -36,8 +36,9 @@
 # `bar,hyprland-consent,plugins,capabilities,session,status,notifications,
 # device-fakes,start-order,auth-sentinel`. `--rows notifications` alone
 # lacks the server and plugins earlier rows build.
-# inputs: scripts/fixtures/notifications/state-v3.json bin/lib/qml-library.js shell/Commons/PageReference.js shell/Ui/foundation/ImageText* shell/Core/Sounds.qml shell/assets/sounds/* scripts/smoke/fixtures/plugins/acme.sounds/* scripts/smoke/devices.sh scripts/smoke/fixtures/devices/* shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Core/HyprlandLayer.js shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/fixtures/ai-usage/edit.py shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/overlay/Tooltip.qml shell/Ui/controls/Select.qml shell/Core/Plugins.qml shell/Commons/Tokens.js shell/Ui/layout/Section.qml shell/Ui/layout/Pane.qml shell/Ui/controls/RowAction.qml shell/Commons/Theme.qml shell/plugins/vgs.themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/vgs/* shell/Commons/ThemeLogic.js themes/catalog/flexoki-light/theme.json shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js
+# inputs: scripts/smoke/fixtures/plugins/acme.probe/* scripts/fixtures/notifications/state-v3.json bin/lib/qml-library.js shell/Commons/PageReference.js shell/Ui/foundation/ImageText* shell/Core/Sounds.qml shell/assets/sounds/* scripts/smoke/fixtures/plugins/acme.sounds/* scripts/smoke/devices.sh scripts/smoke/fixtures/devices/* shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Core/HyprlandLayer.js shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/fixtures/ai-usage/edit.py shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/overlay/Tooltip.qml shell/Ui/controls/Select.qml shell/Core/Plugins.qml shell/Commons/Tokens.js shell/Ui/layout/Section.qml shell/Ui/layout/Pane.qml shell/Ui/controls/RowAction.qml shell/Commons/Theme.qml shell/plugins/vgs.themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/vgs/* shell/Commons/ThemeLogic.js themes/catalog/flexoki-light/theme.json shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js
 set -euo pipefail
+leak_plugin_setup acme.status false || { fail "notifications: fixture precondition failed"; return 1; }
 note_row_config="$sandbox/notifications-row-shell.json"
 note_row_focus="$(hypr -j activewindow | py_reply 'import json,sys; print(json.load(sys.stdin).get("address", ""))')"
 cp -p -- "$home/.config/vgshell/shell.json" "$note_row_config"
@@ -4658,14 +4659,7 @@ mkdir -p "$fade_theme_dir/backgrounds"
 printf '%s\n' '{"schemaVersion":1,"name":"fade-probe","tokens":{}}' >"$fade_theme_dir/theme.json"
 cp -- "$repo/scripts/smoke/fixtures/theme-image.jpg" "$fade_theme_dir/backgrounds/fixture.jpg"
 fade_themes_enabled="$(python3 -c 'import json,sys; print("false" if "vgs.themes" in json.load(open(sys.argv[1])).get("disabledPlugins",[]) else "true")' "$home/.config/vgshell/shell.json")"
-# `theme apply` replaces the background state, so the row keeps the state
-# file and link it found, and the background count they drew, to put back.
-fade_bg_kept="$sandbox/notifications-background-state"
-mkdir -p -- "$fade_bg_kept"
 fade_bg_before="$(layer_count vgs:background)" || fail "the background count is unreadable before the pixel probe"
-for fade_bg_name in backgrounds.json background; do
-  if [[ -e $bg_state/$fade_bg_name || -L $bg_state/$fade_bg_name ]]; then cp -P -p -- "$bg_state/$fade_bg_name" "$fade_bg_kept/$fade_bg_name" || fail "the pixel probe keeps $fade_bg_name"; fi
-done
 expect "the pixel probe enables its wallpaper host" ok ipc shell setPluginEnabled vgs.themes true
 "${shell_env[@]}" "$repo/bin/vgshell" theme apply fade-probe >/dev/null || fail "the pixel probe wallpaper applies"
 expect_poll "the pixel probe wallpaper is drawn" 1 layer_count vgs:background
@@ -4775,13 +4769,6 @@ cp -- "$sandbox/CardScroll.fade-kept.qml" "$fade_qml"
 rescan "a rescan restores the painted notification cards"
 expect_poll "the restored pixel probe service is built" True record_exists vgs.notifications
 "${shell_env[@]}" "$repo/bin/vgshell" theme apply vgs >/dev/null || fail "the pixel probe restores the theme"
-for fade_bg_name in backgrounds.json background; do
-  if [[ -e $fade_bg_kept/$fade_bg_name || -L $fade_bg_kept/$fade_bg_name ]]; then
-    mv -T -- "$fade_bg_kept/$fade_bg_name" "$bg_state/$fade_bg_name" || fail "the pixel probe puts back $fade_bg_name"
-  else
-    rm -f -- "${bg_state:?}/$fade_bg_name"
-  fi
-done
 expect "the pixel probe restores its wallpaper host enablement" ok ipc shell setPluginEnabled vgs.themes "$fade_themes_enabled"
 expect_poll "the pixel probe restores the background it found" "$fade_bg_before" layer_count vgs:background
 rm -rf -- "${fade_theme_dir:?}" "${home:?}/.config/vgshell/themes/fade-probe-dark" "${home:?}/.config/vgshell/themes/fade-probe-light"

@@ -1,10 +1,11 @@
-# The fixture widget check reads what rows/settings.sh leaves: the Settings
-# plugin disabled, so its widget is out of the centre section.
+# The fixture widget check establishes its own exclusive holder.
 # The dictation daemon, the core's child while a plugin holds `dictation`
 # (D106), over the stand-in rows/capabilities.sh puts on the shell's PATH:
 # disabling the last holder ends the daemon and its follower.
 # inputs: scripts/smoke/fixtures/plugins/acme.dictation/* scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js scripts/smoke/fixtures/plugins/acme.locker/* scripts/smoke/fixtures/plugins/acme.contention/* shell/plugins/vgs.themes/manifest.json shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Core/Lifetime.js scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* shell/Core/ShortcutRegistry.qml shell/Core/IpcRegistry.qml shell/Core/IdleRegistry.qml shell/Core/NotificationHub.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/settings.sh
 set -euo pipefail
+leak_plugin_setup acme.probe true acme.bare true vgs.lock false || { fail "capability-release: fixture precondition failed"; return 1; }
+expect_poll "the shared fixture is built before its dependent reads" True record_exists acme.probe
 locker="$home/.config/vgshell/plugins/acme.locker"
 mkdir -p "$locker"
 cp -R "$repo/scripts/smoke/fixtures/plugins/acme.locker/." "$locker/"
@@ -117,3 +118,10 @@ fi
 stop_shell || :
 start_shell "$repo" "$sandbox/capability-release-restored.log"
 expect_poll "the sandbox tree is restored after the release control" null lent holders.lock
+
+
+rm -rf -- "${locker:?}" "${home:?}/.config/vgshell/plugins/acme.contend-a" "${home:?}/.config/vgshell/plugins/acme.contend-b"
+rescan "a rescan removes capability-release's disabled row-only fixtures"
+expect_poll "acme.locker is absent after capability-release cleanup" False plugin_known acme.locker
+expect_poll "acme.contend-a is absent after capability-release cleanup" False plugin_known acme.contend-a
+expect_poll "acme.contend-b is absent after capability-release cleanup" False plugin_known acme.contend-b

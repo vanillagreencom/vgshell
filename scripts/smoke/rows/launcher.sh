@@ -624,7 +624,8 @@ type_keys -k Escape || fail "sending Escape failed"
 expect_poll "Escape closes the launcher after Packages" 0 layer_count vgs:overlay
 
 write_menu '{ "schemaVersion": 1, "items": { "tools.smoke-update": { "label": "Smoke update", "icon": "refresh-cw", "tuiGroup": "Update" } } }'
-expect "the Update fixture starts disabled, as tui.sh left it" False plugin_enabled acme.tui
+leak_plugin_setup acme.tui false || { fail "launcher: fixture precondition failed"; return 1; }
+expect "the Update fixture starts disabled" False plugin_enabled acme.tui
 expect "the launcher opens Tools for the smoke update row" ok ipc shell summon overlay vgs.launcher '{"menu":"tools"}'
 expect_poll "the Tools menu is open for the smoke update row" '"tools"' read_launcher activeMenu
 focused "the Tools menu holds the keyboard for the smoke update row"

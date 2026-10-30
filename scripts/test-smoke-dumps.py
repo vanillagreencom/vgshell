@@ -12,6 +12,7 @@ HARNESS = Path(__file__).resolve().parent / "smoke/harness.sh"
 BASH = shutil.which("bash")
 ENV = {"PATH": os.environ.get("PATH", ""), "LC_ALL": "C.UTF-8",
        "VGS_TEST_RUN": "1"}
+ENV.update({key: os.environ[key] for key in ("TMPDIR", "VGSHELL_WORLD_ROOT")})
 source = HARNESS.read_text()
 default_bound = re.search(r"(?m)^ipc_call_bound_s=([0-9]+)$", source)
 assert default_bound
@@ -126,16 +127,27 @@ exec sleep infinity
     child.write_text('''set -euo pipefail
 unset WAYLAND_DISPLAY DISPLAY HYPRLAND_INSTANCE_SIGNATURE
 repo="$1" sandbox="$2" root="$3" want_timeout="$5"
+home="$sandbox/home"
+mkdir -p "$home"
 source "$repo/bin/lib/ipc-reply.sh"
 source "$repo/scripts/smoke/verdict.sh"
 source "$repo/scripts/smoke/leaks.sh"
 source "$4"
+# Registry/bus sensors are outside these IPC deadline cases. Keep the real
+# perScreenLayers calls and each case's explicit paged registry request.
+leak_plugins() { echo '{"scanned":true,"plugins":[{"id":"vgs.bar","enabled":true}]}'; }
+leak_bus_names() { echo 'org.freedesktop.DBus run:fixture'; }
+# These cases exercise IPC timing and row abandon, not restoration.
+# Neutral context ownership keeps their real leak readings and timeout
+# attribution while the ANR and nested leak controls prove transactions.
+leak_row_start() { leak_reading; leak_starts+=("$leak_last"); }
+leak_row_restore() { unset 'leak_starts[-1]'; }
 block="" case_defer="$8"
 [[ $want_timeout != yes ]] || block="$6 $7"
 shell_env=(env -i PATH="$root:$PATH" HOME="$sandbox" XDG_RUNTIME_DIR="$sandbox" CASE_DIR="$sandbox" CASE_BLOCK="$block" CASE_DEFER="$case_defer" VGS_TEST_RUN=1)
 printf '%s\\n' "$BASHPID" >"$sandbox/vgshell.lock"
 # Only the never-answering stand-in uses the timer-wiring bound. Even a
-# timeout case's preflight and cleanup answers need the measured default.
+# timeout case's cleanup answers need the measured default.
 ipc_call_last() {
   local ipc_call_bound_s="$ipc_call_bound_s"
   if [[ "$2 $3" == "$block" && ( $case_defer != yes || -e $sandbox/block ) ]]; then
@@ -146,6 +158,8 @@ ipc_call_last() {
 ipc_last_reply="" ipc_reply_chars=32768 ipc_oversize_log="$sandbox/oversize"
 ipc_timeout_log="$sandbox/ipc-timeout.log"
 smoke_row_drain_s=5
+stop_lock_wait_s=1
+display_record_call() { :; }
 shell_qs_pid="$BASHPID" timeout_s=1
 shell_start_path="$PATH" shell_start_words=()
 shim="$sandbox/shim"
@@ -184,7 +198,6 @@ fi
         ("instance", 'ipc_at "$BASHPID" smoke descendantGeometry window vgs.settings || true', "smoke", "descendantGeometry", "yes"),
         ("page", 'got="$(ipc shell listPlugins)" || true', "shell", "page", "yes"),
         ("geometry", "row_class=geometry; ipc smoke descendantGeometry window vgs.settings || true", "smoke", "descendantGeometry", "yes"),
-        ("preflight", ":", "shell", "ping", "yes"),
         ("cleanup", 'touch "$sandbox/block"', "smoke", "perScreenLayers", "yes"),
         ("cleanup-reply", ":", "smoke", "perScreenLayers", "no"),
         ("reply", 'got="$(ipc smoke reply)"; [[ $got == answer ]]', "smoke", "reply", "no"),
@@ -239,7 +252,7 @@ smoke_row_secs empty 3000 ""
         print("smoke-ipc: bounded-row=" + case[0])
 
     # Restore the old bound without removing the answering call. The
-    # delayed reply must fail specifically at that call, not at preflight.
+    # delayed reply must fail specifically at that call.
     short_bound = root / "short-bound.sh"
     text = production.read_text()
     assert text.count(default_bound[0]) == 1
@@ -296,8 +309,8 @@ smoke_row_secs empty 3000 ""
     assert text.count(needle) == 1
     before_cleanup = text.replace(needle, "")
     needle = '  leak_row_end "$smoke_row_name" "$smoke_row_dir"\n'
-    assert before_cleanup.count(needle) == 1
-    before_cleanup = before_cleanup.replace(needle, '  ipc_timeout_check "$smoke_row_name" || true\n' + needle)
+    position = before_cleanup.rindex(needle)
+    before_cleanup = before_cleanup[:position] + '  ipc_timeout_check "$smoke_row_name" || true\n' + before_cleanup[position:]
     assert before_cleanup != text
     mutant = root / "premature.sh"
     mutant.write_text(before_cleanup)

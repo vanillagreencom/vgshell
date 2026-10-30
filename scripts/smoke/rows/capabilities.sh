@@ -8,6 +8,8 @@
 # stand-ins away again and leaves the fixture disabled.
 # inputs: scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.dictation/* scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js shell/Core/Capabilities.qml shell/Core/ShortcutRegistry.qml shell/Core/IpcRegistry.qml shell/Core/IdleRegistry.qml shell/Core/PluginLogic.js shell/Core/Registry.qml shell/plugins/vgs.lock/manifest.json shell/Core/SessionLock.qml shell/Core/NotificationHub.qml shell/Core/Compositor.qml shell/Core/Dispatch.js bin/vgshell-dictation bin/lib/voxtype.sh bin/lib/voxtype.py scripts/smoke/rows/plugins.sh
 set -euo pipefail
+leak_plugin_setup acme.probe true acme.bare true || { fail "capabilities: fixture precondition failed"; return 1; }
+expect_poll "the shared fixture is built before its dependent reads" True record_exists acme.probe
 lent() { ipc shell lent | py_reply 'import json,sys; d=json.load(sys.stdin); v=d
 for k in sys.argv[1].split("."): v=v.get(k) if isinstance(v, dict) else None
 print(json.dumps(v))' "$1"; }

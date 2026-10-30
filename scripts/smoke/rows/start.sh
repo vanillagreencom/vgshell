@@ -175,10 +175,12 @@ stop_shell || :
 mkdir -p -- "$sandbox/start-row-control"
 printf '%s\n' ': >"$sandbox/start-row-entered"' >"$sandbox/start-row-control/start-missing.sh"
 start_missing_control() {
+  local status=0
   (failures=0 behaviour_failures=0
-   smoke_row start-missing "$sandbox/start-row-control" >"$sandbox/start-missing-control.log"
-   echo "$failures")
+   trap 'printf "%s\n" "$failures" >"$sandbox/start-missing.failures"' EXIT
+   smoke_row start-missing "$sandbox/start-row-control" >"$sandbox/start-missing-control.log") || status=$?
+  if [[ $status == 1 ]]; then cat -- "$sandbox/start-missing.failures"; else printf 'status=%s\n' "$status"; fi
 }
-expect "control: a row with no answering shell fails once" 1 start_missing_control
+expect "control: an unreadable incoming shell terminates once before the row" 1 start_missing_control
 expect "control: no dependent check runs without the shell" false file_exists "$sandbox/start-row-entered"
 start_restore || :

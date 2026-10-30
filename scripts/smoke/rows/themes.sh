@@ -11,6 +11,7 @@
 # markers.
 # inputs: shell/plugins/vgs.themes/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/Commons/Reply.js shell/plugins/vgs.gallery/* scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/ThemeRunner.qml shell/Commons/Theme.qml shell/Commons/ThemeSource.qml bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js bin/lib/qml-library.js scripts/smoke/rows/theme.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Hosts/BarHost.qml shell/Ui/controls/RowAction.qml shell/Commons/Glass.js shell/Core/Notifier.qml shell/Core/NotificationHub.qml shell/Core/Capabilities.qml shell/shell.qml shell/plugins/vgs.notifications/* scripts/smoke/Probe.qml
 set -euo pipefail
+leak_plugin_setup vgs.themes true || { fail "themes: fixture precondition failed"; return 1; }
 installed="$home/.config/vgshell/themes"
 # What the fixture's last apply callback received: state, shell, theme and
 # reason, a null reason printed as None.
@@ -1162,9 +1163,8 @@ expect_poll "the themes panel closes" closed panel_open
 # copy of the shared state reader that ignores `screens`, one that never
 # reloads the state file and a copy of the background that is always shown
 # are the block's controls.
-# The block leaves vgs applied with its shipped Black image current and the
-# plugin disabled, so later rows see the bar they saw before the
-# vgs.themes block.
+# The block ends its own assertions with vgs applied, Black current and the
+# plugin disabled. The boundary restores the incoming selection and flags.
 scenic="$installed/scenic"
 mkdir -p -- "$scenic/backgrounds"
 printf '%s\n' '{ "schemaVersion": 1, "name": "scenic", "tokens": {} }' >"$scenic/theme.json"
@@ -1536,7 +1536,7 @@ else
 fi
 
 expect "vgs applies after the no-image rows" "ok theme=vgs state=applied shell=applied" vgshell_theme apply vgs
-expect_poll "Black is current for later rows" "\"$vgs_black\"" bg_current
+expect_poll "Black is current before the boundary" "\"$vgs_black\"" bg_current
 expect "vgshell plugin disable takes the themes panel and background away" ok "${shell_env[@]}" "$repo/bin/vgshell" plugin disable vgs.themes
 expect_poll "every vgs.themes instance is gone" False record_exists vgs.themes
 # Disabling the plugin queues a scan and follow; the next row's apply must not race that theme lock.

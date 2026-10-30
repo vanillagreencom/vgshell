@@ -205,7 +205,7 @@ source,out=map(pathlib.Path,sys.argv[1:])
 text=source.read_text()
 parts=[]
 for name in ('coordinate_observation','pointer_dispatch','hover'):
-    start=text.index(name+'() {')
+    start=text.index('\n'+name+'() {')+1
     line=text[start:text.index('\n',start)]
     end=start+len(line)+1 if line.endswith('}') else text.index('\n}\n',start)+3
     parts.append(text[start:end])

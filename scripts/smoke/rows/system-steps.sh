@@ -280,3 +280,8 @@ rm -f -- "$system_bin/getcap" "$system_bin/setcap" "$system_bin/bandwhich.caps" 
 device_reply_clear systemctl
 device_reply_clear gum
 device_reply_clear udevadm
+
+rm -rf -- "${system_dir:?}" "${system_capture_dir:?}"
+rescan "a rescan removes system-steps's disabled row-only fixtures"
+expect_poll "acme.system is absent after system-steps cleanup" False plugin_known acme.system
+expect_poll "acme.capture is absent after system-steps cleanup" False plugin_known acme.capture

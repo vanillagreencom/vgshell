@@ -256,10 +256,9 @@ planted_holds() {
   if grep -q -F -- "$gate" <<<"$holders"; then echo yes; else echo no; fi
 }
 
-# A stop whose TERM reaches a stand-in, never the runner, times out on the
-# lock the runner holds: the row fails once and names the runner among the
-# holders. Its lines go to their own file, and the stand-in ends on the
-# TERM. The shell itself holds no descriptor on the lock.
+# An unregistered stand-in owns no instance lock and cannot stand in for
+# its runner. The stop refuses once and names the actual lock holder.
+# The shell itself holds no descriptor on the instance lock.
 stop_timeout_log="$sandbox/stop-timeout-control.log"
 stop_timeout_control() {
   (
@@ -267,10 +266,12 @@ stop_timeout_control() {
     sleep 30 >/dev/null 2>&1 &
     shell_pid=$!
     stop_shell >"$stop_timeout_log" || :
+    display_record_call stop-process "$shell_pid" "$$" "$stop_lock_wait_s" >/dev/null || exit 1
+    wait "$shell_pid" 2>/dev/null || :
     echo "$failures"
   )
 }
-expect "control: a stop whose TERM misses the runner fails once on the held lock" 1 stop_timeout_control
+expect "control: a stop targeting an unregistered non-holder refuses once" 1 stop_timeout_control
 expect "control: the timed-out stop names the runner as a lock holder" 1 grep -c -F -- "holder pid=$shell_pid comm=" "$stop_timeout_log"
 expect "the shell holds no descriptor on the instance lock" 0 holders_named "$shell_qs_pid"
 
@@ -279,20 +280,14 @@ expect "the shell holds no descriptor on the instance lock" 0 holders_named "$sh
 # and the shell the nested Hyprland's dispatch relaunches answers as the
 # guarded instance. That runner is no child of the harness, so its process
 # group joins the teardown's, and stop_shell stops it by the lock.
-# stop_shell waits on the lock, not on the runner's pid, since a relaunched
-# runner is no child the harness can wait for. The shell is stopped with
-# SIGSTOP first, so the TERM the runner passes on stays pending and no
-# reading depends on how fast the shell exits: a copy of stop_shell with
-# no lock wait returns with the lock held, and the real stop_shell, run
-# once the shell continues, returns with it free.
-# restart_live BIN [ENV_WORDS...]: that restart, BIN's under shell_env and
-# then ENV_WORDS, and that stop. A restart that fails fails the row and
-# stops nothing: the runner is still the harness's child, which the copy
-# with no lock wait would wait for while its shell is stopped.
+# A relaunched runner has no harness launch registration. The private
+# lock descriptor binds its stop owner. A stopped shell must still exit
+# within the stop bound; only then may stop_shell reap a child runner.
+# restart_live BIN [ENV_WORDS...]: restart, observe the guarded instance,
+# stop its acquired generation and read back the freed lock.
 restart_err="$sandbox/restart.err"
-unwaited_needle='flock -w "$stop_lock_wait_s" "$lock" true'
 restart_live() {
-  local restart_status=0 restart_out restarted=false pgid stop_shell_def stop_shell_rest unwaited_def
+  local restart_status=0 restart_out restarted=false pgid restart_stop
   restart_out="$("${shell_env[@]}" "${@:2}" "$1" restart 2>"$restart_err")" || restart_status=$?
   if [[ $restart_status == 0 && $restart_out =~ ^ok\ pid=([0-9]+)$ && ${BASH_REMATCH[1]} != "$shell_qs_pid" ]]; then
     ok "vgshell restart during a live child brings the shell back: $restart_out"
@@ -306,25 +301,17 @@ restart_live() {
   fi
   expect "the planted process still runs after the restart" running holder_state "$gate"
   [[ $restarted == true ]] || return 0
-  if [[ $shell_pid =~ ^[0-9]+$ ]] && stop_shell_def="$(declare -f stop_shell)" \
-    && stop_shell_rest="${stop_shell_def//"$unwaited_needle"/}" \
-    && [[ $(( (${#stop_shell_def} - ${#stop_shell_rest}) / ${#unwaited_needle} )) == 1 ]] \
-    && unwaited_def="${stop_shell_def/"$unwaited_needle"/true}" \
-    && [[ $unwaited_def != "$stop_shell_def" ]] \
-    && eval "unwaited_$unwaited_def"; then
-    kill -STOP "$shell_qs_pid"
-    unwaited_stop_shell || :
-    expect "control: a stop that does not wait on the lock returns with a relaunched shell's lock held" held lock_state
-    kill -CONT "$shell_qs_pid"
-    if stop_shell; then
-      expect "stop_shell returns once a relaunched shell freed the instance lock" free lock_state
-      expect "stop_shell records the acknowledged shell and compositor layer result" true py_reply 'import json,sys
+  kill -STOP "$shell_qs_pid"
+  # The stopped shell cannot act on its TERM, so only the forced step ends
+  # it: this row's policy expects exactly that outcome.
+  shell_stop restart_stop
+  expect "a stopped relaunched runner is stopped by the forced step" forced printf '%s\n' "$restart_stop"
+  if [[ $restart_stop == forced ]]; then
+    expect "stop_shell frees a stopped relaunched runner's lock within its bound" free lock_state
+    expect "stop_shell records the acknowledged shell and compositor layer result" true py_reply 'import json,sys
 events=[json.loads(line) for line in sys.stdin]; pid=sys.argv[1]
 ends=[e["data"].get("layerStop",{}) for e in events if e["kind"] in ("local-owner-end","unobserved-adoption-end")]
 print(str(any(s.get("instance",{}).get("pid")==pid and s["instance"].get("instanceLog") is None and s["instance"].get("instanceLogStatus")=="unavailable" and s["instance"].get("instanceLogReason") and s.get("stop","").startswith("owner-") and (type(s.get("stillListed")) is bool or s.get("stillListed")=="unreadable") for s in ends)).lower())' "$shell_qs_pid" <"$display_record_dir/events.jsonl"
-    fi
-  else
-    fail "the stop_shell copy with no lock wait could not be written"
   fi
 }
 # A restart whose engine probe prints no version fails once and leaves the

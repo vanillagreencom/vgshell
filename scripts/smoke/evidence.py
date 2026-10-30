@@ -7,6 +7,7 @@ Each row keeps at most 8 MiB, including its index; each file keeps at most
 1 MiB. ANR spans are frozen at observation; other files keep their tail.
 This is a storage cap, not a latency or product memory budget.
 """
+import json
 import os
 from pathlib import Path
 import stat
@@ -15,6 +16,54 @@ import sys
 ROW_BYTES = 8 * 1024 * 1024
 FILE_BYTES = 1024 * 1024
 INDEX_BYTES = 8192
+
+
+def reading(sandbox, snapshot):
+    """Advisory diagnostics only; required leak classes keep their own verdict."""
+    active = sandbox / "evidence/active"
+    world = Path(os.environ["VGSHELL_WORLD_ROOT"]).resolve(strict=True)
+    owned = sandbox.resolve(strict=True)
+    if not owned.is_relative_to(world) or snapshot.resolve(strict=True).parent != owned / "leaks":
+        raise ValueError("reading outside nested sandbox")
+    # Register before acquisition so an interrupted reading also survives.
+    with active.open("a") as stream:
+        stream.write(snapshot.name + "\n")
+    # harness.sh fixes XDG_STATE_HOME to this owned home. No caller HOME,
+    # credential store or image bytes enter this diagnostic.
+    home = owned / "home"
+    source = home / ".local/state/vgshell/backgrounds.json"
+    observation = {"source": str(source), "status": "unavailable"}
+    data = None
+    try:
+        # Hold each parent while opening its child. A replaced link cannot
+        # redirect a diagnostic into the caller's readable home.
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        directory = os.open(owned, flags)
+        try:
+            for part in ("home", ".local", "state", "vgshell"):
+                child = os.open(part, flags, dir_fd=directory)
+                os.close(directory)
+                directory = child
+            fd = os.open("backgrounds.json", os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW, dir_fd=directory)
+        finally:
+            os.close(directory)
+        with os.fdopen(fd, "rb") as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode):
+                raise ValueError("wallpaper state is not a regular file")
+            data = stream.read(FILE_BYTES + 1)
+            if len(data) > FILE_BYTES:
+                data = None
+                raise ValueError("wallpaper state exceeds evidence file bound")
+        observation.update(status="present", bytes=len(data))
+    except FileNotFoundError:
+        observation["status"] = "absent"
+    except (OSError, ValueError) as error:
+        observation["cause"] = str(error)
+        print("qml-smoke: evidence=wallpaper-state-unavailable reading=%s cause=%s" % (snapshot.name, error), flush=True)
+    if data is not None:
+        (snapshot / "backgrounds.json").write_bytes(data)
+    (snapshot / "background-state.json").write_text(json.dumps(observation) + "\n")
 
 
 def retain(root, sandbox, outputs):
@@ -50,6 +99,7 @@ def retain(root, sandbox, outputs):
         incident_root = sandbox / "rows" / (row + ".anr")
         candidates += [(p, "row/" + str(p.relative_to(sandbox / "rows")))
                        for p in sorted(incident_root.rglob("*"), key=lambda p: (p.name != "incident.json", str(p))) if p.is_file()]
+        incident_count = len(candidates)
         instances = sorted(runtime.glob("quickshell/by-id/*/log.log"),
                            key=lambda p: p.stat().st_mtime_ns, reverse=True)
         logs = [str(instances[0]) if instances else "", initial_log]
@@ -67,9 +117,12 @@ def retain(root, sandbox, outputs):
                                for p in sorted(entry.rglob("*")) if p.is_file()]
             else:
                 candidates.append((entry, "row/" + entry.name))
-        for reading in readings:
+        # Keep frozen ANR spans first, then boundary inputs, then log tails.
+        boundary = []
+        for reading in dict.fromkeys(readings):
             folder = sandbox / "leaks" / reading
-            candidates += [(p, "probes/" + reading + "/" + p.name) for p in sorted(folder.glob("*"))]
+            boundary += [(p, "probes/" + reading + "/" + p.name) for p in sorted(folder.glob("*"))]
+        candidates[incident_count:incident_count] = boundary
         candidates += [(p, "instance-" + p.parent.name + ".log") for p in instances]
         remaining = ROW_BYTES - INDEX_BYTES
         index = ["row=" + row, "state=" + ("interrupted" if record.name == "active" else "failed")]
@@ -103,8 +156,16 @@ def retain(root, sandbox, outputs):
 
 
 if __name__ == "__main__":
-    try:
-        retain(Path(sys.argv[1]), Path(sys.argv[2]), [Path(path) for path in sys.argv[3:]])
-    except (OSError, ValueError) as error:
-        print("qml-smoke: evidence=copy-failed cause=%s" % error, file=sys.stderr)
-        sys.exit(1)
+    if len(sys.argv) == 4 and sys.argv[1] == "--reading":
+        try:
+            reading(Path(sys.argv[2]), Path(sys.argv[3]))
+        except (OSError, ValueError, KeyError) as error:
+            # Evidence is advisory: unavailable diagnostics preserve the
+            # original row verdict, as after-namespace copy errors do.
+            print("qml-smoke: evidence=reading-unavailable cause=%s" % error, file=sys.stderr)
+    else:
+        try:
+            retain(Path(sys.argv[1]), Path(sys.argv[2]), [Path(path) for path in sys.argv[3:]])
+        except (OSError, ValueError) as error:
+            print("qml-smoke: evidence=copy-failed cause=%s" % error, file=sys.stderr)
+            sys.exit(1)

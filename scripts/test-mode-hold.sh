@@ -50,7 +50,7 @@ harness,entry,capture,startup,out=map(pathlib.Path,sys.argv[1:6])
 text=harness.read_text()
 parts=[]
 for name in ("unscaled_mode_of", "hidpi_mode_of"):
-    start=text.index(name+"() {")
+    start=text.index("\n"+name+"() {")+1
     parts.append(text[start:text.index("\n}\n",start)+3])
 size=[line for line in entry.read_text().splitlines() if line.startswith("shell_output_size=")]
 assert len(size)==1
@@ -470,7 +470,7 @@ def extract(path,names):
     text=path.read_text()
     result=[]
     for name in names:
-        start=text.index(name+"() {")
+        start=text.index("\n"+name+"() {")+1
         line=text[start:text.index("\n",start)]
         end=start+len(line)+1 if line.endswith("}") else text.index("\n}\n",start)+3
         result.append(text[start:end])

@@ -646,3 +646,7 @@ expect "disabling the failed fixture releases its hold" ok ipc shell setPluginEn
 
 dictation_stand_ins off
 rm -f -- "${dictation_words:?}" "${dictation_notes:?}" "${dictation_typed:?}" "${dictation_loading:?}" "${dictation_follow:?}" "${dictation_daemon_fail:?}" "${dictation_liveness_unreadable:?}"
+
+rm -rf -- "${dictation_other:?}"
+rescan "a rescan removes dictation's disabled row-only fixtures"
+expect_poll "acme.dictation-other is absent after dictation cleanup" False plugin_known acme.dictation-other

@@ -111,7 +111,7 @@ A wallpaper another program draws must not be covered by a bare background colou
 
 ### Backgrounds
 
-- Do keep `bin/lib/theme-backgrounds.js` the only writer of the wallpaper state and the `vgs.themes` plugin's `WallpaperState.qml` the only reader. `scripts/test-vgshell-backgrounds.sh` and `scripts/smoke/rows/themes.sh` pin both.
+- Do keep `bin/lib/theme-backgrounds.js` the only production writer of the wallpaper state and the `vgs.themes` plugin's `WallpaperState.qml` its production JSON reader. The nested row boundary alone checkpoints/restores the writer's JSON/link output pair before restoring enablement. `scripts/test-vgshell-backgrounds.sh` and `scripts/smoke/rows/themes.sh` pin the product behavior; `scripts/test-smoke-persisted-inputs.py` and `scripts/smoke/rows/leak-check.sh` pin the test-only checkpoint.
 - Do name package wallpapers only through the optional `backgrounds` map in `theme.json`, from image file name to one or two words; `ThemeLogic.accept` judges the names, and `acceptPackage` refuses a missing named file only for a shipped package. `scripts/test-theme-logic.js` pins it.
 - Do keep per-output images in the optional `screens` map of `backgrounds.json`, overriding `current` for those outputs. An absent entry uses `current`; use no separate mode flag or seeded map. Theme apply clears the map, and `set` accepts only an image the `list --all` result names. `scripts/test-vgshell-backgrounds.sh` pins the state and writer; `scripts/test-theme-logic.js` pins the screen argument grammar.
 - Never map the background surface while no image is current. `scripts/smoke/rows/themes.sh` pins it.

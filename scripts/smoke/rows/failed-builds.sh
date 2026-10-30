@@ -1,6 +1,6 @@
 # A plugin whose entry points cannot take what the core assigns is not
 # built and keeps nothing it was lent: no hold, no background surface.
-# It reads what rows/capability-release.sh leaves: acme.probe disabled, so
+# It disables acme.probe before the isolated fixture checks, so
 # the lock the broken fixture asks for is free and acme.tick stands alone
 # in the centre section. While acme.probe holds the lock the core waits
 # and builds nothing, so it refuses nothing.
@@ -9,6 +9,7 @@
 # the one the shell started over: the engine loaded the fixture's files.
 # inputs: shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/fixtures/plugins/acme.broken/* scripts/smoke/fixtures/plugins/acme.nowidget/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Commons/Reply.js shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/Notices.qml shell/Hosts/BackgroundHost.qml scripts/smoke/rows/manager.sh scripts/smoke/rows/sources.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/capability-release.sh
 set -euo pipefail
+leak_plugin_setup acme.probe false acme.bare false || { fail "failed-builds: fixture precondition failed"; return 1; }
 broken="$home/.config/vgshell/plugins/acme.broken"
 mkdir -p "$broken"
 cp -R "$repo/scripts/smoke/fixtures/plugins/acme.broken/." "$broken/"
@@ -162,3 +163,8 @@ if copy_tree failed-builds-duplicate-errors && edit_tree failed-builds-duplicate
   fi
   failed_builds_control_restore
 fi
+
+
+rm -rf -- "${nowidget:?}"
+rescan "a rescan removes failed-builds's disabled row-only fixtures"
+expect_poll "acme.nowidget is absent after failed-builds cleanup" False plugin_known acme.nowidget

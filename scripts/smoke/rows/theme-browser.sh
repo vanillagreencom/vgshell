@@ -32,10 +32,11 @@
 # headless output and read each screen's drawn image back, and run the
 # update card against a second archive the catalog pins anew. A copy of
 # WallpaperView.qml that sets every image as the current one is their
-# control. rows/themes.sh defines the helpers used here and leaves the
-# plugin disabled, and rows/theme-browse.sh leaves vgs applied with Black
-# current and nord not installed; this file enables the plugin and leaves
-# all four so.
+# control. rows/themes.sh defines the helpers used here. The row enters
+# with the plugin disabled, nord not installed and the wallpaper selection
+# the row boundary restored, absent in a seeded run; it writes its own
+# selection through its applies, enables the plugin, and leaves the plugin
+# disabled, nord not installed and no selection.
 # A source without images keeps its no-wallpapers state under a filter;
 # a logic copy that always treats a filter as the cause is its control.
 # Every search line and empty state starts on whole screen rows and
@@ -43,6 +44,7 @@
 # row is that check's control.
 # inputs: shell/plugins/vgs.themes/* themes/catalog/* themes/vgs/* shell/Core/HyprlandLayer.js shell/Core/ThemeRunner.qml bin/vgshell bin/lib/theme-* bin/lib/qml-library.js shell/Commons/ThemeLogic.js shell/Ui/layout/CardCarousel.qml shell/Ui/layout/AngledCard.qml shell/Ui/layout/Tabs.qml shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js shell/Ui/feedback/Dialog.qml shell/Ui/controls/Button.qml shell/Ui/foundation/FocusRing.qml bin/vgshell-theme-judge shell/Core/ShortcutRegistry.qml shell/Core/Plugins.qml scripts/smoke/rows/themes.sh scripts/smoke/rows/theme-browse.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/fixtures/theme-image.jpg
 set -euo pipefail
+leak_plugin_setup vgs.themes false || { fail "theme-browser: fixture precondition failed"; return 1; }
 view_value() { ipc smoke readDescendant overlay vgs.themes ThemeView "$1"; }
 view_names() { view_value shownCards | py_reply 'import json,sys; print(json.dumps([c["name"] for c in json.load(sys.stdin)]))'; }
 view_selected_name() { view_value selectedName | tr -d '"'; }

@@ -4,6 +4,7 @@
 # Controls disconnect the reader and remove the orb's motion-scale guard.
 # inputs: scripts/smoke/fixtures/plugins/acme.layers/* shell/Ui/feedback/VoiceOrb.qml shell/Ui/feedback/shaders/* scripts/smoke/rows/layers.sh
 set -euo pipefail
+leak_plugin_setup acme.layers false || { fail "shader-frames: fixture precondition failed"; return 1; }
 expect "enable the layer frame fixture" ok ipc shell setPluginEnabled acme.layers true
 expect_poll "the layer frame fixture builds" True record_exists acme.layers
 expect "show the passive layer for frame readings" ok layered draw

@@ -761,7 +761,7 @@ def terminal(directory):
 # Actual shared launch/stop. Every signalled child belongs to this fixture.
 def boundary(directory, recorder, mode='registered', source=harness_text):
     helper = directory / ('boundary-' + mode + '.sh')
-    helper.write_text('\n'.join(extract(source, n) for n in ('spawn', 'stop_shell', 'in_harness_tree', 'shell_answers', 'py_reply')) + r'''
+    helper.write_text('\n'.join(extract(source, n) for n in ('spawn', 'shell_stop', 'stop_shell', 'in_harness_tree', 'shell_answers', 'py_reply', 'now_ms')) + r'''
 set -u
 recorder=$1 fixture=$2 mode=$3
 control=$fixture/control
@@ -809,6 +809,11 @@ if [[ $mode == adopted || $mode == direct-restart ]]; then
   pgids+=("$shell_pid")
 fi
 shell_log=$fixture/child.log
+# Probe stream registration alone grants no shell-stop ownership. Bind
+# this fixture's own generation as shell_answers does for supervised qs.
+if [[ $mode != supervised ]]; then
+  display_record_call mark shell-identity "$shell_pid" "$shell_pid" "$fixture" "$shell_log" >/dev/null
+fi
 if [[ $mode == supervised ]]; then
   shell_env=() shell_pids_started=()
   timeout_s=1 instance_log=''
@@ -1179,7 +1184,7 @@ mutant('event-cap', 'if not terminal and (self.events >= CAP_EVENTS or self.byte
 
 # Mutations at the shared stop authority cover every caller using it.
 def stop_mutation():
-    needle = 'display_record_call owner-end "$observation_owner" "$stopped_pid" >/dev/null || true'
+    needle = 'display_record_call owner-end "$shell_stop_owner" "$shell_stop_pid" >/dev/null || true'
     assert harness_text.count(needle) == 1, 'owner-end-mutation-source'
     with server('mut-stop') as (directory, recorder, child, request):
         boundary(directory, recorder, source=harness_text.replace(needle, ':'))
@@ -2652,7 +2657,7 @@ parts=[]
 for source,names in ((script,("capture_mode_name","capture_theme_check","capture_probe_release","capture_plugin_states","capture_state_record","page_state_record","lock_row_quiet","scene_desktop","close_notices","notice_plugin","notice_moved_from")),(harness,("py_reply","notice_shown"))):
     text=source.read_text()
     for name in names:
-        start=text.index(name+"() {")
+        start=text.index("\n"+name+"() {")+1
         # One-line readers end on their declaration line.
         line_end=text.index("\n",start)
         if text[start:line_end].rstrip().endswith("}"): end=line_end

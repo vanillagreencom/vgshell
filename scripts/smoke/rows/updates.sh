@@ -532,6 +532,13 @@ expect "control: the failed poll prints the traceback under its row" 1 grep -c -
 # marker, and the bound fails it. Each runs in a subshell whose failure
 # count is its answer and whose lines go to their own file, so the
 # planted traceback never reaches this row's output.
+# These private detector cases leave the product unchanged. The real
+# transaction and its successor run in the living world in leak-check;
+# this fixture isolates traceback/ERR/abandon attribution from that owner.
+updates_detector_release() {
+  display_record_call row-release "${leak_starts[-1]}" >/dev/null
+  unset 'leak_starts[-1]'
+}
 row_plants="$sandbox/row-plants"
 mkdir -p -- "$row_plants"
 cat >"$row_plants/updates-traceback-plant.sh" <<'SH'
@@ -544,7 +551,9 @@ cat >"$row_plants/updates-undrained.sh" <<'SH'
 exec >/dev/null 2>&1
 SH
 planted_row() { # NAME
-  (failures=0 behaviour_failures=0 smoke_row_drain_s=1; smoke_row "$1" "$row_plants" >"$sandbox/row-plant-$1.log" 2>&1; echo "$failures")
+  (failures=0 behaviour_failures=0 smoke_row_drain_s=1
+   leak_row_restore() { updates_detector_release; }
+   smoke_row "$1" "$row_plants" >"$sandbox/row-plant-$1.log" 2>&1; echo "$failures")
 }
 expect "control: a planted row whose reader raises outside every expect fails once" 1 planted_row updates-traceback-plant
 expect "control: the planted row's failure names it and its traceback count" 1 grep -c -F -- "FAIL  updates-traceback-plant: its output holds 1 Python traceback(s)" "$sandbox/row-plant-updates-traceback-plant.log"
@@ -588,7 +597,9 @@ PY
 echo "updates-bare-multiline: went on after the failed heredoc"
 SH
 planted_bare_row() { # NAME
-  (failures=0 behaviour_failures=0 smoke_row_drain_s=1; smoke_row "$1" "$row_plants" >"$sandbox/row-plant-$1.log" 2>&1; echo "$failures" >"$sandbox/row-plant-$1.failures") &
+  (failures=0 behaviour_failures=0 smoke_row_drain_s=1
+   leak_row_restore() { updates_detector_release; }
+   smoke_row "$1" "$row_plants" >"$sandbox/row-plant-$1.log" 2>&1; echo "$failures" >"$sandbox/row-plant-$1.failures") &
   wait "$!" || :
 }
 for planted in updates-bare-refused:77 updates-bare-nested:1 updates-bare-multiline:78; do
@@ -641,6 +652,7 @@ exec {updates_abandoned_out}<&-
 SH
 (
   failures=0 behaviour_failures=0
+  leak_row_restore() { updates_detector_release; }
   trap 'printf "%s\n" "$?" "$failures" >"$sandbox/row-abandoned.failures"; source "$row_plants/updates-after-abandoned.sh"; touch "$sandbox/row-abandoned.drained"' EXIT
   smoke_row updates-abandoned "$row_plants" >"$sandbox/row-plant-updates-abandoned.log" 2>&1
   smoke_row updates-after-abandoned "$row_plants" >"$sandbox/row-plant-updates-after-abandoned.log" 2>&1

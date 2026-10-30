@@ -122,21 +122,28 @@ with tempfile.TemporaryDirectory(prefix="smoke-anr-") as scratch:
         namespace["subprocess"] = transport
     print("smoke-anr: required-client-evidence=checked empty-input=allowed")
     helpers = root / "functions.sh"
-    helpers.write_text("".join(function(name) for name in ("py_dumps", "py_reply", "anr_row_boundary", "smoke_row", "now_ms", "cpu_some_us", "cpu_some_pct", "load_average", "smoke_row_secs")))
+    helpers.write_text("".join(function(name) for name in ("py_dumps", "py_reply", "shell_crash_check", "shell_crash_new", "shell_crash_reports", "anr_row_boundary", "smoke_row", "now_ms", "cpu_some_us", "cpu_some_pct", "load_average", "smoke_row_secs")))
     driver = root / "driver.sh"
     driver.write_text('''set -euo pipefail
 repo="$1" sandbox="$2" display_record_dir="$3"
 source "$repo/scripts/smoke/verdict.sh"
-source "$repo/scripts/smoke/leaks.sh"
+source "${7:-$repo/scripts/smoke/leaks.sh}"
 source "$4"
 display_record_call() { python3 "$display_record_dir/recorder.py" request "$display_record_dir/control" "$@"; }
 ipc() { if [[ "$*" == 'shell ping' ]]; then echo ok; else echo '[]'; fi; }
+# This recorder-only fixture starts no registry or bus. Stable neutral
+# sensors keep the successor assertion about ANR cleanup.
+leak_plugins() { echo '{"scanned":true,"plugins":[{"id":"vgs.bar","enabled":true},{"id":"acme.enabled","enabled":true}]}'; }
+leak_bus_names() { echo 'org.freedesktop.DBus none'; }
+# No theme writer runs in this recorder fixture. Its queue is already idle.
+theme_idle() { echo idle; }
 hypr() {
   case "$*" in
     '-j clients') cat "$sandbox/clients.json" ;;
     '-j descriptions') echo '[{"name":"general:border_size"}]' ;;
     '-j layers') echo '{}' ;;
     '--batch j/getoption general:border_size') echo '{"int":1}' ;;
+    'reload config-only') echo ok ;;
     *) return 1 ;;
   esac
 }
@@ -145,14 +152,33 @@ key_submap() { echo default; }
 devices_guard() { echo stable; }
 devices_check() { return 0; }
 rest_pointer() { :; }
-shell_crash_check() { return 0; }
+if [[ ${6:-} != crash ]]; then shell_crash_check() { return 0; }; fi
+stop_shell() { :; }
+shell_stop() { local -n shell_stop_outcome="$1"; shell_stop_outcome=stopped; }
+start_shell() { :; }
 sink_check() { :; }
 ipc_oversize_check() { :; }
 ipc_timeout_check() { return 0; }
 ok() { :; }
 shim="$sandbox/shim"; mkdir "$shim"
 shell_start_path="$PATH" shell_start_words=() shell_env=()
-shell_qs_pid="" timeout_s=1 smoke_row_drain_s=5
+if [[ ${5:-} == launch-variables ]]; then
+  unset shell_start_path
+  shell_start_words=([2]=$'one\ntwo' [7]='')
+  shell_env=(env 'VGS_FIXTURE_EMPTY=' $'VGS_FIXTURE_LINES=one\ntwo')
+fi
+shell_qs_pid="" shell_pid="" timeout_s=1 smoke_row_drain_s=5
+shell_class=org.vgs.shell shell_reporter_class=org.quickshell
+home="$sandbox/home" rt_dir="$sandbox/run"
+mkdir -p "$home/.config/hypr" "$rt_dir"
+printf 'fixture\n' >"$home/.config/hypr/hyprland.lua"
+ipc() {
+ case "$*" in
+  'shell ping') echo ok ;;
+  'shell listPlugins') leak_plugins ;;
+  *) echo '[]' ;;
+ esac
+}
 smoke_row planted "$sandbox"
 before=$failures
 smoke_row successor "$sandbox"
@@ -181,7 +207,7 @@ print("ready",os.getpid(),flush=True)
 while True: signal.pause()
 ''')
 
-    def case(name, program=recorder, transient=False, ownership=True, candidates=1, abandoned=False, reuse=False):
+    def case(name, program=recorder, transient=False, ownership=True, candidates=1, abandoned=False, reuse=False, entry=False, mutation=None, crash=False, helper_path=None, leaks_path=None):
         directory = Path(tempfile.mkdtemp(prefix=name + "-", dir=root))
         sandbox, runtime, recording = (directory / part for part in ("sandbox", "runtime", "record"))
         for folder in (sandbox, runtime / "hypr/test", recording):
@@ -210,6 +236,9 @@ while True: signal.pause()
         assert program.count(marker) == 1
         code = program.replace(marker, '''if __name__ == "__main__" and sys.argv[1] == "serve":
     Record.anr_clients = lambda self, _bound: json.loads(pathlib.Path(sys.argv[3]).read_text())
+    # No compositor transport exists in this recorder-only fixture.
+    # ANR cleanup and the boundary's literal snapshot comparison stay real.
+    Record.row_close_added = lambda self, *_args: None
 ''' + marker)
         script = recording / "recorder.py"
         script.write_text(code)
@@ -276,30 +305,84 @@ while True: signal.pause()
             thread.start()
             row = '(smoke_row abandoned "$sandbox")\n' if abandoned else ""
             (sandbox / "abandoned.sh").write_text("exit 0\n")
-            row += f'python3 "{client}" "{directory / "fixture"}" start\n'
+            if mutation == "managed-refusal":
+                row += 'ipc() { return 1; }\n'
+            elif mutation == "missing-enabled-id":
+                row += "ipc() { echo '{\"scanned\":true,\"plugins\":[{\"id\":\"vgs.bar\",\"enabled\":true}]}'; }\n"
+            elif entry:
+                subprocess.run([PYTHON, str(client), str(directory / "fixture"), "start"], env=ENV, check=True, timeout=3)
+            else:
+                row += f'python3 "{client}" "{directory / "fixture"}" start\n'
+            if mutation == "launch-variables":
+                row += "shell_start_path=broken; shell_start_words=([7]=changed); shell_env=broken\n"
+            elif mutation == "shim":
+                row += 'printf "#!/bin/sh\\nexit 0\\n" >"$shim/planted"; chmod 755 "$shim/planted"\n'
+            elif mutation == "shim-read-error":
+                row += 'find() { if [[ ! -e $sandbox/shim-read.seen ]]; then touch "$sandbox/shim-read.seen"; return 1; fi; command find "$@"; }\n'
             if transient:
                 row += f'python3 "{client}" "{directory / "fixture"}" close\n'
+            if mutation == "end-unreadable-once":
+                row += "leak_plugins() { if [[ ! -e $sandbox/end-read.seen ]]; then touch \"$sandbox/end-read.seen\"; echo '{\"scanned\":false,\"plugins\":[]}'; else echo '{\"scanned\":true,\"plugins\":[{\"id\":\"vgs.bar\",\"enabled\":true},{\"id\":\"acme.enabled\",\"enabled\":true}]}'; fi; }\n"
+            elif mutation == "end-unreadable-permanent":
+                row += "leak_plugins() { echo '{\"scanned\":false,\"plugins\":[]}'; }\n"
+            if crash:
+                row += 'mkdir -p "$home/.cache/quickshell/crashes/fixture"\n'
+                row += 'printf "===== Stacktrace =====\\n#0 fixture\\n===== End =====\\n" >"$home/.cache/quickshell/crashes/fixture/report.txt"\n'
+                row += 'shell_crash_check "$sandbox/detected.crashes" || true\n'
             (sandbox / "planted.sh").write_text(row)
             (sandbox / "successor.sh").write_text('''python3 -c 'import json,sys; cs=json.load(open(sys.argv[1])); assert all(c["class"]!="hyprland-dialog" for c in cs)' "$sandbox/clients.json"
 printf 'successor-ran\\n'
 ''')
-            result = subprocess.run([BASH, str(driver), str(REPO), str(sandbox), str(recording), str(helpers)],
+            result = subprocess.run([BASH, str(driver), str(REPO), str(sandbox), str(recording), str(helper_path or helpers), mutation or "", "crash" if crash else "", str(leaks_path or REPO / "scripts/smoke/leaks.sh")],
                                     env=ENV, capture_output=True, text=True, timeout=15)
             assert not errors, errors
             incidents = list((sandbox / "rows/planted.anr").glob("*/incident.json"))
+            if mutation in ("managed-refusal", "missing-enabled-id"):
+                # A refused restore step fails its row; the post reading,
+                # equal to the start here, ends nothing.
+                assert not incidents, incidents
+                assert "successor-ran" in result.stdout, (result.stdout, result.stderr)
+                assert "scope=managed original-status=0" in result.stdout, result.stdout
+                assert "  FAIL  planted: restoration step=plugins cause=refused" in result.stdout, result.stdout
+                assert "restoration=terminal" not in result.stdout, result.stdout
+                return None, result
             assert len(incidents) == 1, (incidents, result.stdout, result.stderr)
             incident = json.loads(incidents[0].read_text())
             assert result.stdout.count("FAIL  anr-dialog:") == 1, result.stdout
+            if mutation == "shim-read-error":
+                assert result.returncode == 1 and "successor-ran" not in result.stdout, "shim-read-error-continued:" + result.stdout
+                assert "reading=unreadable class=shim at=end" in result.stdout, result.stdout
+                assert "restoration=terminal row=planted original-status=1" in result.stdout, result.stdout
+            if crash:
+                assert "leaves clients:" in result.stdout, "raw-client-evidence-missing:" + result.stdout
+                assert "the shell crashed: crash=fixture" in result.stdout, result.stdout
+                assert result.stdout.index("leaves clients:") < result.stdout.index("restore=begin"), result.stdout
             assert ordinary.poll() is None and unrelated.poll() is None
-            if ownership:
+            if ownership and not reuse and not entry and mutation not in ("shim", "shim-read-error", "end-unreadable-permanent"):
                 assert "successor-ran" in result.stdout, result.stdout
                 assert result.returncode == 0, (result.stdout, result.stderr)
                 assert incident["cleanup"] in ("removed", "already-closed"), incident
-                if reuse:
-                    assert incident["cleanup"] == "already-closed", incident
-                    assert "continuation before=2 after=2" in result.stdout, result.stdout
                 held_dialogs[-1].wait_ended()
+            elif mutation == "end-unreadable-permanent":
+                # Every restore phase runs, the dialog's cleanup among them;
+                # the post reading, still unreadable, then ends the run.
+                assert "successor-ran" not in result.stdout and result.returncode == 1, result.stdout
+                assert "reading=unreadable class=plugins at=end" in result.stdout, result.stdout
+                assert "restoration=terminal row=planted original-status=1" in result.stdout, result.stdout
+                assert incident["cleanup"] in ("removed", "already-closed"), incident
+                held_dialogs[-1].wait_ended()
+            elif ownership:
+                assert "successor-ran" not in result.stdout, result.stdout
+                assert result.returncode != 0, (result.stdout, result.stderr)
+                assert incident["cleanup"] in ("removed", "already-closed"), incident
+                held_dialogs[-1].wait_ended()
+                if entry:
+                    assert incident["appearance"] == "between-rows", incident
+                    starts = sorted((sandbox / "leaks").glob("*/clients"))
+                    assert any(c["class"] == "hyprland-dialog" for c in json.loads(starts[0].read_text()))
             else:
+                assert "successor-ran" not in result.stdout, result.stdout
+                assert result.returncode != 0, (result.stdout, result.stderr)
                 assert incident["cleanup"] == "ownership-unproved", incident
                 assert held_dialogs[-1].alive()
             assert incident["receiptRealtimeNs"] > 0 and incident["receiptMonotonicNs"] > 0
@@ -342,9 +425,29 @@ printf 'successor-ran\\n'
     for name, options in (("mapped", {}), ("transient", {"transient": True}),
                           ("unavailable", {"candidates": 0}), ("ambiguous", {"candidates": 2}),
                           ("abandoned-inner-row", {"abandoned": True}),
-                          ("ordinary-address-reuse", {"transient": True, "reuse": True})):
+                          ("ordinary-address-reuse", {"transient": True, "reuse": True}),
+                          ("entry-dialog", {"entry": True}),
+                          ("typed-launch-variables", {"mutation": "launch-variables"}),
+                          ("terminal-shim", {"mutation": "shim"}),
+                          ("terminal-shim-read-error", {"mutation": "shim-read-error"}),
+                          ("managed-refusal-status", {"mutation": "managed-refusal"}),
+                          ("missing-enabled-id", {"mutation": "missing-enabled-id"}),
+                          ("end-read-recovers", {"mutation": "end-unreadable-once"}),
+                          ("post-read-still-unreadable", {"mutation": "end-unreadable-permanent"})):
         case(name, **options)
-        print("smoke-anr: path=" + name + " continuation=pass")
+        print("smoke-anr: path=" + name + " boundary=pass")
+    leaks = (REPO / "scripts/smoke/leaks.sh").read_text()
+    needle = "$class == shim && ( $verdict == leaves || $verdict == unreadable )"
+    assert leaks.count(needle) == 1
+    readable_only = root / "readable-shim-only.sh"
+    readable_only.write_text(leaks.replace(needle, "$class == shim && $verdict == leaves"))
+    try:
+        case("control-readable-shim-only", mutation="shim-read-error", leaks_path=readable_only)
+    except AssertionError as error:
+        assert str(error).startswith("shim-read-error-continued:"), str(error)
+        print("smoke-anr: control=unreadable-shim-continuation rejected")
+    else:
+        raise AssertionError("unreadable shim continued")
     case("foreign", ownership=False)
     print("smoke-anr: ownership=refused unrelated-processes=kept")
     case("long-socket-path-" + "x" * 110)
@@ -378,10 +481,141 @@ printf 'successor-ran\\n'
             os.close(capture.notify_fd)
     print("smoke-anr: capture=bounded missing-and-clipped=explicit")
 
+    # The same recorder owns bounded stopping. A TERM-resistant real child
+    # exercises the exit observation before reap; its pidfd stays held by
+    # this test even if the cleanup helper fails.
+    def stopping(program):
+        subject_module = {"__name__": "fixture"}
+        exec(compile(program, "display-recorder-stop", "exec"), subject_module)
+        subject = subject_module["Record"].__new__(subject_module["Record"])
+        process = subprocess.Popen([PYTHON, "-c", 'import signal,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); print("ready",flush=True); time.sleep(60)'],
+                                   env=ENV, stdout=subprocess.PIPE)
+        handle = os.pidfd_open(process.pid)
+        try:
+            assert select.select([process.stdout], [], [], 3)[0], "stop fixture readiness"
+            assert process.stdout.readline() == b"ready\n"
+            try:
+                subject.bounded_cleanup("stop_process", (str(process.pid), str(os.getpid())), "7")
+            except ValueError as error:
+                raise AssertionError("bounded stop failed: " + str(error)) from error
+            assert select.select([handle], [], [], 0)[0], "owned generation remains after successful stop"
+            process.wait(timeout=1)
+        finally:
+            if not select.select([handle], [], [], 0)[0]:
+                signal.pidfd_send_signal(handle, signal.SIGKILL)
+            process.wait(timeout=2)
+            os.close(handle)
+            process.stdout.close()
+
+    stopping(recorder)
+    print("smoke-anr: owned-stop=bounded term-resistant-child=reaped")
+    # The forced path's escalation, apart from the orderly stop's deeper one.
+    needle = "\n                        signal.pidfd_send_signal(fd, signal.SIGKILL)"
+    assert recorder.count(needle) == 1
+    try:
+        stopping(recorder.replace(needle, "\n                        pass"))
+    except AssertionError:
+        print("smoke-anr: control=missing-escalation rejected")
+    else:
+        raise AssertionError("missing escalation passed")
+
+    # An orderly stop leaves a child's TERM to its root's own cleanup. The
+    # child reads the sender of its TERM; the forced stop is the control.
+    def orderly_sender(orderly):
+        subject_module = {"__name__": "fixture"}
+        exec(compile(recorder, "display-recorder-orderly", "exec"), subject_module)
+        subject = subject_module["Record"].__new__(subject_module["Record"])
+        sender = root / f"orderly-sender-{orderly}"
+        process = subprocess.Popen([PYTHON, "-c", '''import os,signal,sys,time
+signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM})
+child = os.fork()
+if child == 0:
+    info = signal.sigwaitinfo({signal.SIGTERM})
+    open(sys.argv[1], "w").write(str(info.si_pid))
+    os._exit(0)
+def cleanup(signum, frame):
+    # The forced control's own TERM reaches the child first.
+    time.sleep(0.5)
+    os.kill(child, signal.SIGTERM)
+    os.waitpid(child, 0)
+    os._exit(0)
+signal.signal(signal.SIGTERM, cleanup)
+print("ready", flush=True)
+signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGTERM})
+while True:
+    signal.pause()
+''', str(sender)], env=ENV, stdout=subprocess.PIPE)
+        handle = os.pidfd_open(process.pid)
+        try:
+            assert select.select([process.stdout], [], [], 3)[0], "orderly fixture readiness"
+            assert process.stdout.readline() == b"ready\n"
+            result = subject.bounded_cleanup("stop_process", (str(process.pid), str(os.getpid()), None, False, 5 if orderly else None), "7")
+            assert select.select([handle], [], [], 0)[0], "orderly root remains after its stop"
+            process.wait(timeout=1)
+            return sender.read_text() == str(process.pid), result
+        finally:
+            if not select.select([handle], [], [], 0)[0]:
+                signal.pidfd_send_signal(handle, signal.SIGKILL)
+            process.wait(timeout=2)
+            os.close(handle)
+            process.stdout.close()
+
+    sent, result = orderly_sender(True)
+    assert sent, "an orderly stop signalled the child itself"
+    assert result is None, "an orderly stop that ended in time reported " + str(result)
+    print("smoke-anr: orderly-stop=root-cleanup-signals-child")
+    sent, _ = orderly_sender(False)
+    assert not sent, "control: the forced stop left the child's TERM to its root"
+    print("smoke-anr: control=forced-stop-signals-child rejected")
+
+    # A root that outlives the orderly wait is forced, and the stop says so.
+    def forced_result(program):
+        subject_module = {"__name__": "fixture"}
+        exec(compile(program, "display-recorder-forced", "exec"), subject_module)
+        subject = subject_module["Record"].__new__(subject_module["Record"])
+        process = subprocess.Popen([PYTHON, "-c", 'import signal,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); print("ready",flush=True); time.sleep(60)'],
+                                   env=ENV, stdout=subprocess.PIPE)
+        handle = os.pidfd_open(process.pid)
+        try:
+            assert select.select([process.stdout], [], [], 3)[0], "forced fixture readiness"
+            assert process.stdout.readline() == b"ready\n"
+            result = subject.bounded_cleanup("stop_process", (str(process.pid), str(os.getpid()), None, False, 2), "4")
+            assert select.select([handle], [], [], 0)[0], "forced root remains after its stop"
+            process.wait(timeout=1)
+            return result
+        finally:
+            if not select.select([handle], [], [], 0)[0]:
+                signal.pidfd_send_signal(handle, signal.SIGKILL)
+            process.wait(timeout=2)
+            os.close(handle)
+            process.stdout.close()
+
+    assert forced_result(recorder) == "forced", "a forced orderly stop reported no force"
+    print("smoke-anr: orderly-stop=forced-reported")
+    needle = '            return "forced" if orderly is not None else None\n'
+    assert recorder.count(needle) == 1
+    assert forced_result(recorder.replace(needle, "            return None\n")) is None
+    print("smoke-anr: control=unreported-force rejected")
+
+    case("crash-original-end", crash=True)
+    print("smoke-anr: crash-report=original-client-evidence-before-restoration")
+    crash_helpers = helpers.read_text()
+    needle = '  smoke_row_crashed_report="$1"\n'
+    assert crash_helpers.count(needle) == 1
+    premature = root / "premature-crash-cleanup.sh"
+    premature.write_text(crash_helpers.replace(needle, needle + '  display_record_call read >/dev/null\n  display_record_call anr-cleanup "$smoke_row_name" >/dev/null\n'))
+    try:
+        case("control-pre-snapshot-cleanup", crash=True, helper_path=premature)
+    except AssertionError as error:
+        assert str(error).startswith("raw-client-evidence-missing:"), str(error)
+        print("smoke-anr: control=pre-snapshot-crash-cleanup rejected")
+    else:
+        raise AssertionError("pre-snapshot crash cleanup hid no raw evidence")
+
     # Keep the behaviour under test while removing one protection in each
     # disposable source copy. Only an assertion failure kills a mutant.
     for name, old, new, options in (
-        ("cleanup", "signal.pidfd_send_signal(fd, signal.SIGTERM)", "pass", {}),
+        ("cleanup", "                        signal.pidfd_send_signal(fd, signal.SIGTERM)", "                        pass", {}),
         ("transient", "self.anr_observe(fields[0])", "pass", {"transient": True}),
         ("ownership", "fd, identity = self.anr_owned_handle(pid)",
          "fd, identity = os.pidfd_open(pid), process_binding(str(pid))", {"ownership": False}),

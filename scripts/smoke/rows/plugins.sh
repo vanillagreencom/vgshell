@@ -73,6 +73,8 @@ else
 fi
 
 service_built() { ipc shell built | py_reply 'import json,sys; d=json.load(sys.stdin); print(any(r["id"]=="acme.probe" and r["kind"]=="service" for r in d.get("service",[])))'; }
+# Registry.listJson publishes PluginLogic.isPlaced even for disabled widgets.
+plugin_placed() { ipc shell listPlugins | py_reply 'import json,sys; print(next((p["placed"] for p in json.load(sys.stdin)["plugins"] if p["id"]==sys.argv[1]), "absent"))' "$1"; }
 read_widget() { ipc smoke readInstance "$(bar_key)" acme.probe "$1"; }
 read_service() { ipc smoke readInstance service acme.probe "$1"; }
 read_clock() { ipc smoke builtinContentProperty "$(bar_key)" vgs.bar/center-clock "$1"; }

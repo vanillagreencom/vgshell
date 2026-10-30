@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """Exercise the production copier and the world cleanup owner without a display."""
+import base64
+import hashlib
+import json
 import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import subprocess
 import tempfile
 
@@ -141,6 +145,185 @@ exec "$BASH" "$script" "$source_repo" "$sandbox" "$runtime" "$mode" "$@"
                 newest = next(output.glob("smoke-evidence-*/example/instance-a-newest.log"))
                 assert newest.read_bytes() == b"restarted instance\n"
         print("smoke-evidence: exit-path=%s preserved-exit=%d" % (mode, status))
+
+
+    # Exercise real smoke_row + leak acquisition/restore and the real world
+    # copier. Only compositor/IPC/recorder transports are neutral fixtures.
+    harness = (REPO / "scripts/smoke/harness.sh").read_text()
+    terminal_helpers = root / "terminal-functions.sh"
+    names = ("py_reply", "smoke_row", "now_ms", "cpu_some_us", "cpu_some_pct", "load_average", "smoke_row_secs")
+    functions = [re.search(r"(?ms)^" + name + r"\(\).*?^}\n", harness) for name in names]
+    assert all(functions)
+    terminal_helpers.write_text("".join(item.group() for item in functions))
+    terminal_child = root / "terminal.sh"
+    terminal_child.write_text(r'''set -euo pipefail
+source_repo="$1" sandbox="$2" rt_dir="$3"
+repo="$source_repo" home="$sandbox/home"
+pgids=() keep=false
+source "$repo/scripts/smoke/teardown.sh"
+source "$repo/scripts/smoke/verdict.sh"
+source "$5"
+source "$6"
+mkdir -p "$home/.config/hypr" "$home/.local/state/vgshell" "$sandbox/shim"
+printf 'fixture\n' >"$home/.config/hypr/hyprland.lua"
+printf '%s\n' planted "$rt_dir/quickshell/by-id/example/log.log" >"$sandbox/evidence/active"
+ln -s baseline-link "$home/.local/state/vgshell/background"
+case "$7" in
+ absent) :;;
+ malformed) printf 'malformed\n' >"$home/.local/state/vgshell/backgrounds.json";;
+ symlink)
+  printf 'outside-nested-home\n' >"$sandbox/private-state"
+  ln -s "$sandbox/private-state" "$home/.local/state/vgshell/backgrounds.json";;
+ *) exit 94;;
+esac
+printf '%s\n' 'rm -f -- "$home/.local/state/vgshell/backgrounds.json"' 'printf '\''{"current":null}\n'\'' >"$home/.local/state/vgshell/backgrounds.json"' >"$sandbox/planted.sh"
+printf '%s\n' 'rm -- "$home/.local/state/vgshell/background"' 'ln -s raw-link "$home/.local/state/vgshell/background"' >>"$sandbox/planted.sh"
+leak_plugins() { echo '{"scanned":true,"plugins":[{"id":"vgs.bar","enabled":true}]}'; }
+leak_bus_names() { echo 'org.freedesktop.DBus none'; }
+# Neutral reported queue transport: this fixture has no product writer.
+theme_idle() { echo idle; }
+ipc() { case "$*" in 'shell ping') echo ok;; 'shell listPlugins') leak_plugins;; *) return 1;; esac; }
+hypr() {
+ case "$*" in
+  '-j clients') echo '[]';;
+  '-j descriptions') echo '[{"name":"general:border_size"}]';;
+  '--batch j/getoption general:border_size') echo '{"int":1}';;
+  '-j layers')
+   if [[ -e $sandbox/post-layer ]]; then
+    printf '{"fixture":{"levels":{"0":[{"pid":%s,"namespace":"vgs:background"}]}}}\n' "$BASHPID"
+   else echo '{}'; fi;;
+  *) return 1;;
+ esac
+}
+active_window() { echo '[]'; }
+key_submap() { echo default; }
+devices_guard() { echo stable; }
+devices_check() { return 0; }
+rest_pointer() { :; }
+shell_crash_check() { return 0; }
+sink_check() { :; }
+ipc_oversize_check() { :; }
+ipc_timeout_check() { return 0; }
+anr_row_boundary() { :; }
+display_record_call() {
+ case "$1" in
+  row-verify-bus)
+   : >"$sandbox/post-layer"
+   rm -- "$home/.local/state/vgshell/background"
+   ln -s post-link "$home/.local/state/vgshell/background"
+   rm -f -- "$home/.local/state/vgshell/backgrounds.json"
+   printf '{"current":"fixture.png"}\n' >"$home/.local/state/vgshell/backgrounds.json";;
+  layer-reading) printf '{"reading":"%s","transport":"fixture"}\n' "${2##*/}";;
+  row-acquire|row-release) :;;
+  *) return 1;;
+ esac
+}
+shell_start_path="$PATH" shell_start_words=() shell_env=()
+shell_qs_pid="" shell_pid="" timeout_s=1 smoke_row_drain_s=5
+shell_class=org.vgs.shell shell_reporter_class=org.quickshell
+shim="$sandbox/shim"
+smoke_row planted "$sandbox"
+printf 'terminal-successor-ran\n'
+''')
+
+    def terminal_inputs(name, state, output, outcome):
+        # This test's outer TemporaryDirectory unwinds on any assertion.
+        # Its existing stdout owner must retain the literal inputs first.
+        files = ("persisted-inputs.json", "persisted-background", "persisted-backgrounds.json",
+                 "background-state.json", "backgrounds.json", "layers.raw", "layers.owners")
+        try:
+            observations = sorted(output.glob("smoke-evidence-*/planted/probes/*/background-state.json"),
+                                  key=lambda path: int(path.parent.name.rsplit("-", 1)[1]))
+            discovery = {"status": "complete", "count": len(observations)}
+        except (OSError, ValueError) as error:
+            observations = []
+            discovery = {"status": "unavailable", "operation": "reading-discovery", "cause": str(error)}
+        readings = []
+        for observation in observations:
+            reading = {"reading": observation.parent.name, "files": {}}
+            for name_on_disk in files:
+                path = observation.parent / name_on_disk
+                try:
+                    info = path.lstat()
+                    if not stat.S_ISREG(info.st_mode) or info.st_size > 1024 * 1024:
+                        raise ValueError("retained-input-type-or-size")
+                    data = path.read_bytes()
+                    fact = {"status": "present", "bytes": len(data),
+                            "sha256": hashlib.sha256(data).hexdigest(),
+                            "bytesBase64": base64.b64encode(data).decode("ascii")}
+                except FileNotFoundError:
+                    fact = {"status": "absent"}
+                except (OSError, ValueError) as error:
+                    fact = {"status": "unavailable", "operation": "retained-input-read", "cause": str(error)}
+                reading["files"][name_on_disk] = fact
+            readings.append(reading)
+        print("smoke-evidence: terminal-inputs=" + json.dumps({"case": name, "state": state,
+              "outcome": outcome, "discovery": discovery, "readings": readings}, sort_keys=True), flush=True)
+        return observations
+
+    def terminal_case(name, leaks=REPO / "scripts/smoke/leaks.sh", state="absent"):
+        case = root / name
+        sandbox, runtime, output = fixture(case, row="planted")
+        try:
+            result, sandbox, runtime = world(terminal_child, sandbox, runtime, "terminal", dict(ENV),
+                                             (terminal_helpers, leaks, state))
+        except BaseException as error:
+            terminal_inputs(name, state, output, {"status": "unavailable", "operation": "world", "cause": str(error)})
+            raise
+        observations = terminal_inputs(name, state, output, {"status": "returned", "exit": result.returncode,
+                                       "stdout": result.stdout, "stderr": result.stderr})
+        assert result.returncode == 1, (result.returncode, result.stdout, result.stderr)
+        assert "terminal-successor-ran" not in result.stdout
+        assert not sandbox.exists() and not runtime.exists()
+        assert len(observations) == 3, "terminal-boundary-readings-missing"
+        required = [json.loads((p.parent / "persisted-inputs.json").read_text()) for p in observations]
+        assert [base64.b64decode(item["entries"]["background"]["targetBase64"]) for item in required] == [b"baseline-link", b"raw-link", b"post-link"]
+        assert [item["entries"]["backgrounds.json"]["kind"] for item in required] == [{"absent": "absent", "malformed": "regular", "symlink": "symlink"}[state], "regular", "regular"]
+        if state == "symlink":
+            assert base64.b64decode(required[0]["entries"]["backgrounds.json"]["targetBase64"]).endswith(b"/private-state")
+        if state == "malformed":
+            assert (observations[0].parent / "persisted-backgrounds.json").read_bytes() == b'malformed\n'
+        assert (observations[1].parent / "persisted-backgrounds.json").read_bytes() == b'{"current":null}\n'
+        assert (observations[2].parent / "persisted-backgrounds.json").read_bytes() == b'{"current":"fixture.png"}\n'
+        states = [json.loads(p.read_text()) for p in observations]
+        first = {"absent": "absent", "malformed": "present", "symlink": "unavailable"}[state]
+        assert [s["status"] for s in states] == [first, "present", "present"]
+        if state == "malformed":
+            assert (observations[0].parent / "backgrounds.json").read_bytes() == b'malformed\n'
+        else:
+            assert not (observations[0].parent / "backgrounds.json").exists()
+        if state == "symlink":
+            assert states[0]["cause"]
+        assert (observations[1].parent / "backgrounds.json").read_bytes() == b'{"current":null}\n'
+        assert (observations[2].parent / "backgrounds.json").read_bytes() == b'{"current":"fixture.png"}\n'
+        assert [json.loads((p.parent / "layers.raw").read_text()) for p in observations[:2]] == [{}, {}]
+        post = json.loads((observations[2].parent / "layers.raw").read_text())
+        assert post["fixture"]["levels"]["0"][0]["namespace"] == "vgs:background"
+        owners = [json.loads(line.split("layer-owner ", 1)[1]) for line in result.stdout.splitlines() if "layer-owner " in line]
+        assert [owner["reading"] for owner in owners] == [observations[0].parent.name, observations[2].parent.name]
+        assert json.loads((observations[0].parent / "layers.owners").read_text()) == owners[0]
+        assert json.loads((observations[2].parent / "layers.owners").read_text()) == owners[1]
+
+    for state in ("absent", "malformed", "symlink"):
+        terminal_case("terminal-boundary-" + state, state=state)
+    print("smoke-evidence: terminal-boundary=start-end-post wallpaper=retained owners=retained exit=1")
+    evidence_source = (REPO / "scripts/smoke/evidence.py").read_text()
+    needle = '        stream.write(snapshot.name + "\\n")'
+    assert evidence_source.count(needle) == 1
+    mutant = root / "unregistered-reading.py"
+    mutant.write_text(evidence_source.replace(needle, '        stream.write("")'))
+    leak_source = (REPO / "scripts/smoke/leaks.sh").read_text()
+    needle = '"$repo/scripts/smoke/evidence.py"'
+    assert leak_source.count(needle) == 1
+    mutant_leaks = root / "unregistered-leaks.sh"
+    mutant_leaks.write_text(leak_source.replace(needle, '"' + str(mutant) + '"'))
+    try:
+        terminal_case("terminal-boundary-control", mutant_leaks)
+    except AssertionError as error:
+        assert str(error) == "terminal-boundary-readings-missing", error
+        print("smoke-evidence: control=unregistered-terminal-readings-rejected")
+    else:
+        raise AssertionError("unregistered terminal evidence passed")
 
     # Read the actual failure-dump producer and its reply reader. The only
     # stand-in is panel-state's valid response with insufficient fixtures.

@@ -251,3 +251,8 @@ expect_poll "the layer's sensitivity leaves Hyprland" '[0.0, false]' option_valu
 expect_poll "the layouts are Hyprland's own again" '["us", false]' option_value input:kb_layout str
 expect_poll "the core stops reading Hyprland once no plugin holds hyprland" false reads_active
 expect "the configuration after the options rows holds no error" '[]' hypr_reload_errors
+
+rm -rf -- "${fixture_dir:?}" "${other_fixture_dir:?}"
+rescan "a rescan removes hyprland-options's disabled row-only fixtures"
+expect_poll "acme.hyprland is absent after hyprland-options cleanup" False plugin_known acme.hyprland
+expect_poll "acme.hyprland-other is absent after hyprland-options cleanup" False plugin_known acme.hyprland-other

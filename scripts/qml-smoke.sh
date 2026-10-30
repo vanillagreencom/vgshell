@@ -662,9 +662,8 @@ for qml_smoke_row in "${qml_smoke_rows[@]}"; do
   if qml_smoke_wanted "$qml_smoke_row"; then
     qml_smoke_failures_before=$failures
     qml_smoke_not_measured_before=${#not_measured_rows[@]}
-    qml_smoke_leak_before="$BASHPID-$((leak_seq + 1))"
     smoke_outcome_journal
-    printf '%s\n' "$qml_smoke_row" "${instance_log:-}" "$qml_smoke_leak_before" >"$sandbox/evidence/active" || true
+    printf '%s\n' "$qml_smoke_row" "${instance_log:-}" >"$sandbox/evidence/active" || printf 'qml-smoke: evidence=row-registration-unavailable row=%s\n' "$qml_smoke_row" >&2
     printf '%s\n' "$qml_smoke_row" >"$qml_smoke_attempt/active"
     smoke_row "$qml_smoke_row"
     qml_smoke_row_failures=$((qml_smoke_row_failures + failures - qml_smoke_failures_before))
@@ -672,7 +671,6 @@ for qml_smoke_row in "${qml_smoke_rows[@]}"; do
     mv -- "$qml_smoke_attempt/results/$qml_smoke_row.new" "$qml_smoke_attempt/results/$qml_smoke_row"
     rm -- "$qml_smoke_attempt/active"
     if ((failures > qml_smoke_failures_before)); then
-      printf '%s\n' "$BASHPID-$leak_seq" >>"$sandbox/evidence/active" || true
       mv -- "$sandbox/evidence/active" "$sandbox/evidence/failed/$qml_smoke_row" || true
     else
       rm -f -- "$sandbox/evidence/active" || true

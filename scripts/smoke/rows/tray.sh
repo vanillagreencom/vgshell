@@ -402,3 +402,9 @@ if [[ -n $tray_pointer ]]; then
 else
   rest_pointer || fail "resting the pointer failed"
 fi
+
+# SNI ownership outlives the disabled tray instance in this process.
+# End the row after its assertions with the saved disabled tray profile.
+stop_shell
+start_shell "$repo" "$sandbox/tray-restored.log" || fail "the product starts after tray ownership teardown"
+expect_poll "the restored tray stays disabled after its ownership teardown" False plugin_enabled vgs.tray

@@ -573,7 +573,7 @@ done
 expect "lock alone locks at its time" locked session_lock
 release "screensaver lock-alone"
 expect "disabling lock after lock-alone check" ok ipc shell setPluginEnabled vgs.lock false
-expect "enabling screensaver is allowed for later rows" ok ipc shell setPluginEnabled vgs.screensaver true
+expect "enabling screensaver before restoring its settings is allowed" ok ipc shell setPluginEnabled vgs.screensaver true
 set_lock_seconds 300
 set_screensaver '{"idleEnabled": true, "idleSeconds": 150, "effect": "random", "frameRate": 30}'
 expect "reload after screensaver row restore" ok ipc shell reloadConfig

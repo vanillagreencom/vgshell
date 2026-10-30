@@ -15,6 +15,8 @@
 # the lock's own turn waits for it.
 # inputs: scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/Compositor.qml shell/Core/Dispatch.js shell/Core/HyprlandLayer.js shell/Core/Capabilities.qml scripts/smoke/toplevel/* scripts/smoke/rows/capabilities.sh
 set -euo pipefail
+leak_plugin_setup acme.probe true || { fail "compositor-dispatchers: fixture precondition failed"; return 1; }
+expect_poll "the shared fixture is built before its dependent reads" True record_exists acme.probe
 
 dispatch_client() { # ADDRESS FIELD
   hypr -j clients | py_reply 'import json,sys

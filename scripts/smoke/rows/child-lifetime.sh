@@ -55,7 +55,7 @@ for cl_case in orderly hard crash; do
   case "$cl_case" in
     orderly) stop_shell ;;
     hard) kill -KILL "$cl_killed" ;;
-    crash) kill -SEGV "$cl_killed" ;;
+    crash) shell_crash_expect "$cl_killed" && kill -SEGV "$cl_killed" ;;
   esac
   touch -- "$cl_prefix.check"
   cl_status=0
@@ -71,14 +71,21 @@ for cl_case in orderly hard crash; do
   fi
   if [[ $cl_case == crash ]]; then
     expect_poll "the intentional crash has a retained report" ready cl_crash_report
-    if shell_crash_check "$cl_prefix.crashes"; then
-      fail "the intentional crash report was not consumed"
-    else
-      cat -- "$cl_prefix.crashes"
-    fi
+    shell_crash_consume "$cl_prefix.crashes" || :
+    cat -- "$cl_prefix.crashes"
   fi
   [[ $cl_status == 0 ]] || break
 done
+
+# Control: a declared crash that never happens fails the row. It must also
+# read no report, or a real crash it marked read would not reach the
+# boundary's crash check.
+cl_crash_absent() {
+  (failures=0 behaviour_failures=0 smoke_row_crash_expected=""
+   shell_crash_expect "$shell_qs_pid" && shell_crash_consume "$sandbox/child-lifetime-absent.crashes" >"$sandbox/child-lifetime-absent.log" 2>&1 || :
+   if [[ -s $sandbox/child-lifetime-absent.crashes ]]; then echo "$failures reports=read"; else echo "$failures reports=none"; fi)
+}
+expect "control: a declared crash that never happens fails the row" "1 reports=none" cl_crash_absent
 
 stop_shell || true
 cp -- "$cl_saved" "$cl_config"

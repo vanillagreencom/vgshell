@@ -15,6 +15,8 @@
 # enables it again to read its Status rows.
 # inputs: scripts/smoke/fixtures/plugins/acme.status/* shell/Core/PluginStatus.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/plugins.sh
 set -euo pipefail
+leak_plugin_setup acme.probe true || { fail "status: fixture precondition failed"; return 1; }
+expect_poll "the shared fixture is built before its dependent reads" True record_exists acme.probe
 status_dir="$home/.config/vgshell/plugins/acme.status"
 mkdir -p "$status_dir"
 cp -R "$repo/scripts/smoke/fixtures/plugins/acme.status/." "$status_dir/"

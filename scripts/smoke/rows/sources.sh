@@ -6,6 +6,8 @@
 # fixture write is a rename, so the scan never reads half a file.
 # inputs: scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/Plugins.qml shell/Core/Registry.qml bin/vgshell-scan scripts/smoke/rows/plugins.sh
 set -euo pipefail
+leak_plugin_setup acme.probe true || { fail "sources: fixture precondition failed"; return 1; }
+expect_poll "the shared fixture is built before its dependent reads" True record_exists acme.probe
 tick_revision() { ipc shell listPlugins | py_reply 'import json,sys; print([p["revision"] for p in json.load(sys.stdin)["plugins"] if p["id"]=="acme.tick"][0])'; }
 write_tick() { # FILE CONTENT: replace one file of the placed widget whole
   printf '%s' "$2" >"$tick/$1.tmp" && mv -T -- "$tick/$1.tmp" "$tick/$1"

@@ -3,6 +3,8 @@
 # scripts/test-session-lock.sh holds the owner's must-fail controls.
 # inputs: scripts/smoke/fixtures/plugins/acme.session/* scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/SessionLock.qml shell/Core/Compositor.qml shell/Core/Dispatch.js shell/Core/HyprlandLayer.js scripts/smoke/toplevel/* shell/Commons/SessionLockState.js scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh
 set -euo pipefail
+leak_plugin_setup acme.probe true acme.bare true || { fail "session: fixture precondition failed"; return 1; }
+expect_poll "the shared fixture is built before its dependent reads" True record_exists acme.probe
 session_dir="$home/.config/vgshell/plugins/acme.session"
 mkdir -p "$session_dir"
 cp -R "$repo/scripts/smoke/fixtures/plugins/acme.session/." "$session_dir/"
@@ -194,3 +196,7 @@ rm -f -- "${shim:?}/hyprctl.power-read-gated"
 expect "disable releases the session reader" ok ipc shell setPluginEnabled acme.session false
 expect_poll "the session hold is gone" null lent holders.session
 expect "the lock holder remains built after the reader leaves" True record_exists acme.probe
+
+rm -rf -- "${session_dir:?}"
+rescan "a rescan removes session's disabled row-only fixtures"
+expect_poll "acme.session is absent after session cleanup" False plugin_known acme.session

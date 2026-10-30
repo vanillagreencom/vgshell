@@ -1,5 +1,5 @@
 # Sourced by qml-smoke.sh; owns the sandbox and shared readers.
-# inputs: scripts/smoke/user-config.sh scripts/smoke/verdict.sh scripts/smoke/mode-hold.sh scripts/smoke/tree.sh scripts/smoke/shot.sh scripts/smoke/app-window.sh scripts/smoke/display-record.sh scripts/smoke/leaks.sh bin/lib/ipc-reply.sh scripts/smoke/teardown.sh scripts/smoke/evidence.py scripts/smoke/hypr-call.sh scripts/smoke/devices.sh scripts/smoke/gpu-fence.sh scripts/smoke/Probe.qml scripts/smoke/pointer/* scripts/smoke/toplevel/* scripts/smoke/sink/* scripts/smoke/lock/* scripts/smoke/keyboard/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/devices/stand-in.py scripts/smoke/fixtures/devices/rfkill.json scripts/fixtures/jarvis/prepare.js scripts/fixtures/jarvis/audio.js scripts/fixtures/jarvis/keys-world.js scripts/fixtures/jarvis/accounts-world.js scripts/lib/jarvis-env.sh
+# inputs: scripts/smoke/user-config.sh scripts/smoke/verdict.sh scripts/smoke/mode-hold.sh scripts/smoke/tree.sh scripts/smoke/shot.sh scripts/smoke/app-window.sh scripts/smoke/display-record.sh scripts/smoke/leaks.sh scripts/smoke/persisted-inputs.py bin/lib/ipc-reply.sh scripts/smoke/teardown.sh scripts/smoke/evidence.py scripts/smoke/hypr-call.sh scripts/smoke/devices.sh scripts/smoke/gpu-fence.sh scripts/smoke/Probe.qml scripts/smoke/pointer/* scripts/smoke/toplevel/* scripts/smoke/sink/* scripts/smoke/lock/* scripts/smoke/keyboard/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/devices/stand-in.py scripts/smoke/fixtures/devices/rfkill.json scripts/fixtures/jarvis/prepare.js scripts/fixtures/jarvis/audio.js scripts/fixtures/jarvis/keys-world.js scripts/fixtures/jarvis/accounts-world.js scripts/lib/jarvis-env.sh
 set -euo pipefail
 source "$repo/scripts/smoke/verdict.sh"
 source "$repo/scripts/smoke/mode-hold.sh"
@@ -612,7 +612,11 @@ fi
 # socket without a file watcher or a second deadline owner.
 mkdir -p "$source_repo/tmp"
 display_record_call() {
-  if python3 "$display_record_dir/recorder.py" request "$display_record_dir/control" "$@"; then return 0; fi
+  local status=0
+  if python3 "$display_record_dir/recorder.py" request "$display_record_dir/control" "$@"; then return 0; else status=$?; fi
+  # The recorder reports a completed row-operation refusal separately
+  # from a lost collection request. The caller retains that row failure.
+  [[ $status != 74 ]] || return "$status"
   # A refused/lost client request must survive even if no collector saw it.
   printf '%s\n' "$1" >>"$display_record_dir/request-failed"
   return 1
@@ -955,7 +959,7 @@ nested_xwayland_check
 # launcher's reason; rows/keyhints.sh enables it and disables it again.
 # vgs.scratchpads starts disabled for the launcher's reason;
 # rows/scratchpads.sh enables it and disables it again. The screensaver
-# row enables vgs.screensaver for the smoke set. vgs.sudo starts disabled,
+# row restores its incoming enablement after its checks. vgs.sudo starts disabled,
 # so no earlier row counts its widget in the bar or its hold of `sudo`;
 # rows/sudo.sh enables it and disables it again.
 # The System family's ids, vgs.system, vgs.sound, vgs.bluetooth,
@@ -966,9 +970,9 @@ nested_xwayland_check
 # configuration keeps an id no plugin has and `vgshell plugin list` reports
 # it as unknown. The default set below names none of them: it starts
 # every first-party plugin, as a live session does.
-# vgs.themes stays enabled, its background built on every
-# screen: it maps no surface while the sandbox holds no backgrounds.json,
-# so the host rows see only their fixture's background surface.
+# vgs.themes starts disabled: a row's theme apply writes a selection that
+# an enabled Themes would draw into every later layers reading. Rows that
+# read Themes enable it when they start.
 #
 # plugin_set, which scripts/qml-smoke.sh sets, picks the set the shell
 # starts with: `smoke`, the rows' own set above, or `default`, the shipped
@@ -1198,7 +1202,7 @@ case "$plugin_set" in
     mkdir -p "$tick"
     cp -R "$repo/scripts/smoke/fixtures/plugins/acme.tick/." "$tick/"
     user_config_write cat <<'JSON'
-{ "version": 2, "bar": { "id": "vgs.bar", "layout": { "left": [{ "id": "vgs.bar/left-workspaces" }], "center": [{ "id": "vgs.bar/center-clock" }, { "id": "acme.tick" }], "right": [] } }, "plugins": [{ "id": "vgs.settings" }, { "id": "acme.tick", "format": "ddd d MMM  HH:mm" }], "disabledPlugins": ["vgs.launcher", "vgs.notifications", "vgs.updates", "vgs.agent-warden", "vgs.devtools", "vgs.automations", "vgs.google-drive", "vgs.polkit", "vgs.lock", "vgs.jarvis", "vgs.system", "vgs.sound", "vgs.bluetooth", "vgs.power", "vgs.network", "vgs.vpn", "vgs.displays", "vgs.mouse", "vgs.keyboard", "vgs.capture", "vgs.greeter", "vgs.keyhints", "vgs.scratchpads", "vgs.screensaver", "vgs.ai-usage", "vgs.traffic", "vgs.tray", "vgs.voice", "vgs.webapps", "vgs.clipboard", "vgs.sysmon", "vgs.sudo", "vgs.printers"] }
+{ "version": 2, "bar": { "id": "vgs.bar", "layout": { "left": [{ "id": "vgs.bar/left-workspaces" }], "center": [{ "id": "vgs.bar/center-clock" }, { "id": "acme.tick" }], "right": [] } }, "plugins": [{ "id": "vgs.settings" }, { "id": "acme.tick", "format": "ddd d MMM  HH:mm" }], "disabledPlugins": ["vgs.launcher", "vgs.notifications", "vgs.updates", "vgs.agent-warden", "vgs.devtools", "vgs.automations", "vgs.google-drive", "vgs.polkit", "vgs.lock", "vgs.jarvis", "vgs.system", "vgs.sound", "vgs.bluetooth", "vgs.power", "vgs.network", "vgs.vpn", "vgs.displays", "vgs.mouse", "vgs.keyboard", "vgs.capture", "vgs.greeter", "vgs.keyhints", "vgs.scratchpads", "vgs.screensaver", "vgs.ai-usage", "vgs.traffic", "vgs.tray", "vgs.voice", "vgs.webapps", "vgs.clipboard", "vgs.sysmon", "vgs.sudo", "vgs.printers", "vgs.themes"] }
 JSON
     ;;
   default) default_set_prepare '[]' ;;
@@ -1923,23 +1927,34 @@ theme_jobs() { # [IPC_FN]
 # apply or download runs or waits. The scan is read first; a scan ending
 # between the two reads shows its follow as a job. A later scan in flight
 # shows no job, so a row that rescans reads the rescan's own effect before
-# it asks.
+# it asks. A failed or empty reply, as from a shell that is gone, answers
+# `scan=unreadable reply=WORD` or `jobs=unreadable reply=WORD` and returns
+# 1: the row boundary reads this before it knows a shell answers.
 theme_state() { # [IPC_FN]
-  local via="${1:-ipc}" scanned held
-  scanned="$("$via" shell listPlugins | python3 -c 'import json,sys; print(json.load(sys.stdin)["scanned"])')" || return
-  if [[ $scanned != True ]]; then echo "scan=pending"; return; fi
-  held="$("$via" shell lent | python3 -c 'import json,sys; t=json.load(sys.stdin)["theme"]; print(json.dumps([[j["verb"], j["name"], j["waiters"]] for j in t["jobs"] + ([] if t["download"] is None else [t["download"]])]))')" || return
-  if [[ $held == '[]' ]]; then echo idle; else printf '%s\n' "$held"; fi
+  local via="${1:-ipc}" scanned held status=0
+  scanned="$("$via" shell listPlugins | py_reply 'import json,sys; print(json.load(sys.stdin)["scanned"])')" || status=$?
+  case "$status $scanned" in
+    "0 True") ;;
+    "0 False") echo "scan=pending"; return ;;
+    *) printf 'scan=unreadable reply=%s\n' "${scanned:-none}"; return 1 ;;
+  esac
+  held="$("$via" shell lent | py_reply 'import json,sys; t=json.load(sys.stdin)["theme"]; print(json.dumps([[j["verb"], j["name"], j["waiters"]] for j in t["jobs"] + ([] if t["download"] is None else [t["download"]])]))')" || status=$?
+  case "$status $held" in
+    "0 []") echo idle ;;
+    "0 ["*) printf '%s\n' "$held" ;;
+    *) printf 'jobs=unreadable reply=%s\n' "${held:-none}"; return 1 ;;
+  esac
 }
 # theme_state polled every 200 ms until `idle`, for up to 20 s, since an
 # apply lasts past expect_poll's 5 s when a target's hook runs; the last
-# answer otherwise. A row runs a `vgshell theme` command only once the shell
+# answer otherwise. An unreadable answer ends the poll at once with that
+# answer and status 1. A row runs a `vgshell theme` command only once the shell
 # is idle: a command started under the shell's follow is refused
 # reason=busy, the product's answer, which a retry would hide.
 theme_idle() { # [IPC_FN]
   local state=""
   for _ in $(seq 1 100); do
-    state="$(theme_state "$@")" || return
+    state="$(theme_state "$@")" || { printf '%s\n' "$state"; return 1; }
     [[ $state == idle ]] && { echo idle; return; }
     sleep 0.2
   done
@@ -2098,9 +2113,9 @@ adopt_shell() { # KILLED
 # log is not instance_log. Every row after it would read that window and
 # its focus, and the old log. For each report no earlier call read, FILE
 # gets one line `crash=<instance> report=<path>` and the report's stack
-# trace, each line indented. Once it found one, it stops the shell, ends
-# each process that still maps a window shell_strays names, and starts
-# shell_tree again. Returns 1 when it found one.
+# trace, each line indented. Detection changes no shell or client state;
+# the row boundary owns cleanup after its raw end reading. Returns 1
+# when it found one.
 # The reporter and the shell that starts again read the crashed instance's
 # record through one file position (Quickshell 4f508be5: the handler's dup
 # of infoFd in src/crash/handler.cpp; seek(0) then read in
@@ -2124,8 +2139,10 @@ shell_crash_reports() {
 shell_strays() {
   hypr -j clients | py_reply 'import json,sys; owned=set(i["pid"] for i in (json.loads(sys.argv[3]) if sys.argv[3] != "none" else [])); print("\n".join(sorted(set(str(c["pid"]) for c in json.load(sys.stdin) if c["class"] in sys.argv[1:3] and c["mapped"] and c["pid"] not in owned))))' "$shell_class" "$shell_reporter_class" "$(qs_list --all)"
 }
-shell_crash_check() { # FILE
-  local seen="$sandbox/crash-reports.seen" report key instance="" strays pid
+# shell_crash_new FILE: FILE as shell_crash_check describes it, and the
+# instance of each report no earlier call read, one a line.
+shell_crash_new() { # FILE
+  local seen="$sandbox/crash-reports.seen" report key instance
   : >"$1"
   touch -- "$seen"
   while IFS= read -r report; do
@@ -2136,17 +2153,53 @@ shell_crash_check() { # FILE
     [[ $instance != crashes ]] || instance=empty-instance-record
     { printf 'crash=%s report=%s\n' "$instance" "$report"
       sed -n '/^===== Stacktrace =====$/,/^===== /{/^=====/d;s/^/        /;p}' "$report"; } >>"$1"
+    printf '%s\n' "$instance"
   done < <(shell_crash_reports)
-  [[ -n $instance ]] || return 0
-  stop_shell || true
-  if strays="$(shell_strays)"; then
-    for pid in $strays; do kill -TERM -- "$pid" 2>/dev/null || true; done
-    expect_poll "the crash reporter's window is gone" "" shell_strays
-  else
-    fail "shell_crash_check: the clients of class $shell_class are unreadable"
-  fi
-  start_shell "$shell_tree" "$sandbox/shell-after-crash-$instance.log" || true
+}
+shell_crash_check() { # FILE
+  local found
+  found="$(shell_crash_new "$1")"
+  [[ -n $found ]] || return 0
+  smoke_row_crashed_report="$1"
   return 1
+}
+# An expected crash: rows/child-lifetime.sh is its one caller, and every
+# other crash fails its row through shell_crash_check. shell_crash_expect
+# PID, before the row crashes PID, binds PID to its listed instance.
+# shell_crash_consume FILE then reads the new reports as shell_crash_check
+# does into FILE, and passes only on exactly one, from that instance: its
+# reporter window, proved as the boundary proves one, is closed. Zero
+# reports, another, or a reporter the recorder cannot prove fails the row
+# and returns 1; extra reports stay row crashes.
+shell_crash_expect() { # PID
+  local instance
+  instance="$(qs_list --all | py_reply 'import json,sys; print(next((i["id"] for i in json.load(sys.stdin) if i["pid"] == int(sys.argv[1])), "unlisted"))' "$1")" || instance="unreadable:$instance"
+  if [[ -n $smoke_row_crash_expected || ! $instance =~ ^[a-z0-9]+$ || $instance == unlisted || $instance == none ]]; then
+    fail "shell_crash_expect: pid=$1 instance=$instance declared=[${smoke_row_crash_expected}]"
+    return 1
+  fi
+  smoke_row_crash_expected="$1 $instance"
+}
+shell_crash_reporters() { local strays; strays="$(shell_strays)" || return; [[ -z $strays ]] && echo 0 || wc -l <<<"$strays"; }
+shell_crash_consume() { # FILE
+  local found=() pid expected strays reading
+  read -r pid expected <<<"$smoke_row_crash_expected"
+  smoke_row_crash_expected=""
+  mapfile -t found < <(shell_crash_new "$1")
+  if [[ -z $expected || ${#found[@]} != 1 || ${found[0]} != "$expected" ]]; then
+    fail "shell_crash_consume: pid=${pid:-none} instance=${expected:-undeclared} reports=[${found[*]}]"
+    [[ ${#found[@]} == 0 ]] || smoke_row_crashed_report="$1"
+    return 1
+  fi
+  expect_poll "the expected crash maps one reporter window" 1 shell_crash_reporters
+  strays="$(shell_strays)" || { fail "shell_crash_consume: reporters=unreadable"; return 1; }
+  for pid in $strays; do
+    if ! reading="$(display_record_call close-reporter "$pid" "$$" "$shell_class" "$shell_reporter_class" 2>&1)"; then
+      fail "shell_crash_consume: reporter=$pid owner=unproved reading=[${reading//$'\n'/ }]"
+      return 1
+    fi
+  done
+  expect_poll "the expected crash's reporter window is closed" 0 shell_crash_reporters
 }
 # copy_tree NAME: a copy of the tree at $sandbox/tree-NAME, with its own
 # bin/ and shell/. edit_tree NAME FILE OLD NEW: in that copy, OLD in FILE,
@@ -2222,38 +2275,71 @@ shell_memory_note() {
 rss_verdict() { # PEAK CEILING
   if [[ $1 -le 0 ]]; then echo unread; elif [[ $1 -gt $2 ]]; then echo over; else echo under; fi
 }
-# stop_shell: TERM to the runner start_shell started, which passes it to
-# the shell, then a wait on the instance lock the runner holds, before a
-# row starts another. The runner exits after the shell and holds the lock
-# until then, and no process the shell starts holds it
-# (docs/architecture/runtime.md § Process), so the lock frees when the
-# shell has exited, whatever processes the shell left behind; the next
-# `vgshell run` refuses until then. The bound is stop_lock_wait_s, the 10 s
-# `vgshell restart` gives the same wait. On the bound the row fails, naming
-# each process that holds the lock, and it returns 1 with the runner
-# unreaped. Once the lock is free it reaps the runner and clears
-# shell_pid, so a second stop signals no stale pid. rows/start-order.sh
-# holds the controls. It notes the shell's memory before the TERM, as
-# shell_memory_note says.
+# shell_stop OUTCOME_VAR: stops the runner start_shell started, before a
+# row starts another, and sets OUTCOME_VAR, a name none of its own locals
+# (shell_stop_*) takes, to one word. It decides nothing for a row: each
+# caller states its own policy, and stop_shell below is a row's. The
+# recorder's stop-shell-owner sends TERM to the runner alone, which passes
+# it to the shell and exits after it, and waits stop_lock_wait_s, the 10 s
+# `vgshell restart` gives the same wait, on the runner's pidfd, so the
+# shell's own cleanup ends its children. A runner that outlives that wait
+# has its process tree acquired and killed within a bound of its own,
+# stop_lock_wait_s again. Then it waits stop_lock_wait_s on the instance
+# lock, which the runner holds until it exits and no process the shell
+# starts holds (docs/architecture/runtime.md § Process); the next
+# `vgshell run` refuses until then. The words:
+#   stopped    the runner exited on its TERM, or was already gone;
+#   forced     its tree was killed after the TERM wait;
+#   unproved   the recorder could not prove the runner's ownership or exit;
+#   lock-held  the instance lock stayed held after a proved stop.
+# A held lock names each holder. After any stop but unproved, and on
+# unproved once the lock is free, it reaps the runner and clears
+# shell_pid, so a second stop signals no stale pid; an unproved stop
+# under a held lock leaves the runner unreaped. It notes the shell's
+# memory before the TERM, as shell_memory_note says.
+# stop_shell: a row's stop. Every word but stopped fails the row, naming
+# the runner and `exit=forced` or `exit=unproved`, or the held lock, and
+# returns 1. rows/start-order.sh holds the controls.
 stop_lock_wait_s=10
-stop_shell() {
-  local lock="$rt_dir/vgshell.lock" observation_owner="" stopped_pid="$shell_pid"
-  if [[ -n $stopped_pid ]]; then
-    observation_owner="$(display_record_call owner-context "$stopped_pid")" || observation_owner=""
-    [[ -z $observation_owner ]] || display_record_call mark stop-shell "$observation_owner" "${shell_qs_pid:-}" "${instance_log:-}" "${hypr_bound_s-}" >/dev/null || true
+shell_stop() { # OUTCOME_VAR
+  local -n shell_stop_outcome="$1"
+  local shell_stop_lock="$rt_dir/vgshell.lock" shell_stop_owner="" shell_stop_pid="$shell_pid" shell_stop_reply=""
+  if [[ -n $shell_stop_pid ]]; then
+    shell_stop_owner="$(display_record_call owner-context "$shell_stop_pid")" || shell_stop_owner=""
+    [[ -z $shell_stop_owner ]] || display_record_call mark stop-shell "$shell_stop_owner" "${shell_qs_pid:-}" "${instance_log:-}" "${hypr_bound_s-}" >/dev/null || true
   fi
   shell_memory_note
-  [[ -z $shell_pid ]] || kill -TERM "$shell_pid" 2>/dev/null || true
-  if ! flock -w "$stop_lock_wait_s" "$lock" true; then
-    fail "stop_shell: lock=$lock still held ${stop_lock_wait_s}s after the TERM to pid ${shell_pid:-none}"
-    lock_holders "$lock"
-    return 1
+  shell_stop_outcome=stopped
+  if [[ -n $shell_stop_pid ]]; then
+    if ! shell_stop_reply="$(display_record_call stop-shell-owner "$shell_stop_pid" "$$" "$stop_lock_wait_s")"; then
+      shell_stop_outcome=unproved
+    elif [[ $shell_stop_reply == forced ]]; then
+      shell_stop_outcome=forced
+    fi
   fi
-  [[ -z $shell_pid ]] || wait "$shell_pid" 2>/dev/null || true
-  if [[ -n $observation_owner ]]; then
-    display_record_call owner-end "$observation_owner" "$stopped_pid" >/dev/null || true
+  if ! flock -w "$stop_lock_wait_s" "$shell_stop_lock" true; then
+    lock_holders "$shell_stop_lock"
+    [[ $shell_stop_outcome != unproved ]] || return 0
+    shell_stop_outcome=lock-held
+  fi
+  # The recorder proved the runner's exit, or the runner, which holds the
+  # lock until it exits, freed it.
+  [[ -z $shell_stop_pid ]] || wait "$shell_stop_pid" 2>/dev/null || true
+  if [[ -n $shell_stop_owner ]]; then
+    display_record_call owner-end "$shell_stop_owner" "$shell_stop_pid" >/dev/null || true
   fi
   shell_pid=""
+}
+stop_shell() {
+  local stop_outcome stop_runner="${shell_pid:-none}"
+  shell_stop stop_outcome
+  case "$stop_outcome" in
+    stopped) return 0 ;;
+    forced) row_class=operation fail "stop_shell: runner=$stop_runner exit=forced bound=${stop_lock_wait_s}s" ;;
+    unproved) fail "stop_shell: runner=$stop_runner exit=unproved bound=${stop_lock_wait_s}s" ;;
+    lock-held) fail "stop_shell: lock=$rt_dir/vgshell.lock still held ${stop_lock_wait_s}s after the stop of pid $stop_runner" ;;
+  esac
+  return 1
 }
 # lock_holders LOCK: one line per process with a descriptor open on LOCK,
 # found through /proc, as its pid, command name and argv. One find reads
@@ -3585,38 +3671,35 @@ smoke_row_secs() { # NAME START_MS START_CPU_US
   printf 'qml-smoke: row-secs row=%s secs=%s cpu_some_pct=%s load1=%s\n' "$1" "$(((ended_ms - $2) / 1000))" "$pressure" "${load:-unmeasured}"
 }
 smoke_row() { # NAME [DIR]
-  local smoke_row_name="$1" smoke_row_dir="${2:-$repo/scripts/smoke/rows}" smoke_row_marker smoke_row_count="" smoke_row_line smoke_row_pong
+  local smoke_row_name="$1" smoke_row_dir="${2:-$repo/scripts/smoke/rows}" smoke_row_marker smoke_row_count="" smoke_row_line
   local smoke_row_out="$sandbox/rows/$1.out" smoke_row_result="$sandbox/rows/$1.result" smoke_row_started="$(now_ms)" smoke_row_cpu_started="$(cpu_some_us)"
   local smoke_row_flags smoke_row_trap smoke_row_err=0 smoke_row_status=0 smoke_row_abandon=()
   local ipc_timeout_log="$sandbox/rows/$1.ipc-timeout.log"
-  local smoke_row_children smoke_row_owner=$BASHPID smoke_row_child smoke_row_source_status=0 smoke_row_abandon_status=0
+  local smoke_row_children smoke_row_owner=$BASHPID smoke_row_child smoke_row_active_jobs smoke_row_source_status=0 smoke_row_abandon_status=0
   local smoke_row_fault="$sandbox/rows/$1.command" smoke_row_faults=() smoke_row_abandon_faults=()
   local smoke_row_command smoke_row_abandon_command
+  local smoke_row_failures="$failures" smoke_row_original_status=0 smoke_row_failed=false leak_end leak_verdicts="" smoke_row_crashed_report="" smoke_row_crash_expected=""
   smoke_row_marker="qml-smoke: row-end $1 $$ $SRANDOM"
   mkdir -p -- "$sandbox/rows"
   : >"$ipc_timeout_log"
+  # Even a preflight refusal retains its incoming target. An unreadable
+  # entry is terminal rather than becoming the next row's baseline.
+  if ! leak_row_start; then
+    row_class=operation fail "$smoke_row_name: restoration=entry-unreadable"
+    exit 1
+  fi
   anr_row_boundary begin "$smoke_row_name"
   if ! devices_check "$smoke_row_name"; then
     anr_row_boundary end "$smoke_row_name"
-    smoke_row_secs "$smoke_row_name" "$smoke_row_started" "$smoke_row_cpu_started"
-    return 0
-  fi
-  if ! smoke_row_pong="$(ipc shell ping 2>/dev/null)" || [[ $smoke_row_pong != ok ]]; then
-    if ! ipc_timeout_check "$smoke_row_name"; then
-      anr_row_boundary end "$smoke_row_name"
-      smoke_row_secs "$smoke_row_name" "$smoke_row_started" "$smoke_row_cpu_started"
-      return 0
-    fi
-    fail "$smoke_row_name: shell=not-answering before the row"
-    anr_row_boundary end "$smoke_row_name"
+    leak_row_end "$smoke_row_name" "$smoke_row_dir"
+    leak_row_restore "$smoke_row_name" "$smoke_row_dir" true 1
     smoke_row_secs "$smoke_row_name" "$smoke_row_started" "$smoke_row_cpu_started"
     return 0
   fi
   # Every row starts with the pointer at rest, wherever the row before it
   # left it, so a scoped run and the full run start it alike. A row run
   # inside another row starts where that row left it, in both runs.
-  [[ ${#leak_starts[@]} -gt 0 ]] || rest_pointer || fail "$smoke_row_name: the pointer is not put at rest before the row"
-  leak_row_start
+  [[ ${#leak_starts[@]} -gt 1 ]] || rest_pointer || fail "$smoke_row_name: the pointer is not put at rest before the row"
   rm -f -- "$smoke_row_out" "$smoke_row_result" "$smoke_row_fault" "$smoke_row_fault.abandon"
   smoke_row_flags=$-
   smoke_row_trap="$(trap -p ERR)"
@@ -3635,7 +3718,7 @@ smoke_row() { # NAME [DIR]
       smoke_row_source_status=$smoke_row_status
       mapfile -d '' -t smoke_row_faults <"$smoke_row_fault"
       printf -v smoke_row_command '%q' "${smoke_row_faults[0]}"
-      if ! python3 - "$smoke_row_owner" "$smoke_row_children" "${shell_pid:-}" "${devices_pid[@]}" <<'PY'
+      if ! timeout "$stop_lock_wait_s" python3 - "$smoke_row_owner" "$smoke_row_children" "${shell_pid:-}" "${devices_pid[@]}" <<'PY'
 import os, signal, sys, time
 owner = int(sys.argv[1])
 kept = set(map(int, sys.argv[2].split())) | {int(p) for p in sys.argv[3:] if p}
@@ -3696,10 +3779,22 @@ finally:
 PY
       then fail "$smoke_row_name: row-child cleanup failed"; fi
       # Reap only this row's jobs. The pre-row jobs and the run owners stay.
+      smoke_row_active_jobs=" $(jobs -pr) $(jobs -ps) "
+      smoke_row_active_jobs="${smoke_row_active_jobs//$'\n'/ }"
       for smoke_row_child in $(jobs -p); do
         case " $smoke_row_children ${shell_pid:-} ${devices_pid[*]} " in
           *" $smoke_row_child "*) ;;
-          *) wait "$smoke_row_child" 2>/dev/null || : ;;
+          *)
+            # Bash's Done state already acknowledges that job's exit.
+            if [[ $smoke_row_active_jobs != *" $smoke_row_child "* ]]; then
+              wait "$smoke_row_child" 2>/dev/null || :
+              continue
+            fi
+            if display_record_call stop-process "$smoke_row_child" "$BASHPID" "$stop_lock_wait_s" >/dev/null; then
+              wait "$smoke_row_child" 2>/dev/null || :
+            else
+              row_class=operation fail "$smoke_row_name: row-child=$smoke_row_child exit=unproved"
+            fi ;;
         esac
       done
       if [[ ${#smoke_row_abandon[@]} -gt 0 ]]; then
@@ -3742,19 +3837,26 @@ PY
     fail "$smoke_row_name: its output holds $smoke_row_count Python traceback(s): $smoke_row_out"
   fi
   ipc_oversize_check "$smoke_row_name"
-  # A shell crash fails the row it happened in, which leaves the rows after
-  # it a fresh shell and no crash reporter window. A row run inside another
-  # row leaves its crash to that row's end.
-  if [[ ${#leak_starts[@]} -eq 1 ]] && ! shell_crash_check "$sandbox/rows/$smoke_row_name.crashes"; then
+  # Every row, nested or not, fails on a crash its own boundary reads; the
+  # full restore after that failure gives the next row a fresh shell and
+  # closes the reporter.
+  shell_crash_check "$sandbox/rows/$smoke_row_name.crashes" || true
+  if [[ -n $smoke_row_crashed_report ]]; then
     while IFS= read -r smoke_row_line; do
       if [[ $smoke_row_line == crash=* ]]; then fail "$smoke_row_name: the shell crashed: $smoke_row_line"; else printf '%s\n' "$smoke_row_line"; fi
-    done <"$sandbox/rows/$smoke_row_name.crashes"
+    done <"$smoke_row_crashed_report"
   fi
   sink_check
   leak_row_end "$smoke_row_name" "$smoke_row_dir"
   # Judge the original leak state before removing this harness-owned dialog.
   anr_row_boundary end "$smoke_row_name"
   ipc_timeout_check "$smoke_row_name" || true
+  if (( failures > smoke_row_failures )) || [[ $smoke_row_source_status != 0 || $smoke_row_abandon_status != 0 ]]; then
+    smoke_row_failed=true
+    smoke_row_original_status="${smoke_row_source_status:-0}"
+    [[ $smoke_row_original_status != 0 ]] || smoke_row_original_status=1
+  fi
+  leak_row_restore "$smoke_row_name" "$smoke_row_dir" "$smoke_row_failed" "$smoke_row_original_status"
   smoke_row_secs "$smoke_row_name" "$smoke_row_started" "$smoke_row_cpu_started"
   # A failed restoration leaves no valid starting world for a later row.
   [[ $smoke_row_abandon_status == 0 ]] || exit "$smoke_row_source_status"

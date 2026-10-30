@@ -35,6 +35,7 @@
 # The ceiling and 0.2 s poll interval remain expect_run_end's in harness.sh.
 # inputs: shell/plugins/vgs.devtools/* shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Service.qml shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/SettingField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Commons/Reply.js scripts/smoke/fixtures/plugins/acme.requires/* shell/Core/Notices.qml shell/Core/PluginStatus.qml shell/Core/PackageManagers.js shell/Core/TuiRunner.qml shell/Core/ShortcutRegistry.qml shell/Hosts/AppWindow.qml bin/vgshell VERSION config/requirements.json bin/lib/qml-library.js scripts/smoke/rows/status.sh bin/vgshell-tui scripts/smoke/rows/settings.sh scripts/smoke/rows/hyprland-consent.sh shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js shell/Ui/controls/RowAction.qml
 set -euo pipefail
+leak_plugin_setup acme.status false || { fail "devtools: fixture precondition failed"; return 1; }
 devtools_stand_ins
 requires_dir="$home/.config/vgshell/plugins/acme.requires"
 mkdir -p "$requires_dir"
@@ -706,3 +707,7 @@ expect "disabling Launcher after Dev Tools rows is allowed" ok ipc shell setPlug
 expect_poll "a disabled Dev Tools holds no status record" null dev_lent
 expect "disabling the requirement fixture is allowed" ok ipc shell setPluginEnabled acme.requires false
 rm -f -- "$shim/mise" "$shim/docker" "$shim/podman" "$shim/pacman"
+
+rm -rf -- "${requires_dir:?}"
+rescan "a rescan removes devtools's disabled row-only fixtures"
+expect_poll "acme.requires is absent after devtools cleanup" False plugin_known acme.requires

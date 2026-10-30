@@ -9,10 +9,12 @@
 # a stand-in that records the arguments of the update form. The stand-in prints two progress lines, then polls
 # its gate every 50 ms for at most 30 s, long enough for an apply and a
 # rebuild of the fixture to finish behind it. rows/themes.sh defines the
-# helpers used here and leaves vgs applied, Black current and the fixture
-# disabled; this file leaves them so.
+# helpers used here and leaves the vgs applied-package record. Each boundary
+# restores its incoming wallpaper selection and plugin flags; this row
+# prepares and preserves the image inputs its own assertions read.
 # inputs: scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/ThemeRunner.qml bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/catalog/* themes/vgs/* scripts/smoke/rows/themes.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/fixtures/theme-image.jpg
 set -euo pipefail
+leak_plugin_setup vgs.themes false || { fail "theme-browse: fixture precondition failed"; return 1; }
 theme_browse_controls=""
 theme_browse_saved=""
 theme_browse_download_gate=""
