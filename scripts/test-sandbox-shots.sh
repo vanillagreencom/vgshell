@@ -1876,6 +1876,8 @@ fi
 # files and this checkout's smoke scripts, without starting a compositor.
 helper_repo="$tmp/helper-repo"
 mkdir -p "$helper_repo/bin/lib" "$helper_repo/shell" "$helper_repo/config" "$helper_repo/themes" "$helper_repo/packaging/jarvis-home"
+mkdir -p "$helper_repo/themes/targets"
+: >"$helper_repo/themes/targets/fixture"
 printf 'revision persona\n' >"$helper_repo/packaging/jarvis-home/persona.md"
 printf 'module.exports = { where: "bin/lib" };\n' >"$helper_repo/bin/lib/qml-library.js"
 printf 'process.stdout.write(require(require("path").join(__dirname, "lib", "qml-library.js")).where);\n' >"$helper_repo/bin/judge"
@@ -1901,7 +1903,11 @@ harness_copy_case() { # LIB
     rm -- "$dir/README.md" "$dir/LICENSE"
     mkdir -- "$dir/.engines"
     ln -s -- "$tmp/managed-engine" "$dir/.engines/git-original-identity"
+    chmod -R a-w -- "$dir"
     tree_harness_copy "$repo" "$target" "$dir"
+    printf 'observer edit\n' >>"$target/shell/shell.qml" || { echo "sandbox copy is not writable"; exit 1; }
+    rm -r -- "$target/themes/targets" || { echo "sandbox copied directory is not removable"; exit 1; }
+    [[ ! -s $dir/shell/shell.qml && ! -w $dir/shell/shell.qml && ! -w $dir/themes/targets ]] || { echo "read-only input changed"; exit 1; }
     tree_harness_engine "$dir" "$target" "$target/data"
     [[ $(readlink -f -- "$target/data/vgshell/.engines/release-9.9.9") == "$tmp/managed-engine" ]] || { echo "managed engine not restored"; exit 1; }
     [[ -e "$target/packaging/install-system.sh" ]] || { echo "packaging missing"; exit 1; }
@@ -1914,6 +1920,9 @@ harness_copy_case() { # LIB
     done
     echo ok
   } 2>&1)" || status=$?
+  # These are this case's exclusively owned disposable fixtures. Restore
+  # their write bits only after the source-preservation assertions.
+  chmod -R u+w -- "$dir" "$target" || return 1
   [[ $status -eq 0 && $out == ok ]] && return 0
   echo "exit=$status out=$(head -n 1 <<<"$out")"
   return 1
@@ -1936,6 +1945,7 @@ else
 fi
 # A control exports no base package, and one copies the checkout's.
 package_controls=(
+  'read-only sandbox copy|owned.chmod(mode | stat.S_IWUSR)|pass'
   'managed engine under the wrong identity|ln -s -- "$engine" "$root"|ln -s -- "$engine" "$root.wrong"'
   'a revision exported without its base package|package+=("$at")|:'
   'the checkout base package|shutil.copytree(tree / package, target / package)|shutil.copytree(source / package, target / package)'

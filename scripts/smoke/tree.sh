@@ -19,7 +19,7 @@ tree_export() {
 # packaging, smoke scripts and documentation. TREE supplies its own VERSION.
 tree_harness_copy() {
   python3 - "$1" "$2" "$3" <<'PY'
-import pathlib, shutil, sys
+import os, pathlib, shutil, stat, sys
 source, target, tree = map(pathlib.Path, sys.argv[1:])
 for directory in ("shell", "bin", "config", "themes"):
     shutil.copytree(tree / directory, target / directory)
@@ -35,6 +35,16 @@ shutil.copytree(source / "scripts", target / "scripts")
 for file_name in ("VERSION", "LICENSE", "README.md"):
     origin = (tree if file_name == "VERSION" else source) / file_name
     shutil.copyfile(origin, target / file_name)
+# Nix store inputs have read-only modes. Instrumentation edits this owned
+# copy, while the input and any links outside the copy stay untouched.
+for directory, _, files in os.walk(target, followlinks=False):
+    owned = pathlib.Path(directory)
+    owned.chmod(owned.stat().st_mode | stat.S_IWUSR)
+    for name in files:
+        owned = pathlib.Path(directory, name)
+        mode = owned.lstat().st_mode
+        if not stat.S_ISLNK(mode):
+            owned.chmod(mode | stat.S_IWUSR)
 PY
 }
 

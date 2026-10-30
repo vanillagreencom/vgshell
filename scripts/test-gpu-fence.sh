@@ -60,7 +60,11 @@ export PATH="${native_node%/*}:$PATH"
 TMP_ROOT="$(mktemp -d /var/tmp/test-gpu-fence.XXXXXX)" || { echo "test-gpu-fence: scratch=mktemp-failed" >&2; exit 1; }
 [[ -d $TMP_ROOT && ! -L $TMP_ROOT ]] || { echo "test-gpu-fence: scratch=not-a-directory value=[$TMP_ROOT]" >&2; exit 1; }
 TMP_ROOT="$(cd -- "$TMP_ROOT" && pwd -P)" || { echo "test-gpu-fence: scratch=resolve-failed" >&2; exit 1; }
-trap 'rm -rf -- "${TMP_ROOT:?}"' EXIT
+cleanup() {
+  chmod -R u+rwX -- "${TMP_ROOT:?}"
+  rm -rf -- "${TMP_ROOT:?}"
+}
+trap cleanup EXIT
 failures=0
 unmeasured=0
 ok() { printf '  ok    %s\n' "$*"; }
@@ -862,6 +866,7 @@ import os
 from pathlib import Path
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 import tempfile
@@ -1023,9 +1028,20 @@ pathlib.Path(output, "result.json").write_text(json.dumps(result))
     store = base / "exported-nix"
     store.mkdir()
     (store / "fixture").write_text("exported\n")
+    readonly = store / "store/readonly"
+    readonly.mkdir(parents=True)
+    (readonly / "asset").write_text("immutable\n")
+    (readonly / "asset").chmod(0o444)
+    readonly.chmod(0o555)
+    external = base / "external-sentinel"
+    external.write_text("outside\n")
+    external.chmod(0o400)
+    (store / "external").symlink_to(external)
     host_nix = os.path.lexists("/nix")
-    nix_probe = '''import errno, pathlib, subprocess, sys
+    nix_probe = '''import errno, os, pathlib, stat, subprocess, sys
 assert pathlib.Path("/nix/fixture").read_text() == "exported\\n"
+assert pathlib.Path("/nix/store/readonly/asset").read_text() == "immutable\\n"
+assert stat.S_IMODE(pathlib.Path("/nix/store/readonly").stat().st_mode) == 0o555
 pathlib.Path("/nix/fixture").write_text("private\\n")
 try:
     pathlib.Path("/world-root-write").write_text("forbidden")
@@ -1034,13 +1050,43 @@ except OSError as error:
 else:
     raise AssertionError("world root is writable")
 subprocess.run([sys.argv[1], sys.argv[2], "--check"], check=True)
+print(os.environ["VGSHELL_WORLD_ROOT"])
 '''
-    completed = subprocess.run([bash, fence, "--nix-store", str(store), "python3", "-c", nix_probe, bash, fence],
-                               env={"PATH": os.environ["PATH"], "TMPDIR": str(base)}, capture_output=True, text=True, timeout=20)
-    assert completed.returncode == 0, (completed.returncode, completed.stderr)
-    assert os.path.lexists("/nix") == host_nix
-    assert (store / "fixture").read_text() == "exported\n"
-    print("world-contract: nix=private-writable root=readonly host-nix=unchanged check=pass")
+    def nix_run(file):
+        completed = subprocess.run([bash, str(file), "--input", mutants, "--nix-store", str(store), "python3", "-c", nix_probe, bash, str(file)],
+                                   env={"PATH": os.environ["PATH"], "TMPDIR": str(base)}, capture_output=True, text=True, timeout=20)
+        assert completed.returncode == 0, (completed.returncode, completed.stderr)
+        owned = Path(completed.stdout.strip())
+        assert owned.parent == base and owned.name.startswith("vgshell-world."), owned
+        removed = not owned.exists()
+        # A failed teardown mutant leaves only its exclusively acquired
+        # test root. This fixture owner releases it without following links.
+        if not removed:
+            for directory, _, files in os.walk(owned, followlinks=False):
+                Path(directory).chmod(Path(directory).stat().st_mode | 0o700)
+                for name in files:
+                    path = Path(directory, name)
+                    if not path.is_symlink(): path.chmod(path.stat().st_mode | 0o600)
+            shutil.rmtree(owned)
+        assert os.path.lexists("/nix") == host_nix
+        assert (store / "fixture").read_text() == "exported\n"
+        assert (readonly / "asset").read_text() == "immutable\n"
+        assert stat.S_IMODE(readonly.stat().st_mode) == 0o555
+        assert stat.S_IMODE((readonly / "asset").stat().st_mode) == 0o444
+        assert external.read_text() == "outside\n" and stat.S_IMODE(external.stat().st_mode) == 0o400
+        return removed
+    assert nix_run(fence), "read-only store copy was not removed"
+    old = 'chmod -R u+rwX -- "$fence_dir"'
+    assert source.count(old) == 1
+    teardown_mutant = Path(mutants) / "readonly-teardown.sh"
+    teardown_changed = source.replace(old, "true")
+    assert teardown_changed != source
+    teardown_mutant.write_text(teardown_changed)
+    assert not nix_run(teardown_mutant), "teardown without permission restoration passed"
+    # The input fixture's owner releases its own read-only directory only
+    # after both production/mutant source-preservation assertions.
+    readonly.chmod(0o755)
+    print("world-contract: nix=private-writable root=readonly host-nix=unchanged check=pass teardown=removed source-modes=unchanged external-link=untouched control=teardown-rejected")
     for item in (caller, tmp_socket, abstract, tcp, named_socket): item.close()
 PYWORLD
 then
