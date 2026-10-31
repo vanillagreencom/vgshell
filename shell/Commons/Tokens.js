@@ -364,7 +364,11 @@ var TOKENS = {
     screensaver: {
         background: color("#000000"),
         // Leave room for the regular stroke's sampled coverage on black.
-        foreground: color("contrastMix(contrast({screensaver.background}), alpha({color.text}, 1), {screensaver.background}, 5)")
+        foreground: color("contrastMix(contrast({screensaver.background}), alpha({color.text}, 1), {screensaver.background}, 5)"),
+        // Leave room for ttfx's floor-divided return steps and sampled ink.
+        gradientStart: color("contrastMix(contrast({screensaver.background}), alpha({color.accent}, 1), {screensaver.background}, 6)"),
+        // A brighter tint keeps the continuous gradient above the start.
+        gradientEnd: color("contrastMix(contrast({screensaver.background}), mix({screensaver.gradientStart}, contrast({screensaver.background}), 0.4), {screensaver.background}, 5)")
     },
 
     // The rhythm every one-line control follows: a button, a text field, a

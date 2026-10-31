@@ -8,6 +8,8 @@ Item {
     width: 1200
     height: 120
     readonly property color background: Theme.screensaver.background
+    readonly property color gradientStart: Theme.screensaver.gradientStart
+    readonly property color gradientEnd: Theme.screensaver.gradientEnd
     Text {
         id: rendered
         width: scene.width
@@ -64,6 +66,17 @@ Item {
         function test_terminal_background_uses_the_drawn_color() {
             const command = Logic.command("/art", "print", 30, 80, 24, scene.background);
             compare(command[command.indexOf("--terminal-background-color") + 1], "#000000");
+        }
+
+        function test_gradient_arguments_use_native_theme_colors() {
+            const command = Logic.command("/art", "colorshift", 30, 80, 24, scene.background, scene.gradientStart, scene.gradientEnd);
+            const expected = [String(scene.gradientStart).slice(1), String(scene.gradientEnd).slice(1)];
+            for (const option of ["--gradient-stops", "--final-gradient-stops"]) {
+                const at = command.indexOf(option);
+                verify(at > 0);
+                compare(command.slice(at + 1, at + 3), expected);
+                verify(/^[0-9a-f]{6}$/.test(command[at + 1]));
+            }
         }
     }
 }

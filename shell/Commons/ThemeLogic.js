@@ -313,7 +313,9 @@ function readabilityWeights(values) {
         "carousel.hintDanger": ["text.body.weight"],
         "tooltip.foreground": ["text.tooltip.weight"],
         "tooltip.detail": ["text.itemHint.weight"],
-        "screensaver.foreground": ["text.body.weight"]
+        "screensaver.foreground": ["text.body.weight"],
+        "screensaver.gradientStart": ["text.body.weight"],
+        "screensaver.gradientEnd": ["text.body.weight"]
     };
 }
 
@@ -336,7 +338,9 @@ var READABILITY_PAIRS = [
     ["badge.tone.warning.foreground", "badge.tone.warning.background"],
     ["badge.tone.danger.foreground", "badge.tone.danger.background"],
     ["badge.tone.info.foreground", "badge.tone.info.background"],
-    ["screensaver.foreground", "screensaver.background"]
+    ["screensaver.foreground", "screensaver.background"],
+    ["screensaver.gradientStart", "screensaver.background"],
+    ["screensaver.gradientEnd", "screensaver.background"]
 ];
 // An input that shows its state by its outline or indicator must meet WCAG
 // 2.2 SC 1.4.11 non-text contrast, 3:1: each boundary and selected
@@ -411,7 +415,8 @@ var READABILITY_NAMES = {
     "carousel.failurePlate": "the theme browser message background", "tooltip.foreground": "Tooltip text",
     "tooltip.detail": "Tooltip details", "tooltip.background": "tooltip backgrounds",
     "glass.fill solid": "glass panel backgrounds", "#000000": "black wallpaper",
-    "screensaver.foreground": "Screensaver text", "screensaver.background": "the screensaver background"
+    "screensaver.foreground": "Screensaver text", "screensaver.background": "the screensaver background",
+    "screensaver.gradientStart": "Screensaver gradient", "screensaver.gradientEnd": "Screensaver gradient tint"
 };
 var READABILITY_BADGE_NAMES = { neutral: "Neutral", accent: "Accent", success: "Success", warning: "Warning", danger: "Error", info: "Information" };
 

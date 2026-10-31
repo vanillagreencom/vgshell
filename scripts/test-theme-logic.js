@@ -684,7 +684,8 @@ const READABILITY_ROLES = ["color.text", "color.textHeading", "color.textMuted",
 const READABILITY_SURFACES = ["color.background", "color.surface", "color.surfaceRaised", "color.surfaceSunken"];
 const BOUNDARY_ROLES = ["checkbox.borderColor", "radio.borderColor", "textField.borderColor", "toggle.off", "checkbox.checked", "radio.checked", "toggle.on"];
 const READABILITY_PAIRS = [["segmented.foreground", "segmented.background"], ["segmented.selectedForeground", "segmented.selected"], ["listItem.selectedForeground", "listItem.selected"],
-    ...["neutral", "accent", "success", "warning", "danger", "info"].map(tone => [`badge.tone.${tone}.foreground`, `badge.tone.${tone}.background`]), ["screensaver.foreground", "screensaver.background"]];
+    ...["neutral", "accent", "success", "warning", "danger", "info"].map(tone => [`badge.tone.${tone}.foreground`, `badge.tone.${tone}.background`]),
+    ...["foreground", "gradientStart", "gradientEnd"].map(role => [`screensaver.${role}`, "screensaver.background"])];
 const BOUNDARY_PAIRS = [["toggle.knobOff", "toggle.off"], ["toggle.knobOn", "toggle.on"], ["checkbox.mark", "checkbox.checked"], ["segmented.indicatorColor", "segmented.selected"], ["segmented.indicatorColor", "segmented.background"]];
 const truncateRatio = value => Math.floor(value * 100) / 100;
 const plain = value => JSON.parse(JSON.stringify(value));
@@ -739,7 +740,7 @@ function verifyScreensaver(judge) {
         const result = judge.accept(TOKENS, document({ color: { text } }));
         assert.equal(result.ok, true, text);
         assert.equal(result.values.screensaver.background, "#000000ff");
-        assert.deepEqual(plain(readability(judge, result.values).filter(row => row.text === "screensaver.foreground")), [], text);
+        assert.deepEqual(plain(readability(judge, result.values).filter(row => row.text.startsWith("screensaver."))), [], text);
     }
     for (const background of ["#101010", "#00000080"]) {
         const result = judge.accept(TOKENS, document({ screensaver: { background } }));
@@ -747,8 +748,18 @@ function verifyScreensaver(judge) {
         assert.equal(result.token, "screensaver.background");
         assert.equal(result.reason, "fixed-background");
     }
-    const unreadable = judge.accept(TOKENS, document({ screensaver: { foreground: "#000000" } }));
-    assert.equal(readability(judge, unreadable.values).some(row => row.text === "screensaver.foreground" && row.surface === "screensaver.background"), true);
+    for (const role of ["foreground", "gradientStart", "gradientEnd"]) {
+        const unreadable = judge.accept(TOKENS, document({ screensaver: { [role]: "#000000" } }));
+        assert.equal(readability(judge, unreadable.values).some(row => row.text === `screensaver.${role}` && row.surface === "screensaver.background"), true);
+    }
+    for (const accent of ["#000000", "#4b369d", "#00ff00", "#ff0000", "#0000ff", "#ffffff"]) {
+        const result = judge.accept(TOKENS, document({ color: { accent } }));
+        assert.equal(result.ok, true);
+        const start = judge.parseColor(result.values.screensaver.gradientStart);
+        const end = judge.parseColor(result.values.screensaver.gradientEnd);
+        assert.deepEqual(plain(readability(judge, result.values).filter(row => row.text.startsWith("screensaver."))), []);
+        for (const channel of ["r", "g", "b"]) assert.ok(end[channel] >= start[channel], `${accent} ${channel} never darkens during interpolation`);
+    }
 }
 
 function verify(judge) {
@@ -1916,6 +1927,7 @@ function launcherDetailShortfalls(judge, launcher) {
 // Each control removes one rule's behaviour from a copy of the judge and
 // keeps the text around it. The suite must fail on every copy.
 const CONTROLS = [
+    ["screensaver gradient is judged", '    ["screensaver.gradientStart", "screensaver.background"],\n', "", verifyScreensaver],
     ["screensaver fixed canvas", 'leaf.type === "color" && token === "screensaver.background" && (value.r !== 0 || value.g !== 0 || value.b !== 0 || value.a !== 1)', "false", verifyScreensaver],
     ["notice states the minimum", ' + ", needs " + shortfall.floor + ":1."', ' + "."'],
     ["notice names the main background", '"color.background": "the main background"', '"color.background": "desktop"'],

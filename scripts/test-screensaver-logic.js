@@ -68,6 +68,8 @@ function suite(ctx, check) {
   check("ttfx readiness waits for the requirement", [ctx.ttfxReady(["ttfx"]), ctx.ttfxReady([])], [false, true]);
   check("random command uses random flag", ctx.command("/art", "random", 30, 80, 24, "#000000").slice(-1), ["--random-effect"]);
   check("named command passes the effect", ctx.command("/art", "beams", 30, 80, 24, "#000000").slice(-1), ["beams"]);
+  check("colorshift overrides both default gradients with RGB theme ink", ctx.command("/art", "colorshift", 30, 80, 24, "#000000", "#ff5a36", "#ff9c86").slice(-7),
+    ["colorshift", "--gradient-stops", "ff5a36", "ff9c86", "--final-gradient-stops", "ff5a36", "ff9c86"]);
   const exits = ctx.createExitState();
   check("quick exits fail after the limit", [
     ctx.effectExitAction(0, 100, exits),
@@ -102,6 +104,7 @@ const installedRequirements = producer.requirementRows(manifest, [], {});
 report("installed ttfx keeps a completed Tools step on Setup", [steps.setupTab([], installedRequirements), steps.toolsStep(installedRequirements, false).done], [true, true]);
 
 const controls = [
+  ["colorshift theme colors reach both phases", 'args.push("--gradient-stops", stops[0], stops[1], "--final-gradient-stops", stops[0], stops[1]);', 'args.push("--gradient-stops", stops[0], stops[1]);'],
   ["SGR reset is handled", "if (code === 0 || code === 39) {\n            color = \"\";\n        }", "if (false) {\n            color = \"\";\n        }"],
   ["help is not an effect", "if (value === \"help\" || seen[value]) continue;", "if (seen[value]) continue;"],
   ["only newest frame is kept", "function newestFrame(previous, next) {\n    return next;\n}", "function newestFrame(previous, next) {\n    return (previous || []).concat(next);\n}"],

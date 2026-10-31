@@ -252,7 +252,7 @@ function ttfxReady(missing) {
     return (missing || []).indexOf("ttfx") === -1;
 }
 
-function command(artPath, effect, frameRate, columns, rows, background) {
+function command(artPath, effect, frameRate, columns, rows, background, gradientStart, gradientEnd) {
     // The opaque QML canvas color stringifies to ttfx's RGB form;
     // tst_screensaver.qml runs that color-to-command conversion.
     const args = ["ttfx", "-i", artPath].concat([
@@ -269,6 +269,12 @@ function command(artPath, effect, frameRate, columns, rows, background) {
     ]);
     if (effect === "random" || effect === "") args.push("--random-effect");
     else args.push(effect);
+    if (effect === "colorshift") {
+        // ttfx 0.5.1 colorshift takes RGB stops for both animation phases:
+        // https://github.com/omacom/ttfx/blob/v0.5.1/src/effects/colorshift.rs
+        const stops = [String(gradientStart).slice(1), String(gradientEnd).slice(1)];
+        args.push("--gradient-stops", stops[0], stops[1], "--final-gradient-stops", stops[0], stops[1]);
+    }
     return args;
 }
 

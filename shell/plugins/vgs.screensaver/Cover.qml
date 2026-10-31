@@ -28,6 +28,8 @@ Item {
     readonly property int cellHeight: Math.max(1, Math.ceil(fontMetrics.height))
     readonly property var canvas: Logic.canvasSize(width, height, cellWidth, cellHeight)
     readonly property color background: Theme.screensaver.background
+    readonly property color gradientStart: Theme.screensaver.gradientStart
+    readonly property color gradientEnd: Theme.screensaver.gradientEnd
 
     focus: shown
     Keys.onPressed: event => {
@@ -63,6 +65,8 @@ Item {
     onArtPathChanged: restart()
     onArtFileChanged: if (artFile === "") artPath = logoPath
     onBackgroundChanged: restart()
+    onGradientStartChanged: restart()
+    onGradientEndChanged: restart()
 
     function stop() {
         if (shell !== null) shell.ipc.call("stop", "");
@@ -72,7 +76,7 @@ Item {
         if (!shown || !canRun || effect.running) return;
         if (width <= 0 || height <= 0) return;
         intentionalStop = false;
-        effect.command = Logic.command(artPath, selectedEffect, frameRate, canvas.columns, canvas.rows, background);
+        effect.command = Logic.command(artPath, selectedEffect, frameRate, canvas.columns, canvas.rows, background, gradientStart, gradientEnd);
         console.info("screensaver: command=" + JSON.stringify(effect.command));
         effect.running = true;
     }
