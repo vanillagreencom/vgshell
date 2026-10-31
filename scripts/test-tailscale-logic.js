@@ -13,6 +13,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const assert = require("node:assert/strict");
+const { execFileSync } = require("node:child_process");
 const { load } = require("../bin/lib/qml-library.js");
 const PageReference = load(path.join(__dirname, "../shell/Commons/PageReference.js"));
 const file = path.join(__dirname, "../shell/plugins/vgs.tailscale/TailscaleLogic.js");
@@ -398,6 +399,58 @@ function suite(logic, service = serviceSource) {
     }
 }
 
+// Execute the production stop body with children that have not acknowledged
+// termination. Injected time tests ownership of the first cleanup deadline;
+// the QML service cases cover Process completion and action release.
+function loginStop(service) {
+    const body = /function endLogin\(\) \{([\s\S]*?)\n    \}\n\n    function finishLogin/.exec(service);
+    assert.ok(body, "the production sign-in stop is readable");
+    const stop = new Function("signIn", "browser", "loginDeadline", "browserDeadline", "loginCleanup", "finishLogin", body[1]);
+    const signIn = { ended: false, get running() { return true; }, set running(value) { assert.equal(value, false); } };
+    const browser = { environment: {}, get running() { return true; }, set running(value) { assert.equal(value, false); } };
+    let now = 100;
+    let deadline = null;
+    const producerStops = [];
+    const invoke = () => stop(signIn, browser, { stop() { producerStops.push("login"); } }, { stop() { producerStops.push("browser"); } },
+        { restart() { deadline = now + 5000; } }, () => {});
+    invoke();
+    const first = deadline;
+    assert.notEqual(first, null, "first stop arms cleanup while children remain owned");
+    now += 2000;
+    invoke();
+    assert.equal(deadline, first, "repeated Cancel cannot postpone owned-child cleanup");
+    assert.deepEqual(producerStops.sort(), ["browser", "login"], "first stop ends both producer deadlines once");
+    for (const owner of ["browserDeadline", "loginDeadline"]) {
+        const handler = new RegExp("id: " + owner + "[\\s\\S]*?onTriggered: \\{([\\s\\S]*?)\\n        \\}").exec(service);
+        assert.ok(handler, owner + " has a production timeout handler");
+        const root = { problem: "", endLogin() { assert.fail("a cancelled run cannot end again"); } };
+        new Function("root", "signIn", "Logic", handler[1])(root, signIn, { failureText() { return "timeout"; } });
+        assert.equal(root.problem, "", "late " + owner + " cannot turn cancellation into failure");
+    }
+}
+
+// Run the actual fixed command in a private PATH, with no inherited session.
+// A caller's exported generic variable must not re-export the private URL.
+function openerPrivacy(service) {
+    const command = /id: browser\n[\s\S]*?\n        command: (\[[^\n]+\])/.exec(service);
+    assert.ok(command, "the production opener argv is readable");
+    const argv = JSON.parse(command[1]);
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "tailscale-opener-"));
+    const privateUrl = "https://login.example.test/private-$(literal-data)";
+    try {
+        fs.symlinkSync("/bin/sh", path.join(scratch, "sh"));
+        fs.writeFileSync(path.join(scratch, "xdg-open"), '#!/bin/sh\nprintf "argv=%s\\n" "$1"\n/usr/bin/env\n', { mode: 0o700, flag: "wx" });
+        const result = execFileSync(argv[0], argv.slice(1), {
+            env: { PATH: scratch, VGS_TEST_RUN: "1", VGS_TAILSCALE_AUTH_URL: privateUrl, url: "public-caller-value" },
+            encoding: "utf8", timeout: 10000, killSignal: "SIGKILL", stdio: ["ignore", "pipe", "pipe"]
+        }).trim().split("\n");
+        assert.equal(result[0], "argv=" + privateUrl, "the address remains one literal opener argument");
+        assert.equal(result.slice(1).some(line => line.includes(privateUrl)), false, "descendants inherit no private address");
+    } finally { fs.rmSync(scratch, { recursive: true, force: true }); }
+}
+
+openerPrivacy(serviceSource);
+loginStop(serviceSource);
 suite(load(file, commons));
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "tailscale-logic-"));
 try {

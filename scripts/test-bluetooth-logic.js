@@ -126,6 +126,7 @@ function verifyServiceRow(logic) {
         ["denied with no adapter is not available", "denied", "unit-masked", 0, "unavailable", "none", "own", false, true],
         ["a step with no report reads as not reported yet", null, "", 0, "todo", "none", "declared", true, false],
         ["probe-failed is not available until a check again", "unknown", "probe-failed", 0, "unavailable", "none", "recheck", false, true],
+        ["probe-timeout is not available until a check again", "unknown", "probe-timeout", 0, "unavailable", "none", "recheck", false, true],
         ["systemctl-failed is not available until a check again", "unknown", "systemctl-failed", 0, "unavailable", "none", "recheck", false, true],
         ["systemctl-missing is not available for good", "unknown", "systemctl-missing", 0, "unavailable", "none", "lasting", false, true],
         ["load-state is not available for good", "unknown", "load-state", 0, "unavailable", "none", "lasting", false, true],

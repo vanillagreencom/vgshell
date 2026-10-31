@@ -162,7 +162,7 @@ function view(key, changes) {
 // (bin/vgshell-system probe_service). Settings probes again on each open:
 // its open() rescans, and SystemSteps probes after each scan. Turning
 // Bluetooth off and on probes nothing.
-var RECHECK_REASONS = ["probe-failed", "systemctl-failed"];
+var RECHECK_REASONS = ["probe-failed", "probe-timeout", "systemctl-failed"];
 var RECHECK_HINT = "VGS could not check Bluetooth. Close and open Settings to check again.";
 // The hint of each unknown reason no check changes: no systemctl
 // (probe_service), a unit systemd cannot load (probe_service's other

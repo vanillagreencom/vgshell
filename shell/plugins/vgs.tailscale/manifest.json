@@ -69,6 +69,17 @@
       "floor": "1.104.1"
     },
     {
+      "command": "sh",
+      "packages": {
+        "pacman": "bash",
+        "apt": "dash",
+        "dnf": "bash",
+        "nix": "bash"
+      },
+      "optional": true,
+      "purpose": "Opens the Tailscale sign-in page"
+    },
+    {
       "command": "xdg-open",
       "packages": {
         "pacman": "xdg-utils",

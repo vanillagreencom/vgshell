@@ -48,13 +48,14 @@ Item {
             return process("up");
         }
         function opener() {
-            const found = ProcessRegistry.processes.filter(row => row.running && row.command[0] === "/bin/sh");
+            const found = ProcessRegistry.processes.filter(row => row.running && row.command[1] === "-c");
             compare(found.length, 1, "one tracked opener owns the browser result");
             return found[0];
         }
         function init() {
             ProcessRegistry.clear();
             root.setupDone = []; root.actionDone = null; root.writes = {}; root.oldTools = false; root.offers = [];
+            root.facade.requirements.missing = [];
             service = createTemporaryObject(serviceComponent, root);
             service.shell = root.facade;
             fresh();
@@ -66,6 +67,12 @@ Item {
             compare(service.action, "add-account");
             compare(root.writes.setup, null);
             for (const kind of ["switch", "sign-in", "logout", "add-account"]) compare(act(kind, "saved"), "busy");
+            service.lease(JSON.stringify({ id: "view", open: true }));
+            fresh();
+            verify(service.checkingSetup, "completed reads cannot publish setup while Add still owns the mutation");
+            compare(service.setup, null);
+            compare(root.writes.setup, null);
+            compare(service.action, "add-account");
             root.actionDone({ code: 1, reason: "ended" });
             compare(service.action, "");
             verify(service.problem !== "");
@@ -130,6 +137,18 @@ Item {
             verify(service.problem !== "");
             verify(service.checkingSetup);
         }
+        function test_missing_opener_tool_data() {
+            return [{ tag: "shell", missing: ["sh"] }, { tag: "opener", missing: ["xdg-open"] }, { tag: "both", missing: ["sh", "xdg-open"] }];
+        }
+        function test_missing_opener_tool(data) {
+            root.facade.requirements.missing = data.missing;
+            compare(act("sign-in", "saved"), "ok");
+            process("switch").finish(0, 0, "", ""); accounts();
+            compare(ProcessRegistry.runningWithVerb("up").length, 0);
+            compare(root.offers, [data.missing]);
+            compare(service.action, "");
+            verify(service.problem !== "");
+        }
         function test_opener_failure_data() {
             return [{ tag: "failed-start", ending: "start" }, { tag: "nonzero", ending: "exit" }, { tag: "deadline", ending: "deadline" }];
         }
@@ -148,7 +167,7 @@ Item {
             compare(ProcessRegistry.runningWithVerb("up").length, 0);
             verify(service.checkingSetup);
             auth.stderr.read("https://login.example.test/late-address");
-            compare(ProcessRegistry.processes.filter(row => row.running && row.command[0] === "/bin/sh").length, 0);
+            compare(ProcessRegistry.processes.filter(row => row.running && row.command[1] === "-c").length, 0);
             fresh();
             compare(act("add-account"), "ok");
             browser.exited(0, 0);

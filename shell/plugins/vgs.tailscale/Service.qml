@@ -74,7 +74,7 @@ Item {
     property int accountReads: 0
     property int freshStatusAfter: 0
     property int freshAccountsAfter: 0
-    readonly property bool checkingSetup: setupPending || statusReads < freshStatusAfter || accountReads < freshAccountsAfter
+    readonly property bool checkingSetup: action !== "" || setupPending || statusReads < freshStatusAfter || accountReads < freshAccountsAfter
 
     readonly property var connection: Logic.connection(missing, snapshot)
     readonly property var setup: checkingSetup && !missing && !outdated ? null : Logic.setup({ missing: missing, outdated: outdated, state: snapshot.state,
@@ -361,8 +361,8 @@ Item {
     }
 
     function finishAction() {
-        action = "";
         refresh();
+        action = "";
     }
 
     Timer {
@@ -410,8 +410,9 @@ Item {
     // the user finishes there. The first address opens in the browser.
     function startLogin(argv) {
         if (signIn.running || browser.running) return "busy";
-        if (shell.requirements.missing.indexOf("xdg-open") !== -1) {
-            shell.requirements.offer(["xdg-open"]);
+        const missing = ["sh", "xdg-open"].filter(command => shell.requirements.missing.indexOf(command) !== -1);
+        if (missing.length > 0) {
+            shell.requirements.offer(missing);
             problem = "A browser tool is missing; use the installation notice to add it.";
             finishAction();
             return "refused: login=missing-tool";
@@ -429,7 +430,10 @@ Item {
 
     // Ends the sign-in run as the service's own stop, which is no failure.
     function endLogin() {
+        if (signIn.ended) return;
         signIn.ended = true;
+        loginDeadline.stop();
+        browserDeadline.stop();
         loginCleanup.restart();
         browser.environment = ({});
         browser.running = false;
@@ -467,6 +471,7 @@ Item {
         interval: Logic.WATCHDOG_MS
         repeat: false
         onTriggered: {
+            if (signIn.ended) return;
             root.problem = "The browser tool did not answer; try signing in again.";
             root.endLogin();
         }
@@ -489,7 +494,7 @@ Item {
         // Process FailedToStart logs argv. Keep the address out of that
         // diagnostic and out of descendants' environment. Fixed shell
         // source reads data only; it never evaluates the private address.
-        command: ["/bin/sh", "-c", "url=$VGS_TAILSCALE_AUTH_URL; unset VGS_TAILSCALE_AUTH_URL; exec xdg-open \"$url\""]
+        command: ["sh", "-c", "set -- \"$VGS_TAILSCALE_AUTH_URL\"; unset VGS_TAILSCALE_AUTH_URL; exec xdg-open \"$1\""]
         // Drain neither channel into a log or status: browser errors may
         // repeat the authentication address.
         onStarted: browser.environment = ({})
@@ -518,6 +523,7 @@ Item {
         interval: Logic.LOGIN_MS
         repeat: false
         onTriggered: {
+            if (signIn.ended) return;
             root.problem = Logic.failureText("timeout");
             root.endLogin();
         }
