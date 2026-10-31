@@ -7261,7 +7261,7 @@ TSSECTION
   tailscale_section_take "$mode" top "System Settings › Tailscale · Top"
 
   park_pointer
-  click_item "window:System Settings" window vgs.tailscale IconButton "Sign out" || fail "the section's Sign out click failed"
+  click_in "window:System Settings" window vgs.tailscale IconButton "Sign out" || fail "the section's Sign out click failed"
   expect_poll "the section sign-out question opens" true tailscale_section_named Dialog tailscale-sign-out-prompt visible
   expect_poll "the question opens on Cancel" '["Button","Cancel"]' ipc smoke activeFocusItem window vgs.tailscale
   park_pointer

@@ -1028,6 +1028,7 @@ check "the refusal names the denied access" out_has "vgs-system: refused: state=
 # only a unit VGS started in this boot.
 fresh
 run_tty "apply service-bluetooth succeeds" 0 apply service-bluetooth
+check "the service description precedes its commands" description_precedes_commands apply service-bluetooth
 check "service-bluetooth records, then enables the unit now" test "$(sudo_calls)" == "$(session \
   "-- $(p install) -d -m 0755 -o root -g root -- $records" \
   "-- $(p tee) -- $records/.service-bluetooth" \
@@ -1644,8 +1645,8 @@ check "the disk-bytes-blind control reads foreign bytes ready" test "$(step_stat
 control description-missing '[apply:tailscale-operator]=' '[apply:missing]='
 check "the missing-description control fails the step coverage check" test "$(descriptions_complete "$helper" && echo green || echo red)" == red
 control description-unused '  vgs_tui_step "${step_description[$verb:$step]}"' '  vgs_tui_step "$step"'
-run_tty "the unused-description control runs the step" 0 apply tailscale-operator
-check "the unused-description control fails the popup check" test "$(description_precedes_commands apply tailscale-operator && echo green || echo red)" == red
+run_tty "the unused-description control runs the step" 0 apply service-bluetooth
+check "the unused-description control fails the popup check" test "$(description_precedes_commands apply service-bluetooth && echo green || echo red)" == red
 control flattened-stdin '      line="sudo$(printf '\'' %q'\'' "$@") <<'\''VGS_SYSTEM_INPUT'\''"$'\''\n'\''"$text"$'\''\n'\'''\''VGS_SYSTEM_INPUT'\''' '      line="sudo$(printf '\'' %q'\'' "$@") <<<$(printf '\''%q'\'' "$text")"'
 check "the old flattened stdin control fails the physical-row contract" test "$(stdin_preview_rows "$helper" && echo green || echo red)" == red
 control empty-preview-body '      line="sudo$(printf '\'' %q'\'' "$@") <<'\''VGS_SYSTEM_INPUT'\''"$'\''\n'\''"$text"$'\''\n'\'''\''VGS_SYSTEM_INPUT'\''' '      line="sudo$(printf '\'' %q'\'' "$@") <<'\''VGS_SYSTEM_INPUT'\''"$'\''\n'\''""$'\''\n'\'''\''VGS_SYSTEM_INPUT'\'''
