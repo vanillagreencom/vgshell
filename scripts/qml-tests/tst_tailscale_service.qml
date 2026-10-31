@@ -13,12 +13,16 @@ Item {
     property var writes: ({})
     property bool oldTools: false
     property var offers: []
+    // The core's system step reading: none before its first probe, then
+    // the operator step's state.
+    property bool stepsRead: true
+    property string operatorStep: "ready"
     readonly property var profileRows: [{ id: "saved", selected: true, account: "saved@example.test", tailnet: "example.test" }]
     readonly property string running: JSON.stringify({ BackendState: "Running", Self: { ID: "self", HostName: "desk", TailscaleIPs: ["100.64.0.1"] } })
     property var facade: ({
         settings: { pollSeconds: 30 },
         requirements: { missing: [], get outdated() { return root.oldTools ? ["tailscale"] : []; }, revision: 0, offer: commands => { root.offers = root.offers.concat([commands]); return "ok"; } },
-        system: { state: { "service-tailscaled": { state: "ready" }, "tailscale-operator": { state: "ready" }, "tailscale-account-add": { state: "needed" } },
+        system: { get state() { return root.stepsRead ? { "service-tailscaled": { state: "ready" }, "tailscale-operator": { state: root.operatorStep }, "tailscale-account-add": { state: "needed" } } : {}; },
             refresh: done => { root.setupDone = root.setupDone.concat([done]); return "ok"; } },
         status: { set: (key, value) => { root.writes = Object.assign({}, root.writes, { [key]: value }); return "ok"; },
             act: (key, row, action, done) => { root.actionDone = done; return "ok"; } },
@@ -40,6 +44,21 @@ Item {
             found[0].finish(0, 0, JSON.stringify(rows === undefined ? root.profileRows : rows), "");
         }
         function status() { process("status").finish(0, 0, root.running, ""); }
+        function listReads() { return ProcessRegistry.runningWithVerb("switch").filter(row => row.command.indexOf("--list") !== -1); }
+        function failAccounts() {
+            const found = listReads();
+            compare(found.length, 1, "one accounts read owner");
+            found[0].finish(1, 0, "", "Access denied: profiles access denied");
+        }
+        // One status read that gives BACKEND, or fails with ERRORS.
+        function statusAs(backend, errors) {
+            if (backend === "") process("status").finish(1, 0, "", errors);
+            else process("status").finish(0, 0, JSON.stringify({ BackendState: backend }), "");
+        }
+        function start() {
+            service = createTemporaryObject(serviceComponent, root);
+            service.shell = root.facade;
+        }
         function setup() {
             const done = root.setupDone[root.setupDone.length - 1];
             done();
@@ -59,9 +78,9 @@ Item {
         function init() {
             ProcessRegistry.clear();
             root.setupDone = []; root.actionDone = null; root.writes = {}; root.oldTools = false; root.offers = [];
+            root.stepsRead = true; root.operatorStep = "ready";
             root.facade.requirements.missing = [];
-            service = createTemporaryObject(serviceComponent, root);
-            service.shell = root.facade;
+            start();
             fresh();
             compare(service.checkingSetup, false);
         }
@@ -125,6 +144,126 @@ Item {
             setup();
             compare(root.writes.tailscale.accountsRead, false);
             compare(root.writes.tailscale.accounts, []);
+        }
+        // A setup step the core runs, such as Allow, never reaches the
+        // service; the step's new state does, and reads the list again.
+        function test_allow_reads_the_accounts_again() {
+            root.operatorStep = "needed";
+            service.refresh();
+            status(); failAccounts(); setup();
+            compare(root.writes.tailscale.accountsRead, false);
+            compare(listReads().length, 0, "a failed read under the current access is not repeated");
+            root.operatorStep = "ready";
+            compare(listReads().length, 1, "the new access starts one read");
+            verify(service.checkingSetup, "the stale fault is not shown while the read runs");
+            compare(root.writes.tailscale.checkingSetup, true);
+            accounts();
+            compare(listReads().length, 0, "the read that gave a list is not repeated");
+            verify(!service.checkingSetup);
+            compare(root.writes.tailscale.accountsRead, true);
+            compare(root.writes.tailscale.accounts.map(row => row.id), ["saved"]);
+        }
+        // A re-read that fails gives the same fault kind under its new
+        // access, and its cause reaches the log under that access. The
+        // engine locks `console`, so no case can observe the info line;
+        // the reader's record of the access it logged under is set in the
+        // line's branch and stands for it.
+        function test_a_reread_fault_is_logged_under_its_access() {
+            const reader = ProcessRegistry.processes.filter(row => row.command.indexOf("--list") !== -1)[0];
+            root.operatorStep = "needed";
+            service.refresh();
+            status(); failAccounts(); setup();
+            compare(reader.loggedAccess, "needed");
+            root.operatorStep = "ready";
+            listReads()[0].finish(1, 0, "", "another cause");
+            compare(service.accountsFault, "failed");
+            compare(reader.loggedAccess, "ready", "the re-read's fault is logged under its own access");
+            service.refresh();
+            status(); accounts(); setup();
+            compare(reader.loggedAccess, "", "a list ends the logged fault");
+        }
+        // tailscaled that comes back is seen by the poll alone, which reads
+        // no accounts. `before` fails a poll before the refresh's reads
+        // start; `during` fails the refresh's own status read while its
+        // accounts read runs.
+        function test_daemon_that_answers_reads_the_accounts_again_data() {
+            const rows = [];
+            for (const down of [{ name: "service-off", errors: "failed to connect to local tailscaled; it doesn't appear to be running" },
+                    { name: "unavailable", errors: "unexpected state" }])
+                for (const when of ["before", "during"])
+                    for (const backend of ["NeedsLogin", "Running"])
+                        rows.push({ tag: down.name + "-" + when + "-then-" + backend, down: down, when: when, backend: backend });
+            return rows;
+        }
+        function test_daemon_that_answers_reads_the_accounts_again(data) {
+            if (data.when === "before") {
+                service.runPoll("tick");
+                statusAs("", data.down.errors);
+            }
+            service.refresh();
+            if (data.when === "during") statusAs("", data.down.errors);
+            failAccounts();
+            if (data.when === "before") statusAs("", data.down.errors);
+            setup();
+            compare(service.snapshot.state, data.down.name);
+            compare(root.writes.tailscale.accountsRead, false);
+            compare(listReads().length, 0, "no read while tailscaled does not answer");
+            service.runPoll("tick");
+            statusAs(data.backend, "");
+            compare(listReads().length, 1, "tailscaled that answers starts one read");
+            verify(service.checkingSetup);
+            accounts();
+            compare(listReads().length, 0);
+            compare(root.writes.tailscale.accountsRead, true);
+        }
+        // A read is repeated only for a new access: never for a read that
+        // gave a list, and never for a fault under the access it ran under.
+        function test_no_read_without_a_new_access() {
+            for (const backend of ["Stopped", ""]) {
+                service.runPoll("tick");
+                statusAs(backend, "failed to connect to local tailscaled");
+                compare(listReads().length, 0, "a read that gave a list is not repeated: " + backend);
+            }
+            service.runPoll("tick");
+            status();
+            compare(listReads().length, 0, "tailscaled that answers again repeats no list");
+            service.refresh();
+            status(); failAccounts(); setup();
+            compare(listReads().length, 0, "a fault under the current access is not repeated");
+            service.runPoll("tick");
+            statusAs("", "failed to connect to local tailscaled");
+            service.runPoll("tick");
+            status();
+            compare(listReads().length, 0, "the access the fault ran under is not a new access");
+            compare(root.writes.tailscale.accountsRead, false);
+        }
+        // The registration read can end before the core's first step
+        // probe and the first status poll, under no access at all.
+        function test_startup_read_runs_again_once_the_access_lands_data() {
+            return [{ tag: "after the read", whileRead: false }, { tag: "while the read runs", whileRead: true }];
+        }
+        function test_startup_read_runs_again_once_the_access_lands(data) {
+            service.destroy(); wait(0);
+            ProcessRegistry.clear();
+            root.setupDone = []; root.writes = {};
+            root.stepsRead = false;
+            start();
+            compare(service.accountsAccess, "");
+            if (data.whileRead) { root.stepsRead = true; status(); }
+            failAccounts();
+            if (!data.whileRead) {
+                compare(listReads().length, 0, "no read under no access");
+                root.stepsRead = true;
+                compare(listReads().length, 0, "no read before the poll lands");
+                status();
+            }
+            setup();
+            compare(listReads().length, 1, "the landed access starts one read");
+            verify(service.checkingSetup);
+            accounts();
+            compare(listReads().length, 0);
+            verify(!service.checkingSetup);
+            compare(root.writes.tailscale.accountsRead, true);
         }
         function test_sign_in_selects_and_verifies_saved_id_before_up() {
             compare(act("sign-in", "saved"), "ok");

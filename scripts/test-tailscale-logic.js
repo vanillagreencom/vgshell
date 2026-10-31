@@ -354,6 +354,34 @@ function suite(logic, service = serviceSource) {
     ]) assert.deepEqual(plain(logic.accountRows(value)).map(row => [row.key, row.text, row.secondary, row.badge]), want, tag);
     assert.notEqual(running.account, "", "the fixture names its status account");
     assert.equal(plain(logic.unread()).accountsRead, false);
+    // The access an accounts read runs under: the operator step while
+    // tailscaled answers, none while it does not or has no reading.
+    for (const [state, operator, want] of [
+        ["running", "ready", "ready"], ["stopped", "needed", "needed"], ["signed-out", "denied", "denied"],
+        ["needs-approval", "unknown", "unknown"], ["starting", "nixos", "nixos"],
+        ["service-off", "ready", ""], ["unavailable", "needed", ""], ["checking", "ready", ""], ["running", "", ""]
+    ]) assert.equal(logic.accountsAccess(operator, state), want, state + " under operator " + JSON.stringify(operator));
+    // Signed out, the control the sentence names: Sign in over a read
+    // list; over an unread list none while a change runs or a fresh
+    // reading is pending, the offered setup step, else Add account.
+    for (const [tag, read, setupLine, step, action, want] of [
+        ["read", true, ready, "", "", "sign-in"],
+        ["read while checking", true, null, "", "", "sign-in"],
+        ["unread while checking, step offered", false, null, steps.allow.label, "", ""],
+        ["unread while checking", false, null, "", "", ""],
+        ["unread while Add account runs", false, null, "", "add-account", ""],
+        ["unread while Add account runs, step offered", false, null, steps.allow.label, "add-account", ""],
+        ["unread, step offered", false, denied, steps.allow.label, "", "setup"],
+        ["unread, no step", false, ready, "", "", "add-account"]
+    ]) {
+        const value = plain(logic.published(false, signedOutSnap, setupLine, Object.assign({}, live, { accountsRead: read, action: action })));
+        const hint = logic.stateHint(value, step);
+        assert.equal(hint.control, want, tag);
+        assert.notEqual(hint.text, "", tag + " says what is going on");
+        // A hint that names no control gives the reason the card's faded
+        // controls show.
+        if (want === "") assert.equal(hint.text, logic.lockReason(value, step), tag + " matches the controls' reason");
+    }
     // Distinct lock causes retain distinct reasons.
     const causes = locked.map(([tailscale]) => logic.lockReason(tailscale, ""));
     assert.equal(new Set(causes).size, causes.length, "each cause says its own why");
@@ -560,6 +588,9 @@ try {
         ["the floor stops the account requests", '    if (data.outdated === true && FLOOR_KINDS.indexOf(request.kind) !== -1)\n        return { refusal: "refused: action=" + request.kind + " state=outdated", update: true };\n', ''],
         ["the add transaction waits on no operator access", '    return tailscale.checkingSetup ? CHECKING_TEXT : "";\n}', '    return lockReason(tailscale, step);\n}'],
         ["an unread list draws the status account", '    if (!tailscale.accountsRead)\n', '    if (false)\n'],
+        ["an accounts read needs tailscaled to answer", 'return REACHED.indexOf(state) !== -1 ? operator : "";', 'return operator;'],
+        ["a pending reading over an unread list names no control", '        if (tailscale.checkingSetup) return hintState(', '        if (false) return hintState('],
+        ["a running change over an unread list names no control", '        if (tailscale.action !== "") return hintState(', '        if (false) return hintState('],
         ["the online count covers every device", 'online: all.filter(function (row) { return row.online; }).length', 'online: all.slice(0, PEER_MAX).filter(function (row) { return row.online; }).length']
     ]) {
         assert.equal(source.split(needle).length - 1, 1, name + " mutation must match once");

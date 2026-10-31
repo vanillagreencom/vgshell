@@ -21,7 +21,9 @@ import "TailscaleLogic.js" as Logic
 // The poll runs `tailscale status --json` every `pollSeconds` while no
 // view is open, and every 3 s while one is or Tailscale is starting, one
 // run at a time. A refresh also reads the accounts, `tailscale switch
-// --list --json`. `tailscale exit-node suggest` runs when the exit node
+// --list --json`, and a read that gave no list runs again once the access
+// it ran under changes: the operator step or whether tailscaled answers
+// (rereadAccounts). `tailscale exit-node suggest` runs when the exit node
 // chooser asks and when the state turns running, one at a time. Each of
 // those reads is killed 10 s after its start, and a refresh never moves
 // that deadline. It publishes `connection` and `setup`, the lines the
@@ -42,7 +44,19 @@ Item {
     readonly property bool outdated: shell !== null && shell.requirements.outdated.indexOf("tailscale") !== -1
     readonly property int scans: shell === null ? 0 : shell.requirements.revision
     readonly property int pollInterval: Logic.pollInterval(leaseCount > 0, snapshot.state, shell === null ? 30 : shell.settings.pollSeconds)
+    // The `state` getter reads SystemSteps.steps, which SystemSteps replaces
+    // only when a reading changes, and Capabilities.managerStep re-probes
+    // after every core/system run (Allow, Enable), so this binding moves
+    // once a step's state does.
     readonly property var steps: shell === null ? ({}) : shell.system.state
+    // The access the next accounts read would run under.
+    readonly property string accountsAccess: Logic.accountsAccess(stepState("tailscale-operator"), missing ? "" : snapshot.state)
+    onAccountsAccessChanged: {
+        // A read the access changed under ran under no one access, so its
+        // fault belongs to none, as a read's started before any reading.
+        if (accountsReader.running) accountsReader.access = "";
+        rereadAccounts();
+    }
 
     property var poll: Logic.pollIdle()
     // The polls started and the polls the watchdog killed, for the log
@@ -131,7 +145,7 @@ Item {
         setupPending = true;
         const readable = !commandMissing();
         freshStatusAfter = statusReads + (readable ? reader.running ? 2 : 1 : 0);
-        freshAccountsAfter = accountReads + (readable ? accountsReader.running ? 2 : 1 : 0);
+        if (!readable) freshAccountsAfter = accountReads;
         const reply = shell.system.refresh(() => {
             if (serial === root.setupRequest) root.setupPending = false;
         });
@@ -141,7 +155,7 @@ Item {
         }
         if (!readable) return "ok";
         runPoll("refresh");
-        readAccounts();
+        requestAccounts();
         return "ok";
     }
 
@@ -226,6 +240,24 @@ Item {
         }
     }
 
+    // Asks for an accounts reading taken after now; checkingSetup holds
+    // until it ends.
+    function requestAccounts() {
+        freshAccountsAfter = accountReads + (accountsReader.running ? 2 : 1);
+        readAccounts();
+    }
+
+    // The one decision to read again: a read that gave no list ran under an
+    // access that is no longer the current one. A read that gave a list is
+    // not repeated, and a read that failed under the current access is not
+    // either, so no fault loops. It runs when the access changes and at the
+    // end of each read, so a read that failed before the first step probe
+    // or status poll landed runs again once both have.
+    function rereadAccounts() {
+        if (accountsReader.running || accountsAccess === "" || accountsFault === "" || accountsAccess === accountsReader.access) return;
+        requestAccounts();
+    }
+
     function readAccounts(profile) {
         if (profile !== undefined) accountsReader.nextProfile = profile;
         if (accountsReader.running) {
@@ -233,6 +265,7 @@ Item {
             return;
         }
         accountsReader.completion = null;
+        accountsReader.access = accountsAccess;
         accountsReader.verifying = accountsReader.nextProfile;
         accountsReader.nextProfile = "";
         accountsDeadline.restart();
@@ -252,6 +285,11 @@ Item {
         property bool again: false
         property string nextProfile: ""
         property string verifying: ""
+        // The access this read ran under (accountsAccess), "" for none:
+        // started before any reading, or the access changed while it ran.
+        property string access: ""
+        // The access of the last fault logged, "" once a read gives a list.
+        property string loggedAccess: ""
         command: ["tailscale", "switch", "--list", "--json"]
         stdout: StdioCollector { id: accountsText; waitForEnd: true }
         stderr: StdioCollector { id: accountsErrors; waitForEnd: true }
@@ -261,8 +299,13 @@ Item {
             accountsDeadline.stop();
             const code = root.codeOf(completion);
             const read = Logic.accounts(code, accountsText.text);
-            if (read.fault !== "" && read.fault !== root.accountsFault)
-                console.info("tailscale: accounts=" + read.fault + " code=" + code + " " + accountsErrors.text.trim());
+            // One line a fault kind under an access: a re-read runs only
+            // for a new access, and its fault keeps the earlier kind.
+            if (read.fault === "") loggedAccess = "";
+            else if (read.fault !== root.accountsFault || access !== loggedAccess) {
+                loggedAccess = access;
+                console.info("tailscale: accounts=" + read.fault + " access=" + access + " code=" + code + " " + accountsErrors.text.trim());
+            }
             root.accountsFault = read.fault;
             root.accounts = read.rows;
             root.accountReads++;
@@ -283,6 +326,9 @@ Item {
                 again = false;
                 root.readAccounts();
             }
+            // Last: readAccounts replaces `verifying`, so a read started
+            // before the profile check above would drop that check.
+            root.rereadAccounts();
         }
     }
 

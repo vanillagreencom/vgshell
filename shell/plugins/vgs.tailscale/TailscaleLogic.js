@@ -387,6 +387,15 @@ function loginUrl(text) {
 
 var REACHED = ["running", "stopped", "signed-out", "needs-approval", "starting"];
 
+// The access an accounts read runs under: OPERATOR, the operator step's
+// state, while tailscaled answers (STATE, the snapshot's, in REACHED), ""
+// while it does not or has no reading. `switch --list` asks tailscaled,
+// which answers when the daemon answers and the operator may read the
+// profiles; the service step shows as the daemon answering.
+function accountsAccess(operator, state) {
+    return REACHED.indexOf(state) !== -1 ? operator : "";
+}
+
 // The argv of REQUEST, { kind, id? }, over what the service holds, DATA
 // { state, targets, accounts, outdated }: { argv }, or { refusal } for a
 // request the state does not take or that names nothing listed, with
@@ -564,14 +573,20 @@ function barView(tailscale) {
 // list is empty), `add-account`, `setup` (the setup step the core offers)
 // or "" for none. TAILSCALE is the published value and STEP the words of
 // the setup step offered now, "" for none. Signed out over an unread
-// list, the view draws no Sign in (it would hide saved accounts), so the
-// sentence names the setup step while one is offered, else Add account.
+// list, the view draws no Sign in (it would hide saved accounts): in
+// lockReason's order, a change in progress or a pending fresh reading
+// gives the reason the card's controls show and names no control; else
+// the sentence names the setup step while one is offered, since the
+// service reads the list again once the step changes its access
+// (Service.rereadAccounts), else Add account.
 function hintState(text, control) { return { text: text, control: control }; }
 function stateHint(tailscale, step) {
     switch (tailscale.state) {
     case "signed-out":
         if (tailscale.accountsRead) return hintState("Sign in to connect this computer to your tailnet.", "sign-in");
-        if (step !== "") return hintState("VGS could not read your saved accounts, so choose " + step + " below.", "setup");
+        if (tailscale.action !== "") return hintState(BUSY_TEXT, "");
+        if (tailscale.checkingSetup) return hintState(CHECKING_TEXT, "");
+        if (step !== "") return hintState("VGS could not read your saved accounts, so choose " + step + " below and VGS reads them again.", "setup");
         return hintState("VGS could not read your saved accounts, so choose Add account to sign in.", "add-account");
     case "needs-approval": return hintState("An admin of " + (tailscale.tailnet !== "" ? tailscale.tailnet : "your tailnet") + " must approve this device.", "");
     case "unavailable": return hintState("Tailscale did not answer.", "");
