@@ -334,8 +334,13 @@ PY
     reveal_other "other-focus-failure"
     expect "the nested focus control installs a failing dispatcher" ok hypr eval "hl.__vgs_focus_control_saved = hl.dsp.focus; hl.dsp.focus = function(a) if a.window == \"address:$focus_refused_address\" then return function() error(\"vgs-focus-control\") end end return hl.__vgs_focus_control_saved(a) end"
     expected_errors+=("ERROR qml: compositor: request .*address:$focus_refused_address.* answered .*vgs-focus-control")
+    # A Lua error exits hyprctl 7, which the queue logs beside the reply; a
+    # missing window is a warning that exits 0 (Hyprland v0.56.2).
+    expected_errors+=("ERROR qml: compositor: hyprctl exited 7 for .*address:$focus_refused_address")
     expect "the live target's failing reveal reaches the queue" ok probe reveal "$focus_refused_address"
     expect_log "a failure other than window closure still logs an error" 1 "ERROR qml: compositor: request .*address:$focus_refused_address.* answered .*vgs-focus-control"
+    expect_log "that failure logs its exit status" 1 "ERROR qml: compositor: hyprctl exited 7 for .*address:$focus_refused_address"
+    expect "that failure logs its exit status exactly once" 1 log_lines "ERROR qml: compositor: hyprctl exited 7 for .*address:$focus_refused_address"
     expect "the nested focus dispatcher is restored" ok hypr eval 'hl.dsp.focus = hl.__vgs_focus_control_saved; hl.__vgs_focus_control_saved = nil'
     close_toplevel "$focus_refused_pid" "the other-failure control window closes"
   else
@@ -349,4 +354,8 @@ else
 fi
 expect "workspace 1 is focused after the reveal rows" ok probe dispatch "focusWorkspace 1"
 expect_poll "the compositor is on workspace 1 after the reveal rows" 1 active_ws
+# A row that checks the shell log later (launcher, diagnostics) reads this
+# shell's whole log when no row between them restarts the shell, so a line
+# this row provokes and does not expect is reported here, in its own row.
+check_unexpected_log "reveal shell log" "$instance_log"
 kill -TERM -- "$reveal_events_pid" 2>/dev/null || true
