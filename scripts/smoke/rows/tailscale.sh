@@ -1202,6 +1202,7 @@ print(json.dumps(status))' "$tailscale_fixtures/sheet.json")" || { fail "tailsca
 device_reply tailscale 0 "$tailscale_offline" status --json
 expect "a refresh reads gateway offline" ok tailscale_refresh
 expect_poll "the service publishes gateway offline" '[["attic-nas", true], ["gateway", false]]' tailscale_own_online
+expect_poll "the refreshed offline-node chooser has fresh access" ready tailscale_ready
 tailscale_calls_mark="$(tailscale_call_count tailscale)" || { fail "tailscale: the tailscale stand-in's calls are unreadable"; return 0; }
 tailscale_key Return
 expect_poll "Enter opens the Exit nodes view for the offline node" '"exit-nodes"' tailscale_view
