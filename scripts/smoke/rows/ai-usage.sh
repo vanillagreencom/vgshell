@@ -9,7 +9,11 @@
 # whether that tool is installed or not, whose TUI the stand-in terminal records; the
 # widget's share, tone and hidden state, under a Hidden accounts item
 # naming the Claude Code id and one at its placeholder; the panel's rows, notes, figure
-# shared check age, reset times and height cap, half its output's logical height; that
+# shared check age, reset times and height cap, half its output's logical height;
+# in full and compact view, a card whose reply has no 5-hour window, which
+# draws no 5-hour row, and a card with both credit fields, a
+# row each after the limits with the long title's figure on its first line
+# and a bar in full view alone, and the Codex credit balance as a row; that
 # opening the panel publishes no read and sends the endpoint no request;
 # the reset calendar, which the calendar button, clicked with the nested
 # pointer, opens with each account's weekly limit under the local day it
@@ -135,7 +139,7 @@ usage_panel_colours() {
   danger="$(ipc smoke themeValue badge.tone.danger.foreground)" || return
   ipc smoke itemColours panel vgs.ai-usage ProgressBar QQuickRectangle | py_reply 'import json,sys
 bars=json.load(sys.stdin)
-windows=[w for a in json.loads(sys.argv[1]) for w in a["windows"]]
+windows=[w for a in json.loads(sys.argv[1]) for w in a["windows"] if w["bar"]]
 labels=[r for r in json.loads(sys.argv[2]) if r.get("text", "").endswith("%")]
 def qt_colour(c):
     return c + "ff" if len(c)==7 else "#" + c[3:] + c[1:3]
@@ -195,6 +199,28 @@ usage_panel_rows() { usage_panel | py_reply 'import json,sys; print(json.dumps([
 
 usage_panel_details() { usage_panel | py_reply 'import json,sys; print(json.dumps([[r["provider"], [[d["label"], d["value"]] for d in r["details"]]] for r in json.load(sys.stdin)]))'; }
 usage_panel_view() { ipc smoke readInstance panel vgs.ai-usage fullView; }
+# usage_drawn TEXT: how many visible labels of the panel read TEXT.
+usage_drawn() { # TEXT
+  ipc smoke descendantGeometry panel vgs.ai-usage | py_reply 'import json,sys; print(sum(1 for r in json.load(sys.stdin) if r["type"] == "Label" and r.get("text") == sys.argv[1] and r["visible"] and r["box"][3] > 0))' "$1"
+}
+# Claude Code's credit rows: name, title, figure, whether the time left
+# reads as a limit row's, days and hours alone, and whether the row has a bar.
+usage_credit_rows() { usage_panel | py_reply 'import json,re,sys; print(json.dumps([[w["name"], w["label"], w["text"], re.fullmatch(r"[0-9]+d [0-9]+h", w["reset"]) is not None, w["bar"]] for r in json.load(sys.stdin) if r["provider"] == "claude" for w in r["windows"] if w["name"].startswith("credit-")]))'; }
+# usage_bars: how many progress bars the panel draws.
+usage_bars() { ipc smoke itemColours panel vgs.ai-usage ProgressBar QQuickRectangle | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
+# usage_first_line TITLE FIGURE: `matched` while the drawn FIGURE label is
+# centred on the first line of the drawn TITLE label, else both boxes.
+usage_first_line() { # TITLE FIGURE
+  local values
+  values="$(ipc smoke itemValues panel vgs.ai-usage Label text,lineBox)" || return
+  ipc smoke descendantGeometry panel vgs.ai-usage | py_reply 'import json,sys
+rows = [r for r in json.load(sys.stdin) if r["type"] == "Label" and r["visible"]]
+line = [v["lineBox"] for v in json.loads(sys.argv[1]) if v["text"] == sys.argv[2]]
+title = [r["box"] for r in rows if r.get("text") == sys.argv[2]]
+figure = [r["box"] for r in rows if r.get("text") == sys.argv[3]]
+matched = len(title) == len(figure) == len(line) == 1 and abs(figure[0][1] + figure[0][3] / 2 - (title[0][1] + line[0] / 2)) < 1
+print("matched" if matched else json.dumps([title, figure, line]))' "$values" "$1" "$2"
+}
 usage_panel_checked() {
   local age button
   age="$(ipc smoke readInstance panel vgs.ai-usage checked)" \
@@ -289,7 +315,7 @@ usage_apply_setting() { ipc smoke invokeInstance window vgs.settings applySettin
 usage_panel_resets() {
   usage_panel | py_reply 'import json,sys
 rows = json.load(sys.stdin)
-got = [[w["name"], w["resetIn"]] for r in rows for w in r["windows"]]
+got = [[w["name"], w["resetIn"]] for r in rows for w in r["windows"] if not w["name"].startswith("credit-")]
 def fits(name, left):
     if left["kind"] != "in":
         return False
@@ -391,8 +417,9 @@ usage_before_panel="$(usage_read_at)" || usage_before_panel=0
 usage_sent_before_panel="$(usage_requests)"
 usage_notes_ok='[["claude", "ok", true, "normal"], ["codex", "ok", true, "normal"]]'
 click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage from its widget failed"
-expect_poll "the widget opens its panel" '[["claude", "", [["seven_day", 83, "danger"], ["seven_day_fable", 12, "success"], ["five_hour", 42, "success"]]], ["codex", "person@example.invalid", [["seven_day", 64, "warning"], ["five_hour", 27, "success"]]]]' usage_panel_rows
+expect_poll "the widget opens its panel" '[["claude", "", [["seven_day", 83, "danger"], ["seven_day_fable", 12, "success"], ["five_hour", 42, "success"]]], ["codex", "person@example.invalid", [["seven_day", 64, "warning"], ["five_hour", 27, "success"], ["credit-codex", 0, ""]]]]' usage_panel_rows
 expect_poll "the panel's reset times are the stand-ins'" matched usage_panel_resets
+expect_poll "the panel draws a 5-hour row on each card" 2 usage_drawn "5-hour limit"
 expect "the reset calendar starts closed" false usage_calendar_open
 summon_drawn panel vgs.ai-usage || fail "the panel never drew a frame before the calendar click"
 usage_calendar_click || fail "the click on the calendar button failed"
@@ -401,7 +428,7 @@ expect_poll "the reset calendar lists each weekly reset on its local day" matche
 usage_calendar_click || fail "the second click on the calendar button failed"
 expect_poll "a second click closes the reset calendar" false usage_calendar_open
 expect "the full panel is selected by default" true usage_panel_view
-expect "the full panel carries provider details" '[["claude", [["Extra usage", "$123.45 of $500.00"]]], ["codex", [["Codex credits", "12,345 available"]]]]' usage_panel_details
+expect "the full panel carries provider details" '[["claude", [["Extra usage", "$123.45 of $500.00"]]], ["codex", []]]' usage_panel_details
 summon_drawn panel vgs.ai-usage || fail "the panel never drew a frame"
 expect_poll "every listed provider card loads its theme-colour mark" matched usage_panel_marks
 expect_poll "one shared check age sits beside Check now in small text" matched usage_panel_checked
@@ -417,7 +444,7 @@ expect "AI Usage's panel hides" ok ipc shell hide panel vgs.ai-usage
 expect_poll "the hidden panel is gone" absent usage_panel
 # The caller's tone binding is what gives the bar the value's tier. A
 # disposable panel without it still draws bars, in the accent colour.
-usage_edit "$usage_panel_qml" '; tone: modelData.tone' '' || fail "the accent progress control edit failed"
+usage_edit "$usage_panel_qml" '; tone: usageLimit.modelData.tone' '' || fail "the accent progress control edit failed"
 rescan "the accent progress control is scanned"
 usage_refresh "the accent progress control"
 click_centre "$(bar_key)" vgs.ai-usage || fail "opening the accent progress control failed"
@@ -479,9 +506,48 @@ expect "the account choices list each signed-in account by provider and email" '
 expect "choosing compact view is allowed" ok usage_apply_setting view '"compact"'
 click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage for compact view failed"
 expect_poll "the compact panel is selected" false usage_panel_view
-expect_poll "the compact panel still shows every limit" '[["claude", "", [["seven_day", 83, "danger"], ["seven_day_fable", 12, "success"], ["five_hour", 42, "success"]]], ["codex", "person@example.invalid", [["seven_day", 64, "warning"], ["five_hour", 27, "success"]]]]' usage_panel_rows
+expect_poll "the compact panel still shows every limit" '[["claude", "", [["seven_day", 83, "danger"], ["seven_day_fable", 12, "success"], ["five_hour", 42, "success"]]], ["codex", "person@example.invalid", [["seven_day", 64, "warning"], ["five_hour", 27, "success"], ["credit-codex", 0, ""]]]]' usage_panel_rows
 expect "the compact panel hides" ok ipc shell hide panel vgs.ai-usage
 expect_poll "the compact panel is gone" absent usage_panel
+# A reply with both credit fields (claude-usage-credits.json) draws a row
+# for each after the limits, in compact and full view: each time left
+# reads as a limit row's, a bar stands under each in full view alone, and
+# the long Cowork title keeps its figure on its first line.
+usage_mode credits
+usage_refresh "the reply with both credits"
+usage_credit_want='[["credit-cowork", "Claude Code and Cowork credit", "18%", true, true], ["credit-labelled", "API credits", "$41.20 of $200.00", true, true]]'
+for usage_view in compact full; do
+  expect "choosing $usage_view view for the credits is allowed" ok usage_apply_setting view "\"$usage_view\""
+  click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage over the credits in $usage_view view failed"
+  expect_poll "the $usage_view card draws each credit after the limits" '[["claude", "", [["seven_day", 83, "danger"], ["seven_day_fable", 12, "success"], ["five_hour", 42, "success"], ["credit-cowork", 18, "success"], ["credit-labelled", 20.6, "success"]]], ["codex", "person@example.invalid", [["seven_day", 64, "warning"], ["five_hour", 27, "success"], ["credit-codex", 0, ""]]]]' usage_panel_rows
+  expect "the $usage_view card's credits read as the reply's" "$usage_credit_want" usage_credit_rows
+  summon_drawn panel vgs.ai-usage || fail "the $usage_view credits panel never drew a frame"
+  for usage_title in "Claude Code and Cowork credit" "API credits" "Codex credits"; do
+    expect_poll "the $usage_view panel draws the $usage_title row" 1 usage_drawn "$usage_title"
+  done
+  expect_poll "the $usage_view Cowork credit's figure sits on its title's first line" matched usage_first_line "Claude Code and Cowork credit" "18%"
+  if [[ $usage_view == full ]]; then usage_bars_want=7; else usage_bars_want=0; fi
+  expect_poll "the $usage_view panel draws $usage_bars_want bars, none for the Codex balance" "$usage_bars_want" usage_bars
+  expect "the $usage_view credits panel hides" ok ipc shell hide panel vgs.ai-usage
+  expect_poll "the $usage_view credits panel is gone" absent usage_panel
+done
+# A reply recorded from an account with no 5-hour limit, five_hour null
+# (claude-usage-weekly-only.json), draws no 5-hour row and no empty slot
+# on its card in either view, while the Codex card keeps its own.
+usage_mode weekly-only
+usage_refresh "the account with no 5-hour limit"
+expect "the account with no 5-hour limit reads no 5-hour window" '[["ok", [["seven_day", 60], ["seven_day_fable", 96]]]]' usage_windows claude
+for usage_view in full compact; do
+  expect "choosing $usage_view view for no 5-hour window is allowed" ok usage_apply_setting view "\"$usage_view\""
+  click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage with no 5-hour window in $usage_view view failed"
+  expect_poll "the $usage_view card with no 5-hour window draws its weekly limits alone" '[["claude", "", [["seven_day", 60, "warning"], ["seven_day_fable", 96, "danger"]]], ["codex", "person@example.invalid", [["seven_day", 64, "warning"], ["five_hour", 27, "success"], ["credit-codex", 0, ""]]]]' usage_panel_rows
+  summon_drawn panel vgs.ai-usage || fail "the $usage_view panel with no 5-hour window never drew a frame"
+  expect_poll "the $usage_view panel draws the Codex 5-hour row alone" 1 usage_drawn "5-hour limit"
+  expect "the $usage_view panel with no 5-hour window hides" ok ipc shell hide panel vgs.ai-usage
+  expect_poll "the $usage_view panel with no 5-hour window is gone" absent usage_panel
+done
+usage_mode relative
+usage_refresh "the planted accounts again"
 expect "hiding Codex by provider is allowed" ok usage_apply_setting showCodex false
 expect_poll "the widget recomputes without Codex" '[true, true, 83, "warning"]' usage_widget_state
 click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage with Codex filtered failed"

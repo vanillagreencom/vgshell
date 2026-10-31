@@ -228,10 +228,18 @@ async function main() {
 
     // The recorded replies, parsed. A window the reply leaves out or holds
     // as null is absent, never a 0 % window; a reply of another shape is null.
+    // claude-usage-weekly-only.json is a reply read on 2026-10-31 from an
+    // account with no 5-hour limit: five_hour and every credit null.
     const claudeReply = JSON.parse(fs.readFileSync(path.join(fixtures, "claude-usage.json"), "utf8"));
+    const weeklyOnly = JSON.parse(fs.readFileSync(path.join(fixtures, "claude-usage-weekly-only.json"), "utf8"));
+    const creditReply = JSON.parse(fs.readFileSync(path.join(fixtures, "claude-usage-credits.json"), "utf8"));
     const codexReply = JSON.parse(fs.readFileSync(path.join(fixtures, "codex-rate-limits.json"), "utf8"));
     const recorded = folder => {
-        const { claudeWindows, claudeDetails, codexWindows } = usageIn(folder);
+        const { claudeWindows, claudeDetails, claudeCredits, codexWindows } = usageIn(folder);
+        assert.deepEqual(claudeWindows(weeklyOnly), [
+            { name: "seven_day", usedPercent: 60, resetsAt: Date.parse("2026-11-03T22:59:59.978Z") },
+            { name: "seven_day_fable", usedPercent: 96, resetsAt: Date.parse("2026-11-03T22:59:59.978Z") }],
+        "a reply with no 5-hour window draws no 5-hour limit");
         assert.deepEqual(claudeWindows(claudeReply), [
             { name: "five_hour", usedPercent: 42, resetsAt: Date.parse("2026-10-05T18:00:00.461Z") },
             { name: "seven_day", usedPercent: 83, resetsAt: Date.parse("2026-10-09T08:00:00.461Z") },
@@ -250,13 +258,41 @@ async function main() {
             assert.equal(claudeWindows(body), null, JSON.stringify(body));
         assert.deepEqual(claudeDetails(null), {}, "a null reply has no extra usage details");
         assert.deepEqual(claudeDetails(claudeReply), { claudeExtra: { used: 123.45, limit: 500, currency: "USD", utilization: 24.69 } });
-        assert.deepEqual(codexWindows(codexReply), { details: { codexCredits: { balance: "12345" } }, windows: [
+        assert.deepEqual(codexWindows(codexReply), { details: { creditPools: [{ kind: "codex", unlimited: false, balance: "12345" }] }, windows: [
             { name: "five_hour", usedPercent: 27, resetsAt: 1791223200000 },
             { name: "seven_day", usedPercent: 64, resetsAt: 1791561600000 }] });
         assert.deepEqual(codexWindows({ rateLimits: { primary: { usedPercent: 5, windowDurationMins: 60, resetsAt: null }, secondary: null, credits: { hasCredits: true, unlimited: true, balance: null } } }),
-            { details: { codexCredits: { unlimited: true } }, windows: [{ name: "minutes_60", usedPercent: 5, resetsAt: null }] });
+            { details: { creditPools: [{ kind: "codex", unlimited: true, balance: null }] }, windows: [{ name: "minutes_60", usedPercent: 5, resetsAt: null }] });
+        assert.deepEqual(codexWindows({ rateLimits: { primary: null, secondary: null, credits: { hasCredits: false, unlimited: false, balance: "0" } } }),
+            { details: {}, windows: [] }, "a Codex account with no credits draws no credit");
         for (const body of [{}, { rateLimits: 3 }, { rateLimits: { primary: { usedPercent: "5" } } }, { rateLimits: { primary: [] } }])
             assert.equal(codexWindows(body), null, JSON.stringify(body));
+
+        // The credit fields design comment 1391cd90 names, each only where
+        // the reply sends it, and each figure only where the field carries
+        // it: [case, the fields over the credits reply, the credits].
+        const cowork = { kind: "cowork", label: null, usedPercent: 18, used: null, limit: null, resetsAt: Date.parse("2026-10-20T08:00:00Z") };
+        const api = { kind: "labelled", label: "API credits", usedPercent: 20.6, used: 41.2, limit: 200, resetsAt: Date.parse("2026-10-30T08:00:00Z") };
+        const ember = creditReply.wattle_ember;
+        for (const [name, fields, want] of [
+            ["both", {}, [cowork, api]],
+            ["recorded weekly-only reply", null, []],
+            ["absent", { cinder_cove: undefined, wattle_ember: undefined }, []],
+            ["null", { cinder_cove: null, wattle_ember: null }, []],
+            ["no figure, label or reset", { cinder_cove: {}, wattle_ember: { locked_reason: null } },
+                [{ ...cowork, usedPercent: null, resetsAt: null }, { ...api, label: null, usedPercent: null, used: null, limit: null, resetsAt: null }]],
+            ["null figures", { cinder_cove: { utilization: null, resets_at: null }, wattle_ember: { ...ember, utilization: null, limit_dollars: null, used_dollars: null } },
+                [{ ...cowork, usedPercent: null, resetsAt: null }, { ...api, usedPercent: null, used: null, limit: null }]],
+            ["dollar figures on the Cowork credit", { cinder_cove: { utilization: 18, limit_dollars: 50, used_dollars: 9, resets_at: "2026-10-20T08:00:00Z" } },
+                [{ ...cowork, used: 9, limit: 50 }, api]],
+            ["no used amount", { cinder_cove: null, wattle_ember: { ...ember, used_dollars: undefined } }, [{ ...api, used: null }]]]) {
+            const body = fields === null ? weeklyOnly : { ...creditReply, ...fields };
+            assert.deepEqual(claudeCredits(body), want, name);
+        }
+        for (const fields of [{ cinder_cove: 7 }, { cinder_cove: { utilization: "18", resets_at: null } }, { cinder_cove: { utilization: 18, resets_at: "soon" } },
+            { cinder_cove: { used_dollars: "9" } }, { wattle_ember: { ...ember, label: 5 } }, { wattle_ember: { ...ember, limit_dollars: "200" } },
+            { wattle_ember: { ...ember, used_dollars: -1 } }])
+            assert.equal(claudeCredits({ ...creditReply, ...fields }), null, JSON.stringify(fields));
     };
     recorded(plugin);
     cases++;
@@ -270,6 +306,12 @@ async function main() {
         "        const resetsAt = resetTime(entry.resets_at);\n        if (usedPercent === undefined) continue;", recorded);
     await control("claude-details-null-unguarded", "backend/usage.js", "    if (!plain(body)) return {};",
         "    if (!plain(body)) return null;", recorded);
+    await control("null-credit-drawn", "backend/usage.js", '["labelled", body.wattle_ember]]) {\n        if (value === undefined || value === null) continue;',
+        '["labelled", body.wattle_ember]]) {\n        if (value === undefined) continue;\n        if (value === null) { credits.push({ kind, label: null, usedPercent: 0, used: null, limit: null, resetsAt: null }); continue; }', recorded);
+    await control("credit-shape-accepted", "backend/usage.js", "if (usedPercent === null || used === null || limit === null || resetsAt === undefined) return null;",
+        "if (resetsAt === undefined) return null;", recorded);
+    await control("absent-share-zero", "backend/usage.js", "usedPercent: usedPercent === undefined ? null : usedPercent,", "usedPercent: usedPercent === undefined ? 0 : usedPercent,", recorded);
+    await control("absent-used-zero", "backend/usage.js", "used: used === undefined ? null : used,", "used: used === undefined ? 0 : used,", recorded);
 
     // Claude through the stand-in endpoint. Each case's state and windows;
     // an expired token sends nothing, and no read changes a credential file.
@@ -298,6 +340,11 @@ async function main() {
         assert.deepEqual(requests().slice(sent), [{ method: "GET", path: "/api/oauth/usage", beta: "oauth-2025-04-20",
             token: tokenHash, authHash: null, userAgent: null }]);
         assert.deepEqual((await readOf(fresh, "missing")).windows.map(row => row.name), ["seven_day", "seven_day_fable"], "a missing window is absent");
+        const weekly = await readOf(fresh, "weekly-only");
+        assert.deepEqual([weekly.state, weekly.windows.map(row => row.name), weekly.details], ["ok", ["seven_day", "seven_day_fable"], {}],
+            "an account with no 5-hour limit reads no 5-hour window and no credit");
+        assert.deepEqual(((await readOf(fresh, "credits")).details.creditPools || []).map(credit => [credit.kind, credit.label, credit.usedPercent, credit.used, credit.limit]),
+            [["cowork", null, 18, null, null], ["labelled", "API credits", 20.6, 41.2, 200]], "each credit the reply sends is read");
         const quiet = requests().length;
         assert.deepEqual(await readOf(expired, "ok"), { state: "expired", email: "" }, "an expired token reads expired");
         assert.equal(requests().length, quiet, "an expired token sends no request");
@@ -337,6 +384,7 @@ async function main() {
     await control("request-deadline", "backend/usage.js", "request.destroy(); finish({ error: \"deadline\" });", "void request;", claudeCases);
     await control("throttle-failed", "backend/usage.js", '    if (reply.status === 429) return { state: "limited", email };',
         '    if (reply.status === 429) return lost("http-429");', claudeCases);
+    await control("credits-unread", "backend/usage.js", "    if (credits.length > 0) details.creditPools = credits;\n", "", claudeCases);
     fs.unlinkSync(path.join(linked, ".credentials.json"));
 
     // The account's email, from the `.claude.json` Claude Code reads for it:
@@ -417,7 +465,7 @@ async function main() {
         const started = calls(signed).length;
         assert.deepEqual(await readOf("ok"), { state: "ok", email: "person@example.invalid", windows: [
             { name: "five_hour", usedPercent: 27, resetsAt: 1791223200000 },
-            { name: "seven_day", usedPercent: 64, resetsAt: 1791561600000 }], details: { codexCredits: { balance: "12345" } } });
+            { name: "seven_day", usedPercent: 64, resetsAt: 1791561600000 }], details: { creditPools: [{ kind: "codex", unlimited: false, balance: "12345" }] } });
         const run = calls(signed).slice(started);
         assert.deepEqual(run.map(call => [call.args, call.codexHome]), [[["app-server"], signed]]);
         assert.deepEqual(await readOf("signed-out"), { state: "signed-out" });
@@ -952,16 +1000,41 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
         { id: "claude-enterprise", provider: "claude", email: "", state: "ok",
             credits: null, details: {}, windows: [] },
         { id: "codex-c", provider: "codex", email: "c@example.invalid", state: "ok", credits: null,
-            details: { codexCredits: { balance: "59295.2328000000" } }, windows: [{ name: "five_hour", usedPercent: 3, resetsAt: NOW + HOUR }] },
+            details: { creditPools: [{ kind: "codex", unlimited: false, balance: "59295.2328000000" }] }, windows: [{ name: "five_hour", usedPercent: 3, resetsAt: NOW + HOUR }] },
         { id: "gateway-a", provider: "gateway", email: "", state: "ok", credits: null,
             details: { gateway: { balance: 10.5, totalUsed: 5.25 } }, windows: [{ name: "credits", usedPercent: 33.3333333333, resetsAt: null }] }], partial: "" }, NOW);
         assert.deepEqual(plainOf(View.panel(copilot, NOW).map(r => [r.id, r.title, r.email, r.detail, r.note,
             r.windows.map(w => [w.label, w.text, w.percent, w.started]), r.details.map(d => [d.label, d.value])])), [
             ["claude-enterprise", "Claude Code", "", "", "This plan reports no usage limits.", [], []],
-            ["codex-c", "Codex", "c@example.invalid", "", "", [["5-hour limit", "3%", 3, true]], [["Codex credits", "59,295 available"]]],
+            ["codex-c", "Codex", "c@example.invalid", "", "", [["5-hour limit", "3%", 3, true], ["Codex credits", "59,295 available", 0, true]], []],
             ["copilot-a", "Copilot", "octo-user", "", "", [["AI credits", "45.2k of 1M", 4.5225, true]], [["Month credits used", "362k"], ["Renews", "2026-11-01"]]],
             ["copilot-b", "Copilot", "zero-user", "No premium request pool", "", [], []],
             ["gateway-a", "AI Gateway", "", "", "", [["AI Gateway credits", "33%", 33.3333333333, true]], [["Balance left", "$10.50"], ["Total used", "$5.25"]]]]);
+        // A credit row after the limits, one per credit, in either view:
+        // [name, title, figure, time left, bar, tone]. An amount needs both
+        // dollar figures and a bar needs the used share; no row says expires.
+        // An account with no 5-hour window draws none and no empty row.
+        const credited = View.panel(View.merge(null, { accounts: [{ id: "claude-u", provider: "claude", email: "u@example.invalid", state: "ok",
+            windows: [{ name: "seven_day", usedPercent: 60, resetsAt: NOW + 26 * HOUR }], credits: null, details: { creditPools: [
+                { kind: "labelled", label: "API credits", usedPercent: 20.6, used: 41.2, limit: 200, resetsAt: NOW + 25 * 24 * HOUR },
+                { kind: "cowork", label: null, usedPercent: 18, used: null, limit: null, resetsAt: NOW + 15 * 24 * HOUR },
+                { kind: "labelled", label: null, usedPercent: null, used: 50, limit: 200, resetsAt: NOW - 1 },
+                { kind: "labelled", label: "Limit only", usedPercent: null, used: null, limit: 200, resetsAt: null },
+                { kind: "cowork", label: null, usedPercent: null, used: null, limit: null, resetsAt: null }] } },
+        { id: "codex-u", provider: "codex", email: "", state: "ok", windows: [], credits: null,
+            details: { creditPools: [{ kind: "codex", unlimited: true, balance: null }, { kind: "codex", unlimited: false, balance: null }] } }],
+        partial: "" }, NOW), NOW);
+        assert.deepEqual(plainOf(credited.map(r => [r.id, r.note, r.details, r.windows.map(w => [w.name, w.label, w.text, w.reset, w.bar, w.tone])])), [
+            ["claude-u", "", [], [["seven_day", "Weekly limit", "60%", "1d 2h", true, "warning"],
+                ["credit-labelled", "API credits", "$41.20 of $200.00", "25d 0h", true, "success"],
+                ["credit-cowork", "Claude Code and Cowork credit", "18%", "15d 0h", true, "success"],
+                ["credit-labelled", "Credit", "$50.00 of $200.00", "now", false, ""],
+                ["credit-labelled", "Limit only", "", "", false, ""],
+                ["credit-cowork", "Claude Code and Cowork credit", "", "", false, ""]]],
+            ["codex-u", "", [], [["credit-codex", "Codex credits", "Unlimited", "", false, ""], ["credit-codex", "Codex credits", "Available", "", false, ""]]]]);
+        assert.deepEqual(shown(View.merge(null, { accounts: [{ id: "codex-c", provider: "codex", email: "", state: "ok", windows: [],
+            details: { creditPools: [{ kind: "codex", unlimited: true, balance: null }] } }], partial: "" }, NOW)), [true, null, "normal"],
+        "a credit adds no share to the bar");
         assert.deepEqual(["0", "999", "1,000", "59,295", "1,234,568", ""].map((want, i) =>
             [View.wholeNumber([0, "999.4", 999.5, "59295.2328000000", 1234567.8, "credits"][i]), want]).filter(r => r[0] !== r[1]), []);
         assert.deepEqual(shown(copilot, { showCopilot: false }), [true, 33.3333333333, "normal"], "provider filters remove Copilot from the widget");
@@ -1105,10 +1178,16 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
     await control("no-reset-drawn", "UsageView.js", 'if (left.kind === "none") return "";', 'if (left.kind === "none") return "No reset time";', views);
     await control("title-labelled", "UsageView.js", "title: NAMES[row.provider] || row.provider,",
         'title: (NAMES[row.provider] || row.provider) + " · " + row.id,', views);
-    await control("unused-limits-drawn", "UsageView.js", "windows: idle ? [] : shownWindows(row.windows).map(", "windows: shownWindows(row.windows).map(", views);
+    await control("unused-limits-drawn", "UsageView.js", "windows: (idle ? [] : shownWindows(row.windows).map(", "windows: (shownWindows(row.windows).map(", views);
     await control("not-started-percent", "UsageView.js", 'return item.name === "credits" || item.usedPercent > 0 || ', "return true || ", views);
     await control("pool-unused", "UsageView.js", 'return item.name !== "credits" && item.usedPercent === 0;', "return item.usedPercent === 0;", views);
     await control("account-folder-fallback", "UsageView.js", "    return row.email;", "    return row.email || row.id;", views);
+    await control("credit-rows-dropped", "UsageView.js", "                .concat(creditRows(row, now)) };", " };", views);
+    await control("derived-share", "UsageView.js", 'var share = codex || typeof credit.usedPercent !== "number" ? null : credit.usedPercent;',
+        "var share = codex ? null : typeof credit.usedPercent === \"number\" ? credit.usedPercent : credit.limit > 0 && credit.used !== null ? credit.used * 100 / credit.limit : null;", views);
+    await control("amount-without-used", "UsageView.js", ": credit.used !== null && credit.limit !== null ? money(", ": credit.limit !== null ? money(", views);
+    await control("credit-title-blank", "UsageView.js", 'cleanLine(credit.label, "Credit")', 'cleanLine(credit.label, "")', views);
+    await control("balance-barred", "UsageView.js", "bar: share !== null, started: true,", "bar: true, started: true,", views);
     await control("credits-raw", "UsageView.js", '    return (whole < 0 ? "-" : "") + grouped(String(Math.abs(whole)));', "    return String(n);", views);
 
     // The reset calendar, in a zone where two resets an hour apart fall on

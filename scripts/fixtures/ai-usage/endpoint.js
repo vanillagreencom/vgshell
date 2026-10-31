@@ -3,8 +3,13 @@
 // Copilot usage endpoints on 127.0.0.1, for scripts/test-ai-usage.js and
 // scripts/smoke/rows/ai-usage.sh. It writes the port it listens on to
 // PORT_FILE. GET /api/oauth/usage answers by MODE_FILE for Claude: ok,
-// relative, missing, null, malformed, refused, error, hang, throttled or
-// limited. throttled answers 429 to every request. limited answers each
+// relative, weekly-only, credits, missing, null, malformed, refused, error,
+// hang, throttled or limited. weekly-only answers claude-usage-weekly-only.json,
+// a reply recorded from an account with no 5-hour limit, and credits
+// claude-usage-credits.json, a reply with both credit fields design comment
+// 1391cd90 on VGS-2105 names, each with reset times relative to the request
+// as relative's are.
+// throttled answers 429 to every request. limited answers each
 // bearer token's first request after MODE_FILE was written as relative
 // does, then 429 with `retry-after: 60` to that token's requests for
 // LIMIT_MS after the answer it served, as Anthropic's per-account limit
@@ -22,7 +27,8 @@ const http = require("node:http");
 const path = require("node:path");
 const crypto = require("node:crypto");
 
-const RELATIVE = Object.freeze({ five_hour: 19800000, seven_day: 280800000, seven_day_fable: 280800000 });
+const RELATIVE = Object.freeze({ five_hour: 19800000, seven_day: 280800000, seven_day_fable: 280800000,
+    cinder_cove: 1296000000, wattle_ember: 2160000000 });
 const LIMIT_MS = 60000;
 
 function hash(value) {
@@ -39,10 +45,11 @@ function record(request, logFile) {
     fs.appendFileSync(logFile, JSON.stringify(line) + "\n");
     return line;
 }
-function relativeClaude() {
-    const reply = JSON.parse(fs.readFileSync(path.join(__dirname, "claude-usage.json"), "utf8"));
-    reply.five_hour.resets_at = new Date(Date.now() + RELATIVE.five_hour).toISOString();
-    reply.seven_day.resets_at = new Date(Date.now() + RELATIVE.seven_day).toISOString();
+function relativeClaude(file) {
+    const reply = JSON.parse(fs.readFileSync(path.join(__dirname, file), "utf8"));
+    const at = ms => new Date(Date.now() + ms).toISOString();
+    for (const name of ["five_hour", "seven_day", "cinder_cove", "wattle_ember"])
+        if (reply[name] !== null && reply[name] !== undefined) reply[name].resets_at = at(RELATIVE[name]);
     for (const entry of reply.limits) {
         if (entry.kind !== "weekly_scoped") continue;
         entry.resets_at = new Date(Date.now() + RELATIVE.seven_day_fable).toISOString();
@@ -87,9 +94,11 @@ function start(portFile, modeFile, logFile) {
                 response.end("{}");
                 return;
             }
-            if (mode === "relative" || mode === "limited") {
+            const relative = { relative: "claude-usage.json", limited: "claude-usage.json",
+                "weekly-only": "claude-usage-weekly-only.json", credits: "claude-usage-credits.json" }[mode];
+            if (relative !== undefined) {
                 response.writeHead(200, { "content-type": "application/json" });
-                response.end(JSON.stringify(relativeClaude()));
+                response.end(JSON.stringify(relativeClaude(relative)));
                 return;
             }
             const reply = { ok: [200, "claude-usage.json"], missing: [200, "claude-usage-missing.json"], null: [200, null],

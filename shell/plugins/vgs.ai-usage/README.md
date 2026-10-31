@@ -11,14 +11,15 @@ AI Usage shows how much of your Claude Code, Codex and Copilot plan limits you h
 - Sort cards by provider, email or the most room left in their limits. Accounts with no reported limit come last when sorted by room.
 - Provider marks identify the cards. An API account carries an [API] chip. Codex API accounts show that they have no plan limits.
 - Limit values use the theme's success, warning and danger colours as their used share grows.
-- Each card shows the 5-hour limit last. When the weekly limit is at 100 %, the card shows only the weekly limit.
+- Each card shows the 5-hour limit after the other limits, and only for an account whose plan has one. When the weekly limit is at 100 %, the card shows only the weekly limit.
+- A row for each credit the provider reports, in both views, after the limits: a Claude Code credit under the title Claude sends, and the Codex credit balance. Each row shows the amount the provider reports and the time left until its reset time.
 - A compact panel view with one line for each limit and the time left until it resets.
 - A full panel view with meters and provider details when the provider sends them.
 - An account that has had no use yet says so instead of showing 0 %. A limit that starts with your first message reads Not started until then.
 - The calendar button left of the Settings gear shows the reset calendar above the cards. It lists the next seven days that have a reset. Under each day are the accounts whose weekly limit, or Copilot's monthly allowance, resets that day, with the reset time and the share used. The 5-hour limit is not listed. The calendar stays open until you close the panel.
 - The panel grows to half the screen height before it scrolls.
 - Copilot AI credits per account, with the amount used this month and the renewal date.
-- Claude Code extra usage and Codex credit balance when those providers report them.
+- Claude Code extra usage in the full view when Claude reports it.
 - Every Claude Code, Codex and Copilot account on this computer.
 - Filters for providers and hidden accounts.
 - The bar item stays hidden until you sign in to one of the visible tools. A click opens the panel.

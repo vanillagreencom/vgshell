@@ -371,11 +371,6 @@ function detailRows(row) {
         var extra = d.claudeExtra;
         rows.push({ label: "Extra usage", value: money(extra.used, extra.currency) + " of " + money(extra.limit, extra.currency) });
     }
-    if (d.codexCredits !== undefined) {
-        var codex = d.codexCredits;
-        var balance = wholeNumber(codex.balance);
-        rows.push({ label: "Codex credits", value: codex.unlimited === true ? "Unlimited" : balance !== "" ? balance + " available" : "Available" });
-    }
     if (d.copilotMonthUsed !== undefined) rows.push({ label: "Month credits used", value: compact(d.copilotMonthUsed) });
     if (d.copilotRenewsAt !== undefined) rows.push({ label: "Renews", value: dateText(d.copilotRenewsAt) });
     if (d.gateway !== undefined) {
@@ -396,11 +391,41 @@ function windowRow(row, item, now) {
     var creditWindow = row.provider === "copilot" && item.name === "credits" && row.credits !== null;
     var gatewayWindow = row.provider === "gateway" && item.name === "credits";
     var begun = started(item);
-    return { name: item.name, percent: item.usedPercent, tone: usageTone(item.usedPercent),
+    return { name: item.name, percent: item.usedPercent, tone: usageTone(item.usedPercent), bar: true,
         started: begun, resetIn: resetIn(item.resetsAt, now),
         label: creditWindow ? (row.credits.unit === "credits" ? "AI credits" : "Premium requests") : gatewayWindow ? "AI Gateway credits" : windowLabel(item.name),
         text: creditWindow ? compact(row.credits.used) + " of " + compact(row.credits.granted) : begun ? Math.round(item.usedPercent) + "%" : "Not started",
         reset: resetText(item.resetsAt, now) };
+}
+
+// The titles of the credits the helper reads under no label of their own:
+// cinder_cove's from design comment 1391cd90 on VGS-2105.
+var CREDIT_TITLES = { cowork: "Claude Code and Cowork credit", codex: "Codex credits" };
+
+/**
+ * One credit of details.creditPools as a limit row, named credit-<kind>:
+ * its title, "Credit" for a labelled credit with no label; its amount used
+ * of its limit where it carries both, else its used share, else the Codex
+ * balance; a bar and tone only with a used share, tone "" without; and its
+ * time left, as a limit row draws it. Nothing the helper reads says whether
+ * a credit renews or expires, so no row says which.
+ */
+function creditRow(credit, now) {
+    var codex = credit.kind === "codex";
+    var share = codex || typeof credit.usedPercent !== "number" ? null : credit.usedPercent;
+    var balance = codex ? wholeNumber(credit.balance) : "";
+    var text = codex ? (credit.unlimited === true ? "Unlimited" : balance !== "" ? balance + " available" : "Available")
+        : credit.used !== null && credit.limit !== null ? money(credit.used, "USD") + " of " + money(credit.limit, "USD")
+        : share !== null ? Math.round(share) + "%" : "";
+    var resetsAt = codex ? null : credit.resetsAt;
+    return { name: "credit-" + credit.kind, percent: share === null ? 0 : share, tone: share === null ? "" : usageTone(share),
+        bar: share !== null, started: true, resetIn: resetIn(resetsAt, now),
+        label: credit.kind === "labelled" ? cleanLine(credit.label, "Credit") : CREDIT_TITLES[credit.kind], text: text, reset: resetText(resetsAt, now) };
+}
+
+function creditRows(row, now) {
+    var pools = (row.details || {}).creditPools;
+    return Array.isArray(pools) ? pools.map(function (credit) { return creditRow(credit, now); }) : [];
 }
 
 // An account read, or kept through a limited read, whose every window is
@@ -448,7 +473,8 @@ function checkedText(readAt, now) {
 // provider gives; account, the line drawn under the title; detail line;
 // note, in tone "warning" for a failed or
 // old read, a limited read's kept figures past a window's reset among them,
-// else "normal"; every limit, none while unused; and full-view detail rows.
+// else "normal"; every limit, none while unused, then every credit; and
+// full-view detail rows.
 // Most room compares each account's highest used limit. An account with
 // no reported limit comes last because its remaining share is unknown.
 function peak(row) {
@@ -487,7 +513,8 @@ function panel(usage, now, settings) {
         return { id: row.id, provider: row.provider, email: row.email, account: accountLine(row), state: row.state,
             title: NAMES[row.provider] || row.provider, api: row.state === "no-plan" || row.provider === "gateway", detail: row.provider === "copilot" ? creditLine(row.credits) : "",
             note: note, noteTone: warning !== "" ? "warning" : "normal", details: detailRows(row),
-            windows: idle ? [] : shownWindows(row.windows).map(function (item) { return windowRow(row, item, now); }) };
+            windows: (idle ? [] : shownWindows(row.windows).map(function (item) { return windowRow(row, item, now); }))
+                .concat(creditRows(row, now)) };
     });
 }
 

@@ -13,7 +13,7 @@
 // a window the tool does not report is left out, never
 // read as 0. Diagnostics are lines of `ai-usage: <key>=<value>` pairs on
 // stderr. No token or reply body reaches either stream; of what the tools
-// report, only an account's email, windows and credit totals do.
+// report, only an account's email, windows, credit totals and credit titles do.
 // Nothing here writes or refreshes a credential file.
 "use strict";
 const fs = require("node:fs");
@@ -136,12 +136,58 @@ function claudeDetails(body) {
     return out;
 }
 
+// A credit figure: a number, undefined for null or absent, null for a value
+// of another shape.
+function figure(value, check) {
+    if (value === null || value === undefined) return undefined;
+    return check(value) === undefined ? null : value;
+}
+function dollars(value) {
+    return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+/**
+ * The credits of a Claude usage reply: cinder_cove, the Claude Code and
+ * Cowork credit, and wattle_ember, a credit under its own label, as design
+ * comment 1391cd90 on VGS-2105 names them, each with resets_at. Each credit
+ * reads utilization, its used share, and limit_dollars and used_dollars, in
+ * dollars, only where it carries them, as the reply's other credit and
+ * window objects do (scripts/fixtures/ai-usage/claude-usage-weekly-only.json,
+ * recorded 2026-10-31). Each credit is { kind, label, usedPercent, used,
+ * limit, resetsAt }, a figure the field does not carry being null; label is
+ * wattle_ember's own. A field the reply leaves out or holds as null adds no
+ * credit. Returns the credits, or null for a present field or figure of
+ * another shape.
+ */
+function claudeCredits(body) {
+    if (!plain(body)) return [];
+    const credits = [];
+    for (const [kind, value] of [["cowork", body.cinder_cove], ["labelled", body.wattle_ember]]) {
+        if (value === undefined || value === null) continue;
+        if (!plain(value)) return null;
+        const usedPercent = figure(value.utilization, percent);
+        const used = figure(value.used_dollars, dollars);
+        const limit = figure(value.limit_dollars, dollars);
+        const resetsAt = resetTime(value.resets_at);
+        if (usedPercent === null || used === null || limit === null || resetsAt === undefined) return null;
+        let label = null;
+        if (kind === "labelled" && value.label !== null && value.label !== undefined) {
+            if (typeof value.label !== "string") return null;
+            if (printable(value.label, 80)) label = value.label;
+        }
+        credits.push({ kind, label, usedPercent: usedPercent === undefined ? null : usedPercent,
+            used: used === undefined ? null : used, limit: limit === undefined ? null : limit, resetsAt });
+    }
+    return credits;
+}
+
 /**
  * The windows and credit balance of a Codex rate-limit reply,
  * `account/rateLimits/read`'s result: rateLimits.primary and .secondary,
  * each { usedPercent, windowDurationMins, resetsAt } with resetsAt in Unix
  * seconds, named by their length: five_hour, seven_day or minutes_<n>, else
- * primary or secondary; and rateLimits.credits, a CreditsSnapshot. Returns
+ * primary or secondary; and rateLimits.credits, a CreditsSnapshot, as the
+ * one credit of details.creditPools while it has credits. Returns
  * { windows, details }, or null for a reply of another shape. Source:
  * codex-rs/app-server-protocol/src/protocol/v2/account.rs,
  * GetAccountRateLimitsResponse, RateLimitSnapshot, RateLimitWindow and
@@ -169,11 +215,9 @@ function codexWindows(result) {
         const credits = snapshot.credits;
         if (!plain(credits) || typeof credits.hasCredits !== "boolean" || typeof credits.unlimited !== "boolean"
             || (credits.balance !== null && credits.balance !== undefined && typeof credits.balance !== "string")) return null;
-        if (credits.unlimited === true) details.codexCredits = { unlimited: true };
-        else if (credits.hasCredits === true) {
-            details.codexCredits = {};
-            if (credits.balance !== null && credits.balance !== undefined) details.codexCredits.balance = credits.balance;
-        }
+        if (credits.unlimited === true || credits.hasCredits === true)
+            details.creditPools = [{ kind: "codex", unlimited: credits.unlimited,
+                balance: credits.unlimited === true || credits.balance === undefined ? null : credits.balance }];
     }
     return { windows, details };
 }
@@ -277,7 +321,9 @@ async function readClaude(Anchored, directory, { origin = ORIGIN, now = Date.now
     try { body = JSON.parse(reply.body); } catch { return lost("reply-json"); }
     const windows = claudeWindows(body);
     const details = claudeDetails(body);
-    if (windows === null || details === null) return lost("reply-shape");
+    const credits = claudeCredits(body);
+    if (windows === null || details === null || credits === null) return lost("reply-shape");
+    if (credits.length > 0) details.creditPools = credits;
     return { state: "ok", email, windows, details };
 }
 
@@ -542,7 +588,7 @@ async function read(tree, env, { origin = ORIGIN, copilotOrigin = COPILOT_ORIGIN
     return { accounts, partial, gatewayKey };
 }
 
-module.exports = { ORIGIN, COPILOT_ORIGIN, GATEWAY_ORIGIN, claudeWindows, claudeDetails, codexWindows, copilotCredits, gatewayCredits, readClaude, readCodex, readCopilot, readGateway, read };
+module.exports = { ORIGIN, COPILOT_ORIGIN, GATEWAY_ORIGIN, claudeWindows, claudeDetails, claudeCredits, codexWindows, copilotCredits, gatewayCredits, readClaude, readCodex, readCopilot, readGateway, read };
 
 if (require.main === module) {
     if ((process.argv.length !== 4 && process.argv.length !== 5) || process.argv[2] !== "--tree" || !path.isAbsolute(process.argv[3])

@@ -5,8 +5,9 @@ import qs.Ui
 import "UsageView.js" as View
 
 // Each signed-in and visible account in a card of its own: the provider,
-// the account's email and one row per limit with its time to reset. Full
-// view adds a meter under each limit and the provider detail fields the
+// the account's email, one row per limit with its time to reset and one
+// per credit the provider reports. Full view adds a meter under each limit
+// and each credit with a used share, and the provider detail fields the
 // helper received. The calendar button left of the Settings gear shows the
 // reset calendar above the cards until the panel closes. The footer shows
 // when the shared check last completed.
@@ -204,25 +205,28 @@ Item {
                         Column {
                             id: usageLimit
                             required property var modelData
-                            readonly property color usageColor: modelData.started ? Theme.badge.tone[modelData.tone].foreground : Theme.text.hint.color
+                            // A credit with no used share, such as a balance, has no tone.
+                            readonly property color usageColor: modelData.tone === "" ? Theme.text.body.color
+                                : modelData.started ? Theme.badge.tone[modelData.tone].foreground : Theme.text.hint.color
                             width: parent.width
                             spacing: Theme.row.lineGap
 
                             Item {
                                 width: parent.width
                                 implicitHeight: Math.max(limit.implicitHeight, share.implicitHeight)
+                                // A long title wraps; the time and the figure stay
+                                // centred on its first line, one lineBox tall.
                                 Label {
                                     id: limit
-                                    anchors.verticalCenter: parent.verticalCenter
                                     width: parent.width - share.width - Theme.stack.inline
-                                    elide: Text.ElideRight
+                                    wrapMode: Text.Wrap
                                     role: "body"
                                     text: modelData.label
                                 }
                                 Row {
                                     id: share
                                     anchors.right: parent.right
-                                    anchors.verticalCenter: parent.verticalCenter
+                                    y: (limit.lineBox - height) / 2
                                     spacing: Theme.stack.inline
                                     Label {
                                         visible: text !== ""
@@ -238,7 +242,14 @@ Item {
                                     }
                                 }
                             }
-                            ProgressBar { visible: root.fullView; width: parent.width; value: Math.min(modelData.percent, 100) / 100; tone: modelData.tone }
+                            // Built only for a row with a used share, so a
+                            // balance has no bar and no tone.
+                            Loader {
+                                width: parent.width
+                                active: root.fullView && usageLimit.modelData.bar
+                                visible: active
+                                sourceComponent: ProgressBar { value: Math.min(usageLimit.modelData.percent, 100) / 100; tone: usageLimit.modelData.tone }
+                            }
                         }
                     }
                 }
