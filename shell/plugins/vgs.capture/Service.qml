@@ -288,27 +288,28 @@ Item {
             lastPath = event.path;
             break;
         case "stopped":
-            // Post-processing continues in this worker; the next capture can start.
+            // Keep this action until its clipboard delivery, so an older
+            // recording cannot replace the next capture's clipboard.
             lastPath = event.path;
-            finishAction(job);
+            phase = "stopping";
             break;
         case "saved":
-            job.answered = true;
+            job.terminalEvent = event.event;
             lastPath = event.path;
             notify(noticeRequest(job, event), event.actions);
             finishAction(job);
             break;
         case "copied":
-            job.answered = true;
+            job.terminalEvent = event.event;
             notify(noticeRequest(job, event), []);
             finishAction(job);
             break;
         case "cancelled":
-            job.answered = true;
+            job.terminalEvent = event.event;
             finishAction(job);
             break;
         case "error":
-            job.answered = true;
+            job.terminalEvent = event.event;
             errorNotice(event);
             finishAction(job);
             break;
@@ -442,17 +443,22 @@ Item {
         for (const run of notices) closeKnownNotice(run);
     }
 
-    function finished(job, error) {
+    function finished(job, completion, error) {
         restoreFocus(job);
-        if (!job.answered) notice("Capture failed", error || "The capture tool stopped without an answer");
+        if (job.terminalEvent === "") notice("Capture failed", error || "The capture tool stopped without an answer");
+        else if ((job.terminalEvent === "saved" || job.terminalEvent === "copied")
+                && (completion === null || completion.code !== 0 || completion.status !== 0)) {
+            console.error("capture: clipboard exit=" + JSON.stringify(completion) + " " + error.trim().replace(/\s+/g, " ").slice(0, 200));
+            notice("Capture failed", "The capture could not be kept on the clipboard");
+        }
         finishAction(job);
         jobs = jobs.filter(item => item !== job);
         publish();
         job.destroy();
     }
 
-    // A clipboard provider stays owned after its action finishes. Replacing
-    // the clipboard ends that worker. New captures use independent children.
+    // The helper execs into the foreground clipboard provider after delivery.
+    // The same Process owns it until replacement or service destruction.
     Component {
         id: workerComponent
         Process {
@@ -460,11 +466,15 @@ Item {
             property string actionName: ""
             property string focusAddress: ""
             property bool armed: false
-            property bool answered: false
+            property string terminalEvent: ""
+            property var completion: null
             stdinEnabled: true
             stdout: SplitParser { onRead: line => root.accept(worker, line) }
             stderr: StdioCollector { id: errors }
-            onRunningChanged: if (!running && armed) root.finished(worker, errors.text)
+            onExited: (code, status) => { completion = { code: code, status: status }; }
+            // The pinned engine's src/io/process.cpp ends both parser streams
+            // before runningChanged; a failed start emits only runningChanged.
+            onRunningChanged: if (!running && armed) root.finished(worker, completion, errors.text)
         }
     }
 

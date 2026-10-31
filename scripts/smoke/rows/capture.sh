@@ -11,13 +11,15 @@
 # screenshot choice and the owned tool deadline, and
 # the panel's mode and target choices, its press, its opening focus and its
 # kept delay; a manifest copy declares the delay and time limit fields.
-# Readbacks use the harness's state poll, with no capture latency budget.
+# Readbacks use the harness's state poll; the sequence below also checks
+# the issue's one-second clipboard requirement.
 set -euo pipefail
 capture_state="$sandbox/capture-world"
 capture_saved="$sandbox/shell-before-capture.json"
 capture_real_grim="$(command -v grim)" || { fail "capture: grim is unavailable"; return 0; }
 capture_real_slurp="$(command -v slurp)" || { fail "capture: slurp is unavailable"; return 0; }
 capture_real_picker="$(command -v hyprpicker)" || { fail "capture: hyprpicker is unavailable"; return 0; }
+capture_real_copy="$(command -v wl-copy)" || { fail "capture: wl-copy is unavailable"; return 0; }
 cp -- "$home/.config/vgshell/shell.json" "$capture_saved"
 mkdir -p "$capture_state/saved-shims"
 for capture_tool in grim slurp hyprpicker tesseract wl-copy gpu-screen-recorder ffmpeg pw-dump; do
@@ -183,8 +185,12 @@ providers = list(Path(sys.argv[1]).glob("clipboard-ready-*"))
 live = False
 for provider in providers:
     try:
-        os.kill(int(provider.name.removeprefix("clipboard-ready-")), 0)
-        live = True
+        pid = int(provider.name.removeprefix("clipboard-ready-"))
+        os.kill(pid, 0)
+        command = Path(f"/proc/{pid}/cmdline").read_bytes()
+        parent = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[1]
+        parent_command = Path(f"/proc/{parent}/cmdline").read_bytes()
+        live = b"--foreground" in command and b"capture.py" not in command and b"capture.py" not in parent_command
     except ProcessLookupError:
         pass
 print(live)
@@ -192,10 +198,17 @@ PY
 }
 capture_released() { python3 - "$capture_state" <<'PY'
 from pathlib import Path
-import signal, sys
+import sys
 root = Path(sys.argv[1])
-providers = list(root.glob("clipboard-ready-*"))
-print(bool(providers) and all((root / p.name.replace("clipboard-ready-", "clipboard-signal-")).exists() and (root / p.name.replace("clipboard-ready-", "clipboard-signal-")).read_text() == str(signal.SIGTERM) for p in providers))
+providers = list(root.glob("wl-copy-pid-*"))
+def released(marker):
+    pid = marker.name.removeprefix("wl-copy-pid-")
+    try:
+        command = Path(f"/proc/{pid}/cmdline").read_bytes()
+    except FileNotFoundError:
+        return True
+    return not command or str(root).encode() not in command and b"wl-copy" not in command
+print(bool(providers) and all(released(p) for p in providers))
 PY
 }
 capture_config() { python3 - "$capture_state/config.json" "$1" "$2" <<'PY'
@@ -472,6 +485,139 @@ capture_notes_found="$(record_exists vgs.notifications)"
 expect_poll "capture service is built" True record_exists vgs.capture
 expect_poll "capture is idle" idle capture_phase
 expect_poll "capture has the focused nested output" True capture_outputs
+# VGS-2088's one-second completion-to-clipboard requirement, measured with
+# real nested grim/wl-copy and 10 ms clipboard polls. The before run on cachy
+# (Ryzen 9 9950X, 2026-10-30, load1 9.17, CPU some 0.9%) read screenshot
+# event gaps 326/233/246/250 ms; tmp/repro-vgs-2088/baseline-timing.jsonl.
+# Instrument only this sandbox's helper snapshot; production gains no test API.
+capture_sequence_helper="$(capture_read helperPath | py_reply 'import json,sys; print(json.load(sys.stdin))')"
+python3 - "$capture_sequence_helper" "$sandbox" "$rt_dir" "$capture_state" <<'PY'
+from pathlib import Path
+import sys
+helper, sandbox, runtime, state = map(Path, sys.argv[1:])
+assert any(helper.resolve().is_relative_to(root.resolve()) for root in (sandbox, runtime))
+source = helper.read_text()
+(state / "sequence-original.py").write_text(source)
+trace = str(state / "sequence-timing.jsonl")
+record = f'    with open({trace!r}, "a") as trace:\n        trace.write(json.dumps(dict(at=time.monotonic(), pid=os.getpid(), event=event, **fields)) + "\\n")\n'
+needle = 'def emit(event, **fields):\n'
+assert source.count(needle) == 1
+source = source.replace(needle, needle + record)
+needle = '                if line == "countdown-hidden":\n'
+assert source.count(needle) == 1
+source = source.replace(needle, needle + f'                    with open({trace!r}, "a") as trace:\n                        trace.write(json.dumps(dict(at=time.monotonic(), pid=os.getpid(), event="countdown-hidden")) + "\\n")\n')
+helper.write_text(source)
+PY
+capture_setting delay 3
+capture_setting smart true
+capture_setting processing '"save-copy"'
+capture_config real "{\"grim\":\"$capture_real_grim\",\"wl-copy\":\"$capture_real_copy\"}"
+capture_sequence_delivery() {
+  nested_input_check wl-paste || return 1
+  python3 - "$capture_state" "$(capture_path)" "${shell_env[@]}" <<'PY'
+from pathlib import Path
+import json, subprocess, sys, time
+root, path = Path(sys.argv[1]), Path(sys.argv[2])
+rows = [json.loads(line) for line in (root / "sequence-timing.jsonl").read_text().splitlines()]
+saved = next(row for row in reversed(rows) if row["event"] == "saved" and row.get("path") == str(path))
+completed = next(row for row in reversed(rows) if row["pid"] == saved["pid"] and row["event"] in ("countdown-hidden", "stopped"))
+wanted = (path.as_uri() + "\r\n").encode() if path.suffix == ".mp4" else path.read_bytes()
+limit = completed["at"] + 1
+answer = False
+command = b""
+observed_at = time.monotonic()
+while observed_at < limit:
+    try:
+        reply = subprocess.run([*sys.argv[3:], "wl-paste", "--no-newline"], stdin=subprocess.DEVNULL, capture_output=True, env={}, timeout=max(0.001, limit-time.monotonic()))
+    except subprocess.TimeoutExpired:
+        observed_at = time.monotonic()
+        break
+    try:
+        command = Path(f'/proc/{saved["pid"]}/cmdline').read_bytes()
+    except FileNotFoundError:
+        command = b""
+    observed_at = time.monotonic()
+    if observed_at <= limit and reply.returncode == 0 and reply.stdout == wanted and b"wl-copy\0--foreground\0" in command and b"capture.py" not in command:
+        answer = True
+        break
+    time.sleep(0.01)
+    observed_at = time.monotonic()
+sample = dict(completion=completed["event"], event_ms=round(1000*(saved["at"]-completed["at"])), delivered_ms=round(1000*(observed_at-completed["at"])), pid=saved["pid"], provider=command.decode(errors="replace").replace("\0", " "), copied=answer)
+with (root / "sequence-readings.jsonl").open("a") as log:
+    log.write(json.dumps(sample) + "\n")
+print("capture-sequence: " + json.dumps(sample), file=sys.stderr)
+print(answer)
+PY
+}
+capture_delivery_controls() {
+  python3 - "$source_repo/scripts/smoke/rows/capture.sh" <<'PY_READER_CONTROLS'
+from pathlib import Path
+import json, os, subprocess, sys, tempfile
+source = Path(sys.argv[1]).read_text()
+start = "capture_sequence_delivery() {\n"
+assert source.count(start) == 1
+program = source.split(start, 1)[1].split("<<'PY'\n", 1)[1].split("\nPY\n}", 1)[0]
+clock_at = "root, path = Path(sys.argv[1]), Path(sys.argv[2])\n"
+assert program.count(clock_at) == 1
+with tempfile.TemporaryDirectory(prefix="capture-reader-controls-") as directory:
+    root = Path(directory)
+    image = root / "screenshot.png"
+    image.write_bytes(b"fixture clipboard bytes")
+    (root / "sequence-timing.jsonl").write_text("\n".join(json.dumps(row) for row in [
+        dict(event="countdown-hidden", at=100, pid=os.getpid()),
+        dict(event="saved", at=100.01, pid=os.getpid(), path=str(image)),
+    ]) + "\n")
+    cases = [
+        ("expired", "time.monotonic = lambda: 102\n", 'answer = False\ncommand = b""\n', 'answer = False\nif False: command = b""\n'),
+        ("timeout", "time.monotonic = lambda: 100\ndef unavailable(*args, **kwargs):\n    raise subprocess.TimeoutExpired(\"wl-paste\", 1)\nsubprocess.run = unavailable\n", "    except subprocess.TimeoutExpired:\n        observed_at = time.monotonic()\n        break\n", "    except subprocess.TimeoutExpired:\n        observed_at = time.monotonic()\n        raise\n"),
+    ]
+    for name, fixture, before, after in cases:
+        assert program.count(before) == 1, name
+        for mutant in (False, True):
+            body = program.replace(before, after) if mutant else program
+            if mutant:
+                assert body != program
+            body = body.replace(clock_at, fixture + clock_at)
+            copy = root / (name + ("-control" if mutant else "") + ".py")
+            copy.write_text(body)
+            result = subprocess.run([sys.executable, str(copy), str(root), str(image)], stdin=subprocess.DEVNULL,
+                                    capture_output=True, text=True, env={"PATH": os.defpath, "LC_ALL": "C", "VGS_TEST_RUN": "1"}, timeout=5)
+            state_failure = result.returncode == 0 and result.stdout.strip() == "False"
+            assert state_failure != mutant, (name, mutant, result.returncode, result.stdout, result.stderr)
+print(True)
+PY_READER_CONTROLS
+}
+expect "expired and timed-out clipboard readers fail as state words" True capture_delivery_controls
+for capture_sequence_action in screenshot record screenshot-area screenshot-area screenshot-area; do
+  expect "sequence: $capture_sequence_action starts" ok ipc vgs.capture invoke "$capture_sequence_action" ''
+  if [[ $capture_sequence_action == record ]]; then
+    expect_poll "sequence: recording becomes active" recording capture_phase
+    expect "sequence: recording stops" ok ipc vgs.capture invoke record ''
+  fi
+  expect_poll "sequence: $capture_sequence_action finishes" idle capture_phase
+  expect "sequence: result reaches clipboard within one second, with only wl-copy as provider" True capture_sequence_delivery
+  capture_sequence_previous_pid="$(python3 -c 'import json,sys; print(json.loads(open(sys.argv[1]).read().splitlines()[-1])["pid"])' "$capture_state/sequence-readings.jsonl")"
+done
+# The final provider remains until a real replacement on this same clipboard.
+nested_input_check wl-copy || return 1
+printf 'capture sequence replacement' | "${shell_env[@]}" "$capture_real_copy"
+capture_sequence_replaced() { python3 - "$capture_sequence_previous_pid" <<'PY'
+from pathlib import Path
+import sys
+path = Path("/proc") / sys.argv[1] / "cmdline"
+try:
+    command = path.read_bytes()
+except FileNotFoundError:
+    command = b""
+print(b"wl-copy\0--foreground\0" not in command)
+PY
+}
+expect_poll "sequence: replacing clipboard ends its foreground provider" True capture_sequence_replaced
+nested_input_check wl-copy || return 1
+"${shell_env[@]}" "$capture_real_copy" --clear
+cp -- "$capture_state/sequence-original.py" "$capture_sequence_helper"
+capture_config real "{\"grim\":\"$capture_real_grim\"}"
+capture_setting delay 0
 # The service and the widget remain the same objects while saved placement
 # changes. Only the existing recorder fixture holds finalization open.
 expect_poll "placed capture is visible before the transient checks" true capture_bar_read visible
@@ -1886,8 +2032,8 @@ expect "control: dropping the failure table fails the Text capture unavailable r
 cp -- "$capture_state/helper-original.py" "$capture_helper"
 capture_setting ocrLanguages '"eng"'
 expect "the unclassified failure notice expires" 0 capture_wait_cards
-# The service is idle once the recorder stops, so a capture starts while the
-# worker still post-processes; the saved notice follows the release.
+# Recording retains its action through post-processing and clipboard handoff;
+# a later screenshot cannot be overtaken by that older worker's copy.
 capture_held() { # LABEL ANSWER
   rm -f -- "${capture_state:?}/ffmpeg-ready" "${capture_state:?}/ffmpeg-release"
   capture_config ffmpegHold true
@@ -1895,14 +2041,36 @@ capture_held() { # LABEL ANSWER
   expect_poll "$1: the recording is active" recording capture_phase
   expect "$1: a second press stops it" ok ipc vgs.capture invoke record-output ''
   expect_poll "$1: the post-process is held half way" True capture_marker ffmpeg-ready
-  expect "$1: a screenshot during the post-process" "$2" ipc vgs.capture invoke screenshot ''
+  expect "$1: an area capture during the post-process" "$2" ipc vgs.capture invoke screenshot-area ''
+  if [[ $2 == ok ]]; then
+    expect_poll "$1: the newer area capture finishes first" idle capture_phase
+    capture_newer_path="$(capture_path)"
+  else
+    expect "$1: finalization retains the active action" stopping capture_phase
+  fi
   touch -- "$capture_state/ffmpeg-release"
   capture_config ffmpegHold false
   expect_poll "$1: the released post-process saves the recording" 1 capture_titles "Recording saved"
   expect_poll "$1: capture is idle after the release" idle capture_phase
+  if [[ $2 != ok ]]; then
+    expect "$1: the next area capture starts after the older delivery" ok ipc vgs.capture invoke screenshot-area ''
+    expect_poll "$1: the next area capture finishes" idle capture_phase
+    capture_newer_path="$(capture_path)"
+  fi
+  capture_newer_kept() { python3 - "$capture_state/clipboard" "$capture_newer_path" <<'PY_CHECK'
+from pathlib import Path
+import sys
+print(Path(sys.argv[1]).read_bytes() == Path(sys.argv[2]).read_bytes())
+PY_CHECK
+  }
+  if [[ $2 == ok ]]; then
+    expect "$1: early action release lets the old recording replace the newer image" False capture_newer_kept
+  else
+    expect "$1: the newer image remains after the older recording finishes" True capture_newer_kept
+  fi
   expect "$1: notices expire" 0 capture_wait_cards
 }
-capture_held "held post-process" ok
+capture_held "held post-process" 'refused: capture=busy'
 capture_stopped_service="$repo/shell/plugins/vgs.capture/Service.qml"
 expect "capture stops before the stopped-event control" ok ipc shell setPluginEnabled vgs.capture false
 expect_poll "the stopped-event control releases the original service" False record_exists vgs.capture
@@ -1913,16 +2081,16 @@ service, sandbox, original = map(Path, sys.argv[1:])
 assert service.resolve().is_relative_to(sandbox.resolve()), "stopped-event control must stay inside the sandbox"
 source = service.read_text()
 original.write_text(source)
-before = "            // Post-processing continues in this worker; the next capture can start.\n            lastPath = event.path;\n            finishAction(job);\n"
+before = '            lastPath = event.path;\n            phase = "stopping";\n'
 assert source.count(before) == 1, "stopped-event control match"
-changed = source.replace(before, "            lastPath = event.path;\n")
+changed = source.replace(before, "            lastPath = event.path;\n            finishAction(job);\n")
 assert changed != source
 service.write_text(changed)
 PY
 rescan "the stopped-event control service is rescanned"
 expect "capture enables the stopped-event control" ok ipc shell setPluginEnabled vgs.capture true
 expect_poll "the stopped-event control is built" True record_exists vgs.capture
-capture_held "control: stopped leaves the action open" 'refused: capture=busy'
+capture_held "control: stopped releases the action early" ok
 expect "capture stops after the stopped-event control" ok ipc shell setPluginEnabled vgs.capture false
 expect_poll "the stopped-event control releases its service" False record_exists vgs.capture
 cp -- "$capture_state/stopped-service-original.qml" "$capture_stopped_service"
@@ -1943,7 +2111,7 @@ import sys
 original, helper, control = sys.argv[1:]
 changes = {
     "no-output": ('args = ["grim", "-o", request["output"]]', 'args = ["grim"]'),
-    "no-clipboard": ('child = self.spawn(["wl-copy", "--foreground", "--type", mime], stdin=subprocess.PIPE, stderr=subprocess.PIPE)', 'child = self.spawn([sys.executable, "-c", "import sys; sys.stdin.buffer.read()"], stdin=subprocess.PIPE, stderr=subprocess.PIPE)'),
+    "no-clipboard": ('os.execvpe("wl-copy", ["wl-copy", "--foreground", "--type", mime], os.environ)', 'os.execvpe(sys.executable, [sys.executable, "-c", "pass"], os.environ)'),
     "hard-stop": ('self.recorder.send_signal(signal.SIGINT)\n                    stopping = True', 'self.recorder.send_signal(signal.SIGKILL)\n                    stopping = True'),
     "inherited-stdin": ('kwargs.setdefault("stdin", subprocess.DEVNULL)', 'pass'),
 }

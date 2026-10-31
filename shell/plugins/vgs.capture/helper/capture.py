@@ -9,12 +9,13 @@ A selection with a request emits selection-ended for focus restoration.
 Countdown ticks report remaining seconds; countdown-hidden confirms its UI was
 removed. Until the recorder writes its file, `cancel` or stdin EOF ends it with
 no file; then one `stop` line or stdin EOF sends SIGINT to the owned recorder.
-A recording emits stopped once the recorder ends, so the service can start the
-next capture while this worker post-processes, then saved.
+A recording emits stopped once the recorder ends, then saved after processing.
 saved carries `actions`, its notification's buttons: one `{id, label, argv}`
 for each program that opens the file and is installed; `default` opens it.
 probe emits the offered audio sources and cameras and the missing languages.
 SIGTERM releases all owned children, including during service replacement.
+After a copied result, this process becomes wl-copy --foreground; only that
+clipboard provider stays alive until another copy replaces it.
 
 --notify reads one JSON request, then close or EOF on stdin. Its resident
 notification emits ready, action, closed and error JSON lines until closed.
@@ -283,14 +284,14 @@ class Capture:
             raise RuntimeError("slurp returned invalid geometry")
         return geometry, match.groups()
 
-    def settle(self, geometry, timeout=None, interval=0):
+    def settle(self, geometry, timeout=None):
         # The compositor fades slurp's layer out after it exits. Over the
         # still freeze that fade is the only change, so two equal captures
         # mean it ended. A layer drawn above the freeze can keep changing;
         # the capture then proceeds after the last try.
         previous = None
         for _ in range(SETTLE_TRIES):
-            if self.cancelled(interval):
+            if self.cancelled():
                 raise CaptureCancelled()
             frame = self.run(["grim", "-s", SETTLE_SCALE, "-t", "ppm", "-g", geometry, "-"], timeout=timeout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             if frame == previous:
@@ -331,13 +332,6 @@ class Capture:
             if not self.countdown(delay):
                 emit("cancelled")
                 return
-            # Spaced samples cover presentation after the service removes its
-            # countdown. Immediate equal samples can precede the next frame.
-            outputs = request.get("outputs", [])
-            geometry = args[2] if args[1] == "-g" else next((rectangle_geometry(r) for r in outputs if r.get("name") == request["output"]), None)
-            if geometry is None:
-                raise RuntimeError("The focused display has no capture rectangle")
-            self.settle(geometry, CAPTURE_TIMEOUT, interval=0.05)
             path, child = self.deliver(request, args)
         if path is None:
             emit("copied")
@@ -426,24 +420,26 @@ class Capture:
         self.clipboard_exit(child)
 
     def copy(self, source, mime):
-        child = self.spawn(["wl-copy", "--foreground", "--type", mime], stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+        if shutil.which("wl-copy") is None:
+            raise RuntimeError("wl-copy is unavailable")
+        clipboard = tempfile.TemporaryFile()
         try:
-            shutil.copyfileobj(source, child.stdin)
-            child.stdin.close()
-        except BrokenPipeError:
-            child.stdin = None
-            raise RuntimeError("wl-copy: " + child.communicate()[1].decode(errors="replace").strip()) from None
-        child.stdin = None
-        if child.poll() not in (None, 0):
-            raise RuntimeError("wl-copy: " + child.communicate()[1].decode(errors="replace").strip())
-        return child
+            shutil.copyfileobj(source, clipboard)
+            clipboard.seek(0)
+        except BaseException:
+            clipboard.close()
+            raise
+        return clipboard, mime
 
     def clipboard_exit(self, child):
-        # Wayland needs this foreground provider until another copy replaces
-        # it. The service can start another job while this worker stays owned.
-        _, error = child.communicate()
-        if child.returncode:
-            raise RuntimeError("wl-copy: " + error.decode(errors="replace").strip())
+        # exec preserves the service's managed PID/group while removing the
+        # Python helper. dup2 makes only the staged clipboard stdin inheritable
+        # (Python os.execvpe/os.dup2 documentation); no control pipe survives.
+        clipboard, mime = child
+        with clipboard:
+            self.release()
+            os.dup2(clipboard.fileno(), sys.stdin.fileno())
+        os.execvpe("wl-copy", ["wl-copy", "--foreground", "--type", mime], os.environ)
 
     def record(self, request):
         request = {**request, "outputs": output_rectangles(request["outputs"])}

@@ -325,14 +325,20 @@ def area_holds(root, payload, helper):
 
 
 def freeze_released_holds(root, payload, config, helper):
-    """The freeze ends with the capture, while the helper still holds the clipboard."""
+    """The capture PID becomes the clipboard provider after releasing its freeze."""
     proc = subprocess.Popen([sys.executable, str(helper), json.dumps(payload)], env=environment(root, config), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
         message = json.loads(proc.stdout.readline())
         if message["event"] == "selection-ended":
             message = json.loads(proc.stdout.readline())
         saved = message["event"] == "saved"
-        return saved and proc.poll() is None and bool(list(root.glob("hyprpicker-pid-*"))) and not alive(root, "hyprpicker")
+        deadline = time.monotonic() + 1
+        marker = root / f"clipboard-ready-{proc.pid}"
+        while not marker.exists() and proc.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        command = Path(f"/proc/{proc.pid}/cmdline").read_bytes() if proc.poll() is None else b""
+        return (saved and marker.exists() and str(helper).encode() not in command
+                and bool(list(root.glob("hyprpicker-pid-*"))) and not alive(root, "hyprpicker"))
     finally:
         proc.kill()
         proc.communicate(timeout=5)
@@ -371,7 +377,7 @@ def language_data_error_holds(root, helper, languages="eng"):
 
 
 def killed_owner_holds(root, payload, config, helper=HELPER):
-    """Kill only the owned helper; reap or clean up its known fixture child."""
+    """End the owned provider, or kill the recorder helper and reap its child."""
     clipboard = payload["action"] == "screenshot"
     ready = "clipboard-ready-" if clipboard else "recorder-ready"
     proc = subprocess.Popen([sys.executable, str(helper), json.dumps(payload)], env=environment(root, config), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -390,6 +396,13 @@ def killed_owner_holds(root, payload, config, helper=HELPER):
                 grims = [row["args"] for row in calls(root) if row["tool"] == "grim"]
                 assert not Path(grims[-1][-1]).exists() and not (root / "pictures").exists(), "scratch ends before clipboard ownership"
                 assert (root / "clipboard").read_bytes().startswith(b"\x89PNG\r\n\x1a\n"), "copy bytes stay available"
+        if clipboard:
+            assert pid == proc.pid, "only wl-copy, with the capture PID, owns the clipboard"
+            proc.terminate()
+            proc.communicate(timeout=5)
+            stopped = root / ("clipboard-signal-" + str(pid))
+            pid = None
+            return proc.returncode == 0 and stopped.read_text() == str(signal.SIGTERM)
         proc.kill()
         try:
             proc.communicate(timeout=5)
@@ -639,8 +652,8 @@ def screenshot_choices(base, source):
         ("no-delay", 'if not self.countdown(delay):', 'if False:', "delay"),
         ("delay-ignores-cancel", 'ready, _, _ = select.select([sys.stdin], [], [], max(0, deadline - time.monotonic()))\n                if ready and sys.stdin.readline().strip() in ("", "cancel"):\n                    return False', 'ready, _, _ = select.select([sys.stdin], [], [], max(0, deadline - time.monotonic()))\n                if ready and sys.stdin.readline().strip() == "":\n                    return False', "cancel"),
         ("no-timeout", 'child.communicate(timeout=timeout)', 'child.communicate()', "timeout"),
-        ("settle-ignores-cancel", 'if self.cancelled(interval):\n                raise CaptureCancelled()', 'if False:\n                raise CaptureCancelled()', "settle-cancel"),
-        ("written-ignores-cancel", 'if self.cancelled():\n                raise CaptureCancelled()', 'if False:\n                raise CaptureCancelled()', "written-cancel"),
+        ("settle-ignores-cancel", 'for _ in range(SETTLE_TRIES):\n            if self.cancelled():', 'for _ in range(SETTLE_TRIES):\n            if False:', "settle-cancel"),
+        ("written-ignores-cancel", '            if self.cancelled():\n                raise CaptureCancelled()\n        except BaseException:', '            if False:\n                raise CaptureCancelled()\n        except BaseException:', "written-cancel"),
         ("selector-ignores-cancel", 'if self.cancelled(0.05):', 'if False:', "selector-cancel"),
     ]
     for name, before, after, kind in mutations:
@@ -886,6 +899,88 @@ class Lines:
             self.buffer += chunk
         *lines, self.buffer = self.buffer.split(b"\n")
         return [json.loads(line) for line in lines]
+
+
+def capture_sequence(root, helper=HELPER, output="NESTED"):
+    """The reported order, with a real control-pipe countdown and clipboard bytes.
+
+    The one-second issue requirement covers completion to bytes, with 10 ms
+    unsuccessful polls. The fixture provider exits here; freeze_released_holds
+    separately proves the foreground provider retains the capture PID.
+    """
+    for index, action in enumerate(("screenshot", "record", "screenshot-area", "screenshot-area", "screenshot-area")):
+        payload = request(root, action)
+        payload.update(output=output, delay=3, smart=True, processing="save-copy")
+        config = json.loads((root / "config.json").read_text())
+        proc = subprocess.Popen([sys.executable, str(helper), json.dumps(payload)], env=environment(root, config),
+                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        lines, observed, completed, grims_before = Lines(proc.stdout), [], None, None
+        try:
+            deadline = time.monotonic() + 8
+            while time.monotonic() < deadline and not lines.closed:
+                for event in lines.read(0.01):
+                    observed.append(event)
+                    if event["event"] == "countdown" and event["remaining"] == 0:
+                        grims_before = len(tool_calls(root, "grim"))
+                        completed = time.monotonic()
+                        proc.stdin.write(b"countdown-hidden\n")
+                        proc.stdin.flush()
+                    elif event["event"] == "recording":
+                        proc.stdin.write(b"stop\n")
+                        proc.stdin.flush()
+                    elif event["event"] == "stopped":
+                        completed = time.monotonic()
+                if observed and observed[-1]["event"] == "saved":
+                    break
+            if not observed or observed[-1]["event"] != "saved" or completed is None:
+                return False
+            saved = observed[-1]
+            wanted = ((Path(saved["path"]).as_uri() + "\r\n").encode() if action == "record" else Path(saved["path"]).read_bytes())
+            while time.monotonic() - completed <= 1:
+                if (root / "clipboard").exists() and (root / "clipboard").read_bytes() == wanted and proc.poll() is not None:
+                    break
+                time.sleep(0.01)
+            if time.monotonic() - completed > 1 or proc.poll() != 0 or (root / "clipboard").read_bytes() != wanted:
+                return False
+            if grims_before is not None and len(tool_calls(root, "grim")) != grims_before + 1:
+                return False
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+            proc.communicate(timeout=5)
+    return True
+
+
+def service_completion():
+    """Native provider failures remain errors after Python hands off its PID."""
+    source = (HELPER.parent.parent / "Service.qml").read_text()
+    program = r'''
+const input = JSON.parse(process.argv[1]);
+const rows = [
+  ["", null, 1], ["saved", {code:0,status:0}, 0], ["copied", {code:0,status:0}, 0],
+  ["saved", {code:1,status:0}, 1], ["copied", {code:0,status:1}, 1], ["saved", null, 1],
+  ["error", {code:1,status:0}, 0], ["cancelled", {code:0,status:0}, 0]
+];
+const outcomes = rows.map(([terminalEvent, completion, expected]) => {
+  let notices=0, destroyed=0, finished=0;
+  const job = {terminalEvent, destroy:()=>destroyed++};
+  const run = new Function("restoreFocus","notice","finishAction","jobs","publish","console",input.body+"; return finished;")(
+    ()=>{}, ()=>notices++, ()=>finished++, [job], ()=>{}, {error:()=>{}});
+  run(job,completion,"fixture provider error");
+  return notices===expected && destroyed===1 && finished===1;
+});
+console.log(JSON.stringify(outcomes));
+'''
+    def holds(body):
+        result = subprocess.run(["node", "-e", program, json.dumps({"body": body})], stdin=subprocess.DEVNULL,
+                                capture_output=True, text=True, env={"PATH": os.defpath, "LC_ALL": "C"}, timeout=10)
+        assert result.returncode == 0, result.stderr
+        return all(json.loads(result.stdout))
+    body = service_function(source, "finished")
+    assert holds(body), "provider completion and failed start reporting"
+    before = "completion.code !== 0"
+    assert body.count(before) == 1
+    assert not holds(body.replace(before, "false")), "control: a nonzero clipboard exit must fail"
 
 
 def held_processing(root, helper):
@@ -1379,6 +1474,7 @@ def main():
         config = {"real": {"grim": real}, "display": display, "runtime": runtime}
         dimensions = (int(width), int(height))
     service_rectangles()
+    service_completion()
     delay_choice()
     with tempfile.TemporaryDirectory(prefix="capture-test-") as temp:
         base = Path(temp).resolve()
@@ -1386,6 +1482,14 @@ def main():
             root = base / name
             plant(root, {**config, **extra})
             return root
+        root = world("reported-sequence")
+        assert capture_sequence(root, output=output), "reported capture sequence delivers each result within one second"
+        before = '            path, child = self.deliver(request, args)\n        if path is None:'
+        assert HELPER.read_text().count(before) == 1
+        settling = base / "second-settle.py"
+        settling.write_text(HELPER.read_text().replace(before, '            self.settle("10,20 80x60", CAPTURE_TIMEOUT)\n' + before))
+        root = world("second-settle")
+        assert not capture_sequence(root, settling, output), "control: post-countdown live-scene settle fails direct delivery"
         root = world("screenshot")
         payload = request(root, "screenshot")
         payload["output"] = output
@@ -1404,7 +1508,7 @@ def main():
             ("late-freeze-failure", "screenshot-area", {"fail": "hyprpicker", "failAfter": 0.5}, None, "error"),
             ("selection-failure", "text", {"fail": "slurp"}, None, "error"),
             ("grim-failure", "screenshot", {"fail": "grim"}, None, "error"),
-            ("clipboard-failure", "screenshot", {"fail": "wl-copy"}, None, "error"),
+            ("clipboard-failure", "screenshot", {"fail": "wl-copy"}, None, "saved"),
             ("ocr-failure", "text", {"fail": "tesseract"}, None, "error"),
             ("recorder-failure", "record", {"fail": "gpu-screen-recorder"}, None, "error"),
             ("recorder-crash", "record", {"crash": True}, None, "error"),
@@ -1415,12 +1519,14 @@ def main():
             payload = request(root, action)
             payload["output"] = output
             code, messages, err = worker(root, payload, line=line)
-            assert messages and messages[-1]["event"] == event and code == (1 if event == "error" else 0), (name, messages, err)
+            assert messages and messages[-1]["event"] == event and code == (1 if event == "error" or name == "clipboard-failure" else 0), (name, messages, err)
             assert not alive(root, "slurp") and not alive(root, "hyprpicker"), (name, "selector or freeze left running")
             if name in cancels:
                 assert not (root / "pictures").exists() and not (root / "videos").exists() and (root / "clipboard").read_bytes() == b"previous clipboard", name
             if name in ("freeze-failure", "late-freeze-failure"):
                 assert "hyprpicker exited 1: fixture failure" in messages[-1]["message"] and not any(c["tool"] == "slurp" for c in calls(root))
+            if name == "clipboard-failure":
+                assert "fixture failure" in err, "native provider failure reaches Service stderr"
             if name == "text":
                 assert (root / "clipboard").read_bytes() == b"Nested capture text"
             if name == "empty-text":
@@ -1450,6 +1556,12 @@ def main():
         assert record_holds(root, request(root, "record"), HELPER), "record SIGINT finalization"
         root = world("freeze-released", clipboardHold=True)
         assert freeze_released_holds(root, request(root, "screenshot-area"), config, HELPER), "freeze ends with the capture"
+        before = 'os.execvpe("wl-copy", ["wl-copy", "--foreground", "--type", mime], os.environ)'
+        assert HELPER.read_text().count(before) == 1
+        waiting = base / "waiting-clipboard.py"
+        waiting.write_text(HELPER.read_text().replace(before, 'self.spawn(["wl-copy", "--foreground", "--type", mime], stdin=sys.stdin).communicate()'))
+        root = world("waiting-clipboard", clipboardHold=True)
+        assert not freeze_released_holds(root, request(root, "screenshot-area"), config, waiting), "control: blocking on the clipboard retains a capture helper"
         for audio, wanted in [("none", None), ("microphone", "default_input"), ("both", "default_output|default_input")]:
             root = world("record-" + audio)
             payload = request(root, "record")
@@ -1480,7 +1592,7 @@ def main():
         assert not language_data_error_holds(root, helper, "deu+eng"), "control did not fail: raw OCR error"
         mutations = [
             ("no-output", 'args = ["grim", "-o", request["output"]]', 'args = ["grim"]', "screenshot"),
-            ("no-clipboard", 'child = self.spawn(["wl-copy", "--foreground", "--type", mime], stdin=subprocess.PIPE, stderr=subprocess.PIPE)', 'child = self.spawn([sys.executable, "-c", "import sys; sys.stdin.buffer.read()"], stdin=subprocess.PIPE, stderr=subprocess.PIPE)', "screenshot"),
+            ("no-clipboard", 'os.execvpe("wl-copy", ["wl-copy", "--foreground", "--type", mime], os.environ)', 'os.execvpe(sys.executable, [sys.executable, "-c", "pass"], os.environ)', "screenshot"),
             ("hard-stop", 'self.recorder.send_signal(signal.SIGINT)\n                    stopping = True', 'self.recorder.send_signal(signal.SIGKILL)\n                    stopping = True', "record"),
         ]
         for name, before, after, action in mutations:
@@ -1500,7 +1612,6 @@ def main():
             return code == 1 and messages[-1:] and messages[-1]["event"] == "error" and not tool_calls(root, "slurp") and not (root / "pictures").exists()
         for name, before, after, check, extra in [
             ("inherited-stdin", 'kwargs.setdefault("stdin", subprocess.DEVNULL)', 'pass', lambda root, helper: area_holds(root, request(root, "screenshot-area"), helper), {}),
-            ("kept-freeze", "            self.stop(freeze)\n", "            pass\n", lambda root, helper: freeze_released_holds(root, request(root, "screenshot-area"), config, helper), {"clipboardHold": True}),
             # The fixed wait this judge replaced.
             ("slept-freeze", "            self.frozen(freeze)\n", "            time.sleep(0.1)\n            if freeze.poll() is not None:\n                raise RuntimeError('hyprpicker exited')\n",
              late_freeze_failure_holds, {"fail": "hyprpicker", "failAfter": 0.5}),
@@ -1560,7 +1671,7 @@ def main():
         assert not killed_owner_holds(root, request(root, "record"), config, helper), "control did not fail: unowned child"
     if unmeasured is None:
         recording_controls += ",no-trim"
-    controls = ("delay-field-drawn,delay-unsaved,delay-saved-elsewhere,save-unsent,delay-unread,delay-overwritten,timeout-sent,delay-unchecked,undrawn-windows,drawn-window-delegate,model-windows,raw-ocr-error,no-output,no-clipboard,hard-stop,inherited-stdin,kept-freeze,slept-freeze,listed-freeze,unowned-child,invalid-delay-accepted,invalid-processing-accepted,empty-selection-accepted,empty-displays-accepted,smart-snap,window-boxes,display-boxes,all-bounds,no-scale,no-rotation,no-cursor,copy-saves,save-copies,no-delay,delay-ignores-cancel,no-timeout,settle-ignores-cancel,written-ignores-cancel,selector-ignores-cancel,geometry-over-cancel,late-answer-error,no-selection-end," + recording_controls + "," + notification_controls)
+    controls = ("capture-sequence,waiting-clipboard,second-settle,provider-completion,delay-field-drawn,delay-unsaved,delay-saved-elsewhere,save-unsent,delay-unread,delay-overwritten,timeout-sent,delay-unchecked,undrawn-windows,drawn-window-delegate,model-windows,raw-ocr-error,no-output,no-clipboard,hard-stop,inherited-stdin,slept-freeze,listed-freeze,unowned-child,invalid-delay-accepted,invalid-processing-accepted,empty-selection-accepted,empty-displays-accepted,smart-snap,window-boxes,display-boxes,all-bounds,no-scale,no-rotation,no-cursor,copy-saves,save-copies,no-delay,delay-ignores-cancel,no-timeout,settle-ignores-cancel,written-ignores-cancel,selector-ignores-cancel,geometry-over-cancel,late-answer-error,no-selection-end," + recording_controls + "," + notification_controls)
     if unmeasured is not None:
         # The rest passed, but the real post-process could not run: not a pass.
         print(f"test-capture: status=not-measured cause={unmeasured}; controls={controls}")
