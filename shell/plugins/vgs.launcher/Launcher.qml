@@ -71,9 +71,16 @@ Item {
 
     Component.onDestruction: finishRequest(null)
 
+    function holdsHide() { return actionProc.running; }
+
     // Close from inside: the card fades out, then the host takes the
     // surface down.
     function dismiss() {
+        if (actionProc.running) {
+            notice = MenuModel.actionErrorText("refused: reason=busy");
+            rebuildDisplay();
+            return;
+        }
         if (!opened) return;
         opened = false;
         cardEntrance.stop();
@@ -82,6 +89,7 @@ Item {
     }
 
     function hideSurface() {
+        if (actionProc.running) return;
         if (root.shell === null) return;
         const reply = root.shell.surfaces.hide("overlay");
         if (reply !== "ok") console.error("launcher: hide refused: " + reply);
@@ -392,8 +400,7 @@ Item {
         const target = MenuModel.routeTarget(items, itemOrder, route);
         let refusal = "";
         if (target.action === "run") {
-            runArgv(target.run);
-            closeRoute();
+            runAction(target.id);
             return;
         }
         if (target.action === "shortcut" || target.action === "plugin") {
@@ -530,6 +537,44 @@ Item {
         return reply;
     }
 
+    function actionFailed(reason) {
+        console.error("launcher: action " + reason);
+        if (!opened) openRoute("root", "");
+        notice = MenuModel.actionErrorText(reason);
+        rebuildDisplay();
+    }
+
+    function runAction(id) {
+        const entry = items[id];
+        if (!MenuModel.isDescendantOf(items, id, "system")) {
+            if (runArgv(entry.run) === "ok") closeRoute();
+            return;
+        }
+        if (actionProc.running) {
+            actionFailed("refused: reason=busy");
+            return;
+        }
+        actionProc.completion = null;
+        actionProc.command = entry.run;
+        actionProc.running = true;
+    }
+
+    // A managed Process ends with this overlay, so keep it until the System
+    // request ends. In 0.3.1 runningChanged also reports FailedToStart,
+    // which has no exited signal; waitForEnd settles stderr before it.
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/Process
+    Process {
+        id: actionProc
+        property var completion: null
+        stderr: StdioCollector { id: actionErr; waitForEnd: true }
+        onExited: (code, status) => { completion = { code: code, status: status }; }
+        onRunningChanged: {
+            if (running) return;
+            if (completion !== null && completion.code === 0 && completion.status === 0) root.closeRoute();
+            else root.actionFailed("argv=" + JSON.stringify(command) + " exit=" + JSON.stringify(completion) + " stderr=" + JSON.stringify(actionErr.text.trim()));
+        }
+    }
+
     // A listed TUI by key. The launcher closes on the core's shown answer;
     // any other answer is logged and stays in the list as a notice.
     function openTui(key) {
@@ -592,7 +637,7 @@ Item {
             launchApp(items[row.itemId].appId);
             return;
         case "action":
-            if (runArgv(items[row.itemId].run) === "ok") dismiss();
+            runAction(row.itemId);
             return;
         case "tui":
             openTui(items[row.itemId].tuiKey);

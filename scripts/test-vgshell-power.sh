@@ -26,6 +26,16 @@ cat >"$tmp/systemctl" <<SH
 printf '%s\n' "\$*" >>$(printf %q "$tmp/systemctl.calls")
 SH
 chmod 755 "$tmp/qs" "$tmp/systemctl"
+cat >"$tmp/loginctl" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$STUB_LOGIN_CALLS"
+case "$1" in
+  show-user) printf '%s\n' "${STUB_DISPLAY-1}"; exit "${STUB_DISPLAY_STATUS:-0}" ;;
+  terminate-session) exit "${STUB_TERMINATE_STATUS:-0}" ;;
+  *) exit 99 ;;
+esac
+SH
+chmod 755 "$tmp/loginctl"
 resolved="$("${base_env[@]}" bash -c 'command -v systemctl')"
 if [[ $resolved != "$tmp/systemctl" ]]; then
   echo "test-vgshell-power: refused: systemctl=$resolved want=$tmp/systemctl"
@@ -65,6 +75,41 @@ power_row "a disabled vgs.jarvis reboots" 0 "" reboot reboot -- STUB_CLIENT_FAIL
 power_row "another verb is refused" 2 "vgshell: refused: power=halt" "" halt
 power_row "no verb is refused" 2 "vgshell: refused: power=missing" ""
 power_row "a second argument is refused" 2 "vgshell: refused: argument=now" "" reboot now
+
+# Execute the shipped menu argv against an isolated logind command stand-in.
+# Its Display is independent of this suite's absent login-session membership.
+logout_case() {
+  local menu="$1" display="$2" read_status="$3" terminate_status="$4" want_status="$5" want_calls="$6" actual=0 argv_text
+  argv_text="$(node -e 'const m=require(process.argv[1]); for (const word of m.items["system.logout"].run) console.log(word)' "$menu")" || return
+  local argv=()
+  mapfile -t argv <<<"$argv_text"
+  : >"$tmp/loginctl.calls"
+  "${base_env[@]}" PATH="$tmp:$repo/bin:$base_path" STUB_DISPLAY="$display" STUB_DISPLAY_STATUS="$read_status" STUB_TERMINATE_STATUS="$terminate_status" STUB_LOGIN_CALLS="$tmp/loginctl.calls" "${argv[@]}" >"$tmp/logout.out" 2>"$tmp/logout.err" || actual=$?
+  [[ $actual == "$want_status" && $(cat "$tmp/loginctl.calls") == "$want_calls" ]]
+}
+while IFS='|' read -r name display read_status terminate_status want_status suffix; do
+  wanted="show-user $UID --property=Display --value"
+  [[ -z $suffix ]] || wanted+=$'\n'"$suffix"
+  if logout_case "$repo/shell/plugins/vgs.launcher/menu.json" "$display" "$read_status" "$terminate_status" "$want_status" "$wanted"; then ok "logout: $name"; else fail "logout: $name"; fi
+done <<'LOGOUT_CASES'
+graphical session ends|1|0|0|0|terminate-session 1
+no graphical session refuses||0|0|1|
+session lookup failure propagates||7|0|7|
+termination failure propagates|1|0|9|9|terminate-session 1
+LOGOUT_CASES
+mkdir -p "$tmp/control-menu"
+python3 - "$repo/shell/plugins/vgs.launcher/menu.json" "$tmp/control-menu/menu.json" <<'PY'
+import json,sys
+menu = json.load(open(sys.argv[1]))
+menu["items"]["system.logout"]["run"] = ["sh", "-c", "exec loginctl terminate-session ''"]
+with open(sys.argv[2], "w") as target:
+    json.dump(menu, target)
+PY
+if logout_case "$tmp/control-menu/menu.json" 1 0 0 0 "show-user $UID --property=Display --value"$'\n'"terminate-session 1"; then
+  fail "control: today's empty-session menu passed explicit graphical-session logout"
+else
+  ok "control: today's empty-session menu fails explicit graphical-session logout"
+fi
 
 # Must-fail control on a copy of bin/: a copy whose ask ends the script on a
 # failed call runs no systemctl when no shell answers.

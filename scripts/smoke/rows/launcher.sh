@@ -11,7 +11,7 @@
 # holds Plugin settings and, while vgs.system is enabled, System Settings,
 # each opening its window. The row ends with the plugin disabled and every
 # registration released.
-# inputs: shell/plugins/vgs.power/manifest.json shell/plugins/vgs.power/Service.qml shell/plugins/vgs.power/PowerLogic.js scripts/smoke/power-fakes.sh shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Service.qml shell/plugins/vgs.system/manifest.json shell/plugins/vgs.system/Service.qml shell/plugins/vgs.updates/* shell/Ui/BarWidget.qml scripts/smoke/fixtures/plugins/acme.tui/* shell/Ui/layout/ListCursor.qml shell/Core/TuiRunner.qml shell/Core/ShortcutRegistry.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/PluginStatus.qml bin/vgshell-tui shell/Commons/DesktopLaunch.js scripts/smoke/rows/capabilities.sh scripts/smoke/rows/tui.sh shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js
+# inputs: shell/plugins/vgs.power/manifest.json shell/plugins/vgs.power/Service.qml shell/plugins/vgs.power/PowerLogic.js scripts/smoke/power-fakes.sh shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Service.qml shell/plugins/vgs.system/manifest.json shell/plugins/vgs.system/Service.qml shell/plugins/vgs.updates/* shell/Ui/BarWidget.qml scripts/smoke/fixtures/plugins/acme.tui/* shell/Ui/layout/ListCursor.qml shell/Core/TuiRunner.qml shell/Core/ShortcutRegistry.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/PluginStatus.qml bin/vgshell bin/vgshell-power bin/vgshell-tui shell/Commons/DesktopLaunch.js scripts/smoke/rows/capabilities.sh scripts/smoke/rows/tui.sh shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js
 set -euo pipefail
 launcher() { ipc vgs.launcher invoke "$1" "${2:-}"; }
 tui_fixture() { ipc acme.tui invoke "$1" "${2:-}"; }
@@ -218,6 +218,71 @@ expect_poll "the query searched the rows" True launcher_has_row action Reboot
 focused
 type_keys -k Escape -k Escape || fail "sending Escape failed"
 expect_poll "Escape clears the search, then closes" 0 layer_count vgs:overlay
+
+# The real launcher executes the shipped logout argv. Its private loginctl
+# stand-in never reaches host logind and names the graphical session even
+# though this user-service shell has no caller login session.
+launcher_logout_calls="$sandbox/launcher-logout.calls"
+launcher_logout_display="$sandbox/launcher-logout.display"
+launcher_logout_status="$sandbox/launcher-logout.status"
+launcher_logout_gate="$sandbox/launcher-logout.gate"
+mkfifo -- "$launcher_logout_gate"
+expected_errors+=('launcher: action argv=\["vgshell","power","logout"\] exit=' 'launcher: toggle refused: held=vgs.launcher$')
+if [[ -e $shim/loginctl ]]; then mv -- "$shim/loginctl" "$sandbox/launcher-loginctl.saved"; fi
+if [[ -e $shim/vgshell ]]; then mv -- "$shim/vgshell" "$sandbox/launcher-vgshell.saved"; fi
+ln -s -- "$repo/bin/vgshell" "$shim/vgshell"
+printf '1\n' >"$launcher_logout_display"
+printf '0\n' >"$launcher_logout_status"
+python3 - "$shim/loginctl" "$launcher_logout_calls" "$launcher_logout_display" "$launcher_logout_status" "$launcher_logout_gate" <<'PY_LOGOUT'
+import pathlib,shlex,sys
+path,calls,display,status,gate=sys.argv[1:]
+pathlib.Path(path).write_text("#!/usr/bin/env bash\n" +
+    "printf '%s\\n' \"$*\" >>" + shlex.quote(calls) + "\n" +
+    "case \"$1\" in\nshow-user) cat " + shlex.quote(display) + ";;\n" +
+    "terminate-session) code=$(cat " + shlex.quote(status) + "); " +
+    "if [[ $code == held ]]; then read -r answer <" + shlex.quote(gate) + "; exit 0; fi; " +
+    "exit \"$code\";;\n*) exit 99;;\nesac\n")
+pathlib.Path(path).chmod(0o755)
+PY_LOGOUT
+launcher_logout_has_notice() {
+  read_launcher notice | py_reply 'import json,sys; value=json.load(sys.stdin); print(isinstance(value,str) and bool(value))'
+}
+for launcher_logout_case in missing refused success; do
+  : >"$launcher_logout_calls"
+  printf '1\n' >"$launcher_logout_display"
+  printf '0\n' >"$launcher_logout_status"
+  case "$launcher_logout_case" in
+    missing) : >"$launcher_logout_display" ;;
+    refused) printf '9\n' >"$launcher_logout_status" ;;
+  esac
+  expect "logout direct route is accepted ($launcher_logout_case)" ok ipc shell summon overlay vgs.launcher '{"menu":"system.logout"}'
+  if [[ $launcher_logout_case == success ]]; then
+    expect_poll "successful session termination closes the launcher" 0 layer_count vgs:overlay
+  else
+    expect_poll "failed logout opens the existing error notice ($launcher_logout_case)" True launcher_logout_has_notice
+    expect "failed logout leaves the nested session running ($launcher_logout_case)" ok ipc shell ping
+    expect "failed logout notice closes" ok ipc shell hide overlay vgs.launcher
+  fi
+  launcher_logout_wanted="show-user $UID --property=Display --value"
+  [[ $launcher_logout_case == missing ]] || launcher_logout_wanted+=$'\n'"terminate-session 1"
+  expect_poll "logout uses the explicit graphical session ($launcher_logout_case)" "$launcher_logout_wanted" cat "$launcher_logout_calls"
+done
+printf 'held\n' >"$launcher_logout_status"
+: >"$launcher_logout_calls"
+expect "System opens for a picked logout action" ok ipc shell summon overlay vgs.launcher '{"menu":"system"}'
+expect_poll "the picked logout menu is ready" '"system"' read_launcher activeMenu
+focused "the System menu holds the keyboard for Log out"
+type_keys -k Home -k Down -k Return || fail "picking Log out failed"
+expect_poll "the picked logout reaches its held termination request" "show-user $UID --property=Display --value"$'\n'"terminate-session 1" cat "$launcher_logout_calls"
+expect "a held System request prevents host hide" 'refused: held=vgs.launcher' ipc shell hide overlay vgs.launcher
+expect "a held System request prevents host toggle" 'refused: held=vgs.launcher' launcher toggle ''
+printf 'release\n' 1<>"$launcher_logout_gate"
+expect_poll "the completed picked logout closes the launcher" 0 layer_count vgs:overlay
+rm -- "$launcher_logout_gate"
+rm -- "$shim/loginctl"
+if [[ -e $sandbox/launcher-loginctl.saved ]]; then mv -- "$sandbox/launcher-loginctl.saved" "$shim/loginctl"; fi
+rm -- "$shim/vgshell"
+if [[ -e $sandbox/launcher-vgshell.saved ]]; then mv -- "$sandbox/launcher-vgshell.saved" "$shim/vgshell"; fi
 
 # Session sleep rows use Power's supported-method judgment, including
 # while its hibernate presence keeps an unsupported idle choice editable.

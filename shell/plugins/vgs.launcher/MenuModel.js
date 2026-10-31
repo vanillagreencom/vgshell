@@ -270,7 +270,7 @@ function menuNotices(refusals, mergeError) {
 function routeTarget(items, itemOrder, route) {
     var id = resolveRoute(items, itemOrder, route);
     var entry = items[id];
-    if (entry !== undefined && entry.kind === "action") return { action: "run", run: entry.run.slice() };
+    if (entry !== undefined && entry.kind === "action") return { action: "run", id: id, run: entry.run.slice() };
     if (entry !== undefined && entry.kind === "shortcut") return { action: "shortcut", shortcut: entry.shortcut };
     if (entry !== undefined && entry.kind === "plugin") return { action: "plugin", shortcut: entry.shortcut, item: entry.item };
     var target = entry !== undefined && entry.kind === "link" ? entry.target : id;

@@ -278,7 +278,7 @@ function verify(model, menu = shippedMenu) {
     // opening; a menu opens; an unknown route opens the root.
     same(model.routeTarget(plugged.items, plugged.itemOrder, "themes"), { action: "shortcut", shortcut: "vgs.themes:themes" });
     same(model.routeTarget(plugged.items, plugged.itemOrder, "style.theme"), { action: "shortcut", shortcut: "vgs.themes:themes" });
-    same(model.routeTarget(plugged.items, plugged.itemOrder, "system.reboot"), { action: "run", run: ["vgshell", "power", "reboot"] });
+    same(model.routeTarget(plugged.items, plugged.itemOrder, "system.reboot"), { action: "run", id: "system.reboot", run: ["vgshell", "power", "reboot"] });
     same(model.routeTarget(plugged.items, plugged.itemOrder, "power"), { action: "open", menu: "system" });
     same(model.routeTarget(plugged.items, plugged.itemOrder, "style"), { action: "open", menu: "style" });
     same(model.routeTarget(plugged.items, plugged.itemOrder, "nowhere"), { action: "open", menu: "root" });

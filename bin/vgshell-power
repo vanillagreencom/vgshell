@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# vgshell-power: restart or shut down the computer, after a running Jarvis
-# session saved its work.
+# vgshell-power: end the graphical session, restart or shut down the computer.
 #
-#   vgshell power reboot|poweroff
-#       ask vgs.jarvis's `power` handler first; unless it answers `held`,
-#       run `systemctl reboot` or `systemctl poweroff` at once
+#   vgshell power logout|reboot|poweroff
+#       logout terminates logind's primary graphical session explicitly;
+#       reboot and poweroff ask vgs.jarvis's `power` handler first; unless
+#       it answers `held`, run systemctl at once
 #
 # The one route of every VGS restart and shutdown that a user asks for: the
 # launcher's System menu Reboot and Shut down, and the Updates run's Reboot
@@ -15,20 +15,32 @@
 # at once, so no shell state can hold a restart. It prints nothing.
 #
 # Refusals, one keyed line on stderr, exit 2, nothing run:
-#   vgshell: refused: power=<arg>      not reboot or poweroff
+#   vgshell: refused: power=<arg>      not logout, reboot or poweroff
 #   vgshell: refused: argument=<arg>   a second argument
 set -euo pipefail
 
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
 vgshell="$(dirname -- "$self")/vgshell"
 
-if [[ $# -eq 0 || ($1 != reboot && $1 != poweroff) ]]; then
+if [[ $# -eq 0 || ($1 != logout && $1 != reboot && $1 != poweroff) ]]; then
   printf 'vgshell: refused: power=%s\n' "${1:-missing}" >&2
   exit 2
 fi
 if [[ $# -gt 1 ]]; then
   printf 'vgshell: refused: argument=%s\n' "$2" >&2
   exit 2
+fi
+# A shell started by uwsm is in the user manager, outside the login-session
+# scope. An empty terminate-session argument therefore cannot identify it.
+# logind's user Display property names the graphical session independently
+# of the caller: https://www.freedesktop.org/software/systemd/man/latest/org.freedesktop.login1.html
+if [[ $1 == logout ]]; then
+  session="$(loginctl show-user "$UID" --property=Display --value)" || exit "$?"
+  if [[ -z $session ]]; then
+    printf 'vgshell: refused: power-session=missing\n' >&2
+    exit 1
+  fi
+  exec loginctl terminate-session "$session"
 fi
 # The reply is a line `vgshell ipc` prints; its own refusals, such as no
 # running shell, go to the discarded stderr and print no `held`. Read whole

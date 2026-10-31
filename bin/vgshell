@@ -558,10 +558,11 @@ Lock your session through the running VGS shell.
 EOF_HELP
       ;;
     power) cat <<'EOF_HELP'
-Usage: vgshell power reboot|poweroff
+Usage: vgshell power logout|reboot|poweroff
 
-Restart or shut down the computer. A running Jarvis session saves its
-work first, for at most one minute.
+Log out of the graphical session, restart or shut down the computer.
+Before a restart or shutdown, a running Jarvis session saves its work
+first, for at most one minute.
 EOF_HELP
       ;;
     sudo) cat <<'EOF_HELP'
