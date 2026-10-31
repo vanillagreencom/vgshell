@@ -154,7 +154,7 @@ Item {
             verify(!trailing(list.rowAt(1))[2].visible, "a row with no menu draws its overflow button");
         }
 
-        function test_only_the_selected_row_is_a_tab_stop() {
+        function test_tab_reaches_the_selected_rows_action_and_overflow() {
             keyClick(Qt.Key_Tab);
             tryCompare(list.rowAt(0), "activeFocus", true);
             keyClick(Qt.Key_Tab);
@@ -165,6 +165,90 @@ Item {
             compare(list.rowAt(1).activeFocus, false, "an unselected row is a Tab stop");
             compare(list.rowAt(2).activeFocus, false, "an unselected row is a Tab stop");
             compare(before.activeFocus, true);
+        }
+
+        function test_only_the_selected_row_is_a_tab_stop_data() {
+            return [
+                { tag: "ready", initiallyChecking: false, checkAgain: false, chooseSecond: false, index: 0, key: "a1b2" },
+                { tag: "initially checking then ready", initiallyChecking: true, checkAgain: false, chooseSecond: false, index: 0, key: "a1b2" },
+                { tag: "ready checking ready outside", initiallyChecking: false, checkAgain: true, chooseSecond: false, index: 0, key: "a1b2" },
+                { tag: "second choice retained through checking", initiallyChecking: false, checkAgain: true, chooseSecond: true, index: 1, key: "c3d4" }
+            ];
+        }
+        function test_only_the_selected_row_is_a_tab_stop(data) {
+            const made = createTemporaryObject(choiceList, root, {
+                rows: [
+                    { key: "a1b2", text: "amelie@example.com" },
+                    { key: "c3d4", text: "amelie@example.org" }
+                ],
+                disabledReason: data.initiallyChecking ? root.reason : ""
+            });
+            tryVerify(() => made.rowAt(1) !== null && made.rowAt(1).y >= made.rowAt(0).y + made.rowAt(0).height, 1000, "the account rows are laid out");
+            // The existing list's overflow precedes this separate list;
+            // Scan follows it when the window's Tab chain wraps.
+            const preceding = trailing(list.rowAt(0))[2];
+            if (data.chooseSecond) {
+                made.focusCurrent(Qt.TabFocusReason);
+                tryCompare(made.rowAt(0), "activeFocus", true);
+                keyClick(Qt.Key_Down);
+                compare(made.current, 1, "Down deliberately chooses the second account");
+                compare(made.rowAt(1).activeFocus, true);
+            }
+            preceding.forceActiveFocus(Qt.TabFocusReason);
+            const trace = [];
+            function snapshot(stage) {
+                const state = {
+                    stage: stage, current: made.current, currentKey: made.currentKey,
+                    selectedKey: made.selectedKey, chosenByUser: made.chosenByUser,
+                    listActiveFocus: made.activeFocus, precedingActiveFocus: preceding.activeFocus,
+                    afterActiveFocus: before.activeFocus,
+                    focusText: root.Window.window.activeFocusItem === null ? null : root.Window.window.activeFocusItem.text,
+                    rows: [0, 1].map(index => {
+                        const row = made.rowAt(index);
+                        return { key: row.key, text: row.text, selected: row.selected,
+                            locked: row.locked, activeFocusOnTab: row.activeFocusOnTab,
+                            focusPolicy: row.focusPolicy, policyHasTab: (row.focusPolicy & Qt.TabFocus) !== 0,
+                            focus: row.focus, activeFocus: row.activeFocus };
+                    })
+                };
+                trace.push(state);
+                return state;
+            }
+            const states = [snapshot(data.initiallyChecking ? "initial-checking" : "initial-ready")];
+            if (data.checkAgain) {
+                made.disabledReason = root.reason;
+                tryCompare(made.lock, "locked", true);
+                states.push(snapshot("checking-outside"));
+            }
+            if (data.initiallyChecking || data.checkAgain) {
+                made.disabledReason = "";
+                tryCompare(made.lock, "locked", false);
+                states.push(snapshot("ready-outside"));
+            }
+            keyClick(Qt.Key_Tab);
+            const entered = snapshot("entered");
+            keyClick(Qt.Key_Tab);
+            const left = snapshot("one-tab-after-entry");
+            console.info("devicelist-tab-trace " + JSON.stringify({ tag: data.tag, qt: UnitQt.VERSION, states: trace }));
+
+            // Qt's focusPolicy setter also writes activeFocusOnTab. Read
+            // both flags, then assert the composite's contract rather than
+            // declaration order: Qt 6.12.0 qquickitem.cpp setFocusPolicy.
+            for (const state of states) {
+                compare(state.current, data.index, state.stage + ": checking keeps the selected position");
+                compare(state.selectedKey, data.key, state.stage + ": checking keeps the selected key");
+                compare(state.chosenByUser, data.chooseSecond, state.stage + ": checking invents no user choice");
+                compare(state.listActiveFocus, false, state.stage + ": focus stays outside the list");
+                compare(state.precedingActiveFocus, true, state.stage + ": focus stays on the preceding control");
+                for (let index = 0; index < 2; index++)
+                    compare(state.rows[index].activeFocusOnTab, index === data.index, state.stage + ": only the selected row takes Tab: " + state.rows[index].key);
+            }
+            compare(entered.rows[data.index].activeFocus, true, "Tab enters the exact selected account: " + data.key);
+            compare(entered.current, data.index, "Tab keeps the selected position");
+            compare(entered.selectedKey, data.key, "Tab keeps the selected key");
+            compare(entered.rows[1 - data.index].activeFocus, false, "Tab never enters the other account");
+            compare(left.afterActiveFocus, true, "one Tab leaves the account list for Scan");
+            compare(left.listActiveFocus, false, "no second account stop follows the selected row");
         }
 
         function test_arrows_home_and_end_move_the_keyboard() {

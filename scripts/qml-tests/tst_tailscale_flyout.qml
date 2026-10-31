@@ -13,7 +13,9 @@ import "../../shell/plugins/vgs.tailscale/TailscaleLogic.js" as Logic
 // Gothenburg in Sweden and Zurich in Switzerland. The stub answers each
 // action as the service's command judge does and records the ones it
 // takes. The flyout opens on its header switch and draws no poll
-// setting; Tab reaches Add account and Sign out after the account list;
+// setting; Tab reaches Add account, Sign out and the selected account;
+// a fresh Checking status keeps body focus when access becomes ready,
+// and the card keeps the same one-stop account list;
 // Sign out asks first, and only the dialog's accept sends `logout`; Copy
 // puts this device's address on the clipboard; the Exit node row opens the
 // chooser on its search field and asks for a suggestion, at its top, and
@@ -45,6 +47,7 @@ Item {
     // Whether the service has read its suggestion, which a case clears
     // and cleanup() restores.
     property bool suggested: true
+    property bool checkingSetup: false
     readonly property var snapshot: Logic.snapshot(0, JSON.stringify({
         BackendState: root.backend,
         Self: { ID: "nDESK", HostName: "desk", DNSName: "desk.tail-fixture.ts.net.", OS: "linux", UserID: 1, TailscaleIPs: ["100.64.0.1"] },
@@ -70,7 +73,7 @@ Item {
 
     function values() {
         return {
-            tailscale: Logic.published(false, snapshot, setupLine, { accounts: accounts, action: "", login: "idle", problem: "",
+            tailscale: Logic.published(false, snapshot, checkingSetup ? null : setupLine, { accounts: accounts, action: "", login: "idle", problem: "",
                 suggestion: root.suggested ? Logic.suggestion("se-sto-wg-001.mullvad.ts.net", snapshot) : null }),
             devices: snapshot.devices,
             exitNodes: snapshot.exitNodes
@@ -96,6 +99,10 @@ Item {
     }
 
     Tailscale.Panel { id: panel; width: implicitWidth; height: 900 }
+    Component {
+        id: freshPanel
+        Tailscale.Panel { width: implicitWidth; height: 900; z: 1; shell: stub }
+    }
     // The System pane's body, made by the cases that read it, over the
     // flyout, which they hide.
     Component {
@@ -147,6 +154,7 @@ Item {
             panel.visible = true;
             root.backend = "Running";
             root.suggested = true;
+            root.checkingSetup = false;
         }
 
         function find(item, wanted) {
@@ -179,21 +187,75 @@ Item {
             compare(find(panel, item => item.objectName === "tailscale-poll"), null, "the flyout draws no Check every");
         }
 
-        function test_accounts_card_has_header_actions_and_a_keyboard_list() {
-            const card = named("tailscale-accounts-card");
+        function test_accounts_card_has_header_actions_and_a_keyboard_list_data() {
+            return [
+                { tag: "fresh ready", checking: false },
+                { tag: "fresh checking then ready", checking: true }
+            ];
+        }
+        function test_accounts_card_has_header_actions_and_a_keyboard_list(data) {
+            panel.visible = false;
+            root.checkingSetup = data.checking;
+            const made = createTemporaryObject(freshPanel, root);
+            made.open("{}");
+            waitForRendering(made);
+            verify(root.calls.some(entry => entry[0] === "lease" && JSON.parse(entry[1]).open), "the fresh view opens its service lease");
+            const card = findIn(made, "tailscale-accounts-card");
+            const accounts = findIn(made, "tailscale-accounts");
+            compare(accounts.rows.map(row => row.key), ["a1", "a2"]);
+            compare(accounts.current, 0, "the fresh list starts on the first account");
+            compare(accounts.selectedKey, "a1");
+            compare(accounts.chosenByUser, false);
+            const initial = made.initialFocus;
+            initial.forceActiveFocus(Qt.OtherFocusReason);
+            const trace = [];
+            function snapshot(stage) {
+                trace.push({ stage: stage, current: accounts.current, selectedKey: accounts.selectedKey,
+                    focusText: focused() === null ? null : focused().text,
+                    focusName: focused() === null ? null : focused().Accessible.name,
+                    listActiveFocus: accounts.activeFocus,
+                    rows: [0, 1].map(index => ({ key: accounts.rowAt(index).key,
+                        activeFocusOnTab: accounts.rowAt(index).activeFocusOnTab,
+                        focusPolicy: accounts.rowAt(index).focusPolicy,
+                        activeFocus: accounts.rowAt(index).activeFocus })) });
+            }
+            snapshot("opened");
+            compare(accounts.lock.locked, data.checking);
+            if (data.checking) {
+                verify(initial.lockReason !== undefined, "Checking opens on the body");
+                root.checkingSetup = false;
+                tryCompare(accounts.lock, "locked", false);
+                snapshot("access-ready");
+                compare(focused(), initial, "access becoming ready keeps body focus");
+            }
             verify(card.visible);
-            compare(named("tailscale-accounts-header").text, "Accounts");
-            const add = named("tailscale-add-account");
+            compare(findIn(made, "tailscale-accounts-header").text, "Accounts");
+            const add = findIn(made, "tailscale-add-account");
+            const signOut = findIn(made, "tailscale-sign-out");
             compare(add.label, "Add account");
-            compare(named("tailscale-sign-out").label, "Sign out");
-            verify(add.y + add.height < named("tailscale-accounts").y);
+            compare(signOut.label, "Sign out");
+            verify(add.y + add.height < accounts.y);
             add.forceActiveFocus(Qt.TabFocusReason);
             keyClick(Qt.Key_Return);
             compare(root.actions, [["add-account", ""]]);
             keyClick(Qt.Key_Tab);
-            compare(focused(), named("tailscale-sign-out"));
+            compare(focused(), signOut);
+            snapshot("before-account-entry");
+            const beforeCurrent = accounts.current;
+            const beforeKey = accounts.selectedKey;
             keyClick(Qt.Key_Tab);
-            verify(within(focused(), named("tailscale-accounts")));
+            const entered = focused();
+            snapshot("entered");
+            keyClick(Qt.Key_Tab);
+            const next = focused();
+            snapshot("one-tab-after-entry");
+            console.info("tailscale-account-tab-trace " + JSON.stringify({ tag: data.tag, states: trace }));
+            compare(beforeCurrent, 0, "the fresh checking transition keeps the selected position");
+            compare(beforeKey, "a1", "the fresh checking transition keeps the selected account");
+            compare(entered, accounts.rowAt(0), "Tab enters amelie@example.com exactly");
+            compare(entered.text, "amelie@example.com");
+            compare(next, findIn(made, "tailscale-this-device"), "one Tab leaves the accounts for This device");
+            made.close();
         }
 
         function test_signed_out_saved_account_sign_in_targets_its_id() {
