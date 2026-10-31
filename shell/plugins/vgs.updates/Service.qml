@@ -4,8 +4,7 @@ import Quickshell.Io
 import "UpdatesLogic.js" as Logic
 
 // Owns vgs.updates runtime state: cached snapshot readback, one check
-// process, cadence timers, the review agents' detection, the review TUI the
-// pipeline asks for, IPC and every status write. The widget and the window
+// process, cadence timers, IPC and every status write. The widget and the window
 // read status only; this service is the single writer.
 Item {
     id: root
@@ -29,17 +28,11 @@ Item {
     property string checkFailure: ""
     property double failedAt: -1
     property var reported: ({})
-    // The review agents on PATH, bin/facts agents' last answer: null before
-    // the first one.
-    property var agents: null
-    property bool detectQueued: false
     readonly property string stateDir: (Quickshell.env("XDG_STATE_HOME") || (Quickshell.env("HOME") + "/.local/state")) + "/vgshell/updates"
     readonly property string statusPath: stateDir + "/status.json"
     readonly property string bootPath: "/proc/stat"
     readonly property string checkScript: String(Qt.resolvedUrl("bin/check")).replace(/^file:\/\//, "")
     readonly property string vgshellPath: Quickshell.shellDir + "/../bin/vgshell"
-    readonly property string factsScript: String(Qt.resolvedUrl("bin/facts")).replace(/^file:\/\//, "")
-    readonly property string loaderPath: Quickshell.shellDir + "/../bin/lib/qml-library.js"
     readonly property int currentIntervalMs: Logic.intervalMs(shell === null ? null : shell.settings)
     readonly property var currentTuiState: shell === null || shell.tui === undefined ? ({}) : shell.tui.state
     // The reboot-notice system step, which the core probes again after its
@@ -54,7 +47,6 @@ Item {
 
     onShellChanged: {
         start();
-        detectAgents();
         offerRebootNotice();
     }
     onCurrentIntervalMsChanged: schedule()
@@ -93,7 +85,6 @@ Item {
         shell.shortcut.register("toggle", "Open or close Updates", () => root.toggleWindow());
         shell.ipc.handle("check", () => root.requestCheck("ipc"));
         shell.ipc.handle("status", () => JSON.stringify(shell.status.values));
-        shell.ipc.handle("review", dir => root.openReview(dir));
         // handleChoice reports only the user's Settings press, never a
         // config edit or reload (plugin API, status.handleChoice).
         shell.status.handleChoice("rebootNotice", value => root.takeRebootRequest(value));
@@ -101,30 +92,6 @@ Item {
         bootReader.path = bootPath;
         if (lastTuiState === null) lastTuiState = shell.tui.state;
         publishNow();
-    }
-
-    // tui/pipeline.sh asks for its review through `review` with its review
-    // directory, and waits for <dir>/ended, which names the run's code or
-    // the reason it never ran, as `done` receives them; the answer is
-    // shell.tui.run's. The run can end after the pipeline removed the
-    // directory, and a FileView write makes the directories it lacks, so a
-    // shell redirect writes, which fails on a directory that is gone.
-    function openReview(dir) {
-        return shell.tui.run("review", [dir], result => {
-            const text = result.code === null ? "reason=" + result.reason : "code=" + result.code;
-            endedProc.command = ["sh", "-c", "[ -d \"$1\" ] || exit 0; printf '%s\\n' \"$2\" >\"$1/ended\"", "sh", dir, text];
-            endedProc.running = true;
-        });
-    }
-
-    function detectAgents() {
-        if (shell === null) return;
-        if (agentsProc.running) {
-            detectQueued = true;
-            return;
-        }
-        agentsProc.command = [factsScript, loaderPath, "agents"];
-        agentsProc.running = true;
     }
 
     function toggleWindow() {
@@ -207,7 +174,7 @@ Item {
     function publishNow() {
         if (shell === null) return;
         const notice = Logic.rebootNoticeValue(rebootStep);
-        const values = Object.assign(Logic.publishValues(snapshot, checking, Date.now(), currentIntervalMs, checkFailure, aurCommand), Logic.reviewValues(shell.settings, agents),
+        const values = Object.assign(Logic.publishValues(snapshot, checking, Date.now(), currentIntervalMs, checkFailure, aurCommand),
             { rebootNotice: notice, rebootNotices: Logic.rebootNoticeChoices(notice), rebootNoticeOwner: Logic.rebootNoticeOwnerValue(rebootStep) });
         const writes = Logic.statusWrites(reported, values);
         if (writes.length === 0) return;
@@ -275,42 +242,10 @@ Item {
                 root.publishNow();
                 root.schedule();
             }
-            root.detectAgents();
             if (root.queued) {
                 root.queued = false;
                 root.requestCheck("queued");
             }
-        }
-    }
-
-    Process {
-        id: agentsProc
-        stdout: StdioCollector { id: agentsOut }
-        stderr: StdioCollector { id: agentsErr }
-        property var completion: null
-        onExited: (code, status) => { completion = { code: code, status: status }; }
-        onRunningChanged: {
-            if (running) return;
-            const done = completion;
-            completion = null;
-            if (done !== null && done.code === 0) {
-                root.agents = String(agentsOut.text).split("\n").filter(line => line.startsWith("agent ")).map(line => line.slice("agent ".length));
-                root.publishNow();
-            } else {
-                console.error("updates: agents " + (done === null ? "start=failed" : "exit=" + done.code) + " " + String(agentsErr.text || "").split("\n")[0]);
-            }
-            if (root.detectQueued) {
-                root.detectQueued = false;
-                root.detectAgents();
-            }
-        }
-    }
-
-    // One review runs at a time, so one writer serves every run's end.
-    Process {
-        id: endedProc
-        onExited: (code, status) => {
-            if (code !== 0) console.error("updates: review end write exit=" + code);
         }
     }
 

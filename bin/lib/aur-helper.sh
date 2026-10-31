@@ -12,5 +12,10 @@ trap 'rm -rf -- "${build:?}"' EXIT
 "$1" pkg run install --manager pacman base-devel git
 git clone -- https://aur.archlinux.org/paru.git "$build/paru"
 cd -- "$build/paru"
-makepkg -si
+(
+  # shellcheck source=SCRIPTDIR/tui.sh
+  source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/tui.sh"
+  if command -v sudo >/dev/null; then vgs_tui_sudo_session guard; fi
+  makepkg -si
+)
 command -v paru >/dev/null

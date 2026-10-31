@@ -21,7 +21,7 @@ world(async () => {
     const vgs = path.join(scratch, "vgs-tree");
     fs.mkdirSync(path.join(vgs, "bin/lib"), { recursive: true });
     fs.copyFileSync(path.join(tree, "bin/lib/tui.sh"), path.join(vgs, "bin/lib/tui.sh"));
-    fs.copyFileSync(path.join(tree, "scripts/fixtures/jarvis/browser-vgshell.py"), path.join(vgs, "bin/vgshell"));
+    fs.writeFileSync(path.join(vgs, "bin/vgshell"), fs.readFileSync(path.join(tree, "scripts/fixtures/jarvis/browser-vgshell.py"), "utf8").replace("__PACKAGE_REVIEW_ROUTE_OWNER__", path.join(tree, "scripts/fixtures/pkg-review/route-owner.js")));
     fs.chmodSync(path.join(vgs, "bin/vgshell"), 0o700);
     const vgshellLog = path.join(scratch, "vgshell-calls.jsonl");
     const vgshellCalls = () => fs.readFileSync(vgshellLog, "utf8").trim().split("\n").filter(Boolean).map(JSON.parse);
@@ -57,7 +57,7 @@ world(async () => {
             Array(driver).fill(["pkg", "run", "install", "--manager", pick === null ? "" : pick.manager, pick === null ? "" : pick.name]), name);
         for (const row of vgshellCalls().filter(row => row[0] !== "pkg"))
             assert.deepEqual(row, ["plugin", "requirements", "--json", "vgs.jarvis"], name);
-        if (key !== null) assert.ok(logged.includes("jarvis: browser-setup=" + key + "\n"), name + " logs " + key);
+        if (key !== null) assert.ok(logged.includes("jarvis: browser-setup=" + key + "\n"), name + " logs " + key + ": " + logged + result.stdout + result.stderr);
         if (vendor !== null) {
             const line = /^jarvis: browser-vendor=(.*)$/m.exec(logged);
             assert.ok(line, name + " logs the vendor line");
@@ -134,5 +134,7 @@ world(async () => {
             assert.equal(calls().filter(row => row.args[0] === "skills").length, 1);
         } finally { candidate.close(); }
     }); controls++;
+    const proof=path.join(scratch,"route-proof.jsonl");
+    if(fs.existsSync(proof))for(const row of fs.readFileSync(proof,"utf8").trim().split("\n"))console.log("package-route-proof: "+row);
     console.log("test-jarvis-browser-setup: ok cases=" + cases.length + " controls=" + controls);
 }, standins);

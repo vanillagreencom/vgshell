@@ -1360,6 +1360,9 @@ if args == ["plugin", "settings", "vgs.capture"]:
 elif args == ["plugin", "requirements", "--json", "vgs.capture"]:
     print(json.dumps([{{"name": "tesseract", "package": {{"manager": {manager!r}, "name": "tesseract"}}}}]))
 elif args[:3] == ["pkg", "run", "install"]:
+    if args[4] == "pacman":
+        import subprocess
+        subprocess.run(["/usr/bin/node", {str(REPO / "scripts/fixtures/pkg-review/route-owner.js")!r}, "--proof", str(root / "route-proof.jsonl"), "--route", "capture-languages", *args[1:]], check=True)
     config = json.loads((root / "config.json").read_text())
     # Each distribution's name for a language's data; Debian writes the
     # code's underscore as a hyphen.
@@ -1377,6 +1380,8 @@ else:
     env = {"PATH": str(root / "bin") + ":" + os.defpath, "HOME": str(tree), "XDG_RUNTIME_DIR": str(tree / "run"), "LC_ALL": "C",
            "VGS_TUI_LIB": str(tree / "bin/lib/tui.sh"), "VGS_PLUGIN_ID": "vgs.capture", "VGS_PLUGIN_DIR": str(HELPER.parent.parent), "VGS_TUI_UNATTENDED": "1"}
     result = subprocess.run(["bash", str(script)], env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30)
+    if (root / "route-proof.jsonl").exists():
+        print("package-route-proof: " + (root / "route-proof.jsonl").read_text().strip())
     runs = [json.loads(line) for line in (root / "vgshell.calls").read_text().splitlines()] if (root / "vgshell.calls").exists() else []
     return result.returncode, result.stderr, [run for run in runs if run[:2] == ["pkg", "run"]]
 

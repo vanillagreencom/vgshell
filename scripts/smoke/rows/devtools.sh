@@ -564,6 +564,7 @@ rm -f -- "${shim:?}/vgs-smoke-devtool"
 expect "with the stand-in gone and no rescan the last scan still reads it present" '[]' fixture_missing
 expect "the doctor capability takes the fixture's command" ok ipc smoke doctorOffer service vgs.devtools acme.requires vgs-smoke-devtool
 expect_poll "the offer's own scan raises the notice for the command" '["acme.requires", ["vgs-smoke-devtool"], ["vgs-smoke-devtool"], false]' notice_shown
+expect_poll "the fresh-scan notice holds the keyboard before Escape" true ipc smoke noticeFocused
 type_keys -k Escape || fail "sending Escape to the fresh-scan notice failed"
 expect_poll "Escape closes the fresh-scan notice" 0 layer_count vgs:notice
 # The doctor capability's other owners: the core's commands the scan

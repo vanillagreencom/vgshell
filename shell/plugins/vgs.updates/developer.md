@@ -149,14 +149,8 @@ The widget is always visible by default. `hideWhenCurrent`, off by default, hide
 
 ## Third-party review
 
-Before an update installs packages from outside the distribution's official repositories, an AI agent reviews them for supply-chain risk. On Arch these are AUR packages and packages from a pacman repository other than `core`, `extra`, `multilib` and the CachyOS repositories. The agent runs in a second window. When it is done, it tells the user to close the window, and the update continues.
+Updates uses the package owner's common review, settings and inline editor. It prepares effective configuration before pending queries and review, before its snapshot and credential session. Each upgrade and named rebuild consumes its own exact prepared decision once at common package admission. A missing helper is its own reviewed prerequisite transaction and ends its credential session before this preparation.
 
-The update installs what the review allows. A flagged package asks the user to skip it or install it anyway. A review that ends without a result asks whether to continue without a review or stop, and stops by default. The agent installs nothing and never gets administrator access. The default commands run the agent in a restricted mode: it asks before it runs a command and writes only in the review directory. An edited command runs as written.
+The saved review preference selects the initial choice, and every eligible transaction still asks. A submitted decline continues the package plan. Cancellation starts no mutation. Missing or incomplete evidence asks whether to continue without review, with No selected. A flagged package asks whether to skip it or install it anyway. The agent reads evidence as the user in this terminal and never installs a package.
 
-The settings, in the Update options group:
-
-- `reviewThirdParty`, Review third-party packages, on by default.
-- `reviewAgent`, AI agent: Claude Code or Codex, from the agents found. Empty takes the first one found, Claude Code first.
-- `reviewCommand`, Review command: Automatic runs the agent's default command, and an edited command runs as written. The review instructions, `review/third-party.md`, follow as its first prompt.
-
-With no agent found, the setting does nothing, the `reviewAgent` status says so, and updates install without a review. [pipeline.md § Third-party review](pipeline.md#third-party-review) holds the steps.
+[The package consent and ownership rules](../../../docs/architecture/commands-are-data.md#package-review) govern the shared implementation. [The pipeline contract](pipeline.md#third-party-review) governs Updates' consumption of it. Updates holds no copy of the agent table, prompt, verdict parser, install-script judge, review settings or second-window handshake.

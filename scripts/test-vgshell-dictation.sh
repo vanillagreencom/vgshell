@@ -34,6 +34,7 @@ case "\$*" in
     printf '{"primary":{"id":"%s","binary":"unused"},"overlays":[],"sources":[]}\n' "\$(cat "$tmp/package-manager")"
     ;;
   "run install --manager \$(cat "$tmp/package-manager") \$(cat "$tmp/package-name")")
+    case "\$(cat "$tmp/package-manager")" in pacman|aur) "$node_bin" "$repo/scripts/fixtures/pkg-review/route-owner.js" --proof "$tmp/route-proof.jsonl" --route dictation "\$@" ;; esac
     if [ -e "$tmp/install-failed" ]; then
       printf 'fixture-pkg: operation=install-failed\n' >&2
       exit 5
@@ -359,4 +360,5 @@ print("transport readings: bounded daemon/follow/run stdout and stderr; control 
 TEST
 }
 check "private dictation transports bound all child streams and retain finite results" transport_readings
+[[ ! -f $tmp/route-proof.jsonl ]] || sed 's/^/package-route-proof: /' "$tmp/route-proof.jsonl"
 rows_done "$suite"

@@ -340,7 +340,7 @@ const q = (argv, exits, parser, timeout) => ({ check: { argv, exits, parser, tim
 const ROWS = { "0": "rows" };
 const CHECK_ROWS = [
     ["pacman runs checkupdates", "pacman", "pacman", q(["checkupdates"], { "0": "updates", "2": "none" }, "arrow", 120)],
-    ["aur runs its helper", "aur", "yay", q(["yay", "-Qua"], { "0": "updates", "1": "none" }, "arrow", 120)],
+    ["aur runs its helper", "aur", "yay", { ...q(["yay", "-Qua"], { "0": "updates", "1": "none" }, "arrow", 120), origin: "aur" }],
     ["apt lists the upgradable packages", "apt", "apt-get", q(["apt", "list", "--upgradable"], ROWS, "apt", 120)],
     ["dnf5 answers in JSON", "dnf", "dnf5", q(["dnf5", "check-upgrade", "--json"], ROWS, "dnf5", 120)],
     ["dnf 4 answers in columns", "dnf", "dnf", q(["dnf", "-q", "check-update"], { "0": "none", "100": "updates" }, "dnf", 120)],
@@ -553,7 +553,7 @@ const CONTROLS = [
     ["rule:elevation command", "a picker's list elevates", TABLE, "list: [\"{bin}\", \"-Slq\"]", "list: [\"sudo\", \"{bin}\", \"-Slq\"]"],
     ["table", "a manager whose steps differ updates a package it must install", TABLE, "row.update !== null && JSON.stringify(row.update) === JSON.stringify(row.install))", "row.update !== null)"],
     ["table", "an owed plan drops its install steps", TABLE, "update.plan.steps = install.plan.steps.concat(update.plan.steps);", ""],
-    ["table", "an owed plan of one step drops the missing packages", TABLE, "return plan(id, \"update\", outdated.concat(missing), onPath);", "return plan(id, \"update\", outdated, onPath);"],
+    ["table", "an owed plan of one step drops the missing packages", TABLE, "return plan(id, \"update\", outdated.concat(missing), onPath, undefined, config);", "return plan(id, \"update\", outdated, onPath, undefined, config);"],
     ["table", "an upgrade drops the packages it keeps out", TABLE, "for (var k = 0; k < kept.length; k++) argv.push(row.ignore, kept[k]);", ""],
     ["table", "a manager without the option keeps a package out", TABLE, "if (kept.length > 0 && found.row.ignore === null) return", "if (false) return"],
     ["table", "a kept package's name is not judged", TABLE, "var all = names.concat(kept);", "var all = names;"],

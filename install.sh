@@ -344,7 +344,7 @@ EOF
   # The staged tree stays until its recorded run ends. Publication follows
   # only after every required install group succeeds.
   runtime_install() { # TREE
-    local tree="$1" detected selection manager names record code run row rest manifest id key="core/requirements-install"
+    local tree="$1" detected selection manager names record unsettled code run row rest manifest id key="core/requirements-install"
     local -a groups packages command
     detected="$("$tree/bin/vgshell" pkg detect --json)" || refuse 1 "requirements=detect-failed"
     selection="$(node -e '
@@ -400,6 +400,14 @@ process.stdout.write(String(record.code));
 ' "$record")" || refuse 1 "requirements=result-unreadable manager=$manager"
       fi
       [[ $code == 0 ]] || refuse 1 "requirements=install-failed manager=$manager code=$code"
+      # A successful review may skip names. Re-read the package table's
+      # installed query before publishing: exit zero alone cannot establish
+      # that every prerequisite was installed.
+      record="$("$tree/bin/vgshell" pkg settled --manager "$manager" "${packages[@]}")" || refuse 1 "requirements=settlement-unreadable manager=$manager"
+      unsettled="$(node -e 'const r=JSON.parse(process.argv[1]);if(r.settled!==true){process.stdout.write(r.missing.concat(r.unknown).join(", "));process.exit(1)}' "$record")" ||
+        refuse 1 "requirements=unsettled manager=$manager" \
+          "VGS was not installed because these required packages are not installed: $unsettled." \
+          "VGS needs these packages. Start the installer again and install them."
     done
   }
 

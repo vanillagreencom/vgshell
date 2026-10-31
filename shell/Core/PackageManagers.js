@@ -94,7 +94,9 @@ var MANAGERS = [
         id: "aur", role: "overlay", family: [], release: null, requires: "pacman", binaries: ["paru", "yay"], elevate: false,
         // paru src/query.rs print_upgrade_list and yay print.go
         // printUpdateList return 1 silently when no upgrades exist.
-        check: [{ binary: null, argv: ["{bin}", "-Qua"], exits: { "0": "updates", "1": "none" }, parser: "arrow", timeout: 120 }],
+        // This query and -Sua below operate on AUR targets only. A same-name
+        // sync-repository entry cannot prove that an upgrade is official.
+        check: [{ binary: null, argv: ["{bin}", "-Qua"], origin: "aur", exits: { "0": "updates", "1": "none" }, parser: "arrow", timeout: 120 }],
         install: [["{bin}", "-S", "--needed", "--", "{names}"]],
         reinstall: [["{bin}", "-S", "--", "{names}"]],
         update: [["{bin}", "-S", "--needed", "--", "{names}"]],
@@ -404,11 +406,13 @@ function presentManager(id, onPath) {
 // packages the upgrade keeps out, through the row's `ignore`: a manager
 // without one refuses them as `manager=<id> option=ignore
 // reason=unsupported`.
-function plan(id, action, names, onPath, ignored) {
+function plan(id, action, names, onPath, ignored, config) {
     var found = presentManager(id, onPath);
     if (!found.ok) return found;
     var template = found.row[action];
     if (template === null) return { ok: false, error: "manager=" + id + " action=" + action + " reason=unsupported" };
+    if (config !== undefined && ((id !== "pacman" && id !== "aur") || typeof config !== "string" || config.charAt(0) !== "/" || /[\u0000-\u001f\u007f]/.test(config)))
+        return { ok: false, error: "manager=" + id + " option=config reason=unsupported" };
     var kept = ignored === undefined ? [] : ignored;
     if (kept.length > 0 && found.row.ignore === null) return { ok: false, error: "manager=" + id + " option=ignore reason=unsupported" };
     var all = names.concat(kept);
@@ -424,6 +428,7 @@ function plan(id, action, names, onPath, ignored) {
             else if (step[j] === "{names@latest}") argv.push.apply(argv, names.map(function (name) { return name + "@latest"; }));
             else argv.push(step[j]);
         }
+        if (config !== undefined) argv.splice(1, 0, "--config", config);
         for (var k = 0; k < kept.length; k++) argv.push(row.ignore, kept[k]);
         return argv;
     });
@@ -437,13 +442,13 @@ function plan(id, action, names, onPath, ignored) {
 // to the current version; else the install steps over MISSING, then the
 // update steps over OUTDATED, since an update step of dnf, flatpak or mise
 // refuses or skips a package that is not installed.
-function planOwed(id, missing, outdated, onPath) {
+function planOwed(id, missing, outdated, onPath, config) {
     var row = managerRow(id);
     if (row !== null && row.update !== null && JSON.stringify(row.update) === JSON.stringify(row.install))
-        return plan(id, "update", outdated.concat(missing), onPath);
-    var install = plan(id, "install", missing, onPath);
+        return plan(id, "update", outdated.concat(missing), onPath, undefined, config);
+    var install = plan(id, "install", missing, onPath, undefined, config);
     if (!install.ok) return install;
-    var update = plan(id, "update", outdated, onPath);
+    var update = plan(id, "update", outdated, onPath, undefined, config);
     if (!update.ok) return update;
     update.plan.steps = install.plan.steps.concat(update.plan.steps);
     return update;
@@ -635,9 +640,27 @@ function checkFor(id, binary) {
         var c = variants[i];
         if (c.binary !== null && c.binary !== binary) continue;
         var argv = c.argv.map(function (token) { return token === "{bin}" ? binary : token; });
-        return { check: { argv: argv, exits: c.exits, parser: c.parser, timeout: c.timeout } };
+        var found = { check: { argv: argv, exits: c.exits, parser: c.parser, timeout: c.timeout } };
+        if (c.origin !== undefined) found.origin = c.origin;
+        return found;
     }
     return { skipped: "no-check" };
+}
+
+// Review must query the exact configuration the mutation will use.
+// checkupdates cannot select another pacman.conf; -Qu reads that config's
+// local sync databases instead, with freshness explicitly unknown to caller.
+function reviewCheckFor(id, binary, config) {
+    var found = checkFor(id, binary);
+    if (found.check === undefined) return found;
+    var check = found.check;
+    var complete = true;
+    if (id === "pacman" && config !== "/etc/pacman.conf") {
+        check.argv = [binary, "--config", config, "-Qu"];
+        check.exits = { "0": "updates", "1": "none" };
+        complete = false;
+    } else if (id === "aur") check.argv.splice(1, 0, "--config", config);
+    return { check: check, complete: complete, origin: found.origin || null };
 }
 
 // What CHECK's run printed means: `{ packages }` or `{ error }`. STATUS is

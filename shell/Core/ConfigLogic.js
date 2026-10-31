@@ -43,9 +43,10 @@ var HYPRLAND_KEY_NAME = /^[A-Za-z0-9_]+$/;
 // The version a configuration file declares. Each user-file edit of
 // PluginLogic.js (`withEnabled`, `withPlaced`, `withSetting`, `withKey`,
 // `withAppearance`) writes it into a user file that has none. Version 2
-// keeps every setting of a plugin in its plugins[] row; migrateConfig
-// rewrites a version 1 file.
-var CONFIG_VERSION = 2;
+// keeps every setting of a plugin in its plugins[] row; version 3 moves
+// saved package review choices to the package owner. Retained converters
+// run in saved-version order.
+var CONFIG_VERSION = 3;
 
 // The first defect of a configuration file (shipped or user), or "". The
 // file is an object; `version`, when present, is CONFIG_VERSION; `plugins`
@@ -106,6 +107,7 @@ function configError(config) {
     if (config.packages !== undefined) {
         if (!isPlainObject(config.packages))
             return "packages must be an object";
+        if (config.packages.review !== undefined && (bad = packageReviewError(config.packages.review)) !== "") return bad;
         if (config.packages.elevate !== undefined && PackageManagers.ELEVATORS.indexOf(config.packages.elevate) === -1)
             return "packages.elevate must be one of " + PackageManagers.ELEVATORS.join(", ") + ", got " + JSON.stringify(config.packages.elevate);
     }
@@ -168,19 +170,11 @@ function configError(config) {
     return "";
 }
 
-// The user file CONFIG as this version stores it: { config, migrated }.
-// Version 1 let a layout entry carry a widget's settings beside its id.
-// Each such key, in every section of SECTIONS, moves into the plugins[]
-// row with the entry's id, appended as { id } when the file has none: the
-// row's value wins where the row sets the key, and of two entries with one
-// id the first in section order wins. The entry keeps its id alone. No
-// manifest is read, so the key of a plugin that is not installed moves the
-// same way. A version 1 file takes this version; a file with no version,
-// which configError reads as this version, is migrated only when an entry
-// carries a key to move. Any other value comes back as it is, and a shape
-// the move cannot read is left for configError to name. CONFIG is not
-// changed.
-function migrateConfig(config) {
+// Retained version 1 to 2 conversion. Layout settings move to the plugin
+// row; its existing fields win, then the first layout entry in section
+// order. An unversioned file moves only when it holds layout settings.
+// Invalid shapes remain for the current judge and never reach a write.
+function migrateLayout(config) {
     var same = { config: config, migrated: false };
     if (!isPlainObject(config) || (config.version !== 1 && config.version !== undefined))
         return same;
@@ -209,8 +203,65 @@ function migrateConfig(config) {
     });
     if (config.version === undefined && !moved)
         return same;
+    out.version = 2;
+    return { config: out, migrated: true };
+}
+
+// D107 retains both converters and the shipped-only source datum, including
+// skipped releases. Destination presence wins independently for each field.
+function migrateConfig(config, packageReviewSettingsSource) {
+    var same = { config: config, migrated: false };
+    if (!isPlainObject(config) || (config.version !== undefined && config.version !== 1 && config.version !== 2)) return same;
+    var layout = migrateLayout(config);
+    var out = clone(layout.config);
+    var source = Array.isArray(out.plugins) ? out.plugins.filter(function (row) {
+        return isPlainObject(row) && row.id === packageReviewSettingsSource;
+    }) : [];
+    var fields = { reviewThirdParty: "enabled", reviewAgent: "agent", reviewCommand: "command" };
+    var moved = false;
+    for (var i = 0; i < source.length; i++) {
+        var row = source[i];
+        var names = Object.keys(fields);
+        for (var j = 0; j < names.length; j++) {
+            var old = names[j], key = fields[old];
+            if (!hasOwn(row, old)) continue;
+            if (typeof row[old] !== (key === "enabled" ? "boolean" : "string"))
+                return { config: config, migrated: false, error: "package-review-source-type field=" + old };
+            if (out.packages === undefined) out.packages = {};
+            if (!isPlainObject(out.packages)) return { config: config, migrated: false, error: "packages-type" };
+            if (out.packages.review === undefined) out.packages.review = {};
+            if (!isPlainObject(out.packages.review)) return { config: config, migrated: false, error: "package-review-type" };
+            if (!hasOwn(out.packages.review, key)) out.packages.review[key] = row[old];
+            delete row[old];
+            moved = true;
+        }
+    }
+    if (config.version === undefined && !layout.migrated && !moved) return same;
     out.version = CONFIG_VERSION;
     return { config: out, migrated: true };
+}
+
+function packageReviewError(settings) {
+    if (!isPlainObject(settings)) return "packages.review must be an object";
+    var keys = Object.keys(settings);
+    for (var i = 0; i < keys.length; i++) {
+        var key = keys[i];
+        if (["enabled", "agent", "command"].indexOf(key) < 0) return "packages.review has unknown field " + key;
+        if (typeof settings[key] !== (key === "enabled" ? "boolean" : "string")) return "packages.review." + key + " has invalid type";
+    }
+    return "";
+}
+
+// The editor supplies only its review choices. All other user settings stay
+// with Config, and an untouched optional preference remains absent.
+function withPackageReview(config, settings) {
+    var bad = packageReviewError(settings);
+    if (bad !== "") return { ok: false, error: bad };
+    var out = config === null ? {} : clone(config);
+    out.version = CONFIG_VERSION;
+    if (out.packages === undefined) out.packages = {};
+    out.packages.review = clone(settings);
+    return { ok: true, config: out };
 }
 
 // The configuration CONFIG with each plugin id RENAMES maps, a former id

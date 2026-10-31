@@ -66,6 +66,18 @@
 //       they end, it runs `vgshell plugin rescan`, whose `shell=` line follows
 //       them, so a running shell reports the requirements the change
 //       brought or took away; the exit status stays the steps'.
+//   vgshell-pkg review-settings
+//       edit the shared optional review preference, agent and command inline.
+//       Config owns a live save; the offline writer compares original bytes.
+//   vgshell-pkg settled --manager <id> <name>...
+//       read-only installed-name postcheck; exits 1 if any name is missing.
+//   vgshell-pkg review-transaction
+//       Updates allocates its private transaction beneath the stable agent
+//       workspace. It owns the outer EXIT cleanup of the returned directory.
+//   vgshell-pkg review --request <private-file> --result <private-empty-file>
+//       Updates prepares one user-side review. Its private one-use receipt
+//       binds each later run's manager, config/includes, pending targets,
+//       origin, helper and fetched recipes; --review-receipt consumes it.
 //   vgshell-pkg ensure-helper
 //       install Paru from its AUR recipe when no AUR helper is present.
 //       Runs only in a terminal, with the package manager's own questions.
@@ -400,7 +412,7 @@ function configuredElevator() {
     const logic = require(path.join(__dirname, "lib", "qml-library.js")).load(path.join(repo, "shell", "Core", "ConfigLogic.js"));
     const configHome = process.env.XDG_CONFIG_HOME || path.join(process.env.HOME || os.homedir(), ".config");
     const shipped = readConfig(logic, SHIPPED_CONFIG, "shipped-config");
-    const user = readUserConfig(logic, path.join(configHome, "vgshell", "shell.json"), "user-config");
+    const user = readUserConfig(logic, path.join(configHome, "vgshell", "shell.json"), "user-config", shipped.packageReviewSettingsSource);
     const packages = logic.effectiveConfig(shipped, user).packages;
     return packages === undefined ? undefined : packages.elevate;
 }
@@ -419,7 +431,11 @@ function planElevator(plan) {
 // so no shell reads them, and run from $HOME, as a check's queries do, so
 // no project's configuration in the caller's directory (a mise.toml) makes
 // a step do other than what the check counted.
-function run(action, manager, names, ignored, installs, config) {
+async function run(action, manager, names, ignored, installs, config, receipt) {
+    const admitted = await require("./lib/pkg-review.js").admit(action, manager, names, ignored, installs, config, receipt);
+    if (admitted.stop) { process.exitCode = admitted.status; return; }
+    ({ names, ignored, installs, config } = admitted);
+    if (action !== "upgrade" && names.length === 0 && (!installs || installs.length === 0)) return;
     let r;
     if (action === "engine-archive") {
         const file = names[0], engine = require(path.join(__dirname, "lib", "engine.js"));
@@ -431,13 +447,9 @@ function run(action, manager, names, ignored, installs, config) {
         const found = table.presentManager(manager, onPath);
         if (!found.ok) refuse(found.error);
         r = { ok: true, plan: { elevate: true, steps: [[found.binary, ...found.row.engineArchive, file]] } };
-    } else r = installs !== undefined && installs.length > 0 ? table.planOwed(manager, installs, names, onPath) : table.plan(manager, action, names, onPath, ignored);
+    } else r = installs !== undefined && installs.length > 0 ? table.planOwed(manager, installs, names, onPath, config) : table.plan(manager, action, names, onPath, ignored, config);
     if (!r.ok) refuse(r.error);
-    if (config !== undefined) {
-        if (action !== "upgrade" || !["pacman", "aur"].includes(manager)) refuse("manager=" + manager + " option=config reason=unsupported");
-        for (const step of r.plan.steps) step.splice(1, 0, "--config", config);
-    }
-    let command = "none";
+    let command = manager === "aur" ? "build" : "none";
     const chosen = planElevator(r.plan);
     if (chosen !== null) {
         if (!chosen.ok) refuse(chosen.error);
@@ -448,7 +460,7 @@ function run(action, manager, names, ignored, installs, config) {
     return terminalRun(argv);
 }
 
-function terminalRun(argv) {
+function terminalRun(argv, rescan = true) {
     return new Promise((resolve, reject) => {
         const child = childProcess.spawn(commandFile("bash"), argv, { stdio: "inherit", cwd: process.env.HOME || "/" });
         // The terminal sends Ctrl-C and a hangup to its whole foreground
@@ -460,7 +472,7 @@ function terminalRun(argv) {
         process.on("SIGTERM", () => child.kill("SIGTERM"));
         child.on("error", e => reject(new Refusal("runner=failed error=" + e.code)));
         child.on("close", (status, signal) => {
-            rescanShell();
+            if (rescan) rescanShell();
             process.exit(status !== null ? status : 128 + os.constants.signals[signal]);
         });
     });
@@ -561,7 +573,7 @@ function pick(action, manager) {
 }
 
 const [verb, ...args] = process.argv.slice(2);
-main(() => {
+main(async () => {
     switch (verb) {
     case "detect": {
         let json = false;
@@ -588,6 +600,19 @@ main(() => {
         process.stdout.write(lines.join("\n") + "\n");
         break;
     }
+    case "settled": {
+        const { manager, names } = managerAndNames(args);
+        if (manager === null || names.length === 0) usage("settled=manager-and-names");
+        const id = manager === "aur" ? "pacman" : manager;
+        const missing = [], unknown = [];
+        for (const name of names) {
+            const result = queryRun(id, "installed", name);
+            if (result.status === 0 && table.queryAnswer(id, "installed", result.stdout) !== null) continue;
+            if (result.status === 1) missing.push(name); else unknown.push(name);
+        }
+        process.stdout.write(JSON.stringify({ settled: missing.length === 0 && unknown.length === 0, missing, unknown }) + "\n");
+        break;
+    }
     case "present": {
         if (args.length === 0) usage("command=missing");
         for (const command of args)
@@ -609,18 +634,74 @@ main(() => {
         process.stdout.write(JSON.stringify(Object.assign({}, r.plan, { elevator: planElevator(r.plan) })) + "\n");
         break;
     }
+    case "review-transaction": {
+        if (args.length) usage("review-transaction=arguments");
+        process.stdout.write(require("./lib/pkg-review.js").createTransaction() + "\n"); break;
+    }
+    case "review": {
+        if (args.length !== 4 || args[0] !== "--request" || args[2] !== "--result") usage("review=arguments");
+        refuseOutsideTerminal(verb, SHELL_CALLER);
+        process.exitCode = await require("./lib/pkg-review.js").prepare(args[1], args[3]);
+        break;
+    }
+    case "review-custom-mode": {
+        if (args.length !== 1) usage("review-custom-mode=arguments");
+        process.stdout.write(require("./lib/pkg-review.js").customMode(JSON.parse(args[0])) + "\n"); break;
+    }
+    case "review-custom-consume": {
+        if (args.length !== 2) usage("review-custom-consume=arguments");
+        refuseOutsideTerminal(verb, SHELL_CALLER);
+        require("./lib/pkg-review.js").consumeCustom(args[0], JSON.parse(args[1])); break;
+    }
+    case "review-settings": {
+        if (args.length) usage("review-settings=arguments");
+        refuseOutsideTerminal(verb, SHELL_CALLER);
+        return terminalRun([path.join(__dirname, "lib/pkg-review.sh"), "settings", path.join(__dirname, "vgshell-pkg")], false);
+    }
+    case "review-settings-read":
+        process.stdout.write(JSON.stringify(require("./lib/pkg-review.js").settingsRead()) + "\n"); break;
+    case "review-settings-write": {
+        if (args.length !== 2) usage("review-settings-write=arguments");
+        refuseOutsideTerminal(verb, SHELL_CALLER);
+        process.stdout.write(JSON.stringify(require("./lib/pkg-review.js").settingsWrite(JSON.parse(args[0]), JSON.parse(args[1]))) + "\n"); break;
+    }
+    case "review-settings-agents": {
+        // One line per agent for the editor: id, label and found or missing, tab-separated.
+        const { judge, available } = require("./lib/pkg-review.js");
+        process.stdout.write(judge.REVIEW_AGENTS.map(a => [a.id, a.label, available(a.id) ? "found" : "missing"].join("\t") + "\n").join("")); break;
+    }
+    case "review-settings-presets": {
+        const judge = require("./lib/pkg-review.js").judge;
+        process.stdout.write(judge.REVIEW_AGENTS.map(a => a.command.join(" ")).join("\n") + "\n"); break;
+    }
+    case "review-settings-plan": {
+        if (args.length !== 1) usage("review-settings-plan=arguments");
+        const judge = require("./lib/pkg-review.js").judge, settings = JSON.parse(args[0]);
+        const command = judge.commandWords(settings.command || "");
+        const found = [...judge.REVIEW_AGENTS.map(a => a.id), ...command.slice(0, 1)].filter(require("./lib/pkg-review.js").available);
+        const plan = judge.reviewPlan(settings, found);
+        // One word per line: commandWords and the agent table hold no line feed.
+        process.stdout.write((plan.command || []).map(word => word + "\n").join("")); break;
+    }
     case "ensure-helper": {
         if (args.length !== 0) usage("ensure-helper=arguments");
         refuseOutsideTerminal(verb, SHELL_CALLER);
         const found = table.detect(osRelease(), onPath);
         if (found.overlays.some(row => row.id === "aur")) break;
         if (found.primary?.id !== "pacman") refuse("helper=unsupported manager=" + (found.primary?.id || "none"));
+        const admitted = await require("./lib/pkg-review.js").bootstrap();
+        if (admitted !== 0) { process.exitCode = admitted; break; }
         return terminalRun([path.join(__dirname, "lib", "aur-helper.sh"), path.join(__dirname, "vgshell")]);
     }
     case "run": {
         const [action, ...rest] = args;
         if (!table.ACTIONS.includes(action) && action !== "engine-archive") usage("action=" + (action === undefined ? "missing" : action));
         let { manager, names } = managerAndNames(rest);
+        let receipt;
+        if (names[0] === "--review-receipt") {
+            if (!names[1]) usage("option=--review-receipt value=missing");
+            receipt = names[1]; names = names.slice(2);
+        }
         let config;
         if (names[0] === "--config") {
             if (!names[1]) usage("option=--config value=missing");
@@ -642,7 +723,7 @@ main(() => {
         if (action === "upgrade" && names.length > 0) usage("argument=" + names[0]);
         if (action !== "upgrade" && names.length === 0) usage("names=missing");
         refuseOutsideTerminal(verb, SHELL_CALLER);
-        return run(action, manager === null ? primaryId() : manager, names, ignored, installs, config);
+        return run(action, manager === null ? primaryId() : manager, names, ignored, installs, config, receipt);
     }
     case "install":
     case "remove": {

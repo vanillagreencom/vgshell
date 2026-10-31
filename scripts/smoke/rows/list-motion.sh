@@ -8,7 +8,7 @@
 # pointer leaves the plate on the pointed row, and the launcher's selection
 # goes back to the keys' row when the pointer leaves the list. The rows run with the launcher disabled as the rows
 # before left it, and leave it so, with the default theme.
-# inputs: shell/Ui/layout/ListCursor* shell/Ui/layout/ListItem.qml shell/Commons/Tokens.js scripts/smoke/fixtures/list-cursor/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Commons/Reply.js shell/plugins/vgs.launcher/*
+# inputs: shell/Ui/foundation/KeyNav.qml shell/Ui/foundation/KeyNavLogic.js shell/Ui/layout/ListCursor* shell/Ui/layout/ListItem.qml shell/Commons/Tokens.js scripts/smoke/fixtures/list-cursor/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Commons/Reply.js shell/plugins/vgs.launcher/*
 set -euo pipefail
 motion_theme="$home/.config/vgshell/theme.json"
 write_motion_theme() { printf '%s\n' "$1" >"$motion_theme.tmp" && mv -T -- "$motion_theme.tmp" "$motion_theme"; }
@@ -123,12 +123,18 @@ cursor_settled() {
   return 1
 }
 hover_prime_keys() {
-  type_keys -k Home || return
+  # The Settings search is a text entry: Home keeps its caret; KeyNav uses
+  # Ctrl+Home to select the first row before each alternating hover.
+  type_keys -M ctrl -k Home -m ctrl || return
   cursor_settled || return
   if [[ $1 == 1 ]]; then
     type_keys -k Down || return
     cursor_settled || return
   fi
+  local current scroll
+  current="$(ipc smoke readShownDescendant window vgs.settings ListPage current)" || return
+  scroll="$(ipc smoke scrollAreas window vgs.settings)" || return
+  echo "        hover primed: wanted=$1 current=$current scroll=$scroll" >&2
 }
 hover_travel() {
   local i reading point x y prev="" stable=0 targets moves frames other

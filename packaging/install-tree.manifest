@@ -15,9 +15,14 @@ f share/vgshell/bin/lib/logo.txt
 f share/vgshell/bin/lib/owned-group.py
 f share/vgshell/bin/lib/owned-group.sh
 f share/vgshell/bin/lib/page-rows.js
+f share/vgshell/bin/lib/pkg-config.js
+f share/vgshell/bin/lib/pkg-review-settings.sh
+f share/vgshell/bin/lib/pkg-review.js
+f share/vgshell/bin/lib/pkg-review.sh
 f share/vgshell/bin/lib/pkg-run.sh
 f share/vgshell/bin/lib/post-install.txt
 f share/vgshell/bin/lib/qml-library.js
+f share/vgshell/bin/lib/review/third-party.md
 f share/vgshell/bin/lib/self.js
 f share/vgshell/bin/lib/tailscale-account.py
 f share/vgshell/bin/lib/theme-backgrounds.js
@@ -178,6 +183,7 @@ f share/vgshell/shell/Core/Notices.qml
 f share/vgshell/shell/Core/NotificationHub.qml
 f share/vgshell/shell/Core/Notifier.qml
 f share/vgshell/shell/Core/PackageManagers.js
+f share/vgshell/shell/Core/PackageReview.js
 f share/vgshell/shell/Core/Pads.js
 f share/vgshell/shell/Core/PluginLogic.js
 f share/vgshell/shell/Core/PluginStatus.qml
@@ -808,10 +814,8 @@ f share/vgshell/shell/plugins/vgs.updates/Window.qml
 f share/vgshell/shell/plugins/vgs.updates/bin/check
 f share/vgshell/shell/plugins/vgs.updates/bin/facts
 f share/vgshell/shell/plugins/vgs.updates/manifest.json
-f share/vgshell/shell/plugins/vgs.updates/review/third-party.md
 f share/vgshell/shell/plugins/vgs.updates/tui/log.sh
 f share/vgshell/shell/plugins/vgs.updates/tui/pipeline.sh
-f share/vgshell/shell/plugins/vgs.updates/tui/review.sh
 f share/vgshell/shell/plugins/vgs.updates/tui/update-source.sh
 f share/vgshell/shell/plugins/vgs.updates/tui/update.sh
 f share/vgshell/shell/plugins/vgs.voice/Appearance.js

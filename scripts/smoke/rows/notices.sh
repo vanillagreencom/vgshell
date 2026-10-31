@@ -48,7 +48,7 @@
 # alone with Close. The enable trigger's control is
 # scripts/smoke/rows/notices-control.sh, the suite's last row: a shell copy
 # without the trigger raises no notice.
-# inputs: scripts/smoke/fixtures/plugins/acme.needs/* shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/foundation/Scrim.qml shell/Ui/feedback/Badge.qml shell/Ui/foundation/Divider.qml shell/Ui/layout/GroupList.qml shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/fixtures/plugins/acme.layers/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/rows/layers.sh scripts/smoke/rows/manager.sh scripts/smoke/rows/settings.sh bin/vgshell-tui bin/vgshell-scan shell/Core/Registry.qml shell/Core/Capabilities.qml
+# inputs: scripts/smoke/fixtures/plugins/acme.needs/* shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/foundation/Scrim.qml shell/Ui/feedback/Badge.qml shell/Ui/foundation/Divider.qml shell/Ui/layout/GroupList.qml shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/fixtures/plugins/acme.layers/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/rows/layers.sh scripts/smoke/rows/manager.sh scripts/smoke/rows/settings.sh bin/vgshell-tui bin/vgshell-scan shell/Core/Registry.qml shell/Core/Capabilities.qml scripts/fixtures/pkg-review/* bin/lib/pkg-review.js bin/lib/pkg-review.sh bin/lib/pkg-review-settings.sh bin/lib/pkg-config.js bin/lib/judge-files.js shell/Core/PackageReview.js config/shell.json
 set -euo pipefail
 leak_plugin_setup acme.layers false || { fail "notices: fixture precondition failed"; return 1; }
 needs_src="$sandbox/src/acme.needs"
@@ -61,6 +61,34 @@ if needs_git init -q && needs_git add -A && needs_git commit -q -m fixture; then
 # judge both run under node; each stand-in is swapped in whole.
 pkg_real="$sandbox/vgshell-pkg.real"
 cp -- "$repo/bin/vgshell-pkg" "$pkg_real"
+# The core presenter delegates its real requirement argv into the common
+# package owner in an isolated stand-in world, before its end record. Keep
+# detection fixtures and requirement postchecks owned by this row.
+notice_review_tree="$sandbox/notice-review-owner"
+mkdir -p "$notice_review_tree/bin"
+cp -- "$pkg_real" "$notice_review_tree/bin/vgshell-pkg"
+ln -s "$repo/bin/lib" "$notice_review_tree/bin/lib"
+for entry in shell config; do ln -s "$repo/$entry" "$notice_review_tree/$entry"; done
+cp -- "$tui_terminal" "$sandbox/notice-terminal-before"
+python3 - "$tui_terminal" "$repo/scripts/fixtures/pkg-review/route-owner.js" "$notice_review_tree/bin/vgshell-pkg" "$sandbox/notice-review.jsonl" <<'PY_NOTICE'
+import pathlib, sys, shlex
+p=pathlib.Path(sys.argv[1]); text=p.read_text()
+needle='if [[ $window == yes ]]; then\n'
+assert text.count(needle)==2
+node_args=' '.join(shlex.quote(s) for s in ['/usr/bin/node',sys.argv[2],'--owner',sys.argv[3],'--proof',sys.argv[4]])
+addition='''if [[ $key == core/requirements-install || $key == core/requirements-update ]]; then
+  bridge=('''+node_args+''' --route "$key" "${@:4}")
+  if [[ -e $hold ]]; then
+    run[${#run[@]}-3]+='; shift; exec "$@"'
+    run+=("${bridge[@]}")
+  else
+    unset 'run[-1]'
+    run+=("${bridge[@]}")
+  fi
+fi
+'''
+p.write_text(text.replace(needle,addition+needle,1))
+PY_NOTICE
 pkg_stub() { # DETECT_JSON, or "" for a detection that fails; HOLDER aur|none
   local body holder="${2:-none}" aur_owner=null
   if [[ $holder == aur ]]; then
@@ -614,3 +642,13 @@ expect "disabling the needs fixture is allowed" ok ipc shell setPluginEnabled ac
 remove_out() { local out; out="$("${shell_env[@]}" "$repo/bin/vgshell" plugin remove --yes acme.needs 2>>"$sandbox/ipc.log")" || return 1; printf '%s\n' "${out%%$'\n'*}"; }
 expect "the needs fixture is removed" "ok removed=acme.needs" remove_out
 expect_poll "the removed fixture leaves the list" False plugin_known acme.needs
+
+cp -- "$sandbox/notice-terminal-before" "$tui_terminal"
+python3 - "$sandbox/notice-review.jsonl" <<'PY_NOTICE_PROOF'
+import json,sys
+rows=[json.loads(line) for line in open(sys.argv[1])]
+assert any(r['args'][:2]==['run','install'] for r in rows),rows
+assert any(r['args'][:2]==['run','update'] and '--install' not in r['args'] for r in rows),rows
+assert any(r['args'][:2]==['run','update'] and '--install' in r['args'] for r in rows),rows
+for row in rows: print('package-route-proof: '+json.dumps(row))
+PY_NOTICE_PROOF

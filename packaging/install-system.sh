@@ -75,7 +75,6 @@ skip_shell_markdown() { # RELATIVE_PATH
   [[ $1 == shell/plugins/vgs.jarvis/backend/skills/voice/*.md ]] && return 1
   [[ $1 == shell/plugins/vgs.jarvis/backend/skills/computer/*.md ]] && return 1
   [[ $1 == shell/plugins/vgs.jarvis/backend/skills/browser/SKILL.md ]] && return 1
-  [[ $1 == shell/plugins/vgs.updates/review/*.md ]] && return 1
   [[ $1 == *.md ]]
 }
 

@@ -3,7 +3,7 @@
 # `vgshell plugin requirements --json`'s documented shape (bin/vgshell header) and
 # the manifest's agent-browser entry. Logs argv; installs nothing: an install
 # copies the fixture driver into the driverless PATH directory.
-import json, pathlib, shutil, sys
+import json, pathlib, shutil, subprocess, sys
 root = pathlib.Path(__file__).resolve().parents[2]
 mode_path = root / 'browser-mode.json'
 mode = json.loads(mode_path.read_text()) if mode_path.exists() else {}
@@ -17,6 +17,8 @@ if args == ['plugin', 'requirements', '--json', 'vgs.jarvis']:
         'state': 'missing', 'package': mode.get('driverPackage', {'manager': 'aur', 'name': 'agent-browser-bin'})}]))
     sys.exit(0)
 if args[:3] == ['pkg', 'run', 'install']:
+    if args[4] in ('pacman', 'aur'):
+        subprocess.run([shutil.which('node'), '__PACKAGE_REVIEW_ROUTE_OWNER__', '--proof', str(root / 'route-proof.jsonl'), '--route', 'jarvis-browser', *args[1:]], check=True)
     if mode.get('driverReachable', True):
         target = root / 'driverless' / 'agent-browser'
         shutil.copyfile(root / 'standins' / 'agent-browser', target)

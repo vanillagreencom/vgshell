@@ -140,6 +140,17 @@ ShellRoot {
         HyprlandLayer {}
     }
 
+    // Typed IPC arguments are required by Quickshell 0.3.1 IpcHandler:
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/IpcHandler/.
+    IpcHandler {
+        target: "config"
+        function packageReviewRead(): string {
+            if (!Config.ready || (Config.userState !== "loaded" && Config.userState !== "absent")) return "refused: package-review=user-config-unavailable";
+            return JSON.stringify({ version: 1, text: Config.userText, settings: Config.effective.packages === undefined ? {} : (Config.effective.packages.review || {}) });
+        }
+        function packageReviewWrite(request: string): string { return Config.packageReviewWrite(request); }
+    }
+
     IpcHandler {
         target: "shell"
 

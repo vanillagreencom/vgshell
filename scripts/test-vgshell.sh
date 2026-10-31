@@ -986,7 +986,7 @@ check "add enables and places a widget plugin an earlier install left disabled" 
 # row, the entry holding its id alone.
 version_one_user='{ "version": 1, "bar": { "id": "vgs.bar", "layout": { "left": [], "center": [], "right": [ { "id": "acme.other", "size": 3 } ] } } }'
 migrated_on_add() { # CONFIG_HOME
-  json_is "$1/vgshell/shell.json" 'd.get("version") == 2 and {"id": "acme.other", "size": 3} in d.get("plugins", []) and [e for e in d["bar"]["layout"]["right"] if e["id"] == "acme.other"] == [{"id": "acme.other"}]'
+  json_is "$1/vgshell/shell.json" 'd.get("version") == 3 and {"id": "acme.other", "size": 3} in d.get("plugins", []) and [e for e in d["bar"]["layout"]["right"] if e["id"] == "acme.other"] == [{"id": "acme.other"}]'
 }
 cfg="$tmp/cfg-version-one"; mkdir -p "$cfg/vgshell"
 printf '%s\n' "$version_one_user" >"$cfg/vgshell/shell.json"
@@ -1003,7 +1003,7 @@ import sys
 src, dst, old, new = sys.argv[1:]
 text = open(src).read()
 if text.count(old) != 1: sys.exit("occurs %d times" % text.count(old))
-open(dst, "w").write(text.replace(old, new))' "$repo/bin/vgshell-plugin-judge" "$unmigrated/bin/vgshell-plugin-judge" 'edit(current === undefined ? null : readUserConfig(configLogic, userPath, "user-config"))' 'edit(current === undefined ? null : readConfig(configLogic, userPath, "user-config"))'
+open(dst, "w").write(text.replace(old, new))' "$repo/bin/vgshell-plugin-judge" "$unmigrated/bin/vgshell-plugin-judge" 'edit(current === undefined ? null : readUserConfig(configLogic, userPath, "user-config", source))' 'edit(current === undefined ? null : readConfig(configLogic, userPath, "user-config"))'
 chmod +x "$unmigrated/bin/vgshell-plugin-judge"
 cfg="$tmp/cfg-version-one-mutant"; mkdir -p "$cfg/vgshell"
 printf '%s\n' "$version_one_user" >"$cfg/vgshell/shell.json"

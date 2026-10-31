@@ -46,6 +46,11 @@ stub pacman '[ "${STUB_FAIL:-}" != "$1" ] || exit 7
 printf '#!/bin/sh\necho "vgs-need-old 1.2.3"\n' >"$stubs/vgs-need-old"
 chmod +x "$stubs/vgs-need-old"
 stub paru ''
+# Common review is real; only the gum renderer submits decline, preserving
+# this suite's pre-existing install/rescan assertions without a live agent.
+review_tools="$tmp/review-tools"; mkdir -p "$review_tools"
+printf '#!/bin/sh\ncase "$1" in choose) echo "Install without review" ;; style) : ;; esac\n' >"$review_tools/gum"
+chmod +x "$review_tools/gum"
 stub flatpak ''
 stub nix ''
 stub qs 'echo "ok scan=1"'
@@ -88,7 +93,9 @@ req() {
   while [[ $1 != -- ]]; do extra+=("$1"); shift; done
   shift
   : >"$log"
-  words=("${base_env[@]}" PATH="$stubs:${REQ_PATH:-$base_path}" XDG_CONFIG_HOME="$cfg" XDG_RUNTIME_DIR="$rt" LOG="$log" "${extra[@]}")
+  local review_path=""
+  [[ $mode != terminal ]] || review_path="$review_tools:"
+  words=("${base_env[@]}" PATH="$review_path$stubs:${REQ_PATH:-$base_path}" XDG_CONFIG_HOME="$cfg" XDG_RUNTIME_DIR="$rt" LOG="$log" "${extra[@]}")
   local bound=(unshare -rm sh -c 'mount --bind "$1" /etc/os-release && shift && exec "$@"' sh "${REQ_OS_RELEASE:-$os_release}")
   status=0
   : >"$tmp/err"
@@ -354,7 +361,7 @@ declare -a CONTROLS=(
   "add reports the missing requirements" vgshell '  offer_requirements "$id"' '' row_offer_no_terminal
   "add asks only on a terminal" vgshell '  if ! [[ -t 0 ]]; then' '  if false; then' row_offer_no_terminal
   "add installs only on yes" vgshell '    *) return 0 ;;' '    *) ;;' row_offer_declined
-  "a run asks for the rescan" vgshell-pkg '            rescanShell();' '' row_run_rescans
+  "a run asks for the rescan" vgshell-pkg '            if (rescan) rescanShell();' '' row_run_rescans
   "doctor reports enabled plugins only" vgshell-plugin-judge '.filter(id => logic.isEnabled(effective, plugins.get(id).manifest, defaultBarId))' '' row_doctor
   "the core's commands are looked up on PATH" vgshell-plugin-judge '.filter(name => !onPath(name))' '.filter(name => false)' row_doctor
   "a row carries this system's package" vgshell-plugin-judge '{ package: picks[i] }' '{ package: null }' row_requirements_json

@@ -610,7 +610,7 @@ updates_revision="$(ipc shell listPlugins | py_reply 'import json,sys; print([p[
 updates_snapshot="$rt_dir/vgshell-sources-$shell_qs_pid/$updates_revision"
 forget_record
 packages_menu "Update"
-expect "the Packages menu lists Install, Update and Remove in order" '["Install", "Update", "Remove"]' tui_labels
+expect "the Packages menu lists its actions, then the shared package review settings" '["Install", "Update", "Remove", "Package review settings"]' tui_labels
 pick_tui Update
 expect_poll "Update hands the terminal the updates plugin's Update script" "$(update_words "$updates_snapshot")" recorded
 expect_poll "Update closes the launcher" 0 layer_count vgs:overlay

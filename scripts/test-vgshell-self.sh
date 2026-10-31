@@ -507,7 +507,7 @@ inst_env=("${saved_env[@]}")
 # The real package table runs stand-in helpers under each private os-release.
 migration_source="$tmp/migration-source/vgshell-$release"
 source_tree "$migration_source" "$release"
-cp -- "$repo/shell/Core/ConfigLogic.js" "$migration_source/shell/Core/"
+cp -- "$repo/shell/Core/ConfigLogic.js" "$repo/shell/Core/PackageReview.js" "$migration_source/shell/Core/"
 cat >"$migration_source/bin/vgshell-tui" <<'PRESENTER'
 #!/bin/bash
 [[ $1 == present ]] || exit 61
@@ -543,11 +543,16 @@ cat >"$migration_helpers/qs" <<'QS'
 [[ $* == --version ]] || exit 64
 printf 'Quickshell 0.3.2 (revision stub, distributed by VGS %s (package: vgshell-quickshell))\n' "$(cat "$ENGINE_STATE/release")"
 QS
+cat >"$migration_helpers/gum" <<'GUM'
+#!/bin/sh
+case "$1" in choose) printf '{"kind":"offer","choice":"decline"}\n' >>"$ENGINE_STATE/review-proof.jsonl"; printf 'Install without review\n' ;; style) : ;; esac
+GUM
 cat >"$migration_helpers/paru" <<'PARU'
 #!/bin/bash
 [[ $* == '-S --needed -- vgshell-quickshell' ]] || exit 63
 [[ -t 0 && -t 1 && -t 2 ]] || exit 65
 printf '%s\n' "$*" >>"$ENGINE_STATE/install.log"
+printf '{"kind":"mutation","argv":["paru","-S","--needed","--","vgshell-quickshell"]}\n' >>"$ENGINE_STATE/review-proof.jsonl"
 printf 'Replace stock engine? [y/N] '
 read -r answer || exit 130
 [[ $answer == y ]] || exit 0
@@ -594,7 +599,7 @@ migration_run() { # NAME DISTRIBUTION IDENTITY ANSWER WANT_EXIT
   printf '1\n' >"$state/release"
   printf 'ID=%s\n' "$distro" >"$state/os-release"
   [[ $distro != debian ]] || printf 'VERSION_CODENAME=forky\n' >>"$state/os-release"
-  for binary in qs sudo; do ln -s "$migration_helpers/$binary" "$helperdir/$binary"; done
+  for binary in qs sudo gum; do ln -s "$migration_helpers/$binary" "$helperdir/$binary"; done
   if [[ $distro == arch ]]; then
     for binary in pacman paru; do ln -s "$migration_helpers/$binary" "$helperdir/$binary"; done
   elif [[ $distro == debian ]]; then
@@ -818,11 +823,15 @@ else if(args[0]==="ensure-helper") {
  fs.unlinkSync(path.join(root,"no-helper"));
 }
 else if(args.join(" ")==="run reinstall --manager aur vgshell") {
+ const bridge=fs.readFileSync(path.join(root,"review-bridge"),"utf8").trim();
+ const proof=require("node:child_process").spawnSync(process.execPath,[bridge,"--proof",path.join(root,"review-proof.jsonl"),"--route","self-repair",...args],{stdio:"inherit",env:{PATH:"/usr/bin:/bin",TMPDIR:path.dirname(root)}});
+ if(proof.status!==0)process.exit(proof.status||1);
  if(fs.existsSync(path.join(root,"no-helper"))) process.exit(9);
  fs.copyFileSync(path.join(root,"baseline-persona"),path.join(root,"packaging/jarvis-home/.agents/skills/jarvis/persona.md"));
  fs.writeFileSync(path.join(root,"reinstall.json"),JSON.stringify(args));
 } else process.exit(99);
 REPAIR_PKG
+printf '%s\n' "$repo/scripts/fixtures/pkg-review/route-owner.js" >"$repair_package/review-bridge"
 cp -- "$repair_source/$repair_persona" "$repair_package/baseline-persona"
 inst_env=()
 INST_BIN="$repair_package/bin/vgshell" on_terminal y self repair
@@ -869,4 +878,13 @@ check "engine identity survives checkout publication through a symlink" root_ide
 copy_with uncanonical-engine "$repo/bin/lib/engine.js" 'path.join(fs.realpathSync(path.dirname(tree)), path.basename(tree))' 'path.resolve(tree)'
 if root_identity "$copy" >"$tmp/identity-control.log" 2>&1; then fail "control: uncanonical origin passes identity"; else ok "control: uncanonical origin fails identity"; fi
 
+for proof in "$tmp"/engine-arch-*/review-proof.jsonl; do
+  [[ ! -f $proof ]] || "$node_bin" - "$proof" <<'ENGINE_PROOF'
+const fs=require("fs"),assert=require("assert/strict"),file=process.argv[2],calls=fs.readFileSync(file,"utf8").trim().split("\n").map(JSON.parse);
+assert.ok(calls.some(c=>c.kind==="offer"));
+assert.ok(calls.findIndex(c=>c.kind==="mutation")>calls.findIndex(c=>c.kind==="offer"));
+console.log("package-route-proof: "+JSON.stringify({route:"arch-engine-"+require("path").basename(require("path").dirname(file)),calls}));
+ENGINE_PROOF
+done
+[[ ! -f $repair_package/review-proof.jsonl ]] || sed 's/^/package-route-proof: /' "$repair_package/review-proof.jsonl"
 rows_done test-vgshell-self

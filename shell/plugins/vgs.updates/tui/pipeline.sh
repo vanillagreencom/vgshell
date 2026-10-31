@@ -13,20 +13,9 @@
 #      busy never truncates the log of the run it found
 #   2. a warning when / has less than 10 GiB free
 #   3. the plan box, then one question unless -y
-#   4. the review of third-party packages, when the `reviewThirdParty`
-#      setting is on, an agent resolves (UpdatesLogic.reviewPlan through
-#      bin/facts review) and the AUR or a pacman repository that is not
-#      official has an update pending: the run fetches the AUR build files
-#      itself and judges each one's install script by its change against
-#      the installed one (UpdatesLogic.installScriptChange through bin/facts
-#      install), and the agent runs in a second window, the `review` TUI,
-#      which the service opens from the stable review start directory. The
-#      per-run directory is inside it, so the agent's folder trust is
-#      keyed on one path and the user trusts it once. The run waits for
-#      the verdict and asks once per flagged package, Skip or Install
-#      anyway, so a package the user skips reaches its upgrade step as
-#      `--ignore <name>`. The review runs before any credential is cached:
-#      shell/plugins/vgs.updates/pipeline.md § Third-party review
+#   4. the shared package owner prepares effective config, pending identities
+#      and review before Updates' snapshot and credential session. Later
+#      upgrade/rebuild steps consume their exact prepared authority once.
 #   5. one sudo session, when the package layer's elevation command is
 #      sudo and a snapshot or the system step needs root. That command is
 #      the one `vgshell pkg plan upgrade <primary>` names, from shell.json's
@@ -147,34 +136,79 @@ _updates_run() { # ARGV...
   (cd -- "$HOME" && "$@")
 }
 
-_updates_install_helper() { "$_updates_vgshell" pkg ensure-helper; }
+_updates_install_helper() { env -u VGS_PACKAGE_TRANSACTION "$_updates_vgshell" pkg ensure-helper; }
 
 # pacman parses CLI HookDir before configured directories. A configuration
 # ending in our HookDir wins by filename while retaining every other hook.
 # alpm-hooks(5), pacman/conf.c setup_libalpm and libalpm/hook.c.
-_updates_pacman_run() ( # HELPER ARGV...
-  local helper="$1" scratch facts key value original="" dirs argv=() status
-  shift
-  scratch="$(mktemp -d /tmp/vgs-updates-hooks.XXXXXXXXXX)" || return 1
-  [[ -d $scratch && ! -L $scratch ]] || return 1
-  scratch="$(cd -- "$scratch" && pwd -P)" || return 1
-  trap 'status=$?; rm -rf -- "${scratch:?}" || { printf "updates: hook-mask=cleanup-failed\n" >&2; status=1; }; exit "$status"' EXIT
-  trap 'exit 129' HUP
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
-  facts="$(_updates_facts pacman-config "$scratch/pacman.conf" "$helper" "$@")" || return 1
-  while IFS=' ' read -r key value; do
-    case "$key" in config) original="$value" ;; word) argv+=("$value") ;; esac
-  done <<<"$facts"
-  dirs="$(pacman-conf --config "$original" HookDir)" || { printf 'updates: hook-mask=hookdirs-unreadable\n' >&2; return 1; }
-  mkdir -- "$scratch/hooks" && ln -s -- /dev/null "$scratch/hooks/cachyos-reboot-required.hook" || return 1
+# The pipeline retains each effective configuration from before review through
+# the exact corresponding mutation. No helper discovers a new config in a
+# live credential session.
+_updates_pacman_prepare() { # KEY HELPER ARGV...
+  local key="$1" helper="$2" original dirs value generated
+  shift 2
+  original="$(node "$_updates_tree/bin/lib/pkg-config.js" "$helper" "$@" | node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(0,"utf8")).config)')" || return 1
+  generated="$VGS_PACKAGE_TRANSACTION/$key.conf"
+  dirs="$(pacman-conf --config "$original" HookDir)" || return 1
+  mkdir -p -- "$VGS_PACKAGE_TRANSACTION/hooks"
+  [[ -L $VGS_PACKAGE_TRANSACTION/hooks/cachyos-reboot-required.hook ]] || ln -s -- /dev/null "$VGS_PACKAGE_TRANSACTION/hooks/cachyos-reboot-required.hook"
   {
     printf '[options]\nInclude = %s\n[options]\n' "$original"
     while IFS= read -r value; do [[ -z $value ]] || printf 'HookDir = %s\n' "$value"; done <<<"$dirs"
-    printf 'HookDir = %s/hooks\n' "$scratch"
-  } >"$scratch/pacman.conf" || return 1
-  (cd -- "$HOME" && "${argv[@]}")
-)
+    printf 'HookDir = %s/hooks\n' "$VGS_PACKAGE_TRANSACTION"
+  } >"$generated"
+  chmod 600 -- "$generated"
+  _updates_package_configs["$key"]="$generated"
+}
+
+_updates_pacman_run() { # CONFIG_KEY PACKAGE_OWNER_ARGV...
+  local key="$1"
+  shift
+  if [[ $1 == "$_updates_vgshell" ]]; then
+    (cd -- "$HOME" && "$@")
+  else
+    local prepared words=()
+    prepared="$(node "$_updates_tree/bin/lib/pkg-config.js" --apply "${_updates_package_configs[$key]}" "$1" "$@")" || return 1
+    prepared="$(node -e 'for(const word of JSON.parse(process.argv[1]).argv)console.log(word)' "$prepared")" || return 1
+    mapfile -t words <<<"$prepared"
+    [[ ${#words[@]} -gt 0 && -n ${words[0]} ]] || return 1
+    (cd -- "$HOME" && "${words[@]}")
+  fi
+}
+
+_updates_package_cleanup() {
+  [[ -z ${VGS_PACKAGE_TRANSACTION:-} ]] || rm -rf -- "${VGS_PACKAGE_TRANSACTION:?}"
+}
+
+_updates_package_review() { # PACMAN AUR REBUILD HELPER CUSTOM_ARGV...
+  local system="$1" aur="$2" rebuild="$3" helper="$4" request result status=0 value
+  shift 4
+  declare -gA _updates_package_configs=()
+  [[ $system != 1 ]] || _updates_pacman_prepare pacman pacman
+  if [[ $aur == 1 || $rebuild == 1 ]] && [[ -n $helper ]]; then _updates_pacman_prepare aur "$helper"; fi
+  if [[ $# != 0 ]]; then _updates_pacman_prepare custom "$1" "$@"; fi
+  request="$VGS_PACKAGE_TRANSACTION/request.json" result="$VGS_PACKAGE_TRANSACTION/result.json"
+  node - "$request" "$result" "$system" "$aur" "$rebuild" "$helper" "${_updates_package_configs[pacman]:-}" "${_updates_package_configs[aur]:-}" "${_updates_package_configs[custom]:-}" "$@" <<'JS'
+const fs=require("node:fs");
+const [request,result,system,aur,rebuild,helper,systemConfig,aurConfig,customConfig,...custom]=process.argv.slice(2);
+const groups=[];
+if(system==="1")groups.push({manager:"pacman",names:[],installs:[],ignored:[],config:systemConfig});
+if(aur==="1")groups.push({manager:"aur",names:[],installs:[],ignored:[],config:customConfig||aurConfig||null});
+const data={version:1,mode:"upgrade",action:"upgrade",groups,sources:groups.map(g=>g.manager),rebuild:rebuild==="1"?["vgshell-git"]:[],config:aurConfig||customConfig||systemConfig||null,customAurArgv:custom.length?custom:null};
+fs.writeFileSync(request,JSON.stringify(data),{flag:"wx",mode:0o600});
+fs.writeFileSync(result,"",{flag:"wx",mode:0o600});
+JS
+  "$_updates_vgshell" pkg review --request "$request" --result "$result" || status=$?
+  [[ $status == 0 ]] || exit "$status"
+  value="$(node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1]));if(r.version!==1)process.exit(1);process.stdout.write(r.decision)' "$result")" || return 1
+  case "$value" in proceed) ;; stop) exit 0 ;; cancelled) exit 130 ;; *) return 1 ;; esac
+  _updates_package_receipt="$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1])).receipt||"")' "$result")" || return 1
+  [[ -n $_updates_package_receipt ]] || return 1
+  value="$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1])).skipped.join("\n"))' "$result")" || return 1
+  while IFS= read -r name; do
+    [[ -z $name ]] || { _updates_skip_aur+=("$name"); _updates_skip_repo+=("$name"); _updates_results+=("$name skipped. Review excluded this package."); }
+  done <<<"$value"
+}
 
 # FILE's text without SGR escapes, and of each line only what follows its
 # last carriage return, as the terminal showed it.
@@ -686,370 +720,13 @@ _updates_in() { # WORD LIST...
   return 1
 }
 
-# The agent a review runs, from SETTINGS, the plugin's settings answer:
-# _updates_review_state, _updates_review_label and _updates_review_words,
-# the command's words, as bin/facts review prints UpdatesLogic.reviewPlan.
-_updates_review_agent() { # SETTINGS
-  local facts key value
-  _updates_review_state="" _updates_review_label="" _updates_review_words=()
-  facts="$(_updates_facts review <<<"$1")"
-  while read -r key value; do
-    case "$key" in
-      review) _updates_review_state="$value" ;;
-      label) _updates_review_label="$value" ;;
-      word) _updates_review_words+=("$value") ;;
-    esac
-  done <<<"$facts"
-}
-
-# The third-party packages a review checks: the AUR's pending updates when
-# AUR is 1, through HELPER, with vgshell-git when REBUILD is 1, since the
-# rebuild builds it whether or not its recipe's version changed; and when
-# REPO is 1 the system's pending updates that a pacman repository outside
-# the official ones holds, with each such repository's servers, without the
-# credentials a URL can carry, and signature level. Sets
-# _updates_review_lines, the lines of packages.txt (review/third-party.md
-# names their form), _updates_review_aur and _updates_review_repo, the
-# names, _updates_review_aur_old, each AUR name's installed version or `?`,
-# and _updates_review_helper. Returns 1 after a diagnostic when a list
-# cannot be read.
-_updates_review_list() { # AUR REPO HELPER REBUILD
-  local out facts key name old new repo repos=() listed line
-  local -A pending=()
-  _updates_review_lines=() _updates_review_aur=() _updates_review_aur_old=() _updates_review_repo=() _updates_review_helper="$3"
-  if [[ $1 == 1 ]]; then
-    if ! out="$("$_updates_vgshell" pkg check --json --source aur)" || ! facts="$(_updates_facts pending <<<"$out")"; then
-      _updates_diagnostic "updates: review=unlisted source=aur"; return 1
-    fi
-    while read -r key name old new; do
-      [[ $key == pending ]] || continue
-      _updates_review_lines+=("aur $name $old $new")
-      _updates_review_aur+=("$name")
-      _updates_review_aur_old+=("$old")
-    done <<<"$facts"
-  fi
-  if [[ $4 == 1 ]] && ! _updates_in vgshell-git "${_updates_review_aur[@]}"; then
-    _updates_review_lines+=("aur vgshell-git ? ?")
-    _updates_review_aur+=(vgshell-git)
-    _updates_review_aur_old+=("?")
-  fi
-  if [[ ${#_updates_review_aur[@]} -gt 0 ]]; then _updates_review_lines=("helper $3" "${_updates_review_lines[@]}"); fi
-  [[ $2 == 1 ]] || return 0
-  if ! out="$("$_updates_vgshell" pkg check --json --source pacman)" || ! facts="$(_updates_facts pending <<<"$out")"; then
-    _updates_diagnostic "updates: review=unlisted source=pacman"; return 1
-  fi
-  while read -r key name old new; do
-    if [[ $key == pending ]]; then pending[$name]="$old $new"; fi
-  done <<<"$facts"
-  [[ ${#pending[@]} -gt 0 ]] || return 0
-  if ! out="$(pacman-conf --repo-list)"; then _updates_diagnostic "updates: review=unlisted query=repo-list"; return 1; fi
-  mapfile -t repos <<<"$out"
-  facts="$(_updates_facts third-party "${repos[@]}")"
-  while read -r key repo; do
-    [[ $key == third-party ]] || continue
-    if ! out="$(pacman -Sl "$repo")"; then _updates_diagnostic "updates: review=unlisted repository=$repo"; return 1; fi
-    listed=0
-    while read -r _ name _; do
-      [[ -n $name && -n ${pending[$name]+set} ]] || continue
-      _updates_review_lines+=("repo $repo $name ${pending[$name]}")
-      _updates_review_repo+=("$name")
-      listed=1
-    done <<<"$out"
-    [[ $listed == 1 ]] || continue
-    if ! out="$(pacman-conf --repo "$repo" Server)"; then _updates_diagnostic "updates: review=unlisted servers=$repo"; return 1; fi
-    while read -r line; do
-      [[ -n $line ]] || continue
-      if [[ $line =~ ^([^:/]+://)[^/@]*@(.*)$ ]]; then line="${BASH_REMATCH[1]}${BASH_REMATCH[2]}"; fi
-      _updates_review_lines+=("server $repo $line")
-    done <<<"$out"
-    # A repository with no SigLevel of its own takes pacman's default.
-    if ! out="$(pacman-conf --repo "$repo" SigLevel)" || { [[ -z $out ]] && ! out="$(pacman-conf SigLevel)"; }; then
-      _updates_diagnostic "updates: review=unlisted siglevel=$repo"; return 1
-    fi
-    _updates_review_lines+=("siglevel $repo ${out//$'\n'/ }")
-  done <<<"$facts"
-}
-
-# The fetched folder of NAME under BUILD and the install script its
-# .SRCINFO names. `<helper> -G` saves a folder per package base, so a
-# split package is found by the `pkgname` line of its base's .SRCINFO, and
-# its script is its own section's `install =` line, else the base
-# section's. Sets _updates_install_dir and _updates_install_file, empty
-# when the package has no script; 1 when no folder's .SRCINFO names NAME.
-# The fetched tree is untrusted, so a .SRCINFO that is a link is not read.
-_updates_install_name() { # BUILD NAME
-  local srcinfo key eq value section base_file own_file own_set found
-  for srcinfo in "$1"/*/.SRCINFO; do
-    [[ -f $srcinfo && ! -L $srcinfo ]] || continue
-    section="" base_file="" own_file="" own_set=0 found=0
-    while read -r key eq value; do
-      [[ $eq == = ]] || continue
-      case "$key" in
-        pkgbase) section=base ;;
-        pkgname) if [[ $value == "$2" ]]; then section=own found=1; else section=other; fi ;;
-        install)
-          case "$section" in
-            base) base_file="$value" ;;
-            own) own_file="$value" own_set=1 ;;
-          esac
-          ;;
-      esac
-    done <"$srcinfo"
-    [[ $found == 1 ]] || continue
-    _updates_install_dir="${srcinfo%/.SRCINFO}"
-    if [[ $own_set == 1 ]]; then _updates_install_file="$own_file"; else _updates_install_file="$base_file"; fi
-    return 0
-  done
-  return 1
-}
-
-# Each fetched AUR package's install script judged by its change against
-# the installed package's (UpdatesLogic.installScriptChange through
-# bin/facts install): `install <name> <state>` added to DIR/packages.txt,
-# a changed script's diff as DIR/install/<name>.diff, in a directory the
-# run makes, never in the fetched tree, and a flag in
-# _updates_review_risks, `<name> <concern>`, per risky line the update
-# adds. The installed script is the copy in pacman's local database, under
-# the installed version or, for `?`, pacman -Q's; one that cannot be found
-# counts as absent, so the whole new script is judged. The new one is the
-# file _updates_install_name finds, read only when it is a regular file
-# in the package's folder: a link could feed the agent any file of the
-# user's. A script that cannot be found or read is `unread`, with a flag.
-_updates_review_install() { # DIR
-  local dir="$1" db="" i name old out installed new file key value facts state status
-  mkdir -m 700 -- "$dir/install"
-  if ! db="$(pacman-conf DBPath)"; then _updates_diagnostic "updates: install-check query=dbpath reason=failed"; db=""; fi
-  for i in "${!_updates_review_aur[@]}"; do
-    name="${_updates_review_aur[i]}" old="${_updates_review_aur_old[i]}"
-    if ! _updates_install_name "$dir/build" "$name"; then
-      printf 'install %s unread\n' "$name" >>"$dir/packages.txt"
-      _updates_review_risks+=("$name Could not find the install script.")
-      continue
-    fi
-    file="$_updates_install_file" new=-
-    if [[ -n $file ]]; then
-      new="$_updates_install_dir/$file"
-      if [[ $file == */* || ! -f $new || -L $new ]]; then
-        printf 'install %s unread\n' "$name" >>"$dir/packages.txt"
-        _updates_review_risks+=("$name The install script is a link or not a regular file.")
-        continue
-      fi
-    fi
-    if [[ $old == "?" ]]; then
-      old=""
-      if out="$(pacman -Q "$name" 2>/dev/null)"; then old="${out#* }"; fi
-    fi
-    installed=-
-    if [[ -n $db && -n $old && -f ${db%/}/local/$name-$old/install ]]; then installed="${db%/}/local/$name-$old/install"; fi
-    if ! facts="$(_updates_facts install "$installed" "$new")"; then
-      printf 'install %s unread\n' "$name" >>"$dir/packages.txt"
-      _updates_review_risks+=("$name The install script could not be read.")
-      continue
-    fi
-    state=""
-    while read -r key value; do
-      case "$key" in
-        install) state="$value" ;;
-        risk) _updates_review_risks+=("$name The install script adds: $value") ;;
-      esac
-    done <<<"$facts"
-    printf 'install %s %s\n' "$name" "$state" >>"$dir/packages.txt"
-    if [[ $state == changed ]]; then
-      status=0
-      diff -u -- "$installed" "$new" >"$dir/install/$name.diff" || status=$?
-      # diff exits 1 when the files differ, and above 1 when it failed.
-      [[ $status -le 1 ]] || _updates_diagnostic "updates: install-diff=failed package=$name exit=$status"
-    fi
-  done
-}
-
-# Removes the review directory. The service writes `ended` with a shell
-# redirect, which makes no directory, so a write after the directory is gone
-# fails; a write while rm runs leaves rm's last rmdir a name, and the next
-# pass removes it. The service writes once per run, so 5 passes are a
-# ceiling, not a measurement.
-_updates_review_remove() {
-  local passes=0
-  while [[ -e ${_updates_review_dir:?} ]] && ((passes < 5)); do
-    rm -rf -- "${_updates_review_dir:?}" 2>/dev/null || :
-    passes=$((passes + 1))
-  done
-}
-
-# The review in the second window, through the service's `review` IPC
-# handler, which opens the `review` TUI from the stable review start
-# directory. The run's 0700 directory is inside that start directory, made
-# by an exclusive mkdir and removed when the review ends or the run exits,
-# so the agent's folder trust is keyed on one path. The run fetches the
-# AUR build files into its build/ first, through the helper as the user, so
-# the agent reads them offline; a fetch runs no package code. NAMEs are
-# the packages listed. Sets
-# _updates_review_verdict to clean, flagged or none, _updates_review_flags
-# to `<name> <concern>` per flag, _updates_review_risks to the install
-# script check's flags in the same form, and _updates_review_reason, for
-# the developer log, when there is no verdict.
-_updates_review_run() { # NAME...
-  local start dir reply status=0 polls=0 facts key value lock
-  _updates_review_verdict=none _updates_review_reason="" _updates_review_flags=() _updates_review_risks=()
-  start="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/vgshell/updates/review"
-  mkdir -p -- "$start"
-  chmod 700 -- "$start"
-  dir="$start/$$"
-  if ! mkdir -m 700 -- "$dir" 2>/dev/null; then _updates_review_reason="dir=taken path=$dir"; return 0; fi
-  _updates_review_dir="$dir"
-  trap '_updates_review_remove' EXIT
-  printf '%s\n' "${_updates_review_words[@]}" >"$dir/command"
-  printf '%s\n' "${_updates_review_lines[@]}" >"$dir/packages.txt"
-  if [[ ${#_updates_review_aur[@]} -gt 0 ]]; then
-    mkdir -m 700 -- "$dir/build"
-    vgs_tui_step "Fetching the AUR build files"
-    if ! (cd -- "$dir/build" && "$_updates_review_helper" -G "${_updates_review_aur[@]}"); then
-      _updates_review_reason="fetch=failed helper=$_updates_review_helper"; return 0
-    fi
-    _updates_review_install "$dir"
-  fi
-  reply="$("$_updates_vgshell" ipc call "$VGS_PLUGIN_ID" invoke review "$dir" 2>&1)" || status=$?
-  if [[ $status -ne 0 || $reply != ok ]]; then _updates_review_reason="open=${reply%%$'\n'*} exit=$status"; return 0; fi
-  # tui/review.sh writes `started` once it holds the lock, and the service
-  # writes `ended` when the run ends, a run that never started included.
-  # Read every 0.2 s up to 300 times: a 60 s ceiling on a terminal's start,
-  # not a measurement of one.
-  while [[ ! -e $dir/started && ! -e $dir/ended ]] && ((polls < 300)); do
-    sleep 0.2
-    polls=$((polls + 1))
-  done
-  if [[ ! -e $dir/started ]]; then
-    _updates_review_reason="start=$( ((polls < 300)) && echo none || echo timeout) ended=$(cat -- "$dir/ended" 2>/dev/null || echo absent)"; return 0
-  fi
-  # The lock is free once tui/review.sh has ended: its agent exited, or
-  # the user closed the window.
-  exec {lock}>>"$dir/review.lock"
-  flock "$lock"
-  exec {lock}>&-
-  if [[ ! -f $dir/verdict ]]; then _updates_review_reason="verdict=absent"; return 0; fi
-  if ! facts="$(_updates_facts verdict "$@" <"$dir/verdict")"; then _updates_review_reason="verdict=unreadable"; return 0; fi
-  while read -r key value; do
-    case "$key" in
-      verdict) _updates_review_verdict="$value" ;;
-      flag) _updates_review_flags+=("$value") ;;
-      reason) _updates_review_reason="verdict=$value" ;;
-    esac
-  done <<<"$facts"
-}
-
-# The review and what its verdict leads to: a clean verdict goes on; no
-# verdict asks to go on without a review, default no, and a no stops the
-# run, which exits 0. Then each package the agent or the install script
-# check flagged asks once, Skip, the default, or Install anyway: Skip adds
-# it to _updates_skip_aur or _updates_skip_repo and to the result list,
-# and either answer goes on. LISTED is 0 when the packages could not be
-# listed, which is no verdict.
-_updates_review() { # LISTED
-  local status choice flag flags=() name line order=()
-  local -A concerns=()
-  if [[ $1 == 1 ]]; then
-    status=0
-    # gum confirm uses exit 1 for both No and Escape/errors. The existing
-    # choice owner emits a value only for a submitted selection.
-    choice="$(vgs_tui_choose --header "Review the non-official packages with $_updates_review_label?" --selected No -- Yes No)" || status=$?
-    [[ $status == 0 ]] || exit "$status"
-    case "$choice" in
-      Yes) ;;
-      No) return 0 ;;
-      *) exit 1 ;;
-    esac
-    vgs_tui_step "Reviewing third-party packages in a second window"
-    _updates_review_run "${_updates_review_aur[@]}" "${_updates_review_repo[@]}"
-  else
-    _updates_review_verdict=none _updates_review_reason="list=unreadable" _updates_review_flags=() _updates_review_risks=()
-  fi
-  if [[ -n ${_updates_review_dir:-} ]]; then
-    _updates_review_remove
-    _updates_review_dir=""
-    trap - EXIT
-  fi
-  local count=$((${#_updates_review_aur[@]} + ${#_updates_review_repo[@]}))
-  case "$_updates_review_verdict" in
-    clean) echo "The review found no risk in the $count package$([[ $count == 1 ]] || echo s) it listed." ;;
-    flagged) ;;
-    *)
-      _updates_diagnostic "updates: review=none $_updates_review_reason"
-      if [[ $1 == 1 ]]; then vgs_tui_warn "The review ended without a result."
-      else vgs_tui_warn "Could not list the third-party packages."
-      fi
-      if [[ $rebuild == 1 ]]; then vgs_tui_warn "The VGS package has not been rebuilt yet."; fi
-      status=0
-      vgs_tui_confirm "Continue without a review?" --default=false || status=$?
-      if [[ $status != 0 && $rebuild == 1 ]]; then
-        _updates_diagnostic "updates: rebuild=skipped package=vgshell-git reason=review-no-result $_updates_review_reason"
-        vgs_tui_warn "vgshell-git was not rebuilt because the review ended without a result."
-      fi
-      case "$status" in
-        0) ;;
-        1) echo "Update stopped."; exit 0 ;;
-        *) exit "$status" ;;
-      esac
-      ;;
-  esac
-  # One question per package, with every concern about it above it.
-  if [[ $_updates_review_verdict == flagged ]]; then flags=("${_updates_review_flags[@]}"); fi
-  for flag in "${flags[@]}" "${_updates_review_risks[@]}"; do
-    name="${flag%% *}"
-    if [[ -z ${concerns[$name]+set} ]]; then order+=("$name"); concerns[$name]=""; fi
-    concerns[$name]+="${flag#* }"$'\n'
-  done
-  for name in "${order[@]}"; do
-    while IFS= read -r line; do
-      [[ -z $line ]] || vgs_tui_warn "$name: $line"
-    done <<<"${concerns[$name]}"
-    status=0
-    vgs_tui_confirm "Skip $name, or install it anyway?" --affirmative=Skip --negative="Install anyway" || status=$?
-    case "$status" in
-      0)
-        if _updates_in "$name" "${_updates_review_aur[@]}"; then _updates_skip_aur+=("$name"); fi
-        if _updates_in "$name" "${_updates_review_repo[@]}"; then _updates_skip_repo+=("$name"); fi
-        _updates_results+=("$name skipped. The review flagged it.")
-        ;;
-      1) echo "Installing $name anyway." ;;
-      *) exit "$status" ;;
-    esac
-  done
-}
-
 # updates_main all ARG... | updates_main source SOURCE ARG...: the pipeline
 # over every source, or over SOURCE alone, named as a status row names it:
 # the primary manager's id, aur, flatpak, mise, vgs, plugins or themes. The
 # ARGs after SOURCE are -y alone; update-source.sh passes its SOURCE twice,
 # once here and once among the entry script's own ARGs, which the log runs
 # it again with.
-updates_main() {
-  local mode="$1" only="" arg
-  shift
-  if [[ $mode == source ]]; then
-    only="${1:-}"
-    [[ -n $only && $only != -* ]] || _updates_refuse 2 "source=missing" "$_updates_usage"
-    shift
-  fi
-  local entry_args=("$@")
-  [[ $mode == all ]] || entry_args=("$only" "$@")
-  _updates_yes=0
-  for arg in "$@"; do
-    case "$arg" in
-      -y) _updates_yes=1 ;;
-      *) _updates_refuse 2 "argument=$arg" "$_updates_usage" ;;
-    esac
-  done
-
-  local lib="${VGS_TUI_LIB:-}"
-  _updates_tree="${lib%/bin/lib/tui.sh}"
-  if [[ -z $lib || $_updates_tree == "$lib" || -z ${VGS_PLUGIN_ID:-} ]]; then
-    _updates_refuse 2 "tui=missing" "run this through the vgs.updates floating TUI, which sets VGS_TUI_LIB and VGS_PLUGIN_ID"
-  fi
-  # shellcheck source=SCRIPTDIR/../../../../bin/lib/tui.sh
-  source "$lib"
-  _updates_vgshell="$_updates_tree/bin/vgshell"
-  _updates_loader="$_updates_tree/bin/lib/qml-library.js"
-  _updates_facts_bin="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/.." && pwd)/bin/facts"
+_updates_main() {
 
   local state
   state="$(updates_state_dir)"
@@ -1242,47 +919,11 @@ updates_main() {
   elif ((avail < 10 * 1024 * 1024 * 1024)); then
     vgs_tui_warn "Less than 10 GiB is free on /. An update can fail when the disk fills up."
   fi
-  # The review: 1 when one runs, 2 when its packages could not be listed,
-  # and its line in the box.
-  # The AUR is reviewed through a helper of the package table alone: the
-  # helper fetches its build files.
-  local box_review_aur="" review=0 review_line="" review_aur=0 review_repo=0 review_rebuild=0 reviewed=() listing="" name
+  local name
   _updates_skip_aur=() _updates_skip_repo=()
-  _updates_review_agent "$settings"
-  if [[ $_updates_review_state == command || $_updates_review_state == agent ]]; then
-    if _updates_in aur "${run[@]}"; then
-      if [[ -n $aur_binary ]]; then review_aur=1
-      else box_review_aur="Review: the AUR is not reviewed without paru or yay"
-      fi
-    fi
-    if [[ $rebuild == 1 ]]; then
-      if [[ -n $aur_binary ]]; then review_rebuild=1
-      else box_review_aur="Review: the AUR is not reviewed without paru or yay"
-      fi
-    fi
-    if [[ $primary == pacman ]] && _updates_in pacman "${run[@]}"; then review_repo=1; fi
-    if [[ -n $primary && $primary != pacman ]] && _updates_in "$primary" "${run[@]}"; then review_line="Review: VGS reviews Arch packages only"; fi
-    if [[ $review_aur == 1 || $review_repo == 1 || $review_rebuild == 1 ]]; then
-      if _updates_review_list "$review_aur" "$review_repo" "$aur_binary" "$review_rebuild"; then
-        reviewed=("${_updates_review_aur[@]}" "${_updates_review_repo[@]}")
-        if [[ ${#reviewed[@]} -gt 0 ]]; then
-          review=1
-          for name in "${reviewed[@]:0:6}"; do listing+="${listing:+, }$name"; done
-          if [[ ${#reviewed[@]} -gt 6 ]]; then listing+=", and $((${#reviewed[@]} - 6)) more"; fi
-          review_line="Optional review: $_updates_review_label checks ${#reviewed[@]} third-party package$([[ ${#reviewed[@]} == 1 ]] || echo s): $listing"
-        fi
-      else
-        review=2
-        review_line="Review: the third-party packages could not be listed"
-      fi
-    fi
-  fi
-
   local box=("Update ${only:-everything}" "")
   [[ -z $snapshot_line ]] || box+=("$snapshot_line")
   box+=("${plan[@]}")
-  [[ -z $review_line ]] || box+=("$review_line")
-  [[ -z $box_review_aur ]] || box+=("$box_review_aur")
   if [[ $rebuild == 1 ]] || _updates_in aur "${run[@]}"; then box+=("The AUR runs last, after every step that runs as root."); fi
   box+=("" "Log: $_updates_log")
   vgs_tui_header "${box[@]}"
@@ -1296,9 +937,21 @@ updates_main() {
     esac
   fi
 
+  # A missing helper is a separate prerequisite transaction. It reviews
+  # before its own credentials and ends them before Updates binds its plan.
+  if [[ $rebuild == 1 && $vgs_step == install-helper ]]; then
+    vgs_tui_step "Installing paru for VGS updates"
+    _updates_source paru Paru _updates_run _updates_install_helper
+    [[ $_updates_outcome == installed ]] || exit 1
+    aur_binary=paru
+    vgs_step=rebuild
+  fi
   # The run.
-  if [[ $review == 1 ]]; then _updates_review 1
-  elif [[ $review == 2 ]]; then _updates_review 0
+  local review_system=0 review_aur=0
+  if [[ $primary == pacman ]] && _updates_in pacman "${run[@]}"; then review_system=1; fi
+  if _updates_in aur "${run[@]}"; then review_aur=1; fi
+  if [[ $review_system == 1 || $review_aur == 1 || $rebuild == 1 ]]; then
+    _updates_package_review "$review_system" "$review_aur" "$rebuild" "$aur_binary" "${aur_command[@]}"
   fi
   local vgs_before=""
   if [[ $replaces == 1 ]]; then vgs_before="$(_updates_vgs_package_version)"; fi
@@ -1342,7 +995,7 @@ updates_main() {
         ignore=()
         if [[ $id == pacman && ${#_updates_skip_repo[@]} -gt 0 ]]; then ignore=(--ignore "${_updates_skip_repo[@]}"); fi
         if [[ $id == pacman ]]; then
-          _updates_source "$id" "${labels[$id]}" _updates_pacman_run pacman "$_updates_vgshell" pkg run upgrade --manager "$id" "${ignore[@]}"
+          _updates_source "$id" "${labels[$id]}" _updates_pacman_run pacman "$_updates_vgshell" pkg run upgrade --manager "$id" --review-receipt "$_updates_package_receipt" --config "${_updates_package_configs[pacman]}" "${ignore[@]}"
         else
           _updates_source "$id" "${labels[$id]}" "$_updates_vgshell" pkg run upgrade --manager "$id" "${ignore[@]}"
         fi
@@ -1373,13 +1026,20 @@ updates_main() {
     if _updates_in aur "${run[@]}"; then
       ignore=()
       if [[ ${#aur_command[@]} -gt 0 ]]; then
-        # The words may sync the system too, so both lists are kept out.
-        for name in "${_updates_skip_aur[@]}" "${_updates_skip_repo[@]}"; do ignore+=(--ignore "$name"); done
+        if [[ ${#_updates_skip_aur[@]} -gt 0 ]]; then ignore=(--ignore "${_updates_skip_aur[@]}"); fi
         vgs_tui_step "Updating AUR packages"
-        _updates_source aur AUR _updates_pacman_run "${aur_command[0]}" "${aur_command[@]}" "${ignore[@]}"
+        local custom_json custom_mode
+        custom_json="$(node -e 'process.stdout.write(JSON.stringify(process.argv.slice(1)))' "${aur_command[@]}")"
+        custom_mode="$("$_updates_vgshell" pkg review-custom-mode "$custom_json")"
+        if [[ $custom_mode == table ]]; then
+          _updates_source aur AUR _updates_pacman_run custom "$_updates_vgshell" pkg run upgrade --manager aur --review-receipt "$_updates_package_receipt" --config "${_updates_package_configs[custom]}" "${ignore[@]}"
+        else
+          "$_updates_vgshell" pkg review-custom-consume "$_updates_package_receipt" "$custom_json"
+          _updates_source aur AUR _updates_pacman_run custom "${aur_command[@]}"
+        fi
       else
         if [[ ${#_updates_skip_aur[@]} -gt 0 ]]; then ignore=(--ignore "${_updates_skip_aur[@]}"); fi
-        _updates_source aur AUR _updates_pacman_run "$aur_binary" "$_updates_vgshell" pkg run upgrade --manager aur "${ignore[@]}"
+        _updates_source aur AUR _updates_pacman_run "$aur_binary" "$_updates_vgshell" pkg run upgrade --manager aur --review-receipt "$_updates_package_receipt" --config "${_updates_package_configs[aur]}" "${ignore[@]}"
       fi
       # A second transaction can offer the engine the user just declined.
       # Only a completed AUR step permits the separate VGS rebuild.
@@ -1392,17 +1052,10 @@ updates_main() {
         esac
       fi
     fi
-    if [[ $rebuild_run == 1 && $vgs_step == install-helper ]]; then
-      vgs_tui_step "Installing paru for VGS updates"
-      _updates_source paru Paru _updates_run _updates_install_helper
-      if [[ $_updates_outcome == installed ]]; then aur_binary=paru
-      else rebuild_run=0; _updates_results+=("VGS package skipped. Paru was not installed.")
-      fi
-    fi
     if [[ $rebuild_run == 1 ]]; then
       rm -f -- "${state:?}/rebuild-failed.json"
       vgs_tui_step "Rebuilding VGS"
-      _updates_source vgshell-git "VGS package" _updates_pacman_run "$aur_binary" "$aur_binary" -S vgshell-git
+      _updates_source vgshell-git "VGS package" _updates_pacman_run "$aur_binary" "$_updates_vgshell" pkg run reinstall --manager aur --review-receipt "$_updates_package_receipt" --config "${_updates_package_configs[aur]}" vgshell-git
       if [[ $_updates_outcome == failed ]]; then _updates_rebuild_failed "$vgs_current" "$aur_binary" "$_updates_exit"; fi
     fi
     if [[ $guarded == 1 ]]; then vgs_tui_sudo_session end; fi
@@ -1461,3 +1114,46 @@ updates_main() {
   fi
   [[ $ended == success ]] || exit 1
 }
+
+# The transaction lifetime is outside the credential-session subshell, whose
+# sudo cleanup owns its traps. Neither owner can replace the other's EXIT.
+updates_main() (
+  local mode="$1" only="" arg
+  shift
+  if [[ $mode == source ]]; then
+    only="${1:-}"
+    [[ -n $only && $only != -* ]] || _updates_refuse 2 "source=missing" "$_updates_usage"
+    shift
+  fi
+  local entry_args=("$@")
+  [[ $mode == all ]] || entry_args=("$only" "$@")
+  _updates_yes=0
+  for arg in "$@"; do
+    case "$arg" in
+      -y) _updates_yes=1 ;;
+      *) _updates_refuse 2 "argument=$arg" "$_updates_usage" ;;
+    esac
+  done
+
+  local lib="${VGS_TUI_LIB:-}"
+  _updates_tree="${lib%/bin/lib/tui.sh}"
+  if [[ -z $lib || $_updates_tree == "$lib" || -z ${VGS_PLUGIN_ID:-} ]]; then
+    _updates_refuse 2 "tui=missing" "run this through the vgs.updates floating TUI, which sets VGS_TUI_LIB and VGS_PLUGIN_ID"
+  fi
+  # shellcheck source=SCRIPTDIR/../../../../bin/lib/tui.sh
+  source "$lib"
+  _updates_vgshell="$_updates_tree/bin/vgshell"
+  _updates_loader="$_updates_tree/bin/lib/qml-library.js"
+  _updates_facts_bin="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/.." && pwd)/bin/facts"
+
+  VGS_PACKAGE_TRANSACTION="$("$_updates_vgshell" pkg review-transaction)" || exit 1
+  export VGS_PACKAGE_TRANSACTION
+  trap '_updates_package_cleanup' EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  set +e
+  (set -Ee; _updates_main)
+  status=$?
+  exit "$status"
+)

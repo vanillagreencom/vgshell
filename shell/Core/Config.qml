@@ -41,6 +41,7 @@ Singleton {
     property var user: null
     property var shippedText: null
     property var userText: null
+    property bool userAwaitingShipped: false
     // Each former plugin id the scan's rename map holds, to the id of the
     // plugin whose claim it keeps (PluginLogic.formerIdClaims), set by
     // adoptRenames alone.
@@ -145,8 +146,8 @@ Singleton {
             console.error("config: " + label + " does not parse: " + e.message);
             return { state: "unparseable" };
         }
-        const moved = migrate ? ConfigLogic.migrateConfig(value) : { config: value, migrated: false };
-        const bad = ConfigLogic.configError(moved.config);
+        const moved = migrate ? ConfigLogic.migrateConfig(value, shipped.packageReviewSettingsSource) : { config: value, migrated: false };
+        const bad = moved.error || ConfigLogic.configError(moved.config);
         if (bad !== "") {
             console.error("config: " + label + " malformed: " + bad);
             return { state: "malformed" };
@@ -168,6 +169,7 @@ Singleton {
                 root.shippedText = content;
             }
             root.shippedState = r.state;
+            if (root.userAwaitingShipped && root.shipped !== null) { root.userAwaitingShipped = false; userView.read(); }
             root.publish();
         }
         onLoadFailed: error => {
@@ -182,6 +184,8 @@ Singleton {
         path: root.userPath
         onChanged: read()
         onLoaded: content => {
+            // The conversion context is shipped-only; no user value can redirect it.
+            if (root.shipped === null) { root.userAwaitingShipped = true; return; }
             root.saveError = "";
             if (content === root.userText) {
                 // The disk holds what it held: a write's own notification,
@@ -281,6 +285,41 @@ Singleton {
         if (r.split) console.error("config: user file plugins split in memory, not written: file=" + userPath + " refusal=" + written);
         user = r.config;
         publish();
+    }
+
+    // With preload off, reload invalidates the value and text starts its read;
+    // waitForJob then delivers loaded/loadFailed before the comparison.
+    // Quickshell 0.3.1 src/io/fileview.cpp: updatePath, text and waitForJob:
+    // https://github.com/quickshell-mirror/quickshell/blob/v0.3.1/src/io/fileview.cpp.
+    // This short read belongs to the same writer and catches edits the watcher
+    // has not delivered before the editor's compare-and-write request.
+    FileView {
+        id: reviewCompare
+        path: root.userPath
+        preload: false
+        printErrors: false
+        property string state: "pending"
+        onLoaded: state = "loaded"
+        onLoadFailed: error => { state = error === FileViewError.FileNotFound ? "absent" : "unreadable"; }
+    }
+
+    function packageReviewWrite(requestJson) {
+        let request;
+        try { request = JSON.parse(requestJson); }
+        catch (e) { return "refused: package-review=invalid-request"; }
+        if (!ConfigLogic.isPlainObject(request) || !ConfigLogic.hasOwn(request, "expectedText") ||
+            (request.expectedText !== null && typeof request.expectedText !== "string")) return "refused: package-review=invalid-request";
+        if (!ready || (userState !== "loaded" && userState !== "absent")) return "refused: package-review=user-config-unavailable";
+        const edit = ConfigLogic.withPackageReview(user, request.settings);
+        if (!edit.ok) return "refused: package-review=invalid-settings";
+        reviewCompare.state = "pending";
+        reviewCompare.reload();
+        reviewCompare.text();
+        reviewCompare.waitForJob();
+        if (reviewCompare.state !== "loaded" && reviewCompare.state !== "absent") return "refused: package-review=user-config-unreadable";
+        const current = reviewCompare.state === "absent" ? null : reviewCompare.text();
+        if (current !== request.expectedText || userText !== request.expectedText) return "refused: package-review=user-config-changed";
+        return writeUser(edit.config);
     }
 
     function reload() {

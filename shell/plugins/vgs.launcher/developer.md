@@ -51,7 +51,7 @@ A file the judge refuses is logged as `launcher: menu refused: file=<path> <defe
 
 The shipped menu maps what a Hyprland session has everywhere: lock, which asks `vgs.lock` through `vgshell lock`, since a logind lock request reaches no listener in the shell ([D062](../../../docs/decisions/D062-native-lock-and-polkit-plugins.md)); suspend, hibernate, log out, reboot, shut down; a screenshot. Delete on an application points at the package Remove row instead of removing it: `shell.tui.open` opens the remove picker with no arguments, so the launcher cannot name the application's package.
 
-The Updates plugin's Packages category holds Install, Update and Remove. Install opens `core/pkg-install` and Remove `core/pkg-remove`, the core's package pickers ([commands-are-data.md § Packages](../../../docs/architecture/commands-are-data.md#packages)). Update opens `vgs.updates/update`. Automations and New automation call the automations service IPC, which opens that plugin's window. Each row names an entry: the core builds the argv and the window from the TUI's declaration, so no menu text becomes shell code.
+The Updates plugin's Packages category holds Install, Update, Remove and Package review settings. Install opens `core/pkg-install` and Remove `core/pkg-remove`, the core's package pickers ([commands-are-data.md § Packages](../../../docs/architecture/commands-are-data.md#packages)). Update opens `vgs.updates/update`. Package review settings opens the shared `core/pkg-review-settings` editor. Automations and New automation call the automations service IPC, which opens that plugin's window. Each row names an entry: the core builds the argv and the window from the TUI's declaration, so no menu text becomes shell code.
 
 ## Files
 

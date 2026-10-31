@@ -37,10 +37,10 @@ ln -s -- "$node_bin" "$tools/node"
 stubs="$tmp/stubs"; mkdir -p "$stubs"
 # pacman writes one line per call to $LOG: its name, then each argument in
 # brackets.
-printf '#!/bin/sh\nprintf "pacman" >>"$LOG"; for a; do printf " [%%s]" "$a" >>"$LOG"; done; echo >>"$LOG"\n' >"$stubs/pacman"
+printf '#!/bin/sh\nprintf "pacman" >>"$LOG"; for a; do printf " [%%s]" "$a" >>"$LOG"; done; echo >>"$LOG"\nprintf "mutation pacman" >>"$GUM_OFFERED.review"; for a; do printf " %%s" "$a" >>"$GUM_OFFERED.review"; done; echo >>"$GUM_OFFERED.review"\n' >"$stubs/pacman"
 printf '#!/bin/sh\ncase "$1" in -k) exit 0 ;; -n) shift ;; esac\nexec "$@"\n' >"$stubs/sudo"
 printf '#!/bin/sh\necho "$STUB_MACHINE"\n' >"$stubs/uname"
-printf '#!/bin/sh\n[ "$1" = filter ] || exit 64\ncat >"$GUM_OFFERED"\n[ -z "${GUM_STATUS-}" ] || exit "$GUM_STATUS"\nprintf "%%s\\n" "$GUM_PICK"\n' >"$stubs/gum"
+printf '#!/bin/sh\ncase "$1" in choose) echo offer >>"$GUM_OFFERED.review"; echo "Install without review"; exit 0 ;; style) exit 0 ;; esac\n[ "$1" = filter ] || exit 64\ncat >"$GUM_OFFERED"\n[ -z "${GUM_STATUS-}" ] || exit "$GUM_STATUS"\nprintf "%%s\\n" "$GUM_PICK"\n' >"$stubs/gum"
 # mise: $MISE_STATE/installed holds one installed key per line,
 # $MISE_STATE/global-extra the global config's keys no install backs,
 # $MISE_STATE/auto_prune the setting, and $MISE_STATE/which/<command> what
@@ -226,20 +226,27 @@ row_foreign() { # PLUGIN
   engine "$1" -- launchers refresh
   [[ $status == 0 ]] && cmp -s "$home/.local/bin/claude" "$tmp/claude.orig" && out_has "launcher=foreign command=claude path=$home/.local/bin/claude"
 }
+package_review_proof() {
+  "$node_bin" - "$tmp/offered.review" <<'PROOF'
+const fs=require("fs"),assert=require("assert/strict"),events=fs.readFileSync(process.argv[2],"utf8").trim().split("\n");
+assert.ok(events.indexOf("offer")>=0&&events.findIndex(e=>e.startsWith("mutation "))>events.indexOf("offer"));
+console.log("package-route-proof: "+JSON.stringify({route:"devtools-distribution",calls:events.map(e=>e==="offer"?{kind:"offer",choiceIndex:1}:{kind:"mutation",argv:e.slice(9).split(" ")})}));
+PROOF
+}
 row_install_order() { # PLUGIN
   reset_world
   ENGINE_TTY=pty engine "$1" -- install ruby
-  [[ $status == 0 ]] && log_is "$(lines \
+  [[ $status == 0 && -s $tmp/offered.review ]] && log_is "$(lines \
     "mise [settings] [set] [upgrade.auto_prune] [false] {age=0}" \
     "pacman [-S] [--needed] [--] [libyaml]" \
     "mise [settings] [set] [ruby.compile] [false] {age=0}" \
     "mise [settings] [add] [idiomatic_version_file_enable_tools] [ruby] {age=0}" \
-    "mise [use] [-g] [ruby] {age=0}")"
+    "mise [use] [-g] [ruby] {age=0}")" && package_review_proof
 }
 row_rails_install() { # PLUGIN: the rails command exists only under mise's ruby
   reset_world
   ENGINE_TTY=pty engine "$1" -- install rails
-  [[ $status == 0 ]] && log_is "$(lines \
+  [[ $status == 0 && -s $tmp/offered.review ]] && log_is "$(lines \
     "mise [settings] [set] [upgrade.auto_prune] [false] {age=0}" \
     "pacman [-S] [--needed] [--] [libyaml]" \
     "mise [settings] [set] [ruby.compile] [false] {age=0}" \

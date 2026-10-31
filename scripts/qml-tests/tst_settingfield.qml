@@ -759,15 +759,13 @@ Item {
         }
 
         function test_custom_prefill_is_an_unsaved_draft_data() {
-            const request = new XMLHttpRequest();
-            request.open("GET", Qt.resolvedUrl("../../shell/plugins/vgs.updates/manifest.json"), false);
-            request.send();
-            const schema = JSON.parse(request.responseText).schema;
+            const presetString = { type: "string", allowCustom: true, presets: [
+                { value: "" }, { value: "first --option" }, { value: "second --option" }
+            ] };
             return [
-                { tag: "AUR automatic", spec: schema.aurCommand, held: "", seed: "paru -Sua" },
-                { tag: "review automatic", spec: schema.reviewCommand, held: "", seed: "claude --model opus --effort medium --permission-mode default" },
-                { tag: "chosen preset", spec: schema.aurCommand, held: "yay -Sua", seed: "yay -Sua" },
-                { tag: "saved custom", spec: schema.aurCommand, held: "own-update --aur", seed: "own-update --aur" },
+                { tag: "first nonempty preset", spec: presetString, held: "", seed: "first --option" },
+                { tag: "chosen preset", spec: presetString, held: "second --option", seed: "second --option" },
+                { tag: "saved custom", spec: presetString, held: "custom --option", seed: "custom --option" },
                 { tag: "unbounded number", spec: { type: "number", allowCustom: true, presets: [{ value: 0 }, { value: 30 }] }, held: 0, seed: "0" },
                 { tag: "bounded slider", spec: { type: "number", allowCustom: true, min: 0, max: 60, presets: [{ value: 0 }, { value: 30 }] }, held: 0, bounded: true },
                 { tag: "no nonempty preset", spec: { type: "string", allowCustom: true, presets: [{ value: "" }] }, held: "", seed: "" }

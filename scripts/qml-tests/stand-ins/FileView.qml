@@ -42,7 +42,21 @@ QtObject {
     signal saveFailed(int error)
     signal fileChanged()
 
-    function text() { return content; }
+    // The package settings compare asks for one fresh synchronous read.
+    // Tests provide its bytes/error independently of the watched reader.
+    property bool prepared: false
+    property string blockingContent: ""
+    property int blockingError: 0
+    function waitForJob() {
+        if (live !== "read") return false;
+        prepared = true;
+        if (blockingError !== 0) loadFailed(blockingError);
+        else { content = blockingContent; loaded(); }
+        live = "";
+        return blockingError === 0;
+    }
+
+    function text() { if (!prepared) start(); return content; }
 
     function start() {
         if (live !== "") return;
@@ -51,12 +65,14 @@ QtObject {
     }
 
     function reload() {
+        prepared = false;
         reloads += 1;
         if (preload) start();
         if (watchChanges) watchers += 1;
     }
 
     function setText(bytes) {
+        prepared = true;
         written = bytes;
         if (!blockWrites) {
             live = "write";
@@ -78,11 +94,12 @@ QtObject {
     }
 
     function finishRead(bytes) {
+        prepared = true;
         content = bytes;
         report(() => loaded());
     }
 
-    function failRead(error) { report(() => loadFailed(error)); }
+    function failRead(error) { prepared = true; report(() => loadFailed(error)); }
 
     function change() { fileChanged(); }
 

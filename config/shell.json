@@ -1,5 +1,6 @@
 {
-  "version": 2,
+  "version": 3,
+  "packageReviewSettingsSource": "vgs.updates",
   "bar": {
     "id": "vgs.bar",
     "layout": {

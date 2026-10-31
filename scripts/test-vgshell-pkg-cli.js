@@ -42,7 +42,7 @@ function makeTree(dir, texts) {
 
 // The table with the aur query's timeout cut to one second, for the row
 // that proves a query is killed at its timeout without waiting two minutes.
-const AUR_QUERY = "\"-Qua\"], exits: { \"0\": \"updates\", \"1\": \"none\" }, parser: \"arrow\", timeout: ";
+const AUR_QUERY = "\"-Qua\"], origin: \"aur\", exits: { \"0\": \"updates\", \"1\": \"none\" }, parser: \"arrow\", timeout: ";
 function quickTable(text) {
     const count = text.split(AUR_QUERY + "120 }").length - 1;
     if (count !== 1) throw new Error("quick table: the aur query occurs " + count + " times, not once");

@@ -41,7 +41,7 @@ elevator="${1:-}"
 [[ $# -gt 0 ]] && shift
 case "$elevator" in
   sudo|doas|run0) prefix=("$elevator") ;;
-  none) prefix=() ;;
+  none|build) prefix=() ;;
   *) bad "elevator value=${elevator:-missing}" ;;
 esac
 
@@ -59,6 +59,10 @@ while [[ $i -lt ${#args[@]} ]]; do
 done
 [[ ${#starts[@]} -gt 0 ]] || bad "steps=missing"
 
+if [[ $elevator == build ]]; then
+  [[ -z ${VGS_TUI_SUDO_SESSION:-} ]] || bad outer-credential-session
+  if command -v sudo >/dev/null; then vgs_tui_sudo_session guard; fi
+fi
 if [[ $elevator == sudo ]]; then
   vgs_tui_sudo_session start || exit 1
 fi

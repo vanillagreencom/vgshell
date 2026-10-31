@@ -324,6 +324,7 @@ Item {
                 rendered(window);
                 compare(window.mapToItem(null, 0, 0), Qt.point(window.x, window.y), "the capture owner's local and scene origins agree");
                 const image = grabImage(window);
+                verify(image !== null && image.width > 0 && image.height > 0, "the requested state has a captured image");
                 const thumb = scroll.bar.thumb;
                 const at = thumb.mapToItem(window, 0, 0);
                 const sx = image.width / window.width, sy = image.height / window.height;

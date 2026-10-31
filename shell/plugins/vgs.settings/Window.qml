@@ -560,6 +560,11 @@ FocusScope {
         return listStep("add", () => shell.manager.add());
     }
 
+    // Open the core's one package review editor in its floating TUI.
+    function openPackageReviewSettings() {
+        return listStep("package-review", () => shell.tui.open("core/pkg-review-settings"));
+    }
+
     // Ask the core's reset question through the manager; the notice sits on
     // a layer over every window, so this window stays open behind it.
     function resetVgs() {

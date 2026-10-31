@@ -8,7 +8,9 @@ import "UpdatesLogic.js" as Logic
 // published with its count, the packages it lists when opened and its own
 // Update when it has updates, a row with a detail opened on it, and a footer with Update everything over
 // Refresh, the last check's time in the shell's one wording of a past
-// moment (Timestamp), and the last run's log. It draws the
+// moment (Timestamp), and the last run's log. The title row ends with
+// Package review settings, which opens the core's one review editor, so
+// the link takes no height from the sources. It draws the
 // status the service publishes and runs nothing itself: Refresh asks the
 // service's `check` through the plugin's own IPC, and every update and the
 // log open the plugin's floating TUIs (UpdatesLogic.tuiRequest). The
@@ -76,6 +78,25 @@ FocusScope {
         container: "window"
 
         title: "Updates"
+        // The title slot's implicit height is its children's rect, and the
+        // row's height reads it: the holder takes the link's own height, so
+        // the link's centred place never feeds back into the row (an anchored
+        // centre was a binding loop in tst_list_hover).
+        titleContent: [
+            Item {
+                width: parent.width
+                implicitWidth: reviewLink.implicitWidth
+                implicitHeight: reviewLink.implicitHeight
+
+                RowAction {
+                    id: reviewLink
+                    anchors.right: parent.right
+                    y: Math.round((layout.titleRowHeight - height) / 2)
+                    text: "Package review settings"
+                    onClicked: root.answered(shell.tui.open("core/pkg-review-settings"))
+                }
+            }
+        ]
         subtitle: [
             Column {
                 width: layout.contentWidth

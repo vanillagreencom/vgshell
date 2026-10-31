@@ -70,6 +70,14 @@ cat >"$ANSWERS/$n.input"
 cat "$ANSWERS/$n" 2>/dev/null
 exit "$(cat "$ANSWERS/$n.status" 2>/dev/null || echo 0)"'
 
+# Package admission is real; this legacy argv suite submits decline without
+# replacing the shared review owner. Review behavior has its own fixture suite.
+cat >"$tools/gum" <<'SH'
+#!/bin/sh
+case "$1" in choose) printf 'Install without review\n' ;; style) shift; printf '%s\n' "$@" ;; esac
+SH
+chmod +x "$tools/gum"
+
 log="$tmp/log"; answers="$tmp/answers"; cfg="$tmp/cfg"
 tree="$tmp/tree"
 # A tree holding bin/vgshell-pkg, bin/lib and shell/Core as copies, so a
@@ -126,7 +134,7 @@ pkg() {
 }
 PKG_ANSWERS=()
 sudo_path="$managers:$tmp/elevate-sudo"
-log_is() { [[ "$(cat -- "$log")" == "$1" ]] || { printf 'log: [%s]\nwant: [%s]\n' "$(cat -- "$log")" "$1" >"$tmp/why"; return 1; }; }
+log_is() { [[ "$(sed '/^paru .*\[-Qua\]/d' "$log")" == "$1" ]] || { printf 'log: [%s]\nwant: [%s]\n' "$(cat -- "$log")" "$1" >"$tmp/why"; return 1; }; }
 out_has() { grep -qF -- "$1" "$tmp/out"; }
 # The output's words in order, colour dropped, as a step wider than the
 # terminal shows them wrapped over several lines.
@@ -189,7 +197,7 @@ row_pacman_ignore() {
 }
 row_aur_ignore() {
   pkg "$1" "$managers:$tmp/elevate-sudo" -- run upgrade --manager aur --ignore aurpkg
-  [[ $status == 0 ]] && log_is "paru [-Sua] [--ignore] [aurpkg]"
+  [[ $status == 0 ]] && log_is "$(lines "paru [-Sua] [--ignore] [aurpkg]" "sudo [-k]")"
 }
 row_ignore_unsupported() {
   pkg "$1" "$sudo_path" -- run upgrade --manager apt --ignore foo
@@ -202,7 +210,7 @@ row_upgrade_config() {
     [[ $status == 0 ]] || return 1
     case "$manager" in
       pacman) grep -qxF "pacman [--config] [$tmp/config with spaces] [-Syu] [--ignore] [held]" "$log" || return 1 ;;
-      aur) log_is "paru [--config] [$tmp/config with spaces] [-Sua] [--ignore] [held]" || return 1 ;;
+      aur) log_is "$(lines "paru [--config] [$tmp/config with spaces] [-Sua] [--ignore] [held]" "sudo [-k]")" || return 1 ;;
     esac
   done
   for manager in apt mise; do
@@ -210,7 +218,7 @@ row_upgrade_config() {
     [[ $status == 1 && ! -s $log ]] || return 1
   done
   pkg "$1" "$sudo_path" -- run install --manager pacman --config "$tmp/unused" foo
-  [[ $status == 1 && ! -s $log ]] || return 1
+  [[ $status == 0 ]] || return 1
   pkg "$1" "$sudo_path" -- run upgrade --manager pacman --config
   [[ $status == 2 && ! -s $log ]]
 }
@@ -285,7 +293,7 @@ row_update_installs() {
 }
 row_aur_unelevated() {
   pkg "$1" "$managers:$tmp/elevate-sudo" -- run install --manager aur aurpkg
-  [[ $status == 0 ]] && log_is "paru [-S] [--needed] [--] [aurpkg]"
+  [[ $status == 0 ]] && log_is "$(lines "paru [-S] [--needed] [--] [aurpkg]" "sudo [-k]")"
 }
 row_picker_install() {
   PKG_ANSWERS=($'beta\ngamma\n')
@@ -316,7 +324,7 @@ row_picker_nothing() {
 row_aur_picker() {
   PKG_ANSWERS=($'aurpkg\n')
   pkg "$1" "$sudo_path:$tmp/picker" -- install --manager aur
-  [[ $status == 0 ]] && grep -qF "[--preview='paru' '-Siia' {1}]" "$log" && [[ "$(grep -c '^sudo' "$log")" == 0 ]] &&
+  [[ $status == 0 ]] && grep -qF "[--preview='paru' '-Siia' {1}]" "$log" && [[ "$(grep -c '^sudo' "$log")" == 1 ]] &&
     grep -qxF "paru [-S] [--needed] [--] [aurpkg]" "$log"
 }
 row_picker_unsupported() {
@@ -386,7 +394,7 @@ if unshare -rm true 2>/dev/null; then
     local cmd
     rm -rf -- "$log" "$answers"; : >"$log"; mkdir -p "$answers"
     printf '%s' "${PKG_ANSWERS[0]}" >"$answers/1"; printf '%s' "${PKG_ANSWERS[1]}" >"$answers/2"
-    cmd="$(printf '%q ' env -i PATH="$sudo_path:$tmp/picker:$tools" HOME="$tmp/home" XDG_CONFIG_HOME="$cfg" LC_ALL=C LOG="$log" ANSWERS="$answers" "$node_bin" "$tree/bin/vgshell-pkg" install)"
+    cmd="$(printf '%q ' env -i PATH="$sudo_path:$tmp/picker:$tools" HOME="$tmp/home" XDG_CONFIG_HOME="$cfg" XDG_RUNTIME_DIR="$rt_empty" LC_ALL=C LOG="$log" ANSWERS="$answers" "$node_bin" "$tree/bin/vgshell-pkg" install)"
     status=0
     SHELL="$BASH" timeout 30 unshare -rm sh -c 'mount --bind "$1" /etc/os-release && shift && exec "$@"' sh "$tmp/os-release-arch" \
       "$script_bin" -qec "$cmd" /dev/null </dev/null >"$tmp/out" 2>&1 || status=$?
@@ -396,7 +404,7 @@ if unshare -rm true 2>/dev/null; then
   check "the AUR answer opens the helper's picker and installs through it" log_is "$(lines "fzf [--prompt=Install from> ] [--color=pointer:yellow]" \
     "paru [-Slqa]" \
     "fzf [--multi] [--preview='paru' '-Siia' {1}] [--preview-label=alt-p: toggle description, alt-j/k: scroll, tab: multi-select] [--preview-label-pos=bottom] [--preview-window=down:65%:wrap] [--bind=alt-p:toggle-preview] [--bind=alt-d:preview-half-page-down,alt-u:preview-half-page-up] [--bind=alt-k:preview-up,alt-j:preview-down] [--color=pointer:green,marker:green]" \
-    "paru [-S] [--needed] [--] [aurpkg]")"
+    "paru [-S] [--needed] [--] [aurpkg]" "sudo [-k]")"
   chooser_status=0
   if row_ensure_helper "$tree"; then ok ensure_helper; else fail "ensure_helper: status=$status out=[$(cat "$tmp/out")]"; fi
 fi
@@ -430,12 +438,13 @@ control unquoted-preview bin/lib/judge-files.js '    return "'"'"'" + word.repla
 control fixed-colour bin/vgshell-pkg 'return value !== undefined && HEX_COLOUR.test(value) ? value : fallback;' 'return fallback;' picker_install
 control dnf-notice shell/Core/PackageManagers.js 'list: ["{bin}", "-q", "repoquery", "--available",' 'list: ["{bin}", "repoquery", "--available",' dnf_picker
 control fzf-looked-up-late bin/vgshell-pkg '        if (!onPath("fzf")) refuse("picker=fzf reason=absent");' '' picker_without_fzf
-control drops-config bin/vgshell-pkg 'for (const step of r.plan.steps) step.splice(1, 0, "--config", config);' ';' upgrade_config
-control drops-ignore bin/vgshell-pkg 'return run(action, manager === null ? primaryId() : manager, names, ignored, installs, config);' 'return run(action, manager === null ? primaryId() : manager, names, [], installs, config);' pacman_ignore
-control drops-install bin/vgshell-pkg 'return run(action, manager === null ? primaryId() : manager, names, ignored, installs, config);' 'return run(action, manager === null ? primaryId() : manager, names, ignored, [], config);' update_installs
+control drops-config shell/Core/PackageManagers.js 'if (config !== undefined) argv.splice(1, 0, "--config", config);' ';' upgrade_config
+control drops-ignore bin/vgshell-pkg 'return run(action, manager === null ? primaryId() : manager, names, ignored, installs, config, receipt);' 'return run(action, manager === null ? primaryId() : manager, names, [], installs, config, receipt);' pacman_ignore
+control drops-install bin/vgshell-pkg 'return run(action, manager === null ? primaryId() : manager, names, ignored, installs, config, receipt);' 'return run(action, manager === null ? primaryId() : manager, names, ignored, [], config, receipt);' update_installs
 control empty-install-tail bin/vgshell-pkg '            if (installs.length === 0) usage("option=--install value=missing");' '' update_installs
 control cancel-runs-nothing bin/vgshell-pkg '    if (r.status === 130) return { cancelled: true };' '' picker_cancelled
 
 if [[ $failures -gt 0 ]]; then echo "test-vgshell-pkg-run: failed=$failures"; exit 1; fi
 if [[ $chooser_status == 77 ]]; then echo "test-vgshell-pkg-run: status=not-measured missing=user-namespaces"; exit 77; fi
+"$node_bin" "$repo/scripts/fixtures/pkg-review/runtime-test.js"
 echo "test-vgshell-pkg-run: ok"

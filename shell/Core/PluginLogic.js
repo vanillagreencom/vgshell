@@ -3183,6 +3183,13 @@ var CORE_TUIS = coreTuiTable({
         presentation: "full",
         entry: { label: "Install packages", icon: "package-plus", group: "Packages" }
     },
+    "pkg-review-settings": {
+        argv: ["vgshell", "pkg", "review-settings"],
+        title: "Package review settings",
+        size: "tall",
+        presentation: "full",
+        entry: { label: "Package review settings", icon: "shield-check", group: "Packages" }
+    },
     "pkg-remove": {
         argv: ["vgshell", "pkg", "remove"],
         title: "Remove packages",

@@ -77,6 +77,12 @@ cat >"$install_managers/pacman" <<'PACMAN'
 #!/bin/sh
 # The presenter models a successful engine install in this fixture home.
 # Other package queries still report no installed VGS system package.
+if [ "$1" = -Q ] && [ -f "$HOME/.fixture-packages-installed" ]; then
+  for name; do :; done
+  case "$name" in vgshell|vgshell-git) exit 1 ;; esac
+  printf '%s 1.0-1\n' "$name"
+  exit 0
+fi
 [ "$1" = -Qoq ] && [ -f "$HOME/.fixture-engine-installed" ] || exit 1
 printf 'vgshell-quickshell\n'
 PACMAN
@@ -124,7 +130,7 @@ installer_source_tree() {
   local manifest plugin
   source_tree "$1" "$2"
   cp -- "$repo/config/requirements.json" "$1/config/"
-  cp -- "$repo/shell/Core/PluginLogic.js" "$repo/shell/Core/ConfigLogic.js" "$repo/shell/Core/Pads.js" "$repo/shell/Core/HyprlandLayer.js" "$repo/shell/Core/MonitorLogic.js" "$1/shell/Core/"
+  cp -- "$repo/shell/Core/PluginLogic.js" "$repo/shell/Core/ConfigLogic.js" "$repo/shell/Core/PackageReview.js" "$repo/shell/Core/Pads.js" "$repo/shell/Core/HyprlandLayer.js" "$repo/shell/Core/MonitorLogic.js" "$1/shell/Core/"
   mkdir -p "$1/shell/Commons" "$1/shell/Ui/icons" "$1/shell/plugins"
   cp -- "$repo/shell/Commons/SettingValues.js" "$repo/shell/Commons/PageReference.js" "$1/shell/Commons/"
   cp -- "$repo/shell/Ui/icons/Lucide.js" "$repo/shell/Ui/icons/Own.js" "$1/shell/Ui/icons/"
@@ -156,7 +162,14 @@ if (command[2] === "engine-run") {
     process.exit(0);
 }
 const manager = command[5];
+if (process.env.VGS_INSTALL_CODE === "0" && process.env.VGS_INSTALL_PARTIAL !== "1")
+    fs.writeFileSync(path.join(process.env.HOME, ".fixture-packages-installed"), "");
 const expected = JSON.parse(fs.readFileSync(file, "utf8"))[manager];
+if (["pacman","aur"].includes(manager)) {
+    const bridge=fs.readFileSync(path.join(path.dirname(presenter),"review-bridge"),"utf8").trim();
+    const proof=require("node:child_process").spawnSync(process.execPath,[bridge,"--proof",process.env.VGS_INSTALL_LOG+".review","--route","staged-"+(fs.existsSync(path.join(path.dirname(path.dirname(presenter)),".git"))?"git":"release")+"-"+args[0],"--owner",path.join(path.dirname(presenter),"vgshell-pkg"),...command.slice(2)],{stdio:"inherit",env:{PATH:"/usr/bin:/bin",TMPDIR:process.env.TMPDIR||"/tmp"}});
+    if(proof.status!==0)process.exit(proof.status||1);
+}
 if (manager === "apt") {
     if (command[0] !== path.join(path.dirname(presenter), "vgshell") || command.slice(1, 5).join(" ") !== "pkg run install --manager") process.exit(2);
     process.exit(0);
@@ -171,6 +184,7 @@ JS
   *) exit 2 ;;
 esac
 PRESENTER
+  printf '%s\n' "$repo/scripts/fixtures/pkg-review/route-owner.js" >"$1/bin/review-bridge"
   chmod +x "$1/bin/vgshell-tui"
 }
 
@@ -205,7 +219,7 @@ run() {
   status=0
   local -a invocation=(env -i PATH="${RUN_PATH:-$run_path}" HOME="$h" TMPDIR="$scratch" VGS_TEST_RUN="${RUN_TEST_RUN-1}" VGS_RELEASE_API="file://$www" \
     DBUS_SYSTEM_BUS_ADDRESS="$system_bus_address" VGS_SYSTEM_ROOT="${RUN_ROOT:-$system_root}" XDG_RUNTIME_DIR="${RUN_RT:-$rt_empty}" GIT_CONFIG_NOSYSTEM=1 GNUPGHOME="${RUN_GNUPG:-$gnupg_empty}" \
-    VGS_INSTALL_LOG="$install_log" VGS_INSTALL_EXPECTED="$install_expected" VGS_INSTALL_CODE="${RUN_INSTALL_CODE:-0}" \
+    VGS_INSTALL_LOG="$install_log" VGS_INSTALL_EXPECTED="$install_expected" VGS_INSTALL_CODE="${RUN_INSTALL_CODE:-0}" VGS_INSTALL_PARTIAL="${RUN_INSTALL_PARTIAL:-0}" \
     "${wrap[@]}" bash "$bin" "$@")
   if [[ ${RUN_TTY:-false} == true ]]; then
     local terminal_command
@@ -364,6 +378,11 @@ cat >"$vgs_db/pacman" <<'SH'
 #!/bin/sh
 [ "$1" != -Qoq ] || { [ -f "$HOME/.fixture-engine-installed" ] && echo vgshell-quickshell; exit; }
 [ "$1" = -Q ] && [ "$3" = vgshell-git ] && { echo "vgshell-git 0.1.0.r1.gabc1234-1"; exit 0; }
+if [ "$1" = -Q ] && [ -f "$HOME/.fixture-packages-installed" ]; then
+  for name; do :; done
+  printf '%s 1.0-1\n' "$name"
+  exit 0
+fi
 exit 1
 SH
 chmod +x "$vgs_db/pacman"
@@ -621,6 +640,23 @@ runtime_failure_row() { # BIN: a failed recorded install leaves current unchange
   refused 1 "install.sh: refused: requirements=install-failed manager=pacman code=42" &&
     [[ $(readlink -- "$d/current") == 0.1.0 && ! -e $d/0.2.0 ]] && no_stage
 }
+runtime_partial_row() { # BIN MODE TTY: exit zero with unmet prerequisites
+  local mode="$2" terminal="$3" args=(--version 0.1.0)
+  new_home "partial-$mode-$terminal"
+  if [[ $mode == git ]]; then
+    git config --file "$h/.gitconfig" url."file://$bare".insteadOf https://github.com/vanillagreencom/vgshell.git
+    args=(--git)
+  fi
+  RUN_TTY="$terminal" RUN_INSTALL_PARTIAL=1 run "$1" "${args[@]}"
+  [[ $status == 1 && ! -e $d/current && ! -e $d/git ]] &&
+    grep -q 'requirements=unsettled manager=pacman' "$tmp/err" "$tmp/out" && no_stage
+}
+staged_git_terminal_row() { # BIN: successful staged git caller in its terminal
+  new_home git-terminal
+  git config --file "$h/.gitconfig" url."file://$bare".insteadOf https://github.com/vanillagreencom/vgshell.git
+  RUN_TTY=true run "$1" --git
+  [[ $status == 0 && -d $d/git ]] && grep -qxF present "$install_log"
+}
 pinned_row() {
   new_home pinned
   run "$installer" --version v0.1.0
@@ -650,6 +686,12 @@ row_job latest_row
 row_job check "the caller's terminal installs launcher packages and preserves failed-install status" terminal_row "$installer"
 row_job check "required packages install through the floating presenter, with AUR and English data and no optional packages" packages_row "$installer"
 row_job check "a failed dependency install keeps the previous release and removes staging" runtime_failure_row "$installer"
+for mode in release git; do
+  for terminal in false true; do
+    row_job check "$mode terminal=$terminal partial success cannot publish unmet prerequisites" runtime_partial_row "$installer" "$mode" "$terminal"
+  done
+done
+row_job check "git's staged package owner works in the caller's terminal" staged_git_terminal_row "$installer"
 row_job check "the launcher prerequisite and real presenter refuse before fetch or launch" launcher_row "$installer"
 row_job check "Nix with every available required command but the on-request ones permits release, current and Git installs" nix_present_row "$installer"
 row_job check "Nix names only the missing available required package" nix_missing_row "$installer"
@@ -1192,4 +1234,7 @@ rows_join
 
 check "the rows' git writes leave the caller's XDG git configuration unchanged" cmp -s -- "$tmp/caller-git-config" "$caller_config/git/config"
 
+while IFS= read -r -d '' proof; do
+  sed 's/^/package-route-proof: /' "$proof"
+done < <(find "$row_scratch" -type f -name 'runtime-install-*.log.review' -print0)
 rows_done "$suite"
