@@ -365,6 +365,9 @@ fence_killed() {
   status=0
   timeout -k 2 20 "${contain[@]}" "$BASH" "$TMP_ROOT/killed.sh" "$1" "$verdict" "$TMP_ROOT/bin-real" "$TMP_ROOT" "${at[@]}" \
     >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" || status=$?
+  # The killed fence's root is in another PID namespace for every later run.
+  chmod -R u+rwX -- "${TMP_ROOT:?}"/vgshell-world.* 2>/dev/null || true
+  rm -rf -- "${TMP_ROOT:?}"/vgshell-world.*
   [[ $status -eq 0 && -r $verdict && "$(<"$verdict")" == left=0 ]]
 }
 no_bwrap() { # FILE
@@ -558,6 +561,180 @@ print("service-paths=isolated")
 PYSERVICES
 }
 
+# The reaper cases run the fence over the plain device tree with a stand-in
+# bwrap and a TMPDIR of their own under the scratch root, so they need no
+# namespace and touch no other directory. `hold`'s bwrap stand-in makes the
+# probe pass and, for the run itself, writes its pid to `held` and waits, so
+# the fence owns a root until the case ends it. `stuck` holds an rm that
+# fails for a path named stuck0 and is the real one for every other.
+mkdir -p "$TMP_ROOT/bin-hold" "$TMP_ROOT/bin-stuck"
+for tool in chmod dirname env git id ln mkdir mktemp readlink realpath sed seq setsid stat sh sleep touch true; do
+  for bin in hold stuck; do ln -s -- "$(type -P "$tool")" "$TMP_ROOT/bin-$bin/$tool"; done
+done
+ln -s -- "$(type -P rm)" "$TMP_ROOT/bin-hold/rm"
+printf '#!/bin/sh\ncase " $* " in *" --info-fd "*) echo $$ >"%s"; exec sleep 300 ;; esac\nexit 0\n' "$TMP_ROOT/held" >"$TMP_ROOT/bin-hold/bwrap"
+printf '#!/bin/sh\ncase "$*" in *stuck0*) exit 1 ;; esac\nexec %s "$@"\n' "$(type -P rm)" >"$TMP_ROOT/bin-stuck/rm"
+chmod +x "$TMP_ROOT/bin-hold/bwrap" "$TMP_ROOT/bin-stuck/rm"
+cp -- "$TMP_ROOT/bin-broken/bwrap" "$TMP_ROOT/bin-stuck/bwrap"
+# reap_run FILE BIN DIR ARG...: one run of FILE, whose bwrap fails after the
+# fence made and released its root, with DIR as the caller TMPDIR. Sets
+# status and the streams.
+reap_run() {
+  local file="$1" bin="$2" dir="$3"
+  shift 3
+  roots plain
+  status=0
+  (cd -- "$TMP_ROOT/cwd" && env -i PATH="$TMP_ROOT/bin-$bin" HOME="${TMP_ROOT}-home" TMPDIR="$dir" "$BASH" "$file" "${at[@]}" "$@" true) \
+    >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" || status=$?
+}
+# held_start FILE DIR: a fence that owns a root under DIR until held_end. Sets
+# held_pid, held_root and held_command, the pid of what it waits on.
+held_start() {
+  local file="$1" dir="$2" made
+  rm -f -- "$TMP_ROOT/held"
+  mkdir -p -- "$dir"
+  roots plain
+  (cd -- "$TMP_ROOT/cwd" && exec env -i PATH="$TMP_ROOT/bin-hold" HOME="${TMP_ROOT}-home" TMPDIR="$dir" "$BASH" "$file" "${at[@]}" true) >/dev/null 2>&1 &
+  held_pid=$!
+  for _ in $(seq 1 100); do [[ -s $TMP_ROOT/held ]] && break; sleep 0.05; done
+  [[ -s $TMP_ROOT/held ]] || return 1
+  held_command="$(<"$TMP_ROOT/held")"
+  made=("$dir"/vgshell-world.*)
+  [[ ${#made[@]} -eq 1 && -d ${made[0]} ]] || return 1
+  held_root="${made[0]}"
+}
+held_end() {
+  kill -KILL "$held_command" 2>/dev/null || true
+  wait "$held_pid" 2>/dev/null || true
+}
+# plant_dead DIR NAME [PID]: a root whose owner is PID, default a pid no host
+# has, started at tick 1, in this PID namespace.
+plant_dead() {
+  local ns
+  ns="$(readlink "/proc/$$/ns/pid")" && [[ $ns =~ ^pid:\[([0-9]+)\]$ ]] || return 1
+  mkdir -p -- "$1/vgshell-world.${3:-4194305}-1-${BASH_REMATCH[1]}-r.$2"
+}
+# reap_killed FILE KIND: a SIGKILLed fence leaves its root, and the next run
+# removes it. KIND readonly gives the root read-only fixtures.
+reap_killed() {
+  local dir="$TMP_ROOT/reap-killed-$2" fixtures
+  rm -rf -- "${dir:?}"
+  held_start "$1" "$dir" || { held_end; return 1; }
+  kill -KILL "$held_pid"
+  wait "$held_pid" 2>/dev/null || true
+  kill -KILL "$held_command"
+  [[ -d $held_root ]] || return 1
+  if [[ $2 == readonly ]]; then
+    fixtures="$held_root/tmp/vgshell-smoke.x/tui-fixtures"
+    mkdir -p -- "$fixtures"
+    : >"$fixtures/fixture"
+    chmod a-w -- "$fixtures/fixture" "$fixtures" "${fixtures%/*}"
+  fi
+  reap_run "$1" broken "$dir"
+  [[ ! -e $held_root && "$(first_error)" == "gpu-fence: cleanup=reaped count=1" ]] && ! compgen -G "$dir/vgshell-world.*" >/dev/null
+}
+# reap_live FILE: a run's root survives a run that starts while it is held.
+reap_live() {
+  local dir="$TMP_ROOT/reap-live" ok=false
+  rm -rf -- "${dir:?}"
+  held_start "$1" "$dir" || { held_end; return 1; }
+  reap_run "$1" broken "$dir"
+  [[ -d $held_root ]] && ! grep -qF "$held_root" "$TMP_ROOT/err" && ok=true
+  held_end
+  [[ $ok == true ]]
+}
+# reap_stuck FILE: a root that cannot be removed is reported by path, once,
+# on the run's own stderr, and the run goes on.
+reap_stuck() {
+  local dir="$TMP_ROOT/reap-stuck" stuck
+  rm -rf -- "${dir:?}"
+  plant_dead "$dir" stuck0 || return 1
+  stuck=("$dir"/vgshell-world.*)
+  reap_run "$1" stuck "$dir"
+  [[ -d ${stuck[0]} && $status -eq 77 ]] &&
+    [[ "$(grep -c -F 'cleanup=rm-failed' "$TMP_ROOT/err")" -eq 1 ]] &&
+    grep -qx -- "gpu-fence: cleanup=rm-failed path=${stuck[0]}" "$TMP_ROOT/err"
+}
+# reap_kept FILE: a --keep run's root is no orphan: the next run keeps it and
+# says so.
+reap_kept() {
+  local dir="$TMP_ROOT/reap-kept" kept
+  rm -rf -- "${dir:?}"
+  mkdir -p -- "$dir"
+  reap_run "$1" broken "$dir" --keep
+  kept=("$dir"/vgshell-world.*)
+  [[ ${#kept[@]} -eq 1 && -d ${kept[0]} ]] || return 1
+  reap_run "$1" broken "$dir"
+  [[ -d ${kept[0]} ]] && grep -qx -- "gpu-fence: cleanup=kept path=${kept[0]} reason=keep" "$TMP_ROOT/err"
+}
+# reap_ownerless FILE: a root with no owner in its name, made before the
+# name carried one, is removed when it is old and nothing refers to it, and
+# kept, and reported, while a process has its cwd there.
+reap_ownerless() {
+  local dir="$TMP_ROOT/reap-ownerless" ok=false
+  rm -rf -- "${dir:?}"
+  mkdir -p -- "$dir/vgshell-world.aaaaaa" "$dir/vgshell-world.bbbbbb"
+  touch -d @1 -- "$dir/vgshell-world.aaaaaa" "$dir/vgshell-world.bbbbbb"
+  (cd -- "$dir/vgshell-world.bbbbbb" && exec sleep 300) &
+  held_command=$!
+  reap_run "$1" broken "$dir"
+  [[ ! -e $dir/vgshell-world.aaaaaa && -d $dir/vgshell-world.bbbbbb ]] &&
+    grep -qx -- "gpu-fence: cleanup=kept path=$dir/vgshell-world.bbbbbb reason=referenced" "$TMP_ROOT/err" && ok=true
+  kill -KILL "$held_command"
+  wait "$held_command" 2>/dev/null || true
+  [[ $ok == true ]]
+}
+# reap_reused FILE: a root whose pid is alive but started at another time
+# belongs to a process that took the pid over, not its owner.
+reap_reused() {
+  local dir="$TMP_ROOT/reap-reused"
+  rm -rf -- "${dir:?}"
+  plant_dead "$dir" reuse0 "$$" || return 1
+  reap_run "$1" broken "$dir"
+  [[ "$(first_error)" == "gpu-fence: cleanup=reaped count=1" ]] && ! compgen -G "$dir/vgshell-world.*" >/dev/null
+}
+# reap_mounted FILE: an old owner-less root that a process has mounted into
+# its namespace, with no cwd or descriptor there, is a live world's: kept.
+reap_mounted() {
+  local dir="$TMP_ROOT/reap-mounted" ok=false
+  rm -rf -- "${dir:?}"
+  mkdir -p -- "$dir/vgshell-world.dddddd/mnt" "$dir/source"
+  touch -d @1 -- "$dir/vgshell-world.dddddd"
+  unshare --user --map-root-user --mount sh -c 'mount --bind "$1" "$2" && : >"$3" && exec sleep 300' sh \
+    "$dir/source" "$dir/vgshell-world.dddddd/mnt" "$dir/ready" &
+  held_command=$!
+  for _ in $(seq 1 100); do [[ -e $dir/ready ]] && break; sleep 0.05; done
+  if [[ -e $dir/ready ]]; then
+    reap_run "$1" broken "$dir"
+    [[ -d $dir/vgshell-world.dddddd ]] &&
+      grep -qx -- "gpu-fence: cleanup=kept path=$dir/vgshell-world.dddddd reason=referenced" "$TMP_ROOT/err" && ok=true
+  fi
+  kill -KILL "$held_command" 2>/dev/null || true
+  wait "$held_command" 2>/dev/null || true
+  [[ $ok == true ]]
+}
+# reap_young FILE: an owner-less root just made may be a live run's, which
+# holds no reference until bubblewrap starts, so it is kept and reported.
+reap_young() {
+  local dir="$TMP_ROOT/reap-young"
+  rm -rf -- "${dir:?}"
+  mkdir -p -- "$dir/vgshell-world.cccccc"
+  reap_run "$1" broken "$dir"
+  [[ -d $dir/vgshell-world.cccccc ]] &&
+    grep -qx -- "gpu-fence: cleanup=kept path=$dir/vgshell-world.cccccc reason=owner-unproved" "$TMP_ROOT/err"
+}
+# reap_unknown FILE: a root whose owner cannot be read, or lives in another
+# PID namespace, is kept and reported.
+reap_unknown() {
+  local dir="$TMP_ROOT/reap-unknown"
+  rm -rf -- "${dir:?}"
+  mkdir -p -- "$dir/vgshell-world.junk" "$dir/vgshell-world.4194305-1-1-r.other0"
+  reap_run "$1" broken "$dir"
+  [[ -d $dir/vgshell-world.junk && -d $dir/vgshell-world.4194305-1-1-r.other0 ]] &&
+    grep -qx -- "gpu-fence: cleanup=kept path=$dir/vgshell-world.junk reason=owner-unreadable" "$TMP_ROOT/err" &&
+    grep -qx -- "gpu-fence: cleanup=kept path=$dir/vgshell-world.4194305-1-1-r.other0 reason=other-namespace" "$TMP_ROOT/err"
+}
+
 # Rows: label | whether the case makes a namespace | the case and its words.
 cases=(
   "the check leaves the caller checkout byte-identical|no|check_readonly"
@@ -582,6 +759,16 @@ cases=(
   "a failed proof names its reasons before the paths it read|no|proof_orders"
   "a node sysfs does not list starts nothing|no|unplaced stray-node dri/card7"
   "an entry that is no link starts nothing|no|unplaced stray-file char/9:9"
+  "a SIGKILLed run's root is removed by the next run|no|reap_killed plain"
+  "a root with read-only fixtures is removed by the next run|no|reap_killed readonly"
+  "a live run's root survives a run that starts beside it|no|reap_live"
+  "a root that cannot be removed is reported by path|no|reap_stuck"
+  "a kept root is never removed and is reported as kept|no|reap_kept"
+  "a root with no owner is removed unless a process refers to it|no|reap_ownerless"
+  "a root whose pid another process took over is removed|no|reap_reused"
+  "an old owner-less root a process has mounted is kept and reported|yes|reap_mounted"
+  "an owner-less root younger than any run can be is kept and reported|no|reap_young"
+  "a root whose owner cannot be read or lives elsewhere is kept and reported|no|reap_unknown"
   "a device number that is none starts nothing|no|unreadable"
   "a call with no command is refused|no|refused missing-command"
   "an unknown option is refused|no|refused --nope --nope"
@@ -772,6 +959,51 @@ forward() {
   '(($#)) || { note "refused: argument=missing-command"; exit 2; }'
   '(($#)) || exit 0'
   'a call with no command is refused'
+  'the next run does not look for orphans'
+  '    reap_orphans
+    kind=r'
+  '    kind=r'
+  "a SIGKILLed run's root is removed by the next run"
+  'a root is reaped without its owner bits restored'
+  '    chmod -R u+rwX -- "$root" 2>/dev/null || true'
+  '    :'
+  'a root with read-only fixtures is removed by the next run'
+  'an owner that is alive loses its root'
+  '      elif [[ $current == "$start" ]]; then'
+  '      elif false; then'
+  "a live run's root survives a run that starts beside it"
+  'a root that cannot be removed is not reported'
+  '      note "cleanup=rm-failed path=$root"'
+  '      :'
+  'a root that cannot be removed is reported by path'
+  'a kept root is taken for an orphan'
+  '      if [[ $kind == k ]]; then'
+  '      if false; then'
+  'a kept root is never removed and is reported as kept'
+  'a referenced owner-less root is removed'
+  '      if [[ $refs == *$'"'"'\n'"'"'"$root"$'"'"'\n'"'"'* || $refs == *$'"'"'\n'"'"'"$root/"* ]]; then reason=referenced; fi'
+  '      :'
+  'a root with no owner is removed unless a process refers to it'
+  'a mount point is no reference to an owner-less root'
+  '    while read -r _ _ _ _ dest _; do printf '"'"'%b\n'"'"' "$dest"; done 2>/dev/null <"$p/mountinfo" || true'
+  '    :'
+  'an old owner-less root a process has mounted is kept and reported'
+  'a live pid keeps the root whatever its start time'
+  '      elif [[ $current == "$start" ]]; then'
+  '      elif true; then'
+  'a root whose pid another process took over is removed'
+  'a young owner-less root is taken for an orphan'
+  '      if ! modified="$(stat -c %Y -- "$root")" || (($(printf '"'"'%(%s)T'"'"' -1) - modified < ownerless_min_age)); then'
+  '      if false; then'
+  'an owner-less root younger than any run can be is kept and reported'
+  'an unreadable owner is taken for an orphan'
+  '      reason=owner-unreadable
+    fi
+    if [[ -z $reason'
+  '      reason=""
+    fi
+    if [[ -z $reason'
+  'a root whose owner cannot be read or lives elsewhere is kept and reported'
 )
 # run_controls TABLE: each control of the array TABLE planted in a copy of
 # the fence must turn its case red. A control that leaves the case green,

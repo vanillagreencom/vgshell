@@ -21,11 +21,16 @@
 # Its PATH is the caller's behind one directory that holds the native node
 # alone, so every command the caller puts on PATH keeps its place.
 #
-# The world exclusively creates VGSHELL_WORLD_ROOT under the caller TMPDIR.
+# The world exclusively creates VGSHELL_WORLD_ROOT under the caller TMPDIR,
+# named for its owner: this process's pid, start time and PID namespace.
 # Every temporary tree lives there. After the PID namespace ends, this
 # process alone retains row evidence, restores owner write bits and removes
-# that root. --keep keeps it and prints its path. SIGKILL of this process
-# ends the namespace but leaves the root.
+# that root. --keep keeps it, marks it kept in its name and prints its path.
+# SIGKILL of this process ends the namespace but runs no trap and leaves the
+# root; the next run to make a root under the same TMPDIR removes it (see
+# reap_orphans) and never one whose owner is alive or cannot be read. A root
+# with no owner in its name (older code made it) goes only when older than
+# 10800 s and no process holds it as a cwd, descriptor or mount point.
 #
 # --out DIR declares a writable output directory. A directory which is or
 # contains the checkout, its git directory or the caller HOME is refused.
@@ -73,7 +78,8 @@
 # the decision record holds what was measured of the programs run here.
 #
 # Exit: CMD's status. 2 on a refused argument. 77 when nothing was started,
-# never a run outside the namespace; the first line on stderr names why:
+# never a run outside the namespace; the first status=not-measured line on
+# stderr names why (cleanup= lines may come before it):
 #   gpu-fence: status=not-measured reason=bwrap-missing
 #   gpu-fence: status=not-measured reason=root-failed
 #   gpu-fence: status=not-measured reason=namespace-failed exit=<status>
@@ -93,7 +99,7 @@ fault() {
   note "status=not-measured reason=$reason${*:+ $*}"
   case "$reason" in
     bwrap-missing) note "  bubblewrap, which makes the namespace, is not on PATH" ;;
-    root-failed) note "  the world could not make its owned run root" ;;
+    root-failed) note "  the world could not make its owned run root or read its own owner record" ;;
     namespace-failed) note "  bubblewrap could not make the namespace; its output follows" ;;
     amd-node-visible) note "  a path to an amdgpu node resolves inside the namespace" ;;
     node-missing) note "  a node or link the host had does not resolve inside the namespace" ;;
@@ -301,6 +307,106 @@ release() {
   fi
 }
 
+# proc_start PID: PID's start time in clock ticks, field 22 of its stat. Its
+# name field may hold spaces and parentheses, so the fields count from the
+# last ") ".
+proc_start() {
+  local line rest fields=()
+  read -r line 2>/dev/null <"/proc/$1/stat" || return 1
+  rest="${line##*) }"
+  read -r -a fields <<<"$rest"
+  [[ ${fields[19]-} =~ ^[0-9]+$ ]] || return 1
+  printf '%s\n' "${fields[19]}"
+}
+
+# proc_refs: every path a process holds as its cwd, an open descriptor or a
+# mount point, one per line. A world's processes reach its root by a bind
+# mount, and a descriptor opened through the runtime bind reads back under
+# another path, so a mount point is the reference that lasts the world.
+proc_refs() {
+  local p ns seen=$'\n' dest
+  for p in /proc/[0-9]*; do
+    readlink -- "$p/cwd" "$p"/fd/* 2>/dev/null || true
+    ns="$(readlink -- "$p/ns/mnt" 2>/dev/null)" || continue
+    [[ $seen != *$'\n'"$ns"$'\n'* ]] || continue
+    seen+="$ns"$'\n'
+    while read -r _ _ _ _ dest _; do printf '%b\n' "$dest"; done 2>/dev/null <"$p/mountinfo" || true
+  done
+}
+
+# reap_orphans: before this run makes its root, remove each vgshell-world.*
+# root under the caller TMPDIR whose owner has ended, so a run that was
+# killed (SIGKILL runs no trap) leaves nothing behind for the next one. The
+# owner is in the root's name, written by the one mktemp that makes it:
+# vgshell-world.<pid>-<start>-<pid namespace>-<r|k>.XXXXXX. A root is reaped
+# only when its owner is proved gone: its pid is absent or reads a different
+# start time, in this PID namespace. An owner that is alive, in another
+# namespace, unreadable, or kept on purpose (k) keeps its root; the last
+# three are reported as `cleanup=kept path=<root> reason=<why>`. A root that
+# cannot be removed is reported as `cleanup=rm-failed path=<root>` on this
+# run's stderr, which is its run log. The reaper touches no entry outside
+# TMPDIR that is no directory named vgshell-world.*.
+# A root with no owner in its name predates the name: it is removed only when
+# older than any run can be and unreferenced, else kept as owner-unproved.
+reap_orphans() {
+  local root name pid start ns kind reason current modified reaped=0 refs="" refs_read=false
+  # Seconds: longer than the 7200 s timeout around a lane's nested run, with margin.
+  local ownerless_min_age=10800
+  for root in "${TMPDIR:-/tmp}"/vgshell-world.*; do
+    [[ -e $root || -L $root ]] || continue
+    name="${root##*/}"
+    reason=""
+    if [[ -L $root || ! -d $root ]]; then
+      reason=not-a-directory
+    elif [[ $name =~ ^vgshell-world\.([0-9]+)-([0-9]+)-([0-9]+)-([rk])\.[A-Za-z0-9]{6}$ ]]; then
+      pid="${BASH_REMATCH[1]}" start="${BASH_REMATCH[2]}" ns="${BASH_REMATCH[3]}" kind="${BASH_REMATCH[4]}"
+      if [[ $kind == k ]]; then
+        reason=keep
+      elif [[ $ns != "$world_ns" ]]; then
+        reason=other-namespace
+      elif [[ ! -e /proc/$pid ]]; then
+        :
+      elif ! current="$(proc_start "$pid")"; then
+        reason=owner-unreadable
+      elif [[ $current == "$start" ]]; then
+        continue
+      fi
+    elif [[ $name =~ ^vgshell-world\.[A-Za-z0-9]{6}$ ]]; then
+      # REVISIT(D107): the one-time migration of roots made before the owner
+      # was named. Delete this branch with the first release every host has
+      # run; a root that new code makes never reaches it.
+      # A live run's root holds no reference until bubblewrap starts, so only
+      # a root older than any run can be, and referred to by no process's
+      # cwd, descriptor or mount point, is an orphan.
+      if ! modified="$(stat -c %Y -- "$root")" || (($(printf '%(%s)T' -1) - modified < ownerless_min_age)); then
+        reason=owner-unproved
+      else
+        if [[ $refs_read == false ]]; then
+          refs="$(proc_refs)"
+          refs=$'\n'"$refs"$'\n'
+          refs_read=true
+        fi
+        if [[ $refs == *$'\n'"$root"$'\n'* || $refs == *$'\n'"$root/"* ]]; then reason=referenced; fi
+      fi
+    else
+      reason=owner-unreadable
+    fi
+    if [[ -z $reason && ! -O $root ]]; then reason=not-owned; fi
+    if [[ -n $reason ]]; then
+      note "cleanup=kept path=$root reason=$reason"
+      continue
+    fi
+    # Owner bits first, as release does: the fixtures are read-only.
+    chmod -R u+rwX -- "$root" 2>/dev/null || true
+    if rm -rf -- "$root" 2>/dev/null || [[ ! -e $root ]]; then
+      reaped=$((reaped + 1))
+    else
+      note "cleanup=rm-failed path=$root"
+    fi
+  done
+  ((reaped == 0)) || note "cleanup=reaped count=$reaped"
+}
+
 # inside ABSENT... -- PRESENT... -- CMD...: the proof, then CMD. Every path
 # is read before the verdict, so the lines hold the whole view. A fault's
 # lines are printed as it is found and the proof lines after the last
@@ -370,7 +476,12 @@ case "$mode" in
     plan
     if [[ $fresh == false ]]; then ! fenced || exposed || exec "$@"; fi
     command -v bwrap >/dev/null 2>&1 || { fault bwrap-missing; exit 77; }
-    fence_dir="$(mktemp -d "${TMPDIR:-/tmp}/vgshell-world.XXXXXX")" || { fault root-failed; exit 77; }
+    world_start="$(proc_start "$$")" && world_ns="$(readlink -- "/proc/$$/ns/pid")" && [[ $world_ns =~ ^pid:\[([0-9]+)\]$ ]] || { fault root-failed; exit 77; }
+    world_ns="${BASH_REMATCH[1]}"
+    reap_orphans
+    kind=r
+    [[ $keep == false ]] || kind=k
+    fence_dir="$(mktemp -d "${TMPDIR:-/tmp}/vgshell-world.$$-$world_start-$world_ns-$kind.XXXXXX")" || { fault root-failed; exit 77; }
     [[ -d $fence_dir && ! -L $fence_dir ]] || { fault root-failed; exit 77; }
     fence_dir="$(realpath -e -- "$fence_dir")" || { fault root-failed; exit 77; }
     trap release EXIT
