@@ -34,6 +34,14 @@ import qs.Ui
 // them. `actionOf(row)` answers the row's action as `{ text }`, or null
 // for none; a busy row ignores that action and shows a Spinner instead.
 // `menuOf(row)` its overflow menu as a list of `{ key, text, iconName }`.
+// `iconActionsOf(row)` answers the row's icon actions as a list of `{ key,
+// iconName, label }`, drawn in that order as ghost IconButtons after the
+// action, with the label as the tooltip; a press emits `chose(key,
+// actionKey)`. They take no Tab stop: the list puts each first in the
+// row's menu, which Shift+F10 and the Menu key open, and draws the
+// overflow button only for a `menuOf` entry, since a menu that only
+// repeats the icons needs no button. A busy row draws none. An icon
+// action's key and a menu entry's are distinct within a row.
 // A row with `opens` true opens a view of its own, such as a country's
 // cities: it draws a trailing chevron-right, and since opening changes
 // nothing, a `disabledReason` leaves it working. A list that holds such a
@@ -58,6 +66,7 @@ FocusScope {
     property var rows: []
     property var actionOf: row => null
     property var menuOf: row => []
+    property var iconActionsOf: row => []
     property bool removable: false
     property int current: 0
     property string disabledReason: ""
@@ -176,6 +185,14 @@ FocusScope {
                 readonly property bool live: list.placeOf[key] !== undefined
                 readonly property var entry: live ? list.rows[list.placeOf[key]] : ({ key: "", text: "" })
                 readonly property var rowAction: live ? list.actionOf(entry) : null
+                readonly property var iconActions: live ? list.iconActionsOf(entry) : []
+                // The row's menu, each entry { key, text, iconName }: its
+                // icon actions while the row takes clicks, the one rule its
+                // icons' presses read, so a row that opens in a locked list
+                // keeps them; then the owner's entries while the list is
+                // unlocked.
+                readonly property var menuRows: (live && !locked ? iconActions.map(action => ({ key: String(action.key), text: action.label, iconName: action.iconName })) : [])
+                    .concat(live && !lockState.locked ? list.menuOf(entry) : [])
                 readonly property bool busy: live && entry.busy === true
                 readonly property bool opens: live && entry.opens === true
                 readonly property bool locked: lockState.locked && !opens
@@ -205,6 +222,7 @@ FocusScope {
                 badge: entry.badge === undefined ? "" : entry.badge
                 badgeTone: entry.badgeTone === undefined ? "neutral" : entry.badgeTone
                 badgeIcon: entry.badgeIcon === undefined ? "" : entry.badgeIcon
+                drawnEntries: busy ? 0 : iconActions.length
                 function act() {
                     if (busy || locked) return;
                     list.acted(row.key);
@@ -224,6 +242,29 @@ FocusScope {
                         hoverEnabled: !row.locked
                         onClicked: row.act()
                     },
+                    Repeater {
+                        // Keyed by the actions' keys alone: Repeater keeps
+                        // its delegates while a new model array equals the
+                        // last (a qml-unit run, Qt 6.12, 2026-10-31), so an
+                        // action whose icon or label changes, as a copy's to
+                        // Copied, keeps its button, its hover and its open
+                        // tooltip.
+                        model: row.busy ? [] : row.iconActions.map(action => String(action.key))
+                        // keyboard-path: the row's menu holds each icon action, opened by Shift+F10 or the Menu key
+                        IconButton {
+                            required property var modelData
+                            readonly property var iconAction: row.iconActions.find(item => String(item.key) === modelData) || ({ iconName: "", label: "" })
+                            objectName: row.key + "/" + modelData
+                            anchors.verticalCenter: parent.verticalCenter
+                            size: "sm"
+                            focusPolicy: Qt.NoFocus
+                            iconName: iconAction.iconName
+                            label: iconAction.label
+                            // A locked row takes no click, so neither do its icons.
+                            hoverEnabled: row.clickable
+                            onClicked: if (row.clickable) list.chose(row.key, modelData)
+                        }
+                    },
                     Icon {
                         visible: row.opens
                         anchors.verticalCenter: parent.verticalCenter
@@ -234,12 +275,16 @@ FocusScope {
                 ]
                 menuEntries: [
                     Repeater {
-                        model: row.live && !lockState.locked ? list.menuOf(row.entry) : []
+                        // Keyed as the icons are: an entry whose label its
+                        // own trigger changes, as copy's to Copied, keeps
+                        // its item, so the menu still closes after it.
+                        model: row.menuRows.map(menuRow => String(menuRow.key))
                         MenuItem {
                             required property var modelData
-                            text: modelData.text
-                            iconName: modelData.iconName === undefined ? "" : modelData.iconName
-                            onTriggered: list.chose(row.key, String(modelData.key))
+                            readonly property var menuRow: row.menuRows.find(item => String(item.key) === modelData) || ({ text: "" })
+                            text: menuRow.text
+                            iconName: menuRow.iconName === undefined ? "" : menuRow.iconName
+                            onTriggered: list.chose(row.key, modelData)
                         }
                     }
                 ]

@@ -11,7 +11,11 @@ import qs.Ui
 // Space emit `clicked`, the row's primary action, as a click does, and
 // Shift+F10 and the Menu key open the overflow menu, as KeyNavLogic reads
 // them. Arrows go to the list. Without entries the overflow button is
-// hidden and the menu keys pass on.
+// hidden and the menu keys pass on. `drawnEntries` counts the menu's first
+// entries the row already draws as buttons in `actions`: the overflow
+// button shows only for an entry past them, so no button opens a menu
+// that repeats the buttons beside it, and the menu keys still open it.
+// While the button is hidden the menu opens under the actions.
 //
 // `battery`, a share of one, draws the badge as a percentage with a battery
 // icon, `warning` at or below `deviceRow.battery.warning` and `danger` at
@@ -29,6 +33,7 @@ ListItem {
     property string badgeIcon: ""
     property alias actions: actionRow.data
     property alias menuEntries: overflowMenu.entries
+    property int drawnEntries: 0
     property string menuLabel: "More actions"
     readonly property bool hasBattery: Number.isFinite(battery)
     readonly property real batteryShare: hasBattery ? Math.max(0, Math.min(1, battery)) : 0
@@ -37,7 +42,7 @@ ListItem {
     // Open the overflow menu from `opener`, "key" or "pointer"; answers
     // whether there was one to open.
     function openMenu(opener) {
-        if (!more.visible) return false;
+        if (overflowMenu.items().length === 0) return false;
         overflowMenu.open(opener);
         return true;
     }
@@ -65,14 +70,17 @@ ListItem {
         },
         IconButton {
             id: more
-            visible: overflowMenu.items().length > 0
+            visible: overflowMenu.items().length > root.drawnEntries
             iconName: "ellipsis"
             label: root.menuLabel
             size: "sm"
             anchors.verticalCenter: parent.verticalCenter
             onClicked: overflowMenu.toggle(KeyNavLogic.opener(more))
 
-            Menu { id: overflowMenu }
+            // A menu follows its parent and closes when it hides
+            // (AnchorTracker), so with the button hidden it hangs from the
+            // actions it repeats.
+            Menu { id: overflowMenu; parent: more.visible ? more : actionRow }
         }
     ]
 }

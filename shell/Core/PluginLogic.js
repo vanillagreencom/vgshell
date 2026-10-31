@@ -3686,6 +3686,43 @@ function tuiRun(manifest, enabled, sourceDir, runner, name, args) {
     return { ok: true, key: key, run: runner.run, argv: tuiArgv(row, plugin, key, runner.run, [row.script].concat(row.args, args === undefined ? [] : args)) };
 }
 
+// The key and label of `shell.tui.ssh`, the one request that opens the
+// user's terminal on an ssh session (bin/vgshell-tui ssh): no plugin owns
+// it, it writes no record and no busy list holds it.
+var TUI_SSH_KEY = "core/ssh";
+// A host `shell.tui.ssh` takes: lowercase DNS labels of a-z, 0-9 and `-`,
+// each 1 to 63 characters and none starting with `-`, joined by `.`, at
+// most TUI_SSH_HOST_MAX characters, so no host reads as an ssh option.
+var TUI_SSH_HOST = /^[a-z0-9][a-z0-9-]{0,62}(\.[a-z0-9][a-z0-9-]{0,62})*$/;
+var TUI_SSH_HOST_MAX = 253;
+
+// `shell.tui.ssh(name, host)` from the runner's state RUNNER, { launcher,
+// busy, run }: { ok: true, key, argv }, `argv` what follows
+// bin/vgshell-tui, NAME the terminal's title and the tmux window's name and
+// HOST what ssh reaches, each one argv element; or the refusal
+// `refused: tui=core/ssh` with `reason=args` for a NAME tuiArgsValid
+// refuses or a HOST outside TUI_SSH_HOST, then `reason=launcher-missing`
+// as tuiRunnerRefusal decides, which asks for one probe.
+function tuiSsh(runner, name, host) {
+    if (!tuiArgsValid([name]) || typeof host !== "string" || host.length > TUI_SSH_HOST_MAX || !TUI_SSH_HOST.test(host))
+        return tuiRefusal(TUI_SSH_KEY, "args");
+    var refusal = tuiRunnerRefusal(runner, TUI_SSH_KEY, TUI_SSH_KEY);
+    if (refusal !== null)
+        return refusal;
+    return { ok: true, key: TUI_SSH_KEY, argv: ["ssh", "--name", name, "--host", host] };
+}
+
+// What `shell.tui.ssh`'s `done` receives once its launcher ended with
+// COMPLETION: `{ code: 0, reason: null }` for exit 0, which says
+// xdg-terminal-exec handed the session on, exiting 0 or still running at
+// the launcher's start ceiling (bin/vgshell-tui), not that ssh reached the
+// host; else tuiLaunchDone's answer, `launcher-missing` for no terminal and
+// `launcher-failed` for a terminal that failed at its start.
+function tuiSshDone(completion) {
+    var failed = tuiLaunchDone(completion);
+    return failed === null ? { code: 0, reason: null } : failed;
+}
+
 // The launch key and refusal label of core TUI NAME run for OWNER, a
 // plugin id, or for the core while OWNER is undefined: `core/<name>` named
 // so, or the plugin's own `<plugin id>/<name>` named `<name>`, as tuiCore

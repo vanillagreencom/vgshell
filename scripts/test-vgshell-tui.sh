@@ -13,7 +13,11 @@
 # xdg-terminal-exec that records its argv, behind a stub setsid that
 # records its first argument and runs the rest in the foreground. `vgshell tui
 # list` and `vgshell tui open` run against a stub qs that answers the shell's
-# reply and records its arguments. No row opens a terminal window.
+# reply and records its arguments. The ssh verbs run against the same
+# stub terminal, a stub tmux and a stub ssh: the launcher's argv, the tmux
+# plan for no tmux, no tailnet session and a session present, a hostile
+# device name, and the prompt that keeps a failure on screen. No row opens
+# a terminal window or reaches a tmux server or ssh.
 set -euo pipefail
 
 source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgshell-rows.sh"
@@ -31,7 +35,7 @@ stub() { printf '#!/bin/sh\n%s\n' "$2" >"$stubs/$1"; chmod +x "$stubs/$1"; } # N
 stub exits 'echo "ran $1"; exit "$1"'
 stub record ": >\"$tmp/argv\"; for a; do printf '%s\\n' \"\$a\" >>\"$tmp/argv\"; done"
 stub envdump 'printf "LIB=%s\nLOGO=%s\nID=%s\nDIR=%s\nACCENT=%s\nCONFIRM=%s\n" "${VGS_TUI_LIB-unset}" "${VGS_TUI_LOGO-unset}" "${VGS_PLUGIN_ID-unset}" "${VGS_PLUGIN_DIR-unset}" "${VGS_TUI_ACCENT-unset}" "${GUM_CONFIRM_SELECTED_BACKGROUND-unset}"'
-stub setsid "printf '%s\\n' \"\$1\" >\"$tmp/setsid\"; [ \"\$1\" = -f ] && shift; exec \"\$@\""
+stub setsid "printf '%s\\n' \"\$1\" >\"$tmp/setsid\"; case \"\$1\" in -f|-w) shift ;; esac; exec \"\$@\""
 # waitint SECS records its pid, then sleeps as that pid until SECS pass or a
 # signal ends it.
 stub waitint "echo \$\$ >\"$tmp/child\"; exec sleep \"\$1\""
@@ -699,6 +703,16 @@ rows=(
   "2|vgshell-tui: refused: run=missing record=a/b|$subject wait --record a/b"
   "2|vgshell-tui: refused: argument=x|$subject wait --record a/b --run 1-1 x"
   "2|vgshell-tui: refused: verb=frob|$subject frob"
+  "2|vgshell-tui: refused: host=-oProxyCommand=x|$subject ssh --name n --host -oProxyCommand=x"
+  "2|vgshell-tui: refused: host=-x|$subject ssh-session --name n --host -x"
+  "2|vgshell-tui: refused: host=-x|$subject ssh-run -- -x"
+  "2|vgshell-tui: refused: name=missing|$subject ssh --host h"
+  "2|vgshell-tui: refused: host=missing|$subject ssh --name n"
+  "2|vgshell-tui: refused: option=--host value=missing|$subject ssh --name n --host"
+  "2|vgshell-tui: refused: argument=x|$subject ssh --name n --host h x"
+  "2|vgshell-tui: refused: separator=missing|$subject ssh-run"
+  "2|vgshell-tui: refused: argument=h|$subject ssh-run h"
+  "2|vgshell-tui: refused: argument=b|$subject ssh-run -- a b"
   "2|vgshell-tui: refused: argument=x|$subject check x"
   "2|vgshell-tui: refused: verb=missing|$subject"
   "2|vgshell: refused: tui-subcommand=missing|$repo/bin/vgshell tui"
@@ -866,6 +880,165 @@ check "check without a terminal launcher names it as launch does" test "$(err_fi
 plain_run "$subject" check
 check "check with a terminal launcher on PATH exits 0" test "$plain_status" == 0
 check "check with a terminal launcher prints nothing" test ! -s "$tmp/err"
+
+# The ssh verbs, against a stub tmux and a stub ssh, each of which records
+# its argv one element a line, tmux each call after a `call` line that names
+# the TMUX and TMUX_PANE it saw. The stub tmux answers has-session by the
+# file tmux-session, prints the id @7 for new-window, and fails new-window
+# while the file tmux-fail exists; the stub ssh exits with the code in
+# ssh-code, 0 without one. No row reaches a real tmux server or ssh.
+sshdir="$tmp/ssh"; ssh_stubs="$sshdir/stubs"; tmux_stubs="$sshdir/tmux"
+mkdir -p "$ssh_stubs" "$tmux_stubs"
+printf '#!/bin/sh\n: >"%s"; for a; do printf "%%s\\n" "$a" >>"%s"; done\nif [ -e "%s" ]; then exit "$(cat "%s")"; fi\n' \
+  "$sshdir/ssh-argv" "$sshdir/ssh-argv" "$sshdir/ssh-code" "$sshdir/ssh-code" >"$ssh_stubs/ssh"
+cat >"$tmux_stubs/tmux" <<TMUX
+#!/bin/sh
+{ printf 'call TMUX=%s TMUX_PANE=%s\n' "\${TMUX-unset}" "\${TMUX_PANE-unset}"; for a; do printf '%s\n' "\$a"; done; } >>"$sshdir/tmux-calls"
+case "\$1" in
+  has-session) [ -e "$sshdir/tmux-session" ] ;;
+  new-window) if [ -e "$sshdir/tmux-fail" ]; then exit 1; fi; printf '@7\n' ;;
+esac
+TMUX
+chmod +x "$ssh_stubs/ssh" "$tmux_stubs/tmux"
+# A PATH with no tmux: the tools the subject and its library use, node for
+# the theme judge, and the stub ssh.
+notmux="$sshdir/notmux"; mkdir -p "$notmux"
+ln -s -- "$node_bin" "$notmux/node"
+for tool in bash readlink dirname awk cat; do ln -s -- "$(command -v "$tool")" "$notmux/$tool"; done
+ssh_reset() {
+  rm -f -- "${sshdir:?}/tmux-calls" "${sshdir:?}/ssh-argv" "${sshdir:?}/ssh-code" "${sshdir:?}/tmux-session" "${sshdir:?}/tmux-fail"
+  rm -f -- "${tmp:?}/term" "${tmp:?}/setsid" "${tmp:?}/term-env"
+}
+host="attic-nas.tail-fixture.ts.net"
+hostile="my box; \$(touch $sshdir/planted) #{host} 'q'"
+
+# ssh: the terminal with a title and no app-id, so no window rule floats
+# it, on ssh-session; no VGSHELL_RUNNER_PID; no tmux, which runs only
+# inside the terminal.
+# ssh_launch_row BIN NAME: sets ssh_reading to the exit, setsid's flag and
+# whether tmux ran, and leaves the terminal's argv in $tmp/term.
+ssh_launch_row() { # BIN NAME
+  ssh_reset
+  plain_run env VGSHELL_RUNNER_PID=4242 PATH="$tmux_stubs:$ssh_stubs:$stubs:$base_path" "$1" ssh --name "$2" --host "$host"
+  ssh_reading="$plain_status $(cat "$tmp/setsid" 2>/dev/null) $([[ -e $sshdir/tmux-calls ]] && echo tmux-ran || echo no-tmux)"
+}
+ssh_launch_row "$subject" "$hostile"
+check "ssh exits 0 through setsid -w and runs no tmux" test "$ssh_reading" == "0 -w no-tmux"
+check "ssh hands the terminal a title, no app-id, and ssh-session with the name and host as data" \
+  test "$(cat "$tmp/term")" == "$(lines "--title=$hostile" -- "$subject" ssh-session --name "$hostile" --host "$host")"
+check "ssh hands the terminal no VGSHELL_RUNNER_PID" test "$(cat "$tmp/term-env")" == unset
+ssh_reset
+plain_run env PATH="$bare" "$subject" ssh --name n --host "$host"
+check "ssh with no terminal launcher exits 69" test "$plain_status" == 69
+check "ssh with no terminal launcher names it as launch does" test "$(err_first)" == "vgshell-tui: refused: terminal=missing"
+
+# ssh confirms the terminal's start: behind a stub setsid that forks -f
+# into the background and returns, as setsid -f does, and runs -w in
+# place, a stub xdg-terminal-exec that exits 1 with its own words is a
+# refused start, and one still running past the launcher's 1 s ceiling is
+# a start. The launcher leaves no file of its own behind either way.
+# ssh_start BIN CASE: sets ssh_start_status, its first stderr line in
+# ssh_start_first, and ssh_start_secs, the whole seconds the launcher took.
+start_stubs="$sshdir/start"; mkdir -p "$start_stubs/failing" "$start_stubs/slow"
+printf '#!/bin/sh\ncase "$1" in -f) shift; "$@" & exit 0 ;; -w) shift ;; esac\nexec "$@"\n' >"$start_stubs/setsid"
+printf '#!/bin/sh\necho "xdg-terminal-exec: No valid terminal entry" >&2\nexit 1\n' >"$start_stubs/failing/xdg-terminal-exec"
+printf '#!/bin/sh\n: >"%s"\nexec sleep 4\n' "$sshdir/slow-started" >"$start_stubs/slow/xdg-terminal-exec"
+chmod +x "$start_stubs/setsid" "$start_stubs/failing/xdg-terminal-exec" "$start_stubs/slow/xdg-terminal-exec"
+ssh_start() { # BIN CASE
+  local began
+  began="$(date +%s)"
+  plain_run env PATH="$start_stubs/$2:$start_stubs:$stubs:$base_path" "$1" ssh --name n --host "$host"
+  ssh_start_status="$plain_status" ssh_start_first="$(err_first)" ssh_start_secs=$(($(date +%s) - began))
+}
+ssh_start "$subject" failing
+check "a terminal that exits 1 at its start refuses ssh with exit 1" test "$ssh_start_status" == 1
+check "the refusal names the failed start" test "$ssh_start_first" == "vgshell-tui: refused: terminal=failed exit=1"
+check "the refusal hands on xdg-terminal-exec's own words" grep -qxF "xdg-terminal-exec: No valid terminal entry" "$tmp/err"
+check "a failed start leaves no file behind" test -z "$(find "$rt" -maxdepth 1 -name 'vgs-terminal.*')"
+ssh_start "$subject" slow
+check "a terminal still running at the ceiling is a start" test "$ssh_start_status" == 0
+check "the launcher returns at its ceiling, before the terminal ends" test "$ssh_start_secs" -lt 4
+check "a confirmed start leaves no file behind" test -z "$(find "$rt" -maxdepth 1 -name 'vgs-terminal.*')"
+# A shell restart kills the launcher during its wait: once the terminal
+# started, polled every 0.05 s for at most 5 s, a ceiling on a stub's
+# start, SIGKILL, which runs no trap. Nothing the launcher made stays.
+# ssh_killed BIN: prints `left` when a vgs-terminal file stayed, else `none`.
+ssh_killed() { # BIN
+  local launcher n
+  rm -f -- "${sshdir:?}/slow-started"
+  "${tui_env[@]}" PATH="$start_stubs/slow:$start_stubs:$stubs:$base_path" "$1" ssh --name n --host "$host" </dev/null >/dev/null 2>&1 &
+  launcher=$!
+  for ((n = 0; n < 100; n++)); do [[ ! -e $sshdir/slow-started ]] || break; sleep 0.05; done
+  kill -KILL "$launcher" 2>/dev/null || :
+  wait "$launcher" 2>/dev/null || :
+  if [[ -n $(find "$rt" -maxdepth 1 -name 'vgs-terminal.*') ]]; then echo left; else echo none; fi
+  find "$rt" -maxdepth 1 -name 'vgs-terminal.*' -delete
+}
+check "a launcher killed during its wait leaves no file behind" test "$(ssh_killed "$subject")" == none
+
+# ssh-session by case. Rows: name | device name | PATH: notmux or tmux |
+# a tailnet session: yes or no | then the tmux calls and the ssh argv,
+# each `none` or its lines joined by `|`; a stub tmux runs no command, so
+# ssh runs only with no tmux.
+# ssh_session_calls BIN NAME PATH_KIND SESSION: sets ssh_calls and
+# ssh_argv to what the stubs recorded, `|`-joined, and ssh_status.
+ssh_session_calls() { # BIN NAME PATH_KIND SESSION
+  local path
+  ssh_reset
+  [[ $4 == no ]] || : >"$sshdir/tmux-session"
+  if [[ $3 == notmux ]]; then path="$ssh_stubs:$notmux"; else path="$tmux_stubs:$ssh_stubs:$stubs:$base_path"; fi
+  plain_run env PATH="$path" TMUX=/tmp/tmux-1/default,1,0 TMUX_PANE=%1 "$1" ssh-session --name "$2" --host "$host"
+  ssh_status="$plain_status"
+  ssh_calls="$(paste -sd '|' "$sshdir/tmux-calls" 2>/dev/null || echo none)"
+  ssh_argv="$(paste -sd '|' "$sshdir/ssh-argv" 2>/dev/null || echo none)"
+}
+unset_call="call TMUX=unset TMUX_PANE=unset"
+window="my box; \$(touch $sshdir/planted) ##{host} 'q'"
+rows=(
+  "tmux absent runs ssh-run alone|attic-nas|notmux|no|none|--|$host"
+  "a missing session is made with the device's window|attic-nas|tmux|no|$unset_call|has-session|-t|=tailnet|$unset_call|new-session|-s|tailnet|-n|attic-nas|--|$subject|ssh-run|--|$host|none"
+  "a session present gets a new window, selected by its id, then attached|attic-nas|tmux|yes|$unset_call|has-session|-t|=tailnet|$unset_call|new-window|-P|-F|#{window_id}|-t|=tailnet:|-n|attic-nas|--|$subject|ssh-run|--|$host|$unset_call|select-window|-t|@7|$unset_call|attach-session|-t|=tailnet|none"
+)
+for row in "${rows[@]}"; do
+  IFS='|' read -r name device path_kind session _ <<<"$row"
+  want="${row#*|*|*|*|}"
+  ssh_session_calls "$subject" "$device" "$path_kind" "$session"
+  check "$name: exits 0" test "$ssh_status" == 0
+  check "$name: the calls, with TMUX and TMUX_PANE unset for tmux" test "$ssh_calls|$ssh_argv" == "$want"
+done
+# ssh_window: the -n value of the recorded new-window call.
+ssh_window() { sed -n '/^new-window$/,/^--$/p' "$sshdir/tmux-calls" | sed -n '/^-n$/{n;p;}'; }
+ssh_session_calls "$subject" "$hostile" tmux yes
+check "a hostile name reaches the window name with each # doubled, as one element" test "$(ssh_window)" == "$window"
+check "a hostile name ran nothing" test ! -e "$sshdir/planted"
+ssh_session_calls "$subject" "$hostile" notmux no
+check "with no tmux a hostile name ran nothing" test ! -e "$sshdir/planted"
+
+# ssh's exit 0 and 130 close at once; any other keeps the failure on
+# screen, as a failed tmux step does. ssh gets `-- <host>`.
+# ssh_run_prompt BIN CODE: ssh-run on a terminal with ssh exiting CODE;
+# sets ssh_prompt to the prompt it showed, done, failed or none, and
+# tty_status to its exit.
+ssh_run_prompt() { # BIN CODE
+  ssh_reset
+  printf '%s\n' "$2" >"$sshdir/ssh-code"
+  on_tty env PATH="$ssh_stubs:$stubs:$base_path" "$1" ssh-run -- "$host"
+  if out_has "$(failed_text)"; then ssh_prompt=failed; elif out_has "$done_text"; then ssh_prompt=done; else ssh_prompt=none; fi
+}
+# Rows: ssh's exit | the prompt: 255 is ssh's own failure and 127 no ssh;
+# any other code is the remote shell's last status, which a logout carries.
+for row in "0|none" "130|none" "1|none" "255|failed" "127|failed"; do
+  IFS='|' read -r code want <<<"$row"
+  ssh_run_prompt "$subject" "$code"
+  check "ssh-run with ssh exiting $code shows $want" test "$ssh_prompt" == "$want"
+  check "ssh-run with ssh exiting $code exits $code" test "$tty_status" == "$code"
+done
+check "ssh-run hands ssh -- and the host" test "$(paste -sd '|' "$sshdir/ssh-argv")" == "--|$host"
+ssh_reset
+: >"$sshdir/tmux-session"; : >"$sshdir/tmux-fail"
+on_tty env PATH="$tmux_stubs:$ssh_stubs:$stubs:$base_path" "$subject" ssh-session --name n --host "$host"
+check "a failed new-window shows the failed prompt" out_has "$(failed_text)"
+check "a failed new-window selects and attaches nothing" test "$(grep -c -e '^select-window$' -e '^attach-session$' "$sshdir/tmux-calls")" == 0
 
 # A tree for a copy of bin/vgshell, bin/vgshell-tui or bin/vgshell-plugin-judge, as
 # the runner CLI's mutant trees are built: the three files copied, so a
@@ -1218,4 +1391,30 @@ control wait-gone-failed vgshell-tui 'wait_gone=3' 'wait_gone=1'
 b2b_gone "$control_bin" 201-1 201-2
 check "the wait-gone-failed mutant exits 1 for a run a later run removed" test "${b2b_result%%|*}" == 1
 rm -f -- "$rdir"/acme.tui@b2b*
+# The ssh verbs' controls: a window name tmux reads as a format, a new
+# window left to the user's hook, an ssh failure the terminal closes on,
+# and a tmux plan run from the launcher, in the shell's process tree.
+control ssh-window-format vgshell-tui '  window="${ssh_name//#/##}"' '  window="$ssh_name"'
+ssh_session_calls "$control_bin" "$hostile" tmux yes
+check "the ssh-window-format mutant hands tmux an undoubled #" test "$(ssh_window)" != "$window"
+control ssh-unselected vgshell-tui $'  tmux select-window -t "$id" || end_shown "$?"\n' ''
+ssh_session_calls "$control_bin" attic-nas tmux yes
+check "the ssh-unselected mutant selects no new window" test "$(grep -c '^select-window$' "$sshdir/tmux-calls")" == 0
+control ssh-run-unheld vgshell-tui '    255|127) end_shown "$code" ;;' '    -) ;;'
+ssh_run_prompt "$control_bin" 255
+check "the ssh-run-unheld mutant shows no prompt for a failed ssh" test "$ssh_prompt" == none
+control ssh-run-any-status vgshell-tui '    255|127) end_shown "$code" ;;' '    *) end_shown "$code" ;;'
+ssh_run_prompt "$control_bin" 1
+check "the ssh-run-any-status mutant shows the failed prompt for a remote status" test "$ssh_prompt" == failed
+control ssh-start-forked vgshell-tui '  setsid -w xdg-terminal-exec "$@" 2>&' '  setsid -f xdg-terminal-exec "$@" 2>&'
+ssh_start "$control_bin" failing
+check "the ssh-start-forked mutant reports a failed start as a start" test "$ssh_start_status" == 0
+control ssh-start-named vgshell-tui $'  fi\n  rm -f -- "${errors:?}"\n  # A background' $'  fi\n  # A background'
+check "the ssh-start-named mutant leaves its file when killed during the wait" test "$(ssh_killed "$control_bin")" == left
+control ssh-start-unjudged vgshell-tui '  [[ $status == 0 ]] || exit 1' '  :'
+ssh_start "$control_bin" failing
+check "the ssh-start-unjudged mutant exits 0 on a failed start" test "$ssh_start_status" == 0
+control ssh-launcher-tmux vgshell-tui '  ssh) parse_ssh "$@"; ssh_launch ;;' '  ssh) parse_ssh "$@"; ssh_session ;;'
+ssh_launch_row "$control_bin" attic-nas
+check "the ssh-launcher-tmux mutant runs tmux from the launcher" test "${ssh_reading##* }" == tmux-ran
 rows_done test-vgshell-tui

@@ -82,6 +82,7 @@ Recommends:     ddcutil
 Recommends:     libcap
 Recommends:     polkit
 Recommends:     tailscale
+Recommends:     openssh-clients
 Recommends:     nm-connection-editor
 Recommends:     NetworkManager-openvpn
 Recommends:     cups-client

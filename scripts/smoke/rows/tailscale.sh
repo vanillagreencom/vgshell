@@ -40,9 +40,16 @@
 # Check every in any view; the account row's list, then Add account and
 # Sign out on Tab; Sign out's confirmation on Cancel, where Cancel sends
 # nothing and Sign out hands `tailscale logout` to the stand-in and the
-# flyout then reads signed out with Sign in offered; Copy on this device
-# reads Copied while CopyText confirms and leaves the IPv4 address on the
-# sandbox clipboard; Open admin console hands the admin address to the
+# flyout then reads signed out with Sign in offered; this device's copy
+# icon, and Return on its row, read Copied while CopyText confirms and
+# leave the IPv4 address on the sandbox clipboard; this device draws copy
+# alone, each network device that runs an ssh server Connect in terminal
+# then copy, and a phone copy alone, none of them a Tab stop; a network
+# device's menu holds its icons, and its copy leaves its address on the
+# clipboard; Connect hands the stand-in terminal `vgshell-tui ssh-session
+# --name <name> --host <dns name>`, which it does not run, so no tmux or
+# ssh runs; with no terminal launcher, Connect leaves the launcher-missing
+# line; Open admin console hands the admin address to the
 # xdg-open stand-in, and with xdg-open missing raises its requirement
 # notice; the Exit nodes view with Recommended, None, your exit nodes and
 # Mullvad by country, a search, no match, a country's view, Back and
@@ -60,7 +67,8 @@
 # Exit node, Network devices, Admin console and Updates in that order.
 # Keys reach its accounts, Add account, Sign out and confirmation, both
 # self Copy actions, every country Disclosure and its cities, every peer
-# and its Copy DNS name menu, the admin console and Check every. Each
+# and its menu's Copy DNS name after its icon actions, the admin console
+# and Check every. Each
 # address and DNS copy reads the nested clipboard. Missing Tailscale
 # offers its requirement and hides Updates; signed out and service off
 # keep Updates. The control copy writes a wrong clipboard value while
@@ -80,7 +88,7 @@
 # the row accepts 9 s to 20 s, since a request that moved the deadline
 # would hold it past any bound. Every other reading is expect_poll's, 0.2 s
 # apart.
-# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.tailscale/* shell/plugins/vgs.system/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/SettingField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml scripts/fixtures/tailscale/* scripts/smoke/fixtures/devices/* shell/Commons/SettingValues.js shell/Commons/qmldir shell/Ui/layout/DeviceList.qml shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/plugins/vgs.vpn/manifest.json shell/Core/Config.qml shell/Core/Registry.qml shell/Core/ConfigLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system bin/vgshell-tui scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh shell/Ui/controls/RowAction.qml shell/Ui/controls/Switch.qml shell/Ui/controls/DisabledReason.qml shell/Ui/controls/UnlockMark.qml shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Ui/overlay/Tooltip.qml shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Ui/foundation/KeyNavLogic.js shell/Ui/feedback/CopyText.qml shell/Ui/feedback/Dialog.qml shell/Ui/feedback/EmptyState.qml shell/Ui/foundation/Scrim.qml shell/Ui/layout/Disclosure.qml shell/Ui/layout/ListItem.qml shell/Ui/layout/DeviceRow.qml shell/Ui/layout/Section.qml shell/Ui/controls/RowActions.qml shell/Ui/controls/TextField.qml shell/Hosts/NoticeHost.qml themes/vgs/theme.json themes/catalog/flexoki-light/theme.json shell/Ui/controls/Field.qml shell/Ui/controls/SegmentedControl.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Ui/controls/FormRow.qml shell/Ui/feedback/AvatarGroup.qml shell/Ui/feedback/AvatarFace.qml
+# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.tailscale/* shell/plugins/vgs.system/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/SettingField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml scripts/fixtures/tailscale/* scripts/smoke/fixtures/devices/* shell/Commons/SettingValues.js shell/Commons/qmldir shell/Ui/layout/DeviceList.qml shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/TuiRunner.qml shell/Commons/Reply.js bin/lib/qml-library.js shell/plugins/vgs.vpn/manifest.json shell/Core/Config.qml shell/Core/Registry.qml shell/Core/ConfigLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system bin/vgshell-tui scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh shell/Ui/controls/RowAction.qml shell/Ui/controls/Switch.qml shell/Ui/controls/DisabledReason.qml shell/Ui/controls/UnlockMark.qml shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Ui/overlay/Tooltip.qml shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Ui/foundation/KeyNavLogic.js shell/Ui/feedback/CopyText.qml shell/Ui/feedback/Dialog.qml shell/Ui/feedback/EmptyState.qml shell/Ui/foundation/Scrim.qml shell/Ui/layout/Disclosure.qml shell/Ui/layout/ListItem.qml shell/Ui/layout/DeviceRow.qml shell/Ui/layout/Section.qml shell/Ui/controls/RowActions.qml shell/Ui/controls/TextField.qml shell/Hosts/NoticeHost.qml themes/vgs/theme.json themes/catalog/flexoki-light/theme.json shell/Ui/controls/Field.qml shell/Ui/controls/SegmentedControl.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Ui/controls/FormRow.qml shell/Ui/feedback/AvatarGroup.qml shell/Ui/feedback/AvatarFace.qml scripts/smoke/rows/capabilities.sh
 set -euo pipefail
 devices_ready tailscale || return 0
 tailscale_saved="$sandbox/tailscale-shell-before.json"
@@ -525,14 +533,41 @@ tailscale_tab_until() { # WANT [HOST [LIST]]
   if [[ $at == "$1" ]]; then echo reached; else echo "at $at"; fi
 }
 tailscale_key() { type_keys -k "$1" || fail "tailscale: the key $1 failed"; }
-# [CopyText's confirming, this device's drawn texts], read together: the
-# confirmation lasts Theme.codeLine.confirm, 1.5 s.
+# [CopyText's confirming, this device's copy icon's label], read together:
+# the confirmation lasts Theme.codeLine.confirm, 1.5 s.
 tailscale_copy_reading() {
-  local confirming drawn
+  local confirming label
   confirming="$(ipc smoke readDescendant panel vgs.tailscale CopyText confirming)" || return 1
-  drawn="$(tailscale_drawn panel DeviceRow tailscale-this-device)" || return 1
-  printf '[%s, %s]\n' "$confirming" "$drawn"
+  label="$(ipc smoke readMatchingDescendant panel vgs.tailscale IconButton objectName tailscale-self-copy label)" || return 1
+  printf '[%s, %s]\n' "$confirming" "$label"
 }
+# The device rows' shown icon buttons in the flyout, in tree order, as
+# [objectName, label]: this device's copy, tailscale-self-copy, and each
+# network device's `<peer id>/<action>`.
+tailscale_row_icons() {
+  ipc smoke itemValues panel vgs.tailscale IconButton objectName,label,visible | py_reply 'import json,sys
+print(json.dumps([[v["objectName"], v["label"]] for v in json.load(sys.stdin) if v["visible"] and (v["objectName"] == "tailscale-self-copy" or "/" in v["objectName"])]))'
+}
+tailscale_flyout_menu() { ipc smoke menus panel vgs.tailscale | py_reply 'import json,sys; print(json.dumps([[m["entries"], m["current"]] for m in json.load(sys.stdin) if m["opened"]]))'; }
+# The problem line Reply.js words for the core's launcher-missing refusal,
+# as tailscale_label reads a label.
+tailscale_launcher_missing_line() {
+  "$node_bin" -e 'const reply = require(process.argv[1]).load(process.argv[2]); process.stdout.write(JSON.stringify([reply.line("refused: tui=core/ssh reason=launcher-missing")]) + "\n")' \
+    "$repo/bin/lib/qml-library.js" "$repo/shell/Commons/Reply.js"
+}
+# tailscale_device_menu LABEL ENTRIES CURRENT: Shift+F10 on the selected
+# network device, then Home, then its open menu read as ENTRIES, a JSON
+# list, with CURRENT highlighted. Home places the highlight: a second key
+# opening of one row's menu, after an entry was triggered, highlights no
+# entry (VGS-2117), and the pane's walk reads a first opening's own
+# highlight.
+tailscale_device_menu() { # LABEL ENTRIES CURRENT
+  type_keys -M shift -k F10 -m shift || { fail "$1: Shift+F10 failed"; return 0; }
+  expect_poll "$1: the menu opens" true tailscale_flyout_menu_open
+  type_keys -k Home || { fail "$1: Home failed"; return 0; }
+  expect_poll "$1" "[[$2, \"$3\"]]" tailscale_flyout_menu
+}
+tailscale_flyout_menu_open() { tailscale_flyout_menu | py_reply 'import json,sys; print(str(len(json.load(sys.stdin)) == 1).lower())'; }
 # The nested clipboard's text, read after the input check.
 tailscale_clipboard() { nested_input_check wl-paste || return 1; "${shell_env[@]}" wl-paste --no-newline; }
 tailscale_clipboard_matches() {
@@ -985,7 +1020,7 @@ expect "This device shows its name, address, DNS name and network" \
 expect "Updates contains the poll setting and its hint" \
   "$(words Updates "Check every" "10 s" "30 s" "60 s" "How often VGS reads Tailscale while its flyout and this section are closed")" tailscale_drawn window Section tailscale-updates-section
 expect "the complete network list draws all five peers" \
-  "$(words attic-nas 100.64.0.3 Copy gateway 100.64.0.2 Copy pixel 100.64.0.4 Copy ipad "100.64.0.7 · Offline" Copy old-laptop "100.64.0.9 · Offline" Copy)" tailscale_drawn window DeviceList tailscale-devices
+  "$(words attic-nas 100.64.0.3 gateway 100.64.0.2 pixel 100.64.0.4 ipad "100.64.0.7 · Offline" old-laptop "100.64.0.9 · Offline")" tailscale_drawn window DeviceList tailscale-devices
 expect_poll "the pane Add account takes the keyboard" reached tailscale_pane_named_tab IconButton tailscale-add-account
 tailscale_tab "Tab reaches the pane Sign out" '["IconButton","Sign out"]' window
 tailscale_tab "Tab reaches the pane account list" '["DeviceRow","amelie@example.com"]' window
@@ -1035,21 +1070,23 @@ for tailscale_country in 'DE|Germany|Berlin|Frankfurt' 'SE|Sweden|Gothenburg|Mal
   fi
 done
 expect "Tab reaches the network devices after the chooser" reached tailscale_tab_until '["DeviceRow","attic-nas"]' window tailscale-devices
-for tailscale_peer in 'attic-nas|100.64.0.3' 'gateway|100.64.0.2' 'pixel|100.64.0.4' 'ipad|100.64.0.7' 'old-laptop|100.64.0.9'; do
-  IFS='|' read -r tailscale_peer_name tailscale_peer_address <<<"$tailscale_peer"
+# Rows: name | address | the row's icon actions, which lead its menu, as
+# JSON list items.
+for tailscale_peer in 'attic-nas|100.64.0.3|"Connect in terminal", "Copy"' 'gateway|100.64.0.2|"Connect in terminal", "Copy"' 'pixel|100.64.0.4|"Copy"' 'ipad|100.64.0.7|"Copy"' 'old-laptop|100.64.0.9|"Connect in terminal", "Copy"'; do
+  IFS='|' read -r tailscale_peer_name tailscale_peer_address tailscale_peer_icons <<<"$tailscale_peer"
   expect_poll "the network list reaches $tailscale_peer_name" "[\"DeviceRow\",\"$tailscale_peer_name\"]" tailscale_focus window
   tailscale_key Return
   expect_poll "$tailscale_peer_name still copies its address" match tailscale_clipboard_matches "$tailscale_peer_address"
   type_keys -M shift -k F10 -m shift || fail "tailscale: $tailscale_peer_name's menu key failed"
-  expect_poll "$tailscale_peer_name's menu holds Copy DNS name" '[[["Copy DNS name"], "Copy DNS name"]]' tailscale_pane_menu
+  expect_poll "$tailscale_peer_name's menu holds its icon actions, then Copy DNS name" "[[[$tailscale_peer_icons, \"Copy DNS name\"], ${tailscale_peer_icons%%,*}]]" tailscale_pane_menu
+  tailscale_key End
+  expect_poll "End reaches $tailscale_peer_name's Copy DNS name" "[[[$tailscale_peer_icons, \"Copy DNS name\"], \"Copy DNS name\"]]" tailscale_pane_menu
   tailscale_key Return
   expect_poll "$tailscale_peer_name's menu closes after Copy DNS name" '[]' tailscale_pane_menu
   expect_poll "$tailscale_peer_name copies its DNS name" match tailscale_clipboard_matches "$tailscale_peer_name.tail-fixture.ts.net"
   expect_poll "the menu returns the keys to $tailscale_peer_name" "[\"DeviceRow\",\"$tailscale_peer_name\"]" tailscale_focus window
-  tailscale_key Tab
-  expect_poll "$tailscale_peer_name's Copy action takes Tab" RowAction tailscale_focus_type window
-  tailscale_tab "$tailscale_peer_name's overflow button takes Tab" '["IconButton","More actions"]' window
-  type_keys -M shift -k Tab -k Tab -m shift || fail "tailscale: returning to $tailscale_peer_name failed"
+  tailscale_tab "$tailscale_peer_name's icons take no Tab: its overflow button does" '["IconButton","More actions"]' window
+  type_keys -M shift -k Tab -m shift || fail "tailscale: returning to $tailscale_peer_name failed"
   tailscale_key Down
 done
 expect "Tab reaches the pane's admin console" reached tailscale_tab_until '["RowAction","Open admin console"]' window
@@ -1075,7 +1112,8 @@ expect "the main view is titled Tailscale" '"Tailscale"' tailscale_title
 expect "the header switch is shown and on" '[true, true, true]' tailscale_header_switch
 expect_poll "the state line names the exit node" '["Connected through Stockholm, Sweden"]' tailscale_label tailscale-state
 expect "the account card stays open above its rows" shown tailscale_shown_of panel Card tailscale-accounts-card
-expect "this device reads its name, address and Copy" "$(words desk "This device · 100.64.0.1" Copy)" tailscale_drawn panel DeviceRow tailscale-this-device
+expect "this device reads its name and address" "$(words desk "This device · 100.64.0.1")" tailscale_drawn panel DeviceRow tailscale-this-device
+expect "this device draws its copy icon alone" '[["tailscale-self-copy", "Copy"]]' tailscale_row_icons
 expect "the network devices row reads 3 of 5 online, closed" '["Network devices", "3 of 5 online"]' tailscale_drawn panel Disclosure tailscale-network-devices
 expect "the exit node row reads the node in use" '["Exit node", "Stockholm, Sweden"]' tailscale_drawn panel ListItem tailscale-exit-row
 expect "the footer offers Open admin console" '["Open admin console"]' tailscale_drawn panel Button tailscale-admin-console
@@ -1083,15 +1121,14 @@ expect "the footer offers Tailscale settings" '["Tailscale settings"]' tailscale
 expect "the main view draws no Check every" 0 tailscale_check_every
 expect "the account card exposes Sign out" shown tailscale_shown_of panel IconButton tailscale-sign-out
 # The Pane's Settings gear follows the header switch (Pane.qml), as the
-# v2-tailscale-flyout sheet draws it; this device's Copy is a Tab stop of
-# its own after the row.
+# v2-tailscale-flyout sheet draws it; this device's copy icon is no Tab
+# stop, since Return on the row copies.
 tailscale_tab "Tab reaches the header's Settings gear" '["IconButton","Settings"]'
 tailscale_tab "Tab reaches the card Add account" '["IconButton","Add account"]'
 tailscale_tab "Tab reaches the card Sign out" '["IconButton","Sign out"]'
 tailscale_tab "Tab reaches the saved accounts" '["DeviceRow","amelie@example.com"]'
 tailscale_tab "Tab reaches this device" '["DeviceRow","desk"]'
-tailscale_tab "Tab reaches this device's Copy" '["RowAction","Copy"]'
-tailscale_tab "Tab reaches the network devices row" '["ListItem","Network devices"]'
+tailscale_tab "Tab passes this device's copy icon by" '["ListItem","Network devices"]'
 tailscale_tab "Tab reaches the exit node row" '["ListItem","Exit node"]'
 tailscale_tab "Tab reaches Open admin console" '["Button","Open admin console"]'
 tailscale_tab "Tab reaches Tailscale settings" '["Button","Tailscale settings"]'
@@ -1116,19 +1153,71 @@ tailscale_tab "Tab reaches the card Sign out" '["IconButton","Sign out"]'
 tailscale_tab "Tab reaches the saved accounts" '["DeviceRow","amelie@example.com"]'
 tailscale_tab "Tab reaches this device for Copy" '["DeviceRow","desk"]'
 tailscale_key Return
-expect_poll "Copy reads Copied while CopyText confirms" "[true, $(words desk "This device · 100.64.0.1" Copied)]" tailscale_copy_reading
+expect_poll "Return on the row reads Copied while CopyText confirms" '[true, "Copied"]' tailscale_copy_reading
 expect_poll "the nested clipboard holds this device's IPv4 address" 100.64.0.1 tailscale_clipboard
-expect_poll "Copy reads Copy again once the confirmation ends" "[false, $(words desk "This device · 100.64.0.1" Copy)]" tailscale_copy_reading
+expect_poll "the copy icon reads Copy again once the confirmation ends" '[false, "Copy"]' tailscale_copy_reading
 # The network devices, opened by keys.
-tailscale_tab "Tab reaches this device's Copy before the network devices" '["RowAction","Copy"]'
 tailscale_tab "Tab reaches the network devices row to open it" '["ListItem","Network devices"]'
 tailscale_key space
 expect_poll "the network devices list each peer with its address, online first" \
-  "$(words "Network devices" "3 of 5 online" attic-nas 100.64.0.3 Copy gateway 100.64.0.2 Copy pixel 100.64.0.4 Copy ipad "100.64.0.7 · Offline" Copy old-laptop "100.64.0.9 · Offline" Copy)" \
+  "$(words "Network devices" "3 of 5 online" attic-nas 100.64.0.3 gateway 100.64.0.2 pixel 100.64.0.4 ipad "100.64.0.7 · Offline" old-laptop "100.64.0.9 · Offline")" \
   tailscale_drawn panel Disclosure tailscale-network-devices
+expect "the device rows draw copy on each, and Connect in terminal first where ssh runs" \
+  '[["tailscale-self-copy", "Copy"], ["nSHEET0003CNTRL/connect", "Connect in terminal"], ["nSHEET0003CNTRL/copy", "Copy"], ["nSHEET0002CNTRL/connect", "Connect in terminal"], ["nSHEET0002CNTRL/copy", "Copy"], ["nSHEET0004CNTRL/copy", "Copy"], ["nSHEET0007CNTRL/copy", "Copy"], ["nSHEET0009CNTRL/connect", "Connect in terminal"], ["nSHEET0009CNTRL/copy", "Copy"]]' \
+  tailscale_row_icons
 tailscale_tab "Tab reaches the network devices' list" '["DeviceRow","attic-nas"]'
-# Each device's Copy is a Tab stop of its own, so the count of presses is
-# the list's, not the claim.
+# The icons take no Tab, and the row's menu holds them: its copy leaves
+# the device's address on the clipboard.
+tailscale_device_menu "attic-nas's menu holds its icons, Connect in terminal first" '["Connect in terminal", "Copy"]' "Connect in terminal"
+tailscale_key Down
+tailscale_key Return
+expect_poll "the menu's copy leaves attic-nas's address on the clipboard" match tailscale_clipboard_matches 100.64.0.3
+expect_poll "attic-nas's copy icon reads Copied" '"Copied"' ipc smoke readMatchingDescendant panel vgs.tailscale IconButton objectName nSHEET0003CNTRL/copy label
+expect_poll "the menu returns the keys to attic-nas" '["DeviceRow","attic-nas"]' tailscale_focus
+# Connect: the core's ssh launcher hands the stand-in terminal
+# ssh-session with the name and the DNS name as argv data; the stand-in
+# runs no command but a presenter's, so no tmux or ssh runs.
+[[ $(shell_resolves ssh) != none ]] || fail "tailscale: the sandbox shell finds no ssh, so Connect would offer it instead"
+forget_record
+tailscale_device_menu "attic-nas's menu opens on Connect in terminal" '["Connect in terminal", "Copy"]' "Connect in terminal"
+tailscale_key Return
+expect_poll "Connect hands the terminal ssh-session with the device's name and DNS name" \
+  "$(words --title=attic-nas -- "$tui_self" ssh-session --name attic-nas --host attic-nas.tail-fixture.ts.net)" recorded
+expect_poll "the ssh launcher ends once the terminal has the session" '[]' lent tui.launching
+expect "Connect leaves no problem" hidden tailscale_label tailscale-problem
+# With no terminal launcher: a stand-in bin/vgshell-tui answers as the real
+# one does without xdg-terminal-exec, as rows/tui.sh plants it. The first
+# connect starts the launcher, whose exit 69 reaches its `done`; the next,
+# with the state missing, is refused at once and probes again.
+cp -- "$repo/bin/vgshell-tui" "$sandbox/tailscale-tui.real"
+printf '#!/bin/sh\nprintf '"'"'vgshell-tui: refused: terminal=missing\\n'"'"' >&2\nexit 69\n' >"$sandbox/tailscale-tui.missing"
+chmod 755 "$sandbox/tailscale-tui.missing"
+cp -- "$sandbox/tailscale-tui.missing" "$repo/bin/vgshell-tui.next" && mv -T -- "$repo/bin/vgshell-tui.next" "$repo/bin/vgshell-tui"
+expected_errors+=('tui: refused: tui=core/ssh reason=launcher-missing' 'tailscale: connect reason=launcher-missing' 'tailscale: connect refused: tui=core/ssh reason=launcher-missing')
+forget_record
+tailscale_device_menu "attic-nas's menu opens on Connect in terminal with no terminal" '["Connect in terminal", "Copy"]' "Connect in terminal"
+tailscale_key Return
+expect_poll "with no terminal launcher Connect leaves the launcher-missing line" "$(tailscale_launcher_missing_line)" tailscale_label tailscale-problem
+expect_poll "the launcher's exit 69 records the terminal missing" '"missing"' lent tui.launcher
+cp -- "$sandbox/tailscale-tui.real" "$repo/bin/vgshell-tui.next" && mv -T -- "$repo/bin/vgshell-tui.next" "$repo/bin/vgshell-tui"
+tailscale_device_menu "attic-nas's menu opens on Connect in terminal again" '["Connect in terminal", "Copy"]' "Connect in terminal"
+tailscale_key Return
+expect_poll "a connect while the terminal reads missing leaves the launcher-missing line" "$(tailscale_launcher_missing_line)" tailscale_label tailscale-problem
+expect_poll "the probe that connect started finds the terminal again" '"present"' lent tui.launcher
+expect "no terminal opened while it read missing" absent recorded
+# This device's copy icon under the pointer copies what its row copies,
+# over attic-nas's address; the first icon labelled Copy is this device's.
+tailscale_self_copy_at="$(ipc smoke labelledGeometry panel vgs.tailscale IconButton Copy | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print(int(x + w / 2), int(y + h / 2))')" || tailscale_self_copy_at=""
+if [[ -n $tailscale_self_copy_at ]]; then
+  read -r tailscale_x tailscale_y <<<"$tailscale_self_copy_at"
+  { hover "$((tailscale_x + 1))" "$tailscale_y" && hover "$tailscale_x" "$tailscale_y" && click "$tailscale_x" "$tailscale_y"; } || fail "tailscale: the click on this device's copy icon failed"
+else
+  fail "tailscale: this device's copy icon is not drawn"
+fi
+expect_poll "the copy icon leaves this device's IPv4 address on the clipboard" match tailscale_clipboard_matches 100.64.0.1
+expect_poll "this device's copy icon reads Copied" '"Copied"' ipc smoke readMatchingDescendant panel vgs.tailscale IconButton objectName tailscale-self-copy label
+rest_pointer || fail "tailscale: moving the pointer off the copy icon failed"
+expect "the click leaves the keys on attic-nas" '["DeviceRow","attic-nas"]' tailscale_focus
 expect "Tab reaches the exit node row after the devices" reached tailscale_tab_until '["ListItem","Exit node"]'
 
 # The Exit nodes view: Recommended, None, your exit nodes, Mullvad by

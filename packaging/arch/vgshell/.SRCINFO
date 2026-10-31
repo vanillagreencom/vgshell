@@ -89,6 +89,7 @@ pkgbase = vgshell
 	optdepends = xorg-xinit: startx, for X11 sessions on the login screen
 	optdepends = polkit: pkexec, so applications can ask for administrator access
 	optdepends = tailscale: the Tailscale plugin
+	optdepends = openssh: Connect in terminal in the Tailscale plugin
 	optdepends = nm-connection-editor: adds and changes VPN profiles in NetworkManager
 	optdepends = networkmanager-openvpn: connects and imports OpenVPN profiles in the VPN plugin
 	optdepends = cups: lpstat and ipptool, which list your printers and their changes in the Printers plugin

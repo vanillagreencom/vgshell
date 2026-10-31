@@ -16,11 +16,17 @@ import "TailscaleLogic.js" as Logic
 //
 // Accounts share one card in both views. Network devices use a flyout
 // disclosure and an open section in the pane. Its device fields copy
-// through the same CopyText as the lists. The pane expands exit countries
-// in place and ends with Updates. Each list is one Tab stop; arrows move
-// inside it and Shift+F10 opens a device's menu. Sign out asks first and
-// opens with Cancel focused, in the flyout's Pane or beside the pane's
-// account actions inside its scrolling body.
+// through the same CopyText as the lists. This device and each network
+// device copy their address through a copy icon, and a network device that
+// runs an ssh server (TailscaleLogic.sshCapable) has Connect in terminal
+// before it, which opens the user's terminal on ssh to its DNS name through
+// `shell.tui.ssh`; the core builds the command, and this view hands it the
+// device's name and DNS name alone. While ssh is missing, Connect raises
+// its requirement notice instead. The pane expands exit countries in place
+// and ends with Updates. Each list is one Tab stop; arrows move inside it
+// and Shift+F10 opens a device's menu, which holds its icon actions. Sign
+// out asks first and opens with Cancel focused, in the flyout's Pane or
+// beside the pane's account actions inside its scrolling body.
 FocusScope {
     id: root
 
@@ -137,6 +143,34 @@ FocusScope {
         copiedKey = key;
         copier.copy(address);
     }
+    // Whether row KEY's copy reads Copied now.
+    function copied(key) { return copier.confirming && copiedKey === key; }
+    // A network device ROW's icon actions, as DeviceList.iconActionsOf
+    // takes them: Connect in terminal first, then copy, so copy keeps the
+    // row's last place on every row.
+    function deviceIcons(row) {
+        const icons = row.connects ? [{ key: "connect", iconName: "terminal", label: "Connect in terminal" }] : [];
+        return row.address === "" ? icons : icons.concat([{ key: "copy", iconName: copied(row.key) ? "check" : "copy", label: copied(row.key) ? "Copied" : "Copy" }]);
+    }
+    // Opens the user's terminal on ssh to network device KEY. A refusal,
+    // and a launcher that found no terminal, leave the problem line.
+    function connect(key) {
+        const row = root.devices.rows.find(peer => peer.id === key);
+        if (row === undefined || !row.connects) return;
+        if (shell.requirements.missing.indexOf("ssh") !== -1) {
+            const offered = shell.requirements.offer(["ssh"]);
+            if (offered !== "ok") console.warn("tailscale: offer ssh " + offered);
+            return;
+        }
+        const reply = shell.tui.ssh(row.name, row.dnsName, end => root.connectEnded(end));
+        localProblem = reply === "ok" ? "" : Reply.line(reply);
+        if (reply !== "ok") console.warn("tailscale: connect " + reply);
+    }
+    function connectEnded(end) {
+        if (end.reason === null) return;
+        console.warn("tailscale: connect reason=" + end.reason);
+        localProblem = end.reason === "launcher-missing" ? Reply.line("refused: tui=core/ssh reason=launcher-missing") : "VGS could not open your terminal.";
+    }
     function chooseExit(id) {
         if (id === (tailscale.exit === null ? "" : tailscale.exit.id)) {
             exitChosen();
@@ -202,12 +236,14 @@ FocusScope {
                 objectName: "tailscale-devices"
                 width: parent.width
                 rows: Logic.deviceRows(root.devices)
-                actionOf: row => row.address === "" ? null : ({ text: copier.confirming && root.copiedKey === row.key ? "Copied" : "Copy" })
-                menuOf: row => root.expanded && root.devices.rows.some(peer => peer.id === row.key && peer.dnsName !== "")
-                    ? [{ key: "copy-dns", text: "Copy DNS name", iconName: "copy" }] : []
+                iconActionsOf: row => root.deviceIcons(row)
+                menuOf: row => root.expanded && row.dnsName !== "" ? [{ key: "copy-dns", text: "Copy DNS name", iconName: "copy" }] : []
                 onChose: (key, entry) => {
-                    const peer = root.devices.rows.find(row => row.id === key);
-                    if (entry === "copy-dns" && peer !== undefined) root.copy(key, peer.dnsName);
+                    const row = deviceList.rows.find(item => item.key === key);
+                    if (row === undefined) return;
+                    if (entry === "connect") root.connect(key);
+                    else if (entry === "copy" && row.address !== "") root.copy(key, row.address);
+                    else if (entry === "copy-dns" && row.dnsName !== "") root.copy(key, row.dnsName);
                 }
                 onActed: key => {
                     const row = deviceList.rows.find(entry => entry.key === key);
@@ -435,9 +471,14 @@ FocusScope {
                     secondary: "This device · " + root.tailscale.device.address
                     iconName: "laptop"
                     onClicked: root.copy("self", root.tailscale.device.address)
-                    actions: RowAction {
+                    // keyboard-path: Enter, Return and Space on the row copy, as its click does
+                    actions: IconButton {
                         objectName: "tailscale-self-copy"
-                        text: copier.confirming && root.copiedKey === "self" ? "Copied" : "Copy"
+                        anchors.verticalCenter: parent.verticalCenter
+                        size: "sm"
+                        focusPolicy: Qt.NoFocus
+                        iconName: root.copied("self") ? "check" : "copy"
+                        label: root.copied("self") ? "Copied" : "Copy"
                         onClicked: root.copy("self", root.tailscale.device.address)
                     }
                 }

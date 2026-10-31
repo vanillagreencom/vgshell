@@ -98,6 +98,7 @@ optdepends=(
   'xorg-xinit: startx, for X11 sessions on the login screen'
   'polkit: pkexec, so applications can ask for administrator access'
   'tailscale: the Tailscale plugin'
+  'openssh: Connect in terminal in the Tailscale plugin'
   'nm-connection-editor: adds and changes VPN profiles in NetworkManager'
   'networkmanager-openvpn: connects and imports OpenVPN profiles in the VPN plugin'
   'cups: lpstat and ipptool, which list your printers and their changes in the Printers plugin'

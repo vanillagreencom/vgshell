@@ -18,8 +18,12 @@ import "../../shell/plugins/vgs.tailscale/TailscaleLogic.js" as Logic
 // and the card keeps the same one-stop account list; signed out, the
 // card's sentence names a control that acts: Sign in over a read list,
 // else the offered setup step, else Add account;
-// Sign out asks first, and only the dialog's accept sends `logout`; Copy
-// puts this device's address on the clipboard; the Exit node row opens the
+// Sign out asks first, and only the dialog's accept sends `logout`; the
+// copy icon puts this device's address, and a network device's, on the
+// clipboard and reads Copied while it confirms; Connect in terminal shows
+// on the devices that run an ssh server and hands the core the device's
+// name and DNS name, a launcher with no terminal leaves the launcher-missing
+// line, and a missing ssh raises its requirement notice instead; the Exit node row opens the
 // chooser on its search field and asks for a suggestion, at its top, and
 // Back or Escape leaves each view with the keyboard on the row it came
 // from; the card keeps its height while the chooser shows; Tailscale
@@ -59,6 +63,14 @@ Item {
     // Whether the core offers the Allow step, which a case sets and
     // cleanup() restores; the operator is then not yet this login.
     property bool allowOffered: false
+    // The stub's ssh: whether the requirement scan misses it, the answer
+    // its `shell.tui.ssh` gives, each call as [name, host] and the last
+    // call's `done`; and each requirement offer's commands.
+    property bool sshMissing: false
+    property string sshAnswer: "ok"
+    property var sshCalls: []
+    property var sshDone: null
+    property var offers: []
     readonly property var snapshot: Logic.snapshot(0, JSON.stringify({
         BackendState: root.backend,
         Self: { ID: "nDESK", HostName: "desk", DNSName: "desk.tail-fixture.ts.net.", OS: "linux", UserID: 1, TailscaleIPs: ["100.64.0.1"] },
@@ -108,6 +120,8 @@ Item {
             rows: root.allowOffered ? [{ key: "setup", hint: root.setupLine.hint, action: { offered: true, label: "Allow" } }] : [] })
         readonly property var ipc: ({ call: (name, arg) => root.call(name, arg) })
         readonly property var surfaces: ({ summon: () => "ok", hide: () => "ok" })
+        readonly property var requirements: ({ missing: root.sshMissing ? ["ssh"] : [], offer: commands => { root.offers = root.offers.concat([commands]); return "ok"; } })
+        readonly property var tui: ({ ssh: (name, host, done) => { root.sshCalls = root.sshCalls.concat([[name, host]]); root.sshDone = done; return root.sshAnswer; } })
     }
 
     Tailscale.Panel { id: panel; width: implicitWidth; height: 900 }
@@ -170,6 +184,11 @@ Item {
             root.accountsRead = true;
             root.statusAccount = true;
             root.allowOffered = false;
+            root.sshMissing = false;
+            root.sshAnswer = "ok";
+            root.sshCalls = [];
+            root.sshDone = null;
+            root.offers = [];
         }
 
         function find(item, wanted) {
@@ -369,16 +388,79 @@ Item {
             verify(!prompt.visible);
         }
 
-        function test_copy_puts_this_devices_address_on_the_clipboard() {
+        function test_copy_puts_this_devices_address_on_the_clipboard_data() {
+            return [{ tag: "the row", icon: false }, { tag: "the copy icon", icon: true }];
+        }
+        function test_copy_puts_this_devices_address_on_the_clipboard(data) {
             const row = named("tailscale-this-device");
             const action = named("tailscale-self-copy");
-            const before = action.text;
-            mouseClick(row);
+            compare(action.focusPolicy, Qt.NoFocus, "the copy icon is no Tab stop: the row's keys copy");
+            const before = [action.iconName, action.label];
             paste.text = "";
+            mouseClick(data.icon ? action : row);
             paste.paste();
             compare(paste.text, "100.64.0.1");
-            verify(action.text !== before, "the action reads its confirmation");
-            tryVerify(() => action.text === before, 5000, "the action returns once the copy stops confirming");
+            verify(action.iconName !== before[0] && action.label !== before[1], "the icon and its tooltip read the confirmation");
+            tryVerify(() => action.iconName === before[0] && action.label === before[1], 5000, "the icon returns once the copy stops confirming");
+        }
+
+        // The network devices, open in the flyout: gateway and pixel
+        // online, then attic-nas.
+        function networkList() {
+            named("tailscale-network-devices").expanded = true;
+            const list = named("tailscale-devices");
+            waitForRendering(list);
+            return list;
+        }
+        function icon(name) { return find(panel, item => item.objectName === name && item.label !== undefined); }
+
+        function test_network_devices_draw_connect_where_ssh_runs_and_copy_on_each() {
+            const list = networkList();
+            const drawn = list.rows.map(row => [row.text, ["connect", "copy"].filter(key => icon(row.key + "/" + key) !== null)]);
+            compare(drawn, [["gateway", ["connect", "copy"]], ["pixel", ["copy"]], ["attic-nas", ["connect", "copy"]]]);
+            const left = item => item.mapToItem(list, 0, 0).x;
+            verify(left(icon("nGATE/copy")) > left(icon("nGATE/connect")), "copy keeps the row's last place");
+            compare(left(icon("nPIXEL/copy")), left(icon("nGATE/copy")), "copy keeps one column on every row");
+        }
+
+        function test_a_network_devices_copy_icon_copies_its_address() {
+            networkList();
+            const copy = icon("nPIXEL/copy");
+            const before = [copy.iconName, copy.label];
+            paste.text = "";
+            mouseClick(copy);
+            paste.paste();
+            compare(paste.text, "100.64.0.4");
+            verify(copy.iconName !== before[0] && copy.label !== before[1], "the icon and its tooltip read the confirmation");
+            compare(icon("nGATE/copy").iconName, before[0], "another row's copy keeps its icon");
+        }
+
+        // expected-log: tailscale: connect reason=launcher-missing -- the launcher's end the case hands the done
+        function test_connect_hands_the_core_the_name_and_dns_name() {
+            networkList();
+            mouseClick(icon("nATTIC/connect"));
+            compare(root.sshCalls, [["attic-nas", "attic-nas.tail-fixture.ts.net"]]);
+            compare(find(panel, item => item.objectName === "tailscale-problem"), null, "an accepted connect leaves no problem");
+            root.sshDone({ code: 0, reason: null });
+            compare(find(panel, item => item.objectName === "tailscale-problem"), null, "a launched terminal leaves no problem");
+            root.sshDone({ code: null, reason: "launcher-missing" });
+            compare(named("tailscale-problem").text, Reply.line("refused: tui=core/ssh reason=launcher-missing"));
+        }
+
+        // expected-log: tailscale: connect refused: tui=core/ssh reason=launcher-missing -- the refusal the stub answers
+        function test_a_refused_connect_shows_its_line() {
+            networkList();
+            root.sshAnswer = "refused: tui=core/ssh reason=launcher-missing";
+            mouseClick(icon("nGATE/connect"));
+            compare(named("tailscale-problem").text, Reply.line(root.sshAnswer));
+        }
+
+        function test_connect_without_ssh_raises_its_requirement() {
+            networkList();
+            root.sshMissing = true;
+            mouseClick(icon("nGATE/connect"));
+            compare(root.offers, [["ssh"]]);
+            compare(root.sshCalls, [], "no terminal opens while ssh is missing");
         }
 
         function test_this_device_and_network_devices_share_one_hover_plate() {

@@ -5,7 +5,8 @@
 // the launch of a plugin's own script, of a listed TUI by key and of the
 // core's own TUI with arguments, a manager row's listed screens and the
 // manager's open of one, the core answer for a TUI shown on screen,
-// the busy key and the launcher state among the refusals, the listed rows,
+// the busy key and the launcher state among the refusals, the ssh
+// request's name and host and its `done`, the listed rows,
 // the log lines of a launcher's, a probe's and a reap's end, the exit records
 // and the runs, state and `done` answers they make, and a run's window. The
 // file loads under node through bin/lib/qml-library.js,
@@ -516,6 +517,51 @@ function suite(ctx, check) {
     ];
     for (const [name, completion, want] of launchDoneRows)
         check("tuiLaunchDone: " + name, ctx.tuiLaunchDone(completion), want);
+
+    // tuiSsh: [name, launcher state, device name, host, answer]. The name
+    // and the host stay one argv element each, whatever they hold.
+    const sshArgs = { ok: false, answer: "refused: tui=core/ssh reason=args", action: "none", key: null };
+    const sshOk = (name, host) => ({ ok: true, key: "core/ssh", argv: ["ssh", "--name", name, "--host", host] });
+    const label63 = "a".repeat(63);
+    const host253 = [label63, label63, label63, "b".repeat(61)].join(".");
+    const sshRows = [
+        ["a device and its DNS name", "present", "attic-nas", "attic-nas.tail-fixture.ts.net", sshOk("attic-nas", "attic-nas.tail-fixture.ts.net")],
+        ["an unknown launcher starts it", "unknown", "attic-nas", "attic-nas.tail-fixture.ts.net", sshOk("attic-nas", "attic-nas.tail-fixture.ts.net")],
+        ["a name with spaces and shell text", "present", "my box; $(touch x) #{host} 'q'", "box.example", sshOk("my box; $(touch x) #{host} 'q'", "box.example")],
+        ["a name outside ASCII", "present", "Ålands dator", "dator.example", sshOk("Ålands dator", "dator.example")],
+        ["one label", "present", "nas", "nas", sshOk("nas", "nas")],
+        ["a label of 63 characters", "present", "n", label63 + ".x", sshOk("n", label63 + ".x")],
+        ["a host of 253 characters", "present", "n", host253, sshOk("n", host253)],
+        ["an empty name", "present", "", "nas.example", sshArgs],
+        ["a name with a newline", "present", "a\nb", "nas.example", sshArgs],
+        ["a name of 257 characters", "present", "n".repeat(257), "nas.example", sshArgs],
+        ["a name that is no string", "present", 7, "nas.example", sshArgs],
+        ["a host that starts with -", "present", "n", "-oProxyCommand=x", sshArgs],
+        ["a label that starts with -", "present", "n", "nas.-x", sshArgs],
+        ["an upper-case host", "present", "n", "Nas.example", sshArgs],
+        ["a host with its final dot", "present", "n", "nas.example.", sshArgs],
+        ["an empty label", "present", "n", "nas..example", sshArgs],
+        ["a host with a space", "present", "n", "nas example", sshArgs],
+        ["a host with an underscore", "present", "n", "nas_1.example", sshArgs],
+        ["an empty host", "present", "n", "", sshArgs],
+        ["a host that is no string", "present", "n", null, sshArgs],
+        ["a label of 64 characters", "present", "n", "a" + label63 + ".x", sshArgs],
+        ["a host of 254 characters", "present", "n", host253 + "b", sshArgs],
+        ["no terminal launcher asks for a probe", "missing", "n", "nas.example", { ok: false, answer: "refused: tui=core/ssh reason=launcher-missing", action: "probe", key: "core/ssh" }],
+        ["bad arguments are refused before the launcher", "missing", "", "nas.example", sshArgs],
+    ];
+    for (const [name, launcher, device, host, want] of sshRows)
+        check("tuiSsh: " + name, ctx.tuiSsh({ launcher: launcher, busy: [], run: "9-1" }, device, host), want);
+
+    // tuiSshDone: [name, completion, what `done` receives].
+    const sshDoneRows = [
+        ["a launcher that handed the terminal the session", { code: 0, status: 0 }, { code: 0, reason: null }],
+        ["no terminal", { code: 69, status: 0 }, { code: null, reason: "launcher-missing" }],
+        ["a bad invocation", { code: 2, status: 0 }, { code: null, reason: "launcher-failed" }],
+        ["a launcher that never started", null, { code: null, reason: "launcher-failed" }],
+    ];
+    for (const [name, completion, want] of sshDoneRows)
+        check("tuiSshDone: " + name, ctx.tuiSshDone(completion), want);
 
     // tuiRecord: [name, record object, null for accepted or the start of
     // the refusal].
@@ -1578,6 +1624,12 @@ const CONTROLS = [
     ["a file action names the editor in the plugin's state", "return files ? names.concat([STATUS_FILE_TUI]) : names;", "return names;"],
     ["a core request's arguments follow its argv", "row.argv.slice(1), args === undefined ? [] : args)", "row.argv.slice(1))"],
     ["a launcher that never started is logged", "if (completion === null)\n        return \"tui: launcher=unstarted", "if (false)\n        return \"tui: launcher=unstarted"],
+    ["an ssh name is judged", "if (!tuiArgsValid([name]) || typeof host", "if (typeof host"],
+    ["an ssh host is judged", " || !TUI_SSH_HOST.test(host))", ")"],
+    ["an ssh host is bounded", " || host.length > TUI_SSH_HOST_MAX || ", " || "],
+    ["an ssh label is bounded", "[a-z0-9-]{0,62}(\\.[a-z0-9][a-z0-9-]{0,62})*$/", "[a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*)*$/"],
+    ["no terminal launcher refuses ssh", "    var refusal = tuiRunnerRefusal(runner, TUI_SSH_KEY, TUI_SSH_KEY);", "    var refusal = null;"],
+    ["a launched ssh ends with code 0", "return failed === null ? { code: 0, reason: null } : failed;", "return failed;"],
 ];
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "tui-logic-control-"));

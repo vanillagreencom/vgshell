@@ -115,16 +115,49 @@ function suite(logic, service = serviceSource) {
     assert.deepEqual(offlineBest.countries[0].best, { id: "mB", city: "Malmö" });
     assert.deepEqual(sheet.devices, {
         rows: [
-            { id: "nSHEET0003CNTRL", name: "attic-nas", os: "linux", icon: "laptop", address: "100.64.0.3", dnsName: "attic-nas.tail-fixture.ts.net", online: true },
-            { id: "nSHEET0002CNTRL", name: "gateway", os: "linux", icon: "server", address: "100.64.0.2", dnsName: "gateway.tail-fixture.ts.net", online: true },
-            { id: "nSHEET0004CNTRL", name: "pixel", os: "android", icon: "smartphone", address: "100.64.0.4", dnsName: "pixel.tail-fixture.ts.net", online: true },
-            { id: "nSHEET0007CNTRL", name: "ipad", os: "iOS", icon: "smartphone", address: "100.64.0.7", dnsName: "ipad.tail-fixture.ts.net", online: false },
-            { id: "nSHEET0009CNTRL", name: "old-laptop", os: "windows", icon: "laptop", address: "100.64.0.9", dnsName: "old-laptop.tail-fixture.ts.net", online: false }
+            { id: "nSHEET0003CNTRL", name: "attic-nas", os: "linux", icon: "laptop", address: "100.64.0.3", dnsName: "attic-nas.tail-fixture.ts.net", online: true, connects: true },
+            { id: "nSHEET0002CNTRL", name: "gateway", os: "linux", icon: "server", address: "100.64.0.2", dnsName: "gateway.tail-fixture.ts.net", online: true, connects: true },
+            { id: "nSHEET0004CNTRL", name: "pixel", os: "android", icon: "smartphone", address: "100.64.0.4", dnsName: "pixel.tail-fixture.ts.net", online: true, connects: false },
+            { id: "nSHEET0007CNTRL", name: "ipad", os: "iOS", icon: "smartphone", address: "100.64.0.7", dnsName: "ipad.tail-fixture.ts.net", online: false, connects: false },
+            { id: "nSHEET0009CNTRL", name: "old-laptop", os: "windows", icon: "laptop", address: "100.64.0.9", dnsName: "old-laptop.tail-fixture.ts.net", online: false, connects: true }
         ],
         count: 5,
         online: 3
     });
     assert.equal(logic.devicesLine(sheet.devices), "3 of 5 online");
+    // Connect in terminal, by each OS value Tailscale reports, in its own
+    // spelling: a device that runs an ssh server and has a DNS name. An
+    // unknown value, such as one Tailscale adds later, offers none.
+    for (const [os, dns, want] of [
+        ["linux", "box.tail-fixture.ts.net.", true],
+        ["macOS", "box.tail-fixture.ts.net.", true],
+        ["windows", "box.tail-fixture.ts.net.", true],
+        ["freebsd", "box.tail-fixture.ts.net.", true],
+        ["openbsd", "box.tail-fixture.ts.net.", true],
+        ["illumos", "box.tail-fixture.ts.net.", true],
+        ["solaris", "box.tail-fixture.ts.net.", true],
+        ["iOS", "box.tail-fixture.ts.net.", false],
+        ["android", "box.tail-fixture.ts.net.", false],
+        ["tvOS", "box.tail-fixture.ts.net.", false],
+        ["js", "box.tail-fixture.ts.net.", false],
+        ["", "box.tail-fixture.ts.net.", false],
+        ["plan9", "box.tail-fixture.ts.net.", false],
+        [undefined, "box.tail-fixture.ts.net.", false],
+        ["linux", "", false],
+        ["linux", undefined, false]
+    ]) {
+        const peer = { ID: "nOS", OS: os, DNSName: dns, TailscaleIPs: ["100.64.0.5"], Online: false };
+        assert.equal(logic.devices([peer]).rows[0].connects, want, "connects for OS " + JSON.stringify(os) + " and DNS name " + JSON.stringify(dns));
+    }
+    // The rows carry what their icon actions read: the address, the DNS
+    // name and whether the device connects.
+    assert.deepEqual(plain(logic.deviceRows(sheet.devices)).map(row => [row.key, row.text, row.address, row.dnsName, row.connects]), [
+        ["nSHEET0003CNTRL", "attic-nas", "100.64.0.3", "attic-nas.tail-fixture.ts.net", true],
+        ["nSHEET0002CNTRL", "gateway", "100.64.0.2", "gateway.tail-fixture.ts.net", true],
+        ["nSHEET0004CNTRL", "pixel", "100.64.0.4", "pixel.tail-fixture.ts.net", false],
+        ["nSHEET0007CNTRL", "ipad", "100.64.0.7", "ipad.tail-fixture.ts.net", false],
+        ["nSHEET0009CNTRL", "old-laptop", "100.64.0.9", "old-laptop.tail-fixture.ts.net", true]
+    ]);
 
     // `tailscale exit-node suggest` has no JSON form: its text names the
     // node's DNS name, or no suggestion (runExitNodeSuggest,
@@ -580,6 +613,10 @@ try {
         ["no suggestion is read, not unread", 'if (lines.indexOf("No exit node suggestion is available.") !== -1) return { name: "", fault: "" };', ''],
         ["the selected account is the current one", 'current: item.selected === true', 'current: false'],
         ["a device carries its DNS name", 'dnsName: dnsLine(peer), online: peer.Online === true', 'dnsName: "", online: peer.Online === true'],
+        ["a phone offers no connect", '"linux", "macos", "windows"', '"linux", "macos", "windows", "android"'],
+        ["Tailscale's macOS spelling connects", 'return typeof peer.OS === "string" ? peer.OS.toLowerCase() : "";', 'return typeof peer.OS === "string" ? peer.OS : "";'],
+        ["a device with no DNS name offers no connect", ' && dnsLine(peer) !== "";', ';'],
+        ["a row carries whether it connects", 'dnsName: row.dnsName, connects: row.connects === true', 'dnsName: row.dnsName, connects: false'],
         ["the city in use survives the bound", 'var kept = keepActive(all, CITY_MAX);', 'var kept = all.slice(0, CITY_MAX);'],
         ["best available is the highest ranked", 'if (country.best === null || beats(ranked, country.best.node))', 'if (country.best === null)'],
         ["best available ranks online nodes first", 'var ranked = { active: false, online: node.online, rank: node.rank };', 'var ranked = { active: false, online: true, rank: node.rank };'],

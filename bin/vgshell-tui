@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# vgshell-tui: open and run tasks in VGS floating terminals.
+# vgshell-tui: open and run tasks in VGS floating terminals, and open an ssh
+# session to a device in the user's own terminal.
 #
 # Usage:
 #   vgshell-tui launch --title <text> [--size default|wide|tall] [--presentation full|plain]
@@ -16,6 +17,13 @@
 #       Update the saved results for tasks whose terminal has closed.
 #   vgshell-tui wait --record <key> --run <run>
 #       Wait for a task to end and print its saved result.
+#   vgshell-tui ssh --name <name> --host <host>
+#       Open the user's terminal, tiled, on ssh-session.
+#   vgshell-tui ssh-session --name <name> --host <host>
+#       In that terminal: ssh-run in a new window <name> of the tmux session
+#       tailnet, created when absent, or with no tmux on PATH alone.
+#   vgshell-tui ssh-run -- <host>
+#       Run `ssh -- <host>` and keep a failure on screen until a key.
 
 # launch runs `setsid -f xdg-terminal-exec --app-id=<app-id> --title="VGS ·
 # <text>" -- <this file> present ...`, with no shell between, so the
@@ -112,6 +120,40 @@
 # shell judges both, and this file only keeps its file names safe. A key
 # lock's name holds one `@` and a run lock's two, and neither ends in .json.
 #
+# The ssh verbs open no floating TUI: no app-id, so no window rule floats
+# the window and it tiles, and no record, key, lock or wait. ssh runs
+# `setsid -w xdg-terminal-exec --title=<name> -- <this file> ssh-session
+# --name <name> --host <host>` through the same open_terminal launch uses,
+# in the background, and exits 0 once xdg-terminal-exec handed the session
+# on: it exited 0 within terminal_start_ceiling seconds, as a
+# single-instance terminal's hand-over does, or still runs at their end.
+# An earlier nonzero exit, such as xdg-terminal-exec finding no terminal
+# entry, is the refusal `terminal=failed exit=<n>`, exit 1, followed by
+# xdg-terminal-exec's stderr. It runs no tmux, so no tmux client runs in
+# the shell's process tree. ssh-session runs inside the terminal:
+# it unsets TMUX and TMUX_PANE, which a shell started from a tmux pane
+# hands on and which make tmux refuse to nest, then with no tmux on PATH
+# execs `<this file> ssh-run -- <host>`; while `tmux has-session -t
+# =tailnet` fails it runs `tmux new-session -s tailnet -n <window> --
+# <this file> ssh-run -- <host>`; otherwise `tmux new-window -P -F
+# '#{window_id}' -t =tailnet: -n <window> -- ...`, then `tmux
+# select-window -t <that id>`, since a user's after-new-window hook can make
+# another window current, then `tmux attach-session -t =tailnet`. `=`
+# matches the session name exactly, not as a prefix. Every client of
+# tailnet shows its one current window, so a second connect also moves a
+# terminal already open on tailnet to the new device. The window is the
+# name with each `#` doubled: tmux reads -n as a format, where `#(...)`
+# runs a command. tmux 3.0 and later runs a command given as several
+# arguments with no shell, so the name and the host stay argv data end to
+# end. A tmux step that fails shows the library's close prompt. ssh-run
+# runs ssh as a child and exits with its code. ssh's own failure, 255, and
+# a missing ssh, 127, show vgs_tui_close_prompt's failed prompt, since a
+# terminal or a tmux window closes as soon as its command exits; any other
+# code is the remote shell's last status, ssh(1) EXIT STATUS, which a
+# normal logout can carry, and closes at once. The shell judges the name and the
+# host (PluginLogic.tuiSsh); this file keeps only `--` before the host and
+# refuses a host that starts with `-`.
+#
 # bin/lib/logo.txt is the VGS mark: the letters V, G and S in full blocks
 # with a light-shade shadow, 9 lines by 48 columns. It is the one copy of
 # the mark; every caller reads the file.
@@ -132,8 +174,13 @@
 # record, 3 when the run is gone (`wait=<key> run=<run> reason=gone`), which
 # the shell reads as a normal end of a run it already saw end and as a
 # failure otherwise, 1 on any other refused wait (`wait=<key> run=<run>`),
-# and 2 on a bad invocation. docs/architecture/commands-are-data.md
-# § Floating TUIs.
+# and 2 on a bad invocation. ssh, ssh-session and ssh-run exit 2 on a bad
+# invocation, a missing --name or --host (`name=missing`, `host=missing`)
+# or a host that starts with `-` (`host=<host>`); ssh exits 69 with launch's
+# `terminal=missing`, and 1 with `terminal=failed exit=<n>` or, when it
+# cannot make or open the file that holds xdg-terminal-exec's stderr,
+# `terminal=unconfirmed reason=mktemp` or `reason=open`. ssh-session and ssh-run exit with
+# the code of what they ran. docs/architecture/commands-are-data.md § Floating TUIs.
 set -euo pipefail
 
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
@@ -164,6 +211,10 @@ record_dir="$rt_dir/vgshell/tui"
 # on a terminal's start, not a measurement of one. A terminal slower than
 # this is reported silent, and its run still writes its records.
 start_ceiling=30
+# How long the ssh launcher waits on xdg-terminal-exec before it counts a
+# terminal still running as started: a ceiling on how soon a failed start
+# reports, not a measurement of one.
+terminal_start_ceiling=1
 # wait's exit status for a run whose records a later run of the key
 # removed: shell/Core/PluginLogic.js's TUI_WAIT_GONE.
 wait_gone=3
@@ -182,13 +233,71 @@ app_id_of() { # SIZE
   ' "$root" "$1"
 }
 
-# The one terminal test launch and check share: exits 69 with the refusal
-# when xdg-terminal-exec is not on PATH.
+# The one terminal test launch, ssh and check share: exits 69 with the
+# refusal when xdg-terminal-exec is not on PATH.
 require_terminal() {
   command -v xdg-terminal-exec >/dev/null || {
     printf 'vgshell-tui: refused: terminal=missing\nVGS cannot open a terminal because xdg-terminal-exec is missing. Install it, then try the action again.\n' >&2
     exit 69
   }
+}
+
+# The one launch of the user's terminal, launch's and ssh's: xdg-terminal-exec,
+# the one terminal chooser, with OPTIONS up to `--` and the argv after it,
+# in a session of its own so a shell restart, which kills the launchers,
+# leaves the terminal. The terminal does not inherit VGSHELL_RUNNER_PID,
+# nor the descriptors 8 and 9 a caller may hold a lock on. MODE `forked`
+# returns once setsid has forked, for launch, whose presenter's record
+# confirms the start. MODE `confirmed`, for ssh, which keeps no record,
+# waits as the header states and exits 1 on a failed start.
+open_terminal() { # forked|confirmed OPTION... -- ARGV...
+  local mode="$1" errors err_out err_in pid n status=0
+  shift
+  require_terminal
+  unset VGSHELL_RUNNER_PID
+  if [[ $mode == forked ]]; then
+    setsid -f xdg-terminal-exec "$@" 8>&- 9>&-
+    return 0
+  fi
+  errors="$(mktemp -- "$rt_dir/vgs-terminal.XXXXXX")" || {
+    printf 'vgshell-tui: refused: terminal=unconfirmed reason=mktemp\nVGS cannot check that your terminal opened. Try the action again.\n' >&2
+    exit 1
+  }
+  # The file is opened for writing and for reading, then unlinked at once,
+  # so a launcher killed during the wait, as a shell restart kills it,
+  # leaves no name behind, and a terminal still running writes its stderr
+  # to an inode no directory lists.
+  # shellcheck disable=SC2094 # one file, opened once to write and once to read
+  if ! { exec {err_out}>"$errors" {err_in}<"$errors"; } 2>/dev/null; then
+    rm -f -- "${errors:?}"
+    printf 'vgshell-tui: refused: terminal=unconfirmed reason=open\nVGS cannot check that your terminal opened. Try the action again.\n' >&2
+    exit 1
+  fi
+  rm -f -- "${errors:?}"
+  # A background child of a non-interactive shell leads no process group,
+  # so setsid makes its session in place and execs; where it must fork
+  # instead, -w waits on the fork and exits with its status. Either way
+  # the job is xdg-terminal-exec, which holds the write end alone.
+  setsid -w xdg-terminal-exec "$@" 2>&"$err_out" {err_out}>&- {err_in}<&- 8>&- 9>&- &
+  pid=$!
+  exec {err_out}>&-
+  # The job table, not the process number, says whether the job runs:
+  # bash records the job's end itself, so a reused number cannot answer.
+  for ((n = 0; n < terminal_start_ceiling * 20; n++)); do
+    jobs -rp | grep -qx -- "$pid" || break
+    sleep 0.05
+  done
+  if jobs -rp | grep -qx -- "$pid"; then
+    exec {err_in}<&-
+    return 0
+  fi
+  wait "$pid" || status=$?
+  if [[ $status != 0 ]]; then
+    printf 'vgshell-tui: refused: terminal=failed exit=%d\nVGS cannot open your terminal. The terminal launcher said:\n' "$status" >&2
+    cat <&"$err_in" >&2 || :
+  fi
+  exec {err_in}<&-
+  [[ $status == 0 ]] || exit 1
 }
 
 usage() { awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$self" >&2; }
@@ -304,8 +413,8 @@ launch() {
   # present runs in the terminal's working directory, not this one.
   [[ -z $plugin_id ]] || { [[ $plugin_dir == /* ]] || plugin_dir="$PWD/$plugin_dir"; pass=(--plugin "$plugin_id" --dir "$plugin_dir"); }
   [[ -z $record_key ]] || pass+=(--record "$record_key" --run "$record_run" --record-dir "$record_dir" --app-id "$app_id" --window-title "VGS · $title")
+  # Before the engine copy, which a refusal would leave behind.
   require_terminal
-  unset VGSHELL_RUNNER_PID
   # This terminal may start after its caller times out or removes staging.
   # Transfer its inputs before detachment; present alone releases the copy.
   if [[ -n $engine_source ]]; then
@@ -313,9 +422,88 @@ launch() {
     pass+=(--engine-copy "$engine_copy")
     self="$engine_copy/source/bin/vgshell-tui"
   fi
-  setsid -f xdg-terminal-exec --app-id="$app_id" --title="VGS · $title" -- \
-    "$self" present --presentation "$presentation" "${pass[@]}" -- "${argv[@]}" 8>&- 9>&-
+  open_terminal forked --app-id="$app_id" --title="VGS · $title" -- \
+    "$self" present --presentation "$presentation" "${pass[@]}" -- "${argv[@]}"
   [[ -z $record_key ]] || await_record
+}
+
+# Parses the ssh verbs' --name and --host into ssh_name and ssh_host. The
+# shell judged both; a host that starts with `-` is refused here too, so
+# no argv this file builds reads it as an option.
+parse_ssh() { # ARGS...
+  ssh_name="" ssh_host=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --name|--host)
+        [[ $# -ge 2 ]] || bad_invocation "option=$1 value=missing"
+        if [[ $1 == --name ]]; then ssh_name="$2"; else ssh_host="$2"; fi
+        shift 2
+        ;;
+      *) bad_invocation "argument=$1" ;;
+    esac
+  done
+  [[ -n $ssh_name ]] || bad_invocation "name=missing"
+  check_host "$ssh_host"
+}
+
+check_host() { # HOST
+  [[ -n $1 ]] || bad_invocation "host=missing"
+  [[ $1 != -* ]] || bad_invocation "host=$1"
+}
+
+ssh_launch() {
+  open_terminal confirmed --title="$ssh_name" -- "$self" ssh-session --name "$ssh_name" --host "$ssh_host"
+}
+
+# Exits with CODE, after the library's close prompt for any code but 0 and
+# 130, so an error stays on screen until a key: the terminal closes as soon
+# as its command exits.
+end_shown() { # CODE
+  if [[ $1 != 0 && $1 != 130 ]]; then
+    export_gum_env
+    vgs_tui_close_prompt "$1"
+  fi
+  exit "$1"
+}
+
+# Runs ARGV as a child and ends as end_shown does with its code.
+held() { # ARGV...
+  local code=0
+  "$@" || code=$?
+  end_shown "$code"
+}
+
+ssh_session() {
+  local ssh_argv=("$self" ssh-run -- "$ssh_host") window id status=0
+  unset TMUX TMUX_PANE
+  command -v tmux >/dev/null || exec "${ssh_argv[@]}"
+  window="${ssh_name//#/##}"
+  if ! tmux has-session -t =tailnet 2>/dev/null; then
+    held tmux new-session -s tailnet -n "$window" -- "${ssh_argv[@]}"
+  fi
+  id="$(tmux new-window -P -F '#{window_id}' -t =tailnet: -n "$window" -- "${ssh_argv[@]}")" || status=$?
+  [[ $status == 0 ]] || end_shown "$status"
+  tmux select-window -t "$id" || end_shown "$?"
+  held tmux attach-session -t =tailnet
+}
+
+# ssh to the host, as the header states: the failed prompt for ssh's own
+# failure and a missing ssh alone.
+ssh_run() {
+  local code=0
+  ssh -- "$ssh_host" || code=$?
+  case "$code" in
+    255|127) end_shown "$code" ;;
+  esac
+  exit "$code"
+}
+
+parse_ssh_run() { # ARGS...
+  [[ $# -gt 0 ]] || bad_invocation "separator=missing"
+  [[ $1 == -- ]] || bad_invocation "argument=$1"
+  [[ $# -le 2 ]] || bad_invocation "argument=$3"
+  ssh_host="${2:-}"
+  check_host "$ssh_host"
 }
 
 # Waits for the run's record, running or already ended, so the shell holds
@@ -673,6 +861,9 @@ case "$verb" in
   check) [[ $# -eq 0 ]] || bad_invocation "argument=$1"; require_terminal ;;
   reap) [[ $# -eq 0 ]] || bad_invocation "argument=$1"; reap ;;
   wait) parse_wait "$@"; wait_record ;;
+  ssh) parse_ssh "$@"; ssh_launch ;;
+  ssh-session) parse_ssh "$@"; ssh_session ;;
+  ssh-run) parse_ssh_run "$@"; ssh_run ;;
   -h|--help|help) usage; exit 0 ;;
   *) bad_invocation "verb=${verb:-missing}" ;;
 esac

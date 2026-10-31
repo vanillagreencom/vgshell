@@ -16,7 +16,11 @@ import qs.Unit
 // the plate to the selection; the selection follows its row only while
 // the user chose it or the list holds the keyboard, a choice ends when its
 // row leaves, and else the selection keeps its place; a row's
-// `secondaryTone` reaches its DeviceRow; a hover over the row at a scroll area's edge moves the plate
+// `secondaryTone` reaches its DeviceRow; a row's icon actions draw after
+// its action in order, take no Tab stop, emit `chose` on a press, lead its
+// menu, which Shift+F10 opens, and draw no overflow button when the menu
+// holds nothing else, nor anything on a busy row, and keep their buttons
+// when a label changes; a locked row's icon takes no press; a hover over the row at a scroll area's edge moves the plate
 // and neither the keyboard nor the page, while the arrows still reveal. A
 // list given a `disabledReason` keeps its selected row a Tab stop, takes
 // no click and no key, on a row or its action, moves no selection under
@@ -33,6 +37,8 @@ Item {
     height: 600
 
     readonly property string reason: "Only the administrator can change Tailscale."
+    // The label of row b's copy action, which a case's trigger changes.
+    property string copyLabel: "Copy"
 
     readonly property var three: [
         { key: "a", text: "Headset", secondary: "Connected", iconName: "headphones", battery: 0.5 },
@@ -64,6 +70,7 @@ Item {
             disabledReason: root.reason
             actionOf: row => row.key === "a" ? { text: "Disconnect" } : null
             menuOf: row => row.key === "a" ? [{ key: "rename", text: "Rename" }] : []
+            iconActionsOf: row => row.key === "a" ? [{ key: "connect", iconName: "terminal", label: "Connect in terminal" }] : []
         }
     }
     Component { id: spyComponent; SignalSpy {} }
@@ -116,13 +123,20 @@ Item {
         function trailing(row) { return row.contentItem.children[2].children; }
         function spinnerOf(row) { return trailing(row)[1].children[0]; }
         function actionOf(row) { return trailing(row)[1].children[1]; }
-        function menuOf(row) { return trailing(row)[2].children.find(child => child.triggerCurrent !== undefined); }
+        // The menu hangs from the overflow button, or from the actions
+        // while the button is hidden.
+        function menuOf(row) { return trailing(row)[1].children.concat(trailing(row)[2].children).find(child => child.triggerCurrent !== undefined); }
+        function iconsOf(row) { return trailing(row)[1].children.filter(child => child.label !== undefined && child.objectName.indexOf("/") !== -1); }
+        function leftOf(item) { return item.mapToItem(list, 0, 0).x; }
+        function args(spy, index) { return Array.from(spy.signalArguments[index]); }
+        readonly property var icons: [{ key: "connect", iconName: "terminal", label: "Connect in terminal" }, { key: "copy", iconName: "copy", label: "Copy" }]
 
         function init() {
             UnitTheme.reset();
             list.rows = root.three;
             list.actionOf = row => row.key === "a" ? { text: "Disconnect" } : null;
             list.menuOf = row => row.key === "a" ? [{ key: "rename", text: "Rename" }, { key: "forget", text: "Forget" }] : [];
+            list.iconActionsOf = row => [];
             list.removable = false;
             list.current = 0;
             acted.clear();
@@ -311,6 +325,99 @@ Item {
             compare(chose.signalArguments[0][1], "forget");
         }
 
+        function test_icon_actions_draw_after_the_action_and_choose() {
+            list.iconActionsOf = row => row.key === "a" ? icons : row.key === "b" ? icons.slice(1) : [];
+            waitForRendering(list);
+            const first = iconsOf(list.rowAt(0));
+            compare(first.map(icon => [icon.iconName, icon.label, icon.tooltip, icon.visible]),
+                [["terminal", "Connect in terminal", "Connect in terminal", true], ["copy", "Copy", "Copy", true]]);
+            verify(leftOf(first[0]) > leftOf(actionOf(list.rowAt(0))), "the icons follow the row's action");
+            verify(leftOf(first[1]) > leftOf(first[0]), "the icons draw in their order");
+            compare(iconsOf(list.rowAt(2)).length, 0, "a row with no icon actions draws none");
+            mouseClick(first[0]);
+            compare(chose.count, 1);
+            compare(args(chose, 0), ["a", "connect"]);
+            mouseClick(iconsOf(list.rowAt(1))[0]);
+            compare(args(chose, 1), ["b", "copy"]);
+            compare(acted.count, 0, "an icon press runs no row action");
+        }
+
+        function test_icon_actions_take_no_tab_stop() {
+            list.iconActionsOf = row => row.key === "a" ? icons : [];
+            for (const icon of iconsOf(list.rowAt(0))) compare(icon.focusPolicy, Qt.NoFocus);
+            keyClick(Qt.Key_Tab);
+            tryCompare(list.rowAt(0), "activeFocus", true);
+            keyClick(Qt.Key_Tab);
+            compare(actionOf(list.rowAt(0)).activeFocus, true, "Tab moves from the row to its action");
+            keyClick(Qt.Key_Tab);
+            compare(trailing(list.rowAt(0))[2].activeFocus, true, "Tab moves from the action past the icons to the overflow button");
+        }
+
+        function test_the_menu_reaches_each_icon_action_first() {
+            list.iconActionsOf = row => row.key === "a" || row.key === "b" ? icons : [];
+            compare(menuOf(list.rowAt(0)).items().map(item => [item.text, item.iconName]),
+                [["Connect in terminal", "terminal"], ["Copy", "copy"], ["Rename", ""], ["Forget", ""]]);
+            verify(trailing(list.rowAt(0))[2].visible, "a menu with entries of its own draws the overflow button");
+            menuOf(list.rowAt(0)).items()[0].triggered();
+            compare(args(chose, 0), ["a", "connect"]);
+            // Row b's menu holds only its icons: no button repeats them, and
+            // the menu keys still open them.
+            const row = list.rowAt(1);
+            verify(!trailing(row)[2].visible, "a menu of the icons alone draws an overflow button");
+            list.current = 1;
+            focusList();
+            keyClick(Qt.Key_F10, Qt.ShiftModifier);
+            const menu = menuOf(row);
+            tryCompare(menu, "opened", true);
+            verify(menu.anchorItem.visible, "the menu hangs from a drawn item");
+            compare(menu.items().map(item => item.text), ["Connect in terminal", "Copy"]);
+            keyClick(Qt.Key_Down);
+            keyClick(Qt.Key_Return);
+            tryCompare(menu, "opened", false);
+            compare(args(chose, 1), ["b", "copy"]);
+        }
+
+        // A changed label, as a copy's Copied, keeps the button.
+        function test_an_icon_action_keeps_its_button_when_its_label_changes() {
+            list.iconActionsOf = row => row.key === "a" ? icons : [];
+            const before = iconsOf(list.rowAt(0))[1];
+            list.iconActionsOf = row => row.key === "a" ? [icons[0], { key: "copy", iconName: "check", label: "Copied" }] : [];
+            const after = iconsOf(list.rowAt(0))[1];
+            verify(after === before, "the copy action keeps its button");
+            compare([after.iconName, after.label], ["check", "Copied"]);
+        }
+
+        // A trigger that changes its own entry's label, as a copy's to
+        // Copied, still closes the menu.
+        function test_a_menu_entry_whose_label_its_trigger_changes_closes_the_menu() {
+            list.iconActionsOf = row => row.key === "b" ? [{ key: "copy", iconName: "copy", label: root.copyLabel }] : [];
+            const relabel = () => { root.copyLabel = "Copied"; };
+            list.chose.connect(relabel);
+            try {
+                list.current = 1;
+                focusList();
+                keyClick(Qt.Key_F10, Qt.ShiftModifier);
+                const menu = menuOf(list.rowAt(1));
+                tryCompare(menu, "opened", true);
+                keyClick(Qt.Key_Return);
+                compare(args(chose, 0), ["b", "copy"]);
+                tryCompare(menu, "opened", false);
+                compare(iconsOf(list.rowAt(1))[0].label, "Copied");
+                compare(menu.items()[0].text, "Copied");
+            } finally {
+                list.chose.disconnect(relabel);
+                root.copyLabel = "Copy";
+            }
+        }
+
+        function test_a_busy_row_draws_no_icon_actions() {
+            list.rows = [{ key: "busy", text: "Earbuds", iconName: "headphones", busy: true }];
+            list.iconActionsOf = row => icons;
+            tryVerify(() => list.rowAt(0) !== null, 1000, "the row is built");
+            compare(iconsOf(list.rowAt(0)).length, 0);
+            verify(trailing(list.rowAt(0))[2].visible, "a busy row keeps its icon actions behind the overflow button");
+        }
+
         function test_delete_removes_only_when_removable() {
             focusList();
             keyClick(Qt.Key_Delete);
@@ -440,6 +547,9 @@ Item {
             unchanged("click on another row");
             mouseClick(actionOf(row));
             unchanged("click on the action");
+            mouseClick(iconsOf(row)[0]);
+            unchanged("click on an icon action");
+            compare(iconsOf(row)[0].hovered, false, "a locked list's icon action draws hover");
             made.focusCurrent(Qt.TabFocusReason);
             tryCompare(row, "activeFocus", true);
             for (const key of [Qt.Key_Space, Qt.Key_Return, Qt.Key_Enter, Qt.Key_Down, Qt.Key_End, Qt.Key_Delete, Qt.Key_Menu]) {
@@ -476,7 +586,7 @@ Item {
             made.disabledReason = "";
             compare(reasonTip(made), null, "clearing the reason drops the tooltip");
             compare(made.rowAt(0).contentItem.opacity, 1);
-            compare(menuOf(made.rowAt(0)).items().length, 1);
+            compare(menuOf(made.rowAt(0)).items().map(item => item.text), ["Connect in terminal", "Rename"]);
             mouseClick(made.rowAt(1), 20, made.rowAt(1).height / 2);
             compare(spy.count, 1);
             compare(spy.signalArguments[0][0], "b");
@@ -484,7 +594,7 @@ Item {
             compare(made.current, 2);
         }
 
-        function chevronOf(row) { return trailing(row)[1].children[2]; }
+        function chevronOf(row) { return trailing(row)[1].children.find(child => child.name !== undefined && child.label === undefined); }
 
         // SearchRows rebuilds plain objects on each publish. Kept items
         // and focus survive, and moved items draw the new publication's text.
@@ -592,6 +702,29 @@ Item {
             compare(spy.count, 4);
             compare(spy.signalArguments[3][0], "usa");
             before.forceActiveFocus(Qt.TabFocusReason);
+        }
+
+        // A list with a row that opens shields no row, so a locked row's
+        // icon action refuses its own press; the opening row's acts.
+        function test_a_locked_lists_icon_action_chooses_only_on_a_row_that_opens() {
+            const made = createTemporaryObject(mixedList, root);
+            made.iconActionsOf = row => [{ key: "copy", iconName: "copy", label: "Copy" }];
+            tryVerify(() => made.rowAt(2).y >= made.rowAt(1).y + made.rowAt(1).height, 1000, "the rows are laid out");
+            const spy = createTemporaryObject(spyComponent, root, { target: made, signalName: "chose" });
+            // Emitted, not clicked: the locked list's reason tooltip opens
+            // under the pointer, and the guard is the icon's own.
+            iconsOf(made.rowAt(1))[0].clicked();
+            compare(spy.count, 0, "a locked row's icon chooses");
+            mouseClick(iconsOf(made.rowAt(0))[0]);
+            compare(spy.count, 1, "the opening row's icon chooses");
+            compare(args(spy, 0), ["sweden", "copy"]);
+            // The menu follows the same rule: the opening row's holds its
+            // icon action, the locked row's holds none.
+            compare(menuOf(made.rowAt(0)).items().map(item => item.text), ["Copy"]);
+            compare(menuOf(made.rowAt(1)).items().length, 0, "a locked row's menu holds its icon action");
+            menuOf(made.rowAt(0)).items()[0].triggered();
+            compare(spy.count, 2, "the opening row's menu entry chooses");
+            compare(args(spy, 1), ["sweden", "copy"]);
         }
 
         // Steps: "enter" hands the list the keyboard, "leave" takes it

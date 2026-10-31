@@ -26,7 +26,8 @@
     "run",
     "status",
     "surfaces",
-    "system"
+    "system",
+    "tui"
   ],
   "defaultSection": "right",
   "pane": {
@@ -89,6 +90,17 @@
       },
       "optional": true,
       "purpose": "Opens the Tailscale sign-in page and admin console in your browser"
+    },
+    {
+      "command": "ssh",
+      "packages": {
+        "pacman": "openssh",
+        "apt": "openssh-client",
+        "dnf": "openssh-clients",
+        "nix": "openssh"
+      },
+      "optional": true,
+      "purpose": "Connects to a device in your terminal"
     }
   ],
   "systemSteps": [

@@ -67,7 +67,9 @@
 # unlock mark under keyboard focus, and Sign in under the pointer over a
 # signed-out tailnet; tailscale-flyout, taken only when named, is the
 # Tailscale flyout and bar icon in each state the design's sheets draw,
-# over the design's stand-in tailnet, each shot's live reading recorded in
+# over the design's stand-in tailnet, then its device rows open, at their
+# top and their end, with the copy and Connect in terminal icons, a row's
+# Shift+F10 menu and each icon's tooltip, Copied among them, each shot's live reading recorded in
 # tailscale-states.tsv; power is its flyout over the sandbox's fake
 # battery and power profile daemon, its Settings page's tabs, its System
 # Settings section over two idle stage owner fixtures, the section and the
@@ -7023,6 +7025,22 @@ tailscale_flyout_tab_to() { # WANT
   done
   [[ $at == "$1" ]] || { fail "Tab never reached $1 in the Tailscale flyout: at $at"; return 1; }
 }
+# Whether a menu of the flyout is open.
+tailscale_flyout_menu_shown() { ipc smoke menus panel vgs.tailscale | py_reply 'import json,sys; print(str(any(m["opened"] for m in json.load(sys.stdin))).lower())'; }
+# The open tooltip's text in the flyout, as JSON, else `closed`.
+tailscale_flyout_tip() { ipc smoke itemValues panel vgs.tailscale Tooltip text,opened | py_reply 'import json,sys; print(next((json.dumps(v["text"]) for v in json.load(sys.stdin) if v["opened"]), "closed"))'; }
+# tailscale_flyout_icon_tip LABEL WHAT: the pointer on the first shown
+# IconButton labelled LABEL, held until its tooltip opens with LABEL. An
+# icon button draws no text, so it is found by its label.
+tailscale_flyout_icon_tip() { # LABEL WHAT
+  local at x y
+  park_pointer
+  expect_poll "the tooltips close before $2" closed tailscale_flyout_tip
+  at="$(centre_of "$(ipc smoke labelledGeometry panel vgs.tailscale IconButton "$1")")" && [[ $at != none ]] || { fail "$2 is not drawn"; return 1; }
+  read -r x y <<<"$at"
+  hover "$((x + 1))" "$y" && hover "$x" "$y" || { fail "the pointer did not reach $2"; return 1; }
+  expect_poll "the pointer on $2 opens its tooltip" "\"$1\"" tailscale_flyout_tip
+}
 tailscale_flyout_open() { # LABEL
   ipc shell hide panel vgs.tailscale >/dev/null || true
   expect_poll "the Tailscale flyout is closed before $1" hidden tailscale_shot_panel
@@ -7125,12 +7143,53 @@ EOF
   tailscale_flyout_tab_to '["ListItem","Network devices"]' || return
   type_keys -k space || fail "Space on the network devices row failed"
   expect_poll "the network devices row opens" true tailscale_flyout_named Disclosure tailscale-network-devices expanded
-  # This device's Copy is the Tab stop before the network devices row.
-  type_keys -M shift -k Tab -m shift || fail "Shift+Tab to this device's Copy failed"
-  expect_poll "the keys reach this device's Copy" '["RowAction","Copy"]' tailscale_flyout_focus
-  type_keys -k Return || fail "Return on this device's Copy failed"
+  # This device's row, the Tab stop before the network devices row, copies
+  # on Return, as its copy icon does on a click.
+  type_keys -M shift -k Tab -m shift || fail "Shift+Tab to this device failed"
+  expect_poll "the keys reach this device" '["DeviceRow","desk"]' tailscale_flyout_focus
+  type_keys -k Return || fail "Return on this device failed"
   expect_poll "Copy reads Copied" true ipc smoke readDescendant panel vgs.tailscale CopyText confirming
   tailscale_flyout_take "tailscale-flyout-$mode-account-devices-copied" posed
+
+  # The device rows (VGS-2109): this device's copy icon, Connect in
+  # terminal before copy on the devices that run an ssh server, copy alone
+  # on a phone; each icon's tooltip, and Copied after a click.
+  tailscale_flyout_open "the device row shots" || return
+  tailscale_flyout_tab_to '["ListItem","Network devices"]' || return
+  type_keys -k space || fail "Space on the network devices row failed"
+  expect_poll "the network devices row opens for the row shots" true tailscale_flyout_named Disclosure tailscale-network-devices expanded
+  expect_poll "attic-nas draws Connect in terminal" true tailscale_flyout_named IconButton nSHEET0003CNTRL/connect visible
+  expect_poll "pixel draws copy" true tailscale_flyout_named IconButton nSHEET0004CNTRL/copy visible
+  expect "pixel draws no Connect in terminal" absent tailscale_flyout_named IconButton nSHEET0004CNTRL/connect visible
+  tailscale_flyout_take "tailscale-flyout-$mode-device-rows"
+  # A network row's menu, from Shift+F10: it holds the row's icons and
+  # hangs from them, since the row draws no overflow button.
+  type_keys -k Tab || fail "Tab to the network devices' list failed"
+  expect_poll "the keys reach attic-nas for its menu" '["DeviceRow","attic-nas"]' tailscale_flyout_focus
+  type_keys -M shift -k F10 -m shift || fail "Shift+F10 on attic-nas failed"
+  expect_poll "attic-nas's menu opens" true tailscale_flyout_menu_shown
+  tailscale_flyout_take "tailscale-flyout-$mode-device-menu" posed
+  type_keys -k Escape || fail "Escape from attic-nas's menu failed"
+  expect_poll "the menu closes" false tailscale_flyout_menu_shown
+  type_keys -M shift -k Tab -m shift || fail "Shift+Tab to the network devices row failed"
+  expect_poll "the keys return to the network devices row" '["ListItem","Network devices"]' tailscale_flyout_focus
+  expect "the device rows scroll to their end" moved tailscale_flyout_scroll_end
+  tailscale_flyout_take "tailscale-flyout-$mode-device-rows-end"
+  ipc smoke scrollTo panel vgs.tailscale 0 >/dev/null || fail "the flyout did not scroll back to its top"
+  tailscale_flyout_icon_tip "Copy" "this device's copy" || return
+  tailscale_flyout_take "tailscale-flyout-$mode-copy-tooltip" posed
+  tailscale_flyout_icon_tip "Connect in terminal" "attic-nas's Connect in terminal" || return
+  tailscale_flyout_take "tailscale-flyout-$mode-connect-tooltip" posed
+  # Copied under the pointer: the copy runs from the row's Return, since a
+  # press on the icon closes its tooltip until the pointer leaves.
+  type_keys -M shift -k Tab -m shift || fail "Shift+Tab to this device failed"
+  expect_poll "the keys reach this device for Copied" '["DeviceRow","desk"]' tailscale_flyout_focus
+  tailscale_flyout_icon_tip "Copy" "this device's copy before Copied" || return
+  type_keys -k Return || fail "Return on this device failed"
+  expect_poll "this device's copy reads Copied" '"Copied"' tailscale_flyout_named IconButton tailscale-self-copy label
+  expect_poll "the copy icon's tooltip reads Copied" '"Copied"' tailscale_flyout_tip
+  tailscale_flyout_take "tailscale-flyout-$mode-copied-tooltip" posed
+  park_pointer
 
   # The Exit nodes view, Sweden's view, a search and no match
   # (tailscale-flyout-a and -b).
@@ -7215,8 +7274,9 @@ EOF
   tree_rescan "a scan finds no Tailscale after its flyout shots"
 }
 # The Tailscale System Settings section, in the actual holder window:
-# the v2 design's top, inline exit countries, sign-out question, peer DNS
-# menu and end, signed out and service off, plus its missing-tool setup.
+# the v2 design's top, inline exit countries, network devices, sign-out
+# question, peer DNS menu and end, signed out and service off, plus its
+# missing-tool setup.
 # Each capture records the published state, visible sections, focus and
 # window scroll position in tailscale-section-states.tsv.
 tailscale_section_named() { ipc smoke readMatchingDescendant window vgs.tailscale "$1" objectName "$2" "$3"; }
@@ -7287,6 +7347,11 @@ TSSECTION
     click_item "window:System Settings" window vgs.tailscale DeviceRow Sweden || fail "Sweden's exit country click failed"
   fi
   tailscale_section_take "$mode" country-cities "System Settings › Tailscale · Sweden expanded"
+  # Network devices: pixel is the one device no exit node list repeats, so
+  # revealing it scrolls the section's own rows into view.
+  expect "the network devices scroll into the section" shown tailscale_section_reveal DeviceRow pixel
+  park_pointer
+  tailscale_section_take "$mode" network-devices "System Settings › Tailscale · Network devices"
   if ! tree_has shell/plugins/vgs.tailscale/ExitNodes.qml 'property bool inlineCountries'; then
     expect "the earlier section reveals its country Back control" shown tailscale_section_reveal IconButton Back
     click_in "window:System Settings" window vgs.tailscale IconButton Back || fail "the earlier section's Back click failed"

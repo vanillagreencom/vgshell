@@ -139,10 +139,16 @@ function validId(id) {
     return typeof id === "string" && id !== "" && id.length <= TEXT_MAX;
 }
 
+// PEER's operating system as Tailscale reports it, lowercased: the one
+// reading peerIcon and sshCapable share.
+function osOf(peer) {
+    return typeof peer.OS === "string" ? peer.OS.toLowerCase() : "";
+}
+
 // The row icon for PEER: a phone for iOS and Android, a server for a
 // tagged peer, which a person does not carry, a laptop otherwise.
 function peerIcon(peer) {
-    var os = typeof peer.OS === "string" ? peer.OS.toLowerCase() : "";
+    var os = osOf(peer);
     if (os === "ios" || os === "android") return "smartphone";
     if (isTagged(peer)) return "server";
     return "laptop";
@@ -271,14 +277,27 @@ function exitNodes(peers) {
     return { own: keepActive(own.sort(onlineFirst), PEER_MAX), countries: countries, cityCount: all.length, targets: targets, exit: exit };
 }
 
+// The operating systems, as osOf reads them, of a device that runs an ssh
+// server a user can reach: an allowlist, so an OS Tailscale adds later
+// offers no connect until it is listed. iOS, Android, tvOS and `js`, the
+// browser client, run none.
+var SSH_SYSTEMS = ["linux", "macos", "windows", "freebsd", "openbsd", "illumos", "solaris"];
+
+// Whether a network device PEER offers Connect in terminal: an OS of
+// SSH_SYSTEMS and a DNS name, which ssh reaches. Online state does not
+// count: a failed ssh stays on screen in the terminal.
+function sshCapable(peer) {
+    return SSH_SYSTEMS.indexOf(osOf(peer)) !== -1 && dnsLine(peer) !== "";
+}
+
 // The network devices PEERS hold, Mullvad nodes left out: { rows, count,
 // online }, `rows` online first then by name, at most PEER_MAX: { id, name,
-// os, icon, address, dnsName, online }. `count` and `online` count every
-// device, kept or not.
+// os, icon, address, dnsName, online, connects }, `connects` as sshCapable
+// reads the peer. `count` and `online` count every device, kept or not.
 function devices(peers) {
     var all = peers.filter(function (peer) { return !isMullvad(peer) && validId(peer.ID); }).map(function (peer) {
         return { id: peer.ID, name: peerName(peer), os: line(peer.OS), icon: peerIcon(peer), address: firstIPv4(peer.TailscaleIPs),
-            dnsName: dnsLine(peer), online: peer.Online === true };
+            dnsName: dnsLine(peer), online: peer.Online === true, connects: sshCapable(peer) };
     });
     all.sort(onlineFirst);
     return { rows: all.slice(0, PEER_MAX), count: all.length, online: all.filter(function (row) { return row.online; }).length };
@@ -619,10 +638,13 @@ function accountRows(tailscale) {
     });
 }
 
+// The network devices' DeviceList rows: each device's name, its address
+// and whether it is offline, its icon, and the address, DNS name and
+// `connects` its icon actions read.
 function deviceRows(value) {
     return value.rows.map(function (row) {
         return { key: row.id, text: row.name, secondary: row.online ? row.address : [row.address, "Offline"].filter(function (part) { return part !== ""; }).join(" · "),
-            iconName: row.icon, address: row.address };
+            iconName: row.icon, address: row.address, dnsName: row.dnsName, connects: row.connects === true };
     });
 }
 

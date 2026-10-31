@@ -6,9 +6,10 @@ import "PluginLogic.js" as Logic
 
 // Owns the `tui` capability's provider, the list of floating TUIs it
 // publishes, the launcher state and every launch process it starts: one
-// `bin/vgshell-tui launch` per accepted request and at most one
-// `bin/vgshell-tui check` probe. TuiRecords owns the record listing, reaper and
-// one `bin/vgshell-tui wait` process per live run. PluginLogic decides which
+// `bin/vgshell-tui launch` per accepted request, one `bin/vgshell-tui ssh`
+// per accepted ssh request and at most one `bin/vgshell-tui check` probe.
+// TuiRecords owns the record listing, reaper and one `bin/vgshell-tui wait`
+// process per live run. PluginLogic decides which
 // TUI a request names, whether its plugin is enabled, the arguments, whether
 // the key is busy or the launcher state refuses it, the launcher's argv, how
 // each exit moves the state, what the records say, which waits run and what
@@ -22,7 +23,8 @@ Scope {
     id: root
 
     // Launchers still running, each a Process carrying its TUI's `key` and
-    // `run`. Replaced whole on every change.
+    // `run`, an ssh launcher its `key` alone. Replaced whole on every
+    // change.
     property var launching: []
     // Launches whose run has no record yet and whose launcher did not fail,
     // each { key, run }: the key stays busy until the record appears.
@@ -72,6 +74,7 @@ Scope {
             get entries() { return root.entries; },
             open: key => root.open(key),
             edit: (path, line, done) => root.edit(path, line, root.guarded(ctx, done, "tui=edit")),
+            ssh: (name, host, done) => root.ssh(name, host, root.guarded(ctx, done, "tui=ssh")),
             get state() { return root.stateOf(ctx); }
         };
     }
@@ -87,6 +90,39 @@ Scope {
         if (done !== undefined && typeof done !== "function")
             throw new Error("refused: tui=" + Logic.tuiLabel(name) + " done=not-a-function");
         return request(ctx.id, ctx.manifest, { name: name, args: args, ctx: ctx, done: done });
+    }
+
+    // ssh: the user's terminal, tiled, on an ssh session to HOST in a
+    // window named NAME (bin/vgshell-tui ssh), as PluginLogic.tuiSsh judges
+    // the request. Answers `ok` once the launcher starts, or the refusal;
+    // DONE, when given, receives tuiSshDone's { code, reason } once the
+    // launcher ends, so a terminal missing since the last probe still
+    // reaches `launcher-missing`. The run keeps no record, key or wait: the
+    // session is the user's, and the shell reads no result of it.
+    function ssh(name, host, done) {
+        const launch = Logic.tuiSsh(runner(), name, host);
+        if (!launch.ok) return start(launch, null, undefined);
+        const process = sshLauncherComponent.createObject(root);
+        process.key = launch.key;
+        process.done = done === undefined ? null : done;
+        // Assigned after creation, as start's launcher command is.
+        process.command = [root.coreBin + "/vgshell-tui"].concat(launch.argv);
+        launching = launching.concat([process]);
+        process.running = true;
+        return "ok";
+    }
+
+    // The end of an ssh launcher: logged and read into the launcher state
+    // as a launch's is, then handed to its `done`.
+    function sshFinished(process, stderr) {
+        const line = Logic.tuiLaunchOutcome(process.key, process.completion, stderr);
+        if (line !== "") console.error(line);
+        launcher = Logic.tuiLauncherAfter(launcher, process.completion);
+        launching = launching.filter(p => p !== process);
+        const done = process.done;
+        const end = Logic.tuiSshDone(process.completion);
+        process.destroy();
+        if (done !== null) done(end);
     }
 
     // runFor: plugin ID's own declared script NAME, with ARGS after it as
@@ -539,6 +575,24 @@ Scope {
                 } finally {
                     probe.destroy();
                 }
+            }
+        }
+    }
+
+    // A command that fails to start emits only runningChanged, as the
+    // launcher's below.
+    Component {
+        id: sshLauncherComponent
+        Process {
+            id: sshProcess
+            property string key: ""
+            property var done: null
+            property var completion: null
+            stderr: StdioCollector { id: sshErrors }
+            onExited: (code, status) => { sshProcess.completion = { code: code, status: status }; }
+            onRunningChanged: {
+                if (running) return;
+                root.sshFinished(sshProcess, sshErrors.text);
             }
         }
     }
