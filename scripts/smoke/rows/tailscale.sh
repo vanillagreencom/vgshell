@@ -556,18 +556,13 @@ tailscale_launcher_missing_line() {
     "$repo/bin/lib/qml-library.js" "$repo/shell/Commons/Reply.js"
 }
 # tailscale_device_menu LABEL ENTRIES CURRENT: Shift+F10 on the selected
-# network device, then Home, then its open menu read as ENTRIES, a JSON
-# list, with CURRENT highlighted. Home places the highlight: a second key
-# opening of one row's menu, after an entry was triggered, highlights no
-# entry (VGS-2117), and the pane's walk reads a first opening's own
-# highlight.
+# network device, then its open menu read as ENTRIES, a JSON list, with
+# CURRENT highlighted: every key opening, a reopening after a trigger too,
+# highlights the menu's own home entry.
 tailscale_device_menu() { # LABEL ENTRIES CURRENT
   type_keys -M shift -k F10 -m shift || { fail "$1: Shift+F10 failed"; return 0; }
-  expect_poll "$1: the menu opens" true tailscale_flyout_menu_open
-  type_keys -k Home || { fail "$1: Home failed"; return 0; }
   expect_poll "$1" "[[$2, \"$3\"]]" tailscale_flyout_menu
 }
-tailscale_flyout_menu_open() { tailscale_flyout_menu | py_reply 'import json,sys; print(str(len(json.load(sys.stdin)) == 1).lower())'; }
 # The nested clipboard's text, read after the input check.
 tailscale_clipboard() { nested_input_check wl-paste || return 1; "${shell_env[@]}" wl-paste --no-newline; }
 tailscale_clipboard_matches() {

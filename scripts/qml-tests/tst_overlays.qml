@@ -113,6 +113,17 @@ Item {
     }
     Component { id: transientTooltip; Tooltip { text: "Transient" } }
     Component { id: scaledWindow; Window { width: 400; height: 120; color: "black" } }
+    // A one-line and a wrapped entry, as a menu holds them.
+    Component {
+        id: entryPair
+        Column {
+            readonly property alias oneLine: oneLine
+            readonly property alias wrapped: wrapped
+            width: 200
+            MenuItem { id: oneLine; text: "Rename" }
+            MenuItem { id: wrapped; text: "An entry far wider than this column, so its text wraps"; shortcut: "Ctrl+W" }
+        }
+    }
     // A bar widget's menu as the bar makes it: its Loader builds the menu
     // on a right click, which opens it in the same turn of the event loop.
     Component {
@@ -1223,9 +1234,32 @@ Item {
             compare(fill.x + fill.width, window.width - border, "the fill meets the right border");
             if (data.flush) compare(fill.y, border, "the fill meets the top border");
             else verify(fill.y > border, "a square entry starts below a round corner: " + fill.y);
-            compare(plate.radius, Theme.menu.item.radius);
+            compare(plate.radius, Theme.menuItemCorner);
             verify(insideCorner(fill, plate.radius, window.width, window.height, Theme.menu.radius, border), "the fill's corners stay inside the menu's corner: " + JSON.stringify(fill));
             menu.close();
+        }
+
+        function test_a_hidden_wrapped_entry_takes_a_rounded_theme_data() {
+            return [
+                { tag: "rounded", theme: { radius: { sm: 6, md: 12, lg: 16 } } },
+                { tag: "rounder than a one-line entry", theme: { radius: { md: 32 } } }
+            ];
+        }
+
+        // A closed menu's entries read hidden (Menu.open). A rounded theme
+        // they take then reaches a wrapped entry with no binding loop when
+        // they show, and the wrapped entry keeps a one-line entry's side
+        // padding, since every entry's highlight draws one corner.
+        function test_a_hidden_wrapped_entry_takes_a_rounded_theme(data) {
+            failOnWarning(/Binding loop/);
+            const made = createTemporaryObject(entryPair, root);
+            verify(made.wrapped.wraps, "the long entry wraps");
+            made.visible = false;
+            compare(UnitTheme.override(data.theme), "ok");
+            made.visible = true;
+            verify(made.wrapped.wraps, "the long entry still wraps");
+            compare(made.wrapped.leftPadding, made.oneLine.leftPadding);
+            compare(made.wrapped.rightPadding, made.oneLine.rightPadding);
         }
 
         function test_the_first_select_entry_meets_the_border_data() {
@@ -1256,7 +1290,7 @@ Item {
             compare(fill.x + fill.width, popup.width - border, "the highlight meets the right border");
             if (data.flush) compare(fill.y, border, "the highlight meets the top border");
             else verify(fill.y > border, "a square entry starts below a round corner: " + fill.y);
-            compare(plate.radius, Theme.menu.item.radius);
+            compare(plate.radius, Theme.menuItemCorner);
             verify(insideCorner(fill, plate.radius, popup.width, popup.height, Theme.menu.radius, border), "the highlight's corners stay inside the list's corner: " + JSON.stringify(fill));
             const text = entry.contentItem.mapToItem(popup.contentItem, 0, 0);
             compare(text.x, select.contentItem.x, "the entry's text starts where the field's does");

@@ -383,7 +383,7 @@ T.AbstractButton {
                 ListCursor {
                     id: plate
                     parent: entries.contentItem
-                    radius: Theme.menu.item.radius
+                    radius: Theme.menuItemCorner
                 }
 
                 HoverHandler { id: listHover }

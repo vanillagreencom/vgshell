@@ -151,8 +151,12 @@ Singleton {
     // corner is as round as the menu's, more under a menu corner rounder
     // than an entry's (Inset.listInset). The side inset is the border.
     function menuListInset(width) {
-        return Inset.listInset(Math.min(menu.radius, width / 2), border.thin, Math.min(menu.item.radius, menu.item.height / 2));
+        return Inset.listInset(Math.min(menu.radius, width / 2), border.thin, menuItemCorner);
     }
+    // The corner a menu or select entry's highlight draws: `menu.item.radius`
+    // up to a one-line entry's half height, on a wrapped entry too, so every
+    // entry clears it with a one-line entry's side padding.
+    readonly property real menuItemCorner: Math.min(menu.item.radius, menu.item.height / 2)
 
     // WCAG 2 contrast ratio of two opaque colours, and WCAG 2.2 SC 1.4.11's
     // floor for a boundary against what lies beside it.

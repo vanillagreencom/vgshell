@@ -63,8 +63,13 @@ T.MenuItem {
     // text and case, shared by the shortcut, marks and select action.
     readonly property real firstLineCentre: contentItem.y + title.y + title.leadingIconCentre
     // Under a rounded theme the side padding grows until the content
-    // clears the drawn corner.
-    readonly property real sidePadding: Theme.controlPadding(Theme.menu.item.paddingX, Theme.menu.item.radius, Math.max(Theme.menu.item.height, height), implicitContentHeight)
+    // clears the drawn corner (Theme.menuItemCorner). It is read from a
+    // one-line entry's first line, where a wrapped entry's first line also
+    // stands: read from the entry's own height, it moved the line breaks
+    // that set that height, a binding loop on the text's width when a
+    // hidden menu took a rounded theme (qmltestrunner, Qt 6.12.0,
+    // 2026-10-31).
+    readonly property real sidePadding: Theme.controlPadding(Theme.menu.item.paddingX, Theme.menuItemCorner, Theme.menu.item.height, title.lineBox)
     leftPadding: sidePadding
     // The check mark or the chevron stands at the end.
     readonly property bool endMark: checked ? true : opensSubmenu

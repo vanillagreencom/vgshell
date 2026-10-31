@@ -410,6 +410,47 @@ Item {
             }
         }
 
+        // A key reopening after a trigger, as Copy and then Connect in
+        // terminal, highlights the home entry again (VGS-2117). A list of
+        // its own, so its menu's first opening is its first.
+        function test_a_menu_reopened_by_key_after_a_trigger_highlights_its_home_entry() {
+            const made = createTemporaryObject(choiceList, root, {
+                rows: root.three,
+                iconActionsOf: row => row.key === "b" ? [icons[0], { key: "copy", iconName: "copy", label: root.copyLabel }] : []
+            });
+            const spy = createTemporaryObject(spyComponent, root, { target: made, signalName: "chose" });
+            const relabel = () => { root.copyLabel = "Copied"; };
+            made.chose.connect(relabel);
+            try {
+                made.current = 1;
+                const keyOpen = () => {
+                    // The close hands the keys back through the compositor,
+                    // which the stand-in only records.
+                    root.Window.window.requestActivate();
+                    made.focusCurrent(Qt.TabFocusReason);
+                    tryCompare(made.rowAt(1), "activeFocus", true);
+                    keyClick(Qt.Key_F10, Qt.ShiftModifier);
+                };
+                const menu = menuOf(made.rowAt(1));
+                keyOpen();
+                tryCompare(menu, "opened", true);
+                compare(menu.currentIndex, 0, "a first key opening highlights the home entry");
+                keyClick(Qt.Key_Down);
+                keyClick(Qt.Key_Return);
+                compare(args(spy, 0), ["b", "copy"]);
+                tryCompare(menu, "opened", false);
+                keyOpen();
+                tryCompare(menu, "opened", true);
+                verify(menu.homeIndex() !== -1, "the reopened menu holds a reachable entry");
+                compare(menu.currentIndex, menu.homeIndex(), "a key reopening highlights the home entry");
+                keyClick(Qt.Key_Return);
+                compare(args(spy, 1), ["b", "connect"]);
+            } finally {
+                made.chose.disconnect(relabel);
+                root.copyLabel = "Copy";
+            }
+        }
+
         function test_a_busy_row_draws_no_icon_actions() {
             list.rows = [{ key: "busy", text: "Earbuds", iconName: "headphones", busy: true }];
             list.iconActionsOf = row => icons;

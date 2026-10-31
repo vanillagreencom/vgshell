@@ -105,10 +105,15 @@ Item {
         // from where the last opening left it.
         plate.disarm();
         plate.snap();
+        // The entries read hidden until the window shows: a PopupWindow
+        // takes its content off the window it deletes on every hide and
+        // puts it on a new one as it shows (Quickshell 0.3.1
+        // src/window/popupwindow.cpp deleteOnInvisible, proxywindow.cpp
+        // setVisibleDirect), so the home entry is read after the show.
+        surface.visible = true;
         currentIndex = opener === "key" ? homeIndex() : -1;
         // The opening entry is the menu's, not a key's choice.
         keyChose = false;
-        surface.visible = true;
         surface.scope.forceActiveFocus();
         scrollArea.contentY = 0;
         reveal();
@@ -321,7 +326,7 @@ Item {
 
                     ListCursor {
                         id: plate
-                        radius: Theme.menu.item.radius
+                        radius: Theme.menuItemCorner
                         onPointerLeft: if (!root.keyChose) root.currentIndex = -1
                     }
 
