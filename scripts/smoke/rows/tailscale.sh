@@ -1472,7 +1472,7 @@ for old, new in (("import QtQuick\n", "import QtQuick\nimport Quickshell.Io\n"),
 widget.write_text(text)
 text = service.read_text()
 for old, new in (
-    ("        runPoll(\"refresh\");\n        readAccounts();\n", "        if (watchdog.running) watchdog.restart();\n        runPoll(\"refresh\");\n        readAccounts();\n"),
+    ("        runPoll(\"refresh\");\n        requestAccounts();\n", "        if (watchdog.running) watchdog.restart();\n        runPoll(\"refresh\");\n        requestAccounts();\n"),
     ("        if (suggester.running) return \"busy\";\n", "        if (suggester.running) { suggestDeadline.restart(); return \"busy\"; }\n"),
 ):
     assert text.count(old) == 1, old
