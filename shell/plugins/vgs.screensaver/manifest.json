@@ -9,8 +9,8 @@
   "icon": "monitor-play",
   "kinds": ["service", "cover"],
   "entryPoints": { "service": "Service.qml", "cover": "Cover.qml" },
-  "capabilities": ["configure", "idle", "ipc", "requirements", "session", "shortcut", "status"],
-  "capabilityKinds": { "configure": ["service"] },
+  "capabilities": ["configure", "cover", "idle", "ipc", "requirements", "session", "shortcut", "status"],
+  "capabilityKinds": { "configure": ["service"], "cover": ["service"] },
   "idleStages": { "screensaver": { "seconds": "idleSeconds", "enabled": "idleEnabled" } },
   "requirements": [
     { "command": "ttfx", "packages": { "aur": "ttfx" }, "optional": false, "install": "on-request", "purpose": "Animates the screensaver text art" },

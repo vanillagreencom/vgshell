@@ -1,12 +1,18 @@
 import QtQuick
 import Quickshell
 import qs.Commons
+import "PluginLogic.js" as Logic
 
 // Owns the requested lock and its content. The content belongs to one plugin
 // instance; the lock itself survives that instance until explicitly unlocked.
 Scope {
     id: root
+    required property var idle
+    required property var covers
     property bool lockRequested: false
+    // The cause of the request that took the session, one of
+    // PluginLogic.LOCK_CAUSES, or "" while unlocked.
+    property string lockCause: ""
     property var lockContent: null
     property bool lockSecure: false
     property var lockContentOwner: null
@@ -29,7 +35,7 @@ Scope {
     function provider(ctx) {
         ctx.onDispose(() => root.dropLock(ctx));
         return {
-            lock: content => root.lock(ctx, content),
+            lock: (content, request) => root.lock(ctx, content, request),
             unlock: () => root.unlock(),
             get locked() { return root.lockRequested; },
             get hasContent() { return root.lockContent !== null; },
@@ -40,18 +46,30 @@ Scope {
 
     // lock: the one session lock, drawn by LockHost. `content` is a
     // Component the holder owns; LockHost builds it once per screen and
-    // assigns its `screen`.
-    function lock(ctx, content) {
+    // assigns its `screen`. `request` names its cause
+    // (PluginLogic.lockRequestRefusal); an idle request carries the ticket
+    // the holder's own lock stage watch handed it, checked here, so only an
+    // idle event the core saw can bring the cover into the lock. The lock
+    // is taken before the cover is placed, and never waits for it.
+    function lock(ctx, content, request) {
         if (content === null || content === undefined || typeof content.createObject !== "function")
             return "refused: lock-content=not-a-component";
+        const refusal = Logic.lockRequestRefusal(request);
+        if (refusal !== "") return refusal;
+        if (request.cause === "idle" && idle.ticketFor(ctx.id, "lock", request.ticket) === null)
+            return "refused: lock-ticket=stale";
+        const wasLocked = lockRequested || lockSecure;
         lockContentOwner = ctx;
         lockContent = content;
         lockRequested = true;
+        if (!wasLocked) lockCause = request.cause;
+        covers.lockRequested(request.cause, wasLocked);
         return "ok";
     }
 
     function unlock() {
         lockRequested = false;
+        lockCause = "";
         return "ok";
     }
 
@@ -70,6 +88,7 @@ Scope {
         if (!lockRequested) return;
         lockRequested = false;
         lockSecure = false;
+        lockCause = "";
         unlockedReadings = 0;
         compositorEnds += 1;
         console.warn("capabilities: lock=ended-by-compositor reason=" + reason + "; another client holds or released the session lock, and this shell's lock is dropped");

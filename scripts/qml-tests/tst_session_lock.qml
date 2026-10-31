@@ -4,7 +4,22 @@ import qs.Core
 
 Item {
     id: root
-    Component { id: ownerComponent; SessionLock {} }
+    // The lock route's two collaborators: the idle registry, whose live
+    // lock-stage ticket is `liveTicket` for acme.lock, and the cover owner,
+    // which records each request it is told of.
+    QtObject {
+        id: idleStub
+        property var liveTicket: null
+        function ticketFor(owner, stage, token) {
+            return owner === "acme.lock" && stage === "lock" && token !== null && token === liveTicket ? { token: token } : null;
+        }
+    }
+    QtObject {
+        id: coversStub
+        property var told: []
+        function lockRequested(cause, wasLocked) { told = told.concat([[cause, wasLocked]]); }
+    }
+    Component { id: ownerComponent; SessionLock { idle: idleStub; covers: coversStub } }
     Component {
         id: readerComponent
         QtObject {
@@ -20,6 +35,8 @@ Item {
         property var reader: null
 
         function init() {
+            idleStub.liveTicket = null;
+            coversStub.told = [];
             owner = createTemporaryObject(ownerComponent, root);
             reader = createTemporaryObject(readerComponent, root);
             verify(owner !== null && reader !== null);
@@ -69,7 +86,7 @@ Item {
         // expected-log: capabilities: lock=ended-by-compositor reason=finished -- the compositor refuses the requested lock
         function test_compositor_end_drops_the_request() {
             const holder = owner.provider({ onDispose: fn => {} });
-            compare(holder.lock(contentComponent), "ok");
+            compare(holder.lock(contentComponent, manual), "ok");
             owner.lockSecure = true;
             tryCompare(reader, "locked", true);
             owner.compositorEnded("finished");
@@ -79,17 +96,76 @@ Item {
             compare(holder.compositorEnds, 1);
             tryCompare(reader, "locked", false);
             // The next request locks again.
-            compare(holder.lock(contentComponent), "ok");
+            compare(holder.lock(contentComponent, manual), "ok");
             compare(holder.locked, true);
         }
 
         function test_a_released_lock_is_no_compositor_end() {
             const holder = owner.provider({ onDispose: fn => {} });
-            compare(holder.lock(contentComponent), "ok");
+            compare(holder.lock(contentComponent, manual), "ok");
             compare(holder.unlock(), "ok");
             owner.compositorEnded("finished");
             compare(holder.compositorEnds, 0);
             compare(holder.locked, false);
+        }
+
+        readonly property var manual: ({ cause: "manual" })
+
+        function holderOf(id) {
+            return owner.provider({ id: id, onDispose: fn => {} });
+        }
+
+        function test_request_causes_data() {
+            return [
+                { tag: "manual", request: { cause: "manual" } },
+                { tag: "sleep", request: { cause: "sleep" } },
+                { tag: "restore", request: { cause: "restore" } }
+            ];
+        }
+
+        function test_request_causes(data) {
+            const holder = holderOf("acme.lock");
+            compare(holder.lock(contentComponent, data.request), "ok");
+            compare(owner.lockCause, data.request.cause);
+            compare(coversStub.told, [[data.request.cause, false]]);
+        }
+
+        function test_refused_requests_data() {
+            return [
+                { tag: "no request", request: undefined, reply: "refused: lock-request=undefined want=object" },
+                { tag: "unknown cause", request: { cause: "later" }, reply: 'refused: lock-cause="later" want=idle|manual|sleep|restore' },
+                { tag: "idle without a ticket", request: { cause: "idle" }, reply: "refused: lock-request=cause want=cause,ticket" },
+                { tag: "idle with a ticket the core never minted", request: { cause: "idle", ticket: {} }, reply: "refused: lock-ticket=stale" }
+            ];
+        }
+
+        function test_refused_requests(data) {
+            const holder = holderOf("acme.lock");
+            compare(holder.lock(contentComponent, data.request), data.reply);
+            compare(owner.lockRequested, false);
+            compare(owner.lockContent, null);
+            compare(coversStub.told, []);
+        }
+
+        function test_idle_lock_takes_the_live_ticket() {
+            const ticket = Object.freeze({});
+            idleStub.liveTicket = ticket;
+            compare(holderOf("acme.other").lock(contentComponent, { cause: "idle", ticket: ticket }), "refused: lock-ticket=stale");
+            compare(holderOf("acme.lock").lock(contentComponent, { cause: "idle", ticket: ticket }), "ok");
+            compare(owner.lockCause, "idle");
+            compare(coversStub.told, [["idle", false]]);
+        }
+
+        function test_a_later_request_keeps_the_first_cause() {
+            const ticket = Object.freeze({});
+            idleStub.liveTicket = ticket;
+            const holder = holderOf("acme.lock");
+            compare(holder.lock(contentComponent, { cause: "manual" }), "ok");
+            compare(holder.lock(contentComponent, { cause: "idle", ticket: ticket }), "ok");
+            compare(owner.lockCause, "manual");
+            compare(coversStub.told, [["manual", false], ["idle", true]]);
+            compare(holder.unlock(), "ok");
+            compare(owner.lockCause, "");
         }
 
         function monitors(...reasons) {
@@ -99,7 +175,7 @@ Item {
         // expected-log: capabilities: lock=ended-by-compositor reason=unlocked-elsewhere -- another client released the session under the confirmed lock
         function test_two_unlocked_readings_end_a_confirmed_lock() {
             const holder = owner.provider({ onDispose: fn => {} });
-            compare(holder.lock(contentComponent), "ok");
+            compare(holder.lock(contentComponent, manual), "ok");
             owner.lockSecure = true;
             owner.compositorReading(monitors(["WINDOWED"]));
             compare(holder.locked, true, "one reading is not enough");
@@ -123,7 +199,7 @@ Item {
 
         function test_readings_that_do_not_show_an_unlocked_session_keep_the_lock(data) {
             const holder = owner.provider({ onDispose: fn => {} });
-            compare(holder.lock(contentComponent), "ok");
+            compare(holder.lock(contentComponent, manual), "ok");
             owner.lockSecure = true;
             // An unlocked reading, then this one, then an unlocked one: the
             // count starts again, so the lock stays.
@@ -136,7 +212,7 @@ Item {
 
         function test_an_unconfirmed_lock_is_not_read() {
             const holder = owner.provider({ onDispose: fn => {} });
-            compare(holder.lock(contentComponent), "ok");
+            compare(holder.lock(contentComponent, manual), "ok");
             for (let i = 0; i < 3; i++) owner.compositorReading(monitors(["WINDOWED"]));
             compare(holder.locked, true);
             compare(holder.compositorEnds, 0);
@@ -145,7 +221,7 @@ Item {
         function test_holder_unload_keeps_lock() {
             let dispose = null;
             const holder = owner.provider({ onDispose: fn => { dispose = fn; } });
-            compare(holder.lock(contentComponent), "ok");
+            compare(holder.lock(contentComponent, manual), "ok");
             owner.lockSecure = true;
             tryCompare(reader, "locked", true);
             verify(dispose !== null);

@@ -3,11 +3,17 @@ import Quickshell.Io
 import qs.Commons
 import "ScreensaverLogic.js" as Logic
 
+// One screen's screensaver. The core's cover host assigns `presentation`:
+// while it is active this cover draws and runs its effect, on the desktop
+// cover layer or held inside the lock, as one instance across both. On the
+// desktop it takes the keyboard and pointer and ends on their first input;
+// inside the lock the core's barrier takes them instead.
 Item {
     id: root
 
     property var shell: null
     property var screen: null
+    property var presentation: null
     readonly property string logoPath: Logic.fileUrlPath(Qt.resolvedUrl("logo.txt"))
     readonly property string artFile: shell === null || shell.status.values.artFile === undefined ? "" : shell.status.values.artFile
     property string artPath: logoPath
@@ -20,7 +26,8 @@ Item {
     property real firstX: 0
     property real firstY: 0
 
-    readonly property bool shown: shell !== null && shell.status.values.state !== undefined && shell.status.values.state.text === "Running" && !shell.session.locked && !shell.session.displaysOff
+    readonly property bool shown: shell !== null && presentation !== null && presentation.active
+    readonly property bool onDesktop: shown && presentation.placement === "desktop"
     readonly property bool canRun: shell !== null && Logic.ttfxReady(shell.requirements.missing)
     readonly property int frameRate: shell === null || shell.settings.frameRate === undefined ? 30 : shell.settings.frameRate
     readonly property string selectedEffect: shell === null ? "random" : shell.settings.effect
@@ -31,7 +38,7 @@ Item {
     readonly property color gradientStart: Theme.screensaver.gradientStart
     readonly property color gradientEnd: Theme.screensaver.gradientEnd
 
-    focus: shown
+    focus: onDesktop
     Keys.onPressed: event => {
         event.accepted = true;
         stop();
@@ -51,7 +58,7 @@ Item {
         exitState = Logic.createExitState();
         intentionalStop = false;
         if (shown) Qt.callLater(() => {
-            root.forceActiveFocus(Qt.ActiveWindowFocusReason);
+            if (root.onDesktop) root.forceActiveFocus(Qt.ActiveWindowFocusReason);
             start();
         });
         else stopProcess();
@@ -177,7 +184,7 @@ Item {
     Timer {
         interval: 100
         repeat: true
-        running: root.shown && !root.activeFocus
+        running: root.onDesktop && !root.activeFocus
         onTriggered: root.forceActiveFocus(Qt.ActiveWindowFocusReason)
     }
 

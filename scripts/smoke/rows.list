@@ -112,6 +112,9 @@ start
 lock
 # After lock, since it verifies that each plugin can run while the other is disabled.
 screensaver
+# After screensaver: the cover fixture takes the screensaver stage from it
+# while the row runs and gives it back.
+secure-cover
 read-only-prefix
 hyprland-consent-decline
 notices-control

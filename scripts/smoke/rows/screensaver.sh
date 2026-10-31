@@ -3,7 +3,7 @@
 # expect_poll's 0.2 s cadence. Measured row runtime on host cachy on
 # 2026-10-05 under the nested sandbox: under 20 s. The conversion
 # deadline checks add an unmeasured wait.
-# inputs: shell/plugins/vgs.screensaver/* shell/plugins/vgs.screensaver/bin/transcode-ascii shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Compositor.qml shell/Hosts/BackgroundHost.qml scripts/smoke/toplevel/* scripts/smoke/mode-hold.sh scripts/smoke/fixtures/screensaver-ttfx scripts/smoke/rows/capability-release.sh scripts/smoke/rows/lock.sh scripts/smoke/rows/capabilities.sh
+# inputs: shell/plugins/vgs.screensaver/* shell/plugins/vgs.screensaver/bin/transcode-ascii shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Compositor.qml shell/Hosts/BackgroundHost.qml shell/Hosts/CoverHost.qml shell/Hosts/CoverBarrier.qml shell/Hosts/LockHost.qml shell/Core/CoverPresentation.qml shell/Core/IdleRegistry.qml shell/Core/SessionLock.qml scripts/smoke/toplevel/* scripts/smoke/mode-hold.sh scripts/smoke/fixtures/screensaver-ttfx scripts/smoke/rows/capability-release.sh scripts/smoke/rows/lock.sh scripts/smoke/rows/capabilities.sh
 set -euo pipefail
 # lock is exclusive: acme.probe can hold it and block vgs.lock from building.
 # Free it for this row, then restore acme.probe and vgs.lock to their starting
@@ -28,6 +28,10 @@ lock_order() { ipc smoke statusValues vgs.screensaver | py_reply 'import json,sy
 art_status() { ipc smoke statusValues vgs.screensaver | py_reply 'import json,sys; v=json.load(sys.stdin).get("art"); print("absent" if v is None else v.get("text"))'; }
 art_setting() { python3 -c 'import json,sys; row=next((r for r in json.load(open(sys.argv[1])).get("plugins",[]) if r.get("id")=="vgs.screensaver"),{}); print(row.get("art",""))' "$ss_config"; }
 cover_count() { layer_count vgs:cover; }
+ss_presentation() { ipc shell lent | py_reply 'import json,sys; c=json.load(sys.stdin)["cover"]; print(json.dumps([c["owner"], c["placement"], c["origin"]]))'; }
+ss_effect_pids() { pgrep -P "$shell_qs_pid" -f -- "$shim/ttfx" | sort -n | tr '\n' ' '; }
+ss_lock_views() { ipc smoke lockScreens vgs.lock | py_reply 'import json,sys; v=json.load(sys.stdin); print(len(v) if isinstance(v, list) else v)'; }
+ss_lock_checks() { ipc vgs.lock invoke status '' | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([d["checking"], d["checks"]]))'; }
 output_count() { hypr -j monitors | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
 standin_alive() { pgrep -P "$shell_qs_pid" -f -- "$shim/ttfx" >/dev/null && echo yes || echo no; }
 ss_effect_count() { local count; count="$(pgrep -c -P "$shell_qs_pid" -f -- "$shim/ttfx")" || [[ $count == 0 ]]; printf '%s\n' "$count"; }
@@ -144,7 +148,7 @@ expect_poll "display off stops the screensaver service" Off state_text
 expect_poll "display off removes every cover" 0 cover_count
 expect_poll "display off ends every ttfx child" no standin_alive
 ss_starts_off="$(wc -l <"$ss_log")"
-expect "an explicit screensaver start is refused while displays stay off" 'refused: screensaver=displays-off' ipc vgs.screensaver invoke start ''
+expect "an explicit screensaver start is refused while displays stay off" 'refused: cover=displays-off' ipc vgs.screensaver invoke start ''
 set_screensaver '{"idleEnabled": true, "idleSeconds": 1}'
 expect "reload arms the idle screensaver behind dark displays" ok ipc shell reloadConfig
 sleep 2 # Cross the one-second idle notification while sending no input.
@@ -213,7 +217,9 @@ import Quickshell.Wayland
 PanelWindow {
     id: control
     required property var reference
-    property string requestedState: "Off"
+    // The host's presentation context, as CoverHost hands it over.
+    property bool active: false
+    property string placement: "desktop"
     property int stops: 0
     readonly property bool shown: cover.shown
     readonly property bool pointerReady: cover.pointerReady
@@ -227,12 +233,12 @@ PanelWindow {
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
     visible: stops === 0
-    function showCover() { requestedState = "Running"; }
+    function showCover() { active = true; }
     Cover {
         id: cover
         anchors.fill: parent
-        shell: ({ status: { values: { state: { text: control.requestedState } } },
-            session: { locked: false }, requirements: { missing: ["ttfx"] },
+        presentation: control
+        shell: ({ status: { values: {} }, requirements: { missing: ["ttfx"] },
             settings: { effect: "planted", frameRate: 30 },
             ipc: { call: () => { control.stops += 1; } } })
     }
@@ -501,9 +507,26 @@ expect_poll "lock service is built for lock ordering" True record_exists vgs.loc
 idle_start "lock ordering"
 expect_poll "ordering maps covers before lock" "$(output_count)" cover_count
 expect_poll "ttfx stand-in is alive before lock" yes standin_alive
+ss_pids_before="$(ss_effect_pids)"
 measure_idle_order "lock ordering" yes
-expect_poll "cover is gone under lock" 0 layer_count vgs:cover
-expect_poll "ttfx stand-in is gone under lock" no standin_alive
+# The idle lock holds the running screensaver: the same ttfx children
+# draw inside the lock surfaces, and no lock screen is built under it.
+expect_poll "the running screensaver is held in the lock" '["vgs.screensaver", "secure", "idle"]' ss_presentation
+expect_poll "no cover layer maps under the lock" 0 layer_count vgs:cover
+expect "the same ttfx children draw under the lock" "$ss_pids_before" ss_effect_pids
+expect "the held screensaver reads running" Running state_text
+expect "no lock screen is built under the screensaver" '[]' ipc smoke lockScreens vgs.lock
+type_keys x || fail "typing the first key under the lock failed"
+expect_poll "the first key ends the held screensaver" '["vgs.screensaver", "none", ""]' ss_presentation
+expect_poll "ttfx stand-in is gone after the first key" no standin_alive
+expect_poll "the screensaver reads off after the first key" Off state_text
+expect "the session stays locked after the first key" locked session_lock
+expect_poll "the lock screen shows after the first key" "$(output_count)" ss_lock_views
+expect "the first key reached no lock field" '""' ipc smoke readInstance service vgs.lock password
+sleep 0.5 # LockView focuses its field on the turn after it is built.
+type_keys b || fail "typing the next key under the lock failed"
+expect_poll "the next key reaches the lock's field" '"b"' ipc smoke readInstance service vgs.lock password
+expect "no PAM check started under the screensaver" '[false, 0]' ss_lock_checks
 release "screensaver lock-order"
 idle_start "window mapping control"
 measure_idle_order "control window restarts idle" yes window

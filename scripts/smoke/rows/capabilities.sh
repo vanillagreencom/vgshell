@@ -18,7 +18,7 @@ probe() { ipc acme.probe invoke "$1" "${2:-}"; }
 # The fixture holds every capability and the bare fixture none; another
 # plugin may hold a shared capability beside the fixture.
 lent_holds() { ipc shell lent | py_reply 'import json,sys; h=json.load(sys.stdin)["holders"].get(sys.argv[1],[]); print("acme.probe" in h and "acme.bare" not in h)' "$1"; }
-for cap in compositor configure idle ipc lock notifications polkit run screens shortcut notify theme; do
+for cap in compositor configure cover idle ipc lock notifications polkit run screens shortcut notify theme; do
   expect "the $cap capability is lent to the fixture and not the bare plugin" True lent_holds "$cap"
 done
 
@@ -134,6 +134,18 @@ expect "the fixture reads the lent polkit agent" true read_service hasAgent
 expect "the agent reports no registration on a bus without polkitd" false read_service agentRegistered
 expect "the lending record reports the registration" false lent polkitRegistered
 
+# The lock route takes closed causes, and an idle lock only with a ticket
+# the holder's own lock stage watch minted; the cover provider serves only
+# the screensaver stage's owner.
+expect "a lock request with no cause is refused" 'refused: lock-cause=undefined want=idle|manual|sleep|restore' probe lock-request '{}'
+expect "a lock request with an unknown cause is refused" 'refused: lock-cause="later" want=idle|manual|sleep|restore' probe lock-request '{"cause":"later"}'
+expect "a manual lock request carrying a ticket is refused" 'refused: lock-request=cause,ticket want=cause' probe lock-request '{"cause":"manual","ticket":{}}'
+expect "an idle lock request with a forged ticket is refused" 'refused: lock-ticket=stale' probe lock-request '{"cause":"idle","ticket":{}}'
+expect "the refused requests left the session unlocked" false lent lock.requested
+stage_refusal() { local reply; reply="$(probe idle-watch-stage "$1")" || return; echo "${reply%% owner=*}"; }
+expect "a plugin that owns no lock stage cannot hold its stage watch" 'refused: idle-stage=lock' stage_refusal lock
+expect "a plugin that owns no screensaver stage cannot present a cover" 'refused: cover=not-owner' probe cover-present
+expect "a plugin that owns no screensaver stage cannot stop a cover" 'refused: cover=not-owner' probe cover-stop
 expect "the fixture locks the session" ok probe lock
 expect_poll "the compositor confirms the lock" true read_service lockSecure
 # A rebuild while locked keeps the session locked, and the rebuilt holder

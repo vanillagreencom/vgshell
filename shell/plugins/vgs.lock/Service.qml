@@ -13,12 +13,16 @@ import "LockModel.js" as LockModel
 // pam/, unlocks; with the restore option on, another client of the session
 // can take the lock over and release it (D062).
 //
-// Entry points: the shortcut `lock` (SUPER+DELETE in the manifest), the IPC
-// function `vgshell ipc call vgs.lock invoke lock ''`, which `vgshell lock`
-// calls, an idle watch after `idleLockSeconds` without input, and the
-// before-sleep hook bin/sleep-watch under a logind delay inhibitor. At start
-// it reads Hyprland's monitors and locks again a session a shell that died
-// left locked.
+// Entry points, each named to the core as the lock's cause: the shortcut
+// `lock` (SUPER+DELETE in the manifest) and the IPC function `vgshell ipc
+// call vgs.lock invoke lock ''`, which `vgshell lock` calls, are manual; the
+// lock stage watch after `idleLockSeconds` without input is idle, with the
+// ticket the watch handed it, so a running screensaver can stay over the
+// lock; the before-sleep hook bin/sleep-watch under a logind delay
+// inhibitor is sleep. At start it reads Hyprland's monitors and locks again
+// a session a shell that died left locked, and a rebuilt holder hands its
+// lock screen over again; both are restore. Manual, sleep and restore
+// always show the lock screen.
 //
 // A lock the compositor refuses or ends, as while another locker such as
 // hyprlock holds the session or releases it under this lock, drops the
@@ -46,6 +50,12 @@ Item {
     readonly property bool secure: shell !== null && shell.lock.secure
     readonly property int compositorEnds: shell === null ? 0 : shell.lock.compositorEnds
     readonly property int idleLockSeconds: shell === null ? 0 : shell.settings.idleLockSeconds
+    // The lock stage's owner in the core's record: the watch is taken
+    // again when this plugin becomes the owner or stops being it.
+    readonly property string lockStageOwner: {
+        const row = shell === null ? undefined : shell.idle.stages.find(stage => stage.stage === "lock");
+        return row === undefined ? "" : row.plugin;
+    }
     readonly property bool lockBeforeSleep: shell !== null && shell.settings.lockBeforeSleep === true
     // The hook's commands the last scan did not find; a rescan after the
     // requirement notice installs them starts the hook.
@@ -100,19 +110,20 @@ Item {
         if (shell === null) return;
         if (registeredWith === null) {
             registeredWith = shell;
-            shell.shortcut.register("lock", "Lock the session", () => root.lock());
-            shell.ipc.handle("lock", () => root.lock());
+            shell.shortcut.register("lock", "Lock the session", () => root.lock("manual"));
+            shell.ipc.handle("lock", () => root.lock("manual"));
             shell.ipc.handle("status", () => root.statusJson());
         }
         if (seenEnds < 0) seenEnds = shell.lock.compositorEnds;
         // A holder rebuilt while locked hands the lock screen over again.
-        if (shell.lock.locked && !shell.lock.hasContent) lock();
+        if (shell.lock.locked && !shell.lock.hasContent) lock("restore");
         watchIdle();
         publishLock();
         publishSleep();
         strandedCheck();
     }
     onIdleLockSecondsChanged: watchIdle()
+    onLockStageOwnerChanged: watchIdle()
     // A changed setting or a scan that changed what is missing, such as
     // after the requirement notice installed a command, takes the hook
     // again at once rather than at the next retry.
@@ -142,10 +153,11 @@ Item {
 
     // `ok`, or the core's refusal. The compositor answers later: a refusal
     // shows in the `lock` status and the IPC `status` reply's `refusals`.
-    function lock() {
+    // CAUSE is one of the core's lock causes; an idle lock passes TICKET.
+    function lock(cause, ticket) {
         if (shell === null) return "refused: lock=not-ready";
         if (!backgroundProc.running) backgroundProc.running = true;
-        return shell.lock.lock(lockView);
+        return shell.lock.lock(lockView, cause === "idle" ? { cause: cause, ticket: ticket } : { cause: cause });
     }
 
     Process {
@@ -189,11 +201,23 @@ Item {
         if (checking && pam.active && pam.responseRequired) pam.respond(answer);
     }
 
+    // The lock stage watch at `idleLockSeconds`, taken again when the
+    // setting changes; the core holds no watch while it is Never. The core
+    // refuses the watch while another plugin owns the stage, which the
+    // plugin page lists as a problem.
     function watchIdle() {
         if (idleDisposer !== null) idleDisposer();
         idleDisposer = null;
-        if (shell === null || idleLockSeconds <= 0) return;
-        idleDisposer = shell.idle.watch(idleLockSeconds, idle => { if (idle && !root.locked) root.lock(); });
+        if (shell === null) return;
+        try {
+            idleDisposer = shell.idle.watchStage("lock", (idle, ticket) => {
+                if (!idle || root.locked) return;
+                const reply = root.lock("idle", ticket);
+                if (reply !== "ok") console.warn("lock: idle " + reply);
+            });
+        } catch (e) {
+            console.info("lock: idle watch " + e.message);
+        }
     }
 
     function statusJson() {
@@ -244,7 +268,7 @@ Item {
             root.strandedDone = true;
             if (state === "locked" && !root.locked) {
                 console.info("lock: session=stranded; locking it again");
-                root.lock();
+                root.lock("restore");
             }
         }
     }
@@ -316,7 +340,7 @@ Item {
                     root.publishSleep();
                 } else if (event.kind === "sleep") {
                     root.sleepPending = true;
-                    root.lock();
+                    root.lock("sleep");
                     root.confirmSleep();
                 } else if (event.kind === "released") {
                     root.released(event.reason);

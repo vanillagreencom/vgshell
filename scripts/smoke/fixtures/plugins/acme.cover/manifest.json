@@ -1,0 +1,8 @@
+{ "schemaVersion": 1, "id": "acme.cover", "name": "Cover", "version": "0.1.0", "author": "acme",
+  "description": "smoke fixture owning the screensaver stage with a cover the lock can hold",
+  "kinds": ["service", "cover"], "entryPoints": { "service": "Service.qml", "cover": "Cover.qml" },
+  "capabilities": ["compositor", "cover", "idle", "ipc"],
+  "capabilityKinds": { "compositor": ["service"], "cover": ["service"], "idle": ["service"], "ipc": ["service"] },
+  "idleStages": { "screensaver": { "seconds": "seconds" } },
+  "settings": { "seconds": 0 },
+  "schema": { "seconds": { "type": "number", "label": "Start after", "min": 0, "max": 86400, "step": 1, "unit": "seconds" } } }

@@ -4,6 +4,11 @@ import Quickshell.Io
 import qs.Commons
 import "ScreensaverLogic.js" as Logic
 
+// The screensaver's service. The core's cover presentation (capability
+// `cover`) runs the cover on every screen; this service starts it on
+// demand and from its screensaver stage watch, ends it on input, and
+// publishes its state. While the lock holds it, only the lock's first
+// input ends it.
 Item {
     id: root
 
@@ -11,7 +16,7 @@ Item {
     property var registeredWith: null
     property var idleDisposer: null
     property var activityDisposer: null
-    property bool running: false
+    readonly property bool running: shell !== null && shell.cover.running
     property bool effectFailed: false
     property var published: ({})
     property string artInUse: ""
@@ -30,6 +35,12 @@ Item {
     readonly property string legacyArt: Paths.configDir + "/screensaver.txt"
     readonly property string movedArt: Paths.configDir + "/screensaver-art.txt"
     readonly property var stages: shell === null ? [] : shell.idle.stages
+    // The screensaver stage's owner in the core's record: the watch is
+    // taken again when this plugin becomes the owner or stops being it.
+    readonly property string stageOwner: {
+        const row = stages.find(stage => stage.stage === "screensaver");
+        return row === undefined ? "" : row.plugin;
+    }
 
     onShellChanged: {
         if (shell === null) return;
@@ -53,27 +64,29 @@ Item {
         refreshEffects();
         if (Logic.retryArtAfterScan(art, artProblem) && !artConvert.running) Qt.callLater(root.updateArt);
     }
-    onLockedChanged: if (locked) stop()
-    onDisplaysOffChanged: if (displaysOff) stop()
     onRunningChanged: { publishState(); watchActivity(); }
     onArtChanged: updateArt()
     onArtProblemChanged: publishArt()
     onArtInUseChanged: publishArtFile()
     onStagesChanged: publishLockOrder()
+    onStageOwnerChanged: watchIdle()
     Component.onDestruction: stopArtConversion(false)
 
-    function start() {
+    // `ok`, or the core's refusal: `refused: cover=locked` and
+    // `refused: cover=displays-off` among them. TICKET, from the stage
+    // watch, makes it an idle start.
+    function start(ticket) {
         if (shell === null) return "refused: screensaver=not-ready";
-        if (locked) return "refused: screensaver=locked";
-        if (displaysOff) return "refused: screensaver=displays-off";
-        effectFailed = false;
-        running = true;
-        return "ok";
+        const reply = ticket === undefined ? shell.cover.present() : shell.cover.present(ticket);
+        if (reply === "ok" && effectFailed) {
+            effectFailed = false;
+            publishState();
+        }
+        return reply;
     }
 
     function stop() {
-        running = false;
-        return "ok";
+        return shell === null ? "ok" : shell.cover.stop();
     }
 
     function turnedOff() {
@@ -83,7 +96,7 @@ Item {
 
     function failEffect() {
         effectFailed = true;
-        running = false;
+        if (shell !== null) shell.cover.failed();
         publishState();
         return "ok";
     }
@@ -155,14 +168,21 @@ Item {
         if (reply !== "ok") console.warn("screensaver: art migration " + reply);
     }
 
+    // The screensaver stage watch, taken again when its settings change;
+    // the core holds no watch while the stage is off, and refuses one while
+    // another plugin owns the stage.
     function watchIdle() {
         if (idleDisposer !== null) idleDisposer();
         idleDisposer = null;
-        if (shell === null || !idleEnabled) return;
-        idleDisposer = shell.idle.watch(idleSeconds, idle => {
-            if (idle) root.start();
-            else root.stop();
-        });
+        if (shell === null) return;
+        try {
+            idleDisposer = shell.idle.watchStage("screensaver", (idle, ticket) => {
+                if (idle) root.start(ticket);
+                else root.stop();
+            });
+        } catch (e) {
+            console.info("screensaver: idle watch " + e.message);
+        }
     }
 
     function watchActivity() {
@@ -175,7 +195,7 @@ Item {
     }
 
     function statusJson() {
-        return JSON.stringify({ running: running, idleEnabled: idleEnabled, idleSeconds: idleSeconds, locked: locked });
+        return JSON.stringify({ running: running, placement: shell === null ? "none" : shell.cover.placement, idleEnabled: idleEnabled, idleSeconds: idleSeconds, locked: locked, displaysOff: displaysOff });
     }
 
     function publish(key, value) {
