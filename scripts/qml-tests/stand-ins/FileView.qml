@@ -9,7 +9,11 @@ import QtQuick
 // writes takes the bytes, drops an outstanding read unreported and reports
 // the write before setText returns, while one that does not returns with
 // the write outstanding. Nothing touches a disk: the test finishes each
-// read and plants a write's failure.
+// read and plants a write's failure. `disk` is what a fresh read would
+// find; a view with blockAllReads reads it at reload() before returning,
+// as the real view's text() does after a reload, and a lost write reports
+// `saved` and holds its bytes while `disk` keeps the old ones, as
+// Quickshell 0.3.1's writer does when its atomic commit fails.
 QtObject {
     id: view
 
@@ -19,11 +23,15 @@ QtObject {
     property bool printErrors: true
     // Taken and not read: the test finishes every read by hand.
     property bool blockLoading: false
+    property bool blockAllReads: false
     property bool atomicWrites: false
     property bool blockWrites: false
     // The error the next blocking write reports in place of `saved`, 0 for
     // none.
     property int failNextWrite: 0
+    // The next blocking write reports `saved`, and its bytes never land.
+    property bool loseNextWrite: false
+    property string disk: ""
 
     // What the test reads back: the operation outstanding (`read`, `write`
     // or ""), how many reads started, how many reloads were asked, how many
@@ -67,6 +75,11 @@ QtObject {
     function reload() {
         prepared = false;
         reloads += 1;
+        if (blockAllReads) {
+            reads += 1;
+            content = disk;
+            return;
+        }
         if (preload) start();
         if (watchChanges) watchers += 1;
     }
@@ -82,6 +95,8 @@ QtObject {
         content = bytes;
         const error = failNextWrite;
         failNextWrite = 0;
+        if (error === 0 && !loseNextWrite) disk = bytes;
+        loseNextWrite = false;
         if (error !== 0) saveFailed(error);
         else saved();
     }

@@ -39,8 +39,8 @@
 # whose pam_faillock counts each failure. The sandbox's own probe releases
 # the core's lock with no password, test code that never ships
 # (docs/decisions/D062-native-lock-and-polkit-plugins.md). The evidence that no
-# check ran spans the whole row, every plugin rebuild and both shell
-# relaunches: each shell's log, kept before its kill, holds a
+# check ran spans the whole row, every plugin rebuild and every shell
+# relaunch: each shell's log, kept before its stop or kill, holds a
 # `lock: check=started` line for every check started, and the harness's
 # watcher records every authentication helper it sees under the sandbox.
 # A control copy of the plugin starts one stand-in check, which runs no
@@ -54,7 +54,17 @@
 # logs the command's lines, a busctl that answers logind's 5 s default and
 # no preparation under way, and a dbus-monitor that prints the bus's
 # NameAcquired at once and announces one PrepareForSleep once the row
-# creates its trigger file. The sandbox's system bus holds no logind.
+# creates its trigger file, or ends as a failed listener once the row
+# creates its stop file. The sandbox's system bus holds no logind.
+# Temporary access uses the installed runner's IPC path. Every accepted
+# request outlives that client process and keeps the runner-selected shell
+# PID. Expiry, overlap refusal, revocation, manual/idle/sleep lock, a hook
+# that ends, owner disposal, and a shell stopped or killed during a release,
+# which the next shell relocks from the core's release marker, read both
+# compositor state and the service's lock facts. The sleep startup cases
+# select false, true and unknown preparation using the same busctl
+# stand-in; only false may announce ready, and unknown keeps the hook,
+# which reads the state again and announces ready once it reads false.
 #
 # The control installs a copy of the plugin, in the user directory whose id
 # wins, that never locks a stranded session: after a kill and a restart the
@@ -63,12 +73,13 @@
 # capability rows' fixture, acme.probe, when an earlier row left it
 # enabled. The row ends with the plugin disabled, the fixture as it found
 # it, the stand-ins gone and hyprland.lua as the consent row left it.
-# inputs: shell/plugins/vgs.lock/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Core/SessionLock.qml shell/Core/CoverPresentation.qml shell/Commons/SessionLockState.js shell/Hosts/LockHost.qml shell/Core/IdleRegistry.qml bin/vgshell bin/vgshell-lock scripts/smoke/lock/* shell/Core/HyprlandLayer.js scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/*
+# inputs: shell/plugins/vgs.lock/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Core/SessionLock.qml shell/Core/CoverPresentation.qml shell/Commons/SessionLockState.js shell/Hosts/LockHost.qml shell/Core/IdleRegistry.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/Lifetime.js shell/Core/Plugins.qml shell/shell.qml bin/vgshell bin/vgshell-lock scripts/smoke/lock/* shell/Core/HyprlandLayer.js scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/*
 set -euo pipefail
 lock_user_config="$home/.config/vgshell/shell.json"
 lock_hypr_lua="$home/.config/hypr/hyprland.lua"
 sleep_log="$sandbox/sleep-watch.log"
 sleep_trigger="$sandbox/prepare-sleep"
+monitor_stop="$sandbox/end-monitor"
 # `locked` while any nested monitor names LOCK among the reasons it cannot
 # go solitary, which Hyprland keeps while an ext-session-lock holds, its
 # client dead or not; `unlocked` otherwise.
@@ -80,6 +91,25 @@ lock_cause() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(json
 lock_cover() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["cover"]["placement"]))'; }
 core_lock() { ipc shell lent | py_reply 'import json,sys; l=json.load(sys.stdin)["lock"]; print(json.dumps([l["requested"], l["secure"], l["content"]]))'; }
 lock_status() { ipc vgs.lock invoke status '' | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([d[k] for k in sys.argv[1:]]))' "$@"; }
+# These calls use the same argv contract as the external tool. `ok` is a
+# request acknowledgement; compositor and status transitions are read below.
+lock_delegate() { ipc vgs.lock invoke delegate-unlock "$1"; }
+lock_pid() { "${shell_env[@]}" "$repo/bin/vgshell" pid; }
+lock_service() { ipc smoke readInstance service vgs.lock "$1"; }
+lock_sleep_count() { python3 -c 'import sys; print(sum(line.startswith(sys.argv[2]) for line in open(sys.argv[1])))' "$sleep_log" "$1"; }
+lock_busctl() { # PreparingForSleep output, InhibitDelayMaxUSec output
+  printf '#!/bin/sh\ncase "$5" in PreparingForSleep) echo "%s" ;; *) echo "%s" ;; esac\n' "$1" "${2:-t 5000000}" >"$shim/busctl"
+}
+lock_released() { # LABEL
+  expect_poll "$1: the compositor releases the session" unlocked session_lock
+  expect_poll "$1: status confirms temporary desktop access" '[false, false, true]' lock_status locked secure delegateActive
+  expect "$1: the runner still selects the same shell" "$shell_qs_pid" lock_pid
+}
+lock_relocked() { # LABEL
+  expect_poll "$1: the compositor locks the session" locked session_lock
+  expect_poll "$1: status confirms secure relock and no release" '[true, true, false]' lock_status locked secure delegateActive
+  expect "$1: the runner still selects the same shell" "$shell_qs_pid" lock_pid
+}
 sleep_status() { ipc smoke statusValues vgs.lock | py_reply 'import json,sys; v=json.load(sys.stdin).get("sleep"); print(v["tone"] if v else "unpublished")'; }
 # A published status value of vgs.lock as [tone, text], or null.
 status_value() { ipc smoke statusValues vgs.lock | py_reply 'import json,sys; v=json.load(sys.stdin).get(sys.argv[1]); print(json.dumps(v if v is None else [v["tone"], v["text"]]))' "$1"; }
@@ -242,17 +272,20 @@ set -o pipefail
 while [[ \${1:-} == --* ]]; do shift; done
 "\$@" | tee -a $(printf %q "$sleep_log")
 SH
-printf '#!/bin/sh\ncase "$5" in PreparingForSleep) echo "b false" ;; *) echo "t 5000000" ;; esac\n' >"$shim/busctl"
+lock_busctl 'b false'
 cat >"$shim/dbus-monitor" <<SH
 #!/usr/bin/env bash
 echo 'signal sender=org.freedesktop.DBus -> destination=:1.9 serial=2 path=/org/freedesktop/DBus; interface=org.freedesktop.DBus; member=NameAcquired'
-until [[ -e $(printf %q "$sleep_trigger") ]]; do sleep 0.1; done
+until [[ -e $(printf %q "$sleep_trigger") ]]; do
+  [[ ! -e $(printf %q "$monitor_stop") ]] || { rm -f -- $(printf %q "$monitor_stop"); exit 3; }
+  sleep 0.1
+done
 rm -f -- $(printf %q "$sleep_trigger")
 echo '   boolean true'
 exec sleep 600
 SH
 chmod 755 "$shim/systemd-inhibit" "$shim/busctl" "$shim/dbus-monitor"
-rm -f -- "${sleep_log:?}" "${sleep_trigger:?}"
+rm -f -- "${sleep_log:?}" "${sleep_trigger:?}" "${monitor_stop:?}"
 
 expect "the session is unlocked before the row" unlocked session_lock
 auth_watch_start "$sandbox/lock-auth-helpers.log"
@@ -325,6 +358,127 @@ release "the sleep lock"
 expect_poll "the hook is taken again after the sleep" 2 bash -c 'grep -c -x "ready budget_ms=4000" -- "$1" || :' _ "$sleep_log"
 expect "the last sleep is published as locked" '["ok", "The session was locked before the last sleep"]' status_value lastSleep
 
+# Disabled opt-in is a service-policy refusal for this ordinary session
+# caller. It supplies no evidence about an excluded identity's transport.
+notes_on "temporary access"
+expect "temporary access is disabled by default" '[false, false]' lock_status delegateAllowed delegateActive
+expect "the delegate tests request a secure lock" ok ipc vgs.lock invoke lock ''
+lock_relocked "before temporary access"
+expect "the ordinary session caller is refused while disabled" 'refused: delegate-unlock=disabled' lock_delegate '{"seconds":60}'
+lock_relocked "disabled temporary access"
+set_setting allowDelegateUnlock true
+expect_poll "the opt-in reaches the running lock service" '[true]' lock_status delegateAllowed
+for lock_argument in '' '{' '{}' '{"seconds":0}' '{"seconds":-1}' '{"seconds":1.5}' '{"seconds":61}' '{"seconds":"1"}' '{"seconds":true}' '{"seconds":null}' '{"seconds":1,"extra":true}'; do
+  expect "an invalid duration argument is refused" 'refused: delegate-unlock=argument' lock_delegate "$lock_argument"
+done
+printf -v lock_oversized '%065d' 0
+expect "an argument above the input ceiling is refused" 'refused: delegate-unlock=argument' lock_delegate "$lock_oversized"
+lock_relocked "invalid temporary access arguments"
+release "before the not-secure refusal"
+expect "a delegate cannot release an unlocked session" 'refused: delegate-unlock=not-secure' lock_delegate '{"seconds":60}'
+expect "the not-secure refusal leaves the session unlocked" unlocked session_lock
+expect "the expiry test requests a secure lock" ok ipc vgs.lock invoke lock ''
+lock_relocked "before expiry"
+# Five seconds leave the reads below time to see the release before it
+# expires.
+expect "a short grant returns after recording its expiry" ok lock_delegate '{"seconds":5}'
+expect "a second request cannot renew the short grant" 'refused: delegate-unlock=busy' lock_delegate '{"seconds":60}'
+lock_released "the short grant"
+# The client process has ended. No client-side cleanup is sent: the
+# production SessionLock timer must recover access on its own.
+lock_relocked "expiry after the delegate client has ended"
+expect "expiry relocks with cause release-end" '"release-end"' lock_cause
+no_checks "after expiry and overlap refusal"
+
+expect "a sixty-second grant is accepted" ok lock_delegate '{"seconds":60}'
+lock_released "the sixty-second grant"
+# External desk tools and the runner's restart gate read `shell locked`:
+# the released desktop is open.
+expect "the desk tools' lock reading is false during temporary access" false ipc shell locked
+expect "the external tool's normal cleanup locks early" ok ipc vgs.lock invoke lock ''
+lock_relocked "explicit cleanup"
+expect "the tool's own cleanup is a manual lock" '"manual"' lock_cause
+expect "a grant before setting revocation is accepted" ok lock_delegate '{"seconds":60}'
+lock_released "before revocation"
+set_setting allowDelegateUnlock false
+lock_relocked "setting revocation"
+expect "revocation relocks with cause release-end" '"release-end"' lock_cause
+expect_poll "revocation also disables new requests" '[false]' lock_status delegateAllowed
+expect "a revoked caller cannot get another grant" 'refused: delegate-unlock=disabled' lock_delegate '{"seconds":60}'
+set_setting allowDelegateUnlock true
+expect_poll "temporary access is enabled again" '[true]' lock_status delegateAllowed
+
+# An idle lock retains its normal authority during temporary access.
+set_setting idleLockSeconds 2
+expect_poll "the early-lock test owns its two-second idle watch" '[["vgs.lock:lock"], ["vgs.lock"], [["vgs.lock", 2]]]' lock_lent
+expect "a grant before idle lock is accepted" ok lock_delegate '{"seconds":60}'
+lock_released "before idle relock"
+lock_relocked "idle relock during temporary access"
+expect "an idle lock during a release keeps its idle cause" '"idle"' lock_cause
+set_setting idleLockSeconds null
+expect_poll "the idle watch returns to its default" '[["vgs.lock:lock"], ["vgs.lock"], [["vgs.lock", 300]]]' lock_lent
+
+# A hook that ends takes logind's delay with it, so the release ends at once.
+expect_poll "the hook is ready before it ends" true lock_service sleepReady
+expect "a grant before the hook ends is accepted" ok lock_delegate '{"seconds":60}'
+lock_released "before the hook ends"
+hook_ends_before="$(log_lines 'lock: delegate-release=ending reason=sleep-hook')" || fail "the instance log is unreadable before the hook ends"
+: >"$monitor_stop"
+# The cause, not the end state: the grant's own expiry would relock too.
+expect_log "the hook's end, not the grant's expiry, ends the release" "$((hook_ends_before + 1))" 'lock: delegate-release=ending reason=sleep-hook'
+lock_relocked "the hook ending during temporary access"
+expect "the hook's end relocks with cause release-end" '"release-end"' lock_cause
+expect_poll "the ended hook is published as unavailable" warning sleep_status
+set_setting lockBeforeSleep false
+expect_poll "the hook stops before it is taken again" info sleep_status
+set_setting lockBeforeSleep null
+expect_poll "the hook holds again after it ended" ok sleep_status
+expect_poll "the hook taken again restores readiness" true lock_service sleepReady
+
+# Grant first: sleep preparation clears readiness and ends the release.
+# The busctl stand-in stays preparing after secure acknowledgement, so a
+# restarted hook cannot falsely announce a new non-preparing ready.
+expect "a grant before sleep preparation is accepted" ok lock_delegate '{"seconds":60}'
+lock_released "before sleep relock"
+lock_ready_before="$(lock_sleep_count 'ready ')"
+lock_busctl 'b true'
+: >"$sleep_trigger"
+lock_relocked "sleep preparation during temporary access"
+expect "sleep during a release keeps its sleep cause" '"sleep"' lock_cause
+expect_poll "sleep preparation clears readiness before locking" false lock_service sleepReady
+expect "secure acknowledgement cannot authorize another grant" 'refused: delegate-unlock=sleep' lock_delegate '{"seconds":60}'
+
+# Sleep first: startup true enters sleep without ready, including a
+# plugin rebuilt while logind remains preparing.
+expect "the preparing lock plugin can be disabled" ok ipc shell setPluginEnabled vgs.lock false
+expect_poll "the preparing plugin's content is gone but its lock holds" '[true, true, false]' core_lock
+expect "the preparing lock plugin can be rebuilt" ok ipc shell setPluginEnabled vgs.lock true
+expect_poll "the rebuilt preparing plugin confirms its lock" '[true, true, true]' core_lock
+expect_poll "the rebuilt preparing hook still has no readiness" false lock_service sleepReady
+expect "a rebuilt plugin refuses access during preparation" 'refused: delegate-unlock=sleep' lock_delegate '{"seconds":60}'
+expect "preparing startup emitted no ready" "$lock_ready_before" lock_sleep_count 'ready '
+
+# Unknown startup state keeps the hook but announces no ready, and grants
+# remain refused. The running hook reads the state again every 10 s, so a
+# state that turns readable restores readiness with no restart.
+set_setting lockBeforeSleep false
+expect_poll "the hook stops before its unknown-state startup" info sleep_status
+lock_busctl unreadable
+set_setting lockBeforeSleep null
+expect_poll "unknown preparation still holds the hook" 1 lock_sleep_count 'unconfirmed '
+status_hinted() { ipc smoke statusValues vgs.lock | py_reply 'import json,sys; v=json.load(sys.stdin).get(sys.argv[1]); print(json.dumps(v if v is None else [v["tone"], v["text"], v.get("hint")]))' "$1"; }
+expect_poll "the unconfirmed hook is published apart from a working one" '["info", "The session locks before sleep", "Temporary unlock waits until VGS can read the sleep state."]' status_hinted sleep
+expect "unknown preparation cannot establish readiness" false lock_service sleepReady
+expect "unknown preparation emitted no ready" "$lock_ready_before" lock_sleep_count 'ready '
+expect "unknown preparation refuses temporary access" 'refused: delegate-unlock=sleep' lock_delegate '{"seconds":60}'
+lock_busctl 'b false'
+expect_poll "the running hook announces ready once the state reads false" "$((lock_ready_before + 1))" lock_sleep_count 'ready '
+expect_poll "the later false state restores readiness" true lock_service sleepReady
+expect_poll "the hook is published as working again" ok sleep_status
+release "the temporary-access sleep cases"
+no_checks "after the temporary-access policy and sleep cases"
+notes_off "temporary access"
+
 # A second lock client, the harness's lock-client, holds the session. It
 # runs no authentication and is stopped by its pid. With the VGS layer's
 # misc:allow_session_lock_restore on, Hyprland lets the plugin's lock
@@ -382,7 +536,7 @@ retake_hook() { # LABEL
   expect_poll "$1: the hook holds again" ok sleep_status
 }
 notes_on "lock timeout"
-printf '#!/bin/sh\ncase "$5" in PreparingForSleep) echo "b false" ;; *) echo "t 1000000" ;; esac\n' >"$shim/busctl"
+lock_busctl 'b false' 't 1000000'
 retake_hook "a 1 s delay"
 expect_poll "timeout: the hook read the short delay" "ready budget_ms=1" tail -n 1 -- "$sleep_log"
 : >"$sleep_trigger"
@@ -393,7 +547,7 @@ expect "timeout: no notification shows over the lock screen" quiet lock_no_card_
 release "the timed-out sleep lock"
 expect_poll "timeout: the user is told once back at the desktop" '[["The session was not locked before sleep", "danger", 2, "lock-open"]]' lock_cards
 notes_off "lock timeout"
-printf '#!/bin/sh\ncase "$5" in PreparingForSleep) echo "b false" ;; *) echo "t 5000000" ;; esac\n' >"$shim/busctl"
+lock_busctl 'b false'
 retake_hook "logind's default delay"
 expect_poll "the hook read logind's default delay again" "ready budget_ms=4000" tail -n 1 -- "$sleep_log"
 
@@ -423,6 +577,88 @@ set_setting idleLockSeconds null
 expect_poll "the idle watch is back at its default" '[["vgs.lock:lock"], ["vgs.lock"], [["vgs.lock", 300]]]' lock_lent
 release "the idle lock"
 
+# A shell that stops during a release, as `vgshell restart` stops it by
+# TERM to the runner, or that is killed, takes the expiry with it. The
+# core's release marker, written before the unlock, makes the next shell
+# lock at its start; the confirmed relock removes the marker. The control
+# starts a copy whose root never reads the marker: it starts unlocked,
+# with the marker still there, and the shipped shell after it relocks.
+notes_on "release across a shell stop"
+expected_errors+=('capabilities: lock-release=recovered')
+release_marker="$rt_dir/vgshell/lock-release"
+marker_state() { if [[ -e $release_marker ]]; then echo present; else echo absent; fi; }
+# The running shell's log, checked and kept before the shell ends.
+keep_shell_log() { # LABEL
+  local kept="$sandbox/lock-shell-${#kept_logs[@]}.log"
+  check_unexpected_log "$1: the shell's log before it ends" "$instance_log"
+  cp -- "$instance_log" "$kept" || fail "$1: keeping the shell's log failed"
+  kept_logs+=("$kept")
+}
+# A secure lock, then a sixty-second grant read back as released, with the
+# marker on the disk.
+grant_released() { # LABEL
+  expect "$1: the test requests a secure lock" ok ipc vgs.lock invoke lock ''
+  lock_relocked "$1: before the grant"
+  expect_poll "$1: the sleep hook is ready" true lock_service sleepReady
+  expect "$1: a grant is accepted" ok lock_delegate '{"seconds":60}'
+  lock_released "$1"
+  expect "$1: the core marked the release before the unlock" present marker_state
+}
+# The shell stopped as `vgshell restart` stops it, then TREE's shell started.
+restart_shell() { # LABEL TREE
+  keep_shell_log "$1"
+  stop_shell || fail "$1: the shell did not stop"
+  start_shell "$2" "$shell_log" no-bar || fail "$1: the next shell did not start"
+}
+recovered_relock() { # LABEL
+  expect_poll "$1: the next shell asks for the lock at its start" true core_requested
+  expect "$1: the recovered lock has cause release-end" '"release-end"' lock_cause
+  lock_relocked "$1"
+  expect_log "$1: the next shell read the release marker" 1 'capabilities: lock-release=recovered'
+  expect_poll "$1: the confirmed relock removes the marker" absent marker_state
+}
+grant_released "restart"
+restart_shell "restart during a release" "$repo"
+recovered_relock "restart during a release relocks at the next start"
+
+grant_released "kill"
+keep_shell_log "kill during a release"
+lock_killed="$shell_qs_pid"
+kill -KILL "$lock_killed" || fail "kill during a release: SIGKILL to the shell pid $lock_killed failed"
+expect_poll "kill during a release: the killed shell is gone" gone alive "$lock_killed"
+if adopt_shell "$lock_killed"; then ok "kill during a release: the runner started the next shell"; fi
+recovered_relock "a shell killed during a release relocks at the next start"
+
+if copy_tree no-recover && edit_tree no-recover shell/shell.qml \
+    $'        if (guarded) Capabilities.sessionLock.recoverRelease();\n' ''; then
+  grant_released "control"
+  restart_shell "control" "$sandbox/tree-no-recover"
+  expect "control: a copy that never reads the marker starts with no lock" false core_requested
+  expect "control: the desktop stays open under that copy" unlocked session_lock
+  expect "control: the marker outlives that copy" present marker_state
+  restart_shell "after the control" "$repo"
+  recovered_relock "the shipped shell relocks the release the control left"
+fi
+release "the release across a shell stop"
+notes_off "release across a shell stop"
+
+# Disposing a release owner requests lock before removing its content.
+notes_on "temporary-access owner lifecycle"
+expect "the release-owner disposal test requests a secure lock" ok ipc vgs.lock invoke lock ''
+lock_relocked "before release-owner disposal"
+expect "a grant before disabling the owner is accepted" ok lock_delegate '{"seconds":60}'
+lock_released "before release-owner disposal"
+expect "disabling a temporarily released owner is allowed" ok ipc shell setPluginEnabled vgs.lock false
+expect_poll "disposal relocks with no dead plugin content" '[true, true, false]' core_lock
+expect "owner disposal relocks with cause release-end" '"release-end"' lock_cause
+expect "the compositor is locked after disposing the release owner" locked session_lock
+expect "disposal keeps the runner-selected shell" "$shell_qs_pid" lock_pid
+expect "the disposed owner can be built again" ok ipc shell setPluginEnabled vgs.lock true
+expect_poll "the replacement owner supplies the locked screen" '[true, true, true]' core_lock
+expect_poll "the replacement owner establishes sleep readiness" true lock_service sleepReady
+lock_relocked "the replacement after release-owner disposal"
+release "the release-owner disposal lock"
+
 # Disabling the plugin while locked keeps the session locked; the rebuilt
 # plugin hands its lock screen over again.
 no_checks "before the disable"
@@ -448,7 +684,7 @@ import sys
 path = sys.argv[1]
 text = open(path).read()
 edits = [
-    ('shell.ipc.handle("lock", () => root.lock("manual"));', 'shell.ipc.handle("lock", () => { const reply = root.lock("manual"); root.submit("stand-in"); return reply; });'),
+    ('shell.ipc.handle("lock", () => root.lock("manual"));', 'shell.ipc.handle("lock", () => { const reply = root.lock("manual"); root.submit("stand-in"); root.checking = true; return reply; });'),
     ("        if (!pam.start()) fail();", "        fail();"),
 ]
 for needle, replacement in edits:
@@ -465,16 +701,26 @@ rescan_theme_follow() {
   expect_log "$label: theme follow logged its completion" "$((follows + 1))" 'INFO qml: theme: follow='
   expect_poll "$label: theme follow is idle" idle theme_idle
 }
+expect "the rebuild test requests a secure lock" ok ipc vgs.lock invoke lock ''
+lock_relocked "before rebuilding the release owner"
+expect "a grant before rebuilding the owner is accepted" ok lock_delegate '{"seconds":60}'
+lock_released "before rebuilding the release owner"
 rescan_theme_follow "rescan over the stand-in copy answers ok"
 expect_poll "the stand-in copy is the plugin the shell runs" "$control_dir" lock_dir_of
+lock_relocked "rebuilding the release owner"
+expect_poll "the rebuilt checking-state fixture has sleep readiness" true lock_service sleepReady
 expect "the stand-in copy's IPC lock answers ok" ok ipc vgs.lock invoke lock ''
 expect_poll "control: the stand-in copy started one check" '[1, 1]' lock_status checks failures
+expect "the stand-in copy holds the checking state without PAM" '[true]' lock_status checking
+expect "a pending check refuses temporary access" 'refused: delegate-unlock=checking' lock_delegate '{"seconds":60}'
+lock_relocked "the pending-check refusal"
 expect_poll "control: the shell's log holds the stand-in check" 1 check_starts
 release "the stand-in check"
 rm -r -- "${control_dir:?}"
 rescan_theme_follow "rescan after removing the stand-in copy answers ok"
 expect_poll "the shipped plugin runs again after the stand-in" "$repo/shell/plugins/vgs.lock" lock_dir_of
 expect_poll "the rebuilt shipped plugin holds its sleep hook again" ok sleep_status
+notes_off "temporary-access owner lifecycle"
 
 # Control: a copy that never locks a stranded session. After the kill and
 # the restart the session is still locked, and the core holds no lock.
@@ -532,7 +778,8 @@ expect "over the whole row, the watcher saw the stand-in unix_chkpwd alone" "uni
 expect "disabling the lock plugin is allowed" ok ipc shell setPluginEnabled vgs.lock false
 expect_poll "disable released the lock's shortcut, IPC target and idle watch" '[[], [], []]' lock_lent
 expect_poll "the nested instance drops the lock's bind" '[]' lock_binds
-rm -f -- "$shim/systemd-inhibit" "$shim/busctl" "$shim/dbus-monitor" "$sandbox/stand-in/unix_chkpwd"
+set_setting allowDelegateUnlock null
+rm -f -- "$shim/systemd-inhibit" "$shim/busctl" "$shim/dbus-monitor" "$sandbox/stand-in/unix_chkpwd" "$monitor_stop"
 expect "hyprland.lua is as the consent row left it" same bash -c 'cmp -s <(sed 1d "$1") "$2" && echo same || echo differs' _ "$lock_hypr_lua" "$sandbox/hyprland-harness.lua"
 if [[ $probe_enabled == True ]]; then
   expect "re-enabling the capability fixture is allowed" ok ipc shell setPluginEnabled acme.probe true

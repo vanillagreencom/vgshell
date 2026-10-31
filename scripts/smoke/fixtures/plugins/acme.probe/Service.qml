@@ -91,6 +91,8 @@ Item {
             try { root.shell.idle.watchStage(stage, () => {}); return "ok"; } catch (e) { return e.message; }
         });
         shell.ipc.handle("unlock", () => root.shell.lock.unlock());
+        shell.ipc.handle("unlock-for", arg => root.shell.lock.unlockFor(Number(arg)));
+        shell.ipc.handle("temporary", () => String(root.shell.lock.temporary));
         // idle-watch <seconds>: one idle watch, its changes kept in
         // idleChanges; a refusal is answered. idle-unwatch runs its disposer.
         shell.ipc.handle("idle-watch", arg => {

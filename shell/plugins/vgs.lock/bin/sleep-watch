@@ -3,8 +3,10 @@
 #   systemd-inhibit --what=sleep --mode=delay -- setpriv --pdeathsig TERM -- sleep-watch
 # so logind holds every suspend until this process exits, for at most its
 # InhibitDelayMaxUSec. It prints, one line each, on stdout:
-#   ready budget_ms=<n>     the inhibitor holds and the listener is live;
-#                           n is the lock budget
+#   ready budget_ms=<n>     the inhibitor holds, the listener is live and
+#                           PreparingForSleep is false; n is the lock budget
+#   unconfirmed budget_ms=<n>  the same, but PreparingForSleep could not be
+#                           read; `ready` follows once a later read is false
 #   sleep budget_ms=<n>     logind prepares for sleep: lock now
 #   released reason=<r>     secure, refused, timeout or closed; it exits
 # After `sleep` it waits for one line on stdin, for at most the budget:
@@ -20,7 +22,14 @@
 # It subscribes first and waits for dbus-monitor's first line, the bus's
 # NameAcquired, which dbus-monitor prints only once its match is added.
 # Then it asks logind whether a preparation is already under way,
-# PreparingForSleep, and takes one for a sleep; `ready` follows that check.
+# PreparingForSleep. True enters the sleep path without `ready`; false
+# announces `ready`. An unreadable or unknown answer announces
+# `unconfirmed` and keeps the inhibitor and the listener, so every sleep
+# still waits for the lock while the service grants no temporary access.
+# While unconfirmed it reads PreparingForSleep again every
+# recheck_s seconds without a bus line: a later false is as sound as the
+# first, since the listener was subscribed before it, and announces
+# `ready`; a later true enters the sleep path.
 #
 # The budget is logind's InhibitDelayMaxUSec less a fifth of it, at least
 # 1000 ms kept for logind, capped at 12000 ms; 5 s, logind's default, when
@@ -34,6 +43,10 @@
 set -euo pipefail
 
 budget_cap_ms=12000
+# Short enough that a delegate refused at an unreadable start is served
+# again within seconds; each read is bounded at 1 s and runs only while
+# the state is unconfirmed.
+recheck_s=10
 
 derive_budget_ms() {
   local window
@@ -45,6 +58,13 @@ derive_budget_ms() {
   window=$((window - (window / 5 > 1000 ? window / 5 : 1000)))
   ((window > 0)) || window=1
   if ((window < budget_cap_ms)); then echo "$window"; else echo "$budget_cap_ms"; fi
+}
+
+# logind's PreparingForSleep as busctl prints it, `b true` or `b false`;
+# anything else, empty included, is unknown.
+read_preparing() {
+  timeout --foreground --kill-after=0.1s 1s busctl get-property org.freedesktop.login1 /org/freedesktop/login1 \
+    org.freedesktop.login1.Manager PreparingForSleep 2>/dev/null || :
 }
 
 monitor_exit() {
@@ -84,14 +104,33 @@ if ! IFS= read -r -t 2 line <&"$monitor_fd"; then
   printf 'sleep-watch: refused: monitor=silent\n' >&2
   exit 1
 fi
-preparing="$(timeout --foreground --kill-after=0.1s 1s busctl get-property org.freedesktop.login1 /org/freedesktop/login1 \
-  org.freedesktop.login1.Manager PreparingForSleep 2>/dev/null)" || preparing=""
+preparing="$(read_preparing)"
 budget_ms="$(derive_budget_ms)"
 printf -v budget_s '%d.%03d' $((budget_ms / 1000)) $((budget_ms % 1000))
-echo "ready budget_ms=$budget_ms"
-[[ $preparing != "b true" ]] || sleep_once
+unconfirmed=false
+case "$preparing" in
+  "b true") sleep_once ;;
+  "b false") echo "ready budget_ms=$budget_ms" ;;
+  *) unconfirmed=true; echo "unconfirmed budget_ms=$budget_ms" ;;
+esac
 
-while IFS= read -r line <&"$monitor_fd"; do
+while true; do
+  status=0
+  if [[ $unconfirmed == false ]]; then
+    IFS= read -r line <&"$monitor_fd" || status=$?
+  else
+    IFS= read -r -t "$recheck_s" line <&"$monitor_fd" || status=$?
+  fi
+  # A status above 128 is read's timeout; any other failure is the
+  # monitor's end.
+  if ((status > 128)); then
+    case "$(read_preparing)" in
+      "b true") sleep_once ;;
+      "b false") unconfirmed=false; echo "ready budget_ms=$budget_ms" ;;
+    esac
+    continue
+  fi
+  ((status == 0)) || break
   [[ $line == *"boolean true"* ]] || continue
   sleep_once
 done

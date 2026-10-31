@@ -2,7 +2,7 @@
 # account, provider or network runs. No latency ceiling is measured.
 # State/effect reads poll once per nested IPC round trip. Fixture callback
 # gates poll at 10 ms; hold barriers use the shell's native marker.
-# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/Core/ShortcutRegistry.qml scripts/smoke/keyboard/* scripts/smoke/fixtures/plugins/acme.probe/* shell/plugins/vgs.bar/* shell/Ui/feedback/VoiceOrb.qml shell/Core/Layers.qml shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml scripts/smoke/toplevel/* shell/Core/HyprlandLayer.js scripts/smoke/rows/jarvis-bubble.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/hold-shortcuts.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/* scripts/smoke/rows/diagnostics.sh
+# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/Core/ShortcutRegistry.qml shell/Core/SessionLock.qml scripts/smoke/keyboard/* scripts/smoke/fixtures/plugins/acme.probe/* shell/plugins/vgs.bar/* shell/Ui/feedback/VoiceOrb.qml shell/Core/Layers.qml shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml scripts/smoke/toplevel/* shell/Core/HyprlandLayer.js scripts/smoke/rows/jarvis-bubble.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/hold-shortcuts.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/* scripts/smoke/rows/diagnostics.sh
 set -euo pipefail
 # Jarvis holds `dictation`, and the shell finds no voxtype: the core's
 # probe does not start at each enable.

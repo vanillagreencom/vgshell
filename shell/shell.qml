@@ -49,6 +49,9 @@ ShellRoot {
 
     Component.onCompleted: {
         console.info("shell: version=" + (startedVersion || "unavailable"));
+        // Before the first window: a temporary release the shell before
+        // left behind locks now (SessionLock.recoverRelease).
+        if (guarded) Capabilities.sessionLock.recoverRelease();
         if (!guarded) console.error("shell: refusing to draw; start it with `vgshell run`, VGSHELL_RUNNER_PID=" + JSON.stringify(Quickshell.env("VGSHELL_RUNNER_PID")) + " pid=" + Quickshell.processId);
     }
 

@@ -47,6 +47,7 @@ function verify(model) {
     const LINES = [
         ["ready", "ready budget_ms=4000", { kind: "ready", budgetMs: 4000, reason: "" }],
         ["sleep", "sleep budget_ms=12000\n", { kind: "sleep", budgetMs: 12000, reason: "" }],
+        ["unconfirmed", "unconfirmed budget_ms=4000", { kind: "unconfirmed", budgetMs: 4000, reason: "" }],
         ["released secure", "released reason=secure", { kind: "released", budgetMs: 0, reason: "secure" }],
         ["released timeout", "released reason=timeout", { kind: "released", budgetMs: 0, reason: "timeout" }],
         ["released closed", "released reason=closed", { kind: "released", budgetMs: 0, reason: "closed" }],
@@ -57,12 +58,14 @@ function verify(model) {
     ];
     for (const [label, line, want] of LINES) same(model.sleepLine(line), want, label);
 
-    const STATES = [["off", 0, "info"], ["held", 0, "ok"], ["starting", 0, "info"], ["failed", 1, "warning"], ["failed", "not-started", "warning"], ["missing", ["systemd-inhibit"], "warning"]];
+    const STATES = [["off", 0, "info"], ["held", 0, "ok"], ["unconfirmed", 0, "info"], ["starting", 0, "info"], ["failed", 1, "warning"], ["failed", "not-started", "warning"], ["missing", ["systemd-inhibit"], "warning"]];
     for (const [state, code, tone] of STATES) {
         const value = model.sleepStatus(state, code);
         assert.equal(value.tone, tone, state);
         assert.ok(value.text.length > 0 && value.text.length <= 200, `${state}: a state text fits the status type`);
     }
+    assert.equal(typeof model.sleepStatus("unconfirmed", 0).hint, "string", "the unconfirmed hook explains the wait under its chip");
+    assert.equal(model.sleepStatus("held", 0).hint, undefined, "a working hook carries no hint");
     assert.doesNotMatch(model.sleepStatus("failed", 7).text, /exit|7|=/, "the sleep status hides exit codes");
     assert.match(model.sleepStatus("failed", "not-started").text, /Lock the screen before sleep/, "a hook failure names the safe action");
     assert.match(model.sleepStatus("missing", ["systemd-inhibit", "busctl"]).text, /Install them from the notice/, "missing tools name the install action");

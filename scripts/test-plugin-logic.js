@@ -1153,11 +1153,12 @@ function suite(ctx, configLogic, check) {
         ["manual", { cause: "manual" }, ""],
         ["sleep", { cause: "sleep" }, ""],
         ["restore", { cause: "restore" }, ""],
+        ["release-end", { cause: "release-end" }, ""],
         ["idle with a ticket", { cause: "idle", ticket: Object.freeze({}) }, ""],
         ["no request, as a caller of the old route sends", undefined, "refused: lock-request=undefined want=object"],
         ["a bare cause word", "manual", 'refused: lock-request="manual" want=object'],
-        ["no cause", {}, "refused: lock-cause=undefined want=idle|manual|sleep|restore"],
-        ["an unknown cause", { cause: "later" }, 'refused: lock-cause="later" want=idle|manual|sleep|restore'],
+        ["no cause", {}, "refused: lock-cause=undefined want=idle|manual|sleep|restore|release-end"],
+        ["an unknown cause", { cause: "later" }, 'refused: lock-cause="later" want=idle|manual|sleep|restore|release-end'],
         ["idle without a ticket", { cause: "idle" }, "refused: lock-request=cause want=cause,ticket"],
         ["idle with a null ticket", { cause: "idle", ticket: null }, "refused: lock-ticket=null want=object"],
         ["idle with a string ticket", { cause: "idle", ticket: "t" }, 'refused: lock-ticket="t" want=object'],
@@ -1210,6 +1211,8 @@ function suite(ctx, configLogic, check) {
         ["a manual lock over a desktop cover", ["manual", false, "desktop", true, false, true], "dismiss"],
         ["a sleep lock over a cover in the lock", ["sleep", true, "secure", true, false, true], "dismiss"],
         ["a restore over a cover in the lock", ["restore", true, "secure", false, false, true], "dismiss"],
+        ["a release-end over a desktop cover", ["release-end", false, "desktop", true, false, true], "dismiss"],
+        ["a release-end at equal times with no cover", ["release-end", false, "none", true, false, true], "keep"],
         ["a manual lock with no cover", ["manual", false, "none", true, false, true], "keep"]
     ])
         check("coverOnLock: " + name, ctx.coverOnLock.apply(null, args), want);

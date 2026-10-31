@@ -4481,7 +4481,8 @@ function stageRow(stages, stage) {
 // ticket, which the core checks against the live watch; the others carry
 // nothing. Manual is the shortcut and IPC, sleep the before-sleep hook,
 // restore a lock taken again after a restart or a rebuilt holder.
-var LOCK_CAUSES = ["idle", "manual", "sleep", "restore"];
+// `release-end` is a lock that ends a temporary release (D114).
+var LOCK_CAUSES = ["idle", "manual", "sleep", "restore", "release-end"];
 
 // "" when REQUEST is a lock request the lock route takes, else its keyed
 // refusal: { cause } for a cause of LOCK_CAUSES, and { cause: "idle",

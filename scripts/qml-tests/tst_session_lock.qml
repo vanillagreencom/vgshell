@@ -1,5 +1,6 @@
 import QtQuick
 import QtTest
+import Quickshell.Io
 import qs.Core
 
 Item {
@@ -85,7 +86,7 @@ Item {
 
         // expected-log: capabilities: lock=ended-by-compositor reason=finished -- the compositor refuses the requested lock
         function test_compositor_end_drops_the_request() {
-            const holder = owner.provider({ onDispose: fn => {} });
+            const holder = owner.provider({ active: true, onDispose: fn => {} });
             compare(holder.lock(contentComponent, manual), "ok");
             owner.lockSecure = true;
             tryCompare(reader, "locked", true);
@@ -101,7 +102,7 @@ Item {
         }
 
         function test_a_released_lock_is_no_compositor_end() {
-            const holder = owner.provider({ onDispose: fn => {} });
+            const holder = owner.provider({ active: true, onDispose: fn => {} });
             compare(holder.lock(contentComponent, manual), "ok");
             compare(holder.unlock(), "ok");
             owner.compositorEnded("finished");
@@ -112,14 +113,15 @@ Item {
         readonly property var manual: ({ cause: "manual" })
 
         function holderOf(id) {
-            return owner.provider({ id: id, onDispose: fn => {} });
+            return owner.provider({ id: id, active: true, onDispose: fn => {} });
         }
 
         function test_request_causes_data() {
             return [
                 { tag: "manual", request: { cause: "manual" } },
                 { tag: "sleep", request: { cause: "sleep" } },
-                { tag: "restore", request: { cause: "restore" } }
+                { tag: "restore", request: { cause: "restore" } },
+                { tag: "release-end", request: { cause: "release-end" } }
             ];
         }
 
@@ -133,7 +135,7 @@ Item {
         function test_refused_requests_data() {
             return [
                 { tag: "no request", request: undefined, reply: "refused: lock-request=undefined want=object" },
-                { tag: "unknown cause", request: { cause: "later" }, reply: 'refused: lock-cause="later" want=idle|manual|sleep|restore' },
+                { tag: "unknown cause", request: { cause: "later" }, reply: 'refused: lock-cause="later" want=idle|manual|sleep|restore|release-end' },
                 { tag: "idle without a ticket", request: { cause: "idle" }, reply: "refused: lock-request=cause want=cause,ticket" },
                 { tag: "idle with a ticket the core never minted", request: { cause: "idle", ticket: {} }, reply: "refused: lock-ticket=stale" }
             ];
@@ -174,7 +176,7 @@ Item {
 
         // expected-log: capabilities: lock=ended-by-compositor reason=unlocked-elsewhere -- another client released the session under the confirmed lock
         function test_two_unlocked_readings_end_a_confirmed_lock() {
-            const holder = owner.provider({ onDispose: fn => {} });
+            const holder = owner.provider({ active: true, onDispose: fn => {} });
             compare(holder.lock(contentComponent, manual), "ok");
             owner.lockSecure = true;
             owner.compositorReading(monitors(["WINDOWED"]));
@@ -198,7 +200,7 @@ Item {
         }
 
         function test_readings_that_do_not_show_an_unlocked_session_keep_the_lock(data) {
-            const holder = owner.provider({ onDispose: fn => {} });
+            const holder = owner.provider({ active: true, onDispose: fn => {} });
             compare(holder.lock(contentComponent, manual), "ok");
             owner.lockSecure = true;
             // An unlocked reading, then this one, then an unlocked one: the
@@ -211,7 +213,7 @@ Item {
         }
 
         function test_an_unconfirmed_lock_is_not_read() {
-            const holder = owner.provider({ onDispose: fn => {} });
+            const holder = owner.provider({ active: true, onDispose: fn => {} });
             compare(holder.lock(contentComponent, manual), "ok");
             for (let i = 0; i < 3; i++) owner.compositorReading(monitors(["WINDOWED"]));
             compare(holder.locked, true);
@@ -220,7 +222,7 @@ Item {
 
         function test_holder_unload_keeps_lock() {
             let dispose = null;
-            const holder = owner.provider({ onDispose: fn => { dispose = fn; } });
+            const holder = owner.provider({ active: true, onDispose: fn => { dispose = fn; } });
             compare(holder.lock(contentComponent, manual), "ok");
             owner.lockSecure = true;
             tryCompare(reader, "locked", true);
@@ -230,10 +232,189 @@ Item {
             compare(owner.lockRequested, true);
             compare(holder.locked, true);
             compare(reader.session.locked, true);
-            compare(holder.unlock(), "ok");
+            compare(holder.unlock(), "refused: lock=released");
             compare(reader.session.locked, true);
+        }
+
+        function test_temporary_expiry_relocks() {
+            const holder = owner.provider({ active: true, onDispose: fn => {} });
+            compare(holder.lock(contentComponent, manual), "ok");
+            owner.lockSecure = true;
+            compare(holder.unlockFor(160), "ok");
+            compare(holder.temporary, true);
+            compare(holder.locked, false);
+            // The same provider and content survive the release. The real
+            // core Timer, not a copied release model, requests the relock.
+            tryCompare(owner, "lockRequested", true, 2000);
+            compare(holder.temporary, false);
+            compare(owner.lockContent, contentComponent);
+        }
+
+        function test_temporary_refusals_do_not_renew() {
+            const holder = owner.provider({ active: true, onDispose: fn => {} });
+            compare(holder.lock(contentComponent, manual), "ok");
+            compare(holder.unlockFor(160), "refused: lock=not-secure");
+            owner.lockSecure = true;
+            for (const value of [0, -1, 1.5, Infinity, NaN, "160", 2147483648])
+                compare(holder.unlockFor(value), "refused: lock-duration=integer-1..2147483647");
+            compare(holder.unlockFor(160), "ok");
+            const original = owner.release;
+            compare(holder.unlockFor(2000), "refused: lock=busy");
+            compare(holder.unlock(), "refused: lock=busy");
+            compare(owner.release, original);
+            tryCompare(owner, "lockRequested", true, 1500);
+            compare(holder.temporary, false);
+        }
+
+        function test_normal_lock_cancels_temporary_and_stale_callback_cannot_end_next() {
+            const holder = owner.provider({ active: true, onDispose: fn => {} });
+            compare(holder.lock(contentComponent, manual), "ok");
+            owner.lockSecure = true;
+            compare(holder.unlockFor(1000), "ok");
+            compare(holder.lock(contentComponent, manual), "ok");
+            compare(holder.temporary, false);
+            compare(holder.locked, true);
+            compare(holder.unlockFor(1000), "ok");
+            const current = owner.release;
+            owner.expireTemporary();
+            compare(owner.release, current);
+            compare(holder.locked, false);
+            compare(holder.lock(contentComponent, manual), "ok");
+        }
+
+        // The core's own relocks that end a temporary release take cause
+        // release-end, so the cover presentation dismisses a running cover
+        // and the lock screen shows (PluginLogic.coverOnLock).
+        function test_core_relocks_end_a_release_data() {
+            return [{ tag: "expiry" }, { tag: "owner-disposal" }];
+        }
+
+        function test_core_relocks_end_a_release(data) {
+            let dispose = null;
+            const holder = owner.provider({ active: true, onDispose: fn => { dispose = fn; } });
+            compare(holder.lock(contentComponent, manual), "ok");
+            owner.lockSecure = true;
+            compare(holder.unlockFor(data.tag === "expiry" ? 120 : 60000), "ok");
+            compare(owner.lockCause, "");
             owner.lockSecure = false;
-            tryCompare(reader, "locked", false);
+            coversStub.told = [];
+            if (data.tag === "expiry") tryCompare(owner, "lockRequested", true, 2000);
+            else dispose();
+            compare(owner.lockRequested, true);
+            compare(owner.lockCause, "release-end");
+            compare(coversStub.told, [["release-end", false]]);
+        }
+
+        function test_disposal_relocks_before_content_drops_and_stale_owner_cannot_mutate() {
+            let disposeOld = null, disposeCurrent = null;
+            const old = owner.provider({ active: true, onDispose: fn => { disposeOld = fn; } });
+            const holder = owner.provider({ active: true, onDispose: fn => { disposeCurrent = fn; } });
+            compare(old.lock(contentComponent, manual), "ok");
+            compare(holder.lock(contentComponent, manual), "ok");
+            owner.lockSecure = true;
+            compare(old.unlockFor(1000), "refused: lock=not-owner");
+            compare(old.unlock(), "refused: lock=not-owner");
+            compare(holder.unlockFor(1000), "ok");
+            const current = owner.release;
+            disposeOld();
+            compare(owner.release, current);
+            compare(old.lock(contentComponent, manual), "refused: lock=released");
+            compare(old.unlockFor(1000), "refused: lock=released");
+            let lockedAtRemoval = null;
+            const removed = () => { if (owner.lockContent === null) lockedAtRemoval = owner.lockRequested; };
+            owner.lockContentChanged.connect(removed);
+            disposeCurrent();
+            owner.lockContentChanged.disconnect(removed);
+            compare(lockedAtRemoval, true);
+            compare(holder.locked, true);
+            compare(holder.temporary, false);
+            compare(holder.unlock(), "refused: lock=released");
+        }
+
+        function markerFile() {
+            for (const child of owner.data) if (child.path === owner.releaseMarkerPath) return child;
+            fail("no release marker view");
+        }
+
+        function markerRemoval() {
+            const command = "rm -f -- " + owner.releaseMarkerPath;
+            return ProcessRegistry.processes.find(p => p.running && p.command.join(" ") === command);
+        }
+
+        // The marker is on the disk before the unlock is asked for, and
+        // goes only once the relock is confirmed.
+        function test_release_marks_before_unlock_and_clears_after_secure_relock() {
+            const holder = owner.provider({ active: true, onDispose: fn => {} });
+            compare(holder.lock(contentComponent, manual), "ok");
+            owner.lockSecure = true;
+            const file = markerFile();
+            let markedAtUnlock = null;
+            const seen = () => { if (!owner.lockRequested) markedAtUnlock = file.written; };
+            owner.lockRequestedChanged.connect(seen);
+            compare(holder.unlockFor(160), "ok");
+            owner.lockRequestedChanged.disconnect(seen);
+            verify(markedAtUnlock !== null && markedAtUnlock !== "");
+            verify(Number.isFinite(JSON.parse(markedAtUnlock).expiresAt));
+            compare(owner.releaseMarked, true);
+            owner.lockSecure = false;
+            tryCompare(owner, "lockRequested", true, 2000);
+            compare(markerRemoval(), undefined);
+            owner.lockSecure = true;
+            const removal = markerRemoval();
+            verify(removal !== undefined);
+            // A release asked for while the removal runs would lose its
+            // marker to it.
+            compare(holder.unlockFor(160), "refused: lock=busy");
+            removal.finish(0, 0);
+            compare(owner.releaseMarked, false);
+            compare(holder.unlockFor(160), "ok");
+            compare(holder.lock(contentComponent, manual), "ok");
+        }
+
+        // expected-log: capabilities: lock-release-marker=unwritten -- the planted write failure
+        function test_unwritten_marker_refuses_release() {
+            const holder = owner.provider({ active: true, onDispose: fn => {} });
+            compare(holder.lock(contentComponent, manual), "ok");
+            owner.lockSecure = true;
+            markerFile().failNextWrite = FileViewError.PermissionDenied;
+            compare(holder.unlockFor(160), "refused: lock=marker-unwritten");
+            compare(owner.lockRequested, true);
+            compare(holder.temporary, false);
+            compare(owner.releaseMarked, false);
+        }
+
+        // expected-log: capabilities: lock-release-marker=unwritten cause=readback -- the planted lost write
+        function test_lost_marker_write_refuses_release() {
+            const holder = owner.provider({ active: true, onDispose: fn => {} });
+            compare(holder.lock(contentComponent, manual), "ok");
+            owner.lockSecure = true;
+            // Reported saved, never on the disk: the read-back finds none.
+            markerFile().loseNextWrite = true;
+            compare(holder.unlockFor(160), "refused: lock=marker-unwritten");
+            compare(owner.lockRequested, true);
+            compare(holder.temporary, false);
+            compare(owner.releaseMarked, false);
+        }
+
+        function test_start_marker_locks_data() {
+            return [
+                { tag: "none", content: "", locks: false },
+                { tag: "live", content: JSON.stringify({ pid: 4242, expiresAt: Date.now() + 60000, mark: 1 }) + "\n", locks: true },
+                { tag: "stale", content: JSON.stringify({ pid: 1, expiresAt: 0, mark: 9 }) + "\n", locks: true },
+                { tag: "unparsed", content: "x", locks: true }
+            ];
+        }
+
+        // expected-log: capabilities: lock-release=recovered -- each planted marker the start reads
+        function test_start_marker_locks(data) {
+            markerFile().content = data.content;
+            owner.recoverRelease();
+            compare(owner.lockRequested, data.locks);
+            compare(owner.releaseMarked, data.locks);
+            // A recovered release shows the lock screen, as every relock
+            // that ends a release does.
+            compare(owner.lockCause, data.locks ? "release-end" : "");
+            compare(coversStub.told, data.locks ? [["release-end", false]] : []);
         }
     }
 }

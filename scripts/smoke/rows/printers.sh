@@ -818,12 +818,13 @@ def lock_ended(result):
 
 result = lock_case('lock-completed-monitor', lock_helper)
 assert lock_ended(result), result
-# Must-fail controls on copies: one ignores TERM from its startup query on
-# and exits by its own refusal; the other leaves a TERM-ignoring member in
-# the hook's group.
+# Must-fail controls on copies: one ignores TERM from its startup query on,
+# reads the stand-in's unanswered query as unconfirmed and ends by its own
+# monitor=exited refusal; the other leaves a TERM-ignoring member in the
+# hook's group.
 lock_source = lock_helper.read_text()
 for name, needle, planted, field in (
-        ('lock-control-term-ignored', 'preparing="$(timeout ', "trap '' TERM\n", 'status'),
+        ('lock-control-term-ignored', 'preparing="$(read_preparing)"', "trap '' TERM\n", 'status'),
         ('lock-control-survivor', 'coproc MONITOR ', "( trap '' TERM; exec sleep 5 ) &\n", 'groupSurvivors')):
     assert lock_source.count(needle) == 1, name
     program = root/f'{name}-sleep-watch'
