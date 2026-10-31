@@ -135,11 +135,10 @@ _updates_refuse() { # STATUS FIRST_LINE [ENGLISH...]
 # errtrace a failing command inside a substitution runs the trap there too.
 _updates_failed() { # STATUS
   [[ $BASHPID == "${_updates_pid:-}" ]] || return 0
-  printf '\n' >&2
   _updates_diagnostic "updates: failed exit=$1 log=$_updates_log"
   _updates_recheck failed
-  vgs_tui_error "The update stopped. Read the output above and try again from Updates."
-  vgs_tui_error "Select Open last log in Updates to read this run's output."
+  vgs_tui_failed "$_updates_log" "The update stopped. Read the output above and try again from Updates." \
+    "Select Open last log in Updates to read this run's output."
 }
 
 # Runs ARGV from $HOME, as vgshell pkg run runs its steps, so a project's

@@ -1758,7 +1758,7 @@ Path(sys.argv[2]).unlink()
         self.assertNotEqual(uncleared, source)
         self.assertFalse(self.cleared_after_consent(self.clone_tui_real(uncleared).stdout),
                          "must-fail control: the download started under the consent text")
-        hand_printed = source.replace("vgs_tui_text '\"The quick", "printf '%s\\n' '\"The quick")
+        hand_printed = source.replace(":\"$'\\n\\n''\"The quick", ":\"; printf '%s\\n' '' '\"The quick")
         self.assertNotEqual(hand_printed, source)
         self.assertFalse(self.recording_text_at_edge(self.clone_tui_real(hand_printed).stdout),
                          "must-fail control: the sample printed past the library kept the edge")

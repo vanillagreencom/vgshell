@@ -71,8 +71,11 @@
 #     gum-env=default-unavailable exit=<n>` and exports none;
 #   - VGS_TUI_LIB, this checkout's bin/lib/tui.sh, and VGS_TUI_LOGO, its
 #     bin/lib/logo.txt;
-#   - under the full presentation, VGS_TUI_GAP_LEFT=1: the blank row under
-#     the logo stands, so the library's first block draws no second one;
+#   - VGS_TUI_MARK, the window's blank row mark that bin/lib/tui.sh keeps,
+#     a private file under $XDG_RUNTIME_DIR that present removes when it
+#     exits; under the full presentation it marks the blank row under the
+#     logo, so the first block draws no second one. Without the file,
+#     unset when mktemp fails, every block draws its own row;
 #   - with --plugin, VGS_PLUGIN_ID and VGS_PLUGIN_DIR, a private copy of the
 #     whole snapshot under $XDG_RUNTIME_DIR that present removes when it
 #     exits, so a `vgshell restart`, which removes the snapshot, cannot pull a
@@ -683,13 +686,14 @@ present_exit() {
   local status=$?
   [[ -z $copy_dir ]] || rm -rf -- "$copy_dir"
   [[ -z $fail_marker ]] || rm -f -- "$fail_marker"
+  [[ -z $mark_file ]] || rm -f -- "$mark_file"
   if [[ $record_active == 1 ]]; then record_end "${ran_code:-$status}"; fi
   [[ -z $run_lock ]] || rm -f -- "$run_lock"
 }
 
 present() {
   local code refusal=""
-  copy_dir="$engine_copy" record_fd="" run_fd="" run_lock="" record_active=0 ran_code="" stem="" started_at="" fail_marker=""
+  copy_dir="$engine_copy" record_fd="" run_fd="" run_lock="" record_active=0 ran_code="" stem="" started_at="" fail_marker="" mark_file=""
   trap present_exit EXIT
   if [[ -n $engine_source ]]; then copy_engine; copy_dir="$engine_copy"; fi
   trap 'exit 129' HUP
@@ -700,6 +704,7 @@ present() {
   if [[ -n $plugin_id && -n $record_key ]]; then rm -f -- "${window_dir:?}/${record_key%%/*}@"*.failed; fi
   export_gum_env
   export VGS_TUI_LIB="$lib" VGS_TUI_LOGO="$logo"
+  if mark_file="$(mktemp -p "$rt_dir" vgs-tui-mark.XXXXXXXX 2>/dev/null)"; then export VGS_TUI_MARK="$mark_file"; else mark_file=""; unset VGS_TUI_MARK; fi
   if [[ -n $plugin_id ]]; then
     export VGS_PLUGIN_ID="$plugin_id"
     if copy_plugin; then export VGS_PLUGIN_DIR="$copy_dir"; else unset VGS_PLUGIN_DIR; fi
@@ -713,7 +718,7 @@ present() {
     printf -v edge '%*s' "$_vgs_tui_edge" ''
     (( ${#logo_lines[@]} == 0 )) || printf '%s\n' "${logo_lines[@]/#/$edge}"
     printf '\033[0m\n'
-    export VGS_TUI_GAP_LEFT=1
+    _vgs_tui_mark here
   fi
   if [[ -n $refusal ]]; then
     printf 'vgshell-tui: refused: %s\nVGS cannot prepare the files for this task. Close this window and try again. If it still fails, report the details above.\n' "$refusal" >&2

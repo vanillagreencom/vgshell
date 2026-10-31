@@ -4,11 +4,13 @@
 # a fresh bash with an explicit environment and runs one snippet: stub gum, sudo, uname and hyprctl record their arguments or answer
 # as the row sets. A row that needs no terminal runs under `setsid --wait`,
 # a session with no controlling terminal; one that needs a terminal runs on
-# a pseudo-terminal script(1) opens.
+# a pseudo-terminal script(1) opens. The rows that read the blank row
+# between blocks off the screen run in a private tmux server with the
+# host's gum, some under bin/vgshell-tui present.
 set -euo pipefail
 
 source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgshell-rows.sh"
-for tool in script setsid flock timeout gum; do
+for tool in script setsid flock timeout gum tmux; do
   command -v "$tool" >/dev/null || { echo "test-tui: status=not-measured missing=$tool"; exit 77; }
 done
 lib="$repo/bin/lib/tui.sh"
@@ -191,35 +193,240 @@ on_tty 'vgs_tui_confirm "Remove it?"'
 check "a confirm without caller flags still aligns gum" test "$(cat "$tmp/gum")" == "$(printf '%s\n' confirm "${confirm_margins[@]}" -- "$(confirm_prompt "Remove it?")")"
 check "a confirm answers gum's no" test "$status" == 1
 rm -f -- "$tmp/gum-exit"
-# gum erases an answered question but not the blank line above it, which
-# the next question or step keeps as its own.
-gap_after_questions() { on_tty 'vgs_tui_confirm "Remove it?"; vgs_tui_confirm "Sure?"; vgs_tui_step "Removing"'; starts_one_blank "$tmp/out"; }
-gap_after_text() {
-  on_tty 'vgs_tui_confirm "Remove it?"; vgs_tui_text "Kept."; vgs_tui_step "Removing"'
-  test "$(tr -d '\r' <"$tmp/out")" == $'\n'"${edge}Kept."$'\n\n'"$edge${esc}[32m${esc}[1mRemoving${esc}[0m"
+# The blank row between blocks, read from the screen. Each row runs a
+# fixture in a new 80 by 24 pane of a private tmux server, on a socket in
+# the scratch directory, with the host's gum answered through send-keys;
+# the pane's text, read once the fixture wrote $DONE, is the oracle. The
+# fixture's stderr stays on the pane, since gum draws there when its
+# stdout is captured. Every input has a value: gum 2.0.2 renders a
+# placeholder only without one, and panics doing so in tmux.
+cat >"$tmp/screen.sh" <<'SH'
+source "${LIB:-$VGS_TUI_LIB}"
+# The questions, each ending with the blank row above it standing.
+ask() { # KIND
+  case "$1" in
+    confirm) vgs_tui_confirm Pick? ;;
+    choose) vgs_tui_choose --header Pick alpha beta ;;
+    input) vgs_tui_input --header Pick --value alpha ;;
+    filter) vgs_tui_filter --header Pick --value al < <(printf 'alpha\nbeta\n') ;;
+  esac
 }
-check "two questions and a step after them share one blank line" gap_after_questions
-check "a step after a line under a question keeps its own blank line" gap_after_text
-gap_after_split() { # COMMAND: a question, a split COMMAND, then a step; output in $tmp/out
-  on_tty "vgs_tui_confirm 'Remove it?'; vgs_tui_split $(printf %q "$tmp/gap-split.log") jarvis-setup $1; vgs_tui_step Removing"
-  tr -d '\r' <"$tmp/out" >"$tmp/gap-split.out"
+# next SNIPPET: SNIPPET in a script of its own, as a script a script runs.
+next() { "$BASH" -c 'source "${LIB:-$VGS_TUI_LIB}"; eval "$1"' next "$1"; }
+export -f ask
+# hold FILE: wait for the driver to make FILE, 20 s at most.
+hold() { local n; for ((n = 0; n < 400; n++)); do [[ -e $1 ]] && return 0; sleep 0.05; done; return 1; }
+# await: hold until the driver has done what the row asks, such as a resize.
+await() { : >"$GO.held"; hold "$GO"; }
+eval "$1"
+: >"$DONE"
+# The pane stays until its screen is read.
+hold "$GO.end"
+SH
+mkdir -p "$tmp/screen-state/vgshell/theme"
+: >"$tmp/screen-state/vgshell/theme/gum.env"
+printf '%s\n' 'set -g status off' >"$tmp/tmux.conf"
+screen_env=("${lib_env[@]}" PATH="$tmp/real-gum:$base_path" TERM=xterm-256color)
+# The socket's path is relative to the scratch directory, since a socket's
+# whole path must fit in 108 bytes.
+tmx() { (cd -- "$tmp" && "${screen_env[@]}" tmux -S tmux.sock -f tmux.conf "$@"); }
+screen_text() { tmx capture-pane -p -t screen | sed -e 's/[[:space:]]*$//'; }
+# screen_poll TEST...: until TEST passes, 10 s at most.
+screen_poll() {
+  local n
+  for ((n = 0; n < 200; n++)); do
+    "$@" && return 0
+    sleep 0.05
+  done
+  return 1
 }
-gap_after_quiet_split() { gap_after_split "echo 'jarvis-setup: step=quiet'" && starts_one_blank "$tmp/gap-split.out"; }
-gap_after_split_line() { gap_after_split "echo shown" && test "$(cat "$tmp/gap-split.out")" == $'\n'"${edge}shown"$'\n\n'"$edge${esc}[32m${esc}[1mRemoving${esc}[0m"; }
-check "a step after a split that showed nothing shares the question's blank line" gap_after_quiet_split
-check "a step after a split that showed a line keeps its own blank line" gap_after_split_line
-cleared_step() { on_tty 'vgs_tui_clear; vgs_tui_step "Removing"'; test "$(tr -d '\r' <"$tmp/out")" == "${esc}[H${esc}[2J$edge${esc}[32m${esc}[1mRemoving${esc}[0m"; }
-check "a step on a cleared screen starts on its first row" cleared_step
-# bin/vgshell-tui hands the blank row under its logo to the first script
-# that sources the library, as VGS_TUI_GAP_LEFT=1, and to that script's
-# logged run.
-logo_gap_header() { rm -f -- "$tmp/gum"; run 'vgs_tui_header "-Title" "a line"' VGS_TUI_GAP_LEFT=1; [[ ! -s $tmp/out && -s $tmp/gum ]]; }
-logo_gap_spent() { run 'printenv VGS_TUI_GAP_LEFT || echo unset' VGS_TUI_GAP_LEFT=1; test "$(cat "$tmp/out")" == unset; }
-printf 'source "$LIB"\nvgs_tui_log %q\nvgs_tui_header "-Title"\n' "$tmp/gap.log" >"$tmp/logged-gap.sh"
-logo_gap_logged() { "${lib_env[@]}" LIB="$LIB" VGS_TUI_GAP_LEFT=1 "$BASH" "$tmp/logged-gap.sh" </dev/null >"$tmp/out" 2>&1 && test ! -s "$tmp/out"; }
-check "a header under the logo draws no blank line" logo_gap_header
-check "the logo's mark reaches no program the script runs" logo_gap_spent
-check "a logged script's header under the logo draws no blank line" logo_gap_logged
+screen_shows() { [[ $(screen_text) == *"$1"* ]]; }
+# screen_run COMMAND [STEP...]: COMMAND in the pane, then each STEP in turn:
+# wait=TEXT, until the pane shows TEXT; keys=KEY, typed; held, until the
+# fixture awaits; resize=COLS, the pane's new width; go, which ends the
+# await. The pane's text lands in $tmp/screen; fails when a wait or $DONE
+# never comes. The rows read LIB, the library under test, and PRESENTER.
+screen_run() {
+  local command="$1" step status=0
+  shift
+  rm -f -- "${tmp:?}/screen-done" "$tmp/screen-go" "$tmp/screen-go.held" "$tmp/screen-go.end" "$tmp/screen.log.step" "$tmp/screen.log.answer"
+  : >"$tmp/screen-mark"
+  tmx new-session -d -s screen -x 80 -y 24 -e "LIB=$LIB" -e "DONE=$tmp/screen-done" -e "GO=$tmp/screen-go" \
+    -e "VGS_TUI_MARK=$tmp/screen-mark" -e "LOG=$tmp/screen.log" -e "XDG_STATE_HOME=$tmp/screen-state" -e "PRESENTER=$PRESENTER" "$command"
+  for step; do
+    case "$step" in
+      wait=*) screen_poll screen_shows "${step#wait=}" || status=1 ;;
+      keys=*) tmx send-keys -t screen "${step#keys=}" ;;
+      held) screen_poll test -e "$tmp/screen-go.held" || status=1 ;;
+      resize=*) tmx resize-window -t screen -x "${step#resize=}" ;;
+      go) : >"$tmp/screen-go" ;;
+    esac
+  done
+  screen_poll test -e "$tmp/screen-done" || status=1
+  screen_text >"$tmp/screen"
+  : >"$tmp/screen-go.end"
+  tmx kill-server 2>/dev/null || :
+  return "$status"
+}
+# The screen's blocks, top to bottom, joined by `/`: `-` for a blank row,
+# `box` for a header's box, `logo` for the logo, otherwise the row's text
+# without its indent. The blank rows under the last block are left out.
+screen_shape() {
+  python3 - "$tmp/screen" <<'PY'
+import sys
+tokens = []
+for line in open(sys.argv[1], encoding="utf-8").read().split("\n"):
+    token = "-" if not line else "box" if line[0] in "┌│└" else "logo" if "█" in line or "░" in line else line.strip()
+    if not (tokens and token in ("box", "logo") and tokens[-1] == token):
+        tokens.append(token)
+while tokens and tokens[-1] == "-":
+    tokens.pop()
+print("/".join(tokens))
+PY
+}
+fixture() { printf '%q %q %q' "$BASH" "$tmp/screen.sh" "$1"; } # SNIPPET
+presented() { printf '"$PRESENTER" present --presentation %q -- %q %q %q' "$1" "$BASH" "$tmp/screen.sh" "$2"; } # full|plain SNIPPET
+PRESENTER="$repo/bin/vgshell-tui"
+
+# One answered question of each kind, asked in the writer's own process,
+# in the substitution its caller reads the answer from, in the script
+# before the writer's, and in a vgs_tui_log run, then a block or a line:
+# one blank row stands between the line above the question and the next.
+# Rows: question | place | writer
+screen_names=() screen_wants=() screen_commands=() screen_steps=()
+screen_row() { screen_names+=("$1"); screen_wants+=("$2"); screen_commands+=("$3"); screen_steps+=("$4"); } # NAME WANT COMMAND STEPS
+for row in "confirm same warn" "confirm subst step" "confirm next text" "confirm logged error" \
+  "choose same step" "choose subst question" "choose next header" "choose logged warn" \
+  "input same success" "input subst step" "input next warn" "input logged step" \
+  "filter same header" "filter subst success" "filter next step" "filter logged text"; do
+  read -r kind place writer <<<"$row"
+  question="ask $kind >/dev/null" write="vgs_tui_$writer Next" want="Kept./-/Next" steps="wait=Pick keys=Enter"
+  [[ $place == same ]] || question="a=\"\$(ask $kind)\""
+  [[ $writer != header ]] || want="Kept./-/box"
+  [[ $writer != question ]] || { write="vgs_tui_confirm Next?; vgs_tui_text Next"; steps+=" wait=Next? keys=Enter"; }
+  [[ $place != next ]] || question="next 'ask $kind >/dev/null'" write="next '$write'"
+  logged=""
+  [[ $place != logged ]] || logged='vgs_tui_log "$LOG" "$@"; '
+  screen_row "$kind/$place/$writer" "$want" "$(fixture "${logged}vgs_tui_text Kept.; $question; $write")" "$steps"
+done
+# A program's own output after a question: none, a line, a part of one;
+# sudo's password prompt; the closing prompt; a full screen, on whose last
+# row a filter leaves the cursor; an editor on the alternate
+# screen; a resize before the next block, which draws the row; a cleared
+# screen; the logo above the first script's block and above a nested
+# script's; the plain presentation's own closing prompt under a failed
+# program that printed nothing, as Dev Tools' run_plain shows it.
+done_prompt="● Done. Press any key to close." failed_prompt="● The task failed. Press any key to close."
+screen_row quiet-close "Kept./-/$done_prompt" "$(fixture 'vgs_tui_text Kept.; vgs_tui_confirm Pick?; true; vgs_tui_close_prompt 0 "$GO.none"')" "wait=Pick keys=Enter"
+screen_row loud-step "Kept./-/program-line/-/Next" "$(fixture 'vgs_tui_text Kept.; a="$(ask choose)"; echo program-line; vgs_tui_step Next')" "wait=Pick keys=Enter"
+screen_row loud-close "Kept./-/program-line/-/$failed_prompt" "$(fixture 'vgs_tui_text Kept.; vgs_tui_confirm Pick?; echo program-line; vgs_tui_close_prompt 1 "$GO.none"')" "wait=Pick keys=Enter"
+screen_row part-step "Kept./-/part/-/Next" "$(fixture 'vgs_tui_text Kept.; ask input >/dev/null; printf part; vgs_tui_step Next')" "wait=Pick keys=Enter"
+screen_row sudo-close "Kept./-/[sudo] password for amelie:/-/$done_prompt" "$(fixture 'vgs_tui_text Kept.; vgs_tui_confirm Pick?; printf "[sudo] password for amelie: " >/dev/tty; IFS= read -rs _ </dev/tty; printf "\n" >/dev/tty; vgs_tui_close_prompt 0 "$GO.none"')" "wait=Pick keys=Enter wait=password keys=secret keys=Enter"
+screen_row bottom-step "*/f24/-/program-line/-/Next" "$(fixture 'for i in {1..24}; do vgs_tui_text "f$i"; done; a="$(ask filter)"; echo program-line; vgs_tui_step Next')" "wait=Pick keys=Enter"
+screen_row editor-step "Kept./-/Next" "$(fixture 'vgs_tui_text Kept.; a="$(ask choose)"; printf "\033[?1049h\033[Hediting" >/dev/tty; IFS= read -rsn 1 _ </dev/tty; printf "\033[?1049l" >/dev/tty; vgs_tui_step Next')" "wait=Pick keys=Enter wait=editing keys=q"
+screen_row resize-step "Kept./-/-/Next" "$(fixture 'vgs_tui_text Kept.; vgs_tui_confirm Pick?; await; vgs_tui_step Next')" "wait=Pick keys=Enter held resize=70 go"
+screen_row clear-step "Next" "$(fixture 'vgs_tui_text Kept.; vgs_tui_clear; vgs_tui_step Next')" ""
+screen_row logo-header "logo/-/box" "$(presented full 'vgs_tui_header Title')" ""
+screen_row logo-nested-header "logo/-/box" "$(presented full 'next "vgs_tui_header Title"')" ""
+screen_row plain-close "Kept./-/$failed_prompt" "$(presented plain 'vgs_tui_text Kept.; a="$(ask filter)"; false || vgs_tui_close_prompt 1 "$GO.none"')" "wait=Pick keys=Enter"
+# screen_case NAME: the row's screen against its shape; the shape read in
+# $tmp/shape. A shape starting with */ need only end the screen.
+screen_case() {
+  local i want steps=()
+  for i in "${!screen_names[@]}"; do [[ ${screen_names[i]} == "$1" ]] && break; done
+  [[ ${screen_names[i]} == "$1" ]] || { echo "test-tui: screen-row=$1 unknown" >&2; return 1; }
+  read -r -a steps <<<"${screen_steps[i]}"
+  : >"$tmp/shape"
+  screen_run "${screen_commands[i]}" "${steps[@]}" || return 1
+  screen_shape >"$tmp/shape"
+  want="${screen_wants[i]}"
+  case "$want" in
+    \*/*) [[ $(cat "$tmp/shape") == *"/${want#\*/}" ]] ;;
+    *) [[ $(cat "$tmp/shape") == "$want" ]] ;;
+  esac
+}
+for name in "${screen_names[@]}"; do
+  if screen_case "$name"; then ok "one blank row between blocks on screen: $name"
+  else fail "the blocks on screen for $name: $(cat "$tmp/shape")"; fi
+done
+# The presenter removes the window's mark once it exits.
+mark_left() { compgen -G "$rt/vgs-tui-mark.*" >/dev/null; }
+check "the presenter leaves no mark behind" screen_poll eval '! mark_left'
+
+# A key typed before an opener stays queued for the next question, whose
+# answer it reaches; the screen keeps the typed key's echo.
+typeahead_row() {
+  screen_run "$(fixture 'vgs_tui_text Kept.; vgs_tui_confirm Pick?; await; vgs_tui_step Next; a="$(vgs_tui_input --value v)"; printf %s "$a" >"$LOG.answer"')" \
+    wait=Pick keys=Enter held keys=xy go wait=vxy keys=Enter
+  [[ $(cat "$tmp/screen.log.answer" 2>/dev/null) == vxy ]]
+}
+check "a key typed before a block reaches the next question" typeahead_row
+# An opener whose stream is no terminal, as a log capture's, draws the row
+# there and asks the terminal nothing: the log starts with one blank line.
+captured_row() {
+  screen_run "$(fixture 'vgs_tui_text Kept.; vgs_tui_confirm Pick?; vgs_tui_step Next >"$LOG.step"')" wait=Pick keys=Enter &&
+    starts_one_blank "$tmp/screen.log.step"
+}
+check "a block captured in a log starts with the blank row" captured_row
+# With no terminal at all the mark is only read, then emptied.
+run 'printf "3 24 80\n" >"$VGS_TUI_MARK"; vgs_tui_step Next; [[ ! -s $VGS_TUI_MARK ]] && echo emptied' VGS_TUI_MARK="$tmp/no-terminal-mark"
+check "a block with no terminal draws the blank row and empties the mark" test "$(cat "$tmp/out")" == $'\n'"$edge${esc}[32m${esc}[1mNext${esc}[0m"$'\n'emptied
+# A terminal that never answers, a pseudo-terminal script(1) opens with no
+# emulator behind it: a step, three questions the stub gum answers and a
+# step all draw, each with its blank row; the window asks the terminal
+# where the cursor is once, never again after it stayed silent; the run
+# ends well inside 15 s, a bound on a hang and not a timing; and the
+# terminal's settings are as they were.
+silent_row() {
+  status=0
+  "${lib_env[@]}" VGS_TUI_MARK="$tmp/silent-mark" timeout 15 script -qec "$(printf '%q ' "$BASH" -c "source $(printf '%q' "$LIB"); printf '3 0 0\n' >\"\$VGS_TUI_MARK\"; before=\"\$(stty -g </dev/tty)\"; vgs_tui_step Next; for q in 1 2 3; do vgs_tui_confirm Q; done; vgs_tui_step Next; [[ \$(stty -g </dev/tty) == \"\$before\" ]] && echo restored")" /dev/null \
+    </dev/null >"$tmp/out" 2>&1 || status=$?
+  [[ $status == 0 && "$(grep -o $'\e\\[6n' "$tmp/out" | wc -l)" == 1 &&
+    "$(tr -d '\r' <"$tmp/out" | sed -e $'s/\e\\[[0123456789;?]*[a-zA-Z]//g')" == $'\n'"${edge}Next"$'\n\n\n\n\n'"${edge}Next"$'\n'restored ]]
+}
+check "a terminal that never answers still gets every block and its blank row" silent_row
+# A terminal that answers 0.5 s late, a pseudo-terminal whose other end
+# answers the cursor and attribute requests after that delay: its answer
+# neither ends the closing prompt, which waits for the key typed 1 s
+# later, nor stays queued for the next read.
+cat >"$tmp/late.py" <<'PY'
+import os, pty, select, sys, time
+
+bash, snippet = sys.argv[1], sys.argv[2]
+pid, fd = pty.fork()
+if pid == 0:
+    os.execv(bash, [bash, "-c", snippet])
+out, reply_at, key_at, keyed = b"", None, None, False
+deadline = time.monotonic() + 10
+while time.monotonic() < deadline:
+    if select.select([fd], [], [], 0.02)[0]:
+        try:
+            data = os.read(fd, 4096)
+        except OSError:
+            data = b""
+        if not data:
+            break
+        out += data
+    now = time.monotonic()
+    if reply_at is None and b"\x1b[6n\x1b[c" in out:
+        reply_at = now + 0.5
+    if reply_at is not None and key_at is None and now >= reply_at:
+        os.write(fd, b"\x1b[3;1R\x1b[?1;2c")
+        key_at = now + 1.0
+    if key_at is not None and not keyed and now >= key_at:
+        if b"PROMPT-ENDED" in out:
+            print("late: prompt=ended-without-key")
+            sys.exit(1)
+        os.write(fd, b"k")
+        keyed = True
+os.waitpid(pid, 0)
+sys.exit(0 if keyed and b"PROMPT-ENDED" in out and b"QUEUE=none" in out else 1)
+PY
+late_row() {
+  "${lib_env[@]}" VGS_TUI_MARK="$tmp/late-mark" timeout 15 python3 "$tmp/late.py" "$BASH" "source $(printf '%q' "$LIB"); printf '3 0 0\n' >\"\$VGS_TUI_MARK\"; vgs_tui_close_prompt 1; echo PROMPT-ENDED; if IFS= read -rsn 1 -t 0.5 _ </dev/tty; then echo QUEUE=found; else echo QUEUE=none; fi" \
+    </dev/null >"$tmp/out" 2>&1
+}
+check "a late answer neither closes the prompt nor stays queued" late_row
 # Every colour a yes-or-no question draws, against the colour under it,
 # meets 4.5 to 1, the WCAG ratio for text, on vgs dark and flexoki-light.
 # The host's gum draws the question through the library on an 80-column
@@ -800,7 +1007,8 @@ import sys
 
 text = open(sys.argv[1], encoding="utf-8").read().replace("\r\n", "\n")
 path = sys.argv[2]
-rows = [re.sub(r"\x1b\[[0-9;:]*m", "", line) for line in text.splitlines()]
+assert text.startswith("\n") and not text.startswith("\n\n"), text
+rows = [re.sub(r"\x1b\[[0-9;:]*m", "", line) for line in text[1:].splitlines()]
 assert rows and all(row.startswith("   ") and len(row) <= 77 for row in rows), rows
 shown = [row[3:] for row in rows]
 assert "".join(shown) == "The details are in" + path + ".", shown
@@ -1039,9 +1247,6 @@ control joins-the-dead '&& kill -0 "$outer" 2>/dev/null; then' '; then'
 check "the joins-the-dead mutant fails a nested row" test "$(nested_rows quiet && echo green || echo red)" == red
 control unguarded 'guard) _vgs_tui_sudo_traps ;;' 'guard) ;;'
 check "the unguarded mutant fails a guard row" test "$(guard_rows quiet && echo green || echo red)" == red
-control no-header-blank "_vgs_tui_header_gap() { _vgs_tui_gap; }" "_vgs_tui_header_gap() { :; }"
-run 'vgs_tui_header "-Title" "a line"'
-check "the no-header-blank mutant fails the header blank row" test "$(starts_one_blank "$tmp/out" && echo green || echo red)" == red
 control no-bold-header "printf -v title '\\033[1m%s\\033[0m' \"\$title_line\"" 'title="$title_line"'
 run 'vgs_tui_header "-Title" "a line"'
 check "the no-bold-header mutant fails the header argv row" test "$(cat "$tmp/gum")" != "$(printf '%s\n' style --border normal --padding "1 2" -- $'\033[1m-Title\033[0m' "a line")"
@@ -1055,25 +1260,40 @@ run 'vgs_tui_header "-Title" "a line"'
 check "the columns-loud-without-terminal mutant fails the quiet header row" test -s "$tmp/err"
 control header-always-fills '(( ${#line} + 6 > columns ))' 'true'
 check "the header-always-fills mutant fails the fitting header row" test "$(header_row 100 FITS && echo green || echo red)" == red
-control gap-never-left '  _vgs_tui_gap_left=1' '  :'
-check "the gap-never-left mutant fails the shared blank line row" test "$(gap_after_questions && echo green || echo red)" == red
-control gap-kept-after-text '  local lines=() line pad' '  local lines=() line pad _vgs_tui_gap_left'
-check "the gap-kept-after-text mutant fails the blank line after text row" test "$(gap_after_text && echo green || echo red)" == red
-control split-always-shown '    [[ -n $shown ]] || exit 4' '    :'
-check "the split-always-shown mutant fails the quiet split row" test "$(gap_after_quiet_split && echo green || echo red)" == red
-control split-keeps-mark '  [[ ${piped[1]} == 4 ]] || _vgs_tui_gap_left=""' '  :'
-check "the split-keeps-mark mutant fails the shown split row" test "$(gap_after_split_line && echo green || echo red)" == red
-control clear-leaves-blank "printf '\\033[H\\033[2J'; _vgs_tui_gap_left=1; }" "printf '\\033[H\\033[2J'; }"
-check "the clear-leaves-blank mutant fails the cleared screen row" test "$(cleared_step && echo green || echo red)" == red
-control logo-gap-unread '_vgs_tui_gap_left="${VGS_TUI_GAP_LEFT:-}"' '_vgs_tui_gap_left=""'
-check "the logo-gap-unread mutant fails the logo header row" test "$(logo_gap_header && echo green || echo red)" == red
-control logo-gap-kept 'unset VGS_TUI_GAP_LEFT' ':'
-check "the logo-gap-kept mutant fails the spent mark row" test "$(logo_gap_spent && echo green || echo red)" == red
-control logo-gap-unlogged ' VGS_TUI_GAP_LEFT="$_vgs_tui_gap_left" SHELL' ' SHELL'
-check "the logo-gap-unlogged mutant fails the logged logo header row" test "$(logo_gap_logged && echo green || echo red)" == red
-control no-prompt-blank "_vgs_tui_prompt_gap() { _vgs_tui_gap >&2; }" "_vgs_tui_prompt_gap() { :; }"
-on_tty 'vgs_tui_confirm "Remove it?"'
-check "the no-prompt-blank mutant fails the prompt blank row" test "$(starts_one_blank "$tmp/out" && echo green || echo red)" == red
+# The blank row's controls, one for each kind of site, each against the
+# screen it must get wrong.
+control opener-ignores-mark '  if [[ $mark =~' '  if false && [[ $mark =~'
+check "the opener-ignores-mark mutant fails the choice then step screen" test "$(screen_case choose/same/step && echo green || echo red)" == red
+control question-unmarked '  _vgs_tui_mark here' '  :'
+check "the question-unmarked mutant fails the choice then step screen" test "$(screen_case choose/same/step && echo green || echo red)" == red
+control unprobed 'status=0; at="$(_vgs_tui_cursor)"' 'status=0; at="${mark%% *} 1 ${mark#* }"'
+check "the unprobed mutant fails the program output then step screen" test "$(screen_case loud-step && echo green || echo red)" == red
+control no-reserve "if { printf '\\033D\\033M' >/dev/tty; } 2>/dev/null; then" 'if true; then'
+check "the no-reserve mutant fails the full screen's program output then step screen" test "$(screen_case bottom-step && echo green || echo red)" == red
+control size-free '[[ "$row $size" != "$mark" ]]' '[[ "$row" != "${mark%% *}" ]]'
+check "the size-free mutant fails the resize then step screen" test "$(screen_case resize-step && echo green || echo red)" == red
+control clear-unmarked '_vgs_tui_mark top' ':'
+check "the clear-unmarked mutant fails the cleared screen" test "$(screen_case clear-step && echo green || echo red)" == red
+control done-row-literal "    printf '%*s%s● \\033[0mDone." "    printf '\\n%*s%s● \\033[0mDone."
+check "the done-row-literal mutant fails the quiet program then closing prompt screen" test "$(screen_case quiet-close && echo green || echo red)" == red
+control unbounded-probe '-d c -t "$left" more' '-d c more'
+check "the unbounded-probe mutant fails the silent terminal row" test "$(silent_row && echo green || echo red)" == red
+control silent-forgotten '  [[ $held != silent ]] || return 0' ''
+check "the silent-forgotten mutant fails the silent terminal row" test "$(silent_row && echo green || echo red)" == red
+control short-read '+ 1000000 ))' '+ 300000 ))'
+check "the short-read mutant, the first build's 0.3 s read, fails the late answer row" test "$(late_row && echo green || echo red)" == red
+control typeahead-read '  if read -r -t 0 <&"$tty"; then' '  if false; then'
+check "the typeahead-read mutant fails the typed key row" test "$(typeahead_row && echo green || echo red)" == red
+control probes-capture ' && -t 1 ]]' ' ]]'
+check "the probes-capture mutant fails the captured block row" test "$(captured_row && echo green || echo red)" == red
+LIB="$lib"
+copy_with presenter-unmarked "$repo/bin/vgshell-tui" '    _vgs_tui_mark here' '    :'
+mkdir -p "$tmp/presenter-unmarked/bin"
+install -m 0755 -- "$copy" "$tmp/presenter-unmarked/bin/vgshell-tui"
+ln -s -- "$repo/bin/lib" "$tmp/presenter-unmarked/bin/lib"
+PRESENTER="$tmp/presenter-unmarked/bin/vgshell-tui"
+check "the presenter-unmarked mutant fails the logo then header screen" test "$(screen_case logo-header && echo green || echo red)" == red
+PRESENTER="$repo/bin/vgshell-tui"
 control confirm-margins-at-zero 'margin="0 0 0 $_vgs_tui_edge"' 'margin="0 0 0 0"'
 check "the confirm-margins-at-zero mutant fails the confirm edge row" test "$(edge_row "$copy" confirm && echo green || echo red)" == red
 control question-unwrapped '_vgs_tui_lines lines "$(_vgs_tui_width)" "$question"' 'lines=("$question")'
@@ -1083,7 +1303,7 @@ check "the split-passes-through mutant fails the lines edge row" test "$(edge_ro
 control text-unwrapped '_vgs_tui_print "" "$*"' 'printf '\''%s\n'\'' "$*"'
 check "the text-unwrapped mutant fails the lines edge row" test "$(edge_row "$copy" lines && echo green || echo red)" == red
 for mode in choose input filter; do
-  control "$mode-unpadded" "gum $mode --padding \"0 0 0 \$_vgs_tui_edge\"" "gum $mode"
+  control "$mode-unpadded" "_vgs_tui_ask $mode --padding \"0 0 0 \$_vgs_tui_edge\"" "_vgs_tui_ask $mode"
   check "the $mode-unpadded mutant fails the $mode edge row" test "$(edge_row "$copy" "$mode" && echo green || echo red)" == red
 done
 control break-keeps-space 'then _vgs_tui_out+=("$cur"); cur="" cur_n=0; fi' 'then _vgs_tui_out+=("$cur"); cur="$gap" cur_n=${#gap}; fi'
@@ -1092,14 +1312,14 @@ control no-slash-break 'if [[ $piece == */* ]] &&' 'if false &&'
 check "the no-slash-break mutant fails the path wrap row" test "$(path_wrap_row && echo green || echo red)" == red
 control wide-part-at-slash '(( next_n > 0 && tail_n + next_n <= width ))' '(( next_n > 0 ))'
 check "the wide-part-at-slash mutant fails the path wrap row" test "$(path_wrap_row && echo green || echo red)" == red
-control gum-help-shown 'GUM_CONFIRM_SHOW_HELP=false gum confirm' 'gum confirm'
+control gum-help-shown 'GUM_CONFIRM_SHOW_HELP=false _vgs_tui_ask confirm' '_vgs_tui_ask confirm'
 check "the gum-help-shown mutant fails the vgs-dark contrast row" test "$(contrast_row "${contrast_themes[0]}" && echo green || echo red)" == red
 control help-low-colour '"$(vgs_tui_sgr "${GUM_PAGER_HELP_FOREGROUND:-}" 39)"' '"$(vgs_tui_sgr "#3a3a3a" 39)"'
 check "the help-low-colour mutant fails the vgs-dark contrast row" test "$(contrast_row "${contrast_themes[0]}" && echo green || echo red)" == red
 # The layout's control: the help printed on its own line above the
 # question, gum's prompt the question alone.
 copy_with help-above-question-1 "$lib" '"$@" -- "$question"$'"'"'\n'"'"'"$help"' '"$@" -- "$question"'
-copy_with help-above-question "$copy" '  _vgs_tui_prompt_gap' '  _vgs_tui_prompt_gap; printf '"'"'%s\n'"'"' "$help" >/dev/tty'
+copy_with help-above-question "$copy" '  GUM_CONFIRM_SHOW_HELP=false _vgs_tui_ask confirm' '  printf '"'"'%s\n'"'"' "$help" >/dev/tty; GUM_CONFIRM_SHOW_HELP=false _vgs_tui_ask confirm'
 LIB="$copy"
 check "the help-above-question mutant fails the layout row" test "$(layout_row "${contrast_themes[0]}" && echo green || echo red)" == red
 control accent-success '"$(vgs_tui_sgr "${VGS_TUI_SUCCESS:-}" 32)" "$*"' '"$(vgs_tui_sgr "${VGS_TUI_ACCENT:-}" 32)" "$*"'
@@ -1109,7 +1329,7 @@ control stderr-on-screen '"$@" 2>>"$file"' '"$@"'
 check "the stderr-on-screen mutant fails the cause log row" test "$(logged_row && echo green || echo red)" == red
 control split-key-on-screen '            printf '\''%s\n'\'' "$segment" >&"$fd" || exit 1' '            printf '\''%s\n'\'' "$segment" || exit 1'
 check "the split-key-on-screen mutant fails the split row" test "$(split_row && echo green || echo red)" == red
-control split-status-lost 'status=${piped[0]}' 'status=0'
+control split-status-lost 'status=${PIPESTATUS[0]}' 'status=0'
 check "the split-status-lost mutant fails the split row" test "$(split_row && echo green || echo red)" == red
 control split-fd-inherited '( exec {fd}>&-; "$@" ) 2>&1' '( "$@" ) 2>&1'
 check "the split-fd-inherited mutant fails the split descriptor row" test "$(split_fd_row && echo green || echo red)" == red

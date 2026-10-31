@@ -16,18 +16,18 @@
 # spaces before the same edge on the right; vgs_tui_split passes a redrawn
 # progress line as it is.
 #
-#   vgs_tui_header TITLE [LINE...]   one blank line, then a bordered box:
+#   vgs_tui_header TITLE [LINE...]   the blank row, then a bordered box:
 #                                    TITLE, then each LINE, wrapped to fit
 #                                    the terminal
 #   vgs_tui_clear                    clear the screen; the next block starts
-#                                    on its first row, with no blank line
+#                                    on its first row, with no blank row
 #   vgs_tui_text TEXT                TEXT in the terminal's own colour, each of
 #                                    its lines wrapped at the content edges
 #   vgs_tui_commands COMMAND...      a left-marked block, one blank marked row
 #                                    between commands; wraps at spaces with
 #                                    a continuation mark, never inside a word
-#   vgs_tui_step TEXT                a bold accent line after a blank line
-#   vgs_tui_success TEXT             a success line after a blank line
+#   vgs_tui_step TEXT                a bold accent line after the blank row
+#   vgs_tui_success TEXT             a success line after the blank row
 #   vgs_tui_warn TEXT                a warning line on stderr
 #   vgs_tui_error TEXT               an error line on stderr
 #   vgs_tui_cancelled TEXT           print TEXT and, when there is a terminal,
@@ -64,8 +64,9 @@
 #                                    lines that start with `KEY: ` to FILE, and show
 #                                    every other line on stdout; COMMAND's status
 #   vgs_tui_note FILE LINE           add LINE, a keyed cause, to the log FILE
-#   vgs_tui_failed FILE LINE...      an error line per LINE, then a line naming FILE,
-#                                    the log that holds the cause, with $HOME as ~
+#   vgs_tui_failed FILE LINE...      the blank row, an error line per LINE, then a
+#                                    line naming FILE, the log that holds the
+#                                    cause, with $HOME as ~
 #   vgs_tui_refuse FILE STATUS KEY_LINE SENTENCE...
 #                                    KEY_LINE to the log FILE, the SENTENCEs and the
 #                                    log's name on the screen, as vgs_tui_failed;
@@ -74,11 +75,32 @@
 #                                    reports none
 #   vgs_tui_reboot_check             print why a reboot is needed; 1 when none is
 #   vgs_tui_close_prompt CODE [MARKER]
-#                                    `● Done.` for 0, no word for 69, a refusal
-#                                    before anything ran, `● The task failed.`
-#                                    otherwise, and one key, or MARKER's removal
-#                                    when given, on /dev/tty; nothing for 130, a
-#                                    Ctrl-C, or with no terminal
+#                                    the blank row, then `● Done.` for 0, no word
+#                                    for 69, a refusal before anything ran,
+#                                    `● The task failed.` otherwise, and one key,
+#                                    or MARKER's removal when given, on /dev/tty;
+#                                    nothing for 130, a Ctrl-C, or with no terminal
+#
+# The blank row between blocks has one owner, _vgs_tui_gap. The window's
+# mark, `ROW ROWS COLS` in the file VGS_TUI_MARK names, says a blank row
+# stands above the cursor, left on ROW of a ROWS by COLS terminal under an
+# answered question, the logo or a cleared screen's top. bin/vgshell-tui
+# present makes the file, so every process of the window shares it.
+# _vgs_tui_mark is its one writer. An opener, the header, a step, a
+# success line, every question, the failure report and both closing
+# prompts, asks the terminal where the cursor is: still at column 1 of ROW
+# in the same size, it draws nothing; past column 1, two line feeds;
+# anywhere else one. Then it empties the mark. Output that stays on screen
+# moves the cursor, whichever program wrote it; gum, and an editor on the
+# alternate screen, erase theirs. A line, text, a warning, an error,
+# commands or a program's own, draws no blank row and leaves the mark.
+# The opener draws the one row, asking nothing it can tell first, with no
+# mark, with no terminal or a stream that is none, as a captured log, with
+# a key already typed, which stays queued for the next question, after a
+# resize, and in a window whose terminal did not answer: the mark then
+# reads `silent`, and nothing in that window asks again. A key typed in the
+# milliseconds the answer takes is read with the answer and dropped; the
+# answer itself never reaches a later reader, unless it comes after 1 s.
 
 # Character classes spelled out: a range such as [a-z] follows the collation
 # of the user's locale, which the script under the presentation keeps.
@@ -123,22 +145,86 @@ _vgs_tui_has_terminal() { : 2>/dev/null <>/dev/tty; }
 _vgs_tui_terminal() { # KEY
   _vgs_tui_has_terminal || _vgs_tui_refuse 2 "$1=no-terminal" "This task needs a terminal. Open it again from VGS."
 }
-# _vgs_tui_gap_left marks a row that already stands where a block's blank
-# line would go: the blank line above a question, which gum leaves when it
-# erases the answered question, the top of a cleared screen, or the blank
-# row under the logo, which bin/vgshell-tui hands the script it runs as
-# VGS_TUI_GAP_LEFT=1. The next blank line is then not drawn, and every
-# library write clears the mark. A line a program the script runs itself
-# writes does not clear it. The hand-off reaches only the first script that
-# sources the library, so a script that one runs draws its own blank line.
-_vgs_tui_gap_left="${VGS_TUI_GAP_LEFT:-}"
-unset VGS_TUI_GAP_LEFT
-_vgs_tui_gap() {
-  [[ -n $_vgs_tui_gap_left ]] || printf '\n'
-  _vgs_tui_gap_left=""
+# Prints `ROW COL ROWS COLS`, asked of /dev/tty; fails, asking nothing,
+# while a key waits, and exits 3 when the terminal has not answered within
+# 1 s. It reads until the device attributes answer's final `c`, past a
+# typed `c` and past a slow start, so the answers it is owed never reach a
+# later reader, a closing prompt's key, sudo or pacman, and a typed `R`
+# cannot end the read. The terminal's settings come back on every way out,
+# a signal's included, which then ends the subshell by that signal.
+_vgs_tui_digits='[0123456789]+'
+_vgs_tui_attributes=$'\e''\[\?[0123456789;]*c$'
+_vgs_tui_cursor() (
+  local saved reply="" more size end left
+  exec 2>/dev/null
+  exec {tty}<>/dev/tty || exit 1
+  saved="$(stty -g <&"$tty")" || exit 1
+  trap 'stty "$saved" <&"$tty"; trap - INT; kill -INT "$BASHPID"' INT
+  trap 'stty "$saved" <&"$tty"; trap - TERM; kill -TERM "$BASHPID"' TERM
+  trap 'stty "$saved" <&"$tty"; trap - HUP; kill -HUP "$BASHPID"' HUP
+  stty -echo -icanon <&"$tty" || exit 1
+  # Only once the line discipline stops collecting a line does a key typed
+  # without Enter count as waiting.
+  if read -r -t 0 <&"$tty"; then stty "$saved" <&"$tty"; exit 1; fi
+  printf '\033[6n\033[c' >&"$tty"
+  end=$(( ${EPOCHREALTIME/[.,]/} + 1000000 ))
+  until [[ $reply =~ $_vgs_tui_attributes ]]; do
+    left=$(( end - ${EPOCHREALTIME/[.,]/} ))
+    (( left > 0 )) || { stty "$saved" <&"$tty"; exit 3; }
+    printf -v left '%d.%06d' $(( left / 1000000 )) $(( left % 1000000 ))
+    more=""
+    if IFS= read -r -d c -t "$left" more <&"$tty"; then reply+="${more}c"; else reply+="$more"; fi
+  done
+  stty "$saved" <&"$tty" || exit 1
+  size="$(stty size <&"$tty")" || exit 1
+  [[ $reply =~ \[($_vgs_tui_digits)\;($_vgs_tui_digits)R ]] || exit 1
+  printf '%s %s %s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "$size"
+)
+
+# Writes the mark: `here`, the cursor's row once a free row is kept under
+# it, `top`, the first row with no question to the terminal, `none`, or
+# `silent`, which stays for the window's life.
+# Index then reverse index scrolls the screen up one row when the cursor
+# stands on the last, so output that follows always moves it.
+_vgs_tui_mark() { # here|top|none|silent
+  [[ -n ${VGS_TUI_MARK:-} ]] || return 0
+  local at="" row col size held="" status=0
+  { IFS= read -r held <"$VGS_TUI_MARK"; } 2>/dev/null || :
+  [[ $held != silent ]] || return 0
+  case "$1" in
+    here)
+      if { printf '\033D\033M' >/dev/tty; } 2>/dev/null; then
+        at="$(_vgs_tui_cursor)" || status=$?
+        case "$status" in
+          0) read -r row col size <<<"$at"; at="$row $size" ;;
+          3) at=silent ;;
+          *) at="" ;;
+        esac
+      fi
+      ;;
+    top) at="$({ stty size </dev/tty; } 2>/dev/null)" && at="1 $at" ;;
+    silent) at=silent ;;
+  esac
+  { printf '%s' "${at:+$at$'\n'}" >"$VGS_TUI_MARK"; } 2>/dev/null || :
 }
-_vgs_tui_prompt_gap() { _vgs_tui_gap >&2; }
-_vgs_tui_header_gap() { _vgs_tui_gap; }
+
+# The opener's blank row, on stdout: see the header.
+_vgs_tui_gap() {
+  local mark="" at="" row col size status=1
+  [[ -z ${VGS_TUI_MARK:-} ]] || { IFS= read -r mark <"$VGS_TUI_MARK"; } 2>/dev/null || :
+  if [[ $mark =~ ^$_vgs_tui_digits\ $_vgs_tui_digits\ $_vgs_tui_digits$ && -t 1 ]]; then
+    status=0; at="$(_vgs_tui_cursor)" || status=$?
+  fi
+  if [[ $status == 0 ]]; then
+    read -r row col size <<<"$at"
+    if [[ $col != 1 ]]; then printf '\n\n'
+    elif [[ "$row $size" != "$mark" ]]; then printf '\n'
+    fi
+  else
+    printf '\n'
+  fi
+  if [[ $status == 3 ]]; then _vgs_tui_mark silent; else _vgs_tui_mark none; fi
+}
 
 # The header's content edge: its border and left padding, in columns. Every
 # line the library draws outside the box starts there and ends that far
@@ -222,7 +308,6 @@ _vgs_tui_lines() { # ARRAY WIDTH TEXT [MODE]
 # edge in the SGR escape; an empty line has no indent.
 _vgs_tui_print() { # SGR TEXT [WIDTH]
   local lines=() line pad
-  _vgs_tui_gap_left=""
   _vgs_tui_lines lines "${3:-$(_vgs_tui_width)}" "$2"
   for line in "${lines[@]}"; do
     pad=""
@@ -245,11 +330,11 @@ vgs_tui_header() { # TITLE [LINE...]
     if (( ${#line} + 6 > columns )); then width=(--width "$columns"); break; fi
   done
   printf -v title '\033[1m%s\033[0m' "$title_line"
-  _vgs_tui_header_gap
+  _vgs_tui_gap
   gum style --border normal --padding "1 2" "${width[@]}" -- "$title" "$@"
 }
 
-vgs_tui_clear() { printf '\033[H\033[2J'; _vgs_tui_gap_left=1; }
+vgs_tui_clear() { printf '\033[H\033[2J'; _vgs_tui_mark top; }
 
 vgs_tui_text() { # TEXT
   _vgs_tui_print "" "$*"
@@ -260,7 +345,6 @@ vgs_tui_commands() { # COMMAND...
   width=$(( $(_vgs_tui_width) - 4 ))
   (( width > 0 )) || width=1
   printf -v pad '%*s' "$_vgs_tui_edge" ''
-  _vgs_tui_gap_left=""
   for command; do
     (( first )) || printf '%s│\n' "$pad"
     first=0 continued=""
@@ -295,7 +379,8 @@ vgs_tui_cancelled() { # TEXT
   vgs_tui_text "$*"
   _vgs_tui_has_terminal || return 0
   _vgs_tui_drain_terminal
-  printf '\n%*s%s● \033[0mPress any key to close.' "$_vgs_tui_edge" '' "$(vgs_tui_sgr "${VGS_TUI_ACCENT:-}" 36)" >/dev/tty
+  _vgs_tui_gap >/dev/tty
+  printf '%*s%s● \033[0mPress any key to close.' "$_vgs_tui_edge" '' "$(vgs_tui_sgr "${VGS_TUI_ACCENT:-}" 36)" >/dev/tty
   read -rsn 1 _ </dev/tty || return 0
   printf '\n' >/dev/tty
 }
@@ -314,14 +399,13 @@ vgs_tui_cancelled() { # TEXT
 # erases the screen from the cursor down. Checked in private tmux runs of
 # gum 2.0.2 for VGS-1492 on 2026-10-12.
 vgs_tui_confirm() { # QUESTION [GUM_FLAG...]
-  local question="$1" flag previous="" yes=Yes no=No help lines=() margin answer=0
+  local question="$1" flag previous="" yes=Yes no=No help lines=() margin
   shift
   if [[ ${VGS_TUI_UNATTENDED:-} == 1 ]]; then
-    printf '\n'
+    _vgs_tui_gap
     _vgs_tui_print "" "$question Yes (automatic answer)."
     return 0
   fi
-  _vgs_tui_terminal confirm || return
   for flag; do
     case "$previous" in --affirmative) yes="$flag" ;; --negative) no="$flag" ;; esac
     case "$flag" in --affirmative=*) yes="${flag#*=}" ;; --negative=*) no="${flag#*=}" ;; esac
@@ -335,20 +419,29 @@ vgs_tui_confirm() { # QUESTION [GUM_FLAG...]
   _vgs_tui_lines lines "$(_vgs_tui_width)" "$question"
   printf -v question '%s\n' "${lines[@]}"
   margin="0 0 0 $_vgs_tui_edge"
-  _vgs_tui_prompt_gap
   # gum 2.0.2 accepts these margin keys though `gum confirm --help` omits
   # them; checked in a private tmux run for VGS-1475 on 2026-10-12. The
   # same left margin on both buttons puts Yes at the edge and keeps No
   # that far from it.
-  GUM_CONFIRM_SHOW_HELP=false gum confirm --prompt.margin "$margin" --selected.margin "$margin" --unselected.margin "$margin" "$@" -- "$question"$'\n'"$help" || answer=$?
-  _vgs_tui_gap_left=1
-  return "$answer"
+  GUM_CONFIRM_SHOW_HELP=false _vgs_tui_ask confirm --prompt.margin "$margin" --selected.margin "$margin" --unselected.margin "$margin" "$@" -- "$question"$'\n'"$help"
 }
 
+# Every question: the blank row, gum KIND, then the mark, keeping gum's
+# status. gum 2.0.2 erases an answered question but the blank row above it
+# and leaves the cursor under that row, filter's alternate screen
+# included: read in private tmux runs for VGS-2116 on 2026-10-31.
+_vgs_tui_ask() { # KIND [GUM_ARG...]
+  local kind="$1" answer=0
+  _vgs_tui_terminal "$kind" || return
+  _vgs_tui_gap >&2
+  gum "$@" || answer=$?
+  _vgs_tui_mark here
+  return "$answer"
+}
 # gum's --padding moves the header, cursor, items and key help together.
-vgs_tui_choose() { _vgs_tui_terminal choose || return; _vgs_tui_prompt_gap; gum choose --padding "0 0 0 $_vgs_tui_edge" "$@"; }
-vgs_tui_input() { _vgs_tui_terminal input || return; _vgs_tui_prompt_gap; gum input --padding "0 0 0 $_vgs_tui_edge" "$@"; }
-vgs_tui_filter() { _vgs_tui_terminal filter || return; _vgs_tui_prompt_gap; gum filter --padding "0 0 0 $_vgs_tui_edge" "$@"; }
+vgs_tui_choose() { _vgs_tui_ask choose --padding "0 0 0 $_vgs_tui_edge" "$@"; }
+vgs_tui_input() { _vgs_tui_ask input --padding "0 0 0 $_vgs_tui_edge" "$@"; }
+vgs_tui_filter() { _vgs_tui_ask filter --padding "0 0 0 $_vgs_tui_edge" "$@"; }
 
 _vgs_tui_editor_takes_line() { # EDITOR_ARGV0
   # These terminal editors accept +LINE before the path.
@@ -428,7 +521,6 @@ vgs_tui_sudo_session() { # start|guard|end
   case "${1:-}" in
     start)
       local outer="${VGS_TUI_SUDO_SESSION:-}"
-      _vgs_tui_gap_left=""
       if [[ $outer =~ ^[123456789][0123456789]*$ ]] && kill -0 "$outer" 2>/dev/null; then
         sudo /usr/bin/true || _vgs_tui_refuse 1 "sudo=not-authorized" "VGS cannot get permission to change the system. Try the action again and approve the password request." || return
         _vgs_tui_sudo_joined=1
@@ -534,7 +626,7 @@ vgs_tui_log() { # FILE [ARG...]
   trap 'rm -f -- "${_vgs_tui_transcript:?}"' EXIT
   trap 'exit 129' HUP
   trap 'exit 143' TERM
-  env VGS_TUI_LOGGED=1 VGS_TUI_TRANSCRIPT="$_vgs_tui_transcript" VGS_TUI_GAP_LEFT="$_vgs_tui_gap_left" SHELL="$BASH" \
+  env VGS_TUI_LOGGED=1 VGS_TUI_TRANSCRIPT="$_vgs_tui_transcript" SHELL="$BASH" \
     script -qef --log-out >(_vgs_tui_log_clean >&"$fd") --log-out "$_vgs_tui_transcript" -c "$cmd" {fd}>&- || status=$?
   exec {fd}>&-
   wait "$!" || :
@@ -549,17 +641,15 @@ vgs_tui_logged() { # FILE COMMAND [ARG...]
   shift
   { mkdir -p -- "$(dirname -- "$file")" && : >>"$file"; } 2>/dev/null ||
     _vgs_tui_refuse 1 "logged=$file reason=open-failed" "VGS cannot write the task log. Check access to $file, then try again." || return
-  [[ ! -t 1 ]] || _vgs_tui_gap_left=""
   "$@" 2>>"$file"
 }
 
 # A line ended by a newline that no carriage return came before is shown
 # through _vgs_tui_print; a carriage-return segment, as a progress line
 # redraws, and the newline that ends it pass as they are, since a wrap
-# would break the redraw. The reader exits 4 when it showed nothing, which
-# keeps a question's blank line marked.
+# would break the redraw.
 vgs_tui_split() { # FILE KEY COMMAND [ARG...]
-  local file="${1:-}" key="${2:-}" fd status piped had_errexit="" segment="" char terminator redrawn="" width
+  local file="${1:-}" key="${2:-}" fd status had_errexit="" segment="" char terminator redrawn="" width
   [[ -n $file && -n $key && $# -ge 3 ]] || _vgs_tui_refuse 2 "split=missing" "VGS cannot show this task's output because its request is incomplete. Close it and report the details above." || return
   shift 2
   { mkdir -p -- "$(dirname -- "$file")" && : >>"$file"; } 2>/dev/null ||
@@ -569,7 +659,6 @@ vgs_tui_split() { # FILE KEY COMMAND [ARG...]
   set +e
   width="$(_vgs_tui_width)"
   ( exec {fd}>&-; "$@" ) 2>&1 | {
-    shown=""
     while LC_ALL=C IFS= read -r -N 1 char; do
       case "$char" in
         $'\n'|$'\r')
@@ -578,10 +667,8 @@ vgs_tui_split() { # FILE KEY COMMAND [ARG...]
             printf '%s\n' "$segment" >&"$fd" || exit 1
           elif [[ $terminator == $'\r' || -n $redrawn ]]; then
             printf '%s%s' "$segment" "$terminator" || exit 1
-            shown=1
           else
             _vgs_tui_print "" "$segment" "$width" || exit 1
-            shown=1
           fi
           [[ $terminator == $'\n' ]] && redrawn="" || redrawn=1
           segment=""
@@ -592,14 +679,11 @@ vgs_tui_split() { # FILE KEY COMMAND [ARG...]
     if [[ -n $segment ]]; then
       case "$segment" in
         "$key":\ *) printf '%s\n' "$segment" >&"$fd" || exit 1 ;;
-        *) printf '%s' "$segment" || exit 1; shown=1 ;;
+        *) printf '%s' "$segment" || exit 1 ;;
       esac
     fi
-    [[ -n $shown ]] || exit 4
   }
-  piped=("${PIPESTATUS[@]}")
-  status=${piped[0]}
-  [[ ${piped[1]} == 4 ]] || _vgs_tui_gap_left=""
+  status=${PIPESTATUS[0]}
   [[ -z $had_errexit ]] || set -e
   exec {fd}>&-
   return "$status"
@@ -611,6 +695,7 @@ vgs_tui_note() { vgs_tui_logged "$1" _vgs_tui_keyed "$2"; } # FILE LINE
 vgs_tui_failed() { # FILE LINE...
   local file="$1" line
   shift
+  _vgs_tui_gap >&2
   for line; do vgs_tui_error "$line"; done
   vgs_tui_error "The details are in ${file/#"$HOME"/\~}."
 }
@@ -651,12 +736,13 @@ vgs_tui_close_prompt() { # CODE [MARKER]
   [[ $code != 130 ]] || return 0
   _vgs_tui_has_terminal || return 0
   _vgs_tui_drain_terminal
+  _vgs_tui_gap >/dev/tty
   if [[ $code == 0 ]]; then
-    printf '\n%*s%s● \033[0mDone. Press any key to close.' "$_vgs_tui_edge" '' "$(vgs_tui_sgr "${VGS_TUI_SUCCESS:-}" 32)" >/dev/tty
+    printf '%*s%s● \033[0mDone. Press any key to close.' "$_vgs_tui_edge" '' "$(vgs_tui_sgr "${VGS_TUI_SUCCESS:-}" 32)" >/dev/tty
   elif [[ $code == 69 ]]; then
-    printf '\n%*s%s● \033[0mPress any key to close.' "$_vgs_tui_edge" '' "$(vgs_tui_sgr "${VGS_TUI_ACCENT:-}" 36)" >/dev/tty
+    printf '%*s%s● \033[0mPress any key to close.' "$_vgs_tui_edge" '' "$(vgs_tui_sgr "${VGS_TUI_ACCENT:-}" 36)" >/dev/tty
   else
-    printf '\n%*s%s● \033[0mThe task failed. Press any key to close.' "$_vgs_tui_edge" '' "$(vgs_tui_sgr "${VGS_TUI_DANGER:-}" 31)" >/dev/tty
+    printf '%*s%s● \033[0mThe task failed. Press any key to close.' "$_vgs_tui_edge" '' "$(vgs_tui_sgr "${VGS_TUI_DANGER:-}" 31)" >/dev/tty
   fi
   if [[ -n $marker ]]; then
     while [[ -e $marker ]]; do

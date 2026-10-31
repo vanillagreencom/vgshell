@@ -48,9 +48,7 @@ if ! vgs_tui_split "$log" jarvis-setup python3 -I "$VGS_PLUGIN_DIR/setup-local" 
   exit 1
 fi
 vgs_tui_step "Recording"
-vgs_tui_text "Recording runs for $seconds seconds. Read this aloud in your normal voice:"
-printf '\n'
-vgs_tui_text '"The quick brown fox jumps over the lazy dog. I am recording my voice so that Jarvis can speak with it on this computer."'
+vgs_tui_text "Recording runs for $seconds seconds. Read this aloud in your normal voice:"$'\n\n''"The quick brown fox jumps over the lazy dog. I am recording my voice so that Jarvis can speak with it on this computer."'
 vgs_tui_confirm "Start recording?" || { vgs_tui_cancelled "The model stays for a later setup. No recording was stored."; exit 130; }
 capture() {
   local status=0
