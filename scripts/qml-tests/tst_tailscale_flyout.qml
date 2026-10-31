@@ -423,14 +423,66 @@ Item {
         }
 
         // Tailscale stopping, as from another client, ends every choice.
-        function test_tailscale_stopping_leaves_the_chooser() {
+        function test_tailscale_stopping_leaves_the_chooser_data() {
+            return [
+                { tag: "ready returns to header", checking: false },
+                { tag: "checking returns to body without a late focus steal", checking: true }
+            ];
+        }
+        function test_tailscale_stopping_leaves_the_chooser(data) {
+            const body = find(panel, item => item.focusExitRow !== undefined);
+            const frame = find(panel, item => item.headerSwitch !== undefined);
+            verify(body !== null && frame !== null);
             named("tailscale-exit-row").forceActiveFocus(Qt.TabFocusReason);
             keyClick(Qt.Key_Return);
             compare(panel.view, "exit-nodes");
+            const search = named("tailscale-exit-search-field");
+            const chooser = named("tailscale-exit-nodes");
+            compare(focused(), search);
+            root.checkingSetup = data.checking;
+            compare(stub.status.values.tailscale.checkingSetup, data.checking);
+            compare(body.lockReason !== "", data.checking, "the handoff's access state is set before Stopped");
+            const trace = [];
+            function snapshot(stage) {
+                const current = focused();
+                const state = { stage: stage, state: stub.status.values.tailscale.state,
+                    checkingSetup: stub.status.values.tailscale.checkingSetup,
+                    writable: stub.status.values.tailscale.writable, lockReason: body.lockReason,
+                    view: panel.view, headerPresent: frame.headerSwitch !== null,
+                    headerEnabled: frame.headerSwitch !== null && frame.headerSwitch.enabled,
+                    headerVisible: frame.headerSwitch !== null && frame.headerSwitch.visible,
+                    bodyVisible: body.visible, bodyFocused: current === body,
+                    headerFocused: current !== null && current === frame.headerSwitch, searchFocused: search.activeFocus,
+                    chooserFocused: chooser.activeFocus,
+                    focusText: current === null ? null : current.text,
+                    focusName: current === null ? null : current.Accessible.name };
+                trace.push(state);
+                return state;
+            }
+            snapshot("before-stop");
             root.backend = "Stopped";
             tryCompare(panel, "view", "main");
-            tryCompare(root.Window.window, "activeFocusItem", panel.initialFocus);
-            compare(panel.initialFocus.Accessible.name, "Tailscale", "the keys land on the header switch");
+            // Let the production deferred handoff run while the fixture
+            // holds its declared access state, before clearing Checking.
+            tryVerify(() => focused() !== search, 1000, "the main view takes the keyboard from the hidden search");
+            const landed = focused();
+            const handoff = snapshot("handoff");
+            if (data.checking) root.checkingSetup = false;
+            tryCompare(body, "lockReason", "");
+            waitForRendering(panel);
+            snapshot("ready-after-handoff");
+            console.info("tailscale-stop-focus-trace " + JSON.stringify({ tag: data.tag, states: trace }));
+
+            const header = frame.headerSwitch;
+            verify(header !== null, "the stopped main view shows its header switch");
+            const expected = data.checking ? body : header;
+            compare(landed, expected, "the declared access state selects the exact main target");
+            compare(handoff.checkingSetup, data.checking, "Checking stays held through the actual handoff");
+            compare(handoff.bodyVisible, true);
+            compare(handoff.searchFocused, false, "the hidden chooser search gives up focus");
+            compare(handoff.chooserFocused, false, "the hidden chooser gives up focus");
+            compare(focused(), expected, "a later ready publication never steals the placed focus");
+            if (!data.checking) compare(header.Accessible.name, "Tailscale");
         }
 
         function findIn(item, name) {
