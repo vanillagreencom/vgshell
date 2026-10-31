@@ -17,6 +17,7 @@ IdleRegistry 1.0 IdleRegistry.qml
 IpcRegistry 1.0 IpcRegistry.qml
 NotificationHub 1.0 NotificationHub.qml
 SessionLock 1.0 SessionLock.qml
+CoverPresentation 1.0 CoverPresentation.qml
 ThemeRunner 1.0 ThemeRunner.qml
 TuiRunner 1.0 TuiRunner.qml
 TuiRecords 1.0 TuiRecords.qml

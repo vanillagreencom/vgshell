@@ -7,7 +7,7 @@ Lock protects your session with your password. The lock screen uses your theme a
 ## Features
 
 - Locks with `SUPER+DELETE` or the launcher's Lock row. `vgshell lock` locks the session from a script or an idle daemon.
-- Locks after five minutes without input. A playing video that inhibits idle holds it off.
+- Locks after five minutes without input. A playing video that inhibits idle holds it off. A running screensaver stays over the lock until your first key, click or pointer movement, which shows the lock screen and types nothing into it.
 - Locks before the computer sleeps, and the sleep waits for the lock.
 - Shows the time, the date and the password field on every screen. Typing on any screen fills every field.
 - Pauses the password check for two minutes after ten wrong passwords, and says so.

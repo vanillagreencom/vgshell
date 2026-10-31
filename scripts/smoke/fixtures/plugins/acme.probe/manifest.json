@@ -14,4 +14,4 @@
     "accent": { "type": "boolean", "label": "Accent", "group": "Look" },
     "badge": { "type": "enum", "label": "Badge", "options": [{ "value": "dot", "label": "Dot" }, { "value": "count", "label": "Count" }, { "value": "none", "label": "None" }], "group": "Look" }
   },
-  "capabilities": ["compositor", "configure", "idle", "ipc", "lock", "notifications", "polkit", "run", "screens", "shortcut", "notify", "theme", "tui"] }
+  "capabilities": ["compositor", "configure", "cover", "idle", "ipc", "lock", "notifications", "polkit", "run", "screens", "shortcut", "notify", "theme", "tui"] }

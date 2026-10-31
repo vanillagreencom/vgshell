@@ -8,7 +8,9 @@ Screensaver shows animated text art on each screen when the desktop is inactive.
 
 - Starts after the inactive time you choose, with one cover on each screen.
 - Starts on demand from Screensaver in the launcher, or from a key you assign under Keys.
-- Stops on keyboard input, pointer movement or session lock.
+- Stops on keyboard input or pointer movement.
+- Stays on screen when the session locks itself after inactivity. The first key, click or pointer movement then shows the lock screen and types nothing into it. When the lock and the screensaver have the same time, both start together.
+- Stops when you lock the session yourself, when the computer sleeps and when the screens turn off.
 - Random or one named text effect.
 - Shows the VGS logo, text art made from a PNG or SVG image, or a text file of your own.
 - Shows whether the lock follows the screensaver.

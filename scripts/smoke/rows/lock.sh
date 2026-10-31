@@ -63,7 +63,7 @@
 # capability rows' fixture, acme.probe, when an earlier row left it
 # enabled. The row ends with the plugin disabled, the fixture as it found
 # it, the stand-ins gone and hyprland.lua as the consent row left it.
-# inputs: shell/plugins/vgs.lock/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Core/SessionLock.qml shell/Commons/SessionLockState.js shell/Hosts/LockHost.qml shell/Core/IdleRegistry.qml bin/vgshell bin/vgshell-lock scripts/smoke/lock/* shell/Core/HyprlandLayer.js scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/*
+# inputs: shell/plugins/vgs.lock/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Core/SessionLock.qml shell/Core/CoverPresentation.qml shell/Commons/SessionLockState.js shell/Hosts/LockHost.qml shell/Core/IdleRegistry.qml bin/vgshell bin/vgshell-lock scripts/smoke/lock/* shell/Core/HyprlandLayer.js scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/*
 set -euo pipefail
 lock_user_config="$home/.config/vgshell/shell.json"
 lock_hypr_lua="$home/.config/hypr/hyprland.lua"
@@ -75,6 +75,9 @@ sleep_trigger="$sandbox/prepare-sleep"
 session_lock() { hypr -j monitors | py_reply 'import json,sys; print("locked" if any("LOCK" in (m.get("solitaryBlockedBy") or []) for m in json.load(sys.stdin)) else "unlocked")'; }
 # The core's lock as [requested, secure, content].
 core_requested() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["lock"]["requested"]))'; }
+# The cause the core recorded for the request that took the session.
+lock_cause() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["lock"]["cause"]))'; }
+lock_cover() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["cover"]["placement"]))'; }
 core_lock() { ipc shell lent | py_reply 'import json,sys; l=json.load(sys.stdin)["lock"]; print(json.dumps([l["requested"], l["secure"], l["content"]]))'; }
 lock_status() { ipc vgs.lock invoke status '' | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([d[k] for k in sys.argv[1:]]))' "$@"; }
 sleep_status() { ipc smoke statusValues vgs.lock | py_reply 'import json,sys; v=json.load(sys.stdin).get("sleep"); print(v["tone"] if v else "unpublished")'; }
@@ -282,6 +285,7 @@ settings_page_close vgs.lock
 # The IPC lock, and `vgshell lock` while locked.
 expect "the IPC lock answers ok" ok ipc vgs.lock invoke lock ''
 expect_poll "the compositor reports the session locked" locked session_lock
+expect "the IPC lock is a manual lock" '"manual"' lock_cause
 expect_poll "the core holds the confirmed lock with the plugin's lock screen" '[true, true, true]' core_lock
 mapfile -t standard < <(standard_values) || :
 if [[ ${#standard[@]} -eq 3 ]]; then
@@ -303,14 +307,18 @@ printf '%s\n' 'hl.config({ input = { resolve_binds_by_sym = true } })' >>"$lock_
 expect "the nested instance reloads with binds resolved by keysym" ok hypr reload config-only
 type_keys -M logo -k Delete -m logo || fail "typing SUPER+DELETE failed"
 expect_poll "SUPER+DELETE locked the session" locked session_lock
+expect "SUPER+DELETE is a manual lock" '"manual"' lock_cause
 release "the SUPER+DELETE lock"
 restore_lock_hypr_lua || fail "hyprland.lua is put back after SUPER+DELETE"
 expect "the nested instance reloads the consent-wired hyprland.lua" ok hypr reload config-only
 
 # The before-sleep hook: logind's PrepareForSleep locks, and the hook lets
-# go once the lock is confirmed.
+# go once the lock is confirmed. Its lock names the sleep cause, which ends
+# any screensaver and shows the lock screen (scripts/test-session-lock.sh,
+# scripts/test-plugin-logic.js).
 : >"$sleep_trigger"
 expect_poll "a sleep locked the session" locked session_lock
+expect "the before-sleep hook's lock is a sleep lock" '"sleep"' lock_cause
 expect_poll "the hook let the sleep go once the lock was confirmed" "released reason=secure" bash -c 'grep -x "released reason=secure" -- "$1" || :' _ "$sleep_log"
 expect "the hook announced the sleep with its budget" "sleep budget_ms=4000" bash -c 'grep -x "sleep budget_ms=[0-9]*" -- "$1" || :' _ "$sleep_log"
 release "the sleep lock"
@@ -410,6 +418,7 @@ expect_poll "the hook holds again once it can start" ok sleep_status
 set_setting idleLockSeconds 2
 expect_poll "the idle watch follows the setting" '[["vgs.lock:lock"], ["vgs.lock"], [["vgs.lock", 2]]]' lock_lent
 expect_poll "two seconds without input locked the session" locked session_lock
+expect "the lock stage watch's lock is an idle lock" '"idle"' lock_cause
 set_setting idleLockSeconds null
 expect_poll "the idle watch is back at its default" '[["vgs.lock:lock"], ["vgs.lock"], [["vgs.lock", 300]]]' lock_lent
 release "the idle lock"
@@ -439,7 +448,7 @@ import sys
 path = sys.argv[1]
 text = open(path).read()
 edits = [
-    ('shell.ipc.handle("lock", () => root.lock());', 'shell.ipc.handle("lock", () => { const reply = root.lock(); root.submit("stand-in"); return reply; });'),
+    ('shell.ipc.handle("lock", () => root.lock("manual"));', 'shell.ipc.handle("lock", () => { const reply = root.lock("manual"); root.submit("stand-in"); return reply; });'),
     ("        if (!pam.start()) fail();", "        fail();"),
 ]
 for needle, replacement in edits:
@@ -475,7 +484,7 @@ python3 - "$control_dir/Service.qml" <<'PY'
 import sys
 path = sys.argv[1]
 text = open(path).read()
-needle = '                root.lock();\n            }\n        }\n    }\n\n    Timer {\n        id: strandedRetry'
+needle = '                root.lock("restore");\n            }\n        }\n    }\n\n    Timer {\n        id: strandedRetry'
 assert text.count(needle) == 1, "lock control: the stranded lock call must match once"
 open(path, "w").write(text.replace(needle, '            }\n        }\n    }\n\n    Timer {\n        id: strandedRetry', 1))
 PY
@@ -511,6 +520,8 @@ expect "control: lock back one millisecond over budget at the pressure limit fai
 echo "  lock samples=$(wc -l <"$sandbox/lock-samples")"
 expect "the session never read unlocked from before the kill to the relaunched lock" never-unlocked samples_read "$sandbox/lock-samples"
 expect "the session is still locked" locked session_lock
+expect "the relaunched shell's lock is a restore lock" '"restore"' lock_cause
+expect "a shell restarted into a locked session presents no cover" '"none"' lock_cover
 release "the taken-over lock"
 
 no_checks "the row's end"

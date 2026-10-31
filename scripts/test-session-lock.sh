@@ -35,7 +35,11 @@ controls = [
     ("reading-once", "if (unlockedReadings >= 2) compositorEnded", "if (unlockedReadings >= 1) compositorEnded"),
     ("reading-state", 'SessionLockState.read(text) === "unlocked"', 'SessionLockState.read(text) !== "locked"'),
     ("reading-unconfirmed", "const unlocked = lockSecure && ", "const unlocked = true && "),
-    ("reading-no-reset", "unlockedReadings = unlocked ? unlockedReadings + 1 : 0;", "unlockedReadings = unlocked ? unlockedReadings + 1 : unlockedReadings;")
+    ("reading-no-reset", "unlockedReadings = unlocked ? unlockedReadings + 1 : 0;", "unlockedReadings = unlocked ? unlockedReadings + 1 : unlockedReadings;"),
+    ("idle-ticket", 'if (request.cause === "idle" && idle.ticketFor(ctx.id, "lock", request.ticket) === null)', "if (false)"),
+    ("request-judged", "        if (refusal !== \"\") return refusal;\n", ""),
+    ("first-cause", "        if (!wasLocked) lockCause = request.cause;", "        lockCause = request.cause;"),
+    ("covers-told", "        covers.lockRequested(request.cause, wasLocked);", "        covers.lockRequested(request.cause, false);")
 ]
 for name, needle, replacement in controls:
     assert source.count(needle) == 1, (name, "control match count")
@@ -47,7 +51,7 @@ for name, needle, replacement in controls:
     assert not path.is_symlink(), (name, "control symlink")
     path.write_text(changed)
 PY
-for rule in request secure frozen unload ended ended-unrequested reading-once reading-state reading-unconfirmed reading-no-reset; do
+for rule in request secure frozen unload ended ended-unrequested reading-once reading-state reading-unconfirmed reading-no-reset idle-ticket request-judged first-cause covers-told; do
   status=0
   out="$("$repo/scripts/qml-unit.sh" --core "$TMP_ROOT/$rule" "$repo/scripts/qml-tests/tst_session_lock.qml" 2>&1)" || status=$?
   if [[ $status == 1 && $out == *"::session-lock::"* && $out == *"FAIL!  :"* ]]; then

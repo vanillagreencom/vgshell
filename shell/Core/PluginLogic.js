@@ -22,7 +22,7 @@ var KINDS = ["bar-widget", "bar", "panel", "overlay", "menu", "window", "pane", 
 
 // Capabilities the core can hand a plugin. A manifest naming another one is
 // refused. Capabilities.qml maps each name to its provider.
-var CAPABILITIES = ["compositor", "configure", "idle", "ipc", "lock", "session", "notifications", "polkit", "run", "screens", "screencopy", "shortcut", "surfaces", "builtins", "manager", "panes", "notify", "theme", "layers", "status", "tui", "system", "requirements", "doctor", "secrets", "hyprland", "bluetoothAgent", "monitors", "sudo", "appearance", "sounds", "soundSettings", "dictation"];
+var CAPABILITIES = ["compositor", "configure", "cover", "idle", "ipc", "lock", "session", "notifications", "polkit", "run", "screens", "screencopy", "shortcut", "surfaces", "builtins", "manager", "panes", "notify", "theme", "layers", "status", "tui", "system", "requirements", "doctor", "secrets", "hyprland", "bluetoothAgent", "monitors", "sudo", "appearance", "sounds", "soundSettings", "dictation"];
 
 // A plugin's system notification, shell.notify.send. The tones and the
 // icon grammar are the ones the `x-vgs-tone` and `x-vgs-icon` hints take
@@ -4448,6 +4448,107 @@ function idleStagesBefore(stages) {
             .map(function (earlier) { return earlier.stage; });
         return { stage: entry.stage, plugin: entry.plugin, setting: entry.setting, seconds: entry.seconds, before: before };
     });
+}
+
+// "" when plugin OWNER may hold a stage watch of STAGE calling ONCHANGE
+// under STAGES, idleStages' `stages`, else its keyed refusal: a stage of
+// IDLE_STAGES whose current owner is OWNER, and a function. Only the
+// owner's watch mints the stage's event tickets (IdleRegistry.watchStage).
+function idleStageWatchRefusal(stages, owner, stage, onChange) {
+    if (IDLE_STAGES.indexOf(stage) === -1)
+        return "refused: idle-stage=" + JSON.stringify(stage) + " want=" + IDLE_STAGES.join("|");
+    if (typeof onChange !== "function") return "refused: idle-handler=not-a-function";
+    var row = stageRow(stages, stage);
+    if (row === null || row.plugin !== owner)
+        return "refused: idle-stage=" + stage + " owner=" + (row === null ? "none" : row.plugin);
+    return "";
+}
+
+function stageRow(stages, stage) {
+    for (var i = 0; i < stages.length; i++)
+        if (stages[i].stage === stage) return stages[i];
+    return null;
+}
+
+// What asked for the session lock. `idle` carries the lock stage's event
+// ticket, which the core checks against the live watch; the others carry
+// nothing. Manual is the shortcut and IPC, sleep the before-sleep hook,
+// restore a lock taken again after a restart or a rebuilt holder.
+var LOCK_CAUSES = ["idle", "manual", "sleep", "restore"];
+
+// "" when REQUEST is a lock request the lock route takes, else its keyed
+// refusal: { cause } for a cause of LOCK_CAUSES, and { cause: "idle",
+// ticket } with an object ticket. The ticket's provenance is the core's
+// check, not this shape's.
+function lockRequestRefusal(request) {
+    if (!isPlainObject(request)) return "refused: lock-request=" + describeValue(request) + " want=object";
+    if (LOCK_CAUSES.indexOf(request.cause) === -1)
+        return "refused: lock-cause=" + describeValue(request.cause) + " want=" + LOCK_CAUSES.join("|");
+    var want = request.cause === "idle" ? ["cause", "ticket"] : ["cause"];
+    var keys = Object.keys(request).sort();
+    if (keys.join(",") !== want.slice().sort().join(","))
+        return "refused: lock-request=" + keys.join(",") + " want=" + want.join(",");
+    if (request.cause === "idle" && (request.ticket === null || typeof request.ticket !== "object"))
+        return "refused: lock-ticket=" + describeValue(request.ticket) + " want=object";
+    return "";
+}
+
+function describeValue(value) {
+    return value === undefined ? "undefined" : typeof value === "object" && value !== null ? typeof value : JSON.stringify(value);
+}
+
+// The plugin whose cover the secure lock may hold: the owner of the
+// screensaver stage in STAGES when MANIFESTS gives it kind cover, else "".
+// Any other cover kind stays on the ordinary cover layer.
+function coverOwner(stages, manifests) {
+    var row = stageRow(stages, "screensaver");
+    if (row === null || !hasOwn(manifests, row.plugin)) return "";
+    return manifests[row.plugin].kinds.indexOf("cover") !== -1 ? row.plugin : "";
+}
+
+// Whether Lock's own idle event starts OWNER's cover with the lock: the
+// screensaver and lock stages of STAGES are both positive and equal, so
+// the two are due together whichever watch notifies first. The seconds
+// are the saved values; each watch keeps its own creation baseline.
+function coverStartsWithLock(stages, owner) {
+    var saver = stageRow(stages, "screensaver");
+    var lock = stageRow(stages, "lock");
+    return owner !== "" && saver !== null && lock !== null && saver.plugin === owner
+        && saver.seconds > 0 && saver.seconds === lock.seconds;
+}
+
+// The answer to the cover provider's present() from REQUEST: { caller,
+// owner, ticket, built, displaysOff, locked, placement }, `ticket` "none"
+// for a manual start or "valid" or "stale" for an idle one, `built` true
+// while a cover instance of the owner exists to draw it. Returns { answer,
+// start }: `start` true when the presentation starts on the desktop.
+// A presentation already running answers ok and starts nothing, so a
+// second callback of one idle cycle is idempotent; a locked session takes
+// no new cover, so a late callback cannot cover an established lock; and
+// a cover that failed to build or was refused claims no presentation.
+function coverPresentAnswer(request) {
+    var refuse = function (key) { return { answer: "refused: cover=" + key, start: false }; };
+    if (request.owner === "" || request.caller !== request.owner) return refuse("not-owner");
+    if (request.ticket === "stale") return refuse("idle-ticket-stale");
+    if (request.placement !== "none") return { answer: "ok", start: false };
+    if (!request.built) return refuse("not-built");
+    if (request.displaysOff) return refuse("displays-off");
+    if (request.locked) return refuse("locked");
+    return { answer: "ok", start: true };
+}
+
+// What a lock request of CAUSE does to the cover presentation at
+// PLACEMENT: `transfer` moves a running desktop presentation into the
+// lock, `start` begins it there (STARTS_WITH_LOCK, coverStartsWithLock,
+// while the panels are on and a cover instance is BUILT), `dismiss` ends
+// it and `keep` leaves it. Only the idle request that takes an unlocked
+// session (WAS_LOCKED false) can cover it; manual, sleep and restore
+// always show Lock.
+function coverOnLock(cause, wasLocked, placement, startsWithLock, displaysOff, built) {
+    if (cause !== "idle") return placement === "none" ? "keep" : "dismiss";
+    if (wasLocked || placement === "secure") return "keep";
+    if (placement === "desktop") return "transfer";
+    return startsWithLock && !displaysOff && built ? "start" : "keep";
 }
 
 // Dynamic rows published by the provider row MENU_ID, read from VALUES, the

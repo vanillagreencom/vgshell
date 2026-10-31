@@ -22,7 +22,8 @@ Singleton {
     IdleRegistry { id: idleWatches }
     IpcRegistry { id: commands }
     NotificationHub { id: notifications; active: root.notificationsHeld }
-    SessionLock { id: sessionLock }
+    SessionLock { id: sessionLock; idle: idleWatches; covers: coverPresentation }
+    CoverPresentation { id: coverPresentation; idle: idleWatches; sessionLock: sessionLock }
     Component { id: screencopyPreview; ScreencopyPreview {} }
     ThemeRunner { id: themes; notificationHub: notifications }
     TuiRunner { id: tuis }
@@ -43,6 +44,7 @@ Singleton {
         active: root.holderIds("monitors").length > 0
     }
     readonly property alias sessionLock: sessionLock
+    readonly property alias covers: coverPresentation
     readonly property alias themes: themes
     readonly property alias tuis: tuis
     readonly property alias hyprland: hyprlandState
@@ -146,6 +148,7 @@ Singleton {
             unset: key => Plugins.clearSetting(ctx.id, key)
         }),
         idle: idleWatches.provider,
+        cover: coverPresentation.provider,
         ipc: commands.provider,
         lock: sessionLock.provider,
         session: sessionLock.sessionProvider,
@@ -625,7 +628,8 @@ Singleton {
             polkitAgent: polkitLoader.item !== null,
             polkitRegistered: polkitLoader.item !== null && polkitLoader.item.isRegistered,
             polkitFlows: root.polkitFlows,
-            lock: { requested: sessionLock.lockRequested, secure: sessionLock.lockSecure, content: sessionLock.lockContent !== null },
+            lock: { requested: sessionLock.lockRequested, secure: sessionLock.lockSecure, content: sessionLock.lockContent !== null, cause: sessionLock.lockCause },
+            cover: coverPresentation.record(),
             layers: Layers.record(),
             status: PluginStatus.record(),
             theme: themes.record(),

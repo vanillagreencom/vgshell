@@ -1138,6 +1138,82 @@ function suite(ctx, configLogic, check) {
         [["dim", "vgs.displays", "dimAfterSeconds", 120, []], ["screensaver", "vgs.screensaver", "idleSeconds", 150, []], ["lock", "vgs.lock", "idleLockSeconds", 300, []]]);
     check("idleStages: the bundled lock set to Never reads 0", bundledRows({ version: 2, plugins: [{ id: "vgs.lock", idleLockSeconds: 0 }, { id: "vgs.screensaver", idleSeconds: 600 }] }),
         [["dim", "vgs.displays", "dimAfterSeconds", 120, []], ["screensaver", "vgs.screensaver", "idleSeconds", 600, []], ["lock", "vgs.lock", "idleLockSeconds", 0, []]]);
+    // The secure cover's judges. Stage rows are [stage, plugin, seconds].
+    const coverStages = rows => rows.map(([stage, plugin, seconds]) => ({ stage: stage, plugin: plugin, setting: "s", seconds: seconds, before: [] }));
+    const saverAndLock = coverStages([["screensaver", "acme.saver", 150], ["lock", "acme.lock", 300]]);
+    for (const [name, stage, owner, onChange, want] of [
+        ["the owner holds its stage watch", "lock", "acme.lock", () => {}, ""],
+        ["another plugin holds no watch of the stage", "lock", "acme.saver", () => {}, "refused: idle-stage=lock owner=acme.lock"],
+        ["a stage no plugin owns is refused", "sleep", "acme.lock", () => {}, "refused: idle-stage=sleep owner=none"],
+        ["an unknown stage is refused", "nap", "acme.lock", () => {}, 'refused: idle-stage="nap" want=dim|screensaver|lock|displayOff|sleep'],
+        ["a handler that is no function is refused", "lock", "acme.lock", null, "refused: idle-handler=not-a-function"]
+    ])
+        check("idleStageWatchRefusal: " + name, ctx.idleStageWatchRefusal(saverAndLock, owner, stage, onChange), want);
+    for (const [name, request, want] of [
+        ["manual", { cause: "manual" }, ""],
+        ["sleep", { cause: "sleep" }, ""],
+        ["restore", { cause: "restore" }, ""],
+        ["idle with a ticket", { cause: "idle", ticket: Object.freeze({}) }, ""],
+        ["no request, as a caller of the old route sends", undefined, "refused: lock-request=undefined want=object"],
+        ["a bare cause word", "manual", 'refused: lock-request="manual" want=object'],
+        ["no cause", {}, "refused: lock-cause=undefined want=idle|manual|sleep|restore"],
+        ["an unknown cause", { cause: "later" }, 'refused: lock-cause="later" want=idle|manual|sleep|restore'],
+        ["idle without a ticket", { cause: "idle" }, "refused: lock-request=cause want=cause,ticket"],
+        ["idle with a null ticket", { cause: "idle", ticket: null }, "refused: lock-ticket=null want=object"],
+        ["idle with a string ticket", { cause: "idle", ticket: "t" }, 'refused: lock-ticket="t" want=object'],
+        ["manual carrying a ticket", { cause: "manual", ticket: {} }, "refused: lock-request=cause,ticket want=cause"],
+        ["an extra key", { cause: "sleep", now: true }, "refused: lock-request=cause,now want=cause"]
+    ])
+        check("lockRequestRefusal: " + name, ctx.lockRequestRefusal(request), want);
+    const coverManifests = { "acme.saver": { kinds: ["service", "cover"] }, "acme.plain": { kinds: ["service"] }, "acme.lock": { kinds: ["service"] } };
+    for (const [name, stages, want] of [
+        ["the screensaver owner's cover", saverAndLock, "acme.saver"],
+        ["a screensaver owner with no cover kind", coverStages([["screensaver", "acme.plain", 150]]), ""],
+        ["no screensaver stage", coverStages([["lock", "acme.lock", 300]]), ""],
+        ["a stage owner the manifests do not hold", coverStages([["screensaver", "acme.gone", 150]]), ""]
+    ])
+        check("coverOwner: " + name, ctx.coverOwner(stages, coverManifests), want);
+    for (const [name, rows, owner, want] of [
+        ["equal positive times", [["screensaver", "acme.saver", 300], ["lock", "acme.lock", 300]], "acme.saver", true],
+        ["the screensaver earlier", [["screensaver", "acme.saver", 150], ["lock", "acme.lock", 300]], "acme.saver", false],
+        ["the screensaver later", [["screensaver", "acme.saver", 600], ["lock", "acme.lock", 300]], "acme.saver", false],
+        ["both at Never", [["screensaver", "acme.saver", 0], ["lock", "acme.lock", 0]], "acme.saver", false],
+        ["no cover owner", [["screensaver", "acme.saver", 300], ["lock", "acme.lock", 300]], "", false],
+        ["another plugin's screensaver stage", [["screensaver", "acme.other", 300], ["lock", "acme.lock", 300]], "acme.saver", false],
+        ["no lock stage", [["screensaver", "acme.saver", 300]], "acme.saver", false]
+    ])
+        check("coverStartsWithLock: " + name, ctx.coverStartsWithLock(coverStages(rows), owner), want);
+    const present = over => ctx.coverPresentAnswer(Object.assign({ caller: "acme.saver", owner: "acme.saver", ticket: "none", built: true, displaysOff: false, locked: false, placement: "none" }, over));
+    for (const [name, over, want] of [
+        ["a manual start", {}, { answer: "ok", start: true }],
+        ["an idle start", { ticket: "valid" }, { answer: "ok", start: true }],
+        ["another plugin", { caller: "acme.other" }, { answer: "refused: cover=not-owner", start: false }],
+        ["no owner", { owner: "" }, { answer: "refused: cover=not-owner", start: false }],
+        ["a revoked ticket", { ticket: "stale" }, { answer: "refused: cover=idle-ticket-stale", start: false }],
+        ["a revoked ticket while running", { ticket: "stale", placement: "desktop" }, { answer: "refused: cover=idle-ticket-stale", start: false }],
+        ["a second callback while on the desktop", { ticket: "valid", placement: "desktop" }, { answer: "ok", start: false }],
+        ["a second callback while held in the lock", { ticket: "valid", placement: "secure", locked: true }, { answer: "ok", start: false }],
+        ["no cover instance built", { built: false }, { answer: "refused: cover=not-built", start: false }],
+        ["no cover instance built for an idle start", { ticket: "valid", built: false }, { answer: "refused: cover=not-built", start: false }],
+        ["the panels off", { displaysOff: true }, { answer: "refused: cover=displays-off", start: false }],
+        ["a locked session", { ticket: "valid", locked: true }, { answer: "refused: cover=locked", start: false }]
+    ])
+        check("coverPresentAnswer: " + name, present(over), want);
+    for (const [name, args, want] of [
+        ["an idle lock over a desktop cover", ["idle", false, "desktop", false, false, true], "transfer"],
+        ["an idle lock at equal times", ["idle", false, "none", true, false, true], "start"],
+        ["an idle lock at equal times behind dark panels", ["idle", false, "none", true, true, true], "keep"],
+        ["an idle lock at equal times with no cover instance built", ["idle", false, "none", true, false, false], "keep"],
+        ["an idle lock at other times", ["idle", false, "none", false, false, true], "keep"],
+        ["a late idle request over a held lock", ["idle", true, "none", true, false, true], "keep"],
+        ["a late idle request while the cover is in the lock", ["idle", true, "secure", true, false, true], "keep"],
+        ["a manual lock over a desktop cover", ["manual", false, "desktop", true, false, true], "dismiss"],
+        ["a sleep lock over a cover in the lock", ["sleep", true, "secure", true, false, true], "dismiss"],
+        ["a restore over a cover in the lock", ["restore", true, "secure", false, false, true], "dismiss"],
+        ["a manual lock with no cover", ["manual", false, "none", true, false, true], "keep"]
+    ])
+        check("coverOnLock: " + name, ctx.coverOnLock.apply(null, args), want);
+    check("cover is a capability and not exclusive", [ctx.CAPABILITIES.indexOf("cover") !== -1, ctx.EXCLUSIVE_CAPABILITIES.indexOf("cover")], [true, -1]);
     // capabilityKinds rows: [name, capabilities, capabilityKinds, want], over
     // a plugin of kinds pane, service and window. A refusal pins the start of
     // the error text, as manifestRows does.
@@ -3036,7 +3112,16 @@ const CONTROLS = [
     ["an idle watch takes one second at least", "seconds < 1 || ", ""],
     ["an idle watch takes a day at most", " || seconds > IDLE_WATCH_MAX_SECONDS)", ")"],
     ["an idle watch takes whole seconds", "!Number.isInteger(seconds) || ", ""],
-    ["an idle watch needs a handler", "if (typeof onChange !== \"function\") return \"refused: idle-handler=not-a-function\";", ""],
+    ["an idle watch needs a handler", "IDLE_WATCH_MAX_SECONDS;\n    if (typeof onChange !== \"function\") return \"refused: idle-handler=not-a-function\";", "IDLE_WATCH_MAX_SECONDS;"],
+    ["only the stage owner holds a stage watch", "if (row === null || row.plugin !== owner)", "if (row === null)"],
+    ["an idle lock request carries an object ticket", "if (request.cause === \"idle\" && (request.ticket === null || typeof request.ticket !== \"object\"))", "if (false)"],
+    ["a locked session takes no new cover", "if (request.locked) return refuse(\"locked\");", ""],
+    ["a cover no instance draws is never presented", "if (!request.built) return refuse(\"not-built\");", ""],
+    ["a cover starts with the lock only while built", "return startsWithLock && !displaysOff && built ? \"start\" : \"keep\";", "return startsWithLock && !displaysOff ? \"start\" : \"keep\";"],
+    ["a revoked ticket starts no cover", "if (request.ticket === \"stale\") return refuse(\"idle-ticket-stale\");", ""],
+    ["only an idle lock of an unlocked session covers it", "if (wasLocked || placement === \"secure\") return \"keep\";", ""],
+    ["a manual, sleep or restore lock ends the cover", "if (cause !== \"idle\") return placement === \"none\" ? \"keep\" : \"dismiss\";", "if (cause !== \"idle\") return \"keep\";"],
+    ["a cover starts with the lock only at equal times", "&& saver.seconds > 0 && saver.seconds === lock.seconds;", "&& saver.seconds > 0;"],
     ["a requirement the scan missed is reported missing", "if (missing.indexOf(entry.name) !== -1) return \"missing\";", ""],
     ["a version below its floor is outdated", "if (part < least) return \"outdated\";", ""],
     ["a version at its floor is present", "if (part < least) return \"outdated\";", "if (part <= least) return \"outdated\";"],

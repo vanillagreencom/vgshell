@@ -6,8 +6,10 @@ import qs.Commons
 
 // One per-screen layer host. Background plugins draw under windows and map
 // unless every instance hides itself. Cover plugins draw above windows and
-// map only when an instance asks to show. Each plugin receives the screen
-// through its slot's context.
+// map only when an instance asks to show, and never while the session is
+// locked. The screensaver stage owner's cover is CoverHost's, which can
+// hold it inside the lock; this host builds every other one. Each plugin
+// receives the screen through its slot's context.
 Item {
     id: host
 
@@ -38,6 +40,7 @@ Item {
         }
     }
     readonly property var ids: Registry.enabledOfKind(kind).filter(id => {
+        if (host.kind === "cover" && id === Capabilities.covers.ownerId) return false;
         const key = Registry.slotKey(id);
         return key !== "" && host.brokenKeys[id] !== key;
     })
@@ -58,7 +61,7 @@ Item {
             WlrLayershell.namespace: host.namespace
             WlrLayershell.layer: host.shellLayer
             WlrLayershell.keyboardFocus: PluginLogic.perScreenLayerTakesKeyboard(host.kind, Quickshell.screens, host.screen) ? host.keyboardFocus : WlrKeyboardFocus.None
-            visible: slots.instances.some(slot => PluginLogic.perScreenLayerShown(host.kind, slot.instance))
+            visible: !(host.kind === "cover" && Capabilities.covers.sessionLocked) && slots.instances.some(slot => PluginLogic.perScreenLayerShown(host.kind, slot.instance))
 
             Variants {
                 id: slots

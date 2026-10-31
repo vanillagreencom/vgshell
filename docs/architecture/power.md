@@ -13,8 +13,8 @@ Today the code holds the idle source, the dim, the screensaver, the lock, the lo
 | Idle source | core `IdleRegistry` | one `IdleMonitor` per watch, inhibitors obeyed | holds |
 | Stage record | core | the stages in order with each one's time, read-only | VGS-1902 |
 | Dim | `vgs.displays` | lowers each panel's brightness, puts it back on input | holds |
-| Screensaver | `vgs.screensaver` | shows the Cover, a layer surface per screen, never while locked or while the panels are off | holds |
-| Lock | `vgs.lock` | locks once; input does not unlock | holds |
+| Screensaver | `vgs.screensaver` | shows the Cover on each screen, on a layer surface, or held inside the lock when an idle lock finds it running; never over another lock and never while the panels are off | holds |
+| Lock | `vgs.lock` | locks once; input does not unlock; an idle lock keeps a running screensaver over it until the first input | holds |
 | Lock before sleep | `vgs.lock` | holds a logind delay inhibitor and locks on `PrepareForSleep` | holds |
 | Display off | `vgs.power` | turns every panel off after idle, and sooner while locked | holds |
 | Sleep after idle | `vgs.power` | asks logind to suspend, hibernate or suspend then hibernate | holds |
@@ -54,7 +54,7 @@ VGS does no work on this behaviour. It keeps `respectInhibitors: true`, because 
 
 Omarchy runs one idle monitor and timers for later stages, because its screensaver is a terminal window and mapping it restarts the count. The VGS Cover and lock are layer surfaces, so separate watches stay correct and need no cycle state to keep.
 
-A plugin cannot read another plugin ([overview.md](overview.md)), so stage order cannot be a check across owners. Counting each stage on its own gives every order a defined result: a screensaver due after the lock never starts, because it refuses while locked; panels off before the lock stay off until input; a sleep before the lock still locks first through the delay inhibitor while Lock before sleep is on. The core already holds every plugin's effective settings, so the one place that can show the order without one plugin reading another is a core record built from what each plugin declares.
+A plugin cannot read another plugin ([overview.md](overview.md)), so stage order cannot be a check across owners. Counting each stage on its own gives every order a defined result: a screensaver due after the lock never starts, because it refuses while locked; one due at the lock's own time starts with the lock, from the lock's idle event, since two watches created at different times can notify in either order; panels off before the lock stay off until input; a sleep before the lock still locks first through the delay inhibitor while Lock before sleep is on. The core already holds every plugin's effective settings, so the one place that can show the order without one plugin reading another is a core record built from what each plugin declares.
 
 Keep energy features in `vgs.power`, including power profiles and battery alerts, under [D109](../decisions/D109-idle-path-one-owner-per-stage.md).
 
@@ -76,8 +76,12 @@ The power button and the lid must act while the shell is down: a laptop closed i
 - Do keep `respectInhibitors: true` on every idle stage watch, as § Window events and the idle count sets out. A watch that clears a fact on input and starts no stage ignores inhibitors. Review holds it.
 - Never read another stage owner's setting or status; read another stage's time only from `shell.idle.stages`. The screensaver's `lockOrder` reading uses the record's lock time and `before` verdict; `scripts/smoke/rows/screensaver.sh` pins it.
 - Do judge stage order in one place, the core record; the pane and the screensaver show its verdict and never compute their own. Designed: VGS-1902.
+- Do take a stage owner's own watch through `shell.idle.watchStage`, which the core refuses to any other plugin. Each idle notification carries a ticket; input, the watch's disposal and a change of the stage's owner or time revoke it. An idle lock request carries the lock stage's ticket and a screensaver start the screensaver stage's, so only an idle event the core saw brings a cover into the lock. `scripts/test-plugin-logic.js`, `scripts/test-session-lock.sh` and `scripts/smoke/rows/capabilities.sh` pin the refusals.
+- Do keep a running screensaver over an idle lock: the core takes the lock first, then moves the same Cover instance, its frame and its effect into the lock surface, and builds no lock screen under it. Manual, sleep and restore locks end it and show the lock screen. `scripts/smoke/rows/secure-cover.sh` and `scripts/smoke/rows/screensaver.sh` pin it.
+- Do start the screensaver with the lock from the lock's own idle event when both times are equal and positive, whichever watch notifies first. Recreate no watch for it and move no deadline: an edit of the screensaver's time never recreates the lock's watch. A later screensaver notification of the same idle period changes nothing, and one over an established lock starts nothing. `scripts/smoke/rows/secure-cover.sh` pins both orders and the lock's deadline.
+- Do end a cover held in the lock only on the first real input, a move of more than four pixels, a press, a scroll or a key, which the core's barrier takes so it reaches neither the lock screen nor PAM, or on display off, a failure the owner reports, its owner going, its last cover instance going, an unlock or a superseding lock. The lock stays. A cover that has no built instance, because its build failed or was refused, starts no presentation, so the lock screen shows at once. `scripts/smoke/rows/secure-cover.sh` pins each.
 - Do keep the Cover and the lock surface on layer surfaces, so showing them does not restart another watch. `scripts/smoke/rows/screensaver.sh` checks the lock's deadline while the Cover runs.
-- Do stop the Cover and its effect while `shell.session.displaysOff` is true, and start none while it is. `scripts/smoke/rows/screensaver.sh` pins it.
+- Do stop the Cover and its effect while `shell.session.displaysOff` is true, and start none while it is. The core's cover presentation owns it. `scripts/smoke/rows/screensaver.sh` and `scripts/smoke/rows/secure-cover.sh` pin it.
 - Never create an idle inhibitor or an idle pause in a plugin. A stay-awake pause, if one is added, is core-owned and lent through capability `idle` with a disposer. Review holds it.
 - Do honour Wayland idle inhibitors, through Hyprland, and Hyprland's own `idle_inhibit` window rules, which the user writes. VGS ships no such rule. VGS does not honour `org.freedesktop.ScreenSaver` inhibits, because Quickshell 0.3.1 cannot own a D-Bus object ([D085](../decisions/D085-bluetooth-agent-core-lent-over-bluetoothctl.md)), and does not read logind idle inhibitors. Review holds it.
 
@@ -114,7 +118,7 @@ The power button and the lid must act while the shell is down: a laptop closed i
 
 ## The canonical example
 
-`watchIdle()` in `shell/plugins/vgs.lock/Service.qml`: it disposes the previous watch, returns while the setting is off, and watches with the setting's value. Copy it for a new stage.
+`watchIdle()` in `shell/plugins/vgs.lock/Service.qml`: it disposes the previous watch and takes the lock stage's own watch, which the core holds at the stage's time and drops while it is Never. Copy it for a new stage.
 
 ## Revisit when
 

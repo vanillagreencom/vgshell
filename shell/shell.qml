@@ -91,6 +91,13 @@ ShellRoot {
         }
     }
 
+    // The screensaver stage owner's cover, one slot per screen that the
+    // lock can hold (CoverPresentation).
+    Variants {
+        model: root.guarded ? Quickshell.screens : []
+        CoverHost {}
+    }
+
     LazyLoader {
         active: root.guarded
         Scope {

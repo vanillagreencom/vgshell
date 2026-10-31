@@ -80,7 +80,16 @@ Item {
         shell.ipc.handle("off-mark", path => { root.offMark = path; return "ok"; });
         // The environment a detached process starts with, written to PATH.
         shell.ipc.handle("environ", path => root.shell.run.detached(["sh", "-c", "env >\"$1\"", "sh", path]));
-        shell.ipc.handle("lock", () => root.shell.lock.lock(lockContent));
+        shell.ipc.handle("lock", () => root.shell.lock.lock(lockContent, { cause: "manual" }));
+        // lock-request <json>: a lock request as given, for the core's
+        // refusals; an object there is no ticket the core minted.
+        shell.ipc.handle("lock-request", arg => root.shell.lock.lock(lockContent, JSON.parse(arg)));
+        // The cover provider of a plugin that owns no screensaver stage.
+        shell.ipc.handle("cover-present", () => root.shell.cover.present());
+        shell.ipc.handle("cover-stop", () => root.shell.cover.stop());
+        shell.ipc.handle("idle-watch-stage", stage => {
+            try { root.shell.idle.watchStage(stage, () => {}); return "ok"; } catch (e) { return e.message; }
+        });
         shell.ipc.handle("unlock", () => root.shell.lock.unlock());
         // idle-watch <seconds>: one idle watch, its changes kept in
         // idleChanges; a refusal is answered. idle-unwatch runs its disposer.
@@ -152,6 +161,6 @@ Item {
             return at === -1 ? root.shell.theme.set(arg, null, root.themeAnswer("set")) : root.shell.theme.set(arg.slice(0, at), arg.slice(at + 1), root.themeAnswer("set"));
         });
         // A lock holder rebuilt into a locked session hands its screen over again.
-        if (shell.lock.locked) shell.lock.lock(lockContent);
+        if (shell.lock.locked) shell.lock.lock(lockContent, { cause: "restore" });
     }
 }

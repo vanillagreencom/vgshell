@@ -157,6 +157,7 @@ f share/vgshell/shell/Core/Capabilities.qml
 f share/vgshell/shell/Core/Compositor.qml
 f share/vgshell/shell/Core/Config.qml
 f share/vgshell/shell/Core/ConfigLogic.js
+f share/vgshell/shell/Core/CoverPresentation.qml
 f share/vgshell/shell/Core/Dictation.qml
 f share/vgshell/shell/Core/DictationModel.js
 f share/vgshell/shell/Core/Dispatch.js
@@ -197,6 +198,8 @@ f share/vgshell/shell/Core/qmldir
 f share/vgshell/shell/Hosts/AppWindow.qml
 f share/vgshell/shell/Hosts/BackgroundHost.qml
 f share/vgshell/shell/Hosts/BarHost.qml
+f share/vgshell/shell/Hosts/CoverBarrier.qml
+f share/vgshell/shell/Hosts/CoverHost.qml
 f share/vgshell/shell/Hosts/LayerHost.qml
 f share/vgshell/shell/Hosts/LockHost.qml
 f share/vgshell/shell/Hosts/NoticeHost.qml

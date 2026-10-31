@@ -22,7 +22,7 @@
 
 # SCENE is gallery, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, tailscale, tailscale-starting, tailscale-locked, tailscale-flyout, vpn, vpn-locked, bluetooth, power, dialog, by-hand, reset, lock, polkit,
-# greeter, narrow, theme-browser, wallpaper-browser, automations, automation-failure, googledrive, tooltips, capture, capture-notifications,
+# greeter, narrow, theme-browser, wallpaper-browser, automations, automation-failure, googledrive, tooltips, screensaver-lock, capture, capture-notifications,
 # info-dialog, keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, jarvis-console, jarvis-audit, jarvis-setup, elevenlabs-voices, jarvis-fleet, outdated, jarvis-causes, jarvis-restart, plugin-messages, page-links, tooltip-link, traffic, ai-usage, ai-usage-states, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice, displays-override or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
@@ -297,6 +297,13 @@
 # wallpaper is the file its --preview-wallpaper NAME=PATH names
 # (scripts/theme-previews.sh passes them). A scene argument that is missing
 # or names nothing is refused as `sandbox-shots: refused: <option>=<value>`.
+# The screensaver-lock scene runs the screensaver from its idle watch and
+# lets the lock's idle watch lock the session under it: screensaver-lock-
+# <mode>-running before the lock, -locked once the compositor confirms the
+# lock, and -revealed after one pointer move. No shot before the move parks
+# the pointer, since a move is the input that ends a cover. On a tree whose
+# lock ends the screensaver, -locked already shows the lock screen. It
+# releases the lock with `sessionUnlock` and puts both plugins back.
 # The lock scene enables vgs.lock with its sleep hook and idle watch off,
 # locks the nested session, and shoots the lock screen, then after one and
 # after ten wrong attempts. No password is typed and no PAM runs: the
@@ -424,7 +431,7 @@ while [[ $# -gt 0 ]]; do
     --title-inventory) title_inventory=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    link-icons|sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|capture-notifications|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-audit|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|jarvis-restart|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|tailscale-flyout|tailscale-section|vpn|vpn-locked|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|automation-failure|googledrive|tooltips|screensaver|theme-previews|setup-tab|updates|clone-voice|displays-override) scenes+=("$1"); shift ;;
+    link-icons|sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|capture-notifications|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-audit|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|jarvis-restart|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|tailscale-flyout|tailscale-section|vpn|vpn-locked|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|automation-failure|googledrive|tooltips|screensaver|screensaver-lock|theme-previews|setup-tab|updates|clone-voice|displays-override) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -571,6 +578,7 @@ scene_ships() {
     automations) ships_plugin vgs.automations ;;
     automation-failure) ships_plugin vgs.automations vgs.notifications ;;
     screensaver) ships_plugin vgs.screensaver ;;
+    screensaver-lock) ships_plugin vgs.screensaver vgs.lock ;;
     bar) ships_plugin vgs.bar vgs.launcher vgs.agent-warden vgs.updates vgs.themes ;;
     tooltips) scene_ships bar ;;
     panels) ships_plugin vgs.agent-warden vgs.updates vgs.themes ;;
@@ -8169,6 +8177,70 @@ PY
   expect "stopping the screensaver after the shot is allowed" ok ipc vgs.screensaver invoke stop ''
   expect_poll "the screensaver cover is gone after the shot" 0 layer_count vgs:cover
   expect "disabling vgs.screensaver after the shot is allowed" ok ipc shell setPluginEnabled vgs.screensaver false
+}
+
+scene_screensaver-lock() { # MODE
+  local probe saver locker config="$home/.config/vgshell/shell.json"
+  if ! command -v ttfx >/dev/null 2>&1; then
+    printf 'sandbox-shots: scene=screensaver-lock mode=%s status=not-measured missing=ttfx\n' "$1"
+    unmeasured=$((unmeasured + 1))
+    return 0
+  fi
+  probe="$(plugin_enabled acme.probe)" || probe=unreadable
+  saver="$(plugin_enabled vgs.screensaver)" || saver=unreadable
+  locker="$(plugin_enabled vgs.lock)" || locker=unreadable
+  [[ $probe != True ]] || expect "disabling the probe fixture, which holds lock, is allowed" ok ipc shell setPluginEnabled acme.probe false
+  screensaver_lock_settings() { # SCREENSAVER_JSON LOCK_JSON
+    python3 - "$config" "$1" "$2" <<'PY'
+import json, os, sys
+path, saver, lock = sys.argv[1], json.loads(sys.argv[2]), json.loads(sys.argv[3])
+doc = json.load(open(path))
+rows = doc.setdefault("plugins", [])
+for plugin, patch in (("vgs.screensaver", saver), ("vgs.lock", lock)):
+    row = next((r for r in rows if r.get("id") == plugin), None)
+    if row is None:
+        row = {"id": plugin}
+        rows.append(row)
+    for key, value in patch.items():
+        if value is None:
+            row.pop(key, None)
+        else:
+            row[key] = value
+with open(path + ".tmp", "w") as out:
+    json.dump(doc, out)
+os.replace(path + ".tmp", path)
+PY
+  }
+  screensaver_lock_settings '{"idleEnabled": true, "idleSeconds": 2, "effect": "colorshift", "frameRate": 30}' '{"idleLockSeconds": 20, "lockBeforeSleep": false}'
+  expect "reload config for the screensaver-lock shots" ok ipc shell reloadConfig
+  expect "enabling vgs.screensaver is allowed" ok ipc shell setPluginEnabled vgs.screensaver true
+  expect "enabling vgs.lock is allowed" ok ipc shell setPluginEnabled vgs.lock true
+  expect_poll "vgs.screensaver is built" True record_exists vgs.screensaver
+  expect_poll "vgs.lock is built" True record_exists vgs.lock
+  park_pointer
+  expect_poll "the idle screensaver maps its cover" 1 layer_count vgs:cover
+  # colorshift keeps the art on the canvas and only moves its colours, so
+  # every shot shows the art; an animated shot ends within SHOT_SETTLE_S,
+  # 5 s, well before the 20 s lock.
+  sleep 6
+  SHOT_CHROME_READER=shot_chrome_read SHOT_CHROME_REQUIRE=clean take_raw "screensaver-lock-$1-running"
+  expect_poll "the idle lock is confirmed" '[true, true, true]' lock_core
+  sleep 2
+  # The tree's cover record, absent on a tree before the secure cover.
+  printf 'sandbox-shots: screensaver-lock mode=%s state=locked cover=%s\n' "$1" "$(ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("cover")))')"
+  SHOT_CHROME_READER=shot_chrome_read SHOT_CHROME_REQUIRE=clean take_raw "screensaver-lock-$1-locked"
+  hover "$((mon_w / 2))" "$((mon_h / 3))" || fail "the first pointer move under the lock failed"
+  sleep 2
+  park_pointer
+  sleep 1
+  SHOT_CHROME_READER=shot_chrome_read SHOT_CHROME_REQUIRE=clean take_raw "screensaver-lock-$1-revealed"
+  expect "the probe releases the lock" ok ipc smoke sessionUnlock
+  expect_poll "the core holds no lock" '[false, false, true]' lock_core
+  screensaver_lock_settings '{"idleEnabled": null, "idleSeconds": null, "effect": null, "frameRate": null}' '{"idleLockSeconds": null, "lockBeforeSleep": null}'
+  expect "reload config after the screensaver-lock shots" ok ipc shell reloadConfig
+  [[ $saver == True ]] || expect "disabling vgs.screensaver after the shots is allowed" ok ipc shell setPluginEnabled vgs.screensaver false
+  [[ $locker == True ]] || expect "disabling vgs.lock after the shots is allowed" ok ipc shell setPluginEnabled vgs.lock false
+  [[ $probe != True ]] || expect "re-enabling the probe fixture is allowed" ok ipc shell setPluginEnabled acme.probe true
 }
 
 # The setup each scene needs, once each, in the order the scenes first
