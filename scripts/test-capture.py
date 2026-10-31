@@ -63,8 +63,8 @@ def release_deadline():
         assert not release_deadline_holds(control), "per-child cleanup waits exceed the shell window"
 
 
-def service_rectangles():
-    """Hyprland's undrawn group tab must not reach either screenshot selector."""
+def window_source():
+    """The service's windowRectangles body and the compositor provider that answers its onScreen."""
     service = (HELPER.parent.parent / "Service.qml").read_text()
     capabilities = (REPO / "shell/Core/Capabilities.qml").read_text()
     start, end = "    function windowRectangles(clients, monitors) {\n", "\n    }\n\n    function outputRectangles()"
@@ -72,7 +72,12 @@ def service_rectangles():
     body = service.split(start)[1].split(end)[0]
     start, end = "        compositor: ctx => {\n", "\n        },\n        configure:"
     assert capabilities.count(start) == capabilities.count(end) == 1, "compositor provider boundary"
-    factory = capabilities.split(start)[1].split(end)[0]
+    return body, capabilities.split(start)[1].split(end)[0]
+
+
+def service_rectangles():
+    """Hyprland's undrawn group tab must not reach either screenshot selector."""
+    body, factory = window_source()
     before = " && shell.compositor.onScreen(window, monitors)"
     assert body.count(before) == 1, "service drawn-window control"
     no_query = body.replace(before, "")
@@ -101,8 +106,8 @@ const clients = [
     { ...base, address: "zero-height", size: [80, 0] },
 ];
 const monitors = [
-    { id: 0, activeWorkspace: { id: 1 }, specialWorkspace: { id: 0, name: "" } },
-    { id: 1, activeWorkspace: { id: 2 }, specialWorkspace: { id: -3, name: "special:pad" } },
+    { id: 0, activeWorkspace: { id: 1, name: "1" }, specialWorkspace: { id: 0, name: "" } },
+    { id: 1, activeWorkspace: { id: 2, name: "2" }, specialWorkspace: { id: -3, name: "special:pad" } },
 ];
 // The model keeps a closed window that would be drawn and on the screen.
 const Hyprland = { toplevels: { values: [...clients, { ...base, address: "closed" }].map(lastIpcObject => ({ lastIpcObject })) } };
@@ -126,6 +131,65 @@ console.log(JSON.stringify([
     assert not query_control, "omitting the drawn-window query must fail the same candidate readback"
     assert not delegate_control, "bypassing Dispatch.onScreen must fail the same candidate readback"
     assert not model_control, "reading Hyprland.toplevels must fail the same candidate readback"
+
+
+WINDOW_REPLIES = REPO / "scripts/fixtures/capture/hyprland-windows.json"
+
+
+def recorded_windows():
+    """Both Hyprland replies give the screenshot selectors the windows on the screen.
+
+    VGS-2108: 0.57.0 writes no `id` for a workspace without a number, so a
+    monitor's empty special workspace lost the `id` 0 the filter required and
+    every regular window was dropped. The 0.57.0 reply is the one recorded on
+    px13 and the 0.56.2 reply has that reply's windows in 0.56.2's shape. The
+    control runs the same replies through Dispatch.js with that requirement
+    restored: 0.57.0 must come back empty, 0.56.2 whole.
+    """
+    body, factory = window_source()
+    replies = json.loads(WINDOW_REPLIES.read_text())
+    dispatch = (REPO / "shell/Core/Dispatch.js").read_text()
+    before = "&& !(m.specialWorkspace && m.specialWorkspace.name);"
+    assert dispatch.count(before) == 1, "dispatch special workspace control"
+    control = dispatch.replace(before, "&& (!m.specialWorkspace || m.specialWorkspace.id === 0);")
+    program = r'''
+const fs = require("fs");
+const path = require("path");
+const input = JSON.parse(process.argv[1]);
+const lib = path.join(input.repo, "shell/Core");
+const loadFrom = file => require(path.join(input.repo, "bin/lib/qml-library.js")).load(file);
+const real = loadFrom(path.join(lib, "Dispatch.js"));
+fs.mkdirSync(input.scratch, { recursive: true });
+for (const name of ["HyprlandLayer.js", "MonitorLogic.js"]) fs.copyFileSync(path.join(lib, name), path.join(input.scratch, name));
+fs.writeFileSync(path.join(input.scratch, "Dispatch.js"), input.control);
+const old = loadFrom(path.join(input.scratch, "Dispatch.js"));
+function addresses(Dispatch, clients, monitors) {
+    const compositor = new Function("Dispatch", "Compositor", "ctx", input.factory)(Dispatch, {}, { active: true });
+    return new Function("clients", "monitors", "shell", input.body)(clients, monitors, { compositor }).map(window => window.address);
+}
+const out = {};
+for (const [version, reply] of Object.entries(input.replies)) {
+    const special = JSON.parse(JSON.stringify(reply.monitors));
+    special[0].specialWorkspace = { ...special[0].specialWorkspace, name: "special:term" };
+    if (version === "0.56.2") special[0].specialWorkspace.id = -98;
+    out[version] = [addresses(real, reply.clients, reply.monitors), addresses(real, reply.clients, special), addresses(old, reply.clients, reply.monitors)];
+}
+console.log(JSON.stringify(out));
+'''
+    with tempfile.TemporaryDirectory(prefix="capture-windows-") as scratch:
+        payload = dict(repo=str(REPO), body=body, factory=factory, replies={v: replies[v] for v in ("0.57.0", "0.56.2")}, control=control, scratch=str(Path(scratch) / "control"))
+        result = subprocess.run(["node", "-e", program, json.dumps(payload)], stdin=subprocess.DEVNULL, capture_output=True, text=True, env={"PATH": os.defpath, "LC_ALL": "C"}, timeout=10)
+    assert result.returncode == 0, result.stderr
+    got = json.loads(result.stdout)
+    by_address = {c["address"]: c["workspace"]["name"] for c in replies["0.57.0"]["clients"]}
+    regular, special_term = [a for a, n in by_address.items() if n == "3"], [a for a, n in by_address.items() if n == "special:term"]
+    assert len(regular) == 1 and len(special_term) == 1, "fixture holds one window on the shown workspace and one on special:term"
+    for version in ("0.57.0", "0.56.2"):
+        shown, over_special, old_rule = got[version]
+        assert shown == regular, (version, "windows on the shown workspace", shown)
+        assert over_special == special_term, (version, "the special workspace a monitor shows hides the regular ones", over_special)
+    assert got["0.56.2"][2] == regular, "the old requirement read the 0.56.2 reply"
+    assert got["0.57.0"][2] == [], "the old requirement must drop every window of the 0.57.0 reply"
 
 
 def delay_choice():
@@ -1474,6 +1538,7 @@ def main():
         config = {"real": {"grim": real}, "display": display, "runtime": runtime}
         dimensions = (int(width), int(height))
     service_rectangles()
+    recorded_windows()
     service_completion()
     delay_choice()
     with tempfile.TemporaryDirectory(prefix="capture-test-") as temp:
@@ -1671,7 +1736,7 @@ def main():
         assert not killed_owner_holds(root, request(root, "record"), config, helper), "control did not fail: unowned child"
     if unmeasured is None:
         recording_controls += ",no-trim"
-    controls = ("capture-sequence,waiting-clipboard,second-settle,provider-completion,delay-field-drawn,delay-unsaved,delay-saved-elsewhere,save-unsent,delay-unread,delay-overwritten,timeout-sent,delay-unchecked,undrawn-windows,drawn-window-delegate,model-windows,raw-ocr-error,no-output,no-clipboard,hard-stop,inherited-stdin,slept-freeze,listed-freeze,unowned-child,invalid-delay-accepted,invalid-processing-accepted,empty-selection-accepted,empty-displays-accepted,smart-snap,window-boxes,display-boxes,all-bounds,no-scale,no-rotation,no-cursor,copy-saves,save-copies,no-delay,delay-ignores-cancel,no-timeout,settle-ignores-cancel,written-ignores-cancel,selector-ignores-cancel,geometry-over-cancel,late-answer-error,no-selection-end," + recording_controls + "," + notification_controls)
+    controls = ("capture-sequence,waiting-clipboard,second-settle,provider-completion,delay-field-drawn,delay-unsaved,delay-saved-elsewhere,save-unsent,delay-unread,delay-overwritten,timeout-sent,delay-unchecked,undrawn-windows,drawn-window-delegate,model-windows,old-special-id-0.57-empty,raw-ocr-error,no-output,no-clipboard,hard-stop,inherited-stdin,slept-freeze,listed-freeze,unowned-child,invalid-delay-accepted,invalid-processing-accepted,empty-selection-accepted,empty-displays-accepted,smart-snap,window-boxes,display-boxes,all-bounds,no-scale,no-rotation,no-cursor,copy-saves,save-copies,no-delay,delay-ignores-cancel,no-timeout,settle-ignores-cancel,written-ignores-cancel,selector-ignores-cancel,geometry-over-cancel,late-answer-error,no-selection-end," + recording_controls + "," + notification_controls)
     if unmeasured is not None:
         # The rest passed, but the real post-process could not run: not a pass.
         print(f"test-capture: status=not-measured cause={unmeasured}; controls={controls}")

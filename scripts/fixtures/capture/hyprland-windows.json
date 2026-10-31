@@ -1,0 +1,499 @@
+{
+  "_comment": "clients and monitors of `hyprctl --batch \"j/clients;j/monitors\"`, keeping only the fields the capture window filter reads; titles and classes dropped. 0.57.0 is the recorded px13 reply (VGS-2108). 0.56.2 is not a recording: it is that reply's windows in the shape src/debug/HyprCtl.cpp at v0.56.2 writes (every workspace carries id, an absent one id 0 and name empty).",
+  "0.57.0": {
+    "version": "0.57.0",
+    "clients": [
+      {
+        "address": "0x55b9bf514a40",
+        "mapped": true,
+        "hidden": false,
+        "visible": true,
+        "monitor": 0,
+        "workspace": {
+          "address": "special:yazi",
+          "type": "special",
+          "name": "special:yazi"
+        },
+        "at": [
+          70,
+          37
+        ],
+        "size": [
+          1300,
+          700
+        ],
+        "focusHistoryID": 4
+      },
+      {
+        "address": "0x55b9c0a90e80",
+        "mapped": true,
+        "hidden": false,
+        "visible": true,
+        "monitor": 0,
+        "workspace": {
+          "address": "special:term",
+          "type": "special",
+          "name": "special:term"
+        },
+        "at": [
+          170,
+          37
+        ],
+        "size": [
+          1100,
+          640
+        ],
+        "focusHistoryID": 5
+      },
+      {
+        "address": "0x55b9bf513590",
+        "mapped": true,
+        "hidden": false,
+        "visible": true,
+        "monitor": 0,
+        "workspace": {
+          "address": "special:spotify",
+          "type": "special",
+          "name": "special:spotify"
+        },
+        "at": [
+          70,
+          37
+        ],
+        "size": [
+          1300,
+          780
+        ],
+        "focusHistoryID": 6
+      },
+      {
+        "address": "0x55b9bf512620",
+        "mapped": true,
+        "hidden": false,
+        "visible": true,
+        "monitor": 0,
+        "workspace": {
+          "address": "special:github",
+          "type": "special",
+          "name": "special:github"
+        },
+        "at": [
+          70,
+          37
+        ],
+        "size": [
+          1300,
+          800
+        ],
+        "focusHistoryID": 7
+      },
+      {
+        "address": "0x55b9bf512a00",
+        "mapped": true,
+        "hidden": false,
+        "visible": true,
+        "monitor": 0,
+        "workspace": {
+          "address": "special:chatgpt",
+          "type": "special",
+          "name": "special:chatgpt"
+        },
+        "at": [
+          70,
+          37
+        ],
+        "size": [
+          1300,
+          800
+        ],
+        "focusHistoryID": 8
+      },
+      {
+        "address": "0x55b9c060d830",
+        "mapped": true,
+        "hidden": false,
+        "visible": true,
+        "monitor": 0,
+        "workspace": {
+          "address": "special:linear",
+          "type": "special",
+          "name": "special:linear"
+        },
+        "at": [
+          70,
+          37
+        ],
+        "size": [
+          1300,
+          800
+        ],
+        "focusHistoryID": 9
+      },
+      {
+        "address": "0x55b9c0ff30e0",
+        "mapped": true,
+        "hidden": false,
+        "visible": true,
+        "monitor": 0,
+        "workspace": {
+          "address": "special:macbook",
+          "type": "special",
+          "name": "special:macbook"
+        },
+        "at": [
+          45,
+          37
+        ],
+        "size": [
+          1350,
+          820
+        ],
+        "focusHistoryID": 10
+      },
+      {
+        "address": "0x55b9bf516e00",
+        "mapped": true,
+        "hidden": false,
+        "visible": true,
+        "monitor": 0,
+        "workspace": {
+          "address": "2",
+          "id": 2,
+          "type": "normal",
+          "name": "2"
+        },
+        "at": [
+          12,
+          40
+        ],
+        "size": [
+          1416,
+          848
+        ],
+        "focusHistoryID": 1
+      },
+      {
+        "address": "0x55b9bf4ead20",
+        "mapped": true,
+        "hidden": false,
+        "visible": true,
+        "monitor": 0,
+        "workspace": {
+          "address": "1",
+          "id": 1,
+          "type": "normal",
+          "name": "1"
+        },
+        "at": [
+          12,
+          40
+        ],
+        "size": [
+          701,
+          848
+        ],
+        "focusHistoryID": 3
+      },
+      {
+        "address": "0x55b9bf4f6250",
+        "mapped": true,
+        "hidden": false,
+        "visible": true,
+        "monitor": 0,
+        "workspace": {
+          "address": "1",
+          "id": 1,
+          "type": "normal",
+          "name": "1"
+        },
+        "at": [
+          727,
+          40
+        ],
+        "size": [
+          701,
+          848
+        ],
+        "focusHistoryID": 2
+      },
+      {
+        "address": "0x55b9bf3fb780",
+        "mapped": true,
+        "hidden": false,
+        "visible": true,
+        "monitor": 0,
+        "workspace": {
+          "address": "3",
+          "id": 3,
+          "type": "normal",
+          "name": "3"
+        },
+        "at": [
+          12,
+          40
+        ],
+        "size": [
+          1416,
+          848
+        ],
+        "focusHistoryID": 0
+      }
+    ],
+    "monitors": [
+      {
+        "id": 0,
+        "name": "eDP-1",
+        "activeWorkspace": {
+          "address": "3",
+          "id": 3,
+          "type": "normal",
+          "name": "3"
+        },
+        "specialWorkspace": {
+          "address": "",
+          "type": "",
+          "name": ""
+        }
+      }
+    ]
+  },
+  "0.56.2": {
+    "version": "0.56.2",
+    "clients": [
+      {
+        "address": "0x55b9bf514a40",
+        "mapped": true,
+        "hidden": false,
+        "visible": true,
+        "monitor": 0,
+        "workspace": {
+          "id": -98,
+          "name": "special:yazi"
+        },
+        "at": [
+          70,
+          37
+        ],
+        "size": [
+          1300,
+          700
+        ],
+        "focusHistoryID": 4
+      },
+      {
+        "address": "0x55b9c0a90e80",
+        "mapped": true,
+        "hidden": false,
+        "visible": true,
+        "monitor": 0,
+        "workspace": {
+          "id": -99,
+          "name": "special:term"
+        },
+        "at": [
+          170,
+          37
+        ],
+        "size": [
+          1100,
+          640
+        ],
+        "focusHistoryID": 5
+      },
+      {
+        "address": "0x55b9bf513590",
+        "mapped": true,
+        "hidden": false,
+        "visible": true,
+        "monitor": 0,
+        "workspace": {
+          "id": -100,
+          "name": "special:spotify"
+        },
+        "at": [
+          70,
+          37
+        ],
+        "size": [
+          1300,
+          780
+        ],
+        "focusHistoryID": 6
+      },
+      {
+        "address": "0x55b9bf512620",
+        "mapped": true,
+        "hidden": false,
+        "visible": true,
+        "monitor": 0,
+        "workspace": {
+          "id": -101,
+          "name": "special:github"
+        },
+        "at": [
+          70,
+          37
+        ],
+        "size": [
+          1300,
+          800
+        ],
+        "focusHistoryID": 7
+      },
+      {
+        "address": "0x55b9bf512a00",
+        "mapped": true,
+        "hidden": false,
+        "visible": true,
+        "monitor": 0,
+        "workspace": {
+          "id": -102,
+          "name": "special:chatgpt"
+        },
+        "at": [
+          70,
+          37
+        ],
+        "size": [
+          1300,
+          800
+        ],
+        "focusHistoryID": 8
+      },
+      {
+        "address": "0x55b9c060d830",
+        "mapped": true,
+        "hidden": false,
+        "visible": true,
+        "monitor": 0,
+        "workspace": {
+          "id": -103,
+          "name": "special:linear"
+        },
+        "at": [
+          70,
+          37
+        ],
+        "size": [
+          1300,
+          800
+        ],
+        "focusHistoryID": 9
+      },
+      {
+        "address": "0x55b9c0ff30e0",
+        "mapped": true,
+        "hidden": false,
+        "visible": true,
+        "monitor": 0,
+        "workspace": {
+          "id": -104,
+          "name": "special:macbook"
+        },
+        "at": [
+          45,
+          37
+        ],
+        "size": [
+          1350,
+          820
+        ],
+        "focusHistoryID": 10
+      },
+      {
+        "address": "0x55b9bf516e00",
+        "mapped": true,
+        "hidden": false,
+        "visible": true,
+        "monitor": 0,
+        "workspace": {
+          "id": 2,
+          "name": "2"
+        },
+        "at": [
+          12,
+          40
+        ],
+        "size": [
+          1416,
+          848
+        ],
+        "focusHistoryID": 1
+      },
+      {
+        "address": "0x55b9bf4ead20",
+        "mapped": true,
+        "hidden": false,
+        "visible": true,
+        "monitor": 0,
+        "workspace": {
+          "id": 1,
+          "name": "1"
+        },
+        "at": [
+          12,
+          40
+        ],
+        "size": [
+          701,
+          848
+        ],
+        "focusHistoryID": 3
+      },
+      {
+        "address": "0x55b9bf4f6250",
+        "mapped": true,
+        "hidden": false,
+        "visible": true,
+        "monitor": 0,
+        "workspace": {
+          "id": 1,
+          "name": "1"
+        },
+        "at": [
+          727,
+          40
+        ],
+        "size": [
+          701,
+          848
+        ],
+        "focusHistoryID": 2
+      },
+      {
+        "address": "0x55b9bf3fb780",
+        "mapped": true,
+        "hidden": false,
+        "visible": true,
+        "monitor": 0,
+        "workspace": {
+          "id": 3,
+          "name": "3"
+        },
+        "at": [
+          12,
+          40
+        ],
+        "size": [
+          1416,
+          848
+        ],
+        "focusHistoryID": 0
+      }
+    ],
+    "monitors": [
+      {
+        "id": 0,
+        "name": "eDP-1",
+        "activeWorkspace": {
+          "id": 3,
+          "name": "3"
+        },
+        "specialWorkspace": {
+          "id": 0,
+          "name": ""
+        }
+      }
+    ]
+  }
+}

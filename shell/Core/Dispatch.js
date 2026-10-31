@@ -543,11 +543,23 @@ function inputTarget(text, point, keyboardProtected, entries, lookup, executable
 function onScreen(client, monitors) {
     if (client.visible === false) return false;
     var ws = client.workspace || {};
-    if (String(ws.name || "").indexOf("special:") === 0)
-        return monitors.some(function (m) { return m.specialWorkspace && m.specialWorkspace.name === ws.name; });
+    var name = String(ws.name || "");
+    if (name.indexOf("special:") === 0)
+        return monitors.some(function (m) { return m.specialWorkspace && m.specialWorkspace.name === name; });
+    var key = workspaceKey(ws);
+    if (key === "") return false;
     return monitors.some(function (m) {
-        return m.id === client.monitor && m.activeWorkspace && m.activeWorkspace.id === ws.id && (!m.specialWorkspace || m.specialWorkspace.id === 0);
+        return m.id === client.monitor && m.activeWorkspace && workspaceKey(m.activeWorkspace) === key && !(m.specialWorkspace && m.specialWorkspace.name);
     });
+}
+
+// What names a regular workspace in a j/clients or j/monitors reply, "" for
+// none. A `name` is a display name any `renameworkspace` can repeat or
+// empty. 0.57.0 writes the `address` and omits the `id` of a workspace with
+// no number; 0.56.2 writes no `address`, and an `id` of 0 for none.
+function workspaceKey(ws) {
+    if (typeof ws.address === "string") return ws.address;
+    return Number.isInteger(ws.id) && ws.id !== 0 ? String(ws.id) : "";
 }
 
 // Which window a reveal brings into view, from revealState's reading:
