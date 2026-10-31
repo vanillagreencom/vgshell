@@ -76,6 +76,13 @@
 # still draws at scale 1, so QT_SCREEN_SCALE_FACTORS sets it; a run under
 # qmltestrunner 6.11.2 drew a half-pixel step as one device pixel there.
 #
+# Every test runs the QML engine mode the shell runs: each
+# `//@ pragma Env QV4_<NAME> = <VALUE>` line of the repository's
+# shell/shell.qml, read at each run, sets that variable for qmltestrunner, so
+# its garbage collector is the shell's. An Env pragma with no `=` or no
+# variable name is refused (exit 2):
+#   qml-unit: refused: pragma=unparsed file=<path> line=<n>
+#
 # The shader tests, which read pixels a MultiEffect draws, run under
 # xvfb-run, which picks the first display whose
 # /tmp/.X<n>-lock is absent and only then starts Xvfb, so two runs at once,
@@ -124,6 +131,42 @@ fi
 # No process the runner starts may open an amdgpu node, so the run goes on
 # only where none is visible: scripts/smoke/gpu-fence.sh.
 "$repo/scripts/smoke/gpu-fence.sh" --check || exec "$repo/scripts/smoke/gpu-fence.sh" "$self" "${argv[@]}"
+
+# Read as Quickshell reads its pragmas (src/launch/launch.cpp at 2b4501a,
+# the pin in packaging/arch/vgshell-quickshell/PKGBUILD): each trimmed line
+# before the first that starts with `import`, an Env pragma split at its
+# first `=` with both sides trimmed; Quickshell refuses to start on one with
+# no `=`. Only QV4_ variables are applied: the rest set the shell's own
+# session, which a test does not run.
+engine_settings="$(python3 - "$repo/shell/shell.qml" <<'PY'
+import re, sys
+
+path = sys.argv[1]
+try:
+    lines = open(path, encoding="utf-8").read().splitlines()
+except OSError as error:
+    print(f"qml-unit: refused: pragma-file=unreadable file={path} error={error.strerror}", file=sys.stderr)
+    sys.exit(2)
+for number, raw in enumerate(lines, 1):
+    line = raw.strip()
+    if line.startswith("import"):
+        break
+    if not line.startswith("//@ pragma "):
+        continue
+    pragma = line[len("//@ pragma "):].strip()
+    if not pragma.startswith("Env "):
+        continue
+    name, separator, value = pragma[len("Env "):].partition("=")
+    name, value = name.strip(), value.strip()
+    if not separator or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+        print(f"qml-unit: refused: pragma=unparsed file={path} line={number}", file=sys.stderr)
+        sys.exit(2)
+    if name.startswith("QV4_"):
+        print(f"{name}={value}")
+PY
+)" || exit 2
+engine_environment=()
+[[ -z $engine_settings ]] || mapfile -t engine_environment <<<"$engine_settings"
 
 root="$(mktemp -d "$TMPDIR/qml-unit.XXXXXX")"
 imports="$root/imports"
@@ -355,7 +398,7 @@ for file in "${files[@]}"; do
     render_environment=(QT_QUICK_BACKEND=rhi QSG_RHI_BACKEND=opengl LIBGL_ALWAYS_SOFTWARE=1)
   fi
   out="$("${render_command[@]}" HOME="$root/home" PATH="/usr/bin:/usr/lib/qt6/bin" LC_ALL=C.UTF-8 \
-    "${render_environment[@]}" \
+    "${render_environment[@]}" "${engine_environment[@]}" \
     QT_QPA_PLATFORM="offscreen:configfile=$root/screens.json" QT_SCREEN_SCALE_FACTORS="one=1;two=2" XDG_RUNTIME_DIR="$root/runtime" QML_XHR_ALLOW_FILE_READ=1 \
     QT_FORCE_STDERR_LOGGING=1 QT_MESSAGE_PATTERN='%{if-warning}warning: %{endif}%{if-critical}critical: %{endif}%{if-category}%{category}: %{endif}%{message}' \
     "$runner" -import "$imports" -input "$file" 2>&1)" || file_status=$?

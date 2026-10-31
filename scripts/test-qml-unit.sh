@@ -8,7 +8,10 @@
 # per rule of the runner's log check and pins the exit and the line each
 # prints. One row runs two shader tests at once under a stand-in xvfb-run
 # and requires the second to start only once the first has ended, which a
-# copy of the runner without its display lock fails.
+# copy of the runner without its display lock fails. One row requires every
+# qmltestrunner start, offscreen and shader, to get the QV4_ Env pragmas of
+# shell/shell.qml, which a copy of the runner that does not apply them
+# fails, and an Env pragma with no `=` to be refused.
 #
 # Exit 0 when every row holds, 1 otherwise, 77 when the runner could not
 # measure, since a mutation nothing runs proves nothing: qmltestrunner is
@@ -31,7 +34,8 @@
 # scripts/validate --full check every mutation.
 #
 # The unmutated copy, the mutations, the two argument rows, the display
-# lock row and the log rows run side by side, at most VGS_VALIDATE_JOBS at once, a positive integer
+# lock row, the GC mode row and the log rows run side by side, at most
+# VGS_VALIDATE_JOBS at once, a positive integer
 # (unset or empty: nproc), and print in that order; another value is
 # refused with exit 2, `test-qml-unit: refused: jobs=<value>`.
 set -euo pipefail
@@ -2208,6 +2212,80 @@ PY
   done
 }
 
+# The shell's QV4_ Env pragmas, read here from shell/shell.qml, must reach
+# qmltestrunner on the offscreen and the shader path: a stand-in runner
+# records the environment each start gets, under a stand-in xvfb-run that
+# starts its command. A copy of the runner that does not apply them fails,
+# and an Env pragma with no `=` is refused before any start. The shell
+# declares one today; the row goes with the last of them.
+gc_mode_case() {
+  local dir="$tmp/gc-mode" copy_tree="$tmp/gc-mode/copy" refusal="$tmp/gc-mode/refusal"
+  local want declared run status got entry
+  mkdir -p -- "$dir/bin" "$dir/tests" "$copy_tree/scripts" "$refusal/scripts" "$refusal/shell"
+  if ! want="$(python3 - "$repo/shell/shell.qml" <<'PY'
+import re, sys
+text = open(sys.argv[1], encoding="utf-8").read()
+print(" ".join(sorted(f"{m[0]}={m[1]}" for m in re.findall(r"^//@ pragma Env (QV4_\w+) = (\S+)$", text, re.M))))
+PY
+)" || [[ -z $want ]]; then
+    fail "the shell's GC mode: shell/shell.qml holds no QV4_ Env pragma this row reads"
+    return 0
+  fi
+  printf '#!/bin/sh\nenv >"$(mktemp "%s/env.XXXXXX")"\n' "$dir" >"$dir/runner"
+  printf '#!/bin/sh\n' | tee "$dir/bin/Xvfb" >"$dir/bin/xauth"
+  printf '#!/bin/sh\nwhile [ "${1#--}" != "$1" ]; do shift; done\nDISPLAY=:0 XAUTHORITY=/nonexistent exec "$@"\n' >"$dir/bin/xvfb-run"
+  chmod +x "$dir/runner" "$dir/bin/Xvfb" "$dir/bin/xauth" "$dir/bin/xvfb-run"
+  printf 'import QtTest\nTestCase { name: "gc" }\n' | tee "$dir/tests/tst_gc.qml" >"$dir/tests/tst_notification_scroll.qml"
+  ln -s -- "$repo/shell" "$copy_tree/shell"
+  ln -s -- "$repo/scripts/smoke" "$copy_tree/scripts/smoke"
+  python3 - "$runner" "$copy_tree/scripts/qml-unit.sh" <<'PY'
+import sys
+source, copy = sys.argv[1:]
+text = open(source, encoding="utf-8").read()
+applied = ' "${engine_environment[@]}"'
+assert text.count(applied) == 1, "the runner applies the engine settings once"
+open(copy, "w", encoding="utf-8").write(text.replace(applied, ""))
+PY
+  cp -- "$runner" "$refusal/scripts/qml-unit.sh"
+  chmod +x "$copy_tree/scripts/qml-unit.sh" "$refusal/scripts/qml-unit.sh"
+  ln -s -- "$repo/scripts/smoke" "$refusal/scripts/smoke"
+  for entry in "$repo/shell"/*; do
+    [[ ${entry##*/} == shell.qml ]] || ln -s -- "$entry" "$refusal/shell/${entry##*/}"
+  done
+  printf '//@ pragma Env QV4_GC_TIMELIMIT 0\nimport QtQuick\n' >"$refusal/shell/shell.qml"
+  for run in "$runner" "$copy_tree/scripts/qml-unit.sh"; do
+    rm -f -- "${dir:?}"/env.*
+    status=0
+    PATH="$dir/bin:$PATH" QML_UNIT_RUNNER="$dir/runner" "$run" --tests "$repo/scripts/qml-tests" "$dir/tests/tst_gc.qml" "$dir/tests/tst_notification_scroll.qml" >"$dir/out" 2>&1 || status=$?
+    # One line per start: the path it took, then its QV4_ variables.
+    got="$(for entry in "$dir"/env.*; do
+      [[ -f $entry ]] || continue
+      if grep -qx 'QSG_RHI_BACKEND=opengl' -- "$entry"; then printf shader; else printf offscreen; fi
+      declared="$(grep '^QV4_' -- "$entry" | sort | tr '\n' ' ')" || declared=""
+      printf ' %s\n' "${declared% }"
+    done | sort)" || got=unreadable
+    if [[ $run == "$runner" ]]; then
+      if [[ $status -eq 0 && $got == "offscreen $want"$'\n'"shader $want" ]]; then
+        ok "every qml test runs in the shell's GC mode"
+      else
+        fail "the shell's GC mode: exit $status, starts [$got], want [$want] on offscreen and shader"; tail -n 5 "$dir/out"
+      fi
+    elif [[ $status -eq 0 && $got == "offscreen "$'\n'"shader " ]]; then
+      ok "control: a runner that does not apply the shell's GC mode fails the row"
+    else
+      fail "control: a runner that does not apply the shell's GC mode: exit $status, starts [$got]"; tail -n 5 "$dir/out"
+    fi
+  done
+  rm -f -- "${dir:?}"/env.*
+  status=0
+  got="$(PATH="$dir/bin:$PATH" QML_UNIT_RUNNER="$dir/runner" "$refusal/scripts/qml-unit.sh" --tests "$repo/scripts/qml-tests" "$dir/tests/tst_gc.qml" 2>&1)" || status=$?
+  if [[ $status -eq 2 && $got == "qml-unit: refused: pragma=unparsed file=$refusal/shell/shell.qml line=1" ]] && ! compgen -G "$dir/env.*" >/dev/null; then
+    ok "an Env pragma with no = is refused before any test starts"
+  else
+    fail "an Env pragma with no =: exit $status, got [$got]"
+  fi
+}
+
 run_case() { # KIND [INDEX]
   local out
   case "$1" in
@@ -2225,6 +2303,7 @@ run_case() { # KIND [INDEX]
     unknown-argument)
       if out="$("$runner" --nope 2>&1)"; then fail "an unknown argument passed"; elif [[ $out == "qml-unit: refused: argument=--nope" ]]; then ok "an unknown argument is refused"; else fail "an unknown argument: got $out"; fi ;;
     xvfb-lock) xvfb_lock_case ;;
+    gc-mode) gc_mode_case ;;
     log) log_case "$2" ;;
     *) fail "test-qml-unit: case=$1 unknown" ;;
   esac
@@ -2240,7 +2319,7 @@ cases=(copy)
 for index in "${!mutations[@]}"; do
   [[ ${mutation_plan[index]} == skip\ * ]] || cases+=("mutation $index")
 done
-cases+=(missing-runner unknown-argument xvfb-lock)
+cases+=(missing-runner unknown-argument xvfb-lock gc-mode)
 for index in "${!logs[@]}"; do cases+=("log $index"); done
 active=0
 for i in "${!cases[@]}"; do
