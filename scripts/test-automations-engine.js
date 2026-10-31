@@ -684,10 +684,35 @@ const CASES = {
                 same([ended(w, id).outcome, ended(w, id).slot], [outcome, latest ? due + 2 * 60 * 60000 : due]);
                 assert.equal(Logic.recordError(ended(w, id), "ended"), "");
                 waitFor(() => !runnerAlive(runner), "the finalized attempt releases its lock");
+                same(runnerExit(runner), 0, "the unit of a " + outcome + " attempt ends clean");
                 assert.equal(cli(w, engine, ["run", "--scheduled", id]).status, 0);
                 same(runFiles(w).filter(n => n.endsWith(".ended.json")).length, 1);
             } finally { stopRunner(runner); }
         }
+    },
+
+    "a scheduled network run that cannot resolve a name just after a success skips once"(engine) {
+        const unresolved = "echo \"fatal: unable to access 'https://github.com/x/y/': Could not resolve host: github.com\" >&2; exit 128";
+        const { w, id, due } = networkWorld(engine, { value: "4", command: unresolved });
+        const day = 86400000;
+        const streak = path.join(w.home, ".local/state/vgshell/automations/streak", id + ".json");
+        const latest = () => runFiles(w).filter(n => n.endsWith(".ended.json")).map(n => JSON.parse(fs.readFileSync(path.join(w.runs, n), "utf8"))).sort((a, b) => b.startedAt - a.startedAt)[0];
+        plant(w, id, due - day);
+        const first = cli(w, engine, ["run", "--scheduled", id]);
+        same([first.status, latest().outcome, latest().reason, latest().exitCode], [0, "skipped", "network-dns", 128], first.stderr);
+        assert.equal(Logic.recordError(latest(), "ended"), "");
+        same([calls(w, "notify-send"), fs.existsSync(streak)], [[], false], "a DNS skip after a success sends nothing and opens no streak");
+        // The name never resolves: every later run fails and alerts.
+        for (const k of [1, 2]) {
+            clockAt(w, due + k * day + 5 * 60000, 0);
+            const again = cli(w, engine, ["run", "--scheduled", id]);
+            same([again.status, latest().outcome, latest().reason], [1, "failed", ""], "DNS failure " + (k + 1) + " in a row fails");
+        }
+        same(calls(w, "notify-send").map(c => c.slice(-1)[0].split("\n")[0]), ["fatal: unable to access 'https://github.com/x/y/': Could not resolve host: github.com", "Failed 2 times since Sat 31 Oct 2026 09:05"], "each failure alerts");
+        const other = networkWorld(engine, { value: "4", command: "echo 'rsync: Permission denied' >&2; exit 23" });
+        plant(other.w, other.id, other.due - day);
+        const failed = cli(other.w, engine, ["run", "--scheduled", other.id]);
+        same([failed.status, calls(other.w, "notify-send").length], [1, 1], "another failure after a success stays failed");
     },
 
     "edit disable remove and explicit Cancel invalidate only waiting attempts"(engine) {
@@ -1089,9 +1114,9 @@ function plant(w, id, ms, open) {
 
 const NETWORK_DUE = Date.parse("2026-10-30T09:00:00Z");
 function networkWorld(engine, options) {
-    const opts = Object.assign({ value: "1", catchUp: false, minutely: false }, options);
+    const opts = Object.assign({ value: "1", catchUp: false, minutely: false, command: "echo done" }, options);
     const w = world({ nowMs: NETWORK_DUE + 5 * 60000, systemd: opts.systemd || "up", stubs: opts.value === null ? FORBIDDEN.filter(name => name !== "busctl") : FORBIDDEN });
-    const id = add(w, engine, { name: "Pull", requiresNetwork: true, catchUp: opts.catchUp,
+    const id = add(w, engine, { name: "Pull", command: opts.command, requiresNetwork: true, catchUp: opts.catchUp,
         schedule: opts.minutely ? { frequency: "minutely", interval: 10, start: "2026-10-30", end: { type: "never" }, zone: "utc" }
             : { frequency: "daily", interval: 1, times: ["09:00"], start: "2026-10-30", end: { type: "never" }, zone: "utc" } });
     write(path.join(w.home, ".local/state/vgshell/automations/guard", id + ".json"), JSON.stringify({ handledThrough: 0 }));
@@ -1117,15 +1142,24 @@ function listed(w, engine, id) {
 }
 
 const runners = new Set();
+// The unit's command line, under sh, which writes flock's exit status, the
+// unit's, to child.exitFile once it ends.
 function startRunner(w, engine, id, trigger) {
     const logFile = path.join(w.root, "runner-" + runners.size + ".log");
+    const exitFile = path.join(w.root, "runner-" + runners.size + ".exit");
     const log = fs.openSync(logFile, "w");
     const lock = path.join(w.home, ".local/state/vgshell/automations/locks", id + ".lock");
-    const child = childProcess.spawn("flock", ["-n", "-E", "75", "-o", lock, engine, "--tree", repo, "run", "--" + trigger, id], { env: w.env, cwd: w.home, stdio: ["ignore", log, log], detached: true });
+    const child = childProcess.spawn("sh", ["-c", 'f=$1; shift; "$@"; echo $? >"$f"', "sh", exitFile, "flock", "-n", "-E", "75", "-o", lock, engine, "--tree", repo, "run", "--" + trigger, id], { env: w.env, cwd: w.home, stdio: ["ignore", log, log], detached: true });
     fs.closeSync(log);
     runners.add(child);
     child.logFile = logFile;
+    child.exitFile = exitFile;
     return child;
+}
+
+// The exit status of a runner startRunner began and that has ended.
+function runnerExit(child) {
+    return Number(fs.readFileSync(child.exitFile, "utf8").trim());
 }
 
 // The runner journal's stable machine line keeps operation causes apart
@@ -1203,6 +1237,10 @@ const CONTROLS = [
     ["cron is the fallback", "without a systemd user manager sync keeps a crontab block", "changed = writeCrontab(requireCommand(\"crontab\"), Logic.cronLines(", "changed = writeCrontab(requireCommand(\"crontab\"), [] || Logic.cronLines("],
     ["cron lines run the scheduled trigger", "under cron a catch-up automation runs a missed occurrence at startup", "Logic.cronLines(store.automations, a => runnerArgv(engine, a.id, \"scheduled\"), runnerEnvironment)", "Logic.cronLines(store.automations, a => runnerArgv(engine, a.id, \"manual\"), runnerEnvironment)"],
     ["a crontab without a table reads empty", "without a systemd user manager sync keeps a crontab block", "if (out.status === 1 && /^no crontab for /.test(firstLine(out.stderr))) return \"\";", ""],
+    ["a late skip ends its unit clean", "offline lateness skips neutrally or catches up the latest once", "log(\"skipped=\" + id + \" reason=\" + (answer.reason || \"cancelled\"));", "process.exit(1);"],
+    ["the runner judges a DNS failure", "a scheduled network run that cannot resolve a name just after a success skips once", "requiresNetwork: automation.requiresNetwork === true,", "requiresNetwork: false,"],
+    ["a DNS skip ends its unit clean", "a scheduled network run that cannot resolve a name just after a success skips once", "outcome === \"succeeded\" || outcome === \"skipped\" ? 0 : 1", "outcome === \"succeeded\" ? 0 : 1"],
+    ["the judge reads the previous run", "a scheduled network run that cannot resolve a name just after a success skips once", "previous: previousEnded(id) }", "previous: null }"],
     ["no scheduler refuses", "with neither scheduler sync refuses", "if (chosen === \"none\") refuse(\"scheduler=none\", \"neither a systemd user manager nor crontab answered\");", ""]
 ];
 

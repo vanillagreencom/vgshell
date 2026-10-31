@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Ui
+import "AutomationsLogic.js" as Engine
 import "AutomationsViewLogic.js" as View
 
 ListItem {
@@ -13,7 +14,7 @@ ListItem {
     width: parent ? parent.width : implicitWidth
     text: row.name
     iconName: ""
-    secondary: View.historySecondary(row)
+    secondary: View.historySecondary(row, Engine)
     cursor: cursorItem
     onClicked: root.openRequested(row.transcript)
     trailing: [

@@ -1,6 +1,7 @@
 import QtQuick
 import qs.Commons
 import qs.Ui
+import "AutomationsLogic.js" as Engine
 import "AutomationsViewLogic.js" as View
 
 ListItem {
@@ -23,13 +24,9 @@ ListItem {
     secondary: row.pending !== null ? "Waiting for network" : row.summary
     cursor: cursorItem
     onClicked: root.openRequested()
-    function lastText() {
-        if (row.lastRun === null) return "No runs";
-        const label = View.outcomeLabel(row.lastRun.outcome);
-        return label + " " + View.formatWhen(row.lastRun.startedAt).split(" ").slice(-1)[0];
-    }
     trailing: [
         Column {
+            id: lastColumn
             width: Theme.size.panel.sm
             spacing: Theme.row.lineGap
             anchors.verticalCenter: parent.verticalCenter
@@ -54,7 +51,7 @@ ListItem {
                     color: root.row.lastRun === null ? Theme.color.textFaint : root.row.lastRun.tone === "danger" ? Theme.color.danger : root.row.lastRun.tone === "success" ? Theme.color.success : root.row.lastRun.tone === "warning" ? Theme.color.warning : Theme.color.textFaint
                     anchors.verticalCenter: parent.verticalCenter
                 }
-                Label { role: "itemHint"; text: root.lastText(); elide: Text.ElideRight }
+                Label { width: Math.min(implicitWidth, lastColumn.width - Theme.space.xs * 2); role: "itemHint"; text: View.lastRunText(root.row.lastRun, Engine); elide: Text.ElideRight }
             }
         },
         Switch {

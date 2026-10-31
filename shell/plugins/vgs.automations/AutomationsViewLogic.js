@@ -374,9 +374,22 @@ function networkExplanation(pending) {
         : "";
 }
 
-function historySecondary(row) {
+// Why a skipped run was skipped, " · " first, or "".
+function skipSuffix(run, logic) {
+    var text = run.outcome === "skipped" ? logic.skipText(run.reason) : "";
+    return text === "" ? "" : " · " + text;
+}
+
+function historySecondary(row, logic) {
     return formatWhen(row.startedAt) + " · " + (row.durationMs === null || row.durationMs === undefined
-        ? "Running" : Commons.Duration.format(Math.round(row.durationMs / 1000)));
+        ? "Running" : Commons.Duration.format(Math.round(row.durationMs / 1000))) + skipSuffix(row, logic);
+}
+
+// An automation's last run in its list row: the outcome, its time and,
+// for a skip, why.
+function lastRunText(lastRun, logic) {
+    if (lastRun === null) return "No runs";
+    return outcomeLabel(lastRun.outcome) + " " + formatWhen(lastRun.startedAt).split(" ").slice(-1)[0] + skipSuffix(lastRun, logic);
 }
 
 // A history row's identity across reads: the engine's own record key.

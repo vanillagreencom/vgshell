@@ -358,13 +358,46 @@ function verify(logic) {
     assert.throws(() => logic.prunable(aged, now, 31), /is not 1\.\.30/);
 
     // Outcomes and snippets.
+    const local = { trigger: "manual", requiresNetwork: false, snippet: "", durationMs: 10, previous: null };
     same([
-        { started: false, timedOut: false, exitCode: null, signal: null },
-        { started: true, timedOut: true, exitCode: null, signal: "SIGTERM" },
-        { started: true, timedOut: false, exitCode: 0, signal: null },
-        { started: true, timedOut: false, exitCode: 2, signal: null },
-        { started: true, timedOut: false, exitCode: null, signal: "SIGKILL" }
-    ].map(logic.outcomeOf), ["failed-start", "timeout", "succeeded", "failed", "failed"]);
+        { started: false, timedOut: false, exitCode: null, signal: null, reason: "shell=unknown" },
+        { started: true, timedOut: true, exitCode: null, signal: "SIGTERM", reason: "timeout=5s" },
+        { started: true, timedOut: false, exitCode: 0, signal: null, reason: "" },
+        { started: true, timedOut: false, exitCode: 2, signal: null, reason: "" },
+        { started: true, timedOut: false, exitCode: null, signal: "SIGKILL", reason: "" }
+    ].map(ending => logic.outcomeOf(ending, local)), [
+        { outcome: "failed-start", reason: "shell=unknown" }, { outcome: "timeout", reason: "timeout=5s" },
+        { outcome: "succeeded", reason: "" }, { outcome: "failed", reason: "" }, { outcome: "failed", reason: "" }]);
+    // A scheduled network command that failed on name resolution just
+    // after its start is skipped for the network: [label, ending change,
+    // context change, outcome].
+    const dnsExit = { started: true, timedOut: false, exitCode: 128, signal: null, reason: "" };
+    const dnsContext = { trigger: "scheduled", requiresNetwork: true, snippet: "Cloning\nfatal: unable to access 'https://github.com/x/y/': Could not resolve host: github.com", durationMs: 800, previous: { outcome: "succeeded", reason: "" } };
+    for (const [label, ending, context, outcome] of [
+        ["curl and git", {}, {}, "skipped"],
+        ["OpenSSH", {}, { snippet: "ssh: Could not resolve hostname github.com: Name or service not known\nfatal: Could not read from remote repository." }, "skipped"],
+        ["glibc", {}, { snippet: "ping: github.com: Temporary failure in name resolution" }, "skipped"],
+        ["at the window's end", {}, { durationMs: 60000 }, "skipped"],
+        ["a manual trigger", {}, { trigger: "manual" }, "failed"],
+        ["no network requirement", {}, { requiresNetwork: false }, "failed"],
+        ["past the window", {}, { durationMs: 60001 }, "failed"],
+        ["a signal", { exitCode: null, signal: "SIGTERM" }, {}, "failed"],
+        ["another failure", {}, { snippet: "rsync: Permission denied" }, "failed"],
+        ["a second DNS failure in a row", {}, { previous: { outcome: "skipped", reason: "network-dns" } }, "failed"],
+        ["a first run or cleared history", {}, { previous: null }, "failed"],
+        ["after a failure", {}, { previous: { outcome: "failed", reason: "" } }, "failed"],
+        ["after an offline skip", {}, { previous: { outcome: "skipped", reason: "network-offline-late" } }, "failed"]
+    ]) same(logic.outcomeOf(Object.assign({}, dnsExit, ending), Object.assign({}, dnsContext, context)),
+        outcome === "skipped" ? { outcome: "skipped", reason: "network-dns" } : { outcome: "failed", reason: "" }, "a DNS failure: " + label);
+    // A name that never resolves, after a success: each run's result is the
+    // next run's previous.
+    const sequence = [];
+    for (let k = 0, previous = { outcome: "succeeded", reason: "" }; k < 6; k++) {
+        previous = logic.outcomeOf(dnsExit, Object.assign({}, dnsContext, { previous }));
+        sequence.push(previous.outcome);
+    }
+    same(sequence, ["skipped", "failed", "failed", "failed", "failed", "failed"], "a name that never resolves fails from its second run on");
+    same(logic.outcomeOf(Object.assign({}, dnsExit, { timedOut: true, exitCode: null, signal: "SIGTERM", reason: "timeout=5s" }), dnsContext), { outcome: "timeout", reason: "timeout=5s" }, "a DNS failure: a timeout");
     same(logic.snippetOf(["one", "", "two", "three", "four", "five", "six  "], ["out"]), "two\nthree\nfour\nfive\nsix", "the last five stderr lines");
     same(logic.snippetOf([], ["", "only stdout"]), "only stdout", "stdout when stderr is empty");
     same(logic.snippetOf(["x".repeat(500)], []).length, 400, "a snippet is capped");
@@ -541,16 +574,20 @@ function verify(logic) {
     same(logic.listRows(pausedStore, [], 0, { backup: Object.assign({}, pending, { trigger: "manual" }) })[0].state, "waiting", "manual work may wait on a paused automation");
     const runningRows = [{ automation: "backup", outcome: "running", tone: "warning", run: "live", startedAt: 1, endedAt: null, transcript: "/run" }];
     same(logic.listRows({ version: 2, automations: [automation({})] }, runningRows, 0, { backup: pending })[0].pending, null);
-    const skipped = { outcome: "skipped" };
+    const skipped = { outcome: "skipped", reason: "network-dns", transcript: "/r/s.log" };
     const priorStreak = { failures: 3, since: 1, notice: null };
-    same(logic.notificationFor("end", automation({ notifyEveryRun: true }), skipped, priorStreak), null);
+    same(logic.notificationFor("end", automation({}), skipped, priorStreak), null, "a skip sends no alert");
+    same(logic.notificationFor("end", automation({ notifyEveryRun: true }), skipped, priorStreak), { summary: "Back up skipped", body: "Network not ready yet", urgency: "low", icon: "circle-minus", tone: "info", click: "open", open: "/r/s.log" }, "under notifyEveryRun a skip ends its start notice");
     same(logic.streakAfter(skipped, priorStreak, null), priorStreak);
+    same(["network-offline-late", "network-dns", "cancelled-before-start", "unknown"].map(logic.skipText), ["No internet connection", "Network not ready yet", "Cancelled before start", ""]);
 
     // List rows, status and the refresh.
     const listed = logic.listRows({ version: 2, automations: [automation({}), automation({ id: "off", name: "Off", enabled: false }), automation({ id: "done", name: "Done", schedule: UNTIL })] },
-        [{ automation: "backup", run: "r2", outcome: "failed", tone: "danger", startedAt: 5, endedAt: 6, transcript: "/t2" }, { automation: "backup", run: "r1", outcome: "succeeded", tone: "success", startedAt: 1, endedAt: 2, transcript: "/t1" }],
+        [{ automation: "backup", run: "r2", outcome: "failed", reason: "", tone: "danger", startedAt: 5, endedAt: 6, transcript: "/t2" }, { automation: "backup", run: "r1", outcome: "succeeded", reason: "", tone: "success", startedAt: 1, endedAt: 2, transcript: "/t1" },
+            { automation: "done", run: "r3", outcome: "skipped", reason: "network-dns", tone: "neutral", startedAt: 7, endedAt: 8, transcript: "/t3" }],
         at("2026-02-01T12:00:00Z"));
-    same(listed.map(r => [r.id, r.state, r.nextRun === null ? null : iso(r.nextRun), r.lastRun === null ? null : r.lastRun.run]), [["backup", "scheduled", "2026-02-02T09:00:00Z", "r2"], ["off", "paused", null, null], ["done", "ended", null, null]]);
+    same(listed[2].lastRun.reason, "network-dns", "a list row's last run names why it was skipped");
+    same(listed.map(r => [r.id, r.state, r.nextRun === null ? null : iso(r.nextRun), r.lastRun === null ? null : r.lastRun.run]), [["backup", "scheduled", "2026-02-02T09:00:00Z", "r2"], ["off", "paused", null, null], ["done", "ended", null, "r3"]]);
     const values = logic.statusValues({ scheduler: "cron", linger: "no", automations: listed });
     same(values, {
         scheduler: { tone: "warning", text: "Using the backup scheduler" },
@@ -831,8 +868,8 @@ const CONTROLS = [
     ["hours compile to cron's hour step", "return [\"0 */\" + s.interval + \" * * *\"];", "return [\"*/\" + s.interval + \" * * * *\"];"],
     ["the summary names the step", "head = every(s.interval, \"Every minute\", \"minutes\");", "head = every(s.interval, \"Every minute\", \"hours\");"],
     ["retention is at most 30 days", "if (!isWhole(value) || value < 1 || value > HISTORY_DAYS_MAX) throw", "if (!isWhole(value)) throw"],
-    ["a timeout outranks the exit", "if (ending.timedOut === true) return \"timeout\";", "if (false) return \"timeout\";"],
-    ["success needs exit 0", "if (ending.exitCode === 0 && ending.signal === null) return \"succeeded\";", "if (ending.signal === null) return \"succeeded\";"],
+    ["a timeout outranks the exit", "if (ending.timedOut === true) return {", "if (false) return {"],
+    ["success needs exit 0", "if (ending.exitCode === 0 && ending.signal === null) return {", "if (ending.signal === null) return {"],
     ["the snippet keeps the last lines", "for (var i = lines.length - 1; i >= 0 && kept.length < SNIPPET_LINES; i--) {", "for (var i = 0; i < lines.length && kept.length < SNIPPET_LINES; i++) {"],
     ["the snippet reads stdout without stderr", "var text = fromErr.length > 0 ? fromErr.join(\"\\n\") : lastLines(stdoutLines).join(\"\\n\");", "var text = fromErr.join(\"\\n\");"],
     ["a start notifies only when asked", "if (automation.notifyEveryRun !== true) return null;\n        return { summary: automation.name + \" started\"", "return { summary: automation.name + \" started\""],
@@ -873,7 +910,17 @@ const CONTROLS = [
     ["the Engine status names a failure", "if (hasOwn(failures, ENGINE_OPERATIONS[i])) return { tone: \"danger\", text: failureText(failures[ENGINE_OPERATIONS[i]]) };", "if (false) return null;"],
     ["v1 migration preserves local-only defaults", "converted.push(withKeys(old, { requiresNetwork: false }));", "converted.push(withKeys(old, { requiresNetwork: true }));"],
     ["waiting rows retain their due time", "pending: pending,", "pending: null,"],
-    ["a failing last run is reported", "if (rows[i].lastRun !== null && OUTCOMES[rows[i].lastRun.outcome].error) failing.push(rows[i].name);", ""]
+    ["a failing last run is reported", "if (rows[i].lastRun !== null && OUTCOMES[rows[i].lastRun.outcome].error) failing.push(rows[i].name);", ""],
+    ["a DNS skip needs the network requirement", "context.requiresNetwork === true && ", ""],
+    ["a DNS skip needs a scheduled trigger", "context.trigger === \"scheduled\"", "true"],
+    ["a DNS skip needs the command's own exit", "ending.signal === null && ending.exitCode !== null", "true"],
+    ["a DNS skip ends within its window", "context.durationMs <= NETWORK_DNS_WINDOW_MS", "true"],
+    ["a DNS skip names a resolver failure", "return NETWORK_DNS_PHRASES.some(", "return true || NETWORK_DNS_PHRASES.some("],
+    ["a DNS skip needs a run before it", "&& previous !== null && previous.outcome === \"succeeded\"", ""],
+    ["a DNS skip follows a success alone", "previous.outcome === \"succeeded\";", "previous.outcome !== \"failed\";"],
+    ["a skipped command ends its start notice", "if (event !== \"end\" || automation.notifyEveryRun !== true) return null;", "return null;"],
+    ["a skip names its reason", "return hasOwn(SKIP_TEXT, reason) ? SKIP_TEXT[reason] : \"\";", "return \"\";"],
+    ["a list row's last run keeps its reason", "reason: last.reason, ", ""]
 ];
 
 const source = fs.readFileSync(file, "utf8");

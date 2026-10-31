@@ -512,6 +512,17 @@ function history(filterId) {
     return { rows: judged.rows, refused: judged.refused, groups: groups };
 }
 
+// The automation's newest ended run, or null: the judge's `previous`,
+// read before this run's ended record lands.
+function previousEnded(id) {
+    const groups = runFiles();
+    const records = {};
+    for (const key of Object.keys(groups))
+        if (key.startsWith(id + "@") && groups[key].ended !== null) records[key] = { started: groups[key].started, ended: groups[key].ended };
+    const rows = Logic.historyRows(records, []).rows;
+    return rows.length === 0 ? null : rows[0];
+}
+
 function removeRuns(keys, groups) {
     for (const key of keys)
         for (const name of groups[key].files) fs.rmSync(path.join(runsDir, name), { force: true });
@@ -1127,17 +1138,19 @@ function execute(automation, trigger, slot, startedAt, refusal, network) {
     };
     const finish = ending => {
         const endedAt = Math.max(Date.now(), startedAt);
-        const outcome = Logic.outcomeOf(ending);
+        const snippet = Logic.snippetOf(stderrLines, stdoutLines);
+        const { outcome, reason } = Logic.outcomeOf(ending, { trigger: trigger, requiresNetwork: automation.requiresNetwork === true,
+            snippet: snippet, durationMs: endedAt - startedAt, previous: previousEnded(id) });
         const footer = [
             "ended: " + new Date(endedAt).toString(),
-            "outcome: " + outcome + (ending.exitCode !== null ? " exit=" + ending.exitCode : "") + (ending.signal !== null ? " signal=" + ending.signal : "") + (ending.reason !== "" ? " reason=" + ending.reason : ""),
+            "outcome: " + outcome + (ending.exitCode !== null ? " exit=" + ending.exitCode : "") + (ending.signal !== null ? " signal=" + ending.signal : "") + (reason !== "" ? " reason=" + reason : ""),
             "duration: " + Duration.format(Math.round((endedAt - startedAt) / 1000))
         ];
         const written = transcript.close(footer);
         const ended = Object.assign({}, started, {
             endedAt: endedAt, durationMs: endedAt - startedAt, outcome: outcome, exitCode: ending.exitCode, signal: ending.signal,
-            reason: ending.reason, transcriptBytes: written.bytes, truncated: written.truncated,
-            snippet: outcome === "succeeded" ? "" : Logic.snippetOf(stderrLines, stdoutLines)
+            reason: reason, transcriptBytes: written.bytes, truncated: written.truncated,
+            snippet: outcome === "succeeded" ? "" : snippet
         });
         writeAtomic(path.join(runsDir, Logic.runFile(id, runId, "ended")), JSON.stringify(ended) + "\n", 0o600);
         writeStreak(id, Logic.streakAfter(ended, streak, notify(Logic.notificationFor("end", automation, ended, streak), shown, env)));
@@ -1145,7 +1158,7 @@ function execute(automation, trigger, slot, startedAt, refusal, network) {
         if (days.ok) prune(days.days, id);
         else log("prune=skipped " + days.error);
         if (ownedPending !== null) transaction(Object.assign({ kind: "cleanup" }, ownedPending));
-        process.exit(outcome === "succeeded" ? 0 : 1);
+        process.exit(outcome === "succeeded" || outcome === "skipped" ? 0 : 1);
     };
     if (refusal !== "") return finish({ started: false, timedOut: false, exitCode: null, signal: null, reason: refusal });
     if (!shell || !shell.startsWith("/")) return finish({ started: false, timedOut: false, exitCode: null, signal: null, reason: "shell=unknown" });

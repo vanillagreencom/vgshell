@@ -27,7 +27,15 @@ function run(view, logic) {
     const now = Date.parse("2026-01-05T08:15:00Z");
     const historyStartedAt = new Date(2026, 0, 5, 8, 15).getTime();
     for (const [durationMs, text] of [[null, "Running"], [undefined, "Running"], [0, "0s"], [1500, "2s"], [61000, "1m 1s"], [3661000, "1h 1m"], [345600000, "4d 0h"]])
-        assert.equal(view.historySecondary({ startedAt: historyStartedAt, durationMs }), "Mon 5 Jan 08:15 · " + text);
+        assert.equal(view.historySecondary({ startedAt: historyStartedAt, durationMs }, logic), "Mon 5 Jan 08:15 · " + text);
+    // A skipped run says why: [outcome, reason, the text after the duration].
+    for (const [outcome, reason, suffix] of [["skipped", "network-offline-late", " · No internet connection"], ["skipped", "network-dns", " · Network not ready yet"],
+        ["skipped", "cancelled-before-start", " · Cancelled before start"], ["skipped", "paused", ""], ["failed", "network-dns", ""], ["failed", "", ""]]) {
+        const ran = { startedAt: historyStartedAt, durationMs: 1500, outcome, reason };
+        assert.equal(view.historySecondary(ran, logic), "Mon 5 Jan 08:15 · 2s" + suffix, "history: " + outcome + " " + reason);
+        assert.equal(view.lastRunText(ran, logic), view.outcomeLabel(outcome) + " 08:15" + suffix, "last run: " + outcome + " " + reason);
+    }
+    assert.equal(view.lastRunText(null, logic), "No runs");
     const draft = view.blankDraft(now, logic);
     assert.equal(draft.start, "2026-01-05");
     assert.equal(draft.times.length, 1);
@@ -210,6 +218,8 @@ try {
         ["an interval rule needs a time", "if (!isStepDraft(draft, logic) && (!Array.isArray(draft.times)", "if ((!Array.isArray(draft.times)"],
         ["a frequency choice keeps an end after N runs", "if (draft.endType === \"count\") out.push([\"endType\", \"never\"]);", ""],
         ["a frequency choice keeps a step the rule cannot take", "if (steps.indexOf(Number(draft.interval)) === -1) out.push([\"interval\", steps[0]]);", ""],
+        ["a skipped run says why", "var text = run.outcome === \"skipped\" ? logic.skipText(run.reason) : \"\";", "var text = \"\";"],
+        ["only a skip says why", "var text = run.outcome === \"skipped\" ? logic.skipText(run.reason) : \"\";", "var text = logic.skipText(run.reason);"],
         ["duplicates do not advance copy names", "for (var n = 2; takenNames.indexOf(name) !== -1; n++) name = base + \" \" + n;", "for (var n = 2; false; n++) name = base + \" \" + n;"]
     ];
     for (const [name, from, to] of controls) {

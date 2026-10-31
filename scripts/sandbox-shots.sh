@@ -8209,6 +8209,26 @@ scene_automations() { # MODE
   fi
   automations_shot run-now shot-success >/dev/null
   automations_shot run-now shot-failure >/dev/null
+  # One run skipped for the network beside the failed one: the records the
+  # runner writes for a scheduled run whose names did not resolve yet.
+  local auto_skip_runs
+  auto_skip_runs="$(automations_shot list --json | py_reply 'import json,sys; print(json.load(sys.stdin)["runsDir"])')" || fail "the runs folder is unreadable for the skipped run"
+  python3 - "$auto_skip_runs" <<'PYSKIP' || fail "planting the skipped run failed"
+import json, os, sys, time
+runs = sys.argv[1]
+at = int(time.time() * 1000) - 60000
+run = "%d-%d" % (at, os.getpid())
+log = os.path.join(runs, "shot-failure@%s.log" % run)
+with open(log, "w") as f:
+    f.write("# outcome: skipped exit=128 reason=network-dns\n")
+rec = {"version": 1, "automation": "shot-failure", "run": run, "name": "Shot failure", "command": "echo nope >&2; exit 3", "directory": os.path.dirname(runs),
+       "trigger": "scheduled", "slot": at, "startedAt": at, "transcript": log}
+ended = {"endedAt": at + 900, "durationMs": 900, "outcome": "skipped", "exitCode": 128, "signal": None, "reason": "network-dns", "transcriptBytes": os.path.getsize(log),
+         "truncated": False, "snippet": "fatal: unable to access 'https://github.com/x/y/': Could not resolve host: github.com"}
+for kind, fields in (("started", rec), ("ended", dict(rec, **ended))):
+    with open(os.path.join(runs, "shot-failure@%s.%s.json" % (run, kind)), "w") as f:
+        json.dump(fields, f)
+PYSKIP
   automation_click Label History || fail "opening history failed"
   take "automations-$1-history"
   automation_click Button "Clear history" || fail "asking to clear history failed"

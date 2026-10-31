@@ -1033,14 +1033,44 @@ function recordError(rec, kind) {
     return "";
 }
 
-// A run's outcome from how its command ended: `failed-start` when it never
-// ran, `timeout` when the runner's timer killed it, `succeeded` on exit 0,
-// else `failed`.
-function outcomeOf(ending) {
-    if (ending.started !== true) return "failed-start";
-    if (ending.timedOut === true) return "timeout";
-    if (ending.exitCode === 0 && ending.signal === null) return "succeeded";
-    return "failed";
+// How long after its start a command's name-resolution failure counts as
+// the network not being ready yet. A requiresNetwork command starts as soon
+// as the runner's wait reads Connectivity FULL, so this is the window after
+// FULL as the runner saw it; NetworkManager's FULL can be stale just after
+// a resume, before the resolver answers (px13, 2026-10-30).
+var NETWORK_DNS_WINDOW_MS = 60000;
+// The resolver failures a command reports: curl's, which git prints as
+// "fatal: unable to access '<url>': Could not resolve host: github.com"
+// (px13's run, 2026-10-30); OpenSSH's resolve_host() in ssh.c; and glibc's
+// gai_strerror(EAI_AGAIN).
+var NETWORK_DNS_PHRASES = ["Could not resolve host: ", "Could not resolve hostname ", "Temporary failure in name resolution"];
+
+// A run's outcome and reason from how its command ended: `failed-start`
+// when it never ran, `timeout` when the runner's timer killed it,
+// `succeeded` on exit 0, else `failed`, each with the ending's reason.
+// `context` is { trigger, requiresNetwork, snippet, durationMs, previous },
+// `previous` the automation's newest ended run before this one, or null.
+// A failure is `skipped` with reason `network-dns` only when the
+// automation needs the network, the trigger is scheduled (a person at Run
+// now or Test run keeps the failure to act on), the command exited
+// non-zero by itself within NETWORK_DNS_WINDOW_MS of its start, a line of
+// its snippet names one of NETWORK_DNS_PHRASES, and the automation's
+// newest ended run succeeded. A name that never resolves therefore fails
+// from its second run on, every run after; a first run, a run whose
+// history was cleared or pruned, and a run after any skip or failure keep
+// the failure.
+function outcomeOf(ending, context) {
+    if (ending.started !== true) return { outcome: "failed-start", reason: ending.reason };
+    if (ending.timedOut === true) return { outcome: "timeout", reason: ending.reason };
+    if (ending.exitCode === 0 && ending.signal === null) return { outcome: "succeeded", reason: ending.reason };
+    var previous = context.previous;
+    var dns = context.requiresNetwork === true && context.trigger === "scheduled"
+        && ending.signal === null && ending.exitCode !== null && context.durationMs <= NETWORK_DNS_WINDOW_MS
+        && String(context.snippet).split("\n").some(function (line) {
+            return NETWORK_DNS_PHRASES.some(function (phrase) { return line.indexOf(phrase) !== -1; });
+        })
+        && previous !== null && previous.outcome === "succeeded";
+    return dns ? { outcome: "skipped", reason: "network-dns" } : { outcome: "failed", reason: ending.reason };
 }
 
 // The error notification's snippet: the last stderr lines, or the last
@@ -1184,6 +1214,18 @@ function failureText(reason) {
     return "The automation request failed. Open Automations to try again.";
 }
 
+// Why a run was skipped, for its history row, its list row and its notice;
+// "" for a reason with nothing to add to Skipped.
+var SKIP_TEXT = {
+    "network-offline-late": "No internet connection",
+    "network-dns": "Network not ready yet",
+    "cancelled-before-start": "Cancelled before start"
+};
+
+function skipText(reason) {
+    return hasOwn(SKIP_TEXT, reason) ? SKIP_TEXT[reason] : "";
+}
+
 // Why a run failed, in one line. A run that exited with an error says why
 // in its own words: the last line it wrote to stderr, else to stdout, the
 // stream a refusal or an error goes to (snippetOf's rule, read back by
@@ -1227,9 +1269,13 @@ function lastOutputLine(snippet) {
 // click does. `event` is start (with the started record) or end
 // (with the ended one and the automation's failure streak before it, null
 // for none); a failure after the first of a streak counts the failures since
-// the first one.
+// the first one. A skip sends no alert; under notifyEveryRun the end of a
+// skipped command replaces its start notice, as a finish does.
 function notificationFor(event, automation, rec, streak) {
-    if (rec !== null && rec.outcome === "skipped") return null;
+    if (rec !== null && rec.outcome === "skipped") {
+        if (event !== "end" || automation.notifyEveryRun !== true) return null;
+        return { summary: automation.name + " skipped", body: skipText(rec.reason), urgency: "low", icon: "circle-minus", tone: "info", click: "open", open: rec.transcript };
+    }
     if (event === "start") {
         if (automation.notifyEveryRun !== true) return null;
         return { summary: automation.name + " started", body: "The automation is running.", urgency: "low", icon: "play", tone: "warning", click: "none", open: "" };
@@ -1439,7 +1485,7 @@ function listRows(store, rows, nowMs, pendingById) {
             summary: summaryText(a.schedule),
             state: pending !== null ? "waiting" : !a.enabled ? "paused" : last !== null && last.outcome === "running" ? "running" : next.length === 0 ? "ended" : "scheduled",
             nextRun: a.enabled && next.length > 0 ? next[0] : null,
-            lastRun: last === null ? null : { run: last.run, outcome: last.outcome, tone: last.tone, startedAt: last.startedAt, endedAt: last.endedAt, transcript: last.transcript }
+            lastRun: last === null ? null : { run: last.run, outcome: last.outcome, reason: last.reason, tone: last.tone, startedAt: last.startedAt, endedAt: last.endedAt, transcript: last.transcript }
         };
     });
 }
