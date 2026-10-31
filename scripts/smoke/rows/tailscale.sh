@@ -460,6 +460,17 @@ tailscale_sign_out_look() { ipc smoke itemValues panel vgs.tailscale IconButton 
 tailscale_held() { [[ -e $tailscale_dir/hang.pid ]] && echo held || echo waiting; }
 tailscale_view() { ipc smoke readInstance panel vgs.tailscale view; }
 tailscale_focus() { ipc smoke activeFocusItem "${1:-panel}" vgs.tailscale; }
+# The stop fixture's public access state and actual focus, before and
+# after the ordinary status poll closes the chooser.
+tailscale_stop_evidence() { # STAGE
+  local body view focus chooser search
+  body="$(ipc smoke itemValues panel vgs.tailscale TailscaleBody tailscale.state,tailscale.checkingSetup,tailscale.writable,tailscale.action,lockReason,visible,activeFocus)" || return 1
+  view="$(tailscale_view)" || return 1
+  focus="$(tailscale_focus)" || return 1
+  chooser="$(ipc smoke itemValues panel vgs.tailscale ExitNodes objectName,visible,activeFocus)" || return 1
+  search="$(ipc smoke itemValues panel vgs.tailscale TextField objectName,visible,activeFocus)" || return 1
+  printf 'tailscale-stop-%s: body=%s view=%s focus=%s chooser=%s search=%s\n' "$1" "$body" "$view" "$focus" "$chooser" "$search"
+}
 # The flyout's header switch as [shown, checked, enabled]; [false] while
 # the Pane holds none or hides it.
 tailscale_header_switch() {
@@ -544,13 +555,18 @@ tailscale_pane_named_tab() { # TYPE NAME
   echo moving
 }
 tailscale_offered() { notice_shown | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps(None if v is None else v[:2]))'; }
-# tailscale_status_as FIXTURE STATE: FIXTURE's tailnet with BackendState
-# STATE as the stand-in's status answer, and the poll asked for it;
-# tailscale_sheet_as STATE does it for the design's tailnet.
-tailscale_status_as() { # FIXTURE STATE
+# FIXTURE's tailnet with BackendState STATE as the stand-in's status
+# answer. The existing timer can observe another client's change without
+# an explicit refresh putting setup back into Checking.
+tailscale_status_reply_as() { # FIXTURE STATE
   local doc
   doc="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d["BackendState"]=sys.argv[2]; print(json.dumps(d))' "$tailscale_fixtures/$1" "$2")" || return 1
   device_reply tailscale 0 "$doc" status --json
+}
+# Set the answer and ask for a fresh read; tailscale_sheet_as uses the
+# design's tailnet.
+tailscale_status_as() { # FIXTURE STATE
+  tailscale_status_reply_as "$1" "$2" || return 1
   tailscale_refresh
 }
 tailscale_sheet_as() { tailscale_status_as sheet.json "$1"; }
@@ -1227,13 +1243,26 @@ tailscale_use sheet.json
 expect "a refresh reads gateway online again" ok tailscale_refresh
 expect_poll "the service publishes gateway online again" '[["attic-nas", true], ["gateway", true]]' tailscale_own_online
 
-# The other states the flyout draws. Tailscale stopping while the Exit
-# nodes view shows ends the choice: the main view, on the header switch.
+# Another client stops Tailscale while this chooser has ready access.
+# Let the ordinary view poll read it: refresh() starts a fresh setup
+# check, whose lock-aware handoff would instead target the body.
+expect_poll "the refreshed online tailnet has ready access before reopening the chooser" ready tailscale_ready
 tailscale_key Return
 expect_poll "Enter opens the Exit nodes view before Tailscale stops" '"exit-nodes"' tailscale_view
-expect "a refresh reads Tailscale off" ok tailscale_sheet_as Stopped
+expect_poll "the chooser has ready access before Tailscale stops" ready tailscale_ready
+expect_poll "the chooser has no lock reason before Tailscale stops" '""' tailscale_body panel lockReason
+expect_poll "the search holds the keys before Tailscale stops" '["TextField",""]' tailscale_focus
+tailscale_stop_evidence before || { fail "tailscale: the ready-before-stop evidence is unreadable"; return 0; }
+tailscale_status_reply_as sheet.json Stopped || { fail "tailscale: the stopped status answer could not be set"; return 0; }
 expect_poll "Tailscale stopping leaves the Exit nodes view" '"main"' tailscale_view
+tailscale_stop_evidence after || { fail "tailscale: the stopped handoff evidence is unreadable"; return 0; }
 expect_poll "the keys move to the header switch once Tailscale stops" '["Switch",""]' tailscale_focus
+expect "the ordinary stopped poll keeps access ready" ready tailscale_ready
+expect "the stopped handoff keeps an empty lock reason" '""' tailscale_body panel lockReason
+expect "the stopped flyout hides the chooser" hidden tailscale_shown_of panel ExitNodes tailscale-exit-nodes
+expect "the hidden chooser keeps no keyboard focus" false ipc smoke activeFocusWithin panel vgs.tailscale ExitNodes
+expect "the stopped flyout hides the search field" false ipc smoke readMatchingDescendant panel vgs.tailscale TextField objectName tailscale-exit-search-field visible
+expect "the hidden search field keeps no keyboard focus" false ipc smoke readMatchingDescendant panel vgs.tailscale TextField objectName tailscale-exit-search-field activeFocus
 expect_poll "the off flyout's state line reads Off" '["Off"]' tailscale_label tailscale-state
 expect "the off flyout's switch is shown and off" '[true, false, true]' tailscale_header_switch
 expect "the off flyout keeps the account and this device" '["shown", "shown"]' tailscale_rows_of Card:tailscale-accounts-card DeviceRow:tailscale-this-device
