@@ -526,6 +526,8 @@ rows=(
   "tools|smoke Xwayland off controls|scripts/test-smoke-xwayland.sh|scripts/test-smoke-xwayland.sh scripts/smoke/harness.sh scripts/smoke/hypr-call.sh"
   "tools|smoke stand-in terminal writers|python3 scripts/check-smoke-terminal.py|scripts/smoke/rows/*"
   "tools|smoke stand-in terminal writer controls|python3 scripts/test-check-smoke-terminal.py|scripts/check-smoke-terminal.py scripts/smoke/rows/*"
+  "tools|smoke PATH absence assertions|python3 scripts/check-smoke-hidden.py|scripts/qml-smoke.sh scripts/smoke/rows/*"
+  "tools|smoke PATH absence assertion controls|python3 scripts/test-check-smoke-hidden.py|scripts/check-smoke-hidden.py scripts/qml-smoke.sh scripts/smoke/rows/*"
   "tools|smoke rows name the rows they read|smoke_reads_named|scripts/validate scripts/smoke/* scripts/qml-smoke.sh"
   "tools|smoke teardown controls|scripts/test-smoke-teardown.sh|scripts/smoke/teardown.sh scripts/smoke/harness.sh scripts/smoke/rows/read-only-prefix.sh"
   "tools|smoke failed row evidence controls|python3 scripts/test-smoke-evidence.py|scripts/test-smoke-evidence.py scripts/smoke/evidence.py scripts/smoke/harness.sh scripts/smoke/teardown.sh scripts/smoke/gpu-fence.sh scripts/qml-smoke.sh scripts/smoke/rows/notifications.sh"

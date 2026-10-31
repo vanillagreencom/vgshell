@@ -640,14 +640,14 @@ fi
 
 
 # Every sandbox shell finds vsys, the browser-policy writer, tesseract,
-# voxtype, voxtype-audio-bridge, claude and codex absent, whatever the
+# voxtype, voxtype-audio-bridge, claude, codex and ttfx absent, whatever the
 # host holds, so the rows press Install all missing for vsys and Install
 # browser theming on any host, read OCR and Voice missing without
 # restarting the shell, and reach no host Claude Code or Codex, whose
 # sign-ins AI Usage reads (harness.sh's shell_hidden_commands); a row that
 # needs one present stands its own stand-in for it.
 # shellcheck disable=SC2034 # the harness sourced below reads it
-shell_hidden_commands+=(vsys vgshell-browser-policy tesseract voxtype voxtype-audio-bridge claude codex)
+shell_hidden_commands+=(vsys vgshell-browser-policy tesseract voxtype voxtype-audio-bridge claude codex ttfx)
 # The Bar's width checks need a validation layout independent of the host.
 # shellcheck disable=SC2034 # the harness sourced below reads it
 shell_output_size=1755x933
