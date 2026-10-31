@@ -13,6 +13,9 @@ BASH = shutil.which("bash")
 ENV = {"PATH": os.environ.get("PATH", ""), "LC_ALL": "C.UTF-8",
        "VGS_TEST_RUN": "1"}
 source = HARNESS.read_text()
+default_bound = re.search(r"(?m)^ipc_call_bound_s=([0-9]+)$", source)
+assert default_bound
+IPC_CALL_BOUND_S = int(default_bound[1])
 
 
 def function(name):
@@ -93,7 +96,9 @@ with tempfile.TemporaryDirectory(prefix="smoke-ipc-") as scratch:
              "ipc_at", "ipc_timeout_check", "ipc_oversize_check", "smoke_row",
              "reader_stderr", "expect_poll", "now_ms", "cpu_some_us",
              "cpu_some_pct", "load_average", "smoke_row_secs")
-    production.write_text("".join(function(name) for name in names))
+    production.write_text(default_bound[0] + "\n" + "".join(
+        function(name).replace("ipc_call_last()", "case_ipc_call_last()", 1)
+        if name == "ipc_call_last" else function(name) for name in names))
     stub = root / "qs"
     stub.write_text('''#!/usr/bin/env bash
 set -euo pipefail
@@ -110,7 +115,8 @@ case "$1 $2" in
   'shell guarded') echo true; exit ;;
   'shell listPlugins') echo paged=7; exit ;;
   'smoke perScreenLayers') echo '[]'; exit ;;
-  'smoke reply') printf 'noise\\nanswer\\n'; exit ;;
+  # Answer after the timer-wiring bound, within the measured default.
+  'smoke reply') sleep 0.3; printf 'noise\\nanswer\\n'; exit ;;
   'smoke failure') echo refused; exit 17 ;;
 esac
 exec sleep infinity
@@ -124,12 +130,19 @@ source "$repo/bin/lib/ipc-reply.sh"
 source "$repo/scripts/smoke/verdict.sh"
 source "$repo/scripts/smoke/leaks.sh"
 source "$4"
-block=""
+block="" case_defer="$8"
 [[ $want_timeout != yes ]] || block="$6 $7"
-shell_env=(env -i PATH="$root:$PATH" HOME="$sandbox" XDG_RUNTIME_DIR="$sandbox" CASE_DIR="$sandbox" CASE_BLOCK="$block" CASE_DEFER="$8" VGS_TEST_RUN=1)
+shell_env=(env -i PATH="$root:$PATH" HOME="$sandbox" XDG_RUNTIME_DIR="$sandbox" CASE_DIR="$sandbox" CASE_BLOCK="$block" CASE_DEFER="$case_defer" VGS_TEST_RUN=1)
 printf '%s\\n' "$BASHPID" >"$sandbox/vgshell.lock"
-# The short bound tests timer wiring, independently of the measured default.
-ipc_call_bound_s=0.1
+# Only the never-answering stand-in uses the timer-wiring bound. Even a
+# timeout case's preflight and cleanup answers need the measured default.
+ipc_call_last() {
+  local ipc_call_bound_s="$ipc_call_bound_s"
+  if [[ "$2 $3" == "$block" && ( $case_defer != yes || -e $sandbox/block ) ]]; then
+    ipc_call_bound_s=0.1
+  fi
+  case_ipc_call_last "$@"
+}
 ipc_last_reply="" ipc_reply_chars=32768 ipc_oversize_log="$sandbox/oversize"
 ipc_timeout_log="$sandbox/ipc-timeout.log"
 smoke_row_drain_s=5
@@ -178,12 +191,12 @@ fi
         ("status", 'status=0; got="$(ipc smoke failure)" || status=$?; [[ $status == 17 && $got == refused ]]', "smoke", "failure", "no"),
     )
 
-    def ipc_case(helpers, case):
+    def ipc_case(helpers, case, parent_bound=6 * IPC_CALL_BOUND_S):
         name, command, target, method, want_timeout = case
         folder = Path(tempfile.mkdtemp(prefix=name + "-", dir=root))
         (folder / "example.sh").write_text(command + "\n")
         result = subprocess.run(
-            ["timeout", "--signal=KILL", "3", BASH, str(child),
+            ["timeout", "--signal=KILL", str(parent_bound), BASH, str(child),
              str(HARNESS.parents[2]), str(folder), str(root), str(helpers), want_timeout, target, method,
              "yes" if name == "cleanup" else "no"],
             env=ENV, stdin=subprocess.DEVNULL, capture_output=True, text=True)
@@ -212,7 +225,8 @@ smoke_row_secs example 1000 100000
 smoke_row_secs unread 1000 ""
 load_average() { :; }
 smoke_row_secs empty 3000 ""
-''', "_", str(timing)], env=ENV, capture_output=True, text=True, timeout=3)
+''', "_", str(timing)], env=ENV, capture_output=True, text=True,
+                            timeout=IPC_CALL_BOUND_S)
     assert result.returncode == 0, result.stderr
     assert result.stdout.splitlines() == [
         "qml-smoke: row-secs row=example secs=2 cpu_some_pct=50.0 load1=12.34",
@@ -223,6 +237,26 @@ smoke_row_secs empty 3000 ""
     for case in cases:
         ipc_case(production, case)
         print("smoke-ipc: bounded-row=" + case[0])
+
+    # Restore the old bound without removing the answering call. The
+    # delayed reply must fail specifically at that call, not at preflight.
+    short_bound = root / "short-bound.sh"
+    text = production.read_text()
+    assert text.count(default_bound[0]) == 1
+    changed = text.replace(default_bound[0], "ipc_call_bound_s=0.1")
+    assert changed != text
+    short_bound.write_text(changed)
+    reply_case = next(case for case in cases if case[0] == "reply")
+    try:
+        ipc_case(short_bound, reply_case)
+    except AssertionError as failure:
+        detail = failure.args[0]
+        assert len(detail) == 5 and detail[1] == 1, detail
+        records = (Path(detail[4]) / "rows/example.ipc-timeout.log").read_text().splitlines()
+        assert records == ["ipc-timeout: target=smoke function=reply bound_s=0.1"], records
+        print("smoke-ipc: control=answer-short-bound-rejected\n" + detail[2] + detail[3])
+    else:
+        raise AssertionError("short bound accepted a delayed answering call")
 
     mutant_timing = root / "missing-pressure.sh"
     text = production.read_text()
@@ -247,7 +281,7 @@ smoke_row_secs empty 3000 ""
     assert changed != text
     mutant.write_text(changed)
     try:
-        ipc_case(mutant, cases[0])
+        ipc_case(mutant, cases[0], parent_bound=3)
     except AssertionError as failure:
         detail = failure.args[0]
         assert len(detail) == 5 and detail[1] in (-9, 137), detail
@@ -358,7 +392,7 @@ echo unreachable >"$sandbox/after-plant"
 ''')
         (folder / "successor.sh").write_text('python3 "$root/world.py" "$sandbox" >"$sandbox/successor.world"\n')
         result = subprocess.run(
-            ["timeout", "--signal=KILL", "10", BASH, str(restore_child),
+            ["timeout", "--signal=KILL", str(6 * IPC_CALL_BOUND_S), BASH, str(restore_child),
              str(HARNESS.parents[2]), str(folder), str(root), str(restore_helpers),
              "yes", "shell", "ping", "yes", fault],
             env=ENV, stdin=subprocess.DEVNULL, capture_output=True, text=True)
