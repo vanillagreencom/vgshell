@@ -6,7 +6,7 @@
 # a row holds the capability, so no row starts the host's voxtype; the
 # daemon the core starts for the holder is the stand-in. The row puts the
 # stand-ins away again and leaves the fixture disabled.
-# inputs: scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.dictation/* scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js shell/Core/Capabilities.qml shell/Core/ShortcutRegistry.qml shell/Core/IpcRegistry.qml shell/Core/IdleRegistry.qml shell/Core/PluginLogic.js shell/Core/Registry.qml shell/plugins/vgs.lock/manifest.json shell/Core/SessionLock.qml shell/Core/NotificationHub.qml shell/Core/Compositor.qml shell/Core/Dispatch.js bin/vgshell-dictation bin/lib/voxtype.sh bin/lib/voxtype.py scripts/smoke/rows/plugins.sh
+# inputs: scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.dictation/* scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js shell/Core/Capabilities.qml shell/Core/ShortcutRegistry.qml shell/Core/IpcRegistry.qml shell/Core/IdleRegistry.qml shell/Core/PluginLogic.js shell/Core/Registry.qml shell/Core/Lifetime.js shell/Core/Plugins.qml shell/plugins/vgs.lock/manifest.json shell/Core/SessionLock.qml shell/Hosts/LockHost.qml shell/Commons/SessionLockState.js shell/Core/NotificationHub.qml shell/Core/Compositor.qml shell/Core/Dispatch.js bin/vgshell-dictation bin/lib/voxtype.sh bin/lib/voxtype.py scripts/smoke/rows/plugins.sh
 set -euo pipefail
 leak_plugin_setup acme.probe true acme.bare true || { fail "capabilities: fixture precondition failed"; return 1; }
 expect_poll "the shared fixture is built before its dependent reads" True record_exists acme.probe
@@ -139,8 +139,8 @@ expect "the lending record reports the registration" false lent polkitRegistered
 # The lock route takes closed causes, and an idle lock only with a ticket
 # the holder's own lock stage watch minted; the cover provider serves only
 # the screensaver stage's owner.
-expect "a lock request with no cause is refused" 'refused: lock-cause=undefined want=idle|manual|sleep|restore' probe lock-request '{}'
-expect "a lock request with an unknown cause is refused" 'refused: lock-cause="later" want=idle|manual|sleep|restore' probe lock-request '{"cause":"later"}'
+expect "a lock request with no cause is refused" 'refused: lock-cause=undefined want=idle|manual|sleep|restore|release-end' probe lock-request '{}'
+expect "a lock request with an unknown cause is refused" 'refused: lock-cause="later" want=idle|manual|sleep|restore|release-end' probe lock-request '{"cause":"later"}'
 expect "a manual lock request carrying a ticket is refused" 'refused: lock-request=cause,ticket want=cause' probe lock-request '{"cause":"manual","ticket":{}}'
 expect "an idle lock request with a forged ticket is refused" 'refused: lock-ticket=stale' probe lock-request '{"cause":"idle","ticket":{}}'
 expect "the refused requests left the session unlocked" false lent lock.requested
@@ -148,10 +148,37 @@ stage_refusal() { local reply; reply="$(probe idle-watch-stage "$1")" || return;
 expect "a plugin that owns no lock stage cannot hold its stage watch" 'refused: idle-stage=lock' stage_refusal lock
 expect "a plugin that owns no screensaver stage cannot present a cover" 'refused: cover=not-owner' probe cover-present
 expect "a plugin that owns no screensaver stage cannot stop a cover" 'refused: cover=not-owner' probe cover-stop
+
+# Timed releases use the production lock provider. The IPC fixture owns no
+# expiry timer, so losing that fixture cannot leave the session released.
+capability_session_lock() { hypr -j monitors | py_reply 'import json,sys; print("locked" if any("LOCK" in (m.get("solitaryBlockedBy") or []) for m in json.load(sys.stdin)) else "unlocked")'; }
+expect "a timed release without a secure lock is refused" "refused: lock=not-secure" probe unlock-for 1000
 expect "the fixture locks the session" ok probe lock
 expect_poll "the compositor confirms the lock" true read_service lockSecure
-# A rebuild while locked keeps the session locked, and the rebuilt holder
-# hands its screen over again. Change the holder's own source revision.
+for duration in 0 -1 0.5 NaN Infinity 2147483648; do
+  expect "a timed release with invalid milliseconds $duration is refused" "refused: lock-duration=integer-1..2147483647" probe unlock-for "$duration"
+done
+# The overlap checks run at once; five seconds leave the compositor read
+# time to see the release before it expires.
+expect "the fixture releases the lock for five seconds" ok probe unlock-for 5000
+expect "an overlapping release cannot renew the deadline" "refused: lock=busy" probe unlock-for 60000
+expect "ordinary unlock cannot cancel the expiry" "refused: lock=busy" probe unlock
+expect "the provider reports a temporary release" true probe temporary
+expect_poll "the compositor releases the timed lock" unlocked capability_session_lock
+expect_poll "the core expiry relocks after the fixture call has ended" locked capability_session_lock
+expect_poll "the compositor confirms the expired lock" true read_service lockSecure
+expect "expiry clears the temporary release" false probe temporary
+expect "the fixture starts another timed release" ok probe unlock-for 60000
+expect_poll "the second timed release reaches the compositor" unlocked capability_session_lock
+expect "a normal lock request cancels the release" ok probe lock
+expect "normal lock clears temporary state" false probe temporary
+expect_poll "the compositor confirms the normal lock" true read_service lockSecure
+
+# Rebuilding the release owner requests a lock before its content drops;
+# the replacement holder hands its screen over again. Change the holder's
+# own source revision while released.
+expect "the fixture releases before its rebuild" ok probe unlock-for 60000
+expect_poll "the compositor is released before owner disposal" unlocked capability_session_lock
 python3 - "$home/.config/vgshell/plugins/acme.probe/manifest.json" <<'PY'
 import json, os, sys
 p = sys.argv[1]
@@ -168,7 +195,9 @@ if before="$(builds)"; then
   expect "only the holder service and its widgets rebuilt" "$((before + monitors + 1))" builds
   expect "the replacement service starts with no shortcut presses" 0 read_service presses
   expect_poll "the rebuilt holder handed its screen over again" true lock_content
-  expect "the session stayed locked through the rebuild" true read_service lockSecure
+  expect_poll "disposing the release owner relocked the compositor" locked capability_session_lock
+  expect_poll "the rebuilt holder confirms the lock" true read_service lockSecure
+  expect "the disposed release is not active in the replacement" false probe temporary
   expect "the rebuilt fixture answers on its IPC target" hello probe echo hello
   read_count presses_before "capabilities: rebuilt shortcut presses before" read_service presses
   expect "the compositor triggers the rebuilt fixture's shortcut" ok hypr dispatch 'hl.dsp.global("acme.probe:ping")'

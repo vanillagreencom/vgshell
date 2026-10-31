@@ -136,6 +136,8 @@ windows_shim_before=("${shim:?}"/*)
 devtools_stand_ins
 updates_cache_fresh
 automations_stand_ins "$sandbox/windows-automations-stub"
+# A window plugin such as vgs.jarvis holds dictation, whose voxtype the sandbox lacks.
+expected_errors+=("${dictation_absent_errors[@]}")
 while IFS=$'\t' read -r -u 3 window_id window_title; do
   window_was="$(plugin_enabled "$window_id")" || window_was=unread
   if [[ $window_was != True ]]; then

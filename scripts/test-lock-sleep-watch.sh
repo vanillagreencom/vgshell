@@ -2,7 +2,9 @@
 # Controls for vgs.lock's before-sleep hook, shell/plugins/vgs.lock/bin/
 # sleep-watch: the budget it derives from logind's InhibitDelayMaxUSec, the
 # lines it prints, a preparation already under way when it subscribes, the
-# release on `secure`, `refused`, the budget's end and a closed stdin, its
+# release on `secure`, `refused`, the budget's end and a closed stdin, the
+# hook kept without ready when preparation is unknown or unreadable and
+# its ready once a later read is false, its
 # refusals when dbus-monitor stays silent or ends, and TERM ending its
 # dbus-monitor with it. Stand-in busctl and
 # dbus-monitor, first on PATH, answer from STUB_WINDOW and STUB_PREPARING;
@@ -25,7 +27,11 @@ cat >"$stub/busctl" <<'SH'
 #!/usr/bin/env bash
 case "${5:-}" in
   InhibitDelayMaxUSec) [[ -n ${STUB_WINDOW:-} ]] || exit 1; echo "t $STUB_WINDOW" ;;
-  PreparingForSleep) echo "b ${STUB_PREPARING:-false}" ;;
+  PreparingForSleep)
+    [[ -z ${STUB_PREPARING_UNREADABLE:-} ]] || exit 1
+    # STUB_PREPARING_LATER: unreadable on the first read, false after it.
+    if [[ -n ${STUB_PREPARING_LATER:-} && ! -e $STUB_PREPARING_LATER ]]; then : >"$STUB_PREPARING_LATER"; exit 1; fi
+    echo "b ${STUB_PREPARING:-false}" ;;
   *) exit 1 ;;
 esac
 SH
@@ -36,6 +42,8 @@ echo "signal time=1 sender=org.freedesktop.DBus -> destination=:1.9 serial=42949
 # A resume, PrepareForSleep(false), is no sleep.
 [[ -n ${STUB_QUIET:-} ]] && { echo "   boolean false"; exit 3; }
 [[ -n ${STUB_NO_SIGNAL:-} ]] && exec sleep 30
+# STUB_SIGNAL_AFTER: the PrepareForSleep comes that many seconds late.
+[[ -n ${STUB_SIGNAL_AFTER:-} ]] && sleep "$STUB_SIGNAL_AFTER"
 echo "signal time=2 sender=:1.1 member=PrepareForSleep"
 echo "   boolean true"
 exec sleep 30
@@ -124,7 +132,14 @@ watch_row "a 30 s window is capped at 12000 ms" 0 "ready budget_ms=12000|sleep b
 watch_row "a 2 s window keeps a second for logind" 0 "ready budget_ms=1000|sleep budget_ms=1000|released reason=secure" "" secure STUB_WINDOW=2000000
 watch_row "an unreadable window reads as 5 s" 0 "ready budget_ms=4000|sleep budget_ms=4000|released reason=secure" "" secure
 watch_row "a refusal releases the sleep as refused" 0 "ready budget_ms=4000|sleep budget_ms=4000|released reason=refused" "" refused STUB_WINDOW=5000000
-watch_row "a preparation under way before the listener is a sleep" 0 "ready budget_ms=4000|sleep budget_ms=4000|released reason=secure" "" secure STUB_WINDOW=5000000 STUB_PREPARING=true STUB_NO_SIGNAL=1
+watch_row "a preparation under way starts sleep without ready" 0 "sleep budget_ms=4000|released reason=secure" "" secure STUB_WINDOW=5000000 STUB_PREPARING=true STUB_NO_SIGNAL=1
+# An unknown state keeps the inhibitor and the listener: the next sleep is
+# still announced and waits for the lock.
+watch_row "unknown preparation keeps the hook without ready" 0 "unconfirmed budget_ms=4000|sleep budget_ms=4000|released reason=secure" "" secure STUB_WINDOW=5000000 STUB_PREPARING=unknown
+watch_row "an unreadable preparation keeps the hook without ready" 0 "unconfirmed budget_ms=4000|sleep budget_ms=4000|released reason=secure" "" secure STUB_WINDOW=5000000 STUB_PREPARING_UNREADABLE=1
+# A state that turns readable is read again after recheck_s, 10 s, with no
+# bus line, and a false then announces ready; the sleep 12 s in follows it.
+watch_row "a preparation readable later announces ready" 0 "unconfirmed budget_ms=4000|ready budget_ms=4000|sleep budget_ms=4000|released reason=closed" "" closed STUB_WINDOW=5000000 STUB_PREPARING_LATER="$TMP_ROOT/later-row" STUB_SIGNAL_AFTER=12
 watch_row "a silent dbus-monitor is refused" 1 "" "sleep-watch: refused: monitor=silent" closed STUB_WINDOW=5000000 STUB_SILENT=1
 watch_row "a line other than secure is no confirmation" 0 "ready budget_ms=4000|sleep budget_ms=4000|released reason=timeout" "" other STUB_WINDOW=5000000
 watch_row "the budget's end releases the sleep" 0 "ready budget_ms=250|sleep budget_ms=250|released reason=timeout" "" silent STUB_WINDOW=1250000
@@ -190,8 +205,16 @@ control any-reply '      *) echo "released reason=timeout" ;;' '      *) echo "r
 control_row "a copy that takes any line for the confirmation" "ready budget_ms=4000|sleep budget_ms=4000|released reason=timeout" other STUB_WINDOW=5000000
 control no-bound 'IFS= read -r -t "$budget_s" reply' 'IFS= read -r reply'
 control_row "a copy with no bound on the wait" "ready budget_ms=250|sleep budget_ms=250|released reason=timeout" silent STUB_WINDOW=1250000
-control no-preparing '[[ $preparing != "b true" ]] || sleep_once' ':'
-control_row "a copy that ignores a preparation under way" "ready budget_ms=4000|sleep budget_ms=4000|released reason=secure" secure STUB_WINDOW=5000000 STUB_PREPARING=true STUB_NO_SIGNAL=1
+control no-preparing $'case "$preparing" in\n  "b true") sleep_once ;;' $'case "$preparing" in\n  "b true") ;;'
+control_row "a copy that ignores a preparation under way" "sleep budget_ms=4000|released reason=closed" closed STUB_WINDOW=5000000 STUB_PREPARING=true STUB_QUIET=1
+control early-ready $'case "$preparing" in\n  "b true") sleep_once ;;' $'case "$preparing" in\n  "b true") echo "ready budget_ms=$budget_ms"; sleep_once ;;'
+control_row "a copy that announces ready before handling preparation" "sleep budget_ms=4000|released reason=secure" secure STUB_WINDOW=5000000 STUB_PREPARING=true STUB_NO_SIGNAL=1
+control unknown-ready '  *) unconfirmed=true; echo "unconfirmed budget_ms=$budget_ms" ;;' '  *) echo "ready budget_ms=$budget_ms" ;;'
+control_row "a copy that announces ready on unknown preparation" "unconfirmed budget_ms=4000|sleep budget_ms=4000|released reason=secure" secure STUB_WINDOW=5000000 STUB_PREPARING=unknown
+control unknown-exit '  *) unconfirmed=true; echo "unconfirmed budget_ms=$budget_ms" ;;' '  *) exit 1 ;;'
+control_row "a copy that drops the inhibitor on unknown preparation" "unconfirmed budget_ms=4000|sleep budget_ms=4000|released reason=secure" secure STUB_WINDOW=5000000 STUB_PREPARING=unknown
+control no-recheck '      "b false") unconfirmed=false; echo "ready budget_ms=$budget_ms" ;;' '      "b false") ;;'
+control_row "a copy that never reads an unconfirmed state again" "unconfirmed budget_ms=4000|ready budget_ms=4000|sleep budget_ms=4000|released reason=closed" closed STUB_WINDOW=5000000 STUB_PREPARING_LATER="$TMP_ROOT/later-control" STUB_SIGNAL_AFTER=12
 control no-subscribe-wait 'if ! IFS= read -r -t 2 line <&"$monitor_fd"; then' 'if false; then'
 control_row "a copy that reports ready before the listener answers" "" closed STUB_WINDOW=5000000 STUB_SILENT=1
 control no-refused '      refused) echo "released reason=refused" ;;' '      refused) echo "released reason=timeout" ;;'

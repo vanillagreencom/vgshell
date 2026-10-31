@@ -9,8 +9,9 @@ import "LockModel.js" as LockModel
 // it LockView, which the core's lock host builds on every screen; the core
 // keeps the session locked when this plugin is disabled, rebuilt or gone,
 // and the compositor keeps it locked when the shell dies. Within the shell,
-// only a password PAM accepts, checked through this plugin's own stack in
-// pam/, unlocks; with the restore option on, another client of the session
+// a password PAM accepts, checked through this plugin's own stack in
+// pam/, unlocks. The default-off temporary-unlock setting permits bounded
+// password-free access through session IPC (D114). With restore on, another client of the session
 // can take the lock over and release it (D062).
 //
 // Entry points, each named to the core as the lock's cause: the shortcut
@@ -57,6 +58,8 @@ Item {
         return row === undefined ? "" : row.plugin;
     }
     readonly property bool lockBeforeSleep: shell !== null && shell.settings.lockBeforeSleep === true
+    readonly property bool delegateAllowed: shell !== null && shell.settings.allowDelegateUnlock === true
+    readonly property bool delegateActive: shell !== null && shell.lock.temporary
     // The hook's commands the last scan did not find; a rescan after the
     // requirement notice installs them starts the hook.
     readonly property var sleepMissing: shell === null ? [] : shell.requirements.missing.filter(command => LockModel.SLEEP_COMMANDS.indexOf(command) !== -1)
@@ -96,13 +99,16 @@ Item {
     property int strandedTries: 20
     property bool strandedDone: false
 
-    // The before-sleep hook: `off`, `missing`, `starting`, `held` or
-    // `failed` with its detail; whether a sleep waits for the lock to be
+    // The before-sleep hook: `off`, `missing`, `starting`, `held`,
+    // `unconfirmed` or `failed` with its detail; whether a sleep waits for the lock to be
     // confirmed; the exit the hook's run recorded, null before one; and the
     // notice of a missed suspend still to send, null for none.
     property string sleepState: "off"
     property var sleepDetail: null
     property bool sleepPending: false
+    // Secure acknowledgement ends sleepPending before actual sleep. Only
+    // a fresh non-preparing hook's ready event permits temporary access.
+    property bool sleepReady: false
     property var sleepExit: null
     property var missedSleep: null
 
@@ -113,6 +119,7 @@ Item {
             shell.shortcut.register("lock", "Lock the session", () => root.lock("manual"));
             shell.ipc.handle("lock", () => root.lock("manual"));
             shell.ipc.handle("status", () => root.statusJson());
+            shell.ipc.handle("delegate-unlock", arg => root.delegateUnlock(arg));
         }
         if (seenEnds < 0) seenEnds = shell.lock.compositorEnds;
         // A holder rebuilt while locked hands the lock screen over again.
@@ -120,6 +127,7 @@ Item {
         watchIdle();
         publishLock();
         publishSleep();
+        publishDelegate();
         strandedCheck();
     }
     onIdleLockSecondsChanged: watchIdle()
@@ -129,10 +137,16 @@ Item {
     // again at once rather than at the next retry.
     onLockBeforeSleepChanged: retrySleep()
     onSleepMissingChanged: retrySleep()
+    onDelegateAllowedChanged: {
+        if (!delegateAllowed && delegateActive) endTemporary("revoked");
+        publishDelegate();
+    }
+    onDelegateActiveChanged: publishDelegate()
     onLockedChanged: {
         if (locked) return;
         reset();
         showMissedSleep();
+        if (delegateActive) temporaryNotice();
     }
     onSecureChanged: {
         if (!secure) return;
@@ -158,6 +172,57 @@ Item {
         if (shell === null) return "refused: lock=not-ready";
         if (!backgroundProc.running) backgroundProc.running = true;
         return shell.lock.lock(lockView, cause === "idle" ? { cause: cause, ticket: ticket } : { cause: cause });
+    }
+
+    // IpcHandler carries arguments, not a peer identity. This permission
+    // applies to all callers reaching session IPC, never to a claimed name:
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/IpcHandler/
+    // REVISIT(D114): Isolating one delegate needs a protected identity.
+    function delegateUnlock(arg) {
+        function refuse(reason, seconds) {
+            console.info("lock: delegate-unlock=refused reason=" + reason + " authority=session-ipc" + (seconds === undefined ? "" : " seconds=" + seconds));
+            return "refused: delegate-unlock=" + reason;
+        }
+        if (!delegateAllowed) return refuse("disabled");
+        // External desk tools produce one bounded numeric JSON field. No
+        // prompt, caller claim or secret is accepted or echoed on failure.
+        if (typeof arg !== "string" || arg.length > 64 || !/^[\x20-\x7e]*$/.test(arg)) return refuse("argument");
+        let request;
+        try { request = JSON.parse(arg); } catch (e) { return refuse("argument"); }
+        if (request === null || typeof request !== "object" || Array.isArray(request)
+            || Object.keys(request).length !== 1 || !Object.prototype.hasOwnProperty.call(request, "seconds")
+            || !Number.isInteger(request.seconds) || request.seconds < 1 || request.seconds > 60) return refuse("argument");
+        const seconds = request.seconds;
+        if (delegateActive) return refuse("busy", seconds);
+        if (!locked || !secure) return refuse("not-secure", seconds);
+        if (checking) return refuse("checking", seconds);
+        if (lockBeforeSleep && !sleepReady) return refuse("sleep", seconds);
+        reset();
+        const reply = shell.lock.unlockFor(seconds * 1000);
+        if (reply !== "ok") {
+            console.info("lock: delegate-unlock=refused reason=core authority=session-ipc seconds=" + seconds + " reply=" + reply);
+            return reply;
+        }
+        console.info("lock: delegate-unlock=granted authority=session-ipc seconds=" + seconds);
+        return "ok";
+    }
+
+    function temporaryNotice() {
+        const notice = shell.notify.send({ title: "Temporary desktop access", message: "The desktop will lock again after this step or when its time limit ends.", tone: "info", icon: "lock-open", urgency: "normal", transient: true });
+        if (notice !== "ok") console.warn("lock: delegate-notice=refused reply=" + notice);
+    }
+
+    // End an active release early with a lock request of cause
+    // `release-end`, which the core takes as the end of the release and
+    // which shows the lock screen. REASON is `revoked` or `sleep-hook`. A
+    // refused request leaves the release running, save `lock=released`:
+    // this instance is being disposed, and the core relocks a disposed
+    // owner's release itself.
+    function endTemporary(reason) {
+        const reply = lock("release-end");
+        if (reply === "ok") console.info("lock: delegate-release=ending reason=" + reason);
+        else if (reply === "refused: lock=released") console.info("lock: delegate-release=disposed reason=" + reason);
+        else console.error("lock: delegate-release=refused reason=" + reason + " reply=" + reply);
     }
 
     Process {
@@ -221,7 +286,7 @@ Item {
     }
 
     function statusJson() {
-        return JSON.stringify({ locked: locked, secure: secure, refusals: seenEnds < 0 ? 0 : seenEnds, checking: checking, checks: checks, failures: failures, idleLockSeconds: idleLockSeconds, sleep: sleepState, strandedDone: strandedDone });
+        return JSON.stringify({ locked: locked, secure: secure, refusals: seenEnds < 0 ? 0 : seenEnds, checking: checking, checks: checks, failures: failures, idleLockSeconds: idleLockSeconds, sleep: sleepState, strandedDone: strandedDone, delegateAllowed: delegateAllowed, delegateActive: delegateActive });
     }
 
     // Each status value last published, as JSON by key, so an unchanged
@@ -233,7 +298,7 @@ Item {
         const text = JSON.stringify(value);
         if (published[key] === text) return;
         const reply = shell.status.set(key, value);
-        if (reply !== "ok") {
+        if (!shell.status.isOk(reply)) {
             console.warn("lock: status " + reply);
             return;
         }
@@ -244,6 +309,10 @@ Item {
 
     function publishLock() {
         publish("lock", LockModel.lockStatus(refused));
+    }
+
+    function publishDelegate() {
+        publish("temporaryAccess", { tone: "info", text: delegateActive ? "Temporary access is active" : delegateAllowed ? "Allowed" : "Off" });
     }
 
     // ------------------------------------------------------------ stranded
@@ -336,9 +405,19 @@ Item {
             onRead: line => {
                 const event = LockModel.sleepLine(line);
                 if (event.kind === "ready") {
+                    root.sleepReady = true;
                     root.sleepState = "held";
                     root.publishSleep();
+                } else if (event.kind === "unconfirmed") {
+                    // The hook still delays and announces each sleep; only
+                    // temporary access waits for its later `ready`.
+                    console.info("lock: sleep-ready=unconfirmed; temporary access is refused until the hook reads the sleep state");
+                    root.sleepState = "unconfirmed";
+                    root.publishSleep();
                 } else if (event.kind === "sleep") {
+                    root.sleepReady = false;
+                    root.sleepState = "held";
+                    root.publishSleep();
                     root.sleepPending = true;
                     root.lock("sleep");
                     root.confirmSleep();
@@ -360,6 +439,10 @@ Item {
         // retrySleep. The status records the failure, so the log line is
         // info: a session without logind fails once a minute.
         onRunningChanged: {
+            root.sleepReady = false;
+            // With the hook gone, logind's delay no longer waits for a
+            // lock, so a release must not run on into a suspend.
+            if (!running && root.shell !== null && root.lockBeforeSleep && root.delegateActive) root.endTemporary("sleep-hook");
             if (running) {
                 root.sleepState = "starting";
                 root.publishSleep();
@@ -415,7 +498,8 @@ Item {
             if (result === PamResult.Success) {
                 root.answer = "";
                 root.checking = false;
-                root.shell.lock.unlock();
+                const reply = root.shell.lock.unlock();
+                if (reply !== "ok") console.error("lock: unlock=refused reply=" + reply);
             } else {
                 root.fail();
             }

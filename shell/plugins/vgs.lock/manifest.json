@@ -30,7 +30,8 @@
   },
   "settings": {
     "idleLockSeconds": 300,
-    "lockBeforeSleep": true
+    "lockBeforeSleep": true,
+    "allowDelegateUnlock": false
   },
   "schema": {
     "idleLockSeconds": {
@@ -57,6 +58,12 @@
       "type": "boolean",
       "label": "Lock before sleep",
       "group": "Lock"
+    },
+    "allowDelegateUnlock": {
+      "type": "boolean",
+      "label": "Temporary unlock",
+      "info": "Any application running as you can unlock without a password for up to 60 seconds. VGS cannot verify Jarvis or your approval of the step. This gives other apps easier access. Turning this off locks active access. VGS must stay running and responsive: a crash can leave access open, a stall can delay locking, and sleep with Lock before sleep off can extend access.",
+      "group": "Lock"
     }
   },
   "status": {
@@ -72,6 +79,11 @@
     "lastSleep": {
       "type": "state",
       "label": "Last sleep"
+    },
+    "temporaryAccess": {
+      "type": "state",
+      "label": "Temporary access",
+      "info": "An allowed request lasts at most 60 seconds while VGS runs and responds. The lock key, inactivity, sleep or turning the permission off can lock sooner. A VGS crash can leave access open; a stall or sleep with Lock before sleep off can extend it."
     }
   },
   "requirements": [
@@ -85,7 +97,7 @@
       {
         "shortcut": "lock",
         "key": "SUPER+DELETE",
-        "info": "Locks the screen at once. You need your password to get back in."
+        "info": "Locks the screen at once and ends temporary access. Your password unlocks it; Temporary unlock also permits password-free access requests."
       }
     ]
   }

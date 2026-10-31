@@ -48,13 +48,16 @@ function failureText(failures, message, policy) {
 var SLEEP_COMMANDS = ["systemd-inhibit", "dbus-monitor", "busctl"];
 
 // One line of bin/sleep-watch as { kind, budgetMs, reason }: `ready
-// budget_ms=N` once the delay inhibitor holds and the listener is live,
-// `sleep budget_ms=N` when logind prepares for sleep, `released reason=R`
-// when it lets go; kind "unknown" for any other line, budgetMs 0 where the
-// line names none.
+// budget_ms=N` once the delay inhibitor holds, the listener is live and
+// logind confirms PreparingForSleep=false; an initial true emits sleep
+// without ready, and an unreadable state emits `unconfirmed budget_ms=N`
+// instead, the inhibitor and listener held all the same. `sleep
+// budget_ms=N` when logind prepares for sleep, `released reason=R` when it
+// lets go; kind "unknown" for any other line, budgetMs 0 where the line
+// names none.
 function sleepLine(line) {
     var text = String(line).trim();
-    var match = /^(ready|sleep) budget_ms=([0-9]+)$/.exec(text);
+    var match = /^(ready|unconfirmed|sleep) budget_ms=([0-9]+)$/.exec(text);
     if (match) return { kind: match[1], budgetMs: Number(match[2]), reason: "" };
     match = /^released reason=(secure|refused|timeout|closed)$/.exec(text);
     if (match) return { kind: "released", budgetMs: 0, reason: match[1] };
@@ -63,18 +66,22 @@ function sleepLine(line) {
 
 // The `sleep` status. STATE is "off" when the setting turns it off,
 // "missing" while DETAIL, a list of SLEEP_COMMANDS, is not installed,
-// "starting" before the inhibitor holds, "held" while it holds, or
-// "failed" when the hook ended before holding it, DETAIL its exit code or
-// "not-started" for a hook that could not start.
+// "starting" before the inhibitor holds, "held" while it holds,
+// "unconfirmed" while it holds but logind's sleep state is unread, so
+// temporary access waits, or "failed" when the hook ended before holding
+// it, DETAIL its exit code or "not-started" for a hook that could not
+// start.
 function sleepStatus(state, detail) {
     switch (state) {
     case "off": return { tone: "info", text: "Off: the session is not locked before sleep" };
     case "missing": return { tone: "warning", text: "Tools needed to lock before sleep are missing. Install them from the notice." };
     case "held": return { tone: "ok", text: "The session locks before sleep" };
+    // The chip holds a short reading; the wait goes in the line under it.
+    case "unconfirmed": return { tone: "info", text: "The session locks before sleep", hint: "Temporary unlock waits until VGS can read the sleep state." };
     case "starting": return { tone: "info", text: "Preparing to lock before sleep" };
     case "failed": return { tone: "warning", text: "Locking before sleep is unavailable. Lock the screen before sleep." };
     }
-    throw new Error("sleepStatus: state " + JSON.stringify(state) + " is not off, missing, starting, held or failed");
+    throw new Error("sleepStatus: state " + JSON.stringify(state) + " is not off, missing, starting, held, unconfirmed or failed");
 }
 
 // What the hook's last release, REASON of sleepLine, says of the last
