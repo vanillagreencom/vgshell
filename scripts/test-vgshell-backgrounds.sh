@@ -53,6 +53,45 @@ step_line() { printf 'ok background=%s theme=dusk path=%s/%s' "$1" "$images" "$1
 set_line() { printf 'ok background=%s theme=%s path=%s%s' "$1" "$2" "$3" "${4:+ screen=$4}"; } # FILE THEME PATH [SCREEN]
 entry() { printf '{"background":"%s","theme":%s,"name":%s,"path":"%s"}' "$1" "$2" "$3" "$4"; } # FILE THEME_JSON NAME_JSON PATH
 
+# An explicit set must change the selected URL even after Qt failed to
+# decode the same file. The CLI does not decode these fixture bytes.
+set_publication_rows() {
+  local kind attempt before_inode after_inode image_metadata after_metadata
+  local -a target
+  image_metadata="$(stat -c '%s:%y' -- "$user/u.png")" || exit 1
+  tinst "publication seed sets the unchanged image" "$cfg" "$rt_empty" 0 "$(set_line u.png - "$user/u.png")" "" theme background set "$user/u.png"
+  for kind in current every screen; do
+    case $kind in
+      current) target=() ;;
+      every) target=(--every-screen) ;;
+      screen) target=(--screen DP-1) ;;
+    esac
+    for attempt in first repeated; do
+      cp -- "$doc" "$tmp/publication-before.json"
+      before_inode="$(stat -c %i -- "$doc")" || exit 1
+      tinst "$attempt $kind set publishes the unchanged image" "$cfg" "$rt_empty" 0 "$any_out" "" theme background set "$user/u.png" "${target[@]}"
+      check "$attempt $kind set changes only the selected stamp" python3 -c 'import json,sys
+before, after = [json.load(open(p)) for p in sys.argv[1:3]]
+if sys.argv[3] == "screen":
+    old = before.get("screens", {}).get("DP-1", {"stamp": before["stamp"]})["stamp"]
+    selected = after["screens"]["DP-1"]
+    fresh = isinstance(selected["stamp"], str) and selected["stamp"] != old and selected["path"] == after["current"]
+    if "screens" not in before:
+        del after["screens"]
+    else:
+        after["screens"]["DP-1"] = before["screens"]["DP-1"]
+else:
+    fresh = isinstance(after["stamp"], str) and after["stamp"] != before["stamp"]
+    after["stamp"] = before["stamp"]
+sys.exit(0 if fresh and after == before else 1)' "$tmp/publication-before.json" "$doc" "$kind"
+      after_inode="$(stat -c %i -- "$doc")" || exit 1
+      check "$attempt $kind set replaces the state document" test "$after_inode" != "$before_inode"
+    done
+  done
+  after_metadata="$(stat -c '%s:%y' -- "$user/u.png")" || exit 1
+  check "publication freshness needs no image metadata change" test "$after_metadata" == "$image_metadata"
+}
+
 tinst "next before any apply is refused" "$cfg" "$rt_empty" 1 "" "vgshell: refused: background=next reason=not-applied path=$state/theme.name" theme background next
 tinst "an apply of a package with images is accepted" "$cfg" "$rt_empty" 0 "ok theme=dusk state=applied shell=applied" "" theme apply dusk
 check "the apply links the first image in name order, a JPG in capitals included" links_to a.JPG
@@ -208,6 +247,37 @@ tinst "set with no state directory is accepted" "$cfg" "$rt_empty" 0 "$(set_line
 check "set with no state directory links the image" links_at "$user/u.png"
 check "set with no state directory writes the state file" doc_is "$(uat u.png)" '{}'
 rm -r -- "${state:?}"; mv -- "$tmp/state-kept" "$state"
+
+set_publication_rows
+# Fail exactly the first post-set inode probe, with no stdout. The real
+# publication rows must reject that missing evidence before comparison.
+set +e
+(
+  set -e
+  stat() {
+    if [[ $1 == -c && $2 == %i ]]; then
+      if [[ ! -e $tmp/publication-stat-seen ]]; then
+        : >"$tmp/publication-stat-seen"
+      elif [[ ! -e $tmp/publication-stat-failed ]]; then
+        : >"$tmp/publication-stat-failed"
+        return 74
+      fi
+    fi
+    command stat "$@"
+  }
+  set_publication_rows
+) >"$tmp/publication-stat-control.log" 2>&1
+publication_stat_status=$?
+set -e
+check "publication rows reject a failed post-set inode probe" test "$publication_stat_status" == 1
+check "the rejected publication probe ran" test -f "$tmp/publication-stat-failed"
+cp -- "$doc" "$tmp/follow-before.json"
+before_inode="$(stat -c %i -- "$doc")" || exit 1
+tinst "unchanged follow beside explicit set publications is accepted" "$cfg" "$rt_empty" 0 "$any_out" "" theme follow
+after_inode="$(stat -c %i -- "$doc")" || exit 1
+check "unchanged follow keeps the published stamps and state document" test "$after_inode" == "$before_inode"
+check "unchanged follow keeps the published state bytes" cmp -s "$tmp/follow-before.json" "$doc"
+tinst "nord clears publication test images" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply nord
 
 # A state file or a backgrounds/ the judge cannot use refuses the apply
 # before anything moves, so the theme file keeps nord.
@@ -385,6 +455,15 @@ tinst "the every-screen control sets b.png for DP-1" "$cfg" "$rt_empty" 0 "$(set
 judge_control every-screen 'after = { current: image, themes: themes, screens: {} };' 'after = { current: image, themes: themes, screens: shown.screens };'
 tinst "the every-screen mutant sets u.png on every screen" "$cfg" "$rt_empty" 0 "$(set_line u.png - "$user/u.png" '*')" "" theme background set "$user/u.png" --every-screen
 check "the every-screen mutant keeps the screen image" doc_is "$(uat u.png)" '{}' "{\"DP-1\":\"$images/b.png\"}"
+reset_dusk "publication control"
+judge_control publication 'backgrounds.stamped(source.dir, background, key, crypto.randomUUID())' 'backgrounds.stamped(source.dir, background, key)'
+tinst "the publication control sets u.png" "$cfg" "$rt_empty" 0 "$(set_line u.png - "$user/u.png")" "" theme background set "$user/u.png"
+cp -- "$doc" "$tmp/publication-control.json"
+before_inode="$(stat -c %i -- "$doc")" || exit 1
+tinst "the publication mutant repeats the same set" "$cfg" "$rt_empty" 0 "$(set_line u.png - "$user/u.png")" "" theme background set "$user/u.png"
+check "the publication mutant keeps the same stamp bytes" cmp -s "$tmp/publication-control.json" "$doc"
+after_inode="$(stat -c %i -- "$doc")" || exit 1
+check "the publication mutant keeps the state document" test "$after_inode" == "$before_inode"
 reset_dusk "keep control"
 tinst "the keep control sets b.png for DP-1" "$cfg" "$rt_empty" 0 "$(set_line b.png dusk "$images/b.png" DP-1)" "" theme background set "$images/b.png" --screen DP-1
 judge_control keep '{ [name]: chosen }), screens: shown.screens }' '{ [name]: chosen }), screens: {} }'

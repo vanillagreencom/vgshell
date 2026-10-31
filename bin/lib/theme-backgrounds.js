@@ -8,9 +8,9 @@
 // "stamp": <string|null>, "themes": { "<theme>": "<file>" }, "screens":
 // { "<output>": { "path": <path>, "stamp": <string> } } }`: `current` is
 // the absolute path of the image the `background` symlink names, which the
-// vgs.themes plugin draws, `stamp` that file's size and modification time,
-// so an image replaced under its name rewrites the file and the plugin
-// decodes it again, `themes` the image `next`, `previous` or `set` last
+// vgs.themes plugin draws, `stamp` that file's size and modification time
+// with a fresh suffix on explicit sets, so replacing or setting an image
+// gives the plugin a new URL to decode, `themes` the image `next`, `previous` or `set` last
 // chose for each theme, and `screens` the image `set --screen` chose for
 // one Hyprland output, stamped the same way. `screens` is written only
 // while it holds an output, so a file without it is a current file with
@@ -137,12 +137,15 @@ function locate(sources, argument, key) {
 
 // Image FILE of DIR's backgrounds/ as the state names it, `{ path, stamp }`,
 // or null when FILE is null. KEY leads the refusal for an image that
-// cannot be read.
-function stamped(dir, file, key) {
+// cannot be read. PUBLICATION distinguishes an explicit set from the
+// same file's previous URL after a failed decode, without changing the
+// content stamps used by apply and follow.
+function stamped(dir, file, key, publication = null) {
     if (file === null) return null;
     const at = imagePath(dir, file);
     try {
         const stat = fs.statSync(at);
+        if (publication !== null) return { path: at, stamp: stat.size + ":" + stat.mtimeMs + ":" + publication };
         return { path: at, stamp: stat.size + ":" + stat.mtimeMs };
     } catch (e) {
         refuse(key + "=unreadable path=" + at + " error=" + e.code, "unreadable");

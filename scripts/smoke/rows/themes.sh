@@ -1248,6 +1248,85 @@ rescan "a rescan restores the background device size"
 expect_poll "the restored background requests the screen's device size" "$screen_mode" background_source_size "$screen_name"
 expect "the follow after the background size controls ends" idle theme_idle
 
+# The f7eb2b1 writer's shape: a cross-theme current with no screens key.
+# Restart that saved state, then fail its first decode. Restoring the exact
+# original stat leaves content stamping unchanged, so only a published set
+# can recover the running instance. Each CLI target must do so.
+cross="$installed/cross"
+mkdir -p -- "$cross/backgrounds"
+printf '%s\n' '{"schemaVersion":1,"name":"cross","tokens":{}}' >"$cross/theme.json"
+cp -p -- "$scenic/backgrounds/c.png" "$cross/backgrounds/saved.png"
+cp -p -- "$cross/backgrounds/saved.png" "$sandbox/cross-readable.png"
+expect "the applied theme remembers its chosen fallback" "ok background=b.png theme=scenic path=$scenic/backgrounds/b.png" vgshell_theme background set "$scenic/backgrounds/b.png"
+expect "a different theme supplies the saved current" "ok background=saved.png theme=cross path=$cross/backgrounds/saved.png screen=*" vgshell_theme background set "$cross/backgrounds/saved.png" --every-screen
+expect_poll "the cross-theme saved image draws" "$cross/backgrounds/saved.png ready" background_image
+expect "the saved document has no screens key" False python3 -c 'import json,sys; print("screens" in json.load(open(sys.argv[1])))' "$bg_state/backgrounds.json"
+stop_shell
+start_shell "$repo" "$sandbox/wallpaper-legacy-restart.log"
+expect_poll "restart draws the old cross-theme document without screens" "$cross/backgrounds/saved.png ready" background_image
+expect_poll "restart maps the cross-theme image" "$monitors" layer_count vgs:background
+# Control: refusing an absent optional screens key must fail these same
+# saved-image assertions, rather than turn a valid document into no image.
+state_qml="$repo/shell/plugins/vgs.themes/WallpaperState.qml"
+cp -p -- "$state_qml" "$sandbox/WallpaperState.qml.legacy.real"
+python3 - "$state_qml" "$state_qml.tmp" <<'PY'
+import pathlib, sys
+source, target = map(pathlib.Path, sys.argv[1:])
+text = source.read_text()
+old = 'if (value === undefined) return { sources: {}, paths: {} };'
+assert text.count(old) == 1
+target.write_text(text.replace(old, 'if (value === undefined) return null;'))
+assert target.read_text() != text
+PY
+mv -T -- "$state_qml.tmp" "$state_qml"
+expected_errors+=('background: .*/backgrounds\.json malformed')
+stop_shell
+start_shell "$repo" "$sandbox/wallpaper-legacy-control.log"
+expect_poll "the rejecting reader control draws no saved image" "- null" background_image
+background_legacy_control_failures() {
+  (failures=0 behaviour_failures=0
+  expect "restart draws the old cross-theme document without screens" "$cross/backgrounds/saved.png ready" background_image >"$sandbox/background-legacy-control.log"
+  expect "restart maps the cross-theme image" "$monitors" layer_count vgs:background >>"$sandbox/background-legacy-control.log"
+  printf '%s\n' "$failures")
+}
+expect "control: saved-image assertions reject the reader without optional screens" 2 background_legacy_control_failures
+cp -p -- "$sandbox/WallpaperState.qml.legacy.real" "$state_qml.tmp" && mv -T -- "$state_qml.tmp" "$state_qml"
+stop_shell
+start_shell "$repo" "$sandbox/wallpaper-legacy-restored.log"
+expect_poll "the restored reader draws the saved cross-theme image" "$cross/backgrounds/saved.png ready" background_image
+expected_errors+=('background: file://.*/saved\.png\?.* unreadable' 'Background\.qml.*(Cannot open|Error decoding): file://.*/saved\.png')
+for bg_set_target in current every screen; do
+  stop_shell
+  printf 'undecodable image\n' >"$cross/backgrounds/saved.png"
+  start_shell "$repo" "$sandbox/wallpaper-failed-$bg_set_target.log"
+  expect_poll "an undecodable saved current uses the chosen theme image ($bg_set_target)" "$scenic/backgrounds/b.png ready" background_image
+  expect_poll "the fallback maps the background ($bg_set_target)" "$monitors" layer_count vgs:background
+  expect_log "the failed saved path is logged ($bg_set_target)" 1 'background: file://.*/saved\.png\?.* unreadable'
+  cp -p -- "$sandbox/cross-readable.png" "$cross/backgrounds/saved.png"
+  bg_set_args=(); bg_set_suffix=""
+  case "$bg_set_target" in
+    every) bg_set_args=(--every-screen); bg_set_suffix=" screen=*" ;;
+    screen) bg_set_args=(--screen "$screen_name"); bg_set_suffix=" screen=$screen_name" ;;
+  esac
+  expect "set publishes restored bytes after a failed decode ($bg_set_target)" "ok background=saved.png theme=cross path=$cross/backgrounds/saved.png$bg_set_suffix" vgshell_theme background set "$cross/backgrounds/saved.png" "${bg_set_args[@]}"
+  expect_poll "set draws without restart after a failed decode ($bg_set_target)" "$cross/backgrounds/saved.png ready" background_image
+  expect "setting the same image again succeeds ($bg_set_target)" "ok background=saved.png theme=cross path=$cross/backgrounds/saved.png$bg_set_suffix" vgshell_theme background set "$cross/backgrounds/saved.png" "${bg_set_args[@]}"
+  expect_poll "the same image remains drawn ($bg_set_target)" "$cross/backgrounds/saved.png ready" background_image
+done
+# Missing saved bytes, including a removed remembered image, use the first
+# image the applied package still lists. No migration or timer is needed.
+stop_shell
+rm -- "$cross/backgrounds/saved.png"
+mv -- "$scenic/backgrounds/b.png" "$sandbox/scenic-b.png"
+start_shell "$repo" "$sandbox/wallpaper-missing.log"
+expect_poll "a missing saved image uses the theme's first image" "$scenic/backgrounds/a.png ready" background_image
+expect_poll "the first-image fallback maps the background" "$monitors" layer_count vgs:background
+expect_log "the missing saved path is logged" 1 'background: file://.*/saved\.png\?.* unreadable'
+mv -- "$sandbox/scenic-b.png" "$scenic/backgrounds/b.png"
+expect "the wallpaper regressions restore the first image on every screen" "ok background=a.png theme=scenic path=$scenic/backgrounds/a.png screen=*" vgshell_theme background set "$scenic/backgrounds/a.png" --every-screen
+expect_poll "the restored current draws after the fallback cases" "$scenic/backgrounds/a.png ready" background_image
+rm -r -- "$cross"
+
 # Each screen draws its own entry in `screens`, else `current`: an image
 # from the user folder set on a second monitor alone, which a step of
 # `current` leaves in place. A screen whose own image cannot be read draws
@@ -1316,7 +1395,7 @@ expect "the nested compositor removes the second monitor over its removed curren
 expect_poll "the second monitor is gone before it comes back again" False screen_listed "$second_output"
 expect_poll "the second monitor's bar left the build records before it comes back again" False second_bar_listed
 expect "the nested compositor adds the second monitor back again" ok hypr output create headless "$second_output"
-expect_poll "an own entry equal to an unreadable current draws nothing" "$user_bg/same.png error" background_image_on "$second_output"
+expect_poll "an own entry equal to an unreadable current uses the theme image" "$scenic/backgrounds/a.png ready" background_image_on "$second_output"
 expect "set makes a readable package image current" "ok background=a.png theme=scenic path=$scenic/backgrounds/a.png" vgshell_theme background set "$scenic/backgrounds/a.png"
 expect_poll "a screen whose failed own entry named the old current draws the new current" "$scenic/backgrounds/a.png ready" background_image_on "$second_output"
 expect "the nested compositor removes the second monitor" ok hypr output remove "$second_output"

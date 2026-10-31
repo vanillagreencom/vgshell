@@ -115,6 +115,7 @@ A wallpaper another program draws must not be covered by a bare background colou
 - Do name package wallpapers only through the optional `backgrounds` map in `theme.json`, from image file name to one or two words; `ThemeLogic.accept` judges the names, and `acceptPackage` refuses a missing named file only for a shipped package. `scripts/test-theme-logic.js` pins it.
 - Do keep per-output images in the optional `screens` map of `backgrounds.json`, overriding `current` for those outputs. An absent entry uses `current`; use no separate mode flag or seeded map. Theme apply clears the map, and `set` accepts only an image the `list --all` result names. `scripts/test-vgshell-backgrounds.sh` pins the state and writer; `scripts/test-theme-logic.js` pins the screen argument grammar.
 - Never map the background surface while no image is current. `scripts/smoke/rows/themes.sh` pins it.
+- Do log each unreadable image's path and fall back from a screen's image to `current`, then to the applied theme's remembered or first image, without a retry timer. `scripts/smoke/rows/themes.sh` pins it.
 - Never put a user image into a package, and never give the wallpaper browser an add, remove or delete action; user images live in the user folder. Review.
 
 ### Runner boundary

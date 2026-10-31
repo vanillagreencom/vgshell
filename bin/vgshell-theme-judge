@@ -2428,7 +2428,7 @@ function setBackground(result, argument, target, configDir, stateDir, lock) {
     const { source, background } = backgrounds.locate(backgroundSources(configDir, key), argument, key);
     result.theme = source.theme;
     result.background = background;
-    const image = backgrounds.stamped(source.dir, background, key);
+    const image = backgrounds.stamped(source.dir, background, key, crypto.randomUUID());
     const remembered = source.theme !== null && source.theme === applied;
     const themes = remembered ? Object.assign({}, shown.themes, { [applied]: background }) : shown.themes;
     let after;

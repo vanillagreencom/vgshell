@@ -27,6 +27,8 @@ Item {
     property var screens: ({})
     // Each output's own image as its absolute path, keyed as `screens`.
     property var screenPaths: ({})
+    // The runner's remembered image names, used when a saved path fails.
+    property var themes: ({})
 
     // The source the output NAME draws: its own entry in `screens`, else
     // `current`.
@@ -55,6 +57,7 @@ Item {
         source = "";
         screens = {};
         screenPaths = {};
+        themes = {};
     }
 
     // Set `path`, `source`, `screens` and `screenPaths` from
@@ -74,6 +77,7 @@ Item {
             source = current ? Files.stampedUrl(doc.current, doc.stamp) : "";
             screens = own.sources;
             screenPaths = own.paths;
+            themes = doc.themes || {};
             return;
         }
         console.error("background: " + statePath + " malformed");
