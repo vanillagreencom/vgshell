@@ -57,9 +57,7 @@
 #   A diff-scoped run that selects the nested smoke passes it the rows the
 #   change reaches as `scripts/qml-smoke.sh --rows <row>,...`, or no --rows
 #   for every row, and prints `validate: smoke-rows=some selected=<n>
-#   total=<m> skipped=<k>` or `validate: smoke-rows=all reason=<reason>`, a
-#   `validate: smoke-row skipped=over-bound row=<row>` line for each row
-#   left out over the lane bound, and the
+#   total=<m>` or `validate: smoke-rows=all reason=<reason>` and the
 #   `validate: smoke-input row=<row> ...` self-check lines on stderr:
 #   smoke_rows_selected below. Those lines leave that run's exit status
 #   alone; the tools row `smoke rows name the rows they read` fails on a
@@ -898,35 +896,6 @@ private_keys_check() {
   echo "validate: no private key in the tree"
 }
 
-# The lane bound: a diff-scoped run leaves out a row whose median in
-# scripts/smoke/rows.secs exceeds this many seconds, and the batch run on
-# main, which runs --full, runs it. In the measurement that file names
-# (cachy, 2026-10-05) the core rows and the rows they read took 67 s
-# together, auth-sentinel unmeasured, so no lane pays more for one row than
-# for the whole core.
-smoke_bound_secs=60
-
-# smoke_secs_read: read scripts/smoke/rows.secs, one `<row> <seconds>` line
-# per measured row after its comment lines, into smoke_secs and return 0.
-# A file that cannot be read, or a line of another form, prints
-# `validate: smoke-secs=unreadable` or `smoke-secs=malformed` and returns
-# 1, and the caller then leaves every row in: a reading that cannot be
-# trusted never narrows a run. Reads smoke_secs from smoke_rows_selected.
-smoke_secs_read() {
-  local file=scripts/smoke/rows.secs line number=0 lines=()
-  if ! mapfile -t lines <"$file"; then
-    printf 'validate: smoke-secs=unreadable path=%s\n' "$file" >&2; return 1
-  fi
-  for line in "${lines[@]}"; do
-    number=$((number + 1))
-    [[ $line == '#'* || -z $line ]] && continue
-    if [[ ! $line =~ ^([a-z0-9-]+)\ (0|[1-9][0-9]*)$ ]]; then
-      printf 'validate: smoke-secs=malformed line=%s path=%s\n' "$number" "$file" >&2; return 1
-    fi
-    smoke_secs[${BASH_REMATCH[1]}]="${BASH_REMATCH[2]}"
-  done
-}
-
 # The reader of a row's input line and the core rows, smoke_core, both of
 # which scripts/qml-smoke.sh shares.
 source scripts/smoke/row-inputs.sh
@@ -1344,7 +1313,7 @@ PY
   done <<<"$facts"
 }
 
-# smoke_list_rows: mark in want[] and edited[] each row an added line of
+# smoke_list_rows: mark in want[] each row an added line of
 # the row list names, against the change base; a line git shows as added is a new or a
 # moved row. A removed line whose name the list no longer holds is an
 # unlisted row: its name joins unlisted[], and the caller runs each row
@@ -1373,7 +1342,6 @@ smoke_list_rows() {
       printf -v every 'reason=rows-list-unlisted-line value=%q' "$line"; return 0
     fi
     want[$line]=1
-    edited[$line]=1
   done <<<"$diff"
 }
 
@@ -1397,16 +1365,13 @@ smoke_list_rows() {
 # harness input: a change to it runs the rows its added lines name, read
 # from the diff against the change base, so a moved row runs and a comment
 # runs nothing, and a row its removed lines unlist brings each row that
-# names its file. A row over smoke_bound_secs leaves a selection of some
-# rows, printed as `validate: smoke-row skipped=over-bound row=<row>`,
-# unless it is a core row, the change edits its own file, a row file its
-# line names or its row list line, or a selected row reads it; --full,
-# which passes no --rows, runs it. The self-check lines
+# names its file. No time figure removes a reached row:
+# docs/architecture/validation.md § Selection. The self-check lines
 # smoke_input_read prints never change the exit status.
 smoke_rows_selected() { # CHANGED_PATH...
-  local listed row file path glob needed count secs every="" smoke_list=scripts/smoke/rows.list
-  local -a names tracked smoke_globs smoke_inputs_named unlisted=() over=() skipped=()
-  local -A want=() reads=() hits=() lines=() smoke_secs=() edited=()
+  local listed row file path glob needed count every="" smoke_list=scripts/smoke/rows.list
+  local -a names tracked smoke_globs smoke_inputs_named unlisted=()
+  local -A want=() reads=() hits=() lines=()
   local smoke_glob_unmatched smoke_inputs_line smoke_inputs_fault
   smoke_only=""
   if ! listed="$(scripts/qml-smoke.sh --list-rows)" || [[ -z $listed ]]; then
@@ -1446,8 +1411,6 @@ smoke_rows_selected() { # CHANGED_PATH...
       for glob in "$file" "${smoke_globs[@]}"; do
         [[ $path == $glob ]] || continue
         want[$row]=1
-        # A smoke row file it reads changed: the change edits the row.
-        if [[ $path == scripts/smoke/rows/* ]]; then edited[$row]=1; break 2; fi
         break
       done
     done
@@ -1461,20 +1424,6 @@ smoke_rows_selected() { # CHANGED_PATH...
   if [[ -n $every ]]; then
     printf 'validate: smoke-rows=all %s\n' "$every" >&2; return 0
   fi
-  # A row over the lane bound leaves the selection unless it is a core row
-  # or the change edits it: its own file, a row file its line names, or its
-  # line in the row list. The closure below brings it back when a row that
-  # stays reads it.
-  if smoke_secs_read; then
-    for row in "${!want[@]}"; do
-      secs="${smoke_secs[$row]-}"
-      [[ -n $secs && $secs -gt $smoke_bound_secs ]] || continue
-      [[ " ${smoke_core[*]} " != *" $row "* ]] || continue
-      [[ -z ${edited[$row]-} ]] || continue
-      over+=("$row")
-    done
-    for row in "${over[@]}"; do unset "want[$row]"; done
-  fi
   # A row that runs brings the rows it reads, and theirs in turn.
   count=-1
   while [[ $count -ne ${#want[@]} ]]; do
@@ -1483,15 +1432,10 @@ smoke_rows_selected() { # CHANGED_PATH...
       for needed in ${reads[$row]-}; do want[$needed]=1; done
     done
   done
-  for row in "${names[@]}"; do
-    [[ " ${over[*]} " == *" $row "* && -z ${want[$row]-} ]] || continue
-    skipped+=("$row")
-    printf 'validate: smoke-row skipped=over-bound row=%s secs=%s bound=%s\n' "$row" "${smoke_secs[$row]}" "$smoke_bound_secs" >&2
-  done
   if [[ ${#want[@]} -eq ${#names[@]} ]]; then
     printf 'validate: smoke-rows=all reason=every-row-reached total=%s\n' "${#names[@]}" >&2; return 0
   fi
-  printf 'validate: smoke-rows=some selected=%s total=%s skipped=%s\n' "${#want[@]}" "${#names[@]}" "${#skipped[@]}" >&2
+  printf 'validate: smoke-rows=some selected=%s total=%s\n' "${#want[@]}" "${#names[@]}" >&2
   for row in "${names[@]}"; do
     [[ -z ${want[$row]-} ]] || smoke_only+="${smoke_only:+,}$row"
   done

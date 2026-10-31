@@ -1349,8 +1349,9 @@ if [[ $out == "$full_plan" ]]; then ok "a deleted unmapped source selects full";
 # and command substitutions still read the launcher's state and function.
 # The same-name top-level assignment remains a real defining write.
 # twice leaves a heredoc open. Variants: no-harness-line
-# carries no harness line, no-list has an empty row list and no-core one
-# that does not list auth-sentinel. Expected row sets are
+# carries no harness line, no-list has an empty row list, no-core one
+# that does not list auth-sentinel and slow a per-row seconds file that
+# names launcher at ten minutes. Expected row sets are
 # written here, not derived from the selector. A control runs a copy of
 # validate with one rule removed, committed so the plan judges the planted
 # change alone, and wants the exact plan that rule's loss gives. No fixture
@@ -1395,13 +1396,9 @@ smoke_fixture() { # DIR [VARIANT]
   printf '# inputs: shell/plugins/acme.gone/*\n' >"$dir/scripts/smoke/rows/stale.sh"
   printf '# inputs: shell/plugins/acme.other/*\n# inputs: shell/Core/Keys.qml\ncat <<EOF\nnever closed\n' >"$dir/scripts/smoke/rows/twice.sh"
   printf '# inputs:\n' >"$dir/scripts/smoke/rows/blank.sh"
-  case "$variant" in
-    slow|slow-malformed)
-      printf '%s\n' '# Measured seconds.' 'bar 99' 'launcher 61' 'notifications 90' 'notifications-keys 10' 'other 60' >"$dir/scripts/smoke/rows.secs"
-      sed -i '1s|$| scripts/smoke/rows/launcher-part.sh|' "$dir/scripts/smoke/rows/launcher.sh"
-      printf '# Run by launcher.sh.\n' >"$dir/scripts/smoke/rows/launcher-part.sh" ;;&
-    slow-malformed) printf 'stale sixty\n' >>"$dir/scripts/smoke/rows.secs" ;;
-  esac
+  if [[ $variant == slow ]]; then
+    printf '%s\n' '# Measured seconds.' 'launcher 600' >"$dir/scripts/smoke/rows.secs"
+  fi
   if [[ $variant == tailscale-values || $variant == tailscale-values-control ]]; then
     python3 - "$repo" "$dir" "$variant" <<'PYTAILSCALEINPUT'
 import glob, pathlib, re, sys
@@ -1490,21 +1487,8 @@ smoke_cases=(
   "control: an unknown input no longer runs every row|shell/plugins/acme.launcher/Panel.qml new-source.bin|changed|$smoke_launcher|unknown|rows"
   "--full runs every row|shell/plugins/acme.launcher/Panel.qml|full|scripts/qml-smoke.sh||rows"
   "control: --full no longer runs every row|shell/plugins/acme.launcher/Panel.qml|full|$smoke_none|full|rows"
-  "a row over the bound leaves a diff-scoped selection|shell/plugins/acme.launcher/Panel.qml|changed|$smoke_none||slow"
-  "control: a row over the bound no longer leaves|shell/plugins/acme.launcher/Panel.qml|changed|$smoke_launcher|bound|slow"
-  "a row at the bound stays|shell/plugins/acme.other/Panel.qml|changed|scripts/qml-smoke.sh --rows $smoke_core,other,$smoke_always,$smoke_tail||slow"
-  "control: a row at the bound leaves|shell/plugins/acme.other/Panel.qml|changed|$smoke_none|at-bound|slow"
-  "control: a core row over the bound leaves|shell/plugins/acme.launcher/Panel.qml|changed|scripts/qml-smoke.sh --rows hyprland-consent,session,$smoke_always,$smoke_tail|core-bound|slow"
-  "a row over the bound whose own file changed stays|scripts/smoke/rows/launcher.sh|changed|$smoke_launcher||slow"
-  "control: a row over the bound whose own file changed leaves|scripts/smoke/rows/launcher.sh|changed|$smoke_none|own|slow"
-  "a row over the bound a changed row file it names reads stays|scripts/smoke/rows/launcher-part.sh|changed|$smoke_launcher||slow"
-  "control: a row over the bound a changed row file it names reads leaves|scripts/smoke/rows/launcher-part.sh|changed|$smoke_none|input-row|slow"
-  "a row over the bound that a selected row reads stays|shell/plugins/acme.notify/Panel.qml shell/Core/Keys.qml|changed|$smoke_notify||slow"
-  "control: a row over the bound that a selected row reads leaves|shell/plugins/acme.notify/Panel.qml shell/Core/Keys.qml|changed|scripts/qml-smoke.sh --rows $smoke_core,notifications-keys,$smoke_always,$smoke_tail|read-back|slow"
-  "a malformed seconds file leaves every row in|shell/plugins/acme.launcher/Panel.qml|changed|$smoke_launcher||slow-malformed"
-  "control: a malformed seconds file still narrows|shell/plugins/acme.launcher/Panel.qml|changed|$smoke_none|malformed|slow-malformed"
-  "--full runs a row over the bound|shell/plugins/acme.launcher/Panel.qml|full|scripts/qml-smoke.sh||slow"
-  "control: --full no longer runs a row over the bound|shell/plugins/acme.launcher/Panel.qml|full|$smoke_none|full|slow"
+  "a change to a row's own file selects that row|scripts/smoke/rows/launcher.sh|changed|$smoke_launcher||rows"
+  "control: a change to a row's own file no longer selects that row|scripts/smoke/rows/launcher.sh|changed|$smoke_none|own-file|rows"
 )
 # Each mutant: the text it replaces in validate, then its replacement.
 declare -A smoke_mutant_old=(
@@ -1524,14 +1508,7 @@ declare -A smoke_mutant_old=(
   [harness-line]="    every='reason=harness-line-unreadable'"
   [unknown]=$'      export VGS_VALIDATE_CHANGED="$paths_file"\n      smoke_scoped=true\n    fi'
   [full]=$'smoke_scoped=false\naffected=()'
-  [bound]='      over+=("$row")'
-  [at-bound]='$secs -gt $smoke_bound_secs'
-  [core-bound]='      [[ " ${smoke_core[*]} " != *" $row "* ]] || continue'
-  [own]='      [[ -z ${edited[$row]-} ]] || continue'
-  [input-row]='if [[ $path == scripts/smoke/rows/* ]]; then edited[$row]=1; break 2; fi'
-  [moved]=$'    want[$line]=1\n    edited[$line]=1'
-  [read-back]='      for needed in ${reads[$row]-}; do want[$needed]=1; done'
-  [malformed]='"$number" "$file" >&2; return 1'
+  [own-file]='for glob in "$file" "${smoke_globs[@]}"; do'
 )
 declare -A smoke_mutant_new=(
   [missing]=$'missing; add to the leading comment block of %s: # inputs: GLOB [GLOB...]\\n\' "$key" "$file" >&2; return 0'
@@ -1550,14 +1527,7 @@ declare -A smoke_mutant_new=(
   [harness-line]='    :'
   [unknown]=$'      export VGS_VALIDATE_CHANGED="$paths_file"\n    fi\n    smoke_scoped=true'
   [full]=$'smoke_scoped=true\naffected=()'
-  [bound]='      :'
-  [at-bound]='$secs -ge $smoke_bound_secs'
-  [core-bound]='      :'
-  [own]='      :'
-  [input-row]='if [[ $path == "$file" ]]; then edited[$row]=1; break 2; fi'
-  [moved]='    want[$line]=1'
-  [read-back]='      for needed in ${reads[$row]-}; do [[ " ${over[*]} " == *" $needed "* ]] || want[$needed]=1; done'
-  [malformed]='"$number" "$file" >&2; continue'
+  [own-file]='for glob in "${smoke_globs[@]}"; do'
 )
 for spec in "${smoke_cases[@]}"; do
   IFS='|' read -r name files scope wanted mutant variant <<<"$spec"
@@ -1582,38 +1552,17 @@ PY
   plan="$(grep '^scripts/qml-smoke.sh' <<<"$out" || true)"
   if [[ $status == 0 && $plan == "$wanted" ]]; then ok "$name"; else fail "$name: exit=$status plan=$plan"; sed 's/^/        /' "$tmp/smoke-rows.err"; fi
 done
-# The lines a row over the bound leaves: one per row and the count in the
-# summary, which the lanes and the overseer read.
+# A reached row whose median is ten minutes stays selected, and the
+# summary counts it. The slow fixture's seconds file puts launcher at
+# 600 s, so this fails if a reader of scripts/smoke/rows.secs that drops a
+# row over a bound returns. The lanes and the overseer read the summary
+# line.
 test_area=qml
 test_args=(--changed HEAD --list)
-d="$tmp/smoke-rows-skip-lines"; smoke_fixture "$d" slow
+d="$tmp/smoke-rows-slow"; smoke_fixture "$d" slow
 printf '# changed\n' >>"$d/shell/plugins/acme.launcher/Panel.qml"
-row "a row over the bound is named as skipped" "$d" 0 "" \
-  "validate: smoke-row skipped=over-bound row=launcher secs=61 bound=60" \
-  "validate: smoke-rows=some selected=10 total=14 skipped=1" '!skipped=over-bound row=bar' '!skipped=over-bound row=other'
-# A moved row over the bound runs: its row list line is an edit of it.
-for mutant in "" moved; do
-  d="$tmp/smoke-rows-moved-${mutant:-real}"; smoke_fixture "$d" slow
-  if [[ -n $mutant ]]; then
-    python3 - "$d/scripts/validate" "${smoke_mutant_old[$mutant]}" "${smoke_mutant_new[$mutant]}" <<'PY'
-from pathlib import Path
-import sys
-path, old, new = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
-source = path.read_text()
-assert source.count(old) == 1, old
-path.write_text(source.replace(old, new))
-PY
-    "${base_env[@]}" git -C "$d" commit -q -am control
-  fi
-  sed -i -e '/^launcher$/d' -e 's/^other$/other\nlauncher/' "$d/scripts/smoke/rows.list"
-  wanted="scripts/qml-smoke.sh --rows $smoke_core,launcher,$smoke_always,$smoke_tail"
-  name="a moved row over the bound stays"
-  [[ -z $mutant ]] || { wanted="$smoke_none"; name="control: a moved row over the bound leaves"; }
-  status=0
-  out="$(cd -- "$d" && "${base_env[@]}" bash scripts/validate qml --changed HEAD --list 2>"$tmp/smoke-moved.err")" || status=$?
-  plan="$(grep '^scripts/qml-smoke.sh' <<<"$out" || true)"
-  if [[ $status == 0 && $plan == "$wanted" ]]; then ok "$name"; else fail "$name: exit=$status plan=$plan"; sed 's/^/        /' "$tmp/smoke-moved.err"; fi
-done
+row "a reached row with a long median stays selected" "$d" 0 "" \
+  "$smoke_launcher" "validate: smoke-rows=some selected=11 total=14"
 # A fix round after a rebase: the lane validated its launcher change at
 # $lane, main then changed acme.notify, the lane rebased onto it and edits
 # launcher again. --changed $lane selects the lane's own paths only; a base

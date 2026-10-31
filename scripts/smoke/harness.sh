@@ -3642,7 +3642,7 @@ source "$repo/scripts/smoke/leaks.sh"
 # rows/updates.sh holds the controls. A row prints
 # `qml-smoke: row-secs row=NAME secs=<whole seconds> cpu_some_pct=<pct>
 # load1=<load>`, including harness steps. CPU pressure covers the row window;
-# load1 is the host 1-minute load at its end. The time refreshes rows.secs.
+# load1 is the host 1-minute load at its end.
 # The overseer uses pressure and load to compare faults and slot holds
 # (VGS-2062 design note § 6 item 4; docs/architecture/validation.md § Faults).
 smoke_row_drain_s=5

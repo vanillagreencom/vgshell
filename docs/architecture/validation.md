@@ -28,6 +28,7 @@ A broken environment that reads as a pass hides the regression the check exists 
 - Never put a product file on the input line of `scripts/smoke/harness.sh`; a change to it runs every row. Review holds it.
 - Never add a `repo` row for a check a path pattern can select; a `repo` row runs on every change. Review holds it.
 - Never leave a row out of a scoped run without a line that names it. `scripts/test-validate.sh` holds the lines a scoped run prints.
+- Never let a time figure remove a row the change reaches: neither a row's median nor a lane's run time removes it, and the batch run on main still runs every row once more. `scripts/test-validate.sh` holds a reached row with a long median staying selected.
 
 ### Plugin inputs
 
