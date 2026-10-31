@@ -4,7 +4,7 @@
 // brain inside the J09 world. Every request body is read at the server.
 "use strict";
 const { assert, fs, path, cp, tree, world, until: wait } = require("./fixtures/jarvis/audio.js");
-const { once } = require("node:events");
+const { EventEmitter, once } = require("node:events");
 const http = require("node:http");
 const net = require("node:net");
 const { clock, turn } = require("./fixtures/jarvis/playback.js");
@@ -40,6 +40,20 @@ function shipped(source, pattern, scope, what) {
 }
 
 function rig(kit, server, options = {}) {
+    const changes = new EventEmitter();
+    // Speech consumption and Session transitions acknowledge these waits.
+    // The parent world owns their hang bound, rather than a per-event clock.
+    const observed = async (check, message) => {
+        // Missing-event mutants must fail inside assert.rejects, so only an
+        // explicit control invocation uses the bounded absence detector.
+        if (options.mutation === true) return until(check, message);
+        while (!check()) await once(changes, "change");
+    };
+    Object.defineProperty(control.spoken, "push", { value(...sentences) {
+        const count = Array.prototype.push.apply(this, sentences);
+        changes.emit("change");
+        return count;
+    } });
     const backend = name => require(path.join(kit.folder, "backend", name));
     const Session = load(path.join(kit.folder, "Session.js"));
     const Protocol = load(path.join(kit.folder, "JarvisProtocol.js"));
@@ -90,6 +104,7 @@ function rig(kit, server, options = {}) {
         if (s.gate.kind === "down") void audio.teardown("gate", ["capture", "playback"]);
         if (s.turn.kind === "collecting" && s.turn.partial !== "" && partials.at(-1) !== s.turn.partial)
             partials.push(s.turn.partial);
+        changes.emit("change");
     });
     const daemonSource = fs.readFileSync(path.join(kit.folder, "backend/jarvisd.js"), "utf8");
     // A harness program's tool bridge takes the shipped daemon's result
@@ -191,7 +206,7 @@ function rig(kit, server, options = {}) {
     };
     return { Session, runnerNow: runnerClock.now, runner, router, audio, audioClock, engine, audit, faults, executions, held, partials, captions, rows, configure,
         state, workspace, server, advanceRunner, writes, timers, tasks, dictation, bridge: daemon?.bridge,
-        s: () => runner.state,
+        s: () => runner.state, observed,
         async close() {
             daemon?.bridge.close();
             daemon?.gate.close();
@@ -400,6 +415,37 @@ async function playOut(w, over = () => false) {
 const user = body => body.messages.filter(message => message.role === "user").map(message => message.content);
 const assistantCaptions = w => w.captions.filter(row => row[1] === "assistant");
 
+// Delay consumption at the adapter boundary, inside the unchanged observation
+// bound, so a finished brain request cannot stand in for synthesized speech.
+async function slowSpeech(check) {
+    const select = Fixture.row.select;
+    const pending = new Set();
+    Fixture.row.select = (...args) => {
+        const selected = select(...args);
+        if (selected.kind !== "ready") return selected;
+        return { ...selected, open(context) {
+            const adapter = selected.open(context);
+            return { ...adapter, speak(sentences, speaker) {
+                const delayed = { async *[Symbol.asyncIterator]() {
+                    for await (const sentence of sentences) {
+                        const delay = new Promise(resolve => setTimeout(resolve, 100));
+                        pending.add(delay);
+                        await delay;
+                        pending.delete(delay);
+                        yield sentence;
+                    }
+                } };
+                return adapter.speak(delayed, speaker);
+            } };
+        } };
+    };
+    try { await check(); } finally {
+        Fixture.row.select = select;
+        await Promise.all(pending);
+        await turn();
+    }
+}
+
 // The shipped daemon's stdout as ROWS. Its dictation requests are answered
 // as Service.qml answers them, with TEXT as the recording's words.
 function readDaemon(child, rows, send, text) {
@@ -448,7 +494,7 @@ async function daemonSpeech(server, edits = [], scenario = "ready", firstEnding 
         .trim().split("\n").filter(Boolean).map(JSON.parse) : [];
     const starts = () => logs().filter(row => row.start).map(row => row.start);
     const alive = pid => { try { process.kill(pid, 0); return true; } catch (error) { if (error.code === "ESRCH") return false; throw error; } };
-    const w = rig(kit, server, { directories: { state, data: root, runtime: root } });
+    const w = rig(kit, server, { directories: { state, data: root, runtime: root }, mutation: edits.length !== 0 });
     // The local row's words come from the core's recording.
     w.dictation.text = "Fixture request.";
     try {
@@ -468,9 +514,7 @@ async function daemonSpeech(server, edits = [], scenario = "ready", firstEnding 
             assert.equal(w.s().turn.kind, "collecting");
             const before = server.requests.length;
             w.advanceRunner(60000);
-            await settled(() => w.s().fault.kind === "error",
-                () => w.s().fault.kind === "none",
-                "existing loading deadline is visible");
+            await w.observed(() => w.s().fault.kind === "error", "existing loading deadline is visible");
             assert.equal(["speech=collect-timeout", "speech=local-ready-timeout"].includes(w.s().fault.reason), true);
             assert.equal(w.s().conversation.kind, "ended");
             assert.equal(w.s().capture.kind, "closed");
@@ -972,13 +1016,13 @@ async function alwaysTalk(server, ending = "ready", edits = []) {
     }
 }
 
-async function cases(kit, server, only = null) {
+async function cases(kit, server, only = null, mutation = false) {
     const Protocol = load(path.join(kit.folder, "JarvisProtocol.js"));
     const run = async (name, check, options) => {
         if (only !== null && only !== name) return;
         Fixture.reset(options?.fixture);
         server.replies.length = 0;
-        const w = rig(kit, server, options);
+        const w = rig(kit, server, { ...options, mutation });
         try { await check(w); } finally {
             await w.close();
             server.closeAll();
@@ -1012,7 +1056,7 @@ async function cases(kit, server, only = null) {
             assert.deepEqual(user(body), ["Try the backup."]);
             await until(() => w.s().turn.kind === "none", "backup answer finishes");
             await playOut(w);
-            await until(() => control.spoken.length >= 2, "failover line and backup answer are spoken");
+            await w.observed(() => control.spoken.length >= 2, "failover line and backup answer are spoken");
             const line = control.spoken.find(sentence => sentence.includes("not answering"));
             assert.equal(line, "llama-server primary-model is not answering, so I am continuing on Ollama backup-model. It has not heard what we said before.");
             assert.equal(primary.requests.length, 1, "primary was opened once");
@@ -1099,7 +1143,7 @@ async function cases(kit, server, only = null) {
             held.open();
             await until(() => w.s().turn.kind === "none", "tool failover line ends the turn");
             await playOut(w);
-            await until(() => control.spoken.length >= 1, "repeat line is spoken");
+            await w.observed(() => control.spoken.length >= 1, "repeat line is spoken");
             const line = control.spoken.find(sentence => sentence.includes("Please say"));
             assert.equal(line, "llama-server primary-model is not answering, so I am continuing on Ollama backup-model. It has not heard what we said before. Please say your request again.");
             assert.equal(server.requests.length, first, "request is not resent after a tool ran");
@@ -1170,7 +1214,7 @@ async function cases(kit, server, only = null) {
     await run("feedback-working", async w => {
         const first = await say(w, utterance("Are you there?"));
         await requested(w, first + 1, "the request starts after the user finishes");
-        await until(() => control.spoken.length !== 0, "the acknowledgement reaches speech");
+        await w.observed(() => control.spoken.length !== 0, "the acknowledgement reaches speech");
         assert.ok(control.spoken.includes("Let me check."), "the acknowledgement speaks before the working cue");
         await until(() => w.s().capture.kind === "closed", "capture closes before the acknowledgement playback drains");
         await playOut(w);
@@ -1234,6 +1278,7 @@ async function cases(kit, server, only = null) {
         const held = gate();
         server.replies.push(text('<tool_call>{"name": "windows_focus"}</tool_call> Calling `mcp__vgs-jarvis__windows_focus` now. ', { wait: held.wait }));
         await until(() => fs.readFileSync(silenced, "utf8").includes("Calling"), "the engine reads the silenced text");
+        await w.observed(() => control.spoken.includes("On it."), "the acknowledgement reaches speech");
         assert.ok([...w.timers.values()].some(timer => timer.at === w.runnerNow() + 1200), "silenced text leaves the working sound due");
         w.advanceRunner(1200);
         assert.deepEqual([w.s().playback.kind, w.s().playback.cue], ["feedback", "line"], "the acknowledgement line covers the wait");
@@ -1245,7 +1290,7 @@ async function cases(kit, server, only = null) {
     await run("feedback-disable-working", async w => {
         const first = await say(w, utterance("Hello."));
         await requested(w, first + 1, "the request starts");
-        await until(() => control.spoken.length !== 0, "the acknowledgement reaches speech");
+        await w.observed(() => control.spoken.length !== 0, "the acknowledgement reaches speech");
         await playOut(w);
         w.advanceRunner(1200);
         await until(() => w.s().playback.cue === "working" && w.audio.playback?.kind === "feeding", "the working cue starts");
@@ -1263,7 +1308,7 @@ async function cases(kit, server, only = null) {
     await run("feedback-delayed-flush", async w => {
         const first = await say(w, utterance("Hello."));
         await requested(w, first + 1, "the request starts");
-        await until(() => control.spoken.length !== 0, "the acknowledgement speaks");
+        await w.observed(() => control.spoken.length !== 0, "the acknowledgement speaks");
         await playOut(w);
         w.advanceRunner(1200);
         await until(() => w.s().playback.cue === "working" && w.audio.playback?.received === 2880, "the working cue enters Audio");
@@ -1276,6 +1321,7 @@ async function cases(kit, server, only = null) {
         const writes = w.writes.length;
         server.replies.push(text("Hello there."));
         await until(() => w.s().turn.kind === "none", "the brain finishes before flush acknowledgment");
+        await w.observed(() => control.spoken.includes("Hello there."), "the held reply reaches speech before playback");
         assert.deepEqual(control.spoken, ["On it.", "Hello there."]);
         assert.equal(w.writes.length, writes, "reply PCM waits for the old flush");
         assert.equal(w.s().playback.kind, "flushing");
@@ -1294,7 +1340,7 @@ async function cases(kit, server, only = null) {
     for (const purpose of ["action", "release"]) await run("feedback-voice-" + purpose, async w => {
         const first = await say(w, utterance("Do the fixture."));
         await requested(w, first + 1, "the quiet request starts");
-        await until(() => control.spoken.length !== 0, "the acknowledgement speaks");
+        await w.observed(() => control.spoken.length !== 0, "the acknowledgement speaks");
         await playOut(w);
         w.advanceRunner(1200);
         await until(() => w.s().playback.cue === "working" && w.audio.playback?.received === 2880, "working feedback enters Audio");
@@ -1302,7 +1348,7 @@ async function cases(kit, server, only = null) {
         server.replies.push(calls(purpose === "action"
             ? { id: "call_action", name: "shell_argv", arguments: { argv: ["true"], cwd: w.workspace, network: false } }
             : { id: "call_release", name: "clipboard_read", arguments: {} }));
-        await until(() => w.s().approval.kind === "held", "approval follows the working cue");
+        await w.observed(() => w.s().approval.kind === "held", "approval follows the working cue");
         const h = w.s().approval;
         assert.equal(h.purpose, purpose);
         assert.equal(h.physical, false);
@@ -1351,9 +1397,7 @@ async function cases(kit, server, only = null) {
         server.replies.push(text("<step>Reading the Fidelity pages</step>", { wait: firstHold.wait },
             "<step>Searching records</step>", { wait: secondHold.wait }, "The balance is ready."));
         await requested(w, first + 1, "the long request reaches the brain");
-        await settled(() => control.spoken.includes("Checking the Fidelity pages."),
-            () => w.s().turn.kind === "thinking" && w.s().playback.kind === "idle",
-            "the acknowledgement speaks");
+        await w.observed(() => control.spoken.includes("Checking the Fidelity pages."), "the acknowledgement speaks");
         assert.deepEqual([w.s().playback.kind, w.s().playback.cue], ["feedback", "line"],
             "a spoken line closes capture without changing the thinking phase first");
         assert.equal(w.s().turn.kind, "thinking");
@@ -1361,12 +1405,10 @@ async function cases(kit, server, only = null) {
         w.advanceRunner(3999);
         assert.equal(control.spoken.includes("Reading the Fidelity pages"), false, "a short request has no progress line");
         w.advanceRunner(1);
-        await settled(() => control.spoken.includes("Reading the Fidelity pages"),
-            () => w.s().turn.kind === "thinking" && w.s().playback.kind === "idle",
-            "the threshold speaks the latest step");
+        await w.observed(() => control.spoken.includes("Reading the Fidelity pages"), "the threshold speaks the latest step");
         await playOut(w);
         firstHold.open();
-        await until(() => control.spoken.includes("Searching records"), "a later step after the threshold speaks at once");
+        await w.observed(() => control.spoken.includes("Searching records"), "a later step after the threshold speaks at once");
         secondHold.open();
         await until(() => w.s().turn.kind === "none", "the long reply completes");
         await playOut(w);
@@ -1380,7 +1422,7 @@ async function cases(kit, server, only = null) {
         const first = await say(w, utterance("Check the short status."));
         server.replies.push(text({ wait: stepGate.wait }, "<step>Reading short status</step>", { wait: answerGate.wait }, "Done."));
         await requested(w, first + 1, "the short request reaches the brain");
-        await until(() => control.spoken.length !== 0, "the acknowledgement speaks");
+        await w.observed(() => control.spoken.length !== 0, "the acknowledgement speaks");
         await playOut(w);
         w.advanceRunner(1000);
         stepGate.open();
@@ -1400,13 +1442,13 @@ async function cases(kit, server, only = null) {
             { wait: stepB.wait }, "<step>Searching later status</step>",
             { wait: answer.wait }, "Done."));
         await requested(w, first + 1, "the repeated request reaches the brain");
-        await until(() => control.spoken.length !== 0, "the acknowledgement speaks");
+        await w.observed(() => control.spoken.length !== 0, "the acknowledgement speaks");
         await playOut(w);
         w.advanceRunner(1000);
         stepA.open();
         await turn();
         w.advanceRunner(3000);
-        await until(() => control.spoken.includes("Reading repeated status"), "the first progress line speaks");
+        await w.observed(() => control.spoken.includes("Reading repeated status"), "the first progress line speaks");
         await playOut(w);
         repeatA.open();
         await turn();
@@ -1414,7 +1456,7 @@ async function cases(kit, server, only = null) {
         assert.equal(control.spoken.filter(line => line === "Reading repeated status").length, 1,
             "a repeated stated step does not speak twice");
         stepB.open();
-        await until(() => control.spoken.includes("Searching later status"), "the changed step speaks once");
+        await w.observed(() => control.spoken.includes("Searching later status"), "the changed step speaks once");
         answer.open();
         await until(() => w.s().turn.kind === "none", "the repeated request completes");
         assert.equal(control.spoken.filter(line => line === "Reading repeated status").length, 1);
@@ -1430,10 +1472,10 @@ async function cases(kit, server, only = null) {
             "<step>Comparing stacked rows</step> <step>Counting stacked totals</step>",
             { wait: answer.wait }, "Done."));
         await requested(w, first + 1, "the stacked request reaches the brain");
-        await until(() => control.spoken.length !== 0, "the acknowledgement speaks");
+        await w.observed(() => control.spoken.length !== 0, "the acknowledgement speaks");
         await playOut(w);
         w.advanceRunner(4000);
-        await until(() => control.spoken.includes("Reading stacked status"), "the first progress line speaks");
+        await w.observed(() => control.spoken.includes("Reading stacked status"), "the first progress line speaks");
         steps.open();
         await turn();
         await turn();
@@ -1441,9 +1483,7 @@ async function cases(kit, server, only = null) {
         assert.equal(control.spoken.includes("Comparing stacked rows"), false, "a replaced step never waits");
         assert.equal(control.spoken.includes("Counting stacked totals"), false, "the newest step waits for the line");
         await playOut(w);
-        await settled(() => control.spoken.includes("Counting stacked totals"),
-            () => w.s().turn.kind === "thinking" && w.s().playback.kind === "idle",
-            "the one waiting line plays next");
+        await w.observed(() => control.spoken.includes("Counting stacked totals"), "the one waiting line plays next");
         answer.open();
         await until(() => w.s().turn.kind === "none", "the stacked request completes");
         await playOut(w);
@@ -1457,17 +1497,19 @@ async function cases(kit, server, only = null) {
         const first = await say(w, utterance("Read my clipboard."));
         server.replies.push([...text("<step>Reading the clipboard</step>").slice(0, 2),
             ...calls({ id: "call_1", name: "clipboard_read", arguments: {} }).slice(1)]);
-        await until(() => w.s().approval.kind === "held", "clipboard release is held");
+        await w.observed(() => w.s().approval.kind === "held", "clipboard release is held");
         const h = w.s().approval;
         w.runner.dispatch({ type: "shown", gen: h.gen, op: h.op, id: h.id });
         w.advanceRunner(4000);
         await turn();
         assert.equal(control.spoken.includes("Reading the clipboard"), false, "no line plays over a held approval");
+        await w.observed(() => w.s().playback.kind === "idle", "the held approval flushes the acknowledgement");
         w.runner.dispatch({ type: "confirm", gen: h.gen, id: h.id, digest: h.digest, source: "button" });
+        await w.observed(() => w.s().approval.kind === "none", "the clipboard hold releases");
         const held = gate();
         server.replies.push(text("<step>Comparing the clipboard</step>", { wait: held.wait }, "Done."));
         await requested(w, first + 2, "the granted result reaches the brain");
-        await until(() => control.spoken.includes("Comparing the clipboard"), "a later step speaks after the hold");
+        await w.observed(() => control.spoken.includes("Comparing the clipboard"), "a later step speaks after the hold");
         held.open();
         await until(() => w.s().turn.kind === "none", "the turn completes");
         assert.deepEqual(w.faults, []);
@@ -1478,7 +1520,7 @@ async function cases(kit, server, only = null) {
     await run("line-held-reply-interrupt", async w => {
         const first = await say(w, utterance("Hello."));
         await requested(w, first + 1, "the request starts");
-        await until(() => control.spoken.includes("On it."), "the acknowledgement speaks");
+        await w.observed(() => control.spoken.includes("On it."), "the acknowledgement speaks");
         await feeding(w, 2 * Fixture.WORD_FRAMES);
         await advance(w, 6);
         server.replies.push(text("Hello there."));
@@ -1498,7 +1540,7 @@ async function cases(kit, server, only = null) {
         const first = await say(w, utterance("Check sk-abcdefghijklmnopqrstu."));
         server.replies.push(text({ wait: held.wait }, "<step>Reading sk-abcdefghijklmnopqrstu</step>", "Done."));
         await requested(w, first + 1, "the secret request reaches the brain");
-        await until(() => control.spoken.length !== 0, "the acknowledgement speaks");
+        await w.observed(() => control.spoken.length !== 0, "the acknowledgement speaks");
         await playOut(w);
         w.advanceRunner(4000);
         held.open();
@@ -1511,7 +1553,7 @@ async function cases(kit, server, only = null) {
         const first = await say(w, utterance("Hello."));
         await requested(w, first + 1, "the first request starts");
         w.advanceRunner(1200);
-        await until(() => control.spoken.includes("On it."), "the acknowledgement line enters Audio");
+        await w.observed(() => control.spoken.includes("On it."), "the acknowledgement line enters Audio");
         control.utterances.push(utterance("Enough."));
         w.runner.dispatch({ type: "talk-down" });
         await until(() => w.s().capture.kind === "open", "interruption flushes cue playback before capture");
@@ -1635,7 +1677,7 @@ async function cases(kit, server, only = null) {
     await run("barge-in", async w => {
         const first = await say(w, utterance("What time is it?"));
         await requested(w, first + 1, "first request");
-        await until(() => control.spoken.length !== 0, "the acknowledgement speaks");
+        await w.observed(() => control.spoken.length !== 0, "the acknowledgement speaks");
         await playOut(w);
         server.replies.push(text("Hello there. ", "The time is noon."));
         await until(() => w.s().turn.kind === "none", "the reply completes before the interruption");
@@ -1666,7 +1708,7 @@ async function cases(kit, server, only = null) {
     await run("barge-in-streaming", async w => {
         const first = await say(w, utterance("Tell me a story."));
         await requested(w, first + 1, "first request");
-        await until(() => control.spoken.length !== 0, "the acknowledgement speaks");
+        await w.observed(() => control.spoken.length !== 0, "the acknowledgement speaks");
         await playOut(w);
         const held = gate();
         server.replies.push(text("First part. ", { wait: held.wait }, "Second part."));
@@ -1741,7 +1783,7 @@ async function cases(kit, server, only = null) {
     ]) await run("fleet-request-" + name, async w => {
         const first = await say(w, utterance("Ask my fleet to update the docs."));
         server.replies.push(calls({ id: "call_fleet", name: "fleet_request", arguments: { text: "Update the docs." } }), text(reply));
-        await until(() => w.s().approval.kind === "held", "the request for the Jarvis session waits for the user");
+        await w.observed(() => w.s().approval.kind === "held", "the request for the Jarvis session waits for the user");
         const h = w.s().approval;
         w.runner.dispatch({ type: "shown", gen: h.gen, op: h.op, id: h.id });
         w.advanceRunner(1000);
@@ -1770,7 +1812,7 @@ async function cases(kit, server, only = null) {
         try {
             program.send({ jsonrpc: "2.0", id: 1, method: "tools/call",
                 params: { name: "fleet_request", arguments: { text: "Update the docs." } } });
-            await until(() => w.s().approval.kind === "held", "the request for the Jarvis session waits for the user");
+            await w.observed(() => w.s().approval.kind === "held", "the request for the Jarvis session waits for the user");
             const h = w.s().approval;
             w.runner.dispatch({ type: "shown", gen: h.gen, op: h.op, id: h.id });
             w.advanceRunner(1000);
@@ -1972,7 +2014,7 @@ async function cases(kit, server, only = null) {
         const second = await say(w, utterance("Close it."));
         server.replies.push(calls({ id: "call_2", name: "windows_close", arguments: { window: "0x2a" } }));
         await requested(w, second + 1, "the second request");
-        await until(() => w.s().approval.kind === "held" || w.executions.length > 1, "the router judges the call");
+        await w.observed(() => w.s().approval.kind === "held" || w.executions.length > 1, "the router judges the call");
         assert.equal(w.s().approval.kind, "held", "earlier screen content still taints the conversation");
         assert.deepEqual(w.executions.map(call => call.id), ["vision.screen"]);
     });
@@ -2039,7 +2081,7 @@ async function cases(kit, server, only = null) {
     await run("long-speech", async w => {
         const first = await say(w, utterance("Read a long list."));
         await requested(w, first + 1, "first request");
-        await until(() => control.spoken.length !== 0, "the acknowledgement speaks");
+        await w.observed(() => control.spoken.length !== 0, "the acknowledgement speaks");
         await playOut(w);
         server.replies.push(text("One. ", "Two. ", "Three."));
         // The last sentence is released only at the reply's end and reaches
@@ -2100,9 +2142,7 @@ async function cases(kit, server, only = null) {
     await run("voice-preview", async w => {
         const before = w.server.requests.length;
         w.runner.dispatch({ type: "preview", voice: "fixture" });
-        await settled(() => control.spoken.length === 1,
-            () => w.s().turn.kind === "none" && w.s().playback.kind === "idle",
-            "the preview speaks");
+        await w.observed(() => control.spoken.length === 1, "the preview speaks");
         await playOut(w);
         assert.deepEqual([control.speakers, w.server.requests.length], [["fixture"], before], "the first voice, no brain request");
         const first = await say(w, utterance("Remember blue."));
@@ -2118,7 +2158,7 @@ async function cases(kit, server, only = null) {
         // The ended turn's acknowledgement is flushed first; a preview waits for a quiet speaker.
         await until(() => w.s().playback.kind === "idle", "the ended conversation's playback is flushed");
         w.runner.dispatch({ type: "preview", voice: "other" });
-        await until(() => control.spoken.filter(line => line === control.spoken[0]).length === 2, "the preview speaks again");
+        await w.observed(() => control.spoken.filter(line => line === control.spoken[0]).length === 2, "the preview speaks again");
         await playOut(w);
         assert.deepEqual([control.speakers.at(-1), control.spoken.at(-1)], ["other", control.spoken[0]], "the same sentence in the new voice");
     });
@@ -2128,7 +2168,7 @@ async function cases(kit, server, only = null) {
     await run("release-markers", async w => {
         const first = await say(w, utterance("Read my clipboard."));
         server.replies.push(calls({ id: "call_1", name: "clipboard_read", arguments: {} }), text(""));
-        await until(() => w.s().approval.kind === "held", "clipboard release is held before transfer");
+        await w.observed(() => w.s().approval.kind === "held", "clipboard release is held before transfer");
         assert.equal(server.requests.length, first + 1, "the recipient has no tool result before the decision");
         assert.equal(w.s().approval.purpose, "release");
         w.runner.dispatch({type: "approval-cancel", gen: w.s().gen, id: w.s().approval.id});
@@ -2166,11 +2206,13 @@ async function cases(kit, server, only = null) {
     for (const path of ["timer", "late"]) await run("progress-line-labels-" + path, async w => {
         const first = await say(w, utterance("Read my clipboard."));
         server.replies.push(calls({ id: "call_1", name: "clipboard_read", arguments: {} }));
-        await until(() => w.s().approval.kind === "held", "clipboard release is held before transfer");
+        await w.observed(() => w.s().approval.kind === "held", "clipboard release is held before transfer");
         const h = w.s().approval;
         w.runner.dispatch({ type: "shown", gen: h.gen, op: h.op, id: h.id });
         w.advanceRunner(1000);
+        await w.observed(() => w.s().playback.kind === "idle", "the held approval flushes the acknowledgement");
         w.runner.dispatch({ type: "confirm", gen: h.gen, id: h.id, digest: h.digest, source: "button" });
+        await w.observed(() => w.s().approval.kind === "none", "the clipboard hold releases before progress timing");
         const held = gate();
         if (path === "late") w.advanceRunner(3000);
         server.replies.push(text("<step>Reading the clipboard words</step>", { wait: held.wait }, "Done."));
@@ -2179,7 +2221,7 @@ async function cases(kit, server, only = null) {
             await turn();
             w.advanceRunner(3000);
         }
-        await until(() => control.spoken.includes("Reading the clipboard words"), "the step speaks");
+        await w.observed(() => control.spoken.includes("Reading the clipboard words"), "the step speaks");
         assert.ok(control.labels.has("clipboard"), "the line keeps the turn's clipboard label");
         held.open();
         await until(() => w.s().turn.kind === "none", "the turn completes");
@@ -2189,7 +2231,7 @@ async function cases(kit, server, only = null) {
     await run("release-grants", async w => {
         const first = await say(w, utterance("Read my clipboard."));
         server.replies.push(calls({id: "call_1", name: "clipboard_read", arguments: {}}), text(""));
-        await until(() => w.s().approval.kind === "held", "release question arrives");
+        await w.observed(() => w.s().approval.kind === "held", "release question arrives");
         const h = w.s().approval;
         w.runner.dispatch({type: "shown", gen: h.gen, op: h.op, id: h.id});
         w.advanceRunner(1000);
@@ -2205,7 +2247,7 @@ async function cases(kit, server, only = null) {
         w.runner.dispatch({type: "stop"});
         const third = await say(w, utterance("Read it in a new conversation."));
         server.replies.push(calls({id: "call_3", name: "clipboard_read", arguments: {}}), text(""));
-        await until(() => w.s().approval.kind === "held", "new conversation asks again");
+        await w.observed(() => w.s().approval.kind === "held", "new conversation asks again");
         assert.equal(server.requests.length, third + 1);
         w.runner.dispatch({type: "confirm", gen: h.gen, id: h.id, digest: h.digest, source: "key"});
         assert.equal(w.s().approval.kind, "held", "stale grant answer is refused");
@@ -2214,7 +2256,7 @@ async function cases(kit, server, only = null) {
     await run("voice-release", async w => {
         const first = await say(w, utterance("Read my clipboard."));
         server.replies.push(calls({id: "call_voice", name: "clipboard_read", arguments: {}}), text(""));
-        await until(() => w.s().approval.kind === "held", "the release question is held");
+        await w.observed(() => w.s().approval.kind === "held", "the release question is held");
         const h = w.s().approval;
         w.runner.dispatch({type: "shown", gen: h.gen, op: h.op, id: h.id});
         await until(() => w.s().playback.kind === "idle", "the acknowledgement line is flushed before voice confirmation");
@@ -2251,7 +2293,7 @@ async function cases(kit, server, only = null) {
         await until(() => w.s().capture.kind === "open", "indicator re-show opens thinking capture");
         const prior = w.s().capture.op;
         blocked.open();
-        await until(() => w.s().approval.kind === "held", "release arrives after the reopened capture");
+        await w.observed(() => w.s().approval.kind === "held", "release arrives after the reopened capture");
         const h = w.s().approval;
         w.runner.dispatch({ type: "shown", gen: h.gen, op: h.op, id: h.id });
         w.advanceRunner(1100);
@@ -2280,7 +2322,7 @@ async function cases(kit, server, only = null) {
             }
             const first = await say(w, utterance("Read my clipboard."));
             server.replies.push(calls({ id: "timing_voice", name: "clipboard_read", arguments: {} }), text(""));
-            await until(() => w.s().approval.kind === "held", "timing question is held");
+            await w.observed(() => w.s().approval.kind === "held", "timing question is held");
             const h = w.s().approval;
             if (order === "after-playback") {
                 w.runner.dispatch({ type: "shown", gen: h.gen, op: h.op, id: h.id });
@@ -2310,7 +2352,7 @@ async function cases(kit, server, only = null) {
     await run("release-refusal", async w => {
         const first = await say(w, utterance("Read my clipboard."));
         server.replies.push(calls({ id: "refusal_release", name: "clipboard_read", arguments: {} }), text(""));
-        await until(() => w.s().approval.kind === "held", "refusal question is held");
+        await w.observed(() => w.s().approval.kind === "held", "refusal question is held");
         const h = w.s().approval;
         w.runner.dispatch({ type: "confirm", gen: h.gen, id: h.id, digest: h.digest, source: "button" });
         assert.equal(w.s().approval.id, h.id, "early button keeps its hold");
@@ -2336,17 +2378,18 @@ async function cases(kit, server, only = null) {
         const recipients = control.opened[0].recipients;
         const result = labels => ({gen: w.s().gen, op: w.s().turn.op, results: [{item: Policy.item("private mixed content", labels)}]});
         const answer = w.engine.release.prepare(result(["clipboard", "file"]), recipients);
-        await until(() => w.s().approval.kind === "held", "mixed labels share a question");
+        await w.observed(() => w.s().approval.kind === "held", "mixed labels share a question");
         w.runner.dispatch({type: "approval-cancel", gen: w.s().gen, id: w.s().approval.id});
         assert.deepEqual(await answer, []);
         let repeated;
         const again = w.engine.release.prepare(result(["clipboard", "file"]), recipients).then(value => { repeated = value; });
-        await until(() => repeated !== undefined || w.s().approval.kind === "held", "the repeated label receives its prior decision");
+        if (mutation) await w.observed(() => repeated !== undefined || w.s().approval.kind === "held", "the repeated label receives its prior decision");
+        else await again;
         assert.deepEqual(repeated, []);
         await again;
         assert.equal(w.s().approval.kind, "none", "declined labels do not ask again");
         const changed = w.engine.release.prepare(result(["web"]), recipients);
-        await until(() => w.s().approval.kind === "held", "another label asks once");
+        await w.observed(() => w.s().approval.kind === "held", "another label asks once");
         w.configure({...w.s().settings, brain: "different-account"});
         assert.equal(await changed, null, "settings cancel the pending prompt and grant context");
         blocked.open();
@@ -2414,7 +2457,7 @@ async function cases(kit, server, only = null) {
     await run("backpressure", async w => {
         const first = await say(w, utterance("Read a long list."));
         await requested(w, first + 1, "first request");
-        await until(() => control.spoken.length !== 0, "the acknowledgement speaks");
+        await w.observed(() => control.spoken.length !== 0, "the acknowledgement speaks");
         await playOut(w);
         const sentences = Array.from({ length: 40 }, (_, index) => "Item number " + (index + 1) + ".");
         server.replies.push(text(...sentences.map(sentence => sentence + " ")));
@@ -2655,7 +2698,7 @@ async function cases(kit, server, only = null) {
         w.dictation.text = "Delete the fixture.";
         const first = await say(w, utterance("Delete the fixture."));
         server.replies.push(calls({ id: "call_delete", name: "files_delete", arguments: { path: target } }), text(""));
-        await until(() => w.s().approval.kind === "held", "the delete is held");
+        await w.observed(() => w.s().approval.kind === "held", "the delete is held");
         const h = w.s().approval;
         assert.equal(h.physical, true, "a destructive action holds for a physical confirmation");
         w.runner.dispatch({ type: "shown", gen: h.gen, op: h.op, id: h.id });
@@ -2692,7 +2735,7 @@ async function cases(kit, server, only = null) {
         const first = await say(w, utterance("Hello."));
         await requested(w, first + 1, "the opening turn reaches the brain");
         server.replies.push(text("Hi."));
-        await until(() => w.s().turn.kind === "none" && control.spoken.includes("Hi."), "the opening reply completes");
+        await w.observed(() => w.s().turn.kind === "none" && control.spoken.includes("Hi."), "the opening reply completes");
         const spokenBefore = control.spoken.length;
         await playOut(w, () => playbackOver(spokenBefore));
         return spokenBefore;
@@ -2839,7 +2882,7 @@ async function cases(kit, server, only = null) {
         const question = t.ask("t3", { kind: "question", tool: null, text: "Which branch should I use?" });
         const from = control.spoken.length;
         await t.observe();
-        await until(() => control.spoken.length > from && w.s().playback.kind === "playing", "the question starts to play");
+        await w.observed(() => control.spoken.length > from && w.s().playback.kind === "playing", "the question starts to play");
         const next = await say(w, utterance("What time is it?"));
         const body = await requested(w, next + 1, "the interrupting words reach the brain",
             () => t.Relay.answerTo(t.prompts, question) !== null || quietTurn(w));
@@ -2892,7 +2935,7 @@ async function cases(kit, server, only = null) {
         t.ask("t5", { kind: "question", tool: null, text: "Which branch should I use?" });
         const from = control.spoken.length;
         await t.observe();
-        await until(() => control.spoken.length > from && w.s().playback.kind === "playing", "the question starts to play");
+        await w.observed(() => control.spoken.length > from && w.s().playback.kind === "playing", "the question starts to play");
         w.runner.dispatch({ type: "stop" });
         await settled(() => w.s().conversation.kind === "ended" && t.notes.length > 0,
             () => w.s().conversation.kind === "ended" && w.s().playback.kind === "idle" && t.notes.length === 0,
@@ -2940,7 +2983,7 @@ async function cases(kit, server, only = null) {
                     || control.spoken.slice(spokenBefore).includes("Say allow or deny.")
                     || t.Relay.answerTo(t.prompts, permission) !== null || control.spoken.includes(SENT) || quietTurn(w));
             server.replies.push(text(reply));
-            await until(() => control.spoken.includes(reply), "the brain's reply is spoken");
+            await w.observed(() => control.spoken.includes(reply), "the brain's reply is spoken");
             return body;
         }
         await t.observe();
@@ -3016,7 +3059,7 @@ async function taskControls(root, server) {
             ["relay-retry-captures", "if (prompt !== null && answer === null && c.retried === c.relay) {",
                 "if (false) {", "task-permission-release"],
     ]) {
-        await assert.rejects(() => cases(Fixture.copy(root, [[needle, replacement]]), server, scenario), assert.AssertionError,
+        await assert.rejects(() => cases(Fixture.copy(root, [[needle, replacement]]), server, scenario, true), assert.AssertionError,
             name + " must turn its scenario red");
         console.log("control=" + name + " detected");
         controls++;
@@ -3041,7 +3084,7 @@ async function taskControls(root, server) {
         delete require.cache[file];
         delete require.cache[engineFile];
         kit.Engine = require(engineFile);
-        await assert.rejects(() => cases(kit, server, scenario), assert.AssertionError, name + " must turn its scenario red");
+        await assert.rejects(() => cases(kit, server, scenario, true), assert.AssertionError, name + " must turn its scenario red");
         console.log("control=" + name + " detected");
         controls++;
     }
@@ -3436,6 +3479,11 @@ async function groupSelection(root, server) {
         controls++;
     }
     await cases(Fixture.copy(root), server);
+    for (const scenario of ["feedback-silenced-text", "feedback-delayed-flush", "spoken-lines", "progress-one-waits",
+        "progress-after-refused-line", "progress-line-labels-timer", "progress-line-labels-late", "voice-preview"]) {
+        await slowSpeech(() => cases(Fixture.copy(root), server, scenario));
+        console.log("control=slow-speech scenario=" + scenario + " delay_ms=100 observed");
+    }
     for (const [name, needle, replacement] of [
         ["home-text-stale", "try { return c.plan.brain.guidance.withHome(folder); }", "try { return c.plan.brain.guidance; }"],
         ["home-text-cut", '            done("brain-failed", { reason: keyed(error) });\n            return false;\n', "            c.guidance = c.plan.brain.guidance;\n"]
@@ -3686,7 +3734,7 @@ async function groupPlants(root, server) {
         // The copy asserts its match outside the measured run.
         const kit = Fixture.copy(root, [[needle, replacement]]);
         let failure = null;
-        try { await cases(kit, server, scenario); }
+        try { await cases(kit, server, scenario, true); }
         catch (error) { failure = error; }
         assert.ok(failure instanceof assert.AssertionError, name + " must turn an assertion red: " + failure);
         console.log("control=" + name + " detected operator=" + failure.operator + ": " + failure.message.split("\n")[0]);
@@ -3700,7 +3748,7 @@ async function groupPlants(root, server) {
     const answeredNeedle = ",\n                        answered: (value, tool) => engine.brain.bridged(value, tool)";
     assert.equal(daemonSource.split(answeredNeedle).length, 2, "one bridge answer wiring control match");
     fs.writeFileSync(daemonFile, daemonSource.replace(answeredNeedle, ""));
-    await assert.rejects(() => cases(bridgeKit, server, "fleet-request-bridged"), error => {
+    await assert.rejects(() => cases(bridgeKit, server, "fleet-request-bridged", true), error => {
         assert.ok(error instanceof assert.AssertionError, "dropping the daemon's bridge answer port must fail the bridged fixed line: " + error);
         console.log("control=fleet-line-bridged-wiring detected by=" + JSON.stringify(error.message.split("\n").slice(0, 6).join(" ")));
         return true;
@@ -3719,7 +3767,7 @@ async function groupTasks(root, server) {
     assert.equal(deniedSource.split(stateNeedle).length, 2, "one state root protection match");
     fs.writeFileSync(deniedFile, deniedSource.replace(stateNeedle, 'path.join(data, "vgshell"),'));
     let deniedFailure = null;
-    try { await cases(deniedKit, server, "cloned-voice-reference-withheld"); }
+    try { await cases(deniedKit, server, "cloned-voice-reference-withheld", true); }
     catch (error) { deniedFailure = error; }
     assert.ok(deniedFailure instanceof assert.AssertionError, "state root control must turn an assertion red: " + deniedFailure);
     console.log("control=state root unprotected detected: " + deniedFailure.message.split("\n")[0]);
@@ -3731,7 +3779,7 @@ async function groupTasks(root, server) {
     const closeNeedle = '                closeCapture(s, effects);\n                start(s, effects, "held", e.at);';
     assert.equal(sessionSource.split(closeNeedle).length, 2, "one held-answer capture control match");
     fs.writeFileSync(sessionFile, sessionSource.replace(closeNeedle, '                start(s, effects, "held", e.at);'));
-    await assert.rejects(() => cases(toggleKit, server, "voice-toggle-reopened"), assert.AssertionError,
+    await assert.rejects(() => cases(toggleKit, server, "voice-toggle-reopened", true), assert.AssertionError,
         "retaining a prior Toggle capture must fail the fresh-answer assertion");
     console.log("control=voice-toggle-reopened detected");
     controls++;
@@ -3748,7 +3796,7 @@ async function groupTasks(root, server) {
         const source = fs.readFileSync(file, "utf8");
         assert.equal(source.split(needle).length - 1, 1, name + " mutation match");
         fs.writeFileSync(file, source.replace(needle, replacement));
-        await assert.rejects(() => cases(kit, server, scenario), assert.AssertionError,
+        await assert.rejects(() => cases(kit, server, scenario, true), assert.AssertionError,
             name + " must turn the playback assertion red");
         console.log("control=" + name + " detected");
         controls++;
@@ -3760,7 +3808,7 @@ async function groupTasks(root, server) {
     assert.equal(daemonSource.split(refusalNeedle).length, 2, "one release refusal wiring control match");
     fs.writeFileSync(daemonFile, daemonSource.replace(refusalNeedle,
         'e.purpose === "release" ? undefined : actionApproval.refused(e)'));
-    await assert.rejects(() => cases(refusalKit, server, "release-refusal"), assert.AssertionError,
+    await assert.rejects(() => cases(refusalKit, server, "release-refusal", true), assert.AssertionError,
         "dropping daemon release refusal delivery must fail its audit assertion");
     console.log("control=release-refusal-wiring detected");
     controls++;
@@ -3770,7 +3818,7 @@ async function groupTasks(root, server) {
     const auditNeedle = 'if (event.refusal !== undefined && (kind !== "release" || ![';
     assert.equal(auditSource.split(auditNeedle).length, 2, "one refusal category control match");
     fs.writeFileSync(auditFile, auditSource.replace(auditNeedle, 'if (false && (kind !== "release" || !['));
-    await assert.rejects(() => cases(auditKit, server, "release-refusal"), assert.AssertionError,
+    await assert.rejects(() => cases(auditKit, server, "release-refusal", true), assert.AssertionError,
         "copying arbitrary refusal text must fail its sanitization assertion");
     console.log("control=release-refusal-category detected");
     controls++;
