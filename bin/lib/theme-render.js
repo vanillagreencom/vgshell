@@ -860,17 +860,16 @@ function kittyColors(logic, tokens, input) {
     return colors;
 }
 
-// tmux keeps native palette fields and ordinary package roles client-relative.
-// The two preview-authoritative packages fix only their four status roles.
-// Default follows the client page/text; reverse uses that page as label text.
-function tmuxColors(logic, tokens, input) {
-    if (typeof input.name !== "string" || input.name === "")
-        throw new Error("theme-render: tmux rendered without the package identity");
+// tmux styles carry roles rather than server-side RGB values: default
+// follows the attached terminal's page/text, and reverse uses its page as
+// the text on a palette-slot fill. Hue selection excludes unreadable slots.
+// No role renders a hex value, for any package, so an ssh attach draws in
+// the client terminal's own palette.
+function tmuxColors(logic, input) {
     const background = logic.parseColor(input.values.palette.background);
     const colors = {
         "color.background": "default", "color.surfaceRaised": "default", "color.text": "default",
-        "color.textMuted": "colour8", "color.border": "colour8", "color.borderStrong": "colour8",
-        "bar.onActive": "default"
+        "color.textMuted": "colour8", "color.border": "colour8", "color.borderStrong": "colour8"
     };
     for (const [index, name] of logic.terminalSlotNames().entries()) colors["terminal." + name] = "colour" + index;
     const readable = color => color.a === 1 && logic.contrastRatio(color, background) >= logic.READABILITY_FLOOR;
@@ -906,21 +905,7 @@ function tmuxColors(logic, tokens, input) {
     }
     if (chosen === null) throw new Error("theme-render: tmux has no readable, distinct inactive colour");
     colors["color.textMuted"] = "colour" + chosen;
-    colors["tmux.session"] = colors["bar.active"];
-    colors["tmux.current_foreground"] = colors["color.info"];
     colors["tmux.inactive_foreground"] = colors["color.textMuted"];
-    colors["tmux.status_foreground"] = colors["color.textMuted"];
-    // These preview-authoritative status roles stay fixed over SSH. Moon uses
-    // the shared authored danger/info/success roles without changing its palette.
-    if (input.name === "vgs" || input.name === "rose-pine-moon") {
-        const moon = input.name === "rose-pine-moon";
-        const rgb = value => "#" + hex6(value, input.values.color.background);
-        colors["tmux.session"] = rgb(moon ? tokens.palette.danger.value : input.values.bar.active);
-        if (moon) colors["bar.onActive"] = rgb(tokens.palette.background.value);
-        colors["tmux.current_foreground"] = rgb(moon ? tokens.palette.info.value : input.values.color.info);
-        colors["tmux.inactive_foreground"] = rgb(moon ? tokens.palette.success.value : input.values.color.textMuted);
-        colors["tmux.status_foreground"] = rgb(input.values.color.textMuted);
-    }
     return colors;
 }
 
@@ -1009,7 +994,7 @@ function editorHighlightTemplate(logic, input, text) {
 
 // Render every file of an accepted TARGET. TEMPLATES maps each template name
 // the target names to its text. INPUT carries the package's resolved token
-// `values`, its existing package `name`, the terminal `slots` terminalSource chose, `curated`, a Map
+// `values`, the terminal `slots` terminalSource chose, `curated`, a Map
 // from destination to the bytes of the package's `targets/<destination>`,
 // `installed`, true for a package under the configuration home's
 // themes/ and false for a shipped one, and `terminalFont`, the user's
@@ -1036,7 +1021,7 @@ function renderTarget(logic, tokens, target, templates, input) {
     const selection = selectValues(logic, tokens, target, input);
     if (selection !== undefined && !selection.ok) return selection;
     if (target.name === "kitty") input = { ...input, targetColors: kittyColors(logic, tokens, input) };
-    if (target.name === "tmux") input = { ...input, targetColors: tmuxColors(logic, tokens, input) };
+    if (target.name === "tmux") input = { ...input, targetColors: tmuxColors(logic, input) };
     const encode = hex => ENCODERS[target.encoder](hex, input.values.color.background, logic, input);
     const rendered = new Map();
     const dropped = [];

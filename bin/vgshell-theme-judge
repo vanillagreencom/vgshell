@@ -457,7 +457,7 @@ function checkTargets(base, defaults) {
 // accepted `vgs` verdict with terminal slots, whatever a package curates.
 function renderDefault(judged, defaults) {
     return render.renderTarget(logic, tokens, judged.verdict.target, judged.templates,
-        { name: defaults.name, values: defaults.values, slots: defaults.terminal, curated: new Map(), installed: false });
+        { values: defaults.values, slots: defaults.terminal, curated: new Map(), installed: false });
 }
 
 // --- gum-default
@@ -1010,7 +1010,7 @@ function planTarget(dir, row, slots, font, disabled, configHome, live) {
     }, failed);
     if (!curated.ok) return curated.entry;
     const rendered = render.renderTarget(logic, tokens, target, judged.value.templates,
-        { name: row.name, values: row.values, slots, curated: curated.value.files, installed: row.source === "installed", terminalFont: font });
+        { values: row.values, slots, curated: curated.value.files, installed: row.source === "installed", terminalFont: font });
     if (!rendered.ok) return failed(rendered.reason, render.refusalLine(name, rendered));
     const selectionValues = rendered.selectionValues;
     if (target.select !== undefined && editors === undefined) {

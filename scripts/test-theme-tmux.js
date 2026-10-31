@@ -74,11 +74,12 @@ const template = fs.readFileSync(process.argv[2] ?? path.join(targetDir, "tmux.c
 
 const rendered = (text, theme = pkg) => {
     const result = render.renderTarget(logic, TOKENS, judged.target, new Map([["tmux.conf", text]]),
-        { name: theme.name, values: theme.values, slots: render.terminalSource(theme, theme).terminal, curated: new Map(), installed: false });
+        { values: theme.values, slots: render.terminalSource(theme, theme).terminal, curated: new Map(), installed: false });
     assert.equal(result.ok, true, result.ok ? "" : render.refusalLine("tmux", result));
     return result.files[0].bytes.toString("utf8");
 };
 const assertSlotColors = (output, label) => {
+    assert.doesNotMatch(output, /#[0-9a-fA-F]{6}/, `${label}: hex colour`);
     const color = value => {
         assert.match(value, /^(?:colour(?:1[0-5]|[0-9])|default)$/, `${label}: terminal colour ${value}`);
     };
@@ -88,10 +89,8 @@ const assertSlotColors = (output, label) => {
             continue;
         }
         const assignments = [...value.matchAll(/\b(?:fg|bg)=/g)].length;
-        const fixed = ["vgs", "rose-pine-moon"].includes(label) &&
-            ["status-left-style", "status-right-style", "window-status-style", "window-status-current-style"].includes(option);
-        const pattern = fixed ? /\b(?:fg|bg)=(colour(?:1[0-5]|[0-9])|default|#[0-9a-f]{6})\b/g : /\b(?:fg|bg)=(colour(?:1[0-5]|[0-9])|default)\b/g;
-        assert.equal([...value.matchAll(pattern)].length, assignments, `${label}/${option}: supported colour values`);
+        const pattern = /\b(?:fg|bg)=(colour(?:1[0-5]|[0-9])|default)\b/g;
+        assert.equal([...value.matchAll(pattern)].length, assignments, `${label}/${option}: terminal colour values`);
     }
     for (const [, value] of output.matchAll(/^set -gq (?:dark|light)-theme-[a-z-]+ "([^"]+)"$/gm)) color(value);
     for (const [, value] of output.matchAll(/^set -gq? (?:clock-mode-colour|display-panes-colour|display-panes-active-colour) "([^"]+)"$/gm)) color(value);
@@ -109,6 +108,9 @@ for (const name of ["catppuccin", "catppuccin-latte", "rose-pine-moon"]) {
     themes.set(name, theme);
     assertSlotColors(rendered(template, theme), name);
 }
+// Control: a hex value in the template, as VGS-2032 rendered, must fail the check.
+assert.throws(() => assertSlotColors(rendered(template.replace('"fg=@{color.textMuted}"', '"fg=#aaaaab"')), "control"),
+    { code: "ERR_ASSERTION" }, "a hex colour must fail the slot check");
 // Comment out LINE, retaining its text while disabling its behaviour.
 const disabled = line => {
     assert.equal(template.split(line + "\n").length, 2, line);
@@ -275,11 +277,12 @@ const stop = async () => {
         assert.ok(!control.includes("RGB"), control.join(","));
         console.log("test-theme-tmux: client-rgb=on control=off");
 
-        for (const [index, [name, rightStyle]] of [["vgs", "fg=#aaaaab"], ["rose-pine-moon", "fg=#b8b6cc"]].entries()) {
+        for (const [index, name] of ["vgs", "rose-pine-moon"].entries()) {
+            const rightStyle = /^set -g status-right-style "(fg=colour(?:1[0-5]|[0-9]))"$/m.exec(rendered(template, themes.get(name)))[1];
             const value = "#(continuum_save.sh) #{user}@#{host_short}";
             const row = { option: "status-right", value, expected: value, rightStyle, theme: themes.get(name) };
             assert.equal(contentValue(`m${index}1`, template, row), value + "\n");
-            const former = disabled('set -g status-right-style "fg=@{tmux.status_foreground}"') + "\nset -gqu status-right-style\n";
+            const former = disabled('set -g status-right-style "fg=@{color.textMuted}"') + "\nset -gqu status-right-style\n";
             assert.throws(() => contentValue(`m${index}0`, former, row), error => {
                 if (error.code !== "ERR_ASSERTION" || error.actual !== "default\n" || error.expected !== rightStyle + "\n") return false;
                 console.log("test-theme-tmux: muted-right-control " + JSON.stringify({ theme: name,
