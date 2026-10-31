@@ -361,6 +361,12 @@ var TOKENS = {
 
     text: TEXT,
 
+    screensaver: {
+        background: color("#000000"),
+        // Leave room for the regular stroke's sampled coverage on black.
+        foreground: color("contrastMix(contrast({screensaver.background}), alpha({color.text}, 1), {screensaver.background}, 5)")
+    },
+
     // The rhythm every one-line control follows: a button, a text field, a
     // select and a segmented control are `size.control.md` tall. A button
     // and a segment use `control.paddingX`; a field and select use their

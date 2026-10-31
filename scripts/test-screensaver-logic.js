@@ -33,7 +33,7 @@ function suite(ctx, check) {
   check("effects omit help", choices.some(c => c.value === "help"), false);
 
   const frame = "\u001b7\u001b[2A\u001b[38;2;255;0;0mR R\u001b[0m&\n<\u001b[48;2;0;0;255mB";
-  check("frame parser escapes text, preserves spaces and resets SGR", rowsOf(ctx, frame), ["<font color=\"#ff0000\">R\u00a0R</font>&amp;", "&lt;B"]);
+  check("frame parser escapes text, preserves spaces and resets SGR", rowsOf(ctx, frame), ["<font color=\"#ff0000\">R&nbsp;R</font>&amp;", "&lt;B"]);
   check("non-SGR CSI is ignored but trailing text stays", rowsOf(ctx, "\u001b[?25lA\u001b[2NB"), ["AB"]);
   check("run merging keeps one font tag for same colour", rowsOf(ctx, "\u001b[38;2;1;2;3mA\u001b[38;2;1;2;3mB"), ["<font color=\"#010203\">AB</font>"]);
   const first = ctx.parseFrame("\u001b[38;2;1;2;3m\nA");
@@ -45,7 +45,6 @@ function suite(ctx, check) {
   check("colour cache has a ceiling", ctx.parseFrame(many).cacheSize <= ctx.COLOR_CACHE_MAX, true);
   check("canvas size floors cells", ctx.canvasSize(2560, 1440, 15, 32), { columns: 170, rows: 45 });
   check("newest frame drops older rows", ctx.newestFrame(["old"], ["new"]), ["new"]);
-  check("background drops alpha for ttfx", ctx.backgroundHex("#ff102030"), "#102030");
   check("art problems keep the art in use", ctx.artResult("/old/art.txt", "/new/art.txt", "image"), { inUse: "/old/art.txt", problem: "image" });
   check("art success takes the next file", ctx.artResult("/old/art.txt", "/new/art.txt", ""), { inUse: "/new/art.txt", problem: "" });
   check("binary text art is refused", ctx.textArtProblem("JPEG\0bytes"), "type");
@@ -106,7 +105,7 @@ const controls = [
   ["SGR reset is handled", "if (code === 0 || code === 39) {\n            color = \"\";\n        }", "if (false) {\n            color = \"\";\n        }"],
   ["help is not an effect", "if (value === \"help\" || seen[value]) continue;", "if (seen[value]) continue;"],
   ["only newest frame is kept", "function newestFrame(previous, next) {\n    return next;\n}", "function newestFrame(previous, next) {\n    return (previous || []).concat(next);\n}"],
-  ["NBSP preserves spaces", "out += \"\\u00a0\";", "out += ch;"],
+  ["HTML spaces preserve columns", "out += \"&nbsp;\";", "out += ch;"],
   ["entity escaping handles ampersand", "out += \"&amp;\";", "out += ch;"],
   ["same raw row with changed carried colour reparses", "state.rawRows[i] === raw && state.colorsIn[i] === color", "state.rawRows[i] === raw"],
   ["same colour run is merged", "if (next !== KEEP_COLOR && next !== current) {", "if (next !== KEEP_COLOR) {"],
