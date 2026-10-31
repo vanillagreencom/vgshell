@@ -87,6 +87,40 @@ sleep 1.2
 type_keys -k Escape || fail "typing Escape to close the screensaver failed"
 expect_poll "cover is gone after keyboard input" 0 layer_count vgs:cover
 expect_poll "status says off" Off state_text
+
+# Both fixtures use a nonblack background, so even a dark theme catches
+# forwarding Theme.color.background to ttfx instead of the cover's black.
+ss_theme_file="$home/.config/vgshell/theme.json"
+ss_theme_before="$(ipc smoke themeName)"
+ss_theme_had_file=false
+if [[ -f $ss_theme_file ]]; then
+  cp -- "$ss_theme_file" "$sandbox/screensaver-theme-before.json"
+  ss_theme_had_file=true
+fi
+ss_background_arg() {
+  awk '{for (i = 1; i < NF; i++) if ($i == "--terminal-background-color") value = $(i + 1)} END {print value == "" ? "pending" : value}' "$ss_log"
+}
+for ss_theme_mode in dark light; do
+  case $ss_theme_mode in
+    dark) ss_theme_background='#102030'; ss_theme_ink='#d7d7d9' ;;
+    light) ss_theme_background='#fffdf0'; ss_theme_ink='#101010' ;;
+  esac
+  printf '{"schemaVersion":1,"name":"screensaver-%s","tokens":{"scheme":{"mode":"%s"},"palette":{"background":"%s","foreground":"%s"}}}\n' \
+    "$ss_theme_mode" "$ss_theme_mode" "$ss_theme_background" "$ss_theme_ink" >"$ss_theme_file.next"
+  mv -T -- "$ss_theme_file.next" "$ss_theme_file"
+  expect_poll "the $ss_theme_mode screensaver theme fixture is published" "screensaver-$ss_theme_mode" ipc smoke themeName
+  : >"$ss_log"
+  expect "screensaver starts under the $ss_theme_mode theme" ok ipc vgs.screensaver invoke start ''
+  expect_poll "the $ss_theme_mode theme passes black to ttfx" '#000000' ss_background_arg
+  expect "screensaver stops after the $ss_theme_mode background check" ok ipc vgs.screensaver invoke stop ''
+  expect_poll "the $ss_theme_mode background check releases its cover" 0 cover_count
+done
+if "$ss_theme_had_file"; then
+  mv -T -- "$sandbox/screensaver-theme-before.json" "$ss_theme_file"
+else
+  rm -- "$ss_theme_file"
+fi
+expect_poll "the screensaver background checks restore the theme" "$ss_theme_before" ipc smoke themeName
 screensaver_output=SMOKE-SCREENSAVER
 base_outputs="$(output_count)"
 # A headless output can stay unsized on NVIDIA; the harness sink gives

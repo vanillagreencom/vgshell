@@ -80,6 +80,7 @@ Singleton {
     readonly property var icon: published.icon
     readonly property var font: published.font
     readonly property var text: published.text
+    readonly property var screensaver: published.screensaver
     readonly property var control: published.control
     readonly property var row: published.row
     readonly property var inset: published.inset

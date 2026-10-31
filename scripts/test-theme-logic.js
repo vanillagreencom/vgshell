@@ -684,7 +684,7 @@ const READABILITY_ROLES = ["color.text", "color.textHeading", "color.textMuted",
 const READABILITY_SURFACES = ["color.background", "color.surface", "color.surfaceRaised", "color.surfaceSunken"];
 const BOUNDARY_ROLES = ["checkbox.borderColor", "radio.borderColor", "textField.borderColor", "toggle.off", "checkbox.checked", "radio.checked", "toggle.on"];
 const READABILITY_PAIRS = [["segmented.foreground", "segmented.background"], ["segmented.selectedForeground", "segmented.selected"], ["listItem.selectedForeground", "listItem.selected"],
-    ...["neutral", "accent", "success", "warning", "danger", "info"].map(tone => [`badge.tone.${tone}.foreground`, `badge.tone.${tone}.background`])];
+    ...["neutral", "accent", "success", "warning", "danger", "info"].map(tone => [`badge.tone.${tone}.foreground`, `badge.tone.${tone}.background`]), ["screensaver.foreground", "screensaver.background"]];
 const BOUNDARY_PAIRS = [["toggle.knobOff", "toggle.off"], ["toggle.knobOn", "toggle.on"], ["checkbox.mark", "checkbox.checked"], ["segmented.indicatorColor", "segmented.selected"], ["segmented.indicatorColor", "segmented.background"]];
 const truncateRatio = value => Math.floor(value * 100) / 100;
 const plain = value => JSON.parse(JSON.stringify(value));
@@ -734,7 +734,25 @@ function verifyReadabilityNotice(judge) {
     assert.ok(!/color\.|badge\.|segmented\.|carousel\.|vgshell/.test(crowded), "no internal key or command reaches the notice");
 }
 
+function verifyScreensaver(judge) {
+    for (const text of ["#d7d7d9", "#100f0f", "#ffffff33"]) {
+        const result = judge.accept(TOKENS, document({ color: { text } }));
+        assert.equal(result.ok, true, text);
+        assert.equal(result.values.screensaver.background, "#000000ff");
+        assert.deepEqual(plain(readability(judge, result.values).filter(row => row.text === "screensaver.foreground")), [], text);
+    }
+    for (const background of ["#101010", "#00000080"]) {
+        const result = judge.accept(TOKENS, document({ screensaver: { background } }));
+        assert.equal(result.ok, false, background);
+        assert.equal(result.token, "screensaver.background");
+        assert.equal(result.reason, "fixed-background");
+    }
+    const unreadable = judge.accept(TOKENS, document({ screensaver: { foreground: "#000000" } }));
+    assert.equal(readability(judge, unreadable.values).some(row => row.text === "screensaver.foreground" && row.surface === "screensaver.background"), true);
+}
+
 function verify(judge) {
+    verifyScreensaver(judge);
     const interior = judge.contrastMix(judge.parseColor("#ff0000"), judge.parseColor("#00ff00"), judge.parseColor("#ffffff"), 4.1);
     assert.notEqual(interior, null, "opposing channels can meet the floor when both endpoints fail");
     assert.ok(judge.contrastRatio(interior, judge.parseColor("#ffffff")) >= 4.1);
@@ -1898,6 +1916,7 @@ function launcherDetailShortfalls(judge, launcher) {
 // Each control removes one rule's behaviour from a copy of the judge and
 // keeps the text around it. The suite must fail on every copy.
 const CONTROLS = [
+    ["screensaver fixed canvas", 'leaf.type === "color" && token === "screensaver.background" && (value.r !== 0 || value.g !== 0 || value.b !== 0 || value.a !== 1)', "false", verifyScreensaver],
     ["notice states the minimum", ' + ", needs " + shortfall.floor + ":1."', ' + "."'],
     ["notice names the main background", '"color.background": "the main background"', '"color.background": "desktop"'],
     ["notice names panel backgrounds", '"color.surface": "panel backgrounds"', '"color.surface": "panels"'],
@@ -2114,13 +2133,13 @@ const CONTROLS = [
 const source = fs.readFileSync(judgeFile, "utf8");
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "theme-logic-control-"));
 try {
-    for (const [label, needle, replacement] of CONTROLS) {
+    for (const [label, needle, replacement, selectedVerify = verify] of CONTROLS) {
         assert.equal(source.split(needle).length, 2, `control "${label}": the text to replace must occur once`);
         const mutant = path.join(temp, "ThemeLogic.js");
         fs.writeFileSync(mutant, source.replace(needle, () => replacement));
         let failed = false;
         try {
-            verify(load(mutant));
+            selectedVerify(load(mutant));
         } catch (e) {
             failed = true;
         }

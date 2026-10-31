@@ -312,7 +312,8 @@ function readabilityWeights(values) {
         "carousel.hintActive": ["text.itemHint.weight", "text.h3.weight", "text.display.weight", "text.bodyStrong.weight"],
         "carousel.hintDanger": ["text.body.weight"],
         "tooltip.foreground": ["text.tooltip.weight"],
-        "tooltip.detail": ["text.itemHint.weight"]
+        "tooltip.detail": ["text.itemHint.weight"],
+        "screensaver.foreground": ["text.body.weight"]
     };
 }
 
@@ -334,7 +335,8 @@ var READABILITY_PAIRS = [
     ["badge.tone.success.foreground", "badge.tone.success.background"],
     ["badge.tone.warning.foreground", "badge.tone.warning.background"],
     ["badge.tone.danger.foreground", "badge.tone.danger.background"],
-    ["badge.tone.info.foreground", "badge.tone.info.background"]
+    ["badge.tone.info.foreground", "badge.tone.info.background"],
+    ["screensaver.foreground", "screensaver.background"]
 ];
 // An input that shows its state by its outline or indicator must meet WCAG
 // 2.2 SC 1.4.11 non-text contrast, 3:1: each boundary and selected
@@ -408,7 +410,8 @@ var READABILITY_NAMES = {
     "carousel.tabIndicator": "Theme browser tab mark", "carousel.hintDanger": "Theme browser errors",
     "carousel.failurePlate": "the theme browser message background", "tooltip.foreground": "Tooltip text",
     "tooltip.detail": "Tooltip details", "tooltip.background": "tooltip backgrounds",
-    "glass.fill solid": "glass panel backgrounds", "#000000": "black wallpaper"
+    "glass.fill solid": "glass panel backgrounds", "#000000": "black wallpaper",
+    "screensaver.foreground": "Screensaver text", "screensaver.background": "the screensaver background"
 };
 var READABILITY_BADGE_NAMES = { neutral: "Neutral", accent: "Accent", success: "Success", warning: "Warning", danger: "Error", info: "Information" };
 
@@ -780,6 +783,9 @@ function resolve(tokens, overrides) {
     // The portable value of an evaluated token, checked against its type's
     // range or options, or undefined after fail().
     function settle(leaf, value, token) {
+        // The cover and the text effect must share an opaque black canvas.
+        if (leaf.type === "color" && token === "screensaver.background" && (value.r !== 0 || value.g !== 0 || value.b !== 0 || value.a !== 1))
+            return fail("fixed-background", token, "want=opaque-black");
         if (leaf.type === "color")
             return formatColor(value);
         if (leaf.type === "flag")

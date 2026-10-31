@@ -27,7 +27,7 @@ Item {
     readonly property int cellWidth: Math.max(1, Math.ceil(cellSize.width))
     readonly property int cellHeight: Math.max(1, Math.ceil(fontMetrics.height))
     readonly property var canvas: Logic.canvasSize(width, height, cellWidth, cellHeight)
-    readonly property string background: Logic.backgroundHex(Theme.color.background)
+    readonly property color background: Theme.screensaver.background
 
     focus: shown
     Keys.onPressed: event => {
@@ -193,7 +193,7 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        color: Theme.color.background
+        color: root.background
     }
 
     Column {
@@ -205,9 +205,10 @@ Item {
             Text {
                 textFormat: Text.StyledText
                 text: ""
-                color: Theme.color.text
+                color: Theme.screensaver.foreground
                 font.family: Theme.font.family.mono
                 font.pixelSize: Theme.text.display.size
+                font.weight: Theme.text.body.weight
                 lineHeightMode: Text.FixedHeight
                 lineHeight: root.cellHeight
             }

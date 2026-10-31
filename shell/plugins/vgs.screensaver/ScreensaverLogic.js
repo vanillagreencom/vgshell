@@ -39,7 +39,8 @@ function appendText(pieces, text) {
         } else if (ch === ">") {
             out += "&gt;";
         } else if (ch === " ") {
-            out += "\u00a0";
+            // StyledText collapses literal NBSP runs; entities retain cells.
+            out += "&nbsp;";
         } else {
             out += ch;
         }
@@ -208,13 +209,6 @@ function canvasSize(width, height, cellWidth, cellHeight) {
     };
 }
 
-function backgroundHex(qtColor) {
-    const text = String(qtColor);
-    if (/^#[0-9a-fA-F]{8}$/.test(text)) return "#" + text.slice(3);
-    if (/^#[0-9a-fA-F]{6}$/.test(text)) return text;
-    return "#" + "000000";
-}
-
 function fileUrlPath(url) {
     const text = String(url);
     if (text.indexOf("file://") !== 0) return text;
@@ -259,6 +253,8 @@ function ttfxReady(missing) {
 }
 
 function command(artPath, effect, frameRate, columns, rows, background) {
+    // The opaque QML canvas color stringifies to ttfx's RGB form;
+    // tst_screensaver.qml runs that color-to-command conversion.
     const args = ["ttfx", "-i", artPath].concat([
         "--frame-rate", String(frameRate),
         "--canvas-width", String(columns),
@@ -269,7 +265,7 @@ function command(artPath, effect, frameRate, columns, rows, background) {
         "--anchor-text", "c",
         "--no-eol",
         "--no-restore-cursor",
-        "--terminal-background-color", background
+        "--terminal-background-color", String(background)
     ]);
     if (effect === "random" || effect === "") args.push("--random-effect");
     else args.push(effect);
