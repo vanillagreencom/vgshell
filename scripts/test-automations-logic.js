@@ -368,11 +368,52 @@ function verify(logic) {
     same(logic.snippetOf(["one", "", "two", "three", "four", "five", "six  "], ["out"]), "two\nthree\nfour\nfive\nsix", "the last five stderr lines");
     same(logic.snippetOf([], ["", "only stdout"]), "only stdout", "stdout when stderr is empty");
     same(logic.snippetOf(["x".repeat(500)], []).length, 400, "a snippet is capped");
-    same(logic.snippetOf(["a\u001b[31mb"], []), "a[31mb", "control characters go");
+    // A snippet line as plain text: [label, line, plain].
+    for (const [label, line, plain] of [
+        ["colour, whole", "\u001b[1;31merror:\u001b[0m disk full", "error: disk full"],
+        ["colour in the 8-bit form", "\u009b31mred\u009b0m", "red"],
+        ["a CSI sequence with intermediates", "a\u001b[2 qb", "ab"],
+        ["a hyperlink keeps its text", "see \u001b]8;;https://x.test/a\u001b\\docs\u001b]8;;\u001b\\ now", "see docs now"],
+        ["a title ended by BEL", "\u001b]0;make\u0007done", "done"],
+        ["an OSC string to the line's end", "ok\u001b]0;never ended", "ok"],
+        ["tput sgr0", "bold\u001b(B\u001b[m", "bold"],
+        ["a lone ESC", "a\u001b", "a"],
+        ["other control characters, a tab kept", "a\u0007b\tc\u007f\u0085d", "ab\tcd"]
+    ]) same(logic.snippetOf([line], []), plain, "a snippet line as plain text: " + label);
 
     // Notifications: an error always; a start and a success only when asked.
     const failed = Object.assign(ended("backup", "1767225600000-1", 1000, "failed"), { exitCode: 3, snippet: "disk <full> & gone", transcript: "/r/t.log" });
-    same(logic.notificationFor("end", automation({}), failed, null), { summary: "Back up failed", body: "The automation failed. Open Automations to read its output.", urgency: "critical", icon: "circle-x", tone: "danger", click: "open", open: "/r/t.log" });
+    same(logic.notificationFor("end", automation({}), failed, null), { summary: "Back up failed", body: "disk <full> & gone", urgency: "critical", icon: "circle-x", tone: "danger", click: "open", open: "/r/t.log" });
+    // A failed run's body: [label, stderr lines, stdout lines, body], the
+    // snippet built as the engine builds it. The last non-blank line the run
+    // wrote to stderr, else to stdout, as plain text, cut at 120 characters
+    // with an ellipsis; the generic sentence only when the run printed
+    // nothing.
+    const GENERIC = "The automation failed. Open Automations to read its output.";
+    const REFUSAL = "refused: local edits on paths the update changes: docs/hosts/px13.md";
+    for (const [label, stderr, stdout, want] of [
+        ["stderr over stdout", [REFUSAL], ["Fetching origin"], REFUSAL],
+        ["stderr over a later stdout summary", ["From https://x.test/r", "   1a2b..3c4d  main -> origin/main"], ["=== 1 failed ==="], "1a2b..3c4d  main -> origin/main"],
+        ["stdout when stderr is empty", [], ["Fetching origin", REFUSAL], REFUSAL],
+        ["stdout when stderr is blank", ["", "  "], ["error: no route to host"], "error: no route to host"],
+        ["trailing blank lines", ["error: no route to host", "", "   "], [], "error: no route to host"],
+        ["no output", [], [], GENERIC],
+        ["only blank lines", ["", " "], [" "], GENERIC],
+        ["a line at the bound", ["y".repeat(120)], [], "y".repeat(120)],
+        ["a long line", ["x".repeat(130)], [], "x".repeat(119) + "\u2026"],
+        ["a long line cut after a space", ["x".repeat(118) + " yz"], [], "x".repeat(118) + "\u2026"],
+        ["a long line cut inside a surrogate pair", ["a".repeat(118) + "\u{1f600}z"], [], "a".repeat(118) + "\u2026"],
+        ["forced colour", ["\u001b[1;31merror:\u001b[0m disk full"], [], "error: disk full"],
+        ["control characters", ["a\u0007b\tc\u001b[0m\u009b0md\r"], [], "ab cd"]
+    ]) {
+        const snippet = logic.snippetOf(stderr, stdout);
+        same(logic.notificationFor("end", automation({}), Object.assign({}, failed, { snippet: snippet }), null).body, want, "failure line: " + label);
+        same(logic.notificationFor("end", automation({}), Object.assign({}, failed, { snippet: snippet }), { notice: null, failures: 1, since: failed.startedAt }).body.split("\n").slice(1), [want], "failure line under a streak: " + label);
+    }
+    // A record holds a snippet the judge accepts as any string; its last
+    // non-blank line still reaches the notice as plain text.
+    same(logic.notificationFor("end", automation({}), Object.assign({}, failed, { snippet: "\u001b[31mred\u001b[0m\u0007\tline\n\n \n" }), null).body, "red line", "a record's snippet line reads as plain text");
+    same(logic.notificationFor("end", automation({}), Object.assign({}, failed, { signal: "SIGTERM", exitCode: null, snippet: "Terminated" }), null).body, "The automation was stopped. Open Automations to read its output.", "a stopped run names the signal, not its output");
     same(logic.notificationFor("end", automation({}), Object.assign({}, failed, { outcome: "timeout", durationMs: 61000, snippet: "" }), null).body, "Timed out after 1m 1s");
     same(logic.notificationFor("end", automation({}), Object.assign({}, failed, { outcome: "failed-start", reason: "directory=ENOENT path=/x", snippet: "" }), null).body, "The work folder is unavailable. Choose another folder in Automations.");
     same(logic.notificationFor("end", automation({}), Object.assign({}, failed, { signal: "SIGKILL", exitCode: null, snippet: "" }), null).body, "The automation was stopped. Open Automations to read its output.");
@@ -388,7 +429,8 @@ function verify(logic) {
     same(logic.notifySendArgs(logic.notificationFor("end", automation({}), failed, null), 17), [
         "--app-name=Automations", "--urgency=critical", "--print-id",
         "--hint=string:x-vgs-avatar:calendar-clock", "--hint=string:x-vgs-icon:circle-x", "--hint=string:x-vgs-tone:danger", "--hint=string:x-vgs-click:open",
-        "--hint=string:x-vgs-open:/r/t.log", "--replace-id=17", "--", "Back up failed", "The automation failed. Open Automations to read its output."]);
+        "--hint=string:x-vgs-open:/r/t.log", "--replace-id=17", "--", "Back up failed", "disk &lt;full&gt; &amp; gone"]);
+    same(logic.notifySendArgs(logic.notificationFor("end", automation({}), Object.assign({}, failed, { snippet: "<b>bold</b> &amp; [Setup](page:vgs.automations)" }), null), null).slice(-1), ["&lt;b&gt;bold&lt;/b&gt; &amp;amp; [Setup](page:vgs.automations)"], "an output line reaches the server as plain text");
     same(logic.notifySendArgs({ summary: "-s", body: "--b", urgency: "low", icon: "play", tone: "warning", click: "none", open: "" }, null).slice(-3), ["--", "-s", "--b"], "the text follows --");
 
     // A failure streak: one critical notice, each later failure replaces it
@@ -796,7 +838,23 @@ const CONTROLS = [
     ["a start notifies only when asked", "if (automation.notifyEveryRun !== true) return null;\n        return { summary: automation.name + \" started\"", "return { summary: automation.name + \" started\""],
     ["a success notifies only when asked", "if (automation.notifyEveryRun !== true) return null;\n        return { summary: automation.name + \" finished\"", "return { summary: automation.name + \" finished\""],
     ["an error is red with circle-x", "urgency: \"critical\", icon: \"circle-x\", tone: \"danger\"", "urgency: \"critical\", icon: \"circle-check\", tone: \"success\""],
-    ["the text follows --", "return args.concat([\"--\", n.summary, n.body]);", "return args.concat([n.summary, n.body]);"],
+    ["the text follows --", "return args.concat([\"--\", n.summary, n.body", "return args.concat([n.summary, n.body"],
+    ["the body reaches the server as plain text", "n.body.replace(/&/g, \"&amp;\").replace(/</g, \"&lt;\").replace(/>/g, \"&gt;\")", "n.body"],
+    ["a failure says its own last output line", "var line = lastOutputLine(rec.snippet);", "var line = \"\";"],
+    ["a stopped run keeps its sentence", "if (rec.signal !== null) return \"The automation was stopped.", "if (false) return \"The automation was stopped."],
+    ["the output line is the last one", "for (var i = lines.length - 1; i >= 0; i--) {", "for (var i = 0; i < lines.length; i++) {"],
+    ["blank output lines are skipped", "if (line === \"\") continue;", ""],
+    ["a tab in the output line reads as a space", "var line = plainOutput(lines[i]).replace(/\\t/g, \" \")", "var line = plainOutput(lines[i])"],
+    ["a record's output line reads as plain text", "var line = plainOutput(lines[i]).replace(/\\t/g, \" \").trim();", "var line = lines[i].replace(/\\t/g, \" \").trim();"],
+    ["a snippet line reads as plain text", "var line = plainOutput(lines[i]).replace(/\\s+$/, \"\");", "var line = lines[i].replace(/\\s+$/, \"\");"],
+    ["escape sequences leave whole", "return String(line).replace(TERMINAL_ESCAPE, \"\")", "return String(line)"],
+    ["an OSC string runs to its end", "(?:\\u001b\\]|\\u009d)[^\\u0007\\u001b\\u009c]*(?:\\u0007|\\u001b\\\\|\\u009c|$)|", ""],
+    ["a CSI sequence runs to its final byte", "|(?:\\u001b\\[|\\u009b)[0-?]*[ -\\/]*[@-~]|", "|"],
+    ["the 8-bit CSI introducer counts", "(?:\\u001b\\[|\\u009b)", "(?:\\u001b\\[)"],
+    ["other control characters leave, a tab stays", ".replace(/[\\u0000-\\u0008\\u000a-\\u001f\\u007f-\\u009f]/g, \"\");", ".replace(/[\\u0000-\\u001f\\u007f-\\u009f]/g, \"\");"],
+    ["a long output line ends in an ellipsis", "if (line.length <= FAILURE_LINE_MAX) return line;", "return line;"],
+    ["the ellipsis keeps a surrogate pair whole", "if (/[\\ud800-\\udbff]/.test(line.charAt(cut - 1))) cut--;", ""],
+    ["the ellipsis follows the last word", "cut).replace(/\\s+$/, \"\") + ", "cut) + "],
     ["a repeated failure counts since the first", "var body = streak === null ? failureLine(rec) :", "var body = true ? failureLine(rec) :"],
     ["the first success after a failure recovers", "if (streak !== null)\n            return { summary: automation.name + \" recovered\"", "if (false)\n            return { summary: automation.name + \" recovered\""],
     ["a streak keeps its first failure's time", "since: streak === null ? rec.startedAt : streak.since", "since: rec.startedAt"],

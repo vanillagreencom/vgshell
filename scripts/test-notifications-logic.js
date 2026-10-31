@@ -779,6 +779,10 @@ function verify(logic) {
         assert.equal(logic.clickRoute("open", made), route, "click: " + label);
         assert.equal(logic.clickRoute("action:reply", made), "default", "a pill ignores the click hints: " + label);
         assert.equal(logic.clickRoute("dismiss", made), "default", "dismiss ignores the click hints: " + label);
+        // Every card whose x-vgs-open the judge accepts offers Open log,
+        // which opens that file whatever its click hint.
+        same(logic.actionsFor([], false, made.hintOpen).map(a => a.id), roles.hintOpen !== "" ? ["open-file", "dismiss"] : ["dismiss"], "Open log follows the accepted file: " + label);
+        assert.equal(logic.clickRoute("open-file", made), roles.hintOpen !== "" ? "open" : "default", "Open log opens the accepted file: " + label);
         same(logic.parseState(stateText({ history: [logic.persistable(made, IMAGES).entry] })).ok, true, "a stored hinted entry reads back: " + label);
     }
     same(logic.readHints({ "x-vgs-page": AT_BOUND }), { roles: Object.assign({}, NO_HINTS, { hintPage: AT_BOUND }), refused: [] }, "a page reference at the bound is kept");
@@ -1012,11 +1016,23 @@ function verify(logic) {
     assert.equal(logic.evictionKey([{ key: "new", urgency: U.critical }, { key: "old", urgency: U.critical }]), "old");
     assert.equal(logic.evictionKey([]), "");
 
-    // Actions: the sender's own, Show when it has none and a window is open,
-    // and Dismiss.
-    same(logic.actionsFor([{ identifier: "default", text: "" }, { identifier: "reply", text: "Reply" }, { identifier: "", text: "x" }], true), [{ id: "action:default", label: "Open" }, { id: "action:reply", label: "Reply" }, { id: "dismiss", label: "Dismiss" }]);
-    same(logic.actionsFor([], true), [{ id: "open", label: "Show" }, { id: "dismiss", label: "Dismiss" }]);
-    same(logic.actionsFor([], false), [{ id: "dismiss", label: "Dismiss" }]);
+    // Actions: [label, the sender's actions, a sender window open, the
+    // card's hintOpen, the list]. The sender's own, Open log for a hinted
+    // file, Show when the card offers neither and a window is open, and
+    // Dismiss.
+    const OPEN = { id: "action:default", label: "Open" };
+    const LOG = { id: "open-file", label: "Open log" };
+    const SHOW = { id: "open", label: "Show" };
+    const DISMISS = { id: "dismiss", label: "Dismiss" };
+    for (const [label, actions, canRaise, hintOpen, want] of [
+        ["the sender's own", [{ identifier: "default", text: "" }, { identifier: "reply", text: "Reply" }, { identifier: "", text: "x" }], true, "", [OPEN, { id: "action:reply", label: "Reply" }, DISMISS]],
+        ["Show with none and a window", [], true, "", [SHOW, DISMISS]],
+        ["Dismiss alone", [], false, "", [DISMISS]],
+        ["Open log for a hinted file", [], false, "/state/runs/a@1.log", [LOG, DISMISS]],
+        ["Open log in Show's place", [], true, "/state/runs/a@1.log", [LOG, DISMISS]],
+        ["Open log beside the sender's own", [{ identifier: "default", text: "" }], true, "/state/runs/a@1.log", [OPEN, LOG, DISMISS]]
+    ])
+        same(logic.actionsFor(actions, canRaise, hintOpen), want, "actions: " + label);
 
     // Choices: [label, choice, offered, plan]. Opening delivers default,
     // else the first action offered, and a pill its own action while it is
@@ -1590,6 +1606,11 @@ const CONTROLS = [
     ["a panel leaves out an aged entry", 'return youngAt(e, now) && (mode', 'return (mode'],
     ["evict non-critical first", "if (rows[i].urgency !== URGENCY.critical) return rows[i].key;", ""],
     ["Show without actions", 'if (list.length === 0 && canRaise) list.push({ id: "open", label: "Show" });', ""],
+    ["a hinted file offers Open log", 'if (hintOpen) list.push({ id: "open-file", label: "Open log" });', ""],
+    ["Open log takes Show's place", 'if (hintOpen) list.push({ id: "open-file", label: "Open log" });\n    if (list.length === 0 && canRaise) list.push({ id: "open", label: "Show" });',
+        'if (list.length === 0 && canRaise) list.push({ id: "open", label: "Show" });\n    if (hintOpen) list.push({ id: "open-file", label: "Open log" });'],
+    ["Open log opens the hinted file", 'if (choice === "open-file") return row.hintOpen !== "" ? "open" : "default";', ""],
+    ["Open log needs a file", 'choice === "open-file") return row.hintOpen !== "" ? "open" : "default";', 'choice === "open-file") return "open";'],
     ["an open delivers its primary action", 'var id = c === "open" ? primaryAction(offered) :', 'var id = c === "open" ? "" :'],
     ["an open falls back to the first offered action", 'for (var i = 0; i < offered.length; i++) if (String(offered[i] || "") !== "") return String(offered[i]);', ""],
     ["default wins over the first action", 'if (offered.indexOf("default") !== -1) return "default";', ""],

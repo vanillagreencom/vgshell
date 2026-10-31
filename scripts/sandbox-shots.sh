@@ -22,7 +22,7 @@
 
 # SCENE is gallery, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, tailscale, tailscale-starting, tailscale-locked, tailscale-flyout, vpn, vpn-locked, bluetooth, power, dialog, by-hand, reset, lock, polkit,
-# greeter, narrow, theme-browser, wallpaper-browser, automations, googledrive, tooltips, capture, capture-notifications,
+# greeter, narrow, theme-browser, wallpaper-browser, automations, automation-failure, googledrive, tooltips, capture, capture-notifications,
 # info-dialog, keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, jarvis-console, jarvis-audit, jarvis-setup, elevenlabs-voices, jarvis-fleet, outdated, jarvis-causes, jarvis-restart, plugin-messages, page-links, tooltip-link, traffic, ai-usage, ai-usage-states, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice, displays-override or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
@@ -165,6 +165,11 @@
 # explanation. Connectivity changes only on the private device mock. The
 # unavailable runner uses the sandbox's session bus, which has no
 # NetworkManager name. No live-session network or systemd manager is used.
+# automation-failure, taken only when named, is a failed automation run's
+# notification as the tree's engine sends it, read off the stand-in
+# notify-send and sent to the sandbox's notification server as it was
+# written: its toast under the pointer, so its actions show, its Inbox row
+# selected, and that row with the arrow key on its first action.
 # googledrive is Google Drive's bar widget, its tooltip, its popover with its
 # notes folded and unfolded and every
 # screen of its page's Settings, Setup and Details tabs in each state the plugin's runner reaches,
@@ -417,7 +422,7 @@ while [[ $# -gt 0 ]]; do
     --title-inventory) title_inventory=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    link-icons|sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|capture-notifications|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-audit|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|jarvis-restart|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|tailscale-flyout|tailscale-section|vpn|vpn-locked|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|googledrive|tooltips|screensaver|theme-previews|setup-tab|updates|clone-voice|displays-override) scenes+=("$1"); shift ;;
+    link-icons|sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|capture-notifications|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-audit|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|jarvis-restart|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|tailscale-flyout|tailscale-section|vpn|vpn-locked|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|automation-failure|googledrive|tooltips|screensaver|theme-previews|setup-tab|updates|clone-voice|displays-override) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -562,6 +567,7 @@ scene_ships() {
     flyout-titles) ships_plugin vgs.sysmon vgs.settings vgs.network vgs.sound vgs.updates ;;
     launcher|notifications) ships_plugin "vgs.$1" ;;
     automations) ships_plugin vgs.automations ;;
+    automation-failure) ships_plugin vgs.automations vgs.notifications ;;
     screensaver) ships_plugin vgs.screensaver ;;
     bar) ships_plugin vgs.bar vgs.launcher vgs.agent-warden vgs.updates vgs.themes ;;
     tooltips) scene_ships bar ;;
@@ -8323,6 +8329,82 @@ scene_automations() { # MODE
   fi
   if [[ -e $auto_stub/saved/systemd-analyze ]]; then mv -f -- "$auto_stub/saved/systemd-analyze" "$shim/systemd-analyze"; else rm -f -- "$shim/systemd-analyze"; fi
   automations_stand_ins_restore "$auto_stub"
+}
+
+# A failed run of the tree's own engine over the stand-ins: the run's
+# notification is the last argv the stand-in notify-send logged, sent on to
+# the sandbox's server with its hints and body unchanged. A --rev tree's
+# engine sends that revision's text and hints, which its card draws.
+scene_automation-failure() { # MODE
+  local stub="$sandbox/shots-automation-failure-$1" engine="$repo/shell/plugins/vgs.automations/bin/automations"
+  local notif_found shell_path at id
+  notif_found="$(plugin_enabled vgs.notifications)" || notif_found=unread
+  [[ $notif_found == True || $notif_found == False ]] || fail "vgs.notifications' enablement is unreadable before the failure scene: $notif_found"
+  automations_stand_ins "$stub"
+  shell_path="$(tr '\0' '\n' <"/proc/$shell_qs_pid/environ" | sed -n 's/^PATH=//p')"
+  failure_engine() { "${shell_env[@]}" PATH="$shell_path" "$engine" --tree "$repo" "$@"; }
+  # The last notification the engine sent, as gdbus's Notify arguments:
+  # app name, summary, body and the hints as GVariant text.
+  failure_notice() {
+    [[ -f $stub/notify-send.calls ]] || { echo absent; return; }
+    tail -n 1 -- "$stub/notify-send.calls" | py_reply 'import json,sys
+argv = json.load(sys.stdin)
+at = argv.index("--")
+opts, text = argv[:at], argv[at + 1:]
+app = next(a.split("=", 1)[1] for a in opts if a.startswith("--app-name="))
+urgency = {"low": 0, "normal": 1, "critical": 2}[next(a.split("=", 1)[1] for a in opts if a.startswith("--urgency="))]
+hints = ["\"urgency\": <byte %d>" % urgency]
+for a in opts:
+    if a.startswith("--hint=string:"):
+        name, value = a[len("--hint=string:"):].split(":", 1)
+        hints.append("%s: <%s>" % (json.dumps(name), json.dumps(value, ensure_ascii=False)))
+print(json.dumps([app, text[0], text[1], "{" + ", ".join(hints) + "}"]))'
+  }
+  failure_summary() { failure_notice | py_reply 'import json,sys; t=sys.stdin.read().strip(); print(json.loads(t)[1] if t.startswith("[") else t)'; }
+  failure_pills() {
+    ipc smoke "$1" vgs.notifications CardSlot summary,actions | py_reply 'import json,sys
+rows = json.load(sys.stdin)
+print(json.dumps(next(([a["label"] for a in v["actions"]] for _, _, v in rows if v["summary"] == sys.argv[1]), None)))' "Pull dotfiles failed"
+  }
+  local definition='{"name":"Pull dotfiles","command":"echo Fetching origin; echo \"refused: local edits on paths the update changes: docs/hosts/px13.md\" >&2; exit 1","notifyEveryRun":false,"schedule":{"frequency":"daily","interval":1,"times":["07:00"],"start":"2026-01-05","end":{"type":"never"}}}'
+  failure_engine add --definition "$definition" >/dev/null || fail "the failing automation could not be added"
+  expect "enabling vgs.notifications for the failure scene is allowed" ok ipc shell setPluginEnabled vgs.notifications true
+  expect_poll "vgs.notifications is built for the failure scene" True record_exists vgs.notifications
+  expect "failure notifications are not silenced" off notes silence off
+  failure_engine run-now pull-dotfiles >/dev/null || fail "the failing automation's run did not start"
+  expect_poll "the failed run sent its notification" "Pull dotfiles failed" failure_summary
+  local args=()
+  mapfile -t args < <(failure_notice | py_reply 'import json,sys; print("\n".join(json.load(sys.stdin)))')
+  [[ ${#args[@]} -eq 4 ]] || fail "the failed run's notification is unreadable"
+  id="$(notify "${args[0]}" "${args[1]}" "${args[2]}" '[]' "${args[3]}")" || fail "sending the failed run's notification failed"
+  expect_poll "the failed run's toast is on screen" 1 on_screen
+  at="$(card_centre "Pull dotfiles failed")" || at=""
+  if [[ -n $at ]]; then
+    # shellcheck disable=SC2086
+    hover $at || fail "the hover over the failed run's toast failed"
+    expect_poll "the failed run's toast reports the pointer" True card_hovered "Pull dotfiles failed"
+    printf 'sandbox-shots: automation-failure mode=%s toast-actions=%s\n' "$1" "$(failure_pills layerItems)"
+    take_posed "automation-failure-$1-toast"
+  else
+    fail "the failed run's toast has no card"
+  fi
+  park_pointer
+  expect "the inbox opens on the failed run" ok notes inbox
+  expect_poll "the panel is the inbox" '"inbox"' ipc smoke readInstance service vgs.notifications panelMode
+  take "automation-failure-$1-inbox"
+  type_keys -k Right || fail "moving to the failed run's first action failed"
+  # The arrow key draws the focus ring on the action, which this shot shows.
+  take_posed "automation-failure-$1-inbox-action"
+  expect "the inbox closes after the failure scene" ok notes close
+  "${shell_env[@]}" gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications \
+    --method org.freedesktop.Notifications.CloseNotification "$id" >/dev/null || fail "closing the failed run's notification failed"
+  expect "the failure scene's history clears" ok notes clear-history
+  failure_engine remove pull-dotfiles >/dev/null || fail "the failing automation was not removed"
+  if [[ $notif_found == False ]]; then
+    expect "disabling vgs.notifications after the failure scene is allowed" ok ipc shell setPluginEnabled vgs.notifications false
+    expect_poll "vgs.notifications is gone after the failure scene" False record_exists vgs.notifications
+  fi
+  automations_stand_ins_restore "$stub"
 }
 
 # The googledrive scene stages each state through vgs.google-drive's own

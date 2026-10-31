@@ -1327,9 +1327,12 @@ function readHints(hints) {
 // What a choice on a card does once its hints are read: for `open`, a
 // click on the card or invoke-latest, `page` opens its x-vgs-page page
 // (pageTarget), `open` opens its x-vgs-open file through the plugin's open
-// TUI and `dismiss` only dismisses it; every other choice, and an `open` on
-// a card without a click hint, is `default`, the plan choicePlan makes.
+// TUI and `dismiss` only dismisses it; `open-file`, the card's Open log
+// (actionsFor), opens that file whatever its click hint. Every other
+// choice, an `open` on a card without a click hint and an `open-file` on
+// one with no file are `default`, the plan choicePlan makes.
 function clickRoute(choice, row) {
+    if (choice === "open-file") return row.hintOpen !== "" ? "open" : "default";
     if (choice !== "open") return "default";
     if (row.hintPage) return "page";
     if (row.hintClick === "open" && row.hintOpen !== "") return "open";
@@ -1798,10 +1801,14 @@ function evictionKey(rows) {
 // ------------------------------------------------------------ actions
 
 // The hover actions of a card: the sender's own while the service holds
-// its notification, a Show that opens it when it offers none and the
-// sender's window is open, and Dismiss. `actions` are { identifier, text }
-// read off the notification.
-function actionsFor(actions, canRaise) {
+// its notification, Open log when its accepted x-vgs-open hint (hintOpen)
+// names a file, which opens it as a click on an `open` card does
+// (clickRoute), a Show that opens the sender when the card offers neither
+// and the sender's window is open, and Dismiss. `actions` are
+// { identifier, text } read off the notification. Open log draws from the
+// hint, not a sender action, since a sender waiting on a freedesktop
+// action stays running until the user picks one.
+function actionsFor(actions, canRaise, hintOpen) {
     var list = [];
     for (var i = 0; i < actions.length; i++) {
         var id = String(actions[i].identifier || "");
@@ -1809,6 +1816,7 @@ function actionsFor(actions, canRaise) {
         var text = String(actions[i].text || "");
         list.push({ id: "action:" + id, label: text || (id === "default" ? "Open" : id) });
     }
+    if (hintOpen) list.push({ id: "open-file", label: "Open log" });
     if (list.length === 0 && canRaise) list.push({ id: "open", label: "Show" });
     list.push({ id: "dismiss", label: "Dismiss" });
     return list;

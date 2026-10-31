@@ -832,7 +832,7 @@ Item {
     function actionsFor(key) {
         const entry = entryFor(key);
         if (entry === null) return [];
-        return Logic.actionsFor(offered(key), Logic.senderWindows(windows(), entry).length > 0);
+        return Logic.actionsFor(offered(key), Logic.senderWindows(windows(), entry).length > 0, entry.hintOpen);
     }
 
     // The end of a click that opens a file, REPLY the answer of the open TUI
@@ -850,8 +850,10 @@ Item {
         return false;
     }
 
-    // A choice on a card, a toast's or an inbox row's: open, action:<id> or
-    // dismiss. An open on a card whose VGS hints name a page or a click
+    // A choice on a card, a toast's or an inbox row's: open, open-file,
+    // action:<id> or dismiss. An open-file opens the card's hinted file in
+    // the `open` TUI, as an open on a card whose x-vgs-click is `open`
+    // does. An open on a card whose VGS hints name a page or a click
     // (NotificationLogic.clickRoute) opens the hinted Settings page, opens
     // the hinted file in the `open` TUI or only dismisses; every other
     // choice goes as NotificationLogic.choicePlan says: an open runs the
@@ -886,7 +888,7 @@ Item {
         const residentOnScreen = onScreen(key) && Logic.hasOwn(held, key) && held[key].notification.resident;
         const plan = Logic.choicePlan(choice, offeredIds, residentOnScreen);
         if (plan === null) {
-            console.error("notifications: refused: choice=" + choice + " want=open|action:<id>|dismiss");
+            console.error("notifications: refused: choice=" + choice + " want=open|open-file|action:<id>|dismiss");
             return false;
         }
         // Read before the delivery, after which the server may close the

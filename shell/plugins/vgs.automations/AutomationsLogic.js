@@ -70,6 +70,9 @@ var TRANSCRIPT_MAX_BYTES = 1024 * 1024;
 var TRANSCRIPT_LINE_MAX = 8192;
 var SNIPPET_LINES = 5;
 var SNIPPET_CHARS = 400;
+// The longest output line a failure notice carries before it ends in an
+// ellipsis; Open log shows the whole line in the transcript.
+var FAILURE_LINE_MAX = 120;
 // SIGTERM to a timed-out command's process group, then SIGKILL this long
 // after it.
 var KILL_GRACE_MS = 10000;
@@ -1043,7 +1046,7 @@ function outcomeOf(ending) {
 // The error notification's snippet: the last stderr lines, or the last
 // stdout lines when the command wrote nothing to stderr, at most
 // SNIPPET_LINES non-blank lines and SNIPPET_CHARS characters, the newest
-// kept.
+// kept, each as plain text (plainOutput).
 function snippetOf(stderrLines, stdoutLines) {
     var fromErr = lastLines(stderrLines);
     var text = fromErr.length > 0 ? fromErr.join("\n") : lastLines(stdoutLines).join("\n");
@@ -1053,10 +1056,25 @@ function snippetOf(stderrLines, stdoutLines) {
 function lastLines(lines) {
     var kept = [];
     for (var i = lines.length - 1; i >= 0 && kept.length < SNIPPET_LINES; i--) {
-        var line = String(lines[i]).replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "").replace(/\s+$/, "");
+        var line = plainOutput(lines[i]).replace(/\s+$/, "");
         if (line.trim() !== "") kept.unshift(line);
     }
     return kept;
+}
+
+// A terminal escape sequence a command writes for colour, a window title or
+// a link, whole, so none of its text is left behind: an OSC string to its
+// BEL or ST, or to the line's end; a CSI sequence to its final byte; and any
+// other ESC sequence (ECMA-48 5th edition § 5.3 and § 5.4 for the ESC and
+// CSI forms and their 8-bit introducers, § 5.6 for the OSC control string;
+// BEL as an OSC terminator is xterm's, ctlseqs § Operating System
+// Commands).
+var TERMINAL_ESCAPE = /(?:\u001b\]|\u009d)[^\u0007\u001b\u009c]*(?:\u0007|\u001b\\|\u009c|$)|(?:\u001b\[|\u009b)[0-?]*[ -\/]*[@-~]|\u001b[ -\/]*[0-~]/g;
+
+// A line of a command's output as plain text: its escape sequences whole,
+// then every other control character but a tab.
+function plainOutput(line) {
+    return String(line).replace(TERMINAL_ESCAPE, "").replace(/[\u0000-\u0008\u000a-\u001f\u007f-\u009f]/g, "");
 }
 
 // History rows, newest first, from the run files one listing found.
@@ -1166,14 +1184,39 @@ function failureText(reason) {
     return "The automation request failed. Open Automations to try again.";
 }
 
-// Why a run failed, in one line.
+// Why a run failed, in one line. A run that exited with an error says why
+// in its own words: the last line it wrote to stderr, else to stdout, the
+// stream a refusal or an error goes to (snippetOf's rule, read back by
+// lastOutputLine). A run that printed nothing, and one a signal stopped,
+// whose reason is the signal, keep a sentence of their own.
 function failureLine(rec) {
     switch (rec.outcome) {
-    case "failed": return rec.signal !== null ? "The automation was stopped. Open Automations to read its output." : "The automation failed. Open Automations to read its output.";
+    case "failed":
+        if (rec.signal !== null) return "The automation was stopped. Open Automations to read its output.";
+        var line = lastOutputLine(rec.snippet);
+        return line !== "" ? line : "The automation failed. Open Automations to read its output.";
     case "timeout": return "Timed out after " + Commons.Duration.format(Math.round(rec.durationMs / 1000));
     case "failed-start": return failureText(rec.reason);
     default: throw new Error("automations: outcome " + JSON.stringify(rec.outcome) + " is not a failure");
     }
+}
+
+// The last non-blank line of an ended record's snippet, "" for none. The
+// line is the command's own text, which no rule trusts: it is read as plain
+// text (plainOutput) whatever the record holds, a tab reads as a space, and
+// a line past FAILURE_LINE_MAX ends in an ellipsis, never between the two
+// halves of a surrogate pair. notifySendArgs escapes it as markup.
+function lastOutputLine(snippet) {
+    var lines = String(snippet).split("\n");
+    for (var i = lines.length - 1; i >= 0; i--) {
+        var line = plainOutput(lines[i]).replace(/\t/g, " ").trim();
+        if (line === "") continue;
+        if (line.length <= FAILURE_LINE_MAX) return line;
+        var cut = FAILURE_LINE_MAX - 1;
+        if (/[\ud800-\udbff]/.test(line.charAt(cut - 1))) cut--;
+        return line.slice(0, cut).replace(/\s+$/, "") + "…";
+    }
+    return "";
 }
 
 // The notification a run event sends, or null when it sends none: an error
@@ -1292,13 +1335,16 @@ function replaceIdFor(notice, server) {
 
 // notify-send's argv for a notification, replacing `replaceId` when it is
 // a positive number; the summary and body follow `--`, so neither is read
-// as an option. It prints the id a later notification replaces.
+// as an option. It prints the id a later notification replaces. The
+// notification server reads a body as markup, so the body's `&`, `<` and
+// `>` are escaped, as the core escapes a plugin message
+// (PluginLogic.notifyArgv), and a run's output line shows as it printed it.
 function notifySendArgs(n, replaceId) {
     var args = ["--app-name=Automations", "--urgency=" + n.urgency, "--print-id",
         "--hint=string:x-vgs-avatar:calendar-clock", "--hint=string:x-vgs-icon:" + n.icon, "--hint=string:x-vgs-tone:" + n.tone, "--hint=string:x-vgs-click:" + n.click];
     if (n.open !== "") args.push("--hint=string:x-vgs-open:" + n.open);
     if (isWhole(replaceId) && replaceId > 0) args.push("--replace-id=" + replaceId);
-    return args.concat(["--", n.summary, n.body]);
+    return args.concat(["--", n.summary, n.body.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")]);
 }
 
 // ------------------------------------------------------------- network

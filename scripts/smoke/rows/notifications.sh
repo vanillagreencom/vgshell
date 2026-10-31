@@ -546,6 +546,17 @@ expect_poll "the first open run ends" idle key_idle vgs.notifications/open
 expect "a click on the kept card opens its file, its entry kept" kept notes choose "{\"key\": \"$(key_of "Hinted other")\", \"choice\": \"open\"}"
 expect_poll "the kept card's click hands the open TUI its own file" "$(words vgs.notifications/open tui/open.sh "$hint_other")" recorded_tail
 expect_poll "the kept card leaves once its file opens" none key_of "Hinted other"
+# Open log (NotificationLogic.actionsFor): a card whose x-vgs-open is
+# accepted opens that file from the action, through the same open TUI,
+# though its own click only dismisses it.
+expect_poll "the kept card's open run ends" idle key_idle vgs.notifications/open
+forget_record
+notify smoke-app 0 "Hinted log" "" '[]' "{\"x-vgs-open\": <\"$hint_file\">, \"x-vgs-click\": <\"none\">}" 0 >/dev/null
+expect_poll "a card with a file and a dismiss click shows" True has_row live "Hinted log"
+expect "its Open log is allowed, its entry kept" kept notes choose "{\"key\": \"$(key_of "Hinted log")\", \"choice\": \"open-file\"}"
+expect_poll "Open log hands the open TUI the hinted file" "$(words vgs.notifications/open tui/open.sh "$hint_file")" recorded_tail
+expect_poll "the card leaves once Open log opens its file" none key_of "Hinted log"
+expect_poll "the Open log run ends" idle key_idle vgs.notifications/open
 wait_for "the open notice leaves when its lifetime ends" '[]' 12 open_notices
 # A card whose x-vgs-page hint names a file (shell.surfaces.openPage) leaves
 # when the core's file route ends in an open, not at the click: a gone file
