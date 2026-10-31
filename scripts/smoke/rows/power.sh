@@ -119,7 +119,6 @@ source "$repo/scripts/smoke/power-fakes.sh"
 
 power_upower_pid=""
 power_profiles_pid=""
-power_notify_stood=""
 power_was_enabled=""
 power_was_placed=""
 power_system_was=""

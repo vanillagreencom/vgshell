@@ -4,7 +4,9 @@
 // the profile view read from the daemon's reply, source-change profile
 // choice, the setting a bar pick remembers, low-battery latches and the
 // notice each latch sends, the logind resume signal line, and Wake on
-// LAN's flag values, wired connection list and write rule.
+// LAN's flag values, wired connection list and write rule; the power
+// menu's availability reads, their replies and offers, and its 3000 ms
+// confirmation hold over injected time.
 // Controls edit one rule at a time in an exclusively owned temporary copy
 // and require this suite to fail on each copy.
 "use strict";
@@ -284,11 +286,149 @@ function verify(logic) {
             assert.ok(logic.wakeProblemText(failure, on).length > 0, "wakeProblemText: a failed " + failure + " has text");
         assert.throws(() => logic.wakeProblemText("other", on), "wakeProblemText: an unknown failure is refused");
     }
+
+    verifyMenu(logic);
+}
+
+// The power menu: which reads a pass makes, which replies offer an
+// action, the published reading, and the 3000 ms hold over injected
+// monotonic time.
+function verifyMenu(logic) {
+    const keysOf = reads => reads.map(read => read.key);
+    same(keysOf(logic.availabilityReads("")), ["suspend", "hibernate", "suspend-then-hibernate", "reboot", "poweroff", "logout"],
+        "availabilityReads: no seat path asks no display manager");
+    for (const seat of [undefined, "relative/Seat0", "/org/freedesktop/DisplayManager/Seat0 extra", "/"])
+        assert.ok(keysOf(logic.availabilityReads(seat)).indexOf("switch-user") === -1, "availabilityReads: no read for seat " + seat);
+    const seatRead = logic.availabilityReads("/org/freedesktop/DisplayManager/Seat0").find(read => read.key === "switch-user");
+    same(seatRead.args, ["--system", "--dest", "org.freedesktop.DisplayManager", "--object-path", "/org/freedesktop/DisplayManager/Seat0",
+        "--method", "org.freedesktop.DBus.Properties.Get", "org.freedesktop.DisplayManager.Seat", "CanSwitch"], "availabilityReads: the seat's CanSwitch");
+    same(logic.availabilityReads("").find(read => read.key === "reboot").args.slice(-1), ["org.freedesktop.login1.Manager.CanReboot"], "availabilityReads: reboot asks CanReboot");
+    same(logic.availabilityReads("").find(read => read.key === "poweroff").args.slice(-1), ["org.freedesktop.login1.Manager.CanPowerOff"], "availabilityReads: poweroff asks CanPowerOff");
+    same(logic.availabilityReads("").find(read => read.key === "logout").args.slice(4), ["/org/freedesktop/login1/user/self",
+        "--method", "org.freedesktop.DBus.Properties.Get", "org.freedesktop.login1.User", "Display"], "availabilityReads: logout asks the user's Display");
+
+    for (const [judge, code, text, want] of [
+        ["can", 0, "('yes',)", true], ["can", 0, "('challenge',)", false],
+        ["session", 0, "(<('2', objectpath '/org/freedesktop/login1/session/_32')>,)\n", true],
+        ["session", 0, "(<('c1', objectpath '/org/freedesktop/login1/session/c1')>,)", true],
+        ["session", 0, "(<('', objectpath '/')>,)", false],
+        ["session", 1, "(<('2', objectpath '/org/freedesktop/login1/session/_32')>,)", false],
+        ["session", 0, "", false],
+        ["true", 0, "(<true>,)\n", true], ["true", 0, "(<false>,)", false], ["true", 1, "(<true>,)", false], ["true", 0, "true", false]
+    ]) assert.equal(logic.readAnswer(judge, code, text), want, `readAnswer: ${judge} code=${code} text=${text}`);
+    assert.throws(() => logic.readAnswer("other", 0, ""), "readAnswer: an unknown judge is refused");
+
+    const every = { logout: true, suspend: true, hibernate: true, "suspend-then-hibernate": true, reboot: true, poweroff: true, "switch-user": true };
+    same(logic.actionsView(0, false, every), { state: "checking", offered: [] }, "actionsView: nothing before the first pass");
+    same(logic.actionsView(1, false, every), { state: "failed", offered: [] }, "actionsView: a pass with no answer is failed");
+    same(logic.actionsView(2, true, every).offered, ["logout", "suspend", "hibernate", "reboot", "poweroff", "switch-user"], "actionsView: menu order");
+    same(logic.actionsView(1, true, { reboot: true, suspend: false, poweroff: true, "suspend-then-hibernate": true }),
+        { state: "ready", offered: ["reboot", "poweroff"] }, "actionsView: only true offers, and no menu row for suspend then hibernate");
+    const notices = {};
+    for (const [id, kind] of [["reboot", "busy"], ["logout", "failed"], ["other", "unavailable"]]) {
+        const notice = logic.actionFailurePayload(id, kind);
+        notices[kind] = notice.message;
+        assert.equal(notice.tone, "danger", "actionFailurePayload: a failed action is danger: " + id);
+        assert.ok(typeof notice.title === "string" && notice.title.length > 0 && typeof notice.message === "string" && notice.message.length > 0, "actionFailurePayload: a notice has its text: " + id);
+    }
+    assert.equal(new Set(Object.values(notices)).size, 3, "actionFailurePayload: each kind has its own message");
+    assert.throws(() => logic.actionFailurePayload("reboot", "argv=[] exit=1 stderr=\"reason=busy\""), "actionFailurePayload: a log line is no kind");
+    same(logic.POWER_ACTIONS.map(action => action.label), ["Log out", "Suspend", "Hibernate", "Reboot", "Shut down", "Switch user"], "POWER_ACTIONS: titles");
+
+    // Each row is [event, ...arguments]; a press carries its own time
+    // and `at` asks whether the hold fires at that time, then reads the
+    // phase and the fill.
+    const press = (t, source, action) => ["pressAt", source, action, t];
+    const play = rows => {
+        let hold = logic.holdIdle();
+        const fired = [];
+        const trace = [];
+        for (const row of rows) {
+            const [event, a, b, t] = row;
+            if (event === "pressAt") hold = logic.holdPress(hold, a, b, t);
+            else if (event === "release") hold = logic.holdRelease(hold, a);
+            else if (event === "cancel") hold = logic.holdCancel(hold);
+            else if (event === "at") {
+                const result = logic.holdFire(hold, a);
+                hold = result.hold;
+                if (result.fire !== "") fired.push([result.fire, a]);
+                trace.push([a, hold.phase, logic.holdProgress(hold, a)]);
+            } else throw new Error("unknown step " + event);
+        }
+        return { fired, trace, phase: hold.phase };
+    };
+    const HOLDS = [
+        ["fires only at 3000 ms of continuous hold",
+            [press(0, "key:space", "reboot"), ["at", 1500], ["at", 2999], ["at", 3000], ["at", 3500]],
+            [["reboot", 3000]], [[1500, "holding", 0.5], [2999, "holding", 2999 / 3000], [3000, "spent", 1], [3500, "spent", 1]], "spent"],
+        ["fractional time: 2999.9 ms held is not yet due",
+            [press(0.4, "key:space", "reboot"), ["at", 3000.3], ["at", 3000.4]],
+            [["reboot", 3000.4]], [[3000.3, "holding", 2999.9 / 3000], [3000.4, "spent", 1]], "spent"],
+        ["a timer that runs late fires once, late",
+            [press(100, "pointer", "logout"), ["at", 3400], ["at", 3401]],
+            [["logout", 3400]], [[3400, "spent", 1], [3401, "spent", 1]], "spent"],
+        ["a release one millisecond early fires nothing",
+            [press(0, "key:return", "poweroff"), ["at", 2000], ["release", "key:return"], ["at", 3000], ["at", 6000]],
+            [], [[2000, "holding", 2000 / 3000], [3000, "idle", 0], [6000, "idle", 0]], "idle"],
+        ["a release just before the deadline fires nothing",
+            [press(0, "key:space", "suspend"), ["at", 2999], ["release", "key:space"], ["at", 3000]],
+            [], [[2999, "holding", 2999 / 3000], [3000, "idle", 0]], "idle"],
+        ["a cancel, for Escape or focus loss, fires nothing and needs a fresh press",
+            [press(0, "key:space", "logout"), ["at", 1000], ["cancel"], ["at", 3000], press(3500, "key:space", "logout"), ["at", 6500],
+                ["release", "key:space"], press(7000, "key:space", "logout"), ["at", 9999], ["at", 10000]],
+            [["logout", 10000]], [[1000, "holding", 1000 / 3000], [3000, "spent", 0], [6500, "spent", 0], [9999, "holding", 2999 / 3000], [10000, "spent", 1]], "spent"],
+        ["no selected action starts no hold",
+            [press(0, "key:space", ""), ["at", 3000], ["at", 9000]],
+            [], [[3000, "idle", 0], [9000, "idle", 0]], "idle"],
+        ["a repeated press of the held source adds no time",
+            [press(0, "key:space", "reboot"), press(1000, "key:space", "reboot"), press(2000, "key:space", "reboot"), ["at", 3000]],
+            [["reboot", 3000]], [[3000, "spent", 1]], "spent"],
+        ["a second source cancels, and both must be released",
+            [press(0, "key:space", "reboot"), press(1000, "key:return", "reboot"), ["at", 3000], ["release", "key:space"],
+                press(3100, "key:space", "reboot"), ["release", "key:space"], ["at", 6100], ["release", "key:return"],
+                press(6200, "pointer", "reboot"), ["at", 9199], ["at", 9200]],
+            [["reboot", 9200]], [[3000, "spent", 0], [6100, "spent", 0], [9199, "holding", 2999 / 3000], [9200, "spent", 1]], "spent"],
+        ["a fired hold stays spent until its source is released",
+            [press(0, "key:space", "suspend"), ["at", 3000], press(3100, "key:space", "suspend"), ["at", 6100], ["release", "key:space"], ["at", 6200]],
+            [["suspend", 3000]], [[3000, "spent", 1], [6100, "spent", 1], [6200, "idle", 0]], "idle"],
+        ["a refusal after firing clears the fill",
+            [press(0, "pointer", "hibernate"), ["at", 3000], ["cancel"], ["at", 3001]],
+            [["hibernate", 3000]], [[3000, "spent", 1], [3001, "spent", 0]], "spent"],
+        ["a release of a key the hold never saw changes nothing",
+            [press(0, "key:space", "logout"), ["release", "key:return"], ["at", 3000]],
+            [["logout", 3000]], [[3000, "spent", 1]], "spent"]
+    ];
+    for (const [label, rows, fired, trace, phase] of HOLDS) {
+        const got = play(rows);
+        same(got.fired, fired, "hold fires: " + label);
+        same(got.trace, trace, "hold trace: " + label);
+        assert.equal(got.phase, phase, "hold phase: " + label);
+    }
+    assert.equal(logic.holdRemaining(logic.holdIdle(), 0), -1, "holdRemaining: no hold");
+    assert.equal(logic.holdRemaining(logic.holdPress(logic.holdIdle(), "pointer", "reboot", 500), 1500), 2000, "holdRemaining: the rest of the 3000 ms");
+    assert.throws(() => logic.holdPress({ phase: "other" }, "pointer", "reboot", 0), "holdPress: an unknown phase is refused");
 }
 
 verify(load(file));
 
 const CONTROLS = [
+    ["the hold is exactly 3000 ms, not less", "var HOLD_MS = 3000;", "var HOLD_MS = 2999;"],
+    ["the hold is exactly 3000 ms, not more", "var HOLD_MS = 3000;", "var HOLD_MS = 3001;"],
+    ["a release ends the hold", "if (hold.phase === \"holding\") return source === hold.source ? holdIdle() : hold;", "if (hold.phase === \"holding\") return hold;"],
+    ["a cancel fires nothing", "if (hold.phase === \"holding\") return { phase: \"spent\", held: [hold.source], fired: false };", "if (false) return { phase: \"spent\", held: [hold.source], fired: false };"],
+    ["a repeated press keeps the start", "return source === hold.source ? hold : { phase: \"spent\", held: [hold.source, source], fired: false };", "return source === hold.source ? { phase: \"holding\", action: hold.action, source: source, start: now } : { phase: \"spent\", held: [hold.source, source], fired: false };"],
+    ["a second source cancels the hold", "return source === hold.source ? hold : { phase: \"spent\", held: [hold.source, source], fired: false };", "return hold;"],
+    ["every held source is released before a fresh hold", "return held.length === 0 ? holdIdle() : { phase: \"spent\", held: held, fired: hold.fired };", "return holdIdle();"],
+    ["no selection starts no hold", "return action === \"\" ? hold : { phase: \"holding\"", "return false ? hold : { phase: \"holding\""],
+    ["the fill is linear in the time held", "Math.max(0, (now - hold.start) / HOLD_MS)", "Math.max(0, Math.sqrt((now - hold.start) / HOLD_MS))"],
+    ["a refusal clears a fired fill", "if (hold.phase === \"spent\") return { phase: \"spent\", held: hold.held, fired: false };", "if (false) return hold;"],
+    ["a log out read needs a session id", "/^\\(<\\('[^']+', objectpath", "/^\\(<\\('[^']*', objectpath"],
+    ["switch user needs a seat path", "if (/^(\\/[A-Za-z0-9_]+)+$/.test(String(seatPath)))", "if (true)"],
+    ["switch user needs CanSwitch true", "if (judge === \"true\") return code === 0 && /^\\(<true>,\\)\\s*$/.test(String(text));", "if (judge === \"true\") return code === 0;"],
+    ["a pass with no answer is failed", "if (!answered) return { state: \"failed\", offered: [] };", "if (false) return { state: \"failed\", offered: [] };"],
+    ["each failure kind has its own message", "unavailable: \"This action is not available on this computer now.\",", "unavailable: \"Another power action is running. Wait for it to finish.\","],
+    ["an unknown failure kind is refused", "if (!hasOwn(messages, kind)) throw", "if (false) throw"],
+    ["the menu offers only allowed actions", "return allowed[action.id] === true; })\n        .map(function (action) { return action.id; })", "return true; })\n        .map(function (action) { return action.id; })"],
     ["sleep capability needs yes", "return code === 0 && /^\\('yes',\\)\\s*$/.test(String(text));", "return code === 0;"],
     ["sleep request needs the selected capability", "entry !== undefined && allowed[action] === true ? entry.method", "entry !== undefined ? entry.method"],
     ["gamepad wake is disabled", "return { state: \"supported\", current: fields.WakeAllowed === \"true\", allowed: allowed };", "return { state: \"supported\", current: fields.WakeAllowed === \"true\", allowed: true };"],

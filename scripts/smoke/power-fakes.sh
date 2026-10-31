@@ -141,8 +141,12 @@ os.replace(path + ".tmp", path)
 PY_STAGE
 }
 
-# The Power row and its screenshot scene share one inert logind transport.
+# The Power and power menu rows and their screenshot scenes share one
+# inert logind transport. Each Can method answers its file under
+# power_sleep_replies, and User.Display answers the session id in
+# Display, empty for no graphical session.
 power_gdbus_stood=""
+power_notify_stood=""
 power_gdbus_calls="$sandbox/power-gdbus.calls"
 power_set_hold="$sandbox/power-set.hold"
 power_set_held="$sandbox/power-set.held"
@@ -239,6 +243,9 @@ power_logind_start() {
   printf 'yes\n' >"$power_sleep_replies/CanSuspend" || return
   printf 'no\n' >"$power_sleep_replies/CanHibernate" || return
   printf 'no\n' >"$power_sleep_replies/CanSuspendThenHibernate" || return
+  printf 'no\n' >"$power_sleep_replies/CanReboot" || return
+  printf 'no\n' >"$power_sleep_replies/CanPowerOff" || return
+  : >"$power_sleep_replies/Display" || return
   power_stand gdbus <<EOF_STAND || return
 #!/usr/bin/env bash
 python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "\$@" >>"$power_gdbus_calls"
@@ -253,9 +260,15 @@ if [[ \$logind == true ]]; then
       if [[ \${!i} == --method ]]; then j=\$((i+1)); method="\${!j}"; break; fi
     done
     case "\$method" in
-      org.freedesktop.login1.Manager.CanSuspend|org.freedesktop.login1.Manager.CanHibernate|org.freedesktop.login1.Manager.CanSuspendThenHibernate)
+      org.freedesktop.login1.Manager.CanSuspend|org.freedesktop.login1.Manager.CanHibernate|org.freedesktop.login1.Manager.CanSuspendThenHibernate|org.freedesktop.login1.Manager.CanReboot|org.freedesktop.login1.Manager.CanPowerOff)
         read -r answer <"$power_sleep_replies/\${method##*.}" || exit 65
         printf "('%s',)\\n" "\$answer"
+        exit 0 ;;
+      org.freedesktop.DBus.Properties.Get)
+        [[ " \$* " == *" --object-path /org/freedesktop/login1/user/self "*" org.freedesktop.login1.User Display "* ]] || exit 64
+        read -r session <"$power_sleep_replies/Display" || session=""
+        if [[ -n \$session ]]; then printf "(<('%s', objectpath '/org/freedesktop/login1/session/smoke')>,)\\n" "\$session"
+        else echo "(<('', objectpath '/')>,)"; fi
         exit 0 ;;
       org.freedesktop.login1.Manager.Suspend|org.freedesktop.login1.Manager.Hibernate|org.freedesktop.login1.Manager.SuspendThenHibernate)
         [[ \${!#} == false ]] || exit 64

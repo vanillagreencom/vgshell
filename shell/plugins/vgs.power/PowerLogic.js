@@ -4,7 +4,8 @@
 // battery, the battery and profile view published as plugin status, icon
 // bands, time text, profile mapping, low-battery latches, the profile
 // to apply when the power source changes, the setting a bar pick
-// remembers, and Wake on LAN's value, connection list and write rule.
+// remembers, Wake on LAN's value, connection list and write rule, and the
+// power menu's availability reads, offers and confirmation hold.
 // QML owns UPower, the gdbus and nmcli runs that reach the power profiles
 // daemon and NetworkManager, settings writes, IPC and notices.
 
@@ -285,6 +286,145 @@ function sleepChoices(allowed) {
 function sleepMethod(action, allowed) {
     var entry = SLEEP_ACTIONS.find(function (entry) { return entry.value === action; });
     return entry !== undefined && allowed[action] === true ? entry.method : "";
+}
+
+// The power menu's actions in menu order. Each id is a verb of
+// `vgshell power`, which the service runs as its one route.
+var POWER_ACTIONS = [
+    { id: "logout", label: "Log out", icon: "log-out", failed: "Could not log out" },
+    { id: "suspend", label: "Suspend", icon: "moon", failed: "Could not suspend" },
+    { id: "hibernate", label: "Hibernate", icon: "snowflake", failed: "Could not hibernate" },
+    { id: "reboot", label: "Reboot", icon: "rotate-ccw", failed: "Could not reboot" },
+    { id: "poweroff", label: "Shut down", icon: "power-off", failed: "Could not shut down" },
+    { id: "switch-user", label: "Switch user", icon: "users", failed: "Could not switch user" }
+];
+
+// The notice for an action that did not run: `busy` while another run
+// holds the route, `unavailable` for an action not offered, `failed` for a
+// run of the route that failed.
+function actionFailurePayload(id, kind) {
+    var action = POWER_ACTIONS.find(function (entry) { return entry.id === id; });
+    var messages = {
+        busy: "Another power action is running. Wait for it to finish.",
+        unavailable: "This action is not available on this computer now.",
+        failed: "VGS could not finish this action. Try again."
+    };
+    if (!hasOwn(messages, kind)) throw new Error("power: action failure kind=" + kind);
+    return {
+        title: action === undefined ? "Could not run the power action" : action.failed,
+        message: messages[kind],
+        tone: "danger",
+        icon: "circle-alert"
+    };
+}
+
+var LOGIND = ["--system", "--dest", "org.freedesktop.login1", "--object-path", "/org/freedesktop/login1"];
+
+// The gdbus call arguments of one availability pass, each with the key
+// its answer sets and the judge that reads it. logind's Can methods
+// answer for the sleep actions, reboot and power off. Log out needs the
+// user's graphical session, logind's User.Display, the property
+// `vgshell power logout` ends; user/self names the caller's user, and a
+// shell that uwsm runs in the user manager is that user's too:
+// https://www.freedesktop.org/software/systemd/man/latest/org.freedesktop.login1.html
+// Switch user needs LightDM's seat, which XDG_SEAT_PATH names, to answer
+// CanSwitch true; with no seat path there is nothing to ask.
+// https://github.com/canonical/lightdm/blob/e06f2aed1317c82312bd45ed8af027c348933f11/src/display-manager-service.c#L410-L420
+function availabilityReads(seatPath) {
+    var reads = SLEEP_ACTIONS.concat([{ value: "reboot", method: "Reboot" }, { value: "poweroff", method: "PowerOff" }])
+        .map(function (entry) {
+            return { key: entry.value, judge: "can", args: LOGIND.concat(["--method", "org.freedesktop.login1.Manager.Can" + entry.method]) };
+        });
+    reads.push({ key: "logout", judge: "session", args: ["--system", "--dest", "org.freedesktop.login1",
+        "--object-path", "/org/freedesktop/login1/user/self",
+        "--method", "org.freedesktop.DBus.Properties.Get", "org.freedesktop.login1.User", "Display"] });
+    if (/^(\/[A-Za-z0-9_]+)+$/.test(String(seatPath)))
+        reads.push({ key: "switch-user", judge: "true", args: ["--system", "--dest", "org.freedesktop.DisplayManager",
+            "--object-path", seatPath,
+            "--method", "org.freedesktop.DBus.Properties.Get", "org.freedesktop.DisplayManager.Seat", "CanSwitch"] });
+    return reads;
+}
+
+// Whether one read's reply offers its action. gdbus prints a Get reply
+// as the variant it holds, `(<value>,)`; Display is a (so) pair whose
+// empty id, with object path /, means no graphical session.
+function readAnswer(judge, code, text) {
+    if (judge === "can") return sleepAllowed(code, text);
+    if (judge === "session") return code === 0 && /^\(<\('[^']+', objectpath '[^']+'\)>,\)\s*$/.test(String(text));
+    if (judge === "true") return code === 0 && /^\(<true>,\)\s*$/.test(String(text));
+    throw new Error("power: read judge=" + judge);
+}
+
+// The menu's published reading: `checking` before the first pass ends,
+// `failed` when no read of the last pass answered, else `ready` with the
+// offered action ids in menu order.
+function actionsView(passes, answered, allowed) {
+    if (passes === 0) return { state: "checking", offered: [] };
+    if (!answered) return { state: "failed", offered: [] };
+    return { state: "ready", offered: POWER_ACTIONS.filter(function (action) { return allowed[action.id] === true; })
+        .map(function (action) { return action.id; }) };
+}
+
+// The confirmation hold of the power menu. An action fires only after
+// HOLD_MS of one continuous hold: a press of a source, a key or the
+// pointer, on the selected offered action. Its phases:
+//   idle      nothing held; a fresh press with an action starts a hold.
+//   holding   { action, source, start }: one source held since `start`.
+//   spent     { held, fired }: a hold that fired or was cancelled while
+//             the sources in `held` stayed down; nothing starts again
+//             until every one is released, so holds never chain.
+// `now` is a monotonic reading in milliseconds; the caller supplies it.
+var HOLD_MS = 3000;
+
+function holdIdle() {
+    return { phase: "idle" };
+}
+
+function holdPress(hold, source, action, now) {
+    if (hold.phase === "idle")
+        return action === "" ? hold : { phase: "holding", action: action, source: source, start: now };
+    if (hold.phase === "holding")
+        return source === hold.source ? hold : { phase: "spent", held: [hold.source, source], fired: false };
+    if (hold.phase === "spent")
+        return hold.held.indexOf(source) !== -1 ? hold : { phase: "spent", held: hold.held.concat([source]), fired: hold.fired };
+    throw new Error("power: hold phase=" + hold.phase);
+}
+
+function holdRelease(hold, source) {
+    if (hold.phase === "idle") return hold;
+    if (hold.phase === "holding") return source === hold.source ? holdIdle() : hold;
+    if (hold.phase === "spent") {
+        var held = hold.held.filter(function (s) { return s !== source; });
+        return held.length === 0 ? holdIdle() : { phase: "spent", held: held, fired: hold.fired };
+    }
+    throw new Error("power: hold phase=" + hold.phase);
+}
+
+// A cancel keeps the held source, which must be released before a fresh
+// hold, and clears a fired hold's full fill, as after a refusal.
+function holdCancel(hold) {
+    if (hold.phase === "holding") return { phase: "spent", held: [hold.source], fired: false };
+    if (hold.phase === "spent") return { phase: "spent", held: hold.held, fired: false };
+    return hold;
+}
+
+// The milliseconds left before a hold is due, 0 once it is, -1 with no
+// hold.
+function holdRemaining(hold, now) {
+    return hold.phase === "holding" ? Math.max(0, hold.start + HOLD_MS - now) : -1;
+}
+
+// A due hold fires once: the action to request, and the spent hold that
+// keeps its source down.
+function holdFire(hold, now) {
+    if (holdRemaining(hold, now) !== 0) return { hold: hold, fire: "" };
+    return { hold: { phase: "spent", held: [hold.source], fired: true }, fire: hold.action };
+}
+
+// The fill, 0 to 1, linear in the time held.
+function holdProgress(hold, now) {
+    if (hold.phase === "holding") return Math.min(1, Math.max(0, (now - hold.start) / HOLD_MS));
+    return hold.phase === "spent" && hold.fired ? 1 : 0;
 }
 
 // The UUIDs of the wired connections in nmcli's terse UUID,TYPE table.

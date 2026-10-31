@@ -160,6 +160,8 @@ displays
 # the System window's holder.
 sound
 power
+# After power, which leaves Power disabled and its logind transport restored.
+power-menu
 capture
 share-picker
 # After capture, before tui-guard: its Sign in reaches the stand-in

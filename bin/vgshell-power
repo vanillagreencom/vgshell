@@ -1,47 +1,83 @@
 #!/usr/bin/env bash
-# vgshell-power: end the graphical session, restart or shut down the computer.
+# vgshell-power: end the graphical session, sleep, restart or shut down the
+# computer, or show the login screen so another user can log in.
 #
-#   vgshell power logout|reboot|poweroff
+#   vgshell power logout|suspend|hibernate|reboot|poweroff|switch-user
 #       logout terminates logind's primary graphical session explicitly;
-#       reboot and poweroff ask vgs.jarvis's `power` handler first; unless
-#       it answers `held`, run systemctl at once
+#       suspend and hibernate run systemctl at once, which asks logind, so
+#       its inhibitors and vgs.lock's delay inhibitor apply; reboot and
+#       poweroff ask vgs.jarvis's `power` handler first and, unless it
+#       answers `held`, run systemctl at once; switch-user locks the session
+#       through `vgshell lock`, then asks LightDM's seat for its greeter
 #
-# The one route of every VGS restart and shutdown that a user asks for: the
-# launcher's System menu Reboot and Shut down, and the Updates run's Reboot
-# answer. vgs.jarvis answers `held` only while a Jarvis session lives; it
-# then runs systemctl itself, after the session saved or at its bound
+# The one route of the power menu's actions, the launcher's System Log out,
+# Reboot and Shut down rows and the Updates run's Reboot answer. The
+# launcher's Sleep rows and sleep after idle stay on vgs.power's own logind
+# request.
+# vgs.jarvis answers `held` only while a Jarvis session lives; it then runs
+# systemctl itself, after the session saved or at its bound
 # (shell/plugins/vgs.jarvis/PowerWait.qml). Any other answer, no answer
 # within 5 s, no running shell or a disabled vgs.jarvis lets the restart go
-# at once, so no shell state can hold a restart. It prints nothing.
+# at once, so no shell state can hold a restart. Suspend and hibernate lose
+# no work, so they ask no one. It prints nothing; a failed step's own
+# stderr and exit status are the report.
 #
-# Refusals, one keyed line on stderr, exit 2, nothing run:
-#   vgshell: refused: power=<arg>      not logout, reboot or poweroff
-#   vgshell: refused: argument=<arg>   a second argument
+# Refusals, one keyed line on stderr, nothing run:
+#   vgshell: refused: power=<arg>             exit 2; not one of the six verbs
+#   vgshell: refused: argument=<arg>          exit 2; a second argument
+#   vgshell: refused: power-session=missing   exit 1; logout with no
+#                                             graphical session
+#   vgshell: refused: power-seat=missing      exit 1; switch-user with no
+#                                             XDG_SEAT_PATH
 set -euo pipefail
 
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
 vgshell="$(dirname -- "$self")/vgshell"
 
-if [[ $# -eq 0 || ($1 != logout && $1 != reboot && $1 != poweroff) ]]; then
-  printf 'vgshell: refused: power=%s\n' "${1:-missing}" >&2
-  exit 2
-fi
+case "${1:-}" in
+  logout|suspend|hibernate|reboot|poweroff|switch-user) ;;
+  *)
+    printf 'vgshell: refused: power=%s\n' "${1:-missing}" >&2
+    exit 2
+    ;;
+esac
 if [[ $# -gt 1 ]]; then
   printf 'vgshell: refused: argument=%s\n' "$2" >&2
   exit 2
 fi
-# A shell started by uwsm is in the user manager, outside the login-session
-# scope. An empty terminate-session argument therefore cannot identify it.
-# logind's user Display property names the graphical session independently
-# of the caller: https://www.freedesktop.org/software/systemd/man/latest/org.freedesktop.login1.html
-if [[ $1 == logout ]]; then
-  session="$(loginctl show-user "$UID" --property=Display --value)" || exit "$?"
-  if [[ -z $session ]]; then
-    printf 'vgshell: refused: power-session=missing\n' >&2
-    exit 1
-  fi
-  exec loginctl terminate-session "$session"
-fi
+case $1 in
+  # A shell started by uwsm is in the user manager, outside the login-session
+  # scope. An empty terminate-session argument therefore cannot identify it.
+  # logind's user Display property names the graphical session independently
+  # of the caller: https://www.freedesktop.org/software/systemd/man/latest/org.freedesktop.login1.html
+  logout)
+    session="$(loginctl show-user "$UID" --property=Display --value)" || exit "$?"
+    if [[ -z $session ]]; then
+      printf 'vgshell: refused: power-session=missing\n' >&2
+      exit 1
+    fi
+    exec loginctl terminate-session "$session"
+    ;;
+  suspend|hibernate)
+    exec systemctl "$1"
+    ;;
+  # LightDM sets XDG_SEAT_PATH in the session it starts, naming the seat's
+  # object on its org.freedesktop.DisplayManager.Seat interface, whose
+  # SwitchToGreeter shows the greeter while this session keeps running:
+  # https://github.com/canonical/lightdm/blob/e06f2aed1317c82312bd45ed8af027c348933f11/src/display-manager-service.c#L410-L420
+  # and lines 573-577 of that file. `vgshell lock` returns only once the
+  # compositor confirmed the lock, so the session is locked before the
+  # greeter shows; a failed lock switches nothing. gdbus prints the reply
+  # tuple `()` on stdout and `vgshell lock` prints `ok`; both go.
+  switch-user)
+    if [[ -z ${XDG_SEAT_PATH:-} ]]; then
+      printf 'vgshell: refused: power-seat=missing\n' >&2
+      exit 1
+    fi
+    "$vgshell" lock >/dev/null || exit "$?"
+    exec gdbus call --system --dest org.freedesktop.DisplayManager --object-path "$XDG_SEAT_PATH" --method org.freedesktop.DisplayManager.Seat.SwitchToGreeter >/dev/null
+    ;;
+esac
 # The reply is a line `vgshell ipc` prints; its own refusals, such as no
 # running shell, go to the discarded stderr and print no `held`. Read whole
 # before it is judged: a pipe into `grep -q` could end the call early.

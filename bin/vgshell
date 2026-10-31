@@ -558,9 +558,16 @@ Lock your session through the running VGS shell.
 EOF_HELP
       ;;
     power) cat <<'EOF_HELP'
-Usage: vgshell power logout|reboot|poweroff
+Usage: vgshell power logout|suspend|hibernate|reboot|poweroff|switch-user
 
-Log out of the graphical session, restart or shut down the computer.
+  logout        Log out of the graphical session
+  suspend       Put the computer to sleep
+  hibernate     Save the session to disk and turn the computer off
+  reboot        Restart the computer
+  poweroff      Shut down the computer
+  switch-user   Lock this session and show the login screen, so another
+                user can log in
+
 Before a restart or shutdown, a running Jarvis session saves its work
 first, for at most one minute.
 EOF_HELP

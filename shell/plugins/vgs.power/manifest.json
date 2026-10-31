@@ -4,20 +4,22 @@
   "name": "Power",
   "version": "0.1.0",
   "author": "VanillaGreen",
-  "description": "Show battery level, choose the power profile and see what happens while you are away.",
+  "description": "Show battery level, choose the power profile, see what happens while you are away and open the power menu.",
   "license": "MIT",
   "icon": "battery-medium",
   "kinds": [
     "service",
     "bar-widget",
     "panel",
-    "pane"
+    "pane",
+    "overlay"
   ],
   "entryPoints": {
     "service": "Service.qml",
     "bar-widget": "Widget.qml",
     "panel": "Panel.qml",
-    "pane": "Pane.qml"
+    "pane": "Pane.qml",
+    "overlay": "Overlay.qml"
   },
   "capabilities": [
     "compositor",
@@ -252,7 +254,22 @@
       "problem": "wakeOnLanProblem"
     }
   },
+  "hyprland": {
+    "binds": [
+      {
+        "shortcut": "power-menu",
+        "key": null,
+        "info": "Opens the power menu. Hold Space, Enter or the pointer on an action for 3 seconds to run it."
+      }
+    ]
+  },
   "menu": {
+    "system.power-menu": {
+      "label": "Power menu",
+      "icon": "power",
+      "description": "Hold an action to log out, suspend, reboot or shut down",
+      "shortcut": "power-menu"
+    },
     "system.sleep": {
       "label": "Sleep",
       "icon": "moon",
@@ -283,6 +300,10 @@
     }
   },
   "status": {
+    "actions": {
+      "type": "data",
+      "label": "Power actions"
+    },
     "sleepRows": {
       "type": "launcherRows",
       "label": "Sleep actions"

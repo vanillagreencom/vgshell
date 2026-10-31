@@ -95,6 +95,13 @@ The power button and the lid must act while the shell is down: a laptop closed i
 - Do offer Hibernate and Suspend then hibernate only while logind answers yes. `scripts/test-power-logic.js` and `scripts/smoke/rows/power.sh` pin the setting choices. `vgs.power` owns the dynamic Sleep and Hibernate rows under System > Sleep through its `launcherRows` provider, offering each only while logind answers yes. Both use the existing supported-method judge and request owner; explicit Sleep requests Suspend regardless of the saved idle choice. `scripts/smoke/rows/launcher.sh` checks these offers and one noninteractive Suspend request through the shared logind stand-in.
 - Never run a check that suspends or hibernates a real machine. Sandbox rows use a stand-in for logind, as `scripts/smoke/rows/lock.sh` does today. Review holds it.
 
+### Power actions
+
+- Do run the power menu's six actions, the launcher's System Log out, Reboot and Shut down rows, and the Updates run's Reboot through `vgshell power`, with one fixed argument: `logout`, `suspend`, `hibernate`, `reboot`, `poweroff` or `switch-user`. `bin/vgshell-power` owns each verb's route and refusals; `scripts/test-vgshell-power.sh` pins each verb's call and its failure. The launcher's System > Sleep rows, the `sleep` shortcut and sleep after idle stay on `vgs.power`'s own noninteractive logind request, under § Sleep.
+- Do offer a power menu action only where `vgs.power`'s service reads that the system can do it: logind's Can method answers yes, the user has a graphical session for Log out, and LightDM's seat answers CanSwitch true for Switch user. The menu fires an action only after 3000 ms of continuous hold. `scripts/test-power-logic.js` pins the offers and the hold over injected time, and `scripts/smoke/rows/power-menu.sh` drives them on the nested seat.
+- Do run `suspend` and `hibernate` as `systemctl suspend` and `systemctl hibernate`, which ask logind, so the rule above holds. They ask Jarvis nothing, since sleep loses no work; `reboot` and `poweroff` ask it first.
+- Do lock the session before `switch-user` asks LightDM's seat, named by `XDG_SEAT_PATH`, to show its greeter. A failed lock switches nothing. `scripts/test-vgshell-power.sh` pins the order.
+
 ### Keys, wake and storage
 
 - Do set the power button and the lid as logind drop-ins written by a system step, never as a shell bind over a key logind ignores. Designed: VGS-1909 adds a step that takes one value from the closed set its row in `bin/vgshell-system` names, the one owner of that set, pinned by `scripts/test-vgshell-system.sh`.

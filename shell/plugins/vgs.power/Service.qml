@@ -1,4 +1,5 @@
 import QtQuick
+import Quickshell
 import Quickshell.Io
 import Quickshell.Networking
 import Quickshell.Bluetooth
@@ -33,6 +34,12 @@ import "PowerLogic.js" as Logic
 // daemon, and the watch then reports the new owner (dbus-daemon 1.16.2, a
 // private bus with a service directory and python-dbusmock 0.38.1 as the
 // activated daemon, 2026-10-19).
+//
+// It is also the power menu's owner: it reads which actions the system
+// offers, publishes them as `actions`, registers the `power-menu`
+// shortcut that toggles the overlay, and runs each action the overlay
+// asks for through `vgshell power <verb>`, the shared power route, keeping
+// the request when the overlay closes.
 Item {
     id: root
 
@@ -48,11 +55,17 @@ Item {
     readonly property string sleepAction: shell === null ? "suspend" : shell.settings.sleepAction
     property var sleepDisposer: null
     property bool sleepAttempted: false
-    property var sleepAllowed: ({})
-    property var sleepReading: ({})
+    // What the system allows, by POWER_ACTIONS id and sleep action, from
+    // the last availability pass; the pass under way fills `reading`.
+    property var allowed: ({})
+    property var reading: ({})
+    property var reads: []
     property int sleepReadIndex: -1
     property bool sleepReadStale: false
-    readonly property var logindBus: ["--system", "--dest", "org.freedesktop.login1", "--object-path", "/org/freedesktop/login1"]
+    property int passes: 0
+    property bool answered: false
+    property bool passAnswered: false
+    readonly property var logindBus: Logic.LOGIND
     // Longer than a password check, which this plugin cannot read.
     readonly property int lockedDisplayOffSeconds: 10
 
@@ -132,6 +145,9 @@ Item {
         shell.shortcut.register("balanced", "Use the balanced profile", () => root.setProfile("balanced", true));
         shell.shortcut.register("performance", "Use the performance profile", () => root.setProfile("performance", true));
         shell.shortcut.register("sleep", "Put the computer to sleep", action => root.requestSleep(action));
+        shell.shortcut.register("power-menu", "Open the power menu", () => root.toggleMenu());
+        shell.ipc.handle("read-actions", () => { root.readSleepActions(); return "ok"; });
+        shell.ipc.handle("action", arg => root.requestAction(String(arg || "")));
         profileWatch.running = true;
         prepareForSleepWatch.running = true;
         shell.status.handleRefresh("sleepActions", () => { root.readSleepActions(); return "ok"; });
@@ -202,7 +218,7 @@ Item {
     }
 
     function requestSleep(action) {
-        const method = Logic.sleepMethod(action, sleepAllowed);
+        const method = Logic.sleepMethod(action, allowed);
         if (method === "") {
             report("sleepProblem", "The selected sleep action is not available on this computer.");
             return;
@@ -217,6 +233,32 @@ Item {
         sleepRequest.running = true;
     }
 
+    function toggleMenu() {
+        const reply = shell.surfaces.toggle("overlay", "{}");
+        if (reply !== "ok") console.warn("power: menu toggle " + reply);
+    }
+
+    // The overlay's request for one offered action. `ok` once the run
+    // started, which this service then owns; a refusal starts nothing and
+    // sends the same notice a failed run sends.
+    function requestAction(id) {
+        const offered = Logic.actionsView(passes, answered, allowed).offered;
+        if (offered.indexOf(id) === -1) return actionFailed(id, "unavailable", "refused: action=" + id + " reason=unavailable");
+        if (actionRequest.running) return actionFailed(id, "busy", "refused: action=" + id + " reason=busy");
+        actionRequest.completion = null;
+        actionRequest.command = ["vgshell", "power", id];
+        actionRequest.running = true;
+        return "ok";
+    }
+
+    // KIND picks the notice; LINE, the keyed reason, goes to the log alone.
+    function actionFailed(id, kind, line) {
+        console.error("power: action " + line);
+        const sent = shell.notify.send(Logic.actionFailurePayload(id, kind));
+        if (sent !== "ok") console.warn("power: notify " + sent);
+        return line;
+    }
+
     function readSleepActions() {
         if (shell === null) return;
         if (sleepReader.running) {
@@ -224,35 +266,43 @@ Item {
             return;
         }
         sleepReadStale = false;
-        sleepReading = ({});
+        reading = ({});
+        // LightDM sets XDG_SEAT_PATH in the session it starts; Quickshell
+        // 0.3.1's env() answers null for an unset name.
+        // https://quickshell.org/docs/v0.3.1/types/Quickshell/Quickshell
+        reads = Logic.availabilityReads(Quickshell.env("XDG_SEAT_PATH") || "");
+        passAnswered = false;
         sleepReadIndex = 0;
         readNextSleepAction();
     }
 
     function readNextSleepAction() {
-        if (sleepReadIndex === Logic.SLEEP_ACTIONS.length) {
-            sleepAllowed = sleepReading;
+        if (sleepReadIndex === reads.length) {
+            allowed = reading;
+            passes++;
+            answered = passAnswered;
             publishSleepActions();
             if (sleepReadStale) readSleepActions();
             return;
         }
-        sleepReader.command = ["gdbus", "call"].concat(logindBus, ["--method", "org.freedesktop.login1.Manager.Can" + Logic.SLEEP_ACTIONS[sleepReadIndex].method]);
+        sleepReader.command = ["gdbus", "call"].concat(reads[sleepReadIndex].args);
         sleepReader.completion = null;
         sleepReader.running = true;
     }
 
     function publishSleepActions() {
         if (shell === null) return;
-        report("sleepActions", Logic.sleepChoices(sleepAllowed));
+        report("actions", Logic.actionsView(passes, answered, allowed));
+        report("sleepActions", Logic.sleepChoices(allowed));
         // Explicit launcher actions do not inherit the saved idle method.
         report("sleepRows", [
             { id: "suspend", label: "Sleep", icon: "moon" },
             { id: "hibernate", label: "Hibernate", icon: "snowflake" }
-        ].filter(action => Logic.sleepMethod(action.id, sleepAllowed) !== ""));
+        ].filter(action => Logic.sleepMethod(action.id, allowed) !== ""));
         // This presence gates the same chooser in Power and Settings.
         // Keep an unsupported saved action editable without replacing it.
-        const shown = sleepAllowed.hibernate === true || sleepAllowed["suspend-then-hibernate"] === true
-            || Logic.sleepMethod(sleepAction, sleepAllowed) === "";
+        const shown = allowed.hibernate === true || allowed["suspend-then-hibernate"] === true
+            || Logic.sleepMethod(sleepAction, allowed) === "";
         report("hibernate", shown ? "present" : "absent");
     }
 
@@ -568,7 +618,7 @@ Item {
         stdout: SplitParser { onRead: line => { root.resumeFromSleep(line); root.readSleepActions(); } }
         onExited: code => {
             console.warn("power: logind watch ended exit=" + code);
-            root.sleepAllowed = ({});
+            root.allowed = ({});
             root.publishSleepActions();
         }
     }
@@ -583,14 +633,40 @@ Item {
         clearEnvironment: true
         environment: ({ PATH: null, DBUS_SYSTEM_BUS_ADDRESS: null, LC_ALL: "C" })
         stdout: StdioCollector { id: sleepReaderOut; waitForEnd: true }
+        stderr: StdioCollector { id: sleepReaderErr; waitForEnd: true }
         onExited: (code, status) => { completion = { code: code, status: status }; }
         onRunningChanged: {
             if (running) return;
-            const next = Object.assign({}, root.sleepReading);
-            next[Logic.SLEEP_ACTIONS[root.sleepReadIndex].value] = Logic.sleepAllowed(root.codeOf(completion), sleepReaderOut.text);
-            root.sleepReading = next;
+            const read = root.reads[root.sleepReadIndex];
+            const code = root.codeOf(completion);
+            // A read that fails is an action not offered, as on a system
+            // with no logind or display manager on its bus: its cause goes
+            // to the log as information, not as a warning.
+            if (code !== 0) console.info("power: read key=" + read.key + " exit=" + code + " stderr=" + JSON.stringify(sleepReaderErr.text.trim()));
+            const next = Object.assign({}, root.reading);
+            next[read.key] = Logic.readAnswer(read.judge, code, sleepReaderOut.text);
+            root.reading = next;
+            if (code === 0) root.passAnswered = true;
             root.sleepReadIndex++;
             root.readNextSleepAction();
+        }
+    }
+
+    // The one run of `vgshell power <verb>`. It inherits the shell's
+    // environment, the session's buses and XDG_SEAT_PATH among it, as the
+    // route needs. Quickshell 0.3.1 emits runningChanged also for
+    // FailedToStart, which has no exited signal; the collector settles
+    // before it.
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/Process
+    Process {
+        id: actionRequest
+        property var completion: null
+        stderr: StdioCollector { id: actionErrors; waitForEnd: true }
+        onExited: (code, status) => { completion = { code: code, status: status }; }
+        onRunningChanged: {
+            if (running) return;
+            const code = root.codeOf(completion);
+            if (code !== 0) root.actionFailed(command[2], "failed", "argv=" + JSON.stringify(command) + " exit=" + code + " stderr=" + JSON.stringify(actionErrors.text.trim()));
         }
     }
 
