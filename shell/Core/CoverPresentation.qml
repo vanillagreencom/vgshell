@@ -13,10 +13,13 @@ import "PluginLogic.js" as Logic
 //
 // A presentation ends on the first input under the lock, on a stop or a
 // failure the owner reports, a manual, sleep or restore lock, an unlock,
-// the panels going off, and the owner changing, being rebuilt or going. A
-// new one starts only from a manual start, a valid idle ticket of the
-// owner's screensaver stage or Lock's own idle event (coverStartsWithLock),
-// so nothing that ended can map again.
+// the panels going off, the owner changing, being rebuilt or going, and
+// its last cover instance going. A new one starts only from a manual
+// start, a valid idle ticket of the owner's screensaver stage or Lock's own
+// idle event (coverStartsWithLock), and only while a cover instance of the
+// owner exists, so nothing that ended can map again and a cover whose
+// build failed or was refused (a restart owed) never holds the lock's
+// screen in front of the lock content.
 Scope {
     id: root
 
@@ -46,6 +49,11 @@ Scope {
         return out;
     }
     readonly property bool sessionLocked: sessionLock.lockRequested || sessionLock.lockSecure
+    // One entry per screen whose CoverHost holds a built cover instance of
+    // the owner; each host takes back only its own.
+    property var builtEntries: []
+    readonly property bool built: builtEntries.length > 0
+    onBuiltChanged: if (!built) dismiss("unbuilt")
 
     onOwnerIdChanged: dismiss("owner")
     onOwnerRevisionChanged: dismiss("owner")
@@ -85,7 +93,7 @@ Scope {
 
     function present(ctx, ticket) {
         const ticketState = ticket === undefined ? "none" : root.idle.ticketFor(ctx.id, "screensaver", ticket) !== null ? "valid" : "stale";
-        const result = Logic.coverPresentAnswer({ caller: ctx.id, owner: ownerId, ticket: ticketState, displaysOff: displaysOff, locked: sessionLocked, placement: placement });
+        const result = Logic.coverPresentAnswer({ caller: ctx.id, owner: ownerId, ticket: ticketState, built: built, displaysOff: displaysOff, locked: sessionLocked, placement: placement });
         if (result.start) begin("desktop", ticketState === "valid" ? "idle" : "manual");
         return result.answer;
     }
@@ -109,7 +117,7 @@ Scope {
     // the lock: the cause, and whether the session was already locked.
     function lockRequested(cause, wasLocked) {
         const starts = Logic.coverStartsWithLock(root.idle.currentStages(), ownerId);
-        const action = Logic.coverOnLock(cause, wasLocked, placement, starts, displaysOff);
+        const action = Logic.coverOnLock(cause, wasLocked, placement, starts, displaysOff, built);
         if (action === "transfer") state = { placement: "secure", generation: state.generation, origin: state.origin };
         else if (action === "start") begin("secure", "lock");
         else if (action === "dismiss") dismiss("superseded");
@@ -131,6 +139,14 @@ Scope {
         state = { placement: "none", generation: state.generation, origin: "" };
     }
 
+    // A CoverHost holds a built cover instance of the owner; returns the
+    // disposer the host calls when that instance goes.
+    function registerBuilt() {
+        const entry = {};
+        builtEntries = builtEntries.concat([entry]);
+        return () => { root.builtEntries = root.builtEntries.filter(other => other !== entry); };
+    }
+
     // LockHost's lock surface on SCREEN offers ITEM as the cover's place;
     // returns the disposer the surface calls as it goes.
     function registerSecureRoot(screen, item) {
@@ -145,6 +161,6 @@ Scope {
         const secure = {};
         for (const name of Object.keys(secureRoots).sort())
             secure[name] = Array.from(secureRoots[name].children).filter(child => typeof child.pluginId === "string").map(child => child.pluginId);
-        return { owner: ownerId, placement: state.placement, generation: state.generation, origin: state.origin, ended: ended, secure: secure };
+        return { owner: ownerId, built: builtEntries.length, placement: state.placement, generation: state.generation, origin: state.origin, ended: ended, secure: secure };
     }
 }

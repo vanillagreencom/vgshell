@@ -42,6 +42,23 @@ Item {
     // QsWindow.contentItem, the window's root item:
     // https://quickshell.org/docs/v0.3.1/types/Quickshell/QsWindow/
     readonly property var desktopRoot: surface.item === null ? null : surface.item.contentItem
+    // Whether this screen holds a built cover instance of the owner. A
+    // build that failed or was refused (a restart owed) leaves the slot with
+    // none; CoverPresentation starts no presentation without one and ends
+    // the running one when the last goes.
+    readonly property bool built: slots.instances.some(slot => slot.instance !== null)
+    property var releaseBuilt: null
+    onBuiltChanged: offerBuilt()
+    Component.onCompleted: offerBuilt()
+    Component.onDestruction: if (releaseBuilt !== null) releaseBuilt()
+    function offerBuilt() {
+        if (built && releaseBuilt === null) {
+            releaseBuilt = covers.registerBuilt();
+        } else if (!built && releaseBuilt !== null) {
+            releaseBuilt();
+            releaseBuilt = null;
+        }
+    }
 
     Loader {
         id: surface

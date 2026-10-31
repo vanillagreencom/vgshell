@@ -1183,7 +1183,7 @@ function suite(ctx, configLogic, check) {
         ["no lock stage", [["screensaver", "acme.saver", 300]], "acme.saver", false]
     ])
         check("coverStartsWithLock: " + name, ctx.coverStartsWithLock(coverStages(rows), owner), want);
-    const present = over => ctx.coverPresentAnswer(Object.assign({ caller: "acme.saver", owner: "acme.saver", ticket: "none", displaysOff: false, locked: false, placement: "none" }, over));
+    const present = over => ctx.coverPresentAnswer(Object.assign({ caller: "acme.saver", owner: "acme.saver", ticket: "none", built: true, displaysOff: false, locked: false, placement: "none" }, over));
     for (const [name, over, want] of [
         ["a manual start", {}, { answer: "ok", start: true }],
         ["an idle start", { ticket: "valid" }, { answer: "ok", start: true }],
@@ -1193,21 +1193,24 @@ function suite(ctx, configLogic, check) {
         ["a revoked ticket while running", { ticket: "stale", placement: "desktop" }, { answer: "refused: cover=idle-ticket-stale", start: false }],
         ["a second callback while on the desktop", { ticket: "valid", placement: "desktop" }, { answer: "ok", start: false }],
         ["a second callback while held in the lock", { ticket: "valid", placement: "secure", locked: true }, { answer: "ok", start: false }],
+        ["no cover instance built", { built: false }, { answer: "refused: cover=not-built", start: false }],
+        ["no cover instance built for an idle start", { ticket: "valid", built: false }, { answer: "refused: cover=not-built", start: false }],
         ["the panels off", { displaysOff: true }, { answer: "refused: cover=displays-off", start: false }],
         ["a locked session", { ticket: "valid", locked: true }, { answer: "refused: cover=locked", start: false }]
     ])
         check("coverPresentAnswer: " + name, present(over), want);
     for (const [name, args, want] of [
-        ["an idle lock over a desktop cover", ["idle", false, "desktop", false, false], "transfer"],
-        ["an idle lock at equal times", ["idle", false, "none", true, false], "start"],
-        ["an idle lock at equal times behind dark panels", ["idle", false, "none", true, true], "keep"],
-        ["an idle lock at other times", ["idle", false, "none", false, false], "keep"],
-        ["a late idle request over a held lock", ["idle", true, "none", true, false], "keep"],
-        ["a late idle request while the cover is in the lock", ["idle", true, "secure", true, false], "keep"],
-        ["a manual lock over a desktop cover", ["manual", false, "desktop", true, false], "dismiss"],
-        ["a sleep lock over a cover in the lock", ["sleep", true, "secure", true, false], "dismiss"],
-        ["a restore over a cover in the lock", ["restore", true, "secure", false, false], "dismiss"],
-        ["a manual lock with no cover", ["manual", false, "none", true, false], "keep"]
+        ["an idle lock over a desktop cover", ["idle", false, "desktop", false, false, true], "transfer"],
+        ["an idle lock at equal times", ["idle", false, "none", true, false, true], "start"],
+        ["an idle lock at equal times behind dark panels", ["idle", false, "none", true, true, true], "keep"],
+        ["an idle lock at equal times with no cover instance built", ["idle", false, "none", true, false, false], "keep"],
+        ["an idle lock at other times", ["idle", false, "none", false, false, true], "keep"],
+        ["a late idle request over a held lock", ["idle", true, "none", true, false, true], "keep"],
+        ["a late idle request while the cover is in the lock", ["idle", true, "secure", true, false, true], "keep"],
+        ["a manual lock over a desktop cover", ["manual", false, "desktop", true, false, true], "dismiss"],
+        ["a sleep lock over a cover in the lock", ["sleep", true, "secure", true, false, true], "dismiss"],
+        ["a restore over a cover in the lock", ["restore", true, "secure", false, false, true], "dismiss"],
+        ["a manual lock with no cover", ["manual", false, "none", true, false, true], "keep"]
     ])
         check("coverOnLock: " + name, ctx.coverOnLock.apply(null, args), want);
     check("cover is a capability and not exclusive", [ctx.CAPABILITIES.indexOf("cover") !== -1, ctx.EXCLUSIVE_CAPABILITIES.indexOf("cover")], [true, -1]);
@@ -3113,6 +3116,8 @@ const CONTROLS = [
     ["only the stage owner holds a stage watch", "if (row === null || row.plugin !== owner)", "if (row === null)"],
     ["an idle lock request carries an object ticket", "if (request.cause === \"idle\" && (request.ticket === null || typeof request.ticket !== \"object\"))", "if (false)"],
     ["a locked session takes no new cover", "if (request.locked) return refuse(\"locked\");", ""],
+    ["a cover no instance draws is never presented", "if (!request.built) return refuse(\"not-built\");", ""],
+    ["a cover starts with the lock only while built", "return startsWithLock && !displaysOff && built ? \"start\" : \"keep\";", "return startsWithLock && !displaysOff ? \"start\" : \"keep\";"],
     ["a revoked ticket starts no cover", "if (request.ticket === \"stale\") return refuse(\"idle-ticket-stale\");", ""],
     ["only an idle lock of an unlocked session covers it", "if (wasLocked || placement === \"secure\") return \"keep\";", ""],
     ["a manual, sleep or restore lock ends the cover", "if (cause !== \"idle\") return placement === \"none\" ? \"keep\" : \"dismiss\";", "if (cause !== \"idle\") return \"keep\";"],

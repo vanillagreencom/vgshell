@@ -4518,17 +4518,20 @@ function coverStartsWithLock(stages, owner) {
 }
 
 // The answer to the cover provider's present() from REQUEST: { caller,
-// owner, ticket, displaysOff, locked, placement }, `ticket` "none" for a
-// manual start or "valid" or "stale" for an idle one. Returns { answer,
+// owner, ticket, built, displaysOff, locked, placement }, `ticket` "none"
+// for a manual start or "valid" or "stale" for an idle one, `built` true
+// while a cover instance of the owner exists to draw it. Returns { answer,
 // start }: `start` true when the presentation starts on the desktop.
 // A presentation already running answers ok and starts nothing, so a
 // second callback of one idle cycle is idempotent; a locked session takes
-// no new cover, so a late callback cannot cover an established lock.
+// no new cover, so a late callback cannot cover an established lock; and
+// a cover that failed to build or was refused claims no presentation.
 function coverPresentAnswer(request) {
     var refuse = function (key) { return { answer: "refused: cover=" + key, start: false }; };
     if (request.owner === "" || request.caller !== request.owner) return refuse("not-owner");
     if (request.ticket === "stale") return refuse("idle-ticket-stale");
     if (request.placement !== "none") return { answer: "ok", start: false };
+    if (!request.built) return refuse("not-built");
     if (request.displaysOff) return refuse("displays-off");
     if (request.locked) return refuse("locked");
     return { answer: "ok", start: true };
@@ -4537,14 +4540,15 @@ function coverPresentAnswer(request) {
 // What a lock request of CAUSE does to the cover presentation at
 // PLACEMENT: `transfer` moves a running desktop presentation into the
 // lock, `start` begins it there (STARTS_WITH_LOCK, coverStartsWithLock,
-// while the panels are on), `dismiss` ends it and `keep` leaves it. Only
-// the idle request that takes an unlocked session (WAS_LOCKED false) can
-// cover it; manual, sleep and restore always show Lock.
-function coverOnLock(cause, wasLocked, placement, startsWithLock, displaysOff) {
+// while the panels are on and a cover instance is BUILT), `dismiss` ends
+// it and `keep` leaves it. Only the idle request that takes an unlocked
+// session (WAS_LOCKED false) can cover it; manual, sleep and restore
+// always show Lock.
+function coverOnLock(cause, wasLocked, placement, startsWithLock, displaysOff, built) {
     if (cause !== "idle") return placement === "none" ? "keep" : "dismiss";
     if (wasLocked || placement === "secure") return "keep";
     if (placement === "desktop") return "transfer";
-    return startsWithLock && !displaysOff ? "start" : "keep";
+    return startsWithLock && !displaysOff && built ? "start" : "keep";
 }
 
 // Dynamic rows published by the provider row MENU_ID, read from VALUES, the

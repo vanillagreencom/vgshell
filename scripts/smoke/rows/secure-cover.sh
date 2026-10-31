@@ -17,7 +17,8 @@
 # Screensaver edit leaves the lock watch's generation and deadline alone.
 # A revoked idle ticket starts nothing. Manual and restore locks end the
 # cover; display off, a renderer failure and a disable end it with the
-# lock still held and leave no renderer. A second output gets its own
+# lock still held and leave no renderer. A cover that fails to build
+# claims no presentation, so the lock screen shows at once. A second output gets its own
 # cover in its own lock surface and takes it away again when it goes.
 # Idle readings poll at expect_poll's 0.2 s; the lock deadline reading
 # polls every 0.1 s. Measured on host cachy on 2026-10-31 under the nested
@@ -302,8 +303,9 @@ expect_poll "disable: the fixture owns the stage again" '["acme.cover", "none", 
 expect_poll "disable: vgs.screensaver let its stage watch go" '[]' sc_saver_watch
 
 # A rebuilt owner (its source changed) ends the cover its old instances
-# drew, through the old service's release or the revision change,
-# whichever the core hears first; the lock stays and no renderer is left.
+# drew, through the old service's release, the revision change or its
+# last cover instance going, whichever the core hears first; the lock
+# stays and no renderer is left.
 sc_hold rebuild
 python3 - "$home/.config/vgshell/plugins/acme.cover/manifest.json" <<'PY'
 import json, os, sys
@@ -314,9 +316,35 @@ json.dump(doc, open(path + ".tmp", "w"))
 os.replace(path + ".tmp", path)
 PY
 rescan "rebuild: a rescan under the lock answers ok"
-sc_ended_locked rebuild 'owner|released'
+sc_ended_locked rebuild 'owner|released|unbuilt'
 expect_poll "rebuild: the rebuilt fixture owns the stage again" '["acme.cover", "none", ""]' sc_cover
 sc_release rebuild
+
+# A cover whose build fails, here an installed source that does not parse,
+# leaves the owner with no instance: nothing claims a presentation, and an
+# idle lock at equal times shows the lock screen at once rather than a
+# barrier over an empty lock surface. A source that builds again restores it.
+sc_cover_file="$home/.config/vgshell/plugins/acme.cover/Cover.qml"
+cp -- "$sc_cover_file" "$sandbox/secure-cover-Cover.qml"
+printf 'import QtQuick\nItem {\n' >"$sc_cover_file"
+rescan "broken build: a rescan over the unparsable cover answers ok"
+expect_poll "broken build: the owner holds no built cover" 0 sc_lent cover.built
+expect "broken build: an on-demand start is refused" 'refused: cover=not-built' sc_fixture present
+expect "broken build: the presentation stays off" '"none"' sc_placement
+sc_times 3 3
+sc_presents_before="$(sc_fixture status | py_reply 'import json,sys; print(len(json.load(sys.stdin)["presents"]))')"
+hover 20 20 || fail "broken build: resting the pointer failed"
+sc_idle_start "broken build"
+expect_poll "broken build: the idle lock still locks" locked sc_session
+expect "broken build: no cover is held in the lock" '"none"' sc_placement
+expect_poll "broken build: the lock screen shows at once" "$(sc_outputs)" sc_views
+expect_poll "broken build: the screensaver's own idle start is refused" "[$((sc_presents_before + 1)), \"refused: cover=not-built\"]" sc_present_tail
+expect "broken build: no renderer runs" 0 sc_renderers
+sc_times 0 0
+sc_release "broken build"
+cp -- "$sandbox/secure-cover-Cover.qml" "$sc_cover_file"
+rescan "broken build: a rescan over the restored cover answers ok"
+expect_poll "broken build: the restored cover is built on every output" "$(sc_outputs)" sc_lent cover.built
 
 # Screensaver reloads and edits leave Lock's watch where it was.
 sc_times 0 30
