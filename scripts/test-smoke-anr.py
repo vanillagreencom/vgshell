@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Drive real recorder events and smoke_row boundaries with owned fixtures."""
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -8,6 +9,7 @@ import select
 import shutil
 import signal
 import socket
+import stat
 import subprocess
 import tempfile
 import threading
@@ -596,6 +598,226 @@ while True:
     assert recorder.count(needle) == 1
     assert forced_result(recorder.replace(needle, "            return None\n")) is None
     print("smoke-anr: control=unreported-force rejected")
+
+    # The shared ss reader, over lines `ss -xpnH` and `ss -xlpnH` printed on
+    # the development host on 2026-10-31, the session bus's path standing
+    # in for a server's: a client end two processes hold, a client end ss
+    # names no holder of, a listener and another server's connection; and
+    # a probe's listener holding the server's side of a connection whose
+    # client end has closed, which reads peer 0. The same text without the
+    # unnamed end's own line is an end that closed after ss read the
+    # server's side.
+    socket_ends_parse = namespace["socket_ends_parse"]
+    recorded = """u_str LISTEN 0      4096                    /run/user/1000/bus 44537      * 0 users:(("dbus-broker",pid=3252,fd=6),("dbus-broker-lau",pid=3251,fd=3))
+u_str ESTAB 0      0                       /run/user/1000/bus 813531862  * 813467542  users:(("dbus-broker",pid=3252,fd=15))
+u_str ESTAB 0      0                       /run/user/1000/bus 636757598  * 636765959  users:(("dbus-broker",pid=3252,fd=35))
+u_str ESTAB 0      0                                        * 636765959  * 636757598
+u_str ESTAB 0      0                                        * 813467542  * 813531862  users:(("qs",pid=2973242,fd=12),("sleep",pid=472058,fd=3))
+u_str ESTAB 0      0             /run/dbus/system_bus_socket 35110      * 35111      users:(("dbus-broker",pid=1200,fd=9))
+u_str ESTAB 0      0                                        * 35111      * 35110      users:(("qs",pid=2973242,fd=14))
+u_str ESTAB 0      0                       /run/user/1000/bus 14016517   * 0        users:(("python3",pid=3783770,fd=6))
+"""
+    unnamed_line = "u_str ESTAB 0      0                                        * 636765959  * 636757598\n"
+    assert recorded.count(unnamed_line) == 1
+    for text, servers, want in (
+        (recorded, {"dbus": "/run/user/1000/bus"}, {813467542: ("dbus", [472058, 2973242]), 636765959: ("dbus", None)}),
+        (recorded.replace(unnamed_line, ""), {"dbus": "/run/user/1000/bus"}, {813467542: ("dbus", [472058, 2973242]), 636765959: ("dbus", [])}),
+        (recorded, {"system-bus": "/run/dbus/system_bus_socket"}, {35111: ("system-bus", [2973242])}),
+        (recorded, {"wayland": "/run/user/1000/wayland-1"}, {}),
+        ("", {"dbus": "/run/user/1000/bus"}, {}),
+    ):
+        assert socket_ends_parse(text, servers) == want, (servers, want)
+    print("smoke-anr: socket-ends=client-ends-by-server-path")
+
+    # The shell stop's survivor check (stop_shell_owner) over real owned
+    # processes. A python runner starts the shell: a launcher that connects
+    # to a listening socket standing in for the nested compositor and execs
+    # a copy of sleep named qs, which the stop takes as the shell. A planted
+    # launcher first hands that end to a sleeper it detaches with setsid,
+    # whose parent exits, as a fork of qs that never reached exec holds it.
+    # An in-flight launcher first sends that end in a message to a courier
+    # socket the test accepts and never reads, so once qs ends the end is
+    # open in no process's descriptor table and ss names no holder of it.
+    # On TERM the runner ends its child and exits.
+    shell_executable = root / "qs"
+    shutil.copy(shutil.which("sleep"), shell_executable)
+    no_ss = root / "no-ss"
+    no_ss.mkdir()
+    (no_ss / "ss").write_text("#!/bin/sh\nexit 3\n")
+    (no_ss / "ss").chmod(0o755)
+    # sun_path holds 108 bytes and the scratch root can be longer, so both
+    # ends name the socket through a /proc/self/fd directory link, as the
+    # recorder's own control socket does; ss names the listener by the
+    # name it bound, which is the server path the stop is given.
+    compositor = root / "wayland-1"
+    courier_path = root / "courier"
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    with namespace["socket_name"](compositor) as name:
+        listener.bind(name)
+    compositor_name = listener.getsockname()
+    listener.listen(8)
+    courier = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    with namespace["socket_name"](courier_path) as name:
+        courier.bind(name)
+    courier.listen(8)
+    accepted = []
+    def accept(server):
+        while True:
+            try:
+                accepted.append(server.accept()[0])
+            except OSError:
+                return
+    for server in (listener, courier):
+        threading.Thread(target=accept, args=(server,), daemon=True).start()
+    shell_runner = """import signal, subprocess, sys
+shell = subprocess.Popen(sys.argv[1:])
+def stop(signum, frame):
+    shell.terminate()
+    shell.wait()
+    sys.exit(0)
+signal.signal(signal.SIGTERM, stop)
+print(shell.pid, flush=True)
+while True:
+    signal.pause()
+"""
+    shell_launch = """import array, os, socket, sys
+server, plant, record, shell = sys.argv[1:]
+def connect(path):
+    directory = os.open(os.path.dirname(path), os.O_PATH | os.O_DIRECTORY)
+    end = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    end.connect(f"/proc/self/fd/{directory}/{os.path.basename(path)}")
+    os.close(directory)
+    return end
+end = connect(server)
+os.set_inheritable(end.fileno(), True)
+if plant == "sleeper":
+    child = os.fork()
+    if child == 0:
+        os.setsid()
+        sleeper = os.fork()
+        if sleeper == 0:
+            os.execvp("sleep", ["sleep", "60"])
+        with open(record, "w") as out:
+            out.write(str(sleeper))
+        os._exit(0)
+    os.waitpid(child, 0)
+elif plant != "-":
+    courier = connect(plant)
+    courier.sendmsg([b"end"], [(socket.SOL_SOCKET, socket.SCM_RIGHTS, array.array("i", [end.fileno()]))])
+    courier.close()
+    with open(record, "w") as out:
+        out.write(str(os.fstat(end.fileno()).st_ino))
+os.execv(shell, ["qs", "60"])
+"""
+
+    def sockets_of(pid):
+        found = set()
+        for entry in (Path("/proc") / str(pid) / "fd").iterdir():
+            with contextlib.suppress(FileNotFoundError):
+                if stat.S_ISSOCK(entry.stat().st_mode):
+                    found.add(entry.stat().st_ino)
+        return found
+
+    def shell_stop_case(name, shell, program=recorder, path=None, runner_gone=False, orderly=2.0, bound=4):
+        subject_module = {"__name__": "fixture"}
+        exec(compile(program, "display-recorder-survivor", "exec"), subject_module)
+        subject = subject_module["Record"].__new__(subject_module["Record"])
+        subject.nested_wayland = compositor_name
+        subject.anr_runtime = root / "runtime"
+        record = root / ("survivor-" + name)
+        argv = dict(planted=[PYTHON, "-c", shell_launch, str(compositor), "sleeper", str(record), str(shell_executable)],
+                    inflight=[PYTHON, "-c", shell_launch, str(compositor), str(courier_path), str(record), str(shell_executable)],
+                    clean=[PYTHON, "-c", shell_launch, str(compositor), "-", "-", str(shell_executable)],
+                    sleep=[shutil.which("sleep"), "60"])[shell]
+        runner = subprocess.Popen([PYTHON, "-c", shell_runner, *argv], env=ENV, stdout=subprocess.PIPE)
+        handles = [os.pidfd_open(runner.pid)]
+        result = dict(sleeper=None, holds=None)
+        try:
+            assert select.select([runner.stdout], [], [], 3)[0], "survivor runner readiness"
+            shell_pid = runner.stdout.readline().decode().strip()
+            for _ in range(300):
+                if shell == "sleep" or os.readlink(f"/proc/{shell_pid}/exe") == str(shell_executable):
+                    break
+                select.select([], [], [], 0.01)
+            else:
+                raise AssertionError("survivor shell never ran qs")
+            if shell == "planted":
+                result["sleeper"] = int(record.read_text())
+                handles.append(os.pidfd_open(result["sleeper"]))
+                result["holds"] = sockets_of(result["sleeper"])
+            if shell == "inflight":
+                result["end"] = int(record.read_text())
+            binding = subject_module["process_binding"]
+            subject.shell_owners = {shell_pid: dict(runner=str(runner.pid), pid=shell_pid, identity=binding(shell_pid),
+                                                    runnerIdentity=binding(str(runner.pid)))}
+            if runner_gone:
+                # Ended but unreaped, so its pid names no other process.
+                signal.pidfd_send_signal(handles[0], signal.SIGTERM)
+                assert select.select([handles[0]], [], [], 3)[0], "survivor runner did not end"
+            saved = os.environ["PATH"]
+            if path:
+                os.environ["PATH"] = path
+            try:
+                result["answer"] = subject.bounded_cleanup("stop_shell_owner", (str(runner.pid), str(os.getpid()), orderly), bound)
+            except ValueError as error:
+                result["answer"] = "refused " + str(error)
+            finally:
+                os.environ["PATH"] = saved
+            # A stop that answers before its runner's TERM ran still sent it.
+            result["runner"] = "ended" if select.select([handles[0]], [], [], 3)[0] else "running"
+            if len(handles) > 1:
+                result["sleeper-state"] = "ended" if select.select([handles[1]], [], [], 0)[0] else "running"
+            return result
+        finally:
+            for handle in handles:
+                if not select.select([handle], [], [], 0)[0]:
+                    signal.pidfd_send_signal(handle, signal.SIGKILL)
+                    select.select([handle], [], [], 2)
+                os.close(handle)
+            runner.wait(timeout=2)
+            runner.stdout.close()
+
+    try:
+        survived = shell_stop_case("survived", "planted")
+        lines = survived["answer"].split("\n")
+        assert lines[0] == "survived" and len(lines) == 2, survived
+        fields = dict(word.split("=", 1) for word in lines[1].split(" argv=")[0].split()[1:])
+        assert fields["pid"] == str(survived["sleeper"]) and lines[1].startswith("survivor "), survived
+        assert {int(inode) for inode in fields["holds"].split(",")} == survived["holds"], survived
+        assert {"ppid", "pgrp", "sid", "threads", "start", "state", "wchan", "sigblk", "sigpnd", "shdpnd", "coredumping", "fd0"} <= fields.keys()
+        assert lines[1].endswith(" argv=[sleep 60]") and survived["sleeper-state"] == "ended" and survived["runner"] == "ended", survived
+        print("smoke-anr: shell-stop=survivor-named-and-ended")
+        for name, shell, options, want in (
+            ("stopped", "clean", {}, "stopped"),
+            ("no-shell", "sleep", {}, "stopped\nsurvivor-check=not-run reason=no-shell"),
+            ("runner-gone", "clean", {"runner_gone": True}, "stopped\nsurvivor-check=not-run reason=runner-gone"),
+            ("unproved", "clean", {"path": f"{no_ss}:{ENV['PATH']}"},
+             "refused row-cleanup=stop_shell_owner result=ValueError:row-shell-ends-unreadable:ss-exit-3"),
+            # leak-check's force overrun: the table read finds its deadline
+            # spent, and the runner still gets its TERM first.
+            ("deadline-spent", "clean", {"orderly": 0.0, "bound": 0},
+             "refused row-cleanup=stop_shell_owner result=ValueError:row-owner-acquisition-timeout"),
+        ):
+            got = shell_stop_case(name, shell, **options)
+            assert got["answer"] == want and got["runner"] == "ended", (name, got)
+            print("smoke-anr: shell-stop=" + name)
+        # An end of the stopped shell that is still open with no holder ss
+        # can name is no proved close.
+        inflight = shell_stop_case("in-flight", "inflight")
+        want = f"refused row-cleanup=stop_shell_owner result=ValueError:row-shell-end-open:wayland:{inflight['end']}:holders=unnamed"
+        assert inflight["answer"] == want and inflight["runner"] == "ended", inflight
+        print("smoke-anr: shell-stop=unnamed-end-unproved")
+        # Without the survivor check the planted sleeper outlives the stop.
+        needle = "            survivors = self.stop_survivors(ends)\n"
+        assert recorder.count(needle) == 1
+        unchecked = shell_stop_case("unchecked", "planted", program=recorder.replace(needle, "            survivors = []\n"))
+        assert unchecked["answer"] == "stopped" and unchecked["sleeper-state"] == "running", unchecked
+        print("smoke-anr: control=no-survivor-check rejected")
+    finally:
+        listener.close()
+        courier.close()
+        for connection in accepted:
+            connection.close()
 
     case("crash-original-end", crash=True)
     print("smoke-anr: crash-report=original-client-evidence-before-restoration")

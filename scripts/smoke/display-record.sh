@@ -1,12 +1,15 @@
 # Sourced by scripts/sandbox-shots.sh, scripts/smoke/harness.sh and
 # scripts/test-smoke-display-record.sh; defines display_record_program, the
-# display recorder the harness runs.
+# display recorder the harness runs. The program opens with
+# scripts/smoke/socket_ends.py, the reader the shell stop shares with
+# scripts/smoke/leaks.sh.
 set -euo pipefail
 
 # The harness runs this program as one of its owned process groups. Linux
 # notifications wake readers of owned original logs. It never writes
 # producer logs. The record limit is a storage policy, not a measured budget.
 display_record_program() {
+  cat -- "${BASH_SOURCE[0]%/*}/socket_ends.py"
   cat <<'PY'
 import collections
 import array
@@ -106,6 +109,74 @@ def descriptor_flags(pid, number):
     info = (pathlib.Path("/proc") / str(pid) / "fdinfo" / str(number)).read_text()
     fields = dict(line.split(":", 1) for line in info.splitlines() if ":" in line)
     return int(fields.get("flags", ""), 8)
+
+# The executables shell_answers in scripts/smoke/harness.sh accepts as the
+# shell; Nix's .quickshell-wrapped exceeds comm's 15 bytes, so the stop
+# reads /proc/<pid>/exe, not comm.
+SHELL_EXECUTABLES = {"qs", "quickshell", ".quickshell-wrapped"}
+
+def executable_name(pid):
+    # None for a process that has ended: a zombie's exe link is gone.
+    try:
+        return os.path.basename(os.readlink(f"/proc/{pid}/exe"))
+    except FileNotFoundError:
+        return None
+
+def socket_inodes(pid, handle, deadline):
+    # The socket inodes in PID's descriptor table, which the stat of a
+    # /proc/<pid>/fd link gives, or None when the process HANDLE, its held
+    # pidfd, holds has ended by the end of the read, so the table read is
+    # that generation's. https://man7.org/linux/man-pages/man5/proc_pid_fd.5.html
+    found = set()
+    try:
+        entries = list((pathlib.Path("/proc") / str(pid) / "fd").iterdir())
+    except FileNotFoundError:
+        return None
+    for entry in entries:
+        if time.monotonic() >= deadline:
+            raise ValueError("row-shell-ends-deadline:" + str(pid))
+        try:
+            value = entry.stat()
+        except FileNotFoundError:
+            continue
+        if stat.S_ISSOCK(value.st_mode):
+            found.add(value.st_ino)
+    return None if select.select([handle], [], [], 0)[0] else found
+
+def survivor_description(pid, holds):
+    # The fields that tell apart where a holder was forked: a pre-exec fork
+    # of qs keeps qs's session and process group and threads=1, while
+    # QProcess::startDetached's child has its own session after setsid and
+    # /dev/null as fd 0; the state, wait channel and signal masks show where
+    # it is stuck. https://man7.org/linux/man-pages/man5/proc_pid_stat.5.html
+    # https://man7.org/linux/man-pages/man5/proc_pid_status.5.html
+    proc = pathlib.Path("/proc") / str(pid)
+    def read(path, text=True):
+        try:
+            return path.read_text().strip() if text else path.read_bytes()
+        except OSError as error:
+            return "unreadable:" + type(error).__name__
+    words = [f"survivor pid={pid}", "holds=" + ",".join(str(inode) for inode in sorted(holds))]
+    state = read(proc / "stat").rsplit(")", 1)[-1].split()
+    if len(state) > 19:
+        words.append(f"ppid={state[1]} pgrp={state[2]} sid={state[3]} threads={state[17]} start={state[19]} state={state[0]}")
+    else:
+        words.append("stat=unreadable")
+    words.append("wchan=" + (read(proc / "wchan") or "0"))
+    status = dict(line.split(":", 1) for line in read(proc / "status").splitlines() if ":" in line)
+    for field in ("SigBlk", "SigPnd", "ShdPnd", "CoreDumping"):
+        words.append(field.lower() + "=" + status.get(field, "unread").strip())
+    try:
+        words.append("fd0=" + os.readlink(proc / "fd/0"))
+    except FileNotFoundError:
+        words.append("fd0=closed")
+    except OSError as error:
+        words.append("fd0=unreadable:" + type(error).__name__)
+    argv = read(proc / "cmdline", text=False)
+    if isinstance(argv, bytes):
+        argv = argv.rstrip(b"\0").replace(b"\0", b" ").decode(errors="replace")
+    words.append("argv=[" + argv[:300] + "]")
+    return " ".join(words)
 
 @contextlib.contextmanager
 def socket_name(path):
@@ -221,6 +292,7 @@ class Record:
         self.shell_owners = {}
         self.layer_stops = {}
         self.layer_signature = None
+        self.nested_wayland = None
         self.layer_bound = None
         self.next_context = 0
         self.scope = None
@@ -913,45 +985,186 @@ class Record:
                 os.close(fd)
 
     def stop_shell_owner(self, pid, root, orderly):
+        # The runner's stop (stop_process), then the survivor check: a
+        # process that still holds one of the stopped shell's own
+        # connection ends to the world's servers after the runner exited is
+        # killed and named, and the stop answers "survived". A fork of qs
+        # that never reached exec holds every descriptor of the shell, and
+        # a child that ran exec holds none of these ends: libwayland opens
+        # its client socket close-on-exec (wayland 1.26.0
+        # src/wayland-client.c:1179 connect_to_socket, src/wayland-os.c:74
+        # wl_os_socket_cloexec) and so does libdbus (dbus 1.16.2
+        # dbus/dbus-sysdeps-unix.c:972 _dbus_connect_unix_socket, :243
+        # _dbus_open_socket). The answer is the stop's word, then one line
+        # per survivor, or the one line `survivor-check=not-run reason=R`
+        # when no shell's table was read, R naming what was read instead:
+        # runner-gone, the runner's pidfd or /proc entry; shell-gone, the
+        # shell's own; shell-reparented, a listed qs child whose parent is
+        # no longer the runner; shell-exec-changed, one no longer running
+        # qs; no-shell, a runner whose children hold no single qs, as
+        # during a relaunch backoff. It all runs within the operation's one
+        # deadline.
+        try:
+            runner = os.pidfd_open(int(pid))
+        except ProcessLookupError:
+            return "stopped\nsurvivor-check=not-run reason=runner-gone"
+        try:
+            identity = self.shell_runner_identity(pid, root, runner)
+            if identity is None:
+                return "stopped\nsurvivor-check=not-run reason=runner-gone"
+            unread = None
+            try:
+                ends = self.shell_ends(pid, runner)
+            except (OSError, ValueError) as error:
+                # A table refused, not gone, or the deadline spent: the
+                # runner is still stopped, and the stop answers unproved
+                # after it.
+                ends, unread = None, "row-shell-ends-unread:" + pid + ":" + type(error).__name__ + ":" + str(error)
+            word = self.stop_process(pid, root, identity, detached=True, orderly=orderly) or "stopped"
+            if unread:
+                raise ValueError(unread)
+            if isinstance(ends, str):
+                return word + "\nsurvivor-check=not-run reason=" + ends
+            survivors = self.stop_survivors(ends)
+            return "\n".join(["survived", *survivors]) if survivors else word
+        finally:
+            os.close(runner)
+
+    def shell_runner_identity(self, pid, root, runner):
+        # The runner's identity to stop it by, or None when it is gone. A
+        # runner start_shell launched has a registration; `vgshell restart`
+        # creates a detached runner without one, and its private
+        # instance-lock descriptor is the run's ownership proof. An observed
+        # PID alone grants no right to stop it.
         owners = [owner for owner in self.shell_owners.values() if "identity" in owner and
                   (owner.get("runner") == pid or owner.get("pid") == pid)]
+        current = process_binding(pid)
+        if current.get("status") in ("gone", "ended") or select.select([runner], [], [], 0)[0]:
+            return None
         if owners:
             owner = owners[-1]
             identity = owner["identity"] if pid == owner["pid"] else owner["runnerIdentity"]
-            return self.stop_process(pid, root, identity, detached=True, orderly=orderly)
-        # `vgshell restart` creates a detached runner without a launch
-        # registration. Its private instance-lock descriptor is the run's
-        # ownership proof; an observed PID alone grants no right to stop it.
+            if current.get("startTicks") != identity.get("startTicks"):
+                raise ValueError("row-owner-generation-changed:" + pid)
+            return identity
+        lock = (self.anr_runtime / "vgshell.lock").stat()
+        namespace, own_namespace = ((pathlib.Path("/proc") / p / "ns/pid").stat() for p in (pid, root))
+        if (namespace.st_dev, namespace.st_ino) != (own_namespace.st_dev, own_namespace.st_ino):
+            raise ValueError("row-runner-namespace-unproved:" + pid)
+        descriptors = pathlib.Path("/proc") / pid / "fd"
+        deadline = self.operation_deadline
+        owns = False
+        for descriptor in descriptors.iterdir():
+            if time.monotonic() >= deadline:
+                raise ValueError("row-runner-acquisition-timeout:" + pid)
+            try:
+                value = descriptor.stat()
+            except FileNotFoundError:
+                continue
+            if (value.st_dev, value.st_ino) == (lock.st_dev, lock.st_ino):
+                owns = True
+                break
+        if not owns or select.select([runner], [], [], 0)[0] or process_binding(pid) != current:
+            raise ValueError("row-runner-lock-unproved:" + pid)
+        return current
+
+    def shell_ends(self, pid, runner):
+        # The socket inodes in the shell's descriptor table, read before its
+        # TERM, or a not-run reason. The shell is the runner itself when the
+        # runner execs qs in place, else the runner's one child running qs,
+        # taken while the runner's pidfd RUNNER is held, bound to a pidfd of
+        # its own and checked to still be the runner's child, so no saved
+        # shell pid is read.
+        if executable_name(pid) in SHELL_EXECUTABLES:
+            ends = socket_inodes(pid, runner, self.operation_deadline)
+            return "shell-gone" if ends is None else ends
         try:
-            fd = os.pidfd_open(int(pid))
+            children = (pathlib.Path("/proc") / pid / "task" / pid / "children").read_text().split()
+        except FileNotFoundError:
+            return "runner-gone"
+        shells = [child for child in children if executable_name(child) in SHELL_EXECUTABLES]
+        if select.select([runner], [], [], 0)[0]:
+            return "runner-gone"
+        if len(shells) != 1:
+            return "no-shell"
+        try:
+            handle = os.pidfd_open(int(shells[0]))
         except ProcessLookupError:
-            return
+            return "shell-gone"
         try:
-            identity = process_binding(pid)
-            if identity.get("status") in ("gone", "ended"):
-                return
-            lock = (self.anr_runtime / "vgshell.lock").stat()
-            namespace, own_namespace = ((pathlib.Path("/proc") / p / "ns/pid").stat() for p in (pid, root))
-            if (namespace.st_dev, namespace.st_ino) != (own_namespace.st_dev, own_namespace.st_ino):
-                raise ValueError("row-runner-namespace-unproved:" + pid)
-            descriptors = pathlib.Path("/proc") / pid / "fd"
-            deadline = self.operation_deadline
-            owns = False
-            for descriptor in descriptors.iterdir():
-                if time.monotonic() >= deadline:
-                    raise ValueError("row-runner-acquisition-timeout:" + pid)
-                try:
-                    value = descriptor.stat()
-                except FileNotFoundError:
-                    continue
-                if (value.st_dev, value.st_ino) == (lock.st_dev, lock.st_ino):
-                    owns = True
-                    break
-            if not owns or select.select([fd], [], [], 0)[0] or process_binding(pid) != identity:
-                raise ValueError("row-runner-lock-unproved:" + pid)
-            return self.stop_process(pid, root, identity, detached=True, orderly=orderly)
+            try:
+                parent = (pathlib.Path("/proc") / shells[0] / "stat").read_text().rsplit(")", 1)[1].split()[1]
+            except FileNotFoundError:
+                return "shell-gone"
+            if parent != pid:
+                return "shell-reparented"
+            if executable_name(shells[0]) not in SHELL_EXECUTABLES:
+                return "shell-exec-changed"
+            ends = socket_inodes(shells[0], handle, self.operation_deadline)
+            return "shell-gone" if ends is None else ends
         finally:
-            os.close(fd)
+            os.close(handle)
+
+    def stop_survivors(self, ends):
+        # After the runner exited: every process holding one of ENDS, the
+        # stopped shell's socket inodes, whose peer is a connection the
+        # nested compositor or a bus of the world accepted. An end whose
+        # peer is no connection one of those servers accepted is outside
+        # the set; the servers hold the accepted ends, other inodes. Each
+        # holder is bound to a pidfd, its table read again under it, and
+        # only a holder that still holds one of ENDS is described, killed
+        # through that pidfd and waited for. The world's init reaps it.
+        # An end ss still lists open after those kills, one whose holder
+        # ss names no process for (a descriptor in flight in a unix
+        # message, or a table ss cannot read) or one a holder took after
+        # the first read, is a connection the stop could not prove closed,
+        # and the stop refuses naming it.
+        if self.nested_wayland is None or self.anr_runtime is None:
+            raise ValueError("row-shell-servers-unbound")
+        servers = {"wayland": self.nested_wayland, "dbus": str(self.anr_runtime / "bus"),
+                   "system-bus": str(self.anr_runtime / "system-bus")}
+        def open_ends():
+            try:
+                table = socket_ends_read(servers, self.remaining())
+            except SocketEndsUnreadable as error:
+                raise ValueError("row-shell-ends-unreadable:" + str(error)) from error
+            return {inode: (server, pids) for inode, (server, pids) in table.items() if inode in ends and pids != []}
+        found = open_ends()
+        if not found:
+            return []
+        holders = {}
+        for inode, (_, pids) in found.items():
+            for holder in pids or ():
+                holders.setdefault(holder, set()).add(inode)
+        survivors, killed = [], []
+        for holder in sorted(holders):
+            if self.remaining() <= 0:
+                raise ValueError("row-shell-survivor-deadline")
+            try:
+                handle = os.pidfd_open(holder)
+            except ProcessLookupError:
+                continue
+            try:
+                held = socket_inodes(holder, handle, self.operation_deadline)
+                if not held or not held & ends:
+                    continue
+                description = survivor_description(holder, held & ends)
+                if select.select([handle], [], [], 0)[0]:
+                    continue
+                with contextlib.suppress(ProcessLookupError):
+                    signal.pidfd_send_signal(handle, signal.SIGKILL)
+                if not select.select([handle], [], [], self.remaining())[0]:
+                    raise ValueError("row-shell-survivor-exit-timeout:" + str(holder))
+                survivors.append(description)
+                killed.append(str(holder))
+            finally:
+                os.close(handle)
+        still = open_ends()
+        if still:
+            raise ValueError("row-shell-end-open:" + ",".join(
+                f"{server}:{inode}:holders=" + ("unnamed" if pids is None else "+".join(map(str, pids)))
+                for inode, (server, pids) in sorted(still.items())) + (" killed=" + ",".join(killed) if killed else ""))
+        return survivors
 
     def bounded_cleanup(self, operation, args, bound):
         # A parent deadline also bounds a helper that never reaches its
@@ -969,7 +1182,9 @@ class Record:
             signal.signal(signal.SIGINT, signal.SIG_DFL)
             self.operation_deadline = deadline
             try:
-                result = b"forced" if getattr(self, operation)(*args) == "forced" else b"ok"
+                # A word the operation answers comes back after "=".
+                value = getattr(self, operation)(*args)
+                result = b"ok" if value is None else b"=" + value.encode()
             except BaseException as error:
                 result = (type(error).__name__ + ":" + str(error)).encode()[:2048]
             os.write(write_fd, result)
@@ -984,10 +1199,10 @@ class Record:
                 if not select.select([handle], [], [], 1)[0]:
                     raise ValueError("row-cleanup-helper-unreapable:" + operation)
             os.waitpid(child, 0)  # The held child generation has exited.
-            result = os.read(read_fd, 4096)
-            if timed_out or result not in (b"ok", b"forced"):
+            result = b"".join(iter(lambda: os.read(read_fd, 65536), b""))
+            if timed_out or not (result == b"ok" or result.startswith(b"=")):
                 raise ValueError("row-cleanup=" + operation + " result=" + ("deadline" if timed_out else result.decode(errors="replace")))
-            return "forced" if result == b"forced" else None
+            return result[1:].decode() if result.startswith(b"=") else None
         finally:
             os.close(handle)
             os.close(read_fd)
@@ -1292,6 +1507,7 @@ class Record:
                         raise ValueError("ambiguous-nested-binding")
                     self.bound = True
                     self.layer_signature = signature
+                    self.nested_wayland = wayland
                     self.emit("harness", "nested-binding", dict(signature=signature, socket=path,
                               namespacePid=pid, waylandSocket=wayland))
                     self.subscribe("nested-ipc", path)

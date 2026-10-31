@@ -456,5 +456,62 @@ if bar_hidden no-deadline && edit_tree no-deadline shell/Core/ServiceGate.qml \
   expect "control: a gate with no deadline never releases past a bar that never presents" unreleased release_reason
 fi
 
+# A process outside the runner's tree that holds one of the stopped
+# shell's connection ends, as a fork of qs that never reaches exec does.
+# The copy's launch connects to the nested compositor's socket without
+# close-on-exec before it execs qs, so qs and a sleeper that setsid
+# detaches, and whose parent exits, share that end; the pid file names the
+# sleeper before qs starts. stop_shell fails once, naming the sleeper as a
+# survivor, and the sleeper has ended after it. A sleeper the stop misses
+# ends on its own within twice stop_holder_bound_s. The stop runs inside
+# expect's subshell, so this row's next stop reaps the stopped runner.
+IFS= read -r -d '' survivor_program <<'PY' || :
+import os, socket, sys
+path, record, seconds, *shell = sys.argv[1:]
+end = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+end.connect(path)
+os.set_inheritable(end.fileno(), True)
+child = os.fork()
+if child == 0:
+    os.setsid()
+    sleeper = os.fork()
+    if sleeper == 0:
+        null = os.open(os.devnull, os.O_RDWR)
+        for fd in (0, 1, 2):
+            os.dup2(null, fd)
+        os.execvp("sleep", ["sleep", seconds])
+    with open(record, "w") as out:
+        out.write(f"{sleeper}\n")
+    os._exit(0)
+os.waitpid(child, 0)
+os.execvp(shell[0], shell)
+PY
+survivor_record="$sandbox/start-order-survivor.pid"
+survivor_log="$sandbox/stop-survivor-control.log"
+survivor_launch='exec setpriv --pdeathsig TERM -- qs -p "$shell_dir"'
+printf -v survivor_planted 'exec python3 -c %q %q %q %q setpriv --pdeathsig TERM -- qs -p "$shell_dir"' \
+  "$survivor_program" "$rt_dir/$nested_socket" "$survivor_record" "$((2 * stop_holder_bound_s))"
+survivor_control() {
+  (
+    failures=0 behaviour_failures=0
+    stop_shell >"$survivor_log" || :
+    echo "$failures"
+  )
+}
+rm -f -- "$survivor_record"
+if copy_tree survivor && edit_tree survivor bin/vgshell "$survivor_launch" "$survivor_planted" \
+  && restart_over "$sandbox/tree-survivor" "$sandbox/start-order-survivor-qs.log" '[]' no-bar; then
+  if IFS= read -r survivor_pid <"$survivor_record" && [[ $survivor_pid =~ ^[1-9][0-9]*$ ]]; then
+    expect "control: the planted sleeper runs before the stop" running pid_state "$survivor_pid"
+    # expect's subshell takes the stop's memory note with it.
+    shell_memory_note
+    expect "control: a stop whose shell shares a connection end with a detached process fails once" 1 survivor_control
+    expect "control: the failed stop names the planted sleeper as a survivor" 1 grep -c -F -- " survivor pid=$survivor_pid " "$survivor_log"
+    expect "control: the stop leaves the planted sleeper ended" ended pid_state "$survivor_pid"
+  else
+    fail "control: the survivor copy recorded no sleeper: [$(head -c 200 -- "$survivor_record" 2>&1)]"
+  fi
+fi
+
 start_order_restore
 smoke_row_abandon=()

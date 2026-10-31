@@ -268,33 +268,27 @@ PY
 # leak_socket_holders DIR CLASS: evidence only, when reading DIR met a
 # layer or bus name whose owner is gone. For each connection the nested
 # compositor's Wayland socket or the session bus accepted, the holders of
-# its client end, from `ss -xpnH` (unix socket inode, peer inode, holding
-# processes). A connection none of whose holders the compositor (a layer
-# or client pid in DIR) or the bus (a unique name's pid) names as a client
-# is unclaimed, and each of its holders prints as `qml-smoke:
-# socket-holder class=CLASS reading=R bus=wayland|dbus inode=N pid=P
-# ppid=Q start=TICKS comm=C cmdline=[...]`, also kept in
-# DIR/socket-holders. It ends and signals nothing.
+# its client end, read by scripts/smoke/socket_ends.py, which the shell
+# stop's survivor check also reads. A connection none of whose holders the
+# compositor (a layer or client pid in DIR) or the bus (a unique name's
+# pid) names as a client is unclaimed, and each of its holders prints as
+# `qml-smoke: socket-holder class=CLASS reading=R bus=wayland|dbus inode=N
+# pid=P ppid=Q start=TICKS comm=C cmdline=[...]`, also kept in
+# DIR/socket-holders; a client end that is open with no holder ss can name
+# prints `end=open holders=unnamed`, and one that is closed `end=closed`.
+# It ends and signals nothing.
 leak_socket_holders() { # DIR CLASS
-  python3 - "${rt_dir:-}/${nested_socket:-}" "${rt_dir:-}/bus" "$1" "$2" <<'PY' | tee -a "$1/socket-holders"
-import json, os, re, subprocess, sys
-wayland, bus, reading, cls = sys.argv[1:5]
+  python3 - "${BASH_SOURCE[0]%/*}" "${rt_dir:-}/${nested_socket:-}" "${rt_dir:-}/bus" "$1" "$2" <<'PY' | tee -a "$1/socket-holders"
+import json, os, sys
+sys.path.insert(0, sys.argv[1])
+from socket_ends import SocketEndsUnreadable, socket_ends_read
+wayland, bus, reading, cls = sys.argv[2:6]
 key = f"qml-smoke: socket-holders class={cls} reading={os.path.basename(reading)}"
 try:
-    out = subprocess.run(["ss", "-xpnH"], capture_output=True, text=True, timeout=10)
-except (OSError, subprocess.TimeoutExpired) as error:
+    ends = socket_ends_read({"wayland": wayland, "dbus": bus}, 10)
+except SocketEndsUnreadable as error:
     print(f"{key} status=unavailable reason=[{error}]")
     sys.exit(0)
-if out.returncode:
-    print(f"{key} status=unavailable reason=ss-exit-{out.returncode}")
-    sys.exit(0)
-sockets = {}
-for line in out.stdout.splitlines():
-    words = line.split()
-    if len(words) < 8 or not words[0].startswith("u_"):
-        continue
-    users = [int(m.group(1)) for m in re.finditer(r",pid=(\d+),fd=\d+\)", line)]
-    sockets[words[5]] = (words[4], words[7], users)
 claimed = {"wayland": set(), "dbus": set()}
 for name in ("layers.raw", "clients"):
     try:
@@ -324,19 +318,18 @@ def describe(pid):
         return f"ppid={state[1]} start={state[19]} comm={comm} cmdline=[{argv[:300]}]"
     except (OSError, IndexError):
         return "process=gone"
-for bus_name, path in (("wayland", wayland), ("dbus", bus)):
+for bus_name in ("wayland", "dbus"):
     unclaimed = 0
-    for inode, (local, peer, _) in sorted(sockets.items()):
-        if local != path or peer in ("0", "*"):
-            continue
-        holders = sockets.get(peer, (None, None, []))[2]
-        if set(holders) & claimed[bus_name]:
+    for inode, (server, holders) in sorted(ends.items()):
+        if server != bus_name or set(holders or ()) & claimed[bus_name]:
             continue
         unclaimed += 1
-        if not holders:
-            print(f"{key} bus={bus_name} inode={peer} holders=none")
-        for pid in sorted(set(holders)):
-            print(f"qml-smoke: socket-holder class={cls} reading={os.path.basename(reading)} bus={bus_name} inode={peer} pid={pid} {describe(pid)}")
+        if holders is None:
+            print(f"{key} bus={bus_name} inode={inode} end=open holders=unnamed")
+        elif not holders:
+            print(f"{key} bus={bus_name} inode={inode} end=closed")
+        for pid in holders or ():
+            print(f"qml-smoke: socket-holder class={cls} reading={os.path.basename(reading)} bus={bus_name} inode={inode} pid={pid} {describe(pid)}")
     if not unclaimed:
         print(f"{key} bus={bus_name} unclaimed=none")
 PY
@@ -538,10 +531,15 @@ leak_restore_step() { # NAME PHASE CAUSE
 }
 # leak_restore_stop NAME PHASE: the shell's stop, under the restoration's
 # policy. A forced stop or a runner already gone is cleanup that worked;
-# an unproved stop or a held lock fails the row.
+# an unproved stop, a survived one, whose shell left a holder of its
+# connection ends, or a held lock fails the row. Each of the stop's report
+# lines prints beside the step.
 leak_restore_stop() { # NAME PHASE
-  local restore_stop
-  shell_stop restore_stop
+  local restore_stop restore_report="" restore_line
+  shell_stop restore_stop restore_report
+  while IFS= read -r restore_line; do
+    [[ -z $restore_line ]] || printf 'qml-smoke: restore row=%s step=%s %s\n' "$1" "$2" "$restore_line"
+  done <<<"$restore_report"
   case "$restore_stop" in
     stopped) : ;;
     forced) printf 'qml-smoke: restore row=%s step=%s outcome=forced\n' "$1" "$2" ;;

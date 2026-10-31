@@ -1,5 +1,5 @@
 # Sourced by qml-smoke.sh; owns the sandbox and shared readers.
-# inputs: scripts/smoke/user-config.sh scripts/smoke/verdict.sh scripts/smoke/mode-hold.sh scripts/smoke/tree.sh scripts/smoke/shot.sh scripts/smoke/app-window.sh scripts/smoke/display-record.sh scripts/smoke/leaks.sh scripts/smoke/persisted-inputs.py bin/lib/ipc-reply.sh scripts/smoke/teardown.sh scripts/smoke/evidence.py scripts/smoke/hypr-call.sh scripts/smoke/devices.sh scripts/smoke/gpu-fence.sh scripts/smoke/Probe.qml scripts/smoke/pointer/* scripts/smoke/toplevel/* scripts/smoke/sink/* scripts/smoke/lock/* scripts/smoke/keyboard/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/devices/stand-in.py scripts/smoke/fixtures/devices/rfkill.json scripts/fixtures/jarvis/prepare.js scripts/fixtures/jarvis/audio.js scripts/fixtures/jarvis/keys-world.js scripts/fixtures/jarvis/accounts-world.js scripts/lib/jarvis-env.sh
+# inputs: scripts/smoke/user-config.sh scripts/smoke/verdict.sh scripts/smoke/mode-hold.sh scripts/smoke/tree.sh scripts/smoke/shot.sh scripts/smoke/app-window.sh scripts/smoke/display-record.sh scripts/smoke/socket_ends.py scripts/smoke/leaks.sh scripts/smoke/persisted-inputs.py bin/lib/ipc-reply.sh scripts/smoke/teardown.sh scripts/smoke/evidence.py scripts/smoke/hypr-call.sh scripts/smoke/devices.sh scripts/smoke/gpu-fence.sh scripts/smoke/Probe.qml scripts/smoke/pointer/* scripts/smoke/toplevel/* scripts/smoke/sink/* scripts/smoke/lock/* scripts/smoke/keyboard/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/devices/stand-in.py scripts/smoke/fixtures/devices/rfkill.json scripts/fixtures/jarvis/prepare.js scripts/fixtures/jarvis/audio.js scripts/fixtures/jarvis/keys-world.js scripts/fixtures/jarvis/accounts-world.js scripts/lib/jarvis-env.sh
 set -euo pipefail
 source "$repo/scripts/smoke/verdict.sh"
 source "$repo/scripts/smoke/mode-hold.sh"
@@ -2275,10 +2275,11 @@ shell_memory_note() {
 rss_verdict() { # PEAK CEILING
   if [[ $1 -le 0 ]]; then echo unread; elif [[ $1 -gt $2 ]]; then echo over; else echo under; fi
 }
-# shell_stop OUTCOME_VAR: stops the runner start_shell started, before a
-# row starts another, and sets OUTCOME_VAR, a name none of its own locals
-# (shell_stop_*) takes, to one word. It decides nothing for a row: each
-# caller states its own policy, and stop_shell below is a row's. The
+# shell_stop OUTCOME_VAR [REPORT_VAR]: stops the runner start_shell
+# started, before a row starts another, and sets OUTCOME_VAR to one word
+# and REPORT_VAR, when named, to the stop's report lines; neither is a
+# name its own locals (shell_stop_*) take. It decides nothing for a row:
+# each caller states its own policy, and stop_shell below is a row's. The
 # recorder's stop-shell-owner sends TERM to the runner alone, which passes
 # it to the shell and exits after it, and waits stop_lock_wait_s, the 10 s
 # `vgshell restart` gives the same wait, on the runner's pidfd, so the
@@ -2287,23 +2288,43 @@ rss_verdict() { # PEAK CEILING
 # stop_lock_wait_s again. Then it waits stop_lock_wait_s on the instance
 # lock, which the runner holds until it exits and no process the shell
 # starts holds (docs/architecture/runtime.md § Process); the next
-# `vgshell run` refuses until then. The words:
+# `vgshell run` refuses until then. Before the TERM the recorder reads the
+# shell's descriptor table, the runner's one qs child or the runner itself;
+# after the runner exits, any process still holding one of the shell's
+# connection ends to the nested compositor or a bus of the world, as a
+# fork of qs that never reached exec does, is killed and named, within
+# the same deadline. The words:
 #   stopped    the runner exited on its TERM, or was already gone;
 #   forced     its tree was killed after the TERM wait;
-#   unproved   the recorder could not prove the runner's ownership or exit;
+#   survived   a process outside the runner held one of the shell's ends,
+#              and was killed: one report line per such process, `survivor
+#              pid=P holds=INODES` with its ppid, pgrp, sid, threads, start,
+#              state, wchan, sigblk, sigpnd, shdpnd, coredumping, fd0 and argv;
+#   unproved   the recorder could not prove the runner's ownership or exit,
+#              read the shell's table, kill a survivor in time, or prove
+#              each of the shell's ends closed, as for an end ss lists open
+#              with no holder it can name;
 #   lock-held  the instance lock stayed held after a proved stop.
+# A stopped or forced stop that read no shell's table reports one line
+# `survivor-check=not-run reason=R`, R naming what was read instead: the
+# runner gone (runner-gone), the shell gone (shell-gone), its listed qs
+# child no longer the runner's (shell-reparented) or no longer qs
+# (shell-exec-changed), or no single qs child, as in a relaunch backoff
+# (no-shell).
 # A held lock names each holder. After any stop but unproved, and on
 # unproved once the lock is free, it reaps the runner and clears
 # shell_pid, so a second stop signals no stale pid; an unproved stop
 # under a held lock leaves the runner unreaped. It notes the shell's
 # memory before the TERM, as shell_memory_note says.
 # stop_shell: a row's stop. Every word but stopped fails the row, naming
-# the runner and `exit=forced` or `exit=unproved`, or the held lock, and
-# returns 1. rows/start-order.sh holds the controls.
+# the runner and `exit=forced` or `exit=unproved`, each survivor's report
+# line, or the held lock, and returns 1; a not-run line prints as a
+# record. rows/start-order.sh holds the controls.
 stop_lock_wait_s=10
-shell_stop() { # OUTCOME_VAR
+shell_stop() { # OUTCOME_VAR [REPORT_VAR]
   local -n shell_stop_outcome="$1"
-  local shell_stop_lock="$rt_dir/vgshell.lock" shell_stop_owner="" shell_stop_pid="$shell_pid" shell_stop_reply=""
+  local shell_stop_lock="$rt_dir/vgshell.lock" shell_stop_owner="" shell_stop_pid="$shell_pid" shell_stop_reply="" shell_stop_lines=""
+  [[ -z ${2:-} ]] || local -n shell_stop_report="$2"
   if [[ -n $shell_stop_pid ]]; then
     shell_stop_owner="$(display_record_call owner-context "$shell_stop_pid")" || shell_stop_owner=""
     [[ -z $shell_stop_owner ]] || display_record_call mark stop-shell "$shell_stop_owner" "${shell_qs_pid:-}" "${instance_log:-}" "${hypr_bound_s-}" >/dev/null || true
@@ -2313,10 +2334,14 @@ shell_stop() { # OUTCOME_VAR
   if [[ -n $shell_stop_pid ]]; then
     if ! shell_stop_reply="$(display_record_call stop-shell-owner "$shell_stop_pid" "$$" "$stop_lock_wait_s")"; then
       shell_stop_outcome=unproved
-    elif [[ $shell_stop_reply == forced ]]; then
-      shell_stop_outcome=forced
+    else
+      case "${shell_stop_reply%%$'\n'*}" in
+        forced | survived) shell_stop_outcome="${shell_stop_reply%%$'\n'*}" ;;
+      esac
+      [[ $shell_stop_reply != *$'\n'* ]] || shell_stop_lines="${shell_stop_reply#*$'\n'}"
     fi
   fi
+  [[ -z ${2:-} ]] || shell_stop_report="$shell_stop_lines"
   if ! flock -w "$stop_lock_wait_s" "$shell_stop_lock" true; then
     lock_holders "$shell_stop_lock"
     [[ $shell_stop_outcome != unproved ]] || return 0
@@ -2331,11 +2356,13 @@ shell_stop() { # OUTCOME_VAR
   shell_pid=""
 }
 stop_shell() {
-  local stop_outcome stop_runner="${shell_pid:-none}"
-  shell_stop stop_outcome
+  local stop_outcome stop_report="" stop_line stop_runner="${shell_pid:-none}"
+  shell_stop stop_outcome stop_report
+  if [[ $stop_outcome != survived && -n $stop_report ]]; then printf 'stop_shell: runner=%s %s\n' "$stop_runner" "$stop_report"; fi
   case "$stop_outcome" in
     stopped) return 0 ;;
     forced) row_class=operation fail "stop_shell: runner=$stop_runner exit=forced bound=${stop_lock_wait_s}s" ;;
+    survived) while IFS= read -r stop_line; do fail "stop_shell: runner=$stop_runner exit=survived $stop_line"; done <<<"$stop_report" ;;
     unproved) fail "stop_shell: runner=$stop_runner exit=unproved bound=${stop_lock_wait_s}s" ;;
     lock-held) fail "stop_shell: lock=$rt_dir/vgshell.lock still held ${stop_lock_wait_s}s after the stop of pid $stop_runner" ;;
   esac
