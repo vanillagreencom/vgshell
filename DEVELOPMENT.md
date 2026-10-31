@@ -254,7 +254,7 @@ podman run --rm -e NIX_CONFIG='experimental-features = nix-command flakes' docke
   nix run github:vanillagreencom/vgshell/vX.Y.Z -- --version
 ```
 
-Packaged installs print `vgshell X.Y.Z`; checkout installs report `X.Y.Z` in `version --json` and print that report's `describe` value when present. The export command above and this loop start each installed tree through the [nested sandbox](docs/architecture/validation.md#nested-sandbox). Nix uses the exported store in the world's private `/nix`: [D113](docs/decisions/D113-world-root-from-host-mounts.md).
+Packaged installs print `vgshell X.Y.Z`; checkout installs report `X.Y.Z` in `version --json` and print that report's `describe` value when present. The README runner checks Nix commands in its NixOS identity fixture; that proves installation and version, not graphics. The export command above and this loop start each installed tree through the [nested sandbox](docs/architecture/validation.md#nested-sandbox). Nix requires a NixOS graphics host, through the exported NixOS curl tree or a NixOS-host flake install. An exported store alone supplies no host driver setup. On another host `qml-smoke.sh --nix-store` reports `nixos-graphics-required`, exit 77, before entry; record that startup proof as unavailable in the release result. Nix uses the exported store in the world's private `/nix`: [D113](docs/decisions/D113-world-root-from-host-mounts.md). Its references to the real host's driver root must remain usable; an unmeasured NixOS start is never a pass.
 
 ```bash
 for tree in tmp/release-installs/*; do

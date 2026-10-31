@@ -1166,14 +1166,18 @@ entry() {
   rm -rf -- "$tree" "$TMP_ROOT/entry-tmp"
   mkdir -p "$tree/scripts/smoke" "$tree/shell/plugins/vgs.jarvis/backend" "$TMP_ROOT/entry-tmp" "$TMP_ROOT/installed tree" "$TMP_ROOT/exported nix"
   cp -- "$file" "$tree/scripts/$name"
-  python3 - "$tree/scripts/$name" "$voxtype_builds" "$voxtype_cpuinfo" <<'PY'
+  python3 - "$tree/scripts/$name" "$voxtype_builds" "$voxtype_cpuinfo" "$name" "$tree/NIXOS" <<'PY'
 import re, sys
-path, builds, cpuinfo = sys.argv[1:]
+path, builds, cpuinfo, name, marker = sys.argv[1:]
 text = open(path).read()
+if name == "qml-smoke.sh":
+    assert text.count("/etc/NIXOS") == 1
+    text = text.replace("/etc/NIXOS", marker)
 text = re.sub(r"^selftest_voxtype_builds=.*$", f"selftest_voxtype_builds={builds}", text, count=1, flags=re.M)
 text = re.sub(r"^selftest_cpuinfo=.*$", f"selftest_cpuinfo={cpuinfo}", text, count=1, flags=re.M)
 open(path, "w").write(text)
 PY
+  if [[ $name == qml-smoke.sh && ${4:-} != non-nixos ]]; then : >"$tree/NIXOS"; fi
   cp -- "$TMP_ROOT/fence-stand-in" "$tree/scripts/smoke/gpu-fence.sh"
   cp -- "$repo/scripts/smoke/shot.sh" "$repo/scripts/smoke/tree.sh" "$tree/scripts/smoke/"
   git -C "$tree" init -q
@@ -1261,6 +1265,17 @@ elif driver_enters "$mutant"; then
 else
   ok "control: qml-smoke's driver without --fresh"
 fi
+
+nix_unavailable() {
+  entry "$1" qml-smoke.sh 1 non-nixos || return 1
+  [[ $status == 77 && ! -s $TMP_ROOT/fence.log && $(<"$TMP_ROOT/err") == 'qml-smoke: status=not-measured reason=nixos-graphics-required tree='* ]]
+}
+if nix_unavailable "$repo/scripts/qml-smoke.sh"; then ok "Nix installed-tree proof needs a NixOS graphics host before entry"; else fail "Nix installed-tree proof entered on another host"; fi
+mutant="$TMP_ROOT/mutant-nix-host"
+if ! mutate "$repo/scripts/qml-smoke.sh" '&& ! -e /etc/NIXOS' '&& -e /etc/NIXOS' "$mutant"; then
+  fail "control: Nix host admission mutation"
+elif nix_unavailable "$mutant"; then fail "control: inverted Nix host admission stayed green"
+else ok "control: inverted Nix host admission fails its row"; fi
 
 # Main batches redirect stdout to a file without passing --log-dir. The
 # fence must get that file's directory, never a command child's /proc path.

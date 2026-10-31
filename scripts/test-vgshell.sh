@@ -599,6 +599,56 @@ pre_control() { # NAME KIND ASSIGNMENT WANT_EXIT WANT_ERR NEEDLE REPLACEMENT [NE
   pre_run "$copy" "$kind" "$assignment"
   if pre_held "$want_exit" "$want_err"; then fail "the $name control still holds: exit=$pre_status stderr=[$pre_err]"; else ok "the $name control fails its row"; fi
 }
+
+# The flake selects qs in the Nix store; managed NixOS curl roots link to
+# that same executable. Remap only the fixed store/host marker in a disposable
+# runner, so no test fixture or host override enters the shipped launcher.
+nix_store="$tmp/nix-store"
+nix_marker="$tmp/NIXOS"
+mkdir -p "$nix_store/engine/bin" "$tmp/nix-link" "$tmp/nix-managers"
+printf '#!/bin/sh\nprintf "%%s\\n" "$*" >>"$STUB_QS_CALLS"\nexit 99\n' >"$nix_store/engine/bin/qs"
+chmod +x "$nix_store/engine/bin/qs"
+ln -s -- "$nix_store/engine/bin/qs" "$tmp/nix-link/qs"
+for manager in pacman dnf; do
+  printf '#!/bin/sh\nexit 0\n' >"$tmp/nix-managers/$manager"
+  chmod +x "$tmp/nix-managers/$manager"
+done
+printf -v nix_guard_line '  [[ $executable == %q/* && ! -e %q ]] || return 0' "$nix_store" "$nix_marker"
+nix_copy="$(pre_copy '  [[ $executable == /nix/store/* && ! -e /etc/NIXOS ]] || return 0' "$nix_guard_line")"
+ln -s -- "$repo/bin/vgshell-pkg" "${nix_copy%/*}/vgshell-pkg"
+nix_host_rows() { # BIN: structured refusal and no engine invocation, including --version
+  local bin="$1" mode os verb route status engine_path rt got first case_no=0
+  while IFS='|' read -r mode os verb route; do
+    case_no=$((case_no + 1))
+    rt="$tmp/nix-rt-$case_no"
+    mkdir -p "$rt"
+    printf 'ID=%s\n' "$os" >"$tmp/nix-os-release"
+    if [[ $mode == direct ]]; then engine_path="$nix_store/engine/bin"; else engine_path="$tmp/nix-link"; fi
+    rm -f -- "$tmp/nix-calls"
+    status=0
+    got="$("${base_env[@]}" PATH="$engine_path:$tmp/nix-managers:$base_path" XDG_RUNTIME_DIR="$rt" STUB_QS_CALLS="$tmp/nix-calls" \
+      bwrap --ro-bind / / --ro-bind "$tmp/nix-os-release" /etc/os-release "$bin" "$verb" 2>&1)" || status=$?
+    first="${got%%$'\n'*}"
+    [[ $status == 78 && $first == "vgshell: refused: install=nix host=unsupported route=$route" && ! -e $tmp/nix-calls && ! -e $rt/vgshell.lock ]] || return 1
+  done <<'NIX_ROWS'
+direct|arch|run|aur
+direct|fedora|start|fedora
+direct|debian|restart|curl
+link|arch|run|aur
+NIX_ROWS
+}
+check "Nix launches refuse unsupported hosts before any engine call" nix_host_rows "$nix_copy"
+: >"$nix_marker"
+nix_status=0
+nix_out="$("${base_env[@]}" PATH="$nix_store/engine/bin:$base_path" STUB_QS_CALLS="$tmp/nix-calls" "$nix_copy" run 2>&1)" || nix_status=$?
+if [[ $nix_status == 78 && ${nix_out%%$'\n'*} == 'vgshell: refused: preflight=quickshell have=unknown need=0.3.1' && -s $tmp/nix-calls ]]; then
+  ok "NixOS reaches the engine preflight"
+else fail "NixOS did not reach the engine preflight"; fi
+rm -- "$nix_marker"
+# Keep the producer selected and remove only the refusal's host condition.
+nix_mutant="$(pre_copy '  [[ $executable == /nix/store/* && ! -e /etc/NIXOS ]] || return 0' '  return 0')"
+if nix_host_rows "$nix_mutant"; then fail "control: unsupported Nix hosts reached the engine undetected"; else ok "control: removing the Nix host refusal fails its row"; fi
+
 probe_line='"${argv[@]}" 1>&"${scratch_fds[i]}" 2>/dev/null </dev/null &'
 pre_control "floor row" full STUB_HYPR_VERSION=0.55.9 78 "vgshell: refused: preflight=hyprland have=0.55.9 need=0.56" \
   'hyprland   0.56    "version"' 'hyprland   present "version"'

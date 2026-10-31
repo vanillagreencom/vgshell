@@ -905,6 +905,25 @@ version_at_least() { # HAVE NEED: dotted decimal integers
   return 0
 }
 
+nix_host_check() {
+  local executable managers route detail
+  executable="$(command -v qs || true)"
+  [[ -n $executable ]] || return 0
+  executable="$(readlink -f -- "$executable")" || refuse 78 "install=nix engine=unreadable" "VGS cannot resolve its engine. Check the installation, then try again."
+  # NixOS creates /etc/NIXOS as its system marker (NixOS manual, Installing
+  # from another Linux distribution). A Nix store alone supplies no host GPU drivers.
+  [[ $executable == /nix/store/* && ! -e /etc/NIXOS ]] || return 0
+  managers="$(node "$root/bin/vgshell-pkg" detect)" || return $?
+  case "$managers" in
+    primary=pacman*) route=aur; detail="Use the Arch Linux package." ;;
+    primary=dnf*) route=fedora; detail="Use the Fedora package." ;;
+    *) route=curl; detail="Use the curl installation for your system." ;;
+  esac
+  refuse 78 "install=nix host=unsupported route=$route" \
+    "The Nix install runs on NixOS only. $detail" \
+    "Choose your installation at https://github.com/vanillagreencom/vgshell#install."
+}
+
 # Refuses with exit 78 on the first row, in table order, whose tool is
 # absent (have=none), whose probe fails or prints no version the regex
 # reads (have=unknown), or whose version is below its floor. Hyprland
@@ -917,6 +936,7 @@ version_at_least() { # HAVE NEED: dotted decimal integers
 # probes one after another and 20 to 31 ms with them together, twelve
 # runs each.
 preflight() {
+  nix_host_check
   local tool need pattern probe i fd have quickshell_version="" engine_report engine_status=0
   local -a tools=() needs=() patterns=() probes=() pids=() statuses=() outs=() argv
   while read -r tool need pattern probe; do
@@ -2595,6 +2615,7 @@ case "$cmd" in
       try_help
       exit 2
     fi
+    nix_host_check
     select_hyprland_instance
     preflight
     start_lock="$rt_dir/vgshell-start.lock"

@@ -45,8 +45,8 @@
 #     XDG_RUNTIME_DIR a login session sets, as a user's terminal has them:
 #     `vgshell run` keeps its instance lock and runtime files in that
 #     directory. script(1) supplies the controlling terminal for prompts.
-#   - nix commands as root in docker.io/nixos/nix:2.35.2 with flakes on and
-#     scripts/test-flake.sh's store volume, so the two share downloads.
+#   - Nix commands in the same nonroot NixOS identity fixture as NixOS curl.
+#     The fixture proves installation and version only, never NixOS graphics.
 #   - fedora commands in a registry.fedoraproject.org/fedora:44 image
 #     prepared once per run with sudo and the user `user`, with passwordless
 #     sudo inside the container alone. The commands run as `user`, with the
@@ -367,6 +367,7 @@ printf '%s\n' "$hyprland:$dependencies:$nix_bin:$PATH" >/vgs-runtime-path
 nix-store -qR "$output" "${hyprland%/bin}" > /vgs-runtime-closure
 mkdir -p /usr/lib
 printf 'ID=nixos\nNAME="VGS container-only NixOS identity fixture"\n' >/usr/lib/os-release
+: >/etc/NIXOS
 printf 'readme-install: fixture=nixos interpreter=%s dependency_root=%s\n' "$(command -v bash)" "$output"
 PATH="$hyprland:$dependencies:$PATH"
 if command -v vgshell; then exit 1; fi
@@ -413,16 +414,13 @@ PY
 }
 run_block_start() { # BLOCK
   local image
-  if [[ ${block_image[$1]} == nix ]]; then
-    pull "$nix_image"
-    image="$nix_image" user=root
-  elif [[ ${block_image[$1]} == fedora ]]; then
+  if [[ ${block_image[$1]} == fedora ]]; then
     prepare_fedora
     image="$fedora_prepared" user=user
   elif [[ ${block_image[$1]} == debian ]]; then
     prepare_debian
     image="$debian_prepared" user=user
-  elif [[ ${block_image[$1]} == nixos ]]; then
+  elif [[ ${block_image[$1]} == nixos || ${block_image[$1]} == nix ]]; then
     prepare_nixos
     image="$nixos_prepared" user=user
   else
@@ -432,24 +430,21 @@ run_block_start() { # BLOCK
   container="vgs-readme-install-$1.$$"
   containers+=("$container")
   local run_args=(-d --name "$container")
-  if [[ ${block_image[$1]} == nix ]]; then
-    run_args+=(-v "$nix_volume:/nix" -e 'NIX_CONFIG=experimental-features = nix-command flakes')
-  elif [[ ${block_image[$1]} == nixos ]]; then
+  if [[ ${block_image[$1]} == nixos || ${block_image[$1]} == nix ]]; then
     run_args+=(-v /nix -e $'NIX_CONFIG=experimental-features = nix-command flakes\nbuild-users-group =')
   fi
   podman run "${run_args[@]}" "$image" sleep infinity >/dev/null 2>"$scratch/start.log" ||
     not_measured "container-start image=$image" "$(cat -- "$scratch/start.log")"
   home="/home/$user" runtime=/run/user/1000
-  [[ $user != root ]] || home=/root runtime=/run/user/0
   container_env=()
-  if [[ ${block_image[$1]} == nixos ]]; then
+  if [[ ${block_image[$1]} == nixos || ${block_image[$1]} == nix ]]; then
     local candidate
     candidate="$(podman inspect --format '{{range .Mounts}}{{if eq .Destination "/nix"}}{{.Name}}{{end}}{{end}}' "$container")" || not_measured "container-setup step=private-store"
     [[ -n $candidate && $candidate != "$nix_volume" ]] || not_measured "container-setup step=private-store"
     nixos_volume="$candidate"
     # Nix's export/import carries registrations and references to the new
     # private store. Only that volume is handed to the curl install's user.
-    local transfer="vgs-readme-install-nixos-closure.$$"
+    local transfer="vgs-readme-install-nixos-closure-$1.$$"
     containers+=("$transfer")
     podman run -d --name "$transfer" -v "$nix_volume:/nix" "$nixos_prepared" sleep infinity >/dev/null || not_measured "container-setup step=closure-source"
     local closure paths=() bytes destination output
@@ -556,6 +551,10 @@ for row in "${rows[@]}"; do
   fi
   if [[ $block != "$current_block" ]]; then
     [[ -z $container ]] || podman rm -f -t 0 -- "$container" >/dev/null
+    if [[ -n $nixos_volume ]]; then
+      podman volume rm -- "$nixos_volume" >/dev/null || refuse 1 "private-store=cleanup-failed volume=$nixos_volume"
+      nixos_volume=""
+    fi
     run_block_start "$block"
     current_block="$block"
   fi

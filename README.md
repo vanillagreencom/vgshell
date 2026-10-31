@@ -38,7 +38,7 @@ Debian 14 (forky), or a copy in your home directory on Arch Linux or Fedora 44:
 curl -fsSL https://raw.githubusercontent.com/vanillagreencom/vgshell/main/install.sh | bash -s -- --git
 ```
 
-Nix:
+NixOS:
 
 ```bash
 nix run github:vanillagreencom/vgshell -- start

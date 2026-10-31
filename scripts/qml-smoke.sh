@@ -7,7 +7,9 @@
 #
 # --tree selects an installed runtime tree; rows, probes and fixtures come
 # from this checkout. --nix-store supplies its exported /nix for the world
-# to copy and mount privately. The tested tree enters the world read-only.
+# to copy and mount privately. It requires a NixOS graphics host; another
+# host reports nixos-graphics-required, exit 77, before starting anything.
+# The tested tree enters the world read-only.
 # The sandbox has its own HOME, XDG dirs and
 # runtime dir, a minimal compositor config, no user state. It never touches
 # the live session: the nested compositor gets its own runtime dir and
@@ -211,6 +213,10 @@ while [[ $# -gt 0 ]]; do
     *) printf 'qml-smoke: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
+if [[ -n $nix_store && $qml_smoke_list != true && ! -e /etc/NIXOS ]]; then
+  printf 'qml-smoke: status=not-measured reason=nixos-graphics-required tree=%s\n' "$source_tree" >&2
+  exit 77
+fi
 # The rows read the smoke set's state, so another set only measures.
 if [[ $plugin_set != smoke && -z $first_bar_runs ]]; then
   printf 'qml-smoke: refused: argument=--plugin-set value=%s reason=needs-first-bar-runs\n' "$plugin_set" >&2
