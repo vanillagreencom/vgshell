@@ -1717,17 +1717,18 @@ printf '{ "schemaVersion": 1, "name": "demo", "tokens": {} }\n' >"$shots_repo/th
 # scene_case SCRIPT LABEL STATUS LINE ARG...: SCRIPT run from the scratch
 # repository gives STATUS and LINE on stderr, or with STATUS 77 a stdout
 # line starting LINE. On a host with an amdgpu node the run enters
-# scripts/smoke/gpu-fence.sh, whose proof lines come first on stderr and
-# are not the script's. Where the fence could not make or prove its
-# namespace no scene case measured anything: the suite prints
-# `test-sandbox-shots: status=not-measured` with the fence's own line and
-# exits 77.
+# scripts/smoke/gpu-fence.sh, whose cleanup and proof lines come first on
+# stderr and are not the script's; scene_skip matches them. Where the fence
+# could not make or prove its namespace no scene case measured anything:
+# the suite prints `test-sandbox-shots: status=not-measured` with the
+# fence's own line and exits 77.
+scene_skip='^gpu-fence: \(\(absent\|present\) path\|cleanup\)='
 scene_case() {
   local script="$1" label="$2" want_status="$3" want_line="$4" status=0 out err
   shift 4
   cp -- "$script" "$shots_repo/scripts/sandbox-shots.sh"
   out="$(env -i PATH="$tmp/bin:$PATH" HOME="$tmp" TMPDIR="$TMPDIR" VGSHELL_WORLD_ROOT="$VGSHELL_WORLD_ROOT" "$BASH" "$shots_repo/scripts/sandbox-shots.sh" --out "$shots_repo/tmp/shots-$RANDOM$RANDOM" "$@" 2>"$tmp/scene.err")" || status=$?
-  err="$(sed -n '/^gpu-fence: \(absent\|present\) path=/!{p;q}' "$tmp/scene.err")"
+  err="$(sed -n "/$scene_skip/!{p;q}" "$tmp/scene.err")"
   if [[ $status -eq 77 && $err == "gpu-fence: status=not-measured "* ]]; then
     printf 'test-sandbox-shots: status=not-measured %s\n' "$err"
     exit 77
@@ -1831,6 +1832,30 @@ open(dst, "w").write(text.replace(needle, replacement))' "$repo/scripts/sandbox-
     fail "control: $label could not be planted"
   fi
 done
+# A fence that reaped a root before it could not make its namespace prints
+# cleanup lines before its not-measured line. A stand-in for the script
+# prints both and exits 77; run in a subshell, scene_case must end it with
+# the suite's not-measured line naming the fence's. The control plants the
+# old skip, which took the cleanup line for the script's.
+fence_stand_in="$tmp/fence-cleanup-first.sh"
+printf '%s\n' 'echo "gpu-fence: cleanup=reaped path=/x" >&2' 'echo "gpu-fence: status=not-measured reason=bwrap-missing" >&2' 'exit 77' >"$fence_stand_in"
+# cleanup_first SKIP: true when scene_case, skipping SKIP, exits 77 with the
+# fence's not-measured line.
+cleanup_first() {
+  local said status=0
+  said="$(scene_skip="$1"; scene_case "$fence_stand_in" "a fence's cleanup line" 77 "qml-smoke: status=not-measured")" || status=$?
+  [[ $status -eq 77 && $said == "test-sandbox-shots: status=not-measured gpu-fence: status=not-measured reason=bwrap-missing" ]]
+}
+if cleanup_first "$scene_skip"; then
+  ok "a fence's not-measured line after its cleanup lines ends the scene cases unmeasured"
+else
+  fail "a fence's not-measured line after its cleanup lines ends the scene cases unmeasured"
+fi
+if cleanup_first '^gpu-fence: \(absent\|present\) path='; then
+  fail "control: a skip that keeps cleanup lines still found the fence's not-measured line"
+else
+  ok "control: a skip that keeps cleanup lines misses the fence's not-measured line"
+fi
 
 # The Gallery title comes from the tree in the sandbox. Read the same
 # helper block without starting the harness, against old and current

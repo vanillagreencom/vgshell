@@ -292,7 +292,7 @@ mutate() {
 controls=(
   "the namespace is no PID namespace| --unshare-pid --proc /proc||a SIGKILL of the harness leaves no process and no directory|processes-left=[1-9]"
   "bubblewrap outlives the fence|--proc /proc --die-with-parent --new-session|--proc /proc --new-session|a SIGKILL of the fence leaves no process|processes-left=[1-9]"
-  "the owner bits are not given back|chmod -R u+rwX -- \"\$fence_dir\" 2>/dev/null|true|a SIGKILL of the harness leaves no process and no directory|gpu-fence: cleanup=rm-failed path="
+  "the owner bits are not given back|chmod -R u+rwX -- \"\$fence_dir\" 2>&1|true|a SIGKILL of the harness leaves no process and no directory|gpu-fence: cleanup=rm-failed path="
 )
 for i in "${!controls[@]}"; do
   IFS='|' read -r label old new target want <<<"${controls[i]}"

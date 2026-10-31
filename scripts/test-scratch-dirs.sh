@@ -129,6 +129,24 @@ else
     fail "control: the world went red without deleting its disposable file: ${problems[*]}"
   fi
 fi
+# A failed mktemp is root-failed, never the owner record's key: a copy that
+# names it owner-record-unreadable must turn the failing-mktemp case red.
+mktemp_refusal='.XXXXXX")" || { fault root-failed; exit 77; }'
+mktemp_mislabel='.XXXXXX")" || { fault owner-record-unreadable; exit 77; }'
+mktemp_rest="${world_text#*"$mktemp_refusal"}"
+if [[ $mktemp_rest == "$world_text" || $mktemp_rest == *"$mktemp_refusal"* ]]; then
+  fail "owner record control: the mktemp refusal does not match once"
+else
+  mkdir -p "$tmp/owner-control/scripts/smoke"
+  printf '%s\n' "${world_text/"$mktemp_refusal"/"$mktemp_mislabel"}" >"$tmp/owner-control/scripts/smoke/gpu-fence.sh"
+  if run gpu-fence failed-empty 'status=not-measured reason=root-failed' "$tmp/owner-control/scripts/smoke/gpu-fence.sh" --checkout "$repo" true; then
+    fail "control: a failed mktemp named as the owner record kept its case green"
+  elif [[ " ${problems[*]} " == *" stderr=[gpu-fence: status=not-measured reason=owner-record-unreadable]"* ]]; then
+    ok "control: a failed mktemp named as the owner record turns its case red"
+  else
+    fail "control: a failed mktemp named as the owner record went red for another reason: ${problems[*]}"
+  fi
+fi
 want_status=1
 
 # Control: the old shape in a copy of the library. The substitution must

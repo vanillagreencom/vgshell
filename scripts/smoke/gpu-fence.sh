@@ -81,6 +81,7 @@
 # never a run outside the namespace; the first status=not-measured line on
 # stderr names why (cleanup= lines may come before it):
 #   gpu-fence: status=not-measured reason=bwrap-missing
+#   gpu-fence: status=not-measured reason=owner-record-unreadable path=<path>
 #   gpu-fence: status=not-measured reason=root-failed
 #   gpu-fence: status=not-measured reason=namespace-failed exit=<status>
 #   gpu-fence: status=not-measured reason=amd-node-visible path=<path>
@@ -92,6 +93,13 @@ set -euo pipefail
 
 note() { printf 'gpu-fence: %s\n' "$*" >&2; }
 
+# why TEXT: a failed command's captured stderr on one line, at most 400
+# characters, so a cleanup note stays one line of the run log.
+why() {
+  local text="${1:0:400}"
+  printf '%s' "${text//$'\n'/; }"
+}
+
 # fault REASON [KEY=VALUE]: the stable first line and what it means.
 fault() {
   local reason="$1"
@@ -99,7 +107,8 @@ fault() {
   note "status=not-measured reason=$reason${*:+ $*}"
   case "$reason" in
     bwrap-missing) note "  bubblewrap, which makes the namespace, is not on PATH" ;;
-    root-failed) note "  the world could not make its owned run root or read its own owner record" ;;
+    owner-record-unreadable) note "  the world could not read its own start time or PID namespace for the owner record" ;;
+    root-failed) note "  the world could not make its owned run root" ;;
     namespace-failed) note "  bubblewrap could not make the namespace; its output follows" ;;
     amd-node-visible) note "  a path to an amdgpu node resolves inside the namespace" ;;
     node-missing) note "  a node or link the host had does not resolve inside the namespace" ;;
@@ -279,7 +288,7 @@ fenced() {
 # the one root this process acquired. PID 1 exits after the kernel reaps
 # every other process in its namespace.
 release() {
-  local init="" ns="" path _
+  local init="" ns="" path error _
   [[ -n ${fence_dir-} ]] || return 0
   if [[ -n ${proxy_pid:-} ]]; then
     exec {proxy_read}<&-
@@ -299,11 +308,13 @@ release() {
   for path in "$fence_dir"/tmp/vgshell-smoke.*/evidence/destination; do
     [[ ! -f $path ]] || python3 "${self%/*}/evidence.py" "$fence_dir" "${path%/evidence/destination}" "${output_roots[@]}" || true
   done
-  chmod -R u+rwX -- "$fence_dir" 2>/dev/null || note "cleanup=chmod-failed path=$fence_dir"
+  if ! error="$(chmod -R u+rwX -- "$fence_dir" 2>&1)"; then
+    note "cleanup=chmod-failed path=$fence_dir chmod-error=$(why "$error")"
+  fi
   if [[ $keep == true ]]; then
     note "kept root=$fence_dir"
-  else
-    rm -rf -- "${fence_dir:?}" 2>/dev/null || note "cleanup=rm-failed path=$fence_dir"
+  elif ! error="$(rm -rf -- "${fence_dir:?}" 2>&1)"; then
+    note "cleanup=rm-failed path=$fence_dir rm-error=$(why "$error")"
   fi
 }
 
@@ -341,15 +352,21 @@ proc_refs() {
 # vgshell-world.<pid>-<start>-<pid namespace>-<r|k>.XXXXXX. A root is reaped
 # only when its owner is proved gone: its pid is absent or reads a different
 # start time, in this PID namespace. An owner that is alive, in another
-# namespace, unreadable, or kept on purpose (k) keeps its root; the last
-# three are reported as `cleanup=kept path=<root> reason=<why>`. A root that
-# cannot be removed is reported as `cleanup=rm-failed path=<root>` on this
-# run's stderr, which is its run log. The reaper touches no entry outside
-# TMPDIR that is no directory named vgshell-world.*.
+# namespace, unreadable, or kept on purpose (k) keeps its root. Each root it
+# removes, cannot remove or keeps for a reason but a live owner (a
+# concurrent run's own root, which no line names) gets one line on this
+# run's stderr, which is its run log:
+#   cleanup=reaped path=<root>
+#   cleanup=kept path=<root> reason=<why>
+#   cleanup=rm-failed path=<root> rm-error=<rm's stderr>[ chmod-error=<chmod's stderr>]
+# A kept root's reason is keep, other-namespace, owner-unreadable (a live
+# pid whose start time cannot be read), no-owner-in-name, owner-unproved,
+# referenced, not-owned or not-a-directory. The reaper touches no entry
+# outside TMPDIR that is no directory named vgshell-world.*.
 # A root with no owner in its name predates the name: it is removed only when
 # older than any run can be and unreferenced, else kept as owner-unproved.
 reap_orphans() {
-  local root name pid start ns kind reason current modified reaped=0 refs="" refs_read=false
+  local root name pid start ns kind reason current modified chmod_error rm_error refs="" refs_read=false
   # Seconds: longer than the 7200 s timeout around a lane's nested run, with margin.
   local ownerless_min_age=10800
   for root in "${TMPDIR:-/tmp}"/vgshell-world.*; do
@@ -389,22 +406,22 @@ reap_orphans() {
         if [[ $refs == *$'\n'"$root"$'\n'* || $refs == *$'\n'"$root/"* ]]; then reason=referenced; fi
       fi
     else
-      reason=owner-unreadable
+      reason=no-owner-in-name
     fi
     if [[ -z $reason && ! -O $root ]]; then reason=not-owned; fi
     if [[ -n $reason ]]; then
       note "cleanup=kept path=$root reason=$reason"
       continue
     fi
-    # Owner bits first, as release does: the fixtures are read-only.
-    chmod -R u+rwX -- "$root" 2>/dev/null || true
-    if rm -rf -- "$root" 2>/dev/null || [[ ! -e $root ]]; then
-      reaped=$((reaped + 1))
+    # Owner bits first, as release does: the fixtures are read-only. A
+    # chmod failure is reported only as the cause of a failed rm.
+    chmod_error="$(chmod -R u+rwX -- "$root" 2>&1)" || true
+    if rm_error="$(rm -rf -- "$root" 2>&1)" || [[ ! -e $root ]]; then
+      note "cleanup=reaped path=$root"
     else
-      note "cleanup=rm-failed path=$root"
+      note "cleanup=rm-failed path=$root rm-error=$(why "$rm_error")${chmod_error:+ chmod-error=$(why "$chmod_error")}"
     fi
   done
-  ((reaped == 0)) || note "cleanup=reaped count=$reaped"
 }
 
 # inside ABSENT... -- PRESENT... -- CMD...: the proof, then CMD. Every path
@@ -476,7 +493,8 @@ case "$mode" in
     plan
     if [[ $fresh == false ]]; then ! fenced || exposed || exec "$@"; fi
     command -v bwrap >/dev/null 2>&1 || { fault bwrap-missing; exit 77; }
-    world_start="$(proc_start "$$")" && world_ns="$(readlink -- "/proc/$$/ns/pid")" && [[ $world_ns =~ ^pid:\[([0-9]+)\]$ ]] || { fault root-failed; exit 77; }
+    world_start="$(proc_start "$$")" || { fault owner-record-unreadable "path=/proc/$$/stat"; exit 77; }
+    world_ns="$(readlink -- "/proc/$$/ns/pid")" && [[ $world_ns =~ ^pid:\[([0-9]+)\]$ ]] || { fault owner-record-unreadable "path=/proc/$$/ns/pid"; exit 77; }
     world_ns="${BASH_REMATCH[1]}"
     reap_orphans
     kind=r
