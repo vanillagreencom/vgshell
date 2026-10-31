@@ -219,17 +219,43 @@ Item {
             return { page: page, pane: pane, tabs: tabs, settings: pages[0], setup: pages.length === 3 ? pages[1] : null, details: pages[pages.length - 1] };
         }
 
+        // One frame of ITEM's window with the state as it stands. QtTest's
+        // waitForRendering waits for the window's next frame swap, and a
+        // window whose requested state is already drawn schedules none, so
+        // the wait would fail on a load-settled window; asking for the
+        // frame first makes the wait answer on whether the window draws.
+        function renderedFrame(item, timeout) {
+            item.Window.window.update();
+            return waitForRendering(item, timeout);
+        }
+
+        function rendered(item) {
+            verify(renderedFrame(item), "the window has rendered the requested state");
+        }
+
         function opened(payload) {
             const window = createTemporaryObject(windowComponent, root);
             verify(window !== null, "the window builds");
             window.open(payload);
-            waitForRendering(window);
+            rendered(window);
             return window;
         }
 
         // Room below the shown tab's content, and none past it.
         function fits(scroll) {
             return scroll.height >= scroll.contentHeight && scroll.height - scroll.contentHeight < 1;
+        }
+
+        // A window with its state drawn swaps no frame of its own, which is
+        // what waitForRendering alone reports as not rendered; the wait
+        // asks for the frame, so it still answers on a settled window.
+        function test_the_rendered_wait_answers_on_a_settled_window() {
+            const window = opened('{"plugin":"acme.short"}');
+            let settled = false;
+            const until = Date.now() + 10000;
+            while (!settled && Date.now() < until) settled = !waitForRendering(window, 50);
+            verify(settled, "the window stops swapping frames once its state is drawn");
+            verify(renderedFrame(window, 1000), "a settled window draws the frame it is asked for");
         }
 
         // The core tells a plugin while its page is shown: the window
@@ -276,7 +302,7 @@ Item {
                 "the tab bar draws above the scrolling page and its cover");
 
             scroll.contentY = 0;
-            waitForRendering(window);
+            rendered(window);
             const restTop = strip.mapToItem(p.page, 0, 0).y;
             const firstRow = descendants(p.settings).find(item => item.label === "Enabled");
             verify(firstRow !== undefined, "the Settings page has its first switch row");
@@ -316,7 +342,7 @@ Item {
             const frames = [];
             function capture() {
                 verify(waitForPolish(window), "the window's layout is ready to capture");
-                verify(waitForRendering(window), "the window has rendered the requested state");
+                rendered(window);
                 compare(window.mapToItem(null, 0, 0), Qt.point(window.x, window.y), "the capture owner's local and scene origins agree");
                 const image = grabImage(window);
                 const thumb = scroll.bar.thumb;
@@ -388,10 +414,10 @@ Item {
                 mouseMove(p.page, p.page.width - 1, p.page.height - 1);
                 wait(Theme.motion.duration.fast + 20);
                 scroll.contentY = 0;
-                waitForRendering(window);
+                rendered(window);
                 const atRest = capture();
                 scroll.contentY = Math.max(0, scroll.contentHeight - scroll.height);
-                waitForRendering(window);
+                rendered(window);
                 const atEnd = capture();
                 verify(atRest !== null && atEnd !== null, "the page renders at rest and at its scroll end");
                 verify(scroll.contentY > 0, "the plugin page is scrolled before choosing " + names[i]);
@@ -407,7 +433,7 @@ Item {
                 verify(sameRenderedPixels(atRest, atEnd, p.page, band),
                     "the whole pinned band and its surrounding edges keep their resting paint at the end");
                 scroll.contentY = (scroll.contentHeight - scroll.height) / 2;
-                waitForRendering(window);
+                rendered(window);
                 verify(sameRenderedPixels(atRest, capture(), p.page, band),
                     "the whole pinned band and its surrounding edges keep their resting paint in the middle");
                 scroll.contentY = Math.max(0, scroll.contentHeight - scroll.height);
@@ -440,13 +466,13 @@ Item {
                 for (const held of [activeButton, button]) {
                     mousePress(held);
                     tryCompare(held, "down", true);
-                    waitForRendering(window);
+                    rendered(window);
                     const heldPress = capture();
                     solidPixels(heldPress, held, Qt.rect(Theme.border.thin, Theme.border.thin,
                         held.width - 2 * Theme.border.thin, Theme.border.thin), Theme.surface.level.raised.background);
                     mouseRelease(held);
                 }
-                waitForRendering(window);
+                rendered(window);
                 compare(p.tabs.currentIndex, i, "clicking the pinned " + names[i] + " tab switches pages");
             }
         }
@@ -461,13 +487,13 @@ Item {
             compare(height, Math.ceil(p.pane.uncappedHeight), "the window is the pane's content and chrome on Settings");
             verify(fits(p.page.scrollArea), "Settings fills its view: view " + p.page.scrollArea.height + ", content " + p.page.scrollArea.contentHeight);
             p.tabs.currentIndex = 1;
-            waitForRendering(window);
+            rendered(window);
             compare(window.implicitHeight, Math.ceil(settingsChrome + p.details.height), "Details takes the chrome and its own height");
             verify(window.implicitHeight < cap(), "Details fits under the cap: " + window.implicitHeight + " < " + cap());
             verify(fits(p.page.scrollArea), "Details fills its view: view " + p.page.scrollArea.height + ", content " + p.page.scrollArea.contentHeight);
             verify(!p.page.scrollArea.overflowing, "Details that fits does not scroll");
             p.tabs.currentIndex = 0;
-            waitForRendering(window);
+            rendered(window);
             compare(window.implicitHeight, height, "a return to Settings takes the Settings height");
         }
 
@@ -480,7 +506,7 @@ Item {
             const settingsHeight = window.implicitHeight;
             fakeCompositor.reads = [];
             p.tabs.currentIndex = 1;
-            waitForRendering(window);
+            rendered(window);
             tryVerify(() => fakeCompositor.reads.length === 1, 1000, "the page change asks for the windows once");
             const client = (title, appClass, address, height) => fakeCompositor.client({ class: appClass, title: title, address: address, size: [512, height] });
             fakeCompositor.answer([client("Plugins", "kitty", "0xa", settingsHeight), client("Plugins", "org.vgs.shell", "0xb", settingsHeight), client("Other", "org.vgs.shell", "0xc", settingsHeight)], 2000);
@@ -488,7 +514,7 @@ Item {
             verify(window.implicitHeight <= Theme.size.window.tallHeightShare * 2000, "Details fits under the 2000 px monitor's cap");
             compare(fakeCompositor.calls, [["place", "0xb", 70, 60, 512, window.implicitHeight]], "the Plugins client takes Details' height at its top-left and width");
             p.tabs.currentIndex = 0;
-            waitForRendering(window);
+            rendered(window);
             tryVerify(() => fakeCompositor.reads.length === 1, 1000, "the return asks for the windows once");
             fakeCompositor.answer([client("Plugins", "org.vgs.shell", "0xb", window.implicitHeight)], 2000);
             compare(fakeCompositor.calls.length, 1, "a client already at the page's height is not placed again");
@@ -502,7 +528,7 @@ Item {
             const window = opened('{"plugin":"acme.short"}');
             fakeCompositor.reads = [];
             compare(window.openPlugin("acme.long", Qt.TabFocusReason), "ok");
-            waitForRendering(window);
+            rendered(window);
             tryVerify(() => fakeCompositor.reads.length === 1, 1000, "the page change asks for the windows once");
             const p = parts(window);
             const share = Math.floor(Theme.size.window.tallHeightShare * 1000);
@@ -536,7 +562,7 @@ Item {
             const p = parts(window);
             fakeCompositor.reads = [];
             p.tabs.currentIndex = 1;
-            waitForRendering(window);
+            rendered(window);
             tryVerify(() => fakeCompositor.reads.length === 1, 1000, "the page change asks for the windows once");
             const page = window.implicitHeight;
             const under = data.bottom - Theme.size.window.gutter - data.at;
@@ -554,7 +580,7 @@ Item {
             const p = parts(window);
             fakeCompositor.reads = [];
             p.tabs.currentIndex = 1;
-            waitForRendering(window);
+            rendered(window);
             tryVerify(() => fakeCompositor.reads.length === 1, 1000, "the page change asks for the windows once");
             const height = window.implicitHeight;
             const at = 1080 + 60;
@@ -572,7 +598,7 @@ Item {
             const p = parts(window);
             fakeCompositor.reads = [];
             p.tabs.currentIndex = 1;
-            waitForRendering(window);
+            rendered(window);
             tryVerify(() => fakeCompositor.reads.length === 1, 1000, "the page change asks for the windows once");
             fakeCompositor.answer([fakeCompositor.client({ size: [512, window.implicitHeight - 200] })], undefined, { name: "HDMI-A-1" });
             compare(fakeCompositor.calls, []);
@@ -591,7 +617,7 @@ Item {
             const p = parts(window);
             fakeCompositor.reads = [];
             p.tabs.currentIndex = 1;
-            waitForRendering(window);
+            rendered(window);
             tryVerify(() => fakeCompositor.reads.length === 1, 1000, "the page change asks for the windows once");
             fakeCompositor.answer([fakeCompositor.client(Object.assign({ size: [512, window.implicitHeight - 200] }, data.fields))]);
             compare(fakeCompositor.calls, []);
@@ -604,10 +630,10 @@ Item {
             const window = opened('{"plugin":"acme.detailed"}');
             const p = parts(window);
             p.tabs.currentIndex = 1;
-            waitForRendering(window);
+            rendered(window);
             const details = window.implicitHeight;
             p.tabs.currentIndex = 0;
-            waitForRendering(window);
+            rendered(window);
             verify(window.implicitHeight < details, "Details is the taller tab: " + window.implicitHeight + " < " + details);
             fakeCompositor.calls = [];
             fakeCompositor.sync = fakeCompositor.state([fakeCompositor.client({ size: [512, details - 200] })], 2000);
@@ -637,12 +663,12 @@ Item {
             const drawn = p.pane.uncappedHeight;
             compare(full, drawn, "the unfiltered list's height is its drawn height");
             p.page.query = "short";
-            waitForRendering(window);
+            rendered(window);
             verify(p.pane.uncappedHeight < drawn, "the filter draws fewer rows: " + p.pane.uncappedHeight + " < " + drawn);
             compare(p.page.fitHeight, full, "the filtered list keeps the full list's height");
             compare(window.implicitHeight, Math.ceil(full), "the window asks for the full list's height");
             p.page.query = "";
-            waitForRendering(window);
+            rendered(window);
             compare(p.page.fitHeight, full);
         }
 
