@@ -34,7 +34,11 @@ Item {
             compare(found.length, 1, verb + " has one owner");
             return found[0];
         }
-        function accounts(rows) { process("switch").finish(0, 0, JSON.stringify(rows === undefined ? root.profileRows : rows), ""); }
+        function accounts(rows) {
+            const found = ProcessRegistry.runningWithVerb("switch").filter(row => row.command.indexOf("--list") !== -1);
+            compare(found.length, 1, "one accounts read owner");
+            found[0].finish(0, 0, JSON.stringify(rows === undefined ? root.profileRows : rows), "");
+        }
         function status() { process("status").finish(0, 0, root.running, ""); }
         function setup() {
             const done = root.setupDone[root.setupDone.length - 1];
@@ -129,12 +133,55 @@ Item {
             verify(service.problem !== "");
             compare(service.action, "");
         }
-        function test_auth_without_address_has_a_reason() {
+        function test_profile_verification_waits_for_actor_data() {
+            const rows = [];
+            for (const kind of ["switch", "sign-in"])
+                for (const earlySelected of [false, true])
+                    for (const readHeld of [false, true])
+                        rows.push({ tag: kind + "-early-" + earlySelected + "-held-" + readHeld, kind: kind, earlySelected: earlySelected, readHeld: readHeld });
+            return rows;
+        }
+        function test_profile_verification_waits_for_actor(data) {
+            compare(act(data.kind, "saved"), "ok");
+            const actor = process("switch");
+            service.lease(JSON.stringify({ id: "new-view", open: true }));
+            accounts(data.earlySelected ? root.profileRows : []);
+            compare(actor.running, true);
+            compare(service.action, data.kind);
+            compare(service.pendingProfile, "saved");
+            compare(service.problem, "");
+            compare(ProcessRegistry.runningWithVerb("up").length, 0);
+            compare(act("add-account"), "busy");
+            if (data.readHeld) service.refresh();
+            actor.finish(0, 0, "", "");
+            compare(service.action, data.kind);
+            compare(ProcessRegistry.runningWithVerb("up").length, 0);
+            if (data.readHeld) {
+                accounts([]);
+                compare(service.action, data.kind);
+                compare(service.pendingProfile, "saved");
+                compare(service.problem, "");
+                compare(ProcessRegistry.runningWithVerb("up").length, 0);
+            }
+            accounts();
+            compare(service.pendingProfile, "");
+            compare(service.problem, "");
+            if (data.kind === "sign-in") {
+                compare(service.action, "sign-in");
+                process("up").finish(0, 0, "", "");
+                compare(service.login, "idle");
+            }
+            compare(service.action, "");
+            verify(service.checkingSetup);
+        }
+        function test_authenticated_profile_reconnects_without_address() {
             compare(act("sign-in", "saved"), "ok");
             process("switch").finish(0, 0, "", ""); accounts();
             process("up").finish(0, 0, "", "");
             compare(service.login, "idle");
-            verify(service.problem !== "");
+            compare(service.problem, "");
+            compare(service.action, "");
+            compare(ProcessRegistry.processes.filter(row => row.running && row.command[1] === "-c").length, 0);
             verify(service.checkingSetup);
         }
         function test_missing_opener_tool_data() {

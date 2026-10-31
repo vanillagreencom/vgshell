@@ -223,13 +223,15 @@ Item {
         }
     }
 
-    function readAccounts() {
+    function readAccounts(profile) {
+        if (profile !== undefined) accountsReader.nextProfile = profile;
         if (accountsReader.running) {
             accountsReader.again = true;
             return;
         }
         accountsReader.completion = null;
-        accountsReader.verifying = pendingProfile;
+        accountsReader.verifying = accountsReader.nextProfile;
+        accountsReader.nextProfile = "";
         accountsDeadline.restart();
         accountsReader.running = true;
     }
@@ -245,6 +247,7 @@ Item {
         id: accountsReader
         property var completion: null
         property bool again: false
+        property string nextProfile: ""
         property string verifying: ""
         command: ["tailscale", "switch", "--list", "--json"]
         stdout: StdioCollector { id: accountsText; waitForEnd: true }
@@ -384,7 +387,9 @@ Item {
             // A stopped profile can be selected even when switch exits
             // nonzero. Verify the stable selected ID before up or success.
             if (root.pendingProfile !== "") {
-                root.readAccounts();
+                // A view refresh can overlap switch. Only its completion
+                // requests a new read that can verify the selected profile.
+                root.readAccounts(root.pendingProfile);
                 return;
             }
             if (code !== 0) {
@@ -406,8 +411,8 @@ Item {
         return reply;
     }
 
-    // `tailscale up` prints the sign-in page's address and waits until
-    // the user finishes there. The first address opens in the browser.
+    // `tailscale up` reconnects an authenticated profile directly, or
+    // prints an address and waits for the user to finish in the browser.
     function startLogin(argv) {
         if (signIn.running || browser.running) return "busy";
         const missing = ["sh", "xdg-open"].filter(command => shell.requirements.missing.indexOf(command) !== -1);
@@ -545,8 +550,6 @@ Item {
                 console.warn("tailscale: login failed kind=" + kind + " " + root.loginSaid.trim());
                 root.problem = Logic.failureText(kind);
                 root.endLogin();
-            } else if (!ended && root.login === "waiting") {
-                root.problem = "Tailscale gave no sign-in page.";
             }
             root.finishLogin();
         }
