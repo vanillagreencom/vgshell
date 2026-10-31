@@ -109,10 +109,11 @@ function described(call, plan, masks) {
  *   route()         "image" when the brain takes images, else "text"
  *   privateWindows()  the setting's current value
  *   onScreen        Dispatch.onScreen
+ *   workspaceKey    Dispatch.workspaceKey
  *   clock           {set, clear} for each command's deadline
  * Files left by a daemon that was killed are removed here.
  */
-function create({ commands, environment, read, readMs, directory, state, route, privateWindows, onScreen, clock }) {
+function create({ commands, environment, read, readMs, directory, state, route, privateWindows, onScreen, workspaceKey, clock }) {
     if (typeof directory !== "string" || !path.isAbsolute(directory)) throw new Error("jarvis: vision=directory");
     fs.rmSync(directory, { recursive: true, force: true });
     const running = new Map();
@@ -141,7 +142,7 @@ function create({ commands, environment, read, readMs, directory, state, route, 
     async function reading(call, seen) {
         const value = await read();
         if (value.kind !== "state") return { kind: "unread", answer: answer("failed", { kind: "failed", reason: "hyprland-read", detail: value.content }) };
-        const plan = Screen.plan(call, value.state, privateWindows(), onScreen);
+        const plan = Screen.plan(call, value.state, privateWindows(), onScreen, workspaceKey);
         if (plan.kind === "refuse") return { kind: "refused", answer: refuse(plan.reason) };
         for (const { address, rect } of plan.hidden)
             seen.set(address, seen.has(address) ? Screen.cover(seen.get(address), rect) : rect);

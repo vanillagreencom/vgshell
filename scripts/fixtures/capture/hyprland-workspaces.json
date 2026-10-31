@@ -1,0 +1,227 @@
+{
+  "_comment": "monitors and workspaces of `hyprctl --batch \"j/workspaces;j/monitors\"` on px13, keeping only the fields the Jarvis screen and desktop readers use (VGS-2110); the clients of the same session are in hyprland-windows.json. 0.57.0 is the read-only capture Jarvis took on px13 at 2026-10-31 06:47Z (workspace titles dropped), its monitor the VGS-2108 recording. 0.56.2 is not a recording: it is the same session in the shape src/debug/HyprCtl.cpp at v0.56.2 writes (every workspace carries id and no address, an absent special workspace id 0 and name empty, the special workspaces the ids the 0.56.2 clients of hyprland-windows.json carry).",
+  "0.57.0": {
+    "version": "0.57.0",
+    "monitors": [
+      {
+        "id": 0,
+        "name": "eDP-1",
+        "width": 2880,
+        "height": 1800,
+        "x": 0,
+        "y": 0,
+        "scale": 2,
+        "transform": 0,
+        "focused": true,
+        "activeWorkspace": {
+          "address": "3",
+          "id": 3,
+          "type": "normal",
+          "name": "3"
+        },
+        "specialWorkspace": {
+          "address": "",
+          "type": "",
+          "name": ""
+        }
+      }
+    ],
+    "workspaces": [
+      {
+        "address": "1",
+        "id": 1,
+        "type": "normal",
+        "name": "1",
+        "monitor": "eDP-1",
+        "monitorID": 0,
+        "windows": 1
+      },
+      {
+        "address": "special:yazi",
+        "type": "special",
+        "name": "special:yazi",
+        "monitor": "eDP-1",
+        "monitorID": 0,
+        "windows": 1
+      },
+      {
+        "address": "special:term",
+        "type": "special",
+        "name": "special:term",
+        "monitor": "eDP-1",
+        "monitorID": 0,
+        "windows": 1
+      },
+      {
+        "address": "special:spotify",
+        "type": "special",
+        "name": "special:spotify",
+        "monitor": "eDP-1",
+        "monitorID": 0,
+        "windows": 1
+      },
+      {
+        "address": "special:github",
+        "type": "special",
+        "name": "special:github",
+        "monitor": "eDP-1",
+        "monitorID": 0,
+        "windows": 1
+      },
+      {
+        "address": "special:chatgpt",
+        "type": "special",
+        "name": "special:chatgpt",
+        "monitor": "eDP-1",
+        "monitorID": 0,
+        "windows": 1
+      },
+      {
+        "address": "special:linear",
+        "type": "special",
+        "name": "special:linear",
+        "monitor": "eDP-1",
+        "monitorID": 0,
+        "windows": 1
+      },
+      {
+        "address": "special:macbook",
+        "type": "special",
+        "name": "special:macbook",
+        "monitor": "eDP-1",
+        "monitorID": 0,
+        "windows": 1
+      },
+      {
+        "address": "2",
+        "id": 2,
+        "type": "normal",
+        "name": "2",
+        "monitor": "eDP-1",
+        "monitorID": 0,
+        "windows": 1
+      },
+      {
+        "address": "3",
+        "id": 3,
+        "type": "normal",
+        "name": "3",
+        "monitor": "eDP-1",
+        "monitorID": 0,
+        "windows": 1
+      },
+      {
+        "address": "4",
+        "id": 4,
+        "type": "normal",
+        "name": "4",
+        "monitor": "eDP-1",
+        "monitorID": 0,
+        "windows": 2
+      }
+    ]
+  },
+  "0.56.2": {
+    "version": "0.56.2",
+    "monitors": [
+      {
+        "id": 0,
+        "name": "eDP-1",
+        "width": 2880,
+        "height": 1800,
+        "x": 0,
+        "y": 0,
+        "scale": 2,
+        "transform": 0,
+        "focused": true,
+        "activeWorkspace": {
+          "id": 3,
+          "name": "3"
+        },
+        "specialWorkspace": {
+          "id": 0,
+          "name": ""
+        }
+      }
+    ],
+    "workspaces": [
+      {
+        "id": 1,
+        "name": "1",
+        "monitor": "eDP-1",
+        "monitorID": 0,
+        "windows": 1
+      },
+      {
+        "id": -98,
+        "name": "special:yazi",
+        "monitor": "eDP-1",
+        "monitorID": 0,
+        "windows": 1
+      },
+      {
+        "id": -99,
+        "name": "special:term",
+        "monitor": "eDP-1",
+        "monitorID": 0,
+        "windows": 1
+      },
+      {
+        "id": -100,
+        "name": "special:spotify",
+        "monitor": "eDP-1",
+        "monitorID": 0,
+        "windows": 1
+      },
+      {
+        "id": -101,
+        "name": "special:github",
+        "monitor": "eDP-1",
+        "monitorID": 0,
+        "windows": 1
+      },
+      {
+        "id": -102,
+        "name": "special:chatgpt",
+        "monitor": "eDP-1",
+        "monitorID": 0,
+        "windows": 1
+      },
+      {
+        "id": -103,
+        "name": "special:linear",
+        "monitor": "eDP-1",
+        "monitorID": 0,
+        "windows": 1
+      },
+      {
+        "id": -104,
+        "name": "special:macbook",
+        "monitor": "eDP-1",
+        "monitorID": 0,
+        "windows": 1
+      },
+      {
+        "id": 2,
+        "name": "2",
+        "monitor": "eDP-1",
+        "monitorID": 0,
+        "windows": 1
+      },
+      {
+        "id": 3,
+        "name": "3",
+        "monitor": "eDP-1",
+        "monitorID": 0,
+        "windows": 1
+      },
+      {
+        "id": 4,
+        "name": "4",
+        "monitor": "eDP-1",
+        "monitorID": 0,
+        "windows": 2
+      }
+    ]
+  }
+}

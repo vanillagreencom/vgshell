@@ -35,6 +35,19 @@ world(async () => {
         return { ...bounds, hyprctlMs: 1300, requestMs: 1200, settleMs: 100, launchMs: 100, slackMs: 50 };
     };
     const environment = { PATH: process.env.PATH, XDG_RUNTIME_DIR: runtime, LANG: "C.UTF-8" };
+    // The monitors and workspaces of px13 on Hyprland 0.57.0 (recorded) and in the
+    // shape 0.56.2 writes: scripts/fixtures/capture/hyprland-workspaces.json (VGS-2110).
+    const layouts = JSON.parse(fs.readFileSync(path.join(tree, "scripts/fixtures/capture/hyprland-workspaces.json"), "utf8"));
+    const withLayout = (version, change = () => {}) => d => {
+        const s = d.read(), layout = structuredClone(layouts[version]);
+        s.monitors = layout.monitors;
+        s.workspaces = layout.workspaces;
+        change(s, d);
+        d.write(s);
+    };
+    const exact = lines => new RegExp("^" + lines.join("\n").replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "$");
+    const numbered = n => "workspace id=" + n + " name=\"" + n + "\" monitor=eDP-1 windows=" + (n === 4 ? 2 : 1) + (n === 3 ? " shown focused" : "");
+    const special = (name, ref, shown = "") => "workspace " + ref + " name=\"special:" + name + "\" monitor=eDP-1 windows=1" + shown;
 
     function make(Desktop = require(file), commands = ["gio"], timing = bounds) {
         const requests = ShellRequests.create({ Protocol, clock, write: fields => {
@@ -163,6 +176,31 @@ world(async () => {
         ["monitor-noop", "windows.monitor", { monitor: "FIX-2" }, d => { d.modes["compositor.focusMonitor"] = "noop"; }, "failed", /monitor FIX-1 has the focus/],
         ["windows", "windows.list", {}, null, "completed", /^2 windows\n0xa1 workspace="1" monitor=FIX-1 class="fixture\.app" title="Target" floating\n0xb2 .*title="Other" focused$/],
         ["workspaces", "workspaces.list", {}, null, "completed", /^2 workspaces\nworkspace id=1 name="1" monitor=FIX-1 windows=2 shown focused\nworkspace id=2 name="2" monitor=FIX-2 windows=0 shown$/],
+        // 0.57.0 writes an address and no id for a workspace without a number; the
+        // numbered ones come first, the others by address. 0.56.2 gives each an id.
+        ["workspaces-0.57.0", "workspaces.list", {}, withLayout("0.57.0"), "completed", exact(["11 workspaces",
+            ...[1, 2, 3, 4].map(numbered),
+            ...["chatgpt", "github", "linear", "macbook", "spotify", "term", "yazi"].map(name => special(name, "address=\"special:" + name + "\""))])],
+        ["workspaces-0.57.0-special-shown", "workspaces.list", {}, withLayout("0.57.0", s => {
+            s.monitors[0].specialWorkspace = { address: "special:term", type: "special", name: "special:term" };
+        }), "completed", exact(["11 workspaces",
+            ...[1, 2, 3, 4].map(numbered),
+            ...["chatgpt", "github", "linear", "macbook", "spotify"].map(name => special(name, "address=\"special:" + name + "\"")),
+            special("term", "address=\"special:term\"", " shown focused"), special("yazi", "address=\"special:yazi\"")])],
+        ["workspaces-0.57.0-no-identity", "workspaces.list", {}, withLayout("0.57.0", s => {
+            s.workspaces = [{ type: "normal", name: "ghost", monitor: "eDP-1", monitorID: 0, windows: 0 }];
+        }), "completed", exact(["1 workspaces", "workspace address=\"\" name=\"ghost\" monitor=eDP-1 windows=0"])],
+        ["workspaces-0.56.2", "workspaces.list", {}, withLayout("0.56.2"), "completed", exact(["11 workspaces",
+            ...[["macbook", -104], ["linear", -103], ["chatgpt", -102], ["github", -101], ["spotify", -100], ["term", -99], ["yazi", -98]]
+                .map(([name, id]) => special(name, "id=" + id)),
+            ...[1, 2, 3, 4].map(numbered)])],
+        ["workspaces-0.56.2-special-shown", "workspaces.list", {}, withLayout("0.56.2", s => {
+            s.monitors[0].specialWorkspace = { id: -99, name: "special:term" };
+        }), "completed", /workspace id=-99 name="special:term" monitor=eDP-1 windows=1 shown focused\nworkspace id=-98 name="special:yazi" monitor=eDP-1 windows=1\nworkspace id=1 /],
+        ["workspace-named-0.57.0", "workspaces.focus", { workspace: 4 }, withLayout("0.57.0", (s, d) => {
+            s.monitors[0].activeWorkspace = { address: "web", type: "normal", name: "web" };
+            d.modes["compositor.focusWorkspace"] = "noop";
+        }), "failed", /workspace "web" is shown on the focused monitor/],
         ["apps", "apps.list", {}, null, "completed", /^2 applications\nfixture\.editor name="Editor"\nfixture\.tool name="Tool"$/],
         ["apps-query", "apps.list", { query: "TOOL" }, null, "completed", /^1 applications\nfixture\.tool name="Tool"$/],
         ["launch", "apps.launch", { desktop: "fixture.editor.desktop" }, d => { d.launches["fixture-editor"] = { mode: "window", class: "fixture.editor" }; },
@@ -380,6 +418,12 @@ world(async () => {
     await control("apps-query", ".toLowerCase().includes(query))", ".length > 0)", red(["apps-query"]));
     await control("probe-first", "    const ready = desktop.probe().then(() => {",
         "    for (const id of [\"windows\", \"compositor\", \"apps\"]) router.register(id, desktop.records[id]);\n    const ready = desktop.probe().then(() => {", registration);
+    await control("workspace-shown-by-id", "key(m.activeWorkspace) === key(w) || key(m.specialWorkspace) === key(w)",
+        "m.activeWorkspace.id === w.id || m.specialWorkspace.id === w.id", red(["workspaces-0.57.0", "workspaces-0.57.0-special-shown"]));
+    await control("workspace-no-identity-shown", "key(w) === \"\" ? [] : ", "", red(["workspaces-0.57.0-no-identity"]));
+    await control("workspace-sorted-by-id", "rank(a) - rank(b) || (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0)", "a.id - b.id", red(["workspaces-0.57.0"]));
+    await control("workspace-id-printed", "(Number.isInteger(w.id) ? \"id=\" + w.id : \"address=\" + JSON.stringify(key(w)))", "\"id=\" + w.id", red(["workspaces-0.57.0"]));
+    await control("workspace-seen-by-id", "(shown === null ? null : workspaceLabel(shown))", "(shown === null ? null : shown.id)", red(["workspace-named-0.57.0"]));
     await control("close-reads", "if (closed) { reject(new Error(\"closed\")); return; }", "", closing);
     for (const [name, needle, replacement] of [
         ["seam-install", "const session = DesktopSession.install({ router, ...desktop });",

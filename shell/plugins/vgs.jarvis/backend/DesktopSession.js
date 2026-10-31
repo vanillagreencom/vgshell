@@ -32,6 +32,10 @@ function focusedMonitor(state) {
     return state.monitors.find(m => m.focused) || null;
 }
 
+function workspaceLabel(workspace) {
+    return Number.isInteger(workspace.id) ? String(workspace.id) : JSON.stringify(workspace.name);
+}
+
 function describe(client, state) {
     const monitor = state.monitors.find(m => m.id === client.monitor);
     const flags = [client.floating ? "floating" : "", client.fullscreen ? "fullscreen=" + client.fullscreen : "",
@@ -62,10 +66,12 @@ const expect = {
         const focused = focusedMonitor(state);
         return { met: focused !== null && focused.name === name, seen: "monitor " + (focused ? focused.name : "none") + " has the focus" };
     },
+    // The request names a number, which only a numbered workspace carries as
+    // an `id` in 0.56.2 and 0.57.0; a named one has none in 0.57.0.
     workspace: id => state => {
         const focused = focusedMonitor(state);
-        const shown = focused === null ? null : focused.activeWorkspace.id;
-        return { met: shown === id, seen: "workspace " + shown + " is shown on the focused monitor" };
+        const shown = focused === null ? null : focused.activeWorkspace;
+        return { met: shown !== null && shown.id === id, seen: "workspace " + (shown === null ? null : workspaceLabel(shown)) + " is shown on the focused monitor" };
     },
     special: want => state => {
         const focused = focusedMonitor(state);
@@ -262,9 +268,12 @@ function create({ Dispatch, Launch, request, environment, clock, bounds = BOUNDS
             return { outcome: "completed", content: [mapped.length + " windows"].concat(mapped.map(c => describe(c, s))).join("\n") };
         }
         const { workspaces, monitors } = await read(Dispatch.WORKSPACE_STATE_REQUEST, Dispatch.workspaceState, "workspaces");
-        const lines = workspaces.slice().sort((a, b) => a.id - b.id).map(w => {
-            const shown = monitors.filter(m => m.activeWorkspace.id === w.id || m.specialWorkspace.id === w.id);
-            return "workspace id=" + w.id + " name=" + JSON.stringify(w.name) + " monitor=" + w.monitor + " windows=" + w.windows
+        const key = Dispatch.workspaceKey;
+        // A workspace without a number has no `id` in 0.57.0: it follows the numbered ones, by key.
+        const rank = w => Number.isInteger(w.id) ? w.id : Number.MAX_SAFE_INTEGER;
+        const lines = workspaces.slice().sort((a, b) => rank(a) - rank(b) || (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0)).map(w => {
+            const shown = key(w) === "" ? [] : monitors.filter(m => key(m.activeWorkspace) === key(w) || key(m.specialWorkspace) === key(w));
+            return "workspace " + (Number.isInteger(w.id) ? "id=" + w.id : "address=" + JSON.stringify(key(w))) + " name=" + JSON.stringify(w.name) + " monitor=" + w.monitor + " windows=" + w.windows
                 + (shown.length ? " shown" + (shown.some(m => m.focused) ? " focused" : "") : "");
         });
         return { outcome: "completed", content: [lines.length + " workspaces"].concat(lines).join("\n") };

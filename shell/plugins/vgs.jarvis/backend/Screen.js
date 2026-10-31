@@ -6,17 +6,21 @@
 
 function refuse(reason) { return { kind: "refuse", reason }; }
 const integer = value => Number.isSafeInteger(value);
+const object = value => value !== null && typeof value === "object";
 
 /**
  * An output's box in layout coordinates, or null for a reading this judge
  * cannot place. Hyprland 0.56.2 prints `width` and `height` as the mode in
  * device pixels; its logical size is that mode turned a quarter for an odd
  * transform (wl_output_transform 1, 3, 5, 7), divided by the scale and
- * rounded (CMonitor::applyMonitorRule, src/output/Monitor.cpp).
+ * rounded (CMonitor::applyMonitorRule, src/output/Monitor.cpp). The two
+ * workspaces must be present as objects, never as an `id`: Hyprland 0.57.0
+ * writes none for an empty special workspace. Dispatch.workspaceKey names
+ * them.
  */
 function layoutBox(monitor) {
-    if (!monitor || ![monitor.x, monitor.y, monitor.width, monitor.height,
-        monitor.activeWorkspace?.id, monitor.specialWorkspace?.id].every(integer)
+    if (!monitor || ![monitor.x, monitor.y, monitor.width, monitor.height].every(integer)
+            || !object(monitor.activeWorkspace) || !object(monitor.specialWorkspace)
             || monitor.width < 1 || monitor.height < 1 || typeof monitor.scale !== "number"
             || !Number.isFinite(monitor.scale) || monitor.scale <= 0
             || !Number.isInteger(monitor.transform) || monitor.transform < 0 || monitor.transform > 7)
@@ -110,17 +114,18 @@ function target(call, monitors, clients, onScreen, list) {
 }
 
 /**
- * plan(call, reading, privateWindows, onScreen) answers
+ * plan(call, reading, privateWindows, onScreen, workspaceKey) answers
  *   {kind:"capture", box, scale, grim, image:{width,height}, hidden, key}
  * or {kind:"refuse", reason}. reading is a Dispatch.revealState value;
- * onScreen is Dispatch.onScreen. hidden lists every mapped private window,
+ * onScreen and workspaceKey are Dispatch.onScreen and Dispatch.workspaceKey.
+ * hidden lists every mapped private window,
  * on any workspace, as {address, rect} in layout coordinates: Hyprland's
  * animation goal, not the rectangle drawn while it animates. key is the part
  * of the reading two plans of one call must share for an image to match its
  * masks: the box, the scale, each monitor's active and special workspace,
  * the set of mapped windows and every private window's rectangle.
  */
-function plan(call, reading, privateWindows, onScreen) {
+function plan(call, reading, privateWindows, onScreen, workspaceKey) {
     const list = patterns(privateWindows);
     const clients = reading.clients.filter(client => client.mapped);
     const chosen = target(call, reading.monitors, clients, onScreen, list);
@@ -137,7 +142,7 @@ function plan(call, reading, privateWindows, onScreen) {
     }
     hidden.sort((a, b) => a.address < b.address ? -1 : a.address > b.address ? 1 : 0);
     const windows = clients.map(client => String(client.address).toLowerCase()).sort();
-    const workspaces = reading.monitors.map(monitor => [monitor.name, monitor.activeWorkspace.id, monitor.specialWorkspace.id]);
+    const workspaces = reading.monitors.map(monitor => [monitor.name, workspaceKey(monitor.activeWorkspace), workspaceKey(monitor.specialWorkspace)]);
     return { kind: "capture", box, scale, grim: ["-s", String(scale), ...chosen.grim], image, hidden,
         key: JSON.stringify({ box, scale, workspaces, windows, hidden }) };
 }

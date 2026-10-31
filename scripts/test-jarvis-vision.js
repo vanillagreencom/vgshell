@@ -266,12 +266,50 @@ async function main() {
                 for (const transform of transforms) {
                     const reading = { monitors: [monitor(0, "FIX-1", { ...output, transform })],
                         clients: [secret("0xa1", [wx, wy], [ww, wh])] };
-                    const plan = Screen.plan({ id: "vision.monitor", args: { monitor: "FIX-1" } }, reading, SHIPPED, Dispatch.onScreen);
+                    const plan = Screen.plan({ id: "vision.monitor", args: { monitor: "FIX-1" } }, reading, SHIPPED, Dispatch.onScreen, Dispatch.workspaceKey);
                     const label = name + " transform " + transform;
                     assert.equal(plan.kind, "capture", label + ": " + plan.reason);
                     const masks = Screen.masks(plan, plan.hidden.map(entry => entry.rect));
                     assert.deepEqual([plan.box, plan.image, masks], [{ x, y, w, h }, { width, height }, [mask]], label);
                     assert.deepEqual(plan.grim, ["-s", String(output.scale), "-o", "FIX-1"], label);
+                }
+            }
+        }],
+        // The px13 0.57.0 monitor of VGS-2110 has no id on its empty special
+        // workspace, and its windows are named by address; a 0.56.2-shaped
+        // reading names both by id. Both judge alike.
+        ["workspaces", async folder => {
+            const Screen = require(path.join(folder, "Screen.js"));
+            const read = name => JSON.parse(fs.readFileSync(path.join(tree, "scripts/fixtures/capture", name), "utf8"));
+            const windows = read("hyprland-windows.json"), layout = read("hyprland-workspaces.json");
+            const special = {
+                "0.57.0": name => ({ address: "special:" + name, type: "special", name: "special:" + name }),
+                "0.56.2": name => ({ id: { yazi: -98, term: -99 }[name], name: "special:" + name })
+            };
+            const first = { "0.57.0": { address: "1", id: 1, type: "normal", name: "1" }, "0.56.2": { id: 1, name: "1" } };
+            for (const version of ["0.57.0", "0.56.2"]) {
+                const clients = windows[version].clients, [shown] = layout[version].monitors;
+                const planOf = (call, values = {}) => Screen.plan(call, { clients, monitors: [{ ...shown, ...values }] }, SHIPPED, Dispatch.onScreen, Dispatch.workspaceKey);
+                const screen = planOf({ id: "vision.screen", args: {} });
+                assert.equal(screen.kind, "capture", version + " screen: " + screen.reason);
+                assert.deepEqual([screen.box, screen.scale, screen.image, screen.grim],
+                    [{ x: 0, y: 0, w: 1440, h: 900 }, 2, { width: 2880, height: 1800 }, ["-s", "2"]], version + " screen");
+                assert.equal(planOf({ id: "vision.monitor", args: { monitor: "eDP-1" } }).kind, "capture", version + " monitor");
+                // 0x55b9bf3fb780 is on the shown workspace 3; yazi and term are special workspaces no monitor shows.
+                assert.equal(planOf({ id: "vision.window", args: { window: "0x55b9bf3fb780" } }).kind, "capture", version + " window on the shown workspace");
+                for (const address of ["0x55b9bf514a40", "0x55b9c0a90e80", "0x55b9bf516e00"])
+                    assert.deepEqual(planOf({ id: "vision.window", args: { window: address } }), { kind: "refuse", reason: "window-hidden" }, version + " window " + address + " is not shown");
+                const termed = planOf({ id: "vision.window", args: { window: "0x55b9c0a90e80" } }, { specialWorkspace: special[version]("term") });
+                assert.equal(termed.kind, "capture", version + " window on the special workspace shown");
+                // What an image must match: a workspace that comes or goes moves the key.
+                const keys = [{}, { specialWorkspace: special[version]("term") }, { specialWorkspace: special[version]("yazi") },
+                    { activeWorkspace: first[version] }].map(values => planOf({ id: "vision.screen", args: {} }, values).key);
+                assert.equal(new Set(keys).size, keys.length, version + " each workspace state has its own key");
+                for (const [name, values] of [["no special workspace", { specialWorkspace: undefined }], ["a text special workspace", { specialWorkspace: "special:term" }],
+                    ["no active workspace", { activeWorkspace: null }]]) {
+                    let plan;
+                    assert.doesNotThrow(() => { plan = planOf({ id: "vision.screen", args: {} }, values); }, version + " " + name + " is refused, never thrown on");
+                    assert.deepEqual(plan, { kind: "refuse", reason: "monitor-shape" }, version + " " + name);
                 }
             }
         }],
@@ -387,7 +425,7 @@ async function main() {
                 const session = DesktopSession.install({ router, Dispatch, Launch, request: () => assert.fail("no desktop request"),
                     clock: CLOCK, environment: HYPRLAND, commands: [] });
                 const vision = Vision.install({ router, session, find: commandFile, environment: ENVIRONMENT, clock: CLOCK,
-                    onScreen: Dispatch.onScreen, directory, state: () => RUNNING, route: () => "image", privateWindows: () => SHIPPED });
+                    onScreen: Dispatch.onScreen, workspaceKey: Dispatch.workspaceKey, directory, state: () => RUNNING, route: () => "image", privateWindows: () => SHIPPED });
                 try {
                     assert.equal(await session.ready, false, "the probe failed");
                     assert.deepEqual(ids, [], "no Hyprland answer registers no vision");
@@ -660,6 +698,10 @@ async function main() {
         ["Screen.js", "private-target", 'if (isPrivate(client, list)) return refuse("private-window");', "", "refusals"],
         ["Screen.js", "region-bounds", "\n                || box.x + box.w > screen.x + screen.w || box.y + box.h > screen.y + screen.h)", ")", "refusals"],
         ["Screen.js", "region-shown", "if (shown.length === 0 || box.x < screen.x", "if (box.x < screen.x", "refusals"],
+        ["Screen.js", "workspace-id-required", "![monitor.x, monitor.y, monitor.width, monitor.height].every(integer)\n            || !object(monitor.activeWorkspace) || !object(monitor.specialWorkspace)",
+            "![monitor.x, monitor.y, monitor.width, monitor.height,\n        monitor.activeWorkspace?.id, monitor.specialWorkspace?.id].every(integer)", "workspaces"],
+        ["Screen.js", "workspace-shape-unchecked", "\n            || !object(monitor.activeWorkspace) || !object(monitor.specialWorkspace)", "", "workspaces"],
+        ["Screen.js", "workspace-keyed-by-id", "workspaceKey(monitor.activeWorkspace), workspaceKey(monitor.specialWorkspace)", "monitor.activeWorkspace.id, monitor.specialWorkspace.id", "workspaces"],
         ["Screen.js", "window-set-ignored", "key: JSON.stringify({ box, scale, workspaces, windows, hidden })", "key: JSON.stringify({ box, scale, workspaces, hidden })", "races"],
         ["Screen.js", "workspace-ignored", "key: JSON.stringify({ box, scale, workspaces, windows, hidden })", "key: JSON.stringify({ box, scale, windows, hidden })", "races"],
         ["Vision.js", "retry-dropped", "            shot = await shoot(target, authorize, signal, files, seen);\n", "", "races"],

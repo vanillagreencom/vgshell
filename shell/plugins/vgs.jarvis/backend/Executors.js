@@ -35,7 +35,8 @@ function register(router, { find, environment, clock, desktop, vision }) {
     }
     // Vision reads Hyprland through the session's one reader, after its probe.
     lifetimes.push(Vision.install({ router, session, find, environment, clock,
-        onScreen: desktop.Dispatch.onScreen, ...vision }));
+        onScreen: desktop.Dispatch.onScreen, workspaceKey: desktop.Dispatch.workspaceKey,
+        ...vision }));
     return { close() { for (const lifetime of lifetimes) lifetime.close(); } };
 }
 
