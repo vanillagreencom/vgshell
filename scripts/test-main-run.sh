@@ -13,14 +13,25 @@
 # 1 landing 2 h and 0 h after the last run, and past newer runs that were
 # killed partway or not run; a failed fetch exits 77 with result=not-run.
 # The age cases plant the earlier run's `started` record in place of a
-# clock.
+# clock. The retention cases plant run directories named for days before
+# now beside a real run, read the retention through the copied
+# orch-env ladder at its default and at 7 days from a scratch
+# kendex.settings.toml, and check exactly which go; a run that cannot be
+# removed is logged and leaves a green exit; a retention too large for
+# shell arithmetic refuses; a root outside the clone's tmp/, tmp/ itself,
+# a `..` escape and a symlink out are refused in both modes, creating
+# nothing.
 #
 # Controls, each a copy of the runner with one rule removed by a
 # substitution that must match once: a verdict that passes 77 turns the 77
 # case red, a verdict that ignores area exits turns the 1 case red, and a
 # landing reader that counts commits rather than identifiers turns the
 # naming case red, and a trigger that reads a run with no verdict turns the
-# unfinished case red.
+# unfinished case red. A retention with no age cut, one that does not keep
+# the last-green run or the newest run of an area set, one that judges a
+# symlink as a run, or one that does not read the ladder turns its
+# retention case red, and a root bound that accepts any root turns the
+# outside case red.
 #
 # Exit 0 when every case and control holds, 1 otherwise.
 set -euo pipefail
@@ -44,6 +55,9 @@ report_lines="$TMP_ROOT/report-lines"
 : >"$report_lines"
 clone="$TMP_ROOT/clone"
 runner="$clone/scripts/main-run.sh"
+# Every record root sits in the clone's tmp/, the only place the runner
+# accepts one.
+records="$clone/tmp"
 
 # Every child gets this environment and no other.
 xenv=(env -i PATH="$PATH" HOME="$TMP_ROOT/home" LC_ALL=C
@@ -76,6 +90,10 @@ g clone -q --bare "$TMP_ROOT/seed" "$TMP_ROOT/origin.git"
 g clone -q "$TMP_ROOT/origin.git" "$clone"
 g clone -q "$TMP_ROOT/origin.git" "$TMP_ROOT/pusher"
 cp -- "$repo/scripts/main-run.sh" "$runner"
+# The runner reads its retention through the real settings ladder.
+mkdir -p "$clone/.agents/skills/orch/scripts/lib"
+cp -- "$repo/.agents/skills/orch/scripts/orch-env" "$clone/.agents/skills/orch/scripts/orch-env"
+cp -- "$repo/.agents/skills/orch/scripts/lib/kendex-env.sh" "$clone/.agents/skills/orch/scripts/lib/kendex-env.sh"
 
 cat >"$TMP_ROOT/slot" <<'EOF'
 #!/usr/bin/env bash
@@ -116,7 +134,7 @@ problems=()
 
 case_green() {
   problems=()
-  local root="$TMP_ROOT/r-green" text
+  local root="$records/r-green" text
   areas 'unit 0' 'qml 0'
   main --root "$root" unit qml -- "$TMP_ROOT/slot"
   [[ $status -eq 0 ]] || problems+=("exit=$status")
@@ -150,7 +168,7 @@ case_red() {
 # landing, the commit with no identifier is its own.
 case_naming() {
   problems=()
-  local root="$TMP_ROOT/r-naming" text want got
+  local root="$records/r-naming" text want got
   areas 'unit 0'
   main --root "$root" unit
   [[ $status -eq 0 ]] || { problems+=("green-first exit=$status"); return 1; }
@@ -177,7 +195,7 @@ if [[ ! -e $(sed -n '1p' "$paths") ]]; then ok "the detached worktree is removed
 
 case_worktree_path() {
   problems=()
-  local root="$TMP_ROOT/offline+unit+package+nix+qml with space" worktree name
+  local root="$records/offline+unit+package+nix+qml with space" worktree name
   areas 'unit 0'
   main --root "$root" unit
   [[ $status -eq 0 ]] || problems+=("exit=$status")
@@ -195,7 +213,7 @@ if case_worktree_path; then ok "a long record root with + and space has a short 
 case_concurrent_paths() {
   problems=()
   local release="$TMP_ROOT/release" first second count attempt one_status=0 two_status=0
-  local one="$TMP_ROOT/one/offline+unit" two="$TMP_ROOT/two/offline+unit"
+  local one="$records/one/offline+unit" two="$records/two/offline+unit"
   rm -f -- "${release:?}"
   : >"$paths"
   areas 'unit 0'
@@ -217,8 +235,8 @@ case_concurrent_paths() {
   [[ ${#problems[@]} -eq 0 ]]
 }
 if case_concurrent_paths; then ok "distinct result roots with the same name have separate worktrees"; else fail "concurrent paths: ${problems[*]}"; fi
-if case_red "$TMP_ROOT/r-77" qml 77; then ok "an area exiting 77 is red and keeps last-green"; else fail "77: ${problems[*]}"; fi
-if case_red "$TMP_ROOT/r-1" unit 1; then ok "an area exiting 1 is red and keeps last-green"; else fail "1: ${problems[*]}"; fi
+if case_red "$records/r-77" qml 77; then ok "an area exiting 77 is red and keeps last-green"; else fail "77: ${problems[*]}"; fi
+if case_red "$records/r-1" unit 1; then ok "an area exiting 1 is red and keeps last-green"; else fail "1: ${problems[*]}"; fi
 if case_naming; then ok "a red run names one landing per identifier since the last green"; else fail "naming: ${problems[*]}"; fi
 
 # Use the row's actual replay function. The batch reporter must retain a
@@ -254,13 +272,13 @@ case_control_report() {
   : >"$report_lines"
   [[ ${#problems[@]} -eq 0 ]]
 }
-if case_control_report "$TMP_ROOT/r-control-report"; then
+if case_control_report "$records/r-control-report"; then
   ok "the batch report names a real failure and keeps Keyboard control diagnostics in the log"
 else
   fail "control report: ${problems[*]}"
 fi
 source "$TMP_ROOT/keyboard-control-unmarked.sh"
-if case_control_report "$TMP_ROOT/c-control-report"; then
+if case_control_report "$records/c-control-report"; then
   fail "control: unmarked Keyboard diagnostics still pass the report assertion"
 elif [[ ${problems[*]} == control-reported-as-failure ]]; then
   ok "control: removing the Keyboard control marker fails the same report assertion (${problems[*]})"
@@ -270,7 +288,7 @@ fi
 source "$TMP_ROOT/keyboard-control-log.sh"
 
 # --due on one root: no earlier run, then 0, 4 and 5 landings after a run.
-due_root="$TMP_ROOT/r-due"
+due_root="$records/r-due"
 due_table=(
   "0|1|due=no landings=0"
   "4|1|due=no landings=4"
@@ -316,7 +334,7 @@ age_table=(
 )
 for entry in "${age_table[@]}"; do
   IFS='|' read -r age want_status want_text <<<"$entry"
-  age_root="$TMP_ROOT/r-age-$age"
+  age_root="$records/r-age-$age"
   plant "$age_root" 20200101T000000Z 'origin/main^' "$age" result=green
   main --root "$age_root" --due unit
   if [[ $status -eq $want_status && $(<"$TMP_ROOT/out") == "main-run: $want_text secs="* ]]; then
@@ -330,7 +348,7 @@ done
 # origin/main now; --due still reads the finished run 2 h old before them.
 case_unfinished() {
   problems=()
-  local root="$TMP_ROOT/r-unfinished"
+  local root="$records/r-unfinished"
   plant "$root" 20200101T000000Z 'origin/main^' 7200 result=red
   plant "$root" 20200102T000000Z origin/main 0
   plant "$root" 20200103T000000Z origin/main 0 'result=not-run cause=worktree-failed'
@@ -345,8 +363,147 @@ else
   fail "--due unfinished: ${problems[*]}"
 fi
 
+# settings DAYS: the scratch clone's kendex.settings.toml sets the
+# retention to DAYS, or the file is absent when DAYS is empty.
+settings() {
+  rm -f -- "$clone/kendex.settings.toml"
+  [[ -z $1 ]] || printf '[env]\nORCH_RECORD_RETENTION_DAYS = "%s"\n' "$1" >"$clone/kendex.settings.toml"
+}
+
+# plant_run ROOT NAME DAYS REV [AREAS]: a run directory named for DAYS days
+# ago that read REV, with a result.txt naming AREAS, or none; its id is
+# kept in `planted[NAME]`.
+declare -A planted=()
+plant_run() {
+  local epoch=$(( $(date +%s) - $3 * 86400 )) id sha
+  id="$(date -u -d "@$epoch" +%Y%m%dT%H%M%SZ)" || return 1
+  sha="$(g -C "$clone" rev-parse "$4")" || return 1
+  mkdir -p "$1/$id" && echo "$sha" >"$1/$id/sha" && echo "$epoch" >"$1/$id/started" || return 1
+  [[ -z ${5-} ]] || printf 'run=%s sha=%s areas=%s started=%s\nresult=green\n' "$id" "$sha" "$5" "$epoch" >"$1/$id/result.txt" ||
+    return 1
+  planted[$2]="$id"
+}
+
+# case_retention ROOT DAYS: a red unit run in ROOT, with DAYS as for
+# `settings`, beside planted runs: old ones of `unit`, a recent one, an old
+# killed one 6 days old, an old one that read last-green, the newest and
+# an older run of `qml`, a non-run directory and a symlink named as an old
+# run. Exactly the old, killed (under the default of 5) and older qml runs
+# go.
+case_retention() {
+  problems=()
+  local root="$1" days="$2" name current got want link="$1/../link-target-${1##*/}"
+  local -a dirs gone=(old older-qml) stay=(recent green qml)
+  planted=()
+  if [[ -z $days ]]; then gone+=(killed); else stay+=(killed); fi
+  mkdir -p "$root/notes" "$link"
+  : >"$link/kept"
+  g -C "$clone" rev-parse 'origin/main^' >"$root/last-green"
+  plant_run "$root" old 10 origin/main unit &&
+    plant_run "$root" killed 6 origin/main &&
+    plant_run "$root" recent 2 origin/main unit &&
+    plant_run "$root" green 20 'origin/main^' unit &&
+    plant_run "$root" qml 15 origin/main qml &&
+    plant_run "$root" older-qml 16 origin/main qml || { problems+=(plant=failed); return 1; }
+  ln -s -- "$link" "$root/$(date -u -d "@$(( $(date +%s) - 30 * 86400 ))" +%Y%m%dT%H%M%SZ)"
+  settings "$days"
+  areas 'unit 1'
+  main --root "$root" unit
+  settings ''
+  [[ $status -eq 1 ]] || problems+=("exit=$status")
+  dirs=("$root"/[0-9]*T*Z)
+  current="${dirs[-1]}"
+  [[ -f $current/result.txt && $(tail -n 1 -- "$current/result.txt") == result=red ]] || problems+=(current=missing)
+  for name in "${gone[@]}"; do [[ ! -e $root/${planted[$name]} ]] || problems+=("kept=$name"); done
+  for name in "${stay[@]}"; do [[ -d $root/${planted[$name]} ]] || problems+=("removed=$name"); done
+  for name in lock last-green notes; do [[ -e $root/$name ]] || problems+=("removed=$name"); done
+  [[ -f $link/kept && $(find "$root" -maxdepth 1 -type l | wc -l) -eq 1 ]] || problems+=(removed=symlink)
+  got="$(grep '^main-run: removed run=' "$current/run.log" | sort)" || got=
+  want="$(for name in "${gone[@]}"; do echo "main-run: removed run=${planted[$name]}"; done | sort)" ||
+    { problems+=(want=unbuilt); return 1; }
+  [[ $got == "$want" ]] || problems+=("log=[${got//$'\n'/,}]")
+  [[ ${#problems[@]} -eq 0 ]]
+}
+if case_retention "$records/r-retention" ''; then
+  ok "a run removes old runs past the default 5 days and keeps the rest"
+else
+  fail "retention default: ${problems[*]}"
+fi
+if case_retention "$records/r-retention-7" 7; then
+  ok "a run reads the retention from the settings ladder"
+else
+  fail "retention 7: ${problems[*]}"
+fi
+
+# An old run that cannot be removed is named in run.log and leaves a green
+# run green. It read an older commit than the one the green run records.
+case_remove_failed() {
+  problems=()
+  local root="$records/r-remove-failed" dirs
+  plant_run "$root" stuck 10 'origin/main^' unit || { problems+=(plant=failed); return 1; }
+  mkdir -p "$root/${planted[stuck]}/held"
+  : >"$root/${planted[stuck]}/held/file"
+  chmod 555 "$root/${planted[stuck]}/held"
+  areas 'unit 0'
+  main --root "$root" unit
+  chmod 755 "$root/${planted[stuck]}/held"
+  dirs=("$root"/[0-9]*T*Z)
+  [[ $status -eq 0 ]] || problems+=("exit=$status")
+  grep -qx "main-run: remove-failed run=${planted[stuck]}" "${dirs[-1]}/run.log" || problems+=(log=silent)
+  [[ ${#problems[@]} -eq 0 ]]
+}
+if case_remove_failed; then ok "a failed removal is logged and leaves the verdict's exit"; else fail "remove failed: ${problems[*]}"; fi
+
+# Each row: a record root outside the checkout's tmp/, the mode, and a path
+# the refusal must not create.
+outside_table=(
+  "$TMP_ROOT/outside|run|$TMP_ROOT/outside"
+  "$TMP_ROOT/outside-due|due|$TMP_ROOT/outside-due"
+  "$records|run|$records/lock"
+  "$records/../escape|run|$clone/escape"
+  "$records/away/root|run|$TMP_ROOT/away/root"
+)
+mkdir -p "$records" "$TMP_ROOT/away"
+ln -sfn -- "$TMP_ROOT/away" "$records/away"
+# case_outside ROOT MODE PATH: the refusal for one row.
+case_outside() {
+  problems=()
+  local resolved mode=()
+  [[ $2 == run ]] || mode=(--due)
+  resolved="$(realpath -m -- "$1")"
+  areas 'unit 0'
+  main --root "$1" "${mode[@]}" unit
+  [[ $status -eq 2 ]] || problems+=("exit=$status")
+  [[ $(sed -n '1p' "$TMP_ROOT/out") == "main-run: refused: root=$resolved" ]] || problems+=("out=[$(sed -n '1p' "$TMP_ROOT/out")]")
+  [[ ! -e $3 ]] || problems+=("created=$3")
+  [[ ${#problems[@]} -eq 0 ]]
+}
+for entry in "${outside_table[@]}"; do
+  IFS='|' read -r outside_root outside_mode outside_path <<<"$entry"
+  if case_outside "$outside_root" "$outside_mode" "$outside_path"; then
+    ok "a $outside_mode root resolving outside tmp/ is refused: $outside_root"
+  else
+    fail "outside $outside_root: ${problems[*]}"
+  fi
+done
+
+# A retention too large for shell arithmetic refuses and runs nothing.
+case_retention_bound() {
+  problems=()
+  local root="$records/r-retention-bound" dirs
+  settings 100000
+  main --root "$root" unit
+  settings ''
+  dirs=("$root"/[0-9]*T*Z)
+  [[ $status -eq 2 && ! -e ${dirs[0]} ]] || problems+=("exit=$status")
+  [[ $(sed -n '1p' "$TMP_ROOT/out") == 'main-run: refused: ORCH_RECORD_RETENTION_DAYS=100000' ]] ||
+    problems+=("out=[$(sed -n '1p' "$TMP_ROOT/out")]")
+  [[ ${#problems[@]} -eq 0 ]]
+}
+if case_retention_bound; then ok "a retention past 99999 days refuses and runs nothing"; else fail "retention bound: ${problems[*]}"; fi
+
 # A held lock: exit 75, no run directory, and --due answers running.
-busy_root="$TMP_ROOT/r-busy"
+busy_root="$records/r-busy"
 mkdir -p "$busy_root"
 exec 8>"$busy_root/lock"
 flock -n 8
@@ -363,8 +520,8 @@ exec 8>&-
 
 # A failed fetch: exit 77, result=not-run.
 g -C "$clone" remote set-url origin "$TMP_ROOT/nowhere.git"
-main --root "$TMP_ROOT/r-fetch" unit
-text="$(result "$TMP_ROOT/r-fetch" 2>/dev/null)" || text=
+main --root "$records/r-fetch" unit
+text="$(result "$records/r-fetch" 2>/dev/null)" || text=
 if [[ $status -eq 77 && $text == *$'\nresult=not-run cause=fetch-failed' ]]; then
   ok "a failed fetch exits 77 with result=not-run"
 else
@@ -396,9 +553,9 @@ control() {
   fi
 }
 control "77 counted as a pass" '[[ $rc -eq 0 ]] || verdict=red' '[[ $rc -eq 0 || $rc -eq 77 ]] || verdict=red' \
-  case_red "$TMP_ROOT/c-77" qml 77
+  case_red "$records/c-77" qml 77
 control "a verdict that ignores area exits" '[[ $rc -eq 0 ]] || verdict=red' ': || verdict=red' \
-  case_red "$TMP_ROOT/c-1" unit 1
+  case_red "$records/c-1" unit 1
 control "commits counted as landings" '[[ -z ${seen[$id]-} ]] || continue' ':' case_naming
 control "a worktree name copied from the record root" \
   'wt="$(mktemp -d "$wt_parent/mainrunXXXXXX")" || not_run worktree-failed' \
@@ -408,6 +565,16 @@ control "a worktree shared by distinct record roots" \
   'wt="$wt_parent/main-run-fixed"' case_concurrent_paths
 control "a run with no verdict read as the last run" \
   '[[ $verdict != result=green && $verdict != result=red ]] || newest="$dir"' 'newest="$dir"' case_unfinished
+control "no age cut" '(( 10#${name//[TZ]/} < 10#$cut )) && [[' '[[' case_retention "$records/c-age" ''
+control "the last-green run not kept" '[[ -z $green || $sha != "$green" ]] || continue' ':' \
+  case_retention "$records/c-green" ''
+control "the newest run of an area set not kept" 'for name in "${newest[@]}"; do keep[$name]=1; done' ':' \
+  case_retention "$records/c-newest" ''
+control "a symlink judged as a run" '&& -d $dir && ! -L $dir ]]' '&& -d $dir ]]' \
+  case_retention "$records/c-symlink" ''
+control "the retention not read from the ladder" '.agents/skills/orch/scripts/orch-env ORCH_RECORD_RETENTION_DAYS 5)' \
+  'echo 5)' case_retention "$records/c-ladder" 7
+control "a root outside tmp/ accepted" '[[ $root == "$tmp"/?* ]] ||' ': ||' case_outside "$TMP_ROOT/c-outside" run "$TMP_ROOT/c-outside"
 cp -- "$repo/scripts/main-run.sh" "$runner"
 
 if [[ $failures -gt 0 ]]; then

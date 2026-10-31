@@ -37,6 +37,17 @@
 # `cause=worktree-failed` and exits 77. The root's `last-green` holds the
 # commit of the newest green run, so each area set keeps its own.
 #
+# The record root must resolve strictly inside <checkout>/tmp/; any other
+# root is refused before anything is created. Each run, once its result is
+# written, removes the run directories of its root whose name says they
+# started more than ORCH_RECORD_RETENTION_DAYS days before it, read through
+# .agents/skills/orch/scripts/orch-env with a default of 5. It always keeps
+# itself, `lock`, `last-green`, any entry that is not a plain directory
+# named by a run id, every run whose `sha` is last-green's commit, and the
+# newest run of each area set its result.txt's first line names. It prints
+# `main-run: removed run=<id>`, or `main-run: remove-failed run=<id>`, to
+# run.log; a failed removal leaves the exit to the verdict.
+#
 # The run is green only when every area exits 0: exit 77, which says a row
 # could not run, makes it red like any other non-zero status. Exit 0 green,
 # 1 red, 77 not run, 75 when another run holds the root's lock (nothing is
@@ -99,8 +110,19 @@ done
 
 checkout="$(git -C "$(dirname -- "$self")" rev-parse --show-toplevel)" || refuse 'checkout=unresolved'
 [[ -n $root ]] || root="$checkout/tmp/main-run/$(IFS=+; echo "${areas[*]}")"
+# The retention removes directories, so the root is bounded before it exists.
+tmp="$(realpath -m -- "$checkout/tmp")" || refuse "root=$checkout/tmp"
+root="$(realpath -m -- "$root")" || refuse "root=$root"
+[[ $root == "$tmp"/?* ]] || refuse "root=$root" "The record root lies inside $tmp/."
+if [[ $due -eq 0 ]]; then
+  retention="$(cd -- "$checkout" && .agents/skills/orch/scripts/orch-env ORCH_RECORD_RETENTION_DAYS 5)" ||
+    refuse 'ORCH_RECORD_RETENTION_DAYS=unreadable'
+  # It reaches shell arithmetic, which evaluates any other text and wraps a
+  # number too large for it.
+  [[ $retention =~ ^[0-9]{1,5}$ ]] ||
+    refuse "ORCH_RECORD_RETENTION_DAYS=$retention" 'The retention is a whole number of days, at most 99999.'
+fi
 mkdir -p -- "$root"
-root="$(cd -- "$root" && pwd -P)"
 
 # landings FROM TO: one line per landing in FROM..TO, newest first.
 landings() {
@@ -170,9 +192,44 @@ started="$(date +%s)"
 echo "$started" >"$out/started"
 exec >"$out/run.log" 2>&1
 
+# prune: the retention the header states, judged against this run's start.
+# Run ids are fixed-width UTC times, so their digits compare as numbers.
+prune() {
+  local dir name line areaset green= sha cut
+  local -a runs=()
+  local -A newest=() keep=()
+  cut="$(date -u -d "@$((started - retention * 86400))" +%Y%m%d%H%M%S)" ||
+    { echo 'main-run: remove-failed cause=cutoff-unreadable'; return 0; }
+  [[ ! -f $root/last-green ]] || read -r green <"$root/last-green" || :
+  for dir in "$root"/*; do
+    name="${dir##*/}"
+    [[ $name =~ ^[0-9]{8}T[0-9]{6}Z$ && -d $dir && ! -L $dir ]] || continue
+    runs+=("$name")
+    [[ -f $dir/result.txt ]] && read -r line <"$dir/result.txt" &&
+      [[ $line =~ (^| )areas=(.*)\ started= ]] || continue
+    areaset="${BASH_REMATCH[2]}"
+    [[ -n ${newest[$areaset]-} ]] && (( 10#${newest[$areaset]//[TZ]/} > 10#${name//[TZ]/} )) ||
+      newest[$areaset]="$name"
+  done
+  for name in "${newest[@]}"; do keep[$name]=1; done
+  keep[$id]=1
+  for name in "${runs[@]}"; do
+    (( 10#${name//[TZ]/} < 10#$cut )) && [[ -z ${keep[$name]-} ]] || continue
+    sha=
+    [[ ! -f $root/$name/sha ]] || read -r sha <"$root/$name/sha" || :
+    [[ -z $green || $sha != "$green" ]] || continue
+    if rm -rf -- "${root:?}/$name"; then
+      echo "main-run: removed run=$name"
+    else
+      echo "main-run: remove-failed run=$name"
+    fi
+  done
+}
+
 not_run() {
   printf 'run=%s areas=%s started=%s\nresult=not-run cause=%s\n' "$id" "${areas[*]}" "$started" "$1" >"$out/result.tmp"
   mv -- "$out/result.tmp" "$out/result.txt"
+  prune
   exit 77
 }
 
@@ -218,4 +275,5 @@ verdict=green
 } >"$out/result.tmp"
 mv -- "$out/result.tmp" "$out/result.txt"
 git -C "$checkout" worktree remove --force "$wt"
+prune
 [[ $verdict == green ]]
