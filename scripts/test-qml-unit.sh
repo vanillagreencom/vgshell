@@ -1667,6 +1667,7 @@ mutations=(
   "a menu made and opened in one turn shows no window|overlay/Menu.qml|if (surface === null) build();|if (surface === null) Qt.callLater(build);|tst_overlays.qml"
   "a device list rebuilds every row on a change|layout/DeviceList.qml|model: ScriptModel { values: list.rows.map(row => String(row.key)) }|model: list.rows.map(row => String(row.key))|tst_devicelist.qml"
   "a keyed model leaves duplicate ghost rows|../stand-ins/ScriptModel.qml|remove(index, rows.length - index);|if (false) remove(index, rows.length - index);|tst_devicelist.qml"
+  "a rendered-frame wait that asks for no frame fails on a settled window|../stand-ins/UnitCase.qml|window.update();|void window;|tst_rendered_frame.qml"
   "a device list caches its first row payload|layout/DeviceList.qml|readonly property var entry: live ? list.rows[list.placeOf[key]] : ({ key: \"\", text: \"\" })|property var entry: live ? list.rows[list.placeOf[key]] : ({ key: \"\", text: \"\" }); Component.onCompleted: entry = entry|tst_devicelist.qml"
   "a device list's keyboard keeps its place, not its row, through a change|layout/DeviceList.qml|? indexOfKey(selectedKey) : -1;|? -1 : -1;|tst_devicelist.qml"
   "a device list keeps an unchosen selection on its row, not its place|layout/DeviceList.qml|const kept = chosenByUser |const kept = true |tst_devicelist.qml"
@@ -2134,14 +2135,20 @@ logs=(
   "a declaration with no function under it is refused|nofunction|2|qml-unit: refused: expected-log=no-function file=tst_nofunction.qml line=6|    // expected-log: planted log -- the row plants it\n    property int n: 0\n    function test_a() { console.error(\"planted log\"); }\n"
   "a log at load fails|load|1|qml-unit: unexpected-log file=tst_load.qml line=critical: qml: planted log|    Component.onCompleted: console.error(\"planted log\")\n    function test_a() { verify(true); }\n"
   "a declaration does not excuse a script error|script|1|qml-unit: warnings file=tst_script.qml|    // expected-log: ReferenceError -- the row plants it\n    function test_a() { Qt.createQmlObject(\"import QtQuick; Item { property int n: noSuchName.x }\", planted); }\n"
+  "a bare waitForRendering fails|barewait|1|qml-unit: bare-wait file=tst_barewait.qml line=6|    function test_a() { waitForRendering(planted); }\n"
+  "a waitForRendering named in a comment passes|barecomment|0|qml-unit: ok files=1|    // waitForRendering waits for a new frame swap\n    function test_a() { verify(true); }\n"
+  "the settled-window test may call waitForRendering|rendered_frame|0|qml-unit: ok files=1|    function test_the_rendered_wait_answers_on_a_settled_window() { verify(typeof waitForRendering === \"function\"); }\n"
+  "the settled-window excuse covers no other function|rendered_frame|1|qml-unit: bare-wait file=tst_rendered_frame.qml line=7|    function test_the_rendered_wait_answers_on_a_settled_window() { verify(true); }\n    function test_b() { verify(typeof waitForRendering === \"function\"); }\n"
+  "the settled-window excuse covers no other file|settled|1|qml-unit: bare-wait file=tst_settled.qml line=6|    function test_the_rendered_wait_answers_on_a_settled_window() { verify(typeof waitForRendering === \"function\"); }\n"
 )
 mkdir -p "$tmp/logs"
 log_case() { # INDEX
   local label name want_status want_line body got_status out
   IFS='|' read -r label name want_status want_line body <<<"${logs[$1]}"
-  printf '%b%b}\n' "$planted_head" "$body" >"$tmp/logs/tst_$name.qml"
+  mkdir -p "$tmp/logs/$1"
+  printf '%b%b}\n' "$planted_head" "$body" >"$tmp/logs/$1/tst_$name.qml"
   got_status=0
-  out="$("$runner" --tests "$repo/scripts/qml-tests" "$tmp/logs/tst_$name.qml" 2>&1)" || got_status=$?
+  out="$("$runner" --tests "$repo/scripts/qml-tests" "$tmp/logs/$1/tst_$name.qml" 2>&1)" || got_status=$?
   if [[ $got_status -ne $want_status ]]; then
     fail "$label: exit $got_status, want $want_status"
     printf '%s\n' "$out" | tail -n 20

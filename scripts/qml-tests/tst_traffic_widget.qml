@@ -43,7 +43,7 @@ Item {
         BarItem.Reading { id: bare; y: 60; color: "#ff0000"; font.capitalization: Font.MixedCase }
     }
 
-    TestCase {
+    UnitCase {
         name: "traffic_widget"
         when: windowShown
 
@@ -91,7 +91,7 @@ Item {
             compare(JSON.stringify(shown.map(label => label.text)), JSON.stringify(["0 B/s", "0 B/s"]));
             for (const label of shown) label.color = "#ff0000";
             bare.text = "0 B/s";
-            verify(waitForRendering(canvas));
+            verify(renderedFrame(canvas));
             const img = grabImage(canvas);
             compare(img.width, canvas.width, "the canvas grabs at one pixel a point");
             const item = button();
@@ -130,12 +130,12 @@ Item {
         }
         function test_a_high_rate_keeps_the_width(data) {
             widget.settings = saved(data.settings);
-            verify(waitForRendering(widget));
+            verify(renderedFrame(widget));
             const zero = widget.implicitWidth;
             const nextAt = first.x;
             status.values = { traffic: { down: data.down, up: data.up, interfaces: [] } };
             compare(JSON.stringify(rates().map(label => label.text)), JSON.stringify(data.texts));
-            verify(waitForRendering(widget));
+            verify(renderedFrame(widget));
             compare(widget.implicitWidth, zero, "the widget keeps its width at a high rate");
             compare(first.x, nextAt, "the next widget does not move");
         }
@@ -171,11 +171,11 @@ Item {
             widget.settings = saved(data.settings);
             status.values = { traffic: { down: 1024, up: 1024, interfaces: [] } };
             compare(JSON.stringify(rates().map(label => label.text)), JSON.stringify(["1 KB/s", "1 KB/s"]));
-            verify(waitForRendering(canvas));
+            verify(renderedFrame(canvas));
             const short = arrowGaps(grabImage(canvas));
             status.values = { traffic: { down: 1023 * 1024, up: 1023 * 1024, interfaces: [] } };
             compare(JSON.stringify(rates().map(label => label.text)), JSON.stringify(["1023 KB/s", "1023 KB/s"]));
-            verify(waitForRendering(canvas));
+            verify(renderedFrame(canvas));
             const widest = arrowGaps(grabImage(canvas));
             for (let index = 0; index < short.length; index++)
                 verify(Math.abs(short[index] - widest[index]) <= 1, "the arrow keeps its blank before the rate: short " + short[index] + ", widest " + widest[index]);
@@ -239,11 +239,11 @@ Item {
         }
         function test_stacked_arrows_share_a_column(data) {
             widget.settings = saved({ layout: "Stacked" });
-            verify(waitForRendering(widget));
+            verify(renderedFrame(widget));
             const width = widget.implicitWidth;
             const nextAt = first.x;
             status.values = { traffic: { down: data.down, up: data.up, interfaces: [] } };
-            verify(waitForRendering(widget));
+            verify(renderedFrame(widget));
             const found = lines(), item = button();
             compare(found.length, 2);
             const start = found[1].arrow.mapToItem(item, 0, 0).x;
@@ -260,7 +260,7 @@ Item {
             try {
                 shortLine.parent.width = found[1].arrow.parent.width;
                 shortLine.anchors.right = shortLine.parent.right;
-                verify(waitForRendering(widget));
+                verify(renderedFrame(widget));
                 expectFail("", "a right-aligned shorter line breaks the shared arrow column");
                 compare(found[0].arrow.mapToItem(item, 0, 0).x, start);
             } finally {

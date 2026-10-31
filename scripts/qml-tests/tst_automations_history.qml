@@ -42,7 +42,7 @@ Item {
     Automations.HistoryPage { id: page; anchors.fill: parent; panel: panel }
     SignalSpy { id: opened; target: page; signalName: "openRequested" }
 
-    TestCase {
+    UnitCase {
         name: "automationsHistory"
         when: windowShown
 
@@ -62,7 +62,7 @@ Item {
         function cleanupTestCase() { UnitTheme.reset(); }
 
         function settle() {
-            waitForRendering(page);
+            renderedFrame(page);
             wait(0);
         }
         function descendants(item) {

@@ -45,7 +45,7 @@ Item {
         shell: ({settings:{kbDecimals:0,mbDecimals:1},status:{values:{traffic:{state:"ready", apps:[{name:"Alpha",down:100,up:2,connections:1},{name:"Beta",down:20,up:1,connections:1}]}}}})
     } }
 
-    TestCase {
+    UnitCase {
         name: "navigation_focus"
         when: windowShown
         function init() { root.Window.window.requestActivate(); tryCompare(root.Window.window, "active", true); UnitTheme.reset(); outside.forceActiveFocus(Qt.OtherFocusReason); mouseMove(outside, 2, 2); }
@@ -98,7 +98,7 @@ Item {
             compare(receiver.visualFocus, true, "reason=" + receiver.focusReason);
             compare(hasRing(control, data.tag === "tabs" ? null : receiver), true);
             KeyNavLogic.focusInitial(control, root.Window.window);
-            waitForRendering(control);
+            renderedFrame(control);
             compare(receiver.visualFocus, false);
             compare(hasRing(control, data.tag === "tabs" ? null : receiver), false);
         }
@@ -225,7 +225,7 @@ Item {
             mouseClick(entries.children.find(row => "highlighted" in row));
             compare(hasRing(panel, list), false);
             KeyNavLogic.focusInitial(list, root.Window.window);
-            waitForRendering(panel);
+            renderedFrame(panel);
             compare(hasRing(panel, list), false);
             compare(list.Accessible.role, Accessible.List);
         }
@@ -245,12 +245,12 @@ Item {
             control.error = true;
             // The old gated Behavior kept a keyboard tint in this transition
             // after reset. The first rendered reset frame must be exact.
-            waitForRendering(control);
+            renderedFrame(control);
             if (data.hover) { mouseMove(control, 5, 5); tryCompare(control, "hovered", true); }
             KeyNavLogic.focusInitial(control, root.Window.window);
             control.error = data.error;
             compare(control.focusReason, Qt.OtherFocusReason);
-            waitForRendering(control);
+            renderedFrame(control);
             compare(control.background.border.color, Qt.color(data.error ? Theme.textField.error : control.hovered ? Theme.textField.hover : Theme.textField.borderColor));
             compare(hasRing(control, control), false);
             compare(control.cursorVisible, true);
@@ -260,7 +260,7 @@ Item {
             mouseClick(control);
             compare(control.listOpen, true);
             compare(hasRing(control, control), false);
-            waitForRendering(control);
+            renderedFrame(control);
             compare(control.background.border.color, Qt.color(Theme.textField.focus));
             control.choose(0);
             compare(control.listOpen, false);
@@ -274,7 +274,7 @@ Item {
             keyClick(Qt.Key_Space);
             compare(control.capturing, true);
             compare(box.focusReason, Qt.OtherFocusReason);
-            waitForRendering(control);
+            renderedFrame(control);
             compare(box.background.border.color, Qt.color(Theme.textField.focus));
             keyClick(Qt.Key_Escape);
             compare(control.capturing, false);
@@ -288,7 +288,7 @@ Item {
             const receiver = root.Window.window.activeFocusItem;
             verify("background" in receiver);
             if (data.hover) mouseMove(receiver, 5, 5); else mouseMove(outside, 2, 2);
-            waitForRendering(control);
+            renderedFrame(control);
             compare(receiver.background.border.color, Qt.color(receiver.hovered ? Theme.textField.hover : Theme.textField.borderColor));
             keyClick(data.tag.startsWith("select") ? Qt.Key_Down : Qt.Key_Right);
             compare(receiver.visualFocus, true);
@@ -296,7 +296,7 @@ Item {
             KeyNavLogic.focusInitial(control, root.Window.window);
             compare(receiver.focusReason, Qt.OtherFocusReason);
             compare(receiver.visualFocus, false);
-            waitForRendering(control);
+            renderedFrame(control);
             compare(receiver.background.border.color, Qt.color(receiver.hovered ? Theme.textField.hover : Theme.textField.borderColor));
             compare(hasRing(control, receiver), false);
         }

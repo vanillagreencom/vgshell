@@ -58,7 +58,7 @@ Item {
         }
     }
 
-    TestCase {
+    UnitCase {
         name: "baritem"
         when: windowShown
 
@@ -309,7 +309,7 @@ Item {
             verify(3 * step <= canvas.height, "the three items fit the canvas");
             tryVerify(() => wide.implicitWidth > bare.implicitWidth, 1000, "the wide reading lays out");
             tryCompare(held, "width", wide.width, 1000, "the held item is as wide as its sample shown");
-            verify(waitForRendering(canvas));
+            verify(renderedFrame(canvas));
             const img = grabImage(root);
             compare(img.width, root.width, "the root grabs at one pixel a point");
             const values = item => labels(item).filter(label => label.text === data.held.text || label.text === data.held.count);
@@ -382,7 +382,7 @@ Item {
             const bare = createTemporaryObject(heldCase, canvas, bareProperties);
             verify(held !== null && bare !== null);
             tryVerify(() => held.width >= bare.width && bare.width > bare.height, 1000, "both items lay out");
-            verify(waitForRendering(canvas));
+            verify(renderedFrame(canvas));
             const img = grabImage(root);
             const heldGaps = markGaps(img, held), bareGaps = markGaps(img, bare);
             compare(heldGaps.length, data.held.stacked ? 2 : 1);
@@ -492,7 +492,7 @@ Item {
                 const top = label.mapToItem(item, 0, 0).y;
                 verify(top >= 0 && top + label.height <= item.height, "\"" + label.text + "\" lies inside the item: top " + top + ", height " + label.height);
             }
-            verify(waitForRendering(canvas));
+            verify(renderedFrame(canvas));
             const img = grabImage(root);
             const box = item.mapToItem(root, 0, 0);
             const inkRows = [];
@@ -519,7 +519,7 @@ Item {
             verify(found[1].width < found[0].width, "the count's line is the narrower");
             item.text = "12.0 GB";
             item.count = "100%";
-            verify(waitForRendering(canvas));
+            verify(renderedFrame(canvas));
             compare(item.width, width, "the item keeps its width as its readings change");
             compare(starts()[0], starts()[1]);
         }
@@ -579,7 +579,7 @@ Item {
             tryCompare(held, "width", wide.width, 1000, "the held item is as wide as its samples shown");
             held.text = "100%";
             held.count = "100°";
-            verify(waitForRendering(held));
+            verify(renderedFrame(held));
             compare(held.width, wide.width, "the item keeps its width as its readings change");
         }
 

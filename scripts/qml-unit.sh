@@ -35,6 +35,7 @@
 # capture's requests, and
 # a stand-in Quickshell.Hyprland supplies GlobalShortcut and a Hyprland
 # singleton whose events a test emits. Beside UnitTheme, qs.Unit holds
+# UnitCase, the TestCase a test uses to wait for a drawn frame, and
 # UnitPaths, the directory of the module under test, and UnitQt, whose
 # VERSION is the runner's Qt version as the qmlformat beside the runner
 # reports it, or null when that read fails. Nothing under the repository
@@ -58,6 +59,15 @@
 # marks their level with QT_MESSAGE_PATTERN, which also adds `warning: ` or
 # `critical: ` to the message of an attributed line. Debug and info lines
 # are not judged, and no declaration excuses a script error.
+#
+# A test file fails when its code calls waitForRendering. QtTest's wait is
+# for a new frame swap and a window with its state drawn schedules none, so
+# the bare wait fails under host load with no product change. A test waits
+# through UnitCase.renderedFrame, which asks the window for the frame first.
+# A comment may name the call. One call is excused, by file and function:
+# the one in test_the_rendered_wait_answers_on_a_settled_window of
+# tst_rendered_frame.qml, which finds a window settled.
+#   qml-unit: bare-wait file=<name> line=<n>
 #
 # The offscreen platform holds two screens: `one` at scale 1, where a test's
 # own window opens, and `two` at scale 2, where a test opens a window to
@@ -152,7 +162,7 @@ cp -- "$tests/stand-ins/ShortcutCapabilities.qml" "$imports/qs/Core/Capabilities
 cp -- "$tests/stand-ins/KeyCaptureCompositor.qml" "$imports/qs/Core/Compositor.qml"
 cp -- "$tests/stand-ins/Notices.qml" "$imports/qs/Core/Notices.qml"
 printf 'module qs.Core\nsingleton Config 1.0 Config.qml\nTuiRecords 1.0 TuiRecords.qml\nSystemSteps 1.0 SystemSteps.qml\nThemeRunner 1.0 ThemeRunner.qml\nSessionLock 1.0 SessionLock.qml\nShortcutRegistry 1.0 ShortcutRegistry.qml\nKeyCapture 1.0 KeyCapture.qml\nHyprlandState 1.0 HyprlandState.qml\nHyprctlReader 1.0 HyprctlReader.qml\nsingleton Registry 1.0 Registry.qml\nsingleton Capabilities 1.0 Capabilities.qml\nsingleton Compositor 1.0 Compositor.qml\nsingleton Notices 1.0 Notices.qml\nPluginLogic 1.0 PluginLogic.js\nConfigLogic 1.0 ConfigLogic.js\nPackageManagers 1.0 PackageManagers.js\nMonitorLogic 1.0 MonitorLogic.js\nHyprlandLayer 1.0 HyprlandLayer.qml\nLayerLogic 1.0 HyprlandLayer.js\nDispatch 1.0 Dispatch.js\n' >"$imports/qs/Core/qmldir"
-cp -- "$tests/stand-ins/UnitTheme.qml" "$imports/qs/Unit/UnitTheme.qml"
+cp -- "$tests/stand-ins/UnitTheme.qml" "$tests/stand-ins/UnitCase.qml" "$imports/qs/Unit/"
 # Where the module under test is, for the test that reads its qmldir.
 printf '.pragma library\nvar UI_DIR = %s;\n' "$(python3 -c 'import json, sys; print(json.dumps("file://" + sys.argv[1]))' "$ui")" >"$imports/qs/Unit/UnitPaths.js"
 # The runner's Qt version, from the qmlformat Qt installs beside it, or
@@ -163,7 +173,7 @@ if version_line="$(env -i LC_ALL=C.UTF-8 "$(dirname -- "$(readlink -f -- "$runne
   qt_version="\"${BASH_REMATCH[1]}\""
 fi
 printf '.pragma library\nvar VERSION = %s;\n' "$qt_version" >"$imports/qs/Unit/UnitQt.js"
-printf 'module qs.Unit\nsingleton UnitTheme 1.0 UnitTheme.qml\nUnitPaths 1.0 UnitPaths.js\nUnitQt 1.0 UnitQt.js\n' >"$imports/qs/Unit/qmldir"
+printf 'module qs.Unit\nsingleton UnitTheme 1.0 UnitTheme.qml\nUnitCase 1.0 UnitCase.qml\nUnitPaths 1.0 UnitPaths.js\nUnitQt 1.0 UnitQt.js\n' >"$imports/qs/Unit/qmldir"
 for file in Singleton.qml Scope.qml PopupWindow.qml Edges.qml PopupAdjustment.qml Quickshell.qml QsWindow.qml DesktopEntries.qml ScriptModel.qml LazyLoader.qml Variants.qml Region.qml; do
   cp -- "$tests/stand-ins/$file" "$imports/Quickshell/$file"
 done
@@ -249,12 +259,83 @@ sys.exit(status)
 PY
 }
 
+# Print one line for each use of waitForRendering in a test file's code,
+# comments aside, except the excused one. Exit 0 when there is none, 1 when
+# there is any.
+judge_bare_wait() { # TEST_FILE
+  python3 - "$1" <<'PY'
+import os, re, sys
+
+path = sys.argv[1]
+name = os.path.basename(path)
+EXCUSED_FILE = "tst_rendered_frame.qml"
+EXCUSED_FUNCTION = "test_the_rendered_wait_answers_on_a_settled_window"
+
+text = open(path, encoding="utf-8").read()
+# `code` blanks comments, `shape` blanks string contents too, so a brace in
+# a string does not count; both keep every offset and newline.
+code, shape = list(text), list(text)
+i, quote = 0, None
+while i < len(text):
+    c = text[i]
+    if quote:
+        if c == "\\":
+            shape[i:i + 2] = " " * len(text[i:i + 2])
+            i += 2
+            continue
+        if c == quote or (c == "\n" and quote != "`"):
+            quote = None
+        elif c != "\n":
+            shape[i] = " "
+        i += 1
+    elif c in "\"'`":
+        quote = c
+        i += 1
+    elif text.startswith("//", i):
+        end = text.find("\n", i)
+        end = len(text) if end < 0 else end
+        code[i:end] = shape[i:end] = " " * (end - i)
+        i = end
+    elif text.startswith("/*", i):
+        end = text.find("*/", i + 2)
+        end = len(text) if end < 0 else end + 2
+        for j in range(i, end):
+            if text[j] != "\n":
+                code[j] = shape[j] = " "
+        i = end
+    else:
+        i += 1
+code, shape = "".join(code), "".join(shape)
+
+excused = range(0)
+if name == EXCUSED_FILE:
+    found = re.search(r"\bfunction\s+" + EXCUSED_FUNCTION + r"\s*\(", shape)
+    if found:
+        start = shape.index("{", found.end())
+        depth = 0
+        for end in range(start, len(shape)):
+            depth += (shape[end] == "{") - (shape[end] == "}")
+            if depth == 0:
+                break
+        excused = range(start, end)
+
+status = 0
+for found in re.finditer(r"\bwaitForRendering\b", code):
+    if found.start() in excused:
+        continue
+    print(f"qml-unit: bare-wait file={name} line={code.count(chr(10), 0, found.start()) + 1}")
+    status = 1
+sys.exit(status)
+PY
+}
+
 # Every test file runs in its own process, so a file that fails to load
 # names itself, and one file's singleton state never reaches another.
 status=0
 for file in "${files[@]}"; do
   echo "== $(basename -- "$file")"
   file_status=0
+  judge_bare_wait "$file" || file_status=1
   render_command=(env -i)
   render_environment=()
   if [[ ${file##*/} == tst_notification_scroll.qml || ${file##*/} == tst_scroll.qml || ${file##*/} == tst_settings_window_height.qml ]]; then

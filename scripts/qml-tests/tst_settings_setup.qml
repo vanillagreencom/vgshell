@@ -1,5 +1,6 @@
 import QtQuick
 import QtTest
+import qs.Unit
 import qs.Commons
 import qs.Core
 import qs.Ui
@@ -214,7 +215,7 @@ Item {
         function detached(argv) { launched = launched.concat([argv]); return "ok"; }
     }
     Component { id: windowComponent; Window { shell: fakeShell } }
-    TestCase {
+    UnitCase {
         name: "settingsSetup"
         when: windowShown
         function descendants(item) {
@@ -226,7 +227,7 @@ Item {
         function opened() {
             const window = createTemporaryObject(windowComponent, root);
             verify(window !== null, "the window builds");
-            window.width = window.implicitWidth; window.height = 900; window.open("{}"); waitForRendering(window);
+            window.width = window.implicitWidth; window.height = 900; window.open("{}"); renderedFrame(window);
             return window;
         }
         function pageOf(window) { return descendants(window).find(item => item.fitHeight !== undefined && item.row !== undefined); }

@@ -13,7 +13,7 @@ Item {
 
     Label { id: bodyLine; role: "body"; text: "Body line" }
 
-    TestCase {
+    UnitCase {
         name: "TitleSpace"
         when: windowShown
 
@@ -37,7 +37,7 @@ Item {
             for (const family of ["Inter Variable", "JetBrains Mono"]) {
                 const body = {family: family, lineHeight: 0.8};
                 compare(UnitTheme.override({text: {body: body}, stack: {titleSpace: "mul(1, 2)"}}), "ok");
-                waitForRendering(bodyLine);
+                renderedFrame(bodyLine);
                 compare(Theme.stack.titleSpace, 2 * bodyLine.lineBox);
                 verify(UnitTheme.override({stack: {titleSpace: "{space.md}"}}).indexOf("reason=type") !== -1);
                 verify(UnitTheme.override({stack: {group: "{stack.titleSpace}"}}).indexOf("reason=type") !== -1);
@@ -47,7 +47,7 @@ Item {
             for (const family of ["Inter Variable", "JetBrains Mono"]) {
                 const typography = {family: family, lineHeight: 0.8};
                 compare(UnitTheme.override({text: {body: typography}, stack: {titleSpace: 1}}), "ok");
-                waitForRendering(bodyLine);
+                renderedFrame(bodyLine);
                 compare(Theme.stack.titleSpace, bodyLine.lineBox);
                 const revision = Theme.revision;
                 const refusal = UnitTheme.override({text: {body: typography}, stack: {titleSpace: 0.8}});
@@ -59,7 +59,7 @@ Item {
 
         function test_default_gap_has_one_drawn_body_line() {
             const made = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nPane { width: 300; fitToContent: true; title: "Title"; Item { objectName: "bodyMarker"; width: parent.width; height: 20 } }', root);
-            waitForRendering(made);
+            renderedFrame(made);
             const block = titleBlock(made);
             const marker = findChild(made, "bodyMarker");
             compare(itemTop(marker, made) - (itemTop(block, made) + block.height), bodyLine.lineBox);
@@ -67,7 +67,7 @@ Item {
         }
         function test_untitled_description_keeps_existing_body_gap() {
             const made = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nPane { width: 300; fitToContent: true; subtitle: [ Label { text: "Description"; role: "body"; width: parent.width } ]\nItem { objectName: "bodyMarker"; width: parent.width; height: 20 } }', root);
-            waitForRendering(made);
+            renderedFrame(made);
             const block = titleBlock(made);
             const marker = findChild(made, "bodyMarker");
             compare(itemTop(marker, made) - (itemTop(block, made) + block.height), Math.max(Theme.stack.group, made.contentInset + Theme.divider.thickness + made.ringRoom));
@@ -76,7 +76,7 @@ Item {
 
         function test_titled_body_uses_title_space_below_a_large_sticky_inset() {
             const made = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nPane { width: 300; height: 160; padding: 32; title: "Title"; Item { objectName: "bodyMarker"; width: parent.width; height: 400 } }', root);
-            waitForRendering(made);
+            renderedFrame(made);
             verify(made.scrollArea.overflowing);
             verify(made.stickyGap > Theme.stack.titleSpace);
             const block = titleBlock(made);
@@ -136,7 +136,7 @@ Item {
             verify(made instanceof Pane);
             const marker = findChild(made, "bodyMarker");
             verify(marker instanceof Item);
-            waitForRendering(made);
+            renderedFrame(made);
             verify(Theme.stack.titleSpace >= bodyLine.lineBox, "the title space contains a drawn body line");
             const block = titleBlock(made);
             compare(block.children[3].contentItem, block.children[3], "the title Slot measures itself");
@@ -176,7 +176,7 @@ Item {
             verify(made instanceof Dialog);
             const pane = made.children.find(child => child instanceof Pane);
             verify(pane instanceof Pane);
-            waitForRendering(made);
+            renderedFrame(made);
             verify(Theme.stack.titleSpace >= bodyLine.lineBox, "the title space contains a drawn body line");
             const next = data.body ? findChild(made, "bodyMarker") : pane.children[4];
             const block = titleBlock(pane);

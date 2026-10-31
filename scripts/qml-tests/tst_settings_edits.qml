@@ -196,7 +196,7 @@ Item {
     // entry to a field.
     function withFields(row) { return Object.assign({}, row, { fieldRows: row.fieldRows !== undefined ? row.fieldRows : PluginLogic.fieldRows(row.schema, {}) }); }
 
-    TestCase {
+    UnitCase {
         name: "settingsEdits"
         when: windowShown
 
@@ -471,7 +471,7 @@ Item {
                 tryVerify(() => row("Voice") !== undefined && row("Browser") !== undefined && row("Input") !== undefined);
                 compare(descendants(row("Voice")).filter(child => child instanceof RowAction && child.visible).length, 1, "the first step draws a RowAction");
                 compare(descendants(row("Browser")).filter(child => child instanceof RowAction && child.visible).length, 1, "the next step draws a RowAction");
-                verify(waitForRendering(page));
+                verify(renderedFrame(page));
                 const top = label => row(label).mapToItem(page, 0, 0).y;
                 compare(top("Browser") - top("Voice"), top("Input") - top("Browser"), "required steps keep the same row pitch");
             } finally {

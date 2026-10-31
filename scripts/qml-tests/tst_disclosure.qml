@@ -43,7 +43,7 @@ Item {
     }
     SignalSpy { id: actions; target: action; signalName: "clicked" }
 
-    TestCase {
+    UnitCase {
         name: "disclosure"
         when: windowShown
 
@@ -76,7 +76,7 @@ Item {
             compare(UnitTheme.override({ motion: { scale: 0 } }), "ok");
             disclosure.expanded = true;
             nested.visible = true;
-            waitForRendering(disclosure);
+            renderedFrame(disclosure);
             cursor.arm();
             mouseMove(row(), 20, 10);
             compare(cursor.hovered, row());

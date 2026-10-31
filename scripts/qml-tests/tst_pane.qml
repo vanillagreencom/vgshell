@@ -309,7 +309,7 @@ Item {
         }
     }
 
-    TestCase {
+    UnitCase {
         name: "pane"
         when: windowShown
 
@@ -338,7 +338,7 @@ Item {
         function test_title_growth_keeps_the_last_source_row_reachable(data) {
             compare(UnitTheme.override({ stack: { titleSpace: data.lines }, motion: { scale: 0 } }), "ok");
             const made = createTemporaryObject(titledSources, root, { maximumHeight: data.cap });
-            waitForRendering(made);
+            renderedFrame(made);
             const view = made.scrollArea;
             const last = made.rows.itemAt(made.rows.count - 1);
             compare(view.overflowing, data.cap > 0);
@@ -430,8 +430,8 @@ Item {
         function test_container_sets_the_gap_between_body_blocks() {
             const windowPane = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nPane { width: 240; height: 160; container: "window"\nItem { width: parent.width; height: 20 }\nItem { width: parent.width; height: 20 } }', root, "windowBody");
             const panelPane = Qt.createQmlObject('import QtQuick\nimport qs.Ui\nPane { width: 240; height: 160; container: "panel"\nItem { width: parent.width; height: 20 }\nItem { width: parent.width; height: 20 } }', root, "panelBody");
-            waitForRendering(windowPane);
-            waitForRendering(panelPane);
+            renderedFrame(windowPane);
+            renderedFrame(panelPane);
             compare(body(windowPane).children[1].y - body(windowPane).children[0].height, Theme.stack.page);
             compare(body(panelPane).children[1].y - body(panelPane).children[0].height, Theme.stack.group);
             windowPane.destroy();
@@ -542,7 +542,7 @@ Item {
             const view = made.scrollArea;
             view.keyboardScroll = data.keyboard;
             if (data.focused) view.focusProxy.forceActiveFocus(Qt.TabFocusReason);
-            waitForRendering(made);
+            renderedFrame(made);
             const column = body(made);
             const head = headerSlot(made);
             tryCompare(column, "width", head.width);
@@ -749,7 +749,7 @@ Item {
             const made = createTemporaryObject(scrolledPanel, root, { container: data.container });
             if (data.padding !== undefined) made.padding = data.padding;
             if (data.line !== undefined) made.dividerWidth = data.line;
-            waitForRendering(made);
+            renderedFrame(made);
             const view = scroll(made);
             verify(view.overflowing);
             view.contentY = Math.min(20, (view.contentHeight - view.height) / 2);
@@ -839,7 +839,7 @@ Item {
             tryVerify(() => view.contentHeight > view.height + 40, 1000, "the body overflows");
             view.contentY = 20;
             verify(view.fadeAbove > 0 && view.fadeBelow > 0, "both edges are clipped");
-            waitForRendering(made);
+            renderedFrame(made);
             const image = grabImage(made);
             compare(image.width, made.width, "one pixel per unit");
             const barX = view.bar.mapToItem(of, 0, 0).x;

@@ -17,7 +17,7 @@ Item {
 
     Component { id: windowComponent; Automations.Window { width: 900; height: 1300 } }
 
-    TestCase {
+    UnitCase {
         name: "automation_signal_values"
         when: windowShown
 
@@ -40,7 +40,7 @@ Item {
             draft.times = ["17:30"];
             window.loadDraft(draft);
             window.editorOpen = true;
-            waitForRendering(window);
+            renderedFrame(window);
             return window;
         }
 
@@ -57,7 +57,7 @@ Item {
             verify(row !== undefined);
             const owner = row.parent;
             verify(owner !== null);
-            verify(waitForRendering(window));
+            verify(renderedFrame(window));
             compare(row.width, owner.width);
             // Repeater/window teardown can detach this real delegate before
             // it dies, as the VGS-2077 nested cleanup warning demonstrates.

@@ -49,7 +49,7 @@ Item {
         }
     }
 
-    TestCase {
+    UnitCase {
         name: "googledrive_panel"
         when: windowShown
 
@@ -99,7 +99,7 @@ Item {
             verify(host !== null);
             panel = host.panel;
             panel.shell = shell();
-            waitForRendering(panel);
+            renderedFrame(panel);
             outside.forceActiveFocus(Qt.OtherFocusReason);
         }
 
@@ -281,7 +281,7 @@ Item {
             tabTo(fold);
             keyClick(Qt.Key_Return);
             compare(panel.notesOpen, true, "the fold opens");
-            waitForRendering(panel);
+            renderedFrame(panel);
             const key = panel.review.notes[0].action.key;
             const dismiss = find(panel, item => "focusPolicy" in item && item.text === panel.review.notes[0].action.label);
             verify(dismiss !== null, "the first row that needs no action draws its Dismiss");
@@ -291,7 +291,7 @@ Item {
             compare(root.calls, [["ipc", "dismiss", key]], "Return asks the service to dismiss the row's key");
             compare(focused(), fold, "Return hands the focus to the fold line");
             tabTo(dismiss);
-            waitForRendering(panel);
+            renderedFrame(panel);
             root.calls = [];
             mouseClick(dismiss);
             compare(root.calls, [["ipc", "dismiss", key]], "a click asks what Return asks");
@@ -305,7 +305,7 @@ Item {
             const fold = control(panel.review.notesLine);
             tabTo(fold);
             keyClick(Qt.Key_Return);
-            waitForRendering(panel);
+            renderedFrame(panel);
             const dismiss = find(panel, item => "focusPolicy" in item && item.text === panel.review.notes[0].action.label);
             tabTo(dismiss);
             keyClick(Qt.Key_Return);

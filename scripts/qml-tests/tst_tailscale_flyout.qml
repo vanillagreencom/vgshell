@@ -158,7 +158,7 @@ Item {
     // Reads the clipboard back.
     TextEdit { id: paste; y: 950; width: 300; height: 20 }
 
-    TestCase {
+    UnitCase {
         name: "tailscale_flyout"
         when: windowShown
 
@@ -167,7 +167,7 @@ Item {
             tryCompare(root.Window.window, "active", true);
             panel.shell = stub;
             panel.open("{}");
-            waitForRendering(panel);
+            renderedFrame(panel);
             root.calls = [];
             root.actions = [];
             const start = panel.initialFocus;
@@ -232,7 +232,7 @@ Item {
             root.checkingSetup = data.checking;
             const made = createTemporaryObject(freshPanel, root);
             made.open("{}");
-            waitForRendering(made);
+            renderedFrame(made);
             verify(root.calls.some(entry => entry[0] === "lease" && JSON.parse(entry[1]).open), "the fresh view opens its service lease");
             const card = findIn(made, "tailscale-accounts-card");
             const accounts = findIn(made, "tailscale-accounts");
@@ -296,7 +296,7 @@ Item {
             root.backend = "NeedsLogin";
             // A Column places its children at polish, so the geometry below
             // reads the card only after a frame.
-            waitForRendering(panel);
+            renderedFrame(panel);
             const list = named("tailscale-accounts");
             compare(list.actionOf(list.rows[1]).text, "Sign in");
             // The why stands once, inside the card before the rows it explains.
@@ -344,7 +344,7 @@ Item {
             root.statusAccount = data.account;
             root.allowOffered = data.allow;
             root.backend = "NeedsLogin";
-            waitForRendering(panel);
+            renderedFrame(panel);
             verify(named("tailscale-signed-out-hint").text !== "", "the card says what to do");
             const body = find(panel, item => item.stateHint !== undefined && item.signInReason !== undefined);
             const control = body.stateHint.control;
@@ -409,7 +409,7 @@ Item {
         function networkList() {
             named("tailscale-network-devices").expanded = true;
             const list = named("tailscale-devices");
-            waitForRendering(list);
+            renderedFrame(list);
             return list;
         }
         function icon(name) { return find(panel, item => item.objectName === name && item.label !== undefined); }
@@ -468,7 +468,7 @@ Item {
             const device = named("tailscale-this-device");
             const network = named("tailscale-network-devices");
             network.expanded = true;
-            waitForRendering(network);
+            renderedFrame(network);
             const child = named("tailscale-devices").rowAt(0);
             compare(device.cursor, network.cursor, "This device belongs to the flyout's row list");
             const cursor = network.cursor;
@@ -558,7 +558,7 @@ Item {
             tryVerify(() => area.contentY > 0, 1000, "the main view scrolls to the Exit node row");
             keyClick(Qt.Key_Return);
             compare(panel.view, "exit-nodes");
-            waitForRendering(panel);
+            renderedFrame(panel);
             compare(area.contentY, 0, "the Exit nodes view opens at its top");
         }
 
@@ -627,7 +627,7 @@ Item {
             const handoff = snapshot("handoff");
             if (data.checking) root.checkingSetup = false;
             tryCompare(body, "lockReason", "");
-            waitForRendering(panel);
+            renderedFrame(panel);
             snapshot("ready-after-handoff");
             console.info("tailscale-stop-focus-trace " + JSON.stringify({ tag: data.tag, states: trace }));
 
@@ -652,7 +652,7 @@ Item {
             panel.visible = false;
             const body = createTemporaryObject(paneBody, root);
             body.open();
-            waitForRendering(body);
+            renderedFrame(body);
             return body;
         }
 

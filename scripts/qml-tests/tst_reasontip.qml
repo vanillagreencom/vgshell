@@ -258,7 +258,7 @@ Item {
         }
     }
 
-    TestCase {
+    UnitCase {
         name: "reasontip"
         when: windowShown
 
@@ -482,7 +482,7 @@ Item {
             compare(UnitTheme.override(JSON.parse(request.responseText).tokens), "ok");
             headerPane.switchDisabledReason = "The administrator holds Tailscale until you choose Let my login control Tailscale.";
             header.visible = true;
-            verify(waitForRendering(header));
+            verify(renderedFrame(header));
             const tip = openReason(headerPane.headerSwitch);
             const title = descendants(headerPane).find(item => item.text === "VPN" && item.contentWidth !== undefined && item.visible);
             verify(title !== undefined, "the header draws its title");

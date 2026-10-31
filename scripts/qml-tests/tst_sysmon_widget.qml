@@ -25,7 +25,7 @@ Item {
         }
     }
 
-    TestCase {
+    UnitCase {
         id: tests
         name: "sysmon_widget"
         when: windowShown
@@ -171,13 +171,13 @@ Item {
             strip.widget.shell = scope();
             const shownItems = items(strip.widget);
             compare(drawnText(shownItems[data.index]), data.texts[0]);
-            verify(waitForRendering(strip));
+            verify(renderedFrame(strip));
             const width = shownItems[data.index].width;
             const after = shownItems.slice(data.index + 1).map(item => item.x);
             const sibling = strip.sibling.x;
             status.values = reading(data.to);
             compare(drawnText(shownItems[data.index]), data.texts[1]);
-            verify(waitForRendering(strip));
+            verify(renderedFrame(strip));
             compare(shownItems[data.index].width, width, "the changed item keeps its width");
             compare(JSON.stringify(shownItems.slice(data.index + 1).map(item => item.x)), JSON.stringify(after), "no item after it moves");
             compare(strip.sibling.x, sibling, "the widget after the System Monitor does not move");
@@ -293,7 +293,7 @@ Item {
             status.values = { readings: next };
             compare(drawnText(readings[0]), "45%/185°");
             compare(drawnText(readings[2]), "45%/176°");
-            verify(waitForRendering(widget));
+            verify(renderedFrame(widget));
             compare(JSON.stringify(readings.map(item => item.implicitWidth)), JSON.stringify(widths), "the same character count keeps each width");
         }
         function test_panel_converts_cpu_and_gpu_details() {
@@ -348,7 +348,7 @@ Item {
                     compare(rows[index].text, readings[group].details[index], "the retained row draws the live value");
                 }
             }
-            verify(waitForRendering(panel));
+            verify(renderedFrame(panel));
             // QtTest crops grabImage at the item's local x/y. Capture the
             // root and map nested detail bounds into that image instead.
             // Compare against the same panel with only these glyphs hidden:
@@ -361,12 +361,12 @@ Item {
             let blank;
             try {
                 for (const row of rows) row.opacity = 0;
-                verify(waitForRendering(panel));
+                verify(renderedFrame(panel));
                 blank = grabImage(root);
             } finally {
                 for (let index = 0; index < rows.length; index++) rows[index].opacity = opacities[index];
             }
-            verify(waitForRendering(panel));
+            verify(renderedFrame(panel));
             const scaleX = painted.width / root.width;
             const scaleY = painted.height / root.height;
             for (const row of rows) {
@@ -397,7 +397,7 @@ Item {
         // on Qt 6.12, so the wait first asks the window for one.
         function rendered(item) {
             root.Window.window.update();
-            return waitForRendering(item);
+            return renderedFrame(item);
         }
         function test_panel_reading_hover_and_click_keep_geometry_focus_and_scroll() {
             const facade = scope(); facade.requirements.missing = [];
@@ -406,7 +406,7 @@ Item {
             verify(panel !== null);
             panel.height = Qt.binding(() => panel.implicitHeight);
             panel.forceActiveFocus(Qt.OtherFocusReason);
-            verify(waitForRendering(panel));
+            verify(renderedFrame(panel));
             const readings = panelReadings(panel);
             const pane = descendants(panel).find(item => item instanceof Pane);
             const originalFocus = root.Window.window.activeFocusItem;

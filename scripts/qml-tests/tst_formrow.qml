@@ -258,7 +258,7 @@ Item {
     }
     FontMetrics { id: leadingMetrics }
 
-    TestCase {
+    UnitCase {
         name: "formrow"
         when: windowShown
 
@@ -603,7 +603,7 @@ Item {
         function test_a_message_stands_the_field_gap_under_every_controls_ink() {
             const cover = createTemporaryObject(coveredMessages, root);
             verify(cover !== null);
-            verify(waitForRendering(cover));
+            verify(renderedFrame(cover));
             const img = grabImage(root);
             const read = cover.rows.children.filter(item => item.objectName === "fieldRow").map(row => {
                 const message = row.children.find(child => child instanceof LinkText);
@@ -648,7 +648,7 @@ Item {
                 const to = Math.round(row.mapToItem(root, row.width, 0).x);
 
                 actions.visible = false;
-                verify(waitForRendering(cover));
+                verify(renderedFrame(cover));
                 const bare = grabImage(root);
                 const box = Math.round(message.mapToItem(root, 0, 0).y);
                 let glyphs = box;
@@ -659,10 +659,10 @@ Item {
                 control--;
 
                 actions.visible = true;
-                verify(waitForRendering(cover));
+                verify(renderedFrame(cover));
                 const resting = grabImage(root);
                 action.focusPreview = true;
-                verify(waitForRendering(cover));
+                verify(renderedFrame(cover));
                 const ringed = grabImage(root);
                 const ring = action.background.children[0].children[0];
                 verify(ring.visible, "the action draws no ring: " + row.label);

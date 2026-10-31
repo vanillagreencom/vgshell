@@ -28,7 +28,7 @@ Item {
         Notifications.NotificationCard {}
     }
 
-    TestCase {
+    UnitCase {
         name: "notification_media"
         when: windowShown
 
@@ -100,7 +100,7 @@ Item {
             verify(Qt.colorEqual(badge.color, scene.look.tone[data.mark.tone]));
             verify(Theme.contrastRatio(mark.color, badge.color) >= 4.5, "badge ink holds the text floor in both themes");
             verify(waitForPolish(card));
-            verify(waitForRendering(card));
+            verify(renderedFrame(card));
             const image = grabImage(scene);
             const at = badge.mapToItem(scene, 0, 0);
             const fill = image.pixel(Math.round(at.x + 3), Math.round(at.y + 10));

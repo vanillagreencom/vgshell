@@ -204,7 +204,7 @@ Item {
         }
     }
 
-    TestCase {
+    UnitCase {
         name: "sectionSpacing"
         when: windowShown
 
@@ -297,7 +297,7 @@ Item {
         // scripts/qml-unit.sh on e041ebaa9.
         function test_ungrouped_settings_follow_the_enabled_row() {
             listRows.visible = true;
-            verify(waitForRendering(listRows));
+            verify(renderedFrame(listRows));
             const list = gapBetween(grabImage(root), listRows.children[0], listRows.children[1]);
             listRows.visible = false;
             // Set after creation, as a JS object, the row keeps its
@@ -311,7 +311,7 @@ Item {
             const glass = fields.find(item => item instanceof SettingField && item.key === "glass");
             verify(enabled !== undefined && glass !== undefined, "the page draws Enabled and VGlass");
             tryVerify(() => glass.height > 0, 2000);
-            verify(waitForRendering(page));
+            verify(renderedFrame(page));
             const gap = gapBetween(grabImage(root), enabled, glass);
             verify(Math.abs(gap - list) <= root.tolerance, "VGlass sits " + gap + " px under the Enabled switch, not " + list + " as rows of a list");
         }
@@ -323,7 +323,7 @@ Item {
         // ChoiceField.subText).
         function test_a_hinted_key_line_keeps_the_group_space() {
             hintedRows.visible = true;
-            verify(waitForRendering(hintedRows));
+            verify(renderedFrame(hintedRows));
             const list = gapBetween(grabImage(root), hintedRows.children[0], hintedRows.children[1]);
             hintedRows.visible = false;
             const schema = { alpha: { type: "boolean", label: "Alpha" }, beta: { type: "boolean", label: "Beta" } };
@@ -339,7 +339,7 @@ Item {
             tryVerify(() => own() !== undefined && beta() !== undefined && beta().height > 0, 2000, "the page draws Alpha's key line and Beta");
             // The enclosing Columns exclude zero-height children from
             // subText until their positioners have polished the layout.
-            verify(waitForRendering(page));
+            verify(renderedFrame(page));
             verify(own().subText, "Alpha's hinted key line ends in sub-text");
             let extras = own().parent;
             while (extras !== page && extras.key !== "alpha") extras = extras.parent;
@@ -357,7 +357,7 @@ Item {
             const page = createTemporaryObject(pageComponent, root, { row: rowOf(data.id) });
             verify(page !== null);
             tryVerify(() => headings(page).length >= 2, 2000, "the page heads two groups or more");
-            verify(waitForRendering(page));
+            verify(renderedFrame(page));
             const img = grabImage(root);
             if (data.id === "vgs.capture") {
                 const choice = descendants(page).find(item => item.key === "constantFrameRate"
@@ -379,7 +379,7 @@ Item {
             compare(UnitTheme.override({ stack: { heading: 44 } }), "ok");
             const page = createTemporaryObject(pageComponent, root, { row: rowOf("vgs.sysmon") });
             tryVerify(() => headings(page).length >= 2, 2000);
-            verify(waitForRendering(page));
+            verify(renderedFrame(page));
             const img = grabImage(root);
             for (const label of headings(page)) verify(Math.abs(gapAbove(img, label) - 44) <= root.tolerance, "\"" + label.text + "\" follows the token");
         }
@@ -389,7 +389,7 @@ Item {
         function test_a_help_line_without_descenders() {
             compare(UnitTheme.override({ text: { hint: { size: 40 } } }), "ok");
             flatHint.visible = true;
-            verify(waitForRendering(flatHint));
+            verify(renderedFrame(flatHint));
             const img = grabImage(root);
             const gap = gapAbove(img, headings(flatHint)[1]);
             flatHint.visible = false;
@@ -410,7 +410,7 @@ Item {
             const hints = descendants(page).filter(child => child instanceof LinkText && child.text === data.hint);
             compare(hints.length, 1);
             compare(hints[0].lineCount, data.lines);
-            verify(waitForRendering(page));
+            verify(renderedFrame(page));
             const gap = gapAbove(grabImage(root), headings(page)[1]);
             verify(Math.abs(gap - Theme.stack.heading) <= root.tolerance, "the heading sits " + gap + " px under the hint, not " + Theme.stack.heading);
         }
@@ -444,7 +444,7 @@ Item {
             compare(hints.length, 1);
             verify(hints[0].linked);
             compare(hints[0].lineCount, data.lines);
-            verify(waitForRendering(page));
+            verify(renderedFrame(page));
             const gap = gapAbove(grabImage(root), headings(page)[1]);
             verify(Math.abs(gap - Theme.stack.heading) <= root.tolerance, "the heading sits " + gap + " px under the link, not " + Theme.stack.heading);
         }
@@ -468,7 +468,7 @@ Item {
             const page = createTemporaryObject(actionThenSection, root, { tone: data.tone, holder: data.holder });
             verify(page !== null);
             tryVerify(() => headings(page).length === 2, 2000, "the page heads two groups");
-            verify(waitForRendering(page));
+            verify(renderedFrame(page));
             const gap = gapAbove(grabImage(root), headings(page)[1]);
             if (data.holder === "boxed") verify(gap !== Theme.stack.heading, "the reading tells an action's box from its ink: " + gap);
             else compare(gap, Theme.stack.heading, "the heading sits " + gap + " px under the action, not " + Theme.stack.heading);
@@ -477,7 +477,7 @@ Item {
         // The control: a section spaced by its box under a switch row.
         function test_box_spacing_is_refused() {
             boxSpaced.visible = true;
-            verify(waitForRendering(boxSpaced));
+            verify(renderedFrame(boxSpaced));
             const img = grabImage(root);
             const planted = headings(boxSpaced);
             compare(planted.length, 1);

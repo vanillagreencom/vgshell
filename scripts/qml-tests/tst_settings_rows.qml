@@ -81,7 +81,7 @@ Item {
         readonly property var shortcut: ({ capture: null })
     }
     Component { id: windowComponent; Window { shell: fakeShell } }
-    TestCase {
+    UnitCase {
         name: "settingsRows"
         when: windowShown
         function descendants(item) {
@@ -96,10 +96,10 @@ Item {
         function opened(id, tab) {
             const window = createTemporaryObject(windowComponent, root);
             verify(window !== null, "the window builds");
-            window.width = window.implicitWidth; window.height = 900; window.open("{}"); waitForRendering(window);
+            window.width = window.implicitWidth; window.height = 900; window.open("{}"); renderedFrame(window);
             window.openPlugin(id, Qt.OtherFocusReason, tab);
             tryVerify(() => pageOf(window).parent.x === -window.width, 2000, "the page has slid in");
-            waitForRendering(window);
+            renderedFrame(window);
             return window;
         }
         function pageOf(window) { return descendants(window).find(item => item.fitHeight !== undefined && item.row !== undefined); }
@@ -221,7 +221,7 @@ Item {
             const window = opened("acme.facts", "Settings");
             compare(onTab(window, RowsList).length, 0, "Settings draws no list the user cannot change");
             tabsOf(window).currentIndex = tabsOf(window).model.indexOf("Details");
-            waitForRendering(window);
+            renderedFrame(window);
             compare(onTab(window, RowsList).length, 1);
             compare(lines(window).map(line => [line.text, line.clickable, actionsOf(line).length]), root.pairs.map(pair => [pair.label, false, 0]));
         }

@@ -11,7 +11,7 @@ Item {
     TextArea { id: area; width: 300; height: 120; placeholderText: "Notes" }
     Button { id: next; y: 160; text: "Next" }
 
-    TestCase {
+    UnitCase {
         name: "textarea"
         when: windowShown
         function init() { UnitTheme.reset(); area.clear(); area.error = false; next.forceActiveFocus(Qt.OtherFocusReason); }
@@ -37,7 +37,7 @@ Item {
             area.error = data.error;
             compare(area.focusReason, Qt.OtherFocusReason);
             compare(area.cursorVisible, true);
-            waitForRendering(area);
+            renderedFrame(area);
             const expected = data.error ? Theme.textField.error : data.hovered ? Theme.textField.hover : Theme.textField.borderColor;
             compare(String(area.background.border.color), String(Qt.color(expected)));
             area.error = false;

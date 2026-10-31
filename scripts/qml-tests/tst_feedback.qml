@@ -30,7 +30,7 @@ Item {
         Window { width: 640; height: 240; color: "black" }
     }
 
-    TestCase {
+    UnitCase {
         name: "feedback"
         when: windowShown
 
@@ -218,7 +218,7 @@ Item {
             label.transform = Qt.createQmlObject("import QtQuick\nTranslate {}", label);
             label.transform[0].x = (data.shiftX || 0) / ratio;
             label.transform[0].y = (data.shiftY || 0) / ratio;
-            waitForRendering(window.contentItem);
+            renderedFrame(window.contentItem);
             // The grab of a scaled window's content item holds its device
             // pixels from the top left, as many as the item's size in
             // pixels: qmltestrunner 6.11.2, read in a run. The window is

@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Window
 import QtTest
+import qs.Unit
 import qs.Commons
 import qs.Core
 import qs.Ui
@@ -76,7 +77,7 @@ Item {
         return descendants(field).find(item => item instanceof Switch);
     }
 
-    TestCase {
+    UnitCase {
         name: "SettingsScroll"
         when: windowShown
 
@@ -85,7 +86,7 @@ Item {
             manager.listCase = false;
             root.page = createTemporaryObject(pageComponent, root);
             verify(root.page !== null);
-            verify(waitForRendering(root.page));
+            verify(renderedFrame(root.page));
             root.page.scrollArea.contentY = 0;
         }
 
@@ -101,14 +102,14 @@ Item {
         function test_toggle_keeps_the_page_at_the_pressed_row(data) {
             manager.listCase = data.list;
             manager.current = root.row(!data.wanted, data.list);
-            verify(waitForRendering(page));
+            verify(renderedFrame(page));
             page.scrollArea.contentY = 0;
             const before = page.scrollArea.contentY;
             mouseClick(enabledSwitch());
             tryCompare(manager.current, "enabled", data.wanted);
             verify(waitForPolish(page.Window.window));
             wait(0);
-            verify(waitForRendering(page));
+            verify(renderedFrame(page));
             compare(page.scrollArea.contentY, before);
         }
 

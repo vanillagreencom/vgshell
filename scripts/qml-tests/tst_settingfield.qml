@@ -479,7 +479,7 @@ Item {
         TextEdit { textFormat: TextEdit.PlainText; readOnly: true; visible: false }
     }
 
-    TestCase {
+    UnitCase {
         name: "settingfield"
         when: windowShown
 
@@ -1127,7 +1127,7 @@ Item {
             const rows = () => descendants(cover.page).filter(item => item.objectName === "fieldRow" && item.visible && item.height > 0);
             const byLabel = label => rows().find(item => item.label === label);
             tryVerify(() => data.labels.every(label => byLabel(label) !== undefined), 2000, "the page draws every row");
-            verify(waitForRendering(cover));
+            verify(renderedFrame(cover));
             const img = grabImage(root);
             const gaps = data.labels.slice(1).map((label, i) => ({ pair: data.labels[i] + "/" + label, gap: gapOver(img, byLabel(label), cover.page.width) }));
             // Each key list's sentence, in page order: Number's, then After's.
@@ -1160,7 +1160,7 @@ Item {
             if (data.label !== undefined) compare(UnitTheme.override({ text: { label: { size: data.label } } }), "ok");
             const cover = createTemporaryObject(coveredBare, root, { spacing: Theme.stack[data.spacing] });
             verify(cover !== null);
-            verify(waitForRendering(cover));
+            verify(renderedFrame(cover));
             const rows = cover.rows.children.filter(item => item.objectName === "fieldRow");
             compare(rows.length, 10);
             for (const row of rows) compare(row.boxHeight, Theme.row.height, row.label + " keeps the row box");
@@ -1181,7 +1181,7 @@ Item {
             verify(cover !== null);
             const first = () => descendants(cover.rows).find(item => item.objectName === "fieldRow" && item.label === "First in list");
             tryVerify(() => first() !== undefined, 2000, "the list draws its first row");
-            verify(waitForRendering(cover));
+            verify(renderedFrame(cover));
             const gap = gapOver(grabImage(root), first(), cover.rows.width);
             verify(Math.abs(gap - Theme.stack.page) <= 1, "the list's first row stands " + Theme.stack.page + " blank rows under the row above the list: " + gap);
         }
@@ -1275,7 +1275,7 @@ Item {
         function test_text_rows_keep_one_pitch_whatever_they_read() {
             const cover = createTemporaryObject(coveredText, root);
             verify(cover !== null);
-            verify(waitForRendering(cover));
+            verify(renderedFrame(cover));
             const img = grabImage(root);
             const labels = cover.rows.children.map(field => descendants(field).find(child => child.objectName === "fieldLabel"));
             const tops = labels.map(label => inkTop(img, label));
@@ -1316,7 +1316,7 @@ Item {
             const cover = createTemporaryObject(coveredGrouped, root);
             cover.grouped.value = "realtime";
             tryVerify(() => fieldRowOf(cover.grouped, "Cloud voice") !== undefined, 1000);
-            verify(waitForRendering(cover));
+            verify(renderedFrame(cover));
             const img = grabImage(root);
             const width = cover.rows.width;
             const gaps = [["Voice provider/Cloud voice", gapOver(img, fieldRowOf(cover.grouped, "Cloud voice"), width)], ["Cloud voice/After", gapOver(img, fieldRowOf(cover.after, "After"), width)]];
@@ -1518,7 +1518,7 @@ Item {
             const cover = createTemporaryObject(coveredLong, root);
             verify(cover !== null);
             verify(selectOf(cover.long).contentItem.lineCount > 1, "the value wraps");
-            verify(waitForRendering(cover));
+            verify(renderedFrame(cover));
             const img = grabImage(root);
             const width = cover.rows.width;
             const row = (field, label) => fieldRowOf(field, label);

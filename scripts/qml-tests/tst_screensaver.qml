@@ -1,5 +1,6 @@
 import QtQuick
 import QtTest
+import qs.Unit
 import qs.Commons
 import "../../shell/plugins/vgs.screensaver/ScreensaverLogic.js" as Logic
 
@@ -29,7 +30,7 @@ Item {
         font: rendered.font
         textFormat: Text.PlainText
     }
-    TestCase {
+    UnitCase {
         name: "screensaver"
         when: windowShown
 
@@ -56,7 +57,7 @@ Item {
                     reference.text = lines[i];
                     rendered.forceLayout();
                     reference.forceLayout();
-                    verify(waitForRendering(rendered), "the parsed line renders");
+                    verify(renderedFrame(rendered), "the parsed line renders");
                     compare(firstInk(rendered), firstInk(reference), "first character column of line " + i);
                     fuzzyCompare(rendered.advance.width, reference.advance.width, 0.01, "line " + i + " keeps every text column");
                 }

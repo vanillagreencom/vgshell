@@ -63,7 +63,7 @@ Item {
         }
     }
 
-    TestCase {
+    UnitCase {
         name: "textfield"
         when: windowShown
 
@@ -92,7 +92,7 @@ Item {
             plain.error = data.error;
             compare(plain.focusReason, Qt.OtherFocusReason);
             compare(plain.cursorVisible, true);
-            waitForRendering(plain);
+            renderedFrame(plain);
             const expected = data.error ? Theme.textField.error : data.hovered ? Theme.textField.hover : Theme.textField.borderColor;
             compare(String(plain.background.border.color), String(Qt.color(expected)));
             plain.error = false;

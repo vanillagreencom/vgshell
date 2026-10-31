@@ -140,7 +140,7 @@ Item {
         }
     }
 
-    TestCase {
+    UnitCase {
         name: "scroll"
         when: windowShown
 
@@ -231,7 +231,7 @@ Item {
             const view = createTemporaryObject(oversizedFieldCase, root);
             tryVerify(() => view.field.height > view.height);
             verify(!(view.field instanceof FocusScope));
-            verify(waitForRendering(view));
+            verify(renderedFrame(view));
             root.Window.window.requestActivate();
             tryCompare(root.Window.window, "active", true);
             view.field.forceActiveFocus(Qt.OtherFocusReason);
@@ -250,7 +250,7 @@ Item {
 
         // The colour of HOLDER's pixel on row Y, mid-row, as drawn.
         function drawn(holder, y) {
-            verify(waitForRendering(holder));
+            verify(renderedFrame(holder));
             return grabImage(holder).pixel(20, y);
         }
 
@@ -318,7 +318,7 @@ Item {
             tryVerify(() => view.overflowing, 1000, "ten rows overflow the view");
             view.contentY = 50;
             compare([view.fadeAbove, view.fadeBelow], [1, 1], "midway both bands fade in full");
-            verify(waitForRendering(holder));
+            verify(renderedFrame(holder));
             const image = grabImage(holder);
             const page = Qt.color(data.page), row = Qt.color(data.row);
             // One 8-bit step of rounding either way.
@@ -470,7 +470,7 @@ Item {
             keyboard.contentY = data.position === "end" ? lastY : data.position === "middle" ? lastY / 2 : 0;
             const clearance = Theme.focusRing.width + Theme.focusRing.offset + keyboard.contentPadding;
             wait(0);
-            verify(waitForRendering(keyboard));
+            verify(renderedFrame(keyboard));
             const painted = grabImage(keyboard);
             verify(Qt.colorEqual(painted.pixel(keyboard.width / 2, keyboard.height / 2), "#ff00ff"), "the body paints inside the clip");
             for (let gap = Theme.focusRing.width; gap < clearance; gap++) {

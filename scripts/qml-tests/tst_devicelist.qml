@@ -116,7 +116,7 @@ Item {
         }
     }
 
-    TestCase {
+    UnitCase {
         name: "devicelist"
         when: windowShown
 
@@ -327,7 +327,7 @@ Item {
 
         function test_icon_actions_draw_after_the_action_and_choose() {
             list.iconActionsOf = row => row.key === "a" ? icons : row.key === "b" ? icons.slice(1) : [];
-            waitForRendering(list);
+            renderedFrame(list);
             const first = iconsOf(list.rowAt(0));
             compare(first.map(icon => [icon.iconName, icon.label, icon.tooltip, icon.visible]),
                 [["terminal", "Connect in terminal", "Connect in terminal", true], ["copy", "Copy", "Copy", true]]);

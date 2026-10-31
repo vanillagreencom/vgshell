@@ -4,6 +4,7 @@ import Quickshell.Hyprland
 import qs.Commons
 import qs.Core
 import qs.Ui
+import qs.Unit
 import "../../shell/plugins/vgs.settings"
 
 // The Plugins window's height: the content and chrome of the page it
@@ -173,7 +174,7 @@ Item {
         Window { shell: fakeShell }
     }
 
-    TestCase {
+    UnitCase {
         name: "settingsWindowHeight"
         when: windowShown
 
@@ -219,16 +220,6 @@ Item {
             return { page: page, pane: pane, tabs: tabs, settings: pages[0], setup: pages.length === 3 ? pages[1] : null, details: pages[pages.length - 1] };
         }
 
-        // One frame of ITEM's window with the state as it stands. QtTest's
-        // waitForRendering waits for the window's next frame swap, and a
-        // window whose requested state is already drawn schedules none, so
-        // the wait would fail on a load-settled window; asking for the
-        // frame first makes the wait answer on whether the window draws.
-        function renderedFrame(item, timeout) {
-            item.Window.window.update();
-            return waitForRendering(item, timeout);
-        }
-
         function rendered(item) {
             verify(renderedFrame(item), "the window has rendered the requested state");
         }
@@ -244,18 +235,6 @@ Item {
         // Room below the shown tab's content, and none past it.
         function fits(scroll) {
             return scroll.height >= scroll.contentHeight && scroll.height - scroll.contentHeight < 1;
-        }
-
-        // A window with its state drawn swaps no frame of its own, which is
-        // what waitForRendering alone reports as not rendered; the wait
-        // asks for the frame, so it still answers on a settled window.
-        function test_the_rendered_wait_answers_on_a_settled_window() {
-            const window = opened('{"plugin":"acme.short"}');
-            let settled = false;
-            const until = Date.now() + 10000;
-            while (!settled && Date.now() < until) settled = !waitForRendering(window, 50);
-            verify(settled, "the window stops swapping frames once its state is drawn");
-            verify(renderedFrame(window, 1000), "a settled window draws the frame it is asked for");
         }
 
         // The core tells a plugin while its page is shown: the window

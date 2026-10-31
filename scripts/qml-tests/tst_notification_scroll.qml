@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import QtTest
+import qs.Unit
 import qs.Commons
 import "../../shell/plugins/vgs.notifications" as Notifications
 import "../../shell/plugins/vgs.notifications/Appearance.js" as Appearance
@@ -76,7 +77,7 @@ Item {
     // or source-text check, must retain only the painted token's pixels.
     readonly property string screenshotImage: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAACgAAAAWgAQAAAAC6eydyAAAB10lEQVR4nO3BMQEAAADCoPVPbQ0PoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIDODQ4JAAEjBuWbAAAAAElFTkSuQmCC"
 
-    TestCase {
+    UnitCase {
         id: testCase
         name: "notification_scroll"
         when: windowShown
@@ -169,7 +170,7 @@ Item {
 
         function grabPanel() {
             panel.Window.window.update();
-            verify(waitForRendering(panel));
+            verify(renderedFrame(panel));
             return grabImage(scene);
         }
 
@@ -685,7 +686,7 @@ Item {
             const distance = frame.look.stack.fadeHeight * row.fraction;
             frame.flickable.contentY = row.top ? distance : travel - distance;
             frame.Window.window.update();
-            verify(waitForRendering(frame));
+            verify(renderedFrame(frame));
             const painted = grabImage(frame);
             const x = Math.floor(painted.width / 2);
             const y = row.top ? 1 : painted.height - 2;
@@ -700,7 +701,7 @@ Item {
         function checkPaint(topFade, bottomFade) {
             compare(frame.GraphicsInfo.shaderType, GraphicsInfo.RhiShader, "the mask uses a shader-capable renderer");
             frame.Window.window.update();
-            verify(waitForRendering(frame));
+            verify(renderedFrame(frame));
             // QtTest grabs opaque window RGB. Magenta over black measures
             // composited content alpha independently of the window alpha.
             const painted = grabImage(frame);

@@ -37,7 +37,7 @@ Item {
         }
     }
 
-    TestCase {
+    UnitCase {
         name: "automation_network_hint"
         when: windowShown
 
@@ -66,7 +66,7 @@ Item {
             rows.field.hint = data.hint;
             rows.field.lines = data.lines;
             rows.field.hintLink = data.link || "";
-            verify(waitForRendering(rows));
+            verify(renderedFrame(rows));
             verify(waitForPolish(rows.Window.window));
             const slot = rows.field.children.find(child => typeof child.textLineBelow === "function");
             verify(slot !== undefined);

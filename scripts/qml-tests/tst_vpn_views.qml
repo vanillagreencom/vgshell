@@ -1,5 +1,6 @@
 import QtQuick
 import QtTest
+import qs.Unit
 import qs.Commons
 import qs.Ui
 import "../../shell/plugins/vgs.vpn" as Vpn
@@ -84,7 +85,7 @@ Item {
         }
     }
 
-    TestCase {
+    UnitCase {
         name: "vpn_views"
         when: windowShown
 
@@ -93,7 +94,7 @@ Item {
         function publish(value) {
             root.values = { profiles: value, connection: Logic.connection(value) };
             (view.panel !== undefined ? view.panel : view).shell = root.shell();
-            waitForRendering(view);
+            renderedFrame(view);
         }
         function open(component, value) {
             root.calls = [];
@@ -152,13 +153,13 @@ Item {
         function test_expanded_profile_shows_details() {
             open(paneComponent, root.payload(root.standIn));
             row(root.home).expanded = true;
-            waitForRendering(view);
+            renderedFrame(view);
             compare(named("vpn-type:" + root.home).text, Logic.typeName("wireguard", ""));
             compare(named("vpn-server:" + root.home).text, "203.0.113.10:51820");
             compare(named("vpn-address:" + root.home).text, "10.20.0.2");
             compare(lastIpc(), { kind: "profile-details", id: root.home });
             row(root.office).expanded = true;
-            waitForRendering(view);
+            renderedFrame(view);
             verify(named("vpn-address:" + root.office) === null, "an off profile shows no address");
             const remove = named("vpn-remove:" + root.office);
             verify(remove !== null);
@@ -174,7 +175,7 @@ Item {
             publish(root.values.profiles);
             const shown = row(root.office);
             shown.expanded = true;
-            waitForRendering(view);
+            renderedFrame(view);
             const toggle = named("vpn-profile-toggle:" + root.office);
             // A published list cannot connect until its separate detail
             // read answers. A failed read keeps a truthful unavailable state.
@@ -215,7 +216,7 @@ Item {
         function test_cancel_returns_to_remove_profile() {
             open(paneComponent, root.payload(root.standIn));
             row(root.office).expanded = true;
-            waitForRendering(view);
+            renderedFrame(view);
             const remove = named("vpn-remove:" + root.office);
             remove.forceActiveFocus(Qt.TabFocusReason);
             keyClick(Qt.Key_Return);
@@ -230,7 +231,7 @@ Item {
 
         function remove(uuid) {
             row(uuid).expanded = true;
-            waitForRendering(view);
+            renderedFrame(view);
             named("vpn-remove:" + uuid).forceActiveFocus(Qt.TabFocusReason);
             keyClick(Qt.Key_Return);
             const confirm = named("vpn-remove-confirm");
@@ -315,7 +316,7 @@ Item {
             const panel = view.panel;
             compare(named("vpn-subtitle").text, Logic.summary(root.values.profiles));
             row(root.office).expanded = true;
-            waitForRendering(view);
+            renderedFrame(view);
             verify(named("vpn-remove:" + root.office) === null, "the flyout offers no Remove");
             verify(named("vpn-updates") === null);
             verify(named("vpn-import-hint") === null);
