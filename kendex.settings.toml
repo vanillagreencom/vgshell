@@ -25,15 +25,11 @@ ORCH_SIZE_TEST_PATHS = "scripts/test-*.js scripts/test-*.py scripts/test-*.sh"
 # File-size thresholds come from the shipped path classes. No DOC_LIMITS_*
 # key here: a repeated default goes stale when the class changes.
 
-# Target identities are model providers, not the harness that runs them.
-# In this repository, both targets run Pi on the 1copilot account (~/.pi/agent), never the claude, codex or Copilot CLIs.
-# Reviewers run through Pi with read tools only and no extensions, so no shell tool and no repository hooks; the diff goes inline.
-SECOND_OPINION_CLAUDE_MODEL = "github-copilot/claude-opus-5.5"
-SECOND_OPINION_CLAUDE_CMD = "pi -p --no-session --no-extensions --model github-copilot/claude-opus-5.5 --thinking high --tools read,grep,find,ls"
-SECOND_OPINION_CLAUDE_INLINE_DIFF = "1"
-SECOND_OPINION_CODEX_MODEL = "github-copilot/gpt-6.1-sol"
-SECOND_OPINION_CODEX_CMD = "pi -p --no-session --no-extensions --model github-copilot/gpt-6.1-sol --thinking high --tools read,grep,find,ls"
-SECOND_OPINION_CODEX_INLINE_DIFF = "1"
+# Reviewers run only through the built-in Pi-on-Copilot entries: read tools
+# only and no extensions, so no shell tool and no repository hooks, with the
+# diff inline. The default roster's claude and codex fallbacks would run those
+# CLIs with a shell and this repository's hooks, so they are left out.
+SECOND_OPINION_MODELS = "pi-copilot pi-copilot-gpt"
 SECOND_OPINION_TIMEOUT = "1080"
 WORKTREE_BASE_DIR = "~/dev/.worktrees/vgshell"
 WORKTREE_COPIES = ""
