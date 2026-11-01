@@ -1676,7 +1676,8 @@ Scope {
             if (mode === WlrKeyboardFocus.Exclusive) return "exclusive";
             return "none";
         }
-        // The dialog's box, its title's for `title` or the scrim's for
+        // The dialog's box, its title's for `title`, its cancel button's
+        // for `dismiss` or the scrim's for
         // `scrim`, in the notice window's coordinates, or "absent" while no
         // notice shows.
         function noticeWindowGeometry(part: string): string {
@@ -1684,6 +1685,11 @@ Scope {
             if (dialog === null) return "absent";
             if (part === "card") return root.json(root.windowBox(dialog));
             if (part === "scrim") return Plugins.hosts.notice.scrim === null ? "absent" : root.json(root.windowBox(Plugins.hosts.notice.scrim));
+            if (part === "dismiss") {
+                const index = dialog.entries.findIndex(entry => entry.role === "cancel");
+                const button = dialog.buttons()[index];
+                return button === undefined || !button.visible || !button.enabled ? "absent" : root.json(root.windowBox(button));
+            }
             if (part !== "title") return "refused: part=" + part + " want=card|title|scrim";
             const title = root.descendants(dialog).find(child => root.typeName(child) === "Label" && child.visible && child.text === dialog.title);
             return title === undefined ? "absent" : root.json(root.windowBox(title));

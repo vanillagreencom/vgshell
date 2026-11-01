@@ -1080,6 +1080,48 @@ expect "the held step starts no setup terminal" absent recorded
 expect_poll "the held step's notice holds the keyboard" true ipc smoke noticeFocused
 type_keys -k Escape || fail "sending Escape to the held step's notice failed"
 expect_poll "Escape closes the held step's notice" null notice_shown
+# Shared with the later windows row. A keyboard failure must not leave a
+# notice over unrelated checks; its own cancel button still takes a press.
+window_close_notice_if_shown() { # CONTEXT
+  local shown rect at x y
+  shown="$(notice_shown)" || { fail "$1: reading the notice before cleanup failed"; return 1; }
+  [[ $shown != null ]] || return 0
+  rect="$(ipc smoke noticeWindowGeometry dismiss)" && [[ $rect == \[* ]] \
+    && at="$(at_centre vgs:notice "$rect")" && read -r x y <<<"$at" \
+    || { fail "$1: the notice's dismiss control is unreadable"; return 1; }
+  hover "$((x + 1))" "$y" && click "$x" "$y" || { fail "$1: pressing the notice's dismiss control failed"; return 1; }
+  expect_poll "$1: no notice remains after pointer cleanup" null notice_shown
+}
+window_close_notice_if_shown "the held step"
+
+# No Escape is sent to this notice, on any compositor version. The copy
+# without its pointer press must fail the same no-notice assertion.
+# A key the notice did not receive can pop the Settings page instead.
+settings_page_open acme.status
+settings_setup
+settings_press --type RowAction "Set up token" || fail "the cleanup control's Set up token press failed"
+expect_poll "control: the notice is deliberately left open" '["acme.status", ["vgs-smoke-absent"], ["vgs-smoke-absent"], false]' notice_shown
+mkdir -p "$sandbox/rows/settings.notice-cleanup-control"
+declare -f window_close_notice_if_shown >"$sandbox/notice-cleanup-control.sh"
+python3 - "$sandbox/notice-cleanup-control.sh" <<'PY_NOTICE_CLEANUP'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+text = path.read_text()
+needle = 'hover "$((x + 1))" "$y" && click "$x" "$y"'
+assert text.count(needle) == 1
+path.write_text(text.replace(needle, ":"))
+PY_NOTICE_CLEANUP
+settings_notice_cleanup_control() {
+  (failures=0 behaviour_failures=0
+   source "$sandbox/notice-cleanup-control.sh"
+   window_close_notice_if_shown "control: missing pointer press" >"$sandbox/rows/settings.notice-cleanup-control/log"
+   echo "$failures")
+}
+expect "control: missing pointer cleanup fails the no-notice assertion" 1 settings_notice_cleanup_control
+window_close_notice_if_shown "the deliberately open notice"
+expect "control: pointer cleanup closed the deliberately open notice" null notice_shown
+rm -- "$sandbox/notice-cleanup-control.sh"
 # settings_install_drawn: how many buttons of the page read Install all
 # missing.
 settings_install_drawn() { ipc smoke itemTexts window vgs.settings RowAction | py_reply 'import json,sys; print(sum(1 for b in json.load(sys.stdin) if b == ["Review all missing or outdated tools"]))'; }
@@ -1093,6 +1135,9 @@ expect "a missing requirement starts no setup terminal" absent recorded
 expect_poll "the Install all missing notice holds the keyboard" true ipc smoke noticeFocused
 type_keys -k Escape || fail "sending Escape to the Install all missing notice failed"
 expect_poll "Escape closes the Install all missing notice" null notice_shown
+window_close_notice_if_shown "Install all missing"
+settings_page_open acme.status
+settings_setup
 
 # Jarvis's full required list exceeds the explicit-choice notice bound.
 # Prefix the fixture's commands so host programs cannot satisfy them.
@@ -1127,6 +1172,8 @@ expect "the full missing list starts no setup terminal" absent recorded
 expect_poll "the full-list notice holds the keyboard" true ipc smoke noticeFocused
 type_keys -k Escape || fail "closing the large-list notice failed"
 expect_poll "the full-list notice closes" null notice_shown
+window_close_notice_if_shown "the full list"
+settings_page_open acme.status
 
 # Run copies of the real TUI owner against the same registered fixture.
 # Its setup declares no `requires`, so the notice for its own commands holds
@@ -1170,6 +1217,8 @@ expect "the unchanged owner starts no terminal" absent recorded
 expect_poll "the unchanged owner's notice holds the keyboard" true ipc smoke noticeFocused
 type_keys -k Escape || fail "closing the unchanged owner's notice failed"
 expect_poll "the unchanged owner's notice closes" null notice_shown
+window_close_notice_if_shown "the unchanged owner"
+settings_page_open acme.status
 install_control_missing() { ipc smoke popupRead TuiInstallChosen smokeMissing | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)))'; }
 expect "the explicit-choice control reaches the same request" ok ipc smoke popupCall TuiInstallChosen smokeRun
 expect "control: the explicit choice receives the full declared missing array" "$large_commands" install_control_missing

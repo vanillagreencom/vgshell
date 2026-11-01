@@ -20,7 +20,7 @@
 # Plugins plug in the bar and takes it off again, and leaves each other
 # window's plugin as it found it, hyprland.lua as it found it and no window
 # open. The bar's plug reads Plugins, the title of the window it opens.
-# inputs: shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Widget.qml shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.capture/* shell/plugins/*/manifest.json shell/plugins/vgs.automations/* shell/plugins/vgs.devtools/* shell/plugins/vgs.gallery/* shell/plugins/vgs.keyhints/* shell/plugins/vgs.system/* shell/plugins/vgs.updates/* shell/Commons/Reply.js shell/plugins/vgs.themes/* shell/Hosts/AppWindow.qml shell/Core/HyprlandLayer.js shell/Core/Notices.qml scripts/smoke/toplevel/* scripts/smoke/rows/hyprland-consent.sh
+# inputs: shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Widget.qml shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.capture/* shell/plugins/*/manifest.json shell/plugins/vgs.automations/* shell/plugins/vgs.devtools/* shell/plugins/vgs.gallery/* shell/plugins/vgs.keyhints/* shell/plugins/vgs.system/* shell/plugins/vgs.updates/* shell/Commons/Reply.js shell/plugins/vgs.themes/* shell/Hosts/AppWindow.qml shell/Core/HyprlandLayer.js shell/Core/Notices.qml scripts/smoke/toplevel/* scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/settings.sh
 set -euo pipefail
 leak_plugin_setup vgs.themes true || { fail "windows: fixture precondition failed"; return 1; }
 windows_lua="$home/.config/hypr/hyprland.lua"
@@ -122,12 +122,6 @@ for path in sorted(glob.glob(os.path.join(sys.argv[1], "*", "manifest.json"))):
     if "window" in doc["kinds"]: print(doc["id"] + "\t" + doc["name"])' "$repo/shell/plugins"
 }
 window_listed() { local status=0; grep -c -x -F -- "$1" <<<"$window_list" || status=$?; [[ $status -le 1 ]]; }
-window_close_notice_if_shown() { # PLUGIN_ID
-  [[ $(notice_shown) == null ]] && return 0
-  expect_poll "the $1 requirement notice holds the keyboard" true ipc smoke noticeFocused
-  type_keys -k Escape || fail "typing Escape into the $1 requirement notice failed"
-  expect_poll "Escape closes the $1 requirement notice" null notice_shown
-}
 window_list="$(window_plugins)" || fail "the bundled manifests are unreadable"
 expect "the manifests list the Updates window" 1 window_listed $'vgs.updates\tUpdates'
 expect "control: the manifests list no window for the themes panel" 0 window_listed $'vgs.themes\tThemes'
@@ -142,7 +136,12 @@ while IFS=$'\t' read -r -u 3 window_id window_title; do
   window_was="$(plugin_enabled "$window_id")" || window_was=unread
   if [[ $window_was != True ]]; then
     expect "enabling $window_id for its window is allowed" ok ipc shell setPluginEnabled "$window_id" true
-    window_close_notice_if_shown "$window_id"
+    if [[ $(notice_shown) != null ]]; then
+      expect_poll "the $window_id requirement notice holds the keyboard" true ipc smoke noticeFocused
+      type_keys -k Escape || fail "typing Escape into the $window_id requirement notice failed"
+      expect_poll "Escape closes the $window_id requirement notice" null notice_shown
+      window_close_notice_if_shown "$window_id"
+    fi
   fi
   expect "no requirement notice covers the $window_title window" null notice_shown
   expect_poll "the IPC opens the $window_title window" ok ipc shell summon window "$window_id" '{}'
