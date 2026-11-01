@@ -91,15 +91,7 @@ scripts/check-install-tree.sh --write DESTDIR PREFIX   # packaging/install-tree.
 scripts/measure-shader.sh --calibrate scripts/shader/ceilings.json --runs 3   # the shader ceilings
 ```
 
-The Jarvis README shows both themes. Capture its Console in dark and light, then crop the table's rows from that run; `readme-shots.sh`'s direct capture uses dark only.
-
-```sh
-scripts/sandbox-shots.sh --scale 2 --modes dark,light --size 1280x800 --out tmp/jarvis-readme-shots jarvis-console
-scripts/readme-shots.sh --from tmp/jarvis-readme-shots jarvis-console
-```
-
 ## Containers
-
 
 ```sh
 scripts/arch-packages.sh                     # build and install both Arch recipes
