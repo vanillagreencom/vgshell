@@ -243,6 +243,49 @@ row_install_order() { # PLUGIN
     "mise [settings] [add] [idiomatic_version_file_enable_tools] [ruby] {age=0}" \
     "mise [use] [-g] [ruby] {age=0}")" && package_review_proof
 }
+# VSCode's shipped AUR row enters the shared owner through the real engine.
+# The shared package world replays recorded builds without installing them.
+row_package_failures() { # PLUGIN
+  unshare -rm sh -c 'mount --bind "$1" /etc/os-release && shift && exec "$@"' sh "$tmp/os-release" \
+    "$node_bin" - "$repo" "$1" "$tmp" "$stubs/mise" <<'PROOF'
+const fs=require("node:fs"),path=require("node:path"),cp=require("node:child_process"),assert=require("node:assert/strict");
+const [repo,plugin,scratch,mise]=process.argv.slice(2),{create}=require(path.join(repo,"scripts/fixtures/pkg-review/world.js"));
+for(const [kind,transcript,retryCount] of [["check-only","paru-check-only",1],["ordinary","paru-build-fail",0]]){
+ const root=fs.mkdtempSync(path.join(scratch,"devtools-package-"));
+ try{
+  const w=create(root,{choices:["Install without review","Stop"],agents:false});
+  fs.symlinkSync(mise,path.join(root,"tools/mise"));
+  fs.mkdirSync(path.join(root,"mise-state"));
+  fs.writeFileSync(path.join(root,"build.json"),JSON.stringify({first:{transcript,status:1,base:"visual-studio-code-bin"}}));
+  const env={...w.env,SHELL:"/usr/bin/bash",MISE_STATE:path.join(root,"mise-state"),MISE_DATA_DIR:path.join(root,"mise-data")};
+  const argv=[process.execPath,path.join(plugin,"bin/devtools"),"--tree",repo,"install","vscode"];
+  const command=argv.map(s=>"'"+s.replaceAll("'","'\\''")+"'").join(" ");
+  const r=cp.spawnSync("/usr/bin/script",["-qec",command,"/dev/null"],{env,encoding:"utf8",timeout:30000});
+  assert.equal(r.status,1,kind+": "+r.stdout+r.stderr);
+  const calls=w.calls(),offers=calls.filter(c=>c.kind==="offer"),built=calls.filter(c=>c.kind==="mutation");
+  assert.equal(offers[0].choice,"Install without review",kind);
+  assert.equal(built.length,1,kind+": no automatic retry");
+  assert.equal(built[0].name,"paru",kind);
+  assert.deepEqual(built[0].args,["-S","--needed","--","visual-studio-code-bin"],kind);
+  assert.ok(calls.indexOf(offers[0])<calls.indexOf(built[0]),kind+": admission precedes the build");
+  const retry=offers.filter(c=>c.offered.includes("Retry without tests"));
+  assert.equal(retry.length,retryCount,kind);
+  if(retryCount){
+   assert.equal(retry[0].selected,"Stop",kind);
+   assert.equal(retry[0].choice,"Stop",kind);
+   assert.ok(calls.indexOf(retry[0])>calls.indexOf(built[0]),kind);
+  }
+  const listed=cp.spawnSync(process.execPath,[path.join(plugin,"bin/devtools"),"--tree",repo,"list","--json"],{env,encoding:"utf8",timeout:30000});
+  assert.equal(listed.status,0,kind+": "+listed.stdout+listed.stderr);
+  const row=JSON.parse(listed.stdout).sections.editors.find(r=>r.id==="vscode");
+  assert.equal(row.installed,false,kind+": failed install leaves the present probe absent");
+  assert.deepEqual(row.actions,["install"],kind);
+  assert.notEqual(row.failed,null,kind+": the wrapper records the package failure");
+  console.log("package-route-proof: "+JSON.stringify({route:"devtools-aur",kind,status:r.status,retryOffered:retry.length===1,installed:row.installed,failed:row.failed!==null,calls:calls.filter(c=>["offer","credential","mutation"].includes(c.kind))}));
+ }finally{fs.rmSync(root,{recursive:true,force:true});}
+}
+PROOF
+}
 row_rails_install() { # PLUGIN: the rails command exists only under mise's ruby
   reset_world
   ENGINE_TTY=pty engine "$1" -- install rails
@@ -360,6 +403,7 @@ ENGINE_TTY=pty engine "$plugin" -- install ruby
 check "a second install is refused as installed" out_has "devtools: refused: id=ruby state=installed"
 check "remove takes back the tool, then the packages, in install's reverse" row_remove_mirror "$plugin"
 check "the present probe no longer holds after remove" test ! -e "$data/installs/ruby"
+check "AUR package failures preserve wrapper status and post-install state with only an explicit Stop-first check retry" row_package_failures "$plugin"
 
 # rails: its command lives only under mise's ruby, update installs the
 # current gem again, and remove takes the gem back while ruby stays.
@@ -543,6 +587,7 @@ control() {
 control overwrites-foreign bin/devtools '    if (state === "foreign") return launcherLine("foreign", row.command);' '' foreign
 control ignores-arch CatalogLogic.js '    return !Array.isArray(row.arch) || listHas(row.arch, machine);' '    return true;' arch
 control packages-last bin/devtools $'    if (row.packages !== undefined) {\n        const picked = PackageManagers.packageFor(row.packages, surveyed.found);' $'    if (false) {\n        const picked = PackageManagers.packageFor(row.packages, surveyed.found);' install_order
+control ignores-package-failure bin/devtools '    if (r.status !== 0) refuse("step=failed exit=" + r.status);' '    if (false && r.status !== 0) refuse("step=failed exit=" + r.status);' package_failures
 control no-mise-which bin/devtools '        for (const finder of [resolveCommand, miseWhich])' '        for (const finder of [resolveCommand])' rails_install
 control update-skips-postinstall bin/devtools $'    runSteps((row.postInstall || []).map(step => stepArgv(catalog, step)), env);\n    verifyPresent(row);\n    if (spec !== null) settleLauncher(row, spec, launchers);' $'    verifyPresent(row);\n    if (spec !== null) settleLauncher(row, spec, launchers);' rails_update_after_install
 control rails-only-postremove catalog.json $'"rails",\n            "railties",' '"rails",' rails_remove_kept

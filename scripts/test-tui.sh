@@ -899,8 +899,31 @@ check "a logged run reads its unchanged output in a private transcript, removed 
 check "the clean log leaves the private OSC out" test "$(grep -c 8913 "$tmp/transcript.log")" == 0
 copy_with kept-transcript "$lib" "trap 'rm -f -- \"\${_vgs_tui_transcript:?}\"' EXIT" ':'
 check "the kept-transcript mutant fails the transcript row" test "$(transcript_row "$copy" && echo green || echo red)" == red
-copy_with unwritten-transcript "$lib" ' --log-out "$_vgs_tui_transcript"' ''
+copy_with unwritten-transcript "$lib" ' --log-out "$_vgs_tui_transcript" -c "$cmd" {fd}>&-' ' -c "$cmd" {fd}>&-'
 check "the unwritten-transcript mutant fails the transcript row" test "$(transcript_row "$copy" && echo green || echo red)" == red
+
+# An interval: a script that keeps only a transcript cuts one command's
+# output between the marks, byte for byte as the terminal got it, and the
+# transcript is gone once the script ends.
+cat >"$tmp/interval.sh" <<'SH'
+source "$LIB"
+vgs_tui_transcript
+printf '%s\n' "$VGS_TUI_TRANSCRIPT" >"$SEEN"
+printf 'before\n'
+vgs_tui_interval_open
+printf 'a\033[31mred\033[0m step\n'
+vgs_tui_interval_cut "$CUT" || { printf '%s\n' "$vgs_tui_unread" >"$CUT.why"; exit 1; }
+printf 'after\n'
+SH
+interval_row() { # LIB_PATH
+  rm -f -- "$tmp/cut" "$tmp/cut.why" "$tmp/seen"
+  "${lib_env[@]}" LIB="$1" CUT="$tmp/cut" SEEN="$tmp/seen" timeout 20 "$BASH" "$tmp/interval.sh" </dev/null >"$tmp/out" 2>&1 || return 1
+  python3 -c 'import sys; sys.exit(0 if open(sys.argv[1], "rb").read() == b"a\x1b[31mred\x1b[0m step\r\n" else 1)' "$tmp/cut" &&
+    [[ -s $tmp/seen && ! -e $(cat "$tmp/seen") ]]
+}
+check "a script under its own transcript cuts one command's output between the marks" interval_row "$LIB"
+copy_with unmarked-start "$lib" 'vgs_tui_interval_nonce="$BASHPID.$SRANDOM$SRANDOM"' 'vgs_tui_interval_nonce="$BASHPID.$SRANDOM$SRANDOM"; return 0'
+check "the unmarked-start mutant fails the interval row" test "$(interval_row "$copy" && echo green || echo red)" == red
 
 # The cause log: a command's stderr goes to the file, which is made with its
 # directory and added to; its stdout and status stay the command's.

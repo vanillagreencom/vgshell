@@ -1292,6 +1292,7 @@ try {
     fs.symlinkSync(LUCIDE, path.join(temp, "shell", "Ui", "icons", "Lucide.js"));
     fs.symlinkSync(path.join(path.dirname(LUCIDE), "Own.js"), path.join(temp, "shell", "Ui", "icons", "Own.js"));
     fs.symlinkSync(MANAGERS, path.join(temp, "shell", "Core", "PackageManagers.js"));
+    fs.symlinkSync(path.join(path.dirname(MANAGERS), "PackageReview.js"), path.join(temp, "shell", "Core", "PackageReview.js"));
     fs.symlinkSync(path.join(__dirname, "..", "shell", "Core", "ConfigLogic.js"), path.join(temp, "shell", "Core", "ConfigLogic.js"));
     fs.symlinkSync(path.join(__dirname, "..", "shell", "Core", "HyprlandLayer.js"), path.join(temp, "shell", "Core", "HyprlandLayer.js"));
     fs.symlinkSync(path.join(__dirname, "..", "shell", "Core", "MonitorLogic.js"), path.join(temp, "shell", "Core", "MonitorLogic.js"));

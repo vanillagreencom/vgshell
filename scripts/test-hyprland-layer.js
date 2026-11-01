@@ -2007,6 +2007,7 @@ try {
     fs.symlinkSync(path.join(__dirname, "..", "shell", "Ui", "icons", "Lucide.js"), path.join(temp, "shell", "Ui", "icons", "Lucide.js"));
     fs.symlinkSync(path.join(__dirname, "..", "shell", "Ui", "icons", "Own.js"), path.join(temp, "shell", "Ui", "icons", "Own.js"));
     fs.symlinkSync(path.join(__dirname, "..", "shell", "Core", "PackageManagers.js"), path.join(temp, "shell", "Core", "PackageManagers.js"));
+    fs.symlinkSync(path.join(__dirname, "..", "shell", "Core", "PackageReview.js"), path.join(temp, "shell", "Core", "PackageReview.js"));
     fs.symlinkSync(path.join(__dirname, "..", "shell", "Core", "ConfigLogic.js"), path.join(temp, "shell", "Core", "ConfigLogic.js"));
     fs.symlinkSync(layerFile, path.join(temp, "shell", "Core", "HyprlandLayer.js"));
     fs.symlinkSync(path.join(__dirname, "..", "shell", "Core", "MonitorLogic.js"), path.join(temp, "shell", "Core", "MonitorLogic.js"));

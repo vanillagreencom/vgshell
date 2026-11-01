@@ -454,6 +454,45 @@ function planOwed(id, missing, outdated, onPath, config) {
     return update;
 }
 
+// The words each AUR helper takes to build without package tests, put
+// before the `--` that ends a step's options. paru(8) has its own
+// --nocheck; yay(8) --mflags hands makepkg flags on, and makepkg(8)
+// --nocheck skips check() and its checkdepends. Neither is a source
+// integrity option, and a helper applies them to every recipe it builds
+// in the run, a dependency's included.
+var SKIP_TESTS = { paru: ["--nocheck"], yay: ["--mflags", "--nocheck"] };
+// The helper bootstrap's build of paru's recipe, in the tree the package
+// owner cloned: makepkg(8) -s installs its build dependencies and -i the
+// built package, each asking sudo for itself.
+var BOOTSTRAP_BUILD = ["makepkg", "-si"];
+
+// The one step that builds NAME again for manager ID's ACTION without
+// package tests: plan's step over NAME alone with the helper's SKIP_TESTS
+// words before its `--`, as plan answers. Only the AUR's named actions
+// build from a recipe, so another manager or action refuses as
+// `manager=<id> action=<action> retry=unsupported`, and a helper without
+// SKIP_TESTS words as `helper=<binary> retry=unsupported`.
+function retryPlan(id, action, name, onPath, config) {
+    if (id !== "aur" || (action !== "install" && action !== "reinstall" && action !== "update"))
+        return { ok: false, error: "manager=" + id + " action=" + action + " retry=unsupported" };
+    var r = plan(id, action, [name], onPath, undefined, config);
+    if (!r.ok) return r;
+    if (!Object.prototype.hasOwnProperty.call(SKIP_TESTS, r.plan.binary))
+        return { ok: false, error: "helper=" + r.plan.binary + " retry=unsupported" };
+    var step = r.plan.steps[0];
+    var end = step.indexOf("--");
+    if (r.plan.steps.length !== 1 || end === -1)
+        throw new Error("retryPlan: " + id + " " + action + " is not one step with --");
+    step.splice.apply(step, [end, 0].concat(SKIP_TESTS[r.plan.binary]));
+    return r;
+}
+
+// The bootstrap build's argv, with makepkg(8)'s --nocheck for its one
+// retry without package tests.
+function bootstrapBuild(skipTests) {
+    return BOOTSTRAP_BUILD.concat(skipTests ? ["--nocheck"] : []);
+}
+
 // The elevation command a run puts before its steps: CONFIGURED, shell.json's
 // `packages.elevate` as configError accepted it, or undefined when unset.
 // `{ ok: true, command }` with CONFIGURED when ON_PATH finds it, or else the

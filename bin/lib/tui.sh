@@ -55,6 +55,12 @@
 #                                    keeping SGR colour and dropping terminal controls;
 #                                    the run reads its unchanged output at
 #                                    $VGS_TUI_TRANSCRIPT
+#   vgs_tui_transcript [ARG...]      run this script again under script(1) with only
+#                                    $VGS_TUI_TRANSCRIPT, unless the run already has one
+#   vgs_tui_interval_open            mark where a command's output starts in the
+#                                    transcript
+#   vgs_tui_interval_cut FILE        write the output since the open mark into FILE;
+#                                    1 with vgs_tui_unread naming why it could not
 #   vgs_tui_logged FILE COMMAND [ARG...]
 #                                    run COMMAND with its stderr added to FILE, so its
 #                                    keyed causes reach the log and not the screen;
@@ -74,9 +80,11 @@
 #   vgs_tui_columns                  the terminal's width in columns, 80 when it
 #                                    reports none
 #   vgs_tui_reboot_check             print why a reboot is needed; 1 when none is
-#   vgs_tui_close_prompt CODE [MARKER]
+#   vgs_tui_close_prompt CODE [MARKER] [OUTCOME]
 #                                    the blank row, then `● Done.` for 0, no word
 #                                    for 69, a refusal before anything ran,
+#                                    `● Package tests failed.` for the package
+#                                    outcome package-check-failed,
 #                                    `● The task failed.` otherwise, and one key,
 #                                    or MARKER's removal when given, on /dev/tty;
 #                                    nothing for 130, a Ctrl-C, or with no terminal
@@ -609,28 +617,105 @@ _vgs_tui_log_clean() {
 # command line to $SHELL, so SHELL is bash there, which reads the %q quoting.
 # script(1) also logs its output unchanged, every byte the run's terminal
 # received in order, to a private file in the runtime directory that the
-# run finds at $VGS_TUI_TRANSCRIPT; the Updates pipeline cuts a step's
+# run finds at $VGS_TUI_TRANSCRIPT; vgs_tui_interval_cut cuts a command's
 # output from it. -f flushes each write to both logs. The file is removed
 # when this process exits, which a hangup or TERM makes it do; these
 # traps replace the caller's.
 _vgs_tui_transcript=""
 vgs_tui_log() { # FILE [ARG...]
   [[ ${VGS_TUI_LOGGED:-} == 1 ]] && return 0
-  local file="${1:-}" cmd fd status=0
+  local file="${1:-}" fd
   [[ -n $file ]] || _vgs_tui_refuse 2 "log=missing" "VGS has no log file for this task. Close it and report the details above." || return
   shift
-  cmd="$(printf '%q ' "$BASH" "$0" "$@")"
   exec {fd}>"$file" || _vgs_tui_refuse 1 "log=$file reason=open-failed" "VGS cannot write the task log. Check access to $file, then try again." || return
+  _vgs_tui_rerun "$fd" "$@"
+}
+
+# vgs_tui_log's run without its clean log, for a script that only cuts
+# intervals: a run that already has a transcript, as a script vgs_tui_log
+# started hands its commands, returns at once and cuts from that one.
+vgs_tui_transcript() { # [ARG...]
+  [[ -n ${VGS_TUI_TRANSCRIPT:-} && -f $VGS_TUI_TRANSCRIPT ]] && return 0
+  _vgs_tui_rerun "" "$@"
+}
+
+_vgs_tui_rerun() { # LOG_FD [ARG...]
+  local fd="$1" cmd status=0
+  shift
+  cmd="$(printf '%q ' "$BASH" "$0" "$@")"
   _vgs_tui_transcript="$(mktemp -p "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" vgs-tui-transcript.XXXXXXXX)" ||
     _vgs_tui_refuse 1 "transcript=unmade" "VGS cannot save this task's output. Check free space and access to your temporary folder, then try again." || return
   trap 'rm -f -- "${_vgs_tui_transcript:?}"' EXIT
   trap 'exit 129' HUP
   trap 'exit 143' TERM
-  env VGS_TUI_LOGGED=1 VGS_TUI_TRANSCRIPT="$_vgs_tui_transcript" SHELL="$BASH" \
-    script -qef --log-out >(_vgs_tui_log_clean >&"$fd") --log-out "$_vgs_tui_transcript" -c "$cmd" {fd}>&- || status=$?
-  exec {fd}>&-
-  wait "$!" || :
+  if [[ -n $fd ]]; then
+    env VGS_TUI_LOGGED=1 VGS_TUI_TRANSCRIPT="$_vgs_tui_transcript" SHELL="$BASH" \
+      script -qef --log-out >(_vgs_tui_log_clean >&"$fd") --log-out "$_vgs_tui_transcript" -c "$cmd" {fd}>&- || status=$?
+    exec {fd}>&-
+    wait "$!" || :
+  else
+    env VGS_TUI_TRANSCRIPT="$_vgs_tui_transcript" SHELL="$BASH" \
+      script -qef --log-out "$_vgs_tui_transcript" -c "$cmd" || status=$?
+  fi
   exit "$status"
+}
+
+# The OSC number of the marks around a command's output: one no terminal
+# handles, so the terminal draws nothing for them and the log's cleaner
+# drops them. Checked against the OSC tables of foot (osc.c
+# osc_dispatch), kitty (vt-parser.c dispatch_osc) and Ghostty
+# (terminal/osc.zig) on 2026-10-17: each discards an unknown OSC, and
+# kitty also logs it as an unknown escape code.
+_vgs_tui_mark_osc=8913
+# How long an end mark may take to reach the transcript after the command
+# exits, in seconds: a ceiling far above the wait measured with
+# vgs_tui_interval_cut's tail and awk under vgs_tui_log, 200 marks each
+# after 48 KiB of output, p50 5.7 ms, p99 17 ms, max 18.7 ms (a scratch
+# timing run on the development host, 2026-10-17).
+_vgs_tui_mark_ceiling=10
+vgs_tui_interval_from="" vgs_tui_interval_nonce="" vgs_tui_unread=""
+
+# Notes the transcript's length and writes a start mark that names a fresh
+# nonce, before the command whose output vgs_tui_interval_cut takes.
+vgs_tui_interval_open() {
+  vgs_tui_interval_from="$(stat -c %s -- "${VGS_TUI_TRANSCRIPT:-}" 2>/dev/null)" || vgs_tui_interval_from=""
+  vgs_tui_interval_nonce="$BASHPID.$SRANDOM$SRANDOM"
+  printf '\e]%s;vgs-step;%s;start\a' "$_vgs_tui_mark_osc" "$vgs_tui_interval_nonce"
+}
+
+# Writes the command's output, between the open mark and an end mark, from
+# the transcript into FILE. The end mark is written here, after the command
+# exited, so every byte the command wrote to the terminal precedes it on
+# the one pty, and once the mark is in the transcript, so is all of that.
+# GNU tail -f follows the file by inotify, so the wait is a read, not a
+# poll. awk splits the stream at BEL, the byte that ends a mark, and sees
+# the mark when its BEL arrives; grep matches only whole lines, and nothing
+# follows the mark until the cut ends. Returns 1 with vgs_tui_unread set,
+# absent when the transcript was not there, late when the end mark did not
+# arrive within the ceiling, lost when a mark is not in what arrived,
+# copy-failed when the copy failed.
+vgs_tui_interval_cut() { # FILE
+  local from="$vgs_tui_interval_from" transcript="${VGS_TUI_TRANSCRIPT:-}" start end at mark first="" last="" follow follower arrived=1
+  vgs_tui_unread=copy-failed
+  printf -v start '\e]%s;vgs-step;%s;start\a' "$_vgs_tui_mark_osc" "$vgs_tui_interval_nonce"
+  printf -v end '\e]%s;vgs-step;%s;end\a' "$_vgs_tui_mark_osc" "$vgs_tui_interval_nonce"
+  printf '%s' "$end"
+  if [[ -z $from || ! -f $transcript ]]; then vgs_tui_unread=absent; return 1; fi
+  exec {follow}< <(exec timeout "$_vgs_tui_mark_ceiling" tail -c "+$((from + 1))" -f -- "$transcript")
+  follower=$!
+  LC_ALL=C awk -v RS='\a' -v mark="${end%$'\a'}" 'index($0, mark) { seen = 1; exit } END { exit !seen }' <&"$follow" || arrived=0
+  exec {follow}<&-
+  kill "$follower" 2>/dev/null || :
+  wait "$follower" 2>/dev/null || :
+  if [[ $arrived == 0 ]]; then vgs_tui_unread=late; return 1; fi
+  # grep -b prints each mark's byte offset from FROM.
+  while IFS=: read -r at mark; do
+    if [[ $mark == "$start" && -z $first ]]; then first="$at"
+    elif [[ $mark == "$end" ]]; then last="$at"
+    fi
+  done < <(tail -c "+$((from + 1))" -- "$transcript" | LC_ALL=C grep -a -b -o -F -e "$start" -e "$end")
+  if [[ -z $first || -z $last ]] || (( last < first )); then vgs_tui_unread=lost; return 1; fi
+  head -c "$((from + last))" -- "$transcript" | tail -c "+$((from + first + ${#start} + 1))" >"$1"
 }
 
 # FILE's directory is made when absent. A FILE that cannot be opened is
@@ -730,9 +815,11 @@ vgs_tui_columns() {
 # between reads, so a later run can close a window that waits here.
 # 69, sysexits' EX_UNAVAILABLE, is a refusal before anything ran, whose
 # sentence already says what the user needs: nothing failed, so the prompt
-# names no outcome.
-vgs_tui_close_prompt() { # CODE [MARKER]
-  local code="$1" marker="${2:-}" status
+# names no outcome. OUTCOME, the kind of the package outcome the presenter
+# judged, names a failure of the package's own tests instead of a generic
+# one.
+vgs_tui_close_prompt() { # CODE [MARKER] [OUTCOME]
+  local code="$1" marker="${2:-}" outcome="${3:-}" status words
   [[ $code != 130 ]] || return 0
   _vgs_tui_has_terminal || return 0
   _vgs_tui_drain_terminal
@@ -742,7 +829,9 @@ vgs_tui_close_prompt() { # CODE [MARKER]
   elif [[ $code == 69 ]]; then
     printf '%*s%s● \033[0mPress any key to close.' "$_vgs_tui_edge" '' "$(vgs_tui_sgr "${VGS_TUI_ACCENT:-}" 36)" >/dev/tty
   else
-    printf '%*s%s● \033[0mThe task failed. Press any key to close.' "$_vgs_tui_edge" '' "$(vgs_tui_sgr "${VGS_TUI_DANGER:-}" 31)" >/dev/tty
+    words='The task failed.'
+    [[ $outcome != package-check-failed ]] || words='Package tests failed.'
+    printf '%*s%s● \033[0m%s Press any key to close.' "$_vgs_tui_edge" '' "$(vgs_tui_sgr "${VGS_TUI_DANGER:-}" 31)" "$words" >/dev/tty
   fi
   if [[ -n $marker ]]; then
     while [[ -e $marker ]]; do

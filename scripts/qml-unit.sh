@@ -196,7 +196,7 @@ done
 cp -- "$tests/stand-ins/ThemeSource.qml" "$imports/qs/Commons/ThemeSource.qml"
 cp -- "$tests/stand-ins/Time.qml" "$imports/qs/Commons/Time.qml"
 printf 'module qs.Commons\nsingleton Theme 1.0 Theme.qml\ninternal ThemeSource ThemeSource.qml\nsingleton Time 1.0 Time.qml\nInset 1.0 Inset.js\nSettingValues 1.0 SettingValues.js\nSessionLockState 1.0 SessionLockState.js\nClearingInset 1.0 ClearingInset.qml\nWatchedFile 1.0 WatchedFile.qml\nAnchorTracker 1.0 AnchorTracker.qml\nsingleton Paths 1.0 Paths.qml\nDesktopLaunch 1.0 DesktopLaunch.js\nAccountDirectories 1.0 AccountDirectories.js\nReply 1.0 Reply.js\nPageReference 1.0 PageReference.js\nDuration 1.0 Duration.js\nTimestamp 1.0 Timestamp.js\n' >"$imports/qs/Commons/qmldir"
-for file in Config.qml TuiRecords.qml SystemSteps.qml ThemeRunner.qml SessionLock.qml ShortcutRegistry.qml KeyCapture.qml HyprlandLayer.qml HyprlandState.qml HyprlandState.js HyprctlReader.qml PluginLogic.js ConfigLogic.js Pads.js PackageManagers.js MonitorLogic.js HyprlandLayer.js Dispatch.js; do
+for file in Config.qml TuiRecords.qml SystemSteps.qml ThemeRunner.qml SessionLock.qml ShortcutRegistry.qml KeyCapture.qml HyprlandLayer.qml HyprlandState.qml HyprlandState.js HyprctlReader.qml PluginLogic.js ConfigLogic.js Pads.js PackageManagers.js PackageReview.js MonitorLogic.js HyprlandLayer.js Dispatch.js; do
   [[ -f $core/$file ]] || { printf 'qml-unit: refused: missing=%s\n' "$core/$file" >&2; exit 2; }
   ln -s -- "$core/$file" "$imports/qs/Core/$file"
 done

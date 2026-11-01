@@ -174,10 +174,17 @@ function interactive(argv, options = {}) {
         });
     });
 }
+// A question left without an answer is cancelled, and reports the status
+// of a cancel, 128 or more, as PackageReview.packageOutcome judges it: its
+// signal's, else 130, the user's cancel status fzf and gum give Ctrl-C.
+// gum 2.0.2's choose exits 1 for Esc and 130 for Ctrl-C (a pty run of
+// `gum choose a b`, 2026-11-01), and a question that could not be asked
+// consents to nothing either.
 async function ui(kind, ...args) {
     const result = await interactive([commandFile("bash"), path.join(__dirname, "pkg-review.sh"), kind, ...args], { output: true });
     if (result.error) refuse("review=ui-unavailable");
-    if (result.status !== 0 || result.signal) return { cancelled: true, status: result.signal ? 128 + (os.constants.signals[result.signal] || 2) : result.status || 1 };
+    if (result.status !== 0 || result.signal)
+        return { cancelled: true, status: result.signal ? 128 + (os.constants.signals[result.signal] || 2) : result.status >= 128 ? result.status : 130 };
     return { value: result.stdout.trim() };
 }
 function requestError(request) {
@@ -597,4 +604,4 @@ async function bootstrap() {
         return result.decision === "proceed" && !result.skipped.includes("paru") ? 0 : result.status || 1;
     } finally { fs.rmSync(storage, { recursive: true, force: true }); }
 }
-module.exports = { available, bootstrap, customMode, consumeCustom: (receipt, argv) => consume(receipt, null, argv), judge, requestError, settingsRead, settingsWrite, createTransaction, prepare, admit, gather, configIdentity };
+module.exports = { available, bootstrap, customMode, consumeCustom: (receipt, argv) => consume(receipt, null, argv), judge, requestError, settingsRead, settingsWrite, createTransaction, prepare, admit, gather, configIdentity, recipesIdentity, agentHome, ownedDirectory, privateFile, ui };

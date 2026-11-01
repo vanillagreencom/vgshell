@@ -187,11 +187,11 @@ Item {
             compare(waitProcesses().length, 1);
             model.setFiles([runningPath, endedPath], "drop");
             finishWait(7);
-            compare(JSON.stringify(events), JSON.stringify([{ code: 7, reason: null }]));
+            compare(JSON.stringify(events), JSON.stringify([{ code: 7, reason: null, package: null }]));
             compare(records.runs.keys[key].running, null);
             compare(records.record().waits, []);
             wait(0);
-            compare(JSON.stringify(events), JSON.stringify([{ code: 7, reason: null }]));
+            compare(JSON.stringify(events), JSON.stringify([{ code: 7, reason: null, package: null }]));
         }
 
         function test_listing_end_before_wait_calls_done_once() {
@@ -199,9 +199,9 @@ Item {
             listRunning();
             model.setFiles([runningPath, endedPath], "insert");
             finishRead(endedPath, JSON.stringify(record("ended", 3)));
-            compare(JSON.stringify(events), JSON.stringify([{ code: 3, reason: null }]));
+            compare(JSON.stringify(events), JSON.stringify([{ code: 3, reason: null, package: null }]));
             finishWait(3);
-            compare(JSON.stringify(events), JSON.stringify([{ code: 3, reason: null }]));
+            compare(JSON.stringify(events), JSON.stringify([{ code: 3, reason: null, package: null }]));
             compare(records.record().waits, []);
         }
 
@@ -218,7 +218,7 @@ Item {
             addDone();
             listRunning();
             finishWait(null);
-            compare(JSON.stringify(events), JSON.stringify([{ code: null, reason: "vanished" }]));
+            compare(JSON.stringify(events), JSON.stringify([{ code: null, reason: "vanished", package: null }]));
             compare(records.runs.keys[key].running, null);
         }
 
@@ -250,7 +250,7 @@ Item {
             finishWait(9);
             if (!data.readFirst)
                 reader.finishRead(JSON.stringify(record("running", null)));
-            compare(JSON.stringify(events), JSON.stringify([{ code: 9, reason: null }]));
+            compare(JSON.stringify(events), JSON.stringify([{ code: 9, reason: null, package: null }]));
             compare(records.runs.keys[key].ended.run, run);
             compare(records.record().runs[key].running, null);
             compare(records.launchedRuns, []);
@@ -258,7 +258,7 @@ Item {
             wait(0);
             compare(Object.keys(records.readers), []);
             compare(Object.keys(records.fileRecords), []);
-            compare(JSON.stringify(events), JSON.stringify([{ code: 9, reason: null }]));
+            compare(JSON.stringify(events), JSON.stringify([{ code: 9, reason: null, package: null }]));
         }
 
         function test_failed_wait_keeps_the_run_live_until_completion_data() {
@@ -298,7 +298,7 @@ Item {
             finishRead(endedPath, JSON.stringify(record("ended", 9)));
             compare(records.record().runs[key].running, null);
             compare(records.launchedRuns, []);
-            compare(JSON.stringify(events), JSON.stringify([{ code: 9, reason: null }]));
+            compare(JSON.stringify(events), JSON.stringify([{ code: 9, reason: null, package: null }]));
             if (!data.listed)
                 compare(Object.keys(records.readers), [endedPath]);
             model.setFiles([], "remove");
@@ -306,7 +306,7 @@ Item {
             compare(Object.keys(records.readers), []);
             compare(Object.keys(records.fileRecords), []);
             compare(waitProcesses().length, 0);
-            compare(JSON.stringify(events), JSON.stringify([{ code: 9, reason: null }]));
+            compare(JSON.stringify(events), JSON.stringify([{ code: 9, reason: null, package: null }]));
         }
 
         // The listing keeps the first run's running record through a second
@@ -324,10 +324,47 @@ Item {
             const waits = waitProcesses();
             compare(waits.length, 1);
             waits[0].finish(0, 0, JSON.stringify(second) + "\n", "");
-            compare(JSON.stringify(secondEvents), JSON.stringify([{ code: 4, reason: null }]));
+            compare(JSON.stringify(secondEvents), JSON.stringify([{ code: 4, reason: null, package: null }]));
             compare(records.runs.keys[key].running, null);
             compare(records.runs.keys[key].ended.run, "2-1");
             compare(waitProcesses().length, 0);
+        }
+
+        // The presenter's typed package outcome reaches `done` on either
+        // path, the wait's line or the listed file, as the ended record
+        // carries it; one the judge refuses keeps the run's generic end.
+        function test_an_ended_record_hands_done_its_package_outcome_data() {
+            return [
+                { tag: "wait", listed: false },
+                { tag: "listing", listed: true }
+            ];
+        }
+
+        function test_an_ended_record_hands_done_its_package_outcome(data) {
+            const outcome = { kind: "package-check-failed", manager: "pacman", helper: "paru", package: "ttfx", status: 1, retry: { originRun: run, state: "available" } };
+            const ended = Object.assign(record("ended", 1), { package: outcome });
+            addDone();
+            listRunning();
+            if (data.listed) {
+                model.setFiles([runningPath, endedPath], "insert");
+                finishRead(endedPath, JSON.stringify(ended));
+            } else {
+                waitProcesses()[0].finish(0, 0, JSON.stringify(ended) + "\n", "");
+            }
+            compare(JSON.stringify(events), JSON.stringify([{ code: 1, reason: null, package: outcome }]));
+            verify(Object.isFrozen(events[0].package.retry), "the outcome reaches done frozen");
+        }
+
+        // The smoke shell-log check parses the package-outcome category.
+        // expected-log: tui: record=/unit/tui/acme.tui@hello@1-1.ended.json package-outcome=unavailable reason=retry-run -- A retry of another run is no outcome of this one.
+        function test_a_refused_package_outcome_keeps_the_generic_end() {
+            const foreign = { kind: "package-check-failed", manager: "pacman", helper: "paru", package: "ttfx", status: 1, retry: { originRun: "9-9", state: "available" } };
+            addDone();
+            listRunning();
+            model.setFiles([runningPath, endedPath], "insert");
+            finishRead(endedPath, JSON.stringify(Object.assign(record("ended", 1), { package: foreign })));
+            compare(JSON.stringify(events), JSON.stringify([{ code: 1, reason: null, package: null }]));
+            compare(records.runs.keys[key].running, null);
         }
 
         function runPath(id, state) {
@@ -371,7 +408,7 @@ Item {
             const firstWait = waitOf("1-1");
             listAndRead([runPath("1-1", "running")], "reset", runPath("1-1", "running"), JSON.stringify(runRecord("1-1", "running", null, 0)));
             listAndRead([runPath("1-1", "running"), runPath("1-1", "ended")], "insert", runPath("1-1", "ended"), JSON.stringify(runRecord("1-1", "ended", 0, 0)));
-            compare(JSON.stringify(firstEvents), JSON.stringify([{ code: 0, reason: null }]));
+            compare(JSON.stringify(firstEvents), JSON.stringify([{ code: 0, reason: null, package: null }]));
             verify(firstWait.running, "the first run's wait still runs after the listing ended the run");
 
             records.addWaiter("core", "2-1", result => secondEvents.push(result));
@@ -383,15 +420,15 @@ Item {
             compare(records.record().waits, [key + "|1-1", key + "|2-1"]);
 
             firstWait.finish(3, 0, "", "vgshell-tui: refused: wait=acme.tui/hello run=1-1 reason=gone\n");
-            compare(JSON.stringify(firstEvents), JSON.stringify([{ code: 0, reason: null }]));
+            compare(JSON.stringify(firstEvents), JSON.stringify([{ code: 0, reason: null, package: null }]));
             compare(records.runs.keys[key].running.run, "2-1");
             compare(records.record().waits, [key + "|2-1"]);
             verify(secondWait.running, "the later run's wait is still live");
             compare(JSON.stringify(secondEvents), JSON.stringify([]));
 
             secondWait.finish(0, 0, JSON.stringify(runRecord("2-1", "ended", 4, 2)) + "\n", "");
-            compare(JSON.stringify(secondEvents), JSON.stringify([{ code: 4, reason: null }]));
-            compare(JSON.stringify(firstEvents), JSON.stringify([{ code: 0, reason: null }]));
+            compare(JSON.stringify(secondEvents), JSON.stringify([{ code: 4, reason: null, package: null }]));
+            compare(JSON.stringify(firstEvents), JSON.stringify([{ code: 0, reason: null, package: null }]));
             compare(records.runs.keys[key].running, null);
             compare(records.record().waits, []);
             compare(waitProcesses().length, 0);

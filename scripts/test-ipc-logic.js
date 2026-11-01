@@ -19,6 +19,7 @@ const IMPORTS = [
     [path.join(__dirname, "..", "shell", "Ui", "icons", "Own.js"), path.join("shell", "Ui", "icons", "Own.js")],
     [path.join(CORE, "ConfigLogic.js"), path.join("shell", "Core", "ConfigLogic.js")],
     [path.join(CORE, "PackageManagers.js"), path.join("shell", "Core", "PackageManagers.js")],
+    [path.join(CORE, "PackageReview.js"), path.join("shell", "Core", "PackageReview.js")],
     [path.join(CORE, "HyprlandLayer.js"), path.join("shell", "Core", "HyprlandLayer.js")],
     [path.join(CORE, "MonitorLogic.js"), path.join("shell", "Core", "MonitorLogic.js")],
     [path.join(CORE, "Pads.js"), path.join("shell", "Core", "Pads.js")],

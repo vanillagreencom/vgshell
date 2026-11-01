@@ -551,6 +551,9 @@ arch_recipe_plan=$'node scripts/check-packaging.js\nnode scripts/test-check-pack
 settings_core_prefix=$'node scripts/test-tailscale-logic.js\nnode scripts/test-vpn-logic.js\nnode scripts/test-plugin-logic.js\nnode scripts/test-pads.js\nnode scripts/test-plugin-status.js\nnode scripts/test-plugin-menu.js\nnode scripts/test-key-capture.js\nnode scripts/test-tui-logic.js\nnode scripts/test-ipc-logic.js\nnode scripts/test-notice-logic.js\nnode scripts/test-hyprland-layer.js\nnode scripts/test-hyprland-state.js\nnode scripts/test-input-facts.js\n'
 settings_theme_rows=$'bin/vgshell-theme-judge packages themes\n'
 settings_plugin_rows=$'node scripts/test-launcher-model.js\nnode scripts/test-themes-setup.js\nnode scripts/test-notifications-logic.js\nnode scripts/test-greeter-logic.js\nnode scripts/test-polkit-model.js\nnode scripts/test-bluetooth-logic.js\nnode scripts/test-displays-logic.js\nnode scripts/test-screensaver-logic.js\n'
+# The package table is also an input of the updates logic row, whose judge
+# imports it.
+settings_package_rows="${settings_plugin_rows/$'node scripts/test-displays-logic.js\n'/$'node scripts/test-updates-logic.js\nnode scripts/test-displays-logic.js\n'}"
 settings_catalog_rows=$'node scripts/test-check-devtools-catalog.js\n'
 settings_reply_row='node scripts/test-settings-reply.js'
 settings_steps_row='node scripts/test-settings-steps.js'
@@ -589,7 +592,7 @@ cases=(
   "settings-reply-producer|shell/Core/PluginLogic.js|logic|$settings_core_prefix$settings_theme_rows$settings_plugin_rows"$'node scripts/test-jarvis-setup-gate.js\n'"$settings_warden_row$settings_reply_row"$'\n'"$settings_steps_row$settings_devtools_row"$'\nnode scripts/test-voice-logic.js'
   "settings-reply-layer|shell/Core/HyprlandLayer.js|logic|$settings_core_prefix"$'node scripts/test-dispatch.js\n'"$settings_theme_rows$settings_plugin_rows"$'node scripts/test-jarvis-setup-gate.js\n'"$settings_warden_row$settings_reply_row"$'\n'"$settings_steps_row$settings_devtools_row"
   "settings-reply-values|shell/Commons/SettingValues.js|logic|$settings_core_prefix"$'node scripts/test-setting-values.js\n'"$settings_theme_rows$settings_plugin_rows"$'node scripts/test-jarvis-setup-gate.js\n'"$settings_warden_row$settings_reply_row"$'\n'"$settings_steps_row$settings_devtools_row"
-  "settings-reply-packages|shell/Core/PackageManagers.js|logic|$settings_core_prefix$settings_theme_rows$settings_plugin_rows"$'node scripts/test-jarvis-setup-gate.js\n'"$settings_catalog_rows$settings_warden_row$settings_reply_row"$'\n'"$settings_steps_row$settings_devtools_row"
+  "settings-reply-packages|shell/Core/PackageManagers.js|logic|$settings_core_prefix$settings_theme_rows$settings_package_rows"$'node scripts/test-jarvis-setup-gate.js\n'"$settings_catalog_rows$settings_warden_row$settings_reply_row"$'\n'"$settings_steps_row$settings_devtools_row"
   "settings-reply-icons|shell/Ui/icons/Lucide.js|logic|$settings_core_prefix"$'node scripts/test-icon-bounds.js\n'"$settings_theme_rows"$'node scripts/test-lucide-data.js\n'"$settings_plugin_rows"$'node scripts/test-jarvis-widget.js\nnode scripts/test-jarvis-setup-gate.js\n'"$settings_catalog_rows$settings_warden_row"$'node scripts/test-agent-warden-view.js\n'"$settings_reply_row"$'\n'"$settings_steps_row$settings_devtools_row"
   "catalog-judge|themes/catalog/index.json|tools|catalog_wallpaper_names"$'\nnode scripts/test-vgshell-theme-judge.js'
   "catalog-contrast|themes/catalog/index.json|logic|"$'node scripts/test-hyprland-layer.js\nnode scripts/test-theme-logic.js\n'"$settings_theme_rows"$'node scripts/test-check-theme-contrast.js\nnode scripts/test-theme-render.js'

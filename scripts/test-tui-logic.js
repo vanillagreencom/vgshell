@@ -30,6 +30,7 @@ const IMPORTS = [
     [path.join(__dirname, "..", "shell", "Ui", "icons", "Own.js"), path.join("shell", "Ui", "icons", "Own.js")],
     [path.join(CORE, "ConfigLogic.js"), path.join("shell", "Core", "ConfigLogic.js")],
     [path.join(CORE, "PackageManagers.js"), path.join("shell", "Core", "PackageManagers.js")],
+    [path.join(CORE, "PackageReview.js"), path.join("shell", "Core", "PackageReview.js")],
     [path.join(CORE, "HyprlandLayer.js"), path.join("shell", "Core", "HyprlandLayer.js")],
     [path.join(CORE, "MonitorLogic.js"), path.join("shell", "Core", "MonitorLogic.js")],
     [path.join(CORE, "Pads.js"), path.join("shell", "Core", "Pads.js")],
@@ -510,11 +511,11 @@ function suite(ctx, check) {
     // tuiLaunchDone: [name, completion, what `done` receives or null].
     const launchDoneRows = [
         ["a launcher that saw the record waits for the run", { code: 0, status: 0 }, null],
-        ["no terminal", { code: 69, status: 0 }, { code: null, reason: "launcher-missing" }],
-        ["a silent terminal", { code: 1, status: 0 }, { code: null, reason: "launcher-failed" }],
-        ["a launcher that never started", null, { code: null, reason: "launcher-failed" }],
-        ["a launcher that crashed", { code: 0, status: 1 }, { code: null, reason: "launcher-failed" }],
-        ["a crash with the missing code", { code: 69, status: 1 }, { code: null, reason: "launcher-failed" }],
+        ["no terminal", { code: 69, status: 0 }, { code: null, reason: "launcher-missing", package: null }],
+        ["a silent terminal", { code: 1, status: 0 }, { code: null, reason: "launcher-failed", package: null }],
+        ["a launcher that never started", null, { code: null, reason: "launcher-failed", package: null }],
+        ["a launcher that crashed", { code: 0, status: 1 }, { code: null, reason: "launcher-failed", package: null }],
+        ["a crash with the missing code", { code: 69, status: 1 }, { code: null, reason: "launcher-failed", package: null }],
     ];
     for (const [name, completion, want] of launchDoneRows)
         check("tuiLaunchDone: " + name, ctx.tuiLaunchDone(completion), want);
@@ -597,13 +598,39 @@ function suite(ctx, check) {
         check("tuiRecord: " + name, r.ok ? null : r.error.slice(0, want === null ? 0 : want.length), want);
     }
     check("tuiRecord: text that is no JSON", ctx.tuiRecord("{ nope").error.startsWith("record is not JSON: "), true);
-    check("tuiRecord keeps the known fields alone", ctx.tuiRecord(JSON.stringify(Object.assign({ extra: 1 }, endedRecord))).record, endedRecord);
+    check("tuiRecord keeps the known fields alone", ctx.tuiRecord(JSON.stringify(Object.assign({ extra: 1 }, endedRecord))).record, Object.assign({}, endedRecord, { package: null }));
+
+    // tuiRecord's package outcome: [name, record fields over endedRecord,
+    // the record's package, packageError]. PackageReview.packageOutcome is
+    // the judge and scripts/fixtures/pkg-review/failure-test.js holds its
+    // rules; these rows hold that tuiRecord hands it the record's own run
+    // and code, keeps an accepted outcome and keeps the record when the
+    // judge refuses one.
+    const checkFailed = { kind: "package-check-failed", manager: "pacman", helper: "paru", package: "ttfx", status: 1, retry: { originRun: "7-1", state: "available" } };
+    const packageRows = [
+        ["a record without the field", { code: 1 }, null, null],
+        ["an outcome the judge accepts", { code: 1, package: checkFailed }, checkFailed, null],
+        ["an available retry of another run", { code: 1, package: Object.assign({}, checkFailed, { retry: { originRun: "6-1", state: "available" } }) }, null, "retry-run"],
+        ["a status that is not the record's code", { code: 2, package: checkFailed }, null, "status"],
+    ];
+    for (const [name, fields, wantPackage, wantError] of packageRows) {
+        const r = ctx.tuiRecord(JSON.stringify(Object.assign({}, endedRecord, fields)));
+        check("tuiRecord package: " + name, r.ok ? { code: r.record.code, package: r.record.package, packageError: r.packageError } : r.error, { code: fields.code, package: wantPackage, packageError: wantError });
+    }
 
     // tuiRuns, tuiBusyKeys, tuiState and tuiRunDone over one set of records:
     // hello's first run ended, its second is running, update's run was
     // reaped and fix's first run ended before its second ended.
     const at = (s) => "2026-09-29T07:00:" + s + ".000Z";
-    const rec = (key, run, state, code, started, ended) => ({ key: key, run: run, state: state, code: code, startedAt: at(started), endedAt: ended === null ? null : at(ended), window: win });
+    // rec is a record as tuiRecord returns it, with its package; recText the
+    // record's text as the presenter writes it, which carries the field only
+    // with an outcome.
+    const rec = (key, run, state, code, started, ended, outcome) => ({ key: key, run: run, state: state, code: code, startedAt: at(started), endedAt: ended === null ? null : at(ended), window: win, package: outcome === undefined ? null : outcome });
+    const recText = (record) => {
+        const fields = Object.assign({}, record);
+        if (fields.package === null) delete fields.package;
+        return JSON.stringify(fields);
+    };
     const set = [
         rec("acme.tui/hello", "1-1", "ended", 0, "01", "02"),
         rec("acme.tui/hello", "2-1", "running", null, "03", null),
@@ -611,6 +638,7 @@ function suite(ctx, check) {
         rec("acme.tui/update", "3-1", "ended", null, "04", "09"),
         rec("acme.other/fix", "4-1", "ended", 4, "04", "06"),
         rec("acme.other/fix", "5-1", "ended", 1, "05", "07"),
+        rec("core/requirements-install", "6-1", "ended", 1, "05", "08", { kind: "package-failed", manager: "pacman", helper: null, status: 1 }),
     ];
     const runs = ctx.tuiRuns(set);
     check("tuiRuns: a key's live run is its running record", runs.keys["acme.tui/hello"].running.run, "2-1");
@@ -620,7 +648,7 @@ function suite(ctx, check) {
     check("tuiRuns: the ended run is the one that started last", runs.keys["acme.other/fix"].ended.run, "5-1");
     check("tuiRuns: a run reap ended late does not stand over a later run", ctx.tuiRuns([rec("acme.tui/hello", "9-1", "ended", 0, "10", "11"), rec("acme.tui/hello", "8-1", "ended", null, "08", "12")]).keys["acme.tui/hello"].ended.run, "9-1");
     check("tuiRuns: the live run is the one that started last", ctx.tuiRuns([rec("acme.tui/hello", "6-1", "running", null, "06", null), rec("acme.tui/hello", "8-1", "running", null, "08", null)]).keys["acme.tui/hello"].running.run, "8-1");
-    check("tuiRuns: runs by id", Object.keys(runs.runs).sort(), ["1-1", "2-1", "3-1", "4-1", "5-1"]);
+    check("tuiRuns: runs by id", Object.keys(runs.runs).sort(), ["1-1", "2-1", "3-1", "4-1", "5-1", "6-1"]);
     check("tuiRuns: no record, no key", ctx.tuiRuns([]), { runs: {}, keys: {} });
     check("tuiBusyKeys: running keys and launching keys, once each", ctx.tuiBusyKeys(runs, ["core/doctor", "acme.tui/hello"]), ["acme.tui/hello", "core/doctor"]);
     check("tuiBusyKeys: a key whose runs all ended is free", ctx.tuiBusyKeys(runs, []).indexOf("acme.tui/update"), -1);
@@ -642,9 +670,10 @@ function suite(ctx, check) {
     check("tuiStateNames: a file action on a manifest with no tui", ctx.tuiStateNames(ctx.validateManifest(filing(undefined, { label: "Open notes", file: "~/notes.md" }), "/p").manifest), ["edit"]);
     const editRuns = ctx.tuiRuns([rec("acme.tui/edit", "7-1", "ended", 0, "07", "08")]);
     check("tuiState: a file action's editor run ends in the plugin's state", ctx.tuiState(editRuns, "acme.tui", ["edit"], []), { edit: { running: false, code: 0, endedAt: at("08") } });
-    check("tuiRunDone: an ended run answers its code", ctx.tuiRunDone(runs, "1-1"), { code: 0, reason: null });
-    check("tuiRunDone: a failed run answers its code", ctx.tuiRunDone(runs, "5-1"), { code: 1, reason: null });
-    check("tuiRunDone: a reaped run vanished", ctx.tuiRunDone(runs, "3-1"), { code: null, reason: "vanished" });
+    check("tuiRunDone: an ended run answers its code", ctx.tuiRunDone(runs, "1-1"), { code: 0, reason: null, package: null });
+    check("tuiRunDone: a failed run answers its code", ctx.tuiRunDone(runs, "5-1"), { code: 1, reason: null, package: null });
+    check("tuiRunDone: a package run answers its outcome", ctx.tuiRunDone(runs, "6-1"), { code: 1, reason: null, package: { kind: "package-failed", manager: "pacman", helper: null, status: 1 } });
+    check("tuiRunDone: a reaped run vanished", ctx.tuiRunDone(runs, "3-1"), { code: null, reason: "vanished", package: null });
     check("tuiRunDone: a running run answers nothing yet", ctx.tuiRunDone(runs, "2-1"), null);
     check("tuiRunDone: a run with no record answers nothing yet", ctx.tuiRunDone(runs, "9-1"), null);
 
@@ -654,7 +683,7 @@ function suite(ctx, check) {
     check("tuiWaitRuns: a launched run without an ended record gets a wait", ctx.tuiWaitRuns(runs, [{ key: "acme.tui/new", run: "9-1" }]), [{ key: "acme.tui/hello", run: "2-1" }, { key: "acme.tui/new", run: "9-1" }]);
     check("tuiWaitRuns: a launched run that already ended gets no wait", ctx.tuiWaitRuns(runs, [{ key: "acme.tui/hello", run: "1-1" }]), [{ key: "acme.tui/hello", run: "2-1" }]);
     check("tuiWaitRuns: a running record after restart gets a wait", ctx.tuiWaitRuns(runs, []), [{ key: "acme.tui/hello", run: "2-1" }]);
-    const waitEnded = JSON.stringify(rec("acme.tui/hello", "2-1", "ended", 7, "03", "08"));
+    const waitEnded = recText(rec("acme.tui/hello", "2-1", "ended", 7, "03", "08"));
     // The wanted waits as a wait finishes: this run's own, and for the gone
     // rows a later run of the same key's alone, after the listing showed
     // this run ended.
@@ -662,7 +691,7 @@ function suite(ctx, check) {
     const laterOnly = [{ key: "acme.tui/hello", run: "3-1" }];
     const goneLine = "vgshell-tui: refused: wait=acme.tui/hello run=2-1 reason=gone\n";
     check("tuiWaitOutcome: accepts one ended record for this run", ctx.tuiWaitOutcome("acme.tui/hello", "2-1", waited, { code: 0, status: 0 }, waitEnded + "\n", ""), { record: rec("acme.tui/hello", "2-1", "ended", 7, "03", "08"), logs: [] });
-    check("tuiWaitOutcome: a vanished record is accepted", ctx.tuiWaitOutcome("acme.tui/hello", "2-1", waited, { code: 0, status: 0 }, JSON.stringify(rec("acme.tui/hello", "2-1", "ended", null, "03", "08")) + "\n", ""), { record: rec("acme.tui/hello", "2-1", "ended", null, "03", "08"), logs: [] });
+    check("tuiWaitOutcome: a vanished record is accepted", ctx.tuiWaitOutcome("acme.tui/hello", "2-1", waited, { code: 0, status: 0 }, recText(rec("acme.tui/hello", "2-1", "ended", null, "03", "08")) + "\n", ""), { record: rec("acme.tui/hello", "2-1", "ended", null, "03", "08"), logs: [] });
     check("tuiWaitOutcome: a failed wait is logged", ctx.tuiWaitOutcome("acme.tui/hello", "2-1", waited, { code: 1, status: 0 }, "", "vgshell-tui: refused: wait=acme.tui/hello run=2-1 reason=lock-unopenable\n"), { record: null, logs: ["tui: wait=acme.tui/hello run=2-1 reason=failed exit=1 status=0 vgshell-tui: refused: wait=acme.tui/hello run=2-1 reason=lock-unopenable"] });
     check("tuiWaitOutcome: a gone run no longer awaited is a normal end", ctx.tuiWaitOutcome("acme.tui/hello", "2-1", laterOnly, { code: 3, status: 0 }, "", goneLine), { record: null, logs: [] });
     check("tuiWaitOutcome: a gone run nothing awaits is a normal end", ctx.tuiWaitOutcome("acme.tui/hello", "2-1", [], { code: 3, status: 0 }, "", goneLine), { record: null, logs: [] });
@@ -671,8 +700,11 @@ function suite(ctx, check) {
     check("tuiWaitOutcome: exit 3 from a crashed wait is a failure", ctx.tuiWaitOutcome("acme.tui/hello", "2-1", laterOnly, { code: 3, status: 1 }, "", ""), { record: null, logs: ["tui: wait=acme.tui/hello run=2-1 reason=failed exit=3 status=1 "] });
     check("tuiWaitOutcome: stdout must hold one line", ctx.tuiWaitOutcome("acme.tui/hello", "2-1", waited, { code: 0, status: 0 }, waitEnded + "\n" + waitEnded + "\n", ""), { record: null, logs: ["tui: wait=acme.tui/hello run=2-1 reason=stdout-lines count=2"] });
     check("tuiWaitOutcome: stdout must be a record", ctx.tuiWaitOutcome("acme.tui/hello", "2-1", waited, { code: 0, status: 0 }, "{ nope\n", "").logs[0].startsWith("tui: wait=acme.tui/hello run=2-1 reason=record is not JSON: "), true);
-    check("tuiWaitOutcome: stdout must be this run's ended record", ctx.tuiWaitOutcome("acme.tui/hello", "2-1", waited, { code: 0, status: 0 }, JSON.stringify(rec("acme.tui/hello", "2-2", "ended", 0, "03", "08")) + "\n", ""), { record: null, logs: ["tui: wait=acme.tui/hello run=2-1 reason=record-mismatch"] });
-    check("tuiWaitOutcome: a running record is refused", ctx.tuiWaitOutcome("acme.tui/hello", "2-1", waited, { code: 0, status: 0 }, JSON.stringify(rec("acme.tui/hello", "2-1", "running", null, "03", null)) + "\n", ""), { record: null, logs: ["tui: wait=acme.tui/hello run=2-1 reason=record-mismatch"] });
+    check("tuiWaitOutcome: stdout must be this run's ended record", ctx.tuiWaitOutcome("acme.tui/hello", "2-1", waited, { code: 0, status: 0 }, recText(rec("acme.tui/hello", "2-2", "ended", 0, "03", "08")) + "\n", ""), { record: null, logs: ["tui: wait=acme.tui/hello run=2-1 reason=record-mismatch"] });
+    check("tuiWaitOutcome: a running record is refused", ctx.tuiWaitOutcome("acme.tui/hello", "2-1", waited, { code: 0, status: 0 }, recText(rec("acme.tui/hello", "2-1", "running", null, "03", null)) + "\n", ""), { record: null, logs: ["tui: wait=acme.tui/hello run=2-1 reason=record-mismatch"] });
+    const cancelled = { kind: "package-cancelled", manager: "pacman", status: 130 };
+    check("tuiWaitOutcome: an ended record carries its package outcome", ctx.tuiWaitOutcome("core/requirements-install", "2-1", [], { code: 0, status: 0 }, recText(rec("core/requirements-install", "2-1", "ended", 130, "03", "08", cancelled)) + "\n", ""), { record: rec("core/requirements-install", "2-1", "ended", 130, "03", "08", cancelled), logs: [] });
+    check("tuiWaitOutcome: a refused package outcome keeps the record and is logged", ctx.tuiWaitOutcome("core/requirements-install", "2-1", [], { code: 0, status: 0 }, JSON.stringify(Object.assign(rec("core/requirements-install", "2-1", "ended", 1, "03", "08"), { package: cancelled })) + "\n", ""), { record: rec("core/requirements-install", "2-1", "ended", 1, "03", "08"), logs: ["tui: wait=core/requirements-install run=2-1 package-outcome=unavailable reason=status"] });
     check("tuiWaitOutcome: a wait that never started is logged", ctx.tuiWaitOutcome("acme.tui/hello", "2-1", waited, null, "", ""), { record: null, logs: ["tui: wait=acme.tui/hello run=2-1 reason=unstarted"] });
 
     // tuiWaitRecordsKept: [name, listed, waited, the runs kept]. A1 and A2
@@ -857,7 +889,7 @@ function requestSuite(source, logic, check) {
     };
     const held = owner => "{ name: \"sync\", args: [\"/file\"], ctx: " + owner + ", done: done }";
     const sync = (dir, done) => ({ dir: "/run/src/" + dir, script: ["tui/sync.sh", "/file"], done: done });
-    const unstarted = { code: null, reason: "unstarted" };
+    const unstarted = { code: null, reason: "unstarted", package: null };
     // rows: [name, plugin id, steps, what the steps answer, the notices
     // raised as [id, commands, held name, held args], the starts, the ends]
     const rows = [
@@ -1560,7 +1592,7 @@ const CONTROLS = [
     ["a launch carries its record key and run", "    argv.push(\"--record\", key, \"--run\", run);\n", ""],
     ["a launcher that saw the record waits for the run", "if (completion !== null && completion.status === 0 && completion.code === 0)\n        return null;", "if (false)\n        return null;"],
     ["a crashed launcher fails its done", "if (completion !== null && completion.status === 0 && completion.code === 0)\n        return null;", "if (completion !== null && completion.code === 0)\n        return null;"],
-    ["no terminal answers done launcher-missing", "if (completion !== null && completion.status === 0 && completion.code === TUI_LAUNCHER_MISSING)\n        return { code: null, reason: \"launcher-missing\" };", "if (false)\n        return { code: null, reason: \"launcher-missing\" };"],
+    ["no terminal answers done launcher-missing", "if (completion !== null && completion.status === 0 && completion.code === TUI_LAUNCHER_MISSING)\n        return { code: null, reason: \"launcher-missing\", package: null };", "if (false)\n        return { code: null, reason: \"launcher-missing\", package: null };"],
     ["a record that is no JSON is refused", "    try {\n        value = JSON.parse(text);\n    } catch (e) {\n        return { ok: false, error: \"record is not JSON: \" + e.message };\n    }", "    value = JSON.parse(text);"],
     ["a record is an object", "if (!isPlainObject(value))\n        return { ok: false, error: \"record is not an object\" };", "if (false)\n        return { ok: false, error: \"record is not an object\" };"],
     ["a record key is a launch key", "if (!tuiKeyValid(value.key))", "if (false)"],
@@ -1587,7 +1619,7 @@ const CONTROLS = [
     ["state reads the code of the last ended run", "code: slot.ended === null ? null : slot.ended.code,", "code: null,"],
     ["state reads the end of the last ended run", "endedAt: slot.ended === null ? null : slot.ended.endedAt", "endedAt: null"],
     ["a running run's done waits", "if (!hasOwn(runs.runs, run) || runs.runs[run].state !== \"ended\")", "if (!hasOwn(runs.runs, run))"],
-    ["a reaped run's done says vanished", "reason: code === null ? \"vanished\" : null", "reason: null"],
+    ["a reaped run's done says vanished", "reason: record.code === null ? \"vanished\" : null", "reason: null"],
     ["a launched run waits until it ended", "if (!hasOwn(runs.runs, row.run) || runs.runs[row.run].state !== \"ended\")", "if (false)"],
     ["a listed running run waits after restart", "if (running !== null)\n            add(key, running.run);", "if (false)\n            add(key, running.run);"],
     ["a wait prints exactly one record line", "if (lines.length !== 1)\n        return { record: null, logs: [prefix + \" reason=stdout-lines count=\" + lines.length] };", "if (false)\n        return { record: null, logs: [prefix + \" reason=stdout-lines count=\" + lines.length] };"],
@@ -1630,7 +1662,13 @@ const CONTROLS = [
     ["an ssh host is bounded", " || host.length > TUI_SSH_HOST_MAX || ", " || "],
     ["an ssh label is bounded", "[a-z0-9-]{0,62}(\\.[a-z0-9][a-z0-9-]{0,62})*$/", "[a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*)*$/"],
     ["no terminal launcher refuses ssh", "    var refusal = tuiRunnerRefusal(runner, TUI_SSH_KEY, TUI_SSH_KEY);", "    var refusal = null;"],
-    ["a launched ssh ends with code 0", "return failed === null ? { code: 0, reason: null } : failed;", "return failed;"],
+    ["a launched ssh ends with code 0", "return failed === null ? { code: 0, reason: null } : { code: failed.code, reason: failed.reason };", "return failed === null ? failed : { code: failed.code, reason: failed.reason };"],
+    ["the package judge reads the record's run", "PackageReview.packageOutcome(value.package, value.run, value.code)", "PackageReview.packageOutcome(value.package, \"\", value.code)"],
+    ["the package judge reads the record's code", "PackageReview.packageOutcome(value.package, value.run, value.code)", "PackageReview.packageOutcome(value.package, value.run, 0)"],
+    ["an accepted package outcome stays on the record", "package: outcome !== null && outcome.ok ? outcome.outcome : null };", "package: null };"],
+    ["a refused package outcome keeps the record", "return { ok: true, record: record, packageError:", "return outcome !== null && !outcome.ok ? { ok: false, error: outcome.error } : { ok: true, record: record, packageError:"],
+    ["a run's done carries its record's package", "package: record.package };", "package: null };"],
+    ["a refused package outcome on the wait path is logged", "logs: judged.packageError === null ? [] :", "logs: true ? [] :"],
 ];
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "tui-logic-control-"));

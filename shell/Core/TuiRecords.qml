@@ -7,8 +7,11 @@ import "PluginLogic.js" as Logic
 // Owns the exit-record side of the `tui` capability: the FolderListModel
 // listing, the per-file readers, the reaper, one `bin/vgshell-tui wait`
 // process per live run, the accepted records and runs, and the `done`
-// callbacks with their delivery. A successful launch also reads its known
-// running record once: a missed directory wake must not leave it pending.
+// callbacks with their delivery, each `done` receiving PluginLogic.tuiRunDone's
+// { code, reason, package }, the ended record's judged package outcome
+// carried as the record holds it on either path. A successful launch also
+// reads its known running record once: a missed directory wake must not
+// leave it pending.
 // The listing is the fast path. The wait is
 // the guarantee when FolderListModel drops a directory change. A wait can
 // outlive its need: once the listing shows the run ended, a later run of
@@ -101,6 +104,8 @@ Scope {
             console.error("tui: record=" + path + " refused: " + judged.error);
             return;
         }
+        if (judged.packageError !== null)
+            console.error("tui: record=" + path + " package-outcome=unavailable reason=" + judged.packageError);
         const next = Object.assign({}, fileRecords);
         next[path] = judged.record;
         fileRecords = next;

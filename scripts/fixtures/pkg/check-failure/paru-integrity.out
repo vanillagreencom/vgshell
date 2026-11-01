@@ -1,0 +1,19 @@
+[1;34m::[0m [1mGenerating .SRCINFO for ./integrity...[0m
+[1;34m::[0m [1mGenerating .SRCINFO for ./integrity...[0m
+[1;34m::[0m [1mResolving dependencies...[0m
+[1;34m::[0m [1mCalculating conflicts...[0m
+[1;34m::[0m [1mCalculating inner conflicts...[0m
+
+[1mPkgbuilds (1)[0m            [1mOld Version[0m  [1mNew Version[0m    [1mMake Only[0m
+./vgs-fixture-integrity               1.0-1          No
+
+[1;34m::[0m [1mProceed with installation?[0m [1m[Y/n]:[0m 
+fetching devel info...
+[1m[32m==>[m[1m Making package: vgs-fixture-integrity 1.0-1 (Sat 31 Oct 2026 03:24:27 PM PDT)[m
+[1m[32m==>[m[1m Retrieving sources...[m
+[1m[34m  ->[m[1m Found integrity.txt[m
+[1m[32m==>[m[1m Validating source files with sha256sums...[m
+    integrity.txt ... FAILED
+[1m[31m==> ERROR:[m[1m One or more files did not pass the validity check![m
+[31merror:[0m failed to download sources for 'vgs-fixture-integrity-1.0-1': 
+error: packages failed to build: vgs-fixture-integrity-1.0-1

@@ -28,6 +28,7 @@ switch(change){
  case"outer-missing":env.VGS_TUI_SUDO_SESSION=String(process.pid);args.splice(args.indexOf("--review-receipt"),2);break;
  case"recipe":fs.appendFileSync(path.join(env.VGS_PACKAGE_TRANSACTION,path.dirname(reply.receipt),"evidence/build/foreign/PKGBUILD"),"# changed\n");break;
  case"consumed":if(run(args)!==0)process.exit(82);break;
+ case"check-failed":args=["run","reinstall","--manager","aur","--review-receipt",reply.receipt,"--config",other,"aurpkg"];break;
  case"manager":replace(manager,manager==="pacman"?"aur":"pacman");break;
  case"action":replace("upgrade","reinstall");args.push("widget");break;
  case"targets":replace("upgrade","install");args.push("widget");break;

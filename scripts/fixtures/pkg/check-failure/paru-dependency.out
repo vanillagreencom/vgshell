@@ -1,0 +1,5 @@
+[1;34m::[0m [1mGenerating .SRCINFO for ./dependency...[0m
+[1;34m::[0m [1mGenerating .SRCINFO for ./dependency...[0m
+[1;34m::[0m [1mResolving dependencies...[0m
+error: could not find all required packages:
+    [31mvgs-fixture-absent-dependency[0m (wanted by: vgs-fixture-dependency)

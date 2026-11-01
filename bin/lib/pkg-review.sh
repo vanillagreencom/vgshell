@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# The package owner's same-terminal review questions. Only submitted choice
-# values reach stdout; cancellation propagates without becoming consent.
+# The package owner's same-terminal review and retry questions. Only
+# submitted choice values reach stdout; cancellation propagates without
+# becoming consent.
 set -euo pipefail
 # shellcheck source=SCRIPTDIR/tui.sh
 source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/tui.sh"
@@ -70,6 +71,14 @@ case "$kind" in
     vgs_tui_step 'Review result' >&2
     vgs_tui_warn "$1" >&2
     vgs_pkg_review_choose "Install $2 despite the review result?" --selected Skip -- Skip 'Install anyway' ;;
+  # A build whose own tests alone failed (PackageReview.classifyInstallFailure):
+  # the one retry without them, which the helper also applies to every
+  # dependency it builds, or Stop.
+  retry) # PACKAGE
+    vgs_tui_step 'Package tests failed' >&2
+    vgs_tui_warn "The tests in $1 failed. This build was not installed." >&2
+    vgs_tui_text 'This retry skips package tests, including tests for any dependency the helper builds. It does not turn off source checks.' >&2
+    vgs_pkg_review_choose "Retry $1 without tests?" --selected Stop -- 'Retry without tests' Stop ;;
   show) vgs_pkg_review_command "$@" ;;
   *) exit 2 ;;
 esac

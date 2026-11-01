@@ -361,7 +361,7 @@ declare -a CONTROLS=(
   "add reports the missing requirements" vgshell '  offer_requirements "$id"' '' row_offer_no_terminal
   "add asks only on a terminal" vgshell '  if ! [[ -t 0 ]]; then' '  if false; then' row_offer_no_terminal
   "add installs only on yes" vgshell '    *) return 0 ;;' '    *) ;;' row_offer_declined
-  "a run asks for the rescan" vgshell-pkg '            if (rescan) rescanShell();' '' row_run_rescans
+  "a run asks for the rescan" vgshell-pkg '    rescanShell();' '' row_run_rescans
   "doctor reports enabled plugins only" vgshell-plugin-judge '.filter(id => logic.isEnabled(effective, plugins.get(id).manifest, defaultBarId))' '' row_doctor
   "the core's commands are looked up on PATH" vgshell-plugin-judge '.filter(name => !onPath(name))' '.filter(name => false)' row_doctor
   "a row carries this system's package" vgshell-plugin-judge '{ package: picks[i] }' '{ package: null }' row_requirements_json

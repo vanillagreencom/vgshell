@@ -1,0 +1,10 @@
+[1m[32m==>[m[1m Making package: vgs-fixture-interrupted 1.0-1 (Sat 31 Oct 2026 03:24:39 PM PDT)[m
+[1m[32m==>[m[1m Checking runtime dependencies...[m
+[1m[32m==>[m[1m Checking buildtime dependencies...[m
+[1m[32m==>[m[1m Retrieving sources...[m
+[1m[32m==>[m[1m Extracting sources...[m
+[1m[32m==>[m[1m Starting build()...[m
+[1m[32m==>[m[1m Starting check()...[m
+slow fixture tests
+
+[1m[31m==> ERROR:[m[1m Aborted by user! Exiting...[m

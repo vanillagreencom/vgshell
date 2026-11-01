@@ -81,7 +81,9 @@ Scope {
 
     // run: one of the calling plugin's own declared scripts, from the
     // snapshot of the revision its instance runs. `done`, when given,
-    // receives { code, reason } once the run ends or its launcher fails.
+    // receives { code, reason, package } once the run ends or its launcher
+    // fails, `package` the ended record's package outcome or null
+    // (PluginLogic.tuiRunDone).
     // Judged by request, as runFor is, so a script that lacks a command it
     // needs raises the requirement notice for those commands and starts,
     // with ARGS and `done`, once the notice closes with them found (resume).
@@ -184,7 +186,7 @@ Scope {
     // It reaches `done` as every run's end does (TuiRecords.handOver).
     function unstarted(held) {
         if (held.done !== undefined && held.ctx !== null && held.ctx.active)
-            recordStore.handOver(held.ctx.id, held.done, { code: null, reason: "unstarted" });
+            recordStore.handOver(held.ctx.id, held.done, { code: null, reason: "unstarted", package: null });
     }
 
     // open: any listed TUI by key, with no arguments; the `openTui` IPC
@@ -200,8 +202,8 @@ Scope {
 
     // openCore: the core's own TUI NAME, listed or not, with ARGS after its
     // argv, for a core component such as the requirement notice. `done`
-    // receives { code, reason } as run's does, and belongs to the shell's
-    // lifetime, since the core has no instance to drop it with.
+    // receives { code, reason, package } as run's does, and belongs to the
+    // shell's lifetime, since the core has no instance to drop it with.
     function openCore(name, args, done) {
         return start(Logic.tuiCore(Logic.CORE_TUIS, coreBin, runner(), name, args), null, done);
     }

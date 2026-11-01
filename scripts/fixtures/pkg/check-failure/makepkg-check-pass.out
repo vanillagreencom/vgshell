@@ -1,0 +1,24 @@
+[1m[32m==>[m[1m Making package: vgs-fixture-check-pass 1.0-1 (Sat 31 Oct 2026 03:24:20 PM PDT)[m
+[1m[32m==>[m[1m Checking runtime dependencies...[m
+[1m[32m==>[m[1m Checking buildtime dependencies...[m
+[1m[32m==>[m[1m Retrieving sources...[m
+[1m[32m==>[m[1m Extracting sources...[m
+[1m[32m==>[m[1m Starting build()...[m
+[1m[32m==>[m[1m Starting check()...[m
+no test failed
+[1m[32m==>[m[1m Entering fakeroot environment...[m
+[1m[32m==>[m[1m Starting package()...[m
+[1m[32m==>[m[1m Tidying install...[m
+[1m[34m  ->[m[1m Removing libtool files...[m
+[1m[34m  ->[m[1m Removing static library files...[m
+[1m[34m  ->[m[1m Purging unwanted files...[m
+[1m[34m  ->[m[1m Stripping unneeded symbols from binaries and libraries...[m
+[1m[34m  ->[m[1m Compressing man and info pages...[m
+[1m[32m==>[m[1m Checking for packaging issues...[m
+[1m[32m==>[m[1m Creating package "vgs-fixture-check-pass"...[m
+[1m[34m  ->[m[1m Generating .PKGINFO file...[m
+[1m[34m  ->[m[1m Generating .BUILDINFO file...[m
+[1m[34m  ->[m[1m Generating .MTREE file...[m
+[1m[34m  ->[m[1m Compressing package...[m
+[1m[32m==>[m[1m Leaving fakeroot environment.[m
+[1m[32m==>[m[1m Finished making: vgs-fixture-check-pass 1.0-1 (Sat 31 Oct 2026 03:24:20 PM PDT)[m
