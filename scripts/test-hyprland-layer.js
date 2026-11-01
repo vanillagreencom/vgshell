@@ -267,6 +267,13 @@ const USER_BINDS_SECTION = [
     "    end",
     "end"
 ];
+// The screen freeze's layer rule, byte for byte: its surfaces map and
+// unmap with no animation, so a capture never reads the live screen
+// through a fading still frame.
+const FREEZE_SECTION = [
+    "-- The screen freeze draws its still frame at once and leaves at once.",
+    "hl.layer_rule({ name = \"vgs:freeze\", match = { namespace = \"^vgs:freeze$\" }, no_anim = true })"
+];
 // The index of the last line of the core's sections in LINES.
 const coreEnd = lines => lines.indexOf(LOCK_SECTION[0]) + LOCK_SECTION.length - 1;
 
@@ -951,7 +958,7 @@ function verify(logic, configLogic, layer, shellText) {
     const gapsOther = lines(layer.render([gapsSection(true)], otherTheme, "dusk", 1));
     same(gapsOther.slice(gapsOther.indexOf(NO_GAPS_SECTION[0]), gapsOther.indexOf(NO_GAPS_SECTION[0]) + NO_GAPS_SECTION.length), NO_GAPS_SECTION, "another theme leaves the gap rule as it was");
     assert.ok(bareLines.indexOf(TUI_SECTION[0]) < bareLines.indexOf(APP_SECTION[0]), "floating TUIs are before application windows");
-    same(bareLines.slice(bareLines.indexOf(TUI_SECTION[0])), [...TUI_SECTION, "", ...APP_SECTION, "", ...USER_BINDS_SECTION, "", ...captureSection([]), "", ...PASSTHROUGH_SECTION, "", ...LOCK_SECTION, "", ...SWEEP_SECTION, ""], "a layer with no plugin section ends with the floating TUIs window rules, the application window rule, the user binds' recorder, overlay capture, the key capture pass-through, the session lock's restore, then the pads' sweep");
+    same(bareLines.slice(bareLines.indexOf(TUI_SECTION[0])), [...TUI_SECTION, "", ...APP_SECTION, "", ...FREEZE_SECTION, "", ...USER_BINDS_SECTION, "", ...captureSection([]), "", ...PASSTHROUGH_SECTION, "", ...LOCK_SECTION, "", ...SWEEP_SECTION, ""], "a layer with no plugin section ends with the floating TUIs window rules, the application window rule, the screen freeze's layer rule, the user binds' recorder, overlay capture, the key capture pass-through, the session lock's restore, then the pads' sweep");
     // Pads: the section of the first plugin by id whose pads are declared,
     // after its binds, its motion from the theme.
     same(layer.PADS, { table: "__vgs_pads", verb: "toggle", workspace: "special:vgs-pad-", curve: "vgsPad", answers: ["no-pad", "no-window", "no-screen"] }, "the pads name their Lua table, toggle, workspace prefix, curve and the keys of their refusals");
@@ -1157,6 +1164,8 @@ function verify(logic, configLogic, layer, shellText) {
         ...TUI_SECTION,
         "",
         ...APP_SECTION,
+        "",
+        ...FREEZE_SECTION,
         "",
         ...USER_BINDS_SECTION,
         "",
@@ -1885,6 +1894,8 @@ const CONTROLS = [
     [layerFile, "floating TUI refuses a client's maximize", "center = true, suppress_event = \\\"maximize\\\", size = { ", "center = true, size = { "],
     [layerFile, "application window rule written", "tuiWindowLines(theme.tuiMargins, theme.tuiCell, theme.hyprland.border.size), [\"\"], appWindowLines(theme.groups.glass, theme.windowTopShare));", "tuiWindowLines(theme.tuiMargins, theme.tuiCell, theme.hyprland.border.size));"],
     [layerFile, "application window rule after the TUIs", "tuiWindowLines(theme.tuiMargins, theme.tuiCell, theme.hyprland.border.size), [\"\"], appWindowLines(theme.groups.glass, theme.windowTopShare));", "appWindowLines(theme.groups.glass, theme.windowTopShare), [\"\"], tuiWindowLines(theme.tuiMargins, theme.tuiCell, theme.hyprland.border.size));"],
+    [layerFile, "the screen freeze's layer rule written", "    lines = lines.concat([\"\"], freezeLines());\n", ""],
+    [layerFile, "the screen freeze maps with no animation", " }, no_anim = true })\"", " })\""],
     [layerFile, "session lock restore written", "keyPassthroughLines(), [\"\"], sessionLockLines());", "keyPassthroughLines());"],
     [layerFile, "user binds' recorder written", "[\"\"], userBindLines(), [\"\"], overlayCaptureLines(plan)", "[\"\"], overlayCaptureLines(plan)"],
     [layerFile, "user binds' recorder records the user's call sites", "binds.rows[#binds.rows + 1] = { file = ", "local _ = { file = "],

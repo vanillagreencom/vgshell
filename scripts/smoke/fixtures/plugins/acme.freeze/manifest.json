@@ -1,0 +1,2 @@
+{ "schemaVersion": 1, "id": "acme.freeze", "name": "Freeze", "version": "0.1.0", "author": "acme", "description": "smoke fixture holding the screen freeze",
+  "kinds": ["service"], "entryPoints": { "service": "Service.qml" }, "capabilities": ["screencopy", "ipc"] }

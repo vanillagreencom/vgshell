@@ -541,6 +541,20 @@ function surfaceBlurLines() {
     ];
 }
 
+// The screen freeze's surfaces (FreezeHost) map and unmap with no
+// animation, the theme's or the user's own: a fade or a slide would show
+// the live screen through the still frame while a capture reads the
+// output. `no_anim` is Hyprland 0.57.0's layer rule effect, as its bundled
+// example configuration's "no-anim-overlay" rule writes it.
+var FREEZE_NAMESPACE = "^vgs:freeze$";
+
+function freezeLines() {
+    return [
+        "-- The screen freeze draws its still frame at once and leaves at once.",
+        "hl.layer_rule({ name = \"vgs:freeze\", match = { namespace = \"" + FREEZE_NAMESPACE + "\" }, no_anim = true })"
+    ];
+}
+
 // Window glow, Hyprland 0.56.2's `decoration.glow`: a glow inside the
 // focused window, from the theme's hyprland.glow tokens, a gradient from
 // `color` to `colorEnd` at `angle`, and `inactive` for the other windows.
@@ -1495,6 +1509,7 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
     else groups.push(disabledGroupLine("noGaps", switches.groups.noGaps.setting));
     var lines = [""].concat(groups, [""], tuiWindowLines(theme.tuiMargins, theme.tuiCell, theme.hyprland.border.size), [""], appWindowLines(theme.groups.glass, theme.windowTopShare));
     if (theme.groups.surfaceBlur === true) lines = lines.concat([""], surfaceBlurLines());
+    lines = lines.concat([""], freezeLines());
     if (tapTrackerWanted(plan)) lines = lines.concat([""], tapTrackerLines());
     lines = lines.concat([""], userBindLines(), [""], overlayCaptureLines(plan), [""], keyPassthroughLines(), [""], sessionLockLines());
     var written = Object.create(null);

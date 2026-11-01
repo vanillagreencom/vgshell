@@ -165,7 +165,11 @@ Singleton {
             get all() { return Quickshell.screens; },
             current: ctx.screen
         }),
-        screencopy: ctx => ({ preview: screencopyPreview }),
+        screencopy: ctx => ({
+            preview: screencopyPreview,
+            freeze: done => ScreenFreeze.freeze(ctx, done),
+            thaw: () => ScreenFreeze.thaw(ctx)
+        }),
         shortcut: shortcuts.provider,
         manager: ctx => ({
             get plugins() { return Registry.managerRows; },
@@ -631,6 +635,7 @@ Singleton {
             lock: { requested: sessionLock.lockRequested, secure: sessionLock.lockSecure, content: sessionLock.lockContent !== null, cause: sessionLock.lockCause },
             cover: coverPresentation.record(),
             layers: Layers.record(),
+            freeze: ScreenFreeze.record(),
             status: PluginStatus.record(),
             theme: themes.record(),
             tui: tuis.record(),

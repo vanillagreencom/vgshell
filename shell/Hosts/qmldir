@@ -14,3 +14,4 @@ PaneHost 1.0 PaneHost.qml
 NoticeHost 1.0 NoticeHost.qml
 LayerHost 1.0 LayerHost.qml
 OverlaySurface 1.0 OverlaySurface.qml
+FreezeHost 1.0 FreezeHost.qml

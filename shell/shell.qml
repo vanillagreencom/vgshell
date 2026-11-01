@@ -122,6 +122,11 @@ ShellRoot {
         LayerHost {}
     }
 
+    LazyLoader {
+        active: root.guarded
+        FreezeHost {}
+    }
+
     // Every scan ends with a follow of the applied theme package, which
     // writes the theme and application files: the guarded instance alone
     // asks for it. An unguarded one names no Registry here, so a read-only

@@ -168,6 +168,7 @@ power
 power-menu
 capture
 share-picker
+screen-freeze
 # After capture, before tui-guard: its Sign in reaches the stand-in
 # terminal, and it reads no state another row leaves.
 ai-usage
