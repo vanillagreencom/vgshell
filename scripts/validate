@@ -330,7 +330,7 @@ rows=(
   "logic|mouse logic|node scripts/test-mouse-logic.js|shell/plugins/vgs.mouse/MouseLogic.js shell/plugins/vgs.mouse/manifest.json bin/lib/qml-library.js"
   "logic|fonts logic|node scripts/test-fonts-logic.js|shell/plugins/vgs.fonts/FontsLogic.js bin/lib/qml-library.js"
   "logic|sound logic|node scripts/test-sound-logic.js|shell/plugins/vgs.sound/SoundLogic.js bin/lib/qml-library.js"
-  "logic|power logic|node scripts/test-power-logic.js|shell/plugins/vgs.power/PowerLogic.js bin/lib/qml-library.js"
+  "logic|power logic|node scripts/test-power-logic.js|shell/plugins/vgs.power/PowerLogic.js shell/plugins/vgs.power/Overlay.qml bin/lib/qml-library.js"
   "logic|system monitor readings|node scripts/test-sysmon-logic.js|shell/plugins/vgs.sysmon/SysmonLogic.js bin/lib/qml-library.js"
   "logic|screensaver logic|node scripts/test-screensaver-logic.js|shell/plugins/vgs.screensaver/ScreensaverLogic.js shell/plugins/vgs.screensaver/manifest.json shell/plugins/vgs.settings/Steps.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Core/PackageReview.js shell/Ui/icons/Lucide.js shell/Ui/icons/Own.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js shell/Commons/PageReference.js scripts/fixtures/screensaver/ttfx-help.txt bin/lib/qml-library.js"
   "cli|screensaver transcode helper|scripts/test-screensaver-transcode.sh|shell/plugins/vgs.screensaver/bin/transcode-ascii"

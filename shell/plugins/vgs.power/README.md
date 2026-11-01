@@ -16,7 +16,7 @@ Power shows the battery level and the power profile in the bar, and switches the
 - Performance is unavailable on hardware without a performance profile.
 - An idle timeline in System Settings: each step, such as dim, screensaver and lock, in order with its time. Select a time to open the field that sets it. A step that starts before an earlier step shows a warning, such as a lock before the screensaver.
 - Turns every display off after you stop using the computer, and sooner while the screen is locked. A key press or pointer movement turns them on if your Hyprland config lets it, and the Power section of System Settings shows if each one can.
-- A power menu with Log out, Suspend, Hibernate, Reboot, Shut down and Switch user. It lists only the actions this computer can do: Hibernate where the system allows it, and Switch user where the login screen can switch users. Hold Space, Enter or the pointer on an action for 3 seconds to run it; release early to cancel. Open it from the launcher's System menu, or choose its key under Keys in Power's Settings. It has no key until you choose one.
+- A power menu with Log out, Suspend, Hibernate, Reboot, Shut down and Switch user. It lists only the actions this computer can do: Hibernate where the system allows it, and Switch user where the login screen can switch users. Hold Space, Enter or the pointer on an action for 2 seconds to run it; release early to cancel. Open it from the launcher's System menu, or choose its key under Keys in Power's Settings. It has no key until you choose one.
 
 ## Settings
 

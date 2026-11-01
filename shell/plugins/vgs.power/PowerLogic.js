@@ -374,7 +374,7 @@ function actionsView(passes, answered, allowed) {
 //             the sources in `held` stayed down; nothing starts again
 //             until every one is released, so holds never chain.
 // `now` is a monotonic reading in milliseconds; the caller supplies it.
-var HOLD_MS = 3000;
+var HOLD_MS = 2000;
 
 function holdIdle() {
     return { phase: "idle" };

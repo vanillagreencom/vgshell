@@ -3,7 +3,7 @@
 # Log out, Suspend, Reboot and Shut down offered, reads the Settings Keys
 # row of the unbound `power-menu` shortcut, opens the menu through that
 # shortcut, and drives it on the nested seat: the keyboard selection, a
-# hold with nothing selected, a release before 3 s, a release with Shift
+# hold with nothing selected, a release before 2 s, a release with Shift
 # down, a full key hold, Escape and Tab during a hold, a pointer hold and
 # its early release, a press beside the card held across the deadline,
 # opening from the launcher's System > Power menu row, and a full hold with
@@ -13,7 +13,7 @@
 # refused request each send Power's notice through a recording
 # notify-send. The row ends with Power disabled and its menu gone.
 #
-# The hold is 3000 ms. A full hold here lasts 3.4 s and an early release
+# The hold is 2000 ms. A full hold here lasts 2.4 s and an early release
 # 1.5 s, and the row then waits 2.5 s with no run, past the deadline the
 # early press would have had. Those margins are not latencies; the exact
 # threshold is proved over injected time in scripts/test-power-logic.js.
@@ -153,7 +153,7 @@ EOF_STAND
   expect "Settings closes" ok ipc shell hide window vgs.settings
 
   pm_open "keyboard"
-  type_keys -P space -s 3400 -p space || fail "the hold with nothing selected failed to type"
+  type_keys -P space -s 2400 -p space || fail "the hold with nothing selected failed to type"
   expect "a hold with nothing selected runs nothing" '[]' pm_runs
   type_keys -k Down || fail "Down failed"
   expect_poll "the first Down selects the first action" '"logout"' pm_read selected
@@ -168,8 +168,8 @@ EOF_STAND
   type_keys -P space -s 500 -M shift -s 300 -p space -s 300 -m shift || fail "the release under Shift failed to type"
   expect_poll "a release with Shift down ends the hold" idle pm_phase
   expect "a release with Shift down runs nothing past the deadline" '[]' pm_quiet 3400
-  type_keys -P space -s 3400 -p space || fail "the full hold failed to type"
-  expect_poll "a 3 s hold of Space runs Reboot once" '["reboot"]' pm_runs
+  type_keys -P space -s 2400 -p space || fail "the full hold failed to type"
+  expect_poll "a 2 s hold of Space runs Reboot once" '["reboot"]' pm_runs
   pm_closed "the accepted run closes the menu"
   expect "the closed menu runs nothing more" '["reboot"]' pm_quiet 1000
 
@@ -190,8 +190,8 @@ EOF_STAND
   pm_pointer_hold Suspend 1.2 || fail "the short pointer hold failed"
   expect_poll "a pointer press selects its row" '"suspend"' pm_read selected
   expect "a 1.2 s pointer hold runs nothing past the deadline" '[]' pm_quiet 2500
-  pm_pointer_hold Suspend 3.4 || fail "the full pointer hold failed"
-  expect_poll "a 3 s pointer hold runs Suspend once" '["suspend"]' pm_runs
+  pm_pointer_hold Suspend 2.4 || fail "the full pointer hold failed"
+  expect_poll "a 2 s pointer hold runs Suspend once" '["suspend"]' pm_runs
   pm_closed "the pointer's run closes the menu"
 
   # A press beside the card during a key hold ends the hold at the press,
@@ -240,7 +240,7 @@ EOF_STAND
   printf '1\n' >"$pm_exit_file"
   expected_errors+=('power: action argv=\["vgshell","power","logout"\] exit=1' 'power: action refused: action=switch-user reason=unavailable')
   pm_open "failure"
-  type_keys -k Home -P space -s 3400 -p space || fail "the failing hold failed to type"
+  type_keys -k Home -P space -s 2400 -p space || fail "the failing hold failed to type"
   expect_poll "the failing hold runs Log out once" '["logout"]' pm_runs
   pm_closed "the failing run's menu closes"
   expect_poll "a failed run sends one notice" 1 pm_notices
@@ -249,7 +249,7 @@ EOF_STAND
   expect_poll "a refused request sends a notice" 2 pm_notices
   expect "a refused request runs nothing" '["logout"]' pm_runs
 
-  # Motion off stills the entrance; the hold stays 3000 ms.
+  # Motion off stills the entrance; the hold stays 2000 ms.
   : >"$pm_runs_file"
   python3 - "$pm_config" <<'PY_MOTION'
 import json, os, sys
@@ -264,10 +264,10 @@ PY_MOTION
   expect "Motion off reloads" ok ipc shell reloadConfig
   expect_poll "Motion off settles" true ipc smoke configSettled
   pm_open "motion off"
-  type_keys -k Down -P space -s 2500 -p space || fail "the early hold with Motion off failed to type"
-  expect "a release at 2.5 s with Motion off runs nothing" '[]' pm_quiet 1500
-  type_keys -P space -s 3400 -p space || fail "the full hold with Motion off failed to type"
-  expect_poll "a 3 s hold with Motion off runs Log out once" '["logout"]' pm_runs
+  type_keys -k Down -P space -s 1500 -p space || fail "the early hold with Motion off failed to type"
+  expect "a release at 1.5 s with Motion off runs nothing" '[]' pm_quiet 1500
+  type_keys -P space -s 2400 -p space || fail "the full hold with Motion off failed to type"
+  expect_poll "a 2 s hold with Motion off runs Log out once" '["logout"]' pm_runs
   pm_closed "the Motion-off run closes the menu"
 
   pm_restore

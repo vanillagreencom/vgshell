@@ -563,6 +563,7 @@ cases=(
   "notifications-app-sounds|shell/plugins/vgs.notifications/AppSounds.qml|logic|node scripts/test-notifications-logic.js"
   "displays-vrr-setting|shell/plugins/vgs.displays/manifest.json|logic|node scripts/test-plugin-logic.js"$'\nnode scripts/test-displays-logic.js'
   "power-logic|shell/plugins/vgs.power/PowerLogic.js|logic|node scripts/test-power-logic.js"
+  "power-overlay-logic|shell/plugins/vgs.power/Overlay.qml|logic|node scripts/test-power-logic.js"
   "sysmon-logic|shell/plugins/vgs.sysmon/SysmonLogic.js|logic|node scripts/test-sysmon-logic.js"
   "voice-start-service|shell/plugins/vgs.voice/Service.qml|logic|node scripts/test-voice-logic.js"
   "voice-microphone|shell/plugins/vgs.voice/Widget.qml|logic|node scripts/test-voice-logic.js"

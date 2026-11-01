@@ -263,7 +263,7 @@
       {
         "shortcut": "power-menu",
         "key": null,
-        "info": "Opens the power menu. Hold Space, Enter or the pointer on an action for 3 seconds to run it."
+        "info": "Opens the power menu. Hold Space, Enter or the pointer on an action for 2 seconds to run it."
       }
     ]
   },

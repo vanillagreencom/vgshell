@@ -5,7 +5,7 @@
 // choice, the setting a bar pick remembers, low-battery latches and the
 // notice each latch sends, the logind resume signal line, and Wake on
 // LAN's flag values, wired connection list and write rule; the power
-// menu's availability reads, their replies and offers, and its 3000 ms
+// menu's availability reads, their replies and offers, and its 2000 ms
 // confirmation hold over injected time.
 // Controls edit one rule at a time in an exclusively owned temporary copy
 // and require this suite to fail on each copy.
@@ -14,6 +14,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const vm = require("node:vm");
 const { load } = require("../bin/lib/qml-library.js");
 
 const file = path.join(__dirname, "..", "shell", "plugins", "vgs.power", "PowerLogic.js");
@@ -291,7 +292,7 @@ function verify(logic) {
 }
 
 // The power menu: which reads a pass makes, which replies offer an
-// action, the published reading, and the 3000 ms hold over injected
+// action, the published reading, and the 2000 ms hold over injected
 // monotonic time.
 function verifyMenu(logic) {
     const keysOf = reads => reads.map(read => read.key);
@@ -358,45 +359,42 @@ function verifyMenu(logic) {
         return { fired, trace, phase: hold.phase };
     };
     const HOLDS = [
-        ["fires only at 3000 ms of continuous hold",
-            [press(0, "key:space", "reboot"), ["at", 1500], ["at", 2999], ["at", 3000], ["at", 3500]],
-            [["reboot", 3000]], [[1500, "holding", 0.5], [2999, "holding", 2999 / 3000], [3000, "spent", 1], [3500, "spent", 1]], "spent"],
-        ["fractional time: 2999.9 ms held is not yet due",
-            [press(0.4, "key:space", "reboot"), ["at", 3000.3], ["at", 3000.4]],
-            [["reboot", 3000.4]], [[3000.3, "holding", 2999.9 / 3000], [3000.4, "spent", 1]], "spent"],
-        ["a timer that runs late fires once, late",
-            [press(100, "pointer", "logout"), ["at", 3400], ["at", 3401]],
-            [["logout", 3400]], [[3400, "spent", 1], [3401, "spent", 1]], "spent"],
-        ["a release one millisecond early fires nothing",
-            [press(0, "key:return", "poweroff"), ["at", 2000], ["release", "key:return"], ["at", 3000], ["at", 6000]],
-            [], [[2000, "holding", 2000 / 3000], [3000, "idle", 0], [6000, "idle", 0]], "idle"],
+        ["fires only at 2000 ms of continuous hold, from its press",
+            [press(37, "key:space", "reboot"), ["at", 37], ["at", 1037], ["at", 2036], ["at", 2037], ["at", 2053]],
+            [["reboot", 2037]], [[37, "holding", 0], [1037, "holding", 0.5], [2036, "holding", 1999 / 2000], [2037, "spent", 1], [2053, "spent", 1]], "spent"],
+        ["fractional time: 1999.75 ms held is not yet due",
+            [press(0.5, "key:space", "reboot"), ["at", 2000.25], ["at", 2000.5]],
+            [["reboot", 2000.5]], [[2000.25, "holding", 1999.75 / 2000], [2000.5, "spent", 1]], "spent"],
+        ["a frame that runs late fires once, late",
+            [press(100, "pointer", "logout"), ["at", 2400], ["at", 2401]],
+            [["logout", 2400]], [[2400, "spent", 1], [2401, "spent", 1]], "spent"],
         ["a release just before the deadline fires nothing",
-            [press(0, "key:space", "suspend"), ["at", 2999], ["release", "key:space"], ["at", 3000]],
-            [], [[2999, "holding", 2999 / 3000], [3000, "idle", 0]], "idle"],
+            [press(0, "key:space", "suspend"), ["at", 1999], ["release", "key:space"], ["at", 2000]],
+            [], [[1999, "holding", 1999 / 2000], [2000, "idle", 0]], "idle"],
         ["a cancel, for Escape or focus loss, fires nothing and needs a fresh press",
-            [press(0, "key:space", "logout"), ["at", 1000], ["cancel"], ["at", 3000], press(3500, "key:space", "logout"), ["at", 6500],
-                ["release", "key:space"], press(7000, "key:space", "logout"), ["at", 9999], ["at", 10000]],
-            [["logout", 10000]], [[1000, "holding", 1000 / 3000], [3000, "spent", 0], [6500, "spent", 0], [9999, "holding", 2999 / 3000], [10000, "spent", 1]], "spent"],
+            [press(0, "key:space", "logout"), ["at", 1000], ["cancel"], ["at", 2000], press(2500, "key:space", "logout"), ["at", 4500],
+                ["release", "key:space"], press(5000, "key:space", "logout"), ["at", 6999], ["at", 7000]],
+            [["logout", 7000]], [[1000, "holding", 1000 / 2000], [2000, "spent", 0], [4500, "spent", 0], [6999, "holding", 1999 / 2000], [7000, "spent", 1]], "spent"],
         ["no selected action starts no hold",
-            [press(0, "key:space", ""), ["at", 3000], ["at", 9000]],
-            [], [[3000, "idle", 0], [9000, "idle", 0]], "idle"],
+            [press(0, "key:space", ""), ["at", 2000], ["at", 9000]],
+            [], [[2000, "idle", 0], [9000, "idle", 0]], "idle"],
         ["a repeated press of the held source adds no time",
-            [press(0, "key:space", "reboot"), press(1000, "key:space", "reboot"), press(2000, "key:space", "reboot"), ["at", 3000]],
-            [["reboot", 3000]], [[3000, "spent", 1]], "spent"],
+            [press(0, "key:space", "reboot"), press(500, "key:space", "reboot"), press(1000, "key:space", "reboot"), ["at", 2000]],
+            [["reboot", 2000]], [[2000, "spent", 1]], "spent"],
         ["a second source cancels, and both must be released",
-            [press(0, "key:space", "reboot"), press(1000, "key:return", "reboot"), ["at", 3000], ["release", "key:space"],
-                press(3100, "key:space", "reboot"), ["release", "key:space"], ["at", 6100], ["release", "key:return"],
-                press(6200, "pointer", "reboot"), ["at", 9199], ["at", 9200]],
-            [["reboot", 9200]], [[3000, "spent", 0], [6100, "spent", 0], [9199, "holding", 2999 / 3000], [9200, "spent", 1]], "spent"],
+            [press(0, "key:space", "reboot"), press(1000, "key:return", "reboot"), ["at", 2000], ["release", "key:space"],
+                press(2100, "key:space", "reboot"), ["release", "key:space"], ["at", 4100], ["release", "key:return"],
+                press(4200, "pointer", "reboot"), ["at", 6199], ["at", 6200]],
+            [["reboot", 6200]], [[2000, "spent", 0], [4100, "spent", 0], [6199, "holding", 1999 / 2000], [6200, "spent", 1]], "spent"],
         ["a fired hold stays spent until its source is released",
-            [press(0, "key:space", "suspend"), ["at", 3000], press(3100, "key:space", "suspend"), ["at", 6100], ["release", "key:space"], ["at", 6200]],
-            [["suspend", 3000]], [[3000, "spent", 1], [6100, "spent", 1], [6200, "idle", 0]], "idle"],
+            [press(0, "key:space", "suspend"), ["at", 2000], press(2100, "key:space", "suspend"), ["at", 4100], ["release", "key:space"], ["at", 4200]],
+            [["suspend", 2000]], [[2000, "spent", 1], [4100, "spent", 1], [4200, "idle", 0]], "idle"],
         ["a refusal after firing clears the fill",
-            [press(0, "pointer", "hibernate"), ["at", 3000], ["cancel"], ["at", 3001]],
-            [["hibernate", 3000]], [[3000, "spent", 1], [3001, "spent", 0]], "spent"],
+            [press(0, "pointer", "hibernate"), ["at", 2000], ["cancel"], ["at", 2001]],
+            [["hibernate", 2000]], [[2000, "spent", 1], [2001, "spent", 0]], "spent"],
         ["a release of a key the hold never saw changes nothing",
-            [press(0, "key:space", "logout"), ["release", "key:return"], ["at", 3000]],
-            [["logout", 3000]], [[3000, "spent", 1]], "spent"]
+            [press(0, "key:space", "logout"), ["release", "key:return"], ["at", 2000]],
+            [["logout", 2000]], [[2000, "spent", 1]], "spent"]
     ];
     for (const [label, rows, fired, trace, phase] of HOLDS) {
         const got = play(rows);
@@ -405,15 +403,72 @@ function verifyMenu(logic) {
         assert.equal(got.phase, phase, "hold phase: " + label);
     }
     assert.equal(logic.holdRemaining(logic.holdIdle(), 0), -1, "holdRemaining: no hold");
-    assert.equal(logic.holdRemaining(logic.holdPress(logic.holdIdle(), "pointer", "reboot", 500), 1500), 2000, "holdRemaining: the rest of the 3000 ms");
+    assert.equal(logic.holdRemaining(logic.holdPress(logic.holdIdle(), "pointer", "reboot", 500), 1500), 1000, "holdRemaining: the rest of the 2000 ms");
     assert.throws(() => logic.holdPress({ phase: "other" }, "pointer", "reboot", 0), "holdPress: an unknown phase is refused");
 }
 
 verify(load(file));
 
+// Execute the Overlay's own JavaScript methods and frame callback, with
+// its ElapsedTimer and action IPC supplied by the test boundary. The nested
+// row separately checks Qt's input and rendering wiring.
+function verifyHoldFrames(source) {
+    const logic = load(file);
+    let at = 37.4;
+    const actions = [];
+    const scope = {
+        Logic: logic, clock: { elapsedNs: () => at * 1e6 },
+        hold: logic.holdIdle(), fill: 0, selected: "reboot", offered: ["reboot"],
+        list: { activeFocus: true }, dismiss() {},
+        shell: { ipc: { call: (_method, action) => { actions.push([at, action, scope.fill]); return "ok"; } } }
+    };
+    scope.root = scope;
+    vm.createContext(scope);
+    for (const name of ["now", "startHold", "releaseHold", "cancelHold", "resetHold", "due"]) {
+        const method = source.match(new RegExp("    function " + name + "\\([^\\n]*\\) \\{(?:[^\\n]*\\}|[\\s\\S]*?\\n    \\})"));
+        assert.ok(method, "Overlay method is readable: " + name);
+        vm.runInContext(method[0], scope);
+    }
+    const frame = source.match(/FrameAnimation \{\s*running:[^\n]*\n\s*onTriggered: ([^\n]*)/);
+    assert.ok(frame, "Overlay frame callback is readable");
+    scope.startHold("key:32", "reboot");
+    assert.equal(scope.hold.start, at, "the press starts its clock immediately");
+    assert.equal(scope.fill, 0, "the fill starts at the press");
+    for (const offset of [16, 1000, 1999.9, 2000, 2016]) {
+        at = 37.4 + offset;
+        vm.runInContext(frame[1], scope);
+        assert.ok(Math.abs(scope.fill - Math.min(1, offset / 2000)) < 1e-10, "the actual frame reads press time: " + offset);
+        assert.equal(actions.length, offset < 2000 ? 0 : 1, "action and fill finish on the same due frame: " + offset);
+    }
+    same(actions, [[2037.4, "reboot", 1]], "a full fill never waits another frame for its action");
+    for (const cancellation of ["release", "focus", "escape"]) {
+        scope.resetHold();
+        scope.list.activeFocus = true;
+        at = 4000;
+        scope.startHold("key:32", "reboot");
+        at = 5000;
+        if (cancellation === "release") scope.releaseHold("key:32");
+        else if (cancellation === "focus") scope.list.activeFocus = false;
+        else scope.cancelHold();
+        at = 6000;
+        vm.runInContext(frame[1], scope);
+        assert.equal(actions.length, 1, cancellation + " before the deadline fires nothing");
+        assert.equal(scope.fill, 0, cancellation + " clears the fill");
+    }
+}
+const overlay = fs.readFileSync(path.join(path.dirname(file), "Overlay.qml"), "utf8");
+verifyHoldFrames(overlay);
+for (const [label, needle, replacement] of [
+    ["a fill-only frame cannot leave the action on a later timer", "onTriggered: root.due()", "onTriggered: root.fill = Logic.holdProgress(root.hold, root.now())"],
+    ["the frame's fill cannot start late", "fill = Logic.holdProgress(hold, at);", "fill = Logic.holdProgress(hold, at - 100);"]
+]) {
+    assert.equal(overlay.split(needle).length, 2, "frame control must replace one operation: " + label);
+    assert.throws(() => verifyHoldFrames(overlay.replace(needle, replacement)), undefined, label);
+}
+
 const CONTROLS = [
-    ["the hold is exactly 3000 ms, not less", "var HOLD_MS = 3000;", "var HOLD_MS = 2999;"],
-    ["the hold is exactly 3000 ms, not more", "var HOLD_MS = 3000;", "var HOLD_MS = 3001;"],
+    ["the hold is exactly 2000 ms, not less", "var HOLD_MS = 2000;", "var HOLD_MS = 1999;"],
+    ["the hold is exactly 2000 ms, not more", "var HOLD_MS = 2000;", "var HOLD_MS = 3000;"],
     ["a release ends the hold", "if (hold.phase === \"holding\") return source === hold.source ? holdIdle() : hold;", "if (hold.phase === \"holding\") return hold;"],
     ["a cancel fires nothing", "if (hold.phase === \"holding\") return { phase: \"spent\", held: [hold.source], fired: false };", "if (false) return { phase: \"spent\", held: [hold.source], fired: false };"],
     ["a repeated press keeps the start", "return source === hold.source ? hold : { phase: \"spent\", held: [hold.source, source], fired: false };", "return source === hold.source ? { phase: \"holding\", action: hold.action, source: source, start: now } : { phase: \"spent\", held: [hold.source, source], fired: false };"],

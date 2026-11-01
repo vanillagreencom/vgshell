@@ -5,20 +5,18 @@ import qs.Ui
 import "PowerLogic.js" as Logic
 
 // The power menu: a card over the scrim that lists the actions the Power
-// service publishes as offered. An action runs only after a 3000 ms hold
+// service publishes as offered. An action runs only after a 2000 ms hold
 // of Space, Enter, Return or the primary pointer button on its row
 // (PowerLogic's hold); a short press, a click and KeyNav's activation only
 // select. The service owns the run, so closing the menu keeps it.
 //
-// The hold's deadline is a single-shot Timer, checked against the
-// ElapsedTimer's reading when it fires; the fill reads the same clock on
-// each frame. The ElapsedTimer is Qt's QElapsedTimer, the platform's
-// monotonic clock (Quickshell 0.3.1 src/core/elapsedtimer.cpp). A QML
-// Timer is driven by the animation timer, whose clock can follow the
-// frames drawn, so a deadline it reports early re-arms for the rest:
+// Each frame checks the deadline and draws the fill from one reading of
+// the ElapsedTimer, so a full fill never waits on a separate Timer.
+// The ElapsedTimer is Qt's QElapsedTimer, the platform's
+// monotonic clock (Quickshell 0.3.1 src/core/elapsedtimer.cpp):
 // https://quickshell.org/docs/v0.3.1/types/Quickshell/ElapsedTimer
-// Neither scales with motion.scale, so the hold stays 3000 ms when motion
-// is off.
+// FrameAnimation keeps running with motion off, so the hold stays 2000 ms:
+// https://quickshell.org/docs/v0.3.1/types/Quickshell.Services.Mpris/MprisPlayer
 Item {
     id: root
 
@@ -86,41 +84,29 @@ Item {
     onSelectedChanged: cancelHold()
 
     // Fractional milliseconds: whole ones truncate both the start and the
-    // check, which could judge a hold of 2999.001 ms complete.
+    // check, which could judge a hold of 1999.001 ms complete.
     function now() { return clock.elapsedNs() / 1e6; }
 
     function startHold(source, action) {
         hold = Logic.holdPress(hold, source, action, now());
-        schedule();
+        fill = Logic.holdProgress(hold, now());
     }
 
     function releaseHold(source) {
         hold = Logic.holdRelease(hold, source);
-        schedule();
+        fill = Logic.holdProgress(hold, now());
     }
 
     function cancelHold() {
         hold = Logic.holdCancel(hold);
-        schedule();
+        fill = Logic.holdProgress(hold, now());
     }
 
     // Focus loss: the releases of what was held may never reach this
     // window, so nothing is kept for them.
     function resetHold() {
         hold = Logic.holdIdle();
-        schedule();
-    }
-
-    function schedule() {
-        const at = now();
-        const left = Logic.holdRemaining(hold, at);
-        fill = Logic.holdProgress(hold, at);
-        if (left < 0) {
-            deadline.stop();
-            return;
-        }
-        deadline.interval = Math.max(1, Math.ceil(left));
-        deadline.restart();
+        fill = Logic.holdProgress(hold, now());
     }
 
     function due() {
@@ -133,10 +119,7 @@ Item {
         const result = Logic.holdFire(hold, at);
         hold = result.hold;
         fill = Logic.holdProgress(hold, at);
-        if (result.fire === "") {
-            schedule();
-            return;
-        }
+        if (result.fire === "") return;
         const reply = shell.ipc.call("action", result.fire);
         if (reply === "ok") dismiss();
         else cancelHold();
@@ -187,15 +170,9 @@ Item {
         easing.type: Theme.motion.easing.standard
     }
 
-    Timer {
-        id: deadline
-        repeat: false
-        onTriggered: root.due()
-    }
-
     FrameAnimation {
         running: root.hold.phase === "holding"
-        onTriggered: root.fill = Logic.holdProgress(root.hold, root.now())
+        onTriggered: root.due()
     }
 
     // Focus leaving the window, as to the lock screen, closes the menu;
@@ -235,7 +212,7 @@ Item {
     Surface {
         id: card
         anchors.centerIn: parent
-        width: Math.min(Theme.size.panel.lg, root.width - 2 * Theme.size.window.gutter)
+        width: Math.min(Math.max(list.implicitWidth, hints.implicitWidth, message.visible ? message.implicitWidth : 0) + 2 * pane.contentInset, root.width - 2 * Theme.size.window.gutter)
         height: pane.implicitHeight
 
         Pane {
@@ -248,6 +225,7 @@ Item {
             maximumHeight: root.height - 2 * Theme.size.window.gutter
 
             Label {
+                id: message
                 visible: text !== ""
                 width: pane.contentWidth
                 role: "body"
@@ -261,6 +239,14 @@ Item {
             Item {
                 id: list
                 width: pane.contentWidth
+                implicitWidth: {
+                    let widest = 0;
+                    for (let i = 0; i < rowItems.count; ++i) {
+                        const row = rowItems.itemAt(i);
+                        if (row !== null) widest = Math.max(widest, row.implicitWidth);
+                    }
+                    return widest;
+                }
                 height: column.height
                 visible: root.rows.length > 0
                 focus: true
@@ -341,18 +327,19 @@ Item {
             }
 
             footer: Row {
+                id: hints
                 width: pane.contentWidth
                 spacing: Theme.stack.group
 
                 KeyHints {
                     anchors.verticalCenter: parent.verticalCenter
-                    hints: [{ keys: ["Space", "Enter"], text: "Hold 3 s" }, { key: "Esc", text: "Close" }]
+                    hints: [{ keys: ["Space", "Enter"], text: "Hold 2 s" }, { key: "Esc", text: "Close" }]
                 }
                 InfoButton {
                     id: info
                     anchors.verticalCenter: parent.verticalCenter
                     title: "Power menu"
-                    info: "Hold Space, Enter or the pointer on an action for 3 seconds to run it. Release early to cancel.\nThe hold stops a stray key press or click from ending your work."
+                    info: "Hold Space, Enter or the pointer on an action for 2 seconds to run it. Release early to cancel.\nThe hold stops a stray key press or click from ending your work."
                 }
             }
         }
