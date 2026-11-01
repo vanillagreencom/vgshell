@@ -33,7 +33,7 @@ vgshell_run() { "${shell_env[@]}" "$repo/bin/vgshell" "$@"; }
 # changed.
 applied() { local out; out="$(vgshell_run theme apply "$1")" || return; printf '%s\n' "${out##*$'\n'}" | cut -d' ' -f1-2; }
 # The binds whose description names a vgs shortcut, as [modmask, key,
-# dispatcher, description]: a Lua bind's dispatcher is `__lua`, so the
+# dispatcher, description]: a Lua bind's dispatcher is `HL.Dispatcher(global)`, so the
 # description is what names its shortcut. vgs_binds leaves out the active
 # bar's, which stays enabled through every row here; active_bar_binds
 # reads them alone.
@@ -330,10 +330,10 @@ with open(path + ".next", "w") as f:
 os.replace(path + ".next", path)
 PY
 }
-both_binds='[[64, "M", "__lua", "vgs.settings:toggle"], [64, "N", "__lua", "vgs.notifications:inbox"], [64, "SPACE", "__lua", "vgs.launcher:toggle"], [65, "N", "__lua", "vgs.notifications:act"], [68, "G", "__lua", "vgs.windows:group-lock"], [68, "N", "__lua", "vgs.notifications:mark-read"]]'
-rebound='[[64, "M", "__lua", "vgs.settings:toggle"], [65, "N", "__lua", "vgs.notifications:act"], [68, "G", "__lua", "vgs.windows:group-lock"], [68, "N", "__lua", "vgs.notifications:mark-read"], [72, "SPACE", "__lua", "vgs.launcher:toggle"]]'
+both_binds='[[64, "M", "HL.Dispatcher(global)", "vgs.settings:toggle"], [64, "N", "HL.Dispatcher(global)", "vgs.notifications:inbox"], [64, "SPACE", "HL.Dispatcher(global)", "vgs.launcher:toggle"], [65, "N", "HL.Dispatcher(global)", "vgs.notifications:act"], [68, "G", "HL.Dispatcher(global)", "vgs.windows:group-lock"], [68, "N", "HL.Dispatcher(global)", "vgs.notifications:mark-read"]]'
+rebound='[[64, "M", "HL.Dispatcher(global)", "vgs.settings:toggle"], [65, "N", "HL.Dispatcher(global)", "vgs.notifications:act"], [68, "G", "HL.Dispatcher(global)", "vgs.windows:group-lock"], [68, "N", "HL.Dispatcher(global)", "vgs.notifications:mark-read"], [72, "SPACE", "HL.Dispatcher(global)", "vgs.launcher:toggle"]]'
 # The same once the notifications are disabled.
-rebound_alone='[[64, "M", "__lua", "vgs.settings:toggle"], [68, "G", "__lua", "vgs.windows:group-lock"], [72, "SPACE", "__lua", "vgs.launcher:toggle"]]'
+rebound_alone='[[64, "M", "HL.Dispatcher(global)", "vgs.settings:toggle"], [68, "G", "HL.Dispatcher(global)", "vgs.windows:group-lock"], [72, "SPACE", "HL.Dispatcher(global)", "vgs.launcher:toggle"]]'
 
 # The consent row's Connect answer.
 expect "consent wired the loading line first in the sandbox's hyprland.lua" "$wire_line" head -n 1 -- "$hypr_lua"
@@ -341,8 +341,8 @@ expect "consent changed nothing else in hyprland.lua" same bash -c 'tail -n +2 -
 expect "the layer's header names the command that writes it again" yes bash -c 'grep -qF -- "\`vgshell hypr render\`" "$1" && echo yes' _ "$hypr_layer"
 expect "no plugin declaring Hyprland data but the active bar, always-on Plugins and Windows is enabled, so their three sections alone are written" 3 section_count
 expect "the active bar's section names its id and version" yes layer_has "$(section_of vgs.bar)"
-expect_poll "the active bar's toggle is bound to SUPER+SHIFT+SPACE" '[[65, "SPACE", "__lua", "vgs.bar:toggle"]]' active_bar_binds
-expect_poll "the nested instance holds no other vgs bind than Plugins' SUPER+M and Windows' SUPER+CTRL+G" '[[64, "M", "__lua", "vgs.settings:toggle"], [68, "G", "__lua", "vgs.windows:group-lock"]]' vgs_binds
+expect_poll "the active bar's toggle is bound to SUPER+SHIFT+SPACE" '[[65, "SPACE", "HL.Dispatcher(global)", "vgs.bar:toggle"]]' active_bar_binds
+expect_poll "the nested instance holds no other vgs bind than Plugins' SUPER+M and Windows' SUPER+CTRL+G" '[[64, "M", "HL.Dispatcher(global)", "vgs.settings:toggle"], [68, "G", "HL.Dispatcher(global)", "vgs.windows:group-lock"]]' vgs_binds
 expect "the nested configuration, the floating TUIs' window rules included, holds no error" '[]' hypr_reload_errors
 
 cp -- "$user_config" "$sandbox/shell-before-appearance.json"
@@ -582,13 +582,12 @@ PY
 rescan "rescanning the row-owned keycode bind is allowed"
 expect "enabling the shortcut key fixture is allowed" ok ipc shell setPluginEnabled acme.probe true
 expect_poll "the fixture reads its manifest keycode" '{"ping":"SUPER+code:108"}' fixture_keys
-# Lua's parsed keycode lives in sMkKeys, which binds -j does not expose.
-# Pin its registered row plus the generated code and configerrors instead.
-expect_poll "the nested instance registers the fixture keycode bind" '[[64, "", 0, "__lua"]]' fixture_bind
+# Hyprland 0.57 exposes the parsed keycode and handler in binds -j.
+expect_poll "the nested instance registers the fixture keycode bind" '[[64, "", 108, "HL.Dispatcher(global)"]]' fixture_bind
 expect "the layer binds the fixture by keycode" yes layer_has 'hl.bind("SUPER + code:108", hl.dsp.global("acme.probe:ping"), { description = "acme.probe:ping" })'
 set_keys '{"acme.probe": {"ping": "shift+super+CODE:00108", "ghost": "SUPER+F8"}}'
 expect_poll "the same fixture reads the normalized rebound keycode" '{"ping":"SUPER+SHIFT+code:108"}' fixture_keys
-expect_poll "the rebound keycode reaches the nested compositor" '[[65, "", 0, "__lua"]]' fixture_bind
+expect_poll "the rebound keycode reaches the nested compositor" '[[65, "", 108, "HL.Dispatcher(global)"]]' fixture_bind
 expect "the rebound layer keeps the lower-case code prefix" yes layer_has 'hl.bind("SUPER + SHIFT + code:108", hl.dsp.global("acme.probe:ping"), { description = "acme.probe:ping" })'
 expect "a plugin mutation cannot change effective keys" '{"ping":"SUPER+SHIFT+code:108"}' probe mutate-keys
 expect "the nested keycode configuration holds no error" '[]' hypr_reload_errors
@@ -664,5 +663,5 @@ expect_poll "the notifications are disabled again" False plugin_enabled vgs.noti
 expect_poll "the shared fixture keeps its original enabled state after the Hyprland rows" "$probe_enabled_before" plugin_enabled acme.probe
 restore_hypr_lua || fail "hyprland.lua is put back after the Hyprland rows"
 expect "the nested instance reloads the consent-wired hyprland.lua" ok hypr reload config-only
-expect_poll "the nested instance holds no vgs bind after the Hyprland rows but Plugins' SUPER+M and Windows' SUPER+CTRL+G" '[[64, "M", "__lua", "vgs.settings:toggle"], [68, "G", "__lua", "vgs.windows:group-lock"]]' vgs_binds
+expect_poll "the nested instance holds no vgs bind after the Hyprland rows but Plugins' SUPER+M and Windows' SUPER+CTRL+G" '[[64, "M", "HL.Dispatcher(global)", "vgs.settings:toggle"], [68, "G", "HL.Dispatcher(global)", "vgs.windows:group-lock"]]' vgs_binds
 expect "the configuration after the Hyprland rows holds no error" '[]' hypr_reload_errors

@@ -16,7 +16,7 @@ Plugin text that reached Lua would run plugin code outside the shell. One line f
 
 Hyprland answers a refused dispatcher with exit 0 and an error sentence, and answers `ok` to some requests that changed nothing, so neither the exit status nor the reply proves an effect. Each argument passes a pattern that admits no quote, backslash, space or comma, because a plugin's text would otherwise reach the compositor's own syntax.
 
-Hyprland runs a global bind before the focused layer or window sees the key, so a capture must start in the compositor, and a submap is enterable only when a bind names it. `hyprctl binds -j` shows a Lua bind as `__lua` with a registry index, so the shell cannot learn which shortcut holds a key by reading Hyprland back; the shared conflict decision is how a plugin knows its key. A stuck submap would take every bind from the user.
+Hyprland runs a global bind before the focused layer or window sees the key, so a capture must start in the compositor, and a submap is enterable only when a bind names it. Hyprland 0.57's `hyprctl binds -j` shows a Lua global bind's handler as `HL.Dispatcher(global)`, so the shell cannot learn which shortcut holds a key by reading Hyprland back; the shared conflict decision is how a plugin knows its key. A stuck submap would take every bind from the user.
 
 ## Rules
 
