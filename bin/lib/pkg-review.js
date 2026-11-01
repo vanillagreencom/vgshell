@@ -295,7 +295,7 @@ function gather(request) {
                     state.lines.push(`siglevel ${origin} ${signature}`);
                 }
             }
-        } catch (e) { state.unknown.push(e.message); }
+        } catch (e) { step.binding = null; state.unknown.push(e.message); }
     }
     if (request.customAurArgv !== null) {
         try {
@@ -552,7 +552,7 @@ function consume(receipt, request, customArgv) {
             if (group) {
                 const current = gather({ ...record.request, groups: [group], rebuild: [] });
                 const step = record.state.steps.find(s => s.manager === "aur" && s.action === "upgrade");
-                if (!step || !same(current.steps[0].binding, step.binding)) refuse("review=authority-binding-changed");
+                if (!step || step.binding === null || !same(current.steps[0].binding, step.binding)) refuse("review=authority-binding-changed");
             }
             record.customConsumed = true;
             fs.writeFileSync(file, JSON.stringify(record), { mode: 0o600 });

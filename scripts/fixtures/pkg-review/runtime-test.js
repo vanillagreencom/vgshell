@@ -96,8 +96,12 @@ try{
   assert.ok(!r.stdout.includes("\x1b[2J"),"package-customize=screen-cleared");
   console.log("package-customize-proof: "+JSON.stringify({status:r.status,offers:calls.filter(c=>c.kind==="offer").length}));
  }
- if(!only&&select("authority"))for(const manager of ["pacman","aur"])for(const change of ["none","consumed","manager","action","targets","config","include","config-path","ignore","pending","origin","binary","transaction","missing","unreadable","symlink","recipe","outer","outer-missing","config-link","config-link-changed"]){
-  const w=create(path.join(scratch,"authority-"+manager+"-"+change),{choices:change==="recipe"?["Review","Use Claude Code","Yes"]:["Install without review"]});
+ if(!only&&select("authority"))for(const [manager,change] of [
+  ...["pacman","aur"].flatMap(manager=>["none","consumed","manager","action","targets","config","include","config-path","ignore","pending","origin","binary","transaction","missing","unreadable","symlink","recipe","outer","outer-missing","config-link","config-link-changed"].map(change=>[manager,change])),
+  ["pacman","origin-read-failed"],
+  ["aur","custom-origin-read-failed"]
+ ]){
+  const w=create(path.join(scratch,"authority-"+manager+"-"+change),{choices:change==="recipe"?["Review","Use Claude Code","Yes"]:change==="custom-origin-read-failed"?["Install without review","Yes"]:["Install without review"]});
   const fixture=path.join(__dirname,"authority.js");
   const command=[process.execPath,fixture,w.root,change,manager].map(s=>"'"+s.replaceAll("'","'\\''")+"'").join(" ");
   const r=cp.spawnSync("/usr/bin/script",["-qec",command,"/dev/null"],{env:{...w.env,SHELL:"/usr/bin/bash"},encoding:"utf8",timeout:30000});
@@ -105,6 +109,7 @@ try{
   const result=JSON.parse(fs.readFileSync(path.join(w.root,"authority-result.json"))),calls=w.calls();
   const allowed=change==="none"||change==="config-link"||(change==="outer"&&manager==="pacman");
   assert.equal(result.code===0,allowed,r.stdout);
+  if(change==="origin-read-failed"||change==="custom-origin-read-failed")assert.match(r.stdout,/review=authority-binding-(?:unreadable|changed)/);
   assert.equal(calls.filter(c=>c.kind==="mutation").length-result.before,allowed?(change==="none"&&manager==="pacman"?3:1):0,change+":"+JSON.stringify(calls));
   assert.equal(calls.filter(c=>c.kind==="offer"&&c.offered.includes("Review")).length,1);
   if(change==="outer"&&manager==="pacman")assert.ok(!calls.some(c=>c.kind==="credential"&&c.args[0]==="-k"));

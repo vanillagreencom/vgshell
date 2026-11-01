@@ -13,6 +13,11 @@ const linkedConfig=manager==="pacman"?config:other;
 if(change==="config-link"||change==="config-link-changed"){fs.renameSync(linkedConfig,linkedConfig+".source");fs.symlinkSync(linkedConfig+".source",linkedConfig);}
 const request={version:1,mode:"upgrade",action:"upgrade",groups:[{manager:"pacman",names:[],installs:[],ignored:["input-ignore"],config},{manager:"aur",names:[],installs:[],ignored:[],config:other}],sources:["pacman","aur"],rebuild:["aurpkg"],config:other,customAurArgv:null};
 if(change==="recipe")request.rebuild=["foreign"];
+if(change==="origin-read-failed")fs.writeFileSync(path.join(root,"server-empty"),"");
+if(change==="custom-origin-read-failed"){
+ fs.writeFileSync(path.join(root,"query-failed"),"");
+ request.customAurArgv=["paru","--devel"];
+}
 const req=path.join(env.VGS_PACKAGE_TRANSACTION,"request"),result=path.join(env.VGS_PACKAGE_TRANSACTION,"result");
 for(const [file,value]of [[req,JSON.stringify(request)],[result,""]])fs.writeFileSync(file,value,{flag:"wx",mode:0o600});
 function run(args){return cp.spawnSync(process.execPath,[owner,...args],{env,stdio:"inherit"}).status;}
@@ -22,7 +27,8 @@ if(reply.decision!=="proceed")process.exit(81);
 let args=["run","upgrade","--manager",manager,"--review-receipt",reply.receipt,"--config",manager==="pacman"?config:other,...(manager==="pacman"?["--ignore","input-ignore"]:[])];
 const replace=(needle,value)=>{const at=args.indexOf(needle);if(at<0)throw Error(needle);args[at]=value;};
 switch(change){
- case"none":case"config-link":break;
+ case"none":case"config-link":case"origin-read-failed":break;
+ case"custom-origin-read-failed":args=["review-custom-consume",reply.receipt,JSON.stringify(request.customAurArgv)];break;
  case"config-link-changed":fs.copyFileSync(linkedConfig,linkedConfig+".new");fs.appendFileSync(linkedConfig+".new","# changed\n");fs.unlinkSync(linkedConfig);fs.symlinkSync(linkedConfig+".new",linkedConfig);break;
  case"outer":env.VGS_TUI_SUDO_SESSION=String(process.pid);break;
  case"outer-missing":env.VGS_TUI_SUDO_SESSION=String(process.pid);args.splice(args.indexOf("--review-receipt"),2);break;
@@ -47,6 +53,10 @@ switch(change){
 }
 const before=fs.readFileSync(path.join(root,"calls.jsonl"),"utf8").split("\n").filter(Boolean).map(JSON.parse).filter(c=>c.kind==="mutation").length;
 const code=run(args);
+if(code===0&&change==="custom-origin-read-failed"){
+ const mutation=cp.spawnSync(request.customAurArgv[0],request.customAurArgv.slice(1),{env,stdio:"inherit"});
+ if(mutation.status!==0)process.exit(85);
+}
 fs.writeFileSync(path.join(root,"authority-result.json"),JSON.stringify({code,before,reply}));
 // Prepared siblings remain independent and each consume once.
 if(change==="none"&&manager==="pacman"){
