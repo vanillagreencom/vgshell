@@ -63,7 +63,7 @@ jobs:
           # the X display that scripts/qml-unit.sh draws it on.
           pacman -Syu --noconfirm --needed \
             git base-devel nodejs python python-dbus python-gobject python-numpy jq rclone \
-            qt6-declarative quickshell util-linux bubblewrap lua gnupg sqv \
+            qt6-declarative quickshell util-linux bubblewrap lua gnupg sequoia-sqv \
             libsecret xdg-dbus-proxy sudo tmux ghostty neovim fd fzf gum file glib2 xdg-utils imagemagick ffmpeg \
             qt6-shadertools pipewire pipewire-audio ttf-dejavu ttf-liberation wayland-protocols \
             xorg-server-xvfb xorg-xauth
