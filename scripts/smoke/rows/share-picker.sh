@@ -201,6 +201,7 @@ PY
 cc -Wall -Wextra -Werror "$share_world/other.c" "$sandbox/xdg-shell-protocol.c" -I"$sandbox" -o "$share_world/other" $(pkg-config --cflags --libs wayland-client)
 spawn_display "$share_world/other.log" "${shell_env[@]}" -- "$share_world/other" smoke.share-other "Other share target"
 share_other_pid="$spawn_pid"
+acquire_toplevel "$share_other_pid" "$share_world/other.log"
 share_other_mapped() { hypr -j clients | py_reply 'import json,sys; print(any(c["class"]=="smoke.share-other" and c["mapped"] for c in json.load(sys.stdin)))'; }
 expect_poll "the other preview source is live at the same time" True share_other_mapped
 share_other_address="$(toplevel_address "$share_other_pid")"

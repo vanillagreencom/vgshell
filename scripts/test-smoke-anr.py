@@ -485,6 +485,79 @@ printf 'successor-ran\\n'
             os.close(capture.notify_fd)
     print("smoke-anr: capture=bounded missing-and-clipped=explicit")
 
+    # Native helper ownership retains the acquired generation, rather than
+    # looking up its numeric PID again when a row eventually closes it.
+    with contextlib.ExitStack() as stack:
+        native_owner = namespace["Record"].__new__(namespace["Record"])
+        native_owner.native_handles = {}
+        native_owner.next_native = 0
+        children = []
+
+        def native_child(name):
+            log = root / (name + ".log")
+            output = stack.enter_context(log.open("xb"))
+            ready, acknowledgement = os.pipe()
+            process = subprocess.Popen([PYTHON, "-c", '''import os,signal,sys
+signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+os.write(int(sys.argv[1]), b"1")
+os.close(int(sys.argv[1]))
+while True: signal.pause()
+''', str(acknowledgement)], env=ENV, stdout=output, pass_fds=(acknowledgement,))
+            os.close(acknowledgement)
+            handle = os.pidfd_open(process.pid)
+            children.append((process, handle))
+            try:
+                assert select.select([ready], [], [], 3)[0], "native fixture readiness"
+                assert os.read(ready, 1) == b"1"
+            finally:
+                os.close(ready)
+            return process, handle, log
+
+        try:
+            for state in ("owned", "exited", "reused-pid"):
+                process, handle, log = native_child("native-" + state)
+                token = native_owner.native_acquire(str(process.pid), str(os.getpid()), str(log))
+                if state != "owned":
+                    signal.pidfd_send_signal(handle, signal.SIGTERM)
+                    assert process.wait(timeout=3) == 0
+                if state == "reused-pid":
+                    replacement, replacement_handle, _ = native_child("native-replacement")
+                    # Simulate numeric reuse with a real, independently held
+                    # child. The old pidfd stays bound to the ended generation.
+                    native_owner.native_handles[token]["pid"] = str(replacement.pid)
+                native_owner.native_close(token, "7")
+                assert token not in native_owner.native_handles
+                assert select.select([handle], [], [], 0)[0], state + ": helper survived"
+                assert process.wait(timeout=3) == 0
+                if state == "reused-pid":
+                    assert not select.select([replacement_handle], [], [], 0)[0], "numeric reuse signalled replacement"
+            process, handle, log = native_child("native-unowned")
+            for owner, path in (("1", str(log)), (str(os.getpid()), str(root / "native-owned.log"))):
+                try:
+                    native_owner.native_acquire(str(process.pid), owner, path)
+                except ValueError as error:
+                    assert str(error).startswith("native-owner-unproved:"), str(error)
+                else:
+                    raise AssertionError("foreign native acquisition accepted")
+                assert not select.select([handle], [], [], 0)[0], "foreign native acquisition signalled child"
+            try:
+                native_owner.native_close("unacquired", "7")
+            except ValueError as error:
+                assert str(error) == "native-owner-unacquired:unacquired"
+            else:
+                raise AssertionError("unacquired native close accepted")
+            assert not select.select([handle], [], [], 0)[0]
+        finally:
+            for native in native_owner.native_handles.values():
+                if native["handle"] is not None:
+                    os.close(native["handle"])
+            for process, handle in children:
+                if not select.select([handle], [], [], 0)[0]:
+                    signal.pidfd_send_signal(handle, signal.SIGKILL)
+                process.wait(timeout=3)
+                os.close(handle)
+    print("smoke-anr: native-owner=retained exited-and-reused-pid=kept foreign=refused")
+
     # The same recorder owns bounded stopping. A TERM-resistant real child
     # exercises the exit observation before reap; its pidfd stays held by
     # this test even if the cleanup helper fails.

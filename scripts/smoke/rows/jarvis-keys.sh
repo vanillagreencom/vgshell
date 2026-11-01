@@ -334,6 +334,17 @@ jarvis_key_active_stop() { # PHASE
   jarvis_key_stop_assertion
   expect "a stale callback starts no new playback" "$starts" jarvis_key_effects playback-start
 }
+# The inner row can replace the Probe that owns this registration/counter.
+jarvis_key_resume_marker() {
+  local reply
+  reply="$(ipc smoke holdMarkerStart)" || { fail "jarvis-keys: marker reacquisition failed"; return 1; }
+  if [[ $reply != ok && $reply != held ]]; then
+    fail "jarvis-keys: marker reacquisition reply=$reply"
+    return 1
+  fi
+  expect_poll "the observer's native ordering marker is registered after the bubble" 1 hold_native smoke:hold-marker
+  read_count hold_markers "jarvis-keys: ordering markers after the bubble" ipc smoke holdMarkerCount
+}
 jarvis_key_startup() {
   rm -f -- "$jarvis_gate" "$jarvis_seen"
   expect "the gated key service enables" ok ipc shell setPluginEnabled vgs.jarvis true
@@ -587,7 +598,14 @@ jarvis_enable
 jarvis_key_mode hold
 jarvis_key_active_stop thinking
 jarvis_key_active_stop speaking
+# The bubble's requirement stand-ins span its row boundary: the scan closes
+# Jarvis's enable-time notice before the nested row captures its baseline.
+jarvis_setup_requirements
+rescan "the bubble requirement stand-ins are ready before its boundary"
+expect_poll "no requirement notice enters the bubble row" null notice_shown
 smoke_row jarvis-bubble
+jarvis_restore_requirements
+jarvis_key_resume_marker
 jarvis_key_initial_opens="$(jarvis_key_effects capture-open)"
 jarvis_key_talk_down
 expect_poll "the physical talk key starts listening" listening jarvis_key_state phase
@@ -764,7 +782,7 @@ cp -- "$sandbox/jarvis-key-backend-before" "$jarvis_key_backend"
 cp -- "$sandbox/jarvis-key-engine-before" "$jarvis_key_engine"
 cp -- "$sandbox/jarvis-key-session-before" "$jarvis_key_session"
 rm -- "$repo/shell/plugins/vgs.jarvis/backend/scripted-fixture.js"
-rm -- "$home/.local/state/vgshell/jarvis/mute.json"
+rm -f -- "$home/.local/state/vgshell/jarvis/mute.json"
 jarvis_rescan
 user_config_restore "$sandbox/jarvis-key-config-before.json"
 cp -- "$sandbox/jarvis-key-lua-before" "$jarvis_key_lua"

@@ -41,7 +41,7 @@ CAP_STREAMS = 128
 # A cleanup helper's parent SIGKILLs it this many seconds after the
 # operation's own deadline, so the helper's escalation and finally run first.
 REAP_MARGIN = 1
-OPERATION_COMMANDS = {"anr-cleanup", "row-acquire", "row-release", "row-verify-bus", "row-stop-shells", "row-close-added", "stop-process", "stop-shell-owner", "close-reporter"}
+OPERATION_COMMANDS = {"anr-cleanup", "row-acquire", "row-release", "row-verify-bus", "row-stop-shells", "row-close-added", "stop-process", "stop-shell-owner", "close-reporter", "native-acquire", "native-close"}
 PREFIX = b"VGS_DISPLAY_EVENT "
 IN_MODIFY = 0x00000002
 IN_ATTRIB = 0x00000004
@@ -325,6 +325,8 @@ class Record:
         self.anr_incidents = []
         self.anr_handles = {}
         self.row_handles = {}
+        self.native_handles = {}
+        self.next_native = 0
         self.anr_bytes = 0
         self.emit("recorder", "arm", {
             "schema": "vgs.display-record.v1", "run": self.directory.name,
@@ -877,7 +879,61 @@ class Record:
                 if current_bus.get(name) != pid or select.select([fd], [], [], 0)[0] or process_binding(pid) != identity:
                     raise ValueError("row-bus-owner-ended:" + name)
 
-    def stop_process(self, pid, root, expected=None, detached=False, orderly=None):
+    def native_acquire(self, pid, owner, log):
+        # The launching Bash supplies its own child and original output log.
+        # Keep the pidfd before observing mapping; an ended acquisition owns
+        # no signal right, even when its numeric PID has since been reused.
+        if len(self.native_handles) >= CAP_EVENTS:
+            raise ValueError("native-owner-capacity")
+        handle = None
+        try:
+            try:
+                handle = os.pidfd_open(int(pid))
+            except ProcessLookupError:
+                pass
+            identity = process_binding(pid)
+            if handle is not None and not select.select([handle], [], [], 0)[0]:
+                try:
+                    parent = (pathlib.Path("/proc") / pid / "stat").read_text().rsplit(")", 1)[1].split()[1]
+                    output = pathlib.Path(log).stat()
+                    if parent != owner or identity.get("stdout") != [output.st_dev, output.st_ino]:
+                        raise ValueError("native-owner-unproved:" + pid)
+                    if identity.get("status") != "live":
+                        raise ValueError("native-owner-unreadable:" + pid)
+                except (FileNotFoundError, ValueError):
+                    if not select.select([handle], [], [], 0)[0]:
+                        raise
+            if handle is not None and select.select([handle], [], [], 0)[0]:
+                os.close(handle)
+                handle = None
+            self.next_native += 1
+            token = str(self.next_native)
+            self.native_handles[token] = dict(pid=pid, owner=owner, handle=handle, identity=identity)
+            return token
+        except BaseException:
+            if handle is not None:
+                os.close(handle)
+            raise
+
+    def native_stop(self, token):
+        native = self.native_handles[token]
+        handle = native["handle"]
+        if handle is None or select.select([handle], [], [], 0)[0]:
+            return
+        self.stop_process(native["pid"], native["owner"], native["identity"], orderly=5, root_handle=handle)
+
+    def native_close(self, token, bound):
+        if token not in self.native_handles:
+            raise ValueError("native-owner-unacquired:" + token)
+        self.bounded_cleanup("native_stop", (token,), bound)
+        native = self.native_handles[token]
+        if native["handle"] is not None and not select.select([native["handle"]], [], [], 0)[0]:
+            raise ValueError("native-owner-survived:" + token)
+        self.native_handles.pop(token)
+        if native["handle"] is not None:
+            os.close(native["handle"])
+
+    def stop_process(self, pid, root, expected=None, detached=False, orderly=None, root_handle=None):
         # Acquire before reading ancestry and retain through exit. A stopped
         # parent cannot fork or reparent its children during acquisition.
         # An orderly stop sends one TERM to the root alone and waits up to
@@ -890,7 +946,7 @@ class Record:
         deadline = self.operation_deadline
         if orderly is not None:
             try:
-                handle = os.pidfd_open(int(pid))
+                handle = os.dup(root_handle) if root_handle is not None else os.pidfd_open(int(pid))
             except ProcessLookupError:
                 return
             try:
@@ -910,7 +966,7 @@ class Record:
             if time.monotonic() >= deadline:
                 raise ValueError("row-owner-acquisition-timeout")
             try:
-                fd = os.pidfd_open(int(child))
+                fd = os.dup(root_handle) if child == pid and root_handle is not None else os.pidfd_open(int(child))
             except ProcessLookupError:
                 return
             identity = process_binding(str(child))
@@ -1536,6 +1592,10 @@ class Record:
                     self.bounded_cleanup("row_close_added", args, self.anr_bound)
                 elif command == "stop-process":
                     self.bounded_cleanup("stop_process", args[:2], args[2])
+                elif command == "native-acquire":
+                    value = self.native_acquire(*args)
+                elif command == "native-close":
+                    self.native_close(*args)
                 elif command == "stop-shell-owner":
                     # args[2] is the orderly TERM wait; the forced kill gets a
                     # bound of its own as long, after it.
@@ -1803,6 +1863,10 @@ class Record:
         finally:
             for directory in list(self.row_handles):
                 self.row_release(directory)
+            for native in self.native_handles.values():
+                if native["handle"] is not None:
+                    os.close(native["handle"])
+            self.native_handles.clear()
             for fd in self.anr_handles.values():
                 os.close(fd)
             self.anr_handles.clear()

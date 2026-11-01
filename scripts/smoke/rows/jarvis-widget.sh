@@ -333,12 +333,12 @@ jarvis_widget_restore WidgetView.js
 cp -- "$sandbox/jarvis-widget-before-jarvisd.js" "$jarvis_widget_dir/backend/jarvisd.js"
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/prepare.js" --floor-daemon "$jarvis_widget_dir/backend/jarvisd.js"
 jarvis_rescan
+# The permanent stop and the Mute refusal send Jarvis cards. Have their
+# recipient ready first, with Silence off, then restore its disabled state.
+notes_on "the problem-state refusal"
 expect "the permanent-problem widget service enables" ok ipc shell setPluginEnabled vgs.jarvis true
 expect_poll "the real service reports its permanent cause" permanent jarvis_permanent
 expect_poll "the widget reads the permanent problem" '["circle-alert", "danger"]' jarvis_widget_look
-# The refusal is a Jarvis card, read while vgs.notifications draws with
-# Silence off; it goes back to disabled, as the row found it, after.
-notes_on "the problem-state refusal"
 read_count jarvis_widget_refused "jarvis-widget: refusals before mute" jarvis_key_refusals 'Jarvis needs Node 22 or later'
 jarvis_widget_menu_choose "Mute Jarvis"
 expect_poll "the menu's Mute row in the problem state reports the refusal" "$((jarvis_widget_refused + 1))" jarvis_key_refusals 'Jarvis needs Node 22 or later'
