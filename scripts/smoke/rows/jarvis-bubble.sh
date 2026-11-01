@@ -34,17 +34,37 @@ EOF
     fi
     expect "the bubble row restores its focus rules" ok hypr reload config-only
   fi
-  jarvis_restore_requirements
   cp -p -- "$jarvis_bubble_row_config" "$home/.config/vgshell/shell.json.next"
   mv -T -- "$home/.config/vgshell/shell.json.next" "$home/.config/vgshell/shell.json"
   expect "the bubble row restores its configuration" ok ipc shell reloadConfig
-  jarvis_rescan
+  # Early geometry failure can leave the source snapshots unchanged.
+  rescan "the bubble row rescans its restored sources"
   jarvis_enable
   if [[ -n $jarvis_bubble_row_focus ]]; then
     expect "the bubble row restores its previous focus" ok hypr dispatch "hl.dsp.focus({ window = \"address:$jarvis_bubble_row_focus\" })"
   fi
 }
 smoke_row_abandon=(jarvis_bubble_abandon)
+
+jarvis_bubble_required_box() { # TYPE PROPERTY VALUE
+  local box
+  box="$(control_box vgs:layer vgs.jarvis "$@")" || { echo unreadable; return 1; }
+  [[ $box == \[* ]] || { printf '%s\n' "$box"; return 1; }
+  printf '%s\n' "$box"
+}
+jarvis_bubble_box_control() { # BOX STATUS
+  (
+    local reply="$1" transport_status="$2"
+    control_box() { printf '%s\n' "$reply"; return "$transport_status"; }
+    local box status=0
+    # Replace only the geometry transport; the reader still runs unchanged.
+    box="$(jarvis_bubble_required_box "$1" "$2")" || status=$?
+    printf 'status=%s box=%s\n' "$status" "$box"
+  )
+}
+expect "absent bubble geometry is a failed reading" 'status=1 box=absent' jarvis_bubble_box_control absent 0
+expect "failed bubble geometry transport is a failed reading" 'status=1 box=unreadable' jarvis_bubble_box_control absent 1
+expect "present bubble geometry remains readable" 'status=0 box=[1, 2, 3, 4]' jarvis_bubble_box_control '[1, 2, 3, 4]' 0
 
 jarvis_bubble_state() {
   ipc smoke layerWindows vgs.jarvis | py_reply '
@@ -397,13 +417,6 @@ mv -T -- "$jarvis_bubble_snapshots/backend.next" "$jarvis_bubble_snapshots/backe
 jarvis_disable
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" --held-approvals "$jarvis_key_backend"
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" --chained-engine "$jarvis_bubble_engine"
-# Every sandbox shell lacks a required Jarvis command (tesseract is in
-# qml-smoke.sh's shell_hidden_commands), so an enable raises the core
-# requirement notice, which under the pointer keeps the keyboard from the
-# client opened below. The stand-ins rows/jarvis-setup.sh stands let the
-# enables here raise none, and the scan that finds them closes a notice an
-# earlier enable left.
-jarvis_setup_requirements
 jarvis_rescan
 jarvis_enable
 expect_poll "no requirement notice stands over the bubble's client" null notice_shown
@@ -426,9 +439,16 @@ geometry expect_poll "the bubble follows the free area without a bar" bottom-cen
 expect "the bar returns without restarting Jarvis" ok ipc shell setPluginEnabled vgs.bar true
 expect_poll "the bubble follows the restored reserved space" presented jarvis_bubble_state
 
-read -r orb_x orb_y orb_w orb_h < <(python3 -c 'import json,sys; print(*json.loads(sys.argv[1]))' "$(control_box vgs:layer vgs.jarvis VoiceOrb active true)")
-read -r mute_x mute_y mute_w mute_h < <(python3 -c 'import json,sys; print(*json.loads(sys.argv[1]))' "$(control_box vgs:layer vgs.jarvis IconButton label 'Mute Jarvis')")
-read -r stop_x stop_y stop_w stop_h < <(python3 -c 'import json,sys; print(*json.loads(sys.argv[1]))' "$(control_box vgs:layer vgs.jarvis IconButton label 'Stop Jarvis')")
+if ! orb_box="$(jarvis_bubble_required_box VoiceOrb active true)" ||
+   ! mute_box="$(jarvis_bubble_required_box IconButton label 'Mute Jarvis')" ||
+   ! stop_box="$(jarvis_bubble_required_box IconButton label 'Stop Jarvis')"; then
+  fail "the bubble's decorative targets are unreadable: orb=$orb_box mute=${mute_box-unread} stop=${stop_box-unread}"
+  jarvis_bubble_abandon
+  return 0
+fi
+read -r orb_x orb_y orb_w orb_h < <(python3 -c 'import json,sys; print(*json.loads(sys.argv[1]))' "$orb_box")
+read -r mute_x mute_y mute_w mute_h < <(python3 -c 'import json,sys; print(*json.loads(sys.argv[1]))' "$mute_box")
+read -r stop_x stop_y stop_w stop_h < <(python3 -c 'import json,sys; print(*json.loads(sys.argv[1]))' "$stop_box")
 read -r orb_cx orb_cy mute_gap_x mute_gap_y < <(python3 -c '
 import sys
 orb = [float(v) for v in sys.argv[1:5]]
@@ -529,7 +549,12 @@ jarvis_bubble_think caption
 expect_poll "the bubble draws the latest three lines of Jarvis's words" latest-lines jarvis_bubble_words
 expect "the worded bubble keeps its presented indicator" presented jarvis_bubble_state
 geometry expect_poll "the worded bubble stays at bottom centre" bottom-centre jarvis_bubble_geometry
-read -r words_x words_y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(round(x+w/2),round(y+h/2))' "$(control_box vgs:layer vgs.jarvis QQuickItem clip true)")
+if ! words_box="$(jarvis_bubble_required_box QQuickItem clip true)"; then
+  fail "the bubble's words target is unreadable: got $words_box"
+  jarvis_bubble_abandon
+  return 0
+fi
+read -r words_x words_y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(round(x+w/2),round(y+h/2))' "$words_box")
 jarvis_bubble_pass "$words_x" "$words_y"
 jarvis_key_stop
 jarvis_key_stop_assertion
@@ -892,9 +917,6 @@ expect "control: ignoring presentation fails lost-host capture teardown" 2 jarvi
 jarvis_key_talk_up
 jarvis_key_stop
 jarvis_disable
-# Before the copies go back: its scan would take the source change the
-# rescan below reads.
-jarvis_restore_requirements
 cp -- "$jarvis_bubble_snapshots/bubble" "$jarvis_bubble_file"
 cp -- "$jarvis_bubble_snapshots/engine" "$jarvis_bubble_engine"
 cp -- "$jarvis_bubble_snapshots/backend" "$jarvis_key_backend"

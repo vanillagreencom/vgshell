@@ -587,7 +587,13 @@ jarvis_enable
 jarvis_key_mode hold
 jarvis_key_active_stop thinking
 jarvis_key_active_stop speaking
+# The bubble's requirement stand-ins span its row boundary: the scan closes
+# Jarvis's enable-time notice before the nested row captures its baseline.
+jarvis_setup_requirements
+rescan "the bubble requirement stand-ins are ready before its boundary"
+expect_poll "no requirement notice enters the bubble row" null notice_shown
 smoke_row jarvis-bubble
+jarvis_restore_requirements
 jarvis_key_initial_opens="$(jarvis_key_effects capture-open)"
 jarvis_key_talk_down
 expect_poll "the physical talk key starts listening" listening jarvis_key_state phase
