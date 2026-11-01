@@ -43,6 +43,20 @@ const unread = reason => ({ kind: "unread", reason });
 const rows = [
     ["makepkg check-only", evidence("makepkg-check-only"), checkOnly()],
     ["paru check-only", evidence("paru-check-only"), checkOnly()],
+    // Each minor's retained intervals carry the versions that produced them.
+    ...[
+        ["check-only", 1, checkOnly()],
+        ["build-fail", 1, ordinary("phase=other")],
+        ["package-fail", 1, ordinary("phase=other")],
+        ["source-missing", 1, ordinary("phase=other")],
+        ["integrity", 1, ordinary("phase=other")],
+        ["dependency", 1, ordinary("makepkg-errors=0")],
+        ["check-pass", 0, ordinary("status=success")],
+        ["multi", 1, ordinary("makepkg-errors=2")],
+        ["mixed", 1, ordinary("makepkg-errors=2")],
+        ["retry", 0, ordinary("status=success")]
+    ].map(([name, status, want]) => ["paru 2.2 " + name,
+        evidence("paru-2.2-" + name, { versions: { makepkg: "7.1.0", paru: "2.2.0" }, env: { LANG: "C.UTF-8", LC_ALL: "C.UTF-8" }, status }), want]),
     ["paru check-only for a qualified target", evidence("paru-check-only", { targets: ["aur/" + BASE] }), checkOnly("aur/" + BASE)],
     ["a finished dependency base before the target", evidence("paru-check-only", { interval: around("paru-check-only", making("vgs-fixture-dependency", true), "") }), checkOnly()],
     ["English messages under LC_ALL=C despite LANGUAGE", evidence("paru-check-only", { env: { LC_ALL: "C", LANGUAGE: "de" } }), checkOnly()],
@@ -76,7 +90,7 @@ const rows = [
     ["exit 13 with test words", evidence("makepkg-check-only", { status: 13, interval: { complete: true, text: "test_fixture ... FAILED\r\n" } }), ordinary("makepkg-errors=0")],
     ["paru's summary alone", evidence("paru-check-only", { interval: { complete: true, text: transcript("paru-check-only").split("    Aborting...")[1] } }), ordinary("makepkg-errors=0")],
     ["yay", evidence("paru-check-only", { builder: "yay", versions: { makepkg: "7.1.0", yay: "12.5.0" } }), unread("builder=unsupported")],
-    ["an unchecked paru version", evidence("paru-check-only", { versions: { makepkg: "7.1.0", paru: "2.2.0" } }), unread("version=unsupported")],
+    ["an unchecked paru version", evidence("paru-check-only", { versions: { makepkg: "7.1.0", paru: "2.3.0" } }), unread("version=unsupported")],
     ["an unchecked makepkg version", evidence("makepkg-check-only", { versions: { makepkg: "7.0.0" } }), unread("version=unsupported")],
     ["an unread version", evidence("paru-check-only", { versions: { makepkg: "7.1.0", paru: null } }), unread("version=unsupported")],
     ["a German message locale", evidence("paru-check-only", { env: { LANG: "de_DE.UTF-8" } }), unread("locale=unsupported")],
@@ -154,6 +168,7 @@ if (at < 0) {
     const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "package-failure-control-"));
     try {
         for (const [name, file, needle, replacement] of [
+            ["paru-admission", "PackageReview.js", "paru: /^2\\.(1|2)\\.[0-9]+$/", "paru: /^2\\.1\\.[0-9]+$/"],
             ["one-error", "PackageReview.js", "if (errors.length !== 1) return", "if (errors.length === 0) return"],
             ["check-phase", "PackageReview.js", 'if (started !== "check") return', "if (false) return"],
             ["summary", "PackageReview.js", "return ordinary(\"summary=mismatch\");", ";"],

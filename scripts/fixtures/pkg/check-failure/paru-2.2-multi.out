@@ -1,0 +1,58 @@
+:: Generating .SRCINFO for ./check-only...
+:: Generating .SRCINFO for ./check-two...
+:: Generating .SRCINFO for ./check-only...
+:: Generating .SRCINFO for ./check-two...
+:: Resolving dependencies...
+:: Calculating conflicts...
+:: Calculating inner conflicts...
+
+Pkgbuilds (2)             Old Version  New Version    Make Only
+./vgs-fixture-check-only               1.0-1          No
+./vgs-fixture-check-two                1.0-1          No
+
+:: Proceed with installation? [Y/n]: 
+fetching devel info...
+[1m[32m==>(B[m[1m Making package: vgs-fixture-check-only 1.0-1 (Sun Nov  1 18:32:25 2026)(B[m
+[1m[32m==>(B[m[1m Retrieving sources...(B[m
+[1m[32m==>(B[m[1m Making package: vgs-fixture-check-only 1.0-1 (Sun Nov  1 18:32:25 2026)(B[m
+[1m[32m==>(B[m[1m Checking runtime dependencies...(B[m
+[1m[32m==>(B[m[1m Checking buildtime dependencies...(B[m
+[1m[32m==>(B[m[1m Retrieving sources...(B[m
+[1m[32m==>(B[m[1m Removing existing $srcdir/ directory...(B[m
+[1m[32m==>(B[m[1m Extracting sources...(B[m
+[1m[32m==>(B[m[1m Sources are ready.(B[m
+vgs-fixture-check-only-1.0-1: parsing pkg list...
+[1m[32m==>(B[m[1m Making package: vgs-fixture-check-only 1.0-1 (Sun Nov  1 18:32:26 2026)(B[m
+[1m[32m==>(B[m[1m Checking runtime dependencies...(B[m
+[1m[32m==>(B[m[1m Checking buildtime dependencies...(B[m
+[1m[33m==> WARNING:(B[m[1m Using existing $srcdir/ tree(B[m
+[1m[32m==>(B[m[1m Starting build()...(B[m
+building fixture
+[1m[32m==>(B[m[1m Starting check()...(B[m
+running fixture tests
+test_fixture ... FAILED
+[1m[31m==> ERROR:(B[m[1m A failure occurred in check().(B[m
+[1m    Aborting...(B[m
+error: failed to build 'vgs-fixture-check-only-1.0-1': 
+[1m[32m==>(B[m[1m Making package: vgs-fixture-check-two 1.0-1 (Sun Nov  1 18:32:26 2026)(B[m
+[1m[32m==>(B[m[1m Retrieving sources...(B[m
+[1m[32m==>(B[m[1m Making package: vgs-fixture-check-two 1.0-1 (Sun Nov  1 18:32:27 2026)(B[m
+[1m[32m==>(B[m[1m Checking runtime dependencies...(B[m
+[1m[32m==>(B[m[1m Checking buildtime dependencies...(B[m
+[1m[32m==>(B[m[1m Retrieving sources...(B[m
+[1m[32m==>(B[m[1m Removing existing $srcdir/ directory...(B[m
+[1m[32m==>(B[m[1m Extracting sources...(B[m
+[1m[32m==>(B[m[1m Sources are ready.(B[m
+vgs-fixture-check-two-1.0-1: parsing pkg list...
+[1m[32m==>(B[m[1m Making package: vgs-fixture-check-two 1.0-1 (Sun Nov  1 18:32:27 2026)(B[m
+[1m[32m==>(B[m[1m Checking runtime dependencies...(B[m
+[1m[32m==>(B[m[1m Checking buildtime dependencies...(B[m
+[1m[33m==> WARNING:(B[m[1m Using existing $srcdir/ tree(B[m
+[1m[32m==>(B[m[1m Starting build()...(B[m
+[1m[32m==>(B[m[1m Starting check()...(B[m
+second fixture tests
+[1m[31m==> ERROR:(B[m[1m A failure occurred in check().(B[m
+[1m    Aborting...(B[m
+error: failed to build 'vgs-fixture-check-two-1.0-1': 
+error: packages failed to build: vgs-fixture-check-only-1.0-1  vgs-fixture-check-two-1.0-1
+

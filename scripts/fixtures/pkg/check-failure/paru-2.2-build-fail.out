@@ -1,0 +1,32 @@
+:: Generating .SRCINFO for ./build-fail...
+:: Generating .SRCINFO for ./build-fail...
+:: Resolving dependencies...
+:: Calculating conflicts...
+:: Calculating inner conflicts...
+
+Pkgbuilds (1)             Old Version  New Version    Make Only
+./vgs-fixture-build-fail               1.0-1          No
+
+:: Proceed with installation? [Y/n]: 
+fetching devel info...
+[1m[32m==>(B[m[1m Making package: vgs-fixture-build-fail 1.0-1 (Sun Nov  1 18:32:12 2026)(B[m
+[1m[32m==>(B[m[1m Retrieving sources...(B[m
+[1m[32m==>(B[m[1m Making package: vgs-fixture-build-fail 1.0-1 (Sun Nov  1 18:32:12 2026)(B[m
+[1m[32m==>(B[m[1m Checking runtime dependencies...(B[m
+[1m[32m==>(B[m[1m Checking buildtime dependencies...(B[m
+[1m[32m==>(B[m[1m Retrieving sources...(B[m
+[1m[32m==>(B[m[1m Removing existing $srcdir/ directory...(B[m
+[1m[32m==>(B[m[1m Extracting sources...(B[m
+[1m[32m==>(B[m[1m Sources are ready.(B[m
+vgs-fixture-build-fail-1.0-1: parsing pkg list...
+[1m[32m==>(B[m[1m Making package: vgs-fixture-build-fail 1.0-1 (Sun Nov  1 18:32:13 2026)(B[m
+[1m[32m==>(B[m[1m Checking runtime dependencies...(B[m
+[1m[32m==>(B[m[1m Checking buildtime dependencies...(B[m
+[1m[33m==> WARNING:(B[m[1m Using existing $srcdir/ tree(B[m
+[1m[32m==>(B[m[1m Starting build()...(B[m
+compiling fixture
+[1m[31m==> ERROR:(B[m[1m A failure occurred in build().(B[m
+[1m    Aborting...(B[m
+error: failed to build 'vgs-fixture-build-fail-1.0-1': 
+error: packages failed to build: vgs-fixture-build-fail-1.0-1
+

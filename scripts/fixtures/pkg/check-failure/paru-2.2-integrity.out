@@ -1,0 +1,20 @@
+:: Generating .SRCINFO for ./integrity...
+:: Generating .SRCINFO for ./integrity...
+:: Resolving dependencies...
+:: Calculating conflicts...
+:: Calculating inner conflicts...
+
+Pkgbuilds (1)            Old Version  New Version    Make Only
+./vgs-fixture-integrity               1.0-1          No
+
+:: Proceed with installation? [Y/n]: 
+fetching devel info...
+[1m[32m==>(B[m[1m Making package: vgs-fixture-integrity 1.0-1 (Sun Nov  1 18:32:18 2026)(B[m
+[1m[32m==>(B[m[1m Retrieving sources...(B[m
+[1m[34m  ->(B[m[1m Found integrity.txt(B[m
+[1m[32m==>(B[m[1m Validating source files with sha256sums...(B[m
+    integrity.txt ... FAILED
+[1m[31m==> ERROR:(B[m[1m One or more files did not pass the validity check!(B[m
+error: failed to download sources for 'vgs-fixture-integrity-1.0-1': 
+error: packages failed to build: vgs-fixture-integrity-1.0-1
+
