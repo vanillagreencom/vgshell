@@ -21,7 +21,6 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
-const childProcess = require("node:child_process");
 const vm = require("node:vm");
 const { load } = require("../bin/lib/qml-library.js");
 
@@ -53,6 +52,13 @@ function verifyAppSoundAdmission(source) {
         assert.ok(found, "exercise AppSounds." + name);
         return found[0];
     })).join("\n");
+    const deferred = source.match(/^    readonly property var deferredWork: \{([\s\S]*?)^    \}/m);
+    assert.ok(deferred, "exercise AppSounds.deferredWork initializer");
+    function initialize(context) {
+        vm.createContext(context);
+        vm.runInContext(functions, context);
+        context.deferredWork = vm.runInContext("(function() {" + deferred[1] + "\n})()", context);
+    }
     for (const [label, events] of [
         ["bound before admission", ["ready", "serial", "paused", "list", "admit"]],
         ["binding completes after admission", ["serial", "paused", "list", "admit", "ready"]],
@@ -68,15 +74,14 @@ function verifyAppSoundAdmission(source) {
         const context = {
             Logic: load(file, commons), Date: { now: () => 1000 },
             streams: [], initialized: false, holds: {}, arms: {}, ruleHeldSerials: [], ruleHold: null,
-            ruleRunning: true, holdNames: ["smoke knock"], lastHold: "", holdTries: 0,
+            ruleRunning: false, holdNames: ["smoke knock"], lastHold: "", holdTries: 0,
             shellSounds: "/shell/assets/sounds", Pipewire: { nodes: { values: [] } },
             writer: { running: true, processId: 42 }, holdRetry: { stop() {} }, clock: { stop() {}, restart() {} },
             Qt: { callLater(job) { jobs.push(job); } }, modelData: { node }
         };
         context.root = context;
         context.holdWriter = { running: false, send() { sent.push(JSON.parse(context.holdEntry(42))); } };
-        vm.createContext(context);
-        vm.runInContext(functions, context);
+        initialize(context);
         function flush() { while (jobs.length) jobs.shift()(); }
         for (const event of events) {
             if (event === "list") {
@@ -97,10 +102,22 @@ function verifyAppSoundAdmission(source) {
             if (!node.ready || !node.properties["object.serial"] || !node.properties["pulse.corked"])
                 assert.equal(sent.some(entry => entry.released.includes("9007199254740993")), false, label + ": incomplete facts never release the stream");
         }
+        assert.notEqual(context.ruleHold, null, label + ": a live writer publishes intent before a rule is running");
         const entry = JSON.parse(context.holdEntry(42));
         assert.deepEqual(entry.streams, ["9007199254740993"], label + ": the paused stream is exactly held");
         assert.deepEqual(entry.released, [], label + ": the held stream is not released");
         assert.equal(sent.some(value => value.streams.includes("9007199254740993")), true, label + ": the writer publishes adoption");
+        assert.equal(entry.deadlineMs, 15000, label + ": the rule receives the shell's finite unadopted hold bound");
+        const changed = source.match(/^    onRuleRunningChanged: \{[\s\S]*?^    \}/m);
+        assert.ok(changed, "exercise the rule availability handler");
+        context.ruleGrace = { stop() {}, restart() {} };
+        const before = sent.length;
+        for (const running of [true, false, true]) {
+            context.ruleRunning = running;
+            vm.runInContext(changed[0].replace(/^    onRuleRunningChanged: /, ""), context);
+            assert.equal(sent.length, before, label + ": rule availability never republishes hold intent");
+            assert.notEqual(context.ruleHold, null, label + ": rule availability keeps current intent");
+        }
         node.properties["pulse.corked"] = "false";
         context.judge(node);
         flush();
@@ -121,8 +138,7 @@ function verifyAppSoundAdmission(source) {
             Qt: { callLater() {} }, holdWriter: { running: false, send() {} }
         };
         context.root = context;
-        vm.createContext(context);
-        vm.runInContext(functions, context);
+        initialize(context);
         context.refresh();
         context.initialized = true;
         context.writeHold(true);
@@ -160,11 +176,234 @@ try {
     const controlFile = path.join(admissionControl, "AppSounds.qml");
     fs.writeFileSync(controlFile, mutant, { flag: "wx" });
     assert.throws(() => verifyAppSoundAdmission(fs.readFileSync(controlFile, "utf8")), assert.AssertionError);
+    const gate = "if (!writer.running) return;";
+    assert.equal(appSoundsSource.split(gate).length, 2, "writer control matches once");
+    const gated = appSoundsSource.replace(gate, "if (!ruleRunning || !writer.running) return;");
+    assert.notEqual(gated, appSoundsSource);
+    fs.writeFileSync(controlFile, gated);
+    assert.throws(() => verifyAppSoundAdmission(fs.readFileSync(controlFile, "utf8")), assert.AssertionError, "writer must not wait for rule availability");
     console.log("test-notifications-logic: app-sounds-admission=pass control=one-pass-adoption-rejected");
 } finally {
     fs.rmSync(admissionControl, { recursive: true, force: true });
 }
 if (process.argv.includes("--app-sounds")) process.exit(0);
+
+// Exercise the install owner's real handlers without starting a service.
+// Process completions are explicit deliveries; no fixture runs systemctl.
+function verifySoundRuleActivation(source) {
+    const logic = load(file, commons);
+    const block = id => {
+        const start = source.indexOf("    Process {\n        id: " + id + "\n");
+        assert.notEqual(start, -1, "exercise SoundRule process " + id);
+        const end = source.indexOf("\n    }", start);
+        assert.notEqual(end, -1);
+        return source.slice(start, end);
+    };
+    const handler = id => {
+        const found = block(id).match(/        onRunningChanged: \{([\s\S]*)\n        \}/);
+        assert.ok(found, "exercise SoundRule completion " + id);
+        return "(function() {" + found[1] + "\n})()";
+    };
+    const command = id => {
+        const found = block(id).match(/^        command: (.+)$/m);
+        assert.ok(found);
+        return found[1];
+    };
+    const read = source.match(/^    function read\(text\) \{[\s\S]*?^    \}/m);
+    assert.ok(read);
+    for (const [marker, expected] of [["", "pipewire.service"], ["hold-store-v1 v1", "wireplumber.service"]]) {
+        let settled = 0;
+        const context = { Logic: logic, version: "v2", marker, bootstrap: false, step: "reading", problem: "",
+            markerWriter: { running: false }, restart: { running: false }, resumer: { running: false },
+            running: false, completion: null, markedResult: { text: "marked\n" }, restartErr: { text: "" },
+            settle: { restart() { settled++; } }, console: { info() {} },
+            stop() { this.step = "failed"; } };
+        context.rule = context;
+        vm.createContext(context);
+        vm.runInContext(read[0], context);
+        context.read("[]");
+        assert.equal(context.markerWriter.running, true, "activation records its attempt before restarting");
+        assert.equal(context.restart.running, false);
+        assert.equal(context.resumer.running, false);
+        context.completion = { code: 0, status: 0 };
+        vm.runInContext(handler("markerWriter"), context);
+        assert.equal(context.restart.running, true);
+        assert.equal(context.resumer.running, false, "WirePlumber waits for the PipeWire restart result");
+        assert.deepEqual(Array.from(vm.runInContext(command("restart"), context)), ["systemctl", "--user", "restart", expected]);
+        context.completion = { code: 0, status: 0 };
+        vm.runInContext(handler("restart"), context);
+        if (expected === "pipewire.service") {
+            assert.equal(context.resumer.running, true, "bootstrap resumes WirePlumber after the daemon restart");
+            assert.equal(settled, 0, "bootstrap is not done before WirePlumber resumes");
+            assert.deepEqual(Array.from(vm.runInContext(command("resumer"), context)), ["systemctl", "--user", "start", "wireplumber.service"]);
+            context.completion = { code: 0, status: 0 };
+            vm.runInContext(handler("resumer"), context);
+        } else assert.equal(context.resumer.running, false, "a Lua upgrade needs no second service job");
+        assert.equal(settled, 1);
+    }
+    const manifest = pluginLogic.validateManifest(JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8")), path.dirname(file));
+    assert.equal(manifest.ok, true);
+    for (const reason of ["config", "manager", "unit"]) {
+        const context = { Logic: logic, running: false, completion: { code: 0, status: 0 },
+            installedResult: { text: "unsupported:" + reason + "\n" }, installErr: { text: "" },
+            console: { info() {} }, readRule() { assert.fail("unsupported installation must not activate services"); } };
+        context.rule = context;
+        vm.createContext(context);
+        vm.runInContext(handler("installer"), context);
+        assert.equal(context.step, "unavailable");
+        assert.equal(context.problem, reason);
+        const status = logic.soundRuleSetup(context.step, context.problem);
+        assert.equal(status.available, false);
+        const written = pluginLogic.statusWrite(manifest.manifest, {}, "soundRuleSetup", status);
+        assert.equal(written.ok, true, "Settings admits the unsupported setup notice");
+        assert.ok(pluginLogic.statusRows(manifest.manifest, written.values).some(row => row.key === "soundRuleSetup"),
+            "unsupported setup remains in the Settings list");
+    }
+}
+const soundRuleFile = path.join(path.dirname(file), "SoundRule.qml");
+const soundRuleSource = fs.readFileSync(soundRuleFile, "utf8");
+verifySoundRuleActivation(soundRuleSource);
+const activationControl = fs.mkdtempSync(path.join(os.tmpdir(), "vgs-activation-control-"));
+try {
+    for (const [name, needle, replacement] of [
+        ["daemon restart argv", '["systemctl", "--user", "restart", "pipewire.service"]', '["systemctl", "--user", "restart", "wireplumber.service"]'],
+        ["WirePlumber resumption", 'if (rule.bootstrap) resumer.running = true;', 'if (rule.bootstrap) settle.restart();'],
+        ["unsupported setup notice", 'rule.step = "unavailable";', 'rule.step = "installed";']
+    ]) {
+        assert.equal(soundRuleSource.split(needle).length, 2, "SoundRule control matches once: " + name);
+        const copy = path.join(activationControl, "SoundRule.qml");
+        const changed = soundRuleSource.replace(needle, replacement);
+        assert.notEqual(changed, soundRuleSource);
+        fs.writeFileSync(copy, changed);
+        assert.throws(() => verifySoundRuleActivation(fs.readFileSync(copy, "utf8")), assert.AssertionError, name + " control must fail");
+    }
+} finally {
+    fs.rmSync(activationControl, { recursive: true, force: true });
+}
+console.log("test-notifications-logic: sound-rule-activation=pass controls=argv,resumption,unsupported-notice-rejected");
+
+// Deliver real metadata and watcher events through the shipped readiness,
+// publisher and status judge. Only Qt's property notifications and status I/O
+// are fixtures; phase/running expressions are read from SoundRule itself.
+function verifySoundRuleStatus(logic, ruleSource, serviceSource) {
+    const operation = (source, name) => {
+        const found = source.match(new RegExp("^    function " + name + "\\([^\\n]*\\) \\{[\\s\\S]*?^    \\}", "m"));
+        assert.ok(found, "exercise shipped " + name);
+        return found[0];
+    };
+    const property = name => {
+        const found = ruleSource.match(new RegExp("^    readonly property (?:bool|string) " + name + ": ([^\\n]+)", "m"));
+        assert.ok(found, "read shipped " + name + " expression");
+        return found[1];
+    };
+    const runningChanged = ruleSource.match(/^    onRunningChanged: \{([\s\S]*?)^    \}/m);
+    const phaseChanged = serviceSource.match(/^        onPhaseChanged: ([^\n]+)/m);
+    const watcher = ruleSource.match(/^    Supervised \{\n        id: metadataWatch[\s\S]*?^    \}/m);
+    assert.ok(runningChanged);
+    assert.ok(phaseChanged);
+    assert.ok(watcher);
+    const manifest = pluginLogic.validateManifest(JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8")), path.dirname(file));
+    assert.equal(manifest.ok, true);
+    for (const initial of ["installed", "restarting", "installing", "reading"]) {
+        for (const loss of ["removed", "withdrawn", "watch-ended", "watch-started"]) {
+            const rule = { Logic: logic, version: "v2", observed: "", held: [], step: initial, problem: "",
+                metadataWatch: { pending: "", metadataId: 0 }, console: { warn() {}, info() {} },
+                stop() { assert.fail("valid metadata must parse"); } };
+            rule.rule = rule;
+            vm.createContext(rule);
+            for (const name of ["running", "phase"])
+                Object.defineProperty(rule, name, { get: () => vm.runInContext(property(name), rule) });
+            for (const name of ["pending", "metadataId"])
+                Object.defineProperty(rule, name, { get: () => rule.metadataWatch[name], set: value => { rule.metadataWatch[name] = value; } });
+            vm.runInContext(operation(ruleSource, "dumpLine"), rule);
+            const service = { Logic: logic, soundRule: rule, console,
+                shell: { status: { values: {}, set(key, value) {
+                    const written = pluginLogic.statusWrite(manifest.manifest, this.values, key, value);
+                    assert.equal(written.ok, true, "Settings accepts the real publication");
+                    this.values = written.values;
+                    return "ok";
+                } } } };
+            service.root = service;
+            vm.createContext(service);
+            vm.runInContext(operation(serviceSource, "publishSoundRule"), service);
+            const value = () => service.shell.status.values.soundRuleSetup;
+            const reading = () => pluginLogic.statusRows(manifest.manifest, service.shell.status.values).find(row => row.key === "soundRuleSetup");
+            const notify = change => {
+                const wasRunning = rule.running, wasPhase = rule.phase;
+                change();
+                if (rule.running !== wasRunning) vm.runInContext("(function() {" + runningChanged[1] + "})()", rule);
+                if (rule.phase !== wasPhase) vm.runInContext(phaseChanged[1], service);
+            };
+            const deliver = objects => {
+                for (const line of JSON.stringify(objects, null, 2).split("\n")) notify(() => rule.dumpLine(line));
+            };
+            const ready = [{ id: 40, type: "PipeWire:Interface:Metadata", props: { "metadata.name": "vgs-notification-sounds" },
+                metadata: [{ subject: 0, key: "version", value: "v2" }] }];
+            deliver(ready);
+            assert.equal(reading(), undefined, initial + ": completed setup leaves the Settings list");
+            if (initial === "installing" || initial === "reading")
+                assert.equal(rule.step, initial, "observed readiness does not skip pending file installation/read");
+            else assert.equal(rule.step, "installed", "completed activation never remains restarting");
+            if (loss === "removed") deliver([{ id: 40, info: null }]);
+            else if (loss === "withdrawn") deliver([{ id: 40, type: "PipeWire:Interface:Metadata", props: { "metadata.name": "vgs-notification-sounds" },
+                metadata: [{ subject: 0, key: "version", value: null }] }]);
+            else {
+                const handler = watcher[0].match(new RegExp("^        " + (loss === "watch-ended" ? "onEnded" : "onStarted") + ": \\{([^\\n]*)\\}", "m"));
+                assert.ok(handler);
+                notify(() => vm.runInContext(handler[1], rule));
+            }
+            assert.equal(rule.observed, "", loss + ": readiness is withdrawn");
+            assert.ok(reading(), initial + ": " + loss + " restores the setup notice");
+            assert.notEqual(reading().tone, "success", initial + ": " + loss + " withdraws Ready");
+            assert.ok(value(), loss + ": unready audio publishes its setup state");
+            assert.equal(value().available, false, loss + ": unready audio never remains available");
+            deliver(ready);
+            assert.equal(reading(), undefined, loss + ": later readiness removes the setup notice");
+        }
+    }
+    for (const phase of ["installing", "reading", "restarting"]) {
+        const pending = logic.soundRuleSetup(phase, "");
+        assert.notEqual(pending, null, "activation publishes its current checking state");
+        assert.notEqual(pending.tone, "ok");
+        assert.equal(pending.available, false);
+        const written = pluginLogic.statusWrite(manifest.manifest, {}, "soundRuleSetup", pending);
+        assert.equal(written.ok, true);
+        assert.ok(pluginLogic.statusRows(manifest.manifest, written.values).some(row => row.key === "soundRuleSetup"),
+            phase + ": pending setup remains in the Settings list");
+    }
+}
+const soundRuleServiceSource = fs.readFileSync(path.join(path.dirname(file), "Service.qml"), "utf8");
+verifySoundRuleStatus(load(file, commons), soundRuleSource, soundRuleServiceSource);
+const statusControl = fs.mkdtempSync(path.join(os.tmpdir(), "vgs-sound-status-control-"));
+try {
+    const source = fs.readFileSync(file, "utf8");
+    const hidden = 'if (phase === "running") return { hidden: true };';
+    assert.equal(source.split(hidden).length, 2, "completed setup control matches once");
+    const alwaysListed = path.join(statusControl, "AlwaysListed.js");
+    const listed = source.replace(hidden, 'if (phase === "running") return { text: "Ready", tone: "ok" };');
+    assert.notEqual(listed, source);
+    fs.writeFileSync(alwaysListed, listed, { flag: "wx" });
+    assert.throws(() => verifySoundRuleStatus(load(alwaysListed, commons), soundRuleSource, soundRuleServiceSource),
+        error => error instanceof assert.AssertionError && /completed setup leaves the Settings list/.test(error.message),
+        "always-listed control fails at completed setup exclusion");
+    const needle = 'function soundRuleSetup(phase, problem) {';
+    assert.equal(source.split(needle).length, 2);
+    const mutant = path.join(statusControl, "NotificationLogic.js");
+    const changed = source.replace(needle, needle + '\n    if (phase === "installed" || phase === "restarting") return null;');
+    assert.notEqual(changed, source);
+    fs.writeFileSync(mutant, changed, { flag: "wx" });
+    const publisher = 'if (JSON.stringify(shell.status.values.soundRuleSetup) === JSON.stringify(value)) return;';
+    assert.equal(soundRuleServiceSource.split(publisher).length, 2);
+    const stalePublisher = soundRuleServiceSource.replace(publisher, 'if (value === null || JSON.stringify(shell.status.values.soundRuleSetup) === JSON.stringify(value)) return;');
+    assert.notEqual(stalePublisher, soundRuleServiceSource);
+    const serviceCopy = path.join(statusControl, "Service.qml");
+    fs.writeFileSync(serviceCopy, stalePublisher, { flag: "wx" });
+    assert.throws(() => verifySoundRuleStatus(load(mutant, commons), soundRuleSource, fs.readFileSync(serviceCopy, "utf8")), assert.AssertionError, "stale-null control fails through real readiness loss");
+} finally {
+    fs.rmSync(statusControl, { recursive: true, force: true });
+}
+console.log("test-notifications-logic: sound-rule-status=pass controls=always-listed,stale-null-rejected");
+if (process.argv.includes("--sound-rule")) process.exit(0);
 
 // The real Open declaration selects its picker even though Gum is optional
 // for the plugin as a whole. This tests the requirement judge, not the
@@ -673,42 +912,10 @@ function verify(logic) {
         observed = logic.soundRuleUpdate(observed, JSON.stringify(objects));
         same(observed, { ok: true, id: want[0], version: want[1], held: want[2], invalidHeld: want[3] }, "rule monitor: " + label);
     }
-    // The removal on disable, run on a scratch tree: the plugin's own
-    // fragment, copy and marker go; a symbolic link, a file the plugin did
-    // not write and a marker that is no version stay.
-    const removal = (files) => {
-        const dir = fs.mkdtempSync(path.join(os.tmpdir(), "notifications-removal-"));
-        try {
-            const at = name => path.join(dir, name);
-            for (const [name, content] of Object.entries(files)) {
-                if (typeof content === "object") fs.symlinkSync(at(content.link), at(name));
-                else fs.writeFileSync(at(name), content);
-            }
-            const a = logic.soundRuleRemoval(at("fragment.conf"), at("copy.lua"), at("marker"));
-            const done = childProcess.spawnSync(a[0], a.slice(1), { env: { PATH: process.env.PATH } });
-            assert.equal(done.status, 0, "removal exits 0");
-            return ["fragment.conf", "copy.lua", "marker", "target"].filter(n => fs.existsSync(at(n)) || fs.lstatSync(at(n), { throwIfNoEntry: false }) !== undefined);
-        } finally {
-            fs.rmSync(dir, { recursive: true, force: true });
-        }
-    };
-    const fragmentText = logic.soundRuleFragment("/x/vgs-notification-sounds.lua", "0a1b2c3d");
-    const scriptText = fs.readFileSync(path.join(__dirname, "..", "shell", "plugins", "vgs.notifications", "wireplumber", "vgs-notification-sounds.lua"), "utf8");
-    assert.equal(scriptText.split("\n")[0], logic.SOUND_RULE_SCRIPT_HEAD, "the shipped script starts with its head line");
-    assert.equal(fragmentText.split("\n")[0], logic.SOUND_RULE_FRAGMENT_HEAD, "the fragment starts with its head line");
-    for (const [label, files, want] of [
-        ["the plugin's own files go", { "fragment.conf": fragmentText, "copy.lua": scriptText, "marker": "v0a1b2c3d\n" }, []],
-        ["a user's files stay", { "fragment.conf": "wireplumber.profiles = {}\n", "copy.lua": "-- mine\n", "marker": "not a version\n" }, ["fragment.conf", "copy.lua", "marker"]],
-        ["symbolic links stay, and what they name", { "target": fragmentText, "fragment.conf": { link: "target" }, "copy.lua": { link: "target" }, "marker": { link: "target" } }, ["fragment.conf", "copy.lua", "marker", "target"]],
-        ["a marker of another length stays", { "marker": "v0a1b2c3\n" }, ["marker"]],
-        ["a marker that is no version stays", { "marker": "v0a1b2c3x\n" }, ["marker"]],
-        ["nothing there, nothing done", {}, []]
-    ])
-        same(removal(files), want, "removal: " + label);
     same(JSON.parse(logic.holdEntry(4242, ["slack", "smoke chat"], ["80"], ["81", "82"])),
-        { pid: 4242, apps: ["slack", "smoke chat"], roles: ["notification", "event"], streams: ["80"], released: ["81", "82"] }, "the complete hold entry the rule parses");
+        { pid: 4242, apps: ["slack", "smoke chat"], roles: ["notification", "event"], streams: ["80"], released: ["81", "82"], deadlineMs: 15000 }, "the complete hold entry the rule parses");
     same(JSON.parse(logic.holdEntry(4242, [], [], [])),
-        { pid: 4242, apps: [], roles: ["notification", "event"], streams: [], released: [] }, "empty exact sets replace previous admission");
+        { pid: 4242, apps: [], roles: ["notification", "event"], streams: [], released: [], deadlineMs: 15000 }, "empty exact sets replace previous admission");
     same(logic.holdApps([stored(1, 1, { desktopEntry: "slack", app: "Slack" }), stored(2, 2, { desktopEntry: "", app: "Smoke Chat" }), stored(3, 3, { desktopEntry: "slack", app: "Slack" })], ["org.example.chat", "slack"]),
         ["slack", "smoke chat", "org.example.chat"], "the hold names every kept and armed app once, in lower case");
     same(logic.holdApps([], []), [], "nothing kept or armed, no app held");
@@ -723,6 +930,7 @@ function verify(logic) {
         "  {",
         "    name = \"/usr/share/vgshell/shell/plugins/vgs.notifications/wireplumber/vgs-notification-sounds.lua\", type = script/lua",
         "    arguments = { version = \"0a1b2c3d\" }",
+        "    requires = [ support.standard-event-source ]",
         "    provides = custom.vgs-notification-sounds-script",
         "  }",
         "  {",
@@ -738,6 +946,11 @@ function verify(logic) {
         ""
     ], "the rule's fragment");
     assert.equal(logic.SOUND_RULE_METADATA, "vgs-notification-sounds", "the metadata the rule owns");
+    assert.equal(logic.SOUND_HOLD_METADATA, "vgs-notification-hold", "the metadata the daemon owns");
+    same(logic.soundHoldFragment().split("\n").filter(line => !line.startsWith("#")), [
+        "context.objects = [", "  { factory = metadata",
+        "    args = { metadata.name = vgs-notification-hold }", "  }", "]", ""
+    ], "the daemon creates the independent hold store");
     // What pw-dump says about the running rule: [label, text, the answer].
     const ruleMeta = (name, entries) => ({ id: 40, type: "PipeWire:Interface:Metadata", props: { "metadata.name": name }, metadata: entries });
     for (const [label, objects, want] of [
@@ -751,11 +964,12 @@ function verify(logic) {
     same(logic.soundRuleRunning("{}"), { ok: false, error: "not-list" }, "running rule: no pw-dump list");
     // The installer's step: [label, running version, marker, the step].
     for (const [label, running, marker, want] of [
-        ["the rule runs at this version", "v2", "v1", "running"],
-        ["no rule runs and none was restarted for", "", "", "restart"],
-        ["an older rule runs", "v1", "v1", "restart"],
-        ["this version was restarted for once already", "", "v2", "absent"],
-        ["the rule runs at this version after its restart", "v2", "v2", "running"]
+        ["initial install bootstraps the daemon store", "", "", "bootstrap"],
+        ["an existing rule still needs its first daemon-store bootstrap", "v2", "", "bootstrap"],
+        ["the rule runs at this version", "v2", "hold-store-v1 v1", "running"],
+        ["an older rule restarts only WirePlumber", "v1", "hold-store-v1 v1", "restart"],
+        ["this version was restarted for once already", "", "hold-store-v1 v2", "absent"],
+        ["the rule runs at this version after its restart", "v2", "hold-store-v1 v2", "running"]
     ])
         assert.equal(logic.soundRuleStep("v2", running, marker), want, "rule step: " + label);
 
@@ -1769,9 +1983,10 @@ const CONTROLS = [
     ["the hold matches a role", "if (typeof role === \"string\" && hold.roles.indexOf(role.toLowerCase()) !== -1) return true;", ""],
     ["the version reads the script", "h ^= text.charCodeAt(i);", "h ^= 0;"],
     ["the version is no number", "return \"v\" + (\"0000000\" + h.toString(16)).slice(-8);", "return (\"0000000\" + h.toString(16)).slice(-8);"],
-    ["one restart per version", "return marker === version ? \"absent\" : \"restart\";", "return \"restart\";"],
+    ["one restart per version", 'return marker === "hold-store-v1 " + version ? "absent" : "restart";', 'return "restart";'],
     ["the rule's version is on subject 0", "if (!isPlainObject(m) || m.subject !== 0) continue;", "if (!isPlainObject(m)) continue;"],
     ["the main profile requires the feature that wants the script", '"    custom.vgs-notification-sounds = required",', '"    custom.vgs-notification-sounds = optional",'],
+    ["the rule waits for prepared event-source managers", '        "    requires = [ support.standard-event-source ]",', '        "    requires = [ ]",'],
     ["the shell's own player is its own", "    if (own) return \"own\";\n", ""],
     ["the shell's own sound is a file of its sounds directory", "return typeof file === \"string\" && file.indexOf(sounds + \"/\") === 0 && file.indexOf(\"/\", sounds.length + 1) === -1;", "return typeof file === \"string\";"],
     ["the shell's own sound is not below its sounds directory", " && file.indexOf(\"/\", sounds.length + 1) === -1;", ";"],
@@ -1782,10 +1997,8 @@ const CONTROLS = [
     ["replacement entries restore running without another observer", 'if (m.key === "version") next.version = typeof m.value === "string" ? m.value : "";', 'if (m.key === "version") next.version = next.version;'],
     ["held-only deltas keep the observed version", "if (o.id !== next.id) {", "if (true) {"],
     ["older removals keep replacement state", "if (o.id === next.id) {", "if (true) {"],
-    ["the removal skips a symbolic link", "own() { [ -f \\\"$1\\\" ] && [ ! -L \\\"$1\\\" ] &&", "own() { [ -f \\\"$1\\\" ] &&"],
-    ["the removal reads the head line", "&& [ \\\"$first\\\" = \\\"$2\\\" ]; }", "; }"],
-    ["the removal keeps a marker that is no version", "case ${first#v} in *[!0-9a-f]*) ;; *) rm", "case ${first#v} in *) rm"],
-    ["the removal keeps a marker of another length", "case $first in v????????) case", "case $first in v*) case"],
+    ["unadopted rule holds receive the shell deadline", "deadlineMs: APP_SOUND_HOLD", "deadlineMs: 0"],
+    ["an unbootstrapped install restarts PipeWire", 'if (marker.indexOf("hold-store-v1 ") !== 0) return "bootstrap";', 'if (false) return "bootstrap";'],
     ["the hold entry names the roles", "roles: HOLD_ROLES, streams: streams, released: released", "roles: [], streams: streams, released: released"],
     ["the hold entry carries exact release intent", "streams: streams, released: released", "streams: streams, released: []"],
     ["rule readback uses object serial identity", 'held.indexOf(props["object.serial"]) === -1', "held.length === 0"],

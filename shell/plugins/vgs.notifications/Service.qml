@@ -157,6 +157,8 @@ Item {
     // installs when it starts (SoundRule.qml).
     SoundRule {
         id: soundRule
+        onPhaseChanged: root.publishSoundRule()
+        onProblemChanged: root.publishSoundRule()
     }
     Loader {
         id: appSounds
@@ -209,6 +211,14 @@ Item {
         if (!rows.ok || JSON.stringify(shell.status.values.slackTokens) === JSON.stringify(rows.items)) return;
         const reply = shell.status.set("slackTokens", rows.items);
         if (reply !== "ok") console.error("notifications: " + reply);
+    }
+
+    function publishSoundRule() {
+        if (shell === null) return;
+        const value = Logic.soundRuleSetup(soundRule.phase, soundRule.problem);
+        if (JSON.stringify(shell.status.values.soundRuleSetup) === JSON.stringify(value)) return;
+        const reply = shell.status.set("soundRuleSetup", value);
+        if (reply !== "ok") console.error("notifications: soundRuleSetup " + reply);
     }
 
     function bumpPanel() {
@@ -270,6 +280,7 @@ Item {
     onShellChanged: {
         start();
         publishTokens();
+        publishSoundRule();
     }
 
     // Registers once, when both the shell and the stored state are here, so

@@ -36,7 +36,7 @@
 # `bar,hyprland-consent,plugins,capabilities,session,status,notifications,
 # device-fakes,start-order,auth-sentinel`. `--rows notifications` alone
 # lacks the server and plugins earlier rows build.
-# inputs: scripts/smoke/fixtures/plugins/acme.probe/* scripts/fixtures/notifications/state-v3.json bin/lib/qml-library.js shell/Commons/PageReference.js shell/Ui/foundation/ImageText* shell/Core/Sounds.qml shell/assets/sounds/* scripts/smoke/fixtures/plugins/acme.sounds/* scripts/smoke/devices.sh scripts/smoke/fixtures/devices/* shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Core/HyprlandLayer.js shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/fixtures/ai-usage/edit.py shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/overlay/Tooltip.qml shell/Ui/controls/Select.qml shell/Core/Plugins.qml shell/Commons/Tokens.js shell/Ui/layout/Section.qml shell/Ui/layout/Pane.qml shell/Ui/controls/RowAction.qml shell/Commons/Theme.qml shell/plugins/vgs.themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/vgs/* shell/Commons/ThemeLogic.js themes/catalog/flexoki-light/theme.json shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js
+# inputs: scripts/fixtures/notifications/* scripts/smoke/fixtures/notifications/DelayedAppSounds.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/fixtures/notifications/state-v3.json bin/lib/qml-library.js shell/Commons/PageReference.js shell/Ui/foundation/ImageText* shell/Core/Sounds.qml shell/assets/sounds/* scripts/smoke/fixtures/plugins/acme.sounds/* scripts/smoke/devices.sh scripts/smoke/fixtures/devices/* shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Core/HyprlandLayer.js shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/fixtures/ai-usage/edit.py shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/overlay/Tooltip.qml shell/Ui/controls/Select.qml shell/Core/Plugins.qml shell/Commons/Tokens.js shell/Ui/layout/Section.qml shell/Ui/layout/Pane.qml shell/Ui/controls/RowAction.qml shell/Commons/Theme.qml shell/plugins/vgs.themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/vgs/* shell/Commons/ThemeLogic.js themes/catalog/flexoki-light/theme.json shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js
 set -euo pipefail
 # The row measures a row whose image is missing and the synthetic latency
 # controls refuse; a card measured while it is destroyed logs its settle.
@@ -53,6 +53,8 @@ note_audio_paths=(
   "$home/.config/wireplumber/wireplumber.conf.d/90-vgs-notification-sounds.conf"
   "$home/.local/share/wireplumber/scripts/vgs-notification-sounds.lua"
   "$home/.local/state/vgshell/notifications/sound-rule-restarted"
+  "$home/.local/state/vgshell/notifications/sound-rule-store-restarted"
+  "$home/.config/pipewire/pipewire.conf.d/90-vgs-notification-hold.conf"
   "$home/.local/state/wireplumber/stream-properties"
 )
 # Keep the private daemon's process group in the device owner's registry.
@@ -90,13 +92,23 @@ rule=any(o.get("type")=="PipeWire:Interface:Metadata" and o.get("props",{}).get(
 print(json.dumps([sinks,rule]))'
 }
 notification_audio_removed() {
-  python3 -c 'import os,sys; print("removed" if all(not os.path.lexists(p) for p in sys.argv[1:]) else "waiting")' "${note_audio_paths[@]:1:3}"
+  python3 -c 'import os,sys; print("removed" if all(not os.path.lexists(p) for p in sys.argv[1:]) else "waiting")' "${note_audio_paths[@]:1:5}"
 }
 notification_audio_restore() {
+  notification_hold_restore_delivery || return 1
   [[ -n $note_audio_backup ]] || return 0
   expect_poll "the disabled notification service removes its rule files before restoration" removed notification_audio_removed
   [[ $(notification_audio_removed) == removed ]] || return 1
-  rule_wireplumber_restart notification_audio_restore_files || return 1
+  if [[ $note_hold_active == yes ]]; then
+    devices_audio_stop >"$sandbox/notification-audio-restore-stop"
+    [[ $(cat "$sandbox/notification-audio-restore-stop") == stopped ]] || return 1
+    notification_audio_restore_files || return 1
+    devices_audio_start >"$sandbox/notification-audio-restore-start"
+    [[ $(cat "$sandbox/notification-audio-restore-start") == started ]] || return 1
+    note_hold_active=no
+  else
+    rule_wireplumber_restart notification_audio_restore_files || return 1
+  fi
   expect_poll "the notification row restores its incoming private sinks and loaded-rule state" "$note_audio_sinks" notification_audio_objects
   "${shell_env[@]}" wpctl settings node.stream.restore-props "$note_audio_props" >/dev/null || return 1
   "${shell_env[@]}" wpctl settings node.stream.restore-target "$note_audio_target" >/dev/null || return 1
@@ -125,6 +137,7 @@ notifications_abandon() {
   fi
 }
 smoke_row_abandon=(notifications_abandon)
+source "$repo/scripts/fixtures/notifications/hold-native.sh"
 expected_errors+=('notifications: refused: status=slackTokens reason=retired')
 # The sound rule is not loaded in the sandbox's WirePlumber until the
 # row's app sound part restarts it, so a mute that outlasts the grace
@@ -343,6 +356,90 @@ note_shortcut_readiness_control
 expect "the notification server exists" true lent notificationServer
 expect "a first start finds no state file" '"absent"' note_status store.state
 expect "no layer surface shows with nothing to show" 0 layer_count vgs:layer
+
+# The scene queues production callbacks and releases its Loader before the
+# same IPC call returns. Its two event-loop acknowledgements, rather than a
+# delay, establish that refresh and its nested publication had their turns.
+notification_delayed_observation() {
+  ipc smoke popupRead "$note_delayed_name" observation | py_reply 'import json,sys
+v=json.load(sys.stdin)
+print(json.dumps(v.get(sys.argv[1]),sort_keys=True) if isinstance(v,dict) else "absent")' "$1"
+}
+notification_delayed_entry() {
+  "${shell_env[@]}" pw-dump | py_reply 'import json,sys
+objects=json.load(sys.stdin)
+entries=[m.get("value") for o in objects if o.get("type")=="PipeWire:Interface:Metadata" and o.get("props",{}).get("metadata.name")=="vgs-notification-hold" for m in o.get("metadata",[]) if m.get("key")=="hold" and m.get("subject")==0]
+print(json.dumps(entries[0],sort_keys=True) if len(entries)==1 else "absent")'
+}
+notification_delayed_lease() {
+  "${shell_env[@]}" pw-dump | py_reply 'import json,sys
+objects=json.load(sys.stdin)
+found=any(o.get("type")=="PipeWire:Interface:Client" and str(o.get("info",{}).get("props",{}).get("pipewire.sec.pid"))==sys.argv[1] for o in objects)
+print("live" if found else "released")' "$note_delayed_writer"
+}
+notification_delayed_published() {
+  notification_delayed_entry | py_reply 'import json,sys
+v=json.load(sys.stdin)
+print(isinstance(v,dict) and str(v.get("pid"))==sys.argv[1] and v.get("apps")==[sys.argv[2]])' "$note_delayed_writer" "$note_delayed_app"
+}
+notification_delayed_started() {
+  notification_delayed_observation metadataStarts | py_reply 'import json,sys; value=json.load(sys.stdin); print(isinstance(value,int) and value>0)'
+}
+notification_delayed_cases() {
+  local kind release fixture before
+  for release in false true; do
+    for kind in publish refresh; do
+      fixture="$(mktemp -d "$sandbox/notification-delayed.XXXXXX")" || return 1
+      cp -a -- "$repo/shell/plugins/vgs.notifications/." "$fixture/"
+      cp -- "$repo/scripts/smoke/fixtures/notifications/DelayedAppSounds.qml" "$fixture/"
+      note_delayed_name="delayed-$kind-$release"
+      note_delayed_app="vgs-lifetime-$kind-$release"
+      expect "the real delayed $kind/$release scene loads" ok ipc smoke popupLoad "$note_delayed_name" "$fixture/DelayedAppSounds.qml" service vgs.notifications '{}'
+      expect_poll "the delayed $kind/$release scene confirms its real writer and policy" true notification_delayed_observation ready
+      note_delayed_writer="$(notification_delayed_observation writer)" || return 1
+      [[ $note_delayed_writer =~ ^[1-9][0-9]*$ ]] || { fail "delayed $kind/$release: writer unavailable"; return 1; }
+      expect_poll "the delayed $kind/$release writer has a live daemon client" live notification_delayed_lease
+      before="$(notification_delayed_entry)" || return 1
+      printf '%s\n' "$before" >"$note_delayed_evidence/$kind-$release-before.json"
+      expect "the delayed $kind/$release callback queues before optional Loader release" ok ipc smoke popupCallWith "$note_delayed_name" exercise "{\"kind\":\"$kind\",\"release\":$release,\"app\":\"$note_delayed_app\"}"
+      expect_poll "the delayed $kind/$release callback turns drain" true notification_delayed_observation drained
+      expect "the delayed $kind/$release observes the real metadata process" true notification_delayed_observation observingWriter
+      expect "the delayed $kind/$release publication runs while the rule is unavailable" false notification_delayed_observation ruleRunningAtQueue
+      if [[ $release == false ]]; then
+        expect_poll "the alive delayed $kind publishes its changed intent through the real writer" True notification_delayed_published
+        expect "the alive delayed $kind starts its real metadata process" True notification_delayed_started
+        expect "the alive delayed $kind retains its original live lease" live notification_delayed_lease
+      else
+        expect "the delayed $kind releases its actual Loader item" false notification_delayed_observation loaded
+        expect_poll "the delayed $kind releases its acquired writer lease" released notification_delayed_lease
+        expect "the delayed $kind starts no metadata process after Loader release" 0 notification_delayed_observation metadataStarts
+        expect "the delayed $kind leaves no late pending-intent publication" "$before" notification_delayed_entry
+      fi
+      ipc smoke popupRead "$note_delayed_name" observation >"$note_delayed_evidence/$kind-$release.json"
+      notification_delayed_entry >"$note_delayed_evidence/$kind-$release-after.json"
+      expect "the delayed $kind/$release scene is disposed" ok ipc smoke popupDrop "$note_delayed_name"
+      expect_poll "the delayed $kind/$release scene leaves no acquired writer lease" released notification_delayed_lease
+      rm -rf -- "${fixture:?}"
+    done
+  done
+}
+
+# VGS-2127 focused entry: the owned fixture is also exercised by the full row.
+if [[ $app_sound_devices == yes ]]; then
+  note_hold_evidence="$(mktemp -d "$smoke_log_dir/notification-hold.XXXXXX")"
+  printf 'notifications: hold-evidence=%s\n' "$note_hold_evidence"
+  note_hold_tone="$sandbox/notification-hold-tone.wav"
+  python3 -c 'import math,struct,sys,wave
+with wave.open(sys.argv[1], "wb") as w:
+    w.setnchannels(1); w.setsampwidth(2); w.setframerate(48000)
+    second=b"".join(struct.pack("<h",int(8000*math.sin(2*math.pi*440*i/48000))) for i in range(48000))
+    w.writeframes(second*30)' "$note_hold_tone"
+  notification_hold_cases
+  note_delayed_evidence="$(mktemp -d "$smoke_log_dir/notification-delayed.XXXXXX")" || return 1
+  printf 'notifications: delayed-evidence=%s\n' "$note_delayed_evidence"
+  notification_delayed_cases
+fi
+# VGS-2127 focused end.
 
 # A notification shows as a toast on every screen, under the bar.
 first_id="$(notify smoke-app 0 "First toast" "A body with <b>markup</b> and <img src=\"http://127.0.0.1:9/beacon.png\"> no image" '[]' '{}' 0)"
@@ -3292,7 +3389,7 @@ expect_poll "the last toast's exit has played" 0 layer_count vgs:layer
 # plain text, its steps, its hint and the list's Create Slack app. The probe runs
 # when the service starts, so each set of states is read after a disable
 # and an enable. No state here makes the photo helper call Slack.
-token_row() { ipc smoke readInstance window vgs.settings plugins | py_reply 'import json,sys; r=[p for p in json.load(sys.stdin) if p["id"] == "vgs.notifications"][0]["status"]; print(json.dumps([[s["label"], s["report"], s["tone"], s["value"]] for s in r]))'; }
+token_row() { ipc smoke readInstance window vgs.settings plugins | py_reply 'import json,sys; r=[p for p in json.load(sys.stdin) if p["id"] == "vgs.notifications"][0]["status"]; print(json.dumps([[s["label"], s["report"], s["tone"], s["value"]] for s in r if s["key"] == "slackTokens"]))'; }
 # drawn_token_row: the texts the page draws, a key's hint followed by a
 # further sentence of the page's own, as a locked key's note, read as the
 # hint and `<note>`, so the row holds where the note stands and not its words.
@@ -5048,9 +5145,7 @@ print(next(iter(targets)) if len(targets)==1 else "unlinked")' "$1"
   # rule_fragment KEY: the fragment's script path or version as the service
   # wrote it, `absent` before it does.
   rule_conf="$home/.config/wireplumber/wireplumber.conf.d/90-vgs-notification-sounds.conf"
-  rule_copy="$home/.local/share/wireplumber/scripts/vgs-notification-sounds.lua"
   rule_shipped="$repo/shell/plugins/vgs.notifications/wireplumber/vgs-notification-sounds.lua"
-  rule_copied() { if cmp -s -- "$rule_shipped" "$rule_copy"; then echo same; elif [[ -e $rule_copy ]]; then echo differs; else echo absent; fi; }
   rule_fragment() { # name|version
     if [[ ! -e $rule_conf ]]; then echo absent; return; fi
     python3 -c 'import re,sys
@@ -5058,16 +5153,18 @@ text = open(sys.argv[1]).read()
 m = re.search(r"name = (\"[^\"]*\"), type = script/lua" if sys.argv[2] == "name" else r"arguments = \{ version = (\"[^\"]*\") \}", text)
 print(m.group(1) if m else "missing")' "$rule_conf" "$1"
   }
-  # rule_meta KEY: the rule's metadata entry KEY on subject 0 as JSON, null
-  # while there is none, `absent` while no rule runs.
+  rule_dump_command=("${shell_env[@]}" pw-dump)
+  # rule_meta KEY: subject 0's JSON value, null while unset and absent
+  # without its store. Intent lives in the daemon; effective held serials
+  # and version live in the rule's own store.
   rule_meta() { # KEY
-    "${shell_env[@]}" pw-dump | py_reply 'import json,sys
+    "${rule_dump_command[@]}" | py_reply 'import json,sys
 for o in json.load(sys.stdin):
-    if o.get("type") == "PipeWire:Interface:Metadata" and (o.get("props") or {}).get("metadata.name") == "vgs-notification-sounds":
+    if o.get("type") == "PipeWire:Interface:Metadata" and (o.get("props") or {}).get("metadata.name") == sys.argv[2]:
         print(json.dumps(next((m["value"] for m in o.get("metadata") or [] if m.get("subject") == 0 and m.get("key") == sys.argv[1]), None)))
         break
 else:
-    print("absent")' "$1"
+    print("absent")' "$1" "$([[ $1 == hold ]] && echo vgs-notification-hold || echo vgs-notification-sounds)"
   }
   # rule_holds APP: whether the hold names APP and its pid is a pw-cli the
   # running shell started.
@@ -5088,19 +5185,39 @@ print(json.dumps([sys.argv[1] in (h.get("apps") or []), comm, ppid == sys.argv[2
   lua - "$rule_shipped" <<'LUA'
 local file = assert(io.open(arg[1]))
 local source = file:read("*a"); file:close()
-local function check(text, holder_first)
+local function check(text, holder_first, readiness_case)
   local hooks, managers, changed = {}, {}, nil
   local created, destroyed, pending = 0, 0, {}
   local deferred = false
+  local timers = {}
   local serial = "9007199254740993"
   local node = { id = 80, properties = { ["application.name"] = "Smoke Knock", ["object.serial"] = serial } }
   local client_present = holder_first
   function node:set_param() error("routing never changes stream Props") end
   local client = { properties = { ["pipewire.sec.pid"] = "42" } }
-  local fixture = { pid = 42, apps = { "smoke knock" }, roles = {}, streams = { serial }, released = {} }
+  local fixture = { deadlineMs = 15000, pid = 42, apps = { "smoke knock" }, roles = {}, streams = { serial }, released = {} }
   local identity = function(value) return value end
   local target = { properties = { ["node.id"] = "99", ["node.name"] = "vgs-notification-mute-hold" } }
-  local selected, held = nil, nil
+  local selected, held, reported_version, reported_status = nil, nil, nil, nil
+  local complete_metadata, initial_read = nil, false
+  local remote = {
+    connect = function(_, _, callback) changed = callback end,
+    find = function() initial_read = true; return readiness_case == "present" and "fixture" or nil end,
+  }
+  local function manager_for(kind)
+    local manager = { callbacks = {} }
+    function manager:connect(name, callback) self.callbacks[name] = callback end
+    function manager:lookup()
+      if readiness_case == "absent" then return nil end
+      return remote
+    end
+    function manager:iterate()
+      local members, i = kind == "client" and (client_present and { client } or {}) or { node }, 0
+      return function() i = i + 1; return members[i] end
+    end
+    managers[kind] = manager
+    return manager
+  end
   local env = setmetatable({
     Log = { open_topic = function() return { info = function() end, warning = error } end },
     Interest = identity, Constraint = identity, EventInterest = identity,
@@ -5130,28 +5247,47 @@ local function check(text, holder_first)
       Object = identity,
       Array = function(value) return { parse = function() return value end, to_string = function() return table.concat(value, ",") end } end,
     },
-    ObjectManager = function(interests)
-      local kind = interests[1].type
-      local manager = { callbacks = {} }
-      function manager:connect(name, callback) self.callbacks[name] = callback end
-      function manager:activate() end
-      function manager:iterate()
-        local members, i = kind == "client" and (client_present and { client } or {}) or { node }, 0
-        return function() i = i + 1; return members[i] end
+    ObjectManager = function() error("one prepared source owns the object managers") end,
+    Plugin = { find = function(name)
+      assert(name == "standard-event-source")
+      return { call = function(_, method, kind)
+        assert(method == "get-object-manager")
+        return manager_for(kind)
+      end }
+    end },
+    Core = { timeout_add = function(delay, callback)
+      local timer = { delay = delay, callback = callback, cancelled = false }
+      function timer:destroy() self.cancelled = true end
+      table.insert(timers, timer)
+      return timer
+    end },
+    AsyncEventHook = function(hook)
+      hook.execute = function(event, outgoing)
+        local transition = { advance = outgoing or function() end }
+        hook.steps.start.execute(event, { advance = function() hook.steps.admit.execute(event, transition) end })
       end
-      managers[kind] = manager
-      return manager
+      hooks[hook.name] = hook
+      return { register = function() end }
     end,
     SimpleEventHook = function(hook) hooks[hook.name] = hook; return { register = function() end } end,
     ImplMetadata = function() return {
-      activate = function(self, _, callback) callback(self) end,
-      connect = function(_, name, callback) assert(name == "changed"); changed = callback end,
-      set = function(_, _, key, _, value) if key == "held" then held = value end end,
+      activate = function(self, _, callback)
+        if readiness_case then complete_metadata = function() callback(self) end else callback(self) end
+      end,
+      set = function(_, _, key, _, value)
+        if key == "held" then held = value
+        elseif key == "status" then reported_status = value
+        elseif key == "version" then
+          if value ~= nil and readiness_case then assert(initial_read, "version waits for initial hold read") end
+          reported_version = value
+        end
+      end,
     } end,
   }, { __index = _G })
-  assert(load(text, "sound-rule", "t", env))()
+  assert(load(text, "sound-rule", "t", env))({ parse = function() return { version = "fixture-version" } end })
   assert(created == 0, "an idle rule creates no hold sink")
   local event = { props = node.properties, get_subject = function() return node end,
+    get_source = function() return { call = function() end } end,
     set_data = function(_, _, value) selected = value end,
     stop_processing = function() end }
   local function routes()
@@ -5159,7 +5295,23 @@ local function check(text, holder_first)
     hooks["linking/vgs-notification-sounds"].execute(event)
     return selected == target
   end
-  changed(nil, 0, "hold", nil, "fixture")
+  if readiness_case then
+    fixture.streams = {}
+    local outgoing = nil
+    hooks["node/vgs-notification-sounds"].execute(event, function()
+      outgoing = routes() and "mute-output" or "real-output"
+    end)
+    assert(outgoing == nil and reported_version == nil, "an early node waits without a false ready version")
+    complete_metadata()
+    assert(outgoing ~= nil, "queued early node obtains its outgoing link after readiness")
+    if readiness_case == "present" then
+      assert(outgoing == "mute-output" and reported_version == "fixture-version" and reported_status == "ready", "prepared startup hold precedes outgoing link and ready version")
+    else
+      assert(outgoing == "real-output" and reported_version == nil and reported_status == "hold-store-absent", "absent store admits unheld and reports unavailable")
+    end
+    return
+  end
+  changed(remote, 0, "hold", nil, "fixture")
   if not holder_first then
     assert(held == "" and not routes(), "a pending hold waits for its holder")
     client_present = true
@@ -5167,38 +5319,50 @@ local function check(text, holder_first)
   end
   assert(held == serial and routes(), "holder arrival adopts pending exact streams without another metadata write")
   fixture.streams, fixture.released = {}, { serial }
-  changed(nil, 0, "hold", nil, "fixture")
+  changed(remote, 0, "hold", nil, "fixture")
   assert(not routes(), "exact release wins while broad app remains")
   assert(destroyed == created, "last release destroys the hold sink")
   hooks["node/vgs-notification-sounds"].execute(event)
   assert(not routes(), "a queued node-added cannot readmit an explicitly released serial")
   fixture.released = {}
-  changed(nil, 0, "hold", nil, "fixture")
+  changed(remote, 0, "hold", nil, "fixture")
   hooks["node/vgs-notification-sounds"].execute(event)
   assert(routes(), "new broad-match stream is held before linking")
-  changed(nil, 0, "hold", nil, "fixture")
-  assert(routes(), "unadopted new stream remains held across metadata updates")
+  assert(#timers == 1 and timers[1].delay == fixture.deadlineMs, "one deadline uses the shell duration without early release")
+  changed(remote, 0, "hold", nil, "fixture")
+  assert(routes() and #timers == 1, "unadopted new stream remains held across metadata updates")
   local live_props = node.properties
   node.properties = setmetatable({}, { __index = function() error("removed node properties are unavailable") end })
   hooks["node/vgs-notification-sounds-removed"].execute(event)
   assert(held == "" and not routes(), "removal drops the departed serial after properties disappear")
+  assert(timers[1].cancelled, "node removal cancels its deadline")
   assert(destroyed == created, "last node removal destroys the hold sink")
   node.properties = live_props
   node.properties["object.serial"] = "next-serial"
   hooks["node/vgs-notification-sounds"].execute(event)
   assert(held == "next-serial" and routes(), "a reused node id holds only its current serial")
-  changed(nil, 0, "hold", nil, nil)
+  local adopted_deadline = timers[#timers]
+  fixture.streams = { "next-serial" }
+  changed(remote, 0, "hold", nil, "fixture")
+  assert(adopted_deadline.cancelled and routes(), "shell adoption cancels its rule deadline")
+  fixture.streams = {}
+  changed(remote, 0, "hold", nil, "fixture")
+  hooks["node/vgs-notification-sounds"].execute(event)
+  local deadline = timers[#timers]
+  assert(deadline.delay == fixture.deadlineMs and routes(), "the rule does not release before the scheduled callback")
+  assert(deadline.callback() == false and held == "" and not routes(), "the deadline releases its same stream once")
+  changed(remote, 0, "hold", nil, nil)
   deferred = true
-  changed(nil, 0, "hold", nil, "fixture")
+  changed(remote, 0, "hold", nil, "fixture")
   hooks["node/vgs-notification-sounds"].execute(event)
   local stopped = false
   event.stop_processing = function() stopped = true end
   assert(not routes() and stopped, "an activating sink keeps the first sample off real outputs")
-  changed(nil, 0, "hold", nil, nil)
+  changed(remote, 0, "hold", nil, nil)
   for _, complete in ipairs(pending) do complete() end
   assert(destroyed == created, "release during activation destroys the sink once bound")
   deferred = false
-  changed(nil, 0, "hold", nil, "fixture")
+  changed(remote, 0, "hold", nil, "fixture")
   hooks["node/vgs-notification-sounds"].execute(event)
   assert(routes(), "a new hold recreates its sink after release")
   client_present = false
@@ -5221,10 +5385,18 @@ local function check(text, holder_first)
 end
 check(source, true)
 check(source, false)
-local guard = 'if hold.released[serial] then return end'
+check(source, true, "present")
+check(source, true, "absent")
+local pending_guard = 'for _, transition in ipairs(pending) do transition:advance() end'
+local first, last = source:find(pending_guard, 1, true)
+assert(first and not source:find(pending_guard, last + 1, true), "one readiness queue owner")
+local stuck = source:sub(1, first - 1) .. 'for _, transition in ipairs(pending) do if false then transition:advance() end end' .. source:sub(last + 1)
+local progressed, pending_error = pcall(check, stuck, true, "present")
+assert(not progressed and tostring(pending_error):find("queued early node obtains its outgoing link", 1, true), "control: pending early node must fail outgoing-link assertion")
+local guard = 'not hold.released[serial] and'
 local first, last = source:find(guard, 1, true)
 assert(first and not source:find(guard, last + 1, true), "one queued-admission guard")
-local mutant = source:sub(1, first - 1) .. 'if false then return end' .. source:sub(last + 1)
+local mutant = source:sub(1, first - 1) .. 'true and' .. source:sub(last + 1)
 local ok, failure = pcall(check, mutant)
 assert(not ok and tostring(failure):find("queued node-added cannot readmit", 1, true), "control must fail exact-release assertion")
 local function rejects(old, replacement, assertion)
@@ -5236,11 +5408,13 @@ local function rejects(old, replacement, assertion)
 end
 rejects('if hold ~= nil and hold.pid == pid then adopt_exact() end',
   'if false then adopt_exact() end', "holder arrival adopts pending exact streams")
-rejects('if entry.id == id then held[serial] = nil end',
+rejects('if entry.id == id then release(serial) end',
   'if entry.id == id then held[serial] = held[serial] end', "removal drops the departed serial")
 rejects('if previous ~= nil and sink_bound then previous:request_destroy() end',
   'if false then previous:request_destroy() end', "last release destroys the hold sink")
-print("notifications: routing-contract=pass controls=queued-readmission,pending-holder,removed-serial,sink-release")
+rejects('Core.timeout_add(hold.deadlineMs, function()',
+  'Core.timeout_add(0, function()', "one deadline uses the shell duration without early release")
+print("notifications: routing-contract=pass controls=queued-readmission,pending-holder,removed-serial,sink-release,early-node-progress,deadline-duration")
 LUA
   # Replay the quiet replacement the old metadata observer missed through
   # the shipped monitor callback. The private restart below also exercises
@@ -5291,17 +5465,15 @@ const context = { Logic: logic, ruleHold: { apps: ['smoke knock'] },
 vm.createContext(context);
 vm.runInContext('function holdEntry(pid) {' + entry[1] + '\n}', context);
 assert.deepEqual(JSON.parse(context.holdEntry(42)), {
-    pid: 42, apps: ['smoke knock'], roles: ['notification', 'event'], streams: ['9007199254740993'], released: ['free-serial']
+    pid: 42, apps: ['smoke knock'], roles: ['notification', 'event'], streams: ['9007199254740993'], released: ['free-serial'], deadlineMs: 15000
 }, 'the writer sends exact held and released serials without numeric conversion');
 context.holds = {};
 assert.deepEqual(JSON.parse(context.holdEntry(42)).streams, [], 'no tracked streams is an empty admission set');
 console.log('notifications: existing-stream-entry=pass');
 JS
-  # The restarts of WirePlumber the shell asked of the systemctl stand-in.
-  rule_restarts() { device_calls systemctl | py_reply 'import json,sys; print(sum(1 for c in json.load(sys.stdin) if c == ["--user", "restart", "wireplumber.service"]))'; }
-  # mixin.stateless excludes node/state-stream.lua entirely. Settings alone
-  # cannot load it (WirePlumber 0.5.18 wireplumber.conf and state-stream.lua).
-  # Enable only that upstream producer, with saving off until its proof.
+  # mixin.stateless excludes the stream-state producer. These retained
+  # volume/state cases need the stock script loaded, with saving initially
+  # off; changing its settings later cannot load a disabled component.
   note_audio_evidence="$(mktemp -d "$smoke_log_dir/notifications-volume-state.XXXXXX")"
   printf 'notifications: audio-evidence=%s\n' "$note_audio_evidence"
   note_audio_profile="$(mktemp "$home/.config/wireplumber/wireplumber.conf.d/99-notifications-state.XXXXXX.conf")"
@@ -5309,106 +5481,25 @@ JS
 wireplumber.profiles = { vgs-smoke = { hooks.stream.state = required } }
 wireplumber.settings = { node.stream.restore-props = false node.stream.restore-target = false }
 CONF
-  # rule_files: whether the fragment, the copy and the marker exist.
-  rule_marker="$home/.local/state/vgshell/notifications/sound-rule-restarted"
-  rule_files() { python3 -c 'import json,os,sys; print(json.dumps([os.path.lexists(p) for p in sys.argv[1:]]))' "$rule_conf" "$rule_copy" "$rule_marker"; }
-  rule_inodes() { stat -c %i -- "$rule_conf" "$rule_copy" 2>/dev/null | paste -sd, -; }
-  # The part starts from no rule: disabling the plugin removes the
-  # fragment, the copy and the marker, and the private WirePlumber starts
-  # again without them, whatever an earlier row's start left loaded.
-  expect "disabling the service removes the rule" ok ipc shell setPluginEnabled vgs.notifications false
-  expect_poll "the service is gone before the rule part" False record_exists vgs.notifications
-  expect_poll "the disable removed the fragment, the copy and the marker" '[false, false, false]' rule_files
+  # This private custom-service deployment cannot perform an automatic
+  # user-unit bootstrap. Its notice and supported installer/migration path
+  # are also held at the SoundRule owner unit boundary.
+  expect "the custom-service bootstrap starts without an owned marker" ok ipc shell setPluginEnabled vgs.notifications false
+  expect_poll "the custom-service bootstrap waits for removal" False record_exists vgs.notifications
+  expect_poll "the custom-service bootstrap waits for owned-file removal" removed notification_audio_removed
+  [[ $(notification_audio_removed) == removed ]] || return 1
   rule_wireplumber_restart
-  expect_poll "WirePlumber without the fragment runs no rule" absent rule_meta version
-  # The enable copies the script, writes the fragment and asks the
-  # systemctl stand-in, which answers no restart, to restart WirePlumber
-  # once for that version; the rule then reads absent.
-  rule_base="$(rule_restarts)" || rule_base=0
-  expect "enabling the service installs the rule" ok ipc shell setPluginEnabled vgs.notifications true
-  expect_poll "the service copies the shipped script into WirePlumber's user scripts" same rule_copied
-  expect "the sound rule's fragment names that copy" "\"$rule_copy\"" rule_fragment name
+  expect_poll "the custom-service bootstrap has no loaded rule" absent notification_hold_version
+  expect "the custom-service bootstrap enables notifications" ok ipc shell setPluginEnabled vgs.notifications true
+  expect_poll "custom-service bootstrap reports its Settings requirement" '"unavailable"' rule_phase
+  expect "the unsupported custom-service bootstrap publishes its Settings requirement" True notification_hold_notice
+  # Install the generated owned files and marker only in this row's private
+  # home; the real daemon receives the fragment through a private config copy.
+  notification_hold_install
   rule_version="$(rule_fragment version)"
-  expect "the fragment carries a version of v and eight hex digits" True python3 -c 'import re,sys; print(bool(re.fullmatch(r"\"v[0-9a-f]{8}\"", sys.argv[1])))' "$rule_version"
-  expect_poll "the enable asks WirePlumber's restart once" "$((rule_base + 1))" rule_restarts
-  expect_poll "a rule WirePlumber has not loaded reads absent" '"absent"' rule_phase
-  expect_poll "the marker names the version restarted for" "$rule_version" python3 -c 'import json,sys; print(json.dumps(open(sys.argv[1]).read().strip()))' "$rule_marker"
-  # A mute that waits on that rule says so at warn once the grace ends.
-  rule_warned="$(log_lines 'WARN qml: notifications: app sounds: rule=not-loaded')" || rule_warned=0
-  expect "Do Not Disturb turns on with the rule not loaded" on notes silence on
-  expect_log "a mute waiting on a rule that is not loaded says so at warn" "$((rule_warned + 1))" 'WARN qml: notifications: app sounds: rule=not-loaded phase=absent'
-  expect "Do Not Disturb turns off with the rule not loaded" off notes silence off
-  # A start that finds the marker at its version asks no restart.
-  rule_installs="$(log_lines 'notifications: sound rule: installed version=')" || rule_installs=0
-  rule_doc="$repo/shell/plugins/vgs.notifications/developer.md"
-  cp -- "$rule_doc" "$sandbox/notifications-developer.md"
-  printf '\n' >>"$rule_doc"
-  rescan "rescan reads the plugin's new revision with the rule not loaded"
-  expect_log "the rebuilt service installs the rule again" "$((rule_installs + 1))" 'notifications: sound rule: installed version='
-  expect_poll "the rebuilt service reads the rule absent" '"absent"' rule_phase
-  expect "a start at a version restarted for asks no restart" "$((rule_base + 1))" rule_restarts
-  cp -- "$sandbox/notifications-developer.md" "$rule_doc"
-  rule_installs="$(log_lines 'notifications: sound rule: installed version=')" || rule_installs=0
-  rescan "rescan reads the plugin's revision back with the rule not loaded"
-  expect_log "the service is rebuilt at its revision" "$((rule_installs + 1))" 'notifications: sound rule: installed version='
-  # The next disable removes the marker with the files, so the next
-  # enable asks its restart again.
-  expect "disabling the service removes the rule again" ok ipc shell setPluginEnabled vgs.notifications false
-  expect_poll "the service is gone for a second install" False record_exists vgs.notifications
-  expect_poll "the second disable removed the fragment, the copy and the marker" '[false, false, false]' rule_files
-  expect "enabling the service installs the rule again" ok ipc shell setPluginEnabled vgs.notifications true
-  expect_poll "the enable copies the script again" same rule_copied
-  expect_poll "the enable asks WirePlumber's restart again" "$((rule_base + 2))" rule_restarts
-  expect_poll "the enable's rule reads absent after its failed restart" '"absent"' rule_phase
-  # A restart the stand-in answers, which the row then makes on the private
-  # WirePlumber itself while the service waits for the rule.
-  expect "disabling the service for an answered restart is allowed" ok ipc shell setPluginEnabled vgs.notifications false
-  expect_poll "the service is gone for an answered restart" False record_exists vgs.notifications
-  device_reply systemctl 0 "" --user restart wireplumber.service
-  expect "enabling the service for an answered restart is allowed" ok ipc shell setPluginEnabled vgs.notifications true
-  expect_poll "the service asks WirePlumber's restart once more" "$((rule_base + 3))" rule_restarts
-  rule_wireplumber_restart
+  expect "the generated rule version matches the current service" "$rule_version" note_status soundRule.version
   expect_poll "WirePlumber runs the rule at the shell's version" "$rule_version" rule_meta version
-  expect_poll "the service reads the rule running" '"running"' rule_phase
-  expect "disabling the service with the rule running is allowed" ok ipc shell setPluginEnabled vgs.notifications false
-  expect_poll "the service is gone with the rule running" False record_exists vgs.notifications
-  expect "enabling the service with the rule running is allowed" ok ipc shell setPluginEnabled vgs.notifications true
-  expect_poll "a start with the rule running reads it running" '"running"' rule_phase
-  expect "a start with the rule running asks no restart" "$((rule_base + 3))" rule_restarts
-  device_reply_clear systemctl
-  # A rebuild of the service while the plugin stays enabled, here for a
-  # new source revision, keeps the rule's files: the new install finds
-  # them as they were.
-  # The marker went with the last disable, and the enable after it found
-  # the rule running and restarted nothing.
-  expect_poll "the rule's files are there before the rebuild" '[true, true, false]' rule_files
-  rule_inodes_before="$(rule_inodes)"
-  rule_installs="$(log_lines 'notifications: sound rule: installed version=')" || rule_installs=0
-  rule_doc="$repo/shell/plugins/vgs.notifications/developer.md"
-  cp -- "$rule_doc" "$sandbox/notifications-developer.md"
-  printf '\n' >>"$rule_doc"
-  rescan "rescan reads the plugin's new revision"
-  expect_log "the rebuilt service installs the rule again" "$((rule_installs + 1))" 'notifications: sound rule: installed version='
-  expect_log "the rebuilt service finds the copy and the fragment as they were" 1 'notifications: sound rule: installed version=v[0-9a-f]{8} copy=kept fragment=kept'
-  expect "the rebuild kept the rule's files" '[true, true, false]' rule_files
-  expect "the rebuild kept the same files" "$rule_inodes_before" rule_inodes
-  cp -- "$sandbox/notifications-developer.md" "$rule_doc"
-  rule_installs="$(log_lines 'notifications: sound rule: installed version=')" || rule_installs=0
-  rescan "rescan reads the plugin's revision back"
-  expect_log "the service is rebuilt at its revision" "$((rule_installs + 1))" 'notifications: sound rule: installed version='
-  expect_poll "the rebuilt service reads the rule running" '"running"' rule_phase
-  # A hold that lands after its holder went is refused: a pw-cli that
-  # connects and ends, then a hold naming its pid.
-  rule_ghost() {
-    "${shell_env[@]}" python3 -c 'import subprocess,sys,time
-p = subprocess.Popen(["pw-cli"], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-time.sleep(0.5)
-p.kill(); p.wait()
-print(p.pid)'
-  }
-  rule_ghost_pid="$(rule_ghost)" || rule_ghost_pid=0
-  "${shell_env[@]}" pw-metadata -n vgs-notification-sounds 0 hold "{\"pid\": $rule_ghost_pid, \"apps\": [\"smoke chat\"], \"roles\": [], \"streams\": [], \"released\": []}" Spa:String:JSON >/dev/null 2>&1 || fail "the late hold could not be written"
-  expect_poll "a hold naming a holder that went is refused and cleared" null rule_meta hold
+  expect_poll "the service reads its privately preinstalled rule running" '"running"' rule_phase
   # The chime's own level, read with nothing armed and nothing muted.
   app_play smoke-chat-reference vgs-smoke-speakers 0.5
   app_chime_pid="$spawn_pid"
@@ -5445,7 +5536,9 @@ print(p.pid)'
   expect_poll "the disabled service is gone" False record_exists vgs.notifications
   expect_poll "the chime plays at its own level once the service that held it is gone" own app_own vgs-smoke-speakers
   app_hush
-  expect "enabling the service again is allowed" ok ipc shell setPluginEnabled vgs.notifications true
+  # Disabling removes the owned files. This custom-service deployment needs
+  # its row-owned preinstall again before a later rule restart can read them.
+  notification_hold_install
   expect_poll "the service is built again" True record_exists vgs.notifications
   expect_poll "Sound is still off" false note_status sound
   app_chime "Chat before a SIGKILL" smoke-chat-killed
@@ -5560,11 +5653,7 @@ else: print("faint ms=%d" % heard)' "$1"
   expect_poll "the chime before the writer goes is not heard" silent app_level vgs-smoke-speakers
   app_writer="$(rule_meta hold | py_reply 'import json,sys; h = json.load(sys.stdin); print(h["pid"] if isinstance(h, dict) else "none")')"
   kill -STOP "$shell_qs_pid" || fail "the SIGSTOP to the shell before the writer goes failed"
-  if [[ $app_writer =~ ^[0-9]+$ && $(cat "/proc/$app_writer/comm" 2>/dev/null) == pw-cli ]]; then
-    kill -KILL "$app_writer" || fail "the SIGKILL to the writer pid $app_writer failed"
-  else
-    fail "the hold names no pw-cli writer: $app_writer"
-  fi
+  "${shell_env[@]}" python3 "$note_hold_fixture/hold-native.py" kill-writer "$shell_qs_pid" >"$note_audio_evidence/held-writer-killed.json" || fail "the acquired shell writer could not be stopped"
   expect_poll "the rule lifts the chime it held once the writer goes: it plays at its own level" own app_own vgs-smoke-speakers
   expect "the chime the rule lifted reads mute and soft mute off" '[false, false]' app_props smoke-ping-held
   kill -CONT "$shell_qs_pid" || fail "the SIGCONT to the shell after the writer went failed"
@@ -5579,11 +5668,10 @@ else: print("faint ms=%d" % heard)' "$1"
   expect_poll "a chime after the writer came back is held" '["smoke-ping-later"]' app_held
   expect_poll "that chime is not heard" silent app_level vgs-smoke-speakers
   expect "routing leaves the chime mute and soft mute off" '[false, false]' app_props smoke-ping-later
-  # WirePlumber restarts with Sound off: the rule comes back with no hold,
-  # and the shell writes it again.
+  # WirePlumber restarts with Sound off: it reads the surviving daemon hold.
   rule_wireplumber_restart
   expect_poll "the rule comes back at the shell's version" "$rule_version" rule_meta version
-  expect_poll "the shell writes the hold again for the rule that came back" '[true, "pw-cli", true, ["notification", "event"]]' rule_holds "smoke ping"
+  expect_poll "the daemon hold survives the rule restart" '[true, "pw-cli", true, ["notification", "event"]]' rule_holds "smoke ping"
   expect_poll "the service reads the rule that came back running" '"running"' rule_phase
   kill -- "-$app_ping_later" 2>/dev/null || true
   # app_heard_ms WAV: the 1 ms windows heard in a take.
@@ -5759,7 +5847,7 @@ PY
 objects=json.load(sys.stdin)
 nodes={o["id"]:o for o in objects if o.get("type")=="PipeWire:Interface:Node"}
 node=next((o for o in nodes.values() if str(o.get("info",{}).get("props",{}).get("application.process.id"))==sys.argv[1] and o.get("info",{}).get("props",{}).get("media.class")=="Stream/Output/Audio"),None)
-hold=next((m.get("value") for o in objects if o.get("type")=="PipeWire:Interface:Metadata" and o.get("props",{}).get("metadata.name")=="vgs-notification-sounds" for m in o.get("metadata",[]) if m.get("key")=="hold"),None)
+hold=next((m.get("value") for o in objects if o.get("type")=="PipeWire:Interface:Metadata" and o.get("props",{}).get("metadata.name")=="vgs-notification-hold" for m in o.get("metadata",[]) if m.get("key")=="hold"),None)
 if node is None or not isinstance(hold,dict): print("waiting"); sys.exit()
 serial=str(node.get("info",{}).get("props",{}).get("object.serial", ""))
 targets={nodes.get(o["info"]["props"].get("link.input.node"),{}).get("info",{}).get("props",{}).get("node.name") for o in objects if o.get("type")=="PipeWire:Interface:Link" and o["info"]["props"].get("link.output.node")==node["id"]}
@@ -5799,11 +5887,17 @@ else:
     if (( rms * 100 >= volume_ref * 85 && rms * 100 <= volume_ref * 115 )); then echo own; else echo "rms=$rms ref=$volume_ref"; fi
   }
   hold_output() {
-    "${shell_env[@]}" pw-dump | py_reply 'import json,sys
+    "${rule_dump_command[@]}" | py_reply 'import json,sys
 objects=json.load(sys.stdin)
 props=next((o["info"].get("props",{}) for o in objects if o.get("type")=="PipeWire:Interface:Node" and o["info"].get("props",{}).get("node.name")=="vgs-notification-mute-hold"),None)
 default=next((m.get("value") for o in objects if o.get("type")=="PipeWire:Interface:Metadata" and o.get("props",{}).get("metadata.name")=="default" for m in o.get("metadata",[]) if m.get("subject")==0 and m.get("key")=="default.audio.sink"),None)
 print(json.dumps(None if props is None else [props.get("node.description"),props.get("state.restore-props"),default is not None and default.get("name")!="vgs-notification-mute-hold"]))'
+  }
+  rule_effective_hold() {
+    local held output
+    held="$(rule_meta held)" || return 1
+    output="$(hold_output)" || return 1
+    printf '[%s, %s]\n' "$held" "$output"
   }
   volume_state() {
     python3 -c 'import json,os,sys
@@ -5816,6 +5910,40 @@ except ValueError: print("invalid-state"); sys.exit()
 print("clean" if "vgs-notification-mute-hold" not in t and props.get("channelVolumes")==[0.125] and props.get("mute") is False else "pending-or-persisted")' "${1:-$home/.local/state/wireplumber/stream-properties}"
   }
   expect "the hold output has its own name and cannot be default" '["VGS notification mute hold", false, true]' hold_output
+  # Counterexamples keep one effective fact from the real held graph.
+  # The same readers must reject either a retained serial or a leaked sink.
+  rule_release_control="$note_audio_evidence/release-control"
+  mkdir -p -- "$rule_release_control"
+  "${rule_dump_command[@]}" >"$rule_release_control/held.json"
+  python3 - "$rule_release_control" <<'PY'
+from pathlib import Path
+import copy, json, sys
+root = Path(sys.argv[1])
+objects = json.loads((root / "held.json").read_text())
+stores = [o for o in objects if o.get("type") == "PipeWire:Interface:Metadata" and o.get("props", {}).get("metadata.name") == "vgs-notification-sounds"]
+assert len(stores) == 1, "control requires the actual rule store"
+held = [m for m in stores[0].get("metadata", []) if m.get("subject") == 0 and m.get("key") == "held"]
+assert len(held) == 1 and isinstance(held[0].get("value"), list) and held[0]["value"], "control requires actual held serials"
+is_sink = lambda o: o.get("type") == "PipeWire:Interface:Node" and o.get("info", {}).get("props", {}).get("node.name") == "vgs-notification-mute-hold"
+assert sum(is_sink(o) for o in objects) == 1, "control requires the actual private hold output"
+fixtures = {"held-serial": [o for o in objects if not is_sink(o)], "private-output": copy.deepcopy(objects)}
+for store in fixtures["private-output"]:
+    if store.get("type") == "PipeWire:Interface:Metadata" and store.get("props", {}).get("metadata.name") == "vgs-notification-sounds":
+        for entry in store.get("metadata", []):
+            if entry.get("subject") == 0 and entry.get("key") == "held":
+                entry["value"] = []
+for name, fixture in fixtures.items():
+    (root / (name + ".json")).write_text(json.dumps(fixture))
+PY
+  rule_release_rejected() { (
+    local rule_dump_command=(cat "$rule_release_control/$1.json")
+    failures=0; behaviour_failures=0
+    expect "with Sound on the rule has no effective held serial or private output" '[[], null]' rule_effective_hold >"$rule_release_control/$1.log"
+    echo "$failures"
+  ); }
+  for rule_release_fault in held-serial private-output; do
+    expect "control: effective release rejects retained $rule_release_fault" 1 rule_release_rejected "$rule_release_fault"
+  done
   expect "Do Not Disturb turns off to measure Pulse requested volume" off notes silence off
   expect_poll "the Pulse reference has no shell hold" null app_held
   expect_poll "releasing the last stream removes the private hold output" null hold_output
@@ -5869,7 +5997,7 @@ print("clean" if "vgs-notification-mute-hold" not in t and props.get("channelVol
   app_writer="$(rule_meta hold | py_reply 'import json,sys; print(json.load(sys.stdin)["pid"])')"
   kill -STOP "$shell_qs_pid" || fail "the shell did not stop before holder loss"
   note_audio_shell_stopped=yes
-  kill -KILL "$app_writer" || fail "the owned holder did not stop"
+  "${shell_env[@]}" python3 "$note_hold_fixture/hold-native.py" kill-writer "$shell_qs_pid" >"$note_audio_evidence/knock-writer-killed.json" || fail "the acquired holder did not stop"
   expect_poll "holder loss restores the same stream to speakers" vgs-smoke-speakers volume_node volume-death target
   expect_poll "holder loss removes the private hold output" null hold_output
   expect "holder loss preserves the exact stream serial" "$volume_serial" volume_node volume-death serial
@@ -5939,7 +6067,9 @@ print("clean" if "vgs-notification-mute-hold" not in t and props.get("channelVol
   cp -- "$sandbox/shell-before-own-sound.json" "$home/.config/vgshell/shell.json.next" && mv -T -- "$home/.config/vgshell/shell.json.next" "$home/.config/vgshell/shell.json"
   expect "the configuration reloads as the shell's own sound found it" ok ipc shell reloadConfig
   expect "Sound turns back on after the app sound" on notes sound on
-  expect_poll "with Sound on the rule holds nothing" null rule_meta hold
+  # A dead lease leaves inert daemon intent; the rule publishes effective
+  # held serials separately and owns the private sink's lifetime.
+  expect_poll "with Sound on the rule has no effective held serial or private output" '[[], null]' rule_effective_hold
   # The take's control: with Sound on and Do Not Disturb off the same take
   # records the chime.
   app_take_start control

@@ -954,16 +954,17 @@ function streamOfApps(props, apps) {
 // The sound rule, wireplumber/vgs-notification-sounds.lua: WirePlumber
 // itself holds a new output stream silent before it links it, so an app's
 // chime is silent from its first sample however late the shell reacts.
-// The shell writes the hold on the rule's metadata while mute is on: its
+// The shell writes the hold on the daemon's metadata while mute is on: its
 // apps, every name the notifications the service keeps or arms go by, and
 // HOLD_ROLES, the media.role values of notification sounds. The rule
 // holds a stream only while the shell's pw-cli writer, `pid`, lives.
 var SOUND_RULE_METADATA = "vgs-notification-sounds";
+var SOUND_HOLD_METADATA = "vgs-notification-hold";
 var HOLD_ROLES = ["notification", "event"];
 
 // The hold entry replaces both exact sets. RELEASED wins over app admission.
 function holdEntry(pid, apps, streams, released) {
-    return JSON.stringify({ pid: pid, apps: apps, roles: HOLD_ROLES, streams: streams, released: released });
+    return JSON.stringify({ pid: pid, apps: apps, roles: HOLD_ROLES, streams: streams, released: released, deadlineMs: APP_SOUND_HOLD });
 }
 
 // The names, in lower case and in order, that ENTRIES' apps go by, each
@@ -1028,7 +1029,10 @@ function soundRuleVersion(text) {
 // wanted script that fails to load, as when its file is gone, leaves
 // WirePlumber and its audio running (measured on WirePlumber 0.5.18 in the
 // nested sandbox, VGS-1424). Strings are written as JSON strings, which
-// WirePlumber's SPA JSON reads.
+// WirePlumber's SPA JSON reads. The standard event source enables only after
+// its initial ObjectManagers are installed (WP 0.5.18,
+// module-standard-event-source.c/on_om_installed); require it before Lua
+// consumes those managers for its initial hold decision.
 function soundRuleFragment(script, version) {
     return [
         SOUND_RULE_FRAGMENT_HEAD,
@@ -1037,6 +1041,7 @@ function soundRuleFragment(script, version) {
         "  {",
         "    name = " + JSON.stringify(script) + ", type = script/lua",
         "    arguments = { version = " + JSON.stringify(version) + " }",
+        "    requires = [ support.standard-event-source ]",
         "    provides = custom.vgs-notification-sounds-script",
         "  }",
         "  {",
@@ -1053,6 +1058,18 @@ function soundRuleFragment(script, version) {
     ].join("\n");
 }
 
+// PipeWire creates context.objects in its daemon context, so this store
+// survives a WirePlumber restart (PipeWire f9d6cbc, conf.c/create_object).
+var SOUND_HOLD_FRAGMENT_HEAD = "# VGS notifications: daemon-owned notification hold";
+function soundHoldFragment() {
+    return [SOUND_HOLD_FRAGMENT_HEAD,
+        "context.objects = [",
+        "  { factory = metadata",
+        "    args = { metadata.name = " + SOUND_HOLD_METADATA + " }",
+        "  }",
+        "]", ""].join("\n");
+}
+
 // The version the running rule reports in pw-dump's TEXT, its metadata's
 // subject 0 `version`: { ok: true, version }, version "" while no rule
 // runs, or { ok: false, error } for text that is no pw-dump list.
@@ -1061,37 +1078,34 @@ function soundRuleRunning(text) {
     return read.ok ? { ok: true, version: read.version } : read;
 }
 
-// What the installer does once it has read the running rule: RUNNING the
-// version it reports, "" for none, MARKER the version it last restarted
-// WirePlumber for, "" for none. `running`, `restart`, or `absent` when it
-// restarted for this version already: WirePlumber has not loaded the
-// rule, which the installer goes on watching for, and a rule that never
-// comes up costs one restart and no loop.
+// The new marker records the one daemon-store bootstrap and the version
+// last restarted. It is written before restarting: a failed activation
+// remains unavailable rather than interrupting audio again on every login.
 function soundRuleStep(version, running, marker) {
+    if (marker.indexOf("hold-store-v1 ") !== 0) return "bootstrap";
     if (running === version) return "running";
-    return marker === version ? "absent" : "restart";
+    return marker === "hold-store-v1 " + version ? "absent" : "restart";
 }
 
-// The first line of the shipped script and of the fragment: a file at
-// either path is the plugin's own only when it starts with its line.
-var SOUND_RULE_SCRIPT_HEAD = "-- VGS notifications: an app's own notification sound held silent from its";
+// Sound muting is an optional setup notice while it is unavailable. Once
+// the rule runs, there is no remaining setup for Settings to show.
+function soundRuleSetup(phase, problem) {
+    if (phase === "running") return { hidden: true };
+    if (["installing", "reading", "restarting"].indexOf(phase) !== -1)
+        return { text: "Checking…", tone: "info", available: false,
+            hint: "Notification sound muting is unavailable while the audio setup starts." };
+    var hints = {
+        restart: "The audio service could not restart. Notification sound muting is unavailable until the audio service starts with the VGS setup.",
+        "not-loaded": "The audio service has not loaded notification sound muting. It is unavailable until the audio service starts with the VGS setup.",
+        "": "Notification sound muting is unavailable until the audio service loads the VGS setup.",
+        install: "VGS could not save its audio setup. Notification sound muting is unavailable until your audio setup permits the change."
+    };
+    return { text: "Unavailable", tone: "info", available: false,
+        hint: hasOwn(hints, problem) ? hints[problem] : "Your audio setup does not support automatic notification sound muting. It needs user audio services that load the VGS setup from your configuration folder." };
+}
+
+// The install helper recognizes the fragment by this first line.
 var SOUND_RULE_FRAGMENT_HEAD = "# VGS notifications: holds an app's own notification sound silent while";
-
-// The argv that removes the rule's FRAGMENT, its script COPY and the
-// restart MARKER, in that order, each only when it is a regular file, not
-// a symbolic link, that the plugin wrote: the fragment and the copy start
-// with their head line, the marker holds a version alone
-// (soundRuleVersion). WirePlumber
-// runs on without the fragment's script, so the removal restarts nothing.
-function soundRuleRemoval(fragment, copy, marker) {
-    var script = [
-        "own() { [ -f \"$1\" ] && [ ! -L \"$1\" ] && IFS= read -r first < \"$1\" && [ \"$first\" = \"$2\" ]; }",
-        "if own \"$1\" \"$4\"; then rm -f -- \"$1\"; fi",
-        "if own \"$2\" \"$5\"; then rm -f -- \"$2\"; fi",
-        "if [ -f \"$3\" ] && [ ! -L \"$3\" ] && IFS= read -r first < \"$3\"; then case $first in v????????) case ${first#v} in *[!0-9a-f]*) ;; *) rm -f -- \"$3\" ;; esac ;; esac; fi"
-    ].join("\n");
-    return ["sh", "-c", script, "sh", fragment, copy, marker, SOUND_RULE_FRAGMENT_HEAD, SOUND_RULE_SCRIPT_HEAD];
-}
 
 // Whether the user configuration TEXT, as the core persists it, names
 // plugin ID among its disabledPlugins: the core writes that file before

@@ -561,6 +561,9 @@ settings_warden_row=$'node scripts/test-agent-warden-logic.js\n'
 settings_devtools_row=$'\nnode scripts/test-devtools-view.js'
 cases=(
   "notifications-app-sounds|shell/plugins/vgs.notifications/AppSounds.qml|logic|node scripts/test-notifications-logic.js"
+  "notifications-sound-rule|shell/plugins/vgs.notifications/SoundRule.qml|logic|node scripts/test-notifications-logic.js"
+  "notifications-service-status|shell/plugins/vgs.notifications/Service.qml|logic|node scripts/test-notifications-logic.js"
+  "notifications-card-exit|shell/plugins/vgs.notifications/CardSlot.qml|logic|node scripts/test-notifications-logic.js"
   "displays-vrr-setting|shell/plugins/vgs.displays/manifest.json|logic|node scripts/test-plugin-logic.js"$'\nnode scripts/test-displays-logic.js'
   "power-logic|shell/plugins/vgs.power/PowerLogic.js|logic|node scripts/test-power-logic.js"
   "power-overlay-logic|shell/plugins/vgs.power/Overlay.qml|logic|node scripts/test-power-logic.js"
@@ -909,6 +912,47 @@ plan_consumer_case() { # SPEC
   done
 }
 parallel_cases plan_consumer_case plan-case "${cases[@]}"
+
+# The same selector/required-command assertion must fail when a directly
+# consumed notification source loses its edge. Mutate only the scratch
+# template; the case table above owns the input family and expected command.
+cp -- "$tmp/template/scripts/validate" "$tmp/notifications-input-original"
+notifications_saved_area=${test_area:-}
+notifications_saved_args=("${test_args[@]}")
+for spec in "${cases[@]}"; do
+  [[ $spec == notifications-* ]] || continue
+  IFS='|' read -r name input test_area command <<<"$spec"
+  python3 - "$tmp/template/scripts/validate" "$input" <<'PYEDGE'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1]); source = path.read_text()
+rows = [line for line in source.splitlines() if line.startswith('  "logic|notifications logic|')]
+edge = ' ' + sys.argv[2] + ' '
+assert len(rows) == 1 and rows[0].count(edge) == 1
+changed = source.replace(rows[0], rows[0].replace(edge, ' ', 1))
+assert changed != source
+path.write_text(changed)
+PYEDGE
+  d="$tmp/$name-omitted-input"; fresh "$d"
+  "${base_env[@]}" git -C "$d" add scripts/validate
+  "${base_env[@]}" git -C "$d" commit -q -m omitted-input-control
+  mkdir -p -- "$d/$(dirname -- "$input")"
+  printf 'changed\n' >"$d/$input"
+  test_args=(--changed HEAD --list)
+  before=$failures
+  row "$name requires its consumer" "$d" 0 "" "$command" >"$tmp/$name-omitted.log"
+  if [[ $failures == "$((before + 1))" ]] &&
+     grep -qF -- "missing=[$command] present=" "$tmp/$name-omitted.log"; then
+    failures=$before
+    ok "control: $name omitted input fails the required consumer assertion"
+  else
+    cat -- "$tmp/$name-omitted.log"
+    fail "control: $name omitted input did not fail its consumer assertion"
+  fi
+  cp -- "$tmp/notifications-input-original" "$tmp/template/scripts/validate"
+done
+test_area=$notifications_saved_area
+test_args=("${notifications_saved_args[@]}")
 
 # Ordinary rows read the world through run(), while the other owners select
 # only their declared inputs. The explicit consumers keep a fence edit known,

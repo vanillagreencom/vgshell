@@ -1,10 +1,10 @@
 -- VGS notifications: an app's own notification sound held silent from its
 -- first sample by routing only held streams to the private mute output.
--- The shell writes subject 0, `hold`, on `vgs-notification-sounds`:
--- { pid, apps, roles, streams, released }. All names and serials are strings.
+-- The shell writes subject 0, `hold`, on daemon-owned `vgs-notification-hold`:
+-- { pid, apps, roles, streams, released, deadlineMs }. Names/serials are strings.
 -- apps/roles admit NEW nodes; streams is the shell's exact held set and
 -- released exempts known nodes, even while their app remains in apps.
--- A new rule-held node stays held until the shell adopts or releases it.
+-- An unadopted rule-held node expires at the shell-provided deadline.
 -- The lease ends with the shell's persistent pw-cli client. No stream Props
 -- or target metadata are changed, so app volume and mute memory stay intact.
 
@@ -14,9 +14,10 @@ local version = args["version"]
 local log = Log.open_topic("s-vgs-notification-sounds")
 local lutils = require("linking-utils")
 local NAME = "vgs-notification-sounds"
+local HOLD_NAME = "vgs-notification-hold"
 local SINK = "vgs-notification-mute-hold"
 local hold = nil
--- object.serial -> { pid, origin, id }: bounded by live output streams.
+-- object.serial -> { pid, origin, id, deadline }: bounded by live output streams.
 local held = {}
 local sink = nil
 local sink_bound = false
@@ -46,7 +47,9 @@ local function parse_hold(value)
   local parsed = json:parse(2)
   local pid = math.tointeger(parsed.pid)
   if pid == nil or pid <= 0 then return nil, "pid" end
-  local result = { pid = tostring(pid) }
+  local deadline = math.tointeger(parsed.deadlineMs)
+  if deadline == nil or deadline <= 0 or deadline > 2147483647 then return nil, "deadlineMs" end
+  local result = { pid = tostring(pid), deadlineMs = deadline }
   for _, key in ipairs({ "apps", "roles", "streams", "released" }) do
     result[key] = set_of(parsed[key])
     if result[key] == nil then return nil, key end
@@ -57,11 +60,19 @@ local function parse_hold(value)
   return result
 end
 
-local clients = ObjectManager { Interest { type = "client" } }
-local nodes = ObjectManager {
-  Interest { type = "node", Constraint { "media.class", "=", "Stream/Output/Audio", type = "pw-global" } },
-}
+-- The component requires support.standard-event-source. Its ENABLED feature
+-- follows installation of all initial object managers (WP 0.5.18
+-- module-standard-event-source.c:382-427). Use that one prepared owner;
+-- starting duplicate managers behind node admission can block its progress.
+local source = Plugin.find("standard-event-source")
+local clients = source:call("get-object-manager", "client")
+local nodes = source:call("get-object-manager", "node")
+local stores = source:call("get-object-manager", "metadata")
 local metadata = ImplMetadata(NAME)
+local store = nil
+local metadata_ready = false
+local readiness = "pending"
+local waiting = {}
 
 local function holder_present(pid)
   for client in clients:iterate() do
@@ -130,11 +141,23 @@ local function publish()
   metadata:set(0, "held", "Spa:String:JSON", Json.Array(serials):to_string())
 end
 
+local function cancel_deadline(entry)
+  if entry.deadline ~= nil then entry.deadline:destroy(); entry.deadline = nil end
+end
+
+local function release(serial)
+  local entry = held[serial]
+  if entry ~= nil then cancel_deadline(entry); held[serial] = nil end
+end
+
 local function adopt_exact()
   if hold ~= nil and holder_present(hold.pid) then
     for node in nodes:iterate() do
       local serial = node.properties["object.serial"]
-      if hold.streams[serial] then held[serial] = { pid = hold.pid, origin = "shell", id = node.id } end
+      if hold.streams[serial] then
+        release(serial)
+        held[serial] = { pid = hold.pid, origin = "shell", id = node.id }
+      end
     end
   end
   publish()
@@ -158,7 +181,7 @@ SimpleEventHook {
   end,
 }:register()
 
-SimpleEventHook {
+AsyncEventHook {
   name = "node/vgs-notification-sounds",
   after = { "node/restore-stream" },
   before = { "node/create-item" },
@@ -166,16 +189,40 @@ SimpleEventHook {
     Constraint { "event.type", "=", "node-added" },
     Constraint { "media.class", "=", "Stream/Output/Audio" },
   } },
-  execute = function(event)
-    if hold == nil or not holder_present(hold.pid) then return end
-    local node = event:get_subject()
-    local serial = node.properties["object.serial"]
-    if hold.released[serial] then return end
-    if hold.streams[serial] or matches(node.properties) then
-      held[serial] = { pid = hold.pid, origin = hold.streams[serial] and "shell" or "rule", id = node.id }
-      publish()
-    end
-  end,
+  steps = {
+    start = { next = "admit", execute = function(_, transition)
+      -- Only this rule's own metadata activation may still be pending; the
+      -- required standard event source already prepared the client/store set.
+      if readiness ~= "pending" then transition:advance() else table.insert(waiting, transition) end
+    end },
+    admit = { next = "none", execute = function(event, transition)
+      if readiness == "ready" and hold ~= nil and holder_present(hold.pid) then
+        local node = event:get_subject()
+        local serial = node.properties["object.serial"]
+        if not hold.released[serial] and (hold.streams[serial] or matches(node.properties)) then
+          release(serial)
+          local entry = { pid = hold.pid, origin = hold.streams[serial] and "shell" or "rule", id = node.id }
+          held[serial] = entry
+          if entry.origin == "rule" then
+            local source = event:get_source()
+            -- Core.timeout_add returns a cancellable GSource; false removes
+            -- it after one dispatch (WP 0.5.18 node/suspend-node.lua).
+            entry.deadline = Core.timeout_add(hold.deadlineMs, function()
+              entry.deadline = nil
+              if held[serial] == entry then
+                held[serial] = nil
+                publish()
+                source:call("schedule-rescan", "linking")
+              end
+              return false
+            end)
+          end
+          publish()
+        end
+      end
+      transition:advance()
+    end },
+  },
 }:register()
 
 SimpleEventHook {
@@ -227,7 +274,7 @@ SimpleEventHook {
     -- removed proxies have no properties or bound-id, but keep this identity.
     local id = event:get_subject().id
     for serial, entry in pairs(held) do
-      if entry.id == id then held[serial] = nil end
+      if entry.id == id then release(serial) end
     end
     publish()
   end,
@@ -235,16 +282,15 @@ SimpleEventHook {
 
 local function clear()
   hold = nil
-  held = {}
+  for serial in pairs(held) do release(serial) end
   publish()
 end
 
 clients:connect("object-removed", function(_, client)
   local pid = client.properties["pipewire.sec.pid"]
   if pid == nil then return end
-  if hold ~= nil and hold.pid == pid then
+  if hold ~= nil and not holder_present(hold.pid) then
     clear()
-    metadata:set(0, "hold", nil, nil)
   end
   if gone_index(pid) == nil then
     table.insert(gone, pid)
@@ -263,33 +309,75 @@ end)
 SimpleEventHook {
   name = "linking/vgs-notification-sounds-rescan",
   interests = {
-    EventInterest { Constraint { "event.type", "=", "metadata-changed" }, Constraint { "metadata.name", "=", NAME } },
+    EventInterest { Constraint { "event.type", "=", "metadata-changed" }, Constraint { "metadata.name", "=", HOLD_NAME } },
     EventInterest { Constraint { "event.type", "=", "client-removed" } },
   },
   execute = function(event) event:get_source():call("schedule-rescan", "linking") end,
 }:register()
 
-metadata:activate(Features.ALL, function(m, error)
-  if error then log:warning("metadata=failed " .. tostring(error)); return end
-  m:connect("changed", function(_, subject, key, _, value)
-    if subject ~= 0 or key ~= "hold" then return end
-    if value == nil then clear(); return end
-    local parsed, reason = parse_hold(value)
-    if parsed ~= nil and gone_index(parsed.pid) ~= nil then parsed, reason = nil, "holder-gone pid=" .. parsed.pid end
-    if parsed == nil then
-      log:warning("hold refused: reason=" .. reason)
-      clear()
-      m:set(0, "hold", nil, nil)
-      return
+-- All hold changes, including the startup read, use this parser and lease.
+local function read_hold(value)
+  if value == nil then clear(); return end
+  local parsed, reason = parse_hold(value)
+  if parsed ~= nil and gone_index(parsed.pid) ~= nil then parsed, reason = nil, "holder-gone pid=" .. parsed.pid end
+  if parsed == nil then
+    log:warning("hold refused: reason=" .. reason)
+    clear()
+    return
+  end
+  for serial, entry in pairs(held) do
+    if entry.pid ~= parsed.pid or parsed.released[serial] or (entry.origin == "shell" and not parsed.streams[serial]) then release(serial) end
+  end
+  hold = parsed
+  adopt_exact()
+end
+
+local function finish_readiness(state)
+  readiness = state
+  if metadata_ready then
+    metadata:set(0, "status", "Spa:String", state)
+    -- Version means admission is ready, not merely that metadata activated.
+    metadata:set(0, "version", "Spa:String", state == "ready" and tostring(version) or nil)
+  end
+  local pending = waiting
+  waiting = {}
+  for _, transition in ipairs(pending) do transition:advance() end
+end
+
+local function start()
+  if not metadata_ready then return end
+  if store == nil then
+    clear()
+    finish_readiness("hold-store-absent")
+    return
+  end
+  -- Read the daemon's existing value before deciding any queued node.
+  read_hold(store ~= nil and store:find(0, "hold") or nil)
+  finish_readiness("ready")
+end
+
+local function bind_store()
+  local found = stores:lookup { Constraint { "metadata.name", "=", HOLD_NAME } }
+  if found ~= store then
+    store = found
+    if store ~= nil then
+      store:connect("changed", function(object, subject, key, _, value)
+        if object == store and readiness == "ready" and subject == 0 and key == "hold" then read_hold(value) end
+      end)
     end
-    for serial, entry in pairs(held) do
-      if entry.pid ~= parsed.pid or parsed.released[serial] or (entry.origin == "shell" and not parsed.streams[serial]) then held[serial] = nil end
-    end
-    hold = parsed
-    adopt_exact()
-  end)
-  m:set(0, "version", "Spa:String", tostring(version))
-  publish()
+  end
+  start()
+end
+
+stores:connect("object-added", bind_store)
+stores:connect("object-removed", bind_store)
+bind_store()
+metadata:activate(Features.ALL, function(_, error)
+  if error then
+    log:warning("metadata=failed " .. tostring(error))
+    finish_readiness("metadata-failed")
+    return
+  end
+  metadata_ready = true
+  start()
 end)
-clients:activate()
-nodes:activate()

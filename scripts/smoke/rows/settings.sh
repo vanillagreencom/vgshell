@@ -1505,8 +1505,9 @@ expect_poll "the notifications' page opens on its Settings tab" 0 settings_tab
 # off. A disabled plugin reports no account state and offers no token
 # edit: the list draws no head and no key, only one sentence of its own in
 # their place, neither the list's label nor its hint.
-slack_list_label="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["status"]["slackTokens"]["label"])' "$repo/shell/plugins/vgs.notifications/manifest.json")"
-slack_list_unreported="$(python3 -c 'import json,sys; print(json.dumps([[sys.argv[1], "unreported", None, ""]]))' "$slack_list_label")"
+slack_list_unreported="$(python3 -c 'import json,sys
+status=json.load(open(sys.argv[1]))["status"]
+print(json.dumps([[status[key]["label"], "unreported", None, ""] for key in ("soundRuleSetup", "slackTokens")]))' "$repo/shell/plugins/vgs.notifications/manifest.json")"
 # slack_list_drawn: `one-sentence` while the page draws one row of one text
 # that is neither the list's label nor its hint and names the plugin, else
 # the rows it draws. Of the sentences a list with no key reads

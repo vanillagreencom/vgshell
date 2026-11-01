@@ -687,6 +687,7 @@ f share/vgshell/shell/plugins/vgs.notifications/slack-app.json
 f share/vgshell/shell/plugins/vgs.notifications/slack-cache.js
 f share/vgshell/shell/plugins/vgs.notifications/slack-emoji.js
 f share/vgshell/shell/plugins/vgs.notifications/slack-photos.js
+f share/vgshell/shell/plugins/vgs.notifications/sound-rule-install.sh
 f share/vgshell/shell/plugins/vgs.notifications/token-status.sh
 f share/vgshell/shell/plugins/vgs.notifications/tui/open.sh
 f share/vgshell/shell/plugins/vgs.notifications/tui/setup-slack.sh

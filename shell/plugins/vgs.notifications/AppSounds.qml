@@ -16,6 +16,20 @@ Item {
 
     visible: false
 
+    // Loader invalidates its item's QML context before deferred deletion:
+    // https://github.com/qt/qtdeclarative/blob/v6.11.2/src/quick/items/qquickloader.cpp
+    // Captured JS state must reject a retained call before any QML lookup.
+    // Qt.callLater coalesces these stable function identities:
+    // https://doc.qt.io/qt-6/qml-qtqml-qt.html#callLater-method
+    readonly property var deferredWork: {
+        const life = { active: true };
+        const refresh = root.refresh;
+        const publish = root.publishHold;
+        life.refresh = function() { if (life.active) refresh(); };
+        life.publish = function() { if (life.active) publish(); };
+        return life;
+    }
+
     // Whether WirePlumber runs the sound rule at the shipped version
     // (SoundRule.running) and the install's phase, and the notifications
     // the service keeps, live and history, whose apps the hold names.
@@ -33,7 +47,7 @@ Item {
     // object.serial -> { node, hold }, retaining appSoundStep's phase.
     property var holds: ({})
     property var ruleHeldSerials: []
-    // Current broad admission policy, null without a running rule and writer.
+    // Current broad admission policy, null without a writer lease.
     property var ruleHold: null
     property string holdState: "none"
     property int holdTries: 0
@@ -47,19 +61,11 @@ Item {
     onHoldNamesChanged: {
         writeHold(false);
     }
-    // The rule holds nothing of an earlier instance's or an earlier
-    // WirePlumber's: a rule that comes back gets the hold again, and one
-    // that goes takes the hold with it.
+    // The daemon keeps hold intent across WirePlumber restarts. Rule
+    // availability changes only the warning, never the writer's intent.
     onRuleRunningChanged: {
-        if (ruleRunning) {
-            writeHold(true);
-            return;
-        }
-        ruleHold = null;
-        lastHold = "";
-        holdState = "none";
-        holdRetry.stop();
-        ruleGrace.restart();
+        if (ruleRunning) ruleGrace.stop();
+        else ruleGrace.restart();
     }
 
     // The app of a notification that arrived: its streams that start to
@@ -139,7 +145,7 @@ Item {
         } else if (held === null && entry.judged) {
             entry.free = true;
         }
-        if (step.change !== "" || wasFree !== entry.free) Qt.callLater(root.publishHold);
+        if (step.change !== "" || wasFree !== entry.free) Qt.callLater(deferredWork.publish);
     }
 
     function refresh() {
@@ -154,7 +160,7 @@ Item {
             if (nodes.indexOf(holds[id].node) !== -1) next[id] = holds[id];
         holds = next;
         for (const entry of streams) judge(entry.node);
-        Qt.callLater(root.publishHold);
+        Qt.callLater(deferredWork.publish);
     }
 
     // The clock runs to the nearest end of an arm or a hold.
@@ -189,7 +195,7 @@ Item {
             lastHold = "";
             holdTries = 0;
         }
-        if (!ruleRunning || !writer.running) return;
+        if (!writer.running) return;
         ruleHold = { apps: holdNames, roles: Logic.HOLD_ROLES };
         if (adopt) {
             for (const entry of streams) judge(entry.node);
@@ -211,7 +217,7 @@ Item {
     // A snapshot replaces both exact sets, including removals. Coalesced
     // calls and readbacks with no changed intent start no new process.
     function publishHold() {
-        if (ruleHold === null || !ruleRunning || !writer.running) return;
+        if (ruleHold === null || !writer.running) return;
         const next = holdEntry(writer.processId);
         if (next === lastHold) return;
         lastHold = next;
@@ -247,7 +253,7 @@ Item {
     // Slack chime's stream starts to play 75 ms after it opens.
     Connections {
         target: Pipewire.nodes
-        function onValuesChanged() { Qt.callLater(root.refresh); }
+        function onValuesChanged() { Qt.callLater(root.deferredWork.refresh); }
     }
 
     Repeater {
@@ -294,9 +300,9 @@ Item {
         property var completion: null
         property var sentPid: null
         function send() {
-            if (root.ruleHold === null || !root.ruleRunning || !writer.running) return;
+            if (root.ruleHold === null || !writer.running) return;
             sentPid = writer.processId;
-            command = ["pw-metadata", "-n", Logic.SOUND_RULE_METADATA, "0", "hold", root.holdEntry(sentPid), "Spa:String:JSON"];
+            command = ["pw-metadata", "-n", Logic.SOUND_HOLD_METADATA, "0", "hold", root.holdEntry(sentPid), "Spa:String:JSON"];
             running = true;
         }
         clearEnvironment: true
@@ -345,5 +351,18 @@ Item {
         initialized = true;
         writeHold(true);
         if (!ruleRunning) ruleGrace.start();
+    }
+
+    Component.onDestruction: {
+        deferredWork.active = false;
+        clock.stop();
+        ruleGrace.stop();
+        holdRetry.stop();
+        holdWriter.again = false;
+        ruleHold = null;
+        // Process.running=false sends SIGTERM (Quickshell 0.3.1):
+        // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/Process
+        writer.wanted = false;
+        holdWriter.running = false;
     }
 }
