@@ -14,6 +14,7 @@ function daemonCopy(name, mutant = null, half = false) {
         fs.copyFileSync(path.join(plugin, file), path.join(folder, file));
     let source = fs.readFileSync(path.join(folder, "backend/jarvisd.js"), "utf8");
     for (const [needle, replacement] of [
+        ["    function snapshot() {", "    let fixtureStarted = false;\n    function snapshot() {"],
         ["audio.playbackSource = engine.playbackSource;",
             'audio.playbackSource = engine.playbackSource;\n' +
             '                    audio.captureSink = () => new (require("node:stream").Writable)({ write(frame, encoding, done) { done(); } });\n' +
@@ -21,8 +22,13 @@ function daemonCopy(name, mutant = null, half = false) {
         ['configured: lastConfiguration.kind === "ready" || lastConfiguration.kind === "loading", checkReady: engine.checkReady(),\n'
             + '            checkSource: audio.device("microphones", "microphone", context.settings, engine.engine()), settings: context.settings });',
             'configured: true, settings: context.settings });\n' +
-            '                runner.dispatch({ type: "indicator", shown: true });\n' +
-            '                runner.dispatch({ type: "talk-down" });']
+            // Device/configuration snapshots must not toggle the fixture's
+            // conversation off while its first recorder is still opening.
+            '                if (!fixtureStarted) {\n' +
+            '                    fixtureStarted = true;\n' +
+            '                    runner.dispatch({ type: "indicator", shown: true });\n' +
+            '                    runner.dispatch({ type: "talk-down" });\n' +
+            '                }']
     ]) {
         assert.equal(source.split(needle).length - 1, 1, name + " instrumentation");
         source = source.replace(needle, replacement);

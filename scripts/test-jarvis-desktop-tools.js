@@ -9,6 +9,7 @@
 const { assert, fs, path, tree, world, mutant } = require("./fixtures/jarvis/policy.js");
 const { load } = require("../bin/lib/qml-library.js");
 const { commandFile } = require("../bin/lib/judge-files.js");
+const { until } = require("./fixtures/jarvis/audio.js");
 const backend = path.join(tree, "shell/plugins/vgs.jarvis/backend");
 const desktopFile = path.join(backend, "Desktop.js");
 const executorsFile = path.join(backend, "Executors.js");
@@ -63,7 +64,9 @@ async function main() {
         return JSON.parse(fs.readFileSync(file, "utf8"));
     }
     // The executor's own deadline, fired once the stand-in holds.
-    const onHeld = name => ({ set(fn, ms) { assert.equal(ms, 10000); ready(name).then(fn); return name; }, clear() {} });
+    const onHeld = (name, before = async () => {}) => ({ set(fn, ms) {
+        assert.equal(ms, 10000); ready(name).then(before).then(fn); return name;
+    }, clear() {} });
     // Only controls get this bound: a copy that never ends its child reaches
     // it in 2 s rather than the production 10 s. Passing cases keep the
     // production deadline, so no assertion races a timer.
@@ -225,12 +228,25 @@ async function main() {
             assert.equal(groupOf(server), calls()[0].pid, "the server shares wl-copy's process group");
         }],
         ["wl-copy-timeout", async folder => {
-            const value = await once(folder, { "wl-copy": { server: true, hold: true } }, "clipboard.write", { text: "lost" }, { clock: onHeld("wl-copy.held") });
-            assert.equal(value.outcome, "unknown");
-            const { pid: server } = await ready("wl-copy.server");
-            servers.push(server);
-            assert.equal(alive(calls()[0].pid), false);
-            assert.equal(alive(server), false, "a timeout ends the forked server with its group");
+            let stat;
+            try {
+                const clock = onHeld("wl-copy.held", async () => {
+                    const { pid } = await ready("wl-copy.server");
+                    servers.push(pid);
+                    // Hold this server's identity before SIGKILL can race exit.
+                    stat = fs.openSync("/proc/" + pid + "/stat", "r");
+                });
+                const value = await once(folder, { "wl-copy": { server: true, hold: true } }, "clipboard.write", { text: "lost" }, { clock });
+                assert.equal(value.outcome, "unknown");
+                assert.equal(alive(calls()[0].pid), false);
+                // Group SIGKILL can still be pending when the leader exits.
+                // A held proc file returns ESRCH after reap, even if PID is reused.
+                const byte = Buffer.alloc(1);
+                await until(() => {
+                    try { fs.readSync(stat, byte, 0, 1, 0); return false; }
+                    catch (error) { if (error.code === "ESRCH") return true; throw error; }
+                }, "a timeout ends the forked server with its group");
+            } finally { if (stat !== undefined) fs.closeSync(stat); }
         }],
         ["cancel", async (folder, clock) => {
             reset({ playerctl: { hold: true } });
