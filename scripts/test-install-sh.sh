@@ -313,9 +313,10 @@ no_key="$copy"
 release_keys="$tmp/release-keys.asc"
 GNUPGHOME="$keys" gpg --batch --quiet --armor --export "$release_fpr" "$other_fpr" >"$release_keys"
 release_keyring() {
-  RUN_GNUPG="$tmp/gnupg-row-$homes"
-  mkdir -m 700 "$RUN_GNUPG"
-  GNUPGHOME="$RUN_GNUPG" gpg --batch --quiet --import "$release_keys" >/dev/null 2>&1
+  # Without a login runtime directory GPG's socket falls back to its home.
+  # Keep each keyring under the suite's shorter signing home, not row scratch.
+  RUN_GNUPG="$(mktemp -d "$keys/row.XXXXXX")" || return 1
+  GNUPGHOME="$RUN_GNUPG" gpg --batch --quiet --no-autostart --import "$release_keys"
 }
 
 # The rows each judge one rule, on the install.sh BIN names, so a control
