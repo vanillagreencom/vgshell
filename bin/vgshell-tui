@@ -76,6 +76,12 @@
 #     exits; under the full presentation it marks the blank row under the
 #     logo, so the first block draws no second one. Without the file,
 #     unset when mktemp fails, every block draws its own row;
+#   - with --record, the package outcome channel: VGS_TUI_OUTCOME, a private
+#     empty file under $XDG_RUNTIME_DIR that present removes when it exits, VGS_TUI_OUTCOME_PID, present's
+#     own pid, and VGS_TUI_RECORD_KEY and VGS_TUI_RECORD_RUN, the run's key
+#     and id; without --record all four are unset. Only the package owner,
+#     bin/vgshell-pkg as present's own command, writes the file
+#     (bin/lib/pkg-retry.js), and present reads it once the command exits;
 #   - with --plugin, VGS_PLUGIN_ID and VGS_PLUGIN_DIR, a private copy of the
 #     whole snapshot under $XDG_RUNTIME_DIR that present removes when it
 #     exits, so a `vgshell restart`, which removes the snapshot, cannot pull a
@@ -103,9 +109,23 @@
 # running one.
 #   { "key", "run", "state": "running" | "ended", "code": <int> | null,
 #     "startedAt": <ISO 8601 UTC>, "endedAt": <ISO 8601 UTC> | null,
-#     "window": { "appId", "title" } }
+#     "window": { "appId", "title" }, "package": <outcome> }
 # code is the command's exit code, or present's own when the command never
-# ran to its end; null only in a record reap or wait wrote. reap ends every
+# ran to its end; null only in a record reap or wait wrote. package, only
+# in an ended record whose command ran to its end and wrote the outcome
+# channel, is that outcome as bin/lib/pkg-outcome.js reads it, judged by
+# shell/Core/PackageReview.js packageOutcome against the run and its code;
+# an outcome the judge refuses leaves the field out after the keyed line
+# `vgshell-tui: package-outcome=unavailable reason=<key>`. Its kinds:
+#   { "kind": "package-installed", "manager", "helper" [, "package",
+#     "testsSkipped": true] }
+#   { "kind": "package-skipped", "manager" }
+#   { "kind": "package-failed", "manager", "helper", "status" }
+#   { "kind": "package-cancelled", "manager", "status" }
+#   { "kind": "package-check-failed", "manager", "helper", "package",
+#     "status", "retry": null | { "originRun", "state": "available" |
+#     "consumed" } }
+# The shell reads the field through the same judge. reap ends every
 # running record whose key's lock no process holds, since the kernel drops a
 # lock with its holder, with a null code, and prints `reaped=<key> run=<run>`
 # per record; a running record whose run already has its ended record it only
@@ -617,10 +637,26 @@ put_record() { # DIR NAME TEXT
   { printf '%s\n' "$3" >"$hidden" && mv -f -- "$hidden" "$1/$2"; } 2>/dev/null
 }
 
-# This run's record in STATE, with CODE and ENDED_AT as JSON values.
+# This run's record in STATE, with CODE and ENDED_AT as JSON values, and
+# the judged package outcome in an ended one that has it.
 record_text() { # STATE CODE ENDED_AT
-  printf '{"key":"%s","run":"%s","state":"%s","code":%s,"startedAt":"%s","endedAt":%s,"window":{"appId":"%s","title":%s}}' \
-    "$record_key" "$record_run" "$1" "$2" "$started_at" "$3" "$window_app_id" "$(json_text "$window_title")"
+  printf '{"key":"%s","run":"%s","state":"%s","code":%s,"startedAt":"%s","endedAt":%s,"window":{"appId":"%s","title":%s}%s}' \
+    "$record_key" "$record_run" "$1" "$2" "$started_at" "$3" "$window_app_id" "$(json_text "$window_title")" \
+    "${package_outcome:+,\"package\":$package_outcome}"
+}
+
+# The outcome the command wrote to the channel, judged against this run
+# and CODE, into package_outcome, and its kind into package_kind, the
+# footer's: both stay empty when it wrote none or the judge refused it. A
+# retry without tests that ran and failed failed for another cause, so its
+# footer is the generic one. The judge writes the fields in one order.
+read_package_outcome() { # CODE
+  local judged
+  [[ -n $outcome_file && $1 =~ ^[0123456789]+$ ]] || return 0
+  judged="$(node "$root/bin/lib/pkg-outcome.js" "$outcome_file" "$record_run" "$1")" || return 0
+  [[ $judged =~ ^\{\"kind\":\"([abcdefghijklmnopqrstuvwxyz-]+)\" ]] || return 0
+  package_outcome="$judged" package_kind="${BASH_REMATCH[1]}"
+  [[ $judged != *'"state":"consumed"}}' ]] || package_kind=""
 }
 
 # Holds the key's lock for the rest of present's life, exiting 75 while
@@ -687,6 +723,7 @@ present_exit() {
   [[ -z $copy_dir ]] || rm -rf -- "$copy_dir"
   [[ -z $fail_marker ]] || rm -f -- "$fail_marker"
   [[ -z $mark_file ]] || rm -f -- "$mark_file"
+  [[ -z $outcome_file ]] || rm -f -- "$outcome_file"
   if [[ $record_active == 1 ]]; then record_end "${ran_code:-$status}"; fi
   [[ -z $run_lock ]] || rm -f -- "$run_lock"
 }
@@ -694,6 +731,7 @@ present_exit() {
 present() {
   local code refusal=""
   copy_dir="$engine_copy" record_fd="" run_fd="" run_lock="" record_active=0 ran_code="" stem="" started_at="" fail_marker="" mark_file=""
+  outcome_file="" package_outcome="" package_kind=""
   trap present_exit EXIT
   if [[ -n $engine_source ]]; then copy_engine; copy_dir="$engine_copy"; fi
   trap 'exit 129' HUP
@@ -705,6 +743,13 @@ present() {
   export_gum_env
   export VGS_TUI_LIB="$lib" VGS_TUI_LOGO="$logo"
   if mark_file="$(mktemp -p "$rt_dir" vgs-tui-mark.XXXXXXXX 2>/dev/null)"; then export VGS_TUI_MARK="$mark_file"; else mark_file=""; unset VGS_TUI_MARK; fi
+  unset VGS_TUI_OUTCOME VGS_TUI_OUTCOME_PID VGS_TUI_RECORD_KEY VGS_TUI_RECORD_RUN
+  # mktemp makes the file 0600 and refuses a name that exists.
+  if [[ $record_active == 1 ]] && outcome_file="$(mktemp -p "$rt_dir" vgs-tui-outcome.XXXXXXXX 2>/dev/null)"; then
+    export VGS_TUI_OUTCOME="$outcome_file" VGS_TUI_OUTCOME_PID=$$ VGS_TUI_RECORD_KEY="$record_key" VGS_TUI_RECORD_RUN="$record_run"
+  else
+    outcome_file=""
+  fi
   if [[ -n $plugin_id ]]; then
     export VGS_PLUGIN_ID="$plugin_id"
     if copy_plugin; then export VGS_PLUGIN_DIR="$copy_dir"; else unset VGS_PLUGIN_DIR; fi
@@ -736,11 +781,12 @@ present() {
     set -e
     trap - INT
   fi
+  read_package_outcome "$code"
   ran_code="$code"
   if [[ $presentation == full && $code != 0 && $code != 130 && -n $plugin_id && -n $record_key ]]; then
     { : >"$window_dir/$stem@$record_run.failed"; } 2>/dev/null && fail_marker="$window_dir/$stem@$record_run.failed"
   fi
-  [[ $presentation == plain ]] || vgs_tui_close_prompt "$code" "$fail_marker"
+  [[ $presentation == plain ]] || vgs_tui_close_prompt "$code" "$fail_marker" "$package_kind"
   exit "$code"
 }
 

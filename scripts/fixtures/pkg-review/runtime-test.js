@@ -6,10 +6,11 @@ const {create}=require("./world.js");
 const only=process.argv.includes("--cancel-control");
 const surfaceAt=process.argv.indexOf("--surface"),surface=surfaceAt<0?"all":process.argv[surfaceAt+1];
 const select=name=>surface==="all"||surface===name;
-assert.ok(["all","direct","routes","choices","authority","availability","evidence","updates","bootstrap","settings","protocol","origin","workspace","control","origin-control","customize","customize-control"].includes(surface));
+assert.ok(["all","direct","routes","choices","authority","availability","evidence","updates","bootstrap","settings","protocol","origin","workspace","control","origin-control","customize","customize-control","retry","retry-held"].includes(surface));
 if(only)assert.ok(["all","direct"].includes(surface));
 const overrideAt=process.argv.indexOf("--owner"),ownerOverride=overrideAt<0?null:process.argv[overrideAt+1];
 const scratch=fs.mkdtempSync(path.join(os.tmpdir(),"package-review-runtime-"));
+const q=s=>"'"+s.replaceAll("'","'\\''")+"'";
 function tty(w,args){
  const executable=args[0]==="vgshell"?["/usr/bin/bash",path.resolve(__dirname,"../../../bin/vgshell"),...args.slice(1)]:[process.execPath,ownerOverride||w.owner,...args];
  const command=executable.map(s=>"'"+s.replaceAll("'","'\\''")+"'").join(" ");
@@ -221,7 +222,106 @@ try{
   const control=cp.spawnSync(process.execPath,[__filename,"--cancel-control","--owner",mutant],{env:{PATH:"/usr/bin:/bin",TMPDIR:scratch},encoding:"utf8",timeout:30000});
   assert.equal(control.status,1,control.stdout+control.stderr);
  }
- for(const entry of fs.readdirSync(scratch)){const dir=path.join(scratch,entry,"run/vgshell/package-review");if(fs.existsSync(dir)&&!entry.startsWith("authority-"))assert.ok(!fs.readdirSync(dir).some(n=>/^(review|bootstrap|transaction)-/.test(n)),entry);}
+ // A build whose own tests alone failed offers one retry without them,
+ // Stop selected, and never retries by itself. Stand-in builds replay the
+ // recorded transcripts (scripts/fixtures/pkg/check-failure).
+ const TARGET="vgs-fixture-check-only",CHECK={transcript:"paru-check-only",status:1},ORDINARY={transcript:"paru-build-fail",status:1},PASS={status:0};
+ const scenario=(w,first,retry)=>fs.writeFileSync(path.join(w.root,"build.json"),JSON.stringify({first,retry}));
+ const mutations=w=>w.calls().filter(c=>c.kind==="mutation");
+ const retryOffers=w=>w.calls().filter(c=>c.kind==="offer"&&c.offered.includes("Retry without tests"));
+ if(!only&&select("retry"))for(const [label,args,first,retry,choice,status,again,env] of [
+  ["retried",["run","install","--manager","aur","--config","CONFIG",TARGET],CHECK,PASS,"Retry without tests",0,["--config","CONFIG","-S","--needed","--nocheck","--",TARGET]],
+  ["update with installs",["run","update","--manager","aur","--config","CONFIG","widget","--install",TARGET],CHECK,PASS,"Retry without tests",0,["--config","CONFIG","-S","--needed","--nocheck","--",TARGET]],
+  ["reinstall",["run","reinstall","--manager","aur","--config","CONFIG",TARGET],CHECK,PASS,"Retry without tests",0,["--config","CONFIG","-S","--nocheck","--",TARGET]],
+  ["install alias",["install","--manager","aur",TARGET],CHECK,PASS,"Retry without tests",0,["-S","--needed","--nocheck","--",TARGET]],
+  ["stopped",["run","install","--manager","aur","--config","CONFIG",TARGET],CHECK,null,"Stop",1,null],
+  ["cancelled",["run","install","--manager","aur","--config","CONFIG",TARGET],CHECK,null,"cancel",130,null],
+  ["retry failed",["run","install","--manager","aur","--config","CONFIG",TARGET],CHECK,{transcript:"paru-check-only",status:1},"Retry without tests",1,["--config","CONFIG","-S","--needed","--nocheck","--",TARGET]],
+  ["ordinary",["run","install","--manager","aur","--config","CONFIG",TARGET],ORDINARY,null,null,1,null],
+  ["two failed bases",["run","install","--manager","aur","--config","CONFIG",TARGET],{transcript:"paru-multi",status:1},null,null,1,null],
+  ["German messages",["run","install","--manager","aur","--config","CONFIG",TARGET],CHECK,null,null,1,null,{LC_ALL:"",LANG:"de_DE.UTF-8"}]
+ ]){
+  const w=create(path.join(scratch,"retry-"+label.replaceAll(" ","-")),{choices:["Install without review",...(choice?[choice]:[])]});
+  scenario(w,first,retry);
+  const r=tty({...w,env:{...w.env,...(env||{})}},args.map(a=>a==="CONFIG"?w.config:a)),built=mutations(w),offers=retryOffers(w);
+  assert.equal(r.status,status,label+": "+r.stdout);
+  assert.equal(offers.length,choice?1:0,label);
+  if(choice)assert.equal(offers[0].selected,"Stop",label);
+  assert.equal(built.length,again?2:1,label+": "+JSON.stringify(built));
+  assert.ok(!built[0].args.includes("--nocheck"),label);
+  if(again){
+   assert.deepEqual(built[1].args,again.map(a=>a==="CONFIG"?w.config:a),label);
+   const calls=w.calls(),asked=calls.findIndex(c=>c.kind==="offer"&&c.offered.includes("Retry without tests")),ran=calls.findLastIndex(c=>c.kind==="mutation");
+   assert.ok(ran>asked&&calls.findIndex(c=>c.kind==="mutation")<asked,label+": the retry follows its question");
+  }
+  console.log("package-retry-proof: "+JSON.stringify({label,status:r.status,offers:offers.length,mutations:built.map(c=>c.args)}));
+ }
+ if(!only&&select("retry"))for(const [label,choice,status,built] of [["retried","Retry without tests",0,2],["stopped","Stop",4,1]]){
+  const w=create(path.join(scratch,"bootstrap-retry-"+label),{choices:["Install without review","Install without review",choice],helper:false});
+  scenario(w,{transcript:"makepkg-check-only",status:4,base:"paru"},PASS);
+  const r=tty(w,["ensure-helper"]),builds=mutations(w).filter(c=>c.name==="makepkg");
+  assert.equal(r.status,status,label+": "+r.stdout);
+  assert.equal(builds.length,built,label);
+  assert.deepEqual(builds.map(c=>c.args),[["-si"],["-si","--nocheck"]].slice(0,built),label);
+  assert.ok(builds.every(c=>c.cwd===builds[0].cwd),label+": the retry builds the same tree");
+  assert.ok(!fs.existsSync(builds[0].cwd),label+": the tree goes with the owner");
+  assert.equal(fs.existsSync(path.join(w.root,"tools/paru")),status===0,label);
+  console.log("package-retry-proof: "+JSON.stringify({label:"bootstrap-"+label,status:r.status,builds:builds.map(c=>c.args)}));
+ }
+ // The presenter's outcome channel carries the owner's typed outcome into
+ // the run's ended record, and a requirement run that stopped holds its one
+ // retry for `vgshell pkg retry`.
+ if(!only&&select("retry-held")){
+  const w=create(path.join(scratch,"retry-held"),{choices:[]}),records=path.join(w.root,"run/vgshell/tui"),held=path.join(w.root,"run/vgshell/package-review/retry");
+  const choose=list=>fs.writeFileSync(path.join(w.root,"choices.json"),JSON.stringify(list));
+  const present=(key,run,args,wrap)=>{
+   const owner=[process.execPath,w.owner,...args],command=wrap?["/usr/bin/bash","-c",owner.map(q).join(" ")+"; exit $?"]:owner;
+   const argv=["/usr/bin/bash",path.resolve(__dirname,"../../../bin/vgshell-tui"),"present","--presentation","plain","--record",key,"--run",run,"--record-dir",records,"--app-id","vgs-test","--window-title","Test","--",...command];
+   const r=cp.spawnSync("/usr/bin/script",["-qec",argv.map(q).join(" "),"/dev/null"],{env:{...w.env,SHELL:"/usr/bin/bash"},encoding:"utf8",timeout:60000});
+   const ended=path.join(records,key.replace("/","@")+"@"+run+".ended.json");
+   return {...r,record:fs.existsSync(ended)?JSON.parse(fs.readFileSync(ended,"utf8")):null};
+  };
+  const install=["run","install","--manager","aur","--config",w.config,TARGET],INSTALL="core/requirements-install";
+  const checkFailed=(run,state,status=1)=>({kind:"package-check-failed",manager:"aur",helper:"paru",package:TARGET,status,retry:state===null?null:{originRun:run,state}});
+  const stop=(run,key=INSTALL)=>{choose(["Install without review","Stop"]);scenario(w,CHECK,null);return present(key,run,install);};
+  const retried=(run,origin,retry)=>{
+   choose([]);scenario(w,null,retry);const before=w.calls().length,r=present(INSTALL,run,["retry",origin]),after=w.calls().slice(before);
+   assert.ok(!after.some(c=>c.kind==="offer"),"a held retry asks nothing again");
+   return {...r,built:after.filter(c=>c.kind==="mutation")};
+  };
+  const heldRuns=()=>fs.existsSync(held)?fs.readdirSync(held).filter(n=>n.endsWith(".json")):[];
+  let r=stop("run1");
+  assert.equal(r.record.code,1);assert.deepEqual(r.record.package,checkFailed("run1","available"));
+  assert.deepEqual(heldRuns(),["core@requirements-install@run1.json"]);
+  assert.equal(fs.statSync(path.join(held,heldRuns()[0])).mode&0o777,0o600);
+  r=retried("run2","run1",PASS);
+  assert.equal(r.record.code,0,r.stdout);assert.deepEqual(r.record.package,{kind:"package-installed",manager:"aur",helper:"paru",package:TARGET,testsSkipped:true});
+  assert.deepEqual(r.built.map(c=>c.args),[["--config",w.config,"-S","--needed","--nocheck","--",TARGET]]);
+  assert.deepEqual(heldRuns(),[]);
+  r=retried("run3","run1",PASS);
+  assert.equal(r.record.code,1);assert.equal(r.record.package,undefined);assert.deepEqual(r.built,[]);assert.match(r.stdout,/refused: retry=unavailable run=run1/);
+  stop("run4");r=retried("run5","run4",{transcript:"paru-check-only",status:1});
+  assert.equal(r.record.code,1);assert.deepEqual(r.record.package,checkFailed("run4","consumed"));assert.equal(r.built.length,1);
+  r=retried("run6","run4",PASS);assert.deepEqual(r.built,[]);assert.match(r.stdout,/retry=unavailable/);
+  stop("run7");r=retried("run8","run7",{status:130});
+  assert.equal(r.record.code,130);assert.deepEqual(r.record.package,{kind:"package-cancelled",manager:"aur",status:130});
+  r=retried("run9","run7",PASS);assert.deepEqual(r.built,[]);assert.match(r.stdout,/retry=unavailable/);
+  stop("run10");fs.rmSync(path.join(records,"core@requirements-install@run10.ended.json"));
+  r=retried("run11","run10",PASS);assert.deepEqual(r.built,[]);assert.match(r.stdout,/retry=stale run=run10/);assert.deepEqual(heldRuns(),[]);
+  stop("run12");choose(["Install without review"]);scenario(w,PASS,null);r=present(INSTALL,"run13",install);
+  assert.deepEqual(r.record.package,{kind:"package-installed",manager:"aur",helper:"paru"});assert.deepEqual(heldRuns(),[]);
+  stop("run14","core/requirements-update");stop("run15");
+  assert.deepEqual(heldRuns().sort(),["core@requirements-install@run15.json","core@requirements-update@run14.json"]);
+  r=stop("run16","core/pkg-install");assert.deepEqual(r.record.package,checkFailed("run16",null));
+  assert.ok(!heldRuns().some(n=>n.includes("pkg-install")));
+  choose(["Install without review","Stop"]);scenario(w,CHECK,null);r=present("core/pkg-install","run17",install,true);
+  assert.equal(r.record.code,1);assert.equal(r.record.package,undefined,"a nested owner reports nothing");
+  fs.appendFileSync(w.include,"# changed\n");
+  r=retried("run18","run15",PASS);assert.deepEqual(r.built,[]);assert.match(r.stdout,/retry=changed run=run15/);
+  assert.ok(!fs.readdirSync(records).some(n=>n.includes(".outcome.")),"each presenter removes its channel");
+  console.log("package-retry-held-proof: ok");
+ }
+ for(const entry of fs.readdirSync(scratch)){const dir=path.join(scratch,entry,"run/vgshell/package-review");if(fs.existsSync(dir)&&!entry.startsWith("authority-"))assert.ok(!fs.readdirSync(dir).some(n=>/^(review|bootstrap|transaction|build|helper)-/.test(n)),entry);}
  if(!only&&(select("control")||surface==="origin-control")){
   const repo=path.resolve(__dirname,"../../.."),copy=path.join(scratch,"origin-mutant");
   fs.mkdirSync(path.join(copy,"bin/lib"),{recursive:true});

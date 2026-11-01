@@ -22,9 +22,31 @@ try{
  const firstMutation=calls.findIndex(c=>c.kind==="mutation"),offerAt=calls.indexOf(offer);
  assert.ok(firstMutation>offerAt);
  assert.ok(calls.every((c,i)=>c.kind!=="credential"||i>offerAt));
+ // The same route through a failing build: a check-only failure of the
+ // route's first target offers the one retry, Stop selected, only where the
+ // route builds an AUR recipe; an ordinary failure offers none. Stop keeps
+ // the failure's status for the route's own handling.
+ const action=args[0]==="run"?args[1]:args[0],at=args.indexOf("--manager"),manager=at<0?null:args[at+1];
+ const builds=manager==="aur"&&["install","reinstall","update"].includes(action);
+ const target=args.slice(at<0?(args[0]==="run"?2:1):at+2).find(a=>!a.startsWith("--"));
+ const failures=[];
+ if(["run","install"].includes(args[0])&&["install","reinstall","update"].includes(action))for(const [kind,first] of [["check-only",{transcript:"paru-check-only",status:1,base:target}],["ordinary",{transcript:"paru-build-fail",status:1,base:target}]]){
+  const f=fs.mkdtempSync(path.join(os.tmpdir(),"package-route-failure-"));
+  try{
+   const fw=create(f,{choices:["Install without review","Stop"]});
+   fs.writeFileSync(path.join(f,"build.json"),JSON.stringify({first,pacman:1}));
+   const failed=cp.spawnSync("/usr/bin/script",["-qec",[process.execPath,owner||fw.owner,...args].map(s=>"'"+s.replaceAll("'","'\\''")+"'").join(" "),"/dev/null"],{env:{...fw.env,SHELL:"/usr/bin/bash"},encoding:"utf8",timeout:30000});
+   const asked=fw.calls().filter(c=>c.kind==="offer"&&c.offered.includes("Retry without tests"));
+   assert.equal(failed.status,1,kind+": "+failed.stdout);
+   assert.equal(asked.length,kind==="check-only"&&builds?1:0,kind+" retry offer");
+   if(asked.length)assert.equal(asked[0].selected,"Stop");
+   assert.equal(fw.calls().filter(c=>c.kind==="mutation").length,1,kind+": no automatic retry");
+   failures.push({kind,status:failed.status,retryOffered:asked.length===1});
+  }finally{fs.rmSync(f,{recursive:true,force:true});}
+ }
  if(proof){
   const entry=owner||w.owner,tree=path.dirname(path.dirname(entry)),crypto=require("node:crypto");
   const sources=[entry,path.join(tree,"bin/lib/pkg-review.js"),path.join(tree,"shell/Core/PackageReview.js"),path.join(tree,"shell/Core/PackageManagers.js")].map(file=>({file,sha256:crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex")}));
-  fs.appendFileSync(proof,JSON.stringify({route,args,owner:entry,sources,coverage:"declined",calls:calls.filter(c=>["offer","credential","mutation","agent"].includes(c.kind))})+"\n");
+  fs.appendFileSync(proof,JSON.stringify({route,args,owner:entry,sources,coverage:"declined",failures,calls:calls.filter(c=>["offer","credential","mutation","agent"].includes(c.kind))})+"\n");
  }
 }finally{fs.rmSync(root,{recursive:true,force:true});}

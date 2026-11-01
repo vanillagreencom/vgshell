@@ -424,13 +424,13 @@ control archive-metadata bin/vgshell-pkg 'if (metadata.error || metadata.status 
 control runs-without-terminal bin/lib/judge-files.js 'fs.closeSync(fs.openSync("/dev/tty", "r+"));' ';' no_terminal
 control elevates-in-shell bin/lib/judge-files.js 'if (process.env.VGSHELL_RUNNER_PID !== undefined)' 'if (false)' shell_process
 if [[ $chooser_status == 0 ]]; then
-  control helper-build-skipped bin/lib/aur-helper.sh 'makepkg -si' ':' ensure_helper
+  control helper-build-skipped shell/Core/PackageManagers.js 'var BOOTSTRAP_BUILD = ["makepkg", "-si"];' 'var BOOTSTRAP_BUILD = ["true"];' ensure_helper
 fi
 control no-sudo-session bin/lib/pkg-run.sh $'if [[ $elevator == sudo ]]; then\n  vgs_tui_sudo_session start' $'if false; then\n  vgs_tui_sudo_session start' apt_upgrade
 control runs-past-failure bin/lib/pkg-run.sh '[[ $status -eq 0 ]] || exit "$status"' ':' first_failure
 control shell-string bin/lib/pkg-run.sh '  "${step[@]}" || status=$?' '  bash -c "${step[*]}" || status=$?' literal_name
 control bare-command bin/lib/pkg-run.sh '  vgs_tui_commands "${shown% }"' '  vgs_tui_text "${shown% }"' pacman_install
-control caller-directory bin/vgshell-pkg 'stdio: "inherit", cwd: process.env.HOME || "/" });' 'stdio: "inherit" });' home_directory
+control caller-directory bin/vgshell-pkg 'stdio: "inherit", cwd: cwd || process.env.HOME || "/" });' 'stdio: "inherit", cwd });' home_directory
 control update-keeps-version shell/Core/PackageManagers.js 'update: [["env", "MISE_MINIMUM_RELEASE_AGE=0", "{bin}", "use", "--global", "{names@latest}"]],' 'update: [["{bin}", "use", "--global", "{names}"]],' update
 control always-elevates bin/vgshell-pkg '    if (!plan.elevate) return null;' '    if (false) return null;' aur_unelevated
 control ignores-configuration bin/vgshell-pkg 'table.elevator(configuredElevator(), onPath)' 'table.elevator(undefined, onPath)' configured
@@ -447,4 +447,5 @@ control cancel-runs-nothing bin/vgshell-pkg '    if (r.status === 130) return { 
 if [[ $failures -gt 0 ]]; then echo "test-vgshell-pkg-run: failed=$failures"; exit 1; fi
 if [[ $chooser_status == 77 ]]; then echo "test-vgshell-pkg-run: status=not-measured missing=user-namespaces"; exit 77; fi
 "$node_bin" "$repo/scripts/fixtures/pkg-review/runtime-test.js"
+"$node_bin" "$repo/scripts/fixtures/pkg-review/failure-test.js"
 echo "test-vgshell-pkg-run: ok"

@@ -4,7 +4,7 @@ const repo=path.resolve(__dirname,"../../.."),node=process.execPath;
 function create(root,{choices=["Install without review"],settings={agent:"claude",command:""},agents=true,helper=true}={}){
  fs.mkdirSync(root,{recursive:true});
  for(const dir of ["tools","home","tmp","run","config/vgshell","db/local","hooks"])fs.mkdirSync(path.join(root,dir),{recursive:true,mode:0o700});
- for(const tool of ["bash","python3","readlink","dirname","cat","head","stat","awk","grep","sort","df","uname","findmnt","flock","sleep","mktemp","mkdir","mv","ln","cp","basename","rm","chmod","diff","env","id","date","sed","tail","wc","tr"]){
+ for(const tool of ["bash","python3","readlink","dirname","cat","head","stat","awk","grep","sort","df","uname","findmnt","flock","sleep","mktemp","mkdir","mv","ln","cp","basename","rm","chmod","diff","env","id","date","sed","tail","wc","tr","script","timeout"]){
   const found="/usr/bin/"+tool;fs.accessSync(found,fs.constants.X_OK);fs.symlinkSync(found,path.join(root,"tools",tool));
  }
  fs.symlinkSync(node,path.join(root,"tools/node"));

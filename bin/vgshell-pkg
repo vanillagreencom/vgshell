@@ -170,6 +170,9 @@ const { Refusal, refuse, main, commandFile, onPath, readConfig, readUserConfig, 
 
 const OS_RELEASE = ["/etc/os-release", "/usr/lib/os-release"];
 const RUNNER = path.join(__dirname, "lib", "pkg-run.sh");
+// The build failure, retry and outcome owner, loaded by the verbs that run
+// steps: the read-only verbs need neither it nor the review judge it loads.
+const pkgRetry = () => require(path.join(__dirname, "lib", "pkg-retry.js"));
 const SHIPPED_CONFIG = path.join(repo, "config", "shell.json");
 // A picker's list and fzf's answer: a system's whole repository fits.
 const LIST_BUFFER = 256 * 1024 * 1024;
@@ -432,10 +435,13 @@ function planElevator(plan) {
 // no project's configuration in the caller's directory (a mise.toml) makes
 // a step do other than what the check counted.
 async function run(action, manager, names, ignored, installs, config, receipt) {
+    // A new ordinary run of a requirement notice retires the retry the
+    // notice's earlier run held; a prepared Updates step is no such run.
+    if (receipt === undefined && action !== "remove") pkgRetry().retireHeld();
     const admitted = await require("./lib/pkg-review.js").admit(action, manager, names, ignored, installs, config, receipt);
-    if (admitted.stop) { process.exitCode = admitted.status; return; }
+    if (admitted.stop) return finish(action, admitted.status, admitted.status === 0 ? { kind: "package-skipped", manager } : { kind: "package-cancelled", manager, status: admitted.status });
     ({ names, ignored, installs, config } = admitted);
-    if (action !== "upgrade" && names.length === 0 && (!installs || installs.length === 0)) return;
+    if (action !== "upgrade" && names.length === 0 && (!installs || installs.length === 0)) return finish(action, 0, { kind: "package-skipped", manager });
     let r;
     if (action === "engine-archive") {
         const file = names[0], engine = require(path.join(__dirname, "lib", "engine.js"));
@@ -455,27 +461,128 @@ async function run(action, manager, names, ignored, installs, config, receipt) {
         if (!chosen.ok) refuse(chosen.error);
         command = chosen.command;
     }
-    const argv = [RUNNER, command];
-    for (const step of r.plan.steps) argv.push(String(step.length), ...step);
-    return terminalRun(argv);
+    // Only the AUR's named actions build a recipe whose own tests can fail
+    // alone; a prepared Updates step keeps Updates' own failure report.
+    const builds = command === "build" && receipt === undefined && ["install", "reinstall", "update"].includes(r.plan.action);
+    if (!builds) {
+        const status = await runSteps(command, r.plan.steps);
+        return settle(action, status, status === 0 ? installed(manager, r.plan.binary) : pkgRetry().failed(manager, manager === "aur" ? r.plan.binary : null, status));
+    }
+    const dir = pkgRetry().evidenceDir("build-");
+    let ended;
+    try {
+        const status = await runSteps(command, r.plan.steps, { evidence: dir });
+        ended = status === 0 ? { status, outcome: installed(manager, r.plan.binary) } : await pkgRetry().afterFailure({
+            dir, manager, builder: r.plan.binary, targets: names.concat(installs || []), status,
+            retry: {
+                hold: target => pkgRetry().hold(manager, r.plan.action, target, config),
+                run: target => runSteps(command, pkgRetry().retrySteps(manager, r.plan.action, target, config))
+            }
+        });
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+    return settle(action, ended.status, ended.outcome);
 }
 
-function terminalRun(argv, rescan = true) {
-    return new Promise((resolve, reject) => {
-        const child = childProcess.spawn(commandFile("bash"), argv, { stdio: "inherit", cwd: process.env.HOME || "/" });
-        // The terminal sends Ctrl-C and a hangup to its whole foreground
-        // group, the runner included, which ends its step and its sudo
-        // session; this process outlives them to exit with the runner's
-        // status. A SIGTERM sent to this process alone is passed on.
+function installed(manager, binary) {
+    return { kind: "package-installed", manager, helper: manager === "aur" ? binary : null };
+}
+
+// Once a run's steps ended, however they ended: the rescan, then finish.
+function settle(action, status, outcome) {
+    rescanShell();
+    return finish(action, status, outcome);
+}
+
+// Hands OUTCOME to the presenter and exits STATUS. A removal reports none:
+// its outcome names no install.
+function finish(action, status, outcome) {
+    if (action !== "remove") pkgRetry().report(outcome, status);
+    process.exit(status);
+}
+
+// Runs STEPS through bin/lib/pkg-run.sh behind ELEVATOR, `build` for the
+// AUR, from CWD or $HOME, with EVIDENCE its --evidence directory; answers
+// the runner's status.
+function runSteps(elevator, steps, { evidence, cwd } = {}) {
+    const argv = [RUNNER, ...(evidence === undefined ? [] : ["--evidence", evidence]), elevator];
+    for (const step of steps) argv.push(String(step.length), ...step);
+    return terminalChild(argv, cwd);
+}
+
+// The child a terminal run waits on. The terminal sends Ctrl-C and a hangup
+// to its whole foreground group, the child or the question on screen
+// included, which ends it and its sudo session; this process outlives them
+// to report and exit with that status. A SIGTERM sent to this process
+// alone is passed on, and one that arrives between children ends this
+// process as TERM would.
+let terminalCurrent = null;
+let terminalSignals = false;
+function terminalChild(argv, cwd) {
+    if (!terminalSignals) {
+        terminalSignals = true;
         process.on("SIGINT", () => {});
         process.on("SIGHUP", () => {});
-        process.on("SIGTERM", () => child.kill("SIGTERM"));
-        child.on("error", e => reject(new Refusal("runner=failed error=" + e.code)));
+        process.on("SIGTERM", () => { if (terminalCurrent === null) process.exit(143); else terminalCurrent.kill("SIGTERM"); });
+    }
+    return new Promise((resolve, reject) => {
+        const child = childProcess.spawn(commandFile("bash"), argv, { stdio: "inherit", cwd: cwd || process.env.HOME || "/" });
+        terminalCurrent = child;
+        child.on("error", e => { terminalCurrent = null; reject(new Refusal("runner=failed error=" + e.code)); });
         child.on("close", (status, signal) => {
-            if (rescan) rescanShell();
-            process.exit(status !== null ? status : 128 + os.constants.signals[signal]);
+            terminalCurrent = null;
+            resolve(status !== null ? status : 128 + os.constants.signals[signal]);
         });
     });
+}
+
+async function terminalRun(argv, rescan = true) {
+    const status = await terminalChild(argv);
+    if (rescan) rescanShell();
+    process.exit(status);
+}
+
+// Installs paru from its AUR recipe: aur-helper.sh installs the build
+// prerequisites and clones the recipe into a private tree this process
+// owns, and the build runs here with the table's bootstrapBuild, so a
+// check-only failure offers the one retry in the same tree. The tree goes
+// when this process ends; no notice holds its retry.
+async function bootstrapHelper() {
+    const dir = pkgRetry().evidenceDir("helper-");
+    const tree = path.join(dir, "paru");
+    const evidence = path.join(dir, "evidence");
+    let ended;
+    try {
+        fs.mkdirSync(evidence, { mode: 0o700 });
+        let status = await terminalChild([path.join(__dirname, "lib", "aur-helper.sh"), path.join(__dirname, "vgshell"), tree]);
+        if (status !== 0) ended = { status, outcome: pkgRetry().failed("aur", null, status) };
+        else {
+            status = await runSteps("build", [table.bootstrapBuild(false)], { evidence, cwd: tree });
+            ended = status === 0 ? { status, outcome: installed("aur", "makepkg") } : await pkgRetry().afterFailure({
+                dir: evidence, manager: "aur", builder: "makepkg", targets: ["paru"], status,
+                retry: { run: () => runSteps("build", [table.bootstrapBuild(true)], { cwd: tree }) }
+            });
+            // makepkg -si exits 0 once paru is installed; a helper still not
+            // on PATH has not installed.
+            if (ended.status === 0 && !onPath("paru")) ended = { status: 1, outcome: pkgRetry().failed("aur", "makepkg", 1) };
+        }
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+    return settle("install", ended.status, ended.outcome);
+}
+
+// Runs the one retry without tests that the requirement notice's run RUN
+// holds, once claimed (pkg-retry.js claim). Its success is the install's;
+// its failure keeps the failure named and offers no other retry.
+async function retryHeld(run) {
+    const held = pkgRetry().claim(run);
+    const status = await runSteps("build", pkgRetry().retrySteps(held.manager, held.action, held.target, held.config === null ? undefined : held.config));
+    const helper = path.basename(held.binary);
+    return settle(held.action, status, status === 0 ? { kind: "package-installed", manager: held.manager, helper, package: held.target, testsSkipped: true }
+        : status >= 128 ? { kind: "package-cancelled", manager: held.manager, status }
+            : { kind: "package-check-failed", manager: held.manager, helper, package: held.target, status, retry: pkgRetry().consumed(run) });
 }
 
 // Once a run's steps have ended, however they ended, a running shell scans
@@ -691,7 +798,14 @@ main(async () => {
         if (found.primary?.id !== "pacman") refuse("helper=unsupported manager=" + (found.primary?.id || "none"));
         const admitted = await require("./lib/pkg-review.js").bootstrap();
         if (admitted !== 0) { process.exitCode = admitted; break; }
-        return terminalRun([path.join(__dirname, "lib", "aur-helper.sh"), path.join(__dirname, "vgshell")]);
+        return bootstrapHelper();
+    }
+    case "retry": {
+        // The run grammar bin/vgshell-tui's record_run_rule states; the
+        // claim reads the one file that run names.
+        if (args.length !== 1 || !/^[a-z0-9][a-z0-9-]*$/.test(args[0])) usage("retry=arguments");
+        refuseOutsideTerminal(verb, SHELL_CALLER);
+        return retryHeld(args[0]);
     }
     case "run": {
         const [action, ...rest] = args;

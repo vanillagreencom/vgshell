@@ -597,4 +597,4 @@ async function bootstrap() {
         return result.decision === "proceed" && !result.skipped.includes("paru") ? 0 : result.status || 1;
     } finally { fs.rmSync(storage, { recursive: true, force: true }); }
 }
-module.exports = { available, bootstrap, customMode, consumeCustom: (receipt, argv) => consume(receipt, null, argv), judge, requestError, settingsRead, settingsWrite, createTransaction, prepare, admit, gather, configIdentity };
+module.exports = { available, bootstrap, customMode, consumeCustom: (receipt, argv) => consume(receipt, null, argv), judge, requestError, settingsRead, settingsWrite, createTransaction, prepare, admit, gather, configIdentity, agentHome, ownedDirectory, privateFile, ui };

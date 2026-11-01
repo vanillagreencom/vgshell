@@ -1,0 +1,45 @@
+[1;34m::[0m [1mGenerating .SRCINFO for ./check-only...[0m
+[1;34m::[0m [1mGenerating .SRCINFO for ./check-only...[0m
+[1;34m::[0m [1mResolving dependencies...[0m
+[1;34m::[0m [1mCalculating conflicts...[0m
+[1;34m::[0m [1mCalculating inner conflicts...[0m
+
+[1mPkgbuilds (1)[0m             [1mOld Version[0m  [1mNew Version[0m    [1mMake Only[0m
+./vgs-fixture-check-only               1.0-1          No
+
+[1;34m::[0m [1mProceed with installation?[0m [1m[Y/n]:[0m 
+fetching devel info...
+[1m[32m==>[m[1m Making package: vgs-fixture-check-only 1.0-1 (Sat 31 Oct 2026 03:24:37 PM PDT)[m
+[1m[32m==>[m[1m Retrieving sources...[m
+[1m[32m==>[m[1m Making package: vgs-fixture-check-only 1.0-1 (Sat 31 Oct 2026 03:24:37 PM PDT)[m
+[1m[32m==>[m[1m Checking runtime dependencies...[m
+[1m[32m==>[m[1m Checking buildtime dependencies...[m
+[1m[32m==>[m[1m Retrieving sources...[m
+[1m[32m==>[m[1m Removing existing $srcdir/ directory...[m
+[1m[32m==>[m[1m Extracting sources...[m
+[1m[32m==>[m[1m Sources are ready.[m
+vgs-fixture-check-only-1.0-1: parsing pkg list...
+[1m[32m==>[m[1m Making package: vgs-fixture-check-only 1.0-1 (Sat 31 Oct 2026 03:24:37 PM PDT)[m
+[1m[32m==>[m[1m Checking runtime dependencies...[m
+[1m[32m==>[m[1m Checking buildtime dependencies...[m
+[1m[33m==> WARNING:[m[1m Using existing $srcdir/ tree[m
+[1m[32m==>[m[1m Removing existing $pkgdir/ directory...[m
+[1m[32m==>[m[1m Starting build()...[m
+building fixture
+[1m[32m==>[m[1m Entering fakeroot environment...[m
+[1m[32m==>[m[1m Starting package()...[m
+[1m[32m==>[m[1m Tidying install...[m
+[1m[34m  ->[m[1m Removing libtool files...[m
+[1m[34m  ->[m[1m Removing static library files...[m
+[1m[34m  ->[m[1m Purging unwanted files...[m
+[1m[34m  ->[m[1m Stripping unneeded symbols from binaries and libraries...[m
+[1m[34m  ->[m[1m Compressing man and info pages...[m
+[1m[32m==>[m[1m Checking for packaging issues...[m
+[1m[32m==>[m[1m Creating package "vgs-fixture-check-only"...[m
+[1m[34m  ->[m[1m Generating .PKGINFO file...[m
+[1m[34m  ->[m[1m Generating .BUILDINFO file...[m
+[1m[34m  ->[m[1m Generating .MTREE file...[m
+[1m[34m  ->[m[1m Compressing package...[m
+[1m[32m==>[m[1m Leaving fakeroot environment.[m
+[1m[32m==>[m[1m Finished making: vgs-fixture-check-only 1.0-1 (Sat 31 Oct 2026 03:24:38 PM PDT)[m
+[1m[32m==>[m[1m Cleaning up...[m

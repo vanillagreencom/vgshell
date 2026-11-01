@@ -145,7 +145,13 @@ case "$1 $2" in
     printf "{\"version\":1,\"decision\":\"proceed\",\"reviewed\":[],\"skipped\":[],\"coverage\":\"declined\",\"receipt\":\"fixture\"}\n" >"$6" ;;
   "pkg review-custom-mode") echo unknown ;;
   "pkg review-custom-consume") : ;;
-  "pkg ensure-helper") exec bash "${0%/*}/lib/aur-helper.sh" "$0" ;;
+  "pkg ensure-helper")
+    # The owner clones through aur-helper.sh into its private tree and
+    # builds there (bin/vgshell-pkg bootstrapHelper).
+    d="$(mktemp -d)" s=0
+    bash "${0%/*}/lib/aur-helper.sh" "$0" "$d/paru" && (cd "$d/paru" && makepkg -si) || s=$?
+    rm -rf -- "${d:?}"
+    exit "$s" ;;
   "plugin settings") cat "$FIX/settings.json" ;;
   "pkg detect") [ ! -e "$FIX/fail-detect" ] || exit 5; cat "$FIX/detect.json" ;;
   "pkg plan")

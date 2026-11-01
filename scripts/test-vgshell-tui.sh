@@ -441,6 +441,52 @@ check "a terminated presenter exits 143" test "$term_status" == 143
 check "a terminated presenter ends its record with 143" test "$(record_of "$rdir/acme.tui@hello@1-1.ended.json")" == "$(want_record ended 143)"
 rm -f -- "$rdir"/*.json
 
+# The package outcome channel: present makes one private empty file per
+# recorded run, hands the command its path, its own pid and the run's key
+# and id, keeps what the command wrote in the ended record only as
+# PackageReview.packageOutcome judges it against the run and its code, and
+# removes the file. A refused outcome leaves the record as before, after
+# one keyed line.
+stub outcome 'printf "%s %s %s %s\n" "$(stat -c %a "$VGS_TUI_OUTCOME")" "$(stat -c %s "$VGS_TUI_OUTCOME")" "$VGS_TUI_RECORD_KEY" "$VGS_TUI_RECORD_RUN" >"$OUTCOME_SEEN"
+[ "$VGS_TUI_OUTCOME_PID" = "$PPID" ] && echo owner >>"$OUTCOME_SEEN"
+[ -z "$2" ] || cat "$2" >"$VGS_TUI_OUTCOME"
+exit "$1"'
+stub channeldump 'printf "%s %s %s %s\n" "${VGS_TUI_OUTCOME-unset}" "${VGS_TUI_OUTCOME_PID-unset}" "${VGS_TUI_RECORD_KEY-unset}" "${VGS_TUI_RECORD_RUN-unset}"'
+package_of() { python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); print(json.dumps(r.get("package","absent"), sort_keys=True))' "$1"; }
+sorted_json() { python3 -c 'import json,sys; print(json.dumps(json.loads(sys.argv[1]), sort_keys=True))' "$1"; }
+outcome_run() { # RUN CODE OUTCOME_TEXT
+  rm -f -- "$tmp/outcome-seen" "$tmp/outcome-text"
+  [[ -z $3 ]] || printf '%s' "$3" >"$tmp/outcome-text"
+  plain_run env OUTCOME_SEEN="$tmp/outcome-seen" "$subject" present --presentation plain "${record_opts[@]}" --run "$1" -- outcome "$2" "${3:+$tmp/outcome-text}"
+}
+held_outcome='{"kind":"package-check-failed","manager":"aur","helper":"paru","package":"ttfx","status":1,"retry":{"originRun":"40-1","state":"available"}}'
+outcome_run 40-1 1 "$held_outcome"
+check "present hands the command a private empty outcome file, the key and the run" test "$(head -n 1 "$tmp/outcome-seen")" == "600 0 acme.tui/hello 40-1"
+check "present names itself as the channel's owner" test "$(sed -n 2p "$tmp/outcome-seen")" == owner
+check "the ended record carries the judged outcome" test "$(package_of "$rdir/acme.tui@hello@40-1.ended.json")" == "$(sorted_json "$held_outcome")"
+check "the ended record keeps the command's code beside its outcome" test "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["code"])' "$rdir/acme.tui@hello@40-1.ended.json")" == 1
+check "a judged outcome prints no diagnostic" test "$(grep -c 'package-outcome' "$tmp/err")" == 0
+check "present removes its outcome file" test -z "$(ls -A "$rt" | grep '^vgs-tui-outcome\.' || :)"
+oversized="$(python3 -c 'print("{\"kind\":\"package-skipped\",\"manager\":\"" + "a" * 5000 + "\"}")')"
+while IFS='|' read -r run code text reason; do
+  outcome_run "$run" "$code" "$text"
+  check "outcome $run leaves the ended record without a package" test "$(package_of "$rdir/acme.tui@hello@$run.ended.json")" == '"absent"'
+  if [[ -z $reason ]]; then
+    check "outcome $run prints no diagnostic" test "$(grep -c 'package-outcome' "$tmp/err")" == 0
+  else
+    check "outcome $run is refused as $reason" grep -qxF "vgshell-tui: package-outcome=unavailable reason=$reason" "$tmp/err"
+  fi
+done <<ROWS
+41-1|1||
+42-1|1|{|json
+43-1|1|{"kind":"package-installed","manager":"aur","helper":"paru"}|status
+44-1|1|{"kind":"package-check-failed","manager":"aur","helper":"paru","package":"ttfx","status":1,"retry":{"originRun":"40-1","state":"available"}}|retry-run
+45-1|0|$oversized|file
+ROWS
+plain_run env VGS_TUI_OUTCOME=/stale VGS_TUI_OUTCOME_PID=1 VGS_TUI_RECORD_KEY=a/b VGS_TUI_RECORD_RUN=1 "$subject" present --presentation plain -- channeldump
+check "a run without a record hands no outcome channel, an inherited one included" test "$(cat "$tmp/out")" == "unset unset unset unset"
+rm -f -- "$rdir"/*.json
+
 # reap: a running record whose key no presenter holds is ended with a null
 # code; a held key's record stays; a record reap cannot read is refused.
 printf '%s\n' '{"key":"core/doctor","run":"5-1","state":"running","code":null,"startedAt":"2026-09-29T07:00:00.000Z","endedAt":null,"window":{"appId":"org.vgs.tui","title":"t"}}' >"$rdir/core@doctor@5-1.running.json"
@@ -1154,7 +1200,32 @@ control_lib() { # NAME NEEDLE REPLACEMENT
   check "the $1 mutant differs" test "$(cmp -s "$repo/bin/lib/tui.sh" "$dir/bin/lib/tui.sh"; echo $?)" == 1
   control_bin="$dir/bin/vgshell-tui"
 }
-control_lib stdout-prompt '"$(vgs_tui_sgr "${VGS_TUI_DANGER:-}" 31)" >/dev/tty' '"$(vgs_tui_sgr "${VGS_TUI_DANGER:-}" 31)"'
+# The outcome's footer names a package-test failure, and only the judged
+# outcome reaches the record.
+named_footer() { # BIN
+  printf '%s' '{"kind":"package-check-failed","manager":"aur","helper":"paru","package":"ttfx","status":1,"retry":null}' >"$tmp/outcome-text"
+  on_tty env OUTCOME_SEEN="$tmp/outcome-seen" "$1" present "${record_opts[@]}" --run 46-1 -- outcome 1 "$tmp/outcome-text"
+}
+named_footer "$subject"
+check "a package-test failure's footer names it" out_has "Package tests failed. Press any key to close."
+check "a package-test failure's footer is not the generic one" test "$(grep -cF 'The task failed.' "$tmp/out")" == 0
+rm -f -- "$rdir"/*.json
+# A retry without tests that ran and failed failed for another cause.
+printf '%s' '{"kind":"package-check-failed","manager":"aur","helper":"paru","package":"ttfx","status":1,"retry":{"originRun":"45-9","state":"consumed"}}' >"$tmp/outcome-text"
+on_tty env OUTCOME_SEEN="$tmp/outcome-seen" "$subject" present "${record_opts[@]}" --run 46-2 -- outcome 1 "$tmp/outcome-text"
+check "a consumed retry's failure keeps the generic footer" out_has "The task failed. Press any key to close."
+check "a consumed retry's failure stays in the record" test "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["package"]["retry"]["state"])' "$rdir/acme.tui@hello@46-2.ended.json")" == consumed
+rm -f -- "$rdir"/*.json
+control_lib generic-footer "    [[ \$outcome != package-check-failed ]] || words='Package tests failed.'" ''
+named_footer "$control_bin"
+check "the generic-footer mutant shows the generic footer" out_has "The task failed."
+rm -f -- "$rdir"/*.json
+control unjudged-outcome vgshell-tui '  judged="$(node "$root/bin/lib/pkg-outcome.js" "$outcome_file" "$record_run" "$1")" || return 0' '  judged="$(cat "$outcome_file")" || return 0'
+printf '%s' '{"kind":"package-installed","manager":"aur","helper":"paru"}' >"$tmp/outcome-text"
+plain_run env OUTCOME_SEEN="$tmp/outcome-seen" "$control_bin" present --presentation plain "${record_opts[@]}" --run 47-1 -- outcome 1 "$tmp/outcome-text"
+check "the unjudged-outcome mutant keeps an outcome the judge refuses" test "$(package_of "$rdir/acme.tui@hello@47-1.ended.json")" != '"absent"'
+rm -f -- "$rdir"/*.json
+control_lib stdout-prompt '"$(vgs_tui_sgr "${VGS_TUI_DANGER:-}" 31)" "$words" >/dev/tty' '"$(vgs_tui_sgr "${VGS_TUI_DANGER:-}" 31)" "$words"'
 prompt_on_tty "$control_bin"
 check "the stdout-prompt mutant keeps the prompt off the terminal" test "$(grep -cF 'The task failed.' "$tmp/out")" == 0
 check "the stdout-prompt mutant writes the prompt to stdout" grep -qF 'The task failed.' "$tmp/stdout"

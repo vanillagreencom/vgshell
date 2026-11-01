@@ -16,6 +16,8 @@ f share/vgshell/bin/lib/owned-group.py
 f share/vgshell/bin/lib/owned-group.sh
 f share/vgshell/bin/lib/page-rows.js
 f share/vgshell/bin/lib/pkg-config.js
+f share/vgshell/bin/lib/pkg-outcome.js
+f share/vgshell/bin/lib/pkg-retry.js
 f share/vgshell/bin/lib/pkg-review-settings.sh
 f share/vgshell/bin/lib/pkg-review.js
 f share/vgshell/bin/lib/pkg-review.sh

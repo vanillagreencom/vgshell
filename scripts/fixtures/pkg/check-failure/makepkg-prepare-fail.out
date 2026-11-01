@@ -1,0 +1,9 @@
+[1m[32m==>[m[1m Making package: vgs-fixture-prepare-fail 1.0-1 (Sat 31 Oct 2026 03:24:17 PM PDT)[m
+[1m[32m==>[m[1m Checking runtime dependencies...[m
+[1m[32m==>[m[1m Checking buildtime dependencies...[m
+[1m[32m==>[m[1m Retrieving sources...[m
+[1m[32m==>[m[1m Extracting sources...[m
+[1m[32m==>[m[1m Starting prepare()...[m
+preparing
+[1m[31m==> ERROR:[m[1m A failure occurred in prepare().[m
+[1m    Aborting...[m

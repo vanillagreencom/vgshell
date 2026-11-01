@@ -27,6 +27,16 @@ if(["sudo","doas","run0"].includes(name)){
  const cp=require("node:child_process"),r=cp.spawnSync(args[0],args.slice(1),{stdio:"inherit",env:process.env});process.exit(r.status||0);
 }
 log("query");
+if(args[0]==="--version"){console.log(name==="makepkg"?"makepkg (pacman) 7.1.0":name+" v"+(name==="paru"?"2.1.0 +git":"12.5.0")+" - libalpm v16.0.1");process.exit(0);}
+// A build scenario, build.json: the recorded transcript a build prints and
+// its status, and the retry's (a build given --nocheck), each once in order.
+function build(){
+ const file=path.join(root,"build.json");if(!fs.existsSync(file))return 0;
+ const plan=JSON.parse(fs.readFileSync(file)),step=originalArgs.includes("--nocheck")?plan.retry:plan.first;
+ if(!step)throw new Error("fixture build step missing for "+originalArgs.join(" "));
+ if(step.transcript){let text=fs.readFileSync(path.resolve(__dirname,"../pkg/check-failure",step.transcript+".out"),"latin1");if(step.base)text=text.replaceAll("vgs-fixture-check-only",step.base);process.stdout.write(Buffer.from(text,"latin1"));}
+ return step.status;
+}
 const configAt=args.indexOf("--config");if(configAt>=0)args.splice(configAt,2);
 if(name==="pacman-conf"){
  if(fs.existsSync(path.join(root,"query-failed")))process.exit(7);
@@ -61,7 +71,10 @@ if(name==="pacman"||name==="paru"||name==="yay"){
   }
   process.exit(0);
  }
- log("mutation");process.exit(0);
+ log("mutation");
+ // pacman builds no recipe: a scenario's failing pacman exits with its status alone.
+ if(name==="pacman"){const file=path.join(root,"build.json");process.exit(fs.existsSync(file)?JSON.parse(fs.readFileSync(file)).pacman||0:0);}
+ process.exit(build());
 }
 if(name==="snapper"){
  if(args.includes("list-configs"))console.log("config,subvolume\nroot,/");else log("snapshot");process.exit(0);
@@ -71,7 +84,7 @@ if(name==="git"){
  fs.writeFileSync(path.join(dest,".SRCINFO"),"pkgbase = paru\npkgname = paru\n");fs.writeFileSync(path.join(dest,"PKGBUILD"),"pkgname=paru\n");process.exit(0);
 }
 if(name==="makepkg"){
- log("mutation");fs.symlinkSync(fs.realpathSync(__filename),path.join(root,"tools/paru"));process.exit(0);
+ log("mutation",{cwd:process.cwd()});const status=build();if(status===0)fs.symlinkSync(fs.realpathSync(__filename),path.join(root,"tools/paru"));process.exit(status);
 }
 if(name==="claude"||name==="codex"){
  log("agent",{cwd:process.cwd(),reviewDir:/The review directory is `([^`]+)`/.exec(args.at(-1))?.[1]});if(fs.existsSync(path.join(root,"agent-failed")))process.exit(4);const prompt=args.at(-1),match=/The review directory is `([^`]+)`/.exec(prompt);

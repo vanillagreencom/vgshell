@@ -305,56 +305,6 @@ _updates_cause_of() { # FILE
   esac
 }
 
-# The OSC number of the marks around a step's output: one no terminal
-# handles, so the terminal draws nothing for them and the log's cleaner
-# drops them. Checked against the OSC tables of foot (osc.c
-# osc_dispatch), kitty (vt-parser.c dispatch_osc) and Ghostty
-# (terminal/osc.zig) on 2026-10-17: each discards an unknown OSC, and
-# kitty also logs it as an unknown escape code.
-_updates_mark_osc=8913
-# How long a step's end mark may take to reach the transcript after the
-# step exits, in seconds: a ceiling far above the wait measured with this
-# function's tail and awk under vgs_tui_log, 200 marks each after 48 KiB
-# of output, p50 5.7 ms, p99 17 ms, max 18.7 ms (a scratch timing run on
-# the development host, 2026-10-17).
-_updates_mark_ceiling=10
-
-# Writes the step's output, between the marks named NONCE, from the run's
-# transcript at byte FROM on into the cause file. The end mark is written
-# here, after the step exited, so every byte the step wrote to the
-# terminal precedes it on the one pty, and once the mark is in the
-# transcript, so is all of that. GNU tail -f follows the file by inotify,
-# so the wait is a read, not a poll. awk splits the stream at BEL, the
-# byte that ends a mark, and sees the mark when its BEL arrives; grep
-# matches only whole lines, and nothing follows the mark until the cut
-# ends. Returns 1 with _updates_unread set,
-# absent when the transcript was not there, late when the end mark did not
-# arrive within the ceiling, lost when a mark is not in what arrived,
-# copy-failed when the copy failed.
-_updates_cut() { # FROM NONCE
-  local from="$1" transcript="${VGS_TUI_TRANSCRIPT:-}" start end at mark first="" last="" follow follower arrived=1
-  _updates_unread=copy-failed
-  printf -v start '\e]%s;vgs-step;%s;start\a' "$_updates_mark_osc" "$2"
-  printf -v end '\e]%s;vgs-step;%s;end\a' "$_updates_mark_osc" "$2"
-  printf '%s' "$end"
-  if [[ -z $from || ! -f $transcript ]]; then _updates_unread=absent; return 1; fi
-  exec {follow}< <(exec timeout "$_updates_mark_ceiling" tail -c "+$((from + 1))" -f -- "$transcript")
-  follower=$!
-  LC_ALL=C awk -v RS='\a' -v mark="${end%$'\a'}" 'index($0, mark) { seen = 1; exit } END { exit !seen }' <&"$follow" || arrived=0
-  exec {follow}<&-
-  kill "$follower" 2>/dev/null || :
-  wait "$follower" 2>/dev/null || :
-  if [[ $arrived == 0 ]]; then _updates_unread=late; return 1; fi
-  # grep -b prints each mark's byte offset from FROM.
-  while IFS=: read -r at mark; do
-    if [[ $mark == "$start" && -z $first ]]; then first="$at"
-    elif [[ $mark == "$end" ]]; then last="$at"
-    fi
-  done < <(tail -c "+$((from + 1))" -- "$transcript" | LC_ALL=C grep -a -b -o -F -e "$start" -e "$end")
-  if [[ -z $first || -z $last ]] || (( last < first )); then _updates_unread=lost; return 1; fi
-  head -c "$((from + last))" -- "$transcript" | tail -c "+$((from + first + ${#start} + 1))" >"$_updates_cause_file"
-}
-
 # Runs one source step, ARGV, and adds its result to _updates_results as
 # `LABEL <result>.`: installed; skipped when the user declined it; failed
 # with its cause and next step, else `exit <n>`. _updates_outcome is installed,
@@ -372,18 +322,16 @@ _updates_cut() { # FROM NONCE
 # stderr, do not interpose"). pacman's size summary on stdout then waited
 # in sudo's relay while its [Y/n] on stderr reached the terminal first. The
 # cause file is cut from the run's transcript, which vgs_tui_log's
-# script(1) keeps, between a start mark written before the step and an end
-# mark written after it; only a failed step's output is cut, and the file
-# is whole when it is read. A closed window hangs up the run's pty, and a
+# script(1) keeps, by tui.sh's vgs_tui_interval_open and _cut; only a
+# failed step's output is cut, and the file is whole when it is read. A closed window hangs up the run's pty, and a
 # write to a pty whose master is closed fails with EIO and raises no
 # signal (a Python os.write on Linux 7.2, 2026-10-17), so a step such as
 # pacman still reaches the end of its transaction and unlocks its database
 # instead of dying by SIGPIPE. A step a Ctrl-C ended, 130, ends the run.
 _updates_source() { # ID LABEL ARGV...
-  local id="$1" label="$2" status=0 from="" nonce="$BASHPID.$SRANDOM$SRANDOM"
+  local id="$1" label="$2" status=0
   shift 2
-  from="$(stat -c %s -- "${VGS_TUI_TRANSCRIPT:-}" 2>/dev/null)" || from=""
-  printf '\e]%s;vgs-step;%s;start\a' "$_updates_mark_osc" "$nonce"
+  vgs_tui_interval_open
   "$@" || status=$?
   _updates_exit="$status"
   if [[ $status -eq 0 ]]; then
@@ -396,10 +344,10 @@ _updates_source() { # ID LABEL ARGV...
     exit "$status"
   fi
   : >"$_updates_cause_file"
-  if _updates_cut "$from" "$nonce"; then
+  if vgs_tui_interval_cut "$_updates_cause_file"; then
     _updates_cause_of "$_updates_cause_file"
   else
-    _updates_diagnostic "updates: transcript=unread source=$id reason=$_updates_unread"
+    _updates_diagnostic "updates: transcript=unread source=$id reason=$vgs_tui_unread"
     _updates_declined=0
     _updates_cause="VGS could not read this step's output."
     _updates_next="select Open last log in Updates to read the step's output."

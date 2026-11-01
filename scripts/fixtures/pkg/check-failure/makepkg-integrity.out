@@ -1,0 +1,8 @@
+[1m[32m==>[m[1m Making package: vgs-fixture-integrity 1.0-1 (Sat 31 Oct 2026 03:24:18 PM PDT)[m
+[1m[32m==>[m[1m Checking runtime dependencies...[m
+[1m[32m==>[m[1m Checking buildtime dependencies...[m
+[1m[32m==>[m[1m Retrieving sources...[m
+[1m[34m  ->[m[1m Found integrity.txt[m
+[1m[32m==>[m[1m Validating source files with sha256sums...[m
+    integrity.txt ... FAILED
+[1m[31m==> ERROR:[m[1m One or more files did not pass the validity check![m

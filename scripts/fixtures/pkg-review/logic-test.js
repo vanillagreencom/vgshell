@@ -137,6 +137,8 @@ const scratch=fs.mkdtempSync(path.join(os.tmpdir(),"test-package-review-"));
 try {
  const source=fs.readFileSync(file,"utf8"),needle="reviewed.indexOf(m[1]) < 0 || ";
  assert.equal(source.split(needle).length-1,1);
+ // The judge imports the package table from beside it.
+ fs.copyFileSync(path.join(path.dirname(file),"PackageManagers.js"),path.join(scratch,"PackageManagers.js"));
  const mutant=path.join(scratch,"PackageReview.js");fs.writeFileSync(mutant,source.replace(needle,""));
  assert.throws(()=>verify(load(mutant)));
 } finally {fs.rmSync(scratch,{recursive:true,force:true});}
