@@ -13,7 +13,7 @@ Tray shows the tray icons of your apps in the bar, such as chat, sync, VPN and m
 - Right-click an icon to open the app's menu. An entry with an arrow opens its submenu in the same menu, and Back returns to the level above.
 - Right-click the arrow and choose Manage tray icons to pin or hide each icon. The same menu hides the whole tray.
 
-## Settings
+## Setup
 
 | Setting | What it changes |
 | --- | --- |

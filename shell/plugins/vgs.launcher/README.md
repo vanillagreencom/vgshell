@@ -19,7 +19,7 @@ Launcher finds and opens apps, files and system actions from one search field. I
 - Moves through the list with the arrow keys, Home, End, PageUp and PageDown. Escape clears the search, then leaves a menu, then closes the launcher.
 - A right click on the bar magnifier offers Open terminal.
 
-## Settings
+## Setup
 
 | Setting | What it changes |
 | --- | --- |

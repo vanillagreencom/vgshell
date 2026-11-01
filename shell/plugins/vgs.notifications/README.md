@@ -27,7 +27,7 @@ Notifications shows application notifications on each screen and keeps them in a
 - A message from any VGS plugin is a system notification, which this plugin draws. VGS has no toast of its own.
 - With this plugin off, VGS drops plugin messages and writes one line to its log. Only before VGS first shows a notification after it starts can another notification app show them.
 
-## Settings
+## Setup
 
 | Setting | What it changes |
 | --- | --- |
@@ -39,7 +39,7 @@ Notifications shows application notifications on each screen and keeps them in a
 
 The shortcut is under Keys on the plugin's Settings page. The Tools step on Setup lists required tools, and the Optional tools step there installs the optional ones. Details lists the optional tools under Tools.
 
-## Slack photos
+### Slack photos
 
 Turn on Slack photos in Settings to add sender photos, workspace icons and custom emoji. Each workspace you are signed in to in the Slack desktop app has its own row under Slack photos, and each needs its own User OAuth Token.
 

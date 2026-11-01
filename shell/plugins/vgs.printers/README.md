@@ -17,7 +17,7 @@ Printers adds, chooses and removes your printers. It has a Printers section in t
 - Each change asks your permission in the system's password prompt. VGS never sees the password. A change you do not allow changes nothing.
 - Turn on printing starts the printing service in a setup window when it is off.
 
-## Requirements
+## Setup
 
 Printers reads your printers with the printing service's own tools, which come with CUPS. Without CUPS the section says that printing is not installed, and Install printing installs it in one press. On the plugin's Setup tab, the Printing step reads To do until CUPS is installed, and Review all missing or outdated tools on its row installs it. The printer helper is optional: without it the list works, and each change button offers to install it. Print Settings is optional too.
 

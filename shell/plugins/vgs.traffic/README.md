@@ -4,6 +4,8 @@ See download and upload speeds in the bar. Click the widget to see traffic per a
 
 ![Network Traffic showing app download and upload rates](../../../docs/images/plugins/vgs.traffic-panel.webp)
 
+## Features
+
 - Choose download, upload, or both speeds in the bar.
 - Stack the upload speed over the download speed on two short lines, each with its arrow icon.
 - Label each speed with an arrow or a short name, UPL for upload and DNL for download.

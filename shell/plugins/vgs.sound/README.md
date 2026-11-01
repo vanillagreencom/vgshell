@@ -13,7 +13,7 @@ Sound sets the volume, the output and input device, and the volume of each app t
 - Choosing an output makes it the default. The apps that play now move to it.
 - While PipeWire is not running, the bar icon shows a crossed speaker. Sound connects again when PipeWire starts.
 
-## Settings
+## Setup
 
 | Setting | What it changes |
 | --- | --- |

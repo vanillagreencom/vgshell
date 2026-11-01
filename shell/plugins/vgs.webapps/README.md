@@ -12,7 +12,7 @@ Web Apps turns a website into an app. Each web app has its own name and icon in 
 - Select it again while its window is open, and VGS brings that window into view, on whatever workspace it is.
 - Remove a web app, and its launcher entry and icon go with it.
 
-## Settings
+## Setup
 
 Each web app has these fields under Web apps.
 
