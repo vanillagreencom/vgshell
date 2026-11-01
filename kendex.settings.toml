@@ -30,6 +30,10 @@ ORCH_SIZE_TEST_PATHS = "scripts/test-*.js scripts/test-*.py scripts/test-*.sh"
 # diff inline. The default roster's claude and codex fallbacks would run those
 # CLIs with a shell and this repository's hooks, so they are left out.
 SECOND_OPINION_MODELS = "pi-copilot pi-copilot-gpt"
+# No Copilot pool reading is configured here, so the built-in lanes pick room
+# check would skip both entries; run them unchecked, as the old overrides did.
+SECOND_OPINION_PI_COPILOT_ROOM_CMD = ""
+SECOND_OPINION_PI_COPILOT_GPT_ROOM_CMD = ""
 SECOND_OPINION_TIMEOUT = "1080"
 WORKTREE_BASE_DIR = "~/dev/.worktrees/vgshell"
 WORKTREE_COPIES = ""
