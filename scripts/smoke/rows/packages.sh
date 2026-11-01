@@ -32,6 +32,7 @@ packages_open
 expect "System Settings refuses to turn off" 'refused: enabled=vgs.system reason=always-on' ipc shell setPluginEnabled vgs.system false
 expect "System Settings stays enabled after the refusal" True plugin_enabled vgs.system
 expect "Packages stays shown after the disable refusal" '["vgs.packages"]' window_panes
+updates_cache_fresh
 expect "Updates enables for the two-page edit" ok ipc shell setPluginEnabled vgs.updates true
 expect "the Packages field changes the update option" applied ipc smoke invokeInstance window vgs.system applyField '{"id":"vgs.updates","key":"hideWhenCurrent","value":true}'
 expect_poll "Packages reads the saved update option" true packages_field window vgs.system

@@ -989,6 +989,37 @@ PYHOME
   row "control: the omitted Home input loses selection for $home_input" "$d" 0 "" "!node scripts/test-jarvis-home.js"
 done
 
+# The desktop package entry loads each helper before confirming its page open.
+# Other CLI rows keep these inputs known, so a missing edge must not hide
+# behind the unknown-input full-area fallback.
+pkg_desktop_helpers=(bin/lib/pkg-review.sh bin/lib/ipc-reply.sh bin/lib/tui.sh)
+for helper in "${pkg_desktop_helpers[@]}"; do
+  d="$tmp/plan-package-desktop-${helper##*/}"; fresh "$d"
+  mkdir -p "$d/bin/lib"
+  printf 'changed\n' >"$d/$helper"
+  test_area=cli
+  test_args=(--changed HEAD --list)
+  row "the desktop package suite is selected for $helper" "$d" 0 "" \
+    "node scripts/test-vgshell-pkg-cli.js" '!validate: selection=full'
+  python3 - "$d/scripts/validate" "$helper" <<'PYPKGEDGE'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+source = path.read_text()
+prefix = '  "cli|vgshell pkg check owner and command rows|'
+rows = [line for line in source.splitlines() if line.startswith(prefix)]
+edge = ' ' + sys.argv[2]
+assert len(rows) == 1 and rows[0].count(edge) == 1
+changed = source.replace(rows[0], rows[0].replace(edge, '', 1))
+assert changed != source
+path.write_text(changed)
+PYPKGEDGE
+  "${base_env[@]}" git -C "$d" add scripts/validate
+  "${base_env[@]}" git -C "$d" commit -q -m control
+  row "control: the omitted desktop helper loses selection for $helper" "$d" 0 "" \
+    '!node scripts/test-vgshell-pkg-cli.js' '!validate: selection=full'
+done
+
 # Updates readers load the shipped page-reference module in their core tree.
 d="$tmp/plan-updates-page-reference"; fresh "$d"
 mkdir -p "$d/shell/Commons"
