@@ -15,7 +15,7 @@ Updates checks your system, VGS, plugins, themes and developer tools for updates
 - Package installs and updates offer the same optional AI review in their terminal before administrator access or a build. Package review settings are shared with Settings. A flagged package lets you skip it or install it anyway.
 - The steps of an update run are in [pipeline.md](pipeline.md).
 
-## Settings
+## Setup
 
 | Setting | What it changes |
 | --- | --- |

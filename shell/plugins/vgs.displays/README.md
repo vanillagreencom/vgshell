@@ -24,7 +24,7 @@ vgshell system apply i2c-dev
 
 </details>
 
-## Settings
+## Setup
 
 | Setting | What it changes |
 | --- | --- |

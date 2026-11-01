@@ -11,7 +11,7 @@ Fonts sets the font of the shell and the font of your terminals. It is for anyon
 - The Interface list holds the fonts installed on your computer, each family once. The Terminal list holds only the fixed-width ones that draw letters, digits and punctuation, so icon and emoji fonts stay out of it. Type the first letters of a name to move to it.
 - The values stay in effect when you disable this plugin. Enable it again to change them.
 
-## Values
+## Setup
 
 | Value | What it changes |
 | --- | --- |

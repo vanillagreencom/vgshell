@@ -2,7 +2,7 @@
 
 This is Kendex's first extensive Copilot consumer workload; report package or workflow failures with `kendex report`, using temporary consumer-side workarounds without editing Kendex-owned files.
 
-A desktop shell for Hyprland, built on Quickshell 0.3.1. A small fixed core starts the shell, talks to Hyprland, hosts surfaces and loads plugins. Everything outside the core is a plugin: one directory with a `manifest.json`, shown on the surfaces the core hosts, landed with the validation row that proves it is built and handed what it asked for. `docs/architecture/overview.md` holds the idea and its rules.
+A Hyprland desktop shell built on Quickshell 0.3.1. Its small fixed core starts the shell, talks to Hyprland, hosts surfaces and loads plugins. Everything else is a plugin: one directory with `manifest.json`, shown on core surfaces. Each lands with a validation row proving it builds and receives what it declares.
 
 ## Commands
 
@@ -28,6 +28,7 @@ A desktop shell for Hyprland, built on Quickshell 0.3.1. A small fixed core star
 - No manual commands: a user-facing setup step is automatic or one click, a step that asks or elevates runs in a floating TUI or the requirement notice that button starts, a secret goes into a masked field VGS stores in libsecret, and the interface shows no command except a by-hand requirement notice for a step VGS cannot run on this system. A plugin README keeps commands behind Show command details. `scripts/check-user-commands.py` enforces the text: `docs/decisions/D061-no-manual-commands.md`.
 - Setup automates every step it can; a step only the user can take needs a clear Settings path or the feature does not ship: D075.
 - Before writing or changing code, load the code-quality skill. Before writing a plugin, load the vgs-plugin skill.
+- Before writing or changing a README, AGENTS.md or a doc: load the docs-writing skill.
 
 ## Read when
 

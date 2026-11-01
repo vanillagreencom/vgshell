@@ -21,7 +21,7 @@ vgshell pkg run install mise
 
 </details>
 
-## Settings
+## Setup
 
 | Setting | What it changes |
 | --- | --- |

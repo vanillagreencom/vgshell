@@ -11,7 +11,7 @@ Mouse sets pointer speed, scrolling and touchpad options. It is for anyone who w
 - A Mouse section in the System Settings window with pointer settings, touchpad settings, device rows and a try-it area.
 - A setting you change here applies over your own Hyprland config. Where your config sets another value, the row shows that value and offers Use my Hyprland value, which makes VGS stop setting it.
 
-## Settings
+## Setup
 
 | Setting | What it changes |
 | --- | --- |

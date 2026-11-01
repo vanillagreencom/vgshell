@@ -4,11 +4,6 @@ Choose keyboard layouts, set their order, and adjust how a held key repeats.
 
 ![Keyboard input sources in the System window](../../../docs/images/plugins/vgs.keyboard-pane.webp)
 
-<details>
-<summary>Show command details</summary>
-
-</details>
-
 ## Features
 
 - Add input sources and choose their variants in System → Keyboard.

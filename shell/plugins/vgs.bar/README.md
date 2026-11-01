@@ -19,7 +19,7 @@ The bar shows workspaces, the clock and plugin buttons at the top of each screen
 - Another program can hide the bar for a short time, for example a zoom mode. The Hide top bar setting does not show a bar that program hides. The bar shows again when that program shows it, or when the shell starts again.
 - Only one bar is active at a time. Disabling it hides every plugin button until a bar is enabled again.
 
-## Settings
+## Setup
 
 | Setting | What it changes |
 | --- | --- |

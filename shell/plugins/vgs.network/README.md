@@ -16,6 +16,6 @@ Network joins Wi-Fi and shows your Wi-Fi and Ethernet connections. It has a bar 
 - Shows the cause when NetworkManager is missing, stopped or refuses access. Wi-Fi passwords stay in NetworkManager's store.
 - Offers to install the details tool or the sharing tool when one is missing.
 
-## Settings
+## Setup
 
 Show disconnected icon keeps the network icon in the bar while disconnected.

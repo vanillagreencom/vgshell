@@ -27,7 +27,7 @@ AI Usage shows how much of your Claude Code, Codex and Copilot plan limits you h
 - Last checked beside Check now shows how long ago the shared check completed. When Claude turns away a usage read, the card keeps the last figures. After a limit resets, the card says that the kept figures may be old.
 - AI Usage never changes a tool's sign-in.
 
-## Settings
+## Setup
 
 | Setting | What it changes |
 | --- | --- |
@@ -53,13 +53,13 @@ codex login
 
 </details>
 
-## AI Gateway credits
+### AI Gateway credits
 
 Turn on AI Gateway credits in Settings. Select Get AI Gateway key on the Details tab to open Vercel. In the dashboard, open AI Gateway, then API keys, then Create key. The key unlocks AI Gateway credit figures.
 
 On the Settings tab, under AI Gateway credits, select Add key on the AI Gateway row. Paste the key into the masked field. VGS stores it in your keyring. Replace beside a stored key replaces it, and Remove removes it. A key or a switch change checks the figures at once. With the switch off, VGS reads no AI Gateway key and calls no AI Gateway API.
 
-## Credits
+## Licence
 
 The Claude, GitHub Copilot and Vercel marks come from [Simple Icons 16.17.0](https://github.com/simple-icons/simple-icons/tree/16.17.0), under [CC0-1.0](https://github.com/simple-icons/simple-icons/blob/16.17.0/LICENSE.md). The source files are [Claude](https://github.com/simple-icons/simple-icons/blob/16.17.0/icons/claude.svg), [GitHub Copilot](https://github.com/simple-icons/simple-icons/blob/16.17.0/icons/githubcopilot.svg) and [Vercel](https://github.com/simple-icons/simple-icons/blob/16.17.0/icons/vercel.svg). The cards draw these marks in the theme's text colour.
 

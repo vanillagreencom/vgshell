@@ -17,7 +17,7 @@ Lock protects your session with your password. The lock screen uses your theme a
 - Can allow temporary password-free access without stopping VGS. This is off until you enable it.
 - Needs no setup. The password check uses the plugin's own PAM stack, and the shell's requirement notice installs a missing tool in one click.
 
-## Settings
+## Setup
 
 | Setting | What it changes |
 | --- | --- |

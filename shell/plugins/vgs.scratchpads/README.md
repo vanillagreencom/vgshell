@@ -17,7 +17,7 @@ Scratchpads shows and hides an app with one key, over whatever you work on. Each
 - Click anywhere beside the pad, or move to another window, to hide it.
 - Remove a pad, or turn off Scratchpads, and its app comes to the workspace you are on.
 
-## Settings
+## Setup
 
 | Setting | What it changes |
 | --- | --- |

@@ -18,7 +18,7 @@ Power shows the battery level and the power profile in the bar, and switches the
 - Turns every display off after you stop using the computer, and sooner while the screen is locked. A key press or pointer movement turns them on if your Hyprland config lets it, and the Power section of System Settings shows if each one can.
 - A power menu with Log out, Suspend, Hibernate, Reboot, Shut down and Switch user. It lists only the actions this computer can do: Hibernate where the system allows it, and Switch user where the login screen can switch users. Hold Space, Enter or the pointer on an action for 3 seconds to run it; release early to cancel. Open it from the launcher's System menu, or choose its key under Keys in Power's Settings. It has no key until you choose one.
 
-## Settings
+## Setup
 
 The battery rows show only on a machine with a battery. The two profile rows also need the power profiles service, which is optional: without it, Power's section in System Settings offers to install it. Wake on LAN shows only on a machine with a wired network device that NetworkManager manages. Without a battery, Power sets one profile from the bar, and Details says so. The same settings show in Power's section of System Settings. If Power cannot save Wake on LAN, both views show the problem under the switch.
 

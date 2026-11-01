@@ -11,7 +11,7 @@ UI sets the corner radius of buttons, text fields and segmented controls. It is 
 - A preview shows a button, a text field and a segmented control with the radius. Bar items and checkboxes keep the theme's radius.
 - The value stays in effect when you disable this plugin. Enable it again to change it.
 
-## Values
+## Setup
 
 | Value | What it changes |
 | --- | --- |

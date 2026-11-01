@@ -15,7 +15,7 @@ Screensaver shows animated text art on each screen when the desktop is inactive.
 - Shows the VGS logo, text art made from a PNG or SVG image, or a text file of your own.
 - Shows whether the lock follows the screensaver.
 
-## Settings
+## Setup
 
 | Setting | What it changes |
 | --- | --- |

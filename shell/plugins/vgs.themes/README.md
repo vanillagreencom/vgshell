@@ -25,7 +25,7 @@ vgshell theme browser-policy install
 
 </details>
 
-## Settings
+## Setup
 
 | Setting | What it changes |
 | --- | --- |

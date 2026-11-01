@@ -5,7 +5,8 @@ vgs.bar-bar.webp	bar	bar-dark	bar
 vgs.bluetooth-pane.webp	bluetooth	bluetooth-dark	content
 vgs.devtools-window.webp	devtools	devtools-dark-p2	content
 vgs.gallery-window.webp	gallery	gallery-dark-p1	content
-vgs.jarvis-page.webp	settings	settings-dark-jarvis	content
+vgs.jarvis-page.webp	jarvis-console	jarvis-console-dark-muted	content
+vgs.jarvis-console-light.webp	jarvis-console	jarvis-console-light-muted	content
 vgs.launcher-list.webp	launcher	launcher-dark-list	content
 vgs.lock-screen.webp	lock	lock-dark	backdrop
 vgs.notifications-inbox.webp	notifications	notifications-dark-inbox	content

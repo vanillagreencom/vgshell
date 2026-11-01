@@ -16,6 +16,6 @@ Bluetooth turns Bluetooth on and off, and pairs, connects, renames and forgets y
 - Shows when a hardware switch turns the radio off.
 - Turn on the service starts the Bluetooth service in a setup window when it is stopped.
 
-## Settings
+## Setup
 
 Hide when off hides the bar icon while Bluetooth is off.

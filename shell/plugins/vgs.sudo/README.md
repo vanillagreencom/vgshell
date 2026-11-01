@@ -17,7 +17,7 @@ While it is on, any program running as you can run anything as root without a pa
 - Click the open lock to turn it off. It asks nothing, and its terminal closes by itself.
 - A notification each time you turn it on or off. The notification for on tells how long it stays on.
 
-## Settings
+## Setup
 
 | Setting | What it changes |
 | --- | --- |
