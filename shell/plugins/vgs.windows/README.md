@@ -19,7 +19,7 @@ It also gives you a key that locks a window group, and tells you whether the gro
 - A window in no group stays as it is, and no notification shows. Only this key sends the notification: a lock made another way, and a group you make, join or leave, sends none.
 - When Hyprland reads a classic `hyprland.conf` and not `hyprland.lua`, VGS cannot read the lock of a group, so the key changes nothing and shows no notification.
 
-## Values
+## Setup
 
 | Value | What it changes |
 | --- | --- |

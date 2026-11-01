@@ -24,7 +24,7 @@ Capture takes PNG screenshots. It can save them, copy them, or do both. It also 
 - A recording indicator in the bar. A click on the indicator, or the recording shortcut again, stops and saves.
 - Shortcuts: Print for a screenshot, `SUPER+SHIFT+S` for an area, `SUPER+SHIFT+R` for a recording, `SUPER+CTRL+PRINT` for text and `SUPER+CTRL+SHIFT+S` for the panel. A recording of the focused display has no key until you set one. The Keys row on the plugin's Settings page changes them.
 
-## Settings
+## Setup
 
 | Setting | What it changes |
 | --- | --- |

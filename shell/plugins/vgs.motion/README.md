@@ -12,7 +12,7 @@ Motion sets how the shell and your windows move. It is for anyone who wants fast
 - Window animations is off at first, so Hyprland keeps the window animations from your own Hyprland config. While it is on and your config sets another value, the row shows that value and offers Use my Hyprland value.
 - The values stay in effect when you disable this plugin. Enable it again to change them.
 
-## Values
+## Setup
 
 | Value | What it changes |
 | --- | --- |
