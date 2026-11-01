@@ -26,6 +26,7 @@
 # and 4138 ms in three, inside its 3.5..5 s window.
 # inputs: scripts/smoke/fixtures/plugins/acme.cover/* scripts/smoke/fixtures/plugins/acme.probe/manifest.json shell/Core/CoverPresentation.qml shell/Core/IdleRegistry.qml shell/Core/SessionLock.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Hosts/CoverHost.qml shell/Hosts/CoverBarrier.qml shell/Hosts/LockHost.qml shell/Hosts/BackgroundHost.qml shell/Hosts/PluginSlot.qml shell/plugins/vgs.lock/* shell/plugins/vgs.screensaver/manifest.json shell/plugins/vgs.screensaver/Cover.qml shell/plugins/vgs.screensaver/Service.qml
 set -euo pipefail
+expected_errors+=('plugins: acme[.]cover failed to load: .*Cover[.]qml')
 sc_config="$home/.config/vgshell/shell.json"
 sc_probe="$(plugin_enabled acme.probe)" || sc_probe=unreadable
 sc_lock_was="$(plugin_enabled vgs.lock)" || sc_lock_was=unreadable

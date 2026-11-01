@@ -10,6 +10,8 @@
 # fixture polls its gates every 10 ms.
 # inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/Core/TuiRunner.qml shell/Core/PluginStatus.qml shell/Core/Notifier.qml shell/plugins/vgs.notifications/* scripts/smoke/rows/jarvis.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/SessionLock.qml bin/vgshell-tui
 set -euo pipefail
+expected_errors+=("${dictation_absent_errors[@]}")
+expected_errors+=('WARN qml: jarvis: stderr=jarvis: task-voice=notify-missing' 'WidgetView[.]js.*Error: jarvis widget: detail=' 'Widget[.]qml.*TypeError: (Value is undefined and could not be converted to an object|Cannot read property .mute. of undefined)')
 expected_errors+=('WARN qml: jarvis: task-stop=not-alive task=smoke-task-[0-9]+')
 # The planted floating-notice control reaches the keyed refusal warning.
 expected_errors+=('WARN qml: jarvis: task-open=floating task=smoke-task-[0-9]+')

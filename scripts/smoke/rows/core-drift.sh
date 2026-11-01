@@ -14,6 +14,7 @@
 # and starts the sandbox tree again.
 # inputs: scripts/smoke/fixtures/plugins/acme.drift/* bin/vgshell-scan bin/vgshell shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Core/TuiRunner.qml shell/Hosts/PluginSlot.qml shell/Hosts/SummonHost.qml shell/Ui/qmldir scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
+expected_errors+=('NoticeHost[.]qml.*Unable to assign [[]undefined[]] to QString')
 drift="$home/.config/vgshell/plugins/acme.drift"
 drift_b="$home/.config/vgshell/plugins/acme.drift-b"
 drift_qmldir="$repo/shell/Ui/qmldir"

@@ -7,6 +7,9 @@ set -euo pipefail
 # Jarvis holds `dictation`, and the shell finds no voxtype: the core's
 # probe does not start at each enable.
 expected_errors+=("${dictation_absent_errors[@]}")
+# The key row runs the Jarvis fixtures, and the nested jarvis-bubble row reads
+# this row's log window too, so it declares the set jarvis.sh does.
+expected_errors+=("${jarvis_provoked_errors[@]}")
 
 jarvis_key_config="$home/.config/vgshell/shell.json"
 jarvis_key_lua="$home/.config/hypr/hyprland.lua"

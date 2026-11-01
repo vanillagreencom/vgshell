@@ -6,6 +6,8 @@
 # the same repair restores the file but leaves the Home step To do.
 # inputs: scripts/smoke/rows/jarvis.sh scripts/smoke/fixtures/tui/vgs.jarvis/tui/repair-home.sh shell/plugins/vgs.jarvis/* packaging/jarvis-home/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/SettingField.qml shell/plugins/vgs.settings/ListField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Core/TuiRunner.qml bin/vgshell-tui bin/lib/tui.sh
 set -euo pipefail
+expected_errors+=("${dictation_absent_errors[@]}")
+expected_errors+=('WARN qml: jarvis-session: (change|status|build)=blocked block=package' 'WARN qml: jarvis: stderr=jarvis: home=package')
 # Accepted homes are remembered even after their folders go away. Preserve
 # the incoming profile as well as its history, while no daemon can write it.
 repair_homes="$home/.local/state/vgshell/jarvis/homes.json"

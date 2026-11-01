@@ -761,7 +761,7 @@ PY
   cp -- "$jarvis_bubble_snapshots/bubble" "$jarvis_bubble_file"
 done
 # Restore the independent bindings in one disposable source copy. Clearing
-# its hold must make the diagnostics row fail. Only that copy's source URI
+# its hold must make the shell log check fail. Only that copy's source URI
 # is excused after the control; the normal bubble remains subject to the row.
 check_unexpected_log "the bubble before the binding control" "$instance_log"
 python3 - "$jarvis_bubble_file" <<'PY'
@@ -820,7 +820,7 @@ cp -- "$sandbox/jarvis-bubble-bindings-errors.log" "$sandbox/jarvis-bubble-unexp
 printf '%s\n' ' WARN quickshell.hyprland.ipc: Got removal for monitor "SMOKE-VOICE" which was not previously tracked.' >>"$sandbox/jarvis-bubble-unexpected.log"
 expect "control: an unrelated warning answers a state without raising" unexpected jarvis_bubble_warning_pattern "$sandbox/jarvis-bubble-unexpected.log"
 # This reader consumes check_unexpected_log's failure block. Other
-# diagnostics failures do not change whether it holds this copy's warning.
+# other failures do not change whether it holds this copy's warning.
 jarvis_bubble_binding_failure() { # DIAGNOSTICS_LOG WARNING_PATTERN
   python3 - "$1" "$2" <<'PYREAD'
 from pathlib import Path
@@ -845,6 +845,7 @@ jarvis_bubble_binding_dir="$(mktemp -d "$sandbox/jarvis-bubble-bindings.XXXXXX")
   first_bar_cpu_some_pct=0.0
   # The real row appends sampler output; keep this control's files private.
   sandbox="$jarvis_bubble_binding_dir"
+  check_unexpected_log "shell log" "$instance_log"
   source "$repo/scripts/smoke/rows/diagnostics.sh"
 ) >"$jarvis_bubble_binding_dir/diagnostics.log"
 expect "control: the two-binding warning is among the diagnostics failures" rejected jarvis_bubble_binding_failure "$jarvis_bubble_binding_dir/diagnostics.log" "$jarvis_bubble_control_pattern"

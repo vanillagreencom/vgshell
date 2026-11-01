@@ -592,6 +592,100 @@ for planted in updates-bare-refused:77 updates-bare-nested:1 updates-bare-multil
 done
 expect "control: the failures the row handles fail nothing" 3 grep -c -E -- "^updates-bare-refused: handled (after \|\||in a substitution|under set \+e)$" "$sandbox/row-plant-updates-bare-refused.log"
 
+# Controls for smoke_row's expected-error list and log window (harness.sh):
+# a row starts with no declared errors and reads the shell log from where it
+# starts, so a line one row declares or provokes counts for nothing in the
+# next. A row that provokes a line the row before it declared, and does not
+# declare it, fails once; the same row declaring its own line fails
+# nothing; a row that logs an undeclared line to the shell log and checks
+# nothing itself fails once on the harness's own reading, which holds that
+# line and not one the row before it logged; a row run inside another keeps
+# the outer row's list and log window; the shell's start and the lines its
+# restoration logs are read too, so no logged line falls between two rows.
+# Both rows of a pair run in one subshell, as the run's rows share one
+# shell, with no row held, as qml-smoke.sh runs one, and a log of their own.
+cat >"$row_plants/updates-declares-line.sh" <<'SH'
+expected_errors+=('updates-planted: provoked line')
+SH
+cat >"$row_plants/updates-provokes-line.sh" <<'SH'
+printf 'WARN qml: updates-planted: provoked line\n' >"$sandbox/updates-planted.log"
+check_unexpected_log "updates-provokes-line: planted log" "$sandbox/updates-planted.log"
+SH
+cat >"$row_plants/updates-declares-own.sh" <<'SH'
+expected_errors+=('updates-planted: provoked line')
+printf 'WARN qml: updates-planted: provoked line\n' >"$sandbox/updates-planted.log"
+check_unexpected_log "updates-declares-own: planted log" "$sandbox/updates-planted.log"
+SH
+cat >"$row_plants/updates-logs-line.sh" <<'SH'
+printf 'WARN qml: updates-planted: earlier row line\n' >>"$instance_log"
+SH
+cat >"$row_plants/updates-reads-log.sh" <<'SH'
+printf 'WARN qml: updates-planted: own line\n' >>"$instance_log"
+SH
+cat >"$row_plants/updates-window-outer.sh" <<'SH'
+printf 'WARN qml: updates-planted: outer window line\n' >>"$instance_log"
+smoke_row updates-window-inner "$row_plants"
+SH
+cat >"$row_plants/updates-window-inner.sh" <<'SH'
+check_unexpected_log "updates-window-inner: shell log" "$instance_log"
+SH
+cat >"$row_plants/updates-nested-outer.sh" <<'SH'
+expected_errors+=('updates-planted: outer line')
+smoke_row updates-nested-inner "$row_plants"
+SH
+cat >"$row_plants/updates-nested-inner.sh" <<'SH'
+printf 'WARN qml: updates-planted: outer line\n' >"$sandbox/updates-nested-inner.planted.log"
+check_unexpected_log "updates-nested-inner: planted log" "$sandbox/updates-nested-inner.planted.log"
+SH
+planted_after() { # FIRST SECOND: the failure count of SECOND, run after FIRST
+  (leak_starts=() failures=0 behaviour_failures=0 smoke_row_drain_s=1 row_log_end_path=
+   instance_log="$sandbox/updates-planted.instance.log"
+   : >"$instance_log"
+   leak_row_restore() { updates_detector_release; }
+   smoke_row "$1" "$row_plants" >"$sandbox/row-plant-$1.log" 2>&1
+   failures=0
+   smoke_row "$2" "$row_plants" >"$sandbox/row-plant-$2.log" 2>&1; echo "$failures")
+}
+expect "control: a row that provokes the line the row before it declared fails once" 1 planted_after updates-declares-line updates-provokes-line
+expect "control: the failure names the undeclared line" 1 grep -c -F -- "WARN qml: updates-planted: provoked line" "$sandbox/row-plant-updates-provokes-line.log"
+expect "control: a row that declares the line it provokes fails nothing" 0 planted_after updates-declares-line updates-declares-own
+expect "control: a row fails on its own undeclared logged line" 1 planted_after updates-logs-line updates-reads-log
+expect "control: the failure names its own line and not the earlier row's" $'1\n0' bash -c 'grep -c -F -- "own line" "$1"; grep -c -F -- "earlier row line" "$1" || :' _ "$sandbox/row-plant-updates-reads-log.log"
+planted_alone() { # NAME
+  (leak_starts=() failures=0 behaviour_failures=0 smoke_row_drain_s=1 row_log_end_path= instance_log=
+   leak_row_restore() { updates_detector_release; }
+   smoke_row "$1" "$row_plants" >"$sandbox/row-plant-$1.log" 2>&1; echo "$failures")
+}
+planted_after_log() { # NAME: the failure count of NAME against an empty shell log
+  (leak_starts=() failures=0 behaviour_failures=0 smoke_row_drain_s=1 row_log_end_path=
+   instance_log="$sandbox/updates-planted.window.log"
+   : >"$instance_log"
+   leak_row_restore() { updates_detector_release; }
+   smoke_row "$1" "$row_plants" >"$sandbox/row-plant-$1.log" 2>&1; echo "$failures")
+}
+planted_restored() { # NAME: the failure count of NAME when its restoration logs a line
+  (leak_starts=() failures=0 behaviour_failures=0 smoke_row_drain_s=1 row_log_end_path=
+   instance_log="$sandbox/updates-planted.restored.log"
+   : >"$instance_log"
+   leak_row_restore() { printf 'WARN qml: updates-planted: restoration line\n' >>"$instance_log"; updates_detector_release; }
+   smoke_row "$1" "$row_plants" >"$sandbox/row-plant-$1-restored.log" 2>&1; echo "$failures")
+}
+planted_booted() { # NAME: the failure count of NAME, the first row, over a shell whose start logged a line
+  (leak_starts=() failures=0 behaviour_failures=0 smoke_row_drain_s=1 row_log_end_path=
+   instance_log="$sandbox/updates-planted.booted.log"
+   printf 'WARN qml: updates-planted: start line\n' >"$instance_log"
+   leak_row_restore() { updates_detector_release; }
+   smoke_row "$1" "$row_plants" >"$sandbox/row-plant-$1-booted.log" 2>&1; echo "$failures")
+}
+expect "control: a line the restoration logs fails the row" 1 planted_restored updates-declares-line
+expect "control: the failure names the restoration's line" 1 grep -c -F -- "WARN qml: updates-planted: restoration line" "$sandbox/row-plant-updates-declares-line-restored.log"
+expect "control: a line the shell's start logged fails the first row" 1 planted_booted updates-declares-line
+expect "control: the failure names the start line" 1 grep -c -F -- "WARN qml: updates-planted: start line" "$sandbox/row-plant-updates-declares-line-booted.log"
+expect "control: a row run inside another keeps the outer row's declaration" 0 planted_alone updates-nested-outer
+expect "control: the nested row's check passes" 1 grep -c -F -- "ok    updates-nested-inner: planted log holds no unexpected error" "$sandbox/row-plant-updates-nested-outer.log"
+expect "control: a row run inside another reads the log from where the outer row started" 2 planted_after_log updates-window-outer
+expect "control: the nested row's reading holds the outer row's line" 1 grep -c -F -- "updates-window-inner: shell log holds errors" "$sandbox/row-plant-updates-window-outer.log"
+
 # A real native held press and a listening stand-in belong to the row,
 # including their coprocess wrappers. The next row reads their channels,
 # never an already-reaped pid which the host could have reused.

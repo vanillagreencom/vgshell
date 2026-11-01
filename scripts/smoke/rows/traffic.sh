@@ -4,6 +4,7 @@
 # Polls use expect_poll. A dropped panel release must fail the lease check.
 # inputs: shell/plugins/vgs.traffic/* shell/plugins/vgs.traffic/tui/* scripts/fixtures/traffic/* scripts/smoke/fixtures/traffic/* scripts/smoke/fixtures/tui/vgs.traffic/tui/* shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/SystemSteps.qml shell/Core/TuiRunner.qml shell/Ui/BarWidget.qml shell/Ui/controls/BarItem.qml shell/Hosts/SummonPopup.qml shell/Ui/layout/SurfaceHeight.qml shell/Hosts/PluginSlot.qml scripts/smoke/toplevel/* scripts/smoke/rows/capabilities.sh shell/Commons/AnchorTracker.qml
 set -euo pipefail
+expected_errors+=('traffic: kill exit=1 kill: sending signal failed: No such process')
 traffic_dir="$sandbox/traffic"
 mkdir -p -- "$traffic_dir"
 cp -- "$home/.config/vgshell/shell.json" "$traffic_dir/shell.json"

@@ -55,6 +55,7 @@
 # removed. No latency reading.
 # inputs: shell/plugins/vgs.google-drive/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RowsList.qml shell/plugins/vgs.settings/RequirementRow.qml shell/plugins/vgs.notifications/* shell/Commons/PageReference.js shell/Ui/feedback/LinkText.qml shell/Ui/feedback/Callout.qml shell/Ui/layout/ListItem.qml shell/Ui/layout/Pane.qml shell/Hosts/SummonPopup.qml shell/Hosts/PluginSlot.qml shell/Commons/WatchedFile.qml shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml bin/vgshell-tui
 set -euo pipefail
+expected_errors+=('settings: vgs[.]google-drive/schedule refused: action=schedule reason=not-offered')
 cs_dir="$sandbox/googledrive"
 cs_stub="$cs_dir/stub"
 cs_runner="$repo/shell/plugins/vgs.google-drive/bin/google-drive"

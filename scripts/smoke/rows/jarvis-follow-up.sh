@@ -11,6 +11,8 @@
 # waits on Session.js's WAKE_SILENCE_MS.
 # inputs: scripts/smoke/user-config.sh shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* scripts/smoke/keyboard/* shell/plugins/vgs.bar/* shell/Ui/feedback/VoiceOrb.qml shell/Core/Layers.qml themes/catalog/flexoki-light/theme.json scripts/smoke/rows/jarvis.sh scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/hold-shortcuts.sh
 set -euo pipefail
+# The Jarvis fixtures log the set jarvis.sh declares.
+expected_errors+=("${jarvis_provoked_errors[@]}")
 
 jarvis_follow_up_config="$home/.config/vgshell/shell.json"
 jarvis_follow_up_lua="$home/.config/hypr/hyprland.lua"

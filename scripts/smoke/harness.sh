@@ -79,7 +79,9 @@ row=json.load(sys.stdin)
 print(row["count"] >= row["threshold"])' <<<"$sample"
 }
 # Error lines a row provokes on purpose, as extended regexes; the log check
-# leaves out a line matching one of them.
+# leaves out a line matching one of them. smoke_row empties it at the start
+# of each row that no other row holds and reads the shell log's window over
+# that row against it, so a row declares exactly what it provokes.
 expected_errors=()
 # The lines the core logs when a plugin that holds `dictation`, as
 # vgs.voice does, is built while the shell finds no voxtype, as in every
@@ -93,10 +95,16 @@ ok() { printf '  ok    %s\n' "$*"; }
 control_output() { sed 's/^/  CONTROL  /' -- "$1"; }
 error_pattern=' ERROR |WARN qml: |WARN scene:|WARN quickshell\.hyprland|TypeError|ReferenceError|is not defined|Cannot read|Cannot assign'
 unexpected_log_errors() { # LOG
-  python3 - "$1" "$error_pattern" "${expected_errors[@]}" <<'PY'
+  local from=0
+  [[ $1 != "${row_log_path-}" ]] || from="${row_log_from:-0}"
+  python3 - "$1" "$from" "${row_log_to:--1}" "$error_pattern" "${expected_errors[@]}" <<'PY'
 import re, sys
-path, pattern, expected = sys.argv[1], re.compile(sys.argv[2]), [re.compile(e) for e in sys.argv[3:]]
-for line in open(path, errors="replace"):
+path, start, end, pattern, expected = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), re.compile(sys.argv[4]), [re.compile(e) for e in sys.argv[5:]]
+with open(path, "rb") as log:
+    log.seek(start)
+    text = log.read() if end < 0 else log.read(max(end - start, 0))
+for raw in text.splitlines():
+    line = raw.decode(errors="replace")
     if pattern.search(line) and not any(e.search(line) for e in expected):
         print(line.rstrip())
 PY
@@ -107,10 +115,39 @@ check_unexpected_log() { # LABEL LOG
     fail "$label unreadable: $log"
   elif [[ -n $log_errors ]]; then
     fail "$label holds errors:"
-    head -n 20 <<<"$log_errors"
+    # The first 20 distinct messages: the same line at another time is one.
+    awk '{ key = $0; if (key ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] /) sub(/^[^ ]+ [^ ]+ +/, "", key) } !seen[key]++' <<<"$log_errors" | head -n 20
   else
     ok "$label holds no unexpected error ($log)"
   fi
+}
+# The shell log a top-level row reads, from where the row before it stopped
+# reading to where the row's own checks and its restoration leave it, so no
+# logged line falls between two rows: the window of the log the row started
+# in and the whole log of a shell the row replaced before its restoration
+# (row_log_check), and what the restoration then logs there (row_log_tail).
+# row_log_end_path and row_log_end are where the next row's window starts. A
+# shell the harness starts outside any row, as a restoration does, boots
+# before that point: its start is no row's. A line the shell logs after a
+# row's last read, as a process exit handler does, belongs to the next row.
+row_log_read() { # LABEL LOG
+  row_log_to="$(stat -c %s -- "$2" 2>/dev/null)" || row_log_to=-1
+  check_unexpected_log "$1" "$2"
+  row_log_end_path="$2"
+  row_log_end="$row_log_to"
+  row_log_to=-1
+}
+row_log_check() { # NAME
+  [[ -z ${row_log_path-} ]] || row_log_read "$1: shell log" "$row_log_path"
+  [[ -z ${instance_log:-} || $instance_log == "${row_log_path-}" ]] || row_log_read "$1: replacement shell log" "$instance_log"
+}
+row_log_tail() { # NAME
+  if [[ -n ${row_log_end_path-} ]]; then
+    row_log_path="$row_log_end_path"
+    row_log_from="${row_log_end:-0}"
+    row_log_read "$1: shell log after restoration" "$row_log_end_path"
+  fi
+  [[ -z ${instance_log:-} || $instance_log == "${row_log_end_path-}" ]] || { row_log_end_path="$instance_log"; row_log_end="$(stat -c %s -- "$instance_log" 2>/dev/null)" || row_log_end=0; }
 }
 
 # Arm process teardown before making either owned tree. The world removes
@@ -3704,7 +3741,7 @@ smoke_row() { # NAME [DIR]
   local ipc_timeout_log="$sandbox/rows/$1.ipc-timeout.log"
   local smoke_row_children smoke_row_owner=$BASHPID smoke_row_child smoke_row_active_jobs smoke_row_source_status=0 smoke_row_abandon_status=0
   local smoke_row_fault="$sandbox/rows/$1.command" smoke_row_faults=() smoke_row_abandon_faults=()
-  local smoke_row_command smoke_row_abandon_command
+  local smoke_row_command smoke_row_abandon_command smoke_row_top=false
   local smoke_row_failures="$failures" smoke_row_original_status=0 smoke_row_failed=false leak_end leak_verdicts="" smoke_row_crashed_report="" smoke_row_crash_expected=""
   smoke_row_marker="qml-smoke: row-end $1 $$ $SRANDOM"
   mkdir -p -- "$sandbox/rows"
@@ -3727,6 +3764,29 @@ smoke_row() { # NAME [DIR]
   # left it, so a scoped run and the full run start it alike. A row run
   # inside another row starts where that row left it, in both runs.
   [[ ${#leak_starts[@]} -gt 1 ]] || rest_pointer || fail "$smoke_row_name: the pointer is not put at rest before the row"
+  # A row declares every error line it provokes and judges the shell log
+  # from where the row before it stopped reading, so its verdict does not
+  # depend on which rows ran before it. The first row reads the shell's
+  # start first, under the list the harness holds. A row run inside another
+  # keeps the outer row's list and window.
+  if [[ ${#leak_starts[@]} -le 1 ]]; then
+    smoke_row_top=true
+    if [[ -z ${row_log_end_path-} && -n ${instance_log:-} ]]; then
+      row_log_path=""
+      # The sandbox's PipeWire may not answer yet when the shell connects.
+      expected_errors+=('ERROR quickshell[.]service[.]pipewire[.]loop: Failed to connect pipewire context')
+      check_unexpected_log "the shell's start" "$instance_log"
+      row_log_end_path="$instance_log"
+      row_log_end="$(stat -c %s -- "$instance_log" 2>/dev/null)" || row_log_end=0
+    fi
+    expected_errors=()
+    row_log_path="${instance_log:-}"
+    row_log_from=0
+    if [[ -z $row_log_path ]]; then :
+    elif [[ $row_log_path == "${row_log_end_path-}" ]]; then row_log_from="${row_log_end:-0}"
+    else row_log_from="$(stat -c %s -- "$row_log_path" 2>/dev/null)" || row_log_from=0
+    fi
+  fi
   rm -f -- "$smoke_row_out" "$smoke_row_result" "$smoke_row_fault" "$smoke_row_fault.abandon"
   smoke_row_flags=$-
   smoke_row_trap="$(trap -p ERR)"
@@ -3874,6 +3934,7 @@ PY
     done <"$smoke_row_crashed_report"
   fi
   sink_check
+  [[ $smoke_row_top != true ]] || row_log_check "$smoke_row_name"
   leak_row_end "$smoke_row_name" "$smoke_row_dir"
   # Judge the original leak state before removing this harness-owned dialog.
   anr_row_boundary end "$smoke_row_name"
@@ -3884,6 +3945,7 @@ PY
     [[ $smoke_row_original_status != 0 ]] || smoke_row_original_status=1
   fi
   leak_row_restore "$smoke_row_name" "$smoke_row_dir" "$smoke_row_failed" "$smoke_row_original_status"
+  [[ $smoke_row_top != true ]] || row_log_tail "$smoke_row_name"
   smoke_row_secs "$smoke_row_name" "$smoke_row_started" "$smoke_row_cpu_started"
   # A failed restoration leaves no valid starting world for a later row.
   [[ $smoke_row_abandon_status == 0 ]] || exit "$smoke_row_source_status"

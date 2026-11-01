@@ -159,6 +159,8 @@ stop_shell() { :; }
 shell_stop() { local -n shell_stop_outcome="$1"; shell_stop_outcome=stopped; }
 start_shell() { :; }
 sink_check() { :; }
+row_log_check() { :; }
+row_log_tail() { :; }
 ipc_oversize_check() { :; }
 ipc_timeout_check() { return 0; }
 ok() { :; }

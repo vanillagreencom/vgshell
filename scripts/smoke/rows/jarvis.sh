@@ -1,24 +1,28 @@
 # Shared Jarvis smoke helpers and warning state for downstream rows.
 # inputs: shell/plugins/vgs.jarvis/* scripts/smoke/rows/plugins.sh
 set -euo pipefail
-expected_errors+=('WARN qml: jarvis: stderr=.*Killed.*')
-expected_errors+=('WARN qml: jarvis: stderr=jarvis: node=21[.]0[.]0 need=22')
-expected_errors+=('WARN qml: jarvis: hello=timeout')
-expected_errors+=('WARN qml: jarvis: setup=probe-timeout check=[A-Za-z]+$')
-expected_errors+=('WARN qml: jarvis: stderr=jarvis: fixture=warning')
-expected_errors+=('.*jarvis-account-missing-helper.*')
+# Every row that starts the Jarvis fixtures declares this set, as the
+# real daemon's fixtures provoke it: jarvis_provoked_errors is the one place.
+jarvis_provoked_errors=()
+jarvis_provoked_errors+=('WARN qml: jarvis: stderr=.*Killed.*')
+jarvis_provoked_errors+=('WARN qml: jarvis: stderr=jarvis: node=21[.]0[.]0 need=22')
+jarvis_provoked_errors+=('WARN qml: jarvis: hello=timeout')
+jarvis_provoked_errors+=('WARN qml: jarvis: setup=probe-timeout check=[A-Za-z]+$')
+jarvis_provoked_errors+=('WARN qml: jarvis: stderr=jarvis: fixture=warning')
+jarvis_provoked_errors+=('.*jarvis-account-missing-helper.*')
 # The readers log a failed check's safe cause; the page shows plain words.
-expected_errors+=('WARN qml: jarvis-accounts: (process|output|diagnostic|added|directory|discovery)=[a-z-]+')
-expected_errors+=('WARN qml: jarvis-keys: (presence|busctl)=[a-z-]+')
+jarvis_provoked_errors+=('WARN qml: jarvis-accounts: (process|output|diagnostic|added|directory|discovery)=[a-z-]+')
+jarvis_provoked_errors+=('WARN qml: jarvis-keys: (presence|busctl)=[a-z-]+')
 # The service logs a fault's, an audio fault's and an ended daemon's keyed
 # cause; the bar and the page say what happened in plain words.
-expected_errors+=('WARN qml: jarvis: (fault|audio-fault)=')
-expected_errors+=('WARN qml: jarvis: ended cause=')
+jarvis_provoked_errors+=('WARN qml: jarvis: (fault|audio-fault)=')
+jarvis_provoked_errors+=('WARN qml: jarvis: ended cause=')
 # Jarvis holds `dictation`, and the shell finds no voxtype: the core's probe
 # does not start at each enable. Voice's toggle during Jarvis's recording
 # logs the core's refusal.
-expected_errors+=("${dictation_absent_errors[@]}")
-expected_errors+=('WARN qml: voice: start refused: dictation=busy holder=vgs[.]jarvis$')
+jarvis_provoked_errors+=("${dictation_absent_errors[@]}")
+jarvis_provoked_errors+=('WARN qml: voice: start refused: dictation=busy holder=vgs[.]jarvis$')
+expected_errors+=("${jarvis_provoked_errors[@]}")
 
 # Read the actual daemon below the Process-owned J09 launcher. PIDs come
 # only from that launcher's /proc descendants, never a name-based search.

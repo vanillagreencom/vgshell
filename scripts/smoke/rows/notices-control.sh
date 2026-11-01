@@ -18,6 +18,7 @@
 # rows/hidpi.sh, which stops it.
 # inputs: shell/Core/Plugins.qml shell/Core/Notices.qml scripts/smoke/fixtures/plugins/acme.needs/* scripts/smoke/rows/notices.sh
 set -euo pipefail
+expected_errors+=('notices: installed=acme[.]needs unknown: acme[.]needs')
 mutant="$sandbox/notice-mutant"
 mkdir -p -- "$mutant"
 cp -R -- "$repo/shell" "$mutant/shell"

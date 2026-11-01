@@ -306,7 +306,7 @@ function browserWrite(logic, enabled, replaced = false, driverValue = { tone: "o
 }
 
 function consumerChecks(logic, check) {
-    // diagnostics.sh's check_unexpected_log consumes Error lines. Preserve
+    // harness.sh's per-row log check (row_log_check) consumes Error lines. Preserve
     // the keyed refusal in those lines while retiring only its retired case.
     for (const [name, enabled, replaced, value, reply, error, published] of [
         ["a live write publishes", true, false, { tone: "ok", text: "Ready" }, "ok", null, true],

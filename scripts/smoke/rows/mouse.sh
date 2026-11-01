@@ -33,6 +33,7 @@
 # px wide beside an action 186.95 px wide, and read the keys on the action.
 # inputs: shell/plugins/vgs.mouse/* shell/plugins/vgs.system/* shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* shell/Core/Capabilities.qml shell/Core/Plugins.qml shell/Core/PluginStatus.qml shell/Hosts/PaneHost.qml shell/Ui/controls/Button.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/Slider.qml shell/Ui/controls/Switch.qml shell/Ui/controls/SegmentedControl.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/ValueSourceRow.qml shell/Ui/controls/RowActions.qml shell/Commons/Theme.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Ui/layout/DeviceRow.qml bin/vgshell scripts/smoke/rows/hyprland-consent.sh shell/Commons/Tokens.js shell/Ui/controls/TextField.qml scripts/smoke/Probe.qml
 set -euo pipefail
+expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: vgs[.]mouse')
 
 mouse_file="$home/.config/vgshell/shell.json"
 mouse_saved="$sandbox/shell-before-mouse.json"

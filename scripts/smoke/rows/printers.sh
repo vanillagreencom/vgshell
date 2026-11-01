@@ -49,6 +49,7 @@
 # planted systemctl answer.
 # inputs: shell/plugins/vgs.printers/* shell/plugins/vgs.lock/bin/sleep-watch shell/plugins/vgs.system/* scripts/smoke/fixtures/devices/* scripts/smoke/devices.sh shell/Ui/layout/DeviceList.qml shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system scripts/smoke/rows/device-fakes.sh
 set -euo pipefail
+expected_errors+=('printers: address refused: address=(scheme|installed)' 'printers: remove "Office" problem=refused ' 'printers: view release unknown: view' 'plugins: hidden by a higher-precedence plugin with the same id: vgs[.]printers')
 
 pr_helper=org.opensuse.CupsPkHelper.Mechanism
 pr_copy="$home/.config/vgshell/plugins/vgs.printers"

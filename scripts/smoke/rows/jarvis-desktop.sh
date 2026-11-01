@@ -12,6 +12,8 @@
 # 200 ms (expect_poll); the driver polls its call file every 10 ms.
 # inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/Core/Compositor.qml scripts/smoke/toplevel/* shell/Core/Dispatch.js shell/Commons/DesktopLaunch.js scripts/smoke/rows/jarvis.sh scripts/smoke/rows/launcher.sh
 set -euo pipefail
+# The Jarvis fixtures log the set jarvis.sh declares.
+expected_errors+=("${jarvis_provoked_errors[@]}")
 
 jd_dir="$repo/shell/plugins/vgs.jarvis"
 jd_backend="$jd_dir/backend/jarvisd.js"

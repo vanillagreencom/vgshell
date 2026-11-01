@@ -1,6 +1,7 @@
 # No latency budget. TUI actions run the nested allow-listed fixture only.
 # inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/SettingField.qml shell/plugins/vgs.settings/ListField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Commons/Reply.js scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml scripts/smoke/rows/jarvis.sh bin/vgshell-tui
 set -euo pipefail
+expected_errors+=("${dictation_absent_errors[@]}")
 input_tui="$repo/shell/plugins/vgs.jarvis/tui/setup-input.sh"
 cp -- "$input_tui" "$sandbox/input-tui-original"
 cp -- "$source_repo/scripts/smoke/fixtures/tui/vgs.jarvis/tui/setup-input.sh" "$input_tui"

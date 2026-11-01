@@ -202,6 +202,8 @@ devices_check() { return 0; }
 rest_pointer() { :; }
 shell_crash_check() { return 0; }
 sink_check() { :; }
+row_log_check() { :; }
+row_log_tail() { :; }
 ipc_oversize_check() { :; }
 ipc_timeout_check() { return 0; }
 anr_row_boundary() { :; }

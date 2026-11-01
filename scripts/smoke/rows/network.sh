@@ -14,6 +14,7 @@
 # Wi-Fi switch turns Wi-Fi off.
 # inputs: scripts/smoke/user-config.sh shell/plugins/vgs.network/* shell/Commons/Nmcli.js shell/Commons/qmldir shell/plugins/vgs.system/* shell/Core/* shell/Hosts/* shell/Ui/* shell/Commons/* shell/shell.qml config/shell.json bin/vgshell-scan bin/vgshell-plugin-judge bin/lib/check-manifests.js bin/lib/qml-library.js scripts/smoke/fixtures/devices/* scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/overlay-capture.sh
 set -euo pipefail
+expected_errors+=('NetworkBody[.]qml.*(Unable to assign [[]undefined[]] to QString|TypeError: Cannot read property .width. of null)' 'plugins: hidden by a higher-precedence plugin with the same id: vgs[.]network')
 devices_ready network || return 0
 net_fixture() { python3 "$repo/scripts/smoke/fixtures/devices/network.py" "unix:path=$rt_dir/system-bus" "$1"; }
 net_expect_fixture() { # LABEL ACTION

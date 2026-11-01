@@ -5,6 +5,7 @@
 # deadline checks add an unmeasured wait.
 # inputs: shell/plugins/vgs.screensaver/* shell/plugins/vgs.screensaver/bin/transcode-ascii shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Compositor.qml shell/Hosts/BackgroundHost.qml shell/Hosts/CoverHost.qml shell/Hosts/CoverBarrier.qml shell/Hosts/LockHost.qml shell/Core/CoverPresentation.qml shell/Core/IdleRegistry.qml shell/Core/SessionLock.qml scripts/smoke/toplevel/* scripts/smoke/mode-hold.sh scripts/smoke/fixtures/screensaver-ttfx scripts/smoke/rows/capability-release.sh scripts/smoke/rows/lock.sh scripts/smoke/rows/capabilities.sh
 set -euo pipefail
+expected_errors+=('screensaver: screensaver-art: refused: (input|image)=unreadable')
 # lock is exclusive: acme.probe can hold it and block vgs.lock from building.
 # Free it for this row, then restore acme.probe and vgs.lock to their starting
 # states. setPluginEnabled persists across the mid-row shell restart.

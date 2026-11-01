@@ -22,6 +22,8 @@
 # open. The bar's plug reads Plugins, the title of the window it opens.
 # inputs: shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Widget.qml shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.capture/* shell/plugins/*/manifest.json shell/plugins/vgs.automations/* shell/plugins/vgs.devtools/* shell/plugins/vgs.gallery/* shell/plugins/vgs.keyhints/* shell/plugins/vgs.system/* shell/plugins/vgs.updates/* shell/Commons/Reply.js shell/plugins/vgs.themes/* shell/Hosts/AppWindow.qml shell/Core/HyprlandLayer.js shell/Core/Notices.qml scripts/smoke/toplevel/* scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/settings.sh
 set -euo pipefail
+# vgs.jarvis holds `dictation` and the shell finds no voxtype.
+expected_errors+=("${dictation_absent_errors[@]}")
 leak_plugin_setup vgs.themes true || { fail "windows: fixture precondition failed"; return 1; }
 windows_lua="$home/.config/hypr/hyprland.lua"
 cp -- "$windows_lua" "$sandbox/hyprland-before-windows.lua"

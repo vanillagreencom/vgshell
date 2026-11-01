@@ -14,6 +14,7 @@
 # Readbacks use the harness's state poll; the sequence below also checks
 # the issue's one-second clipboard requirement.
 set -euo pipefail
+expected_errors+=('notifications: sound rule: metadata watch: exit=.* restart=gave-up')
 capture_state="$sandbox/capture-world"
 capture_saved="$sandbox/shell-before-capture.json"
 capture_real_grim="$(command -v grim)" || { fail "capture: grim is unavailable"; return 0; }
