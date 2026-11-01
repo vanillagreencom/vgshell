@@ -27,11 +27,13 @@ ORCH_SIZE_TEST_PATHS = "scripts/test-*.js scripts/test-*.py scripts/test-*.sh"
 
 # Target identities are model providers, not the harness that runs them.
 # In this repository, both targets always use 1copilot, never claude or codex CLIs.
-# Keep write tools denied and shell approval restricted; never grant all tools.
+# Reviewers get read tools only: no shell tool, write denied, the diff inline; never grant all tools.
 SECOND_OPINION_CLAUDE_MODEL = "claude-opus-5.5"
-SECOND_OPINION_CLAUDE_CMD = "env COPILOT_ALLOW_ALL=false 1copilot --model claude-opus-5.5 --reasoning-effort medium --silent --no-ask-user --disable-builtin-mcps --available-tools bash view rg glob --deny-tool write"
+SECOND_OPINION_CLAUDE_CMD = "env COPILOT_ALLOW_ALL=false 1copilot --model claude-opus-5.5 --reasoning-effort medium --silent --no-ask-user --disable-builtin-mcps --available-tools view rg glob --deny-tool write"
+SECOND_OPINION_CLAUDE_INLINE_DIFF = "1"
 SECOND_OPINION_CODEX_MODEL = "gpt-6.1-sol"
-SECOND_OPINION_CODEX_CMD = "env COPILOT_ALLOW_ALL=false 1copilot --model gpt-6.1-sol --reasoning-effort medium --silent --no-ask-user --disable-builtin-mcps --available-tools bash view rg glob --deny-tool write"
+SECOND_OPINION_CODEX_CMD = "env COPILOT_ALLOW_ALL=false 1copilot --model gpt-6.1-sol --reasoning-effort medium --silent --no-ask-user --disable-builtin-mcps --available-tools view rg glob --deny-tool write"
+SECOND_OPINION_CODEX_INLINE_DIFF = "1"
 SECOND_OPINION_TIMEOUT = "1080"
 WORKTREE_BASE_DIR = "~/dev/.worktrees/vgshell"
 WORKTREE_COPIES = ""
