@@ -308,11 +308,9 @@ python3 - "$repo/shell/Hosts/SummonLayer.qml" "$layer_one_screen" <<'PYEDIT'
 import pathlib, sys
 source, target = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
 text = source.read_text()
-for old, new in (("        model: win.otherScreens\n", "        model: []\n"),
-                 ("        enabled: win.exclusiveKeyboard && slot.instance !== null && typeof slot.instance.pressedOnOtherScreen === \"function\"\n", "        enabled: false\n")):
-    assert text.count(old) == 1, "the SummonLayer other-screen path must occur once: " + old
-    text = text.replace(old, new)
-target.write_text(text)
+old = "        model: win.otherScreens\n"
+assert text.count(old) == 1, "the SummonLayer other-screen path must occur once: " + old
+target.write_text(text.replace(old, "        model: []\n"))
 PYEDIT
 cp -- "$home/.config/vgshell/plugins/acme.surfaces/Summoned.qml" "$sandbox/Summoned.initial-focus"
 python3 - "$home/.config/vgshell/plugins/acme.surfaces/Summoned.qml" <<'PYEDIT'
@@ -451,13 +449,12 @@ fi
 
 # A press on another monitor closes an unanchored panel or menu, as a press
 # beside it on its own monitor does: SummonLayer holds a press catcher,
-# vgs:<kind>-outside, on every other screen. An overlay holds the keyboard,
-# so Hyprland sends it every press, on any screen; its window hands one
-# outside itself to the plugin's pressedOnOtherScreen(), which the launcher
-# answers by closing, and the fixture's overlay, which has none, stays
-# open. A monitor removed while a panel shows takes its catcher with it,
-# and the panel stays. The far monitor is a second nested Wayland output,
-# placed right of the first: a headless one read 0x0 here (cachy,
+# vgs:<kind>-outside, on every other screen. An overlay whose plugin has
+# pressedOnOtherScreen() holds a catcher there too; it calls that method,
+# which the launcher answers by closing. The fixture's overlay has no such
+# method and stays open. A monitor removed while a panel shows takes its
+# catcher with it, and the panel stays. The far monitor is a second nested
+# Wayland output, placed right of the first: a headless one read 0x0 here (cachy,
 # 2026-10-11), as compositor-reveal.sh notes. It is placed `auto-right`,
 # not at an explicit point: Hyprland v0.56.2 places every monitor with an
 # explicit position first and every `auto` one right of them
@@ -470,8 +467,8 @@ fi
 # gives boxes in layout coordinates. A catcher takes a press only once it
 # has drawn, as a fresh summon does, and no probe reads a catcher's frames,
 # so far_press presses again after each 1 s the surface stays mapped, at
-# most 5 presses. Control: the SummonLayer copy with neither the catchers
-# nor the overlay's outside area, today's single-screen layer, stays open
+# most 5 presses. Control: the SummonLayer copy with no other-screen
+# catchers, today's single-screen layer, stays open
 # through the same presses, as a panel and as the launcher.
 far_output=SMOKE-SURFACES-FAR
 # layout_size: the layout's width and height, its origin at 0,0.
@@ -630,7 +627,8 @@ expect "the launcher is enabled for the far press" ok ipc shell setPluginEnabled
 expect "the first monitor takes the focus for the launcher" ok near_focus
 expect "the launcher summons on the first monitor" ok ipc shell summon overlay vgs.launcher '{}'
 summon_drawn overlay vgs.launcher || fail "the launcher never drew before the far press"
-expect "the launcher holds no catcher" "[]" far_catchers vgs:overlay
+launcher_far="$(far_want vgs:overlay)" || fail "the launcher's own layer box is readable"
+geometry expect_poll "the launcher's catcher covers the far monitor as its own layer covers the first" "$launcher_far" far_catchers vgs:overlay
 expect "a press on the far monitor closes the launcher" closed far_press vgs:overlay
 expect_poll "the closed launcher leaves the build records" absent ipc smoke readInstance overlay vgs.launcher opened
 expect "the first monitor takes the focus for the single-screen launcher copy" ok near_focus

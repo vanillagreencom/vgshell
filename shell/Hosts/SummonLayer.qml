@@ -89,37 +89,19 @@ PanelWindow {
         }
     }
 
-    // While an overlay holds the keyboard, Hyprland sends every press, on
-    // any screen, to it (v0.56.2 CInputManager::mouseMoveUnified, the
-    // exclusive layer surfaces), so a press on another screen reaches this
-    // window at a point outside it. This area reaches past the window by
-    // the screens' summed size, under the plugin, and hands such a press to
-    // the plugin; a press inside the window it leaves alone.
-    // keyboard-path: Escape closes the overlay through the slot below
-    // pointer-cursor-exempt: it takes presses outside the window, where no control is
-    MouseArea {
-        readonly property real reach: Quickshell.screens.reduce((sum, s) => sum + s.width + s.height, 0)
-        x: -reach
-        y: -reach
-        width: win.width + 2 * reach
-        height: win.height + 2 * reach
-        enabled: win.exclusiveKeyboard && slot.instance !== null && typeof slot.instance.pressedOnOtherScreen === "function"
-        acceptedButtons: Qt.AllButtons
-        onPressed: mouse => {
-            const at = mapToItem(null, mouse.x, mouse.y);
-            if (at.x >= 0 && at.y >= 0 && at.x < win.width && at.y < win.height) mouse.accepted = false;
-            else slot.instance.pressedOnOtherScreen();
-        }
-    }
-
     // A Hyprland focus grab would see a press on any screen, but Hyprland
     // keeps one seat grab at a time: a popup the plugin opens with a grab
     // replaces it, and the replaced focus grab sends `cleared` (Hyprland
     // v0.56.2 CXDGShellProtocol::addOrStartGrab, CSeatManager::setGrab,
     // CFocusGrab's onEnd), which would close the surface as its popup
-    // opens. A catcher takes no keyboard and keeps the layer and reserved
-    // space this surface keeps on its own screen.
-    readonly property var otherScreens: catches ? Quickshell.screens.filter(s => s !== win.screen) : []
+    // opens. Hyprland v0.57.0 mouseMoveUnified hit-tests the pointer's
+    // monitor's layers (InputManager.cpp:435-446); Exclusive holds only the
+    // keyboard. Catch every other-screen press on that screen instead of
+    // relying on an item outside this window. WlrKeyboardFocus.None takes
+    // no keyboard input (Quickshell 0.3.1 WlrKeyboardFocus reference).
+    // The catcher keeps this surface's layer and reserved space.
+    readonly property bool otherScreenPress: exclusiveKeyboard && slot.instance !== null && typeof slot.instance.pressedOnOtherScreen === "function"
+    readonly property var otherScreens: catches || otherScreenPress ? Quickshell.screens.filter(s => s !== win.screen) : []
     Variants {
         model: win.otherScreens
 
@@ -144,7 +126,10 @@ PanelWindow {
             MouseArea {
                 anchors.fill: parent
                 acceptedButtons: Qt.AllButtons
-                onPressed: win.dismissed()
+                onPressed: {
+                    if (win.catches) win.dismissed();
+                    else if (win.otherScreenPress) slot.instance.pressedOnOtherScreen();
+                }
             }
         }
     }
