@@ -68,7 +68,7 @@ else
 fi
 QS
 chmod +x "$stubs/qs"
-stub "$stubs" Hyprland "Hyprland 0.56 built from branch fixture"
+stub "$stubs" Hyprland "Hyprland 0.57.0 built from branch fixture"
 stub "$stubs" nmcli "nmcli tool, version 1.56.0"
 stub "$stubs" qrencode "qrencode version 4.1.1"
 stub "$stubs" xdg-terminal-exec ""
@@ -761,7 +761,7 @@ pm_all="$tmp/pm-all"; mkdir -p "$pm_all"
 for pm in pacman apt-get dnf5 dnf nix; do stub "$pm_all" "$pm" "" 1; done
 low="$tmp/low"; mkdir -p "$low"
 stub "$low" qs "Quickshell 0.3.0"
-stub "$low" Hyprland "Hyprland 0.55.2 built from branch fixture"
+stub "$low" Hyprland "Hyprland 0.56.2 built from branch fixture"
 stub "$low" nmcli "nmcli tool, version 1.56.0"
 stub "$low" qrencode "qrencode version 4.1.1"
 floor_rows() {
@@ -770,7 +770,7 @@ floor_rows() {
   RUN_PATH="$low:$pm_all:$tools_nogit" run "$installer" --version 0.1.0
   RUN_WRAP=()
   check "a floor miss exits 78" test "$status" = 78
-  check "a tool below its floor names its version" err_has "install.sh: refused: floor=hyprland have=0.55.2 need=0.56"
+  check "a tool below its floor names its version" err_has "install.sh: refused: floor=hyprland have=0.56.2 need=0.57.0"
   check "every miss is named, not the first alone" err_has "install.sh: refused: floor=git have=none need=present"
   check "the missing launcher is named with have=none" err_has "install.sh: refused: floor=xdg-terminal-exec have=none need=present"
   check "the miss names the distribution's install command" err_has "Install them as root: pacman -S --needed -- hyprland git xdg-terminal-exec"
@@ -834,7 +834,7 @@ if $2; then
   echo "  what():  XDG_RUNTIME_DIR is not set!" >&2
   exit 134
 fi
-echo "Hyprland 0.56 built from branch fixture"
+echo "Hyprland 0.57.0 built from branch fixture"
 SH
   chmod +x "$1/Hyprland"
 }
@@ -854,7 +854,7 @@ unreadable_row() { # BIN: an installed Hyprland whose version cannot be read is 
   with_os "$arch_os"
   RUN_PATH="$aborts:$stubs:$pm_all:$tools" run "$1" --version 0.1.0
   RUN_WRAP=()
-  refused 78 "install.sh: refused: floor=hyprland have=unknown need=0.56" &&
+  refused 78 "install.sh: refused: floor=hyprland have=unknown need=0.57.0" &&
     err_has "hyprland is installed, but its version could not be read: Hyprland --version exited 134:" &&
     err_has "    what():  XDG_RUNTIME_DIR is not set!" &&
     ! grep -q -e '^Install them' -e '^No supported package manager' "$tmp/err" &&

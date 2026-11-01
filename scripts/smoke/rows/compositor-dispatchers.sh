@@ -325,6 +325,23 @@ if open_toplevel "$sandbox/dispatch-target.log" smoke.dispatch target; then
     expected_errors+=('ERROR qml: compositor: refused: dispatcher=lockActiveGroup argument=0 value="lock"')
     expect "Hyprland's own lock word, which toggles, is refused" 'refused: dispatcher=lockActiveGroup argument=0 value="lock"' probe dispatch "lockActiveGroup lock"
     expect "the harness's own Lua read agrees the group is unlocked" false hypr repl 'return tostring(hl.get_active_window().group.locked)'
+    # Remeasure the action grammar used by Dispatch.lockActiveGroup when
+    # raising the compositor floor: `lock` and `unlock` still toggle on
+    # 0.57.0, whereas enable/disable are idempotent. Start each at unlocked.
+    while read -r dispatch_lock_word dispatch_lock_first dispatch_lock_second; do
+      expect "reset before the $dispatch_lock_word action measurement" ok probe dispatch "lockActiveGroup unset"
+      expect "the $dispatch_lock_word measurement starts unlocked" unlocked dispatch_group_lock
+      expect "the first $dispatch_lock_word action is accepted" ok hypr dispatch "hl.dsp.group.lock({ action = \"$dispatch_lock_word\" })"
+      expect "the first $dispatch_lock_word action reads its effect" "$dispatch_lock_first" dispatch_group_lock
+      expect "the second $dispatch_lock_word action is accepted" ok hypr dispatch "hl.dsp.group.lock({ action = \"$dispatch_lock_word\" })"
+      expect "the second $dispatch_lock_word action reads its effect" "$dispatch_lock_second" dispatch_group_lock
+    done <<'ACTIONS'
+enable locked locked
+disable unlocked unlocked
+toggle locked unlocked
+lock locked unlocked
+unlock locked unlocked
+ACTIONS
     expect "the harness ungroups the target" ok hypr dispatch 'hl.dsp.group.toggle()'
     expect_poll "the plugin reads the target in no group again" ungrouped dispatch_group_lock
 

@@ -88,7 +88,7 @@ cat >"$tmp/hyprctl" <<'EOF2'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"${STUB_HYPR_CALLS:-/dev/null}"
 if [[ ${1:-} == -j && ${2:-} == version ]]; then
-  printf '{\n    "branch": "stub",\n    "version": "%s",\n    "dirty": false\n}\n' "${STUB_HYPR_VERSION:-0.56.2}"
+  printf '{\n    "branch": "stub",\n    "version": "%s",\n    "dirty": false\n}\n' "${STUB_HYPR_VERSION:-0.57.0}"
   exit "${STUB_HYPR_VERSION_EXIT:-0}"
 fi
 if [[ ${1:-} == -j && ${2:-} == status ]]; then
@@ -547,16 +547,16 @@ a warning qs prints on stderr ahead of its version is not read|full|STUB_QS_STDE
 a Quickshell version line with no number is unknown|full|STUB_QS_VERSION=Quickshell git|78|vgshell: refused: preflight=quickshell have=unknown need=0.3.1
 a failed qs --version is unknown|full|STUB_QS_VERSION_EXIT=1|78|vgshell: refused: preflight=quickshell have=unknown need=0.3.1
 no qs on PATH is none|no-qs||78|vgshell: refused: preflight=quickshell have=none need=0.3.1
-Hyprland 0.55.9 is below the floor|full|STUB_HYPR_VERSION=0.55.9|78|vgshell: refused: preflight=hyprland have=0.55.9 need=0.56
-Hyprland 0.56 meets 0.56: a missing component is 0|full|STUB_HYPR_VERSION=0.56|0|
-a Hyprland that does not answer is unknown|full|STUB_HYPR_VERSION_EXIT=4|78|vgshell: refused: preflight=hyprland have=unknown need=0.56
-no hyprctl on PATH is none|no-hyprctl||78|vgshell: refused: preflight=hyprland have=none need=0.56
+Hyprland 0.56.2 is below the floor|full|STUB_HYPR_VERSION=0.56.2|78|vgshell: refused: preflight=hyprland have=0.56.2 need=0.57.0
+Hyprland 0.57 meets 0.57.0: a missing component is 0|full|STUB_HYPR_VERSION=0.57|0|
+a Hyprland that does not answer is unknown|full|STUB_HYPR_VERSION_EXIT=4|78|vgshell: refused: preflight=hyprland have=unknown need=0.57.0
+no hyprctl on PATH is none|no-hyprctl||78|vgshell: refused: preflight=hyprland have=none need=0.57.0
 node 17.9.1 is below the floor|full|STUB_NODE_VERSION=v17.9.1|78|vgshell: refused: preflight=node have=17.9.1 need=18
 no node on PATH is none|no-node||78|vgshell: refused: preflight=node have=none need=18
 no python3 on PATH is none|no-python3||78|vgshell: refused: preflight=python3 have=none need=present
 no git on PATH is none|no-git||78|vgshell: refused: preflight=git have=none need=present
 with Quickshell below its floor and no node, the refusal names the earlier row|no-node|STUB_QS_VERSION=Quickshell 0.3.0|78|vgshell: refused: preflight=quickshell have=0.3.0 need=0.3.1
-with Hyprland below its floor and no git, the refusal names the earlier row|no-git|STUB_HYPR_VERSION=0.55.9|78|vgshell: refused: preflight=hyprland have=0.55.9 need=0.56
+with Hyprland below its floor and no git, the refusal names the earlier row|no-git|STUB_HYPR_VERSION=0.56.2|78|vgshell: refused: preflight=hyprland have=0.56.2 need=0.57.0
 ROWS
 
 # A scratch root mktemp cannot write in refuses before any probe starts.
@@ -650,11 +650,11 @@ nix_mutant="$(pre_copy '  [[ $executable == /nix/store/* && ! -e /etc/NIXOS ]] |
 if nix_host_rows "$nix_mutant"; then fail "control: unsupported Nix hosts reached the engine undetected"; else ok "control: removing the Nix host refusal fails its row"; fi
 
 probe_line='"${argv[@]}" 1>&"${scratch_fds[i]}" 2>/dev/null </dev/null &'
-pre_control "floor row" full STUB_HYPR_VERSION=0.55.9 78 "vgshell: refused: preflight=hyprland have=0.55.9 need=0.56" \
-  'hyprland   0.56    "version"' 'hyprland   present "version"'
+pre_control "floor row" full STUB_HYPR_VERSION=0.56.2 78 "vgshell: refused: preflight=hyprland have=0.56.2 need=0.57.0" \
+  'hyprland   0.57.0  "version"' 'hyprland   present "version"'
 pre_control "numeric compare" full "STUB_QS_VERSION=Quickshell 0.10.0 (revision x, distributed by VGS 3 (package: vgshell-quickshell))" 0 "" \
   $'    ((h > w)) && return 0\n' ''
-pre_control "failed probe" full STUB_HYPR_VERSION_EXIT=4 78 "vgshell: refused: preflight=hyprland have=unknown need=0.56" \
+pre_control "failed probe" full STUB_HYPR_VERSION_EXIT=4 78 "vgshell: refused: preflight=hyprland have=unknown need=0.57.0" \
   '[[ ${statuses[i]} == 0 ]] ||' '[[ ${statuses[i]} == 0 ]] || true ||'
 pre_control "stdout only" full "STUB_QS_STDERR=qt.qpa: warning" 0 "" \
   "$probe_line" '"${argv[@]}" 1>&"${scratch_fds[i]}" 2>&1 </dev/null &'
@@ -666,7 +666,7 @@ pre_control "unread version" full "STUB_QS_VERSION=Quickshell git" 78 "vgshell: 
   '[[ ${outs[i]} =~ $pattern ]] ||' '[[ ${outs[i]} =~ $pattern ]] || true ||'
 pre_control "absent tool" no-git "" 78 "vgshell: refused: preflight=git have=none need=present" \
   '[[ -n ${pids[i]} ]] ||' '[[ -n ${pids[i]} ]] || true ||'
-pre_control "preflight first" full STUB_HYPR_VERSION=0.55.9 78 "vgshell: refused: preflight=hyprland have=0.55.9 need=0.56" \
+pre_control "preflight first" full STUB_HYPR_VERSION=0.56.2 78 "vgshell: refused: preflight=hyprland have=0.56.2 need=0.57.0" \
   $'    preflight\n    # Opened for append' '    # Opened for append' \
   $'  (\n    printf' $'  preflight\n  (\n    printf'
 pre_control "table order" no-node "STUB_QS_VERSION=Quickshell 0.3.0" 78 "vgshell: refused: preflight=quickshell have=0.3.0 need=0.3.1" \
@@ -793,9 +793,9 @@ restart_below() { # LABEL BIN
   below_pid="$fake_pid"
   # A refused dispatch ends a restart that got past the floor at once,
   # rather than after its wait for a runner that refused to start.
-  RESTART_BIN="$2" run_restart_capture "$rt" "$rt/record-new" "$dispatch" false STUB_HYPR_VERSION=0.55.9 STUB_HYPR_REPLY=nope
+  RESTART_BIN="$2" run_restart_capture "$rt" "$rt/record-new" "$dispatch" false STUB_HYPR_VERSION=0.56.2 STUB_HYPR_REPLY=nope
   below_held=false
-  if [[ $restart_status == 78 && -z $restart_out && $restart_err == "vgshell: refused: preflight=hyprland have=0.55.9 need=0.56" && -d /proc/$below_pid && ! -e $dispatch ]]; then below_held=true; fi
+  if [[ $restart_status == 78 && -z $restart_out && $restart_err == "vgshell: refused: preflight=hyprland have=0.56.2 need=0.57.0" && -d /proc/$below_pid && ! -e $dispatch ]]; then below_held=true; fi
 }
 restart_below real "$repo/bin/vgshell"
 if [[ $below_held == true ]]; then ok "restart below the floor exits 78, leaves the shell running and never dispatches"; else fail "restart below floor: exit=$restart_status out=[$restart_out] stderr=[$restart_err] old_live=$([[ -d /proc/$below_pid ]] && echo yes || echo no)"; fi

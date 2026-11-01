@@ -21,7 +21,7 @@
 # Before it writes anything it refuses root, a system other than Linux, an
 # installed system package (/usr/bin/vgshell, or vgshell or vgshell-git in the pacman
 # or rpm database) and a ~/.local/bin/vgshell it did not make; --force
-# skips the last two. It checks the floor: Quickshell 0.3.1, Hyprland 0.56,
+# skips the last two. It checks the floor: Quickshell 0.3.1, Hyprland 0.57.0,
 # node 18, python3, git, flock and setpriv, plus xdg-terminal-exec when
 # the caller has no terminal, and
 # curl, tar, gzip and
@@ -97,7 +97,7 @@ main() {
   # fails when a row drifts from those sources.
   floor='
 quickshell 0.3.1   ^Quickshell[[:space:]]([0-9]+(\.[0-9]+)*)                                  qs --version
-hyprland   0.56    ^Hyprland[[:space:]]([0-9]+(\.[0-9]+)*)                                    Hyprland --version
+hyprland   0.57.0  ^Hyprland[[:space:]]([0-9]+(\.[0-9]+)*)                                    Hyprland --version
 node       18      ^v([0-9]+(\.[0-9]+)*)                                                       node --version
 python3    present ^Python[[:space:]]([0-9]+(\.[0-9]+)*)                                       python3 --version
 git        present ^git[[:space:]]version[[:space:]]([0-9]+(\.[0-9]+)*)                         git --version

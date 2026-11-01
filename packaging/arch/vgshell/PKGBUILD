@@ -16,7 +16,7 @@ depends=(
   'greetd'
   'glibc'
   'vgshell-quickshell>=0.3.2.r7.g2b4501a-3'
-  'hyprland>=0.56'
+  'hyprland>=0.57.0'
   'bash'
   'coreutils'
   'util-linux'
