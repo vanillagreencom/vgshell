@@ -20,7 +20,7 @@
 # getManagedSession), so the second hold reads a mirror only its damage
 # tracking refreshed. A disposable tree whose surfaces outlive the thaw
 # keeps the first hold's frame and fails the check on both outputs.
-# inputs: scripts/smoke/fixtures/plugins/acme.freeze/* shell/Core/ScreenFreeze.qml shell/Hosts/FreezeHost.qml shell/Core/Capabilities.qml shell/Core/HyprlandLayer.js shell/Core/HyprlandLayer.qml shell/shell.qml
+# inputs: scripts/smoke/fixtures/plugins/acme.freeze/* shell/Core/ScreenFreeze.qml shell/Hosts/FreezeHost.qml shell/Core/Capabilities.qml shell/Core/HyprlandLayer.js shell/Core/HyprlandLayer.qml shell/shell.qml themes/catalog/flexoki-light/theme.json
 set -euo pipefail
 freeze_world="$sandbox/screen-freeze"
 freeze_socket="$(shot_socket "$rt_dir" "$nested_socket")"

@@ -547,7 +547,7 @@ def choice_holds(root, helper, payload, geometry=None, boxes=None, cursor=False,
     return (root / "clipboard").read_bytes() == Path(messages[-1]["path"]).read_bytes()
 
 
-def delay_holds(root, payload, helper, cancel=False, acknowledge=True):
+def delay_holds(root, payload, helper, cancel=False, acknowledge=True, cancel_after_hidden=False):
     config = json.loads((root / "config.json").read_text())
     control, writer = os.pipe()
     proc = subprocess.Popen([sys.executable, str(helper), json.dumps(payload)], env=environment(root, config),
@@ -572,16 +572,17 @@ def delay_holds(root, payload, helper, cancel=False, acknowledge=True):
                         if acknowledge:
                             config["frame"] = "after-countdown"
                             (root / "config.json").write_text(json.dumps(config))
-                            os.write(writer, b"countdown-hidden\n")
+                            os.write(writer, b"countdown-hidden\n" + (b"cancel\n" if cancel_after_hidden else b""))
                     elif cancel:
                         os.write(writer, b"cancel\n")
                 ended = ended or message["event"] in ("saved", "copied", "cancelled", "error")
         out, err = proc.communicate(timeout=1)
         observed.extend(events(out))
         ticks = [m["remaining"] for m in observed if m["event"] == "countdown"]
-        if cancel:
-            return (valid and proc.returncode == 0 and ticks == [payload["delay"]] and observed[-1]["event"] == "cancelled"
-                    and not (root / "pictures").exists() and not (root / "clipboard").exists())
+        if cancel or cancel_after_hidden:
+            wanted = list(range(payload["delay"], -1, -1)) if cancel_after_hidden else [payload["delay"]]
+            return (valid and proc.returncode == 0 and ticks == wanted and observed[-1]["event"] == "cancelled"
+                    and not list((root / "pictures").glob("*.png")) and not (root / "clipboard").exists())
         if not acknowledge:
             return valid and proc.returncode == 1 and ticks == [1, 0] and observed[-1].get("reason") == "timeout" and not (root / "pictures").exists()
         return (valid and proc.returncode == 0 and ticks == list(range(payload["delay"], -1, -1))
@@ -704,11 +705,17 @@ def screenshot_choices(base, source):
     assert source.count(bound) == 1, "tool bound"
     quick = base / "quick-bound.py"
     quick.write_text(source.replace(bound, "CAPTURE_TIMEOUT = 1\n"))
-    for name, cancel, acknowledge in [("delay", False, True), ("delay-cancel", True, True), ("delay-ack", False, False)]:
+    for name, cancel, acknowledge, cancel_after_hidden in [
+        ("delay", False, True, False),
+        ("delay-cancel", True, True, False),
+        ("delay-ack", False, False, False),
+        ("delay-hidden-cancel", False, True, True),
+    ]:
         root = world(name)
         payload = request(root, "screenshot-area")
         payload["delay"] = 1
-        assert delay_holds(root, payload, HELPER if acknowledge else quick, cancel=cancel, acknowledge=acknowledge), name
+        assert delay_holds(root, payload, HELPER if acknowledge else quick, cancel=cancel, acknowledge=acknowledge,
+                           cancel_after_hidden=cancel_after_hidden), name
     for action in ("screenshot", "screenshot-area"):
         root = world("timeout-" + action, grimHold=True)
         assert timeout_holds(root, quick, action), action
@@ -732,7 +739,7 @@ def screenshot_choices(base, source):
         ("copy-saves", 'if processing == "copy":', 'if False:', "copy"),
         ("save-copies", 'if processing != "save":', 'if True:', "save"),
         ("no-delay", 'if not self.countdown(delay):', 'if False:', "delay"),
-        ("delay-ignores-cancel", 'ready, _, _ = select.select([sys.stdin], [], [], max(0, deadline - time.monotonic()))\n                if ready and sys.stdin.readline().strip() in ("", "cancel"):\n                    return False', 'ready, _, _ = select.select([sys.stdin], [], [], max(0, deadline - time.monotonic()))\n                if ready and sys.stdin.readline().strip() == "":\n                    return False', "cancel"),
+        ("delay-ignores-cancel", 'if self.cancelled(max(0, deadline - time.monotonic())):\n                    return False', 'if self.read_control(max(0, deadline - time.monotonic())) == "":\n                    return False', "cancel"),
         ("no-timeout", 'child.communicate(timeout=timeout)', 'child.communicate()', "timeout"),
         ("settle-ignores-cancel", 'for _ in range(SETTLE_TRIES):\n            if self.cancelled():', 'for _ in range(SETTLE_TRIES):\n            if False:', "settle-cancel"),
         ("written-ignores-cancel", '            if self.cancelled():\n                raise CaptureCancelled()\n        except BaseException:', '            if False:\n                raise CaptureCancelled()\n        except BaseException:', "written-cancel"),
@@ -1611,6 +1618,8 @@ def freeze_cases(base, world):
         "frozen": (b"frozen\n", "mapped", 0, shown),
         "refused": (b"freeze-refused refused: freeze=busy holder=acme.freeze\n", "mapped", 1, failed),
         "cancel": (b"cancel\n", "mapped", 0, ended),
+        "frozen-cancel": (b"frozen\ncancel\n", "mapped", 0, ended),
+        "unmapped-cancel": (b"frozen\ncancel\n", "unmapped", 0, ended),
         "eof": (b"", "mapped", 0, ended),
         "unanswered": (None, "mapped", 1, failed),
         "unmapped": (b"frozen\n", "unmapped", 1, failed),

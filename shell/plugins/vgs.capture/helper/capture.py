@@ -123,6 +123,7 @@ class Capture:
     def __init__(self):
         self.children = []
         self.recorder = None
+        self.control = b""
         signal.signal(signal.SIGTERM, self.terminate)
         signal.signal(signal.SIGHUP, self.terminate)
 
@@ -169,10 +170,29 @@ class Capture:
         self.release()
         raise SystemExit(128 + signum)
 
+    def read_control(self, timeout=0):
+        """One control line, EOF as an empty string, or None after TIMEOUT.
+
+        Service.qml can write an acknowledgement and cancel together. Keep
+        unread bytes here so every phase sees queued lines before waiting
+        on the descriptor, without a separate text stream buffering them.
+        """
+        deadline = time.monotonic() + timeout
+        while b"\n" not in self.control:
+            ready, _, _ = select.select([sys.stdin], [], [], max(0, deadline - time.monotonic()))
+            if not ready:
+                return None
+            data = os.read(sys.stdin.fileno(), 4096)
+            if not data:
+                line, self.control = self.control, b""
+                return line.decode().strip()
+            self.control += data
+        line, self.control = self.control.split(b"\n", 1)
+        return line.decode().strip()
+
     def cancelled(self, timeout=0):
         """Whether a `cancel` line or stdin EOF arrives within TIMEOUT seconds."""
-        ready, _, _ = select.select([sys.stdin], [], [], timeout)
-        return bool(ready) and sys.stdin.readline().strip() in ("", "cancel")
+        return self.read_control(timeout) in ("", "cancel")
 
     @contextmanager
     def selection(self, request=None):
@@ -250,10 +270,9 @@ class Capture:
         deadline = time.monotonic() + FREEZE_TIMEOUT
         emit("freeze")
         while True:
-            ready, _, _ = select.select([sys.stdin], [], [], max(0, deadline - time.monotonic()))
-            if not ready:
+            line = self.read_control(max(0, deadline - time.monotonic()))
+            if line is None:
                 raise CaptureFailure("timeout", "The screen freeze did not show")
-            line = sys.stdin.readline().strip()
             if line in ("", "cancel"):
                 return False
             if line == "frozen":
@@ -262,6 +281,8 @@ class Capture:
                 raise RuntimeError("The screen freeze was refused: " + line.removeprefix("freeze-refused "))
             raise RuntimeError(f"Unexpected freeze answer: {line}")
         while (left := deadline - time.monotonic()) > 0:
+            if self.cancelled():
+                return False
             outputs = json.loads(self.run(["hyprctl", "-j", "layers"], timeout=left, stdout=subprocess.PIPE, stderr=subprocess.PIPE))
             if outputs and all(any(layer["namespace"] == FREEZE_LAYER and layer["alpha"] > 0 for layers in output["levels"].values() for layer in layers)
                                for output in outputs.values()):
@@ -359,16 +380,14 @@ class Capture:
             emit("countdown", remaining=remaining)
             deadline = time.monotonic() + 1
             while time.monotonic() < deadline:
-                ready, _, _ = select.select([sys.stdin], [], [], max(0, deadline - time.monotonic()))
-                if ready and sys.stdin.readline().strip() in ("", "cancel"):
+                if self.cancelled(max(0, deadline - time.monotonic())):
                     return False
         emit("countdown", remaining=0)
         # The service replies after it removes the countdown surfaces.
         deadline = time.monotonic() + CAPTURE_TIMEOUT
         while time.monotonic() < deadline:
-            ready, _, _ = select.select([sys.stdin], [], [], max(0, deadline - time.monotonic()))
-            if ready:
-                line = sys.stdin.readline().strip()
+            line = self.read_control(max(0, deadline - time.monotonic()))
+            if line is not None:
                 if line in ("", "cancel"):
                     return False
                 if line == "countdown-hidden":
@@ -509,9 +528,8 @@ class Capture:
             # or stdin EOF cancels it; a stop that meets a written file stops.
             line = None
             while self.recorder.poll() is None and path.stat().st_size == 0:
-                ready, _, _ = select.select([sys.stdin], [], [], 0.01)
-                if ready:
-                    line = sys.stdin.readline().strip()
+                line = self.read_control(0.01)
+                if line is not None:
                     if line in ("", "cancel") or path.stat().st_size == 0:
                         self.end_recorder()
                         path.unlink(missing_ok=True)
@@ -529,10 +547,9 @@ class Capture:
             while self.recorder.poll() is None:
                 # stdin carries stop; the short wait also observes a recorder crash.
                 if line != "stop":
-                    ready, _, _ = select.select([sys.stdin], [], [], 0.1)
-                    if not ready:
+                    line = self.read_control(0.1)
+                    if line is None:
                         continue
-                    line = sys.stdin.readline()
                 if line == "" or line.strip() == "stop":
                     self.recorder.send_signal(signal.SIGINT)
                     stopping = True
