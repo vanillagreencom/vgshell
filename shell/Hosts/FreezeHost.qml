@@ -53,6 +53,9 @@ Scope {
 
     Variants {
         id: surfaces
+        // Built anew at each hold, so each hold captures its own frame: a
+        // surface kept past the thaw shows the previous hold's frame
+        // (screen-freeze's freshness control).
         model: ScreenFreeze.holding ? Quickshell.screens : []
 
         PanelWindow {
