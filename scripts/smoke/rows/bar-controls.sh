@@ -1475,14 +1475,13 @@ bar_hide_json="$home/.config/vgshell/shell.json"
 bar_hide_saved="$sandbox/bar-hide-saved.json"
 bar_hide_unchanged() { if cmp -s -- "$bar_hide_json" "$bar_hide_saved"; then echo unchanged; else echo changed; fi; }
 # A started shell registers its services' IPC functions only after its bars
-# present or a deadline passes, and a bar on the sizeless headless screen
-# never presents (`services released reason=deadline`).
+# present or the service gate's deadline passes.
 bar_hide_ipc() { ipc shell lent | py_reply 'import json,sys; print("vgs.bar" in json.load(sys.stdin)["ipcTargets"])'; }
 bar_hide_output=SMOKE-BAR-HIDE
 bar_hide_screens=$((monitors + 1))
 bar_hide_shown="$bar_hide_screens/$bar_hide_screens $bar_hide_screens"
 bar_hide_hidden="0/$bar_hide_screens 0"
-expect "the nested compositor adds a second screen for hide and reveal" ok hypr output create headless "$bar_hide_output"
+expect "the nested compositor adds a second screen for hide and reveal" ok create_output "$bar_hide_output"
 expect_poll "every screen maps a bar before hide" "$bar_hide_shown" bar_hide_mapped
 cp -- "$bar_hide_json" "$bar_hide_saved"
 expect "hide answers ok" ok ipc vgs.bar invoke hide ''

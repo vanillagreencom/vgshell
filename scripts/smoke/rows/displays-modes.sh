@@ -2,13 +2,13 @@
 # a nested output rule, the detached guard reverts it when it is not kept,
 # Keep saves it into the generated layer, a position trial reverts, and the
 # guard still reverts while the shell is stopped. A kept rule that turns
-# the main output off holds while the headless output stays on, the layer
-# turns the main output back on when that output goes, and a reload with
+# the main output off holds while the second output stays on. The row
+# restores the main output before removing the second, and a reload with
 # the main output alone leaves it on. An sRGB colour rule goes through
 # trial, Keep and reload with no configuration error, and the judge refuses
 # an HDR trial, since the nested panel has no EDID. The row uses WAYLAND-1, whose nested
-# backend takes any mode and integer scale. The nested headless output
-# takes no mirror rule, so the unit rows alone hold Mirror. Around each
+# backend takes any mode and integer scale. The unit rows hold Mirror;
+# this row exercises independent outputs. Around each
 # rule that turns the main output off the row waits for the shell's bar on
 # it to go and to come back, so no rule turns off an output the shell has
 # not bound. Each poll reads every 0.2 s for up to 5 s. The row takes the
@@ -28,10 +28,6 @@
 # held and writes no log, and the control reports the defect; with the
 # shipped guard left in place the same check reads `token=claimed
 # log=written` and fails.
-# Control run on 2026-10-06, host cachy, through this row after the setup
-# rows: a rule that turns the main output off with no check, sent while it
-# is the only output, leaves it off, and the control reports the defect;
-# a reload of the layer turns it back on.
 # inputs: shell/plugins/vgs.displays/* shell/Core/MonitorState.qml shell/Core/MonitorLogic.js shell/Core/HyprlandLayer.js shell/Core/HyprlandLayer.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Core/Dispatch.js shell/Core/Compositor.qml bin/vgshell-display-guard
 set -euo pipefail
 
@@ -51,18 +47,9 @@ invoke_displays() {
   return "$status"
 }
 outputs_state() { read_displays outputs | py_reply 'import json,sys; value=json.load(sys.stdin); print("present" if isinstance(value, list) and value else "absent")'; }
-output_present() { read_displays outputs | py_reply 'import json,sys; value=json.load(sys.stdin); print("present" if any(row.get("name") == sys.argv[1] for row in value) else "absent")' "$1"; }
+output_present() { read_displays outputs | py_reply 'import json,sys; value=json.load(sys.stdin); print("present" if any(row.get("name") == sys.argv[1] and row.get("width", 0) > 0 and row.get("height", 0) > 0 for row in value) else "absent")' "$1"; }
 scale_of() { hypr -j monitors all | py_reply 'import json,sys; rows=[m for m in json.load(sys.stdin) if m["name"]==sys.argv[1]]; print(rows[0]["scale"] if rows else "absent")' "$1"; }
 position_of() { hypr -j monitors all | py_reply 'import json,sys; rows=[m for m in json.load(sys.stdin) if m["name"]==sys.argv[1]]; print("%sx%s" % (rows[0]["x"], rows[0]["y"]) if rows else "absent")' "$1"; }
-position_wait() {
-  local output="$1" want="$2" got
-  for _ in $(seq 1 25); do
-    got="$(position_of "$output")" || got=absent
-    [[ $got == "$want" ]] && { echo yes; return; }
-    sleep 0.2
-  done
-  echo no
-}
 not_trial_scale() { [[ "$(scale_of "$1")" == "$trial_scale" ]] && echo no || echo yes; }
 mode_of() { hypr -j monitors all | py_reply 'import json,sys; rows=[m for m in json.load(sys.stdin) if m["name"]==sys.argv[1]]; print("%dx%d" % (rows[0]["width"], rows[0]["height"]) if rows else "absent")' "$1"; }
 token_of() { read_displays trialState | py_reply 'import json,sys; print(json.load(sys.stdin).get("token",""))'; }
@@ -146,38 +133,24 @@ display_record_call mark display-observer-arm "$display_observer_arm" >/dev/null
 
 output="$(first_name)"
 base="$(unscaled_mode_of "$output")"
-base_position="$(position_of "$output")"
 trial_mode="$(hidpi_mode_of "$output")"
 trial_scale=2
 rules="$(rule_json "$output" "$trial_mode" "$trial_scale")"
-position_x=128
-position_y=0
-position_rules="$(position_rule_json "$output" "$position_x" "$position_y")"
+position_x="${base%x*}"
+position_y=128
 extra_output=SMOKE-DISPLAYS-MODES
 suspend_run_base "display modes"
 
 expect "the display starts at scale 1" 1 scale_of "$output"
-expect "the nested compositor adds a monitor for display positions" ok hypr output create headless "$extra_output"
+expect "the nested compositor adds a monitor for display positions" ok create_output "$extra_output"
 expect_poll "vgs.displays still has outputs after the second monitor appears" present outputs_state
-expect_poll "vgs.displays reads the second monitor" present output_present "$extra_output"
+expect_poll "vgs.displays reads the second monitor with a sized mode" present output_present "$extra_output"
 extra_base_position="$(position_of "$extra_output")"
 extra_position_rules="$(position_rule_json "$extra_output" "$position_x" "$position_y")"
-expect "the headless position trial starts" ok invoke_displays trialRules "$extra_position_rules"
-token="$(token_of)"
-if [[ "$(position_wait "$extra_output" "${position_x}x${position_y}")" == yes ]]; then
-  ok "the headless position trial reads back ${position_x}x${position_y}"
-  sleep 16
-  expect_poll "the guard reverts the headless position trial" "$extra_base_position" position_of "$extra_output"
-else
-  ok "the headless output does not report position; the sized output proves positions"
-  expect "the headless position check is reverted" ok invoke_displays revertTrial "$token"
-  expect_poll "the headless position trial state is idle" idle trial_phase
-  expect "the sized output position trial starts" ok invoke_displays trialRules "$position_rules"
-  token="$(token_of)"
-  expect_poll "the sized output position trial reads back ${position_x}x${position_y}" "${position_x}x${position_y}" position_of "$output"
-  sleep 16
-  expect_poll "the guard reverts the sized output position trial" "$base_position" position_of "$output"
-fi
+expect "the second output's position trial starts" ok invoke_displays trialRules "$extra_position_rules"
+expect_poll "the second output's position trial reads back ${position_x}x${position_y}" "${position_x}x${position_y}" position_of "$extra_output"
+sleep 16
+expect_poll "the guard reverts the second output's position trial" "$extra_base_position" position_of "$extra_output"
 expect "the display trial starts" ok invoke_displays trialRules "$rules"
 expect_poll "the trial applies scale $trial_scale" "$trial_scale" scale_of "$output"
 token="$(token_of)"
@@ -227,9 +200,7 @@ release_mode "display modes control restores $output" "$output" "$base" 1
 # src/wayland/hyprland/ipc/connection.cpp can apply a monitors answer
 # older than the events, drop $output from its list, and warn at the row's
 # next removal of it. Nothing else is lost; the next refresh lists it
-# again. When the main output is off and no other is left, Hyprland lists
-# FALLBACK, and Quickshell warns when FALLBACK goes because it never
-# tracked it.
+# again.
 # An output that goes off before the shell has bound it ends the shell.
 # Hyprland 0.56.2 over libwayland 1.26.0 answers the late wl_registry bind
 # with `global wl_output (N) is unavailable`, a protocol error, and Qt
@@ -244,7 +215,7 @@ release_mode "display modes control restores $output" "$output" "$base" 1
 shell_bar_on() { local screens; screens="$(bar_screens)" || return; [[ " $screens " == *" $1 "* ]] && echo yes || echo no; }
 display_modes_output_regex_safe() { [[ $output =~ ^[A-Za-z0-9_-]+$ ]] && echo yes || echo no; }
 expect "the output name is regex-safe for the warning excuse" yes display_modes_output_regex_safe
-expected_errors+=("WARN quickshell\\.hyprland\\.ipc: Got removal for monitor \"(FALLBACK|$output)\" which was not previously tracked\\.")
+expected_errors+=("WARN quickshell\\.hyprland\\.ipc: Got removal for monitor \"$output\" which was not previously tracked\\.")
 display_modes_warning_filter_control() {
   local log="$sandbox/display-modes-warning-control.log" output_line extra_line got
   output_line="2026-01-01 00:00:00.000  WARN quickshell.hyprland.ipc: Got removal for monitor \"$output\" which was not previously tracked."
@@ -261,22 +232,23 @@ expect_poll "the shell drops its bar on $output once it is off" no shell_bar_on 
 token="$(token_of)"
 expect "Keep saves the off rule" ok invoke_displays keepTrial "{\"token\":\"$token\",\"rules\":$off_rules}"
 expect_poll "the layer turns $output off inside its check" yes layer_turns_off "$output"
-expect "reload with the headless output on" ok hypr reload config-only
-expect_poll "the kept off rule holds while the headless output is on" true disabled_of "$output"
-expect "the nested compositor removes the headless output" ok hypr output remove "$extra_output"
-expect_poll "the layer turns $output back on when no other output is left" false disabled_of "$output"
-expect_poll "the shell holds a bar on $output again before the next off rule" yes shell_bar_on "$output"
+expect "reload with the second output on" ok hypr reload config-only
+expect_poll "the kept off rule holds while the second output is on" true disabled_of "$output"
+# Avoid only-FALLBACK's aborting reload; this avoidance is removed by VGS-2136.
+expect "the row restores $output while the second output is on" ok hypr eval "hl.monitor({ output = \"$output\", disabled = false })"
+expect_poll "$output is on before the unchecked off control" false disabled_of "$output"
+expect_poll "the shell holds a bar on $output before the unchecked off control" yes shell_bar_on "$output"
+
+# This control proves the unchecked request acts while another output is on.
+expect "control: the unchecked off rule is sent" ok hypr eval "hl.monitor({ output = \"$output\", disabled = true })"
+expect_poll "control: an unchecked off rule turns the primary off while the second output stays on" true disabled_of "$output"
+expect_poll "the shell drops its bar on $output after the control" no shell_bar_on "$output"
+expect "the row restores $output after the control while the second output stays on" ok hypr eval "hl.monitor({ output = \"$output\", disabled = false })"
+expect_poll "the primary is on before the second output is removed" false disabled_of "$output"
+expect_poll "the shell holds a bar on $output again after the control" yes shell_bar_on "$output"
+expect "the nested compositor removes the second output" ok hypr output remove "$extra_output"
 expect "reload with $output alone" ok hypr reload config-only
 expect_poll "$output stays on after a reload with no other output" false disabled_of "$output"
-
-# Control: the same rule with no check, sent while $output is the only
-# output, leaves the session dark; a reload of the layer turns it back on.
-expect "control: the unchecked off rule is sent" ok hypr eval "hl.monitor({ output = \"$output\", disabled = true })"
-expect_poll "control: an unchecked off rule leaves the only output off" true disabled_of "$output"
-expect_poll "the shell drops its bar on $output after the control" no shell_bar_on "$output"
-expect "reload after the control" ok hypr reload config-only
-expect_poll "the layer turns $output back on after the control" false disabled_of "$output"
-expect_poll "the shell holds a bar on $output again after the control" yes shell_bar_on "$output"
 expect "clearing the off rule is allowed" ok invoke_displays clearRules ""
 expect_poll "the layer drops the off rule" no layer_has_rule
 expect "reload drops the off rule" ok hypr reload config-only

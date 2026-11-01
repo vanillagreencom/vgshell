@@ -475,8 +475,8 @@ def extract(path,names):
         end=start+len(line)+1 if line.endswith("}") else text.index("\n}\n",start)+3
         result.append(text[start:end])
     return result
-parts=extract(harness,("coordinate_observation","pointer_dispatch","nested_input_check","click","hover","right_click","middle_click","drag","wheel","swipe","rest_pointer","point_item","click_item","expect","expect_poll","reader_stderr","smoke_poll_tries","geometry","render"))
-parts+=extract(surfaces,("layout_size","layout_click","surf_menu_point","flyout_widget_x","flyout_grow_check"))
+parts=extract(harness,("coordinate_observation","layout_size","pointer_dispatch","nested_input_check","click","hover","right_click","middle_click","drag","wheel","swipe","rest_pointer","point_item","click_item","expect","expect_poll","reader_stderr","smoke_poll_tries","geometry","render"))
+parts+=extract(surfaces,("far_box","far_press","surf_menu_point","flyout_widget_x","flyout_grow_check"))
 out.write_text("\n".join(parts)+"\n")
 PYEXTRACT
   out="$(env -i PATH="$PATH" "$BASH" -c '
@@ -488,6 +488,7 @@ stub_dir="$3" stub_phase="$4" stub_action="$5" stub_path="$6"
 sandbox="$stub_dir" mode_hold_file="$stub_dir/hold.lua"
 ipc_timeout_log="$sandbox/ipc-timeout.log"
 mon_w=1755 mon_h=933 screen_name=WAYLAND-1
+far_output=FAR
 # The nested display nested_input_check passes, so each step reaches the stub.
 nested_socket=wayland-1 rt_dir="$stub_dir"
 shell_env=(env -i PATH="$PATH" WAYLAND_DISPLAY="$stub_dir/wayland-1")
@@ -500,7 +501,12 @@ ok() { :; }
 sleep() { :; }
 py_reply() { python3 -c "$@"; }
 held_json='\''[{"name":"WAYLAND-1","width":3510,"height":1866,"scale":2,"x":0,"y":0},{"name":"FAR","width":800,"height":600,"scale":1,"x":1755,"y":0}]'\''
-reset_json='\''[{"name":"WAYLAND-1","width":1250,"height":720,"scale":1,"x":0,"y":0}]'\''
+if [[ $stub_phase == single ]]; then
+  held_json='\''[{"name":"WAYLAND-1","width":3510,"height":1866,"scale":2,"x":0,"y":0}]'\''
+elif [[ $stub_phase == wallpaper ]]; then
+  held_json='\''[{"name":"WAYLAND-1","width":3510,"height":1866,"scale":2,"x":0,"y":0},{"name":"FAR","width":1920,"height":1080,"scale":1,"x":1755,"y":0}]'\''
+fi
+reset_json='\''[{"name":"WAYLAND-1","width":1250,"height":720,"scale":1,"x":0,"y":0},{"name":"FAR","width":800,"height":600,"scale":1,"x":1755,"y":0}]'\''
 printf "%s\n" "$held_json" >"$stub_dir/monitors"
 [[ $stub_phase != reset-first ]] || printf "%s\n" "$reset_json" >"$stub_dir/monitors"
 monitor_rule WAYLAND-1 3510x1866 2 >"$mode_hold_file"
@@ -523,6 +529,7 @@ chmod +x "$sandbox/click"
 [[ $stub_phase != helper-unavailable ]] || : >"$stub_dir/helper-unavailable"
 control_box() { echo "[100, 200, 2, 4]"; }
 control_hovered() { echo true; }
+layer_count() { echo 0; }
 ipc() {
   case "$*" in
     *acme.surfaces-tail*grow*) : >"$stub_dir/grown"; echo grown ;;
@@ -541,6 +548,7 @@ deliver() {
     drag) drag "$sample_x" "$sample_y" 301 302 ;;
     wheel|swipe) "$stub_action" "$sample_x" "$sample_y" 3 ;;
     click_item) click_item bar id Control text ;;
+    far_press) far_press vgs:overlay >/dev/null ;;
     *) "$stub_action" "$sample_x" "$sample_y" ;;
   esac || return $?
   echo delivered
@@ -570,7 +578,7 @@ if [[ $stub_path == unscoped ]]; then
   status=0 clicks=0
   click_item bar id Control text 2>"$stub_dir/stderr" || status=$?
   cat -- "$stub_dir/stderr" >&2
-  [[ ! -e $stub_dir/sent ]] || clicks="$(grep -c -x -E "[0-9]+ [0-9]+ 1755 933" -- "$stub_dir/sent" || :)"
+  [[ ! -e $stub_dir/sent ]] || clicks="$(grep -c -x -E "[0-9]+ [0-9]+ 2555 933" -- "$stub_dir/sent" || :)"
   [[ ! -e $stub_dir/reloads ]] || reloads="$(wc -l <"$stub_dir/reloads")"
   refused="$(grep -c -x -E "coordinate-mode: reset output=WAYLAND-1 want=\[3510x1866 scale=2\] pointer-step=refused" -- "$stub_dir/stderr" || :)"
   got="status=$status clicks=$clicks reloads=$reloads refused=$refused"
@@ -597,8 +605,8 @@ if [[ $stub_action == flyout_grow_check ]]; then
   [[ $dependent == true && $failures == 1 && $behaviour_failures == 1 && $pointer_at == before && -e $stub_dir/grown ]] || exit 1
 elif [[ $7 == 0 ]]; then
   [[ $dependent == true && $failures == 0 && $pointer_at != before ]] || exit 1
-  if [[ $stub_action == layout_click ]]; then
-    [[ $(cat "$stub_dir/sent") == "101 202 2555 933" && $pointer_at == "101 202" ]] || exit 1
+  if [[ $stub_action == far_press ]]; then
+    [[ $(cat "$stub_dir/sent") == "2155 300 2555 933" && $pointer_at == "2155 300" ]] || exit 1
   fi
 else
   [[ $dependent == false && $pointer_at == before && $failures == 1 && $behaviour_failures == 1 ]] || exit 1
@@ -614,14 +622,16 @@ smoke_verdict "$failures" "$behaviour_failures" /dev/null || status=$?
 # phase | action | path | verdict status | steps sent | rows not measured
 # | whether the box was sampled under the hold | the arguments sent.
 coordinate_cases=(
-  'held|click|direct|0|1|0|1|101 202 1755 933'
-  'held|hover|direct|0|1|0|1|101 202 1755 933 move'
-  'held|right_click|direct|0|1|0|1|101 202 1755 933 right'
-  'held|middle_click|direct|0|1|0|1|101 202 1755 933 middle'
-  'held|drag|direct|0|1|0|1|101 202 1755 933 drag 301 302'
-  'held|wheel|direct|0|1|0|1|101 202 1755 933 wheel 3'
-  'held|swipe|direct|0|1|0|1|101 202 1755 933 swipe 3'
-  'held|layout_click|direct|0|1|0|1|101 202 2555 933'
+  'single|click|direct|0|1|0|1|101 202 1755 933'
+  'wallpaper|click|direct|0|1|0|1|101 202 3675 1080'
+  'held|click|direct|0|1|0|1|101 202 2555 933'
+  'held|hover|direct|0|1|0|1|101 202 2555 933 move'
+  'held|right_click|direct|0|1|0|1|101 202 2555 933 right'
+  'held|middle_click|direct|0|1|0|1|101 202 2555 933 middle'
+  'held|drag|direct|0|1|0|1|101 202 2555 933 drag 301 302'
+  'held|wheel|direct|0|1|0|1|101 202 2555 933 wheel 3'
+  'held|swipe|direct|0|1|0|1|101 202 2555 933 swipe 3'
+  'held|far_press|direct|0|1|0|1|2155 300 2555 933'
   'held|flyout_grow_check|direct|1|0|0|1'
   'helper-error|click|direct|1|1|0|1'
   'helper-unavailable|click|direct|1|1|0|1'
@@ -635,7 +645,7 @@ coordinate_cases=(
   'reset|drag|direct|1|0|0|1'
   'reset|wheel|direct|1|0|0|1'
   'reset|swipe|direct|1|0|0|1'
-  'reset|layout_click|direct|1|0|0|1'
+  'reset|far_press|direct|1|0|0|1'
   'reset|click|expect|1|0|0|1'
   'reset|click|poll|1|0|0|1'
   'reset|click|substitution|1|0|0|1'
@@ -664,13 +674,27 @@ text=source.read_text()
 old='  coordinate_mode_check || return 1\n'
 assert text.count(old)==1
 changed=text.replace(old,'')
-assert changed!=text and '"$sandbox/click" "$@"' in changed
+assert changed!=text and '"$sandbox/click" "$x" "$y"' in changed
 out.write_text(changed)
 PYMUTATE
 if coordinate_case "$subject" "$tmp/unguarded-harness.sh" "$repo/scripts/smoke/rows/surfaces.sh" 'reset|click|direct|1|0|0|1' >/dev/null; then
   fail 'control: removing the final mode check permits a forbidden action'
 else
   ok 'control: removing the final mode check permits a forbidden action'
+fi
+# The old first-monitor normalization must fail the same two-output case.
+python3 - "$repo/scripts/smoke/harness.sh" "$tmp/first-monitor-harness.sh" <<'PYMUTATE'
+import pathlib,sys
+source,out=map(pathlib.Path,sys.argv[1:])
+text=source.read_text()
+old='  read -r w h < <(layout_size) || return 1\n'
+assert text.count(old)==1
+out.write_text(text.replace(old,'  w="$mon_w" h="$mon_h"\n'))
+PYMUTATE
+if coordinate_case "$subject" "$tmp/first-monitor-harness.sh" "$repo/scripts/smoke/rows/surfaces.sh" 'wallpaper|click|direct|0|1|0|1|101 202 3675 1080' >/dev/null; then
+  fail 'control: first-monitor extents redirect a click after hotplug'
+else
+  ok 'control: first-monitor extents redirect a click after hotplug'
 fi
 # Keep the refusal itself while removing only its stderr reason in scratch.
 python3 - "$subject" "$tmp/silent-hold.sh" <<'PYMUTATE'
@@ -687,6 +711,167 @@ if coordinate_case "$tmp/silent-hold.sh" "$repo/scripts/smoke/harness.sh" "$repo
   fail 'control: a reset refusal with no stderr reason'
 else
   ok 'control: a reset refusal with no stderr reason'
+fi
+
+# Real nested Wayland additions announce before their first mode arrives.
+# The zero-size row is the NVIDIA headless reading from VGS-2133; every
+# case drives the source helper and mode_scale_of's real JSON reader.
+output_create_case() {
+  local file="$1" row="$2" out status=0 dir
+  dir="$(mktemp -d "$tmp/output.XXXXXX")" || return 1
+  out="$(env -i PATH="$PATH" "$BASH" -c '
+set -euo pipefail
+source "$1"
+stub_dir="$2"
+IFS="|" read -r label stub_reply plan want_status want_reads want_remove want_abort <<<"$3"
+printf "0\n" >"$stub_dir/reads"
+first_mode() { echo 1920x1080; }
+smoke_abort() { : >"$stub_dir/aborted"; }
+hypr() {
+  if [[ $1 == eval ]]; then
+    [[ $2 == "hl.monitor({ output = \"SMOKE-OUTPUT\", mode = \"1920x1080\", position = \"auto-right\", scale = 1 })" ]] || return 9
+    [[ $stub_reply != rule-error ]] || return 7
+    if [[ $stub_reply == rule-refused ]]; then echo refused; return; fi
+    : >"$stub_dir/rule"
+    echo ok
+    return
+  fi
+  if [[ $* == "output create wayland SMOKE-OUTPUT" ]]; then
+    : >"$stub_dir/create-called"
+    [[ $stub_reply != error ]] || return 7
+    [[ $stub_reply != ok ]] || : >"$stub_dir/create"
+    printf "%s\n" "$stub_reply"
+    return
+  fi
+  if [[ $* == "output remove SMOKE-OUTPUT" ]]; then
+    [[ -f $stub_dir/create ]] || return 9
+    : >"$stub_dir/remove-called"
+    case "$label" in
+      remove-error) return 6 ;;
+      absent|remove-refused) echo refused ;;
+      *) : >"$stub_dir/removed"; echo ok ;;
+    esac
+    return
+  fi
+  [[ $* == "-j monitors" || $* == "-j monitors all" ]] || return 9
+  local reads index mode
+  if [[ ! -f $stub_dir/create ]]; then
+    case "$label" in
+      pre-existing) mode=1920x1080 ;;
+      pre-existing-disabled) if [[ $* == "-j monitors all" ]]; then mode=1920x1080; else mode=absent; fi ;;
+      acquire-unreadable) mode=unread ;;
+      *) mode=absent ;;
+    esac
+  elif [[ -f $stub_dir/removed ]]; then
+    case "$label" in
+      release-unreadable) mode=unread ;;
+      still-listed) mode=0x0 ;;
+      *) mode=absent ;;
+    esac
+  else
+    reads="$(<"$stub_dir/reads")"; reads=$((reads + 1))
+    printf "%s\n" "$reads" >"$stub_dir/reads"
+    IFS=, read -r -a modes <<<"$plan"
+    index=$((reads - 1)); ((index < ${#modes[@]})) || index=$((${#modes[@]} - 1))
+    mode="${modes[index]}"
+    [[ -f $stub_dir/rule ]] || mode=0x0
+  fi
+  case "$mode" in
+    absent) echo "[]" ;;
+    unread) echo "unread" ;;
+    *) printf "[{\"name\":\"SMOKE-OUTPUT\",\"width\":%s,\"height\":%s,\"scale\":1}]\n" "${mode%x*}" "${mode#*x}" ;;
+  esac
+}
+sleep() { :; }
+status=0
+reply="$(create_output SMOKE-OUTPUT 2>"$stub_dir/error")" || status=$?
+[[ $status == "$want_status" ]] || exit 1
+if [[ $label == rule-* || $label == pre-existing* || $label == acquire-unreadable ]]; then
+  [[ ! -e $stub_dir/create-called ]] || exit 1
+fi
+if [[ $label == pre-existing* ]]; then [[ ! -e $stub_dir/rule ]] || exit 1; fi
+if [[ $want_remove == 1 ]]; then [[ -e $stub_dir/remove-called ]] || exit 1
+else [[ ! -e $stub_dir/remove-called ]] || exit 1; fi
+if [[ $want_abort == 1 ]]; then [[ -e $stub_dir/aborted ]] || exit 1
+else [[ ! -e $stub_dir/aborted ]] || exit 1; fi
+reads="$(<"$stub_dir/reads")"
+if [[ $want_reads == 0 ]]; then [[ $reads == 0 ]] || exit 1
+else ((reads >= want_reads)) || exit 1; fi
+if [[ $status == 0 ]]; then
+  [[ $reply == ok && ! -s $stub_dir/error ]] || exit 1
+else
+  [[ -z $reply ]] || exit 1
+fi
+' _ "$file" "$dir" "$row" 2>&1)" || status=$?
+  [[ $status == 0 ]] && return 0
+  printf '        output create %s: %s\n' "$row" "$out"
+  return 1
+}
+output_create_cases=(
+  'sized|ok|1920x1080|0|1|0|0'
+  'announced-before-sized|ok|absent,0x0,1920x1080|0|3|0|0'
+  'zero-size|ok|0x0|1|1|1|0'
+  'absent|ok|absent|1|1|1|1'
+  'unreadable|ok|unread|1|1|1|0'
+  'refused|refused|1920x1080|1|0|0|0'
+  'transport-error|error|1920x1080|7|0|0|0'
+  'rule-refused|rule-refused|1920x1080|1|0|0|0'
+  'rule-error|rule-error|1920x1080|7|0|0|0'
+  'pre-existing|ok|1920x1080|1|0|0|0'
+  'pre-existing-disabled|ok|1920x1080|1|0|0|0'
+  'acquire-unreadable|ok|1920x1080|1|0|0|0'
+  'remove-error|ok|0x0|1|1|1|1'
+  'remove-refused|ok|0x0|1|1|1|1'
+  'release-unreadable|ok|0x0|1|1|1|1'
+  'still-listed|ok|0x0|1|1|1|1'
+)
+for row in "${output_create_cases[@]}"; do
+  if output_create_case "$subject" "$row"; then ok "output create $row"; else fail "output create $row"; fi
+done
+python3 - "$subject" "$tmp/unsized-output.sh" <<'PYMUTATE'
+import pathlib,sys
+source,out=map(pathlib.Path,sys.argv[1:])
+text=source.read_text()
+old='    if [[ $got =~ ^[1-9][0-9]*x[1-9][0-9]*\\ scale= ]]; then'
+assert text.count(old)==1
+changed=text.replace(old,'    if [[ -n $got ]]; then')
+assert changed!=text
+out.write_text(changed)
+PYMUTATE
+if output_create_case "$tmp/unsized-output.sh" 'zero-size|ok|0x0|1|1|1|0' >/dev/null; then
+  fail 'control: a zero-size output cannot become a usable fixture'
+else
+  ok 'control: a zero-size output cannot become a usable fixture'
+fi
+python3 - "$subject" "$tmp/no-output-mode.sh" <<'PYMUTATE'
+import pathlib,sys
+source,out=map(pathlib.Path,sys.argv[1:])
+text=source.read_text()
+start=text.index('  mode="$(first_mode)" || return\n')
+end=text.index('  reply="$(hypr output create wayland "$output")" || status=$?\n',start)
+changed=text[:start]+text[end:]
+assert changed!=text and 'hypr output create wayland "$output"' in changed
+out.write_text(changed)
+PYMUTATE
+if output_create_case "$tmp/no-output-mode.sh" 'sized|ok|1920x1080|0|1|0|0' >/dev/null; then
+  fail 'control: creation without a mode rule leaves the output unusable'
+else
+  ok 'control: creation without a mode rule leaves the output unusable'
+fi
+python3 - "$subject" "$tmp/unproved-output-release.sh" <<'PYMUTATE'
+import pathlib,sys
+source,out=map(pathlib.Path,sys.argv[1:])
+text=source.read_text()
+old='  if ! create_output_remove "$output"; then\n'
+assert text.count(old)==1
+changed=text.replace(old,'  if create_output_remove "$output"; then\n')
+assert changed!=text
+out.write_text(changed)
+PYMUTATE
+if output_create_case "$tmp/unproved-output-release.sh" 'release-unreadable|ok|0x0|1|1|1|1' >/dev/null; then
+  fail 'control: an unproved release must abort the world'
+else
+  ok 'control: an unproved release must abort the world'
 fi
 
 if [[ $failures -gt 0 ]]; then

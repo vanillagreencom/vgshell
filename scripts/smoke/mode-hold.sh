@@ -7,10 +7,87 @@
 # mode_hold_run_base and the smoke_row_abandon of the row that calls them,
 # a local of smoke_row in harness.sh.
 
-# monitor_rule NAME MODE [SCALE [RIGHT]]: the Lua monitor rule that gives
-# output NAME the mode MODE, such as 480x720, at SCALE, 1 by default, and
-# the layout's origin, with RIGHT logical pixels reserved on its right
-# edge when given. Layer surfaces are arranged inside the output less its
+# create_output NAME: add a usable output to the nested sink and return
+# only once it has a sized mode. Headless outputs on cachy's NVIDIA stack
+# reject buffer allocation and stay 0x0. A layer reload in Hyprland
+# 0.57.0 then reaches CPropRefresher::refreshProp's REFRESH_BLUR_FB loop,
+# CMonitor::resources and CMonitorResources::initFB; the allocation hits
+# src/render/Framebuffer.cpp:10's positive-size assertion (VGS-2133's
+# unchanged-main displays-modes run, 2026-10-31). A Wayland configure can
+# precede aquamarine 0.15.1's newOutput announcement, leaving Hyprland no
+# preferred mode (the compositor-reveal run in VGS-2133). Install an
+# explicit mode copied from the sized primary before creating the output;
+# Wayland accepts that custom mode, as the run-base hold does. New fixture
+# outputs stand auto-right at scale 1. Read up to 25 times, 0.2 s between
+# readings, as take_mode does; each IPC keeps hypr's bound. The row removes its
+# output; the harness owns the whole compositor.
+create_output() {
+  local output="$1" reply mode got=unreadable status=0
+  got="$(mode_scale_of "$output" all)" || :
+  if [[ $got != absent ]]; then
+    printf 'output-create: operation=acquire output=%s state=[%s]\n' "$output" "$got" >&2
+    return 1
+  fi
+  mode="$(first_mode)" || return
+  reply="$(hypr eval "$(monitor_rule "$output" "$mode" 1 "" auto-right)")" || status=$?
+  if [[ $status != 0 || $reply != ok ]]; then
+    printf 'output-create: operation=rule status=%s output=%s reply=[%s]\n' "$status" "$output" "$reply" >&2
+    [[ $status == 0 ]] || return "$status"
+    return 1
+  fi
+  reply="$(hypr output create wayland "$output")" || status=$?
+  if [[ $status != 0 || $reply != ok ]]; then
+    printf 'output-create: operation=create status=%s output=%s reply=[%s]\n' "$status" "$output" "$reply" >&2
+    [[ $status == 0 ]] || return "$status"
+    return 1
+  fi
+  for _ in $(seq 1 25); do
+    got="$(mode_scale_of "$output")" || :
+    [[ -n $got ]] || got=unreadable
+    if [[ $got =~ ^[1-9][0-9]*x[1-9][0-9]*\ scale= ]]; then
+      echo ok
+      return 0
+    fi
+    sleep 0.2
+  done
+  printf 'output-create: output=%s state=[%s]\n' "$output" "$got" >&2
+  # Fixture names have one creator in this private world. The checked absent name
+  # and accepted creation own this output; a refusal above owns nothing.
+  # hyprctl can answer normally while this read is unreadable or the
+  # backend's accepted removal leaves it listed, so transport timeout
+  # handling alone cannot make the next layer reload safe.
+  if ! create_output_remove "$output"; then
+    smoke_abort "output-create: cleanup=unproved output=$output"
+  fi
+  return 1
+}
+
+# The failed acquisition's release phase. Never called for a refused name.
+create_output_remove() {
+  local output="$1" reply got status=0
+  reply="$(hypr output remove "$output")" || status=$?
+  if [[ $status != 0 || $reply != ok ]]; then
+    printf 'output-create: operation=remove status=%s output=%s reply=[%s]\n' "$status" "$output" "$reply" >&2
+    return 1
+  fi
+  for _ in $(seq 1 25); do
+    status=0
+    got="$(mode_scale_of "$output" all)" || status=$?
+    [[ $status != 0 && $got == absent ]] && return 0
+    if [[ $status != 0 ]]; then
+      printf 'output-create: operation=release-read output=%s state=[%s]\n' "$output" "$got" >&2
+      return 1
+    fi
+    sleep 0.2
+  done
+  printf 'output-create: operation=release output=%s state=[%s]\n' "$output" "$got" >&2
+  return 1
+}
+
+# monitor_rule NAME MODE [SCALE [RIGHT [POSITION]]]: give output NAME the
+# mode MODE, such as 480x720, at SCALE, 1 by default, and POSITION, the
+# layout's origin by default, with RIGHT logical pixels reserved on its
+# right edge when given. Layer surfaces are arranged inside the output less its
 # reserved area (arrangeLayersForMonitor, Hyprland v0.56.2), so a bar
 # anchored left and right draws RIGHT narrower at the output's own mode.
 # The nested Wayland output takes any mode and an integer scale; a
@@ -18,7 +95,7 @@
 monitor_rule() {
   local reserved=""
   [[ -z ${4:-} ]] || reserved=", reserved = { right = $4 }"
-  printf 'hl.monitor({ output = "%s", mode = "%s", position = "0x0", scale = %s%s })\n' "$1" "$2" "${3:-1}" "$reserved"
+  printf 'hl.monitor({ output = "%s", mode = "%s", position = "%s", scale = %s%s })\n' "$1" "$2" "${5:-0x0}" "${3:-1}" "$reserved"
 }
 # output_mode NAME MODE [SCALE]: the nested compositor applies
 # monitor_rule's rule now through `hyprctl eval`; the reply is hyprctl's.
@@ -27,10 +104,17 @@ monitor_rule() {
 # another. Under a hold a reload applies the held rule again from
 # mode_hold_file. A row restores the mode it read first.
 output_mode() { hypr eval "$(monitor_rule "$@")"; }
-# mode_scale_of NAME: output NAME's mode and scale as `WxH scale=S`, such
-# as `3510x1866 scale=2`, the mode in device pixels; returns 1 when no
-# monitor has that name.
-mode_scale_of() { hypr -j monitors | python3 -c 'import json,sys; m=[m for m in json.load(sys.stdin) if m["name"]==sys.argv[1]]; print("%dx%d scale=%g" % (m[0]["width"], m[0]["height"], m[0]["scale"])) if len(m)==1 else sys.exit(1)' "$1"; }
+# mode_scale_of NAME [all]: output NAME's mode and scale as `WxH scale=S`, such
+# as `3510x1866 scale=2`, the mode in device pixels; returns 1 with
+# `absent` for no match or `ambiguous` for more than one. `all` includes
+# disabled outputs when acquisition or release must judge ownership.
+mode_scale_of() {
+  local scope=()
+  [[ ${2:-} != all ]] || scope=(all)
+  hypr -j monitors "${scope[@]}" | python3 -c 'import json,sys; m=[m for m in json.load(sys.stdin) if m["name"]==sys.argv[1]]
+if len(m)!=1: print("absent" if not m else "ambiguous"); sys.exit(1)
+print("%dx%d scale=%g" % (m[0]["width"], m[0]["height"], m[0]["scale"]))' "$1"
+}
 # base_mode_scale NAME: the mode and scale a temporary hold restores.
 # A matching outer hold owns that state. With no matching hold, the
 # output's current state owns it.

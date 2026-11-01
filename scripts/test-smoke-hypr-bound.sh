@@ -111,7 +111,7 @@ hypr --batch 'reload config-only ; j/configerrors' >"$case_dir/got" 2>"$case_dir
 echo "hypr-status=$status"
 if cmp -s -- "$case_dir/got" "$case_dir/want"; then echo BYTE-EXACT; fi
 if [[ "$(<"$case_dir/err")" == "stand-in stderr" ]]; then echo STDERR-PASSED; fi
-if [[ ! -e $sandbox/compositor-stalled ]]; then echo NO-STALL; fi
+if [[ ! -e $sandbox/smoke-aborted ]]; then echo NO-STALL; fi
 if ! compgen -G "$sandbox/hypr-*.out" >/dev/null; then echo NO-CAPTURE-LEFT; fi
 echo "CALLED $(<"$case_dir/calls")"
 echo ROW-KEPT-RUNNING
@@ -120,7 +120,7 @@ cat >"$tmp/rows/refused.sh" <<'SH'
 status=0
 hypr version >/dev/null || status=$?
 echo "hypr-status=$status"
-if [[ ! -e $sandbox/compositor-stalled ]]; then echo NO-STALL; fi
+if [[ ! -e $sandbox/smoke-aborted ]]; then echo NO-STALL; fi
 echo ROW-KEPT-RUNNING
 SH
 cat >"$tmp/rows/substitution.sh" <<'SH'
@@ -138,6 +138,10 @@ SH
 cat >"$tmp/rows/geometry.sh" <<'SH'
 row_class=geometry
 expect "the nested instance reloads" ok hypr reload config-only
+echo ROW-KEPT-RUNNING
+SH
+cat >"$tmp/rows/operation.sh" <<'SH'
+got="$(smoke_abort 'output-create: cleanup=unproved output=SMOKE-TEST')" || true
 echo ROW-KEPT-RUNNING
 SH
 
@@ -195,6 +199,7 @@ cases=(
   "a stall in a process substitution ends the run|silent|process|plain|1|6000|$monitors_line~qml-smoke: failed=1|ROW-KEPT-RUNNING"
   "a stall in a geometry row is a behaviour failure|silent|geometry|plain|1|6000|$silent_line~qml-smoke: failed=1|ROW-KEPT-RUNNING~status=not-measured"
   "a stall in a harness sourced inside a subshell ends the subshell only|silent|expect|subshell|0|6000|$silent_line~qml-smoke: failed=1~PARENT-CONTINUED status=1|ROW-KEPT-RUNNING"
+  "an unproved fixture release ends the run from a command substitution|answer|operation|plain|1|3000|qml-smoke: failed=1|ROW-KEPT-RUNNING~status=not-measured"
 )
 for row in "${cases[@]}"; do
   if detail="$(run_case "$hypr_call" "$row")"; then ok "${row%%|*}"; else fail "${row%%|*}"; printf '        %s\n' "$detail"; fi
@@ -223,7 +228,7 @@ controls=(
   "a stall does not signal the harness shell@kill -USR1 -- \"\$harness_pid\"@:@a call that never returns ends the run"
   "a stall keeps the row's class@  row_class=behaviour@  :@a stall in a geometry row is a behaviour failure"
   "the harness shell is named by \$\$@harness_pid=\$BASHPID@harness_pid=\$\$@a stall in a harness sourced inside a subshell ends the subshell only"
-  "a call after a stall reaches hyprctl@[[ ! -e \$sandbox/compositor-stalled ]] || return 1@:@a stall in a command substitution ends the run and later calls return at once"
+  "a call after a stall reaches hyprctl@[[ ! -e \$sandbox/smoke-aborted ]] || return 1@:@a stall in a command substitution ends the run and later calls return at once"
   "the bound's kill is no stall@\$status -eq 124 || \$status -eq 137@\$status -eq 124@a call that outlives the bound's TERM ends the run"
   "hyprctl's read timeout is no stall@grep -qF \"Hyprland IPC didn't respond in time\"@grep -qF \"no such line\"@hyprctl's own read timeout ends the run"
   "every exit 6 is a stall@\$status -eq 6 ]] && grep@\$status -eq 6 ]] || grep@exit 6 without the read-timeout line is no stall"

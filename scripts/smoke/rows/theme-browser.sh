@@ -29,7 +29,7 @@
 # view's rows, SUPER+SHIFT+W, follow the theme view's: they flip its source,
 # from its source line and from Alt+S, and its scope, from its words and
 # from Alt+M, set an image for one screen and for every screen on a second
-# headless output and read each screen's drawn image back, and run the
+# Wayland output and read each screen's drawn image back, and run the
 # update card against a second archive the catalog pins anew. A copy of
 # WallpaperView.qml that sets every image as the current one is their
 # control. rows/themes.sh defines the helpers used here. The row enters
@@ -869,7 +869,7 @@ expect_poll "Enter applies vgs" vgs ipc smoke themeName
 expect_poll "an apply that offers nothing closes the browser" 0 layer_count vgs:overlay
 
 # ---- the wallpaper view -----------------------------------------------------
-# nord, applied with its two downloaded images, and a second headless
+# nord, applied with its two downloaded images, and a second Wayland
 # output. The browser opens on the focused output; the rows read which one
 # from the view and name the other.
 wall_value() { ipc smoke readDescendant overlay vgs.themes WallpaperView "$1"; }
@@ -1164,7 +1164,7 @@ plugin_restore WallpaperView.qml "source line text"
 expect "the follow before the wallpaper rows ends" idle theme_idle
 expect "nord applies for the wallpaper rows" "ok theme=nord state=applied shell=applied" vgshell_theme apply nord
 expect_poll "the shell follows nord" nord ipc smoke themeName
-expect "the nested compositor adds a monitor for the wallpaper rows" ok hypr output create headless "$wall_output"
+expect "the nested compositor adds a monitor for the wallpaper rows" ok create_output "$wall_output"
 expect_poll "the wallpaper rows' monitor is listed" True screen_listed "$wall_output"
 expect_poll "the wallpaper rows' monitor draws nord's first image" "$nord_a ready" background_image_on "$wall_output"
 

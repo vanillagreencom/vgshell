@@ -351,16 +351,15 @@ ACTIONS
     expect "cursor move is accepted" ok probe dispatch "moveCursor $dispatch_cursor_x $dispatch_cursor_y"
     geometry expect_poll "cursor move changes the compositor's pointer position" "[$dispatch_cursor_x, $dispatch_cursor_y]" dispatch_cursor
 
-    # The headless output has no usable size on NVIDIA. Suppress mouse
-    # focus and warps in this nested configuration alone so the pointer's
-    # monitor cannot immediately take focus back from that output.
+    # Suppress mouse focus and warps in this nested configuration alone
+    # so pointer movement cannot replace the explicit monitor focus.
     dispatch_config="$home/.config/hypr/hyprland.lua"
     cp -- "$dispatch_config" "$sandbox/hyprland-before-dispatch.lua"
     printf '%s\n' 'hl.config({ input = { follow_mouse = 0 }, cursor = { no_warps = true }, misc = { mouse_move_focuses_monitor = false } })' >>"$dispatch_config"
     expect "the nested configuration holds explicit monitor focus" ok hypr reload config-only
     dispatch_first_monitor="$(dispatch_monitor)"
     dispatch_output=SMOKE-DISPATCH
-    expect "the nested compositor adds the focus target monitor" ok hypr output create headless "$dispatch_output"
+    expect "the nested compositor adds the focus target monitor" ok create_output "$dispatch_output"
     dispatch_noop_control "focusMonitor $dispatch_output" "$dispatch_output" dispatch_monitor
     expect "monitor focus is accepted" ok probe dispatch "focusMonitor $dispatch_output"
     expect_poll "monitor focus changes Hyprland's focused monitor" "$dispatch_output" dispatch_monitor

@@ -1160,7 +1160,7 @@ expect_poll "the themes panel closes" closed panel_open
 # from the compositor: none while no image is drawn, one per screen while
 # one is. The panel is read back through the labels it draws and clicked
 # through its icon buttons. The first screen requests its mode in device
-# pixels at the scale the sandbox holds. A headless second monitor
+# pixels at the scale the sandbox holds. A second Wayland monitor
 # draws an image set on it alone while the first screen draws `current`. A
 # copy of the shared state reader that ignores `screens`, one that never
 # reloads the state file and a copy of the background that is always shown
@@ -1333,8 +1333,7 @@ rm -r -- "$cross"
 # from the user folder set on a second monitor alone, which a step of
 # `current` leaves in place. A screen whose own image cannot be read draws
 # `current`: the image is removed and the monitor comes back, so a new
-# background decodes the entry that `screens` keeps. The second monitor is
-# a headless output: these rows read which image it draws, not its size.
+# background decodes the entry that `screens` keeps.
 # Control: a sandbox copy of the state reader that ignores `screens` draws
 # `current` on the second monitor.
 second_output=SMOKE-SECOND
@@ -1343,7 +1342,7 @@ second_output=SMOKE-SECOND
 # each removal below waits for the bar's records to go before the row goes
 # on; the reading with the monitor present is that wait's control.
 second_bar_listed() { ipc shell built | py_reply 'import json,sys; print(("bar:" + sys.argv[1]) in json.load(sys.stdin))' "$second_output"; }
-expect "the nested compositor adds a second monitor" ok hypr output create headless "$second_output"
+expect "the nested compositor adds a second monitor" ok create_output "$second_output"
 expect_poll "the second monitor is listed" True screen_listed "$second_output"
 expect_poll "the second monitor's bar is in the build records" True second_bar_listed
 expect_poll "the second monitor gets a background" "$scenic/backgrounds/a.png ready" background_image_on "$second_output"
@@ -1382,7 +1381,7 @@ rm -- "$user_bg/own.png"
 expect "the nested compositor removes the second monitor over its removed image" ok hypr output remove "$second_output"
 expect_poll "the second monitor is gone before it comes back" False screen_listed "$second_output"
 expect_poll "the second monitor's bar left the build records before it comes back" False second_bar_listed
-expect "the nested compositor adds the second monitor back" ok hypr output create headless "$second_output"
+expect "the nested compositor adds the second monitor back" ok create_output "$second_output"
 expect_poll "a screen whose own image cannot be read draws the current image" "$scenic/backgrounds/a.png ready" background_image_on "$second_output"
 expect_log "the background logs the unreadable own image" 1 'background: file://.*/own\.png\?.* unreadable'
 # A screen's own entry that names the current image under the same stamp
@@ -1396,7 +1395,7 @@ rm -- "$user_bg/same.png"
 expect "the nested compositor removes the second monitor over its removed current image" ok hypr output remove "$second_output"
 expect_poll "the second monitor is gone before it comes back again" False screen_listed "$second_output"
 expect_poll "the second monitor's bar left the build records before it comes back again" False second_bar_listed
-expect "the nested compositor adds the second monitor back again" ok hypr output create headless "$second_output"
+expect "the nested compositor adds the second monitor back again" ok create_output "$second_output"
 expect_poll "an own entry equal to an unreadable current uses the theme image" "$scenic/backgrounds/a.png ready" background_image_on "$second_output"
 expect "set makes a readable package image current" "ok background=a.png theme=scenic path=$scenic/backgrounds/a.png" vgshell_theme background set "$scenic/backgrounds/a.png"
 expect_poll "a screen whose failed own entry named the old current draws the new current" "$scenic/backgrounds/a.png ready" background_image_on "$second_output"

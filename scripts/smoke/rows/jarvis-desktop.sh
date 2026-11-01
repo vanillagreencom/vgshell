@@ -239,14 +239,14 @@ PY
     expect "Hyprland hides the special workspace" '""' jd_monitor specialWorkspace
     jd_tool "the row returns to workspace 1" completed workspaces.focus '{"workspace": 1}'
 
-    # The headless output has no usable size on NVIDIA; hold the monitor
-    # focus as the dispatcher row does, in this nested configuration alone.
+    # Hold explicit monitor focus as the dispatcher row does, so pointer
+    # movement cannot replace it in this nested configuration.
     jd_config="$home/.config/hypr/hyprland.lua"
     cp -- "$jd_config" "$sandbox/hyprland-before-jarvis-desktop.lua"
     printf '%s\n' 'hl.config({ input = { follow_mouse = 0 }, cursor = { no_warps = true }, misc = { mouse_move_focuses_monitor = false } })' >>"$jd_config"
     expect "the nested configuration holds explicit monitor focus" ok hypr reload config-only
     jd_first_monitor="$(jd_monitor name)"
-    expect "the nested compositor adds a monitor" ok hypr output create headless SMOKE-JARVIS
+    expect "the nested compositor adds a monitor" ok create_output SMOKE-JARVIS
     jd_tool "windows.monitor reads the focused monitor back" completed windows.monitor '{"monitor": "SMOKE-JARVIS"}'
     expect "Hyprland focuses the requested monitor" SMOKE-JARVIS jd_monitor name
     jd_tool "windows.monitor returns to the first monitor" completed windows.monitor "{\"monitor\": \"$jd_first_monitor\"}"

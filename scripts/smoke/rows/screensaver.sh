@@ -130,8 +130,7 @@ screensaver_output=SMOKE-SCREENSAVER
 base_outputs="$(output_count)"
 # A headless output can stay unsized on NVIDIA; the harness sink gives
 # the second Cover a drawable Wayland output.
-expect "the screensaver monitor has a mode rule before creation" ok hypr eval "hl.monitor({ output = \"$screensaver_output\", mode = \"preferred\", position = \"auto-right\", scale = 1 })"
-expect "the nested compositor adds a monitor for screensaver focus" ok hypr output create wayland "$screensaver_output"
+expect "the nested compositor adds a monitor for screensaver focus" ok create_output "$screensaver_output"
 expect_poll "the added monitor is visible to the shell" "$((base_outputs + 1))" output_count
 ss_output_sized() { unscaled_mode_of "$screensaver_output" >/dev/null && echo sized; }
 expect_poll "the added monitor has usable geometry before starting covers" sized ss_output_sized

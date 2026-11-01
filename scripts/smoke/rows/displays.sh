@@ -3,7 +3,7 @@
 # Display XDR, hidraw0, and two Studio Displays with one serial, hidraw1
 # and hidraw2, which only their HID devices' directories tell apart. No
 # sandbox output has an Apple model, so the helper places none of them.
-# The row adds a headless output, SMOKE-DISPLAYS, beside the main one and
+# The row adds a Wayland output, SMOKE-DISPLAYS, beside the main one and
 # enables vgs.displays and the System window.
 #
 # Rows: the service lists the three displays and places none, so neither
@@ -254,7 +254,7 @@ expect "the deep link opens the System window on Displays" ok ipc shell summon w
 expect_poll "the System window mounts the displays pane" '["vgs.displays"]' window_panes
 expect_poll "the pane opens with the keyboard on the arrangement canvas" '["Arrangement", "Display arrangement"]' disp_focus
 # The copies keep the production layout and substitute only the holding
-# trial and capable-panel input. The headless output has no VRR panel.
+# trial and capable-panel input. The nested output has no VRR panel.
 # Typed properties report the actual card geometry and row parents.
 # Each control changes shipped QML in a fresh directory before Qt reads it.
 disp_layout_dir="$(mktemp -d "$repo/shell/plugins/vgs.displays/layout-copies.XXXXXX")" || { fail "the display layout copies cannot be allocated"; return 0; }
@@ -482,7 +482,7 @@ expect "hiding the System window after the keyboard path is allowed" ok ipc shel
 expect_poll "the System window is gone" 0 window_count "System Settings"
 
 # A second output, whose bar's widget hides until a display lights it.
-expect "the nested compositor adds a monitor for the displays rows" ok hypr output create headless "$disp_output"
+expect "the nested compositor adds a monitor for the displays rows" ok create_output "$disp_output"
 expect_poll "the new monitor gets a bar" "$((monitors + 1))" bar_count
 expect_poll "the new bar's widget hides while no display lights its screen" false disp_widget "$disp_output" visible
 
@@ -1106,7 +1106,7 @@ if copy_tree bar-visible-removed && edit_tree bar-visible-removed shell/Hosts/Ba
 ' '' \
   && stop_shell; then
   if start_shell "$sandbox/tree-bar-visible-removed" "$sandbox/displays-bar-visible-removed.log"; then
-    expect "the old-host control adds its own monitor" ok hypr output create headless "$disp_output"
+    expect "the old-host control adds its own monitor" ok create_output "$disp_output"
     expect_poll "the old-host control waits for the monitor's bar" "$((monitors+1))" bar_count
     expect "the existing probe owns the old host's bar observer" ok ipc smoke popupLoad \
       displays-bar-lifetime "$sandbox/tree-bar-visible-removed/shell/SmokeDisplayLifetime/BarLifetime.qml" \

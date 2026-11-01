@@ -23,7 +23,7 @@
 # toggles as presses, read from Hyprland's `activespecial` events. A pad
 # window moved out of its workspace comes back on the next press. A change
 # of size, position, entry or motion takes effect on the next press. On a
-# second, headless monitor named as the pad's screen, with the pointer on
+# second monitor named as the pad's screen, with the pointer on
 # the nested output, the pad opens there, and `focused` opens it on the
 # nested output; a focus move to a window on the nested output hides it. A
 # press beside the shown pad hides it. A pad whose app maps no window ends
@@ -490,14 +490,13 @@ expect_poll "the key hides the motionless pad" hidden sp_state
 
 # The pad's screen: a second monitor named as its screen while the pointer
 # is on the nested output, and `focused`. A focus move to a window on the
-# nested output hides the pad on the second monitor. The headless output
-# lists no size, so the box is not read there.
+# nested output hides the pad on the second monitor.
 sp_screen_output=SMOKE-PAD
 # sp_screen_rows LABEL_PREFIX WANT: those readings, real and control; WANT
 # is the monitor that shows the pad after the focus move, none once hidden.
 sp_screen_rows() {
   local helper helper_address
-  expect "$1the nested compositor adds a monitor for the pad" ok hypr output create headless "$sp_screen_output"
+  expect "$1the nested compositor adds a monitor for the pad" ok create_output "$sp_screen_output"
   settings_page_open "$sp_id"
   expect "$1the pad's screen editor takes the second monitor" applied sp_field screen "\"$sp_screen_output\""
   expect "$1the Settings window is hidden after the screen change" ok ipc shell hide window vgs.settings

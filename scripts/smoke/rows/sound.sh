@@ -505,7 +505,7 @@ type_keys -k Escape || fail "Escape in the search field failed"
 expect_poll "a second Escape closes System" 0 window_count "System Settings"
 
 # The volume keys, with a second output beside the focused one.
-expect "the nested compositor adds a second output" ok hypr output create headless "$snd_output"
+expect "the nested compositor adds a second output" ok create_output "$snd_output"
 expect_poll "the display has a copy on each output" 2 snd_osd_screens
 snd_focused="$(snd_focused_screen)"
 expect "the first output keeps the focus" true bash -c '[[ $1 != *"$2"* ]] && echo true || echo false' _ "$snd_focused" "$snd_output"

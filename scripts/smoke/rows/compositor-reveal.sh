@@ -171,13 +171,10 @@ if open_other "$sandbox/toplevel-reveal-other.log"; then
     fail "the group-tab windows map"
   fi
 
-  # A second monitor. The nested compositor's headless output reports no
-  # size, so its pointer cannot move there and Hyprland hands the monitor
-  # focus back to the pointer's monitor after the focus (focusedmon events,
-  # read on host cachy on 2026-09-29); the window is focused and its
-  # workspace shown on its monitor, which the row reads.
+  # A second monitor: the reveal must focus the window and show its
+  # workspace on that monitor.
   reveal_output=SMOKE-REVEAL
-  expect "the nested compositor adds a monitor for the reveal rows" ok hypr output create headless "$reveal_output"
+  expect "the nested compositor adds a monitor for the reveal rows" ok create_output "$reveal_output"
   if open_reveal far; then
     expect "the window moves to the second monitor" ok hypr dispatch "hl.dsp.window.move({ monitor = \"$reveal_output\", window = \"address:$reveal_window\", follow = false })"
     on_monitor() { hypr -j clients | py_reply 'import json,sys; print(next(c["monitor"] for c in json.load(sys.stdin) if c["address"] == sys.argv[1]))' "$reveal_window"; }

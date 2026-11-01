@@ -1393,21 +1393,29 @@ coordinate_observation() {
   fi
   return 0
 }
-# pointer_dispatch X Y WIDTH HEIGHT [ACTION...]: one shared delivery owner.
+# layout_size: the layout's width and height, its origin at 0,0.
+# An unbound virtual pointer maps its normalized point across every output
+# (Hyprland v0.57.0, src/pointer/PointerManager.cpp, warpAbsolute), so a
+# first-monitor extent redirects a point when a sized output is added.
+layout_size() { hypr -j monitors | py_reply 'import json,sys; ms=json.load(sys.stdin); assert all(m["x"] >= 0 and m["y"] >= 0 for m in ms); print(max(m["x"] + round(m["width"] / m["scale"]) for m in ms), max(m["y"] + round(m["height"] / m["scale"]) for m in ms))'; }
+# pointer_dispatch X Y [ACTION...]: one shared delivery owner.
 # A step whose held mode no longer stands is refused (coordinate_mode_check
 # in mode-hold.sh), since the caller sampled its coordinates under the hold.
 pointer_dispatch() {
+  local x="$1" y="$2" w h
+  shift 2
   coordinate_mode_check || return 1
   nested_input_check "$sandbox/click" || return 1
-  "${shell_env[@]}" "$sandbox/click" "$@" >/dev/null || return 1
+  read -r w h < <(layout_size) || return 1
+  "${shell_env[@]}" "$sandbox/click" "$x" "$y" "$w" "$h" "$@" >/dev/null || return 1
 }
-click() { pointer_dispatch "$1" "$2" "$mon_w" "$mon_h" || return $?; pointer_at="$1 $2"; }
-hover() { pointer_dispatch "$1" "$2" "$mon_w" "$mon_h" move || return $?; pointer_at="$1 $2"; }
-right_click() { pointer_dispatch "$1" "$2" "$mon_w" "$mon_h" right || return $?; pointer_at="$1 $2"; }
-middle_click() { pointer_dispatch "$1" "$2" "$mon_w" "$mon_h" middle || return $?; pointer_at="$1 $2"; }
-drag() { pointer_dispatch "$1" "$2" "$mon_w" "$mon_h" drag "$3" "$4" || return $?; pointer_at="$3 $4"; }
-wheel() { pointer_dispatch "$1" "$2" "$mon_w" "$mon_h" wheel "$3" || return $?; pointer_at="$1 $2"; }
-swipe() { pointer_dispatch "$1" "$2" "$mon_w" "$mon_h" swipe "$3" || return $?; pointer_at="$1 $2"; }
+click() { pointer_dispatch "$1" "$2" || return $?; pointer_at="$1 $2"; }
+hover() { pointer_dispatch "$1" "$2" move || return $?; pointer_at="$1 $2"; }
+right_click() { pointer_dispatch "$1" "$2" right || return $?; pointer_at="$1 $2"; }
+middle_click() { pointer_dispatch "$1" "$2" middle || return $?; pointer_at="$1 $2"; }
+drag() { pointer_dispatch "$1" "$2" drag "$3" "$4" || return $?; pointer_at="$3 $4"; }
+wheel() { pointer_dispatch "$1" "$2" wheel "$3" || return $?; pointer_at="$1 $2"; }
+swipe() { pointer_dispatch "$1" "$2" swipe "$3" || return $?; pointer_at="$1 $2"; }
 # nested_input_check TOOL: the one display check of every input tool a row
 # or a scene runs under shell_env: wtype (type_keys), $sandbox/click
 # (pointer_dispatch and the held drags), $sandbox/keyboard and its copies,

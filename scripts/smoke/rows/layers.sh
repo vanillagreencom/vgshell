@@ -305,7 +305,7 @@ mv "$sandbox/toplevel-observing" "$sandbox/toplevel"
 
 # A screen that comes gains the layer; one that goes takes it along.
 layer_output=SMOKE-LAYER
-expect "the nested compositor adds a monitor for the layer rows" ok hypr output create headless "$layer_output"
+expect "the nested compositor adds a monitor for the layer rows" ok create_output "$layer_output"
 expect_poll "the new monitor gets its own layer surface" "$((monitors + 1))" layer_count vgs:layer
 expect_poll "the new screen's copy received its screen" "$(screen_names)" built_screens
 expect "the nested compositor removes that monitor" ok hypr output remove "$layer_output"

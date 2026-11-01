@@ -5,7 +5,7 @@ set -euo pipefail
 extra_output=SMOKE-2
 bar_hosts() { ipc shell built | py_reply 'import json,sys; print(json.dumps(sorted(k for k in json.load(sys.stdin) if k.startswith("bar:"))))'; }
 before_hosts="$(bar_hosts)"
-expect "the nested compositor adds a monitor" ok hypr output create headless "$extra_output"
+expect "the nested compositor adds a monitor" ok create_output "$extra_output"
 expect_poll "the new monitor gets a bar" "$((monitors + 1))" bar_count
 extra_listed() { bar_hosts | py_reply 'import json,sys; print(("bar:" + sys.argv[1]) in json.load(sys.stdin))' "$extra_output"; }
 expect_poll "the new bar is in the build records" True extra_listed
@@ -25,7 +25,7 @@ if copy_tree monitors-keeps-empty-record && edit_tree monitors-keeps-empty-recor
   if start_shell "$sandbox/tree-monitors-keeps-empty-record" "$sandbox/monitors-keeps-empty-record-qs.log"; then
     control_output=SMOKE-2-CONTROL
     control_listed() { bar_hosts | py_reply 'import json,sys; print(("bar:" + sys.argv[1]) in json.load(sys.stdin))' "$control_output"; }
-    expect "control: the keeps-empty-record copy adds a monitor" ok hypr output create headless "$control_output"
+    expect "control: the keeps-empty-record copy adds a monitor" ok create_output "$control_output"
     expect_poll "control: the keeps-empty-record copy records the new bar" True control_listed
     expect "control: the keeps-empty-record monitor can be removed" ok hypr output remove "$control_output"
     expect_poll "control: the shell sees the monitor control output leave" "$monitors" bar_count

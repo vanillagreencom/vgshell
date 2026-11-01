@@ -9,7 +9,7 @@
 # - focus: a click focuses that toplevel;
 # - submap: a dispatch into a submap this row defines through
 #   `hyprctl eval`, since Hyprland enters no submap it has not registered;
-# - layers: a headless output, which gets a bar; and a vgs.themes
+# - layers: a Wayland output, which gets a bar; and a vgs.themes
 #   background, a state file naming a 5000x5000 image, which maps one on
 #   every screen;
 # - options: one live option set through `hyprctl eval`;
@@ -225,7 +225,7 @@ expect "the submap is the default again" default key_submap
 
 lc_bars="$(bar_count)" || lc_bars=""
 cat >"$lc_plants/leak-plant-layers.sh" <<'SH'
-expect "the planted output is created" ok hypr output create headless "$lc_output"
+expect "the planted output is created" ok create_output "$lc_output"
 expect_poll "the shell builds a bar on the planted output" built lc_output_bar
 expect_poll "the planted output gets a bar" "$((lc_bars + 1))" bar_count
 SH

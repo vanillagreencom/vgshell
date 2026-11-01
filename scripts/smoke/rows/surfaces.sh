@@ -471,20 +471,10 @@ fi
 # catchers, today's single-screen layer, stays open
 # through the same presses, as a panel and as the launcher.
 far_output=SMOKE-SURFACES-FAR
-# layout_size: the layout's width and height, its origin at 0,0.
-layout_size() { hypr -j monitors | py_reply 'import json,sys; ms=json.load(sys.stdin); assert all(m["x"] >= 0 and m["y"] >= 0 for m in ms); print(max(m["x"] + round(m["width"] / m["scale"]) for m in ms), max(m["y"] + round(m["height"] / m["scale"]) for m in ms))'; }
-# layout_click X Y [move]: a press, or with `move` a pointer move, at
-# layout point X Y.
-layout_click() {
-  local w h
-  read -r w h < <(layout_size) || return 1
-  pointer_dispatch "$1" "$2" "$w" "$h" ${3:+"$3"} || return $?
-  pointer_at="$1 $2"
-}
 # near_focus: the pointer and the monitor focus on the first monitor's
 # desktop, where an IPC summon or a probe copy opens.
 near_focus() {
-  layout_click 40 "$((mon_h - 40))" move || return $?
+  hover 40 "$((mon_h - 40))" || return $?
   hypr dispatch "hl.dsp.focus({ monitor = \"$screen_name\" })"
 }
 # far_box: the far monitor as `x y w h`, or `absent`.
@@ -506,7 +496,7 @@ far_press() {
   local x y w h _
   read -r x y w h < <(far_box) || return 1
   for _ in 1 2 3 4 5; do
-    layout_click "$((x + w / 2))" "$((y + h / 2))" || return $?
+    click "$((x + w / 2))" "$((y + h / 2))" || return $?
     for _ in 1 2 3 4 5; do
       [[ $(layer_count "$1") == 0 ]] && { echo closed; return 0; }
       sleep 0.2
@@ -578,10 +568,9 @@ menu_marker_press() {
   at="$(menu_marker_centre)" || return 1
   read -r x y <<<"$at"
   [[ $x =~ ^[0-9]+$ && $y =~ ^[0-9]+$ ]] || { echo "$at"; return 1; }
-  layout_click "$x" "$y" && echo ok
+  click "$x" "$y" && echo ok
 }
-expect "the far monitor is placed right of the first" ok hypr eval "hl.monitor({ output = \"$far_output\", mode = \"preferred\", position = \"auto-right\", scale = 1 })"
-expect "the nested compositor adds the far monitor" ok hypr output create wayland "$far_output"
+expect "the nested compositor adds the far monitor" ok create_output "$far_output"
 expect_poll "the far monitor stands right of the first with a mode" sized far_sized
 read -r far_x _ far_w far_h < <(far_box) || fail "the far monitor's box is readable"
 expect_poll "the far monitor gets its bar" "$((monitors + 1))" bar_count
@@ -592,7 +581,7 @@ panel_far="$(far_want vgs:panel)" || fail "the panel's own layer box is readable
 geometry expect_poll "the panel's catcher covers the far monitor alone, below its bar" "$panel_far" far_catchers vgs:panel
 if panel_inside="$(python3 -c 'import json,sys; b=json.loads(sys.argv[1]); print(int(b[0] + 6), int(b[1] + 6))' "$(summon_box panel)")"; then
   read -r inside_x inside_y <<<"$panel_inside"
-  layout_click "$inside_x" "$inside_y" || fail "the press inside the panel beside the far monitor failed"
+  click "$inside_x" "$inside_y" || fail "the press inside the panel beside the far monitor failed"
 else
   fail "the panel's box is unreadable beside the far monitor"
 fi
@@ -610,7 +599,7 @@ expect "the press on the panel's own menu leaves the menu open" 1 ipc smoke read
 # to the panel and leaves the pointer focus where it was (Hyprland v0.56.2
 # CSeatManager::setGrab), and Hyprland finds the surface under the pointer
 # again only when it moves (CInputManager::mouseMoveUnified).
-far_click() { local x y w h; read -r x y w h < <(far_box) || return 1; layout_click "$((x + w / 4))" "$((y + h / 2))" && echo ok; }
+far_click() { local x y w h; read -r x y w h < <(far_box) || return 1; click "$((x + w / 4))" "$((y + h / 2))" && echo ok; }
 expect "control: the press on the far monitor beside the panel's own menu is sent" ok far_click
 expect_poll "control: a press on the far monitor leaves no press marker on the panel's own menu" absent menu_marks
 expect "a press on the far monitor closes the panel" closed far_press vgs:panel

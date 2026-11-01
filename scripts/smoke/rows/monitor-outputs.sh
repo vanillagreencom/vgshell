@@ -6,7 +6,7 @@
 # owner of `hyprland.monitors` alone the trial calls. The core reads no
 # support until the fixture holds it; held, it reads the nested WAYLAND-1,
 # which has no EDID, so its support reads all false and offers sRGB alone,
-# reads a headless output that comes, and drops it when it goes. Released,
+# reads a Wayland output that comes, and drops it when it goes. Released,
 # it reads none for an output that comes. The row reads the Hyprland layer before any saved display rule and
 # finds no `hl.monitor` call (docs/architecture/hyprland.md). The row runs on the first nested
 # output alone, WAYLAND-1, which takes any mode and lists none.
@@ -86,12 +86,12 @@ else
   expect_poll "the fixture's outputs follow the reload back to the output's own mode" "$outputs_base scale=1" output_read "$outputs_first"
 fi
 if [[ -n ${outputs_first:-} ]]; then
-  expect "the nested compositor adds an output while the support is held" ok hypr output create headless "$support_output"
+  expect "the nested compositor adds an output while the support is held" ok create_output "$support_output"
   expect_poll "the held support reads the output that came" "hdr=False chroma=False bt2020=False modes=srgb" support_read "$support_output"
   expect "the nested compositor removes that output" ok hypr output remove "$support_output"
   expect_poll "the support drops the output that went" absent support_read "$support_output"
   expect "the fixture releases the panel support" ok invoke_monitors releaseSupport
-  expect "the nested compositor adds an output while nothing holds the support" ok hypr output create headless "$support_output"
+  expect "the nested compositor adds an output while nothing holds the support" ok create_output "$support_output"
   expect_poll "the fixture's outputs list the output that came" yes output_listed "$support_output"
   # A read the outputs change started would answer within the 22-36 ms one
   # systeminfo call took in this sandbox on 2026-10-06; the wait gives it 1 s.

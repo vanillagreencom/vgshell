@@ -52,7 +52,7 @@ rescan "the removal control's broken source is rescanned"
 expect "the removal control enables the broken plugin" ok ipc shell setPluginEnabled acme.broken true
 expect_poll "the removal control reaches a retained failure record" 1 background_failures
 failed_output=SMOKE-FAILED
-expect "a failed plugin can meet a new monitor" ok hypr output create headless "$failed_output"
+expect "a failed plugin can meet a new monitor" ok create_output "$failed_output"
 expect_poll "the new monitor records its refused background" 1 ipc smoke failedBuilds "background:$failed_output"
 expect "the failed background's monitor can be removed" ok hypr output remove "$failed_output"
 expect_poll "the removed monitor leaves no background failure record" 0 ipc smoke failedBuilds "background:$failed_output"
@@ -130,7 +130,7 @@ if copy_tree failed-builds-keep-removed-monitor && edit_tree failed-builds-keep-
     rescan "control: rescan after adding the broken fixture answers ok"
     expect "control: enabling the broken fixture is allowed" ok ipc shell setPluginEnabled acme.broken true
     control_output=SMOKE-FAILED-CONTROL
-    expect "control: a failed plugin can meet a monitor in the keep-removed copy" ok hypr output create headless "$control_output"
+    expect "control: a failed plugin can meet a monitor in the keep-removed copy" ok create_output "$control_output"
     expect_poll "control: the keep-removed copy records the refused background" 1 ipc smoke failedBuilds "background:$control_output"
     expect "control: the failed background's control monitor can be removed" ok hypr output remove "$control_output"
     expect_poll "control: the shell sees the failed-builds control monitor leave" "$monitors" bar_count
@@ -150,7 +150,7 @@ if copy_tree failed-builds-duplicate-errors && edit_tree failed-builds-duplicate
     cp -R "$repo/scripts/smoke/fixtures/plugins/acme.broken/." "$broken/"
     rescan "control: rescan after adding the duplicate-errors fixture answers ok"
     duplicate_output=SMOKE-FAILED-DUPLICATE
-    expect "control: the duplicate-errors copy adds a monitor" ok hypr output create headless "$duplicate_output"
+    expect "control: the duplicate-errors copy adds a monitor" ok create_output "$duplicate_output"
     expect_poll "control: the duplicate-errors monitor gets a bar" "$((monitors + 1))" bar_count
     expect "control: enabling the duplicate-errors fixture is allowed" ok ipc shell setPluginEnabled acme.broken true
     expect "control: Settings opens on the duplicate-errors page" ok ipc shell summon window vgs.settings '{"plugin":"acme.broken"}'

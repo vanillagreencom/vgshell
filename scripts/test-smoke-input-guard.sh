@@ -181,6 +181,7 @@ run_world() {
     }
     nested_socket=wayland-1 rt_dir="$CASE_DIR/rt" signature=nested-instance sandbox="$CASE_DIR/sandbox" home="$CASE_DIR"
     mon_w=100 mon_h=100 pointer_at="" failures=0
+    layout_size() { echo 100 100; }
     dir="$sandbox" shader=fixture base_path="$PATH"
     share_world="$sandbox" traffic_dir="$sandbox" lc_class=smoke.leak shell_reporter_class=smoke.reporter
     lc_toplevel_log="$sandbox/leak-plant-toplevel.log" leak_seq=1
@@ -369,7 +370,7 @@ helpers=(
   'webapps browser|scripts/smoke/rows/webapps.sh|heredoc:cat >"$wa_dir/chromium" <<EOF|"$sandbox/display-client"|env XDG_RUNTIME_DIR=@host WAYLAND_DISPLAY=wayland-1 "$BASH" "$wa_dir/chromium" --app=https://example.com 2>"$CASE_DIR/fails"|@sandbox/toplevel|nonzero|$(printf '\''%q'\'' "$sandbox/display-client") '
   'Jarvis application|scripts/smoke/rows/jarvis-desktop.sh|statement:printf '\''[Desktop Entry]|"$sandbox/display-client"|read -r -a desktop_exec <<<"$(sed -n '\''s/^Exec=//p'\'' "$jd_entry")"; env XDG_RUNTIME_DIR=@host WAYLAND_DISPLAY=wayland-1 "${desktop_exec[@]}" 2>"$CASE_DIR/fails"|@sandbox/toplevel|nonzero|"$sandbox/display-client" '
   'type_keys|scripts/smoke/harness.sh|fn:type_keys|"${shell_env[@]}" wtype|type_keys -k Escape|wtype|nonzero'
-  'pointer_dispatch|scripts/smoke/harness.sh|fn:pointer_dispatch|"$sandbox/click" "$@"|pointer_dispatch 10 20 100 100|@sandbox/click|nonzero'
+  'pointer_dispatch|scripts/smoke/harness.sh|fn:pointer_dispatch|"$sandbox/click" "$x" "$y"|pointer_dispatch 10 20|@sandbox/click|nonzero'
   'hold_start_keyboard keyboard|scripts/smoke/rows/hold-shortcuts.sh|fn:hold_start_keyboard|spawn "$hold_keyboard_log" "${shell_env[@]}" "$2"|hold_start_keyboard probe @sandbox/keyboard us ""|@sandbox/keyboard|nonzero'
   'hold_start_keyboard keyboard-silent|scripts/smoke/rows/hold-shortcuts.sh|fn:hold_start_keyboard|spawn "$hold_keyboard_log" "${shell_env[@]}" "$2"|hold_start_keyboard silent @sandbox/keyboard-silent us ""|@sandbox/keyboard-silent|nonzero'
   'reset_keyboard_start|scripts/smoke/rows/reset.sh|fn:reset_keyboard_start|"${shell_env[@]}" "$sandbox/keyboard"|reset_keyboard_fifo=@sandbox/reset.fifo reset_keyboard_log=@sandbox/reset.log; reset_keyboard_start|@sandbox/keyboard|nonzero'

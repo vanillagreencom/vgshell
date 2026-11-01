@@ -62,7 +62,7 @@ PY
 rescan "rescan after adding the status fixture answers ok"
 expect_poll "the status fixture is discovered" True plugin_known acme.status
 status_output=SMOKE-STATUS
-expect "the nested compositor adds a monitor for the status rows" ok hypr output create headless "$status_output"
+expect "the nested compositor adds a monitor for the status rows" ok create_output "$status_output"
 expect_poll "the new monitor gets a bar" "$((monitors + 1))" bar_count
 expect "enabling the status fixture is allowed" ok ipc shell setPluginEnabled acme.status true
 expect_poll "the status fixture's service is built" True record_exists acme.status

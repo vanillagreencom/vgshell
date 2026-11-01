@@ -369,8 +369,7 @@ sc_times 0 0
 sc_extra=SMOKE-SECURE-COVER
 sc_base_outputs="$(sc_outputs)"
 sc_hold hotplug
-expect "hotplug: the added output has a mode rule" ok hypr eval "hl.monitor({ output = \"$sc_extra\", mode = \"preferred\", position = \"auto-right\", scale = 1 })"
-expect "hotplug: the nested compositor adds an output under the lock" ok hypr output create wayland "$sc_extra"
+expect "hotplug: the nested compositor adds an output under the lock" ok create_output "$sc_extra"
 expect_poll "hotplug: the shell sees the added output" "$((sc_base_outputs + 1))" sc_outputs
 sleep 2
 printf 'secure-cover: hotplug cover=%s monitors=%s\n' "$(sc_lent cover)" "$(hypr -j monitors | py_reply 'import json,sys; print(json.dumps([[m["name"], m["width"], m["height"], m.get("solitaryBlockedBy")] for m in json.load(sys.stdin)]))')"

@@ -581,7 +581,7 @@ mv -T -- "$jarvis_bubble_snapshots/focus.next" "$jarvis_bubble_snapshots/focus"
 jarvis_bubble_first="$(hypr -j monitors | py_reply 'import json,sys; print(next(m["name"] for m in json.load(sys.stdin) if m["focused"]))')"
 printf '%s\n' 'hl.config({ input = { follow_mouse = 0 }, cursor = { no_warps = true }, misc = { mouse_move_focuses_monitor = false } })' >>"$jarvis_bubble_lua"
 expect "the nested configuration holds monitor focus" ok hypr reload config-only
-expect "the nested compositor adds another focus target" ok hypr output create headless SMOKE-JARVIS
+expect "the nested compositor adds another focus target" ok create_output SMOKE-JARVIS
 jarvis_bubble_focus_output=true
 expect "the physical-key fixture focuses the other monitor" ok probe dispatch "focusMonitor SMOKE-JARVIS"
 expect_poll "the service observes the other focused output" '"SMOKE-JARVIS"' ipc smoke readInstance service vgs.jarvis focusedOutput
@@ -733,7 +733,7 @@ PY
       expect "control: a wrong bottom margin fails the same geometry reader" wrong-geometry jarvis_bubble_geometry
       jarvis_key_talk_up ;;
     focus)
-      expect "control: add another output without changing focus" ok hypr output create headless SMOKE-JARVIS
+      expect "control: add another output without changing focus" ok create_output SMOKE-JARVIS
       expect_poll "control: ignoring focus fails the same output reader" wrong-output jarvis_bubble_focused
       expect "control: remove the second output" ok hypr output remove SMOKE-JARVIS
       jarvis_key_talk_up ;;

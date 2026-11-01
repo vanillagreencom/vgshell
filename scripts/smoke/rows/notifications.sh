@@ -3245,7 +3245,7 @@ expect_poll "no toast is left" 0 on_screen
 notify smoke-app 0 "Everywhere" "" '[]' '{}' 0 >/dev/null
 expect_poll "a toast for the monitor rows shows" "$monitors" layer_count vgs:layer
 note_output=SMOKE-NOTES
-expect "the nested compositor adds a monitor for the notification rows" ok hypr output create headless "$note_output"
+expect "the nested compositor adds a monitor for the notification rows" ok create_output "$note_output"
 expect_poll "the new monitor gets the stack" "$((monitors + 1))" layer_count vgs:layer
 everywhere() { ipc smoke layerItems vgs.notifications NotificationCard summary | py_reply 'import json,sys; print(sum(1 for s, r, v in json.load(sys.stdin) if v["summary"] == "Everywhere"))'; }
 expect_poll "the new screen's stack draws the toast" "$((monitors + 1))" everywhere

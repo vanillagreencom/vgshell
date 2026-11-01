@@ -980,7 +980,7 @@ expect "the nested instance holds monitor focus for the second output" ok hypr r
 # Quickshell's snapshot refresh can prune the removed output before its
 # monitorremoved event arrives (connection.cpp, pinned 2b4501a, lines 845-911).
 expected_errors+=('WARN quickshell\.hyprland\.ipc: Got removal for monitor "SMOKE-VOICE" which was not previously tracked\.$')
-expect "the nested compositor adds a second output for Voice" ok hypr output create headless SMOKE-VOICE
+expect "the nested compositor adds a second output for Voice" ok create_output SMOKE-VOICE
 expect_poll "the second output gets its own display copy" 2 voice_osd_copies
 expect_poll "only the focused output shows the display" focused voice_osd_focused
 expect "the nested compositor removes the second output" ok hypr output remove SMOKE-VOICE

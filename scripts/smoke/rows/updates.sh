@@ -1048,7 +1048,7 @@ EOF
 # check as the scan builds them: the monitor and its bar come first and
 # the count is read before the scan.
 control_output=SMOKE-UPDATES-CONTROL
-expect "the nested compositor adds a monitor for the control" ok hypr output create headless "$control_output"
+expect "the nested compositor adds a monitor for the control" ok create_output "$control_output"
 expect_poll "the control monitor gets a bar" "$((monitors + 1))" bar_count
 before="$(checks)"
 rescan "rescan after adding the per-widget control answers ok"
