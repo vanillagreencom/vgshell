@@ -38,6 +38,7 @@ const making = (base, finished) => `==> Making package: ${base} 2.0-1 (Sat 31 Oc
 
 const checkOnly = target => ({ kind: "check-only", base: BASE, version: "1.0-1", target: target || BASE });
 const ordinary = reason => ({ kind: "ordinary", reason });
+const unread = reason => ({ kind: "unread", reason });
 // Each row: a label, its evidence and the answer it must get.
 const rows = [
     ["makepkg check-only", evidence("makepkg-check-only"), checkOnly()],
@@ -64,20 +65,22 @@ const rows = [
     ["an interrupt during check()", evidence("makepkg-interrupted", { status: 130 }), ordinary("signal")],
     ["an interrupt's own error line at any status", evidence("makepkg-interrupted"), ordinary("phase=other")],
     ["a signal", evidence("paru-check-only", { status: null, signal: "SIGTERM" }), ordinary("signal")],
-    ["no capture", evidence("paru-check-only", { interval: null }), ordinary("capture=failed")],
-    ["an end mark that never arrived", evidence("paru-check-only", { interval: { complete: false, text: transcript("paru-check-only") } }), ordinary("interval=incomplete")],
-    ["an interval over the bound", evidence("paru-check-only", { interval: around("paru-check-only", "x".repeat(16 * 1024 * 1024), "") }), ordinary("interval=incomplete")],
+    // pkg-run.sh cuts nothing for a step a signal ended: cut=skipped.
+    ["an interrupt with its cut skipped", evidence("paru-check-only", { status: 130, interval: { complete: false, text: "" } }), ordinary("signal")],
+    ["no capture", evidence("paru-check-only", { interval: null }), unread("capture=failed")],
+    ["an end mark that never arrived", evidence("paru-check-only", { interval: { complete: false, text: transcript("paru-check-only") } }), unread("interval=incomplete")],
+    ["an interval over the bound", evidence("paru-check-only", { interval: around("paru-check-only", "x".repeat(16 * 1024 * 1024), "") }), unread("interval=incomplete")],
     ["output cut before Aborting", evidence("makepkg-check-only", { interval: { complete: true, text: transcript("makepkg-check-only").split("    Aborting")[0] } }), ordinary("marker=incomplete")],
     ["output cut before the error", evidence("paru-check-only", { interval: { complete: true, text: transcript("paru-check-only").split("==> ERROR")[0] } }), ordinary("makepkg-errors=0")],
     ["exit 4 alone", evidence("makepkg-check-only", { interval: { complete: true, text: "" } }), ordinary("makepkg-errors=0")],
     ["exit 13 with test words", evidence("makepkg-check-only", { status: 13, interval: { complete: true, text: "test_fixture ... FAILED\r\n" } }), ordinary("makepkg-errors=0")],
     ["paru's summary alone", evidence("paru-check-only", { interval: { complete: true, text: transcript("paru-check-only").split("    Aborting...")[1] } }), ordinary("makepkg-errors=0")],
-    ["yay", evidence("paru-check-only", { builder: "yay", versions: { makepkg: "7.1.0", yay: "12.5.0" } }), ordinary("builder=unsupported")],
-    ["an unchecked paru version", evidence("paru-check-only", { versions: { makepkg: "7.1.0", paru: "2.2.0" } }), ordinary("version=unsupported")],
-    ["an unchecked makepkg version", evidence("makepkg-check-only", { versions: { makepkg: "7.0.0" } }), ordinary("version=unsupported")],
-    ["an unread version", evidence("paru-check-only", { versions: { makepkg: "7.1.0", paru: null } }), ordinary("version=unsupported")],
-    ["a German message locale", evidence("paru-check-only", { env: { LANG: "de_DE.UTF-8" } }), ordinary("locale=unsupported")],
-    ["German first in LANGUAGE", evidence("paru-check-only", { env: { LANG: "en_US.UTF-8", LANGUAGE: "de:en" } }), ordinary("locale=unsupported")],
+    ["yay", evidence("paru-check-only", { builder: "yay", versions: { makepkg: "7.1.0", yay: "12.5.0" } }), unread("builder=unsupported")],
+    ["an unchecked paru version", evidence("paru-check-only", { versions: { makepkg: "7.1.0", paru: "2.2.0" } }), unread("version=unsupported")],
+    ["an unchecked makepkg version", evidence("makepkg-check-only", { versions: { makepkg: "7.0.0" } }), unread("version=unsupported")],
+    ["an unread version", evidence("paru-check-only", { versions: { makepkg: "7.1.0", paru: null } }), unread("version=unsupported")],
+    ["a German message locale", evidence("paru-check-only", { env: { LANG: "de_DE.UTF-8" } }), unread("locale=unsupported")],
+    ["German first in LANGUAGE", evidence("paru-check-only", { env: { LANG: "en_US.UTF-8", LANGUAGE: "de:en" } }), unread("locale=unsupported")],
     // makepkg's de.po wording, put in place of the English line: a locale
     // the step really ran in that the environment did not show.
     ["a translated marker", evidence("makepkg-check-only", { interval: { complete: true, text: transcript("makepkg-check-only").replace("==> ERROR:", "==> FEHLER:").replace("A failure occurred in check().", "Ein Fehler ist in check() aufgetreten.") } }), ordinary("makepkg-errors=0")],
@@ -154,7 +157,7 @@ if (at < 0) {
             ["one-error", "PackageReview.js", "if (errors.length !== 1) return", "if (errors.length === 0) return"],
             ["check-phase", "PackageReview.js", 'if (started !== "check") return', "if (false) return"],
             ["summary", "PackageReview.js", "return ordinary(\"summary=mismatch\");", ";"],
-            ["locale", "PackageReview.js", 'if (!englishMessages(e.env)) return ordinary("locale=unsupported");', ""],
+            ["locale", "PackageReview.js", 'if (!englishMessages(e.env)) return unread("locale=unsupported");', ""],
             ["retry-run", "PackageReview.js", 'if (retry.state === "available" && retry.originRun !== run) return fail("retry-run");', ""],
             ["skip-words", "PackageManagers.js", 'var SKIP_TESTS = { paru: ["--nocheck"], yay: ["--mflags", "--nocheck"] };', 'var SKIP_TESTS = { paru: ["--nocheck"], yay: ["--nocheck"] };']
         ]) {

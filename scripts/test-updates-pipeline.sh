@@ -35,7 +35,7 @@ plugin="$tmp/plugin"
 cp -R -- "$repo/shell/plugins/vgs.updates" "$plugin"
 tree="$tmp/tree"
 mkdir -p "$tree/bin/lib" "$tree/shell/Commons"
-cp -- "$repo/bin/lib/tui.sh" "$repo/bin/lib/hyprland-instance.sh" "$repo/bin/lib/qml-library.js" "$repo/bin/lib/judge-files.js" "$repo/bin/lib/aur-helper.sh" "$repo/bin/lib/pkg-config.js" "$tree/bin/lib/"
+cp -- "$repo/bin/lib/tui.sh" "$repo/bin/lib/hyprland-instance.sh" "$repo/bin/lib/qml-library.js" "$repo/bin/lib/judge-files.js" "$repo/bin/lib/pkg-config.js" "$tree/bin/lib/"
 cp -- "$repo/shell/Commons/PageReference.js" "$tree/shell/Commons/"
 # This fixture loader observes the real library returned to facts. The
 # existing self verb never draws a window, so the fixture checks that same
@@ -145,13 +145,9 @@ case "$1 $2" in
     printf "{\"version\":1,\"decision\":\"proceed\",\"reviewed\":[],\"skipped\":[],\"coverage\":\"declined\",\"receipt\":\"fixture\"}\n" >"$6" ;;
   "pkg review-custom-mode") echo unknown ;;
   "pkg review-custom-consume") : ;;
-  "pkg ensure-helper")
-    # The owner clones through aur-helper.sh into its private tree and
-    # builds there (bin/vgshell-pkg bootstrapHelper).
-    d="$(mktemp -d)" s=0
-    bash "${0%/*}/lib/aur-helper.sh" "$0" "$d/paru" && (cd "$d/paru" && makepkg -si) || s=$?
-    rm -rf -- "${d:?}"
-    exit "$s" ;;
+  # scripts/fixtures/pkg-review/runtime-test.js holds the owner: its build,
+  # its tree and its retry.
+  "pkg ensure-helper") [ ! -e "$FIX/fail-ensure-helper" ] || exit 1 ;;
   "plugin settings") cat "$FIX/settings.json" ;;
   "pkg detect") [ ! -e "$FIX/fail-detect" ] || exit 5; cat "$FIX/detect.json" ;;
   "pkg plan")
@@ -327,11 +323,6 @@ done; exit 0; fi
 [ ! -e "$FIX/conflict-paru" ] || { printf "\033[1;34m::\033[0m quickshell-\033[2m0.3.1-1\033[0m and quickshell-git-\033[2mr120.g1a2b3c4-1\033[0m are in conflict. Remove quickshell-git? [y/N] error: unresolvable package conflicts detected\nerror: failed to prepare transaction (conflicting dependencies)\n" >&2; exit 1; }
 [ ! -e "$FIX/interrupt-paru" ] || { sudo /usr/bin/true; exit 130; }
 [ ! -e "$FIX/fail-paru" ] || { sudo /usr/bin/true; exit 7; }'
-stub "$stubs" git '[ ! -e "$FIX/fail-helper-git" ] || exit 6
-for dest; do :; done
-mkdir -p -- "$dest"
-printf "%s\n" "$dest" >"$FIX/helper-build"'
-stub "$stubs" makepkg '[ ! -e "$FIX/fail-helper-makepkg" ] || exit 8'
 stub "$stubs" less ''
 for tool in bash env readlink dirname mkdir chmod mv rm cp date script flock sleep cat id sed tee diff ln stty mktemp stat tail head timeout grep awk; do
   found="$(command -v "$tool")" || { echo "test-updates-pipeline: status=not-measured missing=$tool"; exit 77; }
@@ -1074,26 +1065,19 @@ row_vgs_helper() {
     [[ $failure == none ]] || touch "$fix/fail-$failure"
     pipeline update-source.sh vgs
     assert "helper $failure exits $expected" test "$status" == "$expected"
-    assert "helper $failure installs prerequisites through package runner" has_call "vgshell pkg run install --manager pacman base-devel git"
     if [[ $failure == none ]]; then
-      assert "helper success builds paru before VGS" before "makepkg -si" "vgshell pkg run reinstall --manager aur vgshell-git"
-      assert "helper success clones the official AUR recipe" grep -q '^git clone -- https://aur.archlinux.org/paru.git ' "$tmp/seq"
+      assert "helper success installs paru before VGS" before "vgshell pkg ensure-helper" "vgshell pkg run reinstall --manager aur vgshell-git"
     else
       assert "helper $failure prevents VGS rebuild" no_call "vgshell pkg run reinstall --manager aur vgshell-git"
     fi
-    if [[ -f $fix/helper-build ]]; then
-      assert "helper $failure removes its build directory" test ! -e "$(cat "$fix/helper-build")"
-    fi
   done <<'ROWS'
 none 0
-pacman 1
-helper-git 1
-helper-makepkg 1
+ensure-helper 1
 ROWS
   reset_fix
   self_json package '"vgshell-git"' install-helper
   pipeline update-source.sh vgs
-  assert "a helper found since status skips installation" no_call "vgshell pkg run install --manager pacman base-devel git"
+  assert "a helper found since status skips installation" no_call "vgshell pkg ensure-helper"
   assert "a helper found since status rebuilds VGS" has_call "vgshell pkg run reinstall --manager aur vgshell-git"
 }
 row_vgs_git() {

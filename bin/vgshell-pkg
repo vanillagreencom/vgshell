@@ -81,6 +81,12 @@
 //   vgshell-pkg ensure-helper
 //       install Paru from its AUR recipe when no AUR helper is present.
 //       Runs only in a terminal, with the package manager's own questions.
+//   vgshell-pkg retry <run>
+//       run once, in a terminal, the retry without package tests that the
+//       requirement notice's run <run> holds (bin/lib/pkg-retry.js). It
+//       refuses, running nothing, `retry=unavailable run=<run>`,
+//       `retry=stale run=<run>`, `retry=unreadable run=<run> reason=<key>`
+//       and `retry=changed run=<run>`.
 //   vgshell-pkg install|remove [--manager <id>] [names...]
 //       with names, `run install|remove` with them. Without, fzf lists the
 //       manager's packages, available for install and explicitly installed
@@ -547,14 +553,17 @@ async function terminalRun(argv, rescan = true) {
 // prerequisites and clones the recipe into a private tree this process
 // owns, and the build runs here with the table's bootstrapBuild, so a
 // check-only failure offers the one retry in the same tree. The tree goes
-// when this process ends; no notice holds its retry.
+// when this process ends; no notice holds its retry. The tree is under the
+// temporary directory, as mktemp -d makes one, and not under the runtime
+// directory, whose tmpfs logind sizes at 10% of RAM by default
+// (logind.conf(5) RuntimeDirectorySize): paru 2.2.0's cargo build leaves a
+// 481M target (du after its makepkg build, VGS-2083 review, 2026-11-01).
 async function bootstrapHelper() {
-    const dir = pkgRetry().evidenceDir("helper-");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vgshell-helper-"));
     const tree = path.join(dir, "paru");
-    const evidence = path.join(dir, "evidence");
+    const evidence = pkgRetry().evidenceDir("helper-");
     let ended;
     try {
-        fs.mkdirSync(evidence, { mode: 0o700 });
         let status = await terminalChild([path.join(__dirname, "lib", "aur-helper.sh"), path.join(__dirname, "vgshell"), tree]);
         if (status !== 0) ended = { status, outcome: pkgRetry().failed("aur", null, status) };
         else {
@@ -569,6 +578,7 @@ async function bootstrapHelper() {
         }
     } finally {
         fs.rmSync(dir, { recursive: true, force: true });
+        fs.rmSync(evidence, { recursive: true, force: true });
     }
     return settle("install", ended.status, ended.outcome);
 }

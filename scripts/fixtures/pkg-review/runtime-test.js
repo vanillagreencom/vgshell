@@ -229,6 +229,8 @@ try{
  const scenario=(w,first,retry)=>fs.writeFileSync(path.join(w.root,"build.json"),JSON.stringify({first,retry}));
  const mutations=w=>w.calls().filter(c=>c.kind==="mutation");
  const retryOffers=w=>w.calls().filter(c=>c.kind==="offer"&&c.offered.includes("Retry without tests"));
+ // The keyed cause a failure prints when the classifier could not read it.
+ const unclassified=r=>/vgshell: build-failure=unclassified reason=(\S+)/.exec(r.stdout)?.[1]??null,UNCLASSIFIED={"German messages":"locale=unsupported"};
  if(!only&&select("retry"))for(const [label,args,first,retry,choice,status,again,env] of [
   ["retried",["run","install","--manager","aur","--config","CONFIG",TARGET],CHECK,PASS,"Retry without tests",0,["--config","CONFIG","-S","--needed","--nocheck","--",TARGET]],
   ["update with installs",["run","update","--manager","aur","--config","CONFIG","widget","--install",TARGET],CHECK,PASS,"Retry without tests",0,["--config","CONFIG","-S","--needed","--nocheck","--",TARGET]],
@@ -236,6 +238,7 @@ try{
   ["install alias",["install","--manager","aur",TARGET],CHECK,PASS,"Retry without tests",0,["-S","--needed","--nocheck","--",TARGET]],
   ["stopped",["run","install","--manager","aur","--config","CONFIG",TARGET],CHECK,null,"Stop",1,null],
   ["cancelled",["run","install","--manager","aur","--config","CONFIG",TARGET],CHECK,null,"cancel",130,null],
+  ["escaped",["run","install","--manager","aur","--config","CONFIG",TARGET],CHECK,null,"esc",130,null],
   ["retry failed",["run","install","--manager","aur","--config","CONFIG",TARGET],CHECK,{transcript:"paru-check-only",status:1},"Retry without tests",1,["--config","CONFIG","-S","--needed","--nocheck","--",TARGET]],
   ["ordinary",["run","install","--manager","aur","--config","CONFIG",TARGET],ORDINARY,null,null,1,null],
   ["two failed bases",["run","install","--manager","aur","--config","CONFIG",TARGET],{transcript:"paru-multi",status:1},null,null,1,null],
@@ -245,6 +248,7 @@ try{
   scenario(w,first,retry);
   const r=tty({...w,env:{...w.env,...(env||{})}},args.map(a=>a==="CONFIG"?w.config:a)),built=mutations(w),offers=retryOffers(w);
   assert.equal(r.status,status,label+": "+r.stdout);
+  assert.equal(unclassified(r),UNCLASSIFIED[label]??null,label);
   assert.equal(offers.length,choice?1:0,label);
   if(choice)assert.equal(offers[0].selected,"Stop",label);
   assert.equal(built.length,again?2:1,label+": "+JSON.stringify(built));
@@ -265,8 +269,21 @@ try{
   assert.deepEqual(builds.map(c=>c.args),[["-si"],["-si","--nocheck"]].slice(0,built),label);
   assert.ok(builds.every(c=>c.cwd===builds[0].cwd),label+": the retry builds the same tree");
   assert.ok(!fs.existsSync(builds[0].cwd),label+": the tree goes with the owner");
+  assert.ok(builds[0].cwd.startsWith(fs.realpathSync(path.join(w.root,"tmp"))+path.sep),label+": the tree is in the temporary directory");
   assert.equal(fs.existsSync(path.join(w.root,"tools/paru")),status===0,label);
   console.log("package-retry-proof: "+JSON.stringify({label:"bootstrap-"+label,status:r.status,builds:builds.map(c=>c.args)}));
+ }
+ // A prepared Updates step keeps Updates' own failure report: its build that
+ // failed only in check() asks nothing.
+ if(!only&&select("retry")){
+  const w=create(path.join(scratch,"authority-check-failed"));
+  scenario(w,{transcript:"paru-check-only",status:1,base:"aurpkg"},null);
+  const command=[process.execPath,path.join(__dirname,"authority.js"),w.root,"check-failed","aur"].map(q).join(" ");
+  const r=cp.spawnSync("/usr/bin/script",["-qec",command,"/dev/null"],{env:{...w.env,SHELL:"/usr/bin/bash"},encoding:"utf8",timeout:30000});
+  assert.equal(r.status,0,r.stdout+r.stderr);
+  const result=JSON.parse(fs.readFileSync(path.join(w.root,"authority-result.json")));
+  assert.equal(result.code,1,r.stdout);assert.deepEqual(retryOffers(w),[]);assert.equal(mutations(w).length-result.before,1);
+  console.log("package-retry-proof: "+JSON.stringify({label:"prepared",status:result.code}));
  }
  // The presenter's outcome channel carries the owner's typed outcome into
  // the run's ended record, and a requirement run that stopped holds its one
@@ -318,10 +335,28 @@ try{
   assert.equal(r.record.code,1);assert.equal(r.record.package,undefined,"a nested owner reports nothing");
   fs.appendFileSync(w.include,"# changed\n");
   r=retried("run18","run15",PASS);assert.deepEqual(r.built,[]);assert.match(r.stdout,/retry=changed run=run15/);
+  // A held retry builds only the recipe it held.
+  const marked=(name,act)=>{fs.writeFileSync(path.join(w.root,name),"");try{return act();}finally{fs.rmSync(path.join(w.root,name));}};
+  stop("run19");r=marked("recipe-changed",()=>retried("run20","run19",PASS));
+  assert.deepEqual(r.built,[]);assert.match(r.stdout,/retry=changed run=run19/);
+  // A binding that cannot be read now is refused by its cause, and one that
+  // could not be read at Stop holds nothing.
+  stop("run21");r=marked("info-failed",()=>retried("run22","run21",PASS));
+  assert.deepEqual(r.built,[]);assert.match(r.stdout,/retry=unreadable run=run21 reason=query=paru /);assert.doesNotMatch(r.stdout,/retry=changed/);
+  r=marked("fetch-failed",()=>stop("run23"));
+  assert.deepEqual(r.record.package,checkFailed("run23",null));assert.match(r.stdout,/vgshell: retry=unheld reason=recipe=fetch-failed/);
+  assert.ok(!heldRuns().some(n=>n.includes("run23")));
+  // Esc on the review offer and on the retry question is their cancel,
+  // whose outcome the judge accepts.
+  for(const [run,list,first] of [["run24",["esc"],null],["run25",["Install without review","esc"],CHECK]]){
+   choose(list);scenario(w,first,null);r=present(INSTALL,run,install);
+   assert.equal(r.record.code,130,run+": "+r.stdout);assert.deepEqual(r.record.package,{kind:"package-cancelled",manager:"aur",status:130},run);
+   assert.doesNotMatch(r.stdout,/package-outcome=unwritten/,run);
+  }
   assert.ok(!fs.readdirSync(records).some(n=>n.includes(".outcome.")),"each presenter removes its channel");
   console.log("package-retry-held-proof: ok");
  }
- for(const entry of fs.readdirSync(scratch)){const dir=path.join(scratch,entry,"run/vgshell/package-review");if(fs.existsSync(dir)&&!entry.startsWith("authority-"))assert.ok(!fs.readdirSync(dir).some(n=>/^(review|bootstrap|transaction|build|helper)-/.test(n)),entry);}
+ for(const entry of fs.readdirSync(scratch)){const dir=path.join(scratch,entry,"run/vgshell/package-review");if(fs.existsSync(dir)&&!entry.startsWith("authority-"))assert.ok(!fs.readdirSync(dir).some(n=>/^(review|bootstrap|transaction|build|helper|recipe)-/.test(n)),entry);}
  if(!only&&(select("control")||surface==="origin-control")){
   const repo=path.resolve(__dirname,"../../.."),copy=path.join(scratch,"origin-mutant");
   fs.mkdirSync(path.join(copy,"bin/lib"),{recursive:true});

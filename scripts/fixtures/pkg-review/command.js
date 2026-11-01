@@ -15,7 +15,9 @@ if(name==="gum"){
    choices.unshift("continue-then-decline");fs.writeFileSync(path.join(root,"choices.json"),JSON.stringify(choices));
   }
   log("offer",{offered,selected,choice,selectedIndex:offered.indexOf(selected),choiceIndex:offered.indexOf(choice)});
+  // gum 2.0.2's choose: Ctrl-C exits 130 and Esc 1.
   if(choice==="cancel")process.exit(130);
+  if(choice==="esc")process.exit(1);
   if(!offered.includes(choice))throw new Error("fixture choice invalid "+choice);
   console.log(choice);
  }else if(args[0]==="style")console.log(args.slice(args.indexOf("--")+1).join("\n"));
@@ -50,7 +52,7 @@ if(name==="pacman-conf"){
 if(name==="checkupdates"||args.includes("-Qua")||args.includes("-Qu")){console.log("widget 1 -> "+(fs.existsSync(path.join(root,"pending-changed"))?"3":"2"));process.exit(0);}
 if(name==="pacman"||name==="paru"||name==="yay"){
  if(args.includes("-Sl")){console.log("core official 1\n"+(fs.existsSync(path.join(root,"origin-changed"))?"core":"custom")+" widget 2\ncustom aurpkg 2");process.exit(0);}
- if(args.includes("-Si")){console.log("Repository : aur\nName : "+(fs.existsSync(path.join(root,"provider-ambiguous"))?"provider":args.at(-1)));process.exit(0);}
+ if(args.includes("-Si")){if(fs.existsSync(path.join(root,"info-failed")))process.exit(1);console.log("Repository : aur\nName : "+(fs.existsSync(path.join(root,"provider-ambiguous"))?"provider":args.at(-1)));process.exit(0);}
  if(args.includes("-Qoq")){console.log("vgshell-git");process.exit(0);}
  if(args.includes("-Qtdq"))process.exit(1);
  if(args.includes("-Q")){console.log(args.includes("--")?args.at(-1)+" 1-1":"widget 1-1\nvgshell-git 1-1");process.exit(0);}
@@ -67,7 +69,7 @@ if(name==="pacman"||name==="paru"||name==="yay"){
     else fs.writeFileSync(path.join(dir,"package.install"),"chmod u+s /opt/package\n");
    }
    if(fs.existsSync(path.join(root,"srcinfo-link"))){fs.renameSync(path.join(dir,".SRCINFO"),path.join(dir,".SRCINFO.saved"));fs.symlinkSync(path.join(dir,".SRCINFO.saved"),path.join(dir,".SRCINFO"));}
-   fs.writeFileSync(path.join(dir,"PKGBUILD"),"pkgname="+pkg+"\n");
+   fs.writeFileSync(path.join(dir,"PKGBUILD"),"pkgname="+pkg+"\n"+(fs.existsSync(path.join(root,"recipe-changed"))?"pkgrel=2\n":""));
   }
   process.exit(0);
  }

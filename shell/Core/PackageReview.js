@@ -211,8 +211,12 @@ function englishMessages(env) {
 // env the locale variables the step ran with; status and signal the step's
 // end; interval null when no output was captured, else { complete, text },
 // complete when the capture's end mark arrived; targets the names the step
-// asked for. Answers { kind: "check-only", base, version, target } or
-// { kind: "ordinary", reason }.
+// asked for. Answers { kind: "check-only", base, version, target };
+// { kind: "unread", reason } when the evidence cannot be judged: no
+// capture, an incomplete interval, or a builder, version or locale whose
+// messages were never checked; or { kind: "ordinary", reason } for a
+// failure it judged. An unread failure is ordinary to every caller, and
+// its reason is the one the owner reports.
 //
 // makepkg(8) exits 4 for a failure in any PKGBUILD function, so the
 // status says nothing about which one. The answer is inferred from the
@@ -225,16 +229,17 @@ function englishMessages(env) {
 // Anything else, a signal included, is ordinary.
 function classifyInstallFailure(evidence) {
     var ordinary = function (reason) { return { kind: "ordinary", reason: reason }; };
+    var unread = function (reason) { return { kind: "unread", reason: reason }; };
     var e = isPlainObject(evidence) ? evidence : {};
-    if (e.interval === null || !isPlainObject(e.interval)) return ordinary("capture=failed");
-    if (e.interval.complete !== true || typeof e.interval.text !== "string" || e.interval.text.length > FAILURE_INTERVAL_MAX) return ordinary("interval=incomplete");
     if (e.signal !== null || !Number.isInteger(e.status) || e.status >= 128) return ordinary("signal");
+    if (e.interval === null || !isPlainObject(e.interval)) return unread("capture=failed");
+    if (e.interval.complete !== true || typeof e.interval.text !== "string" || e.interval.text.length > FAILURE_INTERVAL_MAX) return unread("interval=incomplete");
     if (e.status === 0) return ordinary("status=success");
-    if (!hasOwn(SUPPORTED_BUILDERS, e.builder)) return ordinary("builder=unsupported");
+    if (!hasOwn(SUPPORTED_BUILDERS, e.builder)) return unread("builder=unsupported");
     var versions = isPlainObject(e.versions) ? e.versions : {};
     if (!SUPPORTED_BUILDERS.makepkg.test(String(versions.makepkg)) || (e.builder !== "makepkg" && !SUPPORTED_BUILDERS[e.builder].test(String(versions[e.builder]))))
-        return ordinary("version=unsupported");
-    if (!englishMessages(e.env)) return ordinary("locale=unsupported");
+        return unread("version=unsupported");
+    if (!englishMessages(e.env)) return unread("locale=unsupported");
     var lines = transcriptLines(e.interval.text);
     var errors = [];
     for (var i = 0; i < lines.length; i++)
