@@ -1227,9 +1227,8 @@ function skipText(reason) {
 }
 
 // Why a run failed, in one line. A run that exited with an error says why
-// in its own words: the last line it wrote to stderr, else to stdout, the
-// stream a refusal or an error goes to (snippetOf's rule, read back by
-// lastOutputLine). A run that printed nothing, and one a signal stopped,
+// in its own words, from the ended record's existing snippet. A run that
+// printed nothing, and one a signal stopped,
 // whose reason is the signal, keep a sentence of their own.
 function failureLine(rec) {
     switch (rec.outcome) {
@@ -1243,22 +1242,31 @@ function failureLine(rec) {
     }
 }
 
-// The last non-blank line of an ended record's snippet, "" for none. The
+// Prefer the run's outcome marker, then the first header of its last error
+// block, then its last non-blank line. Git's adjacent ERROR: and fatal:
+// headers describe one failure; its following advice is not the cause.
+// An ended record's snippet holds stderr, else stdout (snippetOf). The
 // line is the command's own text, which no rule trusts: it is read as plain
 // text (plainOutput) whatever the record holds, a tab reads as a space, and
 // a line past FAILURE_LINE_MAX ends in an ellipsis, never between the two
 // halves of a surrogate pair. notifySendArgs escapes it as markup.
 function lastOutputLine(snippet) {
     var lines = String(snippet).split("\n");
-    for (var i = lines.length - 1; i >= 0; i--) {
+    var outcome = "", error = "", last = "", previousError = false;
+    for (var i = 0; i < lines.length; i++) {
         var line = plainOutput(lines[i]).replace(/\t/g, " ").trim();
         if (line === "") continue;
-        if (line.length <= FAILURE_LINE_MAX) return line;
-        var cut = FAILURE_LINE_MAX - 1;
-        if (/[\ud800-\udbff]/.test(line.charAt(cut - 1))) cut--;
-        return line.slice(0, cut).replace(/\s+$/, "") + "…";
+        if (/^(?:refused:|fail\s+\S)/.test(line)) outcome = line;
+        var isError = /^(?:ERROR:|fatal:)/.test(line);
+        if (isError && !previousError) error = line;
+        previousError = isError;
+        last = line;
     }
-    return "";
+    var line = outcome || error || last;
+    if (line.length <= FAILURE_LINE_MAX) return line;
+    var cut = FAILURE_LINE_MAX - 1;
+    if (/[\ud800-\udbff]/.test(line.charAt(cut - 1))) cut--;
+    return line.slice(0, cut).replace(/\s+$/, "") + "…";
 }
 
 // The notification a run event sends, or null when it sends none: an error

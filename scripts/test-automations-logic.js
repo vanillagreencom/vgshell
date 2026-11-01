@@ -418,14 +418,17 @@ function verify(logic) {
     const failed = Object.assign(ended("backup", "1767225600000-1", 1000, "failed"), { exitCode: 3, snippet: "disk <full> & gone", transcript: "/r/t.log" });
     same(logic.notificationFor("end", automation({}), failed, null), { summary: "Back up failed", body: "disk <full> & gone", urgency: "critical", icon: "circle-x", tone: "danger", click: "open", open: "/r/t.log" });
     // A failed run's body: [label, stderr lines, stdout lines, body], the
-    // snippet built as the engine builds it. The last non-blank line the run
-    // wrote to stderr, else to stdout, as plain text, cut at 120 characters
-    // with an ellipsis; the generic sentence only when the run printed
-    // nothing.
+    // snippet built as the engine builds it. The notice delivers the run's
+    // cause as plain text, cut at 120 characters with an ellipsis; the
+    // generic sentence only when the run printed nothing.
     const GENERIC = "The automation failed. Open Automations to read its output.";
     const REFUSAL = "refused: local edits on paths the update changes: docs/hosts/px13.md";
     for (const [label, stderr, stdout, want] of [
         ["stderr over stdout", [REFUSAL], ["Fetching origin"], REFUSAL],
+        ["2026-11-01 git not-found cause before its advice", ["ERROR: Repository not found.", "fatal: Could not read from remote repository.", "", "Please make sure you have the correct access rights", "and the repository exists."], ["fail vgs fetch"], "ERROR: Repository not found."],
+        ["2026-11-01 refusal before its mail follow-up", [REFUSAL, "mail to Jarvis failed; the next run retries it"], [], REFUSAL],
+        ["an outcome marker wins over a later error", ["fail vgs fetch", "fatal: mail delivery failed", "will retry"], [], "fail vgs fetch"],
+        ["the last error block keeps its first header", ["ERROR: earlier failure", "earlier advice", "ERROR: Repository not found.", "fatal: Could not read from remote repository.", "and the repository exists."], [], "ERROR: Repository not found."],
         ["stderr over a later stdout summary", ["From https://x.test/r", "   1a2b..3c4d  main -> origin/main"], ["=== 1 failed ==="], "1a2b..3c4d  main -> origin/main"],
         ["stdout when stderr is empty", [], ["Fetching origin", REFUSAL], REFUSAL],
         ["stdout when stderr is blank", ["", "  "], ["error: no route to host"], "error: no route to host"],
@@ -879,7 +882,9 @@ const CONTROLS = [
     ["the body reaches the server as plain text", "n.body.replace(/&/g, \"&amp;\").replace(/</g, \"&lt;\").replace(/>/g, \"&gt;\")", "n.body"],
     ["a failure says its own last output line", "var line = lastOutputLine(rec.snippet);", "var line = \"\";"],
     ["a stopped run keeps its sentence", "if (rec.signal !== null) return \"The automation was stopped.", "if (false) return \"The automation was stopped."],
-    ["the output line is the last one", "for (var i = lines.length - 1; i >= 0; i--) {", "for (var i = 0; i < lines.length; i++) {"],
+    ["the fallback output line is the last one", "last = line;", "if (last === \"\") last = line;"],
+    ["git's not-found error keeps the cause before its advice", "if (isError && !previousError) error = line;", "if (isError) error = line;"],
+    ["a refusal outranks its mail follow-up", "var line = outcome || error || last;", "var line = error || last;"],
     ["blank output lines are skipped", "if (line === \"\") continue;", ""],
     ["a tab in the output line reads as a space", "var line = plainOutput(lines[i]).replace(/\\t/g, \" \")", "var line = plainOutput(lines[i])"],
     ["a record's output line reads as plain text", "var line = plainOutput(lines[i]).replace(/\\t/g, \" \").trim();", "var line = lines[i].replace(/\\t/g, \" \").trim();"],
