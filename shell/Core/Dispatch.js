@@ -84,13 +84,14 @@ var DISPATCHERS = {
         classic: function (a) { return (a[1] === "set" ? "setfloating" : a[1] === "unset" ? "settiled" : "togglefloating") + " address:" + a[0]; }
     },
     // The focused window's group lock; neither form names a window. Lua
-    // lock_active acts as named only for `enable`, `disable` and `toggle`:
-    // every other word, `lock` and `unlock` included, toggles the lock and
-    // answers `ok` (nested Hyprland 0.56.2, each word sent twice from a
-    // known state, 2026-10-16). A window in no group answers a warning.
+    // lock's `enable` and `disable` are idempotent; `toggle`, `lock` and
+    // `unlock` toggle the lock and answer `ok` (scripts/validate VGS-2069,
+    // nested Hyprland 0.57.0,
+    // each word sent twice from a known state, 2026-11-01).
+    // A window in no group answers a warning.
     lockActiveGroup: {
         args: [ACTION],
-        lua: function (a) { return "hl.dsp.group.lock_active({ action = \"" + (a[0] === "set" ? "enable" : a[0] === "unset" ? "disable" : "toggle") + "\" })"; },
+        lua: function (a) { return "hl.dsp.group.lock({ action = \"" + (a[0] === "set" ? "enable" : a[0] === "unset" ? "disable" : "toggle") + "\" })"; },
         classic: function (a) { return "lockactivegroup " + (a[0] === "set" ? "lock" : a[0] === "unset" ? "unlock" : "toggle"); }
     },
     moveWindow: {

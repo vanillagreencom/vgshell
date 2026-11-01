@@ -89,7 +89,13 @@ jd_content_has() { # TEXT: whether the last call's result names TEXT
 jd_client() { # ADDRESS FIELD
   hypr -j clients | py_reply 'import json,sys
 c = next((c for c in json.load(sys.stdin) if c["address"] == sys.argv[1]), None)
-print("absent" if c is None else json.dumps(c[sys.argv[2]]))' "$1" "$2"
+if c is None:
+    print("absent")
+else:
+    value = c[sys.argv[2]]
+    if sys.argv[2] == "workspace":
+        value = {"id": value["id"], "name": value["name"]}
+    print(json.dumps(value))' "$1" "$2"
 }
 jd_monitor() { # FIELD of the focused monitor
   hypr -j monitors | py_reply 'import json,sys

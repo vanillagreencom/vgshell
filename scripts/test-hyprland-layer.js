@@ -27,6 +27,22 @@ const configFile = path.join(__dirname, "..", "shell", "Core", "ConfigLogic.js")
 const layerFile = path.join(__dirname, "..", "shell", "Core", "HyprlandLayer.js");
 const shellFile = path.join(__dirname, "..", "shell", "shell.qml");
 
+// VGS's renderer must never bring back the 0.57 deprecation notice. Match
+// option keys in both nested Lua tables and colon-path string arguments.
+const DEPRECATED_LUA = [
+    ["on_created_empty", /\bon_created_empty\b/, 'hl.workspace_rule({ workspace = "1", on_created_empty = "true" })'],
+    ["lock_active", /\block_active\b/, 'hl.dispatch(hl.dsp.group.lock_active({ action = "toggle" }))'],
+    ["misc:layers_hog_keyboard_focus", /\blayers_hog_keyboard_focus\b/, 'hl.config({ misc = { layers_hog_keyboard_focus = true } })'],
+    ["debug:invalidate_fp16", /\binvalidate_fp16\b/, 'hl.config({ debug = { invalidate_fp16 = 0 } })'],
+    ["dwindle:special_scale_factor", /\bspecial_scale_factor\b/, 'hl.config({ dwindle = { special_scale_factor = 1 } })'],
+    ["master:special_scale_factor", /\bspecial_scale_factor\b/, 'hl.config({ master = { special_scale_factor = 1 } })']
+];
+
+function assertCurrentLua(out) {
+    for (const [name, pattern] of DEPRECATED_LUA)
+        assert.doesNotMatch(out.text, pattern, "generated vgs.lua uses deprecated " + name);
+}
+
 const service = { schemaVersion: 1, id: "acme.keys", name: "K", version: "1.0.0", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" }, capabilities: ["shortcut"] };
 const overlayRule = { namespace: "^vgs:overlay$", blur: true, ignoreAlpha: 0.6 };
 const toggle = { shortcut: "toggle", key: "SUPER+SPACE" };
@@ -967,6 +983,9 @@ function verify(logic, configLogic, layer, shellText) {
     same(monitorCalls(bare), [], "a layer with no plugin section writes no monitor rule");
     const monitorSection = Object.assign(section("vgs.displays", [], []), { monitors: { kind: "set", setting: "outputs", value: { "DP-2": { mode: { width: 3840, height: 2160, refresh: 60 }, position: { x: 0, y: 0 }, scale: 2, transform: 0 } } } });
     const monitorOut = layer.render([monitorSection], theme, "vgs", 1, null, "", "vgs.displays");
+    for (const out of [bare, { text: padsLines.join("\n") }, monitorOut,
+        layer.render([padsFixture(logic, "acme.pads"), monitorSection], groupsOf(true, true, true, true, true), "vgs", 2, null, "", "vgs.displays")])
+        assertCurrentLua(out);
     same(monitorCalls(monitorOut), ['hl.monitor({ output = "DP-2", mode = "3840x2160@60", position = "0x0", scale = 2, transform = 0 })'], "the monitors section writes the judged rule");
     assert.ok(lines(monitorOut).indexOf("-- vgs.displays 1.0.0: monitor rules from its settings") > coreEnd(lines(monitorOut)), "the monitors section follows the core sections");
     const refusedMonitor = Object.assign(section("vgs.displays", [], []), { monitors: { kind: "unfit", setting: "outputs", error: "refused: monitors.DP-2\" identifier refused" } });
@@ -1203,6 +1222,7 @@ function verify(logic, configLogic, layer, shellText) {
     const optionSection = row => logic.hyprlandSection(optionConfig(row), optionManifest);
     const optionText = (sections, touchpads) => layer.render(sections, theme, "vgs", 1, touchpads);
     const optionsOut = optionText([optionSection({ sensitivity: 0.35, tap: false, layouts: "us,de" })], null);
+    assertCurrentLua(optionsOut);
     const optionsTail = lines(optionsOut).slice(coreEnd(lines(optionsOut)) + 1);
     same(applied(optionsOut).slice(-2), [
         "-- acme.keys 1.0.0: input options its settings set",
@@ -2019,6 +2039,17 @@ try {
     fs.writeFileSync(unfilledFile, fillSource.replace(fillNeedle, ""));
     const unfilledLayer = load(unfilledFile);
     assert.throws(() => verifyStatusAppearance(appearanceSource, unfilledLayer), { code: "ERR_ASSERTION" });
+    // Inject executable deprecated forms into the real generator's result,
+    // retaining all its ordinary output. Each guard must reject its form.
+    for (const [name, pattern, emitted] of DEPRECATED_LUA) {
+        const needle = 'text: lines.join("\\n") + "\\n",';
+        assert.equal(fillSource.split(needle).length, 2);
+        const mutant = path.join(temp, "shell", "Core", name.replace(/:/g, "-") + "-HyprlandLayer.js");
+        fs.writeFileSync(mutant, fillSource.replace(needle, 'text: lines.concat([' + JSON.stringify(emitted) + ']).join("\\n") + "\\n",'));
+        const generated = load(mutant).render([], theme, "vgs", 1);
+        assert.match(generated.text, pattern, "the mutated generator emits " + name);
+        assert.throws(() => assertCurrentLua(generated), { code: "ERR_ASSERTION" }, "the generated output guard rejects " + name);
+    }
     CONTROLS.forEach(([file, label, needle, replacement, scopedVerify], index) => {
         const source = fs.readFileSync(file, "utf8");
         assert.equal(source.split(needle).length, 2, `control "${label}": the text to replace must occur once in ${path.basename(file)}`);

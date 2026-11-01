@@ -96,7 +96,7 @@ chmod +x "$tmp/qs"
 cat >"$tmp/hyprctl" <<'EOF'
 #!/usr/bin/env bash
 case "${1:-} ${2:-}" in
-  "-j version") echo '{"version": "0.56.2"}' ;;
+  "-j version") echo '{"version": "0.57.0"}' ;;
   "-j status") echo '{"configProvider": "lua"}' ;;
   "-j monitors")
     echo monitors >>"${STUB_HYPR_LOG:?}"
