@@ -13,7 +13,7 @@ Launcher finds and opens apps, files and system actions from one search field. I
 - Offers Lock, Sleep, Hibernate, Log out, Reboot and Shut down under System.
 - Waits for your Jarvis session before Reboot and Shut down: Jarvis saves its work for up to one minute. Choose the row again to restart at once.
 - Offers Screenshot, Automations and New automation under Tools.
-- Opens the Packages category from Updates, with Install, Update, Remove and Package review settings.
+- Offers Packages and Package review settings even when Updates is off. Package review settings opens System Settings > General > Packages. Updates adds Install, Update and Remove while enabled.
 - Lists the rows other plugins add, such as the Style category from Themes.
 - Shows a row as unavailable, and names the missing tool, when a tool it needs is not installed.
 - Moves through the list with the arrow keys, Home, End, PageUp and PageDown. Escape clears the search, then leaves a menu, then closes the launcher.

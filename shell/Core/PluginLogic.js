@@ -3184,13 +3184,6 @@ var CORE_TUIS = coreTuiTable({
         presentation: "full",
         entry: { label: "Install packages", icon: "package-plus", group: "Packages" }
     },
-    "pkg-review-settings": {
-        argv: ["vgshell", "pkg", "review-settings"],
-        title: "Package review settings",
-        size: "tall",
-        presentation: "full",
-        entry: { label: "Package review settings", icon: "shield-check", group: "Packages" }
-    },
     "pkg-remove": {
         argv: ["vgshell", "pkg", "remove"],
         title: "Remove packages",
@@ -4317,8 +4310,9 @@ function menuError(menu, capabilities, schema, status) {
     return "";
 }
 
-// Every enabled plugin's launcher rows under CONFIG: { rows, conflicts }.
-// `rows` holds the menus of the plugins in ENABLED_IDS that MANIFESTS
+// The core package rows and enabled plugins' launcher rows under CONFIG:
+// { rows, conflicts }. `rows` holds the core entries, then the menus of
+// the plugins in ENABLED_IDS that MANIFESTS
 // holds, by plugin id and then in manifest order, gathered under their
 // top-level id: each top-level id where its first row is listed, and under
 // it the rows of the plugin that declares that id first, so a plugin's row
@@ -4331,9 +4325,15 @@ function menuError(menu, capabilities, schema, status) {
 // earlier plugin listed stays with that plugin; the later row is one of
 // `conflicts`, { id, plugin, heldBy }.
 function menuRows(manifests, enabledIds, config) {
-    var rows = [];
+    // Shared package choices remain reachable while an Updates plugin is
+    // off. The core command chooses the desktop or terminal presentation.
+    var rows = [
+        { id: "packages", plugin: "core", label: "Packages", icon: "package", aliases: [], description: "", shortcut: "", provider: "", tui: "", tuiGroup: "" },
+        { id: "packages.review-settings", plugin: "core", label: "Package review settings", icon: "shield-check", aliases: [], description: "Choose how VGS reviews packages before installing or updating them", shortcut: "vgs:package-review-settings", provider: "", tui: "", tuiGroup: "" }
+    ];
     var conflicts = [];
     var owners = Object.create(null);
+    for (var core = 0; core < rows.length; core++) owners[rows[core].id] = "core";
     enabledIds.filter(function (id) { return hasOwn(manifests, id); }).sort().forEach(function (plugin) {
         var manifest = manifests[plugin];
         var menu = manifest.menu;

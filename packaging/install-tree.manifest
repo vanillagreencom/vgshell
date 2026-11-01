@@ -240,6 +240,7 @@ f share/vgshell/shell/Ui/controls/RowActions.qml
 f share/vgshell/shell/Ui/controls/SavedSlider.qml
 f share/vgshell/shell/Ui/controls/SegmentedControl.qml
 f share/vgshell/shell/Ui/controls/Select.qml
+f share/vgshell/shell/Ui/controls/SettingField.qml
 f share/vgshell/shell/Ui/controls/ShortcutField.qml
 f share/vgshell/shell/Ui/controls/Slider.qml
 f share/vgshell/shell/Ui/controls/Switch.qml
@@ -688,6 +689,8 @@ f share/vgshell/shell/plugins/vgs.notifications/token-status.sh
 f share/vgshell/shell/plugins/vgs.notifications/tui/open.sh
 f share/vgshell/shell/plugins/vgs.notifications/tui/setup-slack.sh
 f share/vgshell/shell/plugins/vgs.notifications/wireplumber/vgs-notification-sounds.lua
+f share/vgshell/shell/plugins/vgs.packages/Pane.qml
+f share/vgshell/shell/plugins/vgs.packages/manifest.json
 f share/vgshell/shell/plugins/vgs.polkit/PolkitModel.js
 f share/vgshell/shell/plugins/vgs.polkit/Prompt.qml
 f share/vgshell/shell/plugins/vgs.polkit/Service.qml
@@ -730,7 +733,6 @@ f share/vgshell/shell/plugins/vgs.settings/PluginPage.qml
 f share/vgshell/shell/plugins/vgs.settings/RequirementRow.qml
 f share/vgshell/shell/plugins/vgs.settings/RowsList.qml
 f share/vgshell/shell/plugins/vgs.settings/Service.qml
-f share/vgshell/shell/plugins/vgs.settings/SettingField.qml
 f share/vgshell/shell/plugins/vgs.settings/StatusLine.qml
 f share/vgshell/shell/plugins/vgs.settings/StatusRow.qml
 f share/vgshell/shell/plugins/vgs.settings/Steps.js

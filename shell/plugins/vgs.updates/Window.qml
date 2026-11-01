@@ -9,7 +9,7 @@ import "UpdatesLogic.js" as Logic
 // Update when it has updates, a row with a detail opened on it, and a footer with Update everything over
 // Refresh, the last check's time in the shell's one wording of a past
 // moment (Timestamp), and the last run's log. The title row ends with
-// Package review settings, which opens the core's one review editor, so
+// Package review settings, which opens the Packages page, so
 // the link takes no height from the sources. It draws the
 // status the service publishes and runs nothing itself: Refresh asks the
 // service's `check` through the plugin's own IPC, and every update and the
@@ -93,7 +93,7 @@ FocusScope {
                     anchors.right: parent.right
                     y: Math.round((layout.titleRowHeight - height) / 2)
                     text: "Package review settings"
-                    onClicked: root.answered(shell.tui.open("core/pkg-review-settings"))
+                    onClicked: root.answered(shell.run.detached(["vgshell", "pkg", "review-settings"]))
                 }
             }
         ]

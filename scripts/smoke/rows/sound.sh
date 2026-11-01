@@ -54,7 +54,7 @@
 # outputs, vgs.system's and vgs.sound's enablement, the shell's PATH
 # directory and the pactl stand-in's replies as it found them, a shell
 # started from the repository running, and the private PipeWire up.
-# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.sound/* shell/plugins/vgs.system/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Commons/Reply.js shell/Ui/controls/LevelSlider.qml shell/Ui/feedback/LevelLabel.qml shell/Ui/feedback/LevelOsd.qml shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Hosts/PaneHost.qml shell/Hosts/LayerHost.qml shell/Core/Layers.qml shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/ShortcutRegistry.qml shell/Core/IpcRegistry.qml shell/Core/Notices.qml shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* bin/vgshell scripts/smoke/fixtures/devices/* scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/hyprland-consent.sh shell/Ui/controls/RowAction.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js
+# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.sound/* shell/plugins/vgs.system/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Commons/Reply.js shell/Ui/controls/LevelSlider.qml shell/Ui/feedback/LevelLabel.qml shell/Ui/feedback/LevelOsd.qml shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Hosts/PaneHost.qml shell/Hosts/LayerHost.qml shell/Core/Layers.qml shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/ShortcutRegistry.qml shell/Core/IpcRegistry.qml shell/Core/Notices.qml shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* bin/vgshell scripts/smoke/fixtures/devices/* scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/hyprland-consent.sh shell/Ui/controls/RowAction.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js
 set -euo pipefail
 devices_ready sound || return 0
 
@@ -62,6 +62,7 @@ snd_file="$home/.config/vgshell/shell.json"
 snd_saved="$sandbox/shell-before-sound.json"
 snd_copy="$home/.config/vgshell/plugins/vgs.sound"
 snd_settings_copy="$home/.config/vgshell/plugins/vgs.settings"
+snd_system_copy="$home/.config/vgshell/plugins/vgs.system"
 snd_spawns="$sandbox/sound-spawns.calls"
 snd_recorded=(wpctl pw-cli pw-cat pw-metadata pamixer amixer)
 snd_output=SMOKE-SOUND
@@ -249,6 +250,7 @@ snd_list='[["--format=json", "list", "sink-inputs"]'
 snd_plugin_copy() {
   rm -rf -- "${snd_copy:?}"
   cp -R -- "$repo/shell/plugins/vgs.sound" "$snd_copy"
+  expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: vgs\.sound at ')
   python3 - "$snd_copy" "$@" <<'PY'
 import os, sys
 root, edits = sys.argv[1], sys.argv[2:]
@@ -286,10 +288,26 @@ snd_page_click() {
   click "$x" "$y"
 }
 snd_page_open() {
-  expect "System turns off before its page reference" ok ipc shell setPluginEnabled vgs.system false
-  expect_poll "System is off before its page reference" False plugin_enabled vgs.system
-  expect "Sound opens with System off" ok ipc shell summon panel vgs.sound '{}'
-  expect_poll "the Sound panel maps with System off" 1 layer_count vgs:panel
+  expect "System Settings is available for the page reference" True plugin_enabled vgs.system
+  expect "shipped System Settings refuses disable before the page fixture" 'refused: enabled=vgs.system reason=always-on' ipc shell setPluginEnabled vgs.system false
+  # Own-pane summon must refuse for the error link to exist. Only this
+  # disposable holder releases panes; the shipped holder stays always on.
+  python3 - "$repo/shell/plugins/vgs.system" "$snd_system_copy" <<'SNDPAGEFIXTURE'
+import json, pathlib, shutil, sys
+source, target = map(pathlib.Path, sys.argv[1:])
+shutil.copytree(source, target)
+manifest = target / 'manifest.json'
+document = json.loads(manifest.read_text())
+assert document['alwaysOn'] is True
+document['alwaysOn'] = False
+manifest.write_text(json.dumps(document))
+SNDPAGEFIXTURE
+  expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: vgs\.system at ')
+  rescan "the disposable Sound page holder is scanned"
+  expect "the disposable System holder releases panes for Sound's page reference" ok ipc shell setPluginEnabled vgs.system false
+  expect_poll "System is unavailable for Sound's page reference" False plugin_enabled vgs.system
+  expect "Sound opens for its page reference" ok ipc shell summon panel vgs.sound '{}'
+  expect_poll "the Sound panel maps for its page reference" 1 layer_count vgs:panel
   summon_drawn panel vgs.sound || fail "the Sound panel never drew"
   click_in vgs:panel panel vgs.sound Button "Sound settings" || fail "the Sound settings button was not pressed"
   expect_poll "Sound draws the System page reference as a link" true ipc smoke readMatchingDescendant panel vgs.sound LinkText text "$snd_page_text" linked
@@ -301,7 +319,10 @@ snd_page_check() {
 snd_page_close() {
   expect "Settings hides after the Sound page reference" ok ipc shell hide window vgs.settings
   expect "Sound hides after its page reference" ok ipc shell hide panel vgs.sound
-  expect "System turns on after its page reference" ok ipc shell setPluginEnabled vgs.system true
+  rm -rf -- "${snd_system_copy:?}"
+  rescan "the shipped System holder returns after Sound's page reference"
+  expect_poll "shipped System Settings is enabled after the page fixture" True plugin_enabled vgs.system
+  expect "shipped System Settings refuses disable after the page fixture" 'refused: enabled=vgs.system reason=always-on' ipc shell setPluginEnabled vgs.system false
 }
 expected_errors+=('WARN qml: sound panel: pane ')
 
@@ -552,6 +573,7 @@ expect "the configuration reloads with the manifest's keys" ok ipc shell reloadC
 expect_poll "XF86AudioMicMute is the Sound shortcut's again" "$snd_all_binds" snd_binds
 rm -rf -- "${snd_settings_copy:?}"
 cp -R -- "$repo/shell/plugins/vgs.settings" "$snd_settings_copy"
+expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: vgs\.settings at ')
 python3 - "$snd_settings_copy/KeyField.qml" <<'PY'
 import sys
 path = sys.argv[1]

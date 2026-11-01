@@ -5,6 +5,7 @@ import Quickshell.Services.Polkit
 import qs.Commons
 import "PluginLogic.js" as Logic
 import "ConfigLogic.js" as ConfigLogic
+import "PackageReview.js" as PackageReview
 import "Dispatch.js" as Dispatch
 import "HyprlandLayer.js" as Layer
 import "../Commons/ThemeLogic.js" as ThemeLogic
@@ -169,6 +170,9 @@ Singleton {
         shortcut: shortcuts.provider,
         manager: ctx => ({
             get plugins() { return Registry.managerRows; },
+            get packageReview() { return Logic.frozenJson(Config.effective.packages?.review || {}); },
+            get packageReviewAgents() { return PackageReview.reviewChoices(PackageReview.REVIEW_AGENTS.map(agent => agent.id)); },
+            setPackageReview: (key, value) => root.managerPackageReview(key, value),
             setEnabled: (id, enabled) => typeof enabled === "boolean" ? Plugins.setEnabled(id, enabled) : "refused: enabled=" + JSON.stringify(enabled) + " want=boolean",
             setPlaced: (id, placed) => typeof placed === "boolean" ? Plugins.setPlaced(id, placed) : "refused: placed=" + JSON.stringify(placed) + " want=boolean",
             moveWidget: (id, section, index) => typeof section !== "string" ? "refused: section=" + JSON.stringify(section) + " want=string" : typeof index === "number" && Number.isInteger(index) && index >= 0 ? Plugins.moveWidget(id, section, index, null) : "refused: index=" + JSON.stringify(index) + " want=integer>=0",
@@ -480,6 +484,16 @@ Singleton {
         const after = Logic.settingsFor(Config.effective, manifest)[key];
         if (JSON.stringify(after) !== JSON.stringify(before)) PluginStatus.chosen(id, key, after, before);
         return reply;
+    }
+
+    // The Packages page edits one field of the shared review choices.
+    // The same guarded writer used by the terminal editor confirms the
+    // disk bytes before replying; Automatic removes the optional choice.
+    function managerPackageReview(key, value) {
+        const settings = Logic.clone(Config.effective.packages?.review || {});
+        if (key === "enabled" && value === null) delete settings.enabled;
+        else settings[key] = value;
+        return Config.packageReviewWrite(JSON.stringify({ expectedText: Config.userText, settings: settings }));
     }
 
     // The screen the Add entry of plugin ID's field KEY opens

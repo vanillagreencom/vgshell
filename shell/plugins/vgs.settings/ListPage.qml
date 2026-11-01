@@ -112,14 +112,6 @@ FocusScope {
                             variant: "secondary"
                             onClicked: page.panel.addPlugin()
                         }
-                        // No icon: with one, the three buttons leave the
-                        // title too little room at the window's 1080p width
-                        // and "Plugins" elides.
-                        Button {
-                            text: "Package review settings"
-                            variant: "secondary"
-                            onClicked: page.panel.openPackageReviewSettings()
-                        }
                         Button {
                             text: "Reset VGS"
                             iconName: "rotate-ccw"

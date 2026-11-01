@@ -67,7 +67,8 @@
 //       them, so a running shell reports the requirements the change
 //       brought or took away; the exit status stays the steps'.
 //   vgshell-pkg review-settings
-//       edit the shared optional review preference, agent and command inline.
+//       open System Settings at Packages on a desktop; without a desktop,
+//       edit the shared review preference, agent and command in this terminal.
 //       Config owns a live save; the offline writer compares original bytes.
 //   vgshell-pkg settled --manager <id> <name>...
 //       read-only installed-name postcheck; exits 1 if any name is missing.
@@ -772,6 +773,9 @@ main(async () => {
     }
     case "review-settings": {
         if (args.length) usage("review-settings=arguments");
+        if (process.env.WAYLAND_DISPLAY) {
+            return terminalRun([path.join(__dirname, "lib/pkg-review.sh"), "settings-open", path.join(__dirname, "vgshell")], false);
+        }
         refuseOutsideTerminal(verb, SHELL_CALLER);
         return terminalRun([path.join(__dirname, "lib/pkg-review.sh"), "settings", path.join(__dirname, "vgshell-pkg")], false);
     }

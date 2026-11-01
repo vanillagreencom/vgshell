@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "vgs.packages",
+  "name": "Packages",
+  "version": "0.1.0",
+  "author": "VanillaGreen",
+  "description": "Choose update options and how an AI agent reviews packages before installation.",
+  "license": "MIT",
+  "icon": "package",
+  "kinds": ["pane"],
+  "entryPoints": { "pane": "Pane.qml" },
+  "capabilities": ["manager"],
+  "alwaysOn": true,
+  "pane": { "group": "General", "order": 0 },
+  "settings": {}
+}

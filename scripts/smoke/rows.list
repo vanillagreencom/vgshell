@@ -147,6 +147,7 @@ panes
 # After panes, which removes its fixture holder: vgs.system holds `panes`
 # here, and this row restarts the shell for a control too.
 system-window
+packages
 # After system-window, whose vgs.system it enables again for the Mouse pane.
 mouse
 # After hyprland-consent, whose wired layer it reads Hyprland through, beside

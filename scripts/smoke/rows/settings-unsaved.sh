@@ -53,7 +53,7 @@
 # The bar holds its Saved line for saveBar.duration, 1600 ms, and fades for
 # motion.duration.normal, 150 ms (Tokens.js), so the control waits 3 s
 # before it reads a bar still drawn.
-# inputs: shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/SettingField.qml shell/plugins/vgs.settings/ListField.qml shell/plugins/vgs.settings/KeyField.qml scripts/smoke/fixtures/plugins/acme.unsaved/* scripts/smoke/fixtures/plugins/acme.outside/* shell/Ui/BarWidget.qml shell/Ui/controls/SegmentedControl.qml shell/Ui/controls/Switch.qml shell/Ui/feedback/SaveBar.qml shell/Ui/feedback/Dialog.qml shell/Ui/foundation/Scrim.qml shell/Ui/controls/TextField.qml shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Ui/controls/Button.qml shell/Ui/layout/Pane.qml shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml shell/Hosts/SummonHost.qml shell/Hosts/AppWindow.qml shell/Hosts/PluginSlot.qml shell/Core/Plugins.qml shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/Config.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Commons/Reply.js shell/Commons/Tokens.js bin/vgshell bin/vgshell-scan
+# inputs: shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/ListField.qml shell/plugins/vgs.settings/KeyField.qml scripts/smoke/fixtures/plugins/acme.unsaved/* scripts/smoke/fixtures/plugins/acme.outside/* shell/Ui/BarWidget.qml shell/Ui/controls/SegmentedControl.qml shell/Ui/controls/Switch.qml shell/Ui/feedback/SaveBar.qml shell/Ui/feedback/Dialog.qml shell/Ui/foundation/Scrim.qml shell/Ui/controls/TextField.qml shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Ui/controls/Button.qml shell/Ui/layout/Pane.qml shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml shell/Hosts/SummonHost.qml shell/Hosts/AppWindow.qml shell/Hosts/PluginSlot.qml shell/Core/Plugins.qml shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/Config.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Commons/Reply.js shell/Commons/Tokens.js bin/vgshell bin/vgshell-scan
 set -euo pipefail
 
 us_id=acme.unsaved
@@ -472,10 +472,13 @@ settings_page_close "$uo_id"
 # Control of the page's rules: a copy of the Settings plugin, installed
 # over the shipped one, that breaks each, read by the same readers.
 expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: vgs\.settings')
-us_copy="$home/.config/vgshell/plugins/vgs.settings"
-rm -rf -- "${us_copy:?}"
-mkdir -p -- "$(dirname -- "$us_copy")"
-cp -R -- "$repo/shell/plugins/vgs.settings" "$us_copy"
+mkdir -p -- "$home/.config/vgshell/plugins"
+us_copy="$(mktemp -d "$home/.config/vgshell/plugins/vgs.settings-unsaved.XXXXXX")" || { fail "the unsaved control directory could not be made"; return 1; }
+cp -R -- "$repo/shell/plugins/vgs.settings/." "$us_copy"
+cp -- "$repo/shell/Ui/controls/SettingField.qml" "$us_copy/SettingField.qml"
+# A module type outranks the implicit directory import. Qualify both
+# disposable page consumers so qs.Ui cannot hide this local mutant.
+# https://doc.qt.io/qt-6/qtqml-syntax-directoryimports.html
 if python3 - "$us_copy" <<'PYCOPY'
 import pathlib, sys
 root = pathlib.Path(sys.argv[1])
@@ -484,6 +487,7 @@ edits = (
     ("PluginPage.qml", "                dirty: page.dirty\n", "                dirty: true\n"),
     ("PluginPage.qml", "                onDiscard: page.discard()\n", "                onDiscard: {}\n"),
     ("PluginPage.qml", "        if (event.key !== Qt.Key_S || event.modifiers !== Qt.ControlModifier) return;\n", "        return;\n"),
+    ("PluginPage.qml", "import qs.Ui\n", 'import qs.Ui\nimport "." as Control\n'),
     ("Window.qml", "        if (!detail.dirty) {\n            then();\n            return true;\n        }\n", "        then();\n        return true;\n"),
 )
 for name, old, new in edits:
@@ -492,6 +496,11 @@ for name, old, new in edits:
     if text.count(old) != 1:
         sys.exit("%s: %r occurs %d times" % (name, old, text.count(old)))
     path.write_text(text.replace(old, new))
+page = root / "PluginPage.qml"
+text = page.read_text()
+if text.count("SettingField {") != 2:
+    sys.exit("PluginPage.qml: SettingField consumers occur %d times" % text.count("SettingField {"))
+page.write_text(text.replace("SettingField {", "Control.SettingField {"))
 PYCOPY
 then ok "the control copy writes on focus loss, binds its bar to no edit, drops Discard and Ctrl+S and asks nothing"; else fail "the control copy could not be written"; fi
 rescan "a rescan picks the control copy"

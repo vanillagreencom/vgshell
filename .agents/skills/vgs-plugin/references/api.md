@@ -143,7 +143,15 @@ Nothing else is on it. A capability the manifest did not name is absent, not nul
 
 The numeric arguments of `moveWindow`, `resizeWindow` and `moveCursor` accept numbers or canonical decimal integer strings within the signed 32-bit range. Resize dimensions must also be positive. These compositor methods return `ok` when the core queues the request, or `refused: ...` at the argument check or queue ceiling. A queued request can still fail or change nothing. Read the affected window, monitor or pointer state back before reporting an effect. `scripts/test-dispatch.js` pins both dialects and their refusals. `scripts/smoke/rows/compositor-dispatchers.sh` reads the effects back.
 
+The `manager` provider also exposes shared package review choices through
+`packageReview`, the saved `{ enabled?, agent?, command? }` object, and
+`packageReviewAgents`, the supported `{ label, value }` offers from the package
+owner. `setPackageReview(key, value)` changes one field through Config's guarded
+writer and returns its confirmed reply. For `enabled`, `null` selects Automatic
+by removing the optional saved preference. It starts no review or install.
+
 ## Passive layer content
+
 
 | Property | Type | Default | Meaning |
 |---|---|---|---|

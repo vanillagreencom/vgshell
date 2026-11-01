@@ -1528,8 +1528,12 @@ fi
 
 # Row owns a read-only implicitWidth (QQuickImplicitSizeItem, Qt 6.11).
 # This disposable control binds its writable width so the bar builds.
-# Its transitions must then fail the same cold vertical-alignment reader.
+# Each placement then lays out the Rows at zero height before restoring
+# their height, so the cold transition cannot precede the last core y bind.
+# Qt's transition writes y even for an x-only animation and removes that
+# bind; forceLayout makes this ordering independent of the first frame.
 # https://github.com/qt/qtdeclarative/blob/6.11/src/quick/items/qquickimplicitsizeitem_p.h
+# https://github.com/qt/qtdeclarative/blob/6.11/src/quick/items/qquickitemviewtransition.cpp
 bar_alignment_misplaced() {
   bar_alignment | py_reply 'import json,sys; rows=json.load(sys.stdin); print(any(s.startswith("clock.label.y=") for s in rows) and any(s.startswith("pill0.y=") for s in rows))'
 }
@@ -1540,6 +1544,7 @@ if copy_tree bar-motion-control \
             move: Transition { NumberAnimation { properties: "x"; duration: 0 } }
             add: Transition { NumberAnimation { properties: "x"; duration: 0 } }
             id: section
+            property bool smokeColdLayout: false
             spacing: Theme.bar.gap' \
   && edit_tree bar-motion-control shell/plugins/vgs.bar/Bar.qml '    Item {
         id: center
@@ -1547,8 +1552,26 @@ if copy_tree bar-motion-control \
         move: Transition { NumberAnimation { properties: "x"; duration: 0 } }
         add: Transition { NumberAnimation { properties: "x"; duration: 0 } }
         id: center
+        property bool smokeColdLayout: false
         spacing: Theme.bar.gap' \
-  && edit_tree bar-motion-control shell/Core/Plugins.qml 'container.implicitWidth = Qt.binding(() => {' 'container.width = Qt.binding(() => {'; then
+  && edit_tree bar-motion-control shell/plugins/vgs.bar/Bar.qml '        anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; bottom: parent.bottom }' '        anchors { horizontalCenter: parent.horizontalCenter; top: parent.top }
+        height: smokeColdLayout ? 0 : parent.height' \
+  && edit_tree bar-motion-control shell/plugins/vgs.bar/Bar.qml '            height: zone.height' '            height: smokeColdLayout ? 0 : zone.height' \
+  && edit_tree bar-motion-control shell/Core/Plugins.qml 'container.implicitWidth = Qt.binding(() => {' 'container.width = Qt.binding(() => {' \
+  && edit_tree bar-motion-control shell/Core/Plugins.qml '                item.y = Qt.binding(() => (container.height - item.height) / 2);
+            }
+        }
+    }' '                item.y = Qt.binding(() => (container.height - item.height) / 2);
+            }
+            const padding = container.leftPadding;
+            container.smokeColdLayout = true;
+            container.leftPadding = padding + 1;
+            container.forceLayout();
+            container.smokeColdLayout = false;
+            container.leftPadding = padding;
+            container.forceLayout();
+        }
+    }'; then
   stop_shell
   start_shell "$sandbox/tree-bar-motion-control" "$sandbox/bar-motion-control.log" || fail "the Row motion control shell starts"
   expect_poll "control: the cold Row builds its bar surface" "$monitors" bar_count

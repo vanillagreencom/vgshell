@@ -9,7 +9,8 @@
   "icon": "refresh-cw",
   "kinds": ["service", "bar-widget", "window", "panel"],
   "entryPoints": { "service": "Service.qml", "bar-widget": "Widget.qml", "window": "Window.qml", "panel": "RebootNotice.qml" },
-  "capabilities": ["configure", "ipc", "screens", "shortcut", "status", "surfaces", "system", "tui"],
+  "capabilities": ["configure", "ipc", "run", "screens", "shortcut", "status", "surfaces", "system", "tui"],
+  "capabilityKinds": { "run": ["window"] },
   "systemSteps": ["reboot-notice"],
   "defaultSection": "right",
   "requirements": [
@@ -24,11 +25,9 @@
     "log": { "script": "tui/log.sh", "title": "Last update log", "size": "tall", "presentation": "plain" }
   },
   "menu": {
-    "packages": { "label": "Packages", "icon": "package" },
     "packages.install": { "label": "Install", "icon": "package", "tui": "core/pkg-install" },
     "packages.update": { "label": "Update", "icon": "refresh-cw", "tui": "vgs.updates/update" },
-    "packages.remove": { "label": "Remove", "icon": "package", "aliases": ["uninstall"], "tui": "core/pkg-remove" },
-    "packages.review-settings": { "label": "Package review settings", "icon": "shield-check", "tui": "core/pkg-review-settings" }
+    "packages.remove": { "label": "Remove", "icon": "package", "aliases": ["uninstall"], "tui": "core/pkg-remove" }
   },
   "settings": {
     "intervalHours": 6,
@@ -43,7 +42,7 @@
     "intervalHours": {"type": "number", "label": "Check interval", "min": 1, "max": 48, "step": 1, "unit": "hours", "group": "Schedule"},
     "hideWhenCurrent": {"type": "boolean", "label": "Hide when up to date", "description": "Hides the icon only after a recent check finds no updates", "group": "Display"},
     "aurCommand": {"type": "string", "label": "AUR command", "info": "The command that updates packages from the Arch User Repository. Automatic lets VGS choose.", "group": "Update options", "allowCustom": true, "presets": [{"value": "", "label": "Automatic"}, {"value": "paru -Sua"}, {"value": "yay -Sua"}]},
-    "snapshot": {"type": "enum", "label": "System snapshot", "description": "Saves a snapshot before updates when a snapshot tool is present", "options": [{"value": "auto", "label": "Auto"}, {"value": "off", "label": "Off"}], "group": "Update options"},
+    "snapshot": {"type": "enum", "label": "System snapshot", "description": "Keeps a copy of system files to restore after a failed update", "info": "Auto saves a snapshot before updates only when Snapper or Timeshift is installed and already set up.\nOff skips the snapshot.", "options": [{"value": "auto", "label": "Auto"}, {"value": "off", "label": "Off"}], "group": "Update options"},
     "trustPluginUpdates": {"type": "boolean", "label": "Trust plugin and theme updates", "description": "Applies plugin and theme updates without asking you to confirm", "group": "Update options"},
     "rebootNotice": {"type": "string", "label": "Reboot notice", "info": "With either choice, VGS asks once after all update steps when an update needs a restart. Choose CachyOS and VGS to keep the CachyOS notices for updates outside VGS. Choose VGS only to turn them off. VGS asks you to confirm in a terminal, and for your password if needed.", "group": "Update options", "optionsFrom": "rebootNotices", "hideEmpty": true}
   },

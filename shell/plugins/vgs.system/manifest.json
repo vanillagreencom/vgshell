@@ -7,6 +7,7 @@
   "description": "Sound, displays, network and other system settings in one window.",
   "license": "MIT",
   "icon": "sliders-horizontal",
+  "alwaysOn": true,
   "kinds": [
     "window",
     "service"

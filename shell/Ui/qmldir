@@ -34,6 +34,7 @@ PathField 1.0 controls/PathField.qml
 ShortcutField 1.0 controls/ShortcutField.qml
 BindField 1.0 controls/BindField.qml
 Field 1.0 controls/Field.qml
+SettingField 1.0 controls/SettingField.qml
 FormRow 1.0 controls/FormRow.qml
 Spinner 1.0 feedback/Spinner.qml
 VoiceOrb 1.0 feedback/VoiceOrb.qml

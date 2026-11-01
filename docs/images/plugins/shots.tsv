@@ -20,6 +20,7 @@ vgs.keyboard-pane.webp	system	system-dark-keyboard	content
 vgs.mouse-pane.webp	system	system-dark-mouse	content
 vgs.sound-pane.webp	system	system-dark-sound	content
 vgs.system-window.webp	system	system-dark-sound	content
+vgs.packages-pane.webp	packages	packages-dark-updates	content
 vgs.themes-browser.webp	theme-browser	theme-browser-dark-installed-frankenstein	item
 vgs.updates-window.webp	panels	panels-dark-updates-open	content
 vgs.capture-widget.webp	capture	capture-dark-widget	bar

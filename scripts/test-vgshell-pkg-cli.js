@@ -82,6 +82,29 @@ function verifyCli(texts, tmp) {
     const expectCommand = (...args) => { counts.commands += 1; expect(...args); };
     const expectCheckRow = (...args) => { counts.checks += 1; expect(...args); };
     const expectOwner = (...args) => { counts.owner += 1; expect(...args); };
+    // The desktop entry only asks the running shell to open its page. The
+    // private endpoint records argv; no compositor or terminal is started.
+    const reviewPage = makeTree(path.join(tmp, "review-page"), Object.assign({}, texts, { vgshell: `#!/usr/bin/env node
+const fs=require("node:fs");fs.writeFileSync(process.env.REVIEW_PAGE_CALL,JSON.stringify(process.argv.slice(2)));
+process.stdout.write(process.env.REVIEW_PAGE_REPLY);process.exit(Number(process.env.REVIEW_PAGE_STATUS));
+` }));
+    const pageCall = path.join(tmp, "review-page-call.json");
+    for (const [label,reply,status,expectedStatus] of [
+        ["confirmed", "INFO client log\n\u001b[32mok\u001b[0m\n", 0, 0],
+        ["refused", "refused: summon=locked\n", 0, 1],
+        ["unavailable", "", 69, 69]
+    ]) {
+        const result = childProcess.spawnSync(reviewPage.pkg, ["review-settings"], { encoding: "utf8", env: Object.assign({}, env, {
+            WAYLAND_DISPLAY: "fixture-desktop", REVIEW_PAGE_CALL: pageCall, REVIEW_PAGE_REPLY: reply, REVIEW_PAGE_STATUS: String(status)
+        }) });
+        counts.commands += 1;
+        if (result.status !== expectedStatus) failures.push("cli: desktop review settings "+label+": status="+result.status+" stderr="+result.stderr);
+        if (!fs.existsSync(pageCall)) { failures.push("cli: desktop review settings target: no page request"); continue; }
+        const called = JSON.parse(fs.readFileSync(pageCall,"utf8"));
+        const expected = ["ipc","call","shell","summon","window","vgs.system",'{"pane":"vgs.packages"}'];
+        if (JSON.stringify(called)!==JSON.stringify(expected)) failures.push("cli: desktop review settings target: "+JSON.stringify(called));
+    }
+    expectCommand("review settings without a desktop still requires a terminal", run(reviewPage.pkg,["review-settings"]), 1, "", "vgshell: refused: review-settings=no-terminal\n");
     expectCommand("present names the missing command and exits 1", run(scripts.pkg, ["present", "gum", "fzf"]), 1, "{\"present\":[\"gum\"],\"missing\":[\"fzf\"]}\n", "");
     expectCommand("present exits 0 when every command is found", run(scripts.pkg, ["present", "gum", "yay"]), 0, "{\"present\":[\"gum\",\"yay\"],\"missing\":[]}\n", "");
     expectCommand("present refuses a path", run(scripts.pkg, ["present", "/bin/sh"]), 2, "", "vgshell: refused: command=\"/bin/sh\"\n");
@@ -359,6 +382,7 @@ function checkRows(scripts, quick, tools, tmp, expect, failures) {
 // text one of the copy's failures must hold, for a control that proves one
 // particular assertion can fail.
 const CONTROLS = [
+    ["cli", "desktop review settings stays in the terminal editor", PKG, "if (process.env.WAYLAND_DISPLAY) {", "if (false) {", "desktop review settings target"],
     ["cli", "run --ignore with no name is accepted", PKG, "            if (ignored.length === 0) usage(\"option=--ignore value=missing\");\n", "", "run upgrade --ignore without a name is a bad invocation"],
     ["cli", "plan names no elevator", PKG, "elevator: planElevator(r.plan)", "elevator: null", "plan names the configured elevator"],
     ["cli", "owner asks no installed version", PKG, "const version = table.managerRow(id).installed === null ? null : query(", "const version = null && query("],

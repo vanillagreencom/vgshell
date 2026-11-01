@@ -17,45 +17,53 @@ _vgs_pkg_review_settings_cancel() { # MODE SAVED CHOICES
 }
 vgs_pkg_review_settings() { # OWNER [inline]
     local owner=$1 mode=${2:-} snapshot saved choices row value summary shown="" plan options presets_text input_help id label state
-    local rules='VGS asks before each install. The first choice is selected when VGS asks. Automatic selects Review when you set an agent or a command, or when VGS finds an agent.'
+    local heading='Set agent review before a package installs or updates'
+    local purpose='Choose whether to review packages, which AI agent to use, and an optional command.'
+    local rules='VGS asks each time. Your saved choice is selected; you still confirm each install or update.
+Review with an agent
+  Selects review with the agent and command below.
+Install without review
+  Selects installation without an agent review.
+Automatic (review when an agent is available)
+  Selects review when you choose an agent or command, or VGS finds an agent.'
     local -a agents=() presets=() words=()
     snapshot="$("$owner" review-settings-read)" || return
     choices="$(node -e 'process.stdout.write(JSON.stringify(JSON.parse(process.argv[1]).settings))' "$snapshot")" || return
     saved=$choices
     options="$("$owner" review-settings-agents)" || return
     if [[ $mode == inline ]]; then
-        vgs_tui_step 'Package review settings' >&2
-        vgs_tui_text 'These choices apply to package installs and updates.' >&2
+        vgs_tui_step "$heading" >&2
+        vgs_tui_text "$purpose" >&2
         vgs_tui_text "$rules" >&2
     fi
     while true; do
         summary="$(node -e '
             const s=JSON.parse(process.argv[1]);
             const agents=new Map(process.argv[2].split("\n").filter(Boolean).map(line=>{const [id,label,state]=line.split("\t");return [id,{label,state}];}));
-            const first=Object.hasOwn(s,"enabled")?(s.enabled?"Review":"Install without review"):"Automatic";
+            const first=Object.hasOwn(s,"enabled")?(s.enabled?"Review with an agent":"Install without review"):"Automatic (review when an agent is available)";
             const agent=agents.get(s.agent);
-            const named=!s.agent?"Automatic":agent?agent.label+(agent.state==="found"?"":" (not installed)"):s.agent;
-            process.stdout.write("First choice when VGS asks: "+first+"\nAgent: "+named+"\nCommand: "+(s.command?"Custom":"Agent default"));
+            const named=!s.agent?"Automatic (use the first available agent)":agent?agent.label+(agent.state==="found"?"":" (not installed)"):s.agent;
+            process.stdout.write("Before installing: "+first+"\nAI agent: "+named+"\nReview command: "+(s.command?"Custom command":"Use the agent\u0027s command"));
         ' "$choices" "$options")" || return
         if [[ $mode != inline ]]; then
             vgs_tui_clear >&2
-            vgs_tui_header 'Package review settings' 'These choices apply to package installs and updates.' >&2
+            vgs_tui_header "$heading" "$purpose" >&2
             vgs_tui_text "$summary" >&2
             vgs_tui_text "$rules" >&2
         elif [[ $summary != "$shown" ]]; then
             vgs_tui_text "$summary" >&2
             shown=$summary
         fi
-        row="$(vgs_pkg_review_choose 'Edit package review' -- 'First choice' 'AI agent' 'Review command' 'Save' 'Cancel')" || { _vgs_pkg_review_settings_cancel "$mode" "$saved" "$choices"; return 130; }
+        row="$(vgs_pkg_review_choose 'Change package review choices' -- 'Before installing' 'AI agent' 'Review command' 'Save' 'Cancel')" || { _vgs_pkg_review_settings_cancel "$mode" "$saved" "$choices"; return 130; }
         case $row in
-            'First choice')
-                value="$(vgs_pkg_review_choose 'First choice when VGS asks to review packages' -- 'Automatic' 'Review' 'Install without review' 'Back')" || continue
+            'Before installing')
+                value="$(vgs_pkg_review_choose 'Before installing or updating a package' -- 'Automatic (review when an agent is available)' 'Review with an agent' 'Install without review' 'Back')" || continue
                 [[ $value != Back ]] || continue
-                choices="$(node -e 'const s=JSON.parse(process.argv[1]);if(process.argv[2]==="Automatic")delete s.enabled;else s.enabled=process.argv[2]==="Review";process.stdout.write(JSON.stringify(s));' "$choices" "$value")" || return
+                choices="$(node -e 'const s=JSON.parse(process.argv[1]);if(process.argv[2]==="Automatic (review when an agent is available)")delete s.enabled;else s.enabled=process.argv[2]==="Review with an agent";process.stdout.write(JSON.stringify(s));' "$choices" "$value")" || return
                 ;;
             'AI agent')
-                # gum prints the value after the tab: the id, or nothing for Automatic.
-                agents=($'Automatic\t')
+                # gum prints the value after the tab: the id, or nothing for automatic selection.
+                agents=($'Automatic (use the first available agent)\t')
                 while IFS=$'\t' read -r id label state; do
                     [[ $state != found ]] || agents+=("$label"$'\t'"$id")
                 done <<< "$options"
@@ -66,16 +74,16 @@ vgs_pkg_review_settings() { # OWNER [inline]
                 ;;
             'Review command')
                 presets_text="$("$owner" review-settings-presets)" || return
-                presets=('Agent default')
+                presets=("Use the agent's command")
                 while IFS= read -r value; do [[ -z $value ]] || presets+=("$value"); done <<< "$presets_text"
                 presets+=('Custom command' 'Back')
-                value="$(vgs_pkg_review_choose 'Review command' -- "${presets[@]}")" || continue
+                value="$(vgs_pkg_review_choose 'Review command (optional)' -- "${presets[@]}")" || continue
                 [[ $value != Back ]] || continue
                 if [[ $value == 'Custom command' ]]; then
                     value="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).command||"")' "$choices")" || return
                     printf -v input_help '\033[22m%sEnter confirms • Esc returns\033[0m' "$(vgs_tui_sgr "${GUM_PAGER_HELP_FOREGROUND:-}" 39)"
-                    value="$(vgs_tui_input --no-show-help --header "Review command"$'\n''Spaces separate arguments. Quotes and shell operators stay literal.'$'\n\n'"$input_help" --value "$value")" || continue
-                elif [[ $value == 'Agent default' ]]; then value=''; fi
+                    value="$(vgs_tui_input --no-show-help --header "Review command"$'\n''Separate the command and each option with a space. Quotes and symbols are passed as typed.'$'\n\n'"$input_help" --value "$value")" || continue
+                elif [[ $value == "Use the agent's command" ]]; then value=''; fi
                 choices="$(node -e 'const s=JSON.parse(process.argv[1]);s.command=process.argv[2];process.stdout.write(JSON.stringify(s));' "$choices" "$value")" || return
                 ;;
             Save)

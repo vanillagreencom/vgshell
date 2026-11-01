@@ -7,7 +7,7 @@ Plugins is the window where you manage your plugins, their settings and their sh
 ## Features
 
 - Search for a plugin and open its page.
-- Turn a plugin on or off. Plugins itself stays on.
+- Turn a plugin on or off. Plugins, System Settings and Packages stay on.
 - Show a plugin in the bar, or take it out while its other features stay on.
 - Change a plugin's settings. Under Keys, select a shortcut and press its new keys. A shortcut can have more than one key: the add button listens for another, and Delete removes the one you select. Use my binding keeps one of your own Hyprland binds on the same keys.
 - See which plugins need required setup. A plugin that is on shows Setup needed in the list and a warning on its Setup tab until its required steps are done.

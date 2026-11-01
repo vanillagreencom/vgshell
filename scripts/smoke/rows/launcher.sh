@@ -166,17 +166,15 @@ launcher_settings_open() { # LABEL
   focused "$1: the launcher holds the keyboard"
 }
 launcher_window_open() { [[ $(ipc smoke instanceGeometry window "$1") != absent ]] && echo open || echo closed; }
-expect "vgs.system starts disabled in the sandbox" False plugin_enabled vgs.system
-launcher_settings_open "without System"
+expect "System Settings stays enabled in the sandbox" True plugin_enabled vgs.system
+launcher_settings_open "with System"
 expect_poll "Settings lists Plugin settings" True launcher_has_row shortcut "Plugin settings"
-expect "Settings lists no System Settings while vgs.system is disabled" False launcher_has_row shortcut "System Settings"
+expect "Settings lists System Settings beside Plugin settings" True launcher_has_row shortcut "System Settings"
 type_keys -k Return || fail "selecting Plugin settings failed"
 expect_poll "Plugin settings opens the Plugins window" open launcher_window_open vgs.settings
 expect_poll "the launcher closes on Plugin settings" 0 layer_count vgs:overlay
 expect "the Plugins window hides after Plugin settings" ok ipc shell hide window vgs.settings
 expect_poll "the Plugins window is gone after Plugin settings" closed launcher_window_open vgs.settings
-expect "enabling vgs.system for the Settings rows is allowed" ok ipc shell setPluginEnabled vgs.system true
-expect_poll "vgs.system's service is built for the Settings rows" True record_exists vgs.system
 launcher_settings_open "with System"
 expect_poll "control: Settings lists System Settings while vgs.system is enabled" True launcher_has_row shortcut "System Settings"
 expect "Settings lists Plugin settings beside System Settings" True launcher_has_row shortcut "Plugin settings"
@@ -185,8 +183,6 @@ expect_poll "System Settings opens the System window" open launcher_window_open 
 expect_poll "the launcher closes on System Settings" 0 layer_count vgs:overlay
 expect "the System window hides after System Settings" ok ipc shell hide window vgs.system
 expect_poll "the System window is gone after System Settings" closed launcher_window_open vgs.system
-expect "disabling vgs.system after the Settings rows is allowed" ok ipc shell setPluginEnabled vgs.system false
-expect_poll "vgs.system's service is gone after the Settings rows" False record_exists vgs.system
 write_menu '{ "schemaVersion": 1, "items": { "settings.plugins": { "label": "Smoke plugins" } } }'
 launcher_settings_open "relabelled"
 expect_poll "control: a user menu that relabels Plugin settings shows its label" True launcher_has_row shortcut "Smoke plugins"
@@ -203,7 +199,7 @@ type_keys -M ctrl -k b -m ctrl || fail "sending Ctrl+B failed"
 expect_poll "Ctrl+B shows the categories" True launcher_has_row menu System
 expect_poll "the open Categories glyph draws in the accent" "$(launcher_colour "$(look_at palette.accent)")" launcher_glyph_colour
 expect "the open Categories icon draws no fill" ok launcher_icon_bare any
-expect "Packages is hidden while vgs.updates is disabled" False launcher_has_row menu Packages
+expect "Packages remains available while vgs.updates is disabled" True launcher_has_row menu Packages
 expect "the categories list Settings, which always-on Plugins declares" True launcher_has_row menu Settings
 type_keys -M ctrl -k b -m ctrl || fail "sending Ctrl+B failed"
 expect_poll "Ctrl+B hides them again" '[]' launcher_rows
@@ -520,13 +516,13 @@ packages_menu() {
 hover "$((mon_w / 2))" "$((mon_h / 2))" || fail "resting the pointer at the screen's centre failed"
 expect "vgs.updates starts disabled for Packages" False plugin_enabled vgs.updates
 categories "Packages disabled"
-expect "Packages is absent before vgs.updates is enabled" False launcher_has_row menu Packages
+expect "Packages is available before vgs.updates is enabled" True launcher_has_row menu Packages
 launcher_save_shell_config packages
 # The shipped updates service would probe the real host without a fresh cache.
 updates_cache_fresh
 expect "enabling vgs.updates while the launcher is open is allowed" ok ipc shell setPluginEnabled vgs.updates true
 expect_poll "vgs.updates' service is built for Packages" True record_exists vgs.updates
-expect_poll "control: Packages appears when vgs.updates is enabled" True launcher_has_row menu Packages
+expect_poll "Packages remains available when vgs.updates is enabled" True launcher_has_row menu Packages
 type_keys -k Escape || fail "sending Escape before Packages TUI rows failed"
 expect_poll "Escape closes the Packages category control" 0 layer_count vgs:overlay
 for row in "Install|install|Install packages" "Remove|remove|Remove packages"; do
@@ -610,7 +606,7 @@ updates_revision="$(ipc shell listPlugins | py_reply 'import json,sys; print([p[
 updates_snapshot="$rt_dir/vgshell-sources-$shell_qs_pid/$updates_revision"
 forget_record
 packages_menu "Update"
-expect "the Packages menu lists its actions, then the shared package review settings" '["Install", "Update", "Remove", "Package review settings"]' tui_labels
+expect "the Packages menu lists its terminal actions" '["Install", "Update", "Remove"]' tui_labels
 pick_tui Update
 expect_poll "Update hands the terminal the updates plugin's Update script" "$(update_words "$updates_snapshot")" recorded
 expect_poll "Update closes the launcher" 0 layer_count vgs:overlay
@@ -618,7 +614,7 @@ expect_run_end "the Update run ends" vgs.updates/update
 categories "Packages disable"
 expect "Packages shows while vgs.updates is enabled" True launcher_has_row menu Packages
 expect "disabling vgs.updates while the launcher is open is allowed" ok ipc shell setPluginEnabled vgs.updates false
-expect_poll "the open launcher hides Packages once vgs.updates is disabled" False launcher_has_row menu Packages
+expect_poll "the open launcher keeps Packages once vgs.updates is disabled" True launcher_has_row menu Packages
 launcher_restore_shell_config packages "after Packages"
 type_keys -k Escape || fail "sending Escape failed"
 expect_poll "Escape closes the launcher after Packages" 0 layer_count vgs:overlay
