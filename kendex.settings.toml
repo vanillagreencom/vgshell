@@ -26,13 +26,13 @@ ORCH_SIZE_TEST_PATHS = "scripts/test-*.js scripts/test-*.py scripts/test-*.sh"
 # key here: a repeated default goes stale when the class changes.
 
 # Target identities are model providers, not the harness that runs them.
-# In this repository, both targets always use 1copilot, never claude or codex CLIs.
-# Reviewers get read tools only: no shell tool, write denied, the diff inline; never grant all tools.
-SECOND_OPINION_CLAUDE_MODEL = "claude-opus-5.5"
-SECOND_OPINION_CLAUDE_CMD = "env COPILOT_ALLOW_ALL=false 1copilot --model claude-opus-5.5 --reasoning-effort medium --silent --no-ask-user --disable-builtin-mcps --available-tools view rg glob --deny-tool write"
+# In this repository, both targets run Pi on the 1copilot account (~/.pi/agent), never the claude, codex or Copilot CLIs.
+# Reviewers run through Pi with read tools only and no extensions, so no shell tool and no repository hooks; the diff goes inline.
+SECOND_OPINION_CLAUDE_MODEL = "github-copilot/claude-opus-5.5"
+SECOND_OPINION_CLAUDE_CMD = "pi -p --no-session --no-extensions --model github-copilot/claude-opus-5.5 --thinking high --tools read,grep,find,ls"
 SECOND_OPINION_CLAUDE_INLINE_DIFF = "1"
-SECOND_OPINION_CODEX_MODEL = "gpt-6.1-sol"
-SECOND_OPINION_CODEX_CMD = "env COPILOT_ALLOW_ALL=false 1copilot --model gpt-6.1-sol --reasoning-effort medium --silent --no-ask-user --disable-builtin-mcps --available-tools view rg glob --deny-tool write"
+SECOND_OPINION_CODEX_MODEL = "github-copilot/gpt-6.1-sol"
+SECOND_OPINION_CODEX_CMD = "pi -p --no-session --no-extensions --model github-copilot/gpt-6.1-sol --thinking high --tools read,grep,find,ls"
 SECOND_OPINION_CODEX_INLINE_DIFF = "1"
 SECOND_OPINION_TIMEOUT = "1080"
 WORKTREE_BASE_DIR = "~/dev/.worktrees/vgshell"
