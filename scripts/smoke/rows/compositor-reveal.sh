@@ -55,7 +55,8 @@ c = next((c for c in clients if c["address"] == sys.argv[4]), None)
 if c is None: print("absent"); sys.exit()
 ws = c["workspace"]["name"]
 if ws.startswith("special:"): shown = any(m["specialWorkspace"]["name"] == ws for m in monitors)
-else: shown = any(m["activeWorkspace"]["id"] == c["workspace"]["id"] and m["specialWorkspace"]["id"] == 0 for m in monitors)
+# 0.57.0 omits an empty special workspace id: scripts/fixtures/capture/hyprland-workspaces.json.
+else: shown = any(m["activeWorkspace"]["id"] == c["workspace"]["id"] and not m["specialWorkspace"]["name"] for m in monitors)
 problems = [k for k, bad in (("inactive", active.get("address") != c["address"]), ("undrawn", not c["visible"]), ("workspace-hidden", not shown)) if bad]
 print("shown" if not problems else " ".join(problems))' "$clients" "$monitors" "$active" "$1"
 }
