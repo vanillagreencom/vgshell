@@ -452,16 +452,17 @@ cp -- "$sandbox/shell-placement-clock-contract.json" "$placement_file.tmp" && mv
 # WANT is the slot the preview must name under the name SLOT; LABEL starts
 # every other check's name.
 placement_held_builtin() { # PATH WANT SLOT LABEL
-  local path="$1" want="$2" slot="$3" label="$4" x y tx ty px barrier out_fd in_fd hold_pid
+  local path="$1" want="$2" slot="$3" label="$4" x y tx ty px source_box gap barrier out_fd in_fd hold_pid
   nested_input_check "$sandbox/click" || return 1
   read -r x y < <(placement_point vgs.bar/left-workspaces) || return 1
-  # One pixel left of the tick's left edge: a slot comes from the
-  # neighbours' shifted boxes (Plugins.dragMove), and whether the preview
-  # stands before the clock or before the tick, this point lies past the
-  # clock's middle and short of the tick's, so it reads before the tick
-  # whatever path the pointer took.
+  # The gap widens the centred section by the dragged width and spacing,
+  # so the tick settles half that distance right of its original box.
+  # Aim one pixel before that settled edge: before the clock or before
+  # the tick, the gap leaves this point between their settled middles.
   read -r tx ty < <(placement_point acme.tick) || return 1
-  tx="$(ipc smoke instanceGeometry "$(bar_key)" acme.tick | py_reply 'import json,sys; print(int(json.load(sys.stdin)[0]) - 1)')" || return 1
+  source_box="$(ipc smoke instanceGeometry "$(bar_key)" vgs.bar/left-workspaces)" || return 1
+  gap="$(ipc smoke themeValue bar.gap)" || return 1
+  tx="$(ipc smoke instanceGeometry "$(bar_key)" acme.tick | py_reply 'import json,sys; tick=json.load(sys.stdin); source=json.loads(sys.argv[1]); print(int(tick[0]+(source[2]+float(sys.argv[2]))/2)-1)' "$source_box" "$gap")" || return 1
   px="$tx"
   if [[ $path == stepped ]]; then
     px="$(surface_box vgs:bar | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print(int(x+w/3)+2)')" || return 1
