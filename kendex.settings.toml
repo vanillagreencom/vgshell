@@ -25,11 +25,10 @@ ORCH_SIZE_TEST_PATHS = "scripts/test-*.js scripts/test-*.py scripts/test-*.sh"
 # File-size thresholds come from the shipped path classes. No DOC_LIMITS_*
 # key here: a repeated default goes stale when the class changes.
 
-# Reviewers run only through the built-in Pi-on-Copilot entries: read tools
-# only and no extensions, so no shell tool and no repository hooks, with the
-# diff inline. The default roster's claude and codex fallbacks would run those
-# CLIs with a shell and this repository's hooks, so they are left out.
-SECOND_OPINION_MODELS = "pi-copilot pi-copilot-gpt"
+# The owner's order for this organization's repositories (Slack
+# 1793558900.347579): Claude CLI first, GPT through the Copilot seat next,
+# Codex CLI as the fallback. The second opinion does not default to Copilot.
+SECOND_OPINION_MODELS = "claude pi-copilot-gpt codex"
 # No Copilot pool reading is configured here, so the built-in lanes pick room
 # check would skip both entries; run them unchecked, as the old overrides did.
 SECOND_OPINION_PI_COPILOT_ROOM_CMD = ""
@@ -110,7 +109,7 @@ ORCH_OWNER_ASK_LABEL = "owner-gated"
 
 # Used by: orch (`oversee`). Max concurrent lanes the overseer keeps in
 # flight.
-ORCH_OVERSEER_LANES = "6"
+ORCH_OVERSEER_LANES = "9"
 
 # Overseer provider order, using the shared model class at medium effort.
 ORCH_OVERSEER_PREFERENCE = "claude:standard:medium,codex:standard:medium"
