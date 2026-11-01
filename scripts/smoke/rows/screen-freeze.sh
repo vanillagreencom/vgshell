@@ -8,8 +8,8 @@
 # theme change made under it until the thaw, after which the change shows.
 # A second hold is refused, a thaw ends it and the fixture's disable
 # releases it. A disposable tree that turns the turned output's frame a
-# second time, as hyprpicker 0.4.7 does on Hyprland 0.57.0, fails the
-# frame match on that output alone.
+# second time, as the external picker that froze the screen before did on
+# Hyprland 0.57.0, fails the frame match on that output alone.
 # Each hold draws the screen as it is when the hold starts: a hold over a
 # solid window on each output, a thaw, the windows closed with no capture
 # running, then a second hold whose frame holds none of the windows on

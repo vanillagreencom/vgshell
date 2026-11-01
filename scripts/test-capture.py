@@ -23,7 +23,9 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parent.parent
 HELPER = REPO / "shell/plugins/vgs.capture/helper/capture.py"
 FIXTURE = REPO / "scripts/smoke/fixtures/capture/tools.py"
-TOOLS = ("grim", "slurp", "hyprpicker", "hyprctl", "tesseract", "wl-copy", "gpu-screen-recorder", "ffmpeg", "pw-dump")
+TOOLS = ("grim", "slurp", "hyprctl", "tesseract", "wl-copy", "gpu-screen-recorder", "ffmpeg", "pw-dump")
+# The actions whose worker asks the service for the screen freeze.
+FREEZING = ("screenshot-area", "screenshot-window", "screenshot-display", "record", "record-window", "record-display", "text")
 
 
 def release_deadline_holds(helper):
@@ -307,6 +309,21 @@ def events(output):
     return [json.loads(line) for line in output.splitlines()]
 
 
+def answer_freeze(control, payload):
+    """Write the service's `frozen` into the worker's control pipe CONTROL
+    ahead of its ask, as a service whose freeze shows at once answers; the
+    hyprctl stand-in lists that freeze mapped. freeze_cases answers each ask
+    itself."""
+    if payload.get("action") in FREEZING:
+        os.write(control, b"frozen\n")
+
+
+def thawed(messages):
+    """Whether every freeze the worker asked for it also ended."""
+    names = [message["event"] for message in messages]
+    return names.count("freeze") == names.count("thaw")
+
+
 def calls(root):
     path = root / "calls.jsonl"
     return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
@@ -346,6 +363,7 @@ def worker(root, payload, helper=HELPER, recording=False, line=None, timeout=10,
     proc = subprocess.Popen([sys.executable, str(helper), json.dumps(payload)], env=environment(root, config), stdin=control, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     os.close(control)
     try:
+        answer_freeze(writer, payload)
         if line is not None:
             wait_for(root / ready, proc)
             os.write(writer, line.encode())
@@ -385,24 +403,27 @@ def area_holds(root, payload, helper):
     code, output, err = worker(root, payload, helper, timeout=5)
     grims = [c["args"] for c in calls(root) if c["tool"] == "grim"]
     return (code == 0 and output[-1]["event"] == "saved" and grims[-1][:2] == ["-g", "10,20 80x60"]
-            and Path(output[-1]["path"]).is_file() and not alive(root, "slurp") and not alive(root, "hyprpicker"))
+            and Path(output[-1]["path"]).is_file() and not alive(root, "slurp") and thawed(output))
 
 
 def freeze_released_holds(root, payload, config, helper):
     """The capture PID becomes the clipboard provider after releasing its freeze."""
     proc = subprocess.Popen([sys.executable, str(helper), json.dumps(payload)], env=environment(root, config), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
-        message = json.loads(proc.stdout.readline())
-        if message["event"] == "selection-ended":
-            message = json.loads(proc.stdout.readline())
-        saved = message["event"] == "saved"
+        answer_freeze(proc.stdin.fileno(), payload)
+        names = []
+        while not names or names[-1] not in ("saved", "copied", "cancelled", "error"):
+            line = proc.stdout.readline()
+            if not line:
+                break
+            names.append(json.loads(line)["event"])
+        saved = names[-1:] == ["saved"] and "thaw" in names
         deadline = time.monotonic() + 1
         marker = root / f"clipboard-ready-{proc.pid}"
         while not marker.exists() and proc.poll() is None and time.monotonic() < deadline:
             time.sleep(0.01)
         command = Path(f"/proc/{proc.pid}/cmdline").read_bytes() if proc.poll() is None else b""
-        return (saved and marker.exists() and str(helper).encode() not in command
-                and bool(list(root.glob("hyprpicker-pid-*"))) and not alive(root, "hyprpicker"))
+        return saved and marker.exists() and str(helper).encode() not in command
     finally:
         proc.kill()
         proc.communicate(timeout=5)
@@ -434,8 +455,8 @@ def language_data_error_holds(root, helper, languages="eng"):
     payload = request(root, "text")
     payload["ocrLanguages"] = languages
     code, output, err = worker(root, payload, helper)
-    return (code == 1 and len(output) == 1 and output[0]["event"] == "error"
-            and output[0].get("reason") == "language-data-unavailable"
+    return (code == 1 and [message["event"] for message in output] == ["freeze", "thaw", "error"]
+            and output[-1].get("reason") == "language-data-unavailable"
             and (root / "clipboard").read_bytes() == b"previous clipboard"
             and not any(call["tool"] == "wl-copy" for call in calls(root)))
 
@@ -447,6 +468,7 @@ def killed_owner_holds(root, payload, config, helper=HELPER):
     proc = subprocess.Popen([sys.executable, str(helper), json.dumps(payload)], env=environment(root, config), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     pid = None
     try:
+        answer_freeze(proc.stdin.fileno(), payload)
         deadline = time.monotonic() + 5
         while not list(root.glob(ready + "*")) and proc.poll() is None and time.monotonic() < deadline:
             time.sleep(0.01)
@@ -508,7 +530,7 @@ def choice_holds(root, helper, payload, geometry=None, boxes=None, cursor=False,
         return False
     if ("-c" in args) != cursor:
         return False
-    if selection and [message["event"] for message in messages] != ["selection-ended", "copied" if processing == "copy" else "saved"]:
+    if selection and [message["event"] for message in messages] != ["freeze", "selection-ended", "thaw", "copied" if processing == "copy" else "saved"]:
         return False
     if boxes is not None:
         slurps = [row for row in calls(root) if row["tool"] == "slurp"]
@@ -531,6 +553,7 @@ def delay_holds(root, payload, helper, cancel=False, acknowledge=True):
     proc = subprocess.Popen([sys.executable, str(helper), json.dumps(payload)], env=environment(root, config),
                             stdin=control, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     os.close(control)
+    answer_freeze(writer, payload)
     observed = []
     valid = True
     started = time.monotonic()
@@ -538,27 +561,21 @@ def delay_holds(root, payload, helper, cancel=False, acknowledge=True):
         # Each line is a readiness barrier. The deadline bounds mutated copies
         # that drop ticks, cancellation, or the completion acknowledgement.
         deadline = time.monotonic() + 4
-        while proc.poll() is None and time.monotonic() < deadline:
-            ready, _, _ = select.select([proc.stdout], [], [], min(0.05, max(0, deadline - time.monotonic())))
-            if not ready:
-                continue
-            line = proc.stdout.readline()
-            if not line:
-                break
-            message = json.loads(line)
-            observed.append(message)
-            if message["event"] == "countdown":
-                valid = valid and not (root / "pictures").exists() and not alive(root, "hyprpicker")
-                if message["remaining"] == 0:
-                    valid = valid and time.monotonic() - started >= payload["delay"]
-                    if acknowledge:
-                        config["frame"] = "after-countdown"
-                        (root / "config.json").write_text(json.dumps(config))
-                        os.write(writer, b"countdown-hidden\n")
-                elif cancel:
-                    os.write(writer, b"cancel\n")
-            if message["event"] in ("saved", "copied", "cancelled", "error"):
-                break
+        lines, ended = Lines(proc.stdout), False
+        while not ended and not lines.closed and time.monotonic() < deadline:
+            for message in lines.read(min(0.05, max(0, deadline - time.monotonic()))):
+                observed.append(message)
+                if message["event"] == "countdown":
+                    valid = valid and not (root / "pictures").exists() and thawed(observed)
+                    if message["remaining"] == 0:
+                        valid = valid and time.monotonic() - started >= payload["delay"]
+                        if acknowledge:
+                            config["frame"] = "after-countdown"
+                            (root / "config.json").write_text(json.dumps(config))
+                            os.write(writer, b"countdown-hidden\n")
+                    elif cancel:
+                        os.write(writer, b"cancel\n")
+                ended = ended or message["event"] in ("saved", "copied", "cancelled", "error")
         out, err = proc.communicate(timeout=1)
         observed.extend(events(out))
         ticks = [m["remaining"] for m in observed if m["event"] == "countdown"]
@@ -586,6 +603,7 @@ def held_grim_cancel_holds(root, payload, helper):
     proc = subprocess.Popen([sys.executable, str(helper), json.dumps(payload)], env=environment(root, config), stdin=control, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     os.close(control)
     try:
+        answer_freeze(writer, payload)
         wait_for(root / "grim-ready", proc)
         os.write(writer, b"cancel\n")
         (root / "grim-release").touch()
@@ -604,7 +622,7 @@ def held_grim_cancel_holds(root, payload, helper):
 def timeout_holds(root, helper, action):
     code, messages, err = worker(root, request(root, action), helper, timeout=3)
     return (code == 1 and messages[-1].get("reason") == "timeout" and not alive(root, "grim")
-            and not alive(root, "hyprpicker") and not list((root / "pictures").glob("*.png")))
+            and thawed(messages) and not list((root / "pictures").glob("*.png")))
 
 
 def refusal_holds(root, helper, payload, reason):
@@ -776,16 +794,20 @@ def screenshot_choices(base, source):
                                  processing=kind if kind in ("copy", "save") else "save-copy", selection=selection)
         assert not holds, "control did not fail: " + name
     # Selection-end is the service's focus-restore protocol on all exit paths.
-    for name, extra, event in [("success", {}, "saved"), ("cancel", {"cancel": True}, "cancelled"), ("error", {"fail": "slurp"}, "error")]:
+    for name, extra, wanted in [
+        ("success", {}, ["freeze", "selection-ended", "thaw", "saved"]),
+        ("cancel", {"cancel": True}, ["freeze", "selection-ended", "thaw", "cancelled"]),
+        ("error", {"fail": "slurp"}, ["freeze", "thaw", "selection-ended", "error"]),
+    ]:
         root = world("selection-end-" + name, **extra)
         code, messages, err = worker(root, request(root, "screenshot-area"))
-        assert [m["event"] for m in messages] == ["selection-ended", event], name
+        assert [m["event"] for m in messages] == wanted, name
     assert source.count('emit("selection-ended")') == 2
     helper = base / "no-selection-end.py"
     helper.write_text(source.replace('emit("selection-ended")', 'pass'))
     root = world("no-selection-end")
     code, messages, err = worker(root, request(root, "screenshot-area"), helper)
-    assert [m["event"] for m in messages] != ["selection-ended", "saved"], "control did not fail: selection-end"
+    assert [m["event"] for m in messages] != ["freeze", "selection-ended", "thaw", "saved"], "control did not fail: selection-end"
 
 TUI = HELPER.parent.parent / "tui/install-languages.sh"
 # The action and grim run a held cancel arrives in: text's first settle
@@ -820,7 +842,7 @@ def target_holds(root, helper, payload, target, region, slurp, boxes):
     code, messages, argv, err = recorded(root, payload, helper)
     slurps = tool_calls(root, "slurp")
     if slurp is None:
-        selector = not slurps and not tool_calls(root, "hyprpicker")
+        selector = not slurps and "freeze" not in [message["event"] for message in messages]
     else:
         offered = (root / "slurp-input").read_text() if (root / "slurp-input").exists() else None
         selector = len(slurps) == 1 and [arg for arg in slurps[0] if arg in ("-r", "-o")] == ([] if slurp == "slurp" else [slurp]) and offered == boxes
@@ -878,7 +900,7 @@ def refused_before_recorder(root, helper, payload, reason):
     """A device refusal comes before any selection, file or recorder."""
     code, messages, err = worker(root, payload, helper, timeout=5)
     return (code == 1 and messages[-1].get("reason") == reason and not tool_calls(root, "gpu-screen-recorder")
-            and not tool_calls(root, "slurp") and not tool_calls(root, "hyprpicker")
+            and not tool_calls(root, "slurp") and "freeze" not in [message["event"] for message in messages]
             and not list((root / "videos").glob("*.mp4")))
 
 
@@ -978,6 +1000,7 @@ def capture_sequence(root, helper=HELPER, output="NESTED"):
         config = json.loads((root / "config.json").read_text())
         proc = subprocess.Popen([sys.executable, str(helper), json.dumps(payload)], env=environment(root, config),
                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        answer_freeze(proc.stdin.fileno(), payload)
         lines, observed, completed, grims_before = Lines(proc.stdout), [], None, None
         try:
             deadline = time.monotonic() + 8
@@ -1016,7 +1039,8 @@ def capture_sequence(root, helper=HELPER, output="NESTED"):
 
 
 def service_completion():
-    """Native provider failures remain errors after Python hands off its PID."""
+    """Native provider failures remain errors after Python hands off its PID,
+    and every worker exit ends the freeze that worker held."""
     source = (HELPER.parent.parent / "Service.qml").read_text()
     program = r'''
 const input = JSON.parse(process.argv[1]);
@@ -1026,12 +1050,12 @@ const rows = [
   ["error", {code:1,status:0}, 0], ["cancelled", {code:0,status:0}, 0]
 ];
 const outcomes = rows.map(([terminalEvent, completion, expected]) => {
-  let notices=0, destroyed=0, finished=0;
+  let notices=0, destroyed=0, finished=0, thawed=[];
   const job = {terminalEvent, destroy:()=>destroyed++};
-  const run = new Function("restoreFocus","notice","finishAction","jobs","publish","console",input.body+"; return finished;")(
-    ()=>{}, ()=>notices++, ()=>finished++, [job], ()=>{}, {error:()=>{}});
+  const run = new Function("restoreFocus","notice","finishAction","thaw","jobs","publish","console",input.body+"; return finished;")(
+    ()=>{}, ()=>notices++, ()=>finished++, held=>thawed.push(held), [job], ()=>{}, {error:()=>{}});
   run(job,completion,"fixture provider error");
-  return notices===expected && destroyed===1 && finished===1;
+  return notices===expected && destroyed===1 && finished===1 && thawed.length===1 && thawed[0]===job;
 });
 console.log(JSON.stringify(outcomes));
 '''
@@ -1045,6 +1069,9 @@ console.log(JSON.stringify(outcomes));
     before = "completion.code !== 0"
     assert body.count(before) == 1
     assert not holds(body.replace(before, "false")), "control: a nonzero clipboard exit must fail"
+    before = "thaw(job);"
+    assert body.count(before) == 1
+    assert not holds(body.replace(before, "")), "control: an exit that keeps its worker's freeze must fail"
 
 
 def held_processing(root, helper):
@@ -1532,6 +1559,90 @@ def recording_functions(base, source):
             "notice-unstyled,notice-imageless,notice-buttonless,notice-pathless")
 
 
+def freeze_wait(root, helper, answer):
+    """One area capture whose freeze ask gets ANSWER, bytes, None for none,
+    or b"" for EOF, once the worker has asked and before it runs any tool:
+    (asked first, exit, event names), or None for a worker still running
+    after 5 s."""
+    payload = request(root, "screenshot-area")
+    (root / "clipboard").write_bytes(b"previous clipboard")
+    control, writer = os.pipe()
+    proc = subprocess.Popen([sys.executable, str(helper), json.dumps(payload)], env=environment(root, json.loads((root / "config.json").read_text())),
+                            stdin=control, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    os.close(control)
+    try:
+        lines, names = Lines(proc.stdout), []
+        deadline = time.monotonic() + 5
+        while not names and not lines.closed and time.monotonic() < deadline:
+            names += [message["event"] for message in lines.read(0.05)]
+        asked = names[:1] == ["freeze"] and not calls(root)
+        if answer == b"":
+            os.close(writer)
+            writer = None
+        elif answer is not None:
+            os.write(writer, answer)
+        while not lines.closed and time.monotonic() < deadline:
+            names += [message["event"] for message in lines.read(0.05)]
+        if not lines.closed:
+            return None
+        proc.wait(timeout=5)
+        return asked, proc.returncode, names
+    finally:
+        if writer is not None:
+            os.close(writer)
+        if proc.poll() is None:
+            proc.kill()
+        proc.communicate(timeout=5)
+
+
+def freeze_cases(base, world):
+    """The worker's side of the freeze handshake: it asks before any tool
+    runs, starts the selector only after `frozen` and the service's freeze
+    layer mapped on every output, and ends the hold on every path."""
+    source = HELPER.read_text()
+    bound = "FREEZE_TIMEOUT = 10\n"
+    assert source.count(bound) == 1, "freeze bound"
+    # One second, so an unanswered or unlisted freeze ends within the case.
+    quick = source.replace(bound, "FREEZE_TIMEOUT = 1\n")
+    shown = ["freeze", "selection-ended", "thaw", "saved"]
+    ended = ["freeze", "selection-ended", "thaw", "cancelled"]
+    failed = ["freeze", "thaw", "selection-ended", "error"]
+    cases = {
+        "frozen": (b"frozen\n", "mapped", 0, shown),
+        "refused": (b"freeze-refused refused: freeze=busy holder=acme.freeze\n", "mapped", 1, failed),
+        "cancel": (b"cancel\n", "mapped", 0, ended),
+        "eof": (b"", "mapped", 0, ended),
+        "unanswered": (None, "mapped", 1, failed),
+        "unmapped": (b"frozen\n", "unmapped", 1, failed),
+        "absent": (b"frozen\n", "absent", 1, failed),
+    }
+    def holds(name, text, label):
+        answer, layer, code, wanted = cases[name]
+        helper = base / f"freeze-{label}.py"
+        helper.write_text(text)
+        root = world(f"freeze-{label}", freezeLayer=layer)
+        result = freeze_wait(root, helper, answer)
+        if result is None:
+            return False
+        asked, exit_code, names = result
+        pictures = list((root / "pictures").glob("*.png"))
+        delivered = pictures[0].read_bytes() if name == "frozen" and len(pictures) == 1 else b"previous clipboard"
+        return (asked and exit_code == code and names == wanted and bool(tool_calls(root, "slurp")) == (name == "frozen")
+                and len(pictures) == (name == "frozen") and (root / "clipboard").read_bytes() == delivered)
+    for name in cases:
+        assert holds(name, quick, name), name
+    for name, case, before, after in [
+        # The selector starts without the service's answer.
+        ("unawaited-freeze", "unanswered", "self.choose(request) if self.frozen() else None", 'emit("freeze") or self.choose(request)'),
+        # A listed layer that never mapped read as the freeze.
+        ("listed-freeze", "unmapped", ' and layer["alpha"] > 0', ""),
+        # Another mapped layer read as the freeze.
+        ("any-layer-freeze", "absent", 'layer["namespace"] == FREEZE_LAYER and ', ""),
+    ]:
+        assert quick.count(before) == 1, name
+        assert not holds(case, quick.replace(before, after), name), f"control did not fail: {name}"
+
+
 def main():
     release_deadline()
     config = {}
@@ -1574,8 +1685,6 @@ def main():
             ("record-second-press", "record", {"hold": True}, "cancel\n", "cancelled"),
             ("text", "text", {}, None, "copied"),
             ("empty-text", "text", {"text": ""}, None, "error"),
-            ("freeze-failure", "screenshot-area", {"fail": "hyprpicker"}, None, "error"),
-            ("late-freeze-failure", "screenshot-area", {"fail": "hyprpicker", "failAfter": 0.5}, None, "error"),
             ("selection-failure", "text", {"fail": "slurp"}, None, "error"),
             ("grim-failure", "screenshot", {"fail": "grim"}, None, "error"),
             ("clipboard-failure", "screenshot", {"fail": "wl-copy"}, None, "saved"),
@@ -1590,11 +1699,9 @@ def main():
             payload["output"] = output
             code, messages, err = worker(root, payload, line=line)
             assert messages and messages[-1]["event"] == event and code == (1 if event == "error" or name == "clipboard-failure" else 0), (name, messages, err)
-            assert not alive(root, "slurp") and not alive(root, "hyprpicker"), (name, "selector or freeze left running")
+            assert not alive(root, "slurp") and thawed(messages), (name, "selector or freeze left running")
             if name in cancels:
                 assert not (root / "pictures").exists() and not (root / "videos").exists() and (root / "clipboard").read_bytes() == b"previous clipboard", name
-            if name in ("freeze-failure", "late-freeze-failure"):
-                assert "hyprpicker exited 1: fixture failure" in messages[-1]["message"] and not any(c["tool"] == "slurp" for c in calls(root))
             if name == "clipboard-failure":
                 assert "fixture failure" in err, "native provider failure reaches Service stderr"
             if name == "text":
@@ -1622,6 +1729,7 @@ def main():
             helper = base / f"{name}.py"
             helper.write_text(original.replace(before, after))
             assert not late_answer_holds(helper), f"control did not fail: {name}"
+        freeze_cases(base, world)
         root = world("record")
         assert record_holds(root, request(root, "record"), HELPER), "record SIGINT finalization"
         root = world("freeze-released", clipboardHold=True)
@@ -1676,17 +1784,8 @@ def main():
             payload["output"] = output
             holds = record_holds(root, payload, helper) if action == "record" else screenshot_holds(root, payload, helper, dimensions)
             assert not holds, f"control did not fail: {name}"
-        def late_freeze_failure_holds(root, helper):
-            """A freeze that fails after 0.5 s is an error, and no selector starts."""
-            code, messages, err = worker(root, request(root, "screenshot-area"), helper)
-            return code == 1 and messages[-1:] and messages[-1]["event"] == "error" and not tool_calls(root, "slurp") and not (root / "pictures").exists()
         for name, before, after, check, extra in [
             ("inherited-stdin", 'kwargs.setdefault("stdin", subprocess.DEVNULL)', 'pass', lambda root, helper: area_holds(root, request(root, "screenshot-area"), helper), {}),
-            # The fixed wait this judge replaced.
-            ("slept-freeze", "            self.frozen(freeze)\n", "            time.sleep(0.1)\n            if freeze.poll() is not None:\n                raise RuntimeError('hyprpicker exited')\n",
-             late_freeze_failure_holds, {"fail": "hyprpicker", "failAfter": 0.5}),
-            # A listed layer that never mapped read as the freeze.
-            ("listed-freeze", ' and layer["alpha"] > 0', "", late_freeze_failure_holds, {"fail": "hyprpicker", "failAfter": 0.5}),
         ]:
             assert source.count(before) == 1, name
             changed = source.replace(before, after)
@@ -1706,6 +1805,7 @@ def main():
         # A service teardown kills its helper: no recorder survives that owner.
         root = world("teardown")
         proc = subprocess.Popen([sys.executable, str(HELPER), json.dumps(request(root, "record"))], env=environment(root, {}), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        answer_freeze(proc.stdin.fileno(), request(root, "record"))
         deadline = time.monotonic() + 5
         while not (root / "recorder-ready").exists() and proc.poll() is None and time.monotonic() < deadline:
             time.sleep(0.01)
@@ -1741,7 +1841,7 @@ def main():
         assert not killed_owner_holds(root, request(root, "record"), config, helper), "control did not fail: unowned child"
     if unmeasured is None:
         recording_controls += ",no-trim"
-    controls = ("capture-sequence,waiting-clipboard,second-settle,provider-completion,delay-field-drawn,delay-unsaved,delay-saved-elsewhere,save-unsent,delay-unread,delay-overwritten,timeout-sent,delay-unchecked,undrawn-windows,drawn-window-delegate,model-windows,old-special-id-0.57-empty,raw-ocr-error,no-output,no-clipboard,hard-stop,inherited-stdin,slept-freeze,listed-freeze,unowned-child,invalid-delay-accepted,invalid-processing-accepted,empty-selection-accepted,empty-displays-accepted,smart-snap,window-boxes,display-boxes,all-bounds,no-scale,no-rotation,no-cursor,copy-saves,save-copies,no-delay,delay-ignores-cancel,no-timeout,settle-ignores-cancel,written-ignores-cancel,selector-ignores-cancel,geometry-over-cancel,late-answer-error,no-selection-end," + recording_controls + "," + notification_controls)
+    controls = ("capture-sequence,waiting-clipboard,second-settle,provider-completion,exit-keeps-freeze,delay-field-drawn,delay-unsaved,delay-saved-elsewhere,save-unsent,delay-unread,delay-overwritten,timeout-sent,delay-unchecked,undrawn-windows,drawn-window-delegate,model-windows,old-special-id-0.57-empty,raw-ocr-error,no-output,no-clipboard,hard-stop,inherited-stdin,unawaited-freeze,listed-freeze,any-layer-freeze,unowned-child,invalid-delay-accepted,invalid-processing-accepted,empty-selection-accepted,empty-displays-accepted,smart-snap,window-boxes,display-boxes,all-bounds,no-scale,no-rotation,no-cursor,copy-saves,save-copies,no-delay,delay-ignores-cancel,no-timeout,settle-ignores-cancel,written-ignores-cancel,selector-ignores-cancel,geometry-over-cancel,late-answer-error,no-selection-end," + recording_controls + "," + notification_controls)
     if unmeasured is not None:
         # The rest passed, but the real post-process could not run: not a pass.
         print(f"test-capture: status=not-measured cause={unmeasured}; controls={controls}")

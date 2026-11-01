@@ -3,8 +3,11 @@
 
 An error's optional reason language-data-unavailable selects its notice title.
 
-While an area is selected, and until a screenshot's file is written, one
-`cancel` line or stdin EOF ends the capture with no file and emits cancelled.
+A selection asks the service to hold the screen still with freeze, then
+reads `frozen` or `freeze-refused <reply>` on stdin; thaw ends the hold.
+While the freeze is awaited or an area is selected, and until a screenshot's
+file is written, one `cancel` line or stdin EOF ends the capture with no file
+and emits cancelled.
 A selection with a request emits selection-ended for focus restoration.
 Countdown ticks report remaining seconds; countdown-hidden confirms its UI was
 removed. Until the recorder writes its file, `cancel` or stdin EOF ends it with
@@ -53,12 +56,11 @@ class CaptureFailure(RuntimeError):
         self.reason = reason
 
 
-# hyprpicker freezes every output under the selector: -r freezes the outputs
-# without the pointer, -z and -d draw no lens or colour preview into the frame
-# the capture reads.
-FREEZE = ["hyprpicker", "-r", "-z", "-d", "-q"]
-# How long hyprpicker may take to map its layer on every output before the
-# freeze counts as failed.
+# The namespace of the core's freeze surface, one per output
+# (shell/Hosts/FreezeHost.qml, D115).
+FREEZE_LAYER = "vgs:freeze"
+# How long the service may take to show the freeze on every output before
+# the freeze counts as failed.
 FREEZE_TIMEOUT = 10
 # How long one grim run, and the service's answer that its countdown left the
 # screen, may take before the screenshot counts as failed. It is the default
@@ -167,11 +169,6 @@ class Capture:
         self.release()
         raise SystemExit(128 + signum)
 
-    def stop(self, child):
-        if child.poll() is None:
-            child.terminate()
-        child.wait()
-
     def cancelled(self, timeout=0):
         """Whether a `cancel` line or stdin EOF arrives within TIMEOUT seconds."""
         ready, _, _ = select.select([sys.stdin], [], [], timeout)
@@ -183,78 +180,96 @@ class Capture:
 
         The freeze lasts until the block ends, so a capture inside it reads
         the frame the user selected on. The request's action names the mode
-        of SELECTION_MODES; without a request slurp offers no boxes.
+        of SELECTION_MODES; without a request slurp offers no boxes. A
+        cancel while the freeze is awaited yields None.
         """
-        freeze = self.spawn(FREEZE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         ended = False
         try:
-            self.frozen(freeze)
-            boxes = None
-            args = list(SELECT)
-            mode = None
-            if request is not None:
-                mode = SELECTION_MODES[request["action"]]
-                windows = sorted(request.get("windows", []), key=lambda r: (r["width"] * r["height"], r.get("focus", 0)))
-                outputs = request.get("outputs", [])
-                if mode == "window":
-                    boxes = windows
-                    args += ["-r"]
-                elif mode == "display":
-                    boxes = outputs
-                    args += ["-r"]
-                elif request.get("smart", True):
-                    boxes = windows + outputs
-                elif request["action"] == "record":
-                    # slurp offers each output itself.
-                    args += ["-o"]
-                if mode in ("window", "display") and not boxes:
-                    raise CaptureFailure("no-targets", "No capture targets are available")
-            picked = self.pick(args, boxes, notify=request is None)
-            if picked is not None and request is not None:
-                x, y, width, height = map(int, picked[1])
-                if mode == "area" and request.get("smart", True) and width * height < 20:
-                    choices = boxes
-                    target = next((r for r in choices if r["x"] <= x < r["x"] + r["width"] and r["y"] <= y < r["y"] + r["height"]), None)
-                    if target is None:
-                        raise RuntimeError("No capture target contains the selected point")
-                    picked = rectangle_geometry(target), tuple(str(target[k]) for k in ("x", "y", "width", "height"))
-            if picked is not None:
-                self.settle(picked[0], CAPTURE_TIMEOUT if request is not None else None)
+            picked = self.choose(request) if self.frozen() else None
             if request is not None:
                 emit("selection-ended")
                 ended = True
             yield picked
         finally:
-            self.stop(freeze)
+            # The service also ends the hold at this worker's terminal event
+            # and exit, so a crash here leaves no freeze.
+            emit("thaw")
             if request is not None and not ended:
                 emit("selection-ended")
 
-    def frozen(self, freeze):
-        """Return once FREEZE's layer is mapped on every output.
+    def choose(self, request):
+        """The selected (geometry, groups) over the frozen screen, or None."""
+        boxes = None
+        args = list(SELECT)
+        mode = None
+        if request is not None:
+            mode = SELECTION_MODES[request["action"]]
+            windows = sorted(request.get("windows", []), key=lambda r: (r["width"] * r["height"], r.get("focus", 0)))
+            outputs = request.get("outputs", [])
+            if mode == "window":
+                boxes = windows
+                args += ["-r"]
+            elif mode == "display":
+                boxes = outputs
+                args += ["-r"]
+            elif request.get("smart", True):
+                boxes = windows + outputs
+            elif request["action"] == "record":
+                # slurp offers each output itself.
+                args += ["-o"]
+            if mode in ("window", "display") and not boxes:
+                raise CaptureFailure("no-targets", "No capture targets are available")
+        picked = self.pick(args, boxes)
+        if picked is not None and request is not None:
+            x, y, width, height = map(int, picked[1])
+            if mode == "area" and request.get("smart", True) and width * height < 20:
+                choices = boxes
+                target = next((r for r in choices if r["x"] <= x < r["x"] + r["width"] and r["y"] <= y < r["y"] + r["height"]), None)
+                if target is None:
+                    raise RuntimeError("No capture target contains the selected point")
+                picked = rectangle_geometry(target), tuple(str(target[k]) for k in ("x", "y", "width", "height"))
+        if picked is not None:
+            self.settle(picked[0], CAPTURE_TIMEOUT if request is not None else None)
+        return picked
 
-        A layer maps above the layers mapped before it, so slurp must map
-        after the freeze to stay on top and receive input. hyprpicker maps
-        within 4 ms (hyprctl layers poll, host cachy, 2026-10-04), but a
-        loaded machine can delay both its map and its failure, so only
-        Hyprland's layer list or hyprpicker's exit decides. Hyprland 0.56.2
-        lists a layer from its creation, before hyprpicker's screencopy can
-        still fail; its `alpha`, the fade's goal, is 0 until the layer maps
-        (HyprCtl.cpp layersRequest, LayerSurface.cpp onMap).
+    def frozen(self):
+        """Ask the service for the freeze; True once it shows on every
+        output, False when a cancel or stdin EOF arrives first.
+
+        The service answers `frozen` once each output draws its still frame,
+        or `freeze-refused <reply>` when the core refuses the hold. A capture
+        that delivers no frame gets no answer, since Quickshell 0.3.1's
+        ScreencopyView never emits stopped, so FREEZE_TIMEOUT bounds the
+        wait. A layer maps above the layers mapped before it, so slurp must
+        map after the freeze to stay on top and receive input. The freeze
+        surface maps transparent before its frame (FreezeHost.qml), so
+        Hyprland's layer list is read only after `frozen`; a layer's
+        `alpha`, the fade's goal, is 0 until it maps (Hyprland 0.56.2
+        HyprCtl.cpp layersRequest, LayerSurface.cpp onMap).
         """
         deadline = time.monotonic() + FREEZE_TIMEOUT
+        emit("freeze")
+        while True:
+            ready, _, _ = select.select([sys.stdin], [], [], max(0, deadline - time.monotonic()))
+            if not ready:
+                raise CaptureFailure("timeout", "The screen freeze did not show")
+            line = sys.stdin.readline().strip()
+            if line in ("", "cancel"):
+                return False
+            if line == "frozen":
+                break
+            if line.startswith("freeze-refused "):
+                raise RuntimeError("The screen freeze was refused: " + line.removeprefix("freeze-refused "))
+            raise RuntimeError(f"Unexpected freeze answer: {line}")
         while (left := deadline - time.monotonic()) > 0:
             outputs = json.loads(self.run(["hyprctl", "-j", "layers"], timeout=left, stdout=subprocess.PIPE, stderr=subprocess.PIPE))
-            # Read after the layers, so a freeze that mapped and then exited
-            # is a failure.
-            if freeze.poll() is not None:
-                raise RuntimeError(f"hyprpicker exited {freeze.returncode}: {freeze.communicate()[1].decode(errors='replace').strip()}")
-            if outputs and all(any(layer["pid"] == freeze.pid and layer["alpha"] > 0 for layers in output["levels"].values() for layer in layers)
+            if outputs and all(any(layer["namespace"] == FREEZE_LAYER and layer["alpha"] > 0 for layers in output["levels"].values() for layer in layers)
                                for output in outputs.values()):
-                return
+                return True
             time.sleep(0.05)
-        raise CaptureFailure("timeout", "hyprpicker did not freeze the screen")
+        raise CaptureFailure("timeout", "The screen freeze did not show")
 
-    def pick(self, argv, boxes=None, notify=True):
+    def pick(self, argv, boxes=None):
         if boxes is None:
             child = self.spawn(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         else:
@@ -276,8 +291,6 @@ class Capture:
         if cancelled or child.returncode or not geometry:
             if not cancelled and err and err != SELECTION_CANCELLED:
                 raise RuntimeError("slurp: " + err.decode(errors="replace"))
-            if notify:
-                emit("cancelled")
             return None
         match = re.fullmatch(r"(-?\d+),(-?\d+) ([1-9]\d*)x([1-9]\d*)", geometry)
         if match is None:
@@ -308,12 +321,13 @@ class Capture:
             raise CaptureFailure("invalid-processing", "Invalid screenshot processing choice")
         if request["action"] in ("screenshot-area", "screenshot-window", "screenshot-display"):
             with self.selection(request=request) as picked:
-                if picked is None:
-                    emit("cancelled")
-                    return
-                args = ["grim", "-g", picked[0]]
-                if not delay:
-                    path, child = self.deliver(request, args)
+                if picked is not None:
+                    args = ["grim", "-g", picked[0]]
+                    if not delay:
+                        path, child = self.deliver(request, args)
+            if picked is None:
+                emit("cancelled")
+                return
         else:
             if request["action"] == "screenshot-all":
                 outputs = request.get("outputs", [])
@@ -400,9 +414,11 @@ class Capture:
         if not isinstance(languages, str) or not LANGUAGES.fullmatch(languages):
             raise CaptureFailure("invalid-languages", "Invalid text recognition languages")
         with self.selection() as picked:
-            if picked is None:
-                return
-            image = self.run(["grim", "-g", picked[0], "-"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if picked is not None:
+                image = self.run(["grim", "-g", picked[0], "-"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if picked is None:
+            emit("cancelled")
+            return
         reader = self.spawn(["tesseract", "stdin", "stdout", "--oem", "1", "--psm", "6", "-l", languages, "--dpi", "300", "-c", "preserve_interword_spaces=1"],
                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         text, err = reader.communicate(image)
@@ -464,9 +480,10 @@ class Capture:
             target = request["output"]
         else:
             with self.selection(request=request) as picked:
-                if picked is None:
-                    emit("cancelled")
-                    return
+                pass
+            if picked is None:
+                emit("cancelled")
+                return
             x, y, width, height = map(int, picked[1])
             # The recorder takes slurp's logical layout coordinates unchanged.
             # A box equal to an output records that output whole.

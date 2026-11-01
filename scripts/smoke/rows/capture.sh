@@ -6,7 +6,14 @@
 # reading. Late in the row it is enabled for the notification readings, and
 # shell.json's restore at the end puts it back as found.
 # SUPER+SHIFT+S is typed on the bind hyprland-consent's wired layer holds.
-# inputs: shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.bar/*.qml shell/plugins/vgs.capture/* shell/plugins/vgs.notifications/* shell/plugins/vgs.sysmon/* shell/plugins/vgs.launcher/* shell/Core/HyprlandLayer.* scripts/smoke/rows/hyprland-consent.sh shell/Core/NotificationHub.qml shell/Core/Layers.qml shell/Core/Capabilities.qml shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/IpcRegistry.qml shell/Core/Lifetime.js shell/Core/MonitorLogic.js shell/Core/MonitorState.qml shell/Core/Notices.qml shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Plugins.qml shell/Core/PluginStatus.qml shell/Core/Registry.qml shell/Core/ServiceGate.qml shell/Core/ShortcutRegistry.qml shell/Core/Notifier.qml shell/Core/TuiRecords.qml shell/Core/TuiRunner.qml bin/vgshell-tui shell/Hosts/BarHost.qml shell/Hosts/NoticeHost.qml shell/Hosts/OverlaySurface.qml shell/Hosts/PluginSlot.qml shell/Hosts/ServiceHost.qml shell/Hosts/Summon* shell/Ui/* shell/Commons/* bin/vgshell-scan bin/lib/check-manifests.js bin/lib/qml-library.js scripts/test-capture.py scripts/smoke/fixtures/capture/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/SettingField.qml shell/plugins/vgs.settings/ListField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml
+# Every selection runs over the core's freeze surface, which the service
+# holds for the worker. With a second output turned a quarter (transform 1,
+# as cachy's DP-2 is), an area selection on each output saves the picked
+# region of the screen as it stood, upright and unstretched, and the
+# clipboard holds the saved bytes; a disposable tree that turns the turned
+# output's frozen frame a second time, as the external picker that froze
+# the screen before did on Hyprland 0.57.0, fails the turned output's region.
+# inputs: shell/Core/ScreenFreeze.qml shell/Hosts/FreezeHost.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.bar/*.qml shell/plugins/vgs.capture/* shell/plugins/vgs.notifications/* shell/plugins/vgs.sysmon/* shell/plugins/vgs.launcher/* shell/Core/HyprlandLayer.* scripts/smoke/rows/hyprland-consent.sh shell/Core/NotificationHub.qml shell/Core/Layers.qml shell/Core/Capabilities.qml shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/IpcRegistry.qml shell/Core/Lifetime.js shell/Core/MonitorLogic.js shell/Core/MonitorState.qml shell/Core/Notices.qml shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Plugins.qml shell/Core/PluginStatus.qml shell/Core/Registry.qml shell/Core/ServiceGate.qml shell/Core/ShortcutRegistry.qml shell/Core/Notifier.qml shell/Core/TuiRecords.qml shell/Core/TuiRunner.qml bin/vgshell-tui shell/Hosts/BarHost.qml shell/Hosts/NoticeHost.qml shell/Hosts/OverlaySurface.qml shell/Hosts/PluginSlot.qml shell/Hosts/ServiceHost.qml shell/Hosts/Summon* shell/Ui/* shell/Commons/* bin/vgshell-scan bin/lib/check-manifests.js bin/lib/qml-library.js scripts/test-capture.py scripts/smoke/fixtures/capture/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/SettingField.qml shell/plugins/vgs.settings/ListField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml
 # Expected rectangles come from Hyprland. Disposable copies remove each
 # screenshot choice and the owned tool deadline, and
 # the panel's mode and target choices, its press, its opening focus and its
@@ -19,11 +26,10 @@ capture_state="$sandbox/capture-world"
 capture_saved="$sandbox/shell-before-capture.json"
 capture_real_grim="$(command -v grim)" || { fail "capture: grim is unavailable"; return 0; }
 capture_real_slurp="$(command -v slurp)" || { fail "capture: slurp is unavailable"; return 0; }
-capture_real_picker="$(command -v hyprpicker)" || { fail "capture: hyprpicker is unavailable"; return 0; }
 capture_real_copy="$(command -v wl-copy)" || { fail "capture: wl-copy is unavailable"; return 0; }
 cp -- "$home/.config/vgshell/shell.json" "$capture_saved"
 mkdir -p "$capture_state/saved-shims"
-for capture_tool in grim slurp hyprpicker tesseract wl-copy gpu-screen-recorder ffmpeg pw-dump; do
+for capture_tool in grim slurp tesseract wl-copy gpu-screen-recorder ffmpeg pw-dump; do
   if [[ -e $shim/$capture_tool ]]; then mv -- "$shim/$capture_tool" "$capture_state/saved-shims/$capture_tool"; fi
 done
 python3 - "$source_repo/scripts/test-capture.py" "$capture_state" "$shim" "$capture_real_grim" "$nested_socket" "$rt_dir" <<'PY'
@@ -238,13 +244,17 @@ else:
     print(data[:8] == b"\x89PNG\r\n\x1a\n" and struct.unpack(">II", data[16:24]) == (int(width), int(height)) and grim[:2] == ["-o", output] and clipboard.read_bytes() == data)
 PY
 }
-# capture_left: how many slurp and hyprpicker processes the row's captures
-# started still run. Each stand-in records its pid before it runs or execs.
-capture_left() { python3 - "$capture_state" <<'PY'
+# capture_left: how many slurp processes the row's captures started still
+# run, plus the freeze surfaces still mapped. Each stand-in records its pid
+# before it runs or execs.
+capture_left() {
+  local surfaces
+  surfaces="$(layer_count vgs:freeze)" || return 1
+  python3 - "$capture_state" "$surfaces" <<'PY'
 import os, sys
 from pathlib import Path
-left = 0
-for marker in [*Path(sys.argv[1]).glob("slurp-pid-*"), *Path(sys.argv[1]).glob("hyprpicker-pid-*")]:
+left = int(sys.argv[2])
+for marker in Path(sys.argv[1]).glob("slurp-pid-*"):
     try:
         os.kill(int(marker.name.rsplit("-", 1)[1]), 0)
     except ProcessLookupError:
@@ -253,13 +263,19 @@ for marker in [*Path(sys.argv[1]).glob("slurp-pid-*"), *Path(sys.argv[1]).glob("
 print(left)
 PY
 }
-# capture_selecting: True once the real slurp's selection layer maps above the
-# hyprpicker freeze, False when it has not after 3 s.
+# capture_over_freeze: True when every output holds one real slurp
+# selection layer and one freeze surface.
+capture_over_freeze() { hypr -j layers | py_reply 'import json,sys
+outputs = json.load(sys.stdin)
+print(bool(outputs) and all(sorted(l["namespace"] for lv in o["levels"].values() for l in lv if l["namespace"] in ("selection", "vgs:freeze") and l["pid"] != -1) == ["selection", "vgs:freeze"]
+                            for o in outputs.values()))'; }
+# capture_selecting: True once the real slurp's selection layer maps over
+# the freeze on every output, False when it has not after 3 s.
 capture_selecting() {
   local i
   for i in $(seq 1 30); do
-    if [[ $(layer_count selection) == 1 && $(layer_count hyprpicker) == 1 ]]; then echo True; return; fi
-    sleep 0.1 # each tool maps its layer on its own schedule, with no event to wait on
+    if [[ $(capture_over_freeze) == True ]]; then echo True; return; fi
+    sleep 0.1 # the freeze and slurp map their layers on their own schedules, with no event to wait on
   done
   echo False
 }
@@ -828,7 +844,7 @@ if [[ $capture_notes_found != True ]]; then
   expect "notifications go back to disabled after the cancel readings" ok ipc shell setPluginEnabled vgs.notifications false
   expect_poll "the notifications service is gone after the cancel readings" False record_exists vgs.notifications
 fi
-capture_config real "{\"grim\": \"$capture_real_grim\", \"slurp\": \"$capture_real_slurp\", \"hyprpicker\": \"$capture_real_picker\"}"
+capture_config real "{\"grim\": \"$capture_real_grim\", \"slurp\": \"$capture_real_slurp\"}"
 : >"$capture_state/calls.jsonl"
 expect "capture starts a real area selection" ok ipc vgs.capture invoke screenshot-area ''
 expect "the selection maps above the freeze" True capture_selecting
@@ -994,7 +1010,7 @@ PY
 capture_shown_verdict() { capture_shows "$@" | cut -d' ' -f1; }
 # A flyout is an xdg_popup holding a grab, and Hyprland ends every seat
 # grab when a layer that takes the keyboard maps (v0.56.2 LayerSurface.cpp
-# onMap, setGrab(nullptr)): hyprpicker and slurp both do, so the flyout
+# onMap, setGrab(nullptr)): slurp does, so the flyout
 # closes when the selector maps, and STAYS is False for it.
 # SUBMAP is the submap the surface holds, which the selector's returns to;
 # KIND and ID name its summon, whose drawn frame the open reference waits
@@ -1067,7 +1083,7 @@ for m in json.load(sys.stdin):
  if m["transform"]%2: w,h=h,w
  rects.append((m["x"],m["y"],int(w/m["scale"]),int(h/m["scale"])))
 l=min(r[0] for r in rects); t=min(r[1] for r in rects); r=max(r[0]+r[2] for r in rects); b=max(r[1]+r[3] for r in rects); print("%d,%d %dx%d"%(l,t,r-l,b-t))')"
-capture_config real "{\"grim\": \"$capture_real_grim\", \"slurp\": \"$capture_real_slurp\", \"hyprpicker\": \"$capture_real_picker\"}"
+capture_config real "{\"grim\": \"$capture_real_grim\", \"slurp\": \"$capture_real_slurp\"}"
 for capture_selection in screenshot-area screenshot-window screenshot-display; do
   : >"$capture_state/calls.jsonl"
   expect "capture starts $capture_selection by click" ok ipc vgs.capture invoke "$capture_selection" ''
@@ -1546,7 +1562,7 @@ for capture_control in smart window display all cursor copy-only save-only delay
       capture_config geometry '"10,20 80x60"'
       ;;
     window|display)
-      capture_config real "{\"grim\": \"$capture_real_grim\", \"slurp\": \"$capture_real_slurp\", \"hyprpicker\": \"$capture_real_picker\"}"
+      capture_config real "{\"grim\": \"$capture_real_grim\", \"slurp\": \"$capture_real_slurp\"}"
       expect "control: the $capture_control selection starts" ok ipc vgs.capture invoke "screenshot-$capture_control" ''
       expect "control: the wrong rectangle selector maps" True capture_selecting
       click "$capture_target_cx" "$capture_target_cy" || fail "capture: the control click failed"
@@ -2099,6 +2115,132 @@ rescan "the original stopped-event service is rescanned"
 expect "capture enables the restored stopped-event service" ok ipc shell setPluginEnabled vgs.capture true
 expect_poll "the restored stopped-event service is built" True record_exists vgs.capture
 expect_poll "the restored service is idle" idle capture_phase
+# The turned layout: a second output right of the first, turned a quarter.
+# A nested Wayland output takes a rule only once it exists, and a reload
+# drops a rule eval alone applied, so the rule also goes in the file and
+# each poll applies it again (screen-freeze sets its output up the same
+# way). A floating mark window on each output gives each picked region an
+# edge, so a frame turned on its output moves the mark out of the region.
+capture_turned=VGS-CAPTURE-TURNED
+capture_first="$(first_name)"
+capture_first_w="$(first_width)"
+capture_turn_rule="hl.monitor({ output = \"$capture_turned\", mode = \"1920x1080@60\", position = \"${capture_first_w}x0\", scale = 1, transform = 1 })"
+capture_turned_taken() {
+  local reply
+  reply="$(hypr eval "$capture_turn_rule")" || { echo eval-failed; return; }
+  [[ $reply == ok ]] || { echo eval-refused; return; }
+  hypr -j monitors | py_reply 'import json,sys; m=[o for o in json.load(sys.stdin) if o["name"]==sys.argv[1]]; print("%dx%d@%d,%d transform=%d" % (m[0]["width"], m[0]["height"], m[0]["x"], m[0]["y"], m[0]["transform"]) if m else "absent")' "$capture_turned"
+}
+hypr_lua_save capture-turned
+printf '%s\n' "$capture_turn_rule" >>"$home/.config/hypr/hyprland.lua"
+expect "the nested compositor adds the turned output" ok hypr output create wayland "$capture_turned"
+expect_poll "the turned output stands at transform 1 right of the first" "1920x1080@$capture_first_w,0 transform=1" capture_turned_taken
+capture_turned_outputs=("$capture_first" "$capture_turned")
+capture_turned_names="$(printf '%s\n' "${capture_turned_outputs[@]}" | sort | py_reply 'import json,sys; print(json.dumps(sys.stdin.read().split()))')"
+capture_service_outputs() { capture_read outputs | py_reply 'import json,sys; rows=json.load(sys.stdin) or []; print(json.dumps(sorted(r["name"] for r in rows if not r["disabled"])))'; }
+expect_poll "the capture service lists both outputs" "$capture_turned_names" capture_service_outputs
+# The pointer moves over the whole layout, its origin at 0,0.
+capture_layout_drag() { # X Y X2 Y2
+  local w h
+  read -r w h < <(hypr -j monitors | py_reply 'import json,sys; ms=json.load(sys.stdin); assert all(m["x"] >= 0 and m["y"] >= 0 for m in ms); print(max(m["x"] + round((m["height"] if m["transform"] % 2 else m["width"]) / m["scale"]) for m in ms), max(m["y"] + round((m["width"] if m["transform"] % 2 else m["height"]) / m["scale"]) for m in ms))') || return 1
+  pointer_dispatch "$1" "$2" "$w" "$h" drag "$3" "$4" || return $?
+  pointer_at="$3 $4"
+}
+expect "the mark windows' rule applies" ok hypr eval 'hl.window_rule({ name = "vgs-capture-mark", match = { class = "^smoke\\.capture-mark$" }, float = true, size = { 360, 480 }, move = { 40, 200 } })'
+capture_marks_on() { python3 - "$(hypr -j clients)" "$(hypr -j monitors)" <<'PY'
+import json, sys
+clients, monitors = json.loads(sys.argv[1]), json.loads(sys.argv[2])
+names = {m["id"]: m["name"] for m in monitors}
+print(json.dumps(sorted(names[c["monitor"]] for c in clients if c["class"] == "smoke.capture-mark")))
+PY
+}
+capture_mark_pids=()
+for capture_mark_output in "${capture_turned_outputs[@]}"; do
+  read -r capture_mark_x capture_mark_y < <(hypr -j monitors | py_reply 'import json,sys
+m = next(m for m in json.load(sys.stdin) if m["name"] == sys.argv[1])
+w, h = (m["height"], m["width"]) if m["transform"] % 2 else (m["width"], m["height"])
+print(round(m["x"] + w / m["scale"] / 2), round(m["y"] + h / m["scale"] / 2))' "$capture_mark_output")
+  expect "the cursor moves onto $capture_mark_output" ok hypr eval "hl.dispatch(hl.dsp.cursor.move({ x = $capture_mark_x, y = $capture_mark_y }))"
+  open_toplevel "$capture_state/mark-$capture_mark_output.log" smoke.capture-mark "Capture mark" || fail "capture: the mark window on $capture_mark_output did not map"
+  capture_mark_pids+=("$toplevel_pid")
+done
+expect_poll "a mark window floats on each output" "$capture_turned_names" capture_marks_on
+rest_pointer || fail "capture: parking the pointer failed"
+# capture_turned_box OUTPUT: the mark on OUTPUT grown by 20 on each side,
+# as `x y w h`, or `outside` when that box leaves the output.
+capture_turned_box() { python3 - "$(hypr -j clients)" "$(hypr -j monitors)" "$1" <<'PY'
+import json, sys
+clients, monitors, name = json.loads(sys.argv[1]), json.loads(sys.argv[2]), sys.argv[3]
+m = next(m for m in monitors if m["name"] == name)
+w, h = (m["height"], m["width"]) if m["transform"] % 2 else (m["width"], m["height"])
+w, h = round(w / m["scale"]), round(h / m["scale"])
+c = next(c for c in clients if c["class"] == "smoke.capture-mark" and c["monitor"] == m["id"])
+x, y, cw, ch = c["at"][0] - 20, c["at"][1] - 20, c["size"][0] + 40, c["size"][1] + 40
+print("%d %d %d %d" % (x, y, cw, ch) if m["x"] <= x and x + cw <= m["x"] + w and m["y"] <= y and y + ch <= m["y"] + h else "outside")
+PY
+}
+# capture_region_match NAME: True when the last saved image and reference
+# NAME have one size and at most 1% of their pixels differ by more than 32
+# in a channel, screen-freeze's frame bound; the mark moved out of its
+# region changes most of it.
+capture_region_match() { python3 - "$(capture_path)" "$capture_state/turned-$1.png" <<'PY'
+import sys
+from PIL import Image, ImageChops
+one, two = (Image.open(p).convert("RGB") for p in sys.argv[1:])
+if one.size != two.size:
+    print("size=%dx%d/%dx%d" % (*one.size, *two.size))
+    sys.exit()
+r, g, b = ImageChops.difference(one, two).split()
+changed = ImageChops.lighter(ImageChops.lighter(r, g), b).point(lambda v: 255 if v > 32 else 0).histogram()[255]
+print(changed <= one.size[0] * one.size[1] // 100)
+PY
+}
+# capture_turned_case TREE OUTPUT: grim's image of OUTPUT's mark box as
+# the screen stands, then a real area selection dragged over that box,
+# saved and copied, with no selector or freeze left. The caller judges the
+# saved image against the reference, turned-TREE-OUTPUT.png.
+capture_turned_case() {
+  local box x y w h
+  box="$(capture_turned_box "$2")" || return 1
+  [[ $box != outside ]] || { fail "capture: the mark box leaves $2"; return 1; }
+  read -r x y w h <<<"$box"
+  box="$x,$y ${w}x$h"
+  expect "$1: earlier capture notices expire before the $2 region" 0 capture_wait_cards
+  nested_input_check "$capture_real_grim" || return 1
+  "${shell_env[@]}" "$capture_real_grim" -g "$box" "$capture_state/turned-$1-$2.png" || { fail "capture: the $1 $2 reference failed"; return 1; }
+  : >"$capture_state/calls.jsonl"
+  expect "$1: capture starts an area selection on $2" ok ipc vgs.capture invoke screenshot-area ''
+  expect "$1: the $2 selector maps over the freeze on every output" True capture_selecting
+  capture_layout_drag "$x" "$y" "$((x + w - 1))" "$((y + h - 1))" || fail "capture: the $1 drag over $2 failed"
+  expect_poll "$1: the $2 selection finishes" idle capture_phase
+  expect_poll "$1: the $2 box is saved and copied whole" "['-g', '$box'] ${w}x$h clipboard=True" capture_area_png
+  expect_poll "$1: the $2 selection leaves no selector or freeze" 0 capture_left
+}
+capture_config real "{\"grim\": \"$capture_real_grim\", \"slurp\": \"$capture_real_slurp\"}"
+for capture_turned_output in "${capture_turned_outputs[@]}"; do
+  capture_turned_case turned "$capture_turned_output"
+  expect "the saved $capture_turned_output region is the screen there, upright and unstretched" True capture_region_match "turned-$capture_turned_output"
+done
+# The control: the turned output's frozen frame turned a second time.
+copy_tree capture-turned-control
+edit_tree capture-turned-control shell/Hosts/FreezeHost.qml \
+  $'                anchors.fill: parent\n                captureSource: surface.modelData' \
+  $'                readonly property bool turned: surface.modelData.name === "'"$capture_turned"$'"\n                anchors.centerIn: parent\n                width: turned ? parent.height : parent.width\n                height: turned ? parent.width : parent.height\n                rotation: turned ? 90 : 0\n                captureSource: surface.modelData'
+stop_shell || :
+start_shell "$sandbox/tree-capture-turned-control" "$capture_state/turned-control-shell.log"
+expect_poll "the control tree's capture service is built" True record_exists vgs.capture
+expect_poll "the control tree's capture service lists both outputs" "$capture_turned_names" capture_service_outputs
+capture_turned_case control "$capture_turned"
+expect "control: a frozen frame turned twice fails the turned output's region" False capture_region_match "control-$capture_turned"
+stop_shell || :
+start_shell "$repo" "$capture_state/turned-restored-shell.log"
+expect_poll "the restored capture service is built" True record_exists vgs.capture
+capture_config real "{\"grim\": \"$capture_real_grim\"}"
+for capture_mark_pid in "${capture_mark_pids[@]}"; do close_toplevel "$capture_mark_pid" "a mark window closes"; done
+expect "the nested compositor removes the turned output" ok hypr output remove "$capture_turned"
+hypr_lua_restore capture-turned
+expect_poll "the capture service lists the first output alone" "[\"$capture_first\"]" capture_service_outputs
+expect_poll "the restored service is idle after the turned layout" idle capture_phase
 # A rescan publishes a new snapshot, so later helper controls edit its copy.
 capture_helper="$(capture_read helperPath | py_reply 'import json,sys; print(json.load(sys.stdin))')"
 python3 -c 'import pathlib,sys; h=pathlib.Path(sys.argv[1]).resolve(); assert any(h.is_relative_to(pathlib.Path(r).resolve()) for r in sys.argv[2:]), "capture control must stay inside the sandbox or its private runtime"' "$capture_helper" "$sandbox" "$rt_dir"
@@ -2133,7 +2275,7 @@ PY
     expect "control: SIGKILL fails the recording row" False capture_recorded
   elif [[ $capture_control == inherited-stdin ]]; then
     capture_setting smart false
-    capture_config real "{\"grim\": \"$capture_real_grim\", \"slurp\": \"$capture_real_slurp\", \"hyprpicker\": \"$capture_real_picker\"}"
+    capture_config real "{\"grim\": \"$capture_real_grim\", \"slurp\": \"$capture_real_slurp\"}"
     expect "control: the inherited-stdin copy starts a selection" ok ipc vgs.capture invoke screenshot-area ''
     # The held worker stays until the plugin is disabled below, which ends
     # it as a shell stop does.
@@ -2156,7 +2298,7 @@ expect_poll "disabled capture releases its service" False record_exists vgs.capt
 expect_poll "disabling capture ends a held selection's selector and freeze" 0 capture_left
 expect_poll "disabled capture releases its status" null capture_status
 expect_poll "disabling capture releases all owned clipboard providers" True capture_released
-for capture_tool in grim slurp hyprpicker tesseract wl-copy gpu-screen-recorder ffmpeg pw-dump; do
+for capture_tool in grim slurp tesseract wl-copy gpu-screen-recorder ffmpeg pw-dump; do
   rm -f -- "${shim:?}/$capture_tool"
   if [[ -e $capture_state/saved-shims/$capture_tool ]]; then mv -- "$capture_state/saved-shims/$capture_tool" "$shim/$capture_tool"; fi
 done

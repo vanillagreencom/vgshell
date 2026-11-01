@@ -3137,7 +3137,7 @@ spec=importlib.util.spec_from_file_location("capture_fixture",source)
 module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
 module.plant(module.Path(state),{"real":{"grim":grim},"display":display,"runtime":runtime,"clipboardHold":True})
 PY
-  for tool in grim slurp hyprpicker tesseract wl-copy gpu-screen-recorder ffmpeg pw-dump; do
+  for tool in grim slurp tesseract wl-copy gpu-screen-recorder ffmpeg pw-dump; do
     if [[ -e $shim/$tool ]]; then mv -- "$shim/$tool" "$state/shims/$tool"; fi
     ln -s -- "$state/bin/$tool" "$shim/$tool"
   done
@@ -3222,7 +3222,7 @@ PY
   result="$(notes dismiss-all)" || { fail "scene notifications could not close"; return; }
   case $result in ok|none) ;; *) fail "dismissing scene notifications answered $result"; return ;; esac
   expect "scene history is cleared" ok notes clear-history
-  for tool in grim slurp hyprpicker tesseract wl-copy gpu-screen-recorder ffmpeg pw-dump; do
+  for tool in grim slurp tesseract wl-copy gpu-screen-recorder ffmpeg pw-dump; do
     rm -- "$shim/$tool"
     if [[ -e $state/shims/$tool ]]; then mv -- "$state/shims/$tool" "$shim/$tool"; fi
   done
