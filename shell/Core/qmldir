@@ -10,6 +10,7 @@ singleton Notifier 1.0 Notifier.qml
 singleton Notices 1.0 Notices.qml
 singleton Sounds 1.0 Sounds.qml
 singleton Layers 1.0 Layers.qml
+singleton ScreenFreeze 1.0 ScreenFreeze.qml
 singleton PluginStatus 1.0 PluginStatus.qml
 ShortcutRegistry 1.0 ShortcutRegistry.qml
 KeyCapture 1.0 KeyCapture.qml

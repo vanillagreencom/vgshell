@@ -32,7 +32,6 @@ pkgbase = vgshell-git
 	depends = gpu-screen-recorder
 	depends = grim
 	depends = gum
-	depends = hyprpicker
 	depends = imagemagick
 	depends = iproute2
 	depends = less

@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Capture tools that read fixtures only. grim, slurp and hyprpicker can
-forward to the real tool on a nested socket.
+"""Capture tools that read fixtures only. grim and slurp can forward to the
+real tool on a nested socket.
 
 The fixture config names allowed display/runtime, geometry, text and failures.
 Each tool writes `<tool>-pid-<pid>` before it runs, so a check can read
 whether that process is still alive. A failing tool fails after `failAfter`
-seconds. hyprpicker writes `hyprpicker-mapped-<pid>` once it holds the
-freeze; while hyprpicker is a stand-in, `hyprctl -j layers` lists one output
-with a layer for each live stand-in, at alpha 1 once mapped and 0 before, as
-Hyprland lists a layer it has not mapped. Every other hyprctl call goes to
-the real `hyprctl` the config names, unlogged, so the shell keeps its own.
+seconds. With no real `hyprctl` in the config, as no shell draws a freeze,
+`hyprctl -j layers` lists one output holding a mapped bar layer and the
+service's freeze as freezeLayer says: `mapped` (the default) at alpha 1,
+`unmapped` at alpha 0, as Hyprland lists a layer it has not mapped, or
+`absent`. Every hyprctl call goes to the real `hyprctl` the config names
+when it names one, unlogged, so the shell keeps its own.
 slurp reads stdin to EOF when it is not a terminal, as the real slurp does.
 The recorder logs its start and output name, then writes `finalized`, or
 copies the fixture's `video`, only after SIGINT, never on a hard stop.
@@ -49,16 +50,10 @@ def nested():
 
 
 if tool == "hyprctl":
-    if sys.argv[1:] == ["-j", "layers"] and "hyprpicker" not in config.get("real", {}):
-        layers = []
-        for marker in root.glob("hyprpicker-pid-*"):
-            pid = int(marker.name.removeprefix("hyprpicker-pid-"))
-            try:
-                os.kill(pid, 0)
-            except ProcessLookupError:
-                continue
-            layers.append({"namespace": "hyprpicker", "pid": pid, "alpha": int((root / f"hyprpicker-mapped-{pid}").exists())})
-        print(json.dumps({"NESTED": {"levels": {"3": layers}}}))
+    if sys.argv[1:] == ["-j", "layers"] and "hyprctl" not in config:
+        freeze = config.get("freezeLayer", "mapped")
+        overlay = [] if freeze == "absent" else [{"namespace": "vgs:freeze", "alpha": int(freeze == "mapped")}]
+        print(json.dumps({"NESTED": {"levels": {"2": [{"namespace": "vgs:bar", "alpha": 1}], "3": overlay}}}))
         sys.exit(0)
     if "hyprctl" not in config:
         sys.exit("capture-fixture: no real hyprctl")
@@ -100,9 +95,6 @@ match tool:
         if config.get("cancel"):
             sys.exit(1)
         print(config.get("geometry", "10,20 80x60"))
-    case "hyprpicker":
-        (root / f"hyprpicker-mapped-{os.getpid()}").touch()
-        signal.pause()
     case "grim":
         if config.get("grimHold"):
             (root / "grim-ready").write_text(str(os.getpid()))

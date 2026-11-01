@@ -55,7 +55,6 @@
         pkgs.grim
         pkgs.gum
         pkgs.hyprland
-        pkgs.hyprpicker
         pkgs.imagemagick
         pkgs.iproute2
         pkgs.less

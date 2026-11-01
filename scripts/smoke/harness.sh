@@ -1397,7 +1397,9 @@ coordinate_observation() {
 # An unbound virtual pointer maps its normalized point across every output
 # (Hyprland v0.57.0, src/pointer/PointerManager.cpp, warpAbsolute), so a
 # first-monitor extent redirects a point when a sized output is added.
-layout_size() { hypr -j monitors | py_reply 'import json,sys; ms=json.load(sys.stdin); assert all(m["x"] >= 0 and m["y"] >= 0 for m in ms); print(max(m["x"] + round(m["width"] / m["scale"]) for m in ms), max(m["y"] + round(m["height"] / m["scale"]) for m in ms))'; }
+# Monitor mode dimensions are untransformed; odd transforms swap their
+# logical sides, as MonitorLogic.logicalSize and capture's turned layout read.
+layout_size() { hypr -j monitors | py_reply 'import json,sys; ms=json.load(sys.stdin); assert all(m["x"] >= 0 and m["y"] >= 0 for m in ms); print(max(m["x"] + round((m["height"] if m["transform"] % 2 else m["width"]) / m["scale"]) for m in ms), max(m["y"] + round((m["width"] if m["transform"] % 2 else m["height"]) / m["scale"]) for m in ms))'; }
 # pointer_dispatch X Y [ACTION...]: one shared delivery owner.
 # A step whose held mode no longer stands is refused (coordinate_mode_check
 # in mode-hold.sh), since the caller sampled its coordinates under the hold.

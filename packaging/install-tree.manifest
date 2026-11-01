@@ -191,6 +191,7 @@ f share/vgshell/shell/Core/PluginLogic.js
 f share/vgshell/shell/Core/PluginStatus.qml
 f share/vgshell/shell/Core/Plugins.qml
 f share/vgshell/shell/Core/Registry.qml
+f share/vgshell/shell/Core/ScreenFreeze.qml
 f share/vgshell/shell/Core/ScreencopyPreview.qml
 f share/vgshell/shell/Core/SecretWriter.qml
 f share/vgshell/shell/Core/ServiceGate.qml
@@ -208,6 +209,7 @@ f share/vgshell/shell/Hosts/BackgroundHost.qml
 f share/vgshell/shell/Hosts/BarHost.qml
 f share/vgshell/shell/Hosts/CoverBarrier.qml
 f share/vgshell/shell/Hosts/CoverHost.qml
+f share/vgshell/shell/Hosts/FreezeHost.qml
 f share/vgshell/shell/Hosts/LayerHost.qml
 f share/vgshell/shell/Hosts/LockHost.qml
 f share/vgshell/shell/Hosts/NoticeHost.qml

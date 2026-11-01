@@ -500,13 +500,15 @@ pointer_at=before dependent=false continued=false
 ok() { :; }
 sleep() { :; }
 py_reply() { python3 -c "$@"; }
-held_json='\''[{"name":"WAYLAND-1","width":3510,"height":1866,"scale":2,"x":0,"y":0},{"name":"FAR","width":800,"height":600,"scale":1,"x":1755,"y":0}]'\''
+held_json='\''[{"name":"WAYLAND-1","width":3510,"height":1866,"scale":2,"transform":0,"x":0,"y":0},{"name":"FAR","width":800,"height":600,"scale":1,"transform":0,"x":1755,"y":0}]'\''
 if [[ $stub_phase == single ]]; then
-  held_json='\''[{"name":"WAYLAND-1","width":3510,"height":1866,"scale":2,"x":0,"y":0}]'\''
+  held_json='\''[{"name":"WAYLAND-1","width":3510,"height":1866,"scale":2,"transform":0,"x":0,"y":0}]'\''
 elif [[ $stub_phase == wallpaper ]]; then
-  held_json='\''[{"name":"WAYLAND-1","width":3510,"height":1866,"scale":2,"x":0,"y":0},{"name":"FAR","width":1920,"height":1080,"scale":1,"x":1755,"y":0}]'\''
+  held_json='\''[{"name":"WAYLAND-1","width":3510,"height":1866,"scale":2,"transform":0,"x":0,"y":0},{"name":"FAR","width":1920,"height":1080,"scale":1,"transform":0,"x":1755,"y":0}]'\''
+elif [[ $stub_phase == rotated ]]; then
+  held_json='\''[{"name":"WAYLAND-1","width":3510,"height":1866,"scale":2,"transform":0,"x":0,"y":0},{"name":"FAR","width":1920,"height":1080,"scale":1,"transform":1,"x":1755,"y":0}]'\''
 fi
-reset_json='\''[{"name":"WAYLAND-1","width":1250,"height":720,"scale":1,"x":0,"y":0},{"name":"FAR","width":800,"height":600,"scale":1,"x":1755,"y":0}]'\''
+reset_json='\''[{"name":"WAYLAND-1","width":1250,"height":720,"scale":1,"transform":0,"x":0,"y":0},{"name":"FAR","width":800,"height":600,"scale":1,"transform":0,"x":1755,"y":0}]'\''
 printf "%s\n" "$held_json" >"$stub_dir/monitors"
 [[ $stub_phase != reset-first ]] || printf "%s\n" "$reset_json" >"$stub_dir/monitors"
 monitor_rule WAYLAND-1 3510x1866 2 >"$mode_hold_file"
@@ -624,6 +626,7 @@ smoke_verdict "$failures" "$behaviour_failures" /dev/null || status=$?
 coordinate_cases=(
   'single|click|direct|0|1|0|1|101 202 1755 933'
   'wallpaper|click|direct|0|1|0|1|101 202 3675 1080'
+  'rotated|drag|direct|0|1|0|1|101 202 2835 1920 drag 301 302'
   'held|click|direct|0|1|0|1|101 202 2555 933'
   'held|hover|direct|0|1|0|1|101 202 2555 933 move'
   'held|right_click|direct|0|1|0|1|101 202 2555 933 right'

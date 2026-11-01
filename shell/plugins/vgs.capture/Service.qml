@@ -18,6 +18,8 @@ Item {
     property string lastPath: ""
     property var jobs: []
     property var activeJob: null
+    // The job whose selection holds the screen freeze, null while none does.
+    property var freezeJob: null
     property int remaining: 0
     // The windows read a selection waits for, counted so a reply to a
     // cancelled or replaced read is dropped.
@@ -37,16 +39,16 @@ Item {
     readonly property var languagesInstalled: shell === null || shell.tui.state["install-languages"] === undefined ? null : shell.tui.state["install-languages"].endedAt
     readonly property var tools: ({
         "screenshot": ["grim"],
-        "screenshot-area": ["grim", "slurp", "hyprpicker"],
-        "screenshot-window": ["grim", "slurp", "hyprpicker"],
-        "screenshot-display": ["grim", "slurp", "hyprpicker"],
+        "screenshot-area": ["grim", "slurp"],
+        "screenshot-window": ["grim", "slurp"],
+        "screenshot-display": ["grim", "slurp"],
         "screenshot-all": ["grim"],
-        "record": ["grim", "slurp", "hyprpicker", "gpu-screen-recorder", "ffmpeg", "wl-copy"],
-        "record-window": ["grim", "slurp", "hyprpicker", "gpu-screen-recorder", "ffmpeg", "wl-copy"],
-        "record-display": ["grim", "slurp", "hyprpicker", "gpu-screen-recorder", "ffmpeg", "wl-copy"],
+        "record": ["grim", "slurp", "gpu-screen-recorder", "ffmpeg", "wl-copy"],
+        "record-window": ["grim", "slurp", "gpu-screen-recorder", "ffmpeg", "wl-copy"],
+        "record-display": ["grim", "slurp", "gpu-screen-recorder", "ffmpeg", "wl-copy"],
         "record-output": ["gpu-screen-recorder", "ffmpeg", "wl-copy"],
         "record-portal": ["gpu-screen-recorder", "ffmpeg", "wl-copy"],
-        "text": ["slurp", "hyprpicker", "grim", "tesseract", "wl-copy"]
+        "text": ["slurp", "grim", "tesseract", "wl-copy"]
     })
     readonly property var descriptions: ({
         "screenshot": "Screenshot this screen",
@@ -247,6 +249,7 @@ Item {
     }
 
     function finishAction(job) {
+        thaw(job);
         if (activeJob !== job) return;
         activeJob = null;
         clearCountdown();
@@ -260,6 +263,28 @@ Item {
         if (address !== "" && Hyprland.toplevels.values.some(t => t.address === address) && (Hyprland.activeToplevel === null || Hyprland.activeToplevel.address !== address)) shell.compositor.focusWindow("0x" + address);
     }
 
+    // The worker asks for the still screen before it starts the selector and
+    // waits on its stdin for `frozen`, written once every output shows its
+    // frame, or `freeze-refused <reply>` when the core refuses the hold. The
+    // hold ends at the worker's `thaw`, at the job's end and with this
+    // instance, so no freeze outlives its selection.
+    function freeze(job) {
+        if (activeJob !== job) return;
+        thaw(freezeJob);
+        freezeJob = job;
+        const reply = shell.screencopy.freeze(answer => { if (root.freezeJob === job && answer === "ok") job.write("frozen\n"); });
+        if (reply === "ok") return;
+        freezeJob = null;
+        job.write("freeze-refused " + reply + "\n");
+    }
+
+    function thaw(job) {
+        if (job === null || freezeJob !== job) return;
+        freezeJob = null;
+        const reply = shell.screencopy.thaw();
+        if (reply !== "ok") console.error("capture: thaw " + reply);
+    }
+
     function clearCountdown() {
         remaining = 0;
     }
@@ -270,6 +295,12 @@ Item {
         switch (event.event) {
         case "selection-ended":
             restoreFocus(job);
+            break;
+        case "freeze":
+            freeze(job);
+            break;
+        case "thaw":
+            thaw(job);
             break;
         case "countdown":
             clearCountdown();
@@ -444,6 +475,7 @@ Item {
     }
 
     function finished(job, completion, error) {
+        thaw(job);
         restoreFocus(job);
         if (job.terminalEvent === "") notice("Capture failed", error || "The capture tool stopped without an answer");
         else if ((job.terminalEvent === "saved" || job.terminalEvent === "copied")

@@ -49,7 +49,6 @@ Requires:       gawk
 Requires:       glib2
 Requires:       grim
 Requires:       gum
-Requires:       hyprpicker
 Requires:       iproute
 Requires:       less
 Requires:       libnotify
