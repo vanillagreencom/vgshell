@@ -122,7 +122,9 @@ case "$1" in
     [[ $1 != bash || $2 != -n ]] || exec "$@"
     if [[ $* == *'VGS install test'* ]]; then
       [[ -n ${STUB_REAL_ACCOUNT_FILES:-} ]] || exit 0
-      exec bwrap --ro-bind / / --bind "$STUB_ACCOUNT_ETC" /etc --bind "$STUB_ACCOUNT_HOME" /home "$@"
+      # /home may hide the fixture's PATH farm and account store-link targets.
+      exec bwrap --ro-bind / / --bind "$STUB_ACCOUNT_ETC" /etc --bind "$STUB_ACCOUNT_HOME" /home \
+        --bind "$STUB_FIXTURE_ROOT" "$STUB_FIXTURE_ROOT" "$@"
     fi
     if [[ $* == *'id -u'* ]]; then [[ $STUB_OCI_USER == user ]]; exit; fi
     if [[ $1 == cat && $2 == /vgs-runtime-path ]]; then printf '%s\n' "$PATH"; exit 0; fi
@@ -236,7 +238,7 @@ row() {
   while [[ $1 != -- ]]; do vars+=("$1"); shift; done
   shift
   : >"$record"
-  out="$(env -i PATH="$path" HOME="$tmp" LC_ALL=C STUB_RECORD="$record" STUB_HOME="$home" STUB_VERSION="$version" "${vars[@]}" "$tree/scripts/readme-install.sh" "$@" 2>&1)" || status=$?
+  out="$(env -i PATH="$path" HOME="$tmp" LC_ALL=C STUB_RECORD="$record" STUB_HOME="$home" STUB_VERSION="$version" STUB_FIXTURE_ROOT="$tmp" "${vars[@]}" "$tree/scripts/readme-install.sh" "$@" 2>&1)" || status=$?
   row_output="$out"
   if ! first="$(sed '/^readme-install: syntax /d; /^readme-install: space /d' <<<"$out")"; then fail "$name: syntax receipt filter failed"; return; fi
   first="${first%%$'\n'*}"
@@ -334,7 +336,15 @@ private_store_refusal() {
   if grep -qxF 'volume-rm vgs-validate-nix-2.35.2' "$record"; then fail "cleanup removed the rejected shared candidate"; else ok "cleanup never removes the rejected shared candidate"; fi
 }
 private_store_refusal
-row "a private NixOS store that would leave less than 3 GB is refused" 77 "readme-install: ok line=${aur_first%%:*} channel=aur exit=0 seconds=*" "${published[@]}" STUB_CLOSURE_BYTES=1000000000000 -- --export "$tmp/no-space-exports"
+# The volume-inspect stub hands space_check $home. Keep the fake closure
+# larger than the free space on the same filesystem, whatever its size.
+oversized_closure="$(python3 - "$home" <<'PY'
+import os, sys
+fs = os.statvfs(sys.argv[1])
+print(fs.f_bavail * fs.f_frsize + 3_000_000_000)
+PY
+)"
+row "a private NixOS store that would leave less than 3 GB is refused" 77 "readme-install: ok line=${aur_first%%:*} channel=aur exit=0 seconds=*" "${published[@]}" STUB_CLOSURE_BYTES="$oversized_closure" -- --export "$tmp/no-space-exports"
 if [[ $row_output == *'reason=container-setup step=private-store-space'* ]] && ! compgen -G "$tmp/no-space-exports/line-*-nix" >/dev/null; then ok "the closure space refusal precedes the Nix copy"; else fail "the Nix closure ignored the available space"; fi
 # The new export assertion must reject a runner that never hands trees out.
 cp -p -- "$tree/scripts/readme-install.sh" "$tmp/readme-install-export.orig"
@@ -469,7 +479,7 @@ assert (root / "home/user").is_dir()
 PY
 then ok "the container account changed and the shared-store fixture stayed byte-identical"; else fail "the shared-store account fixture changed"; fi
 control "an omitted closure space check" 'if free - size < 3_000_000_000:' 'if False:' \
-  "space" 77 "readme-install: ok line=${aur_first%%:*} channel=aur exit=0 seconds=*" "${published[@]}" STUB_CLOSURE_BYTES=1000000000000 -- --export "$tmp/space-control-exports"
+  "space" 77 "readme-install: ok line=${aur_first%%:*} channel=aur exit=0 seconds=*" "${published[@]}" STUB_CLOSURE_BYTES="$oversized_closure" -- --export "$tmp/space-control-exports"
 # shellcheck disable=SC2016
 readme_edit "$curl_command" "curl -fsSL $curl_url | bash"
 control "a runner that reads a failed release probe as an answer" \
