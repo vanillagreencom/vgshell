@@ -13,7 +13,7 @@
 # the holder lists its fixtures alone, and puts each back as it found it.
 # Last, the shipped holder lists Power's section under Hardware and mounts
 # it, and vgs.power and vgs.system are put back as the row found them.
-# inputs: scripts/smoke/fixtures/plugins/acme.pane/* scripts/smoke/fixtures/plugins/acme.panehost/* shell/Hosts/PaneHost.qml shell/Hosts/PluginSlot.qml shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Core/Plugins.qml shell/plugins/vgs.system/* shell/plugins/vgs.power/* shell/plugins/*/manifest.json shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/SettingField.qml shell/Commons/Reply.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/rows/start-order.sh
+# inputs: scripts/smoke/fixtures/plugins/acme.pane/* scripts/smoke/fixtures/plugins/acme.panehost/* shell/Hosts/PaneHost.qml shell/Hosts/PluginSlot.qml shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Core/Plugins.qml shell/plugins/vgs.system/* shell/plugins/vgs.power/* shell/plugins/*/manifest.json shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/Commons/Reply.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/rows/start-order.sh
 set -euo pipefail
 
 pane_file="$home/.config/vgshell/shell.json"
@@ -27,8 +27,25 @@ cp -- "$pane_file" "$pane_saved"
 # list the fixture sections alone, so every enabled shipped section, such
 # as vgs.displays, is set aside too. The restore below puts each back as
 # the row found it.
-expect "disabling vgs.system, the shipped panes holder, is allowed" ok ipc shell setPluginEnabled vgs.system false
 pane_aside="$(shipped_panes_enabled)" || { fail "the enabled shipped sections are unreadable"; pane_aside='[]'; }
+# Alternate holders need the exclusive panes capability. These disposable
+# consumers release it; the unshadowed always-on plugins are checked by packages.sh.
+python3 - "$repo/shell/plugins" "$home/.config/vgshell/plugins" <<'ALWAYSONFIXTURE'
+import json, pathlib, shutil, sys
+source, destination = map(pathlib.Path, sys.argv[1:])
+for plugin in ['vgs.system', 'vgs.packages']:
+    target = destination / plugin
+    assert not target.exists(), f"fixture already exists: {target}"
+    shutil.copytree(source / plugin, target)
+    manifest = target / 'manifest.json'
+    document = json.loads(manifest.read_text())
+    document['alwaysOn'] = False
+    manifest.write_text(json.dumps(document))
+ALWAYSONFIXTURE
+expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: vgs\.system' 'plugins: hidden by a higher-precedence plugin with the same id: vgs\.packages')
+rescan "the disposable pane consumers are scanned"
+expect "the disposable Packages section can be set aside" ok ipc shell setPluginEnabled vgs.packages false
+expect "the disposable System holder releases panes" ok ipc shell setPluginEnabled vgs.system false
 set_aside_shipped_panes "$pane_aside"
 host_list() { ipc smoke readInstance window acme.panehost paneRows | py_reply 'import json,sys; print(json.dumps(json.loads(json.load(sys.stdin)), separators=(",", ":")))'; }
 host_list_ids() { host_list | py_reply 'import json,sys; print(json.dumps([r["id"] for r in json.load(sys.stdin)], separators=(",", ":")))'; }
@@ -324,6 +341,7 @@ expect "hiding the pane host after the pane rows is allowed" ok ipc shell hide w
 expect_poll "the pane host window is gone after the pane rows" 0 window_count "Pane Host"
 cp -- "$pane_saved" "$pane_file.tmp" && mv -T -- "$pane_file.tmp" "$pane_file"
 rm -rf -- "${home:?}/.config/vgshell/plugins/acme.panehost" "${home:?}/.config/vgshell/plugins/acme.pane" "${home:?}/.config/vgshell/plugins/acme.pane-alt" "${home:?}/.config/vgshell/plugins/acme.panehost2"
+rm -rf -- "${home:?}/.config/vgshell/plugins/vgs.system" "${home:?}/.config/vgshell/plugins/vgs.packages"
 rescan "rescan after removing the pane fixtures answers ok"
 expect_poll "the pane fixture is gone after restore" absent plugin_enabled acme.pane
 expect_poll "each shipped section the row set aside is enabled again" "$pane_aside" shipped_panes_enabled

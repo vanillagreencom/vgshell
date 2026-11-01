@@ -274,6 +274,30 @@ Item {
                 }
                 Field { label: "Display name"; hint: "Shown in the bar"; width: parent.width; TextField { width: parent.width; placeholderText: "Weather" } }
                 Field { label: "Format"; error: "Not a Qt date format"; inline: true; width: parent.width; TextField { width: parent.width; text: "HH:mm:" } }
+                SettingField {
+                    id: schemaSwitch
+                    width: parent.width
+                    key: "enabled"
+                    spec: ({ type: "boolean", label: "Schema switch" })
+                    value: true
+                    onApply: value => schemaSwitch.value = value
+                }
+                SettingField {
+                    id: schemaChoice
+                    width: parent.width
+                    key: "choice"
+                    spec: ({ type: "enum", label: "Schema choice", options: [{ value: "first", label: "First" }, { value: "second", label: "Second" }] })
+                    value: "first"
+                    onApply: value => schemaChoice.value = value
+                }
+                SettingField {
+                    id: schemaText
+                    width: parent.width
+                    key: "text"
+                    spec: ({ type: "string", label: "Schema text", presets: [{ value: "Default" }], allowCustom: true })
+                    value: "Custom text"
+                    onApply: value => schemaText.value = value
+                }
                 Column {
                     width: parent.width
                     spacing: Theme.stack.row
@@ -744,6 +768,16 @@ Item {
                                 property string focusExample: "Select"
                                 property bool focusPreview: true
                                 model: ["Default", "Ocean", "Forest"]
+                            }
+                            SettingField {
+                                id: focusedSetting
+                                property string focusExample: "SettingField"
+                                property bool focusPreview: true
+                                width: parent.width
+                                key: "focused"
+                                spec: ({ type: "boolean", label: "Schema focus" })
+                                value: true
+                                onApply: value => focusedSetting.value = value
                             }
                             TextField {
                                 property string focusExample: "TextField"

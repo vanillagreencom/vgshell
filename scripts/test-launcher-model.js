@@ -228,11 +228,11 @@ function verify(model, menu = shippedMenu) {
     assert.equal(realPackages.ok, true, realPackages.error);
     const realResolved = model.resolveTuiRows(realPackages.items, realPackages.itemOrder, CORE_ENTRIES.concat([VGS_UPDATE]));
     same(model.menuRows(realResolved, realPackages.itemOrder, "root", []).map(r => [r.kind, r.label]), [["menu", "Apps"], ["menu", "System"], ["menu", "Tools"], ["menu", "Packages"]], "vgs.updates adds the Packages category");
-    same(model.menuRows(realResolved, realPackages.itemOrder, "packages", []).map(r => [r.kind, r.label]), [["tui", "Install"], ["tui", "Update"], ["tui", "Remove"]], "vgs.updates owns the package rows");
+    same(model.menuRows(realResolved, realPackages.itemOrder, "packages", []).map(r => [r.kind, r.label]), [["shortcut", "Package review settings"], ["tui", "Install"], ["tui", "Update"], ["tui", "Remove"]], "package review joins the Updates package rows");
     same(["packages.install", "packages.update", "packages.remove"].map(id => realResolved[id].tuiKey), ["core/pkg-install", "vgs.updates/update", "core/pkg-remove"], "package rows open their declared TUIs");
     const noUpdatesRows = pluginLogic.menuRows({ "vgs.updates": realUpdates.manifest }, [], {}).rows;
     const noUpdatesPackages = model.mergeMenuSources(shipped.entries, [], model.pluginEntries(noUpdatesRows));
-    assert.equal(Object.hasOwn(noUpdatesPackages.items, "packages"), false, "disabled vgs.updates adds no Packages category");
+    same(model.menuRows(noUpdatesPackages.items, noUpdatesPackages.itemOrder, "packages", []).map(r => [r.kind, r.label]), [["shortcut", "Package review settings"]], "package review remains reachable with Updates disabled");
     const providerPlugged = model.mergeMenuSources(shipped.entries, [], model.pluginEntries([CATALOG]));
     assert.equal(providerPlugged.items["tools.catalog"].kind, "menu", "a provider row is a menu");
     assert.equal(providerPlugged.items["tools.catalog"].provider, "plugin");

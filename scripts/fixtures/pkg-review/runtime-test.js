@@ -88,13 +88,27 @@ try{
  // A review run through Customize, with one edit view opened and left, keeps
  // the caller's screen: no kind, the inline editor included, clears it.
  if(!only&&select("customize")){
-  const w=create(path.join(scratch,"customize"),{choices:["Review","Customize","First choice","Back","Cancel","Use Claude Code"]});
+  const w=create(path.join(scratch,"customize"),{choices:["Review","Customize","Before installing","Back","Cancel","Use Claude Code"]});
   const r=tty(w,["run","install","--manager","aur","--config",w.config,"widget"]),calls=w.calls();
   assert.equal(r.status,0,r.stdout+r.stderr);
-  assert.ok(calls.some(c=>c.kind==="offer"&&c.offered.includes("First choice")),JSON.stringify(calls));
+  assert.ok(calls.some(c=>c.kind==="offer"&&c.offered.includes("Before installing")),JSON.stringify(calls));
   assert.ok(calls.some(c=>c.kind==="agent")&&calls.some(c=>c.kind==="mutation"));
   assert.ok(!r.stdout.includes("\x1b[2J"),"package-customize=screen-cleared");
   console.log("package-customize-proof: "+JSON.stringify({status:r.status,offers:calls.filter(c=>c.kind==="offer").length}));
+ }
+ if(!only&&select("settings"))for(const [label,initial,choice,expected] of [
+  ["automatic",true,"Automatic (review when an agent is available)",undefined],
+  ["agent",false,"Review with an agent",true],
+  ["without-review",true,"Install without review",false]]){
+  const w=create(path.join(scratch,"settings-"+label),{settings:{enabled:initial,agent:"claude",command:""},choices:["Before installing",choice,"Save"]});
+  const r=tty(w,["review-settings"]);
+  assert.equal(r.status,0,r.stdout+r.stderr);
+  const saved=JSON.parse(fs.readFileSync(path.join(w.root,"config/vgshell/shell.json"))).packages.review;
+  assert.equal(Object.hasOwn(saved,"enabled"),expected!==undefined);
+  assert.equal(saved.enabled,expected);
+  assert.equal(saved.agent,"claude");assert.equal(saved.command,"");
+  assert.ok(!w.calls().some(c=>["mutation","credential","agent"].includes(c.kind)));
+  console.log("package-settings-choice-proof: "+JSON.stringify({choice,saved}));
  }
  if(!only&&select("authority"))for(const [manager,change] of [
   ...["pacman","aur"].flatMap(manager=>["none","consumed","manager","action","targets","config","include","config-path","ignore","pending","origin","binary","transaction","missing","unreadable","symlink","recipe","outer","outer-missing","config-link","config-link-changed"].map(change=>[manager,change])),

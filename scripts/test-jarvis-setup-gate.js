@@ -574,7 +574,7 @@ function verifyModelChoice(providers) {
             if (models.length > 0 && settings.model !== "") assert.equal(page.model.some(row => row.value === settings.model), true,
                 label + ": the Model field shows what is saved");
         }
-        const activationSource = fs.readFileSync(path.join(__dirname, "../shell/plugins/vgs.settings/SettingField.qml"), "utf8");
+        const activationSource = fs.readFileSync(path.join(__dirname, "../shell/Ui/controls/SettingField.qml"), "utf8");
         const activated = [...activationSource.matchAll(/onActivated: index => \{\n                const row = rows\[index\];([\s\S]*?)\n            \}/g)];
         assert.equal(activated.length, 1);
         for (const [provider, ids] of [

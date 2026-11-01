@@ -1375,16 +1375,17 @@ expect_poll "the valid custom clock format writes" '"yyyy-MM-dd HH:mm:ss"' user_
 
 # A disposable SettingField keeps the same editor and observes apply.
 # Each mutation keeps the code it tests and removes one guarantee.
-choice_controls="$repo/shell/plugins/vgs.settings"
+choice_plugin="$repo/shell/plugins/vgs.settings"
+choice_controls="$(mktemp -d "$choice_plugin/smoke-choices.XXXXXX")" || { fail "the choice controls directory could not be made"; return 1; }
 choice_source_revision() {
   "$repo/bin/vgshell-scan" --require-base "$repo/shell/plugins" |
-    py_reply 'import json,sys; print(next(entry["revision"] for entry in json.load(sys.stdin) if entry["dir"] == sys.argv[1]))' "$choice_controls"
+    py_reply 'import json,sys; print(next(entry["revision"] for entry in json.load(sys.stdin) if entry["dir"] == sys.argv[1]))' "$choice_plugin"
 }
 choice_revision_before="$(choice_source_revision)" || fail "the Settings source revision is unreadable before the controls"
-python3 - "$choice_controls" <<'PYEDIT'
+python3 - "$choice_controls" "$repo/shell/Ui/controls/SettingField.qml" <<'PYEDIT'
 import pathlib, sys
 root = pathlib.Path(sys.argv[1])
-source = (root / "SettingField.qml").read_text()
+source = pathlib.Path(sys.argv[2]).read_text()
 controls = [
     ("ChoicesGood", None, None),
     ("ChoicesNoModel", "model: rows", "model: dynamic ? [] : rows"),
@@ -1431,6 +1432,7 @@ for control in ChoicesGood ChoicesNoModel ChoicesWriteLabel ChoicesNoBinding; do
   expect "the probe drops $control" ok ipc smoke popupDrop "$control"
   rm -- "$choice_controls/$control.qml" || fail "removing the $control source copy failed"
 done
+rmdir -- "$choice_controls" || fail "removing the choice controls directory failed"
 expect "dropping the controls restores the Settings source revision" "$choice_revision_before" choice_source_revision
 # Required work alone marks the list. Required tools retain their Setup
 # step after installation. Optional tools give the list no warning icon.
@@ -1687,10 +1689,9 @@ expect_poll "the Settings plug left every bar" True gear_gone
 # from the back button leave the scroll fixture where it was, and that page
 # keep the scroll the row gave it across a page change.
 expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: vgs\.settings')
-page_copy="$home/.config/vgshell/plugins/vgs.settings"
-rm -rf -- "${page_copy:?}"
-mkdir -p -- "$(dirname -- "$page_copy")"
-cp -R -- "$repo/shell/plugins/vgs.settings" "$page_copy"
+mkdir -p -- "$home/.config/vgshell/plugins"
+page_copy="$(mktemp -d "$home/.config/vgshell/plugins/vgs.settings-control.XXXXXX")" || { fail "the page control directory could not be made"; return 1; }
+cp -R -- "$repo/shell/plugins/vgs.settings/." "$page_copy"
 if python3 - "$page_copy/PluginPage.qml" <<'PYCOPY'
 import sys
 path = sys.argv[1]
@@ -1749,11 +1750,18 @@ expect_poll "a refused tab summon leaves no window" 0 window_count Plugins
 # of the Settings plugin whose open() drops the tab and whose field drops
 # the info dialog's page reference.
 rm -rf -- "${page_copy:?}"
-cp -R -- "$repo/shell/plugins/vgs.settings" "$page_copy"
-if python3 - "$page_copy/Window.qml" "$page_copy/SettingField.qml" <<'PYCOPY'
+page_copy="$(mktemp -d "$home/.config/vgshell/plugins/vgs.settings-control.XXXXXX")" || { fail "the tab control directory could not be made"; return 1; }
+cp -R -- "$repo/shell/plugins/vgs.settings/." "$page_copy"
+cp -- "$repo/shell/Ui/controls/SettingField.qml" "$page_copy/SettingField.qml"
+# A module type outranks the implicit directory import. Qualify both
+# disposable page consumers so qs.Ui cannot hide this local mutant.
+# https://doc.qt.io/qt-6/qtqml-syntax-directoryimports.html
+if python3 - "$page_copy/Window.qml" "$page_copy/SettingField.qml" "$page_copy/PluginPage.qml" <<'PYCOPY'
 import sys
 for path, old, new, count in ((sys.argv[1], "Qt.OtherFocusReason, payload.tab);\n", "Qt.OtherFocusReason);\n", 2),
-                              (sys.argv[2], "        onInfoPageActivated: (page, tab) => root.openDescriptionPage(page, tab)\n", "", 1)):
+                              (sys.argv[2], "        onInfoPageActivated: (page, tab) => root.openDescriptionPage(page, tab)\n", "", 1),
+                              (sys.argv[3], "import qs.Ui\n", 'import qs.Ui\nimport "." as Control\n', 1),
+                              (sys.argv[3], "SettingField {", "Control.SettingField {", 2)):
     text = open(path).read()
     if text.count(old) != count:
         sys.exit("%r occurs %d times in %s" % (old, text.count(old), path))
@@ -1881,7 +1889,8 @@ fi
 settings_page_close acme.status
 expect "the fixture resets before the old-binding control loads" ok ipc smoke settingsCredentialPublish "$credential_initial"
 [[ ! -e $page_copy ]] || fail "the credential source-control directory already exists"
-cp -R -- "$repo/shell/plugins/vgs.settings" "$page_copy"
+page_copy="$(mktemp -d "$home/.config/vgshell/plugins/vgs.settings-credential.XXXXXX")" || { fail "the credential control directory could not be made"; return 1; }
+cp -R -- "$repo/shell/plugins/vgs.settings/." "$page_copy"
 # Qt 6.12 updates the old modelData.entry binding when the key list moves.
 # Assign its initial entry at completion to remove that binding and retain
 # the stale snapshot the original defect drew, while the row still moves.

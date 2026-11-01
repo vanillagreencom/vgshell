@@ -24,6 +24,10 @@ Scope {
     readonly property var unlogged: ({})
 
     Component.onCompleted: {
+        registerCoreShortcut("vgs", "package-review-settings", "Open package review settings", () => {
+            const reply = Capabilities.runDetached(["vgshell", "pkg", "review-settings"]);
+            if (reply !== "ok") console.warn("package review settings: " + reply);
+        });
         const capture = Layer.OVERLAY_CAPTURE;
         for (const direction of Layer.overlayCaptureDirections())
             registerCoreShortcut(capture.appid, capture.shortcuts[direction], "Navigate the open overlay " + direction, () => Plugins.navigateOverlay(direction));

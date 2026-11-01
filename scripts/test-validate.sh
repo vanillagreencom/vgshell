@@ -1458,7 +1458,7 @@ smoke_cases=(
   "the shared byte counter selects its Tailscale runtime consumer|shell/Commons/SettingValues.js|changed|scripts/qml-smoke.sh --rows $smoke_core,$smoke_always,device-fakes,tailscale,$smoke_tail||tailscale-values"
   "control: losing the Tailscale byte counter input skips its runtime consumer|shell/Commons/SettingValues.js|changed|$smoke_none||tailscale-values-control"
   "a change to a Settings file the Tailscale row draws selects it, the status line among them|shell/plugins/vgs.settings/StatusLine.qml|changed|$smoke_tailscale||tailscale-values"
-  "a change to the Settings field selects the Tailscale row, which draws a field|shell/plugins/vgs.settings/SettingField.qml|changed|$smoke_tailscale||tailscale-values"
+  "a change to the Settings field selects the Tailscale row, which draws a field|shell/Ui/controls/SettingField.qml|changed|$smoke_tailscale||tailscale-values"
   "a change to the Settings key field leaves the Tailscale row out, which has no Keys row|shell/plugins/vgs.settings/KeyField.qml|changed|$smoke_none||tailscale-values"
   "a change to the Settings rows list leaves the Tailscale row out, which draws none|shell/plugins/vgs.settings/RowsList.qml|changed|$smoke_none||tailscale-values"
   "a change to the Settings list field leaves the Tailscale row out, which has no list|shell/plugins/vgs.settings/ListField.qml|changed|$smoke_none||tailscale-values"

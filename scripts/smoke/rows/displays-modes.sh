@@ -312,11 +312,6 @@ expect_poll "the rule kept over the saved one survives reload" 1 scale_of "$outp
 # A trial under the user's own later monitor line holds past the layer's
 # reload point too. After Keep the user's line wins at the layer's reload,
 # and the pane shows that the Hyprland file sets the display.
-system_was="$(record_exists vgs.system)"
-if [[ $system_was != True ]]; then
-  expect "enabling the System window for the user's line is allowed" ok ipc shell setPluginEnabled vgs.system true
-  expect_poll "the System window is built for the user's line" True record_exists vgs.system
-fi
 hypr_lua_save displays-modes-user-line
 monitor_rule "$output" "$base" 1 >>"$home/.config/hypr/hyprland.lua"
 expect "a reload loads the user's later monitor line" ok hypr reload config-only
@@ -337,9 +332,6 @@ expect "clearing the rule kept under the user's line is allowed" ok invoke_displ
 expect_poll "the layer drops the rule kept under the user's line" no layer_has_rule
 expect "reload drops the user's monitor line" ok hypr reload config-only
 release_mode "display modes restores $output after the user's line" "$output" "$base" 1
-if [[ $system_was != True ]]; then
-  expect "disabling the System window after the user's line is allowed" ok ipc shell setPluginEnabled vgs.system false
-fi
 resume_run_base "display modes"
 
 cp -- "$sandbox/shell-before-displays-modes.json" "$user_config.next" && mv -T -- "$user_config.next" "$user_config"

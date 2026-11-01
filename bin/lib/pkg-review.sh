@@ -28,6 +28,19 @@ vgs_pkg_review_command() { # HEADING WORD...
 kind="${1:-}"
 shift
 case "$kind" in
+  settings-open)
+    # A desktop caller opens the page, including from its own terminal.
+    # The runner judges transport errors; this caller requires the page's ok.
+    # shellcheck source=SCRIPTDIR/ipc-reply.sh
+    source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/ipc-reply.sh"
+    reply="$("$1" ipc call shell summon window vgs.system '{"pane":"vgs.packages"}')" || exit $?
+    vgs_ipc_last_line_into "$reply"
+    vgs_ipc_strip_into "$vgs_ipc_last_line"
+    if [[ $vgs_ipc_stripped != ok ]]; then
+      printf 'vgshell: refused: review-settings=open-unconfirmed\nVGS could not open the Packages page. Close any open question, then try again.\n' >&2
+      exit 1
+    fi
+    ;;
   settings-ipc)
     # Raw vgshell ipc preserves qs log lines. Use its existing reply owner
     # before a persisted write can be reported as confirmed.

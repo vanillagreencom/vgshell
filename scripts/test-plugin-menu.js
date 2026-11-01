@@ -44,6 +44,17 @@ function fixture() {
 }
 
 function suite(ctx, check) {
+    // Fixture cases below isolate plugin ordering from core-owned entries.
+    const pluginMenuRows = (...args) => {
+        const result = ctx.menuRows(...args);
+        return { rows: result.rows.filter(row => row.plugin !== "core"), conflicts: result.conflicts };
+    };
+    const coreRows = ctx.menuRows({}, [], {}).rows;
+    check("menuRows: package review remains reachable with Updates absent", coreRows, [
+        { id: "packages", plugin: "core", label: "Packages", icon: "package", aliases: [], description: "", shortcut: "", provider: "", tui: "", tuiGroup: "" },
+        { id: "packages.review-settings", plugin: "core", label: "Package review settings", icon: "shield-check", aliases: [], description: "Choose how VGS reviews packages before installing or updating them", shortcut: "vgs:package-review-settings", provider: "", tui: "", tuiGroup: "" }
+    ]);
+    check("menuActivation: package review uses its registered desktop command", ctx.menuActivation(coreRows, { "vgs:package-review-settings": {} }, "vgs:package-review-settings"), "ok");
     // menuError through validateManifest: [name, edit of the fixture, want],
     // `want` the start of the error text or null for an accepted manifest.
     const manifestRows = [
@@ -117,8 +128,8 @@ function suite(ctx, check) {
         menu: { style: { label: "Other style", icon: "star" }, "style.zeta": { label: "Zeta", icon: "star", shortcut: "go" } }
     }, "/z").manifest;
     const manifests = { "acme.style": style, "acme.bar": bar, "zeta.style": later };
-    const labels = (config, enabled) => ctx.menuRows(manifests, enabled, config).rows.map(r => [r.id, r.label, r.icon]);
-    check("menuRows: the category's own plugin first, then a row another plugin adds, each fully listed", ctx.menuRows(manifests, ["acme.style", "acme.bar"], {}), {
+    const labels = (config, enabled) => pluginMenuRows(manifests, enabled, config).rows.map(r => [r.id, r.label, r.icon]);
+    check("menuRows: the category's own plugin first, then a row another plugin adds, each fully listed", pluginMenuRows(manifests, ["acme.style", "acme.bar"], {}), {
         rows: [
             { id: "style", plugin: "acme.style", label: "Style", icon: "paintbrush", aliases: [], description: "", shortcut: "", provider: "", tui: "", tuiGroup: "" },
             { id: "style.open", plugin: "acme.style", label: "Open", icon: "palette", aliases: ["themes"], description: "Open the browser", shortcut: "acme.style:open", provider: "", tui: "", tuiGroup: "" },
@@ -134,7 +145,7 @@ function suite(ctx, check) {
         kinds: ["service"], entryPoints: { service: "S.qml" }, capabilities: ["shortcut"],
         menu: { "tools.clean": { label: "Clean", icon: "star", shortcut: "clean" }, "style.tidy": { label: "Tidy", icon: "star", shortcut: "tidy" } }
     }, "/t").manifest;
-    check("menuRows: top-level ids in the order their first row is listed", ctx.menuRows(Object.assign({ "aaa.tools": tools }, manifests), ["acme.bar", "aaa.tools", "acme.style"], {}).rows.map(r => r.id),
+    check("menuRows: top-level ids in the order their first row is listed", pluginMenuRows(Object.assign({ "aaa.tools": tools }, manifests), ["acme.bar", "aaa.tools", "acme.style"], {}).rows.map(r => r.id),
         ["tools.clean", "style", "style.open", "style.gaps", "style.tidy", "style.bar"]);
     check("menuRows: a toggle's setting on shows its label and icon", labels({ plugins: [{ id: "acme.style", noGaps: true }] }, ["acme.style"]).slice(2),
         [["style.gaps", "Default gaps", "layout-grid"]]);
@@ -144,9 +155,9 @@ function suite(ctx, check) {
         [["style.gaps", "No gaps", "maximize"]]);
     check("menuRows: a disabled plugin lists nothing", labels({}, ["acme.bar"]), [["style.bar", "Hide bar", "panel-top-close"]]);
     check("menuRows: an enabled id with no manifest lists nothing", labels({}, ["acme.gone"]), []);
-    check("menuRows: a taken id stays with the first plugin by id", ctx.menuRows(manifests, ["zeta.style", "acme.style"], {}),
+    check("menuRows: a taken id stays with the first plugin by id", pluginMenuRows(manifests, ["zeta.style", "acme.style"], {}),
         {
-            rows: ctx.menuRows(manifests, ["acme.style"], {}).rows.concat([{ id: "style.zeta", plugin: "zeta.style", label: "Zeta", icon: "star", aliases: [], description: "", shortcut: "zeta.style:go", provider: "", tui: "", tuiGroup: "" }]),
+            rows: pluginMenuRows(manifests, ["acme.style"], {}).rows.concat([{ id: "style.zeta", plugin: "zeta.style", label: "Zeta", icon: "star", aliases: [], description: "", shortcut: "zeta.style:go", provider: "", tui: "", tuiGroup: "" }]),
             conflicts: [{ id: "style", plugin: "zeta.style", heldBy: "acme.style" }]
         });
 
@@ -156,7 +167,7 @@ function suite(ctx, check) {
         status: { rows: { type: "launcherRows", label: "Rows" }, moreRows: { type: "launcherRows", label: "More rows" } },
         menu: { catalog: { label: "Catalog", icon: "blocks", shortcut: "open", provider: "rows" }, more: { label: "More", icon: "blocks", shortcut: "open", provider: "moreRows" } }
     }, "/catalog").manifest;
-    const providerMenuRows = ctx.menuRows({ "acme.catalog": providerManifest }, ["acme.catalog"], {}).rows;
+    const providerMenuRows = pluginMenuRows({ "acme.catalog": providerManifest }, ["acme.catalog"], {}).rows;
     const providerValues = { rows: [
         { id: "tools", label: "Tools", icon: "blocks", menu: true },
         { id: "tools.clean", label: "Clean", icon: "sparkles", description: "Clean state", aliases: ["wipe"] }
@@ -177,20 +188,20 @@ function suite(ctx, check) {
         schemaVersion: 1, id: "acme.packages", name: "Packages", version: "1", author: "a", description: "d",
         kinds: ["service"], entryPoints: { service: "S.qml" },
         menu: {
-            packages: { label: "Packages", icon: "package" },
-            "packages.install": { label: "Install", icon: "package", tui: "core/pkg-install" },
-            "packages.update": { label: "Update", icon: "refresh-cw", tuiGroup: "Update" }
+            pkgtools: { label: "Packages", icon: "package" },
+            "pkgtools.install": { label: "Install", icon: "package", tui: "core/pkg-install" },
+            "pkgtools.update": { label: "Update", icon: "refresh-cw", tuiGroup: "Update" }
         }
     }, "/packages").manifest;
-    check("menuRows: tui rows carry their key and group", ctx.menuRows({ "acme.packages": packagesManifest }, ["acme.packages"], {}).rows, [
-        { id: "packages", plugin: "acme.packages", label: "Packages", icon: "package", aliases: [], description: "", shortcut: "", provider: "", tui: "", tuiGroup: "" },
-        { id: "packages.install", plugin: "acme.packages", label: "Install", icon: "package", aliases: [], description: "", shortcut: "", provider: "", tui: "core/pkg-install", tuiGroup: "" },
-        { id: "packages.update", plugin: "acme.packages", label: "Update", icon: "refresh-cw", aliases: [], description: "", shortcut: "", provider: "", tui: "", tuiGroup: "Update" }
+    check("menuRows: tui rows carry their key and group", pluginMenuRows({ "acme.packages": packagesManifest }, ["acme.packages"], {}).rows, [
+        { id: "pkgtools", plugin: "acme.packages", label: "Packages", icon: "package", aliases: [], description: "", shortcut: "", provider: "", tui: "", tuiGroup: "" },
+        { id: "pkgtools.install", plugin: "acme.packages", label: "Install", icon: "package", aliases: [], description: "", shortcut: "", provider: "", tui: "core/pkg-install", tuiGroup: "" },
+        { id: "pkgtools.update", plugin: "acme.packages", label: "Update", icon: "refresh-cw", aliases: [], description: "", shortcut: "", provider: "", tui: "", tuiGroup: "Update" }
     ]);
 
     // menuActivation: a listed row's registered global runs; anything else
     // is refused by key.
-    const rows = ctx.menuRows(manifests, ["acme.style"], {}).rows;
+    const rows = pluginMenuRows(manifests, ["acme.style"], {}).rows;
     const registered = { "acme.style:open": {}, "acme.style:panel": {} };
     check("menuActivation: a listed, registered global runs", ctx.menuActivation(rows, registered, "acme.style:open"), "ok");
     check("menuActivation: a listed global no instance registered", ctx.menuActivation(rows, registered, "acme.style:gaps"), "refused: shortcut=acme.style:gaps reason=unregistered");
@@ -212,6 +223,7 @@ suite(load(LOGIC), report);
 // Each control removes one rule from a copy of the judge and keeps the text
 // around it; the suite must fail on every copy.
 const CONTROLS = [
+    ["the core package entry stays available", 'shortcut: "vgs:package-review-settings"', 'shortcut: ""'],
     ["menu is a manifest key", "\"tui\", \"menu\", \"secrets\"", "\"tui\", \"secrets\""],
     ["the menu is judged", "var badMenu = menuError(raw.menu, capabilities, schema, raw.status === undefined ? {} : raw.status);", "var badMenu = \"\";"],
     ["the menu is carried", "manifest.menu = raw.menu === undefined ? {} : clone(raw.menu);", "manifest.menu = {};"],

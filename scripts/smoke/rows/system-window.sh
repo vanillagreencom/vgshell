@@ -38,7 +38,7 @@
 # sidebar lists its fixtures alone, and leaves the user file, vgs.system's
 # and each shipped section's enablement, the plugins directory and the
 # shell's PATH directory as it found them.
-# inputs: shell/plugins/vgs.sound/* shell/plugins/vgs.bluetooth/* shell/plugins/vgs.network/* shell/plugins/vgs.tailscale/* shell/plugins/vgs.vpn/* shell/plugins/vgs.displays/* shell/plugins/vgs.mouse/* shell/plugins/vgs.keyboard/* shell/plugins/vgs.motion/* shell/plugins/vgs.windows/* shell/plugins/vgs.ui/* shell/plugins/vgs.power/* shell/plugins/vgs.sounds/* shell/plugins/vgs.printers/* shell/plugins/vgs.fonts/* config/shell.json shell/plugins/vgs.system/* shell/Ui/layout/ListCursor* shell/Ui/layout/ListItem.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/plugins/*/manifest.json scripts/smoke/fixtures/plugins/acme.pane/* shell/Hosts/PaneHost.qml shell/Hosts/AppWindow.qml shell/Core/Capabilities.qml shell/Core/Config.qml shell/Commons/WatchedFile.qml scripts/smoke/rows/hyprland-consent.sh shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Ui/feedback/SaveBar.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js
+# inputs: shell/plugins/vgs.packages/* shell/plugins/vgs.sound/* shell/plugins/vgs.bluetooth/* shell/plugins/vgs.network/* shell/plugins/vgs.tailscale/* shell/plugins/vgs.vpn/* shell/plugins/vgs.displays/* shell/plugins/vgs.mouse/* shell/plugins/vgs.keyboard/* shell/plugins/vgs.motion/* shell/plugins/vgs.windows/* shell/plugins/vgs.ui/* shell/plugins/vgs.power/* shell/plugins/vgs.sounds/* shell/plugins/vgs.printers/* shell/plugins/vgs.fonts/* config/shell.json shell/plugins/vgs.system/* shell/Ui/layout/ListCursor* shell/Ui/layout/ListItem.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/plugins/*/manifest.json scripts/smoke/fixtures/plugins/acme.pane/* shell/Hosts/PaneHost.qml shell/Hosts/AppWindow.qml shell/Core/Capabilities.qml shell/Core/Config.qml shell/Commons/WatchedFile.qml scripts/smoke/rows/hyprland-consent.sh shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Ui/feedback/SaveBar.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js
 set -euo pipefail
 expected_errors+=('system: no section acme[.]nope' 'summon host: vgs[.]system open[(][)] failed: payload ')
 
@@ -145,6 +145,23 @@ sys_was="$(plugin_enabled vgs.system)" || fail "vgs.system's enabled state is un
 # shipped section, such as vgs.displays from the default set rows/hidpi.sh
 # restarts over, is set aside; the restore below puts each back.
 sys_aside="$(shipped_panes_enabled)" || { fail "the enabled shipped sections are unreadable"; sys_aside='[]'; }
+# Alternate holders need the exclusive panes capability. These disposable
+# consumers release it; the unshadowed always-on plugins are checked by packages.sh.
+python3 - "$repo/shell/plugins" "$home/.config/vgshell/plugins" <<'ALWAYSONFIXTURE'
+import json, pathlib, shutil, sys
+source, destination = map(pathlib.Path, sys.argv[1:])
+for plugin in ['vgs.system', 'vgs.packages']:
+    target = destination / plugin
+    assert not target.exists(), f"fixture already exists: {target}"
+    shutil.copytree(source / plugin, target)
+    manifest = target / 'manifest.json'
+    document = json.loads(manifest.read_text())
+    document['alwaysOn'] = False
+    manifest.write_text(json.dumps(document))
+ALWAYSONFIXTURE
+expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: vgs\.system' 'plugins: hidden by a higher-precedence plugin with the same id: vgs\.packages')
+rescan "the disposable pane consumers are scanned"
+expect "the disposable Packages section can be set aside" ok ipc shell setPluginEnabled vgs.packages false
 set_aside_shipped_panes "$sys_aside"
 expect "no fixture panes holder is installed" absent plugin_enabled acme.panehost
 
@@ -513,6 +530,7 @@ root = sys.argv[1]
 path = os.path.join(root, "manifest.json")
 doc = json.load(open(path))
 doc["id"], doc["name"] = "acme.system-stale", "System Copy"
+doc.pop("alwaysOn", None)
 del doc["hyprland"]
 json.dump(doc, open(path, "w"))
 qml = os.path.join(root, "Window.qml")
@@ -552,6 +570,7 @@ root = sys.argv[1]
 path = os.path.join(root, "manifest.json")
 doc = json.load(open(path))
 doc["id"], doc["name"] = "acme.system-blank", "System Blank"
+doc.pop("alwaysOn", None)
 del doc["hyprland"]
 json.dump(doc, open(path, "w"))
 qml = os.path.join(root, "Window.qml")
@@ -616,6 +635,7 @@ cp -- "$sys_saved" "$sys_file.tmp" && mv -T -- "$sys_file.tmp" "$sys_file"
 rm -rf -- "${home:?}/.config/vgshell/plugins/acme.pane" "${home:?}/.config/vgshell/plugins/acme.pane-alt" "${home:?}/.config/vgshell/plugins/acme.pane-net" "${home:?}/.config/vgshell/plugins/acme.pane-off"
 rm -f -- "$shim/vgshell"
 if [[ -e $sandbox/system-vgshell.saved ]]; then mv -- "$sandbox/system-vgshell.saved" "$shim/vgshell"; fi
+rm -rf -- "${home:?}/.config/vgshell/plugins/vgs.system" "${home:?}/.config/vgshell/plugins/vgs.packages"
 rescan "rescan after removing the System fixtures answers ok"
 expect_poll "the System fixtures are gone after restore" absent plugin_enabled acme.pane
 expect_poll "vgs.system is enabled again as the row found it" "$sys_was" plugin_enabled vgs.system

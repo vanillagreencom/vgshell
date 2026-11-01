@@ -23,7 +23,7 @@
 # SCENE is gallery, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, tailscale, tailscale-starting, tailscale-locked, tailscale-flyout, vpn, vpn-locked, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, automation-failure, googledrive, tooltips, screensaver-lock, capture, capture-notifications,
-# info-dialog, keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, jarvis-console, jarvis-audit, jarvis-setup, elevenlabs-voices, jarvis-fleet, outdated, jarvis-causes, jarvis-restart, plugin-messages, page-links, tooltip-link, traffic, ai-usage, ai-usage-states, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice, displays-override or theme-previews. settings takes the
+# info-dialog, keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, package-review-terminal, packages, jarvis-console, jarvis-audit, jarvis-setup, elevenlabs-voices, jarvis-fleet, outdated, jarvis-causes, jarvis-restart, plugin-messages, page-links, tooltip-link, traffic, ai-usage, ai-usage-states, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice, displays-override or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, or with --pages
@@ -110,6 +110,11 @@
 # confirmation, over the voxtype stand-in and a real kitty terminal.
 # With --rev on a tree before the core setup, it captures Voice's Set up.
 # No model download, system step or authentication runs.
+# package-review-terminal captures the real terminal review editor in kitty,
+# with a read-only owner fixture and the real gum target rendered to scratch.
+# No install, update, review agent or theme apply runs.
+# packages captures General > Packages in System Settings at its update
+# options, then at Agent review and the optional review command.
 # voice-keys is the Keys
 # section of Voice's Settings page with Voice on, then the pointer on its
 # first key's info icon where the tree draws one, which opens no tooltip,
@@ -431,7 +436,7 @@ while [[ $# -gt 0 ]]; do
     --title-inventory) title_inventory=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    link-icons|sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|capture-notifications|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-audit|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|jarvis-restart|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|tailscale-flyout|tailscale-section|vpn|vpn-locked|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|automation-failure|googledrive|tooltips|screensaver|screensaver-lock|theme-previews|setup-tab|updates|clone-voice|displays-override) scenes+=("$1"); shift ;;
+    link-icons|sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|capture-notifications|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|package-review-terminal|packages|voice-keys|jarvis-console|jarvis-audit|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|jarvis-restart|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|tailscale-flyout|tailscale-section|vpn|vpn-locked|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|automation-failure|googledrive|tooltips|screensaver|screensaver-lock|theme-previews|setup-tab|updates|clone-voice|displays-override) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -591,6 +596,8 @@ scene_ships() {
     voice-setup) ships_plugin vgs.voice vgs.settings ;;
     voice-elsewhere) ships_plugin vgs.voice vgs.settings && tree_has shell/plugins/vgs.voice/manifest.json '"dictation"' ;;
     dictation-setup) ships_plugin vgs.settings && { [[ -x $tree/bin/vgshell-dictation ]] || { [[ -n $rev ]] && ships_plugin vgs.voice; }; } ;;
+    package-review-terminal) [[ -f $tree/bin/lib/pkg-review-settings.sh ]] ;;
+    packages) ships_plugin vgs.system vgs.packages ;;
     plugin-messages) ships_plugin vgs.clipboard vgs.lock vgs.notifications ;;
     page-links) [[ $manager_scene == settings ]] && tree_has shell/Ui/feedback/LinkText.qml '(page:' ;;
     tooltip-link) scene_ships bar ;;
@@ -10107,6 +10114,73 @@ LINKKEYS
 
 # The first shot is the bare desktop; every later shot must differ from the
 # one before it, which is what proves grim reads the frame being drawn now.
+scene_package-review-terminal() { # MODE
+  local mode="$1" world="$sandbox/package-review-terminal-$1" kitty_bin gum_bin address
+  kitty_bin="$(command -v kitty)" && gum_bin="$(command -v gum)" || { fail "package-review-terminal: kitty or gum is missing"; return; }
+  mkdir -p -- "$world/state/vgshell/theme" "$world/bin"
+  # Render the shipped target without applying a theme or running reloads.
+  node - "$repo" "$theme_file" "$world" "$fixture_targets/gum" <<'REVIEWSTYLE' || { fail "the review terminal colours could not be rendered"; return; }
+const fs=require('node:fs'),path=require('node:path');
+const [repo,theme,world,dir]=process.argv.slice(2),load=require(path.join(repo,'bin/lib/qml-library.js')).load;
+const logic=load(path.join(repo,'shell/Commons/ThemeLogic.js')),tokens=load(path.join(repo,'shell/Commons/Tokens.js')).TOKENS;
+const render=require(path.join(repo,'bin/lib/theme-render.js'));
+const pkg=logic.accept(tokens,fs.readFileSync(theme,'utf8'));
+if(!pkg.ok)throw new Error(logic.refusalLine(pkg));
+const terminal=logic.acceptTerminal(fs.readFileSync(path.join(repo,'themes',pkg.name==='vgs'?'vgs':'catalog/'+pkg.name,'terminal.json'),'utf8'));
+if(!terminal.ok || terminal.slots===null)throw new Error('the capture theme has no terminal palette');
+const judged=render.acceptTarget(logic,'gum',fs.readFileSync(path.join(dir,'target.json'),'utf8'));
+if(!judged.ok)throw new Error(render.refusalLine('gum',judged));
+const target=judged.target,templates=new Map(target.files.map(file=>[file.template,fs.readFileSync(path.join(dir,file.template),'utf8')]));
+const result=render.renderTarget(logic,tokens,target,templates,{values:pkg.values,slots:terminal.slots,curated:new Map(),installed:false});
+if(!result.ok)throw new Error(render.refusalLine('gum',result));
+for(const file of result.files)fs.writeFileSync(path.join(world,'state/vgshell/theme',file.destination),file.bytes);
+const color=key=>'#'+pkg.values.color[key].slice(1,7);
+fs.writeFileSync(path.join(world,'kitty.conf'),`background ${color('background')}\nforeground ${color('text')}\nconfirm_os_window_close 0\nshell_integration disabled\nenable_audio_bell no\n`);
+REVIEWSTYLE
+  cat >"$world/owner" <<'REVIEWOWNER'
+#!/usr/bin/env bash
+case "${1:-}" in
+  review-settings-read) printf '%s\n' '{"version":1,"text":null,"settings":{"agent":"","command":""}}' ;;
+  review-settings-agents) printf 'claude\tClaude Code\tfound\ncodex\tCodex\tfound\n' ;;
+  *) exit 70 ;;
+esac
+REVIEWOWNER
+  {
+    printf '#!/usr/bin/env bash\nset -euo pipefail\n'
+    printf 'marker=%q gum=%q\n' "$world/asking" "$gum_bin"
+    printf '[[ ${1:-} != choose ]] || : >"$marker"\nexec "$gum" "$@"\n'
+  } >"$world/bin/gum"
+  chmod 755 "$world/owner" "$world/bin/gum"
+  spawn_display "$world/terminal.log" "${shell_env[@]}" PATH="$world/bin:$shell_start_path" TERM=xterm-256color XDG_STATE_HOME="$world/state" -- \
+    "$kitty_bin" --config "$world/kitty.conf" --class org.vgs.tui.tall --title 'Package review choices' \
+    "$repo/bin/vgshell-tui" present --presentation plain -- "$repo/bin/lib/pkg-review.sh" settings "$world/owner" || return
+  review_terminal_ready() {
+    [[ -e $world/asking ]] || { echo waiting; return; }
+    hypr -j clients | py_reply 'import json,sys; print("ready" if any(c["class"]=="org.vgs.tui.tall" and c["mapped"] for c in json.load(sys.stdin)) else "waiting")'
+  }
+  expect_poll "the real package review editor waits for a choice" ready review_terminal_ready
+  park_pointer
+  take_posed "package-review-terminal-$mode-header"
+  printf '%s\t%s\t%s\n' "$mode" "$capture_source" 'real editor in kitty; read-only owner fixture; no desktop entrypoint or package operation' >>"$SHOT_DIR/package-review-terminal-states.tsv"
+  address="$(hypr -j clients | py_reply 'import json,sys; rows=[c for c in json.load(sys.stdin) if c["class"]=="org.vgs.tui.tall" and c["mapped"]]; print(rows[0]["address"] if len(rows)==1 else "none")')" || return
+  [[ $address == 0x* ]] || { fail "the review terminal window is unreadable"; return; }
+  expect "the review terminal closes without saving" ok hypr dispatch "hl.dsp.window.close({ window = \"address:$address\" })"
+  expect_poll "the review terminal is gone" waiting review_terminal_ready
+}
+
+scene_packages() { # MODE
+  local mode="$1"
+  expect "System Settings opens General Packages" ok ipc shell summon window vgs.system '{"pane":"vgs.packages"}'
+  expect_poll "System Settings mounts Packages" '["vgs.packages"]' window_panes
+  park_pointer
+  take "packages-$mode-updates"
+  ipc smoke revealText window vgs.system Field 'Review command' >/dev/null || { fail "Packages could not reveal Review command"; return; }
+  park_pointer
+  take "packages-$mode-agent-review"
+  expect "System Settings closes after Packages" ok ipc shell hide window vgs.system
+  expect_poll "the Packages window is gone" hidden system_shown
+}
+
 park_pointer
 take "00-desktop"
 for mode in "${mode_list[@]}"; do

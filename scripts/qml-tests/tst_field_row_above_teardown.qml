@@ -4,7 +4,6 @@ import qs.Commons
 import qs.Core
 import qs.Ui
 import qs.Unit
-import "../../shell/plugins/vgs.settings"
 
 // A Field under a key/value row that QML has begun to destroy. QML marks an
 // item and its QObject children deleted before the item leaves its parent,
