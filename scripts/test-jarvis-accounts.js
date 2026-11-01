@@ -1010,25 +1010,31 @@ world(async () => {
         "const MAX_PARENT_ENTRIES = 200;", crowdedSearch);
     controls++;
     cases++;
-    // A home past the bound: the folders among the names read before it,
-    // as fs.opendirSync hands them out, plus every other parent's.
-    const full = worldOf("full");
-    const fullConfig = seed(full.env.XDG_CONFIG_HOME, ".claude-config");
-    const fullHome = [seed(full.env.HOME, ".claude-0")];
-    for (let i = 0; i <= 10000; i++) {
-        fs.writeFileSync(path.join(full.env.HOME, String(i)), "");
-        if (i % 1000 === 0) fullHome.push(seed(full.env.HOME, ".claude-" + (i / 1000 + 1)));
-    }
-    const readFirst = [];
-    const listing = fs.opendirSync(full.env.HOME);
-    try {
-        for (let entry; readFirst.length < 10000 && (entry = listing.readSync()) !== null;)
-            readFirst.push(entry);
-    } finally { listing.closeSync(); }
-    const expectedHome = readFirst.filter(entry => entry.isDirectory() && /^\.claude-[0-9]+$/.test(entry.name))
-        .map(entry => path.join(full.env.HOME, entry.name)).sort();
-    assert.ok(expectedHome.length > 0, "the names read before the bound hold an account folder");
-    assert.ok(fullHome.some(directory => !expectedHome.includes(directory)), "an account folder is past the bound");
+    // Every home entry is an account folder: any directory read order puts
+    // folders both before and past the bound. The expected names still
+    // come from the bounded filesystem read, as the production walk does.
+    const fullWorld = (name, entries) => {
+        const full = worldOf(name);
+        const fullConfig = seed(full.env.XDG_CONFIG_HOME, ".claude-config");
+        const fullHome = Array.from({ length: entries }, (_, i) => seed(full.env.HOME, ".claude-" + i));
+        const readFirst = [];
+        const listing = fs.opendirSync(full.env.HOME);
+        try {
+            for (let entry; readFirst.length < 10000 && (entry = listing.readSync()) !== null;)
+                readFirst.push(entry);
+        } finally { listing.closeSync(); }
+        assert.equal(readFirst.length, 10000, "the world reaches the entry bound");
+        const expectedHome = readFirst.filter(entry => entry.isDirectory() && /^\.claude-[0-9]+$/.test(entry.name))
+            .map(entry => path.join(full.env.HOME, entry.name)).sort();
+        assert.ok(expectedHome.length > 0, "the names read before the bound hold an account folder");
+        const admitted = new Set(expectedHome);
+        assert.ok(fullHome.some(directory => !admitted.has(directory)), "an account folder is past the bound");
+        return { full, fullConfig, expectedHome };
+    };
+    assert.throws(() => fullWorld("no-past-bound", 10000),
+        { code: "ERR_ASSERTION", message: "an account folder is past the bound" });
+    controls++;
+    const { full, fullConfig, expectedHome } = fullWorld("full", 10001);
     const boundReached = folder => {
         const accountFolders = foldersIn(folder);
         let found;

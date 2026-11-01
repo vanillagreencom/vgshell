@@ -2994,6 +2994,32 @@ PY
 test_args=(--changed HEAD --skip-unprepared)
 row "control: a validate without the rule runs the unset prepared row" "$d" 77 "" \
   "validate: status=not-measured skipped=prepared row"
+
+# The sink row's declared character device uses the same preparation
+# selection as environment inputs. /dev/null supplies a harmless real
+# character device; the absent path needs no host device changes.
+d="$tmp/device-unprepared"; fresh "$d"
+python3 - "$d/scripts/validate" "$d/absent-device*" <<'PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+source = path.read_text()
+assert source.count('rows=(\n') == 1
+path.write_text(source.replace('rows=(\n', 'rows=(\n  "logic|device row|scripts/check-device.sh|device:' + sys.argv[2] + '"\n'))
+PY
+"${base_env[@]}" git -C "$d" commit -q -am device-row
+printf '#!/bin/sh\nexit 77\n' >"$d/scripts/check-device.sh"
+chmod +x "$d/scripts/check-device.sh"
+test_args=(--changed HEAD --skip-unprepared)
+row "--skip-unprepared names an absent declared device and runs nothing" "$d" 0 "" \
+  "validate: unselected missing=device:$d/absent-device* row=device row" "validate: ok" '!exit=77 row=device row'
+cp -a -- "$d" "$d-undeclared"
+plant "$d-undeclared/scripts/validate" "device:$d/absent-device*" ""
+row "control: without its declaration the absent device row runs and exits 77" "$d-undeclared" 77 "" \
+  "validate: status=not-measured skipped=device row" '!validate: unselected'
+plant "$d/scripts/validate" "device:$d/absent-device*" "device:/dev/nul*"
+row "--skip-unprepared runs a row with a present declared character device" "$d" 77 "" \
+  "validate: status=not-measured skipped=device row" '!validate: unselected'
 test_area=offline
 test_args=()
 

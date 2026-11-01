@@ -1,7 +1,9 @@
 # The full validation of main once a night, report only. No push, pull
 # request or merge queue starts it and no merge reads its result. Each area is
 # one job that runs scripts/validate --full --skip-unprepared AREA, which leaves
-# out the rows that need prepared state a runner never holds. qml does not
+# out the rows that need prepared state a runner never holds. unit runs in
+# scripts/main-run.sh's full main batch, so this workflow does not repeat it.
+# qml does not
 # run here: Hyprland allocates buffers only through GBM on a DRM device,
 # which a hosted runner lacks, so scripts/main-run.sh qml runs it on a
 # machine that has one.
@@ -34,8 +36,6 @@ jobs:
         include:
           - area: offline
             image: docker.io/library/archlinux:latest
-          - area: unit
-            image: docker.io/library/archlinux:latest
           # Rootless podman starts these areas' own containers; it does not
           # run inside a container job, so they run on the runner itself.
           - area: package
@@ -63,7 +63,7 @@ jobs:
           # the X display that scripts/qml-unit.sh draws it on.
           pacman -Syu --noconfirm --needed \
             git base-devel nodejs python python-dbus python-gobject python-numpy jq rclone \
-            qt6-declarative quickshell util-linux bubblewrap lua gnupg \
+            qt6-declarative quickshell util-linux bubblewrap lua gnupg sqv \
             libsecret xdg-dbus-proxy sudo tmux ghostty neovim fd fzf gum file glib2 xdg-utils imagemagick ffmpeg \
             qt6-shadertools pipewire pipewire-audio ttf-dejavu ttf-liberation wayland-protocols \
             xorg-server-xvfb xorg-xauth
