@@ -20,7 +20,7 @@ ENV = {"PATH": os.environ.get("PATH", ""), "LC_ALL": "C"}
 
 # Files copied from the repository into every fixture: the real table, judge,
 # singleton and loader, so a row judges against the shipped token paths.
-SHIPPED = ("shell/Commons/Tokens.js", "shell/Commons/ThemeLogic.js", "shell/Commons/Theme.qml", "shell/Commons/Glass.js", "shell/Commons/SettingValues.js", "shell/Commons/PageReference.js", "shell/Core/PluginLogic.js", "shell/Core/ConfigLogic.js", "shell/Core/Pads.js", "shell/Core/PackageManagers.js", "shell/Core/MonitorLogic.js", "shell/Core/HyprlandLayer.js", "shell/Ui/icons/Lucide.js", "shell/Ui/icons/Own.js", "bin/lib/qml-library.js")
+SHIPPED = ("shell/Commons/Tokens.js", "shell/Commons/ThemeLogic.js", "shell/Commons/Theme.qml", "shell/Commons/Glass.js", "shell/Commons/SettingValues.js", "shell/Commons/PageReference.js", "shell/Core/PluginLogic.js", "shell/Core/ConfigLogic.js", "shell/Core/Pads.js", "shell/Core/PackageManagers.js", "shell/Core/PackageReview.js", "shell/Core/MonitorLogic.js", "shell/Core/HyprlandLayer.js", "shell/Ui/icons/Lucide.js", "shell/Ui/icons/Own.js", "bin/lib/qml-library.js")
 # Every tree the default scope walks, each with one clean file, so a fixture
 # walks what the repository walks: these six, the shipped files under shell/
 # (the three under shell/Commons, and the manifest judge under shell/Core with

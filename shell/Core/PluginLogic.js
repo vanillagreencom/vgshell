@@ -3,6 +3,7 @@
 .import "../Commons/SettingValues.js" as SettingValues
 .import "../Ui/icons/Lucide.js" as Lucide
 .import "PackageManagers.js" as PackageManagers
+.import "PackageReview.js" as PackageReview
 .import "HyprlandLayer.js" as HyprlandLayer
 .import "Pads.js" as Pads
 .import "MonitorLogic.js" as MonitorLogic
@@ -3723,11 +3724,12 @@ function tuiSsh(runner, name, host) {
 // COMPLETION: `{ code: 0, reason: null }` for exit 0, which says
 // xdg-terminal-exec handed the session on, exiting 0 or still running at
 // the launcher's start ceiling (bin/vgshell-tui), not that ssh reached the
-// host; else tuiLaunchDone's answer, `launcher-missing` for no terminal and
-// `launcher-failed` for a terminal that failed at its start.
+// host; else tuiLaunchDone's code and reason, `launcher-missing` for no
+// terminal and `launcher-failed` for a terminal that failed at its start.
+// An ssh session keeps no record, so it has no package outcome.
 function tuiSshDone(completion) {
     var failed = tuiLaunchDone(completion);
-    return failed === null ? { code: 0, reason: null } : failed;
+    return failed === null ? { code: 0, reason: null } : { code: failed.code, reason: failed.reason };
 }
 
 // The launch key and refusal label of core TUI NAME run for OWNER, a
@@ -3950,15 +3952,15 @@ function tuiReapOutcome(completion, stdout, stderr) {
 
 // What a launch's `done` receives when its launcher ended with COMPLETION,
 // or null for a launcher that saw the run's record: its `done` waits for
-// the ended record. `{ code: null, reason: "launcher-missing" }` when no
-// terminal was found, `{ code: null, reason: "launcher-failed" }` for every
-// other end, the silent terminal included.
+// the ended record (tuiRunDone). `{ code: null, reason: "launcher-missing",
+// package: null }` when no terminal was found, reason `launcher-failed` for
+// every other end, the silent terminal included.
 function tuiLaunchDone(completion) {
     if (completion !== null && completion.status === 0 && completion.code === 0)
         return null;
     if (completion !== null && completion.status === 0 && completion.code === TUI_LAUNCHER_MISSING)
-        return { code: null, reason: "launcher-missing" };
-    return { code: null, reason: "launcher-failed" };
+        return { code: null, reason: "launcher-missing", package: null };
+    return { code: null, reason: "launcher-failed", package: null };
 }
 
 // Whether KEY is a launch key: `core/<name>` or `<plugin id>/<name>`.
@@ -3972,10 +3974,15 @@ function tuiKeyValid(key) {
     return (owner === "core" || ID_PATTERN.test(owner)) && ConfigLogic.NAME_PATTERN.test(key.slice(slash + 1));
 }
 
-// One exit record's TEXT, as bin/vgshell-tui writes it: { ok: true, record }
-// or { ok: false, error } naming the first defect. A running record has a
-// null code and endedAt; an ended one an integer code, or null when
-// `vgshell-tui reap` wrote it, and an endedAt.
+// One exit record's TEXT, as bin/vgshell-tui writes it: { ok: true, record,
+// packageError } or { ok: false, error } naming the first defect. A running
+// record has a null code and endedAt; an ended one an integer code, or null
+// when `vgshell-tui reap` wrote it, and an endedAt. The record's `package`
+// is the package owner's outcome PackageReview.packageOutcome accepted
+// against the record's run and code, else null. A refused outcome keeps
+// the record, so the run's completion still reaches its `done` as the
+// generic one, and `packageError` names the judge's refusal key; it is
+// null when the field is absent or accepted.
 function tuiRecord(text) {
     var value;
     try {
@@ -4000,7 +4007,9 @@ function tuiRecord(text) {
         return { ok: false, error: "record endedAt " + JSON.stringify(value.endedAt) + " does not fit state " + value.state };
     if (!isPlainObject(value.window) || typeof value.window.appId !== "string" || typeof value.window.title !== "string")
         return { ok: false, error: "record window must be { appId, title }" };
-    return { ok: true, record: { key: value.key, run: value.run, state: value.state, code: value.code, startedAt: value.startedAt, endedAt: value.endedAt, window: { appId: value.window.appId, title: value.window.title } } };
+    var outcome = hasOwn(value, "package") ? PackageReview.packageOutcome(value.package, value.run, value.code) : null;
+    var record = { key: value.key, run: value.run, state: value.state, code: value.code, startedAt: value.startedAt, endedAt: value.endedAt, window: { appId: value.window.appId, title: value.window.title }, package: outcome !== null && outcome.ok ? outcome.outcome : null };
+    return { ok: true, record: record, packageError: outcome !== null && !outcome.ok ? outcome.error : null };
 }
 
 // The runs RECORDS, a list of tuiRecord records, describe: { runs, keys },
@@ -4077,14 +4086,15 @@ function tuiState(runs, id, names, pending) {
 }
 
 // What the `done` of RUN receives, from RUNS, a tuiRuns result: null while
-// the run has no ended record, else { code, reason }, `reason` null for a
-// run that ended with its code and `vanished` for one `vgshell-tui reap`
-// ended, whose code is null.
+// the run has no ended record, else { code, reason, package }, `reason`
+// null for a run that ended with its code and `vanished` for one
+// `vgshell-tui reap` ended, whose code is null, and `package` the ended
+// record's judged package outcome or null (tuiRecord).
 function tuiRunDone(runs, run) {
     if (!hasOwn(runs.runs, run) || runs.runs[run].state !== "ended")
         return null;
-    var code = runs.runs[run].code;
-    return { code: code, reason: code === null ? "vanished" : null };
+    var record = runs.runs[run];
+    return { code: record.code, reason: record.code === null ? "vanished" : null, package: record.package };
 }
 
 // The runs that need a `vgshell-tui wait` process: every launch the launcher
@@ -4134,7 +4144,7 @@ function tuiWaitOutcome(key, run, wanted, completion, stdout, stderr) {
         return { record: null, logs: [prefix + " reason=" + judged.error] };
     if (judged.record.key !== key || judged.record.run !== run || judged.record.state !== "ended")
         return { record: null, logs: [prefix + " reason=record-mismatch"] };
-    return { record: judged.record, logs: [] };
+    return { record: judged.record, logs: judged.packageError === null ? [] : [prefix + " package-outcome=unavailable reason=" + judged.packageError] };
 }
 
 // The ended records from `vgshell-tui wait` still needed beside LISTED, the

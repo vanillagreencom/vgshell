@@ -168,7 +168,9 @@ function installScriptChange(installedText, newText) {
 // The build tools whose output classifyInstallFailure reads, each with the
 // versions whose messages it was checked against: makepkg 7.1.0 and paru
 // 2.1.0 in the owned reproduction under scripts/fixtures/pkg/check-failure/.
-// yay has no checked transcript, so its failures stay ordinary.
+// yay stays unsupported, its failures ordinary, because no real yay check()
+// interval has been retained. Revisit when a user reports a yay install
+// that fails only in check() and it reproduces on a machine with yay.
 var SUPPORTED_BUILDERS = { makepkg: /^7\.1\.[0-9]+$/, paru: /^2\.1\.[0-9]+$/ };
 // The most bytes of one attempt's output the classifier reads; a longer
 // interval is incomplete evidence, never a cut one. A ceiling, not a

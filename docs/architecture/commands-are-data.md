@@ -70,6 +70,7 @@ A string that reaches a shell becomes code, and a plugin's or a catalog's text w
 - Do offer one retry without tests only on the user's choice, Stop selected, built from PackageManagers' `retryPlan` or `bootstrapBuild` for the one failed target, and run it as the original build ran: the helper asks sudo for itself under the build guard, never inside a live outer credential session. Never retry by itself, persist a flag or skip a source integrity check. A prepared Updates step keeps Updates' own failure report. `scripts/fixtures/pkg-review/runtime-test.js` pins each.
 - Do consume a retry before it runs. Only a requirement notice's run that stopped holds its retry, beneath the package review workspace. A newer run of the key or the end of its record retires it, and `vgshell pkg retry` claims it once against its current helper, configuration and origin. `scripts/fixtures/pkg-review/runtime-test.js` pins each.
 - Do carry a package run's outcome only through the presenter's private outcome channel: the owner the presenter runs directly writes it once, and the presenter alone judges it with `PackageReview.packageOutcome` and puts it in the ended record. `scripts/test-vgshell-tui.sh` pins it.
+- Do read an ended record's outcome through the same judge in `PluginLogic.tuiRecord` and hand it to the run's `done` as `package`; an outcome the judge refuses is logged and leaves `package` null, never the run's completion. `scripts/test-tui-logic.js` and `scripts/qml-tests/tst_tui_records.qml` pin it.
 
 ### System steps
 

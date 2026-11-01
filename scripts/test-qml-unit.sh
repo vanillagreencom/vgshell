@@ -1211,6 +1211,7 @@ mutations=(
   "a removed TUI record's failed read logs|../Core/TuiRecords.qml|error === FileViewError.FileNotFound|false|tst_tui_records.qml"
   "an existing unreadable TUI record logs no error|../Core/TuiRecords.qml|console.error(\"tui: record=\" + reader.path + \" unreadable: error=\" + error);|if (false) console.error(\"tui: record=\" + reader.path + \" unreadable: error=\" + error);|tst_tui_records.qml"
   "a later run's wait record replaces an earlier run's of the key|../Core/TuiRecords.qml|waitRecords.filter(record => record.run !== outcome.record.run)|waitRecords.filter(record => record.key !== outcome.record.key)|tst_tui_records.qml"
+  "a refused TUI package outcome logs nothing|../Core/TuiRecords.qml|if (judged.packageError !== null)|if (false)|tst_tui_records.qml"
   "the list cursor lands where it should travel|layout/ListCursor.qml|if (glide && root[property] !== value) {|if (false) {|tst_listcursor.qml"
   "the list cursor travels after a snap|layout/ListCursor.qml|        state.snapping = true;|        state.snapping = false;|tst_listcursor.qml"
   "the list cursor travels from where it was hidden|layout/ListCursor.qml|const glide = !state.snapping && root.opacity > 0 && duration > 0;|const glide = !state.snapping && duration > 0;|tst_listcursor.qml"

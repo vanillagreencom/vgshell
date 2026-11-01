@@ -103,6 +103,7 @@ ln -s -- "$repo/shell/Commons/PageReference.js" "$tree/shell/Commons/PageReferen
 ln -s -- "$repo/shell/Core/PluginLogic.js" "$tree/shell/Core/PluginLogic.js"
 ln -s -- "$repo/shell/Core/ConfigLogic.js" "$tree/shell/Core/ConfigLogic.js"
 ln -s -- "$repo/shell/Core/PackageManagers.js" "$tree/shell/Core/PackageManagers.js"
+ln -s -- "$repo/shell/Core/PackageReview.js" "$tree/shell/Core/PackageReview.js"
 ln -s -- "$repo/shell/Core/HyprlandLayer.js" "$tree/shell/Core/HyprlandLayer.js"
 ln -s -- "$repo/shell/Core/MonitorLogic.js" "$tree/shell/Core/MonitorLogic.js"
 ln -s -- "$repo/shell/Core/Pads.js" "$tree/shell/Core/Pads.js"
