@@ -60,6 +60,8 @@ magick "${shot_base[@]}" -fill '#222222' -draw 'rectangle 2400,1400 2559,1599' "
 magick "${shot_base[@]}" "$run_dir/clock.png"
 magick -size 1280x800 xc:'#111111' "$run_dir/small.png"
 cp -- "$run_dir/centre.png" "$run_dir/tooltip.png"
+cp -- "$run_dir/centre.png" "$run_dir/scene-dark.png"
+cp -- "$run_dir/centre.png" "$run_dir/scene-light.png"
 # item: the centre box, which items.tsv records. bad: a shot whose
 # items.tsv line has no width. dim: the centre box on a flat colour over
 # the whole output, the bar band included, as a lock screen or a scrim
@@ -75,7 +77,7 @@ printf 'item\t1000\t600\t400\t300\nbad\t1000\t600\t0\t300\n' >"$run_dir/items.ts
 magick -size 2560x1600 xc:'#000000' -fill '#eeeeee' -draw 'rectangle 1200,20 1239,35' -fill white -draw 'rectangle 2555,1596 2559,1599' -fill '#222222' -draw 'rectangle 2000,60 2399,459' "$run_dir/black-panel.png"
 for scene in scene panels bar settings capture; do printf '%s\tdark\tsrc\t100\t100\t111111\n' "$scene"; done >"$run_dir/desktop.tsv"
 printf 'black\tdark\tsrc\t100\t100\t000000\nsplit\tdark\tsrc\t100\t100\t111111\nsplit\tlight\tsrc\t100\t100\t000000\n' >>"$run_dir/desktop.tsv"
-for name in 00-desktop panel centre edge clock small item bad dim dim-empty black-panel; do printf '%s\tsha\tprev\tsettled\tclean\n' "$name"; done >"$run_dir/shots.tsv"
+for name in 00-desktop panel centre edge clock small item bad dim dim-empty black-panel scene-dark scene-light; do printf '%s\tsha\tprev\tsettled\tclean\n' "$name"; done >"$run_dir/shots.tsv"
 printf 'tooltip\tsha\tprev\tsettled\ttooltip\n' >>"$run_dir/shots.tsv"
 # A run whose desktop has no bar band.
 flat_dir="$checkout/tmp/flat"
@@ -190,8 +192,13 @@ cat >"$checkout/scripts/sandbox-shots.sh" <<STAND_IN
 set -euo pipefail
 printf '%s\n' "\$@" >"$stand_in_argv"
 out=""
+modes=dark,light
 while [[ \$# -gt 0 ]]; do
-  if [[ \$1 == --out && \$# -ge 2 ]]; then out="\$2"; shift 2; else shift; fi
+  case \$1 in
+    --out) out="\$2"; shift 2 ;;
+    --modes) modes="\$2"; shift 2 ;;
+    *) shift ;;
+  esac
 done
 [[ -n \$out ]] || { echo "sandbox-shots stand-in: no --out" >&2; exit 3; }
 mkdir -p -- "\$out"
@@ -200,6 +207,7 @@ mkdir -p -- "\$out"
 rm -f -- "\${out:?}"/*
 [[ ! -e "$stand_in_empty" ]] || exit "\$(cat -- "$stand_in_status")"
 cp -- "$run_dir"/* "\$out"/
+if [[ ,\$modes, != *,light,* ]]; then rm -- "\$out/scene-light.png"; fi
 if [[ \$(cat -- "$stand_in_status") == 77 ]]; then
   printf 'sandbox-shots: scene=screensaver mode=dark status=not-measured missing=ttfx\n'
 fi
@@ -224,8 +232,6 @@ settings
 black"
 sandbox_head="--scale
 2
---modes
-dark
 --size
 1280x800
 --out"
@@ -244,9 +250,9 @@ sandbox_case() {
   [[ ! -d $out_dir ]] || images="$(find "$out_dir" -type f -name '*.webp')"
   [[ $want -ne 1 || -z $images ]] || { echo "        sandbox $want: images written: $images"; return 1; }
   [[ $want -eq 1 || $(sizes_in "$out_dir") == "$pass_sizes" ]] || { echo "        sandbox $want: sizes: $(sizes_in "$out_dir" | tr '\n' ' ')"; return 1; }
-  if [[ $status -eq $want && $(head -n 7 <<<"$argv") == "$sandbox_head" \
-    && $(sed -n '8p' <<<"$argv") =~ ^"$checkout"/tmp/readme-shots/[0-9]{8}T[0-9]{6}Z$ \
-    && $(tail -n +9 <<<"$argv") == "$sandbox_scenes" ]]; then
+  if [[ $status -eq $want && $(head -n 5 <<<"$argv") == "$sandbox_head" \
+    && $(sed -n '6p' <<<"$argv") =~ ^"$checkout"/tmp/readme-shots/[0-9]{8}T[0-9]{6}Z$ \
+    && $(tail -n +7 <<<"$argv") == "$sandbox_scenes" ]]; then
     return 0
   fi
   echo "        sandbox $want: exit=$status first stderr line: $err_line argv: $(tr '\n' ' ' <<<"$argv")"
@@ -260,6 +266,22 @@ declare -A sandbox_labels=(
 for want in 1 77 0; do
   if sandbox_case "$repo/scripts/readme-shots.sh" "$want"; then ok "${sandbox_labels[$want]}"; else fail "${sandbox_labels[$want]}"; fi
 done
+
+# The real sandbox defaults to dark,light without --rev. Its stand-in
+# omits the light PNG when the helper overrides that default with dark.
+modes_case() {
+  local images="$checkout/docs/images/plugins"
+  rm -f -- "$images"/*.webp
+  printf '0\n' >"$stand_in_status"
+  run_tool "$1" "$(table 'p.dark.webp scene-dark content' 'p.light.webp scene-light content')"
+  if [[ ${2:-} == dark-only ]]; then
+    [[ $status -eq 1 && $err_line == 'readme-shots: refused: shot=scene-light' \
+      && $(tail -n 1 -- "$TMP_ROOT/err") == 'row=p.light.webp' ]]
+  else
+    [[ $status -eq 0 && $(sizes_in "$images") == $'p.dark.webp 464x364\np.light.webp 464x364' ]]
+  fi
+}
+if modes_case "$repo/scripts/readme-shots.sh"; then ok "one bare run writes the dark and light table rows"; else fail "one bare run writes the dark and light table rows: exit=$status stderr=$err_line"; fi
 
 # The screensaver comes before Capture in the table. A missing screensaver
 # shot must not hide the completed Capture shot or turn the run green.
@@ -280,7 +302,7 @@ selection_case() {
   printf '0\n' >"$stand_in_status"
   run_tool "$1" "$(table 'vgs.screensaver.webp absent full screensaver' 'vgs.capture.webp centre content capture')" --out "$out_dir" capture capture
   [[ $status -eq 0 && $(sizes_in "$out_dir") == 'vgs.capture.webp 464x364' \
-    && $(tail -n +9 -- "$stand_in_argv") == capture ]]
+    && $(tail -n +7 -- "$stand_in_argv") == capture ]]
 }
 if selection_case "$repo/scripts/readme-shots.sh"; then ok "a named scene crops only its images and runs once"; else fail "a named scene crops only its images and runs once"; fi
 unknown_case() {
@@ -303,6 +325,9 @@ if empty_case "$repo/scripts/readme-shots.sh"; then ok "a sandbox with no deskto
 # `sandbox-N` for the case whose stand-in exits N, else a refusal case's
 # label, whose status and line must then differ.
 controls=(
+  "a dark-only capture names the missing light row and shot"
+  'SHOTS_ARGS=(--scale 2 --size 1280x800)' 'SHOTS_ARGS=(--scale 2 --modes dark --size 1280x800)'
+  dark-only
   "a box near the band is not taken from the top edge"
   'top=$(( $2 - MARGIN_PX <= $5 ? 0 : $2 - MARGIN_PX ))' 'top=$(( $2 - MARGIN_PX < 0 ? 0 : $2 - MARGIN_PX ))'
   pass
@@ -374,6 +399,10 @@ text = open(src).read()
 assert text.count(needle) == 1, "the planted text must match once"
 open(dst, "w").write(text.replace(needle, replacement))' "$repo/scripts/readme-shots.sh" "$mutant" "${controls[i + 1]}" "${controls[i + 2]}"; then
     fail "control: $label could not be planted"
+    continue
+  fi
+  if [[ $target == dark-only ]]; then
+    if modes_case "$mutant" dark-only; then ok "control: $label"; else fail "control: $label: exit=$status stderr=$err_line"; fi
     continue
   fi
   if [[ $target == sandbox-* ]]; then

@@ -42,8 +42,8 @@
 # never shows its surface small in an empty frame. Each image is encoded as WebP with WEBP_OPTIONS and no
 # metadata.
 #
-# Without --from it runs scripts/sandbox-shots.sh --scale 2 --modes
-# dark --size 1280x800 over the table's scenes into
+# Without --from it runs scripts/sandbox-shots.sh --scale 2 --size
+# 1280x800 with the sandbox's default dark and light modes over the table's scenes into
 # tmp/readme-shots/<UTC time>. SCENE limits the table to those scenes.
 # A partial run (77) crops completed shots and names missing shots not
 # measured, then exits 77. Other failures stop the command. --from DIR reads a
@@ -69,7 +69,7 @@ set -euo pipefail
 
 # The capture every image is cut from: 1280 by 800 logical pixels at scale
 # 2, so text is drawn at device pixels and every image shares one scale.
-SHOTS_ARGS=(--scale 2 --modes dark --size 1280x800)
+SHOTS_ARGS=(--scale 2 --size 1280x800)
 OUTPUT_SIZE=2560x1600
 # 16 logical pixels at scale 2, the design system's space.xl, around a
 # content crop.
@@ -178,12 +178,12 @@ if [[ -z $from ]]; then
 fi
 [[ -d $from && -f $from/shots.tsv && -f $from/00-desktop.png ]] || stop from "$from"
 
-# shot_png NAME: the run's PNG of shot NAME, checked clean and sized. Its
+# shot_png NAME ROW: the run's PNG of shot NAME, checked clean and sized. Its
 # caller runs it in a subshell, where a refusal prints and exits; the
 # caller exits with it.
 shot_png() {
   local png="$from/$1.png" chrome size
-  [[ -f $png ]] || stop shot "$1"
+  [[ -f $png ]] || stop shot "$1" "row=$2"
   if ! read -r chrome < <(awk -F '\t' -v name="$1" '$1 == name { chrome = $5 } END { print chrome }' "$from/shots.tsv"); then
     stop from "$from" "shots.tsv is unreadable"
   fi
@@ -275,7 +275,7 @@ crop_box() {
   bottom=$(( $2 + $4 + MARGIN_PX > height ? height : $2 + $4 + MARGIN_PX ))
   printf '%dx%d+%d+%d\n' "$((right - left))" "$((bottom - top))" "$left" "$top"
 }
-if ! desktop="$(shot_png 00-desktop)"; then exit 1; fi
+if ! desktop="$(shot_png 00-desktop 00-desktop)"; then exit 1; fi
 if ! background="$(magick "$desktop" -format '%[pixel:p{0,%[fx:h-1]}]' info:)"; then stop measure 00-desktop; fi
 if ! band="$(magick "$desktop" -alpha off \( +clone -fill "$background" -colorize 100 \) "${differ[@]}" -depth 8 pgm:- | python3 -c "$mask_program" band)"; then
   stop measure 00-desktop
@@ -289,7 +289,7 @@ for row in "${table_rows[@]}"; do
     printf 'readme-shots: scene=%s shot=%s status=not-measured\n' "$scene" "$shot"
     continue
   fi
-  if ! png="$(shot_png "$shot")"; then exit 1; fi
+  if ! png="$(shot_png "$shot" "$image")"; then exit 1; fi
   if ! item="$(item_of "$shot")"; then exit 1; fi
   case $crop in
     full) geometry="${width}x${height}+0+0" ;;
