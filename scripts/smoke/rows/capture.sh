@@ -1524,7 +1524,7 @@ changes = {
     "display": ('boxes = outputs\n', 'boxes = [dict(r, x=r["x"] + 1, y=r["y"] + 1, width=r["width"] - 2, height=r["height"] - 2) for r in outputs]\n', 1),
     "all": ('args = ["grim", "-g", f"{left},{top} {right - left}x{bottom - top}"]', 'args = ["grim", "-o", ""]', 1),
     "delay": ('if not self.countdown(delay):', 'if False:', 1),
-    "cancel-delay": ('ready, _, _ = select.select([sys.stdin], [], [], max(0, deadline - time.monotonic()))\n                if ready and sys.stdin.readline().strip() in ("", "cancel"):\n                    return False', 'ready, _, _ = select.select([sys.stdin], [], [], max(0, deadline - time.monotonic()))\n                if ready and sys.stdin.readline().strip() == "":\n                    return False', 1),
+    "cancel-delay": ('if self.cancelled(max(0, deadline - time.monotonic())):\n                    return False', 'if self.read_control(max(0, deadline - time.monotonic())) == "":\n                    return False', 1),
     "cursor": ('args = args + (["-c"] if request.get("cursor", False) else [])', 'args = args', 1),
     "copy-only": ('if processing == "copy":', 'if False:', 1),
     "save-only": ('if processing != "save":', 'if True:', 1),
