@@ -1094,6 +1094,10 @@ function padMotion(theme) {
 // applies once at map, while a tiled area is reapplied on every change
 // (docs/architecture/hyprland.md § Configuration layer).
 function padLines(section, motion) {
+    // Hyprland v0.57.0 LuaMonitor.cpp:64-85 takes a workspace object or
+    // nil to clear; strings are bare names (workspace/WorkspaceUtils.hpp:8-9).
+    // Its setter keeps focus on the old monitor; ConfigActions.cpp:549-551
+    // makes window focus reopen a special workspace there unless its monitor is focused first.
     var p = PADS;
     var lines = [
         "-- " + section.id + " " + commentText(section.version) + ": pads from its manifest",
@@ -1142,7 +1146,7 @@ function padLines(section, motion) {
         "    end",
         "    local function hide(name, mon, refocus)",
         "        animate(name)",
-        "        mon:set_special_workspace({})",
+        "        mon:set_special_workspace(nil)",
         "        local before = pads.before[name] ~= nil and hl.get_window(\"address:\" .. pads.before[name]) or nil",
         "        pads.before[name] = nil",
         "        if refocus and before ~= nil and before.workspace ~= nil and before.workspace.visible then hl.dispatch(hl.dsp.focus({ window = \"address:\" .. before.address })) end",
@@ -1167,7 +1171,8 @@ function padLines(section, motion) {
         "            animate(name)",
         "            local active = hl.get_active_window()",
         "            pads.before[name] = active ~= nil and active.workspace ~= nil and active.workspace.name ~= id and active.address or nil",
-        "            mon:set_special_workspace({ workspace = id })",
+        "            mon:set_special_workspace(ws)",
+        "            hl.dispatch(hl.dsp.focus({ monitor = mon.name }))",
         "            local windows = hl.get_workspace_windows(id)",
         "            if windows[1] ~= nil then hl.dispatch(hl.dsp.focus({ window = \"address:\" .. windows[1].address })) end",
         "        end",

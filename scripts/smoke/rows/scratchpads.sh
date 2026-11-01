@@ -50,6 +50,9 @@
 # inputs: shell/plugins/vgs.scratchpads/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/plugins/vgs.settings/SettingField.qml shell/plugins/vgs.settings/ListField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Core/Pads.js shell/Core/HyprlandLayer.js shell/Core/HyprlandLayer.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Core/Capabilities.qml shell/Hosts/BackgroundHost.qml bin/lib/qml-library.js shell/Core/Notifier.qml shell/plugins/vgs.notifications/* shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Ui/layout/SectionHeader.qml shell/Ui/layout/Section.qml
 set -euo pipefail
 expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: vgs[.]scratchpads')
+expected_errors+=('compositor: hyprctl exited 7 for \["hyprctl","dispatch","hl\.__vgs_pads\.toggle\(\\"2\\",\\"\\"\)"\]$') # VGS-2158 keeps this deliberate duplicate-class refusal as an error.
+expected_errors+=('compositor: hyprctl exited 7 for \["hyprctl","dispatch","hl\.__vgs_pads\.toggle\(\\"1\\",\\"WAYLAND-1\\"\)"\]$') # VGS-2158 will answer no-window without an error before the app maps.
+expected_errors+=('compositor: hyprctl exited 7 for \["hyprctl","dispatch","hl\.__vgs_pads\.toggle\(\\"1\\",\\"\\"\)"\]$') # VGS-2158 will answer no-window without an error when the app maps nothing.
 
 sp_id=vgs.scratchpads
 sp_class=org.vgs.pad.smoke
