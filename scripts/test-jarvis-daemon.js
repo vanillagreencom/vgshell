@@ -46,6 +46,37 @@ const writeCall = (directory, call) => {
     fs.writeFileSync(pending, JSON.stringify(call));
     fs.renameSync(pending, path.join(directory, "call.json"));
 };
+async function homeReply(read, daemon, poll) {
+    for (let attempts = 0; ; attempts++) {
+        const frames = read().filter(frame => ["start-text", "status"].includes(frame.type));
+        const answered = frames.findIndex(frame => frame.type === "status" && frame.daemon === daemon);
+        if (answered > 0 && frames[answered - 1].type === "start-text") return frames.slice(answered - 1, answered + 1);
+        await poll(attempts);
+    }
+}
+async function homeReplyOrder() {
+    const stale = { type: "start-text", size: { kind: "read", layers: [] } };
+    const current = { type: "start-text", size: { kind: "read", layers: [{ layer: "home/AGENTS.md", tokens: 2110 }] } };
+    const frames = [stale, { type: "status", daemon: "ready" }, { type: "status", daemon: "ready" }];
+    const answer = [current, { type: "status", daemon: "locked" }];
+    let delivered = 0;
+    const own = await homeReply(() => frames, "locked", async () => {
+        assert.ok(delivered < answer.length, "the hello reply completes the wait");
+        frames.push(answer[delivered++]);
+    });
+    assert.equal(delivered, answer.length, "extra statuses cannot complete the hello");
+    assert.equal(layerTokens(own[0].size, "home/AGENTS.md"), 2110);
+    await assert.rejects(() => homeReply(() => [...frames.slice(0, 3), answer[1]], "locked", async () => {
+        assert.fail("the hello's own start-text is missing");
+    }), assert.AssertionError);
+    assert.throws(() => layerTokens(stale.size, "home/AGENTS.md"),
+        error => error instanceof assert.AssertionError && error.message.includes("layers=[]"));
+}
+function layerTokens(size, layer) {
+    const entry = size.layers?.find(entry => entry.layer === layer);
+    assert.ok(entry !== undefined, layer + " missing; layers=" + JSON.stringify(size.layers?.map(entry => entry.layer) ?? size.kind));
+    return entry.tokens;
+}
 
 async function inside() {
     process.chdir(process.env.JARVIS_TEST_ROOT);
@@ -56,6 +87,8 @@ async function inside() {
     };
     let controls = 0;
     let cases = 0;
+    await homeReplyOrder();
+    cases++;
     async function run(file, chunks, code, reason = null, expected = [], observations = null) {
         const child = cp.spawn("node", [file, "--tree", tree], { env: {
             PATH: process.env.PATH, HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
@@ -242,11 +275,11 @@ async function inside() {
     fs.writeFileSync(floorFile, source.replace(floorNeedle,
         'Object.defineProperty(process.versions, "node", { value: "21.0.0" });\n' + floorNeedle));
     await run(floorFile, [], 78, "jarvis: node=21.0.0 need=22");
-    async function control(name, needle, replacement, check) {
+    async function control(name, needle, replacement, check, failure = assert.AssertionError) {
         assert.equal(source.split(needle).length - 1, 1, name + " mutation match");
         const copy = daemonCopy(name);
         fs.writeFileSync(copy, source.replace(needle, replacement));
-        await assert.rejects(() => check(copy), assert.AssertionError, name + " must turn red");
+        await assert.rejects(() => check(copy), failure, name + " must turn red");
         controls++;
     }
     await control("audit-startup-list", "auditFailures(audit.failures());", "void audit;", startup);
@@ -272,6 +305,7 @@ async function inside() {
         child.stdout.on("data", data => { out += data; });
         child.stderr.on("data", data => { err += data; });
         const closed = once(child, "close");
+        const frames = () => out.split("\n").slice(0, -1).map(line => JSON.parse(line));
         const statuses = () => out.split("\n").slice(0, -1).map(line => JSON.parse(line)).filter(frame => frame.type === "status").map(frame => frame.causes);
         const cautions = () => out.split("\n").slice(0, -1).map(line => JSON.parse(line)).filter(frame => frame.type === "status").map(frame => frame.cautions);
         // The Personality row each judgement of the folder sends.
@@ -292,20 +326,21 @@ async function inside() {
         const named = setting => ({ ...hello, settings: { ...hello.settings, home: setting } });
         const others = reply(false, 0).causes;
         const seen = [];
-        // Send LINES, the last a hello, and read every status so far once
-        // that hello is answered: WANT is what the lines add. The home cause
-        // of the hello's own answer also ends the wait, so a daemon that
-        // sent fewer statuses is read at once. The bound detects a daemon
-        // that never answers and is no latency budget.
+        let locked = false;
+        // A request can publish extra statuses before the following hello.
+        // Revision is fixed for a daemon; alternate the mutable lock flag so
+        // only this hello can send its status, preceded by its start-text.
         const step = async (lines, want) => {
-            for (const line of lines) send(line);
+            const at = frames().length;
+            for (const line of lines) {
+                if (line.type === "hello") { locked = !locked; send({ ...line, locked }); }
+                else send(line);
+            }
             seen.push(...want);
-            const last = want.at(-1);
-            const met = list => list.length >= seen.length || (last.length > others.length && list.some(causes => causes[0] === last[0]));
-            for (let wait = 0; !met(statuses()); wait++) {
+            await homeReply(() => frames().slice(at), locked ? "locked" : "ready", async wait => {
                 assert.ok(wait < 500 && child.exitCode === null, "the daemon answers the hello: " + err);
                 await new Promise(resolve => setTimeout(resolve, 10)); // Polls the daemon's output.
-            }
+            });
             assert.deepEqual(statuses(), seen);
         };
         try {
@@ -325,7 +360,7 @@ async function inside() {
                 "an AGENTS.md over its budget is a caution of a ready folder, and shows its section");
             // The layer is 8,283 bytes with its heading: about 2,110 tokens at
             // the recorded ratio. The upper bounds fail a size sent in bytes.
-            const agentsTokens = sizes().at(-1).layers.find(entry => entry.layer === "home/AGENTS.md").tokens;
+            const agentsTokens = layerTokens(sizes().at(-1), "home/AGENTS.md");
             assert.ok(agentsTokens > 2000 && agentsTokens < 2300, "an AGENTS.md over its budget is counted whole, in tokens: " + agentsTokens);
             const grown = sizes().at(-1).tokens - bare.tokens;
             assert.ok(grown > 2000 && grown < 2300, "and the whole start text grows with it, in tokens: " + grown);
@@ -376,7 +411,10 @@ async function inside() {
     await control("home-engine", "directories: context.directories, home: () => homeFolder.state, rejudge: judgeSetup });", "directories: context.directories, rejudge: judgeSetup });", homeStatus);
     await control("home-each-hello", "                judgeSetup();\n", "                if (first) judgeSetup(); else configured(engine.configure(context.settings));\n", homeStatus);
     await control("home-rejudged", " && (engine.homeHeld() || engine.voicesHeld() || engine.modelsHeld())) judgeSetup();", " && (engine.homeHeld() || engine.voicesHeld() || engine.modelsHeld())) void judgeSetup;", homeStatus);
-    await control("home-rejudged-held", ' && (engine.homeHeld() || engine.voicesHeld() || engine.modelsHeld())) judgeSetup();', ') judgeSetup();', homeStatus);
+    await control("home-rejudged-held", ' && (engine.homeHeld() || engine.voicesHeld() || engine.modelsHeld())) judgeSetup();', ') judgeSetup();', homeStatus,
+        error => error instanceof assert.AssertionError && error.operator === "deepStrictEqual"
+            && error.actual?.length === 3 && error.expected?.length === 2);
+    console.log("test-jarvis-daemon: control=home-rejudged-held killed reason=extra-status got=3 want=2");
     // Homes offered to Settings are daemon state records, never files below
     // a Jarvis home: startup publishes the saved list, an accepted home joins
     // homes.json and the homes message. A refused folder clears current
