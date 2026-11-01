@@ -9,25 +9,50 @@
 # of class APP_ID, its pid left in toplevel_pid; 1, with its log on
 # stderr, when it does not map within 5 s. Its log holds `mapped`, then
 # each keyboard event it receives. close_toplevel PID LABEL: that helper
-# stopped, LABEL passing when it exits 0 on SIGTERM.
+# stopped through its retained recorder pidfd, LABEL passing when it exits 0
+# on SIGTERM. A failed mapping closes the acquired helper before returning.
 toplevel_pid=""
+declare -A toplevel_owners=()
+acquire_toplevel() { # PID LOG: also used by custom native fixture launches
+  local pid="$1" owner=$BASHPID token
+  token="$(display_record_call native-acquire "$pid" "$owner" "$2")" || return 1
+  # An older caller must keep its token even if Bash reuses its child's PID.
+  if [[ ${toplevel_owners[$pid]+held} ]]; then
+    display_record_call native-close "$token" "$stop_lock_wait_s" >/dev/null || return 1
+    wait "$pid" || true
+    fail "toplevel: acquisition=pid-collision pid=$pid"
+    return 1
+  fi
+  toplevel_owners[$pid]="$token"
+}
 open_toplevel() { # LOG APP_ID TITLE
+  toplevel_pid=""
   spawn_display "$1" "${shell_env[@]}" -- "$sandbox/toplevel" "$2" "$3" || return 1
   toplevel_pid="$spawn_pid"
+  if ! acquire_toplevel "$toplevel_pid" "$1"; then toplevel_pid=""; return 1; fi
   for _ in $(seq 1 25); do
     grep -qxF -- "mapped $2" "$1" && return 0
     kill -0 -- "$toplevel_pid" 2>/dev/null || break
     sleep 0.2
   done
   cat -- "$1" >&2
+  close_toplevel "$toplevel_pid" "the unmapped toplevel helper exits" || return 1
+  toplevel_pid=""
   return 1
 }
 close_toplevel() { # PID LABEL
-  local status=0
-  kill -TERM -- "$1" 2>/dev/null || true
-  for _ in $(seq 1 25); do kill -0 -- "$1" 2>/dev/null || break; sleep 0.2; done
-  if kill -0 -- "$1" 2>/dev/null; then kill -KILL -- "$1" 2>/dev/null || true; fi
+  local status=0 token
+  if [[ -z $1 ]]; then fail "$2: owner=unacquired"; return 1; fi
+  token="${toplevel_owners[$1]-}"
+  if [[ -z $token ]]; then fail "$2: owner=unacquired"; return 1; fi
+  if ! display_record_call native-close "$token" "$stop_lock_wait_s" >/dev/null; then
+    fail "$2: owner=close-failed"
+    return 1
+  fi
+  unset 'toplevel_owners[$1]'
   wait "$1" || status=$?
+  [[ $toplevel_pid != "$1" ]] || toplevel_pid=""
+  [[ $other_pid != "$1" ]] || other_pid=""
   if [[ $status -eq 0 ]]; then ok "$2"; else fail "$2: exit=$status"; fi
 }
 
@@ -36,6 +61,7 @@ close_toplevel() { # PID LABEL
 other_pid=""
 other_log=""
 open_other() { # LOG
+  other_pid=""
   other_log="$1"
   open_toplevel "$other_log" smoke.other "Other window" || return 1
   other_pid="$toplevel_pid"

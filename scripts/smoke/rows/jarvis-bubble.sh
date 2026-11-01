@@ -9,8 +9,14 @@ set -euo pipefail
 jarvis_bubble_snapshots="$(mktemp -d "$sandbox/jarvis-bubble-snapshots.XXXXXX")"
 jarvis_bubble_row_config="$jarvis_bubble_snapshots/shell.json"
 jarvis_bubble_focus_output=false
+jarvis_bubble_client=""
 jarvis_bubble_row_focus="$(hypr -j activewindow | py_reply 'import json,sys; print(json.load(sys.stdin).get("address", ""))')"
 cp -p -- "$home/.config/vgshell/shell.json" "$jarvis_bubble_row_config"
+jarvis_bubble_close_client() {
+  [[ -n $jarvis_bubble_client ]] || return 0
+  close_toplevel "$jarvis_bubble_client" "the client below Jarvis exits" || return 1
+  jarvis_bubble_client=""
+}
 jarvis_bubble_abandon() {
   local before target
   jarvis_key_talk_up
@@ -40,6 +46,7 @@ EOF
   # Early geometry failure can leave the source snapshots unchanged.
   rescan "the bubble row rescans its restored sources"
   jarvis_enable
+  jarvis_bubble_close_client
   if [[ -n $jarvis_bubble_row_focus ]]; then
     expect "the bubble row restores its previous focus" ok hypr dispatch "hl.dsp.focus({ window = \"address:$jarvis_bubble_row_focus\" })"
   fi
@@ -424,6 +431,7 @@ expect_poll "ready idle maps no bubble" 0 layer_count vgs:layer
 expect "the Jarvis widget unplaces without disabling its service" ok ipc shell setPluginPlaced vgs.jarvis false
 expect "the build contains no Jarvis bar widget" 0 jarvis_bubble_widgets
 if ! open_other "$sandbox/toplevel-jarvis-bubble.log"; then fail "the client below Jarvis maps"; exit 1; fi
+jarvis_bubble_client="$other_pid"
 expect_poll "the client below Jarvis has keyboard focus" '["smoke.other", "Other window"]' active_window
 jarvis_bubble_begin
 geometry expect_poll "the bubble clears reserved space and sits at bottom centre" bottom-centre jarvis_bubble_geometry
@@ -759,8 +767,10 @@ PY
       jarvis_key_talk_up ;;
     focus)
       expect "control: add another output without changing focus" ok create_output SMOKE-JARVIS
+      jarvis_bubble_focus_output=true
       expect_poll "control: ignoring focus fails the same output reader" wrong-output jarvis_bubble_focused
       expect "control: remove the second output" ok hypr output remove SMOKE-JARVIS
+      jarvis_bubble_focus_output=false
       jarvis_key_talk_up ;;
     words)
       jarvis_bubble_think caption
@@ -923,4 +933,4 @@ cp -- "$jarvis_bubble_snapshots/backend" "$jarvis_key_backend"
 jarvis_rescan
 jarvis_enable
 jarvis_key_mode hold
-close_other "the client below Jarvis exits"
+jarvis_bubble_close_client

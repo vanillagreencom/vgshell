@@ -489,6 +489,7 @@ expect_poll "the restored store is ready" '"ready"' clip_read service store
 clip_closed() { local got; for _ in $(seq 1 10); do got="$(layer_count vgs:overlay)" || return 1; [[ $got == "$1" ]] || { echo "$got"; return 0; }; sleep 0.2; done; echo "$1"; }
 if spawn_display "$sandbox/clipboard-keys-terminal.log" "${shell_env[@]}" CLIPBOARD_IMAGE="$clip_image" -- "$sandbox/clipboard-cli" smoke.clipboard-terminal "Clipboard terminal"; then
   clip_keys_pid="$spawn_pid"
+  acquire_toplevel "$clip_keys_pid" "$sandbox/clipboard-keys-terminal.log"
   expect_poll "the CLI-route terminal has the keyboard" '["smoke.clipboard-terminal", "Clipboard terminal"]' active_window
   clip_copy "smoke shortcut text"
   expect_poll "the shortcut text is on the clipboard" "smoke shortcut text" clip_holds
@@ -551,6 +552,7 @@ if clip_window "$sandbox/clipboard-hidden.log" smoke.clipboard-hidden "Clipboard
 fi
 if spawn_display "$sandbox/clipboard-custom.log" "${shell_env[@]}" -- "$sandbox/clipboard-custom-terminal" smoke.clipboard-custom "Custom terminal"; then
   clip_custom_pid="$spawn_pid"
+  acquire_toplevel "$clip_custom_pid" "$sandbox/clipboard-custom.log"
   expect_poll "the custom-class terminal has the keyboard" '["smoke.clipboard-custom", "Custom terminal"]' active_window
   clip_copy "smoke custom terminal text"
   expect_poll "the custom-terminal text is on the clipboard" "smoke custom terminal text" clip_holds
