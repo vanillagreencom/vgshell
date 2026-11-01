@@ -75,7 +75,7 @@ import pathlib, sys, shlex
 p=pathlib.Path(sys.argv[1]); text=p.read_text()
 needle='if [[ $window == yes ]]; then\n'
 assert text.count(needle)==2
-node_args=' '.join(shlex.quote(s) for s in ['/usr/bin/node',sys.argv[2],'--owner',sys.argv[3],'--proof',sys.argv[4]])
+node_args=' '.join(shlex.quote(s) for s in ['/usr/bin/node',sys.argv[2],'--surface','success','--owner',sys.argv[3],'--proof',sys.argv[4]])
 addition='''if [[ $key == core/requirements-install || $key == core/requirements-update ]]; then
   bridge=('''+node_args+''' --route "$key" "${@:4}")
   if [[ -e $hold ]]; then
@@ -644,11 +644,16 @@ expect "the needs fixture is removed" "ok removed=acme.needs" remove_out
 expect_poll "the removed fixture leaves the list" False plugin_known acme.needs
 
 cp -- "$sandbox/notice-terminal-before" "$tui_terminal"
-python3 - "$sandbox/notice-review.jsonl" <<'PY_NOTICE_PROOF'
-import json,sys
+python3 - "$sandbox/notice-review.jsonl" "$repo/scripts/fixtures/pkg-review/route-owner.js" "$notice_review_tree/bin/vgshell-pkg" <<'PY_NOTICE_PROOF'
+import json,subprocess,sys
 rows=[json.loads(line) for line in open(sys.argv[1])]
 assert any(r['args'][:2]==['run','install'] for r in rows),rows
 assert any(r['args'][:2]==['run','update'] and '--install' not in r['args'] for r in rows),rows
 assert any(r['args'][:2]==['run','update'] and '--install' in r['args'] for r in rows),rows
-for row in rows: print('package-route-proof: '+json.dumps(row))
+# Each timed command runs one successful owner transaction. Keep the
+# additional owner-failure assertions on those exact argv outside that
+# interval; the route's own postcheck/status assertions stay above.
+for row in rows:
+    subprocess.run(['/usr/bin/node',sys.argv[2],'--surface','failures','--owner',sys.argv[3],'--proof',sys.argv[1],'--route',row['route'],*row['args']],check=True)
+for line in open(sys.argv[1]): print('package-route-proof: '+line.rstrip())
 PY_NOTICE_PROOF
