@@ -9,7 +9,7 @@
 # ceiling is measured: state, widget and bubble reads poll once per nested
 # IPC round trip; fixture callback gates poll at 10 ms; the window's close
 # waits on Session.js's WAKE_SILENCE_MS.
-# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* scripts/smoke/keyboard/* shell/plugins/vgs.bar/* shell/Ui/feedback/VoiceOrb.qml shell/Core/Layers.qml themes/catalog/flexoki-light/theme.json scripts/smoke/rows/jarvis.sh scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/hold-shortcuts.sh
+# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* scripts/smoke/keyboard/* shell/plugins/vgs.bar/* shell/Core/Layers.qml themes/catalog/flexoki-light/theme.json scripts/smoke/rows/jarvis.sh scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/hold-shortcuts.sh
 set -euo pipefail
 # The Jarvis fixtures log the set jarvis.sh declares.
 expected_errors+=("${jarvis_provoked_errors[@]}")
@@ -21,8 +21,11 @@ jarvis_follow_up_dir="$repo/shell/plugins/vgs.jarvis"
 jarvis_follow_up_gates="$sandbox/jarvis-follow-up-gates"
 jarvis_follow_up_files=(Session.js backend/jarvisd.js backend/ChainedEngine.js)
 # The chained engine speaks its acknowledgement of the scripted utterance
-# before the scripted driver's reply; the caption carries both.
-jarvis_follow_up_reply="$(python3 -c 'print("On it. " + " ".join(["scripted reply"] * 24))')"
+# before the scripted driver's reply; the caption carries both. With the
+# voice on, as here, the overlay draws none of Jarvis's words (Bubble.qml
+# `words`), so the reply is read where Session publishes it.
+jarvis_follow_up_reply="On it. $("$node_bin" -e 'process.stdout.write(require(process.argv[1]).REPLY)' "$source_repo/scripts/fixtures/jarvis/scripted.js")" ||
+  fail "the scripted reply is readable"
 cp -- "$jarvis_follow_up_config" "$sandbox/jarvis-follow-up-config-before.json"
 cp -- "$jarvis_follow_up_lua" "$sandbox/jarvis-follow-up-lua-before"
 for jarvis_follow_up_file in "${jarvis_follow_up_files[@]}"; do
@@ -56,6 +59,15 @@ shown=[r for r in rows if r["visible"] and r["presented"] and r["width"]>0 and r
 print("presented" if len(shown)==1 else "not-presented")
 '
 }
+# `published` when the status caption is Jarvis's line of the current
+# conversation and holds TEXT; `absent` otherwise.
+jarvis_follow_up_caption() { # TEXT
+  ipc smoke jarvisProcess | py_reply '
+import json,sys
+s=json.load(sys.stdin)["status"]; t=s.get("transcript")
+print("published" if t is not None and t["role"]=="assistant" and t["gen"]==s["detail"]["state"]["gen"] and t["text"]==sys.argv[1] else "absent")
+' "$1"
+}
 jarvis_follow_up_text() { # TEXT
   ipc smoke layerItems vgs.jarvis Label text,visible | py_reply '
 import json,sys
@@ -82,7 +94,7 @@ jarvis_follow_up_request() {
   jarvis_key_commit
   jarvis_follow_up_gate played
   jarvis_follow_up_gate reply
-  expect_poll "the scripted reply reaches the bubble before the follow-up window" drawn jarvis_follow_up_text "$jarvis_follow_up_reply"
+  expect_poll "the scripted reply reaches the caption before the follow-up window" published jarvis_follow_up_caption "$jarvis_follow_up_reply"
   jarvis_follow_up_gate played
 }
 jarvis_follow_up_opens() { expect_poll "the follow-up capture opens" follow-up jarvis_follow_up_capture; }

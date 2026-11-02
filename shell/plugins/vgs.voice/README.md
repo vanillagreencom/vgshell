@@ -11,7 +11,7 @@ Voice types what you say into the focused field. It uses voxtype to record and r
 - `SUPER+CTRL+X` starts dictation, and a second press stops it.
 - `F9` dictates while you hold it.
 - A tap of Right Alt or Right Ctrl, alone, starts and stops dictation. Right Alt as AltGr types as usual.
-- An orb on screen that moves with your voice while you speak.
+- An orb on screen that moves with your voice while you speak, on a soft dark disc that keeps it visible over any wallpaper.
 - A tone when dictation starts, stops or fails. Sounds in System Settings turns the tones off or on.
 - A bar mic that shows when Voice records. A click starts and stops dictation.
 - Configure and Choose model open voxtype's own settings and model choice.

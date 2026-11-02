@@ -21,6 +21,7 @@ Jarvis is a voice assistant for your desktop. Talk or type to the AI model you c
 - Share your instructions, skills and memory notes with every answering AI model.
 - Start or resume your Jarvis session and send it confirmed agent fleet requests.
 - Keep provider keys in your desktop keyring and mute Jarvis across restarts.
+- Mute Jarvis's voice and read its replies on screen.
 
 ## How it works
 
@@ -59,7 +60,9 @@ Jarvis comes with VGS. Open Plugin settings from the launcher and choose Jarvis.
 2. On Settings, choose a Voice provider. On Setup, use Set up local voice for Local or Add a key for a cloud voice. Choose the cloud Voice key on Settings. Run Check microphone when Setup offers it.
 3. When the required Setup steps read Done, tap Talk, Super with J, and speak.
 
-The Jarvis J in the bar shows what to do next. Click it to open the Console, or use its right-click menu to mute or unmute. A saved session's Resume offer takes that click until you resume or dismiss it. Change Jarvis's shortcuts in the Keys section on its Settings tab. The Enabled switch turns Jarvis off and stops its session.
+While Jarvis works with you, an orb at the bottom of the screen shows what it does: it waits, listens, thinks, speaks or needs your answer. It moves unless motion is turned off, slowly while it waits and faster as it works, and it reacts more the louder you or Jarvis speak. A soft dark field behind the orb and its text keeps them readable over any wallpaper. While Jarvis listens, thinks, speaks, asks you something or shows a problem, move the pointer over the orb to show its buttons, which mute the microphone, mute Jarvis's voice and stop Jarvis, and right-click the orb or its text for the same actions and Key hints, which opens Jarvis's shortcuts. While Jarvis waits, right-click its J on the bar for the same entries. While its voice is muted, Jarvis shows its reply above the orb.
+
+The Jarvis J in the bar shows what to do next. Click it to open the Console, or use its right-click menu for the orb's actions. A saved session's Resume offer takes that click until you resume or dismiss it. Change Jarvis's shortcuts in the Keys section on its Settings tab, which Key hints opens. The Enabled switch turns Jarvis off and stops its session.
 
 The Settings tab holds these choices. Each setting's information button explains it; the Details tab shows readings.
 

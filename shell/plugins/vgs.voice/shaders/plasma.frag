@@ -70,10 +70,12 @@ vec3 plasmaCol(float fil, float up) {
 }
 
 void main() {
+    // The canvas spans the orb's own reach, +-1 from its centre: the blue
+    // embers drift out to 0.95 and have faded to nothing as they reach it.
+    // The dark disc behind the orb is the plugin's RadialBackdrop, drawn
+    // under this pass.
     vec2 uv = qt_TexCoord0 * 2.0 - 1.0;
     uv.y = -uv.y;
-    uv *= 1.36;   // canvas enlarged ~1.36x; scale coords back so the orb keeps its size,
-                  // leaving a wide transparent margin for the backdrop to fade into naturally
     float amp = clamp(uAmp, 0.0, 1.0);
     float vamp = smoothstep(0.02, 0.5, amp);   // expand typical speech range -> stronger, more visible response
     float t = uTime;
@@ -242,11 +244,6 @@ void main() {
     a = max(a, clamp(rim * 0.6, 0.0, 1.0));                 // soft glass rim (~20% more opaque)
     a = max(a, clamp(refl * 0.18, 0.0, 1.0));              // inset neon-pink reflections (+20%)
     a = max(a, clamp(partA * 1.4, 0.0, 1.0));             // ember particles (incl. ones outside the membrane)
-    // dark scrim so the orb reads on any desktop: nearly-solid black CONCENTRATED behind the orb
-    // itself, then a long gradual fade out to transparent that finishes inside the canvas.
-    // solid behind the orb, then a gaussian falloff with a soft tail (no harsh edge ring)
-    float backdrop = exp(-pow(max(0.0, r - 0.53) / 0.15, 2.0)) * 0.9;   // ~15% smaller footprint
-    a = max(a, backdrop);
 
     fragColor = vec4(outc, clamp(a, 0.0, 1.0)) * qt_Opacity;
 }

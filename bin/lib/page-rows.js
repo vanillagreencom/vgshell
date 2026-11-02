@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // The rows each tab of a plugin's Settings page draws, which a page
 // reference `page:<plugin id>/<tab>/<key>` can open, as the page's own
-// judges place them: Settings its schema fields, Setup the status entries
+// judges place them: Settings its schema fields and `Keys`, its Keys
+// section, while PluginLogic.bindRows gives the manifest a bind at its
+// defaults, a declared key's or a pad's, Setup the status entries
 // Steps.declaresStep takes as steps, and Details those Steps.detailEntries
 // draws, of PluginLogic.statusRows over the manifest with nothing
 // published. scripts/check-user-commands.py reads it, so a placement rule
@@ -12,7 +14,8 @@
 // "Setup": [keys], "Details": [keys] } }, for each directory of PLUGINS_DIR
 // that holds a manifest.json. The manifest is read as written, not judged:
 // check-manifests refuses a manifest that does not validate, and a
-// reference into it is still judged by what it declares.
+// reference into it is still judged by what it declares; its Keys section,
+// which only the validated manifest's binds place, counts no bind.
 // A refusal is one keyed line on stderr and exit 2:
 //   page-rows: refused: arguments
 //   page-rows: refused: unreadable path=<file> error=<cause>
@@ -32,6 +35,14 @@ function refuse(line) {
 
 const isObject = value => value !== null && typeof value === "object" && !Array.isArray(value);
 
+// Whether the page draws its Keys section at the manifest's defaults: the
+// binds PluginLogic.bindRows gives it with no user configuration, as the
+// page's row holds them.
+function keysDrawn(raw, dir) {
+    const judged = logic.validateManifest(raw, dir);
+    return judged.ok && logic.bindRows({ plugins: [] }, judged.manifest, {}).length > 0;
+}
+
 function rows(file) {
     let raw;
     try { raw = JSON.parse(fs.readFileSync(file, "utf8")); }
@@ -39,7 +50,7 @@ function rows(file) {
     if (!isObject(raw)) return { Settings: [], Setup: [], Details: [] };
     const status = logic.statusRows({ status: isObject(raw.status) ? raw.status : {}, secrets: raw.secrets }, {});
     return {
-        Settings: isObject(raw.schema) ? Object.keys(raw.schema) : [],
+        Settings: (isObject(raw.schema) ? Object.keys(raw.schema) : []).concat(keysDrawn(raw, path.dirname(file)) ? ["Keys"] : []),
         Setup: status.filter(steps.declaresStep).map(entry => entry.key),
         Details: steps.detailEntries(status).map(entry => entry.key)
     };

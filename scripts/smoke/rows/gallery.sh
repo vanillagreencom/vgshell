@@ -347,7 +347,10 @@ expect "control: a modal Dialog keeps Escape from closing the Gallery window" 1 
 expect "the modal dialog control is released" ok ipc smoke popupDrop gallery-modal-control
 rm -r -- "${repo:?}/shell/Core/DialogModalControl" || fail "removing the modal Dialog control failed"
 ipc smoke scrollTo window vgs.gallery 0 >/dev/null || fail "the gallery did not return to the top after the Tab tour"
-render expect_poll "the gallery's headings are drawn with a size" 17 ipc smoke galleryHeadings window vgs.gallery
+# Each Section the Gallery declares draws one SectionHeader, so the count
+# follows the source rather than a number each new section must edit.
+gallery_sections=$(grep -c '^ *Section {$' "$repo/shell/plugins/vgs.gallery/Gallery.qml") || fail "reading the Gallery's sections failed"
+render expect_poll "the gallery's headings are drawn with a size" "$gallery_sections" ipc smoke galleryHeadings window vgs.gallery
 geometry expect "every example stays inside the gallery" '[]' ipc smoke galleryOverflow window vgs.gallery
 mkdir -p "$repo/shell/Core/GalleryFocusControl"
 cat >"$repo/shell/Core/GalleryFocusControl/Item.qml" <<'QML'

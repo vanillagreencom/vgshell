@@ -67,7 +67,7 @@ async function daemonLease(ending, removeClose = false) {
             data: path.join(process.env.JARVIS_TEST_ROOT, "data/vgshell/jarvis"),
             runtime: path.join(process.env.JARVIS_TEST_ROOT, "run/vgshell/jarvis")
         }, revision: "a".repeat(64), locked: false,
-        keys: { talk: "SUPER+code:44", mute: "SUPER+SHIFT+code:44", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C" } };
+        keys: { talk: "SUPER+code:44", mute: "SUPER+SHIFT+code:44", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C", "voice-mute": "SUPER+ALT+code:44" } };
     const child = cp.spawn("node", [file, "--tree", tree], { env: {
         PATH: process.env.PATH, HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
         XDG_DATA_HOME: process.env.XDG_DATA_HOME
@@ -112,7 +112,7 @@ async function daemonLease(ending, removeClose = false) {
                 { v: 1, type: "state", gen: 1, revision: hello.revision, seq: 1, state: {
                     gen: 1, nextOp: 1, stale: 0, settings: hello.settings,
                     gate: { kind: "down", reason: "unconfigured" },
-                    mute: { kind: "off" }, capture: { kind: "closed" }, turn: { kind: "none" }, brain: { kind: "closed" },
+                    mute: { kind: "off" }, voiceMute: { kind: "off" }, capture: { kind: "closed" }, turn: { kind: "none" }, brain: { kind: "closed" },
                     playback: { kind: "idle" }, action: { kind: "none" }, approval: { kind: "none" }, fault: { kind: "none" },
                     conversation: { kind: "ended" }, input: { kind: "released" }, followUp: { kind: "none" },
                     indicator: { kind: "gone" },
@@ -153,7 +153,7 @@ async function daemonStartup(browserFile) {
             data: path.join(process.env.JARVIS_TEST_ROOT, "data/vgshell/jarvis"),
             runtime: path.join(process.env.JARVIS_TEST_ROOT, "run/vgshell/jarvis")
         }, revision: "a".repeat(64), locked: false,
-        keys: { talk: "SUPER+code:44", mute: "SUPER+SHIFT+code:44", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C" } };
+        keys: { talk: "SUPER+code:44", mute: "SUPER+SHIFT+code:44", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C", "voice-mute": "SUPER+ALT+code:44" } };
     const child = cp.spawn(process.execPath, [path.join(folder, "backend/jarvisd.js"), "--tree", tree],
         { env: { PATH: process.env.PATH, HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
             XDG_DATA_HOME: process.env.XDG_DATA_HOME }, stdio: ["pipe", "pipe", "pipe"] });

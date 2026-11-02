@@ -40,7 +40,11 @@ FocusScope {
     // whose fields only wait, on a `shownWhen` entry or a `hideEmpty`
     // offer, keeps the Turn on hint while it is off and never reads as
     // having no settings.
-    readonly property bool bare: row !== null && row.builtins.length === 0 && row.fieldRows.length === 0 && row.binds.length === 0 && paneHolder === null && settingsRows.length === 0
+    readonly property bool bare: row !== null && row.builtins.length === 0 && row.fieldRows.length === 0 && !keysDrawn && paneHolder === null && settingsRows.length === 0
+    // Whether the page draws its Keys section: the plugin has a bind,
+    // PluginLogic.bindRows', a declared key or a pad's. bin/lib/page-rows.js
+    // asks the same judge.
+    readonly property bool keysDrawn: row !== null && row.binds.length > 0
     // Whether a field of the page holds an unsaved edit.
     readonly property bool dirty: unsaved.edited
 
@@ -356,7 +360,8 @@ FocusScope {
     // Show the page as it opens: on TAB, a tab's text, or on Settings when
     // the page has no such tab, the back button focused. A `<tab>/<key>` tab
     // (PageReference.place) also brings that row into view, a Settings
-    // field's or a Setup or Details status row's, and marks it.
+    // field's or a Setup or Details status row's, and marks it;
+    // `Settings/Keys` brings the Keys section into view.
     function open(reason, tab) {
         const place = PageReference.place(tab);
         tabs.currentIndex = Math.max(0, tabs.model.indexOf(place.tab));
@@ -401,8 +406,10 @@ FocusScope {
         }
     }
     // Whether the tab TAB draws a row for KEY: a Settings field or list
-    // the page places, a Setup step, or a Details status row.
+    // the page places, the Keys section, a Setup step, or a Details status
+    // row. No schema key starts with a capital, so `Keys` names no field.
     function revealDrawn(tab, key) {
+        if (tab === "Settings" && key === "Keys") return keysDrawn ? "" : "undrawn";
         if (tab === "Settings") {
             const field = fieldRow(key);
             return field === null ? "unknown" : field.list || placed(field) ? "" : "undrawn";
@@ -808,8 +815,10 @@ FocusScope {
                     }
 
                     Section {
+                        // The row a `Settings/Keys` reference shows.
+                        readonly property string fieldKey: "Keys"
                         width: parent.width
-                        visible: page.row !== null && page.row.binds.length > 0
+                        visible: page.keysDrawn
                         title: "Keys"
                         description: "Select a shortcut and press its new keys"
                         // design-system.md § Copy: a line that states a time

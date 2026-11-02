@@ -447,6 +447,9 @@ var START_CAUSES = [
     [/^jarvis: hello=timeout$/, { kind: "hello-timeout", title: "Jarvis did not answer in time", detail: "Jarvis could not finish starting.", action: START_RESTART }],
     [/^jarvis: node=[^ ]+ need=22$/, { kind: "node-too-old", title: "Jarvis needs Node 22 or later", detail: "The installed Node version cannot run Jarvis.", action: "Update Node to version 22 or later, then turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)" }],
     [/^jarvis: daemon=exit code=78 status=/, { kind: "node-too-old", title: "Jarvis needs Node 22 or later", detail: "The installed Node version cannot run Jarvis.", action: "Update Node to version 22 or later, then turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)" }],
+    // jarvisd exits 78 when it cannot read or save mute.json or
+    // voice-mute.json, so the press that changed it did not take.
+    [/^jarvis: (voice-)?mute=/, { kind: "mute-not-saved", title: "Jarvis mute setting not saved", detail: "Jarvis could not read or save its microphone or voice mute setting.", action: "The mute setting was not kept. " + START_RESTART + "." }],
     [/^jarvis: daemon=(exit|ended)/, { kind: "daemon-exit", title: "Jarvis daemon stopped", detail: "Jarvis stopped after a problem.", action: START_RESTART }],
     [/^jarvis: protocol=/, { kind: "wire-defect", title: "Jarvis message error", detail: "Jarvis could not read a message from its service.", action: START_RESTART }]
 ];
@@ -473,13 +476,18 @@ function startStatus(cause, retrying) {
 }
 
 // The desktop notices after CAUSE stopped Jarvis for good, and after it
-// refused a mute press: the cause's title and action, never its key.
+// refused a mute or a voice mute press: the cause's title and action,
+// never its key.
 function stoppedNotice(cause) {
     var problem = startCause(cause);
     return { title: problem.title, message: sentence(problem.action), tone: "danger", icon: "vgs-letter-j" };
 }
 function muteRefusedNotice(cause) {
     return { title: "Jarvis mute not saved", message: "Mute request could not be saved: " + startCause(cause).title + ".",
+        tone: "danger", icon: "vgs-letter-j" };
+}
+function voiceMuteRefusedNotice(cause) {
+    return { title: "Jarvis voice mute not saved", message: "Voice mute request could not be saved: " + startCause(cause).title + ".",
         tone: "danger", icon: "vgs-letter-j" };
 }
 // The installed voice stays verified. Reinstalling it cannot free memory.

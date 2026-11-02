@@ -143,13 +143,17 @@ Item {
             shell.shortcut.register("talk", "Talk to Jarvis",
                 () => intent("talk-down"), () => intent("talk-up"));
             shell.shortcut.register("mute", "Mute Jarvis", () => intent("mute"));
+            shell.shortcut.register("voice-mute", "Mute Jarvis's voice", () => intent("voice-mute"));
             shell.shortcut.register("stop", "Stop Jarvis", () => intent("stop"));
             shell.shortcut.register("confirm", "Confirm Jarvis", () => confirmApproval(displayedApproval(), "key"));
             shell.shortcut.register("console", "Open Jarvis console", () => summonConsole());
             shell.shortcut.register("home", "Switch Jarvis home", item => switchHome(item));
             // The bar widget's click and `vgshell ipc call vgs.jarvis invoke
-            // mute` reach the Mute key's intent.
+            // mute` reach the Mute key's intent; the bar widget's menu
+            // reaches the Voice mute and Stop keys' intents the same way
+            // (WidgetView.menuEntries).
             shell.ipc.handle("mute", () => { intent("mute"); return "ok"; });
+            shell.ipc.handle("voice-mute", () => { intent("voice-mute"); return "ok"; });
             // The local voice setup's release (tui/setup-local.sh, localSetup).
             shell.ipc.handle("local-setup", step => localSetup(step));
             // The bar widget's click opens the console, as the Console key does.
@@ -418,6 +422,10 @@ Item {
             publishDaemon({ tone: "warning", text: "Jarvis stopped", hint: Gate.START_RESTART });
             notice({ title: "Jarvis stopped", message: Gate.sentence(Gate.START_RESTART),
                 tone: "info", icon: "vgs-letter-j" });
+            return;
+        }
+        if (name === "voice-mute" && (lifetime.kind === "problem" || lifetime.kind === "stopped")) {
+            notice(Gate.voiceMuteRefusedNotice(cause));
             return;
         }
         if (name === "mute") {

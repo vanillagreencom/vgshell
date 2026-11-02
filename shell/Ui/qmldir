@@ -10,8 +10,10 @@ Scrim 1.0 foundation/Scrim.qml
 PointerCursor 1.0 foundation/PointerCursor.qml
 KeyNav 1.0 foundation/KeyNav.qml
 KeyNavLogic 1.0 foundation/KeyNavLogic.js
+LineBreak 1.0 foundation/LineBreak.js
 ImageText 1.0 foundation/ImageText.qml
 TextUnderline 1.0 foundation/TextUnderline.qml
+TextShadow 1.0 foundation/TextShadow.qml
 QrMatrix 1.0 foundation/QrMatrix.qml
 Button 1.0 controls/Button.qml
 IconButton 1.0 controls/IconButton.qml
@@ -38,6 +40,7 @@ SettingField 1.0 controls/SettingField.qml
 FormRow 1.0 controls/FormRow.qml
 Spinner 1.0 feedback/Spinner.qml
 VoiceOrb 1.0 feedback/VoiceOrb.qml
+RadialBackdrop 1.0 feedback/RadialBackdrop.qml
 ProgressBar 1.0 feedback/ProgressBar.qml
 LevelOsd 1.0 feedback/LevelOsd.qml
 LevelSlider 1.0 controls/LevelSlider.qml

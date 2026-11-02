@@ -280,9 +280,12 @@ f share/vgshell/shell/Ui/feedback/LevelLabel.qml
 f share/vgshell/shell/Ui/feedback/LevelOsd.qml
 f share/vgshell/shell/Ui/feedback/LinkText.qml
 f share/vgshell/shell/Ui/feedback/ProgressBar.qml
+f share/vgshell/shell/Ui/feedback/RadialBackdrop.qml
 f share/vgshell/shell/Ui/feedback/SaveBar.qml
 f share/vgshell/shell/Ui/feedback/Spinner.qml
 f share/vgshell/shell/Ui/feedback/VoiceOrb.qml
+f share/vgshell/shell/Ui/feedback/shaders/radialbackdrop.frag
+f share/vgshell/shell/Ui/feedback/shaders/radialbackdrop.frag.qsb
 f share/vgshell/shell/Ui/feedback/shaders/voiceorb.frag
 f share/vgshell/shell/Ui/feedback/shaders/voiceorb.frag.qsb
 f share/vgshell/shell/Ui/foundation/DescenderInk.qml
@@ -303,6 +306,7 @@ f share/vgshell/shell/Ui/foundation/PointerCursor.qml
 f share/vgshell/shell/Ui/foundation/QrMatrix.qml
 f share/vgshell/shell/Ui/foundation/Scrim.qml
 f share/vgshell/shell/Ui/foundation/Surface.qml
+f share/vgshell/shell/Ui/foundation/TextShadow.qml
 f share/vgshell/shell/Ui/foundation/TextUnderline.qml
 f share/vgshell/shell/Ui/icons/LICENSE
 f share/vgshell/shell/Ui/icons/Lucide.js
@@ -481,11 +485,13 @@ f share/vgshell/shell/plugins/vgs.greeter/manifest.json
 f share/vgshell/shell/plugins/vgs.jarvis/AccountProviders.js
 f share/vgshell/shell/plugins/vgs.jarvis/AccountStatus.js
 f share/vgshell/shell/plugins/vgs.jarvis/Accounts.qml
+f share/vgshell/shell/plugins/vgs.jarvis/Appearance.js
 f share/vgshell/shell/plugins/vgs.jarvis/BrowserRuntime.qml
 f share/vgshell/shell/plugins/vgs.jarvis/Bubble.qml
 f share/vgshell/shell/plugins/vgs.jarvis/CloneRuntime.qml
 f share/vgshell/shell/plugins/vgs.jarvis/Console.qml
 f share/vgshell/shell/plugins/vgs.jarvis/Conversation.js
+f share/vgshell/shell/plugins/vgs.jarvis/Field.js
 f share/vgshell/shell/plugins/vgs.jarvis/FleetRuntime.qml
 f share/vgshell/shell/plugins/vgs.jarvis/History.js
 f share/vgshell/shell/plugins/vgs.jarvis/HomeRepair.qml
@@ -493,6 +499,7 @@ f share/vgshell/shell/plugins/vgs.jarvis/JarvisProtocol.js
 f share/vgshell/shell/plugins/vgs.jarvis/Keys.qml
 f share/vgshell/shell/plugins/vgs.jarvis/LocalRuntime.qml
 f share/vgshell/shell/plugins/vgs.jarvis/LocalTier.qml
+f share/vgshell/shell/plugins/vgs.jarvis/ParticleOrb.qml
 f share/vgshell/shell/plugins/vgs.jarvis/PowerCard.qml
 f share/vgshell/shell/plugins/vgs.jarvis/PowerWait.qml
 f share/vgshell/shell/plugins/vgs.jarvis/Service.qml
@@ -502,6 +509,7 @@ f share/vgshell/shell/plugins/vgs.jarvis/SetupGate.js
 f share/vgshell/shell/plugins/vgs.jarvis/StatusPublication.js
 f share/vgshell/shell/plugins/vgs.jarvis/Widget.qml
 f share/vgshell/shell/plugins/vgs.jarvis/WidgetView.js
+f share/vgshell/shell/plugins/vgs.jarvis/Words.qml
 f share/vgshell/shell/plugins/vgs.jarvis/artifacts.json
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Accounts.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/AgentProfiles.js
@@ -599,6 +607,8 @@ f share/vgshell/shell/plugins/vgs.jarvis/requirements-clone.lock
 f share/vgshell/shell/plugins/vgs.jarvis/requirements-local-cpu.lock
 f share/vgshell/shell/plugins/vgs.jarvis/requirements-local.lock
 f share/vgshell/shell/plugins/vgs.jarvis/setup-local
+f share/vgshell/shell/plugins/vgs.jarvis/shaders/particleorb.frag
+f share/vgshell/shell/plugins/vgs.jarvis/shaders/particleorb.frag.qsb
 f share/vgshell/shell/plugins/vgs.jarvis/tui/accounts.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/add-key.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/check-microphone.sh

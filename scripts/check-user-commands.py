@@ -48,7 +48,8 @@ command:
   page-reference-field  a complete literal `page:<id>/<tab>/<key>`
                 reference whose key names no row that tab of that plugin's
                 page draws, as the page's own judges place its manifest's
-                fields and status entries (bin/lib/page-rows.js).
+                fields, Keys section and status entries
+                (bin/lib/page-rows.js).
   file-reference  a known file extension, ~/ path or absolute path in
                 manifest prose or drawn/source prose outside a file link.
                 PageReference.js reads inline links. File-action labels,

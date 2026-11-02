@@ -518,7 +518,7 @@ function accept(line, direction) {
         for (var setting of ["microphone", "speaker"])
             if (typeof message.settings[setting] !== "string"
                     || !/^[^\x00-\x1f\x7f]{0,200}$/.test(message.settings[setting])) fail("device-setting");
-        keys(message.keys, ["talk", "mute", "stop", "confirm", "console"], "keys");
+        keys(message.keys, ["talk", "mute", "voice-mute", "stop", "confirm", "console"], "keys");
         for (var shortcut of Object.keys(message.keys)) {
             var key = message.keys[shortcut];
             // The core shortcut provider owns normalization and conflicts.
@@ -583,7 +583,7 @@ function accept(line, direction) {
             if (!printable(message.voice, 1, 128)) fail("preview-voice");
         } else {
             keys(message, fields, "intent");
-            if (["talk-down", "talk-up", "mute", "stop", "voice-check", "owner-asks-refresh"].indexOf(message.intent) === -1) fail("intent");
+            if (["talk-down", "talk-up", "mute", "voice-mute", "stop", "voice-check", "owner-asks-refresh"].indexOf(message.intent) === -1) fail("intent");
         }
         break;
     case "shown":

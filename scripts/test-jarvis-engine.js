@@ -92,7 +92,7 @@ function rig(kit, server, options = {}) {
         }
         return owner;
     };
-    const ports = { ...unavailable(), mute: { store() {} } };
+    const ports = { ...unavailable(), mute: { store() {} }, voiceMute: { store() {} } };
     ports.capture = { ...ports.capture, ...audio.capturePort };
     ports.transcript = e => captions.push([e.gen, e.role, e.stage, e.rev, e.text]);
     let engine = null;
@@ -756,7 +756,7 @@ async function loadingTalk(server, ending = "ready", edits = []) {
     const send = fields => child.stdin.write(JSON.stringify({ v: 1, gen: s()?.gen ?? 0, revision: "a".repeat(64), ...fields }) + "\n");
     const hello = (locked = false) => send({ type: "hello", locked,
         settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: ending === "brain" || ending.startsWith("check-") ? "" : "fixture-account", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", privateWindows: "bitwarden" },
-        keys: { talk: null, mute: null, stop: null, confirm: null, console: null }, directories: { state, data: root, runtime: process.env.XDG_RUNTIME_DIR } });
+        keys: { talk: null, mute: null, stop: null, confirm: null, console: null, "voice-mute": null }, directories: { state, data: root, runtime: process.env.XDG_RUNTIME_DIR } });
     const intent = name => send({ type: "intent", intent: name });
     const before = server.requests.length;
     let tryPassed = false;
@@ -959,7 +959,7 @@ async function alwaysTalk(server, ending = "ready", edits = []) {
     const hello = () => send({ type: "hello", locked: false,
         settings: { home: "", sounds: false, mode: "always", microphone: "", speaker: "", brain: "fixture-account", model: "", effort: "", fallbacks: [], taskTerminal: "auto",
             voiceProvider: ending === "refused" ? "realtime" : "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", privateWindows: "bitwarden" },
-        keys: { talk: null, mute: null, stop: null, confirm: null, console: null }, directories: { state, data: root, runtime: process.env.XDG_RUNTIME_DIR } });
+        keys: { talk: null, mute: null, stop: null, confirm: null, console: null, "voice-mute": null }, directories: { state, data: root, runtime: process.env.XDG_RUNTIME_DIR } });
     hello();
     const before = server.requests.length;
     try {
@@ -1247,6 +1247,37 @@ async function cases(kit, server, only = null, mutation = false) {
                 (request.receivedAt - control.finalTimes[0]).toFixed(3) + " provider-byte-emitted-to-player-pipe-write-ms=" +
                 (responseWrite.at - request.firstByteAt).toFixed(3));
         }
+    }, { sounds: true });
+
+    // Voice mute silences Jarvis's spoken words only: a voice preview and the
+    // start and working sounds still reach the player, and the reply keeps
+    // its written count.
+    await run("voice-mute-spoken-only", async w => {
+        const kinds = (from, keep = () => true) => [...new Set(w.writes.slice(from).filter(keep).map(write => write.pcm.every(byte => byte === 0) ? "silence"
+            : write.pcm.every(byte => byte === 0x11) ? "voice" : "tone"))].sort();
+        w.runner.dispatch({ type: "voice-mute-toggle" });
+        w.runner.dispatch({ type: "preview", voice: "fixture" });
+        await w.observed(() => control.spoken.length === 1, "the preview speaks");
+        await playOut(w);
+        assert.deepEqual(kinds(0), ["voice"], "a muted preview plays its voice");
+        const turnFrom = w.writes.length;
+        const first = await say(w, utterance("Are you there?"));
+        await requested(w, first + 1, "the request starts after the user finishes");
+        await w.observed(() => control.spoken.includes("Let me check."), "the acknowledgement reaches speech");
+        await until(() => w.s().capture.kind === "closed", "capture closes before the acknowledgement playback drains");
+        await playOut(w);
+        w.advanceRunner(2400);
+        assert.equal(w.s().playback.cue, "working");
+        await advance(w, 6);
+        server.replies.push(text("Yes I am here."));
+        await until(() => w.s().turn.kind === "none", "the brain finishes independently of playback");
+        await playOut(w);
+        assert.equal(w.audio.lastPlayback.writtenFrames, 2880 + 4 * Fixture.WORD_FRAMES, "a muted reply keeps its written count");
+        assert.deepEqual(kinds(turnFrom), ["silence", "tone"], "the start and working sounds play; the spoken words are silence");
+        const reply = w.writes.at(-1).source;
+        assert.deepEqual(kinds(turnFrom, write => write.source === reply), ["silence", "tone"],
+            "the working sound inside the spoken reply's source plays");
+        assert.deepEqual(w.faults, []);
     }, { sounds: true });
 
     for (const [kind, reply] of [["text", held => text("A sentence for speech. ", { wait: held.wait })],
@@ -3622,8 +3653,10 @@ async function groupPlants(root, server) {
     const plants = [
         ["start-earcon-silenced", 'pcm.writeInt16LE(Math.round(3900 * envelope * Math.sin(2 * Math.PI * frequency * frame / PCM_RATE)), frame * 2);',
             'pcm.writeInt16LE(0, frame * 2);', "feedback-start"],
-        ["working-earcon-silenced", 'c.turn.speech.readable.push(earcon("working"));',
-            'c.turn.speech.readable.push(Buffer.alloc(5760));', "feedback-working"],
+        ["working-earcon-silenced", 'c.turn.speech.readable.push({ pcm: earcon("working"), tone: true });',
+            'c.turn.speech.readable.push({ pcm: Buffer.alloc(5760), tone: true });', "feedback-working"],
+        ["working-earcon-unmarked", 'c.turn.speech.readable.push({ pcm: earcon("working"), tone: true });',
+            'c.turn.speech.readable.push({ pcm: earcon("working") });', "voice-mute-spoken-only"],
         ["feedback-text-suppression", "                        quiet(turn);\n                        say(c, turn, sentence);", "                        say(c, turn, sentence);", "feedback-suppressed-text"],
         ["feedback-tool-suppression", 'case "done":\n                    quiet(turn);',
             'case "done":\n                    void turn;', "feedback-suppressed-tool"],
@@ -3728,6 +3761,8 @@ async function groupPlants(root, server) {
         ["line-flush-heard", 'report === null || flushedLine ? "" : withoutLinePrefix', 'report === null ? "" : withoutLinePrefix', "line-held-reply-interrupt"],
         ["preview-speaker", ".speak(sentenceInput, speaker ?? c.plan.speech.speaker)", '.speak(sentenceInput, "fixture")', "voice-preview"],
         ["preview-unspoken", "fixedLine(c, turn, PREVIEW_LINE);", 'turn.done("brain-done");', "voice-preview"],
+        ["voice-mute-preview", "spoken: turn.preview !== true }", "spoken: true }", "voice-mute-spoken-only"],
+        ["voice-mute-reply", "spoken: turn.preview !== true }", "spoken: false }", "voice-mute-spoken-only"],
         ["dictation-reply-dropped", 'settle(ok(result) ? { kind: "text", text: result.data.text }',
             'settle(ok(result) ? { kind: "text", text: "" }', "dictation-hold-turn"],
         ...["mute", "stop", "lock", "daemon-end"].map(trigger => ["dictation-abort-records-on-" + trigger,

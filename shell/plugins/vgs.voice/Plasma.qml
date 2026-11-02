@@ -1,12 +1,15 @@
 import QtQuick
 import Quickshell
 import qs.Commons
+import qs.Ui
 import "Appearance.js" as Appearance
 
 // The plasma orb of the owner's voxtype OSD (PlasmaSurface.qml), drawn by
 // shaders/plasma.frag: a glass membrane round a ball of plasma filaments that
 // swells and swirls with the voice, warm while recording and cool while
-// transcribing. It draws only; the layer host owns its surface and screen.
+// transcribing, over the look's dark disc, which qs.Ui's RadialBackdrop
+// draws under the plasma's pass. It draws only; the layer host owns its
+// surface and screen.
 // The driver eases the level and turns the swirl only while the orb is
 // active, visible in a shown window and the motion scale is above 0, as
 // VoiceOrb's does; a stopped driver holds the phases and draws the last
@@ -70,9 +73,28 @@ Item {
         }
     }
 
+    // The disc behind the orb: it starts no frame of its own and draws on
+    // every frame the orb's window draws. One box has nothing to join or
+    // blend with.
+    RadialBackdrop {
+        anchors.fill: parent
+        readonly property real disc: 2 * root.look.backdrop.corner
+        boxes: [{ x: (width - disc) / 2, y: (height - disc) / 2, w: disc, h: disc, corner: root.look.backdrop.corner,
+                  peak: root.look.backdrop.peak, fade: root.look.backdrop.fade, inset: 0, ink: root.look.backdrop.ink }]
+        join: 1
+        blend: 1
+        falloff: root.look.backdrop.falloff
+        halo: null
+    }
+
     ShaderEffect {
         id: shader
-        anchors.fill: parent
+        // The plasma's own reach, centred on the canvas; the shader's
+        // coordinates span it.
+        x: (root.width - width) / 2
+        y: (root.height - height) / 2
+        width: root.look.plasma.orb
+        height: root.look.plasma.orb
         blending: true
         property real uTime: state.time
         property real uAmp: driver.running ? state.amp : root.transcribing ? root.look.pulse.low : state.target

@@ -190,7 +190,8 @@ function kindOf(value, kind) {
  * "gemini-live" row. conversation(e) answers {net, key, language, voice, preview, transfer, grants} for a
  * speech-open effect: the session's net owner, null or {secrets, reference},
  * the speech language, a value of VOICES, the sentence a preview speaks or
- * null, audited transfer and current release grants. A preview session asks
+ * null, audited transfer and current release grants. playbackSource answers
+ * Audio's {readable, spoken}, spoken false for a preview. A preview session asks
  * for its sentence once it starts and reports idle once Audio played it, so
  * Session ends the conversation. captionLimit is the wire's transcript
  * bound. log receives keyed diagnostic lines. One session at a time is live.
@@ -746,7 +747,8 @@ function create({ provider, clock, conversation, captionLimit, log }) {
             activity(session);
         });
         settle(session);
-        return reply.stream;
+        // A preview's words are no reply, so voice mute leaves them audible.
+        return { readable: reply.stream, spoken: session.preview === null };
     }
 
     // Audio played the reply it took to its end, so the user heard every

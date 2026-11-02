@@ -109,7 +109,11 @@ elif name == "pw-cat":
         sys.exit(1)
     while (home / "playback-blocks").exists():
         time.sleep(0.01)
-    while os.read(0, 4096):
-        pass
+    # The bytes a speaker would play, kept while playback-record exists.
+    record = (home / "playback-bytes").open("ab") if (home / "playback-record").exists() else None
+    while chunk := os.read(0, 4096):
+        if record is not None:
+            record.write(chunk)
+            record.flush()
 else:
     sys.exit("unknown fixture command: " + name)

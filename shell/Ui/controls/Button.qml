@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 import QtQuick.Layouts
 import QtQuick.Templates as T
 import qs.Commons
@@ -22,6 +23,23 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // faded with no hover or press, and shows the reason on hover and
 // keyboard focus. `lock` is that state (DisabledReason), which a button
 // built on this one reads.
+//
+// A surface that owns its look (D119) hands the button its own form, each
+// value the variant's or the size's shared token by default:
+// `controlHeight`, `paddingX` and `radius`; `restFill`, `hoverFill` and
+// `pressedFill`; `borderColor`; the label's `textColor` at rest and its
+// `hoverTextColor` under the pointer or pressed; and the focus ring's
+// `ringColor`. `shimmer`, the look's `{ sweep, pause, band, easing }`,
+// sweeps a soft band of `textColor` across the label, which rests in
+// `hoverTextColor`, for as long as the pointer rests on the button: one
+// sweep of `sweep` and a `pause`, again and again, a `band` of the label's
+// width a side; a button with none builds none of the shimmer's parts. The
+// sweep stops the moment the pointer leaves, and the
+// button draws no further frame of it. The look's durations scale with
+// motion, so at motion scale 0 no sweep runs and no band draws. Keyboard
+// focus draws the ring and no shimmer. `shadow`, the look's
+// `{ color, opacity, blur }`, draws a shadow with no offset under the
+// content, the shimmer included, as the surface's other text draws it.
 T.Button {
     id: root
 
@@ -39,10 +57,25 @@ T.Button {
     property string disabledReason: ""
     readonly property DisabledReason lock: lockState
     readonly property var tokens: variantOf(variant)
-    readonly property int controlHeight: sizeOf(size)
     readonly property var sizeTokens: Theme.button.size[size] !== undefined ? Theme.button.size[size] : Theme.button.size.md
-    readonly property color fill: checked ? (down ? Theme.button.checked.pressed : hovered ? Theme.button.checked.hover : Theme.button.checked.background) : down ? tokens.pressed : hovered ? tokens.hover : tokens.background
-    readonly property color foreground: checked ? Theme.button.checked.foreground : tokens.foreground
+    property int controlHeight: sizeOf(size)
+    property real paddingX: sizeTokens.paddingX
+    property real radius: Theme.button.radius
+    property color restFill: tokens.background
+    property color hoverFill: tokens.hover
+    property color pressedFill: tokens.pressed
+    property color borderColor: tokens.border
+    property color textColor: tokens.foreground
+    property color hoverTextColor: textColor
+    property color ringColor: Theme.focusRing.color
+    property var shimmer: null
+    property var shadow: null
+    // A band crosses the label only while a sweep runs, under the pointer.
+    // The sweep lives in the content, which a button built on this one may
+    // replace.
+    readonly property bool shimmering: contentItem !== null && contentItem.shimmering === true
+    readonly property color fill: checked ? (down ? Theme.button.checked.pressed : hovered ? Theme.button.checked.hover : Theme.button.checked.background) : down ? pressedFill : hovered ? hoverFill : restFill
+    readonly property color foreground: checked ? Theme.button.checked.foreground : hovered || down ? hoverTextColor : textColor
 
     function variantOf(name) {
         const found = Theme.button.variant[name];
@@ -60,7 +93,7 @@ T.Button {
 
     implicitWidth: implicitContentWidth + leftPadding + rightPadding
     implicitHeight: Math.max(controlHeight, implicitContentHeight + topPadding + bottomPadding)
-    leftPadding: Theme.controlPadding(sizeTokens.paddingX, Theme.button.radius, controlHeight, implicitContentHeight)
+    leftPadding: Theme.controlPadding(paddingX, radius, controlHeight, implicitContentHeight)
     rightPadding: leftPadding
     spacing: sizeTokens.gap
     hoverEnabled: !lockState.locked
@@ -72,8 +105,13 @@ T.Button {
     Keys.onPressed: event => { event.accepted = lockState.takeKey(event); }
 
     contentItem: Row {
+        // False while no shimmer is loaded.
+        readonly property bool shimmering: shine.item !== null && shine.item.running
         spacing: root.spacing
         opacity: lockState.fade
+        // The shadow blurs the content's layer (TextShadow).
+        layer.enabled: root.shadow !== null
+        layer.effect: TextShadow { shadow: root.shadow }
         Icon {
             visible: root.iconName !== ""
             name: root.iconName
@@ -89,17 +127,113 @@ T.Button {
             font.variableAxes: ({ wght: root.tokens.weight })
             width: opticalWidth
             y: topForCapCenter(parent.height)
+
+            // The shimmer, built only for a button handed one, so every
+            // other button holds none of its items.
+            Loader {
+                id: shine
+                width: parent.width
+                height: parent.height
+                active: root.shimmer !== null
+                sourceComponent: Item {
+                    readonly property bool running: sweep.running
+
+                    // Each pass carries the band from wholly before the label
+                    // to wholly past it, then pauses, until the pointer
+                    // leaves: hover is the user's input, so it may draw frames
+                    // while it lasts. At motion scale 0 the look's durations
+                    // are 0, and Qt ends an animation of no duration as it
+                    // starts, never reporting it running (tst_jarvis_prompt.qml,
+                    // Qt 6.12.0), so no band draws.
+                    SequentialAnimation {
+                        id: sweep
+                        running: root.shimmer !== null && root.hovered
+                        loops: Animation.Infinite
+                        NumberAnimation {
+                            target: band
+                            property: "x"
+                            from: -band.width
+                            to: bandMask.width
+                            duration: root.shimmer === null ? 0 : root.shimmer.sweep
+                            easing.type: root.shimmer === null ? Easing.Linear : root.shimmer.easing
+                        }
+                        PauseAnimation { duration: root.shimmer === null ? 0 : root.shimmer.pause }
+                    }
+
+                    // The label again in `textColor`, drawn through a mask
+                    // whose alpha is the band. Qt's Item layer effect takes a
+                    // texture-backed mask's alpha, and a threshold of 0.5 with
+                    // a spread of 1 passes the band's ramp through softly
+                    // (doc.qt.io/qt-6/qml-qtquick-effects-multieffect.html),
+                    // as ScrollArea's fade does. The band moves in an item
+                    // that stays visible while the sweep runs, hidden from
+                    // drawing by the texture's `hideSource`: a move inside an
+                    // invisible item schedules no frame, so a hidden layer's
+                    // band stood still (tst_button.qml, Qt 6.12.0). No layer
+                    // or texture draws while no sweep runs, so a still button
+                    // draws the plain label alone.
+                    Label {
+                        width: parent.width
+                        visible: sweep.running
+                        role: "button"
+                        text: root.text
+                        color: root.textColor
+                        font.weight: root.tokens.weight
+                        font.variableAxes: ({ wght: root.tokens.weight })
+                        layer.enabled: sweep.running
+                        layer.effect: MultiEffect {
+                            maskEnabled: true
+                            maskSource: bandTexture
+                            maskThresholdMin: 0.5
+                            maskSpreadAtMin: 1
+                        }
+                    }
+                    Item {
+                        id: bandMask
+                        width: parent.width
+                        height: parent.height
+                        visible: bandTexture.live
+                        Rectangle {
+                            id: band
+                            width: root.shimmer === null ? 0 : 2 * root.shimmer.band * bandMask.width
+                            height: bandMask.height
+                            x: -width
+                            gradient: Gradient {
+                                orientation: Gradient.Horizontal
+                                GradientStop { position: 0; color: root.maskColor(0) }
+                                GradientStop { position: 0.5; color: root.maskColor(1) }
+                                GradientStop { position: 1; color: root.maskColor(0) }
+                            }
+                        }
+                    }
+                    ShaderEffectSource {
+                        id: bandTexture
+                        width: bandMask.width
+                        height: bandMask.height
+                        visible: false
+                        sourceItem: sweep.running ? bandMask : null
+                        hideSource: true
+                        live: sweep.running
+                    }
+                }
+            }
         }
+    }
+
+    function maskColor(alpha) {
+        const color = Qt.color(textColor);
+        color.a = alpha;
+        return color;
     }
 
     background: Rectangle {
         implicitHeight: root.controlHeight
-        radius: Theme.button.radius
+        radius: root.radius
         color: lockState.faded(root.fill)
         border.width: Theme.button.border
-        border.color: lockState.faded(root.checked ? Theme.button.checked.border : root.tokens.border)
+        border.color: lockState.faded(root.checked ? Theme.button.checked.border : root.borderColor)
         Behavior on color { ColorAnimation { duration: Theme.motion.duration.fast; easing.type: Theme.motion.easing.standard } }
-        FocusRing { target: root }
+        FocusRing { target: root; ringColor: root.ringColor }
     }
 
     DisabledReason { id: lockState; control: root }

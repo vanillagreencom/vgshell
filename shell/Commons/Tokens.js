@@ -723,13 +723,6 @@ var TOKENS = {
         }
     },
 
-    voiceBubble: {
-        maxWidth: length(480),
-        margin: length("{space.lg}"),
-        gap: length("{stack.group}"),
-        textLines: number(3, 1, 3)
-    },
-
     badge: {
         radius: length("{radius.sm}"),
         size: {

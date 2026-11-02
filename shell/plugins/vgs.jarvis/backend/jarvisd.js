@@ -2,7 +2,7 @@
 // jarvisd --tree ABSOLUTE_VGS_TREE
 // Stdin is the service's lease. EOF exits 0; a partial line or a refused
 // message exits 65. Task-store or confirmation-audit failure exits 74. Node below 22 or a
-// mute record failure exits 78. Stdout carries status/state
+// mute or voice mute record failure exits 78. Stdout carries status/state
 // messages and shell requests judged by JarvisProtocol; stderr carries keyed jarvis: failures.
 // A reply for a request that awaits none exits 65 like any refused message.
 // Startup validates coding-task records and publishes their durable producer,
@@ -223,7 +223,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         void audio.close("protocol");
         refuse(error.message.startsWith("jarvis: tasks=") || error.message.startsWith("jarvis: task=")
             || error.message.startsWith("jarvis: audit=") ? 74
-            : error.message.startsWith("jarvis: mute=") ? 78 : 65, error.message);
+            : /^jarvis: (voice-)?mute=/.test(error.message) ? 78 : 65, error.message);
     }
 
     // Adapt the shared request result to the task display's text contract.
@@ -341,16 +341,21 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         }
     }
 
-    function readMute() {
-        return readRecord("mute", "mute.json", 64, value => {
+    // The microphone's mute and Jarvis's voice mute each keep their own
+    // record of one field, { muted }.
+    function readMuted(area, name) {
+        return readRecord(area, name, 64, value => {
             if (value === null || typeof value !== "object" || Array.isArray(value)
                     || Object.keys(value).join(",") !== "muted" || typeof value.muted !== "boolean")
-                throw new Error("jarvis: mute=record-shape");
+                throw new Error("jarvis: " + area + "=record-shape");
             return value.muted;
         }, false);
     }
 
+    const readMute = () => readMuted("mute", "mute.json");
+    const readVoiceMute = () => readMuted("voice-mute", "voice-mute.json");
     function storeMute(muted) { storeRecord("mute", "mute.json", { muted }); }
+    function storeVoiceMute(muted) { storeRecord("voice-mute", "voice-mute.json", { muted }); }
 
     function readHomes() {
         try {
@@ -479,6 +484,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     ports.capture = { ...ports.capture, ...audio.capturePort };
     ports.playback = audio.playbackPort;
     ports.mute = { store: storeMute };
+    ports.voiceMute = { store: storeVoiceMute };
     ports.transcript = e => {
         if (!ending && context !== null) write({ v: 1, type: "transcript", gen: e.gen,
             revision: context.revision, role: e.role,
@@ -603,6 +609,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                         if ((message.intent === "talk-down" || message.intent === "say") && (engine.homeHeld() || engine.voicesHeld() || engine.modelsHeld())) judgeSetup();
                         const dispatch = () => {
                             runner.dispatch(message.intent === "mute" ? { type: "mute-toggle" }
+                                : message.intent === "voice-mute" ? { type: "voice-mute-toggle" }
                                 : message.intent === "say" ? { type: "say", text: message.text }
                                 : message.intent === "preview" ? { type: "preview", voice: message.voice }
                                 : { type: message.intent });
@@ -786,6 +793,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                     audio.playbackSource = engine.playbackSource;
                 }
                 if (first && readMute()) runner.dispatch({ type: "mute" });
+                if (first && readVoiceMute()) runner.dispatch({ type: "voice-mute" });
                 judgeSetup();
                 if (first) startFleetCutover();
                 if (memory !== null) writeMemoryInbox();

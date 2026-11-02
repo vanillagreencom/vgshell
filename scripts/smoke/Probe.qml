@@ -1544,8 +1544,10 @@ Scope {
             }
             return "ok";
         }
-        function layerShaderSet(id: string, visible: bool): string {
-            const item = root.layerItem(id, "VoiceOrb", "active", "true");
+        // Shows or hides the shader of the first active item named TYPE in
+        // a plugin's layer copies, as a pixel reader's control.
+        function layerShaderSet(id: string, type: string, visible: bool): string {
+            const item = root.layerItem(id, type, "active", "true");
             if (item === null) return "absent";
             const shader = root.descendants(item).find(child => child.fragmentShader !== undefined);
             if (shader === undefined) return "missing-shader";

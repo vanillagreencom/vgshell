@@ -14,7 +14,7 @@ const hello = { v: 1, type: "hello", gen: 0, settings: { home: "", sounds: false
     cloudVision: "ask", privateWindows: "bitwarden, incognito" }, directories: {
     state: "/private/state", data: "/private/data", runtime: "/private/runtime"
 }, revision: "a".repeat(64), locked: false,
-keys: { talk: "SUPER+code:44", mute: "SUPER+SHIFT+code:44", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C" } };
+keys: { talk: "SUPER+code:44", mute: "SUPER+SHIFT+code:44", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C", "voice-mute": "SUPER+ALT+code:44" } };
 const intent = { v: 1, type: "intent", gen: 0, revision: hello.revision, intent: "talk-down" };
 const id = "11111111-1111-4111-8111-111111111111";
 const confirm = { ...intent, intent: "confirm", id, digest: "a".repeat(64), source: "key" };
@@ -50,6 +50,7 @@ assert.equal(manifest.hyprland.binds.every(bind => typeof bind.info === "string"
 assert.deepEqual(manifest.hyprland.binds.map(({ info, ...bind }) => bind), [
     { shortcut: "talk", key: "SUPER+code:44", hold: true },
     { shortcut: "mute", key: "SUPER+SHIFT+code:44" },
+    { shortcut: "voice-mute", key: "SUPER+ALT+code:44" },
     { shortcut: "stop", key: "SUPER+ALT+PERIOD" },
     { shortcut: "confirm", key: "SUPER+ALT+Y" },
     { shortcut: "console", key: "SUPER+ALT+C" }
@@ -265,6 +266,7 @@ const cases = [
     ["key-empty", changed(hello, { keys: { ...hello.keys, talk: "" } }), "shell", "key-talk"],
     ["intent-direction", JSON.stringify(intent), "daemon", "direction-intent"],
     ["intent-shape", changed(intent, { extra: true }), "shell", "shape-intent"],
+    ["voice-mute-shape", changed(intent, { intent: "voice-mute", muted: true }), "shell", "shape-intent"],
     ["intent-name", changed(intent, { intent: "approve" }), "shell", "intent"],
     ["preview-without-voice", changed(intent, { intent: "preview" }), "shell", "shape-preview"],
     ["preview-empty-voice", changed(intent, { intent: "preview", voice: "" }), "shell", "preview-voice"],
@@ -450,7 +452,7 @@ const dueState = (() => {
 assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(dueState), "daemon")), JSON.stringify(dueState), "a due reply is a wire state");
 rejected(Protocol, ["state-speech-reply", JSON.stringify({ ...dueState, state: { ...dueState.state, speech: { ...dueState.state.speech, reply: { kind: "coming" } } } }),
     "daemon", "state"]);
-for (const name of ["talk-down", "talk-up", "mute", "stop", "voice-check"])
+for (const name of ["talk-down", "talk-up", "mute", "voice-mute", "stop", "voice-check"])
     assert.equal(Protocol.accept(changed(intent, { intent: name }), "shell").intent, name);
 // A preview always names the voice it plays (Service.previewVoice).
 assert.equal(Protocol.accept(changed(intent, { intent: "preview", voice: "marin" }), "shell").voice, "marin");
@@ -492,9 +494,9 @@ for (const message of [confirm, { ...confirm, source: "button" }, cancel, memory
 for (const shown of [false, true])
     assert.equal(Protocol.accept(changed(indicator, { shown }), "shell").shown, shown);
 assert.equal(Protocol.accept(changed(hello, { settings: { ...hello.settings, mode: "toggle" },
-    keys: { talk: null, mute: null, stop: null, confirm: null, console: null } }), "shell").settings.mode, "toggle");
+    keys: { talk: null, mute: null, stop: null, confirm: null, console: null, "voice-mute": null } }), "shell").settings.mode, "toggle");
 assert.equal(Protocol.accept(changed(hello, { settings: { ...hello.settings, mode: "always" },
-    keys: { talk: null, mute: null, stop: null, confirm: null, console: null } }), "shell").settings.mode, "always");
+    keys: { talk: null, mute: null, stop: null, confirm: null, console: null, "voice-mute": null } }), "shell").settings.mode, "always");
 for (const message of [devices, homes, level, audioFault, memory, memoryInbox, { ...memoryInbox, entries: [{ ...memoryEntry, kind: "replace" }] },
     { ...memoryInbox, entries: [{ ...memoryEntry, problem: "write" }] },
     taskRequest, tasks, taskAnswer, taskPrompts, taskResponse, { ...tasks, count: 0 }, localReleased,
@@ -682,7 +684,7 @@ try {
         ["key-type", 'fail("key-" + shortcut);', ';', "key-type"],
         ["intent-direction", 'if (direction !== "shell") fail("direction-intent");',
             'if (false) fail("direction-intent");', "intent-direction"],
-        ["intent-name", 'if (["talk-down", "talk-up", "mute", "stop", "voice-check", "owner-asks-refresh"].indexOf(message.intent) === -1) fail("intent");',
+        ["intent-name", 'if (["talk-down", "talk-up", "mute", "voice-mute", "stop", "voice-check", "owner-asks-refresh"].indexOf(message.intent) === -1) fail("intent");',
             'if (false) fail("intent");', "intent-name"],
         ["preview-voice-required", '} else if (message.intent === "preview") {',
             '} else if (message.intent === "preview" && message.voice !== undefined) {', "preview-without-voice"],

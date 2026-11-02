@@ -130,6 +130,32 @@ Item {
                         ToggleButton { text: "Pinned"; checked: true }
                         Button { text: "Disabled"; enabled: false }
                     }
+                    // A surface's own form: bare words, and a soft fill whose
+                    // label shimmers under the pointer.
+                    Row {
+                        spacing: Theme.stack.inline
+                        Button {
+                            text: "Bare"
+                            variant: "ghost"
+                            size: "sm"
+                            radius: Theme.radius.full
+                            hoverFill: Theme.button.variant.ghost.background
+                            textColor: Theme.color.textMuted
+                            hoverTextColor: Theme.color.text
+                            ringColor: Theme.color.warning
+                        }
+                        Button {
+                            text: "Soft fill"
+                            variant: "ghost"
+                            size: "sm"
+                            radius: Theme.radius.full
+                            restFill: Theme.color.surfaceRaised
+                            hoverFill: Theme.color.surfaceHover
+                            hoverTextColor: Theme.color.textMuted
+                            ringColor: Theme.color.warning
+                            shimmer: ({ sweep: Theme.motion.duration.slow, pause: Theme.motion.duration.normal, band: 0.16, easing: Theme.motion.easing.standard })
+                        }
+                    }
                 }
                 // The bar's items: workspace pills, the first focused; an
                 // icon alone; the corner count at 1 and above 9 (9+) and at
@@ -163,6 +189,9 @@ Item {
                     Field { label: "Checked"; inline: true; width: parent.width; IconButton { iconName: "check"; label: "Checked"; checkable: true; checked: true } }
                     Field { label: "Disabled"; inline: true; width: parent.width; IconButton { iconName: "ban"; label: "Disabled"; enabled: false } }
                     Field { label: "Danger"; inline: true; width: parent.width; IconButton { iconName: "x"; label: "Close"; variant: "danger" } }
+                    // A surface's own look hands the glyph and ring colours.
+                    Field { label: "Look colours"; inline: true; width: parent.width; IconButton { iconName: "mic"; label: "Look colours"; restColor: Theme.color.info; activeColor: Theme.color.text; onColor: Theme.color.success; ringColor: Theme.color.warning } }
+                    Field { label: "Look colours, on"; inline: true; width: parent.width; IconButton { iconName: "mic-off"; label: "Look colours, on"; checkable: true; checked: true; restColor: Theme.color.info; activeColor: Theme.color.text; onColor: Theme.color.success; ringColor: Theme.color.warning } }
                 }
                 // A key/value row's action after the row's value, then
                 // pressed, disabled, in the danger tone, which leads with
@@ -644,6 +673,61 @@ Item {
                     }
                     Slider { id: orbLevel; from: 0; to: 1; value: 0.4; width: parent.width }
                     Label { role: "hint"; text: "These samples use no microphone input."; width: parent.width; wrapMode: Text.Wrap }
+                }
+                Section {
+                    title: "Backdrop fields"
+                    description: "One dark field behind a passive layer's content, over a bright ground"
+                    headerInset: 0
+                    Flow {
+                        width: parent.width
+                        spacing: Theme.space.sm
+                        Repeater {
+                            // An eased field over a disc and a line of text, with
+                            // the disc's halo, and a Gaussian disc alone.
+                            model: [{ name: "Eased, two boxes and a halo", falloff: "eased", halo: true },
+                                    { name: "Gaussian, one disc", falloff: "gaussian", halo: false }]
+                            Column {
+                                id: backdropSample
+                                required property var modelData
+                                readonly property real unit: Theme.space.xxxl
+                                spacing: Theme.space.xs
+                                Rectangle {
+                                    width: 6 * backdropSample.unit
+                                    height: 5 * backdropSample.unit
+                                    color: Theme.color.accent
+                                    RadialBackdrop {
+                                        anchors.fill: parent
+                                        readonly property real u: backdropSample.unit
+                                        boxes: [{ x: 2 * u, y: u, w: 2 * u, h: 2 * u, corner: u, peak: 0.6, fade: 1.5 * u, inset: 0.5 * u, ink: Theme.screensaver.background }]
+                                            .concat(backdropSample.modelData.halo ? [{ x: 1.5 * u, y: 3.5 * u, w: 3 * u, h: 0.5 * u, corner: 0.25 * u, peak: 0.8, fade: 1.5 * u, inset: 0.25 * u, ink: Theme.screensaver.background }] : [])
+                                        join: 0.1
+                                        blend: 0.15
+                                        falloff: backdropSample.modelData.falloff
+                                        halo: backdropSample.modelData.halo ? { strength: 0.4, width: 0.5 * u, ring: u, stops: [Theme.color.info, Theme.color.accent, Theme.color.warning, Theme.color.success] } : null
+                                    }
+                                }
+                                Label { role: "label"; text: backdropSample.modelData.name }
+                            }
+                        }
+                    }
+                }
+                Section {
+                    title: "Text shadow"
+                    description: "A look's shadow under a line of light text, over a bright ground"
+                    headerInset: 0
+                    Rectangle {
+                        width: 6 * Theme.space.xxxl
+                        height: 2 * Theme.space.xxxl
+                        color: Theme.color.accent
+                        Label {
+                            anchors.centerIn: parent
+                            role: "bodyStrong"
+                            color: Theme.screensaver.foreground
+                            text: "Shadowed text"
+                            layer.enabled: true
+                            layer.effect: TextShadow { shadow: ({ color: Theme.screensaver.background, opacity: Theme.opacity.disabled, blur: Theme.space.sm }) }
+                        }
+                    }
                 }
                 Section {
                     title: "Dialogs"

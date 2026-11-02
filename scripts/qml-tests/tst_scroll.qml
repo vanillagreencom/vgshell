@@ -122,6 +122,21 @@ Item {
             }
         }
     }
+    // Rows at fractional positions, as text of a fractional line height
+    // lays them out: a 30.4 px head, then ten rows of 20.3 px.
+    Component {
+        id: fractionCase
+        ScrollArea {
+            property alias rowItems: fractionRows
+            width: 100
+            height: 100
+            Column {
+                width: parent.width
+                Item { width: parent.width; height: 30.4 }
+                Repeater { id: fractionRows; model: 10; Rectangle { width: parent.width; height: 20.3; color: "transparent" } }
+            }
+        }
+    }
     Select { id: long; y: 300; model: ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p"] }
 
     // A flyout initially focuses its list's scope, whose box contains all
@@ -374,6 +389,24 @@ Item {
             const seen = drawn(holder, centre);
             verify(near(seen, "#ff00ff"), "the revealed row draws in full at its centre: " + seen);
             verify(view.fadeBelow > 0, "content remains beyond the bottom edge");
+        }
+
+        // A reveal rests where Flickable keeps it, so the view moves once:
+        // a fixup after it, as a resize or a content change starts, leaves
+        // the position. Row 6 is revealed from the top, then row 1 back up.
+        function test_a_reveal_rests_where_the_view_keeps_it() {
+            const view = createTemporaryObject(fractionCase, root);
+            tryVerify(() => view.overflowing && view.rowItems.count === 10, 1000, "the rows overflow the view");
+            const maxY = view.contentHeight - view.height;
+            for (const index of [6, 1]) {
+                const before = view.contentY;
+                view.reveal(view.rowItems.itemAt(index));
+                verify(view.contentY !== before && view.contentY > 0 && view.contentY < maxY,
+                    "row " + index + " moves the view inside its range: " + [before, view.contentY, maxY]);
+                const revealed = view.contentY;
+                view.returnToBounds();
+                compare(view.contentY, revealed, "a fixup after revealing row " + index + " leaves the view where the reveal put it");
+            }
         }
 
         function test_the_thumb_is_the_view_share_and_never_below_the_minimum() {

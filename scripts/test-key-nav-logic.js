@@ -76,6 +76,8 @@ function verify(logic) {
     assert.equal(logic.revealY(8, 10, 20, 60, 4), 4, "reveal moves up with a margin");
     assert.equal(logic.revealY(90, 20, 20, 60, 4), 54, "reveal moves down with a margin");
     assert.equal(logic.revealY(40, 10, 20, 60, 4), 20, "reveal keeps a visible item still");
+    assert.equal(logic.revealY(8.5, 10, 20, 60, 4), 4, "a reveal up lands on the whole pixel above the item");
+    assert.equal(logic.revealY(90.25, 20, 20, 60, 4), 55, "a reveal down lands on the whole pixel below the item");
 
     const exclusive = { enabled: true, checkable: true, checked: false, autoExclusive: true, clickedCount: 0, clicked() { this.clickedCount += 1; } };
     assert.equal(logic.activate(exclusive), true, "activation reaches an enabled control");

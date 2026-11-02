@@ -1578,6 +1578,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             // prefix, and as a done one no task line to report back.
             if (e.preview === true) {
                 const turn = relayTurn(c, e, done, { ask: null, line: null, done: true });
+                turn.preview = true;
                 turn.voice = offeredVoice(c.plan.speech, e.voice);
                 turn.labels.add("desktop");
                 fixedLine(c, turn, PREVIEW_LINE);
@@ -1927,7 +1928,8 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 if (s.playback.cue === "working" && c.turn !== null && c.turn.op === s.playback.source
                         && c.turn.speech === null) {
                     c.turn.speech = speech(c);
-                    c.turn.speech.readable.push(earcon("working"));
+                    // Marked a tone, so voice mute leaves it audible.
+                    c.turn.speech.readable.push({ pcm: earcon("working"), tone: true });
                 }
                 if (s.playback.cue === "line" && c.turn !== null && c.turn.op === s.playback.source
                         && c.turn.lineStream === null) lineAdmitted(c, c.turn);
@@ -2021,18 +2023,20 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             }
             c.unbound = null;
         },
+        // Audio's {readable, spoken}: a start sound and a voice preview are
+        // not Jarvis's spoken words, so voice mute leaves them audible.
         playbackSource(op) {
-            if (conversation?.feedback?.source === op) return conversation.feedback.readable;
+            if (conversation?.feedback?.source === op) return { readable: conversation.feedback.readable, spoken: false };
             if (conversation?.live !== null && conversation?.live !== undefined) return conversation.live.playbackSource(op);
             const turn = conversation?.last;
             if (!turn || turn.op !== op) return null;
             if (turn.lineStream && !turn.lineStream.handed) {
                 turn.lineStream.handed = true;
-                return turn.lineStream.readable;
+                return { readable: turn.lineStream.readable, spoken: true };
             }
             if (turn.speech === null || turn.speech.handed) return null;
             turn.speech.handed = true;
-            return turn.speech.readable;
+            return { readable: turn.speech.readable, spoken: turn.preview !== true };
         },
         playback, brain,
         // Session's engine word: a dictation row's recording sounds its own

@@ -172,11 +172,15 @@ function printable(text, modifiers) {
 }
 
 // Return the scroll offset that reveals an item inside a vertical viewport.
+// A move lands on a whole pixel, rounded away from the item: Qt 6.12.0's
+// Flickable rounds a fractional in-bounds position at its next fixup
+// (QQuickFlickablePrivate::fixup, qquickflickable.cpp), which would move
+// the view again after the reveal, as a scroll the reveal did not make.
 function revealY(itemY, itemHeight, contentY, viewHeight, margin) {
     var top = itemY - margin;
     var bottom = itemY + itemHeight + margin;
-    if (top < contentY) return Math.max(0, top);
-    if (bottom > contentY + viewHeight) return Math.max(0, bottom - viewHeight);
+    if (top < contentY) return Math.max(0, Math.floor(top));
+    if (bottom > contentY + viewHeight) return Math.max(0, Math.ceil(bottom - viewHeight));
     return contentY;
 }
 

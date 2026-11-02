@@ -299,8 +299,8 @@ function verify(view) {
         callView(view, up(THINKING), UNBOUND).tooltipDetails[0],
         callView(view, up({ approval: { kind: "held", purpose: "action", gen: 1, op: 6, id: "a1", digest: "d1", deadline: 90, shownAt: null, physical: true, text: "Fixture action", tool: "fixture", timeoutMs: 1000, cancellable: false, brain: 4 } }), UNBOUND).tooltipDetails[0],
         callView(view, up(MUTED), UNBOUND).tooltipDetails[0]
-    ], ["Set the [Talk key](page:vgs.jarvis/Settings) in the Keys section.", "Set Stop key in [Settings > Jarvis > Keys](page:vgs.jarvis/Keys).",
-        "Confirm on screen, or set [Confirm key in Settings > Jarvis](page:vgs.jarvis/Keys).", "Unmute Jarvis from its right-click menu."],
+    ], ["Set the [Talk key](page:vgs.jarvis/Settings) in the Keys section.", "Set Stop key in [Settings > Jarvis > Keys](page:vgs.jarvis/Settings/Keys).",
+        "Confirm on screen, or set [Confirm key in Settings > Jarvis](page:vgs.jarvis/Settings/Keys).", "Turn on the microphone from its right-click menu."],
         "unbound keys tell the user to set that key");
 
     // The keys as the widget and the console hand them in: the manifest's
@@ -479,10 +479,11 @@ verify(load(path.join(dir, "WidgetView.js")));
 
 // Every icon a Jarvis notice, menu row or launcher entry names, read from
 // the sources that write them: Service.qml and SetupGate.js notices, the
-// widget's right-click rows (Widget.qml frameActions), and the manifest's
+// widget's right-click rows (Widget.qml frameActions and the Jarvis menu,
+// WidgetView.js menuEntries), and the manifest's
 // icon, menu and TUI entries. A source check: it proves the names written,
 // not what a card draws.
-const ICON_SOURCES = ["Service.qml", "SetupGate.js", "Widget.qml", "manifest.json"];
+const ICON_SOURCES = ["Service.qml", "SetupGate.js", "Widget.qml", "WidgetView.js", "manifest.json"];
 function surfaceIcons(sources) {
     const out = [];
     for (const [name, text] of Object.entries(sources))
@@ -493,8 +494,9 @@ function surfaceIcons(sources) {
 function verifySurfaceIcons(sources) {
     const icons = surfaceIcons(sources);
     // A floor that a broken reader fails: the manifest's icon, the console
-    // menu row, a Service notice, a SetupGate notice and the Unmute row.
-    for (const [file, icon] of [["manifest.json", "vgs-letter-j"], ["Service.qml", "vgs-letter-j"], ["SetupGate.js", "vgs-letter-j"], ["Widget.qml", "mic-off"]])
+    // menu row, a Service notice, a SetupGate notice, the Do not resume row
+    // and the Mute microphone row.
+    for (const [file, icon] of [["manifest.json", "vgs-letter-j"], ["Service.qml", "vgs-letter-j"], ["SetupGate.js", "vgs-letter-j"], ["Widget.qml", "x"], ["WidgetView.js", "mic-off"]])
         assert.ok(icons.some(([name, value]) => name === file && value === icon), "the icon reader finds " + icon + " in " + file);
     for (const [file, icon] of icons) assert.notEqual(icon, VOICE_ICON, file + ": a Jarvis surface names the Voice widget's icon");
 }
@@ -502,8 +504,8 @@ const iconSources = Object.fromEntries(ICON_SOURCES.map(name => [name, fs.readFi
 verifySurfaceIcons(iconSources);
 assert.throws(() => verifySurfaceIcons({ ...iconSources, "Service.qml": iconSources["Service.qml"] + '\nnotice({ title: "x", tone: "info", icon: "mic" });' }),
     assert.AssertionError, "a notice that names mic fails the icon check");
-assert.throws(() => verifySurfaceIcons({ ...iconSources, "Widget.qml": iconSources["Widget.qml"].replace('"vgs-letter-j" : "mic-off"', '"mic" : "mic-off"') }),
-    assert.AssertionError, "an Unmute row that names mic fails the icon check");
+assert.throws(() => verifySurfaceIcons({ ...iconSources, "WidgetView.js": iconSources["WidgetView.js"].replace('"vgs-letter-j" : "mic-off"', '"mic" : "mic-off"') }),
+    assert.AssertionError, "a Turn on microphone row that names mic fails the icon check");
 
 // Each control removes one rule from a copy of the view and keeps the text
 // around it: [label, needle, replacement].
@@ -591,9 +593,9 @@ const CONTROLS = [
     ["shared icons are accepted", '"working": { icon: "brain", tone: "info" }', '"working": { icon: "loader", tone: "info" }'],
     ["ready words its own talk line", '[Gate.talkHint(effectiveMode, effectiveKeys.talk) + "."]', '[effectiveKeys.talk === null ? keySetting("Talk") : "Press " + effectiveKeys.talk + " to start talking."]'],
     ["unbound stop key names no setting", 'return keys.stop === null ? keySetting("Stop") : "Press " + keys.stop + " to stop.";', 'return keys.stop === null ? "Press Stop to stop." : "Press " + keys.stop + " to stop.";'],
-    ["unbound confirm key names no setting", 'return keys.confirm === null ? "Confirm on screen, or set [Confirm key in Settings > Jarvis](page:vgs.jarvis/Keys)."', 'return keys.confirm === null ? "Confirm on screen, or press Confirm."'],
+    ["unbound confirm key names no setting", 'return keys.confirm === null ? "Confirm on screen, or set [Confirm key in Settings > Jarvis](page:vgs.jarvis/Settings/Keys)."', 'return keys.confirm === null ? "Confirm on screen, or press Confirm."'],
     ["a hint becomes a tooltip line with no full stop", "var lines = details.map(line);", "var lines = details.slice();"],
-    ["unbound mute key names no menu", 'return keys.mute === null ? "Unmute Jarvis from its right-click menu."', 'return keys.mute === null ? "Press Mute to unmute."'],
+    ["unbound mute key names no menu", 'return keys.mute === null ? "Turn on the microphone from its right-click menu."', 'return keys.mute === null ? "Press Mute to unmute."'],
     ["unbound console key names a key", 'return keys.console === null ? "Click to open the console."', 'return keys.console === null ? "Click or press Console to open the console."']
 ];
 
@@ -680,9 +682,18 @@ function approvalFrames(source) {
         approvalFrames: [], synchronizedHold: null,
         service: { shownApproval: (bubble, hold) => dispatch({ type: "shown", gen: hold.gen, op: hold.op, id: hold.id }) } };
     Object.defineProperty(root, "hold", { get: () => state.approval.kind === "held" ? state.approval : null });
-    const approvalText = { height: 40, implicitHeight: 40 };
+    root.width = 800;
+    root.height = 600;
+    root.overlay = { x: 16, y: 16, width: 400, height: 300 };
+    const approvalText = { x: 0, y: 0, width: 360, height: 40, implicitHeight: 40 };
     Object.defineProperty(approvalText, "text", { get: () => root.hold?.text ?? "" });
     const ctx = vm.createContext({ root, approvalText, Qt: { callLater: fn => later.push(fn) } });
+    // The shipped binding, evaluated like the callbacks, so a frame gates on
+    // the column Bubble itself calls whole.
+    const whole = [...source.matchAll(/^    readonly property bool approvalWhole: ([\s\S]*?)\n(?=    \S)/gm)];
+    assert.equal(whole.length, 1, "one shipped Bubble binding: approvalWhole");
+    const approvalWhole = vm.runInContext("(function() { with(root) { return (" + whole[0][1] + "); } })", ctx);
+    Object.defineProperty(root, "approvalWhole", { get: approvalWhole });
     for (const name of ["approvalPolished", "approvalSynchronized", "approvalSwapped"]) {
         const matches = [...source.matchAll(new RegExp("^    function " + name + "\\(\\) \\{\\n[\\s\\S]*?^    \\}", "gm"))];
         assert.equal(matches.length, 1, "one shipped Bubble callback: " + name);
@@ -736,11 +747,18 @@ function approvalFrames(source) {
     flush();
     assert.equal(state.approval.shownAt, null, "a frame drawn before the placement is known cannot acknowledge");
     root.placed = true;
+    approvalText.height = approvalText.implicitHeight - 1;
     root.approvalPolished();
     root.approvalSynchronized();
     root.approvalSwapped();
     flush();
-    assert.notEqual(state.approval.shownAt, null, "the placed frame acknowledges its request");
+    assert.equal(state.approval.shownAt, null, "a frame that clips the request's column cannot acknowledge");
+    approvalText.height = approvalText.implicitHeight;
+    root.approvalPolished();
+    root.approvalSynchronized();
+    root.approvalSwapped();
+    flush();
+    assert.notEqual(state.approval.shownAt, null, "the placed whole frame acknowledges its request");
 }
 const bubble = fs.readFileSync(path.join(dir, "Bubble.qml"), "utf8");
 approvalFrames(bubble);
@@ -752,4 +770,8 @@ const placedNeedle = "visible && placed && ";
 assert.equal(bubble.split(placedNeedle).length, 2, "one placement control match");
 assert.throws(() => approvalFrames(bubble.replace(placedNeedle, "visible && ")), assert.AssertionError,
     "a frame drawn before the placement must fail the placement assertion");
-console.log(`test-jarvis-widget: ok cases=${CASES.length + START_CAUSES.length} refusals=${REFUSALS.length} controls=${CONTROLS.length + 4} frame-control=detected`);
+const wholeNeedle = "\n        && approvalText.height >= approvalText.implicitHeight";
+assert.equal(bubble.split(wholeNeedle).length, 2, "one whole-column control match");
+assert.throws(() => approvalFrames(bubble.replace(wholeNeedle, "")), assert.AssertionError,
+    "a frame that clips the request's column must fail the whole-column assertion");
+console.log(`test-jarvis-widget: ok cases=${CASES.length + START_CAUSES.length} refusals=${REFUSALS.length} controls=${CONTROLS.length + 5} frame-control=detected`);

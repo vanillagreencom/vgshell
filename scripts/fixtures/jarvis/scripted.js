@@ -12,8 +12,12 @@ const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 
-// Longer than the bubble's three lines at its widest card.
-const REPLY = Array(24).fill("scripted reply").join(" ");
+// Longer than the bubble's three lines at its widest card. No word repeats
+// within either half, so its last lines read in another order no longer end
+// the reply. Letters only: Speakable passes them to the caption unchanged.
+const ALPHABET = ["alfa", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel", "india", "juliett", "kilo", "lima",
+    "mike", "november", "oscar", "papa", "quebec", "romeo", "sierra", "tango", "uniform", "victor", "whiskey", "xray", "yankee", "zulu"];
+const REPLY = ["scripted reply"].concat(ALPHABET, ALPHABET.slice().reverse()).join(" ");
 // One gate table per daemon; the chained driver waits on the same gates.
 let gates = null;
 let gatesRoot = null;
@@ -145,7 +149,13 @@ function ports(root, engine, state) {
             }
         },
         tools: {
-            start: (e, done) => { record("tool-start", e); done("completed"); },
+            // A hold-tool file keeps the action running until the tool gate,
+            // so a row can read the acting phase.
+            start: (e, done) => {
+                record("tool-start", e);
+                if (fs.existsSync(path.join(root, "hold-tool"))) wait("tool", () => done("completed"));
+                else done("completed");
+            },
             cancel: () => { throw new Error("scripted: unexpected-tool"); },
             outcome: e => record("tool-outcome", e),
             sync: () => {}, close: () => {}
@@ -380,7 +390,7 @@ function consoleData(file) {
     ]);
 }
 
-module.exports = { ports, instrument, readyPlan, plan, driver, chainedEngine, heldApprovals, waitingDriver, waitingBrain, dictationBrain, consoleTasks, consoleAudit, consoleIntent, consoleData };
+module.exports = { REPLY, ports, instrument, readyPlan, plan, driver, chainedEngine, heldApprovals, waitingDriver, waitingBrain, dictationBrain, consoleTasks, consoleAudit, consoleIntent, consoleData };
 if (require.main === module) {
     if (process.argv.length === 4 && process.argv[2] === "--console-data") consoleData(process.argv[3]);
     else if (process.argv.length === 4 && process.argv[2] === "--chained-engine") chainedEngine(process.argv[3]);

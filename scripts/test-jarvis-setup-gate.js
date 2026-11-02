@@ -466,6 +466,8 @@ const START_CAUSES = [
     ["hello timeout", "jarvis: hello=timeout", "hello-timeout"],
     ["Node too old", "jarvis: node=20.19.5 need=22", "node-too-old"],
     ["Node exit", "jarvis: daemon=exit code=78 status=0", "node-too-old"],
+    ["voice mute not saved", "jarvis: voice-mute=write-failed", "mute-not-saved"],
+    ["mute record unreadable", "jarvis: mute=record-shape", "mute-not-saved"],
     ["daemon exit", "jarvis: daemon=exit code=1 status=0", "daemon-exit"],
     ["daemon ended", "jarvis: daemon=ended", "daemon-exit"],
     ["wire defect", "jarvis: protocol=identity", "wire-defect"]
@@ -3182,7 +3184,7 @@ function verifyWordedText(gate) {
             assert.equal(bar.state, "problem", label + ": the bar reads a problem");
             assert.deepEqual(keyedCauses(bar, ["tooltip", "tooltipDetails"]), [], label + " retrying=" + retrying + ": the bar tooltip draws no keyed cause");
         }
-        for (const [name, notice] of [["stopped", gate.stoppedNotice(cause)], ["mute refused", gate.muteRefusedNotice(cause)]]) {
+        for (const [name, notice] of [["stopped", gate.stoppedNotice(cause)], ["mute refused", gate.muteRefusedNotice(cause)], ["voice mute refused", gate.voiceMuteRefusedNotice(cause)]]) {
             assert.deepEqual(keyedCauses(notice, ["title", "message"]), [], label + ": the " + name + " notice draws no keyed cause");
             assert.equal(notice.message.endsWith("."), true, label + ": the " + name + " notice's message ends as a sentence");
         }

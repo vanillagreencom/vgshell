@@ -31,7 +31,7 @@ Item {
         function test_every_component_instantiates() {
             const listed = names();
             verify(listed.length >= 20, "the qmldir read found " + listed.length + " components; the read is broken");
-            const bare = { Icon: "name: \"check\"", IconButton: "iconName: \"x\"; label: \"close\"", FocusRing: "target: root", SlimScrollBar: "thin: 2; wide: 6; minLength: 20; color: \"white\"; radius: 0; idleOpacity: 1; movingOpacity: 1; activeOpacity: 1; widthStep: ({ duration: 0, easing: Easing.Linear }); opacityStep: ({ duration: 0, easing: Easing.Linear }); flickable: Flickable {}", TouchpadScroll: "view: Flickable {}", TextUnderline: "label: Label {}" };
+            const bare = { Icon: "name: \"check\"", IconButton: "iconName: \"x\"; label: \"close\"", FocusRing: "target: root", SlimScrollBar: "thin: 2; wide: 6; minLength: 20; color: \"white\"; radius: 0; idleOpacity: 1; movingOpacity: 1; activeOpacity: 1; widthStep: ({ duration: 0, easing: Easing.Linear }); opacityStep: ({ duration: 0, easing: Easing.Linear }); flickable: Flickable {}", TouchpadScroll: "view: Flickable {}", TextUnderline: "label: Label {}", RadialBackdrop: "boxes: []; join: 0.1; blend: 0.15; falloff: \"eased\"; halo: null", TextShadow: "shadow: ({ color: \"black\", opacity: 0.15, blur: 9 })" };
             for (const entry of listed) {
                 if (entry.file.endsWith(".js")) continue;
                 if (entry.name === "BarWidget") continue;
