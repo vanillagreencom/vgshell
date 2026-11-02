@@ -36,7 +36,7 @@ Item {
             root.publications = []; paths = []; cpuReads = 0;
             directories = {}; fixtureFiles = {}; listedPaths = [];
             const scope = { settings: { gpu: "", cpuSensor: "automatic", refreshSeconds: 10 }, requirements: { missing: [] },
-                status: { set: function (key, value) { root.publications = root.publications.concat([{ key: key, value: value }]); return "ok"; } } };
+                status: { isOk: PluginLogic.statusReplyOk, set: function (key, value) { root.publications = root.publications.concat([{ key: key, value: value }]); return "ok"; } } };
             service = createTemporaryObject(serviceComponent, root, { registered: true, shell: scope });
             verify(service !== null);
             file = Array.from(service.resources).find(item => typeof item.finishRead === "function");

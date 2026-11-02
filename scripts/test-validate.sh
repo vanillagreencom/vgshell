@@ -562,7 +562,7 @@ settings_devtools_row=$'\nnode scripts/test-devtools-view.js'
 cases=(
   "notifications-app-sounds|shell/plugins/vgs.notifications/AppSounds.qml|logic|node scripts/test-notifications-logic.js"
   "notifications-sound-rule|shell/plugins/vgs.notifications/SoundRule.qml|logic|node scripts/test-notifications-logic.js"
-  "notifications-service-status|shell/plugins/vgs.notifications/Service.qml|logic|node scripts/test-notifications-logic.js"
+  "notifications-service-status|shell/plugins/vgs.notifications/Service.qml|logic|node scripts/test-plugin-status.js"$'\nnode scripts/test-notifications-logic.js'
   "notifications-card-exit|shell/plugins/vgs.notifications/CardSlot.qml|logic|node scripts/test-notifications-logic.js"
   "displays-vrr-setting|shell/plugins/vgs.displays/manifest.json|logic|node scripts/test-plugin-logic.js"$'\nnode scripts/test-displays-logic.js'
   "power-logic|shell/plugins/vgs.power/PowerLogic.js|logic|node scripts/test-power-logic.js"
@@ -921,7 +921,10 @@ notifications_saved_area=${test_area:-}
 notifications_saved_args=("${test_args[@]}")
 for spec in "${cases[@]}"; do
   [[ $spec == notifications-* ]] || continue
-  IFS='|' read -r name input test_area command <<<"$spec"
+  IFS='|' read -r name input test_area _ <<<"$spec"
+  # The notifications logic row is the manifest's last consumer of these
+  # inputs, so its command is the expected plan's last line.
+  command=${spec#*|*|*|}; command=${command##*$'\n'}
   python3 - "$tmp/template/scripts/validate" "$input" <<'PYEDGE'
 from pathlib import Path
 import sys

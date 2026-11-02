@@ -314,11 +314,11 @@ Item {
             }
             if (root.shell !== null) {
                 const reply = root.shell.status.set("browserTheming", value);
-                if (reply !== "ok") console.error("themes: " + reply);
+                if (!root.shell.status.isOk(reply)) console.error("themes: " + reply);
                 const items = SetupLogic.wiring(setupOut.text, code);
                 if (items !== null) {
                     const wiringReply = root.shell.status.set("themeWiring", items);
-                    if (wiringReply !== "ok") console.error("themes: " + wiringReply);
+                    if (!root.shell.status.isOk(wiringReply)) console.error("themes: " + wiringReply);
                 }
             }
             if (root.setupPending) {

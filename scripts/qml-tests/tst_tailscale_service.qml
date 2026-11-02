@@ -1,6 +1,7 @@
 import QtQuick
 import QtTest
 import Quickshell.Io
+import qs.Core
 import "../../shell/plugins/vgs.tailscale" as Tailscale
 
 // Drives the production service and its Process boundaries. The elevated
@@ -24,7 +25,7 @@ Item {
         requirements: { missing: [], get outdated() { return root.oldTools ? ["tailscale"] : []; }, revision: 0, offer: commands => { root.offers = root.offers.concat([commands]); return "ok"; } },
         system: { get state() { return root.stepsRead ? { "service-tailscaled": { state: "ready" }, "tailscale-operator": { state: root.operatorStep }, "tailscale-account-add": { state: "needed" } } : {}; },
             refresh: done => { root.setupDone = root.setupDone.concat([done]); return "ok"; } },
-        status: { set: (key, value) => { root.writes = Object.assign({}, root.writes, { [key]: value }); return "ok"; },
+        status: { isOk: PluginLogic.statusReplyOk, set: (key, value) => { root.writes = Object.assign({}, root.writes, { [key]: value }); return "ok"; },
             act: (key, row, action, done) => { root.actionDone = done; return "ok"; } },
         ipc: { handle: () => "ok" },
         run: { detached: argv => "ok" }

@@ -1,5 +1,6 @@
 import QtQuick
 import QtTest
+import qs.Core
 import "../../shell/plugins/vgs.scratchpads" as Scratchpads
 
 // The scratchpads service's pad shortcuts and notices. The Keys row and
@@ -40,7 +41,7 @@ Item {
                 manifest: manifest,
                 settings: { pads: pads },
                 screens: { all: [] },
-                status: { set: (key, value) => "ok" },
+                status: { isOk: PluginLogic.statusReplyOk, set: (key, value) => "ok" },
                 notify: { send: notice => { tests.notices = tests.notices.concat([notice.title]); return "ok"; } },
                 run: { detached: argv => { tests.starts = tests.starts.concat([argv[2]]); return "ok"; } },
                 shortcut: {

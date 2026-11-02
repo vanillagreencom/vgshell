@@ -423,7 +423,7 @@ Item {
 
     function report(key, value) {
         const reply = shell.status.set(key, value);
-        if (reply !== "ok") console.error("power: status " + key + " " + reply);
+        if (!shell.status.isOk(reply)) console.error("power: status " + key + " " + reply);
     }
 
     function profileRequest(arg) {

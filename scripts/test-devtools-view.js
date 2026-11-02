@@ -382,7 +382,7 @@ function verifyPublication(logic, text) {
     const context = vm.createContext({
         ViewLogic: logic, answers: { catalog: ok(list({ agents: [row({})] })) },
         showInLauncher: true,
-        shell: { status: { set(key, value) {
+        shell: { status: { isOk: PluginLogic.statusReplyOk, set(key, value) {
             writes.push([key, JSON.parse(JSON.stringify(value))]);
             return refusals.has(key) ? "refused: status=" + key + " reason=size" : "ok";
         } } }, console: { warn(message) { warnings.push(message); } }
@@ -427,7 +427,7 @@ const serviceSource = fs.readFileSync(serviceFile, "utf8");
 verifyPublication(load(file), serviceSource);
 const publicationControls = [
     ['provider delegation', 'const reply = shell.status.set(key, values[key]);', 'const reply = "ok";'],
-    ['refusal warning', 'if (reply !== "ok") console.warn("devtools: status " + reply);', 'if (false) console.warn("devtools: status " + reply);']
+    ['refusal warning', 'if (!shell.status.isOk(reply)) console.warn("devtools: status " + reply);', 'if (false) console.warn("devtools: status " + reply);']
 ];
 for (const [label, needle, replacement] of publicationControls) {
     assert.equal(serviceSource.split(needle).length, 2, label + ": exact control match");

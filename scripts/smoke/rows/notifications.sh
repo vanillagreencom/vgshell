@@ -138,7 +138,6 @@ notifications_abandon() {
 }
 smoke_row_abandon=(notifications_abandon)
 source "$repo/scripts/fixtures/notifications/hold-native.sh"
-expected_errors+=('notifications: refused: status=slackTokens reason=retired')
 # The sound rule is not loaded in the sandbox's WirePlumber until the
 # row's app sound part restarts it, so a mute that outlasts the grace
 # says so; the app sound part kills the pw-cli writer on purpose.

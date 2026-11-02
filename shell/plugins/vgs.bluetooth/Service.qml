@@ -97,14 +97,14 @@ Item {
     function publish() {
         if (shell === null) return;
         const reply = shell.status.set("power", { tone: view.tone, text: view.text });
-        if (reply !== "ok") console.error("bluetooth: status power " + reply);
+        if (!shell.status.isOk(reply)) console.error("bluetooth: status power " + reply);
         // `adapters` is an input of `view` too, so onViewChanged publishes
         // again whenever it changes, and onStepEntryChanged whenever the
         // step's report does.
         const service = shell.status.set("service", Logic.serviceRow(stepEntry, adapters.length));
-        if (service !== "ok") console.error("bluetooth: status service " + service);
+        if (!shell.status.isOk(service)) console.error("bluetooth: status service " + service);
         const data = shell.status.set("bluetooth", { power: view });
-        if (data !== "ok") console.error("bluetooth: status bluetooth " + data);
+        if (!shell.status.isOk(data)) console.error("bluetooth: status bluetooth " + data);
     }
 
     // What is observed now, for the power operation. Read from the source

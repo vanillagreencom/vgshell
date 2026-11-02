@@ -285,14 +285,14 @@ Item {
 
     function publishShown() {
         const reply = shell.status.set("shown", shownOn);
-        if (reply !== "ok") console.warn("scratchpads: status shown " + reply);
+        if (!shell.status.isOk(reply)) console.warn("scratchpads: status shown " + reply);
     }
 
     function publishScreens() {
         if (shell === null) return;
         const choices = [{ label: "Focused screen", value: "focused" }].concat(screenNames.map(name => ({ label: name, value: name })));
         const reply = shell.status.set("screens", choices);
-        if (reply !== "ok") console.warn("scratchpads: status screens " + reply);
+        if (!shell.status.isOk(reply)) console.warn("scratchpads: status screens " + reply);
     }
 
     // The deadline of the earliest start still waiting for its window.

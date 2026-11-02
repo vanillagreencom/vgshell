@@ -58,7 +58,7 @@ Item {
         const writes = Logic.statusWrites(connection, profiles);
         for (const write of writes) {
             const reply = shell.status.set(write[0], write[1]);
-            if (reply !== "ok") console.warn("vpn: status " + write[0] + " " + reply);
+            if (!shell.status.isOk(reply)) console.warn("vpn: status " + write[0] + " " + reply);
         }
     }
     onConnectionChanged: publish()

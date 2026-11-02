@@ -112,7 +112,7 @@ Item {
         const next = Object.assign({}, reported);
         for (const key of Logic.changedKeys(reported, values)) {
             const reply = shell.status.set(key, values[key]);
-            if (reply !== "ok") console.error("automations: " + reply);
+            if (!shell.status.isOk(reply)) console.error("automations: " + reply);
             else next[key] = values[key];
         }
         reported = next;

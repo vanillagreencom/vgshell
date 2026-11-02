@@ -86,7 +86,7 @@ Item {
 
     function publish() {
         const reply = shell.status.set("streams", Logic.streamsState(root.pactl));
-        if (reply !== "ok") console.warn("sound: streams " + reply);
+        if (!shell.status.isOk(reply)) console.warn("sound: streams " + reply);
     }
 
     function stepVolume(direction) {
@@ -171,7 +171,7 @@ Item {
         root.inputRoutes = { state: state, reason: reason, sources: sources };
         if (root.shell === null) return;
         const reply = root.shell.status.set("inputRoutes", root.inputRoutes);
-        if (reply !== "ok") {
+        if (!root.shell.status.isOk(reply)) {
             // PluginStatus owns the publication byte ceiling. A refused
             // inventory must invalidate the previous published routes.
             root.inputRoutes = { state: "unreadable", reason: "publication", sources: [] };

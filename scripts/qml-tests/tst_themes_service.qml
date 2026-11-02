@@ -1,6 +1,7 @@
 import QtQuick
 import QtTest
 import qs.Commons
+import qs.Core
 import qs.Unit
 import Quickshell
 import "../../shell/plugins/vgs.themes" as Themes
@@ -81,7 +82,7 @@ Item {
                     catalog: done => { tests.catalogCalls++; done({ entries: [], reason: null }); }
                 },
                 notify: { send: options => { tests.notices = tests.notices.concat([options]); return "ok"; } },
-                status: { set: (key, value) => "ok" }
+                status: { isOk: PluginLogic.statusReplyOk, set: (key, value) => "ok" }
             };
         }
 

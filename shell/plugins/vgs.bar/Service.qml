@@ -89,7 +89,7 @@ Item {
         const json = JSON.stringify(choices);
         if (json !== published) {
             const reply = shell.status.set("browserProfiles", choices);
-            if (reply === "ok") published = json;
+            if (shell.status.isOk(reply)) published = json;
             else console.warn("vgs.bar: profiles publish " + reply);
         }
         if (readAgain) {
@@ -134,7 +134,7 @@ Item {
     // The status capability's reply: `ok`, or its refusal.
     function hideUntilReveal(hidden) {
         const reply = shell.status.set("hiddenUntilReveal", hidden);
-        if (reply !== "ok") console.warn("vgs.bar: " + (hidden ? "hide " : "reveal ") + reply);
+        if (!shell.status.isOk(reply)) console.warn("vgs.bar: " + (hidden ? "hide " : "reveal ") + reply);
         return reply;
     }
 }

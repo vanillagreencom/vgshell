@@ -120,9 +120,9 @@ Item {
     function publish() {
         if (shell === null) return;
         const line = shell.status.set("printing", printing);
-        if (line !== "ok") console.error("printers: status printing " + line);
+        if (!shell.status.isOk(line)) console.error("printers: status printing " + line);
         const data = shell.status.set("printers", view);
-        if (data !== "ok") console.error("printers: status printers " + data);
+        if (!shell.status.isOk(data)) console.error("printers: status printers " + data);
     }
 
     function read() {

@@ -32,7 +32,7 @@ Item {
     function publish() {
         if (shell === null) return;
         const reply = shell.status.set("items", offers);
-        if (reply !== "ok") console.error("tray: status items " + reply);
+        if (!shell.status.isOk(reply)) console.error("tray: status items " + reply);
     }
 
     // Toggle tray item ID in the list KIND names, `pin` or `hide`. The list

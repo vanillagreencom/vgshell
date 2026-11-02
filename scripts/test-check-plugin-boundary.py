@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """One planted violation per rule of check-plugin-boundary.py, one clean
-fixture, one row per exemption, one row per JS rule, one row per unreadable path
-class, and the plugin listing: a directory without a manifest is not a plugin,
+fixture, one row per exemption, one row per JS rule, one row per form of the
+status-reply rule, one row per unreadable path class, and the plugin listing: a directory without a manifest is not a plugin,
 and a shell tree without a plugins directory is refused.
 Each row builds a throwaway shell tree, runs the check on it and asserts the rule
 key and the exit status. Unreadable rows need a uid that permissions bind;
@@ -69,6 +69,19 @@ JS_ROWS = [
     ("a // inside a regular expression opens no comment", CLEAN_JS + 'var re = /\\/\\//; var w = Qt.createQmlObject("PanelWindow { }", null);\n', "surface-type"),
     ("plugin JS dispatches to Hyprland directly", CLEAN_JS + 'function go() { Hyprland.dispatch("workspace 1"); }\n', "core-type"),
     ("plugin JS writes the theme's input", CLEAN_JS + 'function set(theme) { theme.appearanceInput = "{}"; }\n', "theme-input"),
+]
+
+# status-reply rows: name, the body of a plugin function publishing status, expected rule key or None
+STATUS_ROWS = [
+    ("a reply compared with a literal", 'const reply = shell.status.set("k", 1);\nif (reply !== "ok") console.warn(reply);', "status-reply"),
+    ("a reply compared with a literal, literal first", 'const reply = root.shell.status.set("k", 1);\nif ("ok" === reply) done();', "status-reply"),
+    ("a reply judged by isOk before its literal comparison", 'const reply = shell.status.set("k", 1);\nif (!shell.status.isOk(reply)) console.warn(reply);\nelse if (reply === "ok") done();', None),
+    ("isOk earlier on the same line", 'const written = shell.status.set("k", 1);\nif (shell.status.isOk(written)) return written === "ok";', None),
+    ("replies gathered in an array leave the rule", 'const replies = [shell.status.set("a", 1), shell.status.set("b", 2)];\nif (replies.some(reply => !shell.status.isOk(reply))) throw new Error("status");\nif (replies.some(reply => reply !== "ok")) return;', None),
+    ("a comparison before isOk is not judged", 'const reply = shell.status.set("k", 1);\nif (reply === "ok") done();\nelse if (!shell.status.isOk(reply)) console.warn(reply);', "status-reply"),
+    ("a second binding is judged on its own", '{\nconst reply = shell.status.set("a", 1);\nif (!shell.status.isOk(reply)) console.warn(reply);\n}\n{\nconst reply = root.shell.status.set("b", 2);\nif (reply !== "ok") console.warn(reply);\n}', "status-reply"),
+    ("a later binding of another call's reply ends the span", '{\nconst reply = shell.status.set("a", 1);\nreturn reply;\n}\n{\nconst reply = shell.surfaces.summon("panel", "{}");\nif (reply !== "ok") console.warn(reply);\n}', None),
+    ("a status.set call compared with a literal", 'if (shell.status.set("k", JSON.stringify({ a: "(" })) !== "ok") console.warn("k");', "status-reply"),
 ]
 
 # unreadable rows: name, path under the shell tree whose permission bits are removed; the check exits 2 and names that path
@@ -153,6 +166,7 @@ def main():
         return 77
     results = [run_row(*row) for row in ROWS]
     results += [run_row(name, CLEAN_WIDGET, CLEAN_CORE, want, js) for name, js, want in JS_ROWS]
+    results += [run_row(name, CLEAN_WIDGET.replace("BarWidget { }", "BarWidget {\n    id: root\n    function publish() {\n" + body + "\n    }\n}"), CLEAN_CORE, want) for name, body, want in STATUS_ROWS]
     # The listing: a directory under plugins with no manifest is not a plugin,
     # so a violation inside it is not a finding and the count says so.
     results.append(run_row("a directory without a manifest is not a plugin", CLEAN_WIDGET.replace("BarWidget { }", "PanelWindow { }"), CLEAN_CORE, None, manifest=None, plugins=0))

@@ -103,7 +103,7 @@ Item {
     function publish() {
         if (!PolkitModel.statusChanged(published, agentState)) return;
         const reply = shell.status.set("agent", agentState);
-        if (reply === "ok") published = agentState;
+        if (shell.status.isOk(reply)) published = agentState;
         else console.warn("polkit: status " + reply);
     }
 

@@ -12,6 +12,17 @@ Plugin rules, one per QML or JS file under a plugin directory:
   theme-input        no write to Theme's input: `appearanceInput`, the user's
                      Appearance values, which Config alone binds; a plugin
                      writes them through capability `appearance`
+  status-reply       a `shell.status.set` reply is judged by `shell.status.isOk`
+                     before any comparison with a string literal, so a retired
+                     instance's refusal is never read as a failure. The rule
+                     covers `(const|let) NAME = (root.)?shell.status.set(` and a
+                     `status.set(...)` call compared with a literal directly.
+                     A binding's span runs to the next `const`, `let` or `var`
+                     binding of NAME in the file, or its end; a literal
+                     comparison of NAME in the span is a finding unless
+                     `status.isOk(NAME)` comes before it in the span. A reply
+                     that leaves its binding, returned, put in an array or
+                     passed to a function, is outside the rule; review holds it.
 Core rules, one per QML or JS file under shell/ outside shell/plugins/:
   core-plugin-name   no first-party plugin id literal (the `vgs.` prefix alone is fine)
   core-plugin-import no import of a plugin directory
@@ -19,6 +30,8 @@ Core rules, one per QML or JS file under shell/ outside shell/plugins/:
 Every rule reads code only, through `scripts/qml_source.py`: comments are
 blanked before matching, with line numbers kept, and string literals stay, so a
 window type inside a string handed to Qt.createQmlObject is still a finding.
+`status-reply` reads the same code with string contents blanked too, so a
+parenthesis or a name inside a string is not code.
 
 Usage: check-plugin-boundary.py [--shell DIR] [PLUGIN_DIR...]
 With no plugin directories, every plugin under DIR/plugins is checked, listed
@@ -41,7 +54,7 @@ import sys
 # A check writes nothing into the tree it reads, so the shared module leaves
 # no bytecode cache beside it.
 sys.dont_write_bytecode = True
-from qml_source import SCAN, Unreadable, source_lines
+from qml_source import SCAN, Unreadable, blank_comments, source_lines, source_texts
 
 # The scan runs under this environment and nothing inherited beyond it.
 SCAN_ENV = {"PATH": os.environ.get("PATH", ""), "LC_ALL": "C"}
@@ -58,6 +71,14 @@ LENT = re.compile(r"\b(" + "|".join(LENT_TYPES) + r")\s*\{|\b(Hyprland\.dispatch
 THEME_INPUT = re.compile(r"\bappearanceInput\b")
 PLUGIN_ID_LITERAL = re.compile(r"[\"'`]vgs\.[a-z]")
 PLUGIN_DIR_IMPORT = re.compile(r"^\s*\.?import\s+\"[^\"]*plugins/")
+REPLY_BINDING = re.compile(r"\b(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:root\.)?shell\.status\.set\(")
+STATUS_SET = re.compile(r"\bstatus\.set\(")
+# With string contents blanked a literal is its two quotes and spaces.
+LITERAL = r"(?:\"[ ]*\"|'[ ]*')"
+EQUALITY = r"(?:===|!==|==|!=)"
+LITERAL_AFTER = re.compile(r"\s*" + EQUALITY + r"\s*" + LITERAL)
+LITERAL_BEFORE = re.compile(LITERAL + r"\s*" + EQUALITY + r"\s*$")
+RECEIVER = re.compile(r"[\w$.]*$")
 
 
 def module_allowed(name):
@@ -92,6 +113,47 @@ def check_plugin(plugin_dir, findings):
             findings.append(f"core-type {path}:{number} {m.group(1) or m.group(2)}")
         if THEME_INPUT.search(line):
             findings.append(f"theme-input {path}:{number} appearanceInput")
+    for path, text in source_texts(plugin_dir):
+        check_status_replies(path, text, findings)
+
+
+def line_of(code, offset):
+    return code.count("\n", 0, offset) + 1
+
+
+def closing_paren(code, start):
+    """Return the offset of the `)` that closes the `(` at `start`, or -1."""
+    depth = 0
+    for i in range(start, len(code)):
+        if code[i] == "(":
+            depth += 1
+        elif code[i] == ")":
+            depth -= 1
+            if depth == 0:
+                return i
+    return -1
+
+
+def check_status_replies(path, text, findings):
+    code = blank_comments(text, literals=False)
+    for m in STATUS_SET.finditer(code):
+        close = closing_paren(code, m.end() - 1)
+        receiver = m.start() - len(RECEIVER.search(code, 0, m.start()).group(0))
+        line_start = code.rfind("\n", 0, receiver) + 1
+        if (close != -1 and LITERAL_AFTER.match(code, close + 1)) or LITERAL_BEFORE.search(code, line_start, receiver):
+            findings.append(f"status-reply {path}:{line_of(code, m.start())} status.set compared with a literal")
+    for b in REPLY_BINDING.finditer(code):
+        start, name = b.start(), b.group(1)
+        rebound = re.compile(r"\b(?:const|let|var)\s+" + re.escape(name) + r"(?![\w$])").search(code, b.end())
+        end = rebound.start() if rebound else len(code)
+        word = r"(?<![\w$.])" + re.escape(name) + r"(?![\w$])"
+        compare = re.compile(word + r"\s*" + EQUALITY + r"\s*" + LITERAL + "|" + LITERAL + r"\s*" + EQUALITY + r"\s*" + word)
+        judged = re.compile(r"\bstatus\.isOk\(\s*" + re.escape(name) + r"\s*\)")
+        first_judge = judged.search(code, start, end)
+        for c in compare.finditer(code, start, end):
+            if first_judge is None or first_judge.start() > c.start():
+                findings.append(f"status-reply {path}:{line_of(code, c.start())} {name} compared with a literal before status.isOk({name})")
+
 
 def check_core(shell_dir, findings):
     plugins_root = os.path.join(shell_dir, "plugins")

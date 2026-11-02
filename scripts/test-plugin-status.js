@@ -19,6 +19,8 @@ const LUCIDE = path.join(__dirname, "..", "shell", "Ui", "icons", "Lucide.js");
 const MANAGERS = path.join(__dirname, "..", "shell", "Core", "PackageManagers.js");
 const SETTING_VALUES = path.join(__dirname, "..", "shell", "Commons", "SettingValues.js");
 const JARVIS = path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis");
+const NOTIFICATIONS = path.join(__dirname, "..", "shell", "plugins", "vgs.notifications");
+const SOUND = path.join(__dirname, "..", "shell", "plugins", "vgs.sound");
 const STATUS_SOURCE = fs.readFileSync(path.join(__dirname, "..", "shell", "Core", "PluginStatus.qml"), "utf8");
 const CAPABILITIES_SOURCE = fs.readFileSync(path.join(__dirname, "..", "shell", "Core", "Capabilities.qml"), "utf8");
 const BROWSER_SOURCE = fs.readFileSync(path.join(JARVIS, "BrowserRuntime.qml"), "utf8");
@@ -27,6 +29,8 @@ const PAGE_REFERENCE = load(path.join(path.dirname(SETTING_VALUES), "PageReferen
 const GATE = load(path.join(JARVIS, "SetupGate.js"), { "qs.Commons 1.0": { PageReference: PAGE_REFERENCE } });
 const PLUGINS_SOURCE = fs.readFileSync(path.join(path.dirname(LOGIC), "Plugins.qml"), "utf8");
 const CONFIG_SOURCE = fs.readFileSync(path.join(path.dirname(LOGIC), "Config.qml"), "utf8");
+const PUBLISHER_SOURCES = { notifications: fs.readFileSync(path.join(NOTIFICATIONS, "Service.qml"), "utf8"),
+    sound: fs.readFileSync(path.join(SOUND, "Service.qml"), "utf8") };
 const READER_SOURCES = Object.fromEntries(["Accounts", "Keys", "LocalTier", "Service"].map(name =>
     [name, fs.readFileSync(path.join(JARVIS, name + ".qml"), "utf8")]));
 const WORDS = require(path.join(JARVIS, "AccountStatus.js"));
@@ -76,9 +80,9 @@ function replyChecks(logic, check) {
 
 // Run the shipped provider and capability factory. Registry enablement and
 // revision are fixture inputs; publication, refusal and reply judging are real.
-function statusWorld(logic, enabled, replaced = false) {
-    const raw = JSON.parse(fs.readFileSync(path.join(JARVIS, "manifest.json"), "utf8"));
-    const judged = logic.validateManifest(raw, JARVIS);
+function statusWorld(logic, enabled, replaced = false, plugin = JARVIS) {
+    const raw = JSON.parse(fs.readFileSync(path.join(plugin, "manifest.json"), "utf8"));
+    const judged = logic.validateManifest(raw, plugin);
     if (!judged.ok) throw new Error("status fixture manifest refused: " + judged.error);
     const manifest = Object.assign({}, judged.manifest, { __revision: "a".repeat(64) });
     const instance = { id: manifest.id, manifest };
@@ -342,6 +346,43 @@ function consumerChecks(logic, check) {
         check("LocalRuntime: " + name, [world.writes.map(write => write.reply), refreshes, error], [wantedReplies, refreshed, failure]);
         if (name === "invalid reading publishes its failure")
             check("LocalRuntime: the accepted fallback marks the check unreadable", world.state.records[world.shell.manifest.id].values.localRuntime.tone, "warning");
+    }
+}
+
+// A plugin that judges its reply through shell.status.isOk logs nothing for
+// a retired instance's write and keeps the line of every other refusal,
+// which harness.sh's row_log_check reads from the shell log.
+function publisherChecks(logic, check, sources = PUBLISHER_SOURCES) {
+    const retired = key => "refused: status=" + key + " reason=retired";
+    const logger = logs => ({ error: line => logs.push("error " + line), warn: line => logs.push("warn " + line) });
+    for (const [name, enabled, replaced, revision, replies, logs] of [
+        ["a live revision publishes", true, false, 0, ["ok"], []],
+        ["a disabled instance is quiet", false, false, 0, [retired("panelRevision")], []],
+        ["a replaced instance is quiet", true, true, 0, [retired("panelRevision")], []],
+        ["a refused revision keeps its error line", true, false, 0.5, ["refused: status=panelRevision reason=type"],
+            ["error notifications: panelRevision refused: status=panelRevision reason=type"]]
+    ]) {
+        const world = statusWorld(logic, enabled, replaced, NOTIFICATIONS);
+        const got = [];
+        const service = { shell: world.shell, panelRevision: revision, console: logger(got) };
+        vm.runInNewContext(qmlMethod(sources.notifications, "bumpPanel") + "\nbumpPanel();", service);
+        check("notifications: " + name, [world.writes.map(write => write.reply), got], [replies, logs]);
+    }
+    const routes = count => Array.from({ length: count }, (_, i) => ({ name: "alsa_input.usb-mic-" + i, label: "USB microphone " + i, availability: "available" }));
+    const unreadable = { state: "unreadable", reason: "publication", sources: [] };
+    for (const [name, enabled, replaced, count, replies, state, logs] of [
+        ["a live inventory publishes", true, false, 2, ["ok"], "ready", []],
+        ["a disabled instance keeps its routes quietly", false, false, 2, [retired("inputRoutes")], "ready", []],
+        ["a replaced instance keeps its routes quietly", true, true, 2, [retired("inputRoutes")], "ready", []],
+        ["an inventory over the byte ceiling is replaced and warned", true, false, 1000, ["refused: status=inputRoutes reason=size", "ok"], "unreadable",
+            ["warn sound: inputRoutes refused: status=inputRoutes reason=size"]]
+    ]) {
+        const world = statusWorld(logic, enabled, replaced, SOUND);
+        const got = [];
+        const root = { ending: false, inputRoutes: unreadable, shell: world.shell };
+        vm.runInNewContext(qmlMethod(sources.sound, "publishInputs"), Object.assign(root, { root, console: logger(got) }));
+        root.publishInputs("ready", "", routes(count));
+        check("sound: " + name, [world.writes.map(write => write.reply), root.inputRoutes.state, got], [replies, state, logs]);
     }
 }
 
@@ -1095,6 +1136,7 @@ function choiceChecks(logic, check, capabilities = CAPABILITIES_SOURCE) {
 suite(load(LOGIC), report);
 replyChecks(load(LOGIC), report);
 consumerChecks(load(LOGIC), report);
+publisherChecks(load(LOGIC), report);
 continuationChecks(load(LOGIC), report);
 handlerChecks(load(LOGIC), report);
 choiceChecks(load(LOGIC), report);
@@ -1316,6 +1358,27 @@ try {
         report("control: continuation assertions fail without the live guards", rejected > 0, true);
         report("control: removing live guards restores a retired setting write", persisted, [true, 1, "openai-fixture"]);
         console.log("  live-effect-control: retired-setting=" + JSON.stringify(persisted));
+    }
+    // A publisher that compares its reply with "ok" again, as every plugin
+    // did before the status-reply rule, logs the retired write.
+    for (const [plugin, method, judged, literal, row, logged] of [
+        ["notifications", "bumpPanel", "if (!shell.status.isOk(reply))", 'if (reply !== "ok")', "notifications: a disabled instance is quiet",
+            ["error notifications: panelRevision refused: status=panelRevision reason=retired"]],
+        ["sound", "publishInputs", "if (!root.shell.status.isOk(reply))", 'if (reply !== "ok")', "sound: a disabled instance keeps its routes quietly",
+            ["warn sound: inputRoutes refused: status=inputRoutes reason=retired"]]
+    ]) {
+        const shipped = qmlMethod(PUBLISHER_SOURCES[plugin], method);
+        const count = shipped.split(judged).length - 1;
+        report("control: " + plugin + " judges its reply once in " + method, count, 1);
+        if (count !== 1) continue;
+        const mutant = Object.assign({}, PUBLISHER_SOURCES, { [plugin]: PUBLISHER_SOURCES[plugin].replace(shipped, shipped.replace(judged, literal)) });
+        let red = 0, retiredLogs = null;
+        publisherChecks(load(LOGIC), (name, got, want) => {
+            if (JSON.stringify(got) !== JSON.stringify(want)) red++;
+            if (name === row) retiredLogs = got[got.length - 1];
+        }, mutant);
+        report("control: " + plugin + " assertions fail with a literal reply comparison", red > 0, true);
+        report("control: a literal reply comparison logs the " + plugin + " retired write", retiredLogs, logged);
     }
     const retiredGuard = 'if (STATUS_KEY_PATTERN.test(match[1])) return statusRefusal(match[1], "retired") === reply;';
     const matches = source.split(retiredGuard).length - 1;

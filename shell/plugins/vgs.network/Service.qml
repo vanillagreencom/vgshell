@@ -186,7 +186,7 @@ Item {
         ];
         for (let i = 0; i < writes.length; i++) {
             const reply = shell.status.set(writes[i][0], writes[i][1]);
-            if (reply !== "ok") console.warn("network status: " + reply);
+            if (!shell.status.isOk(reply)) console.warn("network status: " + reply);
         }
     }
     onSnapshotChanged: publish()

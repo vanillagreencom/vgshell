@@ -188,7 +188,7 @@ Item {
         for (const key of Logic.changedKeys(reported, values)) {
             const value = values[key] === undefined ? null : values[key];
             const reply = shell.status.set(key, value);
-            if (reply !== "ok") console.error("google-drive: " + reply);
+            if (!shell.status.isOk(reply)) console.error("google-drive: " + reply);
             else next[key] = value;
         }
         reported = next;

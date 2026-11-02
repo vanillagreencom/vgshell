@@ -181,7 +181,7 @@ Item {
         const next = Object.assign({}, reported);
         for (const write of writes) {
             const reply = shell.status.set(write.key, write.value);
-            if (reply !== "ok") console.error("updates: " + reply);
+            if (!shell.status.isOk(reply)) console.error("updates: " + reply);
             else next[write.key] = write.value;
         }
         reported = next;

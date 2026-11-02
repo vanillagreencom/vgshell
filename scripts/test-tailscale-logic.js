@@ -496,7 +496,7 @@ function suite(logic, service = serviceSource) {
     assert.ok(publishBody);
     const publish = new Function("shell", "connection", "setup", "published", "snapshot", "Logic", "stepState", "outdated", publishBody[1]);
     let values = {};
-    const shell = { status: { set(key, value) {
+    const shell = { status: { isOk: core.statusReplyOk, set(key, value) {
         const result = core.statusWrite(manifest, values, key, value);
         assert.equal(result.ok, true, key + ": " + result.error);
         values = plain(result.values);

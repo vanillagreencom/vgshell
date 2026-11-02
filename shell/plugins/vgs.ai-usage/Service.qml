@@ -80,7 +80,7 @@ Item {
         usage = View.merge(usage, value, Date.now());
         for (const [key, entry] of [["usage", usage], ["accounts", View.accountChoices(usage)], ["claude", View.signIn(usage, "claude")], ["codex", View.signIn(usage, "codex")], ["gatewayKey", gatewayEnabled ? View.gatewayKey(usage.gatewayKey !== null ? usage.gatewayKey : "absent") : []]]) {
             const reply = shell.status.set(key, entry);
-            if (reply !== "ok") console.warn("ai-usage: status=" + key + " " + reply);
+            if (!shell.status.isOk(reply)) console.warn("ai-usage: status=" + key + " " + reply);
         }
     }
 

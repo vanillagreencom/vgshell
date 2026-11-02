@@ -226,7 +226,7 @@ Item {
     function publishApps(applied, code) {
         if (code !== 0) {
             const failed = shell.status.set("apps", { tone: "warning", text: "Web apps could not be added to the launcher." });
-            if (failed !== "ok") console.warn("webapps: status=apps " + failed);
+            if (!shell.status.isOk(failed)) console.warn("webapps: status=apps " + failed);
             return;
         }
         const lines = [];
@@ -242,7 +242,7 @@ Item {
             ? { tone: "info", text: "No web apps. Add one under Web apps." }
             : { tone: applied.bad.length > 0 ? "warning" : "ok", text: count === 1 ? "1 web app is ready." : count + " web apps are ready.", lines: lines };
         const reply = shell.status.set("apps", value);
-        if (reply !== "ok") console.warn("webapps: status=apps " + reply);
+        if (!shell.status.isOk(reply)) console.warn("webapps: status=apps " + reply);
     }
 
     function lookForBrowser() {
@@ -270,7 +270,7 @@ Item {
             ? { tone: "warning", text: "No browser here opens a site in its own window. Install Chromium, Google Chrome, Brave, Vivaldi or Microsoft Edge." }
             : { tone: "ok", text: browser.name };
         const reply = shell.status.set("browser", value);
-        if (reply !== "ok") console.warn("webapps: status=browser " + reply);
+        if (!shell.status.isOk(reply)) console.warn("webapps: status=browser " + reply);
         const waiting = opening;
         opening = [];
         for (const name of waiting) launch(name);

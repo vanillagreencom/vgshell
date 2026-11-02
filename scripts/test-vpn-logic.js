@@ -745,7 +745,7 @@ function suite(logic, service = serviceSource) {
     for (const row of wideListing.rows) wideDetails[row.uuid] = { service: "openvpn", server: "界".repeat(logic.SERVER_MAX) };
     const crowded = plain(logic.compose(wideListing, wideDetails, {}, {}, { kind: "profile-up", uuid: wideListing.rows[0].uuid, name: "界".repeat(logic.TEXT_MAX) }, "界".repeat(200)));
     let values = {};
-    const shell = { status: { set(key, value) {
+    const shell = { status: { isOk: core.statusReplyOk, set(key, value) {
         const result = core.statusWrite(manifest, values, key, value);
         assert.equal(result.ok, true, key + ": " + result.error);
         values = plain(result.values);

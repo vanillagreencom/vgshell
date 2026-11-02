@@ -317,7 +317,7 @@ function verifySoundRuleStatus(logic, ruleSource, serviceSource) {
                 Object.defineProperty(rule, name, { get: () => rule.metadataWatch[name], set: value => { rule.metadataWatch[name] = value; } });
             vm.runInContext(operation(ruleSource, "dumpLine"), rule);
             const service = { Logic: logic, soundRule: rule, console,
-                shell: { status: { values: {}, set(key, value) {
+                shell: { status: { values: {}, isOk: pluginLogic.statusReplyOk, set(key, value) {
                     const written = pluginLogic.statusWrite(manifest.manifest, this.values, key, value);
                     assert.equal(written.ok, true, "Settings accepts the real publication");
                     this.values = written.values;

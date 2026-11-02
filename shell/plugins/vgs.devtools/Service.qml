@@ -137,7 +137,7 @@ Item {
         values.launcherRows = ViewLogic.launcherRows(answers.catalog === undefined ? null : answers.catalog.value, showInLauncher, values.catalog);
         for (const key of Object.keys(values)) {
             const reply = shell.status.set(key, values[key]);
-            if (reply !== "ok") console.warn("devtools: status " + reply);
+            if (!shell.status.isOk(reply)) console.warn("devtools: status " + reply);
         }
     }
 

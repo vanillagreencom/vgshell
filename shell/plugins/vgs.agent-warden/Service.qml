@@ -168,7 +168,7 @@ Item {
         for (const key of Object.keys(values)) {
             if (JSON.stringify(held[key]) === JSON.stringify(values[key])) continue;
             const reply = shell.status.set(key, values[key]);
-            if (reply !== "ok") console.error("agent-warden: publish=" + key + " " + reply);
+            if (!shell.status.isOk(reply)) console.error("agent-warden: publish=" + key + " " + reply);
         }
     }
 

@@ -210,7 +210,7 @@ Item {
         const rows = Logic.slackTokenRows(slackPhotos.workspaces, slackPhotos.tokenStates);
         if (!rows.ok || JSON.stringify(shell.status.values.slackTokens) === JSON.stringify(rows.items)) return;
         const reply = shell.status.set("slackTokens", rows.items);
-        if (reply !== "ok") console.error("notifications: " + reply);
+        if (!shell.status.isOk(reply)) console.error("notifications: " + reply);
     }
 
     function publishSoundRule() {
@@ -218,14 +218,14 @@ Item {
         const value = Logic.soundRuleSetup(soundRule.phase, soundRule.problem);
         if (JSON.stringify(shell.status.values.soundRuleSetup) === JSON.stringify(value)) return;
         const reply = shell.status.set("soundRuleSetup", value);
-        if (reply !== "ok") console.error("notifications: soundRuleSetup " + reply);
+        if (!shell.status.isOk(reply)) console.error("notifications: soundRuleSetup " + reply);
     }
 
     function bumpPanel() {
         panelRevision += 1;
         if (shell !== null) {
             const reply = shell.status.set("panelRevision", panelRevision);
-            if (reply !== "ok") console.error("notifications: panelRevision " + reply);
+            if (!shell.status.isOk(reply)) console.error("notifications: panelRevision " + reply);
         }
     }
 

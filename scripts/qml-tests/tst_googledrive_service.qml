@@ -1,6 +1,7 @@
 import QtQuick
 import QtTest
 import Quickshell.Io
+import qs.Core
 import "../../shell/plugins/vgs.google-drive" as Drive
 import "../../shell/plugins/vgs.google-drive/GoogleDriveLogic.js" as Logic
 
@@ -36,7 +37,7 @@ Item {
                 ipc: { handle: () => {} },
                 notify: { send: () => "ok" },
                 surfaces: { summon: () => "ok" },
-                status: { values: {}, set: (key, value) => { root.writes = root.writes.concat([{ key: key, value: value }]); return "ok"; } }
+                status: { values: {}, isOk: PluginLogic.statusReplyOk, set: (key, value) => { root.writes = root.writes.concat([{ key: key, value: value }]); return "ok"; } }
             };
         }
 

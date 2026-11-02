@@ -116,7 +116,7 @@ Item {
             .concat([["accountAdd", { tone: "info", text: "Add account", action: !outdated && stepState("tailscale-account-add") === "needed" }]]);
         for (const write of writes) {
             const reply = shell.status.set(write[0], write[1]);
-            if (reply !== "ok") console.warn("tailscale: status " + write[0] + " " + reply);
+            if (!shell.status.isOk(reply)) console.warn("tailscale: status " + write[0] + " " + reply);
         }
     }
     onPublishedChanged: publish()

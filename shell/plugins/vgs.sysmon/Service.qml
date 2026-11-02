@@ -249,7 +249,7 @@ Item {
         cycleBusy = false;
         cycle = null;
         const reply = shell.status.set("readings", sample);
-        if (reply !== "ok") console.warn("sysmon status: " + reply);
+        if (!shell.status.isOk(reply)) console.warn("sysmon status: " + reply);
     }
     function finishQuery(code) {
         const pending = query;
