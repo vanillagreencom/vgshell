@@ -67,6 +67,109 @@ var MEMORY_TEXT_MAX = 16 * 1024;
 var MEMORY_LABELS = ["speech", "desktop", "home", "clipboard", "file", "screen", "web", "command", "agent"];
 // Desktop entries stop here, so a list reply stays far below MAX_LINE_BYTES.
 var ENTRIES_BYTES = 192 * 1024;
+// The package publishes a page, not a complete backlog. Counts remain
+// canonical while the console replaces its bounded visible page.
+var OWNER_ASK_ROWS = 32;
+var OWNER_ASK_BYTES = 16 * 1024;
+
+function instant(value) {
+    return typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?(Z|[+-]\d{2}:\d{2})$/.test(value)
+        && Number.isFinite(Date.parse(value));
+}
+
+function ownerAskRows(rows, view) {
+    if (!Array.isArray(rows) || rows.length > OWNER_ASK_ROWS) fail("owner-ask-rows");
+    var ids = Object.create(null);
+    for (var row of rows) {
+        var fields = ["id", "revision", "kind", "what", "askedBy", "askedAt", "link", "threadRef", "state", "snoozedUntil", "actions"];
+        if (object(row) && row.statusText !== undefined) fields.push("statusText");
+        keys(row, fields, "owner-ask-row");
+        if (!printable(row.id, 1, 128) || Object.prototype.hasOwnProperty.call(ids, row.id)
+                || !printable(row.revision, 1, 128) || !printable(row.what, 1, 200)
+                || ["jarvis-ask", "tracker-item", "fleet-approval"].indexOf(row.kind) === -1
+                || !instant(row.askedAt) || !printable(row.threadRef, 1, 200)
+                || ["open", "checking", "snoozed"].indexOf(row.state) === -1
+                || (view === "snoozed") !== (row.state === "snoozed")
+                || (row.state === "snoozed" ? !instant(row.snoozedUntil) : row.snoozedUntil !== null)
+                || row.statusText !== undefined && !printable(row.statusText, 0, 200)) fail("owner-ask-row");
+        ids[row.id] = true;
+        keys(row.askedBy, ["id", "name"], "owner-ask-sender");
+        if (!printable(row.askedBy.id, 1, 128) || !printable(row.askedBy.name, 1, 100)) fail("owner-ask-sender");
+        keys(row.link, ["label", "url"], "owner-ask-link");
+        if (!printable(row.link.label, 1, 100) || !printable(row.link.url, 1, 2048)
+                || !/^https?:\/\/[^\s]+$/.test(row.link.url)) fail("owner-ask-link");
+        keys(row.actions, ["reply", "done", "later"], "owner-ask-actions");
+        for (var action of ["reply", "done", "later"]) {
+            var offer = row.actions[action];
+            keys(offer, ["allowed", "reason"], "owner-ask-offer");
+            if (typeof offer.allowed !== "boolean" || !printable(offer.reason, offer.allowed ? 0 : 1, 200)
+                    || offer.allowed && offer.reason !== "") fail("owner-ask-offer");
+        }
+    }
+    return rows;
+}
+
+// Both the package reader and the two wire endpoints use these judges.
+function ownerAsksPage(page, view, cursor) {
+    keys(page, ["v", "homeId", "revision", "observedAt", "activeCount", "snoozedCount", "rows", "nextCursor", "complete"], "owner-asks-page");
+    if (page.v !== 1 || !printable(page.homeId, 1, 128) || !printable(page.revision, 1, 128)
+            || !instant(page.observedAt) || !Number.isSafeInteger(page.activeCount) || page.activeCount < 0
+            || !Number.isSafeInteger(page.snoozedCount) || page.snoozedCount < 0
+            || !(page.nextCursor === null || printable(page.nextCursor, 1, 200))
+            || typeof page.complete !== "boolean" || page.complete !== (page.nextCursor === null)
+            || page.nextCursor !== null && page.nextCursor === cursor
+            || bytes(JSON.stringify(page)) > OWNER_ASK_BYTES) fail("owner-asks-page");
+    ownerAskRows(page.rows, view);
+    var count = view === "active" ? page.activeCount : page.snoozedCount;
+    if (page.rows.length > count || !page.complete && page.rows.length === 0
+            || cursor === null && page.complete && count !== page.rows.length) fail("owner-asks-count");
+    return page;
+}
+
+function ownerAskAction(value) {
+    keys(value, ["action", "id", "requestId", "expectedRevision", "text", "until"], "owner-ask-action");
+    if (["reply", "done", "later"].indexOf(value.action) === -1 || !printable(value.id, 1, 128)
+            || !printable(value.requestId, 1, 128) || !printable(value.expectedRevision, 1, 128)
+            || typeof value.text !== "string" || value.text.length > 4096
+            || /[\x00-\x09\x0b-\x1f\x7f]/.test(value.text)
+            || value.action === "reply" && value.text.trim() === ""
+            || (value.action === "later" ? !instant(value.until) || value.text !== "" : value.until !== null)) fail("owner-ask-action");
+    return value;
+}
+
+function ownerAskAnswer(value, action, internal) {
+    keys(value, ["v", "requestId", "kind", "state", "cause"], "owner-ask-answer");
+    if (value.v !== 1 || !printable(value.requestId, 1, 128) || (internal ? ["accepted", "refused", "unknown", "not-sent"] : ["accepted", "refused"]).indexOf(value.kind) === -1
+            || [null, "open", "checking", "snoozed", "closed"].indexOf(value.state) === -1
+            || !printable(value.cause, value.kind === "accepted" ? 0 : 1, 200)
+            || ["unknown", "not-sent"].indexOf(value.kind) !== -1 && value.state !== null
+            || value.kind === "accepted" && (value.cause !== "" || value.state === null
+                || action === "done" && value.state !== "checking" || action === "later" && value.state !== "snoozed"
+                || action === "reply" && value.state === "closed")) fail("owner-ask-answer");
+    return value;
+}
+
+function ownerAsksSnapshot(value) {
+    if (!object(value)) fail("owner-asks-snapshot");
+    if (value.kind === "reading") keys(value, ["kind"], "owner-asks-reading");
+    else if (value.kind === "unavailable") {
+        keys(value, ["kind", "cause"], "owner-asks-unavailable");
+        if (!printable(value.cause, 1, 200)) fail("owner-asks-unavailable");
+    } else if (value.kind === "ready") {
+        keys(value, ["kind", "homeId", "revision", "observedAt", "activeCount", "snoozedCount", "active", "snoozed",
+            "activeCursor", "activeNextCursor", "snoozedCursor", "snoozedNextCursor"], "owner-asks-ready");
+        for (var view of ["active", "snoozed"]) {
+            if (!(value[view + "Cursor"] === null || printable(value[view + "Cursor"], 1, 200))) fail("owner-asks-cursor");
+            ownerAsksPage({ v: 1, homeId: value.homeId, revision: value.revision, observedAt: value.observedAt,
+                activeCount: value.activeCount, snoozedCount: value.snoozedCount, rows: value[view],
+                nextCursor: value[view + "NextCursor"], complete: value[view + "NextCursor"] === null }, view, value[view + "Cursor"]);
+        }
+        if (bytes(JSON.stringify(value)) > 2 * OWNER_ASK_BYTES
+                || value.active.some(function (active) { return value.snoozed.some(function (snoozed) { return active.id === snoozed.id; }); }))
+            fail("owner-asks-snapshot");
+    } else fail("owner-asks-kind");
+    return value;
+}
 
 function fail(reason) {
     throw new Error("jarvis: protocol=" + reason);
@@ -462,6 +565,14 @@ function accept(line, direction) {
         } else if (message.intent === "task-stop" || message.intent === "task-open") {
             keys(message, fields.concat(["task"]), message.intent);
             if (!taskId(message.task)) fail("task-id");
+        } else if (message.intent === "owner-ask-action") {
+            keys(message, fields.concat(["request"]), "owner-ask-intent");
+            ownerAskAction(message.request);
+        } else if (message.intent === "owner-asks-page") {
+            keys(message, fields.concat(["view", "cursor", "expectedRevision"]), "owner-asks-page-intent");
+            if (["active", "snoozed"].indexOf(message.view) === -1
+                    || !(message.cursor === null || printable(message.cursor, 1, 200))
+                    || !printable(message.expectedRevision, 1, 128)) fail("owner-asks-page-intent");
         } else if (message.intent === "say") {
             keys(message, fields.concat(["text"]), "say");
             if (!printable(message.text, 1, TRANSCRIPT_CHARS) || message.text.trim() === "") fail("say-text");
@@ -472,7 +583,7 @@ function accept(line, direction) {
             if (!printable(message.voice, 1, 128)) fail("preview-voice");
         } else {
             keys(message, fields, "intent");
-            if (["talk-down", "talk-up", "mute", "stop", "voice-check"].indexOf(message.intent) === -1) fail("intent");
+            if (["talk-down", "talk-up", "mute", "stop", "voice-check", "owner-asks-refresh"].indexOf(message.intent) === -1) fail("intent");
         }
         break;
     case "shown":
@@ -517,6 +628,16 @@ function accept(line, direction) {
         if (direction !== "daemon") fail("direction-tasks");
         keys(message, ["v", "type", "gen", "revision", "count"], "tasks");
         if (!Number.isSafeInteger(message.count) || message.count < 0) fail("task-count");
+        break;
+    case "owner-asks":
+        if (direction !== "daemon") fail("direction-owner-asks");
+        keys(message, ["v", "type", "gen", "revision", "snapshot"], "owner-asks");
+        ownerAsksSnapshot(message.snapshot);
+        break;
+    case "owner-ask-answer":
+        if (direction !== "daemon") fail("direction-owner-ask-answer");
+        keys(message, ["v", "type", "gen", "revision", "result"], "owner-ask-answer");
+        ownerAskAnswer(message.result, null, true);
         break;
     case "task-list":
         if (direction !== "daemon") fail("direction-task-list");

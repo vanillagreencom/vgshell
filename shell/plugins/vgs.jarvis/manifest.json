@@ -132,6 +132,8 @@
     "tasks": {"type": "count", "label": "Coding tasks", "hint": "Coding tasks whose agent is starting or running"},
     "taskList": {"type": "data", "label": "Coding task list"},
     "auditFailures": {"type": "data", "label": "Recent audit failures"},
+    "ownerAsks": {"type": "data", "label": "Owner asks"},
+    "ownerAskAnswer": {"type": "data", "label": "Owner ask answer"},
     "input": {"type": "state", "label": "Desktop input", "hint": "Jarvis does not click or type on VGS panels, the lock screen or password prompts, including the empty space around them, and it acts only in apps that the app launcher lists", "action": {"label": "Check input", "tui": "setup-input"}, "setup": "optional"},
     "setup": {"type": "state", "label": "Setup summary", "hidden": true},
     "setupHome": {"type": "state", "label": "Home folder", "hint": "Choose the folder Jarvis reads in [Home folder](page:vgs.jarvis/Settings/home)", "setup": true, "actions": {"repair": {"label": "Repair", "tui": "repair-home"}, "agents": {"label": "Open AGENTS.md", "file": true}, "skills": {"label": "Open skills folder", "file": true}, "memory": {"label": "Open memory index", "file": true}, "persona": {"label": "Open persona", "file": true}, "folder": {"label": "Open folder", "file": true}}, "info": "Your Home folder holds what Jarvis knows about you: your instructions, your memory notes and your skills. To use another folder, change [Home folder in Settings](page:vgs.jarvis/Settings/home)."},

@@ -37,7 +37,7 @@ const session = load(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis"
 const widget = load(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "WidgetView.js"));
 // The libraries Service.qml imports beside SetupGate.js, for its functions
 // run under node.
-const SERVICE_IMPORTS = { View: widget, KeyNavLogic: load(path.join(__dirname, "..", "shell", "Ui", "foundation", "KeyNavLogic.js")),
+const SERVICE_IMPORTS = { StatusPublication: load(path.join(__dirname, "..", "shell/plugins/vgs.jarvis/StatusPublication.js")), View: widget, KeyNavLogic: load(path.join(__dirname, "..", "shell", "Ui", "foundation", "KeyNavLogic.js")),
     Providers: require(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "AccountProviders.js")) };
 let manifestControlCount = 0;
 // LocalTier's reading with no local voice model wanted or ready, as the
@@ -2262,7 +2262,7 @@ function verifyStopIntents(serviceSource) {
             stopDeadline: { running: false, restart() { this.running = true; } },
             cancelDictation() { this.cancelled = true; }, cancelled: false,
             publishDaemon: () => true, notice: value => notices.push(value), sendIntent: name => sent.push(name) };
-        const intent = vm.runInNewContext("(function() { with(root) { return (" + found[0] + "); } })()", { root, Gate: load(file) });
+        const intent = vm.runInNewContext("(function() { with(root) { return (" + found[0] + "); } })()", { ...SERVICE_IMPORTS, root, Gate: load(file) });
         intent("stop");
         if (kind === "ready" && running && cause === "") {
             assert.deepEqual(sent, ["stop"], "ready Stop reaches Session");
@@ -3105,7 +3105,7 @@ function verifyDictationStart(serviceSource) {
             lockObservation: () => root.locked,
             reply: (message, result) => replies.push([message.id, result.answer]) };
         vm.runInNewContext("(function() { with(root) { " + source + "\n root.queueStart = queueStart; root.startDictation = startDictation; } })()",
-            { root, Gate: load(file) });
+            { ...SERVICE_IMPORTS, root, Gate: load(file) });
         return { core, replies, root };
     };
     // A cancel followed at once by a start: the start waits for the read.

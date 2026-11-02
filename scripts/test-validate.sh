@@ -730,6 +730,7 @@ cases=(
   "jarvis-anthropic-input|shell/plugins/vgs.jarvis/backend/AnthropicMessages.js|cli|node scripts/test-jarvis-brain-anthropic.js"$'\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
   "jarvis-denied-suite|scripts/test-jarvis-denied.js|offline|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-denied.js"$'\n'"$repo_plan"
   "jarvis-redact-suite|scripts/test-jarvis-redact.js|offline|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-redact.js"$'\n'"$repo_plan"
+  "jarvis-owner-asks-suite|scripts/test-jarvis-owner-asks.js|offline|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-owner-asks.js"$'\n'"$repo_plan"
   "jarvis-audit-suite|scripts/test-jarvis-audit.js|offline|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-audit.js"$'\n'"$repo_plan"
   "jarvis-shell-input|shell/plugins/vgs.jarvis/backend/Shell.js|cli|node scripts/test-jarvis-files.js"$'\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-shell.js'$'\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
   "jarvis-computer-reference|shell/plugins/vgs.jarvis/backend/skills/computer/shell.md|cli|node scripts/test-jarvis-router.js"$'\nnode scripts/test-jarvis-input.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-shell.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
@@ -758,6 +759,7 @@ cases=(
   "jarvis-forbidden-cli-input|scripts/fixtures/jarvis/forbidden.js|cli|node scripts/test-jarvis-sandbox.js"$'\nnode scripts/test-jarvis-shell.js\nnode scripts/test-jarvis-daemon.js'
   "jarvis-sandbox-datagram-input|scripts/fixtures/jarvis/sandbox-datagram.py|cli|node scripts/test-jarvis-sandbox.js"$'\nnode scripts/test-jarvis-daemon.js'
   "jarvis-session-suite|scripts/test-jarvis-session.js|offline|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-session.js"$'\n'"$repo_plan"
+  "jarvis-history-input|shell/plugins/vgs.jarvis/History.js|logic|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-conversation.js"
   "jarvis-owner-suite|scripts/test-jarvis-session-runner.js|offline|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-session-runner.js"$'\n'"$repo_plan"
   "jarvis-session|shell/plugins/vgs.jarvis/Session.js|logic|node scripts/check-jarvis-words.js"$'\nnode scripts/test-plugin-status.js\nnode scripts/test-jarvis-session.js\nnode scripts/test-jarvis-session-runner.js\nnode scripts/test-jarvis-widget.js\nnode scripts/test-jarvis-protocol.js\nnode scripts/test-jarvis-conversation.js\nnode scripts/test-jarvis-requests.js'
   "jarvis-session-router|shell/plugins/vgs.jarvis/Session.js|cli|node scripts/test-jarvis-live.js"$'\nnode scripts/test-jarvis-memory.js\nnode scripts/test-jarvis-router.js\nnode scripts/test-jarvis-input.js\nnode scripts/test-jarvis-desktop.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-bridge.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\nnode scripts/test-jarvis-shell.js\nnode scripts/test-jarvis-daemon.js\n'"$jarvis_audio_rows"$'node scripts/test-jarvis-claude-task.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
@@ -862,10 +864,37 @@ session_input = (file.startswith("shell/plugins/vgs.jarvis/backend/")
                              "bin/lib/account-folders.js", "scripts/lib/jarvis-env.sh"})
 if area in ["cli", "offline", "all"] and session not in lines and session_input:
     lines.insert(lines.index(repair if repair in lines else home) + 1, session)
+# The owner-ask package boundary sits between session-control and power-wait.
+asks = "node scripts/test-jarvis-owner-asks.js"
+asks_input = file in {
+    "shell/plugins/vgs.jarvis/backend/OwnerAsks.js", "shell/plugins/vgs.jarvis/backend/SessionCommand.js",
+    "shell/plugins/vgs.jarvis/backend/Child.js", "shell/plugins/vgs.jarvis/backend/Home.js",
+    "shell/plugins/vgs.jarvis/backend/Tools.js", "shell/plugins/vgs.jarvis/backend/Core.js",
+    "shell/plugins/vgs.jarvis/JarvisProtocol.js", "shell/plugins/vgs.jarvis/Session.js",
+    "scripts/fixtures/jarvis/owner-asks.js", "scripts/fixtures/jarvis/core.js", "scripts/lib/jarvis-env.sh",
+    "bin/lib/qml-library.js", "bin/lib/anchored.js", "bin/lib/account-folders.js", "bin/lib/codex-account.js",
+    "shell/Commons/AccountDirectories.js",
+    "shell/plugins/vgs.jarvis/StatusPublication.js", "shell/Core/PluginLogic.js", "shell/Core/ConfigLogic.js", "shell/Core/PackageManagers.js", "shell/Core/PackageReview.js", "shell/Core/HyprlandLayer.js", "shell/Core/MonitorLogic.js", "shell/Core/Pads.js", "shell/Commons/SettingValues.js", "shell/Commons/PageReference.js", "shell/Ui/icons/Lucide.js", "shell/Ui/icons/Own.js",
+    "shell/plugins/vgs.jarvis/Conversation.js", "shell/plugins/vgs.jarvis/manifest.json",
+    "shell/plugins/vgs.jarvis/Service.qml"}
+if area in ["cli", "offline", "all"] and asks not in lines and asks_input:
+    if session in lines:
+        lines.insert(lines.index(session) + 1, asks)
+    else:
+        earlier = {"session", "session-runner", "widget", "setup-gate", "protocol", "conversation", "tools", "requests",
+                   "policy", "redact", "release", "sse", "providers", "net", "brain-openai", "brain-anthropic",
+                   "live", "elevenlabs", "denied", "home", "home-repair", "session-control"}
+        for at,line in enumerate(lines):
+            if ((line.startswith("node scripts/test-jarvis-") and line.removeprefix("node scripts/test-jarvis-").removesuffix(".js") not in earlier)
+                    or line == "scripts/test-install-tree.sh"):
+                lines.insert(at, asks)
+                break
+        else:
+            lines.append(asks)
 # The power wait suite's row follows the session control row, with the same inputs.
 power = "node scripts/test-jarvis-power-wait.js"
 if area in ["cli", "offline", "all"] and power not in lines and session_input:
-    lines.insert(lines.index(session) + 1, power)
+    lines.insert(lines.index(asks if asks in lines else session) + 1, power)
 # The fatal-row suite starts a real disposable runtime and is the last QML
 # row, so product inputs also select it, without widening non-QML areas.
 fatal_smoke_input = (file.startswith(("shell/", "bin/", "config/", "themes/", "packaging/", "scripts/smoke/", "scripts/fixtures/jarvis/"))

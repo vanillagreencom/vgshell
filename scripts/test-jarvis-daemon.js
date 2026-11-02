@@ -15,6 +15,7 @@ const { standins } = require("./fixtures/jarvis/audio.js");
 const desktopFixture = require("./fixtures/jarvis/desktop.js");
 const { instrument: instrumentDesktop } = require("./fixtures/jarvis/desktop-driver.js");
 const tree = path.resolve(__dirname, "..");
+const Protocol = require("../bin/lib/qml-library.js").load(path.join(tree, "shell/plugins/vgs.jarvis/JarvisProtocol.js"));
 // Session's tap bound: the shipped daemon reads a Talk release sooner than
 // this after its press as a tap, which keeps listening.
 const TAP_MS = require("../bin/lib/qml-library.js").load(path.join(tree, "shell/plugins/vgs.jarvis/Session.js")).TAP_MS;
@@ -122,6 +123,10 @@ async function inside() {
             const shownTypes = ["voices", "personality", "start-text"];
             const keepShown = expected.some(frame => shownTypes.includes(frame.type));
             const publicFrames = frames.filter(frame => ["task-list", "audit-failures"].includes(frame.type));
+            for (const frame of frames.filter(frame => frame.type === "owner-asks")) {
+                Protocol.accept(JSON.stringify(frame), "daemon");
+                assert.notEqual(frame.snapshot.kind, "ready", "this legacy Home has no asks source; startup must never fabricate an empty inbox");
+            }
             if (observations !== null) assert.deepEqual(publicFrames, observations, "startup publishes both bounded lists");
             for (const frame of publicFrames) {
                 assert.deepEqual(Object.keys(frame).sort(), ["gen", "revision", "rows", "type", "v"]);
@@ -133,7 +138,7 @@ async function inside() {
                     : ["cause", "decision", "effect", "outcome", "refusal", "time", "tool"]);
             }
             assert.deepEqual(frames.filter(frame => frame.type !== "shell-status"
-                && frame.type !== "task-list" && frame.type !== "audit-failures"
+                && frame.type !== "task-list" && frame.type !== "audit-failures" && frame.type !== "owner-asks"
                 && (keepMemory || frame.type !== "memory") && (keepMemoryInbox || frame.type !== "memory-inbox")
                 && (keepHomes || frame.type !== "homes")
                 && (keepShown || !shownTypes.includes(frame.type))), expected);

@@ -30,7 +30,7 @@ Item {
         return {
             screens: { current: null },
             status: { values: values },
-            settings: { mode: "hold", voiceProvider: "gemini" },
+            settings: { mode: "hold", voiceProvider: "gemini", home: "" },
             shortcut: { keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C" } },
             ipc: { call: (name, arg) => "ok" },
             surfaces: { openPage: (page, tab) => { root.opened = root.opened.concat([[page, tab]]); } }
@@ -74,8 +74,78 @@ Item {
                 info: all.find(n => n.title === "Message length"),
                 speechStop: stops[0], typedStop: stops[1],
                 speechHint: all.find(n => n.linkColor !== undefined && n.text === jarvisConsole.speechOnlyText),
-                tabs: all.find(n => n.model !== undefined && Array.isArray(n.model) && n.model[0] === "Conversation")
+                tabs: all.find(n => n.model !== undefined && Array.isArray(n.model) && n.model[0] === "Now")
             };
+        }
+
+        function test_unconfirmed_ask_keeps_draft_and_identity() {
+            const row = { id: "ask", revision: "one", kind: "jarvis-ask", what: "Choose a voice", askedBy: { id: "jarvis", name: "Jarvis" },
+                askedAt: new Date().toISOString(), link: { label: "Original thread", url: "https://example.invalid/thread" },
+                state: "open", snoozedUntil: null, actions: { reply: { allowed: true, reason: "" }, done: { allowed: true, reason: "" }, later: { allowed: true, reason: "" } } };
+            const shell = root.shellWith(root.values({}));
+            shell.status.values.ownerAsks = { kind: "ready", homeId: "home", revision: "one", active: [row], snoozed: [], activeCount: 1, snoozedCount: 0 };
+            const sent = [];
+            shell.ipc.call = (name, arg) => { if (name === "owner-ask-action") sent.push(JSON.parse(arg)); return "ok"; };
+            jarvisConsole.shell = shell;
+            jarvisConsole.tab = 1;
+            jarvisConsole.chooseAsk("reply", row, null);
+            const field = collect(jarvisConsole, n => n.placeholderText === "Write your reply", [])[0];
+            field.text = "Keep this answer in the original thread.";
+            jarvisConsole.submitAskEditor();
+            compare(sent.length, 1);
+            const request = sent[0];
+            shell.status.values = Object.assign({}, shell.status.values, { ownerAskAnswer: { v: 1, requestId: request.requestId,
+                kind: "unknown", state: null, cause: "The action was not confirmed." } });
+            jarvisConsole.shell = null;
+            jarvisConsole.shell = shell;
+            compare(jarvisConsole.pendingAsk, "");
+            compare(jarvisConsole.unconfirmedRequest.requestId, request.requestId);
+            compare(field.text, request.text);
+            verify(jarvisConsole.askProblem.indexOf(request.requestId) !== -1);
+            compare(sent.length, 1, "an unknown result never retries automatically");
+            jarvisConsole.submitAskEditor();
+            compare(sent.length, 2);
+            compare(sent[1].requestId, request.requestId, "a deliberate identical retry preserves package idempotency");
+            shell.status.values = Object.assign({}, shell.status.values, { ownerAskAnswer: null,
+                ownerAsks: { kind: "unavailable", cause: "Jarvis stopped." } });
+            jarvisConsole.shell = null;
+            jarvisConsole.shell = shell;
+            compare(jarvisConsole.pendingAsk, "");
+            compare(jarvisConsole.unconfirmedRequest.requestId, request.requestId, "losing the daemon source leaves the action unconfirmed");
+            compare(field.text, request.text);
+            jarvisConsole.pendingAsk = "";
+            jarvisConsole.pendingRequest = null;
+            jarvisConsole.unconfirmedRequest = null;
+            jarvisConsole.closeAskEditor();
+        }
+
+        function test_canonical_ask_reorder_retains_focus_and_current_payload() {
+            const actions = { reply: { allowed: true, reason: "" }, done: { allowed: true, reason: "" }, later: { allowed: true, reason: "" } };
+            const row = id => ({ id: id, revision: "one", kind: "jarvis-ask", what: "Choose " + id,
+                askedBy: { id: "jarvis", name: "Jarvis" }, askedAt: new Date().toISOString(),
+                link: { label: "Original thread", url: "https://example.invalid/thread" }, state: "open", snoozedUntil: null, actions: actions });
+            const first = row("first"), second = row("second");
+            function publication(rows) {
+                const values = root.values({});
+                values.ownerAsks = { kind: "ready", homeId: "home", revision: "two", active: rows, snoozed: [], activeCount: 2, snoozedCount: 0 };
+                return root.shellWith(values);
+            }
+            jarvisConsole.shell = publication([first, second]);
+            jarvisConsole.tab = 1;
+            wait(0);
+            const original = collect(jarvisConsole, n => n.title === "Choose first" && n.actionAt !== undefined, [])[0];
+            const button = original.actionAt(0);
+            button.forceActiveFocus(Qt.TabFocusReason);
+            verify(button.activeFocus);
+            const changed = Object.assign({}, first, { what: "Choose the updated voice", actions: Object.assign({}, actions,
+                { reply: { allowed: false, reason: "Jarvis is checking this ask." } }) });
+            jarvisConsole.shell = publication([second, changed]);
+            wait(0);
+            const updated = collect(jarvisConsole, n => n.title === changed.what && n.actionAt !== undefined, [])[0];
+            compare(updated, original, "the canonical ask id keeps its row across reorder");
+            compare(updated.actionAt(0), button);
+            verify(button.activeFocus);
+            compare(button.disabledReason, changed.actions.reply.reason);
         }
 
         // Real Session regions: mute and gate can refuse before duplex, and
@@ -94,7 +164,7 @@ Item {
                 rows.push({ tag: "local-to-cloud-" + focus, from: typed, to: speech, focus: focus, expected: "speechStop" });
             for (const focus of ["speechStop", "speechHint"])
                 rows.push({ tag: "cloud-to-local-" + focus, from: speech, to: typed, focus: focus, expected: "entry" });
-            for (const focus of ["outside", "tabs", "tasks", "audit"])
+            for (const focus of ["outside", "tabs", "asks", "history"])
                 for (const fromSpeech of [false, true])
                     rows.push({ tag: "keep-" + focus + "-" + fromSpeech, from: fromSpeech ? speech : typed,
                         to: fromSpeech ? typed : speech, focus: focus, expected: focus });
@@ -115,8 +185,8 @@ Item {
             let controls = composerControls();
             let focused;
             if (data.focus === "outside") focused = outside;
-            else if (data.focus === "tasks" || data.focus === "audit") {
-                jarvisConsole.tab = data.focus === "tasks" ? 1 : 2;
+            else if (data.focus === "asks" || data.focus === "history") {
+                jarvisConsole.tab = data.focus === "asks" ? 1 : 2;
                 jarvisConsole.focusTab();
                 wait(0);
                 focused = collect(jarvisConsole, n => n.activeFocus && n.focusPolicy === Qt.StrongFocus && n !== jarvisConsole, []).pop();

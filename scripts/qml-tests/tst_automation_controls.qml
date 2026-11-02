@@ -1,6 +1,9 @@
 import QtQuick
+import QtQuick.Window
 import QtTest
+import Quickshell
 import qs.Commons
+import qs.Core
 import qs.Ui
 import qs.Unit
 
@@ -207,6 +210,53 @@ Item {
             compare(boundDate.displayText, "2027-03-04");
             boundDate.displayText = "";
             compare(boundDate.valid, false);
+        }
+
+        function test_date_field_exposes_editor_for_dialog_focus() {
+            boundDate.input.forceActiveFocus();
+            tryCompare(boundDate.input, "activeFocus", true);
+            keyClick(Qt.Key_End);
+            keyClick(Qt.Key_Backspace);
+            compare(boundDate.displayText, "2026-01-0");
+            compare(boundDate.valid, false);
+        }
+
+        function test_date_picker_keys_select_close_and_restore_editor_focus() {
+            const savedOwner = QsWindow.window;
+            QsWindow.window = root.Window.window;
+            Compositor.activations = [];
+            root.boundDateValue = "2026-01-05";
+            boundDate.syncShown();
+            boundDate.input.forceActiveFocus();
+            keyClick(Qt.Key_Down);
+            tryCompare(boundDate, "pickerOpen", true);
+            const picker = boundDate.children.find(child => child.toggle !== undefined && child.opened !== undefined);
+            const popup = picker.resources.find(child => child.anchor !== undefined);
+            try {
+                // Activate the stand-in's actual Qt popup window without
+                // choosing its focused child: Popover must choose the grid.
+                popup.requestActivate();
+                tryCompare(popup, "active", true);
+                // Let the show callback choose initial focus after native
+                // activation, as on the real nested popup surface.
+                wait(0);
+                keyClick(Qt.Key_Right);
+                compare(boundDate.highlightedDay, 6);
+                keyClick(Qt.Key_Return);
+                tryCompare(boundDate, "pickerOpen", false);
+                compare(boundDate.displayText, "2026-01-06");
+                compare(Compositor.activations.length, 1);
+                compare(Compositor.activations[0], root.Window.window);
+                // The compositor stand-in records the native request;
+                // activate its Qt owner to deliver the recorded return.
+                root.Window.window.requestActivate();
+                tryCompare(boundDate.input, "activeFocus", true);
+            } finally {
+                picker.close();
+                QsWindow.window = savedOwner;
+                Compositor.activations = [];
+                root.Window.window.requestActivate();
+            }
         }
 
         function test_path_field_validates_absolute_paths() {

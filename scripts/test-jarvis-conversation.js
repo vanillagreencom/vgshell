@@ -8,7 +8,7 @@ const os = require("node:os");
 const { load } = require("../bin/lib/qml-library.js");
 const file = path.resolve(__dirname, "../shell/plugins/vgs.jarvis/Conversation.js");
 const Conversation = load(file);
-const entry = (gen, role, text, stage) => ({ gen, role, text, stage });
+const entry = (gen, role, text, stage) => ({ gen, role, text, stage, at: gen * 1000, session: "session-" + gen, startedAt: gen * 1000 });
 const byteLength = rows => Buffer.byteLength(JSON.stringify(rows));
 
 function contract(logic) {
@@ -18,6 +18,8 @@ function contract(logic) {
     assert.deepEqual(log, [entry(1, "assistant", "hel", "partial")]);
     log = logic.update(log, entry(1, "assistant", "hello", "partial"));
     assert.deepEqual(log, [entry(1, "assistant", "hello", "partial")], "open segment is replaced");
+    const later = logic.update(log, { ...entry(1, "assistant", "hello", "partial"), at: 2000 });
+    assert.equal(later[0].at, 1000, "partial captions retain their first observed time");
     log = logic.update(log, entry(1, "assistant", "hello", "final"));
     assert.deepEqual(log, [entry(1, "assistant", "hello", "final")], "final closes segment");
     log = logic.update(log, entry(1, "assistant", "again", "partial"));
@@ -37,6 +39,29 @@ function contract(logic) {
     assert.ok(huge.length < 64, "byte ceiling drops oldest rows");
 }
 contract(Conversation);
+
+const History = load(path.resolve(__dirname, "../shell/plugins/vgs.jarvis/History.js"));
+const morning = new Date(2026, 10, 1, 9).getTime(), nextDay = new Date(2026, 10, 2, 9).getTime();
+const transcript = [
+    { ...entry(1, "user", "Voice question", "final"), at: morning, startedAt: morning, session: "first" },
+    { ...entry(2, "assistant", "Answer", "final"), at: morning + 1000, startedAt: morning, session: "first" },
+    { ...entry(3, "user", "Same day, other session", "final"), at: morning + 2000, session: "second" },
+    { ...entry(4, "assistant", "Next day", "final"), at: nextDay, session: "first" }
+];
+assert.equal(History.conversations(transcript, "").length, 3, "days and session identities both delimit groups");
+assert.equal(History.conversations(transcript, "VOICE")[0].rows[0].text, "Voice question");
+assert.equal(History.conversations(transcript, "missing").length, 0);
+assert.equal(History.conversations(transcript, "")[0].at, nextDay, "newest groups first");
+const refusal = { time: new Date(morning).toISOString(), tool: "files.delete", decision: "refuse", outcome: "cancelled", refusal: "identity", cause: null };
+const shown = History.problems([refusal], "")[0];
+assert.equal(shown.title, "Deleting a file was refused.");
+assert.equal(shown.body, "The request changed before approval.");
+assert.equal(shown.action, "Ask Jarvis again");
+assert.equal(History.problems([refusal], "missing filename").length, 0, "the audit never supplies an invented filename");
+const voice = History.problems([{ ...refusal, cause: "input-silent" }], "microphone")[0];
+assert.equal(voice.title, "Voice stopped.");
+assert.equal(voice.settings, true);
+assert.equal(History.tasks([{ goal: "Fix console", agent: "runtime", state: "working" }], "RUNTIME").length, 1);
 
 const parent = os.tmpdir();
 fs.mkdirSync(parent, { recursive: true });

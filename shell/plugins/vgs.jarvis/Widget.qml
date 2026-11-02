@@ -24,6 +24,8 @@ BarWidget {
         : View.view(shell.status.values, View.spelledKeys(shell.shortcut.keys, KeyNavLogic.keyCaps), shell.settings.mode,
             Providers.cloudVoice(shell.settings.voiceProvider))
 
+    readonly property var ownerAsks: shell === null || shell.status.values.ownerAsks === undefined ? null : shell.status.values.ownerAsks
+    readonly property bool hasAsks: ownerAsks !== null && ownerAsks.kind === "ready" && ownerAsks.activeCount > 0
     implicitWidth: item.implicitWidth
     implicitHeight: barSize
     // Whether Jarvis is muted or turning muted, as the service last read it.
@@ -73,7 +75,12 @@ BarWidget {
         iconName: root.view.icon
         tone: root.toneColor(root.view.tone)
         tooltip: root.view.tooltip
-        tooltipDetails: root.view.tooltipDetails
+        tooltipDetails: root.view.tooltipDetails.concat(root.hasAsks ? [root.ownerAsks.activeCount + " asks need you"] : [])
+        contentItem: Row {
+            spacing: Theme.stack.inline
+            Icon { name: root.view.icon; size: Theme.bar.item.icon; color: root.toneColor(root.view.tone); anchors.verticalCenter: parent.verticalCenter }
+            Badge { visible: root.hasAsks; variant: "unread"; text: root.hasAsks ? String(root.ownerAsks.activeCount) : ""; anchors.verticalCenter: parent.verticalCenter }
+        }
         onTooltipPageActivated: (page, tab) => root.frame.openPage(page, tab)
         onClicked: root.view.click === "resume" ? root.offer("resume-session") : root.openConsole()
     }

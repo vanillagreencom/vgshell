@@ -3,8 +3,9 @@
 # engine) the Conversation tab shows no message box and no Send, one line
 # in their place and Stop; under mute Send names why it is off. The row has no latency ceiling. It polls once
 # per nested IPC round trip; fixture callback gates poll at 10 ms.
-# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* scripts/smoke/keyboard/* scripts/smoke/toplevel/* shell/Ui/* shell/Commons/* scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/jarvis-bubble.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/windows.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/hold-shortcuts.sh shell/Core/ShortcutRegistry.qml shell/Hosts/AppWindow.qml shell/Hosts/PluginSlot.qml shell/Hosts/SummonHost.qml shell/Core/HyprlandLayer.js
+# inputs: scripts/smoke/jarvis-console.sh shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* scripts/smoke/keyboard/* scripts/smoke/toplevel/* shell/Ui/* shell/Commons/* scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/jarvis-bubble.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/windows.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/hold-shortcuts.sh shell/Core/ShortcutRegistry.qml shell/Hosts/AppWindow.qml shell/Hosts/PluginSlot.qml shell/Hosts/SummonHost.qml shell/Core/HyprlandLayer.js
 set -euo pipefail
+source "$source_repo/scripts/smoke/jarvis-console.sh"
 # The Jarvis fixtures log the set jarvis.sh declares.
 expected_errors+=("${jarvis_provoked_errors[@]}")
 
@@ -128,7 +129,7 @@ jarvis_console_selected() {
 }
 jarvis_console_body_focused() {
   # QQuickControl is Qt's concrete template type. The scroll proxy has no
-  # content children; the Tasks and Audit controls own their columns.
+  # content children; the History task/problem controls own their content.
   ipc smoke itemValues window vgs.jarvis QQuickControl activeFocus,contentItem.children.length | py_reply 'import json,sys; rows=json.load(sys.stdin); print("true" if any(r.get("activeFocus") and (r.get("contentItem.children.length") or 0)>0 for r in rows) else "false")'
 }
 jarvis_console_fixture_task() { # INDEX
@@ -152,28 +153,30 @@ print(sum(row.get('kind')=='console-intent' and row.get('intent')==sys.argv[2] f
 PY_COUNT
 }
 jarvis_console_audit() {
-  ipc smoke itemValues window vgs.jarvis Label text,visible | py_reply 'import json,sys; rows=json.load(sys.stdin); print("shown" if any(r.get("visible") and r.get("text")=="files.delete" for r in rows) else "missing")'
+  ipc smoke itemValues window vgs.jarvis Label text,visible | py_reply 'import json,sys; rows=json.load(sys.stdin); print("shown" if any(r.get("visible") and r.get("text")=="Deleting a file was refused." for r in rows) else "missing")'
 }
-jarvis_console_tasks_tab_check() { expect_poll "the tab bar reaches Tasks" '[[3, 1]]' jarvis_console_tabs; }
+jarvis_console_tasks_tab_check() { expect_poll "the tab bar reaches History" '[[3, 2]]' jarvis_console_tabs; }
 jarvis_console_stop_check() { expect_poll "Stop sends the selected fixture id" "$1" jarvis_console_intent task-stop; }
-jarvis_console_audit_check() { expect_poll "Audit draws the fixture failure" shown jarvis_console_audit; }
+jarvis_console_audit_check() { expect_poll "History draws a plain problem sentence" shown jarvis_console_audit; }
 # A failed voice stream's record draws its cause after its result, as a
 # withheld one draws its refusal.
 jarvis_console_audit_cause() {
-  ipc smoke itemValues window vgs.jarvis Label text,visible | py_reply 'import json,sys; rows=json.load(sys.stdin); print("shown" if any(r.get("visible") and str(r.get("text")).startswith("Failed \u00b7 ") for r in rows) else "missing")'
+  ipc smoke itemValues window vgs.jarvis Label text,visible | py_reply 'import json,sys; rows=json.load(sys.stdin); print("shown" if any(r.get("visible") and r.get("text")=="The voice service heard no words." for r in rows) else "missing")'
 }
-jarvis_console_audit_cause_check() { expect_poll "Audit draws the failed stream's cause" shown jarvis_console_audit_cause; }
-# The hairline count of each shown GroupList: the fixture's three Audit
-# records are three groups, so two hairlines part them.
+jarvis_console_audit_cause_check() { expect_poll "History draws the failed stream's cause" shown jarvis_console_audit_cause; }
+# With Problems selected, only its three-row GroupList draws separators.
 jarvis_console_audit_groups() {
   ipc smoke itemValues window vgs.jarvis GroupList visible,hairlines | py_reply 'import json,sys; rows=json.load(sys.stdin); print(json.dumps([len(r.get("hairlines") or []) for r in rows if r.get("visible")]))'
 }
-jarvis_console_audit_groups_check() { expect_poll "Audit draws its records as one GroupList with a hairline between them" '[2]' jarvis_console_audit_groups; }
+jarvis_console_audit_groups_check() { expect_poll "History groups its problems with shared separators" '[2]' jarvis_console_audit_groups; }
 jarvis_console_tasks_path() {
-  expect_poll "Conversation has composer focus before its tab switch" true jarvis_console_text_field_focused
-  type_keys -M ctrl -k Tab -m ctrl || fail "switching to Tasks failed"
+  expect_poll "Now has composer focus before its tab switch" true jarvis_console_text_field_focused
+  type_keys -M ctrl -k Tab -k Tab -m ctrl || fail "switching to History failed"
   jarvis_console_tasks_tab_check
-  expect_poll "Tasks takes keyboard focus" true jarvis_console_body_focused
+  expect_poll "History focuses its search" true jarvis_console_text_field_focused
+  jarvis_history_filter Tasks || fail "filtering History to tasks failed"
+  type_keys -k Tab || fail "reaching the coding tasks by keyboard failed"
+  expect_poll "History tasks take keyboard focus" true jarvis_console_body_focused
 }
 jarvis_console_stop_path() {
   local intents_before first_fixture
@@ -222,6 +225,8 @@ hold_markers="$(ipc smoke holdMarkerCount)"
 hold_delayed_keyboard=""
 hold_start_keyboard jarvis-console "$sandbox/keyboard" us ""
 jarvis_setup_requirements
+jarvis_asks_fixture "$source_repo"
+expect "the console row selects its private package Home" ok ipc shell reloadConfig
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" "$jarvis_console_backend" "$jarvis_console_gates" --mapped-indicator
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" --console-data "$jarvis_console_backend"
 jarvis_rescan
@@ -241,6 +246,8 @@ hold_barrier
 # Themes panel control proves non-window surfaces do not count as clients.
 expect "a second console key press keeps one Jarvis window" 1 jarvis_console_client_count
 expect_poll "the console text field has focus" true jarvis_console_text_field_focused
+jarvis_asks_contract_check
+jarvis_asks_ui_path
 say_before="$(jarvis_console_say_count)"
 type_keys "typed from console" || fail "typing into the console failed"
 type_keys -k Return || fail "pressing Enter in the console failed"
@@ -275,25 +282,35 @@ expect_poll "Escape closes Tasks" 0 jarvis_console_client_count
 jarvis_console_open
 hold_barrier
 jarvis_console_tasks_path
-# The first control receives focus on switch; Backtab returns to the
-# reachable tab bar, whose Right key switches to Audit.
+# Task Backtab returns to the shared tab bar; its Left key reaches asks.
 type_keys -M shift -k Tab -m shift || fail "reaching the tab bar failed"
 expect_poll "the tab bar takes keyboard focus" true ipc smoke activeFocusWithin window vgs.jarvis Tabs
-type_keys -k Right || fail "switching the tab bar to Audit failed"
-expect_poll "Right selects Audit" '[[3, 2]]' jarvis_console_tabs
-expect_poll "Audit takes keyboard focus" true jarvis_console_body_focused
+type_keys -k Left || fail "switching the tab bar to Needs you failed"
+expect_poll "Left selects Needs you" '[[3, 1]]' jarvis_console_tabs
+expect_poll "Needs you takes keyboard focus" true jarvis_console_body_focused
+type_keys -M ctrl -k Tab -m ctrl || fail "returning to History failed"
+expect_poll "the console returns to History" '[[3, 2]]' jarvis_console_tabs
+expect_poll "History returns focus to its search" true jarvis_console_text_field_focused
+jarvis_history_filter Problems || fail "filtering History to problems failed"
 jarvis_console_audit_check
 jarvis_console_audit_cause_check
 jarvis_console_audit_groups_check
-type_keys -k Page_Down -k Page_Up -M shift -k Tab -m shift || fail "Audit scrolling or Backtab failed"
-expect_poll "Audit Backtab reaches the tab bar" true ipc smoke activeFocusWithin window vgs.jarvis Tabs
-type_keys -k Left || fail "switching the tab bar left failed"
-expect_poll "Left selects Tasks" '[[3, 1]]' jarvis_console_tabs
-expect_poll "Left focuses Tasks" true jarvis_console_body_focused
-type_keys -M ctrl -k Tab -m ctrl || fail "returning to Audit failed"
-expect_poll "the console returns to Audit" '[[3, 2]]' jarvis_console_tabs
-type_keys -k Escape || fail "Escape from Audit failed"
-expect_poll "Escape closes Audit" 0 jarvis_console_client_count
+click_item window:Jarvis window vgs.jarvis TextField "" || fail "reaching the History search failed"
+type_keys "voice" || fail "searching History problems failed"
+jarvis_console_problem_titles() {
+  ipc smoke itemValues window vgs.jarvis MessageRow title,visible | py_reply 'import json,sys; print(json.dumps([r["title"] for r in json.load(sys.stdin) if r.get("visible") and r.get("title")]))'
+}
+expect_poll "History search filters the visible problem sentences" '["Voice stopped."]' jarvis_console_problem_titles
+type_keys -M ctrl a -m ctrl -k BackSpace || fail "clearing History search failed"
+jarvis_console_audit_groups_check
+# Search and its filter precede the selected result's keyboard owner.
+type_keys -k Tab || fail "reaching the History filter from search failed"
+type_keys -k Tab || fail "reaching Problems by keyboard failed"
+expect_poll "Problems take keyboard focus" true jarvis_console_body_focused
+type_keys -k Page_Down -k Page_Up -M shift -k Tab -m shift || fail "History scrolling or Backtab failed"
+expect_poll "History Backtab reaches the tab bar" true ipc smoke activeFocusWithin window vgs.jarvis Tabs
+type_keys -k Escape || fail "Escape from History failed"
+expect_poll "Escape closes History" 0 jarvis_console_client_count
 jarvis_console_open
 hold_barrier
 expect_poll "the console window is open before disable" 1 jarvis_console_client_count
@@ -359,10 +376,10 @@ from pathlib import Path
 import sys
 p=Path(sys.argv[1]); s=p.read_text()
 changes={
-    "tabs": ('model: ["Conversation", "Tasks", "Audit"]', 'model: ["Conversation", "Audit"]'),
+    "tabs": ('model: ["Now", "Needs you", "History"]', 'model: ["Now", "Needs you"]'),
     "stop": ('"open-task", task.id);', '"open-task", taskRows[0].id);'),
-    "audit": ('model: root.auditRows', 'model: []'),
-    "groups": ('contentItem: GroupList {', 'contentItem: Column {'),
+    "audit": ('History.problems(auditRows, historyQuery)', 'History.problems([], historyQuery)'),
+    "groups": ('GroupList {\n                    id: auditList', 'Column {\n                    id: auditList'),
 }
 needle,replacement=changes[sys.argv[2]]
 assert s.count(needle)==1, needle
@@ -372,29 +389,29 @@ PY_CONTROL
   jarvis_enable
   jarvis_console_open
   hold_barrier
-  expect_poll "the mutant Conversation has composer focus before switching" true jarvis_console_text_field_focused
-  type_keys -M ctrl -k Tab -m ctrl || fail "switching the mutant Tasks tab failed"
-  case "$jarvis_console_mutant" in
-    tabs) expect "control: dropping Tasks breaks the tab assertion" 1 jarvis_console_tab_control ;;
-    stop)
-      jarvis_console_tasks_tab_check
-      expect_poll "the Stop control focuses Tasks" true jarvis_console_body_focused
-      second_task="$(jarvis_console_fixture_task 1)"
-      jarvis_console_stop_path
-      expect "control: sending the first id breaks the selected-task assertion" 1 jarvis_console_stop_control "$second_task"
-      ;;
-    audit|groups)
-      jarvis_console_tasks_tab_check
-      expect_poll "the Audit control starts with Tasks focus" true jarvis_console_body_focused
-      type_keys -M ctrl -k Tab -m ctrl || fail "switching the mutant Audit tab failed"
-      if [[ "$jarvis_console_mutant" == audit ]]; then
-        expect "control: empty audit data breaks the failure assertion" 1 jarvis_console_audit_control
-      else
-        jarvis_console_audit_check
-        expect "control: a plain Column breaks the GroupList assertion" 1 jarvis_console_groups_control
-      fi
-      ;;
-  esac
+  expect_poll "the mutant Now has composer focus before switching" true jarvis_console_text_field_focused
+  if [[ $jarvis_console_mutant == tabs ]]; then
+    type_keys -M ctrl -k Tab -k Tab -m ctrl || fail "switching the mutant History tab failed"
+    expect "control: dropping History breaks the tab assertion" 1 jarvis_console_tab_control
+  else
+    jarvis_console_tasks_path
+    case "$jarvis_console_mutant" in
+      stop)
+        second_task="$(jarvis_console_fixture_task 1)"
+        jarvis_console_stop_path
+        expect "control: sending the first id breaks the selected-task assertion" 1 jarvis_console_stop_control "$second_task"
+        ;;
+      audit|groups)
+        jarvis_history_filter Problems || fail "filtering the mutant History to problems failed"
+        if [[ "$jarvis_console_mutant" == audit ]]; then
+          expect "control: empty problem data breaks the sentence assertion" 1 jarvis_console_audit_control
+        else
+          jarvis_console_audit_check
+          expect "control: a plain Column breaks the GroupList assertion" 1 jarvis_console_groups_control
+        fi
+        ;;
+    esac
+  fi
   jarvis_disable
   cp -- "$sandbox/jarvis-console-qml-before" "$jarvis_console_qml"
 done
@@ -428,6 +445,7 @@ PY_DUPLEX
 jarvis_console_duplex "duplex control"
 expect "control: a message box under a duplex voice fails the message box and Send assertions" 2 jarvis_console_speech_only_control
 jarvis_disable
+jarvis_asks_restore
 cp -- "$sandbox/jarvis-console-backend-before" "$jarvis_console_backend"
 cp -- "$sandbox/jarvis-console-engine-before" "$jarvis_console_engine"
 cp -- "$sandbox/jarvis-console-service-before" "$jarvis_console_service"

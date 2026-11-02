@@ -23,7 +23,7 @@
 # SCENE is gallery, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, tailscale, tailscale-starting, tailscale-locked, tailscale-flyout, vpn, vpn-locked, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, automation-failure, googledrive, tooltips, screensaver-lock, capture, capture-notifications,
-# info-dialog, keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, package-review-terminal, packages, jarvis-console, jarvis-audit, jarvis-setup, elevenlabs-voices, jarvis-fleet, outdated, jarvis-causes, jarvis-restart, plugin-messages, page-links, tooltip-link, traffic, ai-usage, ai-usage-states, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice, displays-override or theme-previews. settings takes the
+# info-dialog, keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, package-review-terminal, packages, jarvis-console, jarvis-history, jarvis-setup, elevenlabs-voices, jarvis-fleet, outdated, jarvis-causes, jarvis-restart, plugin-messages, page-links, tooltip-link, traffic, ai-usage, ai-usage-states, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice, displays-override or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, or with --pages
@@ -86,10 +86,10 @@
 # shell's PATH; ai-usage-states, taken only when named, is that dropdown
 # with a Claude Code account at its full weekly limit and one with no
 # figures at its top; jarvis-console is the Jarvis console window over the
-# scripted daemon fixture in each conversation state, taken only when
-# named; jarvis-audit draws the Audit tab over three entries from that
-# fixture, at the default and narrow window sizes, and checks that an
-# empty log fails its entry check; clipboard is the clipboard history over copies made on the
+# scripted daemon fixture in each conversation state and the package-owned
+# Needs you/History pages, taken only when named; jarvis-history draws plain
+# problem sentences from three fixture records at default and narrow sizes
+# and checks that an empty source fails its entry check; clipboard is the clipboard history over copies made on the
 # nested instance's own clipboard, taken only when named; capture is
 # Capture's widget, panel and Settings page at the Recording section, taken
 # only when named; voice is Voice's
@@ -436,7 +436,7 @@ while [[ $# -gt 0 ]]; do
     --title-inventory) title_inventory=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    link-icons|sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|capture-notifications|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|package-review-terminal|packages|voice-keys|jarvis-console|jarvis-audit|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|jarvis-restart|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|tailscale-flyout|tailscale-section|vpn|vpn-locked|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|automation-failure|googledrive|tooltips|screensaver|screensaver-lock|theme-previews|setup-tab|updates|clone-voice|displays-override) scenes+=("$1"); shift ;;
+    link-icons|sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|capture-notifications|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|package-review-terminal|packages|voice-keys|jarvis-console|jarvis-history|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|jarvis-restart|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|tailscale-flyout|tailscale-section|vpn|vpn-locked|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|automation-failure|googledrive|tooltips|screensaver|screensaver-lock|theme-previews|setup-tab|updates|clone-voice|displays-override) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -591,7 +591,7 @@ scene_ships() {
     capture-notifications) ships_plugin vgs.capture vgs.notifications ;;
     keyhints) ships_plugin vgs.keyhints vgs.launcher vgs.settings vgs.themes ;;
     clipboard) ships_plugin vgs.clipboard ;;
-    jarvis-console|jarvis-audit|jarvis-restart) ships_plugin vgs.jarvis ;;
+    jarvis-console|jarvis-history|jarvis-restart) ships_plugin vgs.jarvis ;;
     voice) ships_plugin vgs.voice ;;
     voice-setup) ships_plugin vgs.voice vgs.settings ;;
     voice-elsewhere) ships_plugin vgs.voice vgs.settings && tree_has shell/plugins/vgs.voice/manifest.json '"dictation"' ;;
@@ -716,6 +716,7 @@ if [[ " ${scenes[*]} " == *" launcher "* || " ${scenes[*]} " == *" narrow "* ]];
   harness_scene_only=true
 fi
 source "$checkout/scripts/smoke/harness.sh"
+source "$checkout/scripts/smoke/jarvis-console.sh"
 if [[ $launcher_fixture == true ]]; then
   # DesktopEntries otherwise reads /usr/share/applications. Plant before
   # its first load, with no host applications in the capture's data paths.
@@ -1100,7 +1101,7 @@ gallery_menu_first() { # MODE
 # gallery_pages pages.
 gallery_pages=12
 scene_gallery() { # MODE
-  local page=1 y=0 at cy ch h span focus_shown
+  local page=1 y=0 at cy ch h span focus_shown message_focus_shown
   expect "the gallery summons" ok ipc shell summon "$gallery_kind" vgs.gallery '{}'
   expect_poll "the gallery maps its surface" 1 surface_count "$gallery_surface"
   expect_poll "the gallery draws every component" '[]' ipc smoke galleryMissing "$gallery_kind" vgs.gallery
@@ -1112,9 +1113,16 @@ scene_gallery() { # MODE
       focus_shown="$(python3 -c 'import json,sys; s=json.loads(sys.argv[1]) if sys.argv[1].startswith("[") else []; print(len(s) == 4 and s[0] < s[2] + s[3] and s[1] > s[2])' "$span")" || {
         fail "the gallery Focus section could not be read"; break;
       }
-    # Gallery.qml's Focus samples set focusPreview: true deliberately.
-    # Pose only their measured viewport; other pages keep the chrome check.
-    if [[ $title_inventory == true || $focus_shown == True ]]; then
+    message_focus_shown=False
+    if tree_has shell/plugins/vgs.gallery/Gallery.qml 'title: "Message rows"'; then
+      span="$(ipc smoke sectionSpan "$gallery_kind" vgs.gallery "Message rows")" &&
+        message_focus_shown="$(python3 -c 'import json,sys; s=json.loads(sys.argv[1]) if sys.argv[1].startswith("[") else []; print(len(s) == 4 and s[0] < s[2] + s[3] and s[1] > s[2])' "$span")" || {
+          fail "the gallery Message rows section could not be read"; break;
+        }
+    fi
+    # Focus and Message rows deliberately preview keyboard focus. Pose
+    # only their measured viewports; other pages keep the chrome check.
+    if [[ $title_inventory == true || $focus_shown == True || $message_focus_shown == True ]]; then
       [[ $title_inventory == true ]] || park_pointer
       take_posed "gallery-$1-p$page"
     else
@@ -3407,10 +3415,12 @@ scene_jarvis-console() { # MODE
   local engine="$repo/shell/plugins/vgs.jarvis/backend/ChainedEngine.js"
   local before_backend="$sandbox/jarvis-console-$1-jarvisd-before.js"
   local before_engine="$sandbox/jarvis-console-$1-engine-before.js"
+  local before_config="$sandbox/jarvis-console-$1-config-before.json"
   local gates="$sandbox/jarvis-console-$1-gates" startup_gate="$sandbox/jarvis-console-$1-startup-gate"
   local startup_seen="$sandbox/jarvis-console-$1-startup-seen"
   cp -- "$backend" "$before_backend"
   cp -- "$engine" "$before_engine"
+  cp -- "$home/.config/vgshell/shell.json" "$before_config"
   mkdir -p -- "$gates"
   jarvis_console_last() {
     ipc smoke jarvisProcess | py_reply '
@@ -3459,8 +3469,11 @@ print("true" if any(row.get("activeFocus") is True for row in json.load(sys.stdi
   expect_poll "vgs.jarvis is gone after the not-ready image" absent ipc smoke jarvisProcess
   jarvis_console_restore
 
+  jarvis_asks_fixture "$checkout"
+  expect "the package fixture Home is selected for console images" ok ipc shell reloadConfig
   "$node_bin" "$checkout/scripts/fixtures/jarvis/scripted.js" "$backend" "$gates" --mapped-indicator
   "$node_bin" "$checkout/scripts/fixtures/jarvis/scripted.js" --held-approvals "$backend"
+  "$node_bin" "$checkout/scripts/fixtures/jarvis/scripted.js" --console-data "$backend"
   tree_rescan "the Jarvis scripted daemon is scanned"
   expect "enabling vgs.jarvis for console images is allowed" ok ipc shell setPluginEnabled vgs.jarvis true
   expect_poll "the Jarvis scripted daemon answers hello" ready jarvis_started
@@ -3490,6 +3503,7 @@ print("true" if any(row.get("activeFocus") is True for row in json.load(sys.stdi
   expect_poll "the Jarvis console shows the scripted reply" "assistant:scripted utterance:partial" jarvis_console_last
   park_pointer
   take_posed "jarvis-console-$1-reply"
+  jarvis_console_approved_sheets "$1"
   expect "the Jarvis console mutes Jarvis" ok ipc vgs.jarvis invoke mute ''
   expect_poll "muted Jarvis reaches the console" on jarvis_console_mute
   park_pointer
@@ -3497,31 +3511,123 @@ print("true" if any(row.get("activeFocus") is True for row in json.load(sys.stdi
   expect "the Jarvis console hides after its images" ok ipc shell hide window vgs.jarvis
   expect "disabling vgs.jarvis after its console images is allowed" ok ipc shell setPluginEnabled vgs.jarvis false
   expect_poll "vgs.jarvis is gone after its console images" absent ipc smoke jarvisProcess
+  jarvis_asks_restore
+  user_config_restore "$before_config"
+  expect "the console capture restores the selected Home" ok ipc shell reloadConfig
   jarvis_restore_requirements
   jarvis_console_restore
   tree_rescan "the stock Jarvis files are scanned after console images"
   jarvis_notice_close
 }
 
-scene_jarvis-audit() { # MODE
+# These are production views: only the package command and scripted brain
+# are fixtures. State poses are driven through the same canonical IPC that
+# a user action uses; the smoke row separately owns dialog/keyboard paths.
+jarvis_console_approved_sheets() { # MODE
+  jarvis_asks_ready
+  jarvis_asks_tab Now || fail "opening Now for its image failed"
+  park_pointer
+  take_posed "jarvis-console-$1-now"
+  jarvis_asks_tab "Needs you" || fail "opening Needs you for its image failed"
+  expect_poll "the primary Needs you image has three canonical asks" '[3, 0]' jarvis_asks_read counts
+  expect_poll "the bar badge shows the same three asks" 3 jarvis_asks_badge
+  park_pointer
+  take_posed "jarvis-console-$1-needs-you"
+  ipc smoke revealScopedText window vgs.jarvis MessageRow "Approve the update on px13" Button Later >/dev/null || fail "revealing the fleet row actions failed"
+  park_pointer
+  take_posed "jarvis-console-$1-needs-you-bottom"
+  ipc smoke scrollTo window vgs.jarvis 0 >/dev/null || fail "returning Needs you to its top failed"
+  jarvis_console_ask_dialog_sheets "$1"
+  ipc smoke scrollTo window vgs.jarvis 0 >/dev/null || fail "returning Needs you to its top after dialog images failed"
+  jarvis_asks_states
+  expect_poll "the state image badge excludes its snoozed ask" 2 jarvis_asks_badge
+  expect_poll "the state image tab count excludes its snoozed ask" 2 jarvis_asks_tab_badge
+  click_item window:Jarvis window vgs.jarvis RowAction "Snoozed (1)" || fail "opening the snoozed state for its image failed"
+  expect_poll "the state image includes its labelled snoozed section" true ipc smoke readInstance window vgs.jarvis snoozedExpanded
+  park_pointer
+  take_posed "jarvis-console-$1-needs-you-states"
+  ipc smoke revealScopedText window vgs.jarvis MessageRow "Approve the update on px13" Button Later >/dev/null || fail "revealing the snoozed date and actions failed"
+  expect_poll "the scrolled snoozed image retains count two" 2 jarvis_asks_badge
+  park_pointer
+  take_posed "jarvis-console-$1-needs-you-states-bottom"
+  jarvis_asks_tab History || fail "opening History for its image failed"
+  park_pointer
+  take_posed "jarvis-console-$1-history"
+  local history_y
+  history_y="$(ipc smoke sectionSpan window vgs.jarvis Problems | py_reply 'import json,sys; top,bottom,y,height=json.load(sys.stdin); print(round(max(0,top-height/2)))')" || fail "reading the History tasks/problem boundary failed"
+  ipc smoke scrollTo window vgs.jarvis "$history_y" >/dev/null || fail "revealing History tasks and the first problem failed"
+  park_pointer
+  take_posed "jarvis-console-$1-history-bottom"
+  ipc smoke scrollTo window vgs.jarvis 0 >/dev/null || fail "returning History to its search and grouping failed"
+  click_in window:Jarvis window vgs.jarvis ResultsFilter "All types" || fail "opening the result filter for its image failed"
+  expect_poll "History opens its result-type choices" true ipc smoke readShownDescendant window vgs.jarvis ResultsFilter listOpen
+  park_pointer
+  take_posed "jarvis-console-$1-history-filter-open"
+  type_keys -k Escape || fail "closing the result filter after its image failed"
+  expect_poll "History closes its result-type choices" false ipc smoke readShownDescendant window vgs.jarvis ResultsFilter listOpen
+  jarvis_asks_tab Now || fail "returning to Now after console images failed"
+}
+
+jarvis_console_ask_dialog_sheets() { # MODE
+  jarvis_asks_action "Choose the voice for tomorrow's briefing" Reply || fail "opening the Reply dialog for images failed"
+  expect_poll "the Reply dialog gives its field keyboard focus" true ipc smoke activeFocusWithin window vgs.jarvis TextArea
+  expect "the empty Reply dialog explains its disabled Send" '"Write your reply first."' jarvis_asks_button_reason "Send reply"
+  type_keys -k Tab || fail "reaching the disabled Send reply for its image failed"
+  expect_poll "the disabled Send reply takes keyboard focus" true jarvis_asks_button_focus "Send reply"
+  expect_poll "the disabled Reply reason is visible" true ipc smoke readMatchingDescendant window vgs.jarvis Tooltip text "Write your reply first." opened
+  park_pointer
+  take_posed "jarvis-console-$1-reply-empty"
+  type_keys -M shift -k Tab -m shift || fail "returning to the Reply field failed"
+  type_keys "Use the current voice for tomorrow's briefing." || fail "typing the Reply draft for its image failed"
+  expect_poll "the Reply draft enables Send reply" '""' jarvis_asks_button_reason "Send reply"
+  park_pointer
+  take_posed "jarvis-console-$1-reply-draft"
+  type_keys -k Tab -k Tab -k Return || fail "cancelling the Reply draft by keyboard failed"
+  expect_poll "Cancel closes Reply without submitting it" closed jarvis_asks_editing
+  expect "the cancelled Reply sends no package action" 0 jarvis_asks_calls reply count
+
+  jarvis_asks_action "Approve the update on px13" Later || fail "opening the Later dialog for images failed"
+  expect_poll "the Later dialog opens its date editor" '"later"' jarvis_asks_editor
+  expect_poll "the Later date field has keyboard focus" true ipc smoke activeFocusWithin window vgs.jarvis DateField
+  type_keys -k Down || fail "opening the Later calendar for its image failed"
+  expect_poll "the Later calendar is open" true jarvis_asks_picker_open
+  park_pointer
+  take_posed "jarvis-console-$1-later-calendar"
+  type_keys -k Right -k Return || fail "choosing a future day for the Later image failed"
+  expect_poll "the date choice closes the calendar" false jarvis_asks_picker_open
+  expect_poll "the date choice returns focus to its field" true ipc smoke activeFocusWithin window vgs.jarvis DateField
+  type_keys -k Tab -k Down || fail "choosing Noon for the Later image failed"
+  expect_poll "the Later return time reads Noon" '"Noon"' ipc smoke readShownDescendant window vgs.jarvis ResultsFilter currentText
+  park_pointer
+  take_posed "jarvis-console-$1-later-selected"
+  type_keys -k Tab -k Tab -k Return || fail "cancelling the Later choice by keyboard failed"
+  expect_poll "Cancel closes Later without snoozing" closed jarvis_asks_editing
+  expect "the cancelled Later sends no package action" 0 jarvis_asks_calls later count
+  expect_poll "dialog images retain the three canonical active asks" '[3, 0]' jarvis_asks_read counts
+}
+
+scene_jarvis-history() { # MODE
   local backend="$repo/shell/plugins/vgs.jarvis/backend/jarvisd.js"
   local engine="$repo/shell/plugins/vgs.jarvis/backend/ChainedEngine.js"
-  local saved="$sandbox/jarvis-audit-$1" control size rejected
+  local saved="$sandbox/jarvis-history-$1" control size rejected
   cp -- "$backend" "$saved-backend"
   cp -- "$engine" "$saved-engine"
-  jarvis_audit_tabs() { ipc smoke itemValues window vgs.jarvis Tabs currentIndex | py_reply 'import json,sys; print(json.dumps([r.get("currentIndex") for r in json.load(sys.stdin)]))'; }
-  jarvis_audit_entries() {
+  cp -- "$home/.config/vgshell/shell.json" "$saved-config"
+  jarvis_asks_fixture "$checkout"
+  expect "the History capture selects its private package Home" ok ipc shell reloadConfig
+  jarvis_history_tabs() { ipc smoke itemValues window vgs.jarvis Tabs currentIndex | py_reply 'import json,sys; print(json.dumps([r.get("currentIndex") for r in json.load(sys.stdin)]))'; }
+  jarvis_history_entries() {
     ipc smoke itemValues window vgs.jarvis Label text,visible | py_reply '
 import json,sys
 rows=json.load(sys.stdin)
-tools=[r.get("text") for r in rows if r.get("visible") and r.get("text") in ["files.delete", "release"]]
-print(json.dumps(sorted(tools)))
+problems=[r.get("text") for r in rows if r.get("visible") and r.get("text") in ["Deleting a file was refused.", "Sending content was withheld.", "Voice stopped."]]
+print(json.dumps(sorted(problems)))
 '
   }
-  jarvis_audit_check() {
+  jarvis_history_check() {
     local before="$failures"
-    expect_poll "Audit is the current tab" '[2]' jarvis_audit_tabs
-    expect_poll "Audit draws all three planted entries" '["files.delete", "release", "release"]' jarvis_audit_entries
+    expect_poll "History is the current tab" '[2]' jarvis_history_tabs
+    expect_poll "History draws all three planted entries" '["Deleting a file was refused.", "Sending content was withheld.", "Voice stopped."]' jarvis_history_entries
     [[ $failures == "$before" ]]
   }
   jarvis_setup_requirements
@@ -3531,43 +3637,47 @@ print(json.dumps(sorted(tools)))
     if [[ $control == planted ]]; then
       "$node_bin" "$checkout/scripts/fixtures/jarvis/scripted.js" --console-data "$backend"
     fi
-    tree_rescan "the Audit $control fixture is scanned"
-    expect "Jarvis enables for Audit $control" ok ipc shell setPluginEnabled vgs.jarvis true
-    expect_poll "the Audit daemon answers hello" ready jarvis_started
+    tree_rescan "the History $control fixture is scanned"
+    expect "Jarvis enables for History $control" ok ipc shell setPluginEnabled vgs.jarvis true
+    expect_poll "the History daemon answers hello" ready jarvis_started
     close_notices
     for size in default narrow; do
       [[ $size != narrow ]] || narrow_begin
-      expect "the Audit console summons" ok ipc shell summon window vgs.jarvis '{}'
-      expect_poll "the Audit console maps" 1 window_count Jarvis
-      expect_poll "the Audit console composer has focus" true ipc smoke activeFocusWithin window vgs.jarvis TextField
-      type_keys -M ctrl -k Tab -k Tab -m ctrl || fail "selecting Audit failed"
-      expect_poll "Audit is the current tab" '[2]' jarvis_audit_tabs
+      expect "the History console summons" ok ipc shell summon window vgs.jarvis '{}'
+      expect_poll "the History console maps" 1 window_count Jarvis
+      expect_poll "the History console composer has focus" true ipc smoke activeFocusWithin window vgs.jarvis TextField
+      type_keys -M ctrl -k Tab -k Tab -m ctrl || fail "selecting History failed"
+      expect_poll "History is the current tab" '[2]' jarvis_history_tabs
+      jarvis_history_filter Problems || fail "selecting only History problems failed"
       if [[ $control == empty ]]; then
         rejected="$(
           failures=0 behaviour_failures=0
-          jarvis_audit_check >"$saved-control.log" || true
+          jarvis_history_check >"$saved-control.log" || true
           echo "$failures"
         )"
-        expect "control: no planted log fails the Audit scene" 1 echo "$rejected"
+        expect "control: no planted log fails the History scene" 1 echo "$rejected"
         sed 's/^/  CONTROL  /' "$saved-control.log"
       else
-        if jarvis_audit_check; then
+        if jarvis_history_check; then
           park_pointer
-          take_posed "jarvis-audit-$1-$size"
+          take_posed "jarvis-history-$1-$size"
         fi
       fi
-      expect "the Audit console hides" ok ipc shell hide window vgs.jarvis
+      expect "the History console hides" ok ipc shell hide window vgs.jarvis
       [[ $size != narrow ]] || narrow_end
       [[ $control != empty ]] || break
     done
-    expect "Jarvis disables after Audit $control" ok ipc shell setPluginEnabled vgs.jarvis false
-    expect_poll "the Audit daemon is gone" absent ipc smoke jarvisProcess
+    expect "Jarvis disables after History $control" ok ipc shell setPluginEnabled vgs.jarvis false
+    expect_poll "the History daemon is gone" absent ipc smoke jarvisProcess
   done
   cp -- "$saved-backend" "$backend"
   cp -- "$saved-engine" "$engine"
   rm -f -- "$repo/shell/plugins/vgs.jarvis/backend/scripted-fixture.js"
+  jarvis_asks_restore
+  user_config_restore "$saved-config"
+  expect "the History capture restores its selected Home" ok ipc shell reloadConfig
   jarvis_restore_requirements
-  tree_rescan "the stock Jarvis files are scanned after Audit images"
+  tree_rescan "the stock Jarvis files are scanned after History images"
   jarvis_notice_close
 }
 

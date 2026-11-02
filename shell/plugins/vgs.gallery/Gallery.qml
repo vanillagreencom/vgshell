@@ -368,6 +368,67 @@ Item {
 
                 }
                 Section {
+                    title: "Message rows"
+                    description: "Fixed avatars, source links and separate response buttons"
+                    rowSpacing: Theme.stack.group
+                    MessageRow {
+                        width: parent.width
+                        sender: "You"
+                        timeText: "10:41 am"
+                        initials: "Y"
+                        bodyText: "Keep the current settings."
+                    }
+                    MessageRow {
+                        width: parent.width
+                        sender: "Assistant"
+                        timeText: "since 10:10 am"
+                        avatarIcon: "bot"
+                        title: "Review the proposed change"
+                        bodyText: "The original request stays with its source."
+                        linkText: "Open source request"
+                        stateText: "Needs reply"
+                        stateTone: "warning"
+                        actions: [{ id: "reply", label: "Reply" }, { id: "done", label: "Done" },
+                            { id: "later", label: "Later", disabledReason: "Choose a return date before postponing this request." }]
+                        onActionTriggered: id => bodyText = "Selected " + id + "."
+                        onLinkActivated: bodyText = "The source request was selected."
+                        Component.onCompleted: Qt.callLater(() => actionAt(0).focusPreview = true)
+                    }
+                    MessageRow {
+                        width: parent.width
+                        sender: "Reviewer"
+                        timeText: "since yesterday"
+                        initials: "R"
+                        title: "Check the completed work"
+                        stateText: "Checking"
+                        stateTone: "info"
+                        bodyText: "The request stays open while the result is checked."
+                    }
+                    MessageRow {
+                        width: parent.width
+                        sender: "Reviewer"
+                        timeText: "since yesterday"
+                        initials: "R"
+                        above: "Snoozed"
+                        title: "Read the update plan"
+                        stateText: "Snoozed"
+                        bodyText: "Returns tomorrow at 9:00 am."
+                    }
+                    ResultsFilter {
+                        property string focusExample: "Results filter"
+                        property bool focusPreview: true
+                        accessibleLabel: "Filter example results"
+                        model: ["All types", "Conversations", "Tasks", "Problems"]
+                        currentIndex: 0
+                    }
+                    Tabs {
+                        width: parent.width
+                        model: ["Now", "Needs you", "History"]
+                        unreadCounts: ({ "Needs you": "3" })
+                        currentIndex: 1
+                    }
+                }
+                Section {
                     title: "Feedback"
                     rowSpacing: Theme.stack.group
                     description: "Progress, badges, keys, copyable text and empty results"
@@ -444,6 +505,17 @@ Item {
                     Field { label: "Badge md"; inline: true; width: parent.width; Flow { width: parent.width; spacing: Theme.stack.inline; Repeater { model: ["neutral", "accent", "success", "warning", "danger", "info"]; Badge { required property string modelData; tone: modelData; text: modelData; size: "md" } } } }
                     Field { label: "Badge md icon"; inline: true; width: parent.width; Flow { width: parent.width; spacing: Theme.stack.inline; Repeater { model: ["neutral", "accent", "success", "warning", "danger", "info"]; Badge { required property string modelData; tone: modelData; text: modelData; size: "md"; iconName: "circle" } } } }
                     Field { label: "Badge verbatim"; inline: true; width: parent.width; Flow { width: parent.width; spacing: Theme.stack.inline; Repeater { model: [["voxtype-bin", "sm"], ["wl-clipboard", "md"]]; Badge { required property var modelData; text: modelData[0]; size: modelData[1]; verbatim: true } } } }
+                    Field {
+                        label: "Unread counts"
+                        inline: true
+                        width: parent.width
+                        Row {
+                            spacing: Theme.stack.inline
+                            Badge { variant: "unread"; text: "3" }
+                            Badge { variant: "unread"; text: "99" }
+                            Badge { variant: "unread"; text: "120" }
+                        }
+                    }
                     Field {
                         label: "Keycap"
                         inline: true

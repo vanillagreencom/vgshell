@@ -48,6 +48,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     const { Accounts, accountRoots } = require("./Accounts.js");
     const Denied = require("./Denied.js");
     const Home = require("./Home.js");
+    const OwnerAsks = require("./OwnerAsks.js");
     const FleetSetup = require("./fleet-setup.js");
     const Guidance = require("./Guidance.js");
     const { load } = require(path.join(process.argv[3], "bin/lib/qml-library.js"));
@@ -70,6 +71,8 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     let input = null;
     let browser = null;
     let memory = null;
+    let ownerAsks = null;
+    let ownerAsksClosed = Promise.resolve();
     let memoryReconcileHome = null;
     let memoryReconcileQueued = false;
     let files = null;
@@ -161,6 +164,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     // shell's setup view.
     function judgeSetup() {
         homeFolder = judgeHome(context.settings.home);
+        if (ownerAsks !== null) ownerAsks.setHome(homeFolder.state.kind === "ready" ? homeFolder.state.path : null);
         rememberHome();
         publishHomes();
         publishPersonality();
@@ -189,6 +193,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
 
     function teardown() {
         fleetController.abort();
+        if (ownerAsks !== null) ownerAsksClosed = ownerAsks.close();
         if (voice !== null) voice.close();
         // The bridge ends its connections while the router can still drop their results.
         if (bridge !== null) bridge.close();
@@ -497,6 +502,17 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
             tail = framed.tail;
             for (const line of framed.lines) {
                 const message = Protocol.accept(line, "shell");
+                if (message.type === "intent" && ["owner-asks-refresh", "owner-asks-page", "owner-ask-action"].includes(message.intent)) {
+                    intentIdentity(message);
+                    if (message.intent === "owner-ask-action") {
+                        if (context.locked) write({ v: 1, type: "owner-ask-answer", gen: runner.state.gen, revision: context.revision,
+                            result: { v: 1, requestId: message.request.requestId, kind: "not-sent", state: null,
+                                cause: "Unlock your session before answering an ask." } });
+                        else ownerAsks.act(message.request);
+                    } else if (message.intent === "owner-asks-page") ownerAsks.page(message.view, message.cursor, message.expectedRevision);
+                    else ownerAsks.refresh();
+                    continue;
+                }
                 if (message.type === "intent" && message.intent === "task-open") {
                     intentIdentity(message);
                     void (context.locked ? Promise.resolve("session-locked") : tasks.open(message.task)).then(answer => {
@@ -622,6 +638,14 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                 }
                 context = message;
                 if (first) {
+                    ownerAsks = OwnerAsks.create({ Protocol, environment: process.env,
+                        log: line => process.stderr.write(line + "\n"),
+                        publish: snapshot => {
+                            if (!ending) write({ v: 1, type: "owner-asks", gen: runner.state.gen, revision: context.revision, snapshot });
+                        },
+                        answer: result => {
+                            if (!ending) write({ v: 1, type: "owner-ask-answer", gen: runner.state.gen, revision: context.revision, result });
+                        } });
                     homes = readHomes();
                     publishHomes();
                     const auditFailures = rows => {
@@ -782,7 +806,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         refuse(74, "jarvis: " + channel + "=" + error.code);
         // Node's standard output can retain a blocked write after destroy.
         // Audio exits first; a failed pipe cannot keep the daemon alive.
-        void Promise.all([released, fleetSetup]).then(() => process.exit(74));
+        void Promise.all([released, fleetSetup, ownerAsksClosed]).then(() => process.exit(74));
     }
     process.stdout.on("error", error => ioFailed("stdout", error));
     process.stdin.on("error", error => ioFailed("stdin", error));
@@ -791,7 +815,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         if (ending) return;
         ending = true;
         teardown();
-        void Promise.all([audio.close("lease"), fleetSetup]).then(() => process.exit(process.exitCode ?? 0));
+        void Promise.all([audio.close("lease"), fleetSetup, ownerAsksClosed]).then(() => process.exit(process.exitCode ?? 0));
     }
     process.once("SIGTERM", terminate);
     process.once("SIGINT", terminate);

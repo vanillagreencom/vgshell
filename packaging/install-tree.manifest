@@ -235,6 +235,7 @@ f share/vgshell/shell/Ui/controls/InputWidth.qml
 f share/vgshell/shell/Ui/controls/LevelSlider.qml
 f share/vgshell/shell/Ui/controls/PathField.qml
 f share/vgshell/shell/Ui/controls/Radio.qml
+f share/vgshell/shell/Ui/controls/ResultsFilter.qml
 f share/vgshell/shell/Ui/controls/RowAction.qml
 f share/vgshell/shell/Ui/controls/RowActions.qml
 f share/vgshell/shell/Ui/controls/SavedSlider.qml
@@ -308,6 +309,7 @@ f share/vgshell/shell/Ui/layout/ListCursorLogic.js
 f share/vgshell/shell/Ui/layout/ListCursorRow.qml
 f share/vgshell/shell/Ui/layout/ListEntrance.qml
 f share/vgshell/shell/Ui/layout/ListItem.qml
+f share/vgshell/shell/Ui/layout/MessageRow.qml
 f share/vgshell/shell/Ui/layout/Pane.qml
 f share/vgshell/shell/Ui/layout/ScrollArea.qml
 f share/vgshell/shell/Ui/layout/ScrollBar.qml
@@ -469,6 +471,7 @@ f share/vgshell/shell/plugins/vgs.jarvis/CloneRuntime.qml
 f share/vgshell/shell/plugins/vgs.jarvis/Console.qml
 f share/vgshell/shell/plugins/vgs.jarvis/Conversation.js
 f share/vgshell/shell/plugins/vgs.jarvis/FleetRuntime.qml
+f share/vgshell/shell/plugins/vgs.jarvis/History.js
 f share/vgshell/shell/plugins/vgs.jarvis/HomeRepair.qml
 f share/vgshell/shell/plugins/vgs.jarvis/JarvisProtocol.js
 f share/vgshell/shell/plugins/vgs.jarvis/Keys.qml
@@ -480,6 +483,7 @@ f share/vgshell/shell/plugins/vgs.jarvis/Service.qml
 f share/vgshell/shell/plugins/vgs.jarvis/Session.js
 f share/vgshell/shell/plugins/vgs.jarvis/SessionStart.qml
 f share/vgshell/shell/plugins/vgs.jarvis/SetupGate.js
+f share/vgshell/shell/plugins/vgs.jarvis/StatusPublication.js
 f share/vgshell/shell/plugins/vgs.jarvis/Widget.qml
 f share/vgshell/shell/plugins/vgs.jarvis/WidgetView.js
 f share/vgshell/shell/plugins/vgs.jarvis/artifacts.json
@@ -514,6 +518,7 @@ f share/vgshell/shell/plugins/vgs.jarvis/backend/LocalSpeech.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Mcp.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Memory.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/OpenAIChat.js
+f share/vgshell/shell/plugins/vgs.jarvis/backend/OwnerAsks.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/PiHarness.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/PiRpc.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Policy.js

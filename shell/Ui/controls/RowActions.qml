@@ -1,8 +1,8 @@
 import QtQuick
 import qs.Commons
 
-// The actions of one key/value row side by side, such as a plugin's Update
-// and Remove: RowAction children `rowAction.gap` apart, top-aligned on one
+// The actions of one row side by side, such as a plugin's Update and
+// Remove: links or small buttons `gap` apart, by default `rowAction.gap`, top-aligned on one
 // line as tall as the tallest. A hidden action takes no room, and nor does
 // a child without a size, such as the Repeater that makes the actions.
 // Every row that sets two or more actions beside each other composes it,
@@ -20,6 +20,8 @@ import qs.Commons
 Item {
     id: root
 
+    property real gap: Theme.rowAction.gap
+
     // The children that take room, in drawn order. A Repeater's items are
     // children of its parent, placed right after it
     // (https://doc.qt.io/qt-6/qml-qtquick-repeater.html), so `children`
@@ -28,7 +30,7 @@ Item {
     // Where one line of them ends, summed in the order `placed` sums, so
     // the last action of a RowActions with no width set ends on that width
     // to the last bit and stays on the line.
-    readonly property real lineWidth: shown.reduce((end, child, index) => (index > 0 ? end + Theme.rowAction.gap : 0) + child.width, 0)
+    readonly property real lineWidth: shown.reduce((end, child, index) => (index > 0 ? end + root.gap : 0) + child.width, 0)
     // Where each action goes. It reads `width`, which follows `lineWidth`
     // while none is set, so it is a property apart from `lineWidth`: one
     // that set the implicit width it reads would be a binding loop.
@@ -42,7 +44,7 @@ Item {
                 line++;
             }
             spots.push({ item: child, x: x, line: line });
-            x += child.width + Theme.rowAction.gap;
+            x += child.width + root.gap;
         }
         return { spots: spots, lines: line + 1 };
     }

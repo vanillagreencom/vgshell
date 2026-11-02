@@ -11,6 +11,7 @@ import "Session.js" as Session
 import "SetupGate.js" as Gate
 import "WidgetView.js" as View
 import "Conversation.js" as Conversation
+import "StatusPublication.js" as StatusPublication
 
 Item {
     id: root
@@ -164,6 +165,9 @@ Item {
             shell.ipc.handle("personality-file", () => personalityFile());
             shell.ipc.handle("memory-confirm", text => memoryIntent("memory-confirm", text));
             shell.ipc.handle("memory-discard", text => memoryIntent("memory-discard", text));
+            shell.ipc.handle("owner-asks-refresh", () => ownerAsksIntent("owner-asks-refresh", ""));
+            shell.ipc.handle("owner-asks-page", text => ownerAsksIntent("owner-asks-page", text));
+            shell.ipc.handle("owner-ask-action", text => ownerAsksIntent("owner-ask-action", text));
             // The console's Stop button and `vgshell ipc call vgs.jarvis
             // stop-task <id>` stop one coding task. The Stop key does not.
             shell.ipc.handle("stop-task", task => stopTask(task));
@@ -229,7 +233,7 @@ Item {
         return publishDaemon({ tone: tone, text: text });
     }
     function publishDaemon(value) {
-        const reply = shell.status.set("daemon", value);
+        const reply = StatusPublication.write(shell.status, "daemon", value);
         if (!shell.status.isOk(reply)) throw new Error("jarvis: " + reply);
         return reply === "ok";
     }
@@ -260,7 +264,7 @@ Item {
         values.setupModel = Gate.modelStep(values.setupModel, shell.status.values["keys"], accountReader.modelAccess);
         values.setupModel = Gate.modelDone(values.setupModel, shell.status.values["brains"], shell.settings.brain);
         for (const key of Object.keys(values)) {
-            const reply = shell.status.set(key, values[key]);
+            const reply = StatusPublication.write(shell.status, key, values[key]);
             if (!shell.status.isOk(reply)) throw new Error("jarvis: " + reply);
             if (reply !== "ok") return false;
         }
@@ -278,7 +282,7 @@ Item {
     // The optional input step, its reader's VALUE unchanged: the Settings
     // page draws an optional step's chip itself (Steps.stepView).
     function publishInput(value) {
-        const reply = shell.status.set("input", value);
+        const reply = StatusPublication.write(shell.status, "input", value);
         if (!shell.status.isOk(reply)) throw new Error("jarvis: " + reply);
         return reply === "ok";
     }
@@ -298,35 +302,39 @@ Item {
         audioHealth = { kind: "reading" };
         sessionState = null;
         indicatorDelivery = { kind: "unknown" };
-        const result = shell.status.set("detail", null);
+        const result = StatusPublication.write(shell.status, "detail", null);
         if (!shell.status.isOk(result)) throw new Error("jarvis: " + result);
         if (result !== "ok") return;
         for (const key of ["microphones", "speakers", "voices"]) {
-            const cleared = shell.status.set(key, []);
+            const cleared = StatusPublication.write(shell.status, key, []);
             if (!shell.status.isOk(cleared)) throw new Error("jarvis: " + cleared);
         }
         if (!publishHomes({ homes: [], current: "" })) return;
-        const audioReport = shell.status.set("audio", { tone: "info", text: "Reading devices" });
+        const audioReport = StatusPublication.write(shell.status, "audio", { tone: "info", text: "Reading devices" });
         if (!shell.status.isOk(audioReport)) throw new Error("jarvis: " + audioReport);
-        const quiet = shell.status.set("level", { capture: 0, playback: 0 });
+        const quiet = StatusPublication.write(shell.status, "level", { capture: 0, playback: 0 });
         if (!shell.status.isOk(quiet)) throw new Error("jarvis: " + quiet);
         taskPrompts = [];
         taskResponse = null;
-        const idle = shell.status.set("tasks", 0);
+        const idle = StatusPublication.write(shell.status, "tasks", 0);
         if (!shell.status.isOk(idle)) throw new Error("jarvis: " + idle);
         for (const key of ["personality", "startText"]) {
-            const unread = shell.status.set(key, { hidden: true });
+            const unread = StatusPublication.write(shell.status, key, { hidden: true });
             if (!shell.status.isOk(unread)) throw new Error("jarvis: " + unread);
         }
-        const memory = shell.status.set("memory", { hidden: true });
+        const memory = StatusPublication.write(shell.status, "memory", { hidden: true });
         if (!shell.status.isOk(memory)) throw new Error("jarvis: " + memory);
-        const inbox = shell.status.set("memoryInbox", []);
+        const inbox = StatusPublication.write(shell.status, "memoryInbox", []);
         if (!shell.status.isOk(inbox)) throw new Error("jarvis: " + inbox);
-        const silent = shell.status.set("transcript", null);
+        const silent = StatusPublication.write(shell.status, "transcript", null);
         if (!shell.status.isOk(silent)) throw new Error("jarvis: " + silent);
         conversationLog = Conversation.start();
-        const emptyConversation = shell.status.set("conversation", conversationLog);
+        const emptyConversation = StatusPublication.write(shell.status, "conversation", conversationLog);
         if (!shell.status.isOk(emptyConversation)) throw new Error("jarvis: " + emptyConversation);
+        for (const entry of [["ownerAsks", { kind: "reading" }], ["ownerAskAnswer", null]]) {
+            const answer = StatusPublication.write(shell.status, entry[0], entry[1]);
+            if (!shell.status.isOk(answer)) throw new Error("jarvis: " + answer);
+        }
         if (!publishInput({ tone: "warning", text: "Input tools unavailable", action: true })) return;
         if (!publishSetup({ kind: "checking" })) return;
         if (!shellStatus({ kind: "checking" })) return;
@@ -396,7 +404,7 @@ Item {
             sessionState = null;
             child.stdinEnabled = false;
             if (child.running) stopDeadline.restart();
-            const stale = shell.status.set("detail", null);
+            const stale = StatusPublication.write(shell.status, "detail", null);
             if (!shell.status.isOk(stale)) throw new Error("jarvis: " + stale);
             if (stale !== "ok") return;
             publishDaemon({ tone: "warning", text: "Jarvis stopped", hint: Gate.START_RESTART });
@@ -646,7 +654,7 @@ Item {
     // the key's voice list as the daemon last reported it.
     function publishElevenLabs() {
         if (shell === null) return;
-        const reply = shell.status.set("elevenLabs", Gate.elevenLabsStep({ provider: voiceProvider,
+        const reply = StatusPublication.write(shell.status, "elevenLabs", Gate.elevenLabsStep({ provider: voiceProvider,
             keys: accountReader.voiceKeys, account: shell.settings.voiceAccount, answer: setupAnswer, voices: voiceOffers }));
         if (!shell.status.isOk(reply)) throw new Error("jarvis: " + reply);
     }
@@ -664,7 +672,7 @@ Item {
     }
     function publishVoiceRoute() {
         if (voiceProvider === "") return;
-        const reply = shell.status.set("voiceRoute", Gate.voiceRoute(voiceProvider, Providers.cloudVoice(voiceProvider)));
+        const reply = StatusPublication.write(shell.status, "voiceRoute", Gate.voiceRoute(voiceProvider, Providers.cloudVoice(voiceProvider)));
         if (!shell.status.isOk(reply)) throw new Error("jarvis: " + reply);
     }
 
@@ -673,7 +681,7 @@ Item {
     // status's causes, which say whether AGENTS.md is over its budget.
     function publishPersonality() {
         if (personalityShown === null) return true;
-        const reply = shell.status.set("personality",
+        const reply = StatusPublication.write(shell.status, "personality",
             Gate.personalityRow(personalityShown, setupAnswer.kind === "answered" ? setupAnswer.causes : [], homePathRead));
         if (!shell.status.isOk(reply)) throw new Error("jarvis: " + reply);
         return reply === "ok";
@@ -701,7 +709,40 @@ Item {
             : { tone: "info", text: "About " + count(size.tokens, "start"),
                 lines: size.layers.map(layer => startTextNames[layer.layer] + ": about " + count(layer.tokens, layer.layer)),
                 info: Gate.startTextInfo(size.layers, causes, homePathRead) };
-        const reply = shell.status.set("startText", value);
+        const reply = StatusPublication.write(shell.status, "startText", value);
+        if (!shell.status.isOk(reply)) throw new Error("jarvis: " + reply);
+        return reply === "ok";
+    }
+
+    function ownerAsksIntent(name, text) {
+        if (shell === null || lifetime.kind !== "ready" || cause !== "" || !child.running)
+            return "refused: jarvis=not-ready";
+        if (name === "owner-ask-action" && locked) return "refused: owner-ask=locked";
+        if (name === "owner-ask-action" && (shell.status.values.ownerAsks === undefined || shell.status.values.ownerAsks === null
+                || shell.status.values.ownerAsks.kind !== "ready")) return "refused: owner-ask=unavailable";
+        let request = null;
+        if (name !== "owner-asks-refresh") {
+            try { request = JSON.parse(text); } catch (error) { return "refused: owner-ask=json"; }
+        }
+        const fields = name === "owner-ask-action" ? { type: "intent", intent: name, request: request }
+            : name === "owner-asks-page" ? { type: "intent", intent: name, view: request === null ? null : request.view,
+                cursor: request === null ? null : request.cursor, expectedRevision: request === null ? null : request.expectedRevision }
+            : { type: "intent", intent: name };
+        try {
+            Protocol.accept(JSON.stringify(Object.assign({ v: 1, gen: 0, revision: shell.manifest.__revision }, fields)), "shell");
+        } catch (error) { return "refused: " + error.message; }
+        if (name === "owner-ask-action") {
+            const cleared = StatusPublication.write(shell.status, "ownerAskAnswer", null);
+            if (!shell.status.isOk(cleared)) throw new Error("jarvis: " + cleared);
+        }
+        send(fields);
+        return "ok";
+    }
+
+    function publishOwnerAsks(message) {
+        const key = message.type === "owner-asks" ? "ownerAsks" : "ownerAskAnswer";
+        const value = message.type === "owner-asks" ? message.snapshot : message.result;
+        const reply = StatusPublication.write(shell.status, key, value);
         if (!shell.status.isOk(reply)) throw new Error("jarvis: " + reply);
         return reply === "ok";
     }
@@ -799,7 +840,7 @@ Item {
                 ? "[Review all missing or outdated tools on Setup](page:vgs.jarvis/Setup) to enable shell commands"
                 : availability.reason === "public-runtime" ? "Jarvis could not prepare shell commands: turn Jarvis off and on again in [Settings](page:vgs.jarvis/Settings)"
                 : "This system cannot run protected shell commands" };
-        const result = shell.status.set("shell", value);
+        const result = StatusPublication.write(shell.status, "shell", value);
         if (!shell.status.isOk(result)) throw new Error("jarvis: " + result);
         return result === "ok";
     }
@@ -975,7 +1016,7 @@ Item {
             icon: choice.value === message.current ? "folder-check" : "folder" },
             choice.value === message.current ? { description: "Current" } : {}));
         for (const [key, value] of [["homes", homeOffers(message.homes.map(choice => ({ label: choice.label, value: choice.value })))], ["homeRows", rows]]) {
-            const reply = shell.status.set(key, value);
+            const reply = StatusPublication.write(shell.status, key, value);
             if (!shell.status.isOk(reply)) throw new Error("jarvis: " + reply);
             if (reply !== "ok") return false;
         }
@@ -1017,7 +1058,7 @@ Item {
                     throw new Error("jarvis: protocol=identity");
                 if (message.type === "devices") {
                     for (const key of ["microphones", "speakers"]) {
-                        const reply = shell.status.set(key, deviceOffers(key, message[key]));
+                        const reply = StatusPublication.write(shell.status, key, deviceOffers(key, message[key]));
                         if (!shell.status.isOk(reply)) throw new Error("jarvis: " + reply);
                         if (reply !== "ok") return;
                     }
@@ -1025,7 +1066,7 @@ Item {
                     // list after a fault is a later discovery.
                     if (audioHealth.kind !== "ready") {
                         audioHealth = { kind: "ready" };
-                        const report = shell.status.set("audio", { tone: "ok", text: "Device list ready" });
+                        const report = StatusPublication.write(shell.status, "audio", { tone: "ok", text: "Device list ready" });
                         if (!shell.status.isOk(report)) throw new Error("jarvis: " + report);
                         if (report !== "ok") return;
                     }
@@ -1037,7 +1078,7 @@ Item {
                     continue;
                 }
                 if (message.type === "voices") {
-                    const reply = shell.status.set("voices", message.voices);
+                    const reply = StatusPublication.write(shell.status, "voices", message.voices);
                     if (!shell.status.isOk(reply)) throw new Error("jarvis: " + reply);
                     if (reply !== "ok") return;
                     voiceOffers = message.voices.length;
@@ -1069,7 +1110,7 @@ Item {
                     // say what stopped.
                     console.warn("jarvis: audio-fault=" + message.reason);
                     audioHealth = { kind: "fault", reason: message.reason };
-                    const report = shell.status.set("audio", { tone: "danger", text: "Microphones and speakers unavailable" });
+                    const report = StatusPublication.write(shell.status, "audio", { tone: "danger", text: "Microphones and speakers unavailable" });
                     if (!shell.status.isOk(report)) throw new Error("jarvis: " + report);
                     if (report !== "ok") return;
                     continue;
@@ -1079,14 +1120,14 @@ Item {
                     continue;
                 }
                 if (message.type === "memory") {
-                    const reply = shell.status.set("memory", { tone: "warning", text: "Off",
+                    const reply = StatusPublication.write(shell.status, "memory", { tone: "warning", text: "Off",
                         hint: "Memory search needs Node 22.13 or later with SQLite. Jarvis still answers without it." });
                     if (!shell.status.isOk(reply)) throw new Error("jarvis: " + reply);
                     if (reply !== "ok") return;
                     continue;
                 }
                 if (message.type === "memory-inbox") {
-                    const reply = shell.status.set("memoryInbox", message.entries);
+                    const reply = StatusPublication.write(shell.status, "memoryInbox", message.entries);
                     if (!shell.status.isOk(reply)) throw new Error("jarvis: " + reply);
                     if (reply !== "ok") return;
                     continue;
@@ -1096,13 +1137,13 @@ Item {
                     continue;
                 }
                 if (message.type === "tasks") {
-                    const reply = shell.status.set("tasks", message.count);
+                    const reply = StatusPublication.write(shell.status, "tasks", message.count);
                     if (!shell.status.isOk(reply)) throw new Error("jarvis: " + reply);
                     if (reply !== "ok") return;
                     continue;
                 }
                 if (message.type === "task-list" || message.type === "audit-failures") {
-                    const reply = shell.status.set(message.type === "task-list" ? "taskList" : "auditFailures", message.rows);
+                    const reply = StatusPublication.write(shell.status, message.type === "task-list" ? "taskList" : "auditFailures", message.rows);
                     if (!shell.status.isOk(reply)) throw new Error("jarvis: " + reply);
                     if (reply !== "ok") return;
                     continue;
@@ -1125,22 +1166,27 @@ Item {
                 }
                 if (message.type === "level") {
                     if (sessionState !== null && message.gen === sessionState.gen) {
-                        const reply = shell.status.set("level", message.level);
+                        const reply = StatusPublication.write(shell.status, "level", message.level);
                         if (!shell.status.isOk(reply)) throw new Error("jarvis: " + reply);
                         if (reply !== "ok") return;
                     }
                     continue;
                 }
+                if (message.type === "owner-asks" || message.type === "owner-ask-answer") {
+                    if (!publishOwnerAsks(message)) return;
+                    continue;
+                }
                 if (message.type === "transcript") {
                     // A caption from an ended conversation never replaces the current one.
                     if (sessionState !== null && message.gen === sessionState.gen) {
-                        const reply = shell.status.set("transcript", { gen: message.gen, role: message.role,
+                        const reply = StatusPublication.write(shell.status, "transcript", { gen: message.gen, role: message.role,
                             text: message.text, stage: message.stage, rev: message.rev });
                         if (!shell.status.isOk(reply)) throw new Error("jarvis: " + reply);
                         if (reply !== "ok") return;
-                        const segment = { gen: message.gen, role: message.role, text: message.text, stage: message.stage };
+                        const segment = { gen: message.gen, role: message.role, text: message.text, stage: message.stage,
+                            at: Date.now(), session: childSerial + ":" + message.gen };
                         conversationLog = Conversation.update(conversationLog, segment);
-                        const history = shell.status.set("conversation", conversationLog);
+                        const history = StatusPublication.write(shell.status, "conversation", conversationLog);
                         if (!shell.status.isOk(history)) throw new Error("jarvis: " + history);
                         if (history !== "ok") return;
                     }
@@ -1155,7 +1201,7 @@ Item {
                         console.warn("jarvis: fault=" + fault.reason + " kind=" + fault.kind);
                     sessionState = message.state;
                     if (!publishShellSetup()) return;
-                    const result = shell.status.set("detail", { phase: message.phase, seq: message.seq, state: message.state, brain: message.brain });
+                    const result = StatusPublication.write(shell.status, "detail", { phase: message.phase, seq: message.seq, state: message.state, brain: message.brain });
                     if (!shell.status.isOk(result)) throw new Error("jarvis: " + result);
                     if (result !== "ok") return;
                     deliverMute();
@@ -1194,9 +1240,14 @@ Item {
         // retry wait nor a problem may show or act on it.
         sessionState = null;
         shellStatus({ kind: "unavailable", reason: "daemon-ended" });
-        const stale = shell.status.set("detail", null);
+        const stale = StatusPublication.write(shell.status, "detail", null);
         if (!shell.status.isOk(stale)) throw new Error("jarvis: " + stale);
         if (stale !== "ok") return;
+        // The ended child's package reading is no longer current either.
+        // Dropping it also makes an in-flight action unconfirmed in the
+        // console, instead of retaining actionable rows and a stale badge.
+        if (!publishOwnerAsks({ type: "owner-asks", snapshot: { kind: "unavailable",
+                cause: "Jarvis stopped. Start Jarvis to read your asks again." } })) return;
         if (permanent || retries === 5) {
             if (lifetime.pendingMute !== "none") notice(Gate.muteRefusedNotice(cause));
             lifetime = { kind: "problem", pendingMute: "none" };
