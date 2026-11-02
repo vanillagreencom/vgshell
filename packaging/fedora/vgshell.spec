@@ -20,7 +20,7 @@ BuildRequires:  python3
 # begin runtime dependencies
 Requires:       greetd
 Requires:       glibc-common
-Requires:       vgshell-quickshell >= 0.3.2-3.2b4501a
+Requires:       vgshell-quickshell >= 0.3.2-4.2b4501a
 Requires:       hyprland >= 0.57.0
 Requires:       nodejs >= 1:18
 Requires:       python3

@@ -1,3 +1,9 @@
+vgshell-quickshell (0.3.2+git2b4501a+vgs4-1) unstable; urgency=medium
+
+  * Arm managed child lifetime before the parent-dependent forkfd handshake.
+
+ -- VanillaGreen <brad@vanillagreen.com>  Mon, 02 Nov 2026 12:00:00 -0800
+
 vgshell-quickshell (0.3.2+git2b4501a+vgs3-1) unstable; urgency=medium
 
   * Guard FileView warnings and distinguish confirmed disappearance on read failure.
