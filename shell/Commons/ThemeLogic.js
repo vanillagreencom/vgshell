@@ -52,6 +52,10 @@ var REFERENCE_PATTERN = /^\{([A-Za-z0-9.]*)\}$/;
 var FUNCTIONS = {
     mix: { args: ["color", "color", "number"], result: "color" },
     contrastMix: { args: ["color", "color", "color", "number"], result: "color" },
+    // contrastMix, but COLOR itself where no mix meets RATIO: a margin over
+    // the drawn floor that a mid-tone background cannot reach costs the
+    // margin, never the theme. The readability floor still judges it.
+    reachMix: { args: ["color", "color", "color", "number"], result: "color" },
     alpha: { args: ["color", "number"], result: "color" },
     contrast: { args: ["color"], result: "color" },
     readable: { args: ["color", "color", "color"], result: "color" },
@@ -258,6 +262,66 @@ function contrastColor(color) {
     return 1.05 / (light + 0.05) > (light + 0.05) / 0.05 ? parseColor("#ffffff") : parseColor("#000000");
 }
 
+// The shared hint's surface and selected plate, including the sheen's two
+// endpoints. Translucent surfaces retain both wallpaper endpoints; no
+// screenshot or wallpaper sample is an input to the drawing decision.
+function keyHintBackgrounds(context) {
+    var fills = context.fill.a === 1 ? [context.fill] :
+        [overlay(context.fill, parseColor("#000000")), overlay(context.fill, parseColor("#ffffff"))];
+    return fills.map(function (fill) { return overlay(context.plate, fill); }).reduce(function (out, fill) {
+        return out.concat([fill, overlay(context.sheen, fill)]);
+    }, []);
+}
+
+// Each part of the shared hint: its default ink, the token margin its
+// ink is solved to, and whether it draws on the cap's fill. `value` is a
+// field's bound key, which shows the field's value rather than a hint.
+var KEY_HINT_PARTS = {
+    word: { ink: "text.keyHint.color", margin: "kbd.wordMargin", cap: false },
+    key: { ink: "kbd.foreground", margin: "kbd.capMargin", cap: true },
+    value: { ink: "kbd.valueForeground", margin: "kbd.valueMargin", cap: true }
+};
+
+// Keep the shared default ink of PART unless this actual surface needs
+// more contrast. Only ink changes: the cap fill, type and spacing stay
+// shared.
+function keyHintInk(values, context, part) {
+    if (!hasOwn(KEY_HINT_PARTS, part)) throw new Error("theme: key hint part unknown: " + part);
+    var spec = KEY_HINT_PARTS[part];
+    var ink = parseColor(valueAt(values, spec.ink));
+    if (context === null) return ink;
+    var fills = keyHintBackgrounds(context).map(function (fill) {
+        return spec.cap ? overlay(parseColor(values.kbd.background), fill) : fill;
+    });
+    var margin = valueAt(values, spec.margin);
+    var holds = function (color) { return fills.every(function (fill) { return contrastRatio(overlay(color, fill), fill) >= margin; }); };
+    if (holds(ink)) return ink;
+    var candidates = [parseColor("#000000"), parseColor("#ffffff")].map(function (endpoint) {
+        var candidate = endpoint;
+        for (var i = 0; i < fills.length; i++) {
+            var solved = contrastMix(endpoint, ink, fills[i], margin);
+            if (solved === null) return null;
+            // Select the solution furthest from the approved ink along
+            // this one direction, so every endpoint retains its margin.
+            var distance = function (color) { return Math.pow(color.r - ink.r, 2) + Math.pow(color.g - ink.g, 2) + Math.pow(color.b - ink.b, 2); };
+            if (i === 0 || distance(solved) > distance(candidate)) candidate = solved;
+        }
+        return holds(candidate) ? candidate : null;
+    }).filter(function (candidate) { return candidate !== null; });
+    // Where no ink meets the margin on every ground, take the endpoint
+    // whose weakest ground reads best: the highest contrast reachable, as
+    // reachMix does for the default ink.
+    if (candidates.length === 0) {
+        var weakest = function (color) { return Math.min.apply(null, fills.map(function (fill) { return contrastRatio(color, fill); })); };
+        var black = parseColor("#000000");
+        var white = parseColor("#ffffff");
+        return weakest(black) >= weakest(white) ? black : white;
+    }
+    var distance = function (color) { return Math.pow(color.r - ink.r, 2) + Math.pow(color.g - ink.g, 2) + Math.pow(color.b - ink.b, 2); };
+    candidates.sort(function (a, b) { return distance(a) - distance(b); });
+    return candidates[0];
+}
+
 // Text drawn at rest must meet WCAG 2.2 SC 1.4.3 AA for normal-size text
 // on each resting surface. Inactive controls and hover surfaces are exempt.
 // `color.accent` draws text roles such as eyebrow, checked buttons and badges.
@@ -266,6 +330,7 @@ var READABILITY_TEXT_ROLES = [
     "color.textHeading",
     "color.textMuted",
     "color.textFaint",
+    "text.keyHint.color",
     "color.accent",
     "color.success",
     "color.warning",
@@ -294,6 +359,9 @@ function readabilityWeights(values) {
         "color.textHeading": ["text.display.weight", "text.h1.weight", "text.h2.weight", "text.h3.weight", "text.windowTitle.weight"],
         "color.textMuted": ["text.subheading.weight", "text.label.weight", "text.body.weight", "text.hint.weight", "text.bar.weight", "text.value.weight", "text.bodyStrong.weight", "text.code.weight", "text.item.weight", "text.button.weight", "text.kbd.weight", tileWeight],
         "color.textFaint": ["text.hint.weight", "text.itemHint.weight", "text.menuItemHint.weight", "text.item.weight", "text.body.weight", "text.kbd.weight"],
+        "text.keyHint.color": ["text.keyHint.weight"],
+        "kbd.foreground": ["text.keyName.weight"],
+        "kbd.valueForeground": ["text.kbd.weight"],
         "color.accent": ["text.eyebrow.weight", "text.body.weight", "text.bar.weight", "text.button.weight", "text.label.weight", "button.variant.primary.weight", "button.variant.secondary.weight", "button.variant.tertiary.weight", "button.variant.ghost.weight", "button.variant.danger.weight", tileWeight],
         "color.success": ["text.body.weight", "text.hint.weight", "text.value.weight"],
         "color.warning": ["text.body.weight", "text.hint.weight", "text.value.weight", "text.bar.weight"],
@@ -329,6 +397,8 @@ function drawnTextRatio(text, surface, weight) {
 // the same floor. A translucent fill, such as a badge's faint tone, is
 // judged laid over each resting surface, as it is drawn.
 var READABILITY_PAIRS = [
+    ["kbd.foreground", "kbd.background"],
+    ["kbd.valueForeground", "kbd.background"],
     ["segmented.foreground", "segmented.background"],
     ["segmented.selectedForeground", "segmented.selected"],
     ["listItem.selectedForeground", "listItem.selected"],
@@ -397,6 +467,7 @@ var GLASS_PLATE_PAIRS = [["listItem.selectedForeground", "listItem.selected"]];
 var READABILITY_NAMES = {
     "color.text": "Body text", "color.textHeading": "Headings",
     "color.textMuted": "Muted text", "color.textFaint": "Faint text",
+    "text.keyHint.color": "Key hints", "kbd.foreground": "Key names", "kbd.valueForeground": "Shortcut keys", "kbd.background": "key backgrounds",
     "color.accent": "Accent text", "color.success": "Success text",
     "color.warning": "Warning text", "color.danger": "Error text", "color.info": "Information text",
     "color.background": "the main background", "color.surface": "panel backgrounds",
@@ -746,12 +817,14 @@ function resolve(tokens, overrides) {
         }
         switch (tree.name) {
         case "contrastMix":
+        case "reachMix":
             if (args[3] < 1 || args[3] > 21)
-                return fail("range", token, "function=contrastMix ratio=" + args[3]);
+                return fail("range", token, "function=" + tree.name + " ratio=" + args[3]);
             if (args[0].a < 1 || args[1].a < 1 || args[2].a < 1)
-                return fail("contrast-translucent", token, "function=contrastMix");
+                return fail("contrast-translucent", token, "function=" + tree.name);
             var solved = contrastMix(args[0], args[1], args[2], args[3]);
-            return solved === null ? fail("contrast-unreachable", token, "function=contrastMix ratio=" + args[3]) : solved;
+            if (solved !== null) return solved;
+            return tree.name === "reachMix" ? args[0] : fail("contrast-unreachable", token, "function=contrastMix ratio=" + args[3]);
         case "mix":
             if (args[2] < 0 || args[2] > 1)
                 return fail("range", token, "function=mix amount=" + args[2]);

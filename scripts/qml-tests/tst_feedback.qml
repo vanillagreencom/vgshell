@@ -23,8 +23,14 @@ Item {
     Badge { id: badgeIcon; text: "Verified"; tone: "success"; iconName: "check"; y: 100 }
     Badge { id: badgeMd; text: "Verified"; tone: "success"; size: "md"; y: 130 }
     Badge { id: badgeVerbatim; text: "voxtype-bin"; verbatim: true; x: 150; y: 70 }
-    Kbd { id: kbd; text: "Ctrl"; y: 160 }
-    Kbd { id: key; text: "K"; y: 190; x: 100 }
+    // The surface that holds the caps, whose ground their ink is solved on.
+    Surface {
+        y: 150
+        width: 200
+        height: 70
+        Kbd { id: kbd; text: "Ctrl"; y: 10 }
+        Kbd { id: key; text: "K"; y: 40; x: 100 }
+    }
     Component {
         id: scaledWindow
         Window { width: 640; height: 240; color: "black" }
@@ -34,7 +40,7 @@ Item {
         name: "feedback"
         when: windowShown
 
-        function init() { UnitTheme.reset(); }
+        function init() { UnitTheme.reset(); kbd.value = false; }
 
         function fill(bar) { return bar.contentItem.children[0]; }
         function instrumentedSpinner() {
@@ -269,11 +275,23 @@ Item {
             compare(kbd.height, 24);
         }
 
-        function test_kbd_draws_the_kbd_role() {
+        function test_kbd_draws_its_part_data() {
+            return [
+                { tag: "hint key name", value: false, role: "keyName", ink: () => Theme.kbd.foreground },
+                { tag: "field value", value: true, role: "kbd", ink: () => Theme.color.text }
+            ];
+        }
+
+        // A hint's key name draws small and muted; a field's bound key is
+        // the field's value and draws in the chrome size and body ink.
+        function test_kbd_draws_its_part(data) {
+            kbd.value = data.value;
             const label = kbd.children[0];
-            compare(label.font.pixelSize, Theme.text.kbd.size);
-            compare(label.font.weight, Theme.text.kbd.weight);
+            compare(label.role, data.role);
+            compare(label.font.pixelSize, Theme.text[data.role].size);
+            compare(label.font.weight, Theme.text[data.role].weight);
             compare(label.lineHeight, label.lineBox);
+            compare(label.color, Qt.color(data.ink()));
         }
     }
 }

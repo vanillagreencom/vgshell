@@ -21,7 +21,13 @@ Item {
     Tabs { id: tabs; model: ["Installed", "Available"]; y: 60 }
     Tabs { id: markedTabs; model: ["Themes", "Wallpapers"]; y: 624; hoverMark: true }
     Tabs { id: handedTabs; model: ["Themes", "Wallpapers"]; y: 580; foreground: "#204060"; hover: "#406080"; active: "#6080a0"; indicatorColor: "#a0c0e0" }
-    KeyHints { id: hints; y: 90; hints: [{ key: "Left/Right", text: "Move" }, { key: "Ctrl+Tab", text: "Tabs" }] }
+    // The surface that holds the hint row, whose ground its ink is solved on.
+    Surface {
+        y: 86
+        width: 300
+        height: 28
+        KeyHints { id: hints; y: 4; hints: [{ key: "Left/Right", text: "Move" }, { key: "Ctrl+Tab", text: "Tabs" }] }
+    }
     ListItem { id: row; text: "Plugin updates"; secondary: "1 update available"; iconName: "package"; width: 300; y: 100 }
     ListItem { id: bare; text: "Plugin updates"; secondary: "1 update available"; iconName: "package"; y: 300 }
     ListItem { id: still; text: "Started"; clickable: false; width: 300; y: 668; trailing: [ RowAction { id: stillAction; text: "Remove" } ] }
@@ -61,7 +67,7 @@ Item {
         name: "layout"
         when: windowShown
 
-        function init() { UnitTheme.reset(); tabs.currentIndex = 0; row.highlighted = false; clicks.clear(); actionClicks.clear(); }
+        function init() { UnitTheme.reset(); hints.backgroundContext = null; tabs.currentIndex = 0; row.highlighted = false; clicks.clear(); actionClicks.clear(); }
 
         function tabLabel(tab) { return findChild(tab.contentItem, "tabLabel"); }
 
@@ -273,24 +279,64 @@ Item {
             const secondCaps = hints.children[1].children[0].children.filter(child => child.shortcut !== undefined);
             compare(secondCaps.length, 1);
             compare(secondCaps[0].shortcut, "Ctrl+Tab");
+            const chordX = secondCaps[0].mapToItem(hints, 0, 0).x;
+            compare(chordX, Math.round(chordX), "the word before a chord leaves its keys on pixel columns");
         }
 
-        function test_hint_word_draws_plain_in_the_hint_role_data() {
+        function test_hint_word_draws_plain_in_the_key_hint_role_data() {
             return [
-                { tag: "dark", mode: "dark", faint: "#8090a0" },
-                { tag: "light", mode: "light", faint: "#405060" }
+                { tag: "dark", mode: "dark", palette: {}, faint: "#8090a0" },
+                { tag: "light", mode: "light", palette: { background: "#fffcf0", foreground: "#100f0f" }, faint: "#405060" }
             ];
         }
 
-        // A hint word is a hint-role label on the surface under it: no
+        // A hint word is a keyHint-role label on the surface under it: no
         // backing, no layer and no colour of its own.
-        function test_hint_word_draws_plain_in_the_hint_role(row) {
-            compare(UnitTheme.override({ scheme: { mode: row.mode }, color: { text: "#d0d0d0", textFaint: row.faint } }), "ok");
+        function test_hint_word_draws_plain_in_the_key_hint_role(row) {
+            compare(UnitTheme.override({ scheme: { mode: row.mode }, palette: row.palette, text: { keyHint: { color: row.faint } } }), "ok");
             const label = hints.children[0].children[1];
-            compare(label.role, "hint");
+            compare(label.role, "keyHint");
             tryCompare(label, "color", Qt.color(row.faint));
             compare(label.children.length, 0, "the word draws no backing");
             compare(label.layer.enabled, false, "the word draws no shadow layer");
+        }
+
+        function test_key_hints_own_the_gap_after_actions() {
+            const height = hints.implicitHeight;
+            hints.afterActions = true;
+            tryCompare(hints.children[0], "y", 12);
+            compare(hints.implicitHeight, height + 12);
+            compare(UnitTheme.override({ kbd: { actionGap: 16 } }), "ok");
+            tryCompare(hints.children[0], "y", 16);
+            compare(hints.implicitHeight, height + 16);
+            hints.afterActions = false;
+            tryCompare(hints.children[0], "y", 0);
+        }
+
+        function test_hint_ink_follows_the_composed_surface_data() {
+            return [
+                { tag: "dark selected glass over white", mode: "dark", background: "#000000", foreground: "#d7d7d9", row: "#5d5d5d", cap: "#696969" },
+                { tag: "light selected glass over black", mode: "light", background: "#fffcf0", foreground: "#100f0f", row: "#afafaf", cap: "#a1a1a1" }
+            ];
+        }
+
+        function test_hint_ink_follows_the_composed_surface(data) {
+            compare(UnitTheme.override({ scheme: { mode: data.mode }, palette: { background: data.background, foreground: data.foreground } }), "ok");
+            hints.backgroundContext = { fill: data.row, plate: "transparent", sheen: "transparent" };
+            const pair = hints.children[0];
+            const label = pair.children[1];
+            const chord = pair.children[0].children.find(item => item.shortcut !== undefined);
+            const cap = chord.children.find(item => item.text !== undefined);
+            verify(cap !== undefined);
+            const key = cap.children.find(item => item.role === "keyName");
+            verify(Theme.contrastRatio(label.color, Qt.color(data.row)) >= 4.5, "the hint word reads on the supplied row fill");
+            verify(Theme.contrastRatio(key.color, Qt.color(data.cap)) >= 4.5, "the cap receives the composed surface through KeyCaps");
+            compare(String(cap.color), String(Qt.color(Theme.kbd.background)), "the context changes only ink");
+            compare(label.font.pixelSize, 12);
+            compare(key.font.pixelSize, 11);
+            hints.backgroundContext = null;
+            compare(label.color, Qt.color(Theme.text.keyHint.color), "ordinary surfaces keep the default muted label");
+            compare(key.color, Qt.color(Theme.kbd.foreground), "ordinary surfaces keep the default muted key");
         }
 
         // The title and secondary lines draw with whole-pixel line boxes,

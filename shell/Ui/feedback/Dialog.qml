@@ -241,7 +241,12 @@ FocusScope {
         function onBacktabPressed(event) { root.cycle(-1); }
     }
 
+    // The card's ground, published to the content, which lies beside the
+    // card rather than inside it (HintGround.js).
+    readonly property color hintGround: card.hintGround
+
     GlassSurface {
+        id: card
         anchors.fill: parent
         standard: Theme.dialog
 

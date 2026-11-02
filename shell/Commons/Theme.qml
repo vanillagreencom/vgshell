@@ -170,6 +170,52 @@ Singleton {
         return toColor(ThemeLogic.formatColor(ThemeLogic.contrastColor(color)));
     }
 
+    // The ink of PART of the shared key hint, `word`, `key` or `value`, on
+    // the composed ground CONTEXT hands, or its default ink for null
+    // (ThemeLogic.keyHintInk).
+    function keyHintInk(context, part) {
+        if (context === null && keyHintDefaults[part] !== undefined) return keyHintDefaults[part];
+        const colors = context === null ? null : {
+            fill: Qt.color(context.fill), plate: Qt.color(context.plate), sheen: Qt.color(context.sheen)
+        };
+        return toColor(ThemeLogic.formatColor(ThemeLogic.keyHintInk(source.values, colors, part)));
+    }
+    // The ground a shared hint's ink is solved on: GIVEN when it names its
+    // fill, else GIVEN's plate and sheen, or none, over the fill GROUND
+    // answers, the one the surface holding the hint publishes (qs.Ui
+    // HintGround.js); null with neither. GROUND is called only then, so a
+    // caller that names its fill reads no ancestor. Glass, a drawn
+    // surface's (GlassSurface.hintGround) or an application window's, reads
+    // as the theme judge reads list text on glass (ThemeLogic
+    // GLASS_PLATE_PAIRS): made opaque. Over
+    // clear glass on a white wallpaper no key ink meets every theme: a
+    // selected row's own title reads about 3.2:1 there in dracula,
+    // everforest and catppuccin-frappe (ThemeLogic.contrastRatio, VGS-2180,
+    // 2026-11-02), so a hint judged harder than the text beside it would be
+    // inconsistent.
+    function hintContext(given, ground) {
+        let fill = given === null ? undefined : given.fill;
+        if (fill === undefined) {
+            const found = ground();
+            if (found === null) return null;
+            const color = Qt.color(found);
+            fill = color.a < 1 ? glassSolid(color) : color;
+        }
+        return {
+            fill: fill,
+            plate: given === null || given.plate === undefined ? "transparent" : given.plate,
+            sheen: given === null || given.sheen === undefined ? "transparent" : given.sheen
+        };
+    }
+    // Each part's ink on a resting surface, resolved once per theme, so a
+    // hint without a context reads it instead of solving it per cap.
+    readonly property var keyHintDefaults: {
+        const out = {};
+        for (const part of Object.keys(ThemeLogic.KEY_HINT_PARTS))
+            out[part] = toColor(ThemeLogic.formatColor(ThemeLogic.keyHintInk(source.values, null, part)));
+        return Object.freeze(out);
+    }
+
     // The room a row takes under its sub-text, a hint, error or warning
     // line, so the next row of `column` starts `stack.group` below that
     // line: the group space less the column's spacing. A row without

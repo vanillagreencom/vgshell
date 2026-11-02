@@ -991,6 +991,10 @@ Item {
 
     // ------------------------------------------------------------ drawing
 
+    // The shared hint resolves ink for the same glass branch the card
+    // draws, including the selected plate and its full sheen range.
+    readonly property var hintBackgroundContext: ({ fill: card.effectiveFill, plate: look.highlight.plate, sheen: look.highlight.sheen })
+
     // A click outside the card closes it.
     // pointer-cursor-exempt: a press here is a click away from the card, not a control
     // keyboard-path: Escape closes the launcher when no search or user-opened submenu must close first
@@ -1245,6 +1249,7 @@ Item {
 
                     delegate: LauncherRow {
                         look: root.look
+                        listMotion: root.listMotion
                         launcher: root
                         plate: cursorPlate
                         width: ListView.view.width

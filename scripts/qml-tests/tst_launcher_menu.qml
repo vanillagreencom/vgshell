@@ -2,6 +2,7 @@ import QtQuick
 import QtTest
 import qs.Commons
 import qs.Unit
+import qs.Ui
 import "../../shell/plugins/vgs.launcher"
 
 // The launcher's pointer flyout, ContextMenu.qml, with glass on: it hands
@@ -20,13 +21,54 @@ Item {
     id: root
     width: 800
     height: 600
+    property var rowLauncher: hintLauncher
 
     Launcher {
-        id: launcher
+        id: realLauncher
         anchors.fill: parent
     }
 
     FontMetrics { id: headerMetrics }
+
+    // A selected file/folder row uses the real delegate inside its view.
+    QtObject {
+        id: hintLauncher
+        property bool cursorActive: true
+        property int selectedIndex: 0
+        property string filterText: "f: sample"
+        property string flyoutPath: ""
+        property var freshIds: ({})
+        readonly property var listMotion: realLauncher.listMotion
+        readonly property var hintBackgroundContext: realLauncher.hintBackgroundContext
+        function rowHeightFor(detail) { return 56; }
+        function selectFromPointer(index, item, point) {}
+    }
+    ListView {
+        id: hintList
+        y: 500
+        width: 600
+        height: 60
+        model: 1
+        property string entryKind: "file"
+        delegate: LauncherRow {
+            width: hintList.width
+            look: realLauncher.look
+            listMotion: hintLauncher.listMotion
+            launcher: root.rowLauncher
+            plate: hintPlate
+            itemId: "hint-file"
+            kind: hintList.entryKind
+            icon: ""
+            appIcon: ""
+            label: "Sample"
+            target: ""
+            detail: "/sandbox"
+            path: "/sandbox/sample"
+            childCount: 0
+            section: "files"
+        }
+        ListCursor { id: hintPlate; parent: hintList.contentItem }
+    }
 
     Component {
         id: ledScene
@@ -38,8 +80,8 @@ Item {
             property alias metrics: ledMetrics
             ContextMenu {
                 id: ledMenu
-                look: launcher.look
-                motion: launcher.listMotion
+                look: realLauncher.look
+                motion: realLauncher.listMotion
             }
             FontMetrics { id: ledMetrics }
         }
@@ -50,6 +92,7 @@ Item {
         when: windowShown
 
         function init() {
+            root.rowLauncher = hintLauncher;
             UnitTheme.reset();
             Theme.appearanceInput = JSON.stringify({ glass: "on" });
         }
@@ -58,9 +101,49 @@ Item {
             Theme.appearanceInput = "";
         }
 
+        function test_selected_file_and_folder_use_the_shared_hint() {
+            const descendants = item => {
+                const found = [item];
+                for (let i = 0; i < found.length; i++)
+                    for (const child of found[i].children || []) found.push(child);
+                return found;
+            };
+            tryVerify(() => hintList.itemAtIndex(0) !== null);
+            const row = hintList.itemAtIndex(0);
+            const hint = descendants(row).find(item => String(item).indexOf("KeyHints") === 0);
+            verify(hint !== undefined, "the delegate composes the shared hint");
+            for (const kind of ["file", "folder"]) {
+                hintList.entryKind = kind;
+                hintLauncher.flyoutPath = "";
+                hintLauncher.cursorActive = true;
+                verify(waitForPolish(root.Window.window));
+                compare(row.openWithHintShown, true);
+                compare(hint.visible, true);
+                compare(hint.afterActions, false);
+                compare(hint.hints.length, 1);
+                compare(hint.hints[0].key, "Shift+Enter");
+                verify(hint.width > 0);
+                const at = hint.mapToItem(row, 0, 0);
+                verify(at.x >= 0 && at.x + hint.width <= row.width, "the reserved hint width fits the row");
+                hintLauncher.flyoutPath = row.path;
+                compare(hint.visible, false, "the file flyout covers this hint");
+                hintLauncher.flyoutPath = "";
+                hintLauncher.cursorActive = false;
+                compare(hint.visible, false, "an unselected row has no hint");
+            }
+            hintLauncher.cursorActive = true;
+            try {
+                root.rowLauncher = null;
+                compare(row.live, false);
+                compare(hint.backgroundContext, null, "the released launcher leaves no hint background");
+            } finally {
+                root.rowLauncher = hintLauncher;
+            }
+        }
+
         // The flyout among the launcher's children, and its glass surface.
         function flyout() {
-            for (const child of launcher.children)
+            for (const child of realLauncher.children)
                 if (typeof child.openAt === "function") return child;
             fail("the launcher holds no flyout");
         }
@@ -139,7 +222,7 @@ Item {
                 if (item.cursorRectangle !== undefined && item.selectionColor !== undefined) field = item;
                 else for (const child of item.children) walk(child);
             };
-            walk(launcher);
+            walk(realLauncher);
             verify(field !== null, "the launcher holds its search field");
             const row = field.parent;
             return {
@@ -158,7 +241,7 @@ Item {
         // the font's x-height; the same reading must reject the header row's
         // centre the glyph stood on before.
         function test_the_search_glyph_centres_on_the_header_x_height(data) {
-            launcher.filterText = data.query;
+            realLauncher.filterText = data.query;
             const parts = headerParts();
             const text = parts.text, glyph = parts.glyph;
             verify(text !== undefined && glyph !== undefined, "the header holds its line and its magnifier");
@@ -167,7 +250,7 @@ Item {
             const xCentre = text.y + text.baselineOffset - headerMetrics.xHeight / 2;
             const off = top => Math.abs(top + glyph.height / 2 - xCentre);
             const found = [off(glyph.y), Math.abs(glyph.y - Math.round(glyph.y)), off((parts.row.height - glyph.height) / 2)];
-            launcher.filterText = "";
+            realLauncher.filterText = "";
             verify(found[0] <= 0.5, "the magnifier is " + found[0] + " px off the x-height centre");
             verify(found[1] < 0.01, "the magnifier's top is on a whole pixel");
             verify(found[2] > 0.5, "control: the header row's centre reads as level");

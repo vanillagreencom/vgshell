@@ -236,41 +236,46 @@ Item {
                 text: "Use the button or key to confirm."
                 wrapMode: Text.Wrap
             }
-            Item {
+            Column {
                 width: pane.contentWidth
-                implicitHeight: answerButtons.implicitHeight
                 visible: root.hold !== null
-                Row {
-                    id: answerButtons
-                    anchors.right: parent.right
-                    spacing: Theme.dialog.actionGap
-                    // keyboard-path: the effective Confirm and Stop shortcuts.
-                    Button {
-                        id: cancel
-                        size: "sm"
-                        variant: "secondary"
-                        text: root.hold !== null && root.hold.purpose === "release" ? "No" : "Cancel"
-                        onClicked: if (root.service !== null) root.service.cancelApproval(root.displayedHold)
-                    }
-                    Button {
-                        id: confirm
-                        size: "sm"
-                        text: root.hold !== null && root.hold.purpose === "release" ? "Yes" : "Confirm"
-                        onClicked: if (root.service !== null) root.service.confirmApproval(root.displayedHold, "button")
+                Item {
+                    width: pane.contentWidth
+                    implicitHeight: answerButtons.implicitHeight
+                    visible: root.hold !== null
+                    Row {
+                        id: answerButtons
+                        anchors.right: parent.right
+                        spacing: Theme.dialog.actionGap
+                        // keyboard-path: the effective Confirm and Stop shortcuts.
+                        Button {
+                            id: cancel
+                            size: "sm"
+                            variant: "secondary"
+                            text: root.hold !== null && root.hold.purpose === "release" ? "No" : "Cancel"
+                            onClicked: if (root.service !== null) root.service.cancelApproval(root.displayedHold)
+                        }
+                        Button {
+                            id: confirm
+                            size: "sm"
+                            text: root.hold !== null && root.hold.purpose === "release" ? "Yes" : "Confirm"
+                            onClicked: if (root.service !== null) root.service.confirmApproval(root.displayedHold, "button")
+                        }
                     }
                 }
-            }
-            Item {
-                width: pane.contentWidth
-                implicitHeight: answerHints.implicitHeight
-                visible: root.hold !== null
-                KeyHints {
-                    id: answerHints
-                    anchors.right: parent.right
-                    hints: root.service === null || root.service.effectiveKeys === null ? [] : [
-                        {key: root.service.effectiveKeys.stop || "", text: root.hold !== null && root.hold.purpose === "release" ? "No" : "Cancel"},
-                        {key: root.service.effectiveKeys.confirm || "", text: root.hold !== null && root.hold.purpose === "release" ? "Yes" : "Confirm"}
-                    ]
+                Item {
+                    width: pane.contentWidth
+                    implicitHeight: answerHints.implicitHeight
+                    visible: root.hold !== null
+                    KeyHints {
+                        id: answerHints
+                        afterActions: true
+                        anchors.right: parent.right
+                        hints: root.service === null || root.service.effectiveKeys === null ? [] : [
+                            {key: root.service.effectiveKeys.stop || "", text: root.hold !== null && root.hold.purpose === "release" ? "No" : "Cancel"},
+                            {key: root.service.effectiveKeys.confirm || "", text: root.hold !== null && root.hold.purpose === "release" ? "Yes" : "Confirm"}
+                        ]
+                    }
                 }
             }
         }

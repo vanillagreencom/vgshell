@@ -12,6 +12,8 @@ Item {
     id: row
 
     required property var look
+    // The entrance outlives the launcher and needs its last motion value.
+    required property var listMotion
     // The launcher: its state and the functions a row calls.
     required property var launcher
     required property ListCursor plate
@@ -55,10 +57,8 @@ Item {
     opacity: entrance.progress
     transform: ListEntrance {
         id: entrance
+        motion: row.listMotion
         shift: row.look.row.enterX
-        // The launcher goes before its rows as the overlay is destroyed;
-        // the entrance keeps the motion it last had.
-        Binding on motion { when: row.live; value: row.live ? row.launcher.listMotion : null; restoreMode: Binding.RestoreNone }
     }
     Component.onCompleted: {
         if (hasCursor) plate.follow(row, true);
@@ -149,22 +149,11 @@ Item {
                 linkColor: row.look.text.link
                 onPageActivated: (page, tab) => row.launcher.shell.surfaces.openPage(page, tab)
             }
-            Row {
+            KeyHints {
                 id: hint
                 visible: row.openWithHintShown
-                spacing: row.look.row.lineGap
-                KeyCaps {
-                    anchors.verticalCenter: parent.verticalCenter
-                    shortcut: "Shift+Enter"
-                }
-                Text {
-                    textFormat: Text.PlainText
-                    text: "open with"
-                    color: row.look.text.detail.color
-                    font.family: row.look.font.family.sans
-                    font.pixelSize: row.look.text.detail.size
-                    anchors.verticalCenter: parent.verticalCenter
-                }
+                hints: [{ key: "Shift+Enter", text: "open with" }]
+                backgroundContext: row.live ? row.launcher.hintBackgroundContext : null
             }
         }
     }

@@ -121,6 +121,10 @@ Item {
             pair.width = column.width;
             pair.current = 0;
             pair.stopTyping();
+            narrow.keys = [];
+            narrow.width = Theme.size.panel.sm / 2;
+            narrow.current = 0;
+            narrow.stopTyping();
             mouseMove(before);
             before.forceActiveFocus(Qt.TabFocusReason);
             // Ending typing can leave its tool-row width until the next
@@ -665,6 +669,33 @@ Item {
             compare(separators(field), 0, "one key draws no separator");
         }
 
+        // A bound key is the field's value, so each cap draws in body ink.
+        // The edited alternative's selection mark shows through the
+        // translucent cap fill; there its key keeps the text floor on that
+        // composed ground, and leaving the field restores the body ink.
+        function test_bound_keys_read_on_the_field_and_its_selection_mark() {
+            compare(UnitTheme.override({ scheme: { mode: "dark" }, color: { text: "#d0d0d0", selection: "#c8c8c8" } }), "ok");
+            const keyName = cap => cap.children[0];
+            for (const cap of caps(pair)) {
+                compare(keyName(cap).role, "kbd", "a bound key draws in the chrome key role");
+                compare(keyName(cap).color, Qt.color(Theme.color.text), "a bound key draws in body ink");
+            }
+            const over = (fill, base) => Qt.rgba(base.r + (fill.r - base.r) * fill.a, base.g + (fill.g - base.g) * fill.a, base.b + (fill.b - base.b) * fill.a, 1);
+            const ground = over(Qt.color(Theme.kbd.background), over(Qt.color(Theme.color.selection), Qt.color(Theme.textField.background)));
+            verify(Theme.contrastRatio(Qt.color(Theme.color.text), ground) < 4.5, "body ink alone fails this fixture's selection mark");
+            box(pair).forceActiveFocus(Qt.TabFocusReason);
+            compare(pair.editing, 0);
+            const mark = descendants(box(pair)).find(item => item.visible && String(item).indexOf("QQuickRectangle") === 0 && Qt.colorEqual(item.color, Theme.color.selection));
+            verify(mark !== undefined, "the edited alternative shows its selection mark");
+            const marked = caps(pair).filter(cap => inside(rect(cap, mark), mark));
+            const plain = caps(pair).filter(cap => !inside(rect(cap, mark), mark));
+            verify(marked.length > 0 && plain.length > 0, "the fixture draws keys on and off the mark");
+            for (const cap of marked) verify(Theme.contrastRatio(keyName(cap).color, ground) >= 4.5, "a key on the selection mark reads " + Theme.contrastRatio(keyName(cap).color, ground));
+            for (const cap of plain) compare(keyName(cap).color, Qt.color(Theme.color.text), "a key off the mark keeps body ink");
+            before.forceActiveFocus(Qt.TabFocusReason);
+            for (const cap of marked) tryCompare(keyName(cap), "color", Qt.color(Theme.color.text));
+        }
+
         function test_the_box_grows_to_hold_every_alternative() {
             const b = box(pair);
             const oneLine = b.height;
@@ -689,6 +720,9 @@ Item {
         function narrowPair() {
             narrow.keys = ["SUPER+SPACE", "CTRL+ALT+K"];
             narrow.width = Theme.size.panel.sm / 2;
+            // Row places changed children during polish, after this script.
+            // https://doc.qt.io/qt-6/qml-qttest-testcase.html#waitForPolish-method
+            verify(waitForPolish(root.Window.window));
             compare(caps(narrow).length, 5);
         }
 
@@ -698,11 +732,14 @@ Item {
         function test_every_cap_lies_inside_the_box_at_a_narrow_width() {
             narrowPair();
             const b = box(narrow);
+            const tools = buttonLabelled(narrow, "Type the keys").parent;
+            const geometry = () => JSON.stringify({ field: { width: narrow.width, preferred: narrow.implicitWidth }, box: { width: b.width, preferred: b.implicitWidth }, tools: { width: tools.width, preferred: tools.implicitWidth, right: rect(tools, narrow).right } });
+            verify(narrow.width <= narrow.implicitWidth, "the constrained fixture exceeds its preferred width: " + geometry());
             tryVerify(() => caps(narrow).every(cap => inside(rect(cap, b), b)), 1000, "a cap lies outside the box " + b.width + " wide");
             for (const label of ["Type the keys", "Remove Super+Space"]) {
                 const tool = rect(buttonLabelled(narrow, label), b);
-                verify(tool.left >= b.width, label + " starts at " + tool.left + ", inside the box " + b.width + " wide");
-                verify(narrow.implicitWidth >= rect(buttonLabelled(narrow, label), narrow).right, "the field asks for " + narrow.implicitWidth + ", less than it draws");
+                verify(tool.left >= b.width, label + " starts at " + tool.left + ", inside the box: " + geometry());
+                verify(narrow.implicitWidth >= rect(buttonLabelled(narrow, label), narrow).right, "tool edge " + rect(buttonLabelled(narrow, label), narrow).right + " exceeds the preferred width: " + geometry());
             }
         }
 

@@ -46,6 +46,9 @@ Column {
     property string currentKey: ""
     property ListCursor cursor: null
     property bool listActiveFocus: false
+    // The ground of the surface the list lies over, which the panel hands,
+    // since the rows are not inside that surface; null for none.
+    property var hintGround: null
     readonly property bool selected: rowKey !== "" && rowKey === currentKey
     readonly property bool secondaryShortcutShown: selected && listActiveFocus && actionLabel !== "" && applicable
 
@@ -140,7 +143,12 @@ Column {
                     Row {
                         visible: root.secondaryShortcutShown
                         spacing: Theme.space.xxs
-                        KeyCaps { shortcut: "ALT+D" }
+                        KeyCaps {
+                            shortcut: "ALT+D"
+                            // The list's selected plate over the panel's
+                            // ground.
+                            backgroundContext: root.hintGround === null ? null : ({ fill: root.hintGround, plate: Theme.listItem.selected })
+                        }
                     }
                     ThemeSwatch { swatch: root.swatch }
                 }
