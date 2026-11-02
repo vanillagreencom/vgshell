@@ -39,6 +39,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from unittest import mock
 
 SCAN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "bin", "vgshell-scan")
 MANIFEST = '{"id": "acme.widget"}'
@@ -331,6 +332,40 @@ def scanner_module(script):
     module = importlib.util.module_from_spec(spec)
     loader.exec_module(module)
     return module
+
+
+def listing_lifetime_rows(script=SCAN, quiet=False):
+    """Settings removes its page-link fixture while scans may enumerate it.
+    Interpose after the real listdir, before scan_base can stat the entry."""
+    module = scanner_module(script)
+    results = []
+    rows = [("removed", []), ("unsearchable", [("plugins/acme.page-link", "error:cannot stat: ", "plugins/acme.page-link")])]
+    for state, want in rows:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = os.path.join(tmp, "plugins")
+            plugin = os.path.join(base, "acme.page-link")
+            plant(tmp, {"plugins/acme.page-link/manifest.json": MANIFEST})
+            listdir = os.listdir
+
+            def listed(path):
+                names = listdir(path)
+                assert path == base and names == ["acme.page-link"]
+                if state == "removed":
+                    shutil.rmtree(plugin)
+                else:
+                    os.chmod(base, 0o000)
+                return names
+
+            out = []
+            try:
+                with mock.patch.object(module.os, "listdir", side_effect=listed):
+                    module.scan_base(base, out, False, None, {}, {})
+            finally:
+                os.chmod(base, 0o755)
+            got = [(os.path.relpath(e["dir"], tmp), element_kind(e), os.path.relpath(e["path"], tmp)) for e in out]
+            good = matches(got, want)
+            results.append(good if quiet else report("listed plugin: " + state, good, str(out)))
+    return results
 
 
 def start_dbus_daemon(tmp):
@@ -880,6 +915,9 @@ def main():
         print("test-vgshell-scan: status=not-measured reason=dbus-daemon-missing")
         return 77
     results = [run_row(*row) for row in ROWS]
+    results += listing_lifetime_rows()
+    results.append(mutant_control("listing lifetime rows reject the old cannot-stat error for a removed plugin",
+                                  "        except FileNotFoundError:\n            # Plugin removal can finish after listdir returned its name.\n            continue\n", "", listing_lifetime_rows))
     results += revision_rows()
     results += migration_rows()
     results.append(mutant_control("migration entry discovery", 'entry["migrate"] = True', 'pass', migration_rows))

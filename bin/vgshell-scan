@@ -74,6 +74,7 @@ A base directory that does not exist is skipped, because the user plugin
 directory is absent on a fresh install. Under --require-base it is an error
 element like any other listing failure: the offline checks list the bundled
 directory, where an absent base would certify nothing as everything. Every
+entry removed between listing and stat is skipped as an absent plugin. Every
 other failure to list, stat, open or read is an error element
 `{"dir": <plugin dir>, "path": <what failed>, "error": "<what>: <strerror>"}`,
 never a silent skip: a base that cannot be listed, an entry that cannot be
@@ -505,6 +506,9 @@ def scan_base(base, out, require_base, snapshot_dir, probed, bus_cache):
         plugin_dir = os.path.join(base, name)
         try:
             st = os.stat(plugin_dir)
+        except FileNotFoundError:
+            # Plugin removal can finish after listdir returned its name.
+            continue
         except OSError as exc:
             out.append({"dir": plugin_dir, "path": plugin_dir, "error": f"cannot stat: {exc.strerror}"})
             continue
