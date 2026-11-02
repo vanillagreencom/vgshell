@@ -36,7 +36,7 @@ Scope {
     function provider(ctx) {
         // REVISIT(D059): A compositor readback API could include later user overrides.
         return {
-            get keys() { return Layer.shortcutKeys(Registry.hyprlandSections, ctx.id); },
+            get keys() { return Layer.shortcutKeys(Registry.hyprlandSections, ctx.id, Registry.hyprlandBindPlan); },
             register: (name, description, onPressed, onReleased) => root.registerShortcut(ctx, name, description, onPressed, onReleased),
             // Every enabled plugin's launcher rows, a frozen copy per read.
             get menu() { return Logic.frozenJson(Registry.menu.rows); },
@@ -144,7 +144,7 @@ Scope {
             property var releaseHandler: null
             property var companion: null
             property var stroke: ({ kind: "idle" })
-            readonly property var effectiveKey: Layer.shortcutKeys(Registry.hyprlandSections, appid)[name]
+            readonly property var effectiveKey: Layer.shortcutKeys(Registry.hyprlandSections, appid, Registry.hyprlandBindPlan)[name]
 
             function finish(nextKind) {
                 const held = stroke.kind === "held";
@@ -162,7 +162,7 @@ Scope {
                 if (releaseHandler === null) { handler(); return; }
                 if (stroke.kind === "held") return;
                 // Registry can change before Hyprland replaces its old binds.
-                const key = Layer.shortcutKeys(Registry.hyprlandSections, appid)[name];
+                const key = Layer.shortcutKeys(Registry.hyprlandSections, appid, Registry.hyprlandBindPlan)[name];
                 if (key === null || key === undefined) return;
                 stroke = { kind: "held", key: key };
                 handler();

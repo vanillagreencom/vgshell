@@ -33,7 +33,6 @@ function stateChecks(state) {
         ["unread devices", null, ["Y"], "refused: keymap=unavailable"],
         ["keys must be a list", devices([keyboard()]), "Y", "refused: keymap=unavailable"],
         ["empty keys", devices([keyboard()]), [], "refused: keymap=unavailable"],
-        ["bounded request", devices([keyboard()]), Array(65).fill("Y"), "refused: keymap=unavailable"],
         ["no main keyboard", devices([keyboard({ main: false })]), ["Y"], "refused: keymap=main-keyboard"],
         ["two main keyboards", devices([keyboard(), keyboard()]), ["Y"], "refused: keymap=main-keyboard"],
         ["no active layout", devices([keyboard({ activeLayoutIndex: null })]), ["Y"], "refused: keymap=main-keyboard"],
@@ -44,7 +43,7 @@ function stateChecks(state) {
         assert.equal(result.ok, false, name);
         assert.ok(result.error.startsWith(error), name + " cause: " + result.error);
     }
-    assert.equal(state.keyRequest(devices([keyboard()]), Array(64).fill("Y")).ok, true, "the inclusive request bound");
+    assert.equal(state.keyRequest(devices([keyboard()]), Array(65).fill("Y")).ok, true, "a whole publication is not limited to one tool's key count");
     const reply = { ok: true, keys: [key()] };
     same(state.resolvedKeys(JSON.stringify(reply), 1, true), { ok: false, error: "refused: keymap=translation" }, "core dual requests require both maps");
     same(state.resolvedKeys(JSON.stringify(reply), 1), reply, "a complete resolver reply survives narrowing");
@@ -53,6 +52,7 @@ function stateChecks(state) {
     const responses = [
         ["malformed JSON", "ok", 1, "refused: keymap=unresolved"],
         ["resolver refusal", JSON.stringify({ ok: false, keys: [key()] }), 1, "refused: keymap=unresolved"],
+        ["named resolver refusal", JSON.stringify({ ok: false, error: "keysym-ambiguous" }), 1, "refused: keymap=keysym-ambiguous"],
         ["missing key list", JSON.stringify({ ok: true }), 1, "refused: keymap=unresolved"],
         ["partial result", JSON.stringify(reply), 2, "refused: keymap=unresolved"],
         ["unknown modifier", JSON.stringify({ ok: true, keys: [key({ modifiers: ["META"] })] }), 1, "refused: keymap=reply"],
@@ -327,7 +327,6 @@ const controls = [
     [stateFile, stateChecks, "required translation map", "requireTranslation && ", "false && "],
     [stateFile, stateChecks, "read keyboard devices", "devices === null || ", ""],
     [stateFile, stateChecks, "key request list", "!Array.isArray(keys) || ", ""],
-    [stateFile, stateChecks, "key request bound", " || keys.length > 64", ""],
     [stateFile, stateChecks, "nonempty request", " || keys.length === 0", ""],
     [stateFile, stateChecks, "exactly one main keyboard", "mains.length !== 1", "mains.length === 0"],
     [stateFile, stateChecks, "active layout required", " || mains[0].activeLayoutIndex === null", ""],

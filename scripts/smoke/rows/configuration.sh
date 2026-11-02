@@ -1,7 +1,7 @@
 # An unreadable user file settles, keeps the bar, and refuses every write
 # until it reads again. A user file the shell reads and the disk refuses to
 # write answers the write with the refusal and keeps its value. A version 1
-# user file is written as version 3 once the shell reads it, its layout
+# user file is written as version 4 once the shell reads it, its layout
 # entry's settings moved into the plugin's row; a copy whose read migrates
 # nothing is its control, and refuses the file. A user file that disables a
 # plugin's former id and places its widget names the plugin by its new id
@@ -81,7 +81,7 @@ expect_poll "vgshell plugin list names no unknown id once the file drops it" "" 
 
 # A user file of the previous format version is migrated where the shell
 # reads it: a key of a layout entry moves into the plugin's row, where the
-# row's own value wins, the file is written once as version 3 and the log
+# row's own value wins, the file is written once as version 4 and the log
 # names it.
 config_plant_version_one() {
   python3 - "$home/.config/vgshell/shell.json" <<'PY'
@@ -102,8 +102,8 @@ PY
 config_migration_read() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); l=d["bar"]["layout"]; print(json.dumps([d.get("version"), [e for s in ("left", "center", "right") for e in l.get(s, []) if e["id"] == "acme.tick"], [r for r in d.get("plugins", []) if r["id"] == "acme.tick"]]))' "$home/.config/vgshell/shell.json"; }
 config_migrated_before="$(log_lines 'config: user file migrated: ')" || fail "the instance log is unreadable before the migration"
 config_plant_version_one || fail "planting the version 1 user file failed"
-expect_poll "a version 1 user file is written as version 3 once it is read" '[3, [{"id": "acme.tick"}], [{"id": "acme.tick", "format": "row-wins", "extra": "moves"}]]' config_migration_read
-expect_log "the migration names the file and the version" "$((config_migrated_before + 1))" 'config: user file migrated: file=.*/shell\.json version=3'
+expect_poll "a version 1 user file is written as version 4 once it is read" '[4, [{"id": "acme.tick"}], [{"id": "acme.tick", "format": "row-wins", "extra": "moves"}]]' config_migration_read
+expect_log "the migration names the file and the version" "$((config_migrated_before + 1))" 'config: user file migrated: file=.*/shell\.json version=4'
 expect "the migrated user file reads as loaded" loaded config_user_state
 expect_poll "the widget reads the row's value" '"row-wins"' ipc smoke readInstance "$(bar_key)" acme.tick format
 printf '%s\n' "$user_good" >"$home/.config/vgshell/shell.json.tmp" && mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.json"
@@ -134,7 +134,7 @@ if copy_tree configuration-unmigrated && edit_tree configuration-unmigrated shel
     'const r = root.judge(path, content, true);' 'const r = root.judge(path, content, false);'; then
   stop_shell || :
   if start_shell "$sandbox/tree-configuration-unmigrated" "$sandbox/configuration-unmigrated-qs.log"; then
-    expected_errors+=('config: .*/shell\.json malformed: version must be 3, got 1')
+    expected_errors+=('config: .*/shell\.json malformed: version must be 4, got 1')
     config_plant_version_one || fail "control: planting the version 1 user file failed"
     expect_poll "control: a shell that migrates nothing refuses the version 1 file" malformed config_user_state
     expect "control: the version 1 file stays as it was" '[1, [{"id": "acme.tick", "format": "entry-loses", "extra": "moves"}], [{"id": "acme.tick", "format": "row-wins"}]]' config_migration_read

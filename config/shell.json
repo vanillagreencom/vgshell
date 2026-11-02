@@ -1,6 +1,10 @@
 {
-  "version": 3,
+  "version": 4,
   "packageReviewSettingsSource": "vgs.updates",
+  "shortcutKeyMigrations": [
+    { "id": "vgs.jarvis", "shortcut": "talk", "from": "SUPER+code:108", "to": "SUPER+code:44" },
+    { "id": "vgs.jarvis", "shortcut": "mute", "from": "SUPER+SHIFT+code:108", "to": "SUPER+SHIFT+code:44" }
+  ],
   "bar": {
     "id": "vgs.bar",
     "layout": {

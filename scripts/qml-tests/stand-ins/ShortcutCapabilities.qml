@@ -7,6 +7,22 @@ import QtQml
 // writes on the real providers.
 QtObject {
     readonly property QtObject hyprland: QtObject {
+        property int keymapRevision: 0
+        property var foreignKeys: []
+        property var userBindRows: []
+        property bool resolvingKeys: false
+        property var pendingKeys: null
+        property var devices: null
+        function resolveKeys(keys, done) {
+            pendingKeys = { keys: keys, done: done };
+            resolvingKeys = true;
+        }
+        function finishKeys(answer) {
+            const pending = pendingKeys;
+            pendingKeys = null;
+            resolvingKeys = false;
+            pending.done(answer);
+        }
         property var touchpads: null
         property string devicesFailure: ""
         property var written: []
@@ -20,4 +36,7 @@ QtObject {
     }
 
     function checkName(kind, name) {}
+    property int publisherHolds: 0
+    function acquire(name, id) { publisherHolds++; }
+    function release(name, id) { publisherHolds--; }
 }

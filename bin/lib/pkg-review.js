@@ -83,7 +83,7 @@ function settingsRead() {
     const file = path.join(process.env.XDG_CONFIG_HOME || path.join(home(), ".config"), "vgshell/shell.json");
     let text = null;
     try { text = fs.readFileSync(file, "utf8"); } catch (e) { if (e.code !== "ENOENT") refuse("user-config=unreadable"); }
-    const user = files.readUserConfig(configLogic, file, "user-config", shipped.packageReviewSettingsSource);
+    const user = files.readUserConfig(configLogic, file, "user-config", shipped.packageReviewSettingsSource, shipped.shortcutKeyMigrations);
     const effective = configLogic.effectiveConfig(shipped, user);
     const settings = effective.packages?.review || { agent: "", command: "" };
     return { version: 1, text, settings };
@@ -111,8 +111,8 @@ function settingsWrite(snapshot, settings) {
         const file = path.join(process.env.XDG_CONFIG_HOME || path.join(home(), ".config"), "vgshell/shell.json");
         const failed = files.editFile("user-config", file, true, current => {
             if ((current === undefined ? null : Buffer.from(current, "latin1").toString("utf8")) !== snapshot.text) refuse("review-settings=changed");
-            const source = files.readConfig(configLogic, path.join(repo, "config/shell.json"), "shipped-config").packageReviewSettingsSource;
-            const moved = latest.text === null ? { config: null } : configLogic.migrateConfig(JSON.parse(latest.text), source);
+            const shipped = files.readConfig(configLogic, path.join(repo, "config/shell.json"), "shipped-config");
+            const moved = latest.text === null ? { config: null } : configLogic.migrateConfig(JSON.parse(latest.text), shipped.packageReviewSettingsSource, shipped.shortcutKeyMigrations);
             if (moved.error) refuse("review-settings=invalid");
             const next = configLogic.withPackageReview(moved.config, settings);
             if (!next.ok) refuse("review-settings=invalid error=" + next.error);

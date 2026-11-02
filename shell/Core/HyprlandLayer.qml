@@ -56,9 +56,25 @@ Scope {
 
     // PluginLogic.hyprlandSection for every enabled plugin.
     readonly property var sections: Registry.hyprlandSections
+    readonly property bool bindSourcesReady: Capabilities.hyprland.foreignKeys !== null
+        && Capabilities.hyprland.userBindRows !== null
+    readonly property string bindRequest: Registry.scanned && Config.ready && bindSourcesReady
+        ? JSON.stringify([Layer.requestedBindKeys(sections, Capabilities.hyprland.foreignKeys,
+            Capabilities.hyprland.userBindRows), Capabilities.hyprland.keymapRevision]) : ""
+    // Only the merge pairs' identities and the keymap they were read under
+    // change the plan's binds; any other key change admits at once with the
+    // last snapshot, whose reply then refreshes the other identities.
+    readonly property string bindAdmission: bindRequest === "" ? ""
+        : JSON.stringify([Layer.mergeKeys(sections), Capabilities.hyprland.keymapRevision])
+    property var bindSnapshot: null
+    readonly property var bindLifetime: ({ active: true })
+    readonly property var bindPlan: bindSnapshot !== null && bindSnapshot.admission === bindAdmission
+        && bindSnapshot.read.kind !== "failed" ? Layer.resolveBinds(sections, bindSnapshot.read.identities) : null
     readonly property bool touchpadsNeeded: Layer.wantsTouchpads(root.sections)
-    readonly property bool inputsReady: Registry.scanned && Config.ready && Theme.fileState !== "pending"
+    readonly property bool coreInputsReady: Registry.scanned && Config.ready && Theme.fileState !== "pending"
+    readonly property bool inputsReady: coreInputsReady
         && (!touchpadsNeeded || Capabilities.hyprland.touchpads !== null || Capabilities.hyprland.devicesFailure !== "")
+    readonly property bool admissionReady: inputsReady && bindPlan !== null
     readonly property real highestMonitorScale: {
         let highest = 1;
         for (const screen of Quickshell.screens) {
@@ -87,9 +103,10 @@ Scope {
         windowTopShare: Theme.size.window.topShare
     })
     // Layer.render's arguments, or null before its inputs are read.
-    readonly property var renderInputs: inputsReady ? [sections, themeAppearance, Theme.name, highestMonitorScale, Capabilities.hyprland.touchpads, Capabilities.hyprland.devicesFailure, Registry.monitorRuleOwnerId] : null
+    readonly property var renderInputs: coreInputsReady ? [sections, themeAppearance, Theme.name, highestMonitorScale, Capabilities.hyprland.touchpads, Capabilities.hyprland.devicesFailure, Registry.monitorRuleOwnerId, admissionReady ? bindPlan : null] : null
     // Assigned by renderLayer alone.
     property var rendered: null
+    readonly property var publishedBindPlan: rendered === null ? null : rendered.plan
     // A display trial runs from its start until Keep, Revert, its deadline
     // or a failed start sets MonitorState's trial idle again: the machine
     // starts no write or reload in that time (Layer.step, `trial`). Its end
@@ -107,6 +124,8 @@ Scope {
         const out = [];
         const manifests = Registry.manifests;
         const dirOf = id => Logic.hasOwn(manifests, id) ? manifests[id].__sourceDir : id;
+        if (bindSnapshot !== null && bindSnapshot.read.kind === "failed")
+            out.push({ id: "", dir: path, error: "hyprland: " + bindSnapshot.read.error });
         if (rendered !== null)
             for (const c of rendered.conflicts)
                 out.push({ id: c.id, dir: dirOf(c.id), error: "hyprland: " + c.key + " for " + c.id + ":" + c.shortcut + " skipped: already bound by " + c.heldBy });
@@ -169,19 +188,81 @@ Scope {
     }
 
     Binding { target: Registry; property: "hyprlandProblems"; value: root.problems }
+    Binding { target: Registry; property: "hyprlandBindPlan"; value: root.publishedBindPlan }
+    // Pending or refused maps cannot turn an old global comparison into
+    // a claim about freshly read foreign keys or a changed layout.
+    Binding { target: Registry; property: "hyprlandKeyIdentities"; value: root.bindPlan !== null
+        && root.bindPlan === root.publishedBindPlan ? root.publishedBindPlan.identities : null }
     // What the `hyprland` capability's reads compare against.
     Binding { target: Capabilities.hyprland; property: "written"; value: root.rendered === null ? [] : root.rendered.options }
     Binding { target: Capabilities.hyprland; property: "appearanceWritten"; value: root.rendered === null ? [] : root.rendered.appearance }
     Binding { target: Capabilities.hyprland; property: "optionConflicts"; value: root.rendered === null ? [] : root.rendered.optionConflicts }
     Binding { target: Capabilities.hyprland; property: "layerBinds"; value: root.rendered === null ? [] : root.rendered.binds }
     Binding { target: Capabilities.monitors; property: "ownerId"; value: Registry.monitorRuleOwnerId }
-    Binding { target: Notices; property: "consent"; value: Logic.consentSlotView(root.machine.consent, root.welcome, Config.shipped, root.sections) }
+    Binding { target: Notices; property: "consent"; value: Logic.consentSlotView(root.machine.consent, root.welcome, Config.shipped, root.sections, root.publishedBindPlan) }
     Binding { target: Notices; property: "consentState"; value: root.machine.consent }
     Binding { target: Notices; property: "welcome"; value: root.welcome }
 
     Component.onCompleted: {
+        // The publisher observes keymap changes even with no plugin holder.
+        // The existing capability owner acquires and releases those reads.
+        Capabilities.acquire("hyprland", "");
+        Qt.callLater(root.resolveBindKeys);
         welcomeRead.running = true;
         if (trialRunning) feed({ type: "trial", running: true });
+    }
+    Component.onDestruction: {
+        bindLifetime.active = false;
+        Capabilities.release("hyprland", "");
+    }
+
+    onBindRequestChanged: {
+        Qt.callLater(root.resolveBindKeys);
+        if (rendered === null) Qt.callLater(root.renderLayer);
+    }
+    // A key edit can regroup the merge pairs without changing the keys read.
+    onBindAdmissionChanged: Qt.callLater(root.resolveBindKeys)
+    // A failed key read changes no render input, so a held first render
+    // is asked again when any snapshot lands.
+    onBindSnapshotChanged: if (rendered === null) Qt.callLater(root.renderLayer)
+
+    Connections {
+        target: Capabilities.hyprland
+        // QML property change signals are ordinary signals. Coalesce requests
+        // after the current resolver callback has settled its publication:
+        // https://quickshell.org/docs/v0.3.1/guide/qml-language
+        function onResolvingKeysChanged() {
+            if (!Capabilities.hyprland.resolvingKeys) Qt.callLater(root.resolveBindKeys);
+        }
+        // A failed read is asked again only when the devices it read change:
+        // a count change or a layout switch. configreloaded already advances
+        // the revision.
+        function onDevicesChanged() {
+            if (root.bindSnapshot !== null && root.bindSnapshot.read.kind === "failed") Qt.callLater(root.retryFailedKeys);
+        }
+    }
+
+    function retryFailedKeys() { resolveBindKeys(true); }
+
+    function resolveBindKeys(retryFailed) {
+        const request = bindRequest;
+        const admission = bindAdmission;
+        if (request === "" || (bindSnapshot !== null && bindSnapshot.request === request && bindSnapshot.admission === admission
+                && !(retryFailed === true && bindSnapshot.read.kind === "failed"))
+                || Capabilities.hyprland.resolvingKeys) return;
+        const keys = Layer.requestedBindKeys(sections, Capabilities.hyprland.foreignKeys, Capabilities.hyprland.userBindRows);
+        const lifetime = bindLifetime;
+        if (keys.length === 0) {
+            bindSnapshot = { request: request, admission: admission, read: { kind: "resolved", identities: ({}) } };
+            return;
+        }
+        Capabilities.hyprland.resolveKeys(keys, answer => {
+            if (!lifetime.active) return;
+            if (request !== root.bindRequest || admission !== root.bindAdmission) { Qt.callLater(root.resolveBindKeys); return; }
+            const read = Layer.bindIdentities(keys, answer);
+            root.bindSnapshot = { request: request, admission: admission, read: read };
+            if (read.kind === "failed") console.error("hyprland: " + read.error);
+        });
     }
 
     onTrialRunningChanged: {
@@ -219,17 +300,35 @@ Scope {
     onRenderInputsChanged: Qt.callLater(root.renderLayer)
 
     function renderLayer() {
-        rendered = renderInputs === null ? null : Layer.render.apply(null, renderInputs);
+        // First publish core helpers and non-shortcut section work without
+        // key admission. Later pending or failed replacements retain the
+        // whole admitted object, including its readback and held strokes.
+        if (renderInputs === null || holdsFirstRender() || (!admissionReady && rendered !== null
+                && rendered.plan.phase === "admitted")) {
+            feed({ type: "trial", running: trialRunning });
+            return;
+        }
+        rendered = Layer.render.apply(null, renderInputs);
         feed({ type: "trial", running: trialRunning });
         feed({ type: "render" });
+    }
+
+    // A start over a layer already on disk writes nothing until its keys
+    // are admitted, so it never replaces that file and its binds with a core
+    // file. A failed read keeps holding until a reload or a devices change
+    // reads again. Unread or failed bind sources leave no request, and the
+    // core publishes at once.
+    function holdsFirstRender() {
+        return rendered === null && typeof machine.onDisk === "string" && bindRequest !== ""
+            && bindPlan === null;
     }
 
     // Write the layer and reload Hyprland now, whatever the bytes, reading
     // the file first so one removed by hand is written again. A request made
     // while a step runs waits for it. `ok`, or `refused: hyprland=pending`
-    // before the plugins, the configuration and the theme are read.
+    // until the current inputs and shortcut plan are admitted.
     function render() {
-        if (rendered === null) return "refused: hyprland=pending";
+        if (!admissionReady) return "refused: hyprland=pending";
         feed({ type: "force" });
         return "ok";
     }

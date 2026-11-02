@@ -136,6 +136,17 @@ function suite(ctx, check) {
     ];
     for (const [name, key, id, shortcut, want] of listedConflicts) check("keyConflicts: " + name, ctx.keyConflicts(key, listed, [], id, shortcut), want);
 
+    const physical = "SUPER+code:44", symbolic = "SUPER+J";
+    const aliasSections = [{ id: "acme.keys", binds: [{ shortcut: "talk", key: physical }] }];
+    const identities = { [physical]: "SUPER+code:44", [symbolic]: "SUPER+code:44" };
+    const plan = ctx.HyprlandLayer.resolveBinds(aliasSections, identities);
+    check("foreign symbolic alias uses global facts", ctx.keyConflicts(physical, aliasSections, [symbolic], "acme.keys", "talk", plan, identities), { plugins: [], user: true });
+    check("refused map retains foreign string decision", ctx.keyConflicts(physical, aliasSections, [symbolic], "acme.keys", "talk", plan, null), { plugins: [], user: false });
+    check("different global positions are no alias", ctx.keyConflicts(physical, aliasSections, [symbolic], "acme.keys", "talk", plan,
+        { [physical]: "SUPER+code:44", [symbolic]: "SUPER+code:45" }), { plugins: [], user: false });
+    check("publication includes foreign and user-row keys once", ctx.HyprlandLayer.requestedBindKeys(aliasSections,
+        [symbolic], [{ key: symbolic }, { key: "SUPER+SHIFT+J" }]), [physical, symbolic, "SUPER+SHIFT+J"]);
+
     const names = { "vgs.launcher": "Launcher" };
     const launcher = { id: "vgs.launcher", shortcut: "toggle" };
     const keys = { id: "acme.keys", shortcut: "open" };
@@ -180,14 +191,14 @@ const CONTROLS = [
     ["Space is named", "0x20: \"SPACE\", ", ""],
     ["the shortcut itself is no conflict", " && !(section.id === id && bind.shortcut === shortcut)", ""],
     ["each key of a list is asked for", "keyValues(given).forEach(", "keyValues(given).slice(0, 1).forEach("],
-    ["the user's binds are read", "return { plugins: plugins, user: parsed.ok && foreign.indexOf(parsed.key) !== -1 };", "return { plugins: plugins, user: false };"],
-    ["the user's binds compare normalised keys", "foreign.indexOf(parsed.key) !== -1", "foreign.indexOf(key) !== -1"],
+    ["the user's binds are read", "user: parsed.ok && foreign.some(", "user: false && foreign.some("],
+    ["the user's binds compare normalised keys", "HyprlandLayer.sameKey(parsed.key, other, identities)", "HyprlandLayer.sameKey(key, other, identities)"],
+    ["foreign aliases use admitted global facts", "HyprlandLayer.sameKey(parsed.key, other, identities)", "HyprlandLayer.sameKey(parsed.key, other, null)"],
     ["a conflict compares normalised keys", "if (bind.key === parsed.key && !(section.id", "if (bind.key === key && !(section.id"],
     ["the hint names a plugin by its name", "return (hasOwn(names, p.id) ? names[p.id] : p.id) + \" (\" + p.shortcut + \")\";", "return p.id + \" (\" + p.shortcut + \")\";"],
     ["the hint names the user's binds", ".concat(!found.user ? [] : places.length > 0 ? [\"your Hyprland config at \" + places.join(\" and \")] : [\"your other shortcuts\"]);", ";"],
     ["the hint names the user's file and line", "return row.place + \" line \" + row.line; });", "return \"\"; }).filter(Boolean);"],
     ["the hint says a failed read", "var unread = found.binds === \"failed\";", "var unread = false;"],
-    ["the plugins are named by id", "sections.slice().sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; }).forEach(", "sections.slice().reverse().forEach("],
 ];
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "key-capture-control-"));

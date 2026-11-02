@@ -3,6 +3,7 @@ import QtTest
 import Quickshell.Hyprland
 import qs.Core
 import "../../shell/plugins/vgs.settings"
+import "../../shell/Core/HyprlandState.js" as StateLogic
 
 // The key capture owner, KeyCapture.qml, through the `capture` member the
 // shortcut capability hands a plugin: which control holds the keyboard,
@@ -27,7 +28,10 @@ Item {
         property var userRows: ({})
         property var edits: []
         function readBinds() { reads += 1; }
-        function userBindsFor(key) { return userRows[key] || []; }
+        function userBindsFor(key, identities) {
+            const rows = Object.keys(userRows).reduce((all, name) => all.concat(userRows[name]), []);
+            return StateLogic.matchingUserBinds(rows, key, identities);
+        }
         function editBinds(args, done) { edits = edits.concat([{ args: args, done: done }]); }
     }
     ShortcutRegistry { id: registry; bindsSource: source }
@@ -64,6 +68,7 @@ Item {
 
         function init() {
             Registry.hyprlandSections = [{ id: "acme.keys", binds: [{ shortcut: "open", key: "SUPER+SPACE" }] }];
+            Registry.hyprlandKeyIdentities = null;
             Compositor.reset();
         }
 
@@ -82,7 +87,7 @@ Item {
 
         function sentEdits() { return JSON.stringify(source.edits.map(edit => edit.args)); }
         function userLine(removable) {
-            return { file: "/h/.config/hypr/binds.lua", line: 12, text: 'hl.bind("SUPER + SPACE", f)', removable: removable, place: "~/.config/hypr/binds.lua" };
+            return { key: "SUPER+SPACE", file: "/h/.config/hypr/binds.lua", line: 12, text: 'hl.bind("SUPER + SPACE", f)', removable: removable, place: "~/.config/hypr/binds.lua" };
         }
 
         // Answer edit INDEX as a removal of line 12 that printed its undo.
@@ -303,6 +308,26 @@ Item {
             }
         }
 
+        function test_a_foreign_symbolic_alias_keeps_its_key_for_removal() {
+            Registry.hyprlandSections = [{ id: "acme.keys", binds: [{ shortcut: "open", key: "SUPER+code:44" }] }];
+            Registry.hyprlandKeyIdentities = { "SUPER+code:44": "SUPER+code:44", "SUPER+J": "SUPER+code:44" };
+            source.foreignKeys = ["SUPER+J"];
+            const row = Object.assign({}, userLine(true), { key: "SUPER+J", text: 'hl.bind("SUPER + J", f)' });
+            source.userRows = { "SUPER+code:44": [row] };
+            const found = root.capture.conflicts("SUPER+code:44", "acme.keys", "open");
+            compare(found.user, true);
+            compare(JSON.stringify(found.userBinds.map(bind => [bind.key, bind.file, bind.line])),
+                '[["SUPER+J","/h/.config/hypr/binds.lua",12]]');
+            root.answers = [];
+            root.capture.removeUserBind("SUPER+code:44", root.answered);
+            compare(sentEdits(), '[["remove-bind","/h/.config/hypr/binds.lua","12","SUPER+J"]]',
+                "the guarded editor receives the actual symbolic user-row key");
+            source.edits[0].done({ ok: false, error: "fixture-canceled" });
+            Registry.hyprlandKeyIdentities = null;
+            compare(root.capture.conflicts("SUPER+code:44", "acme.keys", "open").user, false,
+                "unavailable global facts do not claim a resolved alias");
+        }
+
         function test_a_removal_takes_the_one_whole_user_line_of_a_plugin_key() {
             root.answers = [];
             source.userRows = { "SUPER+SPACE": [userLine(true)], "SUPER+N": [userLine(true)] };
@@ -338,10 +363,10 @@ Item {
         // the line its neighbours expect.
         function test_removals_move_the_lines_after_them() {
             root.answers = [];
-            const at = (line, key) => ({ file: "/h/.config/hypr/binds.lua", line: line, text: "", removable: true, place: "" });
+            const at = (line, key) => ({ key: key, file: "/h/.config/hypr/binds.lua", line: line, text: "", removable: true, place: "" });
             const removed = line => "ok hypr=bind-removed path=/h/.config/hypr/binds.lua line=" + line + ' undo={"text":"x","before":null,"after":null}';
             Registry.hyprlandSections = [{ id: "acme.keys", binds: [{ shortcut: "q", key: "SUPER+Q" }, { shortcut: "w", key: "SUPER+W" }] }];
-            source.userRows = { "SUPER+Q": [at(2)], "SUPER+W": [at(9)] };
+            source.userRows = { "SUPER+Q": [at(2, "SUPER+Q")], "SUPER+W": [at(9, "SUPER+W")] };
             root.capture.removeUserBind("SUPER+W", root.answered);
             source.edits[0].done({ ok: true, said: removed(9) });
             root.capture.removeUserBind("SUPER+Q", root.answered);

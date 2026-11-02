@@ -38,6 +38,10 @@ Singleton {
         const config = Config.effective;
         return Object.keys(current).filter(id => root.isEnabled(id)).map(id => Logic.hyprlandSection(config, current[id]));
     }
+    // The publisher's whole core or admitted plan. Core keys are withheld;
+    // readback never advertises a symbolic alternative it merged.
+    property var hyprlandBindPlan: null
+    property var hyprlandKeyIdentities: null
     readonly property var enabledIds: Object.keys(manifests).filter(id => root.isEnabled(id))
     readonly property string monitorRuleOwnerId: Logic.monitorRuleOwner(manifests, enabledIds, lendSnapshot)
     // The enabled manifests' launcher rows, PluginLogic.menuRows' answer,

@@ -2170,16 +2170,21 @@ function capturedKey(key, modifiers) {
 // the key, so a key that would take another plugin's bind names it; and
 // whether FOREIGN, the keys something other than the layer binds
 // (HyprlandState.foreignBinds), holds it. A hint: nothing refuses the key.
-function keyConflicts(key, sections, foreign, id, shortcut) {
+function keyConflicts(key, sections, foreign, id, shortcut, bindPlan, identities) {
     var parsed = ConfigLogic.hyprlandKey(key);
     var plugins = [];
-    sections.slice().sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; }).forEach(function (section) {
-        section.binds.forEach(function (bind) {
+    var plan = bindPlan === undefined ? HyprlandLayer.resolveBinds(sections) : bindPlan;
+    (plan === null ? [] : plan.sections).forEach(function (row) {
+        var section = row.section;
+        row.binds.forEach(function (entry) {
+            var bind = entry.bind;
             if (bind.key === parsed.key && !(section.id === id && bind.shortcut === shortcut))
                 plugins.push({ id: section.id, shortcut: bind.shortcut });
         });
     });
-    return { plugins: plugins, user: parsed.ok && foreign.indexOf(parsed.key) !== -1 };
+    return { plugins: plugins, user: parsed.ok && foreign.some(function (other) {
+        return HyprlandLayer.sameKey(parsed.key, other, identities);
+    }) };
 }
 
 // The hint a key field draws under its key, from FOUND, keyConflicts'
@@ -3033,7 +3038,7 @@ function keyLabel(key) {
 // otherwise. The view is { welcome, title, message, lines, link, keys,
 // keysTitle, actions, failure, busy }; each action is { label, role,
 // answer }, the answer `connect`, `decline` or `close`.
-function consentSlotView(consent, welcomeState, shipped, sections) {
+function consentSlotView(consent, welcomeState, shipped, sections, bindPlan) {
     if (WELCOME_STATES.indexOf(welcomeState) === -1)
         throw new Error("consentSlotView: welcome state " + JSON.stringify(welcomeState) + " is not one of " + WELCOME_STATES.join(", "));
     if (WELCOME_WAITS.indexOf(consent.phase) === -1 && WELCOME_SHOWS.indexOf(consent.phase) === -1)
@@ -3051,7 +3056,7 @@ function consentSlotView(consent, welcomeState, shipped, sections) {
     if (WELCOME_WAITS.indexOf(consent.phase) !== -1) return null;
     var rows = isPlainObject(shipped) && isPlainObject(shipped.welcome) ? shipped.welcome.keys : [];
     var keyRows = rows.map(function (row) {
-        var key = HyprlandLayer.shortcutKeys(sections, row.id)[row.shortcut];
+        var key = HyprlandLayer.shortcutKeys(sections, row.id, bindPlan)[row.shortcut];
         return typeof key === "string" ? { shortcut: keyLabel(key), text: row.text } : null;
     }).filter(function (line) { return line !== null; });
     var asking = question !== null;

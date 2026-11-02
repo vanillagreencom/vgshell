@@ -2121,6 +2121,18 @@ Scope {
             return Object.keys(Plugins.failedBuilds).filter(key => JSON.parse(key)[0] === hostKey).length;
         }
         function configSettled(): bool { return !Config.smokeUserView.busy; }
+        function hyprlandReadiness(): string {
+            if (typeof hyprland === "undefined" || !(hyprland instanceof LazyLoader) || !hyprland.active)
+                return JSON.stringify({ available: false });
+            const layer = hyprland.item;
+            const state = Capabilities.hyprland;
+            if (!(layer instanceof HyprlandLayer) || state.devices === null)
+                return JSON.stringify({ available: false });
+            return JSON.stringify({ available: true, admitted: layer.admissionReady,
+                currentPlan: layer.rendered !== null && layer.bindPlan !== null && layer.rendered.plan === layer.bindPlan,
+                writerPhase: layer.machine.phase, resolvingKeys: state.resolvingKeys,
+                keyboards: state.devices.keyboards });
+        }
         function readInstance(hostKey: string, id: string, property: string): string { return root.read(hostKey, id, property); }
         function rememberBarWidgets(hostKey: string): string {
             const rows = Plugins.built[hostKey];

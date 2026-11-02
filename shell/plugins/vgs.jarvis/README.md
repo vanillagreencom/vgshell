@@ -57,7 +57,7 @@ Jarvis comes with VGS. Open Plugin settings from the launcher and choose Jarvis.
 
 1. On Settings, choose an Account under AI model. On Setup, Sign in uses the app's own sign-in; Add key stores a provider key.
 2. On Settings, choose a Voice provider. On Setup, use Set up local voice for Local or Add a key for a cloud voice. Choose the cloud Voice key on Settings. Run Check microphone when Setup offers it.
-3. When the required Setup steps read Done, tap Talk, Super with Right Alt, and speak.
+3. When the required Setup steps read Done, tap Talk, Super with J, and speak.
 
 The Jarvis J in the bar shows what to do next. Click it to open the Console, or use its right-click menu to mute or unmute. A saved session's Resume offer takes that click until you resume or dismiss it. Change Jarvis's shortcuts in the Keys section on its Settings tab. The Enabled switch turns Jarvis off and stops its session.
 

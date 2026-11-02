@@ -104,7 +104,7 @@ for (const [setting, value, touchpads, failure, heldBy, reason, cause] of HYPRLA
     const held = heldBy === null ? {} : { [manifest.hyprland.options[setting]]: heldBy };
     layer.optionLines(section, held, touchpads, failure, out);
     const errors = vm.runInNewContext("(() => {" + problemBlocks[0][1] + "})()", {
-        Logic: producer, Registry: { manifests: {} }, sections: [section], monitorDocument: null,
+        Logic: producer, Registry: { manifests: {} }, sections: [section], monitorDocument: null, bindSnapshot: null,
         machine: { failure: "" }, rendered: { conflicts: [], appearanceConflicts: [], padConflicts: [], optionConflicts: out.conflicts, optionRefusals: out.refusals }
     });
     if (reason === null) {

@@ -10,7 +10,7 @@
 # acme.surfaces' background then maps in a later row; a planted copy left
 # installed is that rule's control. Polls use expect_poll's 200 ms interval;
 # no latency or resource budget is measured here.
-# inputs: scripts/smoke/fixtures/plugins/acme.input-facts/* scripts/smoke/fixtures/plugins/acme.surfaces/* scripts/smoke/fixtures/plugins/acme.layers/* shell/Core/Compositor.qml shell/Core/HyprlandState.* scripts/smoke/toplevel/* bin/lib/xkb-keys.py shell/Core/Dispatch.js scripts/smoke/rows/hyprland-consent.sh
+# inputs: scripts/smoke/fixtures/plugins/acme.input-facts/* scripts/smoke/fixtures/plugins/acme.surfaces/* scripts/smoke/fixtures/plugins/acme.layers/* shell/Core/Compositor.qml shell/Core/HyprlandState.* shell/Core/HyprlandLayer.* scripts/smoke/toplevel/* bin/lib/xkb-keys.py shell/Core/Dispatch.js scripts/smoke/rows/hyprland-consent.sh
 set -euo pipefail
 
 input_facts_config="$home/.config/vgshell/shell.json"
@@ -40,8 +40,18 @@ expect "the input facts fixture enables" ok ipc shell setPluginEnabled acme.inpu
 expect_poll "the input facts service builds" True record_exists acme.input-facts
 
 input_facts_read() { ipc smoke readInstance service acme.input-facts "$1"; }
-input_facts_keys() {
+input_facts_resolution_state() {
+  ipc smoke hyprlandReadiness | py_reply 'import json,sys
+d=json.load(sys.stdin)
+if not d.get("available"):
+    print(json.dumps(d))
+else:
+    print(json.dumps([d[k] for k in ("available", "admitted", "currentPlan", "writerPhase", "resolvingKeys")] + [[[k["layout"], k["activeLayoutIndex"], k["activeKeymap"]] for k in d["keyboards"] if k["main"]]]))'
+}
+input_facts_keys() { # KEYS GROUP KEYMAP
   local before
+  expect_poll "the core admits current keys and acknowledges $3 before resolution" \
+    "[true, true, true, \"idle\", false, [[\"us,de\", $2, \"$3\"]]]" input_facts_resolution_state
   read_count before "input-facts: key answers before" input_facts_read keyAnswers
   # Quickshell's CLI parser expands bracketed argv into multiple arguments.
   # JSON whitespace keeps the key list in one string for the fixture.
@@ -100,14 +110,14 @@ printf '%s\n' 'hl.config({ input = { kb_layout = "us,de", kb_variant = "", kb_op
 expect "the nested keyboard uses the fixture layouts" ok hypr reload config-only
 expect "the nested keyboard switches to US" ok hypr switchxkblayout all 0
 expect_poll "the main keyboard reports US" 'English (US)' input_facts_main_layout
-input_facts_keys '["SUPER+Y","SUPER+code:29","SUPER+RETURN","SUPER+code:36"]'
+input_facts_keys '["SUPER+Y","SUPER+code:29","SUPER+RETURN","SUPER+code:36"]' 0 'English (US)'
 expect "US symbols and physical aliases have the same native key identity" \
   '[[["SUPER"],29,"y"],[["SUPER"],29,"y"],[["SUPER"],36,"Return"],[["SUPER"],36,"Return"]]' input_facts_key_codes
 expect "the global translation map uses its first US group" \
   '[[["SUPER"],29,"y"],[["SUPER"],29,"y"],[["SUPER"],36,"Return"],[["SUPER"],36,"Return"]]' input_facts_key_codes translation
 expect "the nested keyboard switches to German" ok hypr switchxkblayout all 1
 expect_poll "the main keyboard reports German" German input_facts_main_layout
-input_facts_keys '["SUPER+Y","SUPER+code:29","SUPER+RETURN","SUPER+code:36"]'
+input_facts_keys '["SUPER+Y","SUPER+code:29","SUPER+RETURN","SUPER+code:36"]' 1 German
 expect "German resolves the moved symbol and preserves Return's alias identity" \
   '[[["SUPER"],52,"y"],[["SUPER"],29,"z"],[["SUPER"],36,"Return"],[["SUPER"],36,"Return"]]' input_facts_key_codes
 expect "the global translation map keeps group zero while the native keyboard uses German" \

@@ -761,8 +761,6 @@ path.write_text(source.replace(sys.argv[2], sys.argv[3]))' "$jarvis_service" "$2
   jarvis_rescan
   jarvis_enable
   expect_poll "$1: the daemon starts with feedback sounds on" true jarvis_sounds_sent
-  # Each startup reader sends hello on completion. Finish those sends
-  # before the choice, so none can repair the control with its snapshot.
   # The local voice reader's end starts the cloned voice reader's check.
   expect_poll "$1: the startup key reader is idle" idle jarvis_setup_reader_idle Keys
   expect_poll "$1: the startup local voice reader is idle" idle jarvis_setup_reader_idle LocalRuntime
@@ -770,6 +768,7 @@ path.write_text(source.replace(sys.argv[2], sys.argv[3]))' "$jarvis_service" "$2
   expect_poll "$1: the startup account reader is idle" idle jarvis_accounts_reader_idle
   jarvis_sounds_off
   expect "$1 breaks the Off reading" 1 jarvis_sounds_assertion
+  control_output "$sandbox/jarvis-sounds-control-assertions.log"
   jarvis_sounds_back
   jarvis_disable
   cp -- "$sandbox/jarvis-service-original" "$jarvis_service"
@@ -783,7 +782,7 @@ jarvis_sounds_back
 expect_poll "without the choice the service and the daemon have feedback sounds on again" "true true" jarvis_sounds
 jarvis_disable
 jarvis_sounds_control "a service that does not read the choice" 'shell !== null && shell.sounds.choices.feedback !== ""' 'shell !== null'
-jarvis_sounds_control "a service that sends no hello on the choice" 'onFeedbackSoundsChanged: hello()' 'onFeedbackSoundsChanged: {}'
+jarvis_sounds_control "a service that sends no hello on the choice" '    function hello() {' $'    function hello() {\n        if (!feedbackSounds) return;'
 
 # Keep the branch, but omit its status write. The real offers assertion fails
 # before any microphone or speaker can start.

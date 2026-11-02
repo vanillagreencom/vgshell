@@ -982,16 +982,16 @@ printf '{ "version": 2, "disabledPlugins": [ "acme.widget" ] }\n' >"$cfg/vgshell
 inst "add of a widget plugin an earlier install left disabled succeeds" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add --yes "$tmp/src/widget.git"
 check "add enables and places a widget plugin an earlier install left disabled" widget_shown "$cfg"
 # A version 1 user file, whose layout entry holds a setting its plugin's
-# row lacks, is written as version 2 by the landing: the setting in the
+# row lacks, is written as version 4 by the landing: the setting in the
 # row, the entry holding its id alone.
 version_one_user='{ "version": 1, "bar": { "id": "vgs.bar", "layout": { "left": [], "center": [], "right": [ { "id": "acme.other", "size": 3 } ] } } }'
 migrated_on_add() { # CONFIG_HOME
-  json_is "$1/vgshell/shell.json" 'd.get("version") == 3 and {"id": "acme.other", "size": 3} in d.get("plugins", []) and [e for e in d["bar"]["layout"]["right"] if e["id"] == "acme.other"] == [{"id": "acme.other"}]'
+  json_is "$1/vgshell/shell.json" 'd.get("version") == 4 and {"id": "acme.other", "size": 3} in d.get("plugins", []) and [e for e in d["bar"]["layout"]["right"] if e["id"] == "acme.other"] == [{"id": "acme.other"}]'
 }
 cfg="$tmp/cfg-version-one"; mkdir -p "$cfg/vgshell"
 printf '%s\n' "$version_one_user" >"$cfg/vgshell/shell.json"
 inst "add over a version 1 user file succeeds" "$cfg" "$rt_empty" 0 "shell=not-running" "" plugin add --yes "$tmp/src/widget.git"
-check "add writes a version 1 user file as version 2 with the entry's setting in its row" migrated_on_add "$cfg"
+check "add writes a version 1 user file as version 4 with the entry's setting in its row" migrated_on_add "$cfg"
 check "add over a version 1 user file places the widget" widget_shown "$cfg"
 # The control: a judge copy whose edit reads the user file unmigrated.
 unmigrated="$tmp/unmigrated"; mkdir -p "$unmigrated/bin"
@@ -1003,12 +1003,12 @@ import sys
 src, dst, old, new = sys.argv[1:]
 text = open(src).read()
 if text.count(old) != 1: sys.exit("occurs %d times" % text.count(old))
-open(dst, "w").write(text.replace(old, new))' "$repo/bin/vgshell-plugin-judge" "$unmigrated/bin/vgshell-plugin-judge" 'edit(current === undefined ? null : readUserConfig(configLogic, userPath, "user-config", source))' 'edit(current === undefined ? null : readConfig(configLogic, userPath, "user-config"))'
+open(dst, "w").write(text.replace(old, new))' "$repo/bin/vgshell-plugin-judge" "$unmigrated/bin/vgshell-plugin-judge" 'edit(current === undefined ? null : readUserConfig(configLogic, userPath, "user-config", source, shortcutKeyMigrations))' 'edit(current === undefined ? null : readConfig(configLogic, userPath, "user-config"))'
 chmod +x "$unmigrated/bin/vgshell-plugin-judge"
 cfg="$tmp/cfg-version-one-mutant"; mkdir -p "$cfg/vgshell"
 printf '%s\n' "$version_one_user" >"$cfg/vgshell/shell.json"
 INST_BIN="$unmigrated/bin/vgshell" inst "the unmigrated mutant refuses the version 1 user file" "$cfg" "$rt_empty" 1 "$any_out" "$any_out" plugin add --yes "$tmp/src/widget.git"
-if migrated_on_add "$cfg" 2>/dev/null; then fail "control: a judge that reads the user file unmigrated still writes version 2"; else ok "control: a judge that reads the user file unmigrated leaves the version 1 file"; fi
+if migrated_on_add "$cfg" 2>/dev/null; then fail "control: a judge that reads the user file unmigrated still writes version 4"; else ok "control: a judge that reads the user file unmigrated leaves the version 1 file"; fi
 # The control: a judge copy that lands every plugin as a plugin without a
 # widget leaves the widget out of the bar.
 lands_mutant="$tmp/lands-mutant"; mkdir -p "$lands_mutant/bin"

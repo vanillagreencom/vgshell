@@ -762,7 +762,10 @@ function appWindowLines(glass, top) {
 // One conflict judge for default-map binds, overlay capture and shortcut
 // key reads. Each declared shortcut has its first bound normalized key or
 // null.
-function resolveBinds(sections) {
+function resolveBinds(sections, identities, phase) {
+    if (phase === undefined) phase = "admitted";
+    if (phase !== "core" && phase !== "admitted")
+        throw new Error("HyprlandLayer: unknown bind phase " + JSON.stringify(phase));
     var held = Object.create(null);
     var keys = Object.create(null);
     var conflicts = [];
@@ -774,6 +777,9 @@ function resolveBinds(sections) {
                 keys[section.id][bind.shortcut] = null;
             if (bind.key === null) return { kind: "unbound", bind: bind, global: global };
             if (bind.error !== undefined) return { kind: "refused", bind: bind, global: global, error: bind.error };
+            // Core publication retains each section's non-shortcut work
+            // without claiming a key before the global facts settle.
+            if (phase === "core") return { kind: "withheld", bind: bind, global: global };
             if (held[bind.key] !== undefined) {
                 conflicts.push({ id: section.id, shortcut: bind.shortcut, key: bind.key, heldBy: held[bind.key] });
                 return { kind: "skipped", bind: bind, global: global, heldBy: held[bind.key] };
@@ -785,7 +791,96 @@ function resolveBinds(sections) {
         });
         return { section: section, binds: bindRows };
     });
-    return { sections: rows, keys: keys, conflicts: conflicts };
+    // Keep the main string-ownership decision before merging alternatives:
+    // two different actions still claim exactly the strings they claimed.
+    // Global map facts cannot establish a device's private keymap. Only
+    // alternatives of one action merge, and its physical key always stays.
+    rows.forEach(function (row) {
+        row.binds.forEach(function (entry) {
+            if (entry.kind !== "bound" || identities === undefined || identities === null
+                    || isPhysicalKey(entry.bind.key)) return;
+            var identity = identities[entry.bind.key];
+            if (identity === undefined) return;
+            var physical = row.binds.find(function (other) {
+                return other.kind === "bound" && other.global === entry.global
+                    && isPhysicalKey(other.bind.key)
+                    && sameKey(other.bind.key, entry.bind.key, identities);
+            });
+            if (physical !== undefined) entry.kind = "merged";
+        });
+        row.binds.forEach(function (entry) { keys[row.section.id][entry.bind.shortcut] = null; });
+        row.binds.forEach(function (entry) {
+            if (entry.kind === "bound" && keys[row.section.id][entry.bind.shortcut] === null)
+                keys[row.section.id][entry.bind.shortcut] = entry.bind.key;
+        });
+    });
+    return { phase: phase, sections: rows, keys: keys, conflicts: conflicts,
+        identities: phase === "core" || identities === undefined ? null : identities };
+}
+
+function isPhysicalKey(key) {
+    return /(?:^|\+)code:/.test(key);
+}
+
+// The keys whose resolved identities decide a merge in resolveBinds: every
+// usable key of a shortcut that has both a physical and a symbolic
+// alternative, sorted and unique. Only these facts gate admission, so a
+// change to any other key publishes without waiting for the reader.
+function mergeKeys(sections) {
+    var keys = [];
+    sections.forEach(function (section) {
+        var byShortcut = Object.create(null);
+        section.binds.forEach(function (bind) {
+            if (bind.key === null || bind.error !== undefined) return;
+            if (byShortcut[bind.shortcut] === undefined) byShortcut[bind.shortcut] = [];
+            byShortcut[bind.shortcut].push(bind.key);
+        });
+        Object.keys(byShortcut).forEach(function (shortcut) {
+            var group = byShortcut[shortcut];
+            if (!group.some(isPhysicalKey) || group.every(isPhysicalKey)) return;
+            group.forEach(function (key) { if (keys.indexOf(key) === -1) keys.push(key); });
+        });
+    });
+    return keys.sort();
+}
+
+// All semantic comparisons consume the existing resolver's global facts.
+// With no admitted facts only the original normalized string can match.
+function sameKey(first, second, identities) {
+    return first === second || identities !== undefined && identities !== null
+        && identities[first] !== undefined && identities[first] === identities[second];
+}
+
+// One complete request for the existing keymap reader, shared by every
+// action rather than one subprocess per key.
+function requestedBindKeys(sections, foreign, userRows) {
+    var keys = [];
+    sections.forEach(function (section) {
+        section.binds.forEach(function (bind) {
+            if (bind.key !== null && bind.error === undefined && keys.indexOf(bind.key) === -1)
+                keys.push(bind.key);
+        });
+    });
+    (foreign || []).concat((userRows || []).map(function (row) { return row.key; })).forEach(function (key) {
+        if (keys.indexOf(key) === -1) keys.push(key);
+    });
+    return keys;
+}
+
+// Unsupported maps retain the existing string decision. A failed read,
+// timeout or malformed reply cannot establish that policy or publish keys.
+function bindIdentities(keys, answer) {
+    if (!answer.ok) {
+        if (/^refused: keymap=(custom-file|native-rules|native-model|rules|model|keysym-unresolved|keysym-ambiguous|keycode-unresolved)$/.test(answer.error))
+            return { kind: "unresolved", identities: null, error: answer.error };
+        return { kind: "failed", error: answer.error };
+    }
+    var identities = Object.create(null);
+    keys.forEach(function (key, index) {
+        var row = answer.translation[index];
+        identities[key] = row.modifiers.join("+") + "+code:" + row.keycode;
+    });
+    return { kind: "resolved", identities: identities };
 }
 
 // A dot is outside the public registration-name grammar, so the companion
@@ -1304,9 +1399,9 @@ function boundDescriptions(plan) {
 
 // Resolution makes fresh maps per read, so plugin mutations stay local.
 // An undeclared name is absent; no enabled section means an empty map.
-function shortcutKeys(sections, id) {
-    var resolved = resolveBinds(sections);
-    return resolved.keys[id] || Object.create(null);
+function shortcutKeys(sections, id, bindPlan) {
+    var resolved = bindPlan === undefined ? resolveBinds(sections) : bindPlan;
+    return Object.assign(Object.create(null), resolved === null ? {} : resolved.keys[id] || {});
 }
 
 // One plugin section's options, as PluginLogic.hyprlandSection lists the
@@ -1493,8 +1588,9 @@ function appliedLines(values, paths) {
 // written, { id: "", setting, the Appearance member, path, value }, and
 // `binds`, the description of every bind
 // written in the default submap.
-function render(sections, theme, themeName, highestScale, touchpads, touchpadFailure, monitorOwnerId) {
-    var plan = resolveBinds(sections);
+function render(sections, theme, themeName, highestScale, touchpads, touchpadFailure, monitorOwnerId, bindPlan) {
+    var plan = bindPlan === undefined ? resolveBinds(sections)
+        : bindPlan === null ? resolveBinds(sections, null, "core") : bindPlan;
     var switches = groupSwitches(sections);
     var applied = [];
     var groups = [];
@@ -1548,6 +1644,7 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
             lines.push(ruleLine(section.id, rule));
         });
         row.binds.forEach(function (entry) {
+            if (entry.kind === "merged" || entry.kind === "withheld") return;
             if (entry.kind === "unbound") {
                 lines.push("-- unbound " + entry.global + ": no key is set");
                 return;
@@ -1585,6 +1682,7 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
     lines = lines.concat([""], padSweepLines());
     return {
         text: lines.join("\n") + "\n",
+        plan: plan,
         conflicts: plan.conflicts,
         appearanceConflicts: switches.conflicts,
         monitorConflicts: monitor.conflicts,

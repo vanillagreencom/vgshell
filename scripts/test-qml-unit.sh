@@ -216,7 +216,20 @@ mutations=(
   "a failed binds read is not named|../Core/HyprlandState.qml|                root.bindsFailure = read.error;|                {}|tst_hyprlandstate_binds.qml"
   "a binds read keeps an old failure|../Core/HyprlandState.qml|                root.bindsFailure = \"\";|                {}|tst_hyprlandstate_binds.qml"
   "turning the reads off keeps the binds failure|../Core/HyprlandState.qml|        bindsFailure = \"\";|        {}|tst_hyprlandstate_binds.qml"
+  "expired key reply falls through to ordinary devices|../Core/HyprlandState.qml|const keysReply = request !== null;|const keysReply = request !== null && root.ownsKeys(request);|tst_hyprlandstate_binds.qml"
+  "a key resolution token is a plain object|../Core/HyprlandState.qml|const token = \"keys:\" + keyRequestSerial;|const token = {};|tst_hyprlandstate_binds.qml"
+  "the KEYS read runs under the helper's deadline|../Core/HyprlandState.qml|        keyResolution = { token: token, keys: keys, done: done };|        keyResolution = { token: token, keys: keys, done: done }; keyDeadline.requestToken = token; keyDeadline.start();|tst_hyprlandstate_binds.qml"
+  "a layout switch event re-resolves keys|../Core/HyprlandState.qml|} else if (event.name === \"activelayout\") {|} else if (event.name === \"activelayout\") { root.keymapRevision++;|tst_hyprlandstate_binds.qml"
+  "a queued layout switch re-resolves keys|../Core/HyprlandState.qml|function onKeyboardLayoutSwitched() { root.readDevices(); }|function onKeyboardLayoutSwitched() { root.keymapRevision++; root.readDevices(); }|tst_hyprlandstate_binds.qml"
+  "a device count change re-resolves keys|../Core/HyprlandState.qml|onCountChanged: root.readDevices()|onCountChanged: { root.keymapRevision++; root.readDevices(); }|tst_hyprlandstate_binds.qml"
+  "a regrouped merge pair keeps its old key read|../Core/HyprlandLayer.qml|bindSnapshot.request === request && bindSnapshot.admission === admission|bindSnapshot.request === request|tst_hyprland_layer.qml"
+  "a failed key read waits for a reload|../Core/HyprlandLayer.qml|            if (root.bindSnapshot !== null && root.bindSnapshot.read.kind === \"failed\") Qt.callLater(root.retryFailedKeys);|            {}|tst_hyprland_layer.qml"
+  "any bind key change holds the layer write|../Core/HyprlandLayer.qml|bindSnapshot.admission === bindAdmission|bindSnapshot.request === bindRequest|tst_hyprland_layer.qml"
   "a theme change renders the layer per changed input|../Core/HyprlandLayer.qml|onRenderInputsChanged: Qt.callLater(root.renderLayer)|onRenderInputsChanged: root.renderLayer()|tst_hyprland_layer.qml"
+  "core publication waits for key admission|../Core/HyprlandLayer.qml|renderInputs: coreInputsReady ?|renderInputs: coreInputsReady && bindPlan !== null ?|tst_hyprland_consent.qml"
+  "a start over a layer on disk writes the core text first|../Core/HyprlandLayer.qml|return rendered === null && typeof machine.onDisk === \"string\" && bindRequest !== \"\"|return false && bindRequest !== \"\"|tst_hyprland_consent.qml"
+  "a failed start read writes the core text over the layer on disk|../Core/HyprlandLayer.qml|            && bindPlan === null;|            && bindPlan === null && !(bindSnapshot !== null && bindSnapshot.read.kind === \"failed\");|tst_hyprland_consent.qml"
+  "readiness admits a pending keymap|../smoke/Probe.qml|admitted: layer.admissionReady|admitted: true|tst_hyprland_consent.qml"
   "the layer writes a render of other inputs|../Core/HyprlandLayer.qml|Layer.render.apply(null, renderInputs)|Layer.render.apply(null, renderInputs.slice(0, 2).concat([\"mutant\"], renderInputs.slice(3)))|tst_hyprland_layer.qml"
   "the shortcut capability lends no key capture|../Core/ShortcutRegistry.qml|capture: capture.provider(ctx)|capture: null|tst_keycapture.qml"
   "a removal edits a key no plugin asks for|../Core/KeyCapture.qml|if (!asked) { done(|if (false) { done(|tst_keycapture.qml"
@@ -237,7 +250,7 @@ mutations=(
   "a destroyed key field keeps its undo|../plugins/vgs.settings/KeyField.qml|if (removed !== null && capture !== null) capture.releaseUserBind(removed.token);|{}|tst_keycapture.qml"
   "an undo answered after its key field is gone writes to the field|../plugins/vgs.settings/KeyField.qml|if (life.gone) return;|{}|tst_keycapture.qml"
   "a removal answered after its key field is gone is kept|../plugins/vgs.settings/KeyField.qml|if (reply.ok) keyCapture.releaseUserBind(reply.token);|{}|tst_keycapture.qml"
-  "the conflict carries no user line|../Core/KeyCapture.qml|const userBinds = found.user ? source.userBindsFor(ConfigLogic.hyprlandKey(key).key) : [];|const userBinds = [];|tst_keycapture.qml"
+  "the conflict carries no user line|../Core/KeyCapture.qml|const userBinds = found.user ? source.userBindsFor(ConfigLogic.hyprlandKey(key).key, identities) : [];|const userBinds = [];|tst_keycapture.qml"
   "key capture never enters the pass-through|../Core/KeyCapture.qml|const answer = Compositor.passthrough(verb, reply => root.entered(at, reply));|const answer = \"ok\";|tst_keycapture.qml"
   "window-free key capture enters the window-bound verb|../Core/KeyCapture.qml|const verb = anyWindow ? \"enterAnyWindow\" : \"enter\";|const verb = \"enter\";|tst_keycapture.qml"
   "plain key capture enters the window-free verb|../Core/KeyCapture.qml|const verb = anyWindow ? \"enterAnyWindow\" : \"enter\";|const verb = \"enterAnyWindow\";|tst_keycapture.qml"
@@ -353,7 +366,7 @@ mutations=(
   "the caps stand off the side by a text field's padding|controls/ShortcutField.qml|Theme.controlPadding(inset, Theme.textField.radius,|Theme.controlPadding(Theme.textField.paddingX, Theme.textField.radius,|tst_shortcutfield.qml"
   "the box narrows past its widest alternative|controls/ShortcutField.qml|width: Math.max(implicitContentWidth + leftPadding + rightPadding, root.room)|width: root.room|tst_shortcutfield.qml"
   "the field asks for less than it draws|controls/ShortcutField.qml|implicitWidth: box.implicitWidth + line.spacing + tools.implicitWidth|implicitWidth: column.implicitWidth|tst_shortcutfield.qml"
-  "shortcut keys stop following configuration|../Core/ShortcutRegistry.qml|get keys() { return Layer.shortcutKeys(Registry.hyprlandSections, ctx.id); },|keys: Layer.shortcutKeys(Registry.hyprlandSections, ctx.id),|tst_shortcutregistry.qml"
+  "shortcut keys stop following configuration|../Core/ShortcutRegistry.qml|get keys() { return Layer.shortcutKeys(Registry.hyprlandSections, ctx.id, Registry.hyprlandBindPlan); },|keys: Layer.shortcutKeys(Registry.hyprlandSections, ctx.id, Registry.hyprlandBindPlan),|tst_shortcutregistry.qml"
   "shortcut keys read another plugin|../Core/ShortcutRegistry.qml|Registry.hyprlandSections, ctx.id|Registry.hyprlandSections, \"acme.other\"|tst_shortcutregistry.qml"
   "hold press repeats run again|../Core/ShortcutRegistry.qml|if (stroke.kind === \"held\") return;|if (false) return;|tst_shortcutregistry.qml"
   "unrelated release completes a hold|../Core/ShortcutRegistry.qml|if (owner.stroke.kind === \"held\") owner.finish(\"idle\");|owner.releaseHandler();|tst_shortcutregistry.qml"
@@ -1948,6 +1961,7 @@ mutations=(
 mutation_target_path() { # FILE-FIELD
   local file="$1"
   case "$file" in
+    ../smoke/Probe.qml) printf 'scripts/smoke/Probe.qml\n' ;;
     ../Commons/*) printf 'shell/Commons/%s\n' "${file#../Commons/}" ;;
     ../Core/*) printf 'shell/Core/%s\n' "${file#../Core/}" ;;
     ../plugins/*) printf 'shell/plugins/%s\n' "${file#../plugins/}" ;;
@@ -2132,6 +2146,13 @@ mutation_case() { # INDEX
     target="$dir/mirror/scripts/qml-tests/stand-ins/${file#../stand-ins/}"
     tests_dir="$dir/mirror/scripts/qml-tests"
   fi
+  if [[ $file == ../smoke/Probe.qml ]]; then
+    mkdir -p -- "$dir/mirror/scripts/smoke"
+    cp -R -- "$repo/scripts/qml-tests" "$dir/mirror/scripts/qml-tests"
+    cp -- "$repo/scripts/smoke/Probe.qml" "$dir/mirror/scripts/smoke/Probe.qml"
+    target="$dir/mirror/scripts/smoke/Probe.qml"
+    tests_dir="$dir/mirror/scripts/qml-tests"
+  fi
   count="$(python3 - "$target" "$needle" <<'PY'
 import sys
 print(open(sys.argv[1], encoding="utf-8").read().count(sys.argv[2]))
@@ -2154,6 +2175,8 @@ open(path, "w", encoding="utf-8").write(text.replace(needle, replacement))
 PY
   mutant_status=0
   out="$("$runner" --ui "$dir/ui" "${commons_args[@]}" "${core_args[@]}" --tests "$tests_dir" "$tests_dir/$test" 2>&1)" || mutant_status=$?
+  printf '  CONTROL  label=%s file=%s test=%s needle=[%s] replacement=[%s] runner-exit=%s\n' "$label" "$file" "$test" "$needle" "$replacement" "$mutant_status"
+  printf '%s\n' "$out" | sed 's/^/  CONTROL  /'
   case "$mutant_status" in
     0) fail "$label: $test passed on the mutated copy" ;;
     1) ok "$label" ;;

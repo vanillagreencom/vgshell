@@ -46,7 +46,7 @@
 # HyprlandLayer.js calls Hyprland's hl.bind from the layer's own wrapper:
 # it failed "the broken bind's configuration error names the user's file
 # and line", reading the layer's vgs.lua at line 142.
-# inputs: scripts/smoke/fixtures/plugins/acme.hyprland/* scripts/smoke/fixtures/plugins/acme.hyprland-other/* shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/HyprlandLayer.js shell/Core/HyprlandState.* shell/Core/KeyCapture.qml shell/Core/Dispatch.js shell/Core/Compositor.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/Ui/controls/BindField.qml shell/Ui/controls/ShortcutField.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js bin/vgshell bin/vgshell-hypr-judge scripts/smoke/rows/hyprland-consent.sh shell/Ui/controls/RowAction.qml
+# inputs: scripts/smoke/fixtures/plugins/acme.hyprland/* scripts/smoke/fixtures/plugins/acme.hyprland-other/* shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/HyprlandLayer.js shell/Core/HyprlandLayer.qml shell/Core/Capabilities.qml shell/Core/HyprlandState.* shell/Core/KeyCapture.qml shell/Core/Dispatch.js shell/Core/Compositor.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/Ui/controls/BindField.qml shell/Ui/controls/ShortcutField.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js bin/vgshell bin/vgshell-hypr-judge scripts/smoke/rows/hyprland-consent.sh shell/Ui/controls/RowAction.qml
 set -euo pipefail
 hypr_lua="$home/.config/hypr/hyprland.lua"
 hypr_layer="$home/.local/state/vgshell/hypr/vgs.lua"
@@ -76,6 +76,7 @@ user_bind_line() { if grep -qxF -- 'hl.bind("SUPER + F7", hl.dsp.exec_cmd("true"
 # Whether the Settings window's prompt shows.
 removal_asked() { ipc smoke dialogCard window vgs.settings | py_reply 'import json,sys; print(json.load(sys.stdin)["shown"])'; }
 reads_active() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["hyprland"]["active"]))'; }
+publisher_holds_alone() { ipc shell lent | py_reply 'import json,sys; print(json.load(sys.stdin)["holders"].get("hyprland", []) == [""])'; }
 layer_has() { if grep -qxF -- "$1" "$hypr_layer"; then echo yes; else echo no; fi; }
 # The user's own files as they stand: the bytes and mode of input.lua and of
 # hyprland.lua, and where the hypr directory's symlink points.
@@ -134,6 +135,8 @@ expect_poll "the options fixture builds" True record_exists acme.hyprland
 expect_poll "the second options fixture builds" True record_exists acme.hyprland-other
 expect_poll "the fixture reads back the exact hyprland members it was given" '"devices,displayWake,foreignBinds,overridden,resolveKeys,switchKeyboardLayout,userValues,values"' read_options members
 expect_poll "the core reads Hyprland while a plugin holds hyprland" true reads_active
+# The same predicate must reject the real enabled fixture holds.
+expect "control: enabled fixture holders fail the publisher-only predicate" False publisher_holds_alone
 expect_poll "with no option set the layer writes no options section" no layer_mentions "acme.hyprland 0.1.0: input options its settings set"
 expect_poll "the fixture's bind is written" yes layer_has 'hl.bind("SUPER + F7", hl.dsp.global("acme.hyprland:ping"), { description = "acme.hyprland:ping" })'
 
@@ -249,7 +252,8 @@ expect_poll "the second options fixture is disabled" False plugin_enabled acme.h
 expect_poll "the disabled fixture's options leave the layer" no layer_mentions "acme.hyprland"
 expect_poll "the layer's sensitivity leaves Hyprland" '[0.0, false]' option_value input:sensitivity float
 expect_poll "the layouts are Hyprland's own again" '["us", false]' option_value input:kb_layout str
-expect_poll "the core stops reading Hyprland once no plugin holds hyprland" false reads_active
+expect_poll "only the layer publisher holds hyprland after the fixtures stop" True publisher_holds_alone
+expect_poll "the layer publisher keeps reading Hyprland after the fixtures stop" true reads_active
 expect "the configuration after the options rows holds no error" '[]' hypr_reload_errors
 
 rm -rf -- "${fixture_dir:?}" "${other_fixture_dir:?}"

@@ -25,6 +25,7 @@ const lines = out => out.text.split("\n");
 const logicFile = path.join(__dirname, "..", "shell", "Core", "PluginLogic.js");
 const configFile = path.join(__dirname, "..", "shell", "Core", "ConfigLogic.js");
 const layerFile = path.join(__dirname, "..", "shell", "Core", "HyprlandLayer.js");
+const sessionFile = path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "Session.js");
 const shellFile = path.join(__dirname, "..", "shell", "shell.qml");
 
 // VGS's renderer must never bring back the 0.57 deprecation notice. Match
@@ -688,7 +689,118 @@ function padsFixture(logic, id, pads) {
     return logic.hyprlandSection({ plugins: [{ id: id, pads: value, keys: { "pad-1": "SUPER+ALT+P" } }] }, judged.manifest);
 }
 
+// Settings Add alternative persists symbols beside physical defaults.
+// The native dispatch chain delivers one event per admitted bind (pinned
+// 0.57 Key::matches / MatchResolver / Manager::processEvent); the production
+// Session reducer proves why two admitted idle Mute binds lose privacy.
+function verifySameActionAliases(layer) {
+    const session = load(sessionFile);
+    const logic = load(logicFile);
+    const physical = "SUPER+SHIFT+code:44", symbolic = "SUPER+SHIFT+J";
+    const identities = { [physical]: "SHIFT+SUPER+code:44", [symbolic]: "SHIFT+SUPER+code:44" };
+    for (const alternatives of [[physical, symbolic], [symbolic, physical]]) {
+        const sections = [logic.hyprlandSection({}, manifestOf(logic, { id: "acme.mic", hyprland: { binds: [{ shortcut: "mute", key: alternatives }] } }))];
+        const plan = layer.resolveBinds(sections, identities);
+        let state = session.reduce(session.initial(), { type: "snapshot", at: 0, locked: false,
+            engine: "chained", configured: true, settings: {} }).state;
+        state = session.reduce(state, { type: "indicator", at: 1, shown: true }).state;
+        assert.equal(state.capture.kind, "closed", "ready idle Mute has no asynchronous capture-close guard");
+        for (const global of layer.boundDescriptions(plan))
+            if (global === "acme.mic:mute") state = session.reduce(state, { type: "mute-toggle", at: 2 }).state;
+        assert.equal(state.mute.kind, "on", "the privacy key leaves ready idle Mute on");
+        same(layer.boundDescriptions(plan), ["acme.mic:mute"], "one physical press publishes one Mute activation");
+        same(plan.keys["acme.mic"], { mute: physical }, "physical alternative wins in either stored order");
+        same(layer.shortcutKeys(sections, "acme.mic", plan), { mute: physical }, "readback consumes the publication plan");
+        const text = layer.render(sections, theme, "aliases", 1, null, "", "", plan).text;
+        const defaultBinds = text.split("\n").filter(line => line.startsWith("hl.bind(") && line.includes('hl.dsp.global("acme.mic:mute")'));
+        assert.equal(defaultBinds.length, 1, "default map dispatches Mute once");
+        assert.ok(defaultBinds[0].includes("code:44"), "generated layer retains the physical key");
+    }
+}
+
+function verifyDifferentActionAliases(layer) {
+    const logic = load(logicFile);
+    const decision = plan => ({ sections: plan.sections, keys: plan.keys, conflicts: plan.conflicts });
+    const physical = "SUPER+code:44", symbolic = "SUPER+J";
+    const sections = [{ id: "acme.first", binds: [{ shortcut: "talk", key: physical }] },
+        { id: "acme.other", binds: [{ shortcut: "toggle", key: symbolic }] }];
+    const identities = { [physical]: "SUPER+code:44", [symbolic]: "SUPER+code:44" };
+    same(decision(layer.resolveBinds(sections, identities)), decision(layer.resolveBinds(sections)), "different actions retain main string ownership and both bind");
+    same(layer.boundDescriptions(layer.resolveBinds(sections, identities)), ["acme.first:talk", "acme.other:toggle"], "global alias handling does not skip another action");
+    same(logic.keyConflicts(symbolic, sections, [], "acme.other", "toggle", layer.resolveBinds(sections, identities)),
+        { plugins: [], user: false }, "different-action hints retain main's string decision");
+    const samePlugin = [{ id: "acme.first", binds: [{ shortcut: "talk", key: physical }, { shortcut: "other", key: symbolic }] }];
+    same(decision(layer.resolveBinds(samePlugin, identities)), decision(layer.resolveBinds(samePlugin)), "different actions in one plugin also retain main ownership");
+}
+
+function verifyRefusedAliasMap(layer) {
+    const sections = [{ id: "acme.mic", binds: [{ shortcut: "mute", key: "SUPER+SHIFT+J" },
+        { shortcut: "mute", key: "SUPER+SHIFT+code:44" }] }];
+    const keys = layer.requestedBindKeys(sections);
+    for (const cause of ["custom-file", "rules", "model", "native-rules", "native-model", "keysym-unresolved", "keysym-ambiguous", "keycode-unresolved"]) {
+        const read = layer.bindIdentities(keys, { ok: false, error: "refused: keymap=" + cause });
+        assert.equal(read.kind, "unresolved", "policy refusal preserves user bindings: " + cause);
+        same(layer.resolveBinds(sections, read.identities), layer.resolveBinds(sections), "refused global map publishes main's exact result: " + cause);
+    }
+    for (const cause of ["busy", "timeout", "resolver-failed", "unresolved", "reply", "translation"])
+        assert.equal(layer.bindIdentities(keys, { ok: false, error: "refused: keymap=" + cause }).kind, "failed", "operational missing evidence cannot invoke unsupported-map policy: " + cause);
+    const resolved = layer.bindIdentities(keys, { ok: true, translation: keys.map(() => ({ modifiers: ["SUPER", "SHIFT"], keycode: 44 })) });
+    same(resolved.identities, { "SUPER+SHIFT+J": "SUPER+SHIFT+code:44", "SUPER+SHIFT+code:44": "SUPER+SHIFT+code:44" }, "publication consumes the existing global translation facts");
+}
+
+// Only a shortcut holding both a physical and a symbolic alternative can
+// merge, so only its keys hold admission while the reader runs.
+function verifyMergeKeys(layer) {
+    const pair = [{ shortcut: "talk", key: "SUPER+J" }, { shortcut: "talk", key: "SUPER+code:44" }];
+    for (const [name, sections, want] of [
+        ["no section", [], []],
+        ["a physical key alone", [{ id: "acme.a", binds: [{ shortcut: "talk", key: "SUPER+code:30" }] }], []],
+        ["a symbolic key alone", [{ id: "acme.a", binds: [{ shortcut: "talk", key: "SUPER+J" }] }], []],
+        ["one action's physical and symbolic keys", [{ id: "acme.a", binds: pair }], ["SUPER+J", "SUPER+code:44"]],
+        ["two actions' keys", [{ id: "acme.a", binds: [{ shortcut: "talk", key: "SUPER+J" }, { shortcut: "mute", key: "SUPER+code:44" }] }], []],
+        ["unbound and refused alternatives", [{ id: "acme.a", binds: [{ shortcut: "talk", key: "SUPER+J" }, { shortcut: "talk", key: null },
+            { shortcut: "talk", key: "SUPER+code:44", error: "refused" }] }], []],
+        ["two sections' pairs", [{ id: "acme.b", binds: pair }, { id: "acme.a", binds: [{ shortcut: "mute", key: "SUPER+SHIFT+U" },
+            { shortcut: "mute", key: "SUPER+SHIFT+code:30" }, { shortcut: "mute", key: "SUPER+SHIFT+code:31" }] }],
+            ["SUPER+J", "SUPER+SHIFT+U", "SUPER+SHIFT+code:30", "SUPER+SHIFT+code:31", "SUPER+code:44"]]
+    ]) same(layer.mergeKeys(sections), want, "merge keys: " + name);
+}
+
+function verifyCorePhase(layer) {
+    const logic = load(logicFile);
+    const manifest = manifestOf(logic, { id: "acme.core", capabilities: ["shortcut", "hyprland"],
+        settings: { speed: 0, touchpad: true }, schema: {
+            speed: { type: "number", label: "Speed", min: -1, max: 1 },
+            touchpad: { type: "boolean", label: "Touchpad" }
+        }, hyprland: { binds: [
+            { shortcut: "talk", key: ["SUPER+J", "SUPER+code:44"], hold: true },
+            { shortcut: "tap", key: "code:44", tap: true }
+        ], layerRules: [overlayRule], options: { speed: "input.sensitivity", touchpad: "device.touchpad.enabled" } } });
+    const sections = [logic.hyprlandSection({ plugins: [{ id: manifest.id, speed: 0.35, touchpad: false }] }, manifest),
+        padsFixture(logic, "acme.pads")];
+    const out = layer.render(sections, theme, "core", 1, null, "", "", null);
+    assert.equal(out.plan.phase, "core");
+    same(out.plan.sections.map(row => row.section), sections, "core retains complete judged sections");
+    same(out.plan.identities, null);
+    same(out.binds, [], "core advertises no plugin shortcut");
+    same(layer.shortcutKeys(sections, "acme.core", out.plan), { talk: null, tap: null });
+    same(out.plan.conflicts, [], "withheld keys claim no ownership");
+    assert.doesNotMatch(out.text, /hl\.dsp\.global\("acme\./, "no plugin bind in default, overlay or selection submaps");
+    assert.doesNotMatch(out.text, /hl\.__vgs_tap =/, "core withholds tap tracker and gates");
+    for (const needle of ["hl.__vgs_key_passthrough", "enterAnyWindow", "hl.__vgs_pads", "acme.pads:pad-1", "vgs:freeze", "vgs:window", "vgs:tui", "sensitivity = 0.35", "^vgs:overlay$"])
+        assert.ok(out.text.includes(needle), "core keeps " + needle);
+    for (const line of [...PASSTHROUGH_SECTION, ...LOCK_SECTION, ...SWEEP_SECTION])
+        assert.ok(out.text.split("\n").includes(line), "core retains fixed capture, lock and pad cleanup: " + line);
+    assert.ok(out.text.includes("Hyprland's touchpads are not read yet"), "unread devices defer only their option");
+    const read = layer.render(sections, theme, "core", 1, ["fixture-touchpad"], "", "", null);
+    assert.ok(read.text.includes('hl.device({ name = "fixture-touchpad", enabled = false })'), "known device option joins core without keys");
+    same(read.binds, []);
+    assert.equal(layer.render(sections, theme, "offline", 1).plan.phase, "admitted", "omitted plan retains offline compilation");
+    assert.throws(() => layer.resolveBinds(sections, null, "unknown"), /unknown bind phase/);
+}
+
 function verify(logic, configLogic, layer, shellText) {
+    verifyCorePhase(layer);
     for (const [text, want] of KEYS) {
         const got = configLogic.hyprlandKey(text);
         if (want.key !== undefined) same(got, { ok: true, key: want.key }, "hyprlandKey " + JSON.stringify(text));
@@ -1497,6 +1609,10 @@ const SEQUENCES = [
 
 const shellText = fs.readFileSync(shellFile, "utf8");
 verify(load(logicFile), load(configFile), load(layerFile), shellText);
+verifySameActionAliases(load(layerFile));
+verifyDifferentActionAliases(load(layerFile));
+verifyRefusedAliasMap(load(layerFile));
+verifyMergeKeys(load(layerFile));
 
 // HyprlandLayer.qml supplies the group bar's fill and caption to the
 // Lua renderer. Catalog themes can lift the fill above or below its palette.
@@ -1732,6 +1848,11 @@ assert.throws(() => verifyStatusAppearance(appearanceSource.replace(captionNeedl
 // Each control removes one rule from a copy of one file and keeps the text
 // around it. The suite must fail on every copy.
 const CONTROLS = [
+    [layerFile, "core withholds section shortcut keys", 'if (phase === "core") return { kind: "withheld", bind: bind, global: global };', 'if (false) return { kind: "withheld", bind: bind, global: global };', verifyCorePhase],
+    [layerFile, "same-action Mute alias merge", 'if (physical !== undefined) entry.kind = "merged";', 'if (false) entry.kind = "merged";', verifySameActionAliases],
+    [layerFile, "different actions retain main ownership", 'other.global === entry.global', 'true', verifyDifferentActionAliases],
+    [layerFile, "only merge pairs hold admission", "if (!group.some(isPhysicalKey) || group.every(isPhysicalKey)) return;", "if (false) return;", verifyMergeKeys],
+    [layerFile, "custom-map preservation rejects a planted refusal", 'return { kind: "unresolved", identities: null, error: answer.error };', 'return { kind: "failed", error: answer.error };', verifyRefusedAliasMap],
     [logicFile, "hyprland is a manifest key", "\"appearance\", \"hyprland\", ", "\"appearance\", "],
     [configFile, "key parts upper case", "return part.trim().toUpperCase();", "return part.trim();"],
     [configFile, "modifier order", "var ordered = HYPRLAND_MODIFIERS.filter(function (mod) { return mods.indexOf(mod) !== -1; });", "var ordered = mods;"],
@@ -1803,9 +1924,9 @@ const CONTROLS = [
     [configFile, "keycode uint32", " && Number(name.slice(5)) <= 4294967295", ""],
     [configFile, "keycode lower-case prefix", 'name = "code:" + String(Number(name.slice(5)));', 'name = "CODE:" + String(Number(name.slice(5)));'],
     [configFile, "keycode leading zeros", 'String(Number(name.slice(5)))', 'name.slice(5)'],
-    [layerFile, "shortcut read respects conflicts", 'if (held[bind.key] !== undefined) {\n                conflicts.push', 'if (held[bind.key] !== undefined) {\n                keys[section.id][bind.shortcut] = bind.key;\n                conflicts.push'],
-    [layerFile, "shortcut read keeps the first key", "if (keys[section.id][bind.shortcut] === null)\n                keys[section.id][bind.shortcut] = bind.key;", "keys[section.id][bind.shortcut] = bind.key;"],
-    [layerFile, "shortcut map has no inherited names", 'keys[section.id] = Object.create(null);', 'keys[section.id] = {};'],
+    [layerFile, "shortcut read respects conflicts", 'if (entry.kind === "bound" && keys[row.section.id][entry.bind.shortcut] === null)', 'if ((entry.kind === "bound" || entry.kind === "skipped") && keys[row.section.id][entry.bind.shortcut] === null)'],
+    [layerFile, "shortcut read keeps the first key", 'if (entry.kind === "bound" && keys[row.section.id][entry.bind.shortcut] === null)', 'if (entry.kind === "bound")'],
+    [layerFile, "shortcut map has no inherited names", 'Object.assign(Object.create(null), resolved === null ? {} : resolved.keys[id] || {})', 'Object.assign({}, resolved === null ? {} : resolved.keys[id] || {})'],
     [layerFile, "tap tracker emitted", "if (tapTrackerWanted(plan)) lines = lines.concat([\"\"], tapTrackerLines());", "if (false) lines = lines.concat([\"\"], tapTrackerLines());"],
     [layerFile, "tap bind gates", "function() hl.__vgs_tap.gate = \\\"\" + global + \"\\\" end", "hl.dsp.global(\\\"\" + global + \"\\\")"],
     [layerFile, "tap bind is non-consuming", "function() hl.__vgs_tap.gate = \\\"\" + global + \"\\\" end, { description = \\\"\" + global + \"\\\", non_consuming = true, transparent = true, ignore_mods = true", "function() hl.__vgs_tap.gate = \\\"\" + global + \"\\\" end, { description = \\\"\" + global + \"\\\", non_consuming = false, transparent = true, ignore_mods = true"],
@@ -2084,6 +2205,10 @@ try {
             }
         } catch (e) {
             failed = true;
+            console.log("hyprland-control " + JSON.stringify({ control: label,
+                file: path.basename(file), needle: needle, replacement: replacement,
+                outcome: e.code === "ERR_ASSERTION" ? "killed" : "error",
+                code: e.code || null, assertion: e.message, actual: e.actual, expected: e.expected }));
         }
         assert.ok(failed, `control "${label}": the suite passed on ${path.basename(file)} without that rule`);
     });

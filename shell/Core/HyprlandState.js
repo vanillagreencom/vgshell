@@ -21,7 +21,7 @@ var KEYS_REQUEST = ["hyprctl", "--batch", "j/devices;" + KEY_OPTIONS.map(functio
 // The device owner supplies the resolver's layout. Missing or ambiguous main
 // keyboards cannot establish the keycode used by a compositor binding.
 function keyRequest(devices, keys) {
-    if (devices === null || !Array.isArray(keys) || keys.length === 0 || keys.length > 64)
+    if (devices === null || !Array.isArray(keys) || keys.length === 0)
         return { ok: false, error: "refused: keymap=unavailable" };
     var mains = devices.keyboards.filter(function (keyboard) { return keyboard.main; });
     if (mains.length !== 1 || mains[0].activeLayoutIndex === null)
@@ -76,6 +76,8 @@ function keyFacts(text, keys) {
 
 function resolvedKeys(text, count, requireTranslation) {
     var read = parsed(text);
+    if (read.ok && read.value && read.value.ok === false && typeof read.value.error === "string")
+        return { ok: false, error: "refused: keymap=" + read.value.error };
     if (!read.ok || !read.value || read.value.ok !== true || !Array.isArray(read.value.keys)
             || read.value.keys.length !== count)
         return { ok: false, error: "refused: keymap=unresolved" };
@@ -359,6 +361,10 @@ function userBinds(text, hyprDir) {
         out.push({ key: key, file: row.file, line: row.line, text: row.text, removable: bindCall(row.text) === key && bindFileEditable(row.file, hyprDir) });
     }
     return { ok: true, binds: out };
+}
+
+function matchingUserBinds(rows, key, identities) {
+    return rows === null ? [] : rows.filter(function (row) { return Layer.sameKey(row.key, key, identities); });
 }
 
 // FILE as a notice names it: under HOME, from `~`.

@@ -217,6 +217,12 @@ function suite(lib, check) {
         const got = lib.userBinds(text, "/h/.config/hypr");
         check("user binds: " + name, got.ok ? got : { ok: false, error: got.error.slice(0, want.ok ? 0 : want.error.length) }, want);
     }
+    const symbolicRows = lib.userBinds(recorded([record("/h/.config/hypr/binds.lua", 12,
+        'hl.bind("SUPER + J", f)', 64, "J", 0)]), "/h/.config/hypr").binds;
+    const aliasFacts = { "SUPER+code:44": "SUPER+code:44", "SUPER+J": "SUPER+code:44" };
+    check("matching user alias keeps its original guarded key and source", lib.matchingUserBinds(symbolicRows, "SUPER+code:44", aliasFacts),
+        [{ key: "SUPER+J", file: "/h/.config/hypr/binds.lua", line: 12, text: 'hl.bind("SUPER + J", f)', removable: true }]);
+    check("refused identity context preserves exact user-row matching", lib.matchingUserBinds(symbolicRows, "SUPER+code:44", null), []);
     check("bind place: a file under home from ~", lib.bindPlace("/home/u/.config/hypr/b.lua", "/home/u"), "~/.config/hypr/b.lua");
     check("bind place: a file elsewhere as it is", lib.bindPlace("/home/user2/b.lua", "/home/u"), "/home/user2/b.lua");
 
@@ -324,6 +330,7 @@ wakeSuite(load(STATE), report);
 // around it; the suite must fail on every copy. The copy sits in a
 // temporary tree beside the libraries it imports.
 const CONTROLS = [
+    ["user alias lookup consumes the shared identity judge", "Layer.sameKey(row.key, key, identities)", "row.key === key"],
     ["a bare none index reads as null", '.replace(/("active_layout_index": )none\\b/g, "$1null")', ""],
     ["devices need both lists", " || !Array.isArray(d.mice) || !Array.isArray(d.keyboards))", ")"],
     ["a pointer has a name", 'if (typeof d.mice[m].name !== "string") return', "if (false) return"],

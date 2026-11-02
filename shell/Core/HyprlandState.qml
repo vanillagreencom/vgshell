@@ -22,8 +22,8 @@ import "PluginLogic.js" as Logic
 Scope {
     id: root
 
-    // Whether anything needs the reads: a plugin holds `hyprland`, or the
-    // key capture asked who else holds a key (KeyCapture.qml).
+    // Whether anything needs the reads: the layer publisher or a plugin
+    // holds `hyprland`, or key capture asked who holds a key.
     property bool active: false
     // HyprlandLayer.qml binds these from its render: the options written,
     // the applied groups' options written for the core, under id "",
@@ -63,6 +63,9 @@ Scope {
     readonly property string configDir: Quickshell.env("XDG_CONFIG_HOME") || (Quickshell.env("HOME") || "") + "/.config"
     readonly property string hyprDir: configDir + "/hypr"
     property var keyResolution: null
+    property int keyRequestSerial: 0
+    readonly property bool resolvingKeys: keyResolution !== null || keyResolver.running
+    property int keymapRevision: 0
 
     onActiveChanged: {
         if (active) {
@@ -72,8 +75,10 @@ Scope {
             readBinds();
             return;
         }
-        finishKeys({ ok: false, error: "refused: keymap=inactive" });
-        keyResolver.running = false;
+        const token = keyResolution === null ? null : keyResolution.token;
+        const helperToken = keyResolver.requestToken;
+        finishKeys(token, { ok: false, error: "refused: keymap=inactive" });
+        if (keyResolver.requestToken === helperToken) keyResolver.running = false;
         devices = null;
         devicesFailure = "";
         overriddenRows = null;
@@ -108,27 +113,38 @@ Scope {
     function readDevices() {
         if (!active) return;
         devicesReader.read(keyResolution === null ? State.DEVICES_REQUEST : State.KEYS_REQUEST,
-            keyResolution === null ? null : "keys");
+            keyResolution === null ? null : keyResolution.token);
     }
 
     function resolveKeys(keys, done) {
         if (typeof done !== "function") throw new Error("refused: keymap=callback");
         if (!active || keyResolution !== null || keyResolver.running) { done({ ok: false, error: "refused: keymap=busy" }); return; }
-        keyResolution = { keys: keys, done: done };
-        keyDeadline.start();
+        // The token crosses HyprctlReader's `var` signal argument, a QVariant,
+        // which does not promise a plain object's reference identity. A
+        // string never reused compares by value on every side of it.
+        keyRequestSerial++;
+        const token = "keys:" + keyRequestSerial;
+        keyResolution = { token: token, keys: keys, done: done };
         readDevices();
     }
 
-    function finishKeys(value) {
+    function ownsKeys(token) {
+        return token !== null && keyResolution !== null && keyResolution.token === token;
+    }
+
+    function finishKeys(token, value) {
+        if (!ownsKeys(token)) return;
         const pending = keyResolution;
         keyResolution = null;
         keyDeadline.stop();
-        if (pending !== null) pending.done(value);
+        keyDeadline.requestToken = null;
+        pending.done(value);
     }
 
     Process {
         id: keyResolver
         property var completion: null
+        property var requestToken: null
         property string requestText: ""
         command: ["python3", "-I", Quickshell.shellDir + "/../bin/lib/xkb-keys.py"]
         clearEnvironment: true
@@ -136,24 +152,29 @@ Scope {
         stdinEnabled: true
         stdout: StdioCollector { id: keyOutput }
         onStarted: { write(requestText); stdinEnabled = false; }
-        onExited: (code, status) => { completion = { code: code, status: status }; }
+        onExited: (code, status) => { completion = { token: requestToken, code: code, status: status }; }
         onRunningChanged: {
             if (running) return;
-            keyDeadline.stop();
             const done = completion;
+            const token = done === null ? requestToken : done.token;
             completion = null;
-            const value = done !== null && done.code === 0 && root.keyResolution !== null
+            if (requestToken === token) requestToken = null;
+            if (!root.ownsKeys(token)) return;
+            const value = done !== null && (done.code === 0 || done.code === 1)
                 ? State.resolvedKeys(keyOutput.text, root.keyResolution.keys.length, true)
                 : { ok: false, error: "refused: keymap=resolver-failed" };
-            root.finishKeys(value);
+            root.finishKeys(token, done !== null && done.code === 1 && value.ok
+                ? { ok: false, error: "refused: keymap=resolver-failed" } : value);
         }
     }
     Timer {
         id: keyDeadline
+        property var requestToken: null
         interval: 2000
         onTriggered: {
-            root.finishKeys({ ok: false, error: "refused: keymap=timeout" });
-            keyResolver.running = false;
+            const token = requestToken;
+            root.finishKeys(token, { ok: false, error: "refused: keymap=timeout" });
+            if (keyResolver.requestToken === token) keyResolver.running = false;
         }
     }
 
@@ -177,11 +198,10 @@ Scope {
     // text, removable, place, config }], `place` the file as a notice names
     // it and `config` its path under the configuration directory, which
     // `vgshell edit` opens, or "" for a file outside it.
-    function userBindsFor(key) {
-        if (root.userBindRows === null) return [];
+    function userBindsFor(key, identities) {
         const home = Quickshell.env("HOME") || "";
-        return root.userBindRows.filter(row => row.key === key)
-            .map(row => ({ file: row.file, line: row.line, text: row.text, removable: row.removable, place: State.bindPlace(row.file, home),
+        return State.matchingUserBinds(root.userBindRows, key, identities)
+            .map(row => ({ key: row.key, file: row.file, line: row.line, text: row.text, removable: row.removable, place: State.bindPlace(row.file, home),
                 config: row.file.indexOf(root.configDir + "/") === 0 ? row.file.slice(root.configDir.length + 1) : "" }));
     }
 
@@ -225,6 +245,14 @@ Scope {
         target: root.active ? Hyprland : null
         function onRawEvent(event) {
             if (event.name === "configreloaded") {
+                // Hyprland 0.57 builds its bind map from the global input:kb_*
+                // options at group 0 and rebuilds it only through
+                // InputManager::setKeyboardLayout on a configuration refresh
+                // (src/keybinds/Manager.cpp updateXKBTranslationState and
+                // src/managers/input/InputManager.cpp, Hyprland 0aa6745).
+                // A layout switch moves only a device's group, so only a
+                // reload can change a resolved key identity.
+                root.keymapRevision++;
                 root.readDevices();
                 root.readOptions();
                 root.readUserValues();
@@ -254,34 +282,49 @@ Scope {
         label: "devices"
         onReadDone: (request, text, failure) => {
             if (!root.active) return;
-            const facts = request === "keys" && root.keyResolution !== null
-                ? State.keyFacts(text, root.keyResolution.keys) : null;
-            const read = failure === "" ? facts !== null ? facts : State.devicesState(text)
+            // The reader's nonnull request is one opaque resolution token.
+            // Expired key batches never enter the single-devices parser.
+            const keysReply = request !== null;
+            if (keysReply && !root.ownsKeys(request)) return;
+            const facts = keysReply ? State.keyFacts(text, root.keyResolution.keys) : null;
+            // A map policy refusal says nothing about device availability.
+            // Read devices normally after completing that key request.
+            const read = failure === "" ? facts !== null ? facts.ok ? facts : null : State.devicesState(text)
                 : { ok: false, error: failure };
-            if (!read.ok) {
+            if (read !== null && !read.ok) {
                 root.devices = null;
                 root.devicesFailure = read.error;
                 console.error("hyprland: " + read.error);
-            } else {
+            } else if (read !== null) {
                 root.devicesFailure = "";
                 if (!root.same(read.devices, root.devices)) root.devices = read.devices;
             }
-            if (root.keyResolution !== null) {
-                const keyFacts = facts === null ? { ok: false, error: "refused: keymap=request" } : facts;
-                if (!keyFacts.ok) root.finishKeys(keyFacts);
+            if (keysReply) {
+                const keyFacts = failure === "" ? facts : { ok: false, error: failure };
+                if (!keyFacts.ok) {
+                    root.finishKeys(request, keyFacts);
+                    Qt.callLater(root.readDevices);
+                }
                 else {
                     const wire = JSON.stringify(keyFacts.request) + "\n";
                     if (keyResolution.resolving) {
                         if (wire !== keyResolver.requestText) {
-                            root.finishKeys({ ok: false, error: "refused: keymap=layout-changed" });
-                            keyResolver.running = false;
+                            root.finishKeys(request, { ok: false, error: "refused: keymap=layout-changed" });
+                            if (keyResolver.requestToken === request) keyResolver.running = false;
                         }
                     } else {
                         keyResolution = Object.assign({}, keyResolution, { resolving: true });
+                        keyResolver.requestToken = request;
                         keyResolver.requestText = wire;
                         keyResolver.stdinEnabled = true;
+                        // The deadline bounds the helper alone; the KEYS read
+                        // settles from its in-flight reply, as every
+                        // HyprctlReader read does. Timer.start() does nothing
+                        // on a running timer, so restart() times this run:
+                        // https://doc.qt.io/qt-6/qml-qtqml-timer.html#start-method
+                        keyDeadline.requestToken = request;
+                        keyDeadline.restart();
                         keyResolver.running = true;
-                        keyDeadline.start();
                     }
                 }
             }

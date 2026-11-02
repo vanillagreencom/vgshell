@@ -7,7 +7,7 @@
 # wires the Hyprland layer, so every later row starts with the notice
 # layer gone and the layer's options loaded.
 # leaves: layers options
-# inputs: shell/Core/HyprlandLayer.* shell/Core/Notices.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js config/shell.json bin/vgshell shell/Hosts/NoticeHost.qml shell/Ui/feedback/Dialog.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Ui/feedback/KeyCaps.qml shell/Ui/feedback/Kbd.qml shell/Ui/layout/Pane.qml scripts/smoke/Probe.qml
+# inputs: shell/Core/HyprlandLayer.* shell/Core/HyprlandState.* shell/Core/Notices.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js config/shell.json bin/vgshell shell/Hosts/NoticeHost.qml shell/Ui/feedback/Dialog.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Ui/feedback/KeyCaps.qml shell/Ui/feedback/Kbd.qml shell/Ui/layout/Pane.qml scripts/smoke/Probe.qml
 set -euo pipefail
 leak_plugin_setup vgs.themes true || { fail "hyprland-consent: fixture precondition failed"; return 1; }
 
@@ -29,11 +29,22 @@ notice_fit() { ipc smoke noticeFit | py_reply 'import json,sys; f=json.load(sys.
 notice_overflows() { ipc smoke noticeFit | py_reply 'import json,sys; f=json.load(sys.stdin); print("yes" if f["surface"] <= int(sys.argv[1]) and (f["dialog"] > f["surface"] or f["overflowing"] > 0) else json.dumps(f, sort_keys=True))' "$1"; }
 welcome_drawn_shape() { ipc smoke noticeDrawn | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps({"title": d["title"], "rowCount": len(d["rows"]), "hasLinkText": any("hyprland.lua" in row for row in d["rows"]), "keysTitle": d["keysTitle"], "keys": d["keys"], "focused": d["focused"], "actions": d["actions"], "busy": d["busy"]}, sort_keys=True))'; }
 welcome_focused() { ipc smoke noticeDrawn | py_reply 'import json,sys; print(json.load(sys.stdin)["focused"])'; }
+# consent_readiness: the publisher's readiness, which the Probe reads
+# without changing it: available, admitted, current plan, writer phase and
+# whether keys are resolving.
+consent_readiness() {
+  ipc smoke hyprlandReadiness | py_reply 'import json,sys
+d=json.load(sys.stdin)
+print(json.dumps([d.get(k) for k in ("available", "admitted", "currentPlan", "writerPhase", "resolvingKeys")]))'
+}
 welcome_shape_asking='{"actions": ["Connect", "Not now"], "keys": [{"shortcut": "Super+Shift+T", "text": "picks a theme."}], "lineCount": 3, "link": {"path": "hypr/hyprland.lua", "text": "hyprland.lua"}, "state": "unseen"}'
 
 expect "the harness starts without the VGS loading line" 0 wire_count
 expect "the sandbox starts without the welcome-seen marker" absent welcome_marker
 expect_poll "the first start's welcome asks the Hyprland question" '{"title": "Welcome to VGS", "failure": ""}' hypr_consent_record
+# The question needs only the core. The welcome's key row and chips come
+# from the admitted shortcut plan, which key resolution publishes later.
+expect_poll "the core admits current keys after the question" '[true, true, true, "idle", false]' consent_readiness
 # No key-hints plugin is installed, so its row is absent; the themes
 # plugin binds Super+Shift+T.
 expect_poll "the welcome is recorded with its link, key row and Connect, Not now" "$welcome_shape_asking" welcome_shape

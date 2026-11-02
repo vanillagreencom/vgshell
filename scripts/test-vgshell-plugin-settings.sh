@@ -18,7 +18,7 @@ cp -R -- "$repo/bin" "$tree/"
 cp -- "$repo/shell/Core/PluginLogic.js" "$repo/shell/Core/ConfigLogic.js" "$repo/shell/Core/PackageManagers.js" "$repo/shell/Core/PackageReview.js" "$repo/shell/Core/HyprlandLayer.js" "$repo/shell/Core/MonitorLogic.js" "$repo/shell/Core/Pads.js" "$tree/shell/Core/"
 cp -- "$repo/shell/Commons/SettingValues.js" "$repo/shell/Commons/PageReference.js" "$tree/shell/Commons/"
 cp -- "$repo/shell/Ui/icons/Lucide.js" "$repo/shell/Ui/icons/Own.js" "$tree/shell/Ui/icons/"
-printf '{ "version": 3, "plugins": [], "disabledPlugins": [] }\n' >"$tree/config/shell.json"
+printf '{ "version": 4, "plugins": [], "disabledPlugins": [] }\n' >"$tree/config/shell.json"
 
 cfg="$tmp/cfg"
 probe="$cfg/vgshell/plugins/acme.probe"
@@ -95,6 +95,6 @@ control() { # NAME FILE NEEDLE REPLACEMENT
 }
 control ignores-user bin/vgshell-plugin-judge 'settingsFor(configLogic.effectiveConfig(shipped, user)' 'settingsFor(configLogic.effectiveConfig(shipped, null)'
 control skips-schema bin/vgshell-plugin-judge 'if (refusal !== "") refuse(refusal.slice(' 'if (false) refuse(refusal.slice('
-control unmigrated bin/lib/judge-files.js 'const moved = logic.migrateConfig(config, packageReviewSettingsSource);' 'const moved = { config: config, migrated: false };'
+control unmigrated bin/lib/judge-files.js 'const moved = logic.migrateConfig(config, packageReviewSettingsSource, shortcutKeyMigrations);' 'const moved = { config: config, migrated: false };'
 
 rows_done test-vgshell-plugin-settings

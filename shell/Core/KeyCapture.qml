@@ -232,11 +232,12 @@ Scope {
     function conflictAnswer(key, id, shortcut) {
         const source = bindsSource;
         const state = bindsState;
-        const found = Logic.keyConflicts(key, Registry.hyprlandSections, state === "read" ? source.foreignKeys : [], id, shortcut);
+        const identities = Registry.hyprlandKeyIdentities;
+        const found = Logic.keyConflicts(key, Registry.hyprlandSections, state === "read" ? source.foreignKeys : [], id, shortcut, Registry.hyprlandBindPlan, identities);
         const names = {};
         for (const p of found.plugins)
             if (Logic.hasOwn(Registry.manifests, p.id)) names[p.id] = Registry.manifests[p.id].name;
-        const userBinds = found.user ? source.userBindsFor(ConfigLogic.hyprlandKey(key).key) : [];
+        const userBinds = found.user ? source.userBindsFor(ConfigLogic.hyprlandKey(key).key, identities) : [];
         const answer = { plugins: found.plugins, user: found.user, binds: state, userBinds: userBinds };
         answer.hint = Logic.conflictHint(answer, names);
         return Object.freeze(answer);
@@ -249,11 +250,11 @@ Scope {
     function removeUserBind(key, done) {
         const read = ConfigLogic.hyprlandKey(key);
         const asked = read.ok && Registry.hyprlandSections.some(section => section.binds.some(bind => bind.key === read.key));
-        const rows = read.ok && bindsSource !== null ? bindsSource.userBindsFor(read.key).filter(row => row.removable) : [];
+        const rows = read.ok && bindsSource !== null ? bindsSource.userBindsFor(read.key, Registry.hyprlandKeyIdentities).filter(row => row.removable) : [];
         if (!asked) { done({ ok: false, error: "refused: user-bind=no-plugin-key key=" + key }); return; }
         if (rows.length !== 1) { done({ ok: false, error: "refused: user-bind=lines count=" + rows.length + " key=" + read.key }); return; }
         const row = rows[0];
-        bindsSource.editBinds(["remove-bind", row.file, String(row.line), read.key], value => {
+        bindsSource.editBinds(["remove-bind", row.file, String(row.line), row.key], value => {
             if (!value.ok) { done(value); return; }
             root.shiftRemoved(row.file, row.line + 1, -1);
             const m = / undo=(\{.*\})$/.exec(value.said);

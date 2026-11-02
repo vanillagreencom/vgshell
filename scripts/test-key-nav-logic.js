@@ -93,9 +93,12 @@ function verify(logic) {
 
     assert.deepEqual(Array.from(logic.keyCaps("SUPER+SHIFT+T")), ["Super", "Shift", "T"], "keycaps normalize common modifiers");
     assert.deepEqual(Array.from(logic.keyCaps("Ctrl+PageDown")), ["Ctrl", "PageDown"], "keycaps normalize page keys");
-    // Keycode caps: [shortcut, caps]. 108 and 105 are the XKB keycodes of
-    // RALT and RCTL; any other code keeps its written form.
+    // Keycode caps: [shortcut, caps]. Known physical positions get a key
+    // label; any other code keeps its written form.
     const codeRows = [
+        ["SUPER+code:30", ["Super", "U"]],
+        ["SUPER+code:44", ["Super", "J"]],
+        ["SUPER+SHIFT+CODE:0030", ["Super", "Shift", "U"]],
         ["code:108", ["Right Alt"]],
         ["CODE:108", ["Right Alt"]],
         ["code:0108", ["Right Alt"]],
@@ -129,6 +132,8 @@ const CONTROLS = [
     ["key opener", "return control.visualFocus === true ? \"key\" : \"pointer\";", "return \"pointer\";"],
     ["pointer opener", "return control.visualFocus === true ? \"key\" : \"pointer\";", "return \"key\";"],
     ["keycap modifier display", "\"SUPER\": \"Super\",", "\"SUPER\": \"SUPER\","],
+    ["physical letter key name", '"CODE:30": "U"', '"CODE:30": "Code:30"'],
+    ["physical J key name", '"CODE:44": "J"', '"CODE:44": "Code:44"'],
     ["keycode key names", "\"CODE:108\": \"Right Alt\"", "\"CODE:108\": \"Code:108\""],
     ["keycode leading zeros", "if (/^CODE:[0-9]+$/.test(upper)) upper = \"CODE:\" + String(Number(upper.slice(5)));", ""]
 ];
