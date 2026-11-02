@@ -144,7 +144,7 @@ Item {
     // target and its parent, and onWatchedDirectoryChanged emits while the
     // target is not in the watcher's files(), which a directory never is), so
     // one change can fire two views: the themes folder and the user images
-    // under Paths.configDir, or a package's theme.json and backgrounds. A
+    // under Paths.configDir, or a package's backgrounds and another entry. A
     // call Qt.callLater already queued and not yet run takes no second place
     // (qtdeclarative 6.12 qqmldelayedcallqueue.cpp addUniqueCall, keyed by
     // object and method), so those fires cost one read, and the queue skips
@@ -195,8 +195,8 @@ Item {
 
     // Every source the reads list is watched: the installed packages, where
     // add, install, update and remove land, swap or delete a package
-    // folder; each listed package's theme.json and backgrounds; the user
-    // images folder; the catalog index; and each image. The shipped themes
+    // folder; each listed package's entries; the user images folder; the
+    // catalog index; and each image. The shipped themes
     // change only with a VGS update, which needs a restart.
     // QFileSystemWatcher observes directory renames as well as removal.
     // These views watch paths only; no directory is read as file content.
@@ -223,22 +223,32 @@ Item {
         printErrors: false
         onFileChanged: root.refreshData()
     }
+    // The entries of a package folder the list and the images read: its two
+    // documents, the preview its card draws and its backgrounds folder. Each
+    // has its own view: a view on an absent entry fires once the entry is
+    // created (Quickshell 0.3.1 src/io/fileview.cpp: on a change in the
+    // target's parent, onWatchedDirectoryChanged emits when a target not yet
+    // watched exists), and a file written in place reaches only its own
+    // view, since a folder watch reports no write (qtbase 6.12
+    // qfilesystemwatcher_inotify.cpp watches a directory without
+    // IN_MODIFY).
+    readonly property var packageEntries: ["theme.json", "terminal.json", "preview.jpg", "backgrounds"]
+    // Every listed package that is read, refused ones included, so fixing
+    // a refused package reaches an open view; a shadowed shipped package is
+    // never read.
     Variants {
-        model: root.listing === null ? [] : root.listing.packages.filter(p => p.state === "ok")
-        FileView {
-            required property var modelData
-            path: modelData.path + "/theme.json"
-            preload: false
-            watchChanges: true
-            printErrors: false
-            onFileChanged: root.refreshData(modelData.name)
+        model: {
+            const watches = [];
+            if (root.listing === null) return watches;
+            for (const p of root.listing.packages) {
+                if (p.state === "shadowed") continue;
+                for (const entry of root.packageEntries) watches.push({ name: p.name, path: p.path + "/" + entry });
+            }
+            return watches;
         }
-    }
-    Variants {
-        model: root.listing === null ? [] : root.listing.packages.filter(p => p.state === "ok")
         FileView {
             required property var modelData
-            path: modelData.path + "/backgrounds"
+            path: modelData.path
             preload: false
             watchChanges: true
             printErrors: false

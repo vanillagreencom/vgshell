@@ -13,7 +13,8 @@ import "../../shell/plugins/vgs.themes/BrowserLogic.js" as BrowserLogic
 // The browsers' data, the theme list, every image and the catalog, is read
 // on no timer: a round of the three reads runs once per watched change,
 // once per change fired in one turn, once per theme document and once per
-// opened view. The fake shell lists one installed package with one image,
+// opened view. The fake shell lists an installed package with one image,
+// a refused installed package and a shipped package the first shadows,
 // counts and answers each read, records each IPC handler and each notice,
 // and publishes `last` through a getter over a QtObject property, as
 // ThemeRunner's provider does.
@@ -48,6 +49,8 @@ Item {
 
         readonly property string packageDir: Paths.configDir + "/themes/dusk"
         readonly property string imagePath: packageDir + "/backgrounds/dawn.png"
+        readonly property string refusedDir: Paths.configDir + "/themes/broken"
+        readonly property string shadowedDir: Quickshell.shellDir + "/../themes/dusk"
 
         function fakeShell() {
             return {
@@ -58,7 +61,11 @@ Item {
                 ipc: { handle: (name, handler) => { tests.handlers[name] = handler; return "ok"; } },
                 theme: {
                     get last() { return store.last; },
-                    listing: { file: null, packages: [{ name: "dusk", displayName: null, source: "installed", state: "ok", reason: null, path: tests.packageDir }] },
+                    listing: { file: null, packages: [
+                        { name: "broken", displayName: null, source: "installed", state: "refused", reason: "package-theme", path: tests.refusedDir },
+                        { name: "dusk", displayName: null, source: "installed", state: "ok", reason: null, path: tests.packageDir },
+                        { name: "dusk", displayName: null, source: "shipped", state: "shadowed", reason: null, path: tests.shadowedDir }
+                    ] },
                     list: done => { tests.listCalls++; done({ reason: null }); },
                     images: (scope, done) => {
                         tests.imagesCalls++;
@@ -163,8 +170,9 @@ Item {
         // Nothing in the service reads on its own: no Timer or other object
         // runs or repeats on an interval, and no object polls. The walk
         // must reach every watch, a Variants instance and a Process's
-        // stdout, or it proves nothing. With nothing changed and no view
-        // open, a second then passes with no read.
+        // stdout, or it proves nothing. A shadowed package is never read, so
+        // nothing watches it. With nothing changed and no view open, a
+        // second then passes with no read.
         function test_nothing_reads_while_nothing_changes() {
             const tree = treeOf(service);
             for (const object of tree) {
@@ -174,6 +182,7 @@ Item {
             const paths = tree.map(object => object.path).filter(path => typeof path === "string");
             for (const path of [Paths.configDir + "/themes", Paths.configDir + "/backgrounds", packageDir + "/theme.json", packageDir + "/backgrounds", imagePath])
                 verify(paths.indexOf(path) !== -1, "the walk reaches the watch on " + path);
+            compare(paths.filter(path => path.startsWith(shadowedDir)).length, 0, "no watch on a shadowed package");
             verify(paths.some(path => path.endsWith("/themes/catalog/index.json")), "the walk reaches the catalog index watch");
             verify(tree.some(object => object.stdout !== undefined && object.stdout !== null && tree.indexOf(object.stdout) !== -1),
                    "the walk reaches a Process's stdout");
@@ -188,7 +197,11 @@ Item {
                 { tag: "the user images folder", paths: [dir + "/backgrounds"] },
                 { tag: "the catalog index", paths: [Quickshell.shellDir + "/../themes/catalog/index.json"] },
                 { tag: "a package's theme.json", paths: [packageDir + "/theme.json"] },
+                { tag: "a package's terminal.json", paths: [packageDir + "/terminal.json"] },
+                { tag: "a package's preview", paths: [packageDir + "/preview.jpg"] },
                 { tag: "a package's backgrounds", paths: [packageDir + "/backgrounds"] },
+                { tag: "a refused package's theme.json", paths: [refusedDir + "/theme.json"] },
+                { tag: "a refused package's terminal.json", paths: [refusedDir + "/terminal.json"] },
                 { tag: "an image", paths: [imagePath] },
                 // One change under Paths.configDir fires both folder views.
                 { tag: "two views in one turn", paths: [dir + "/themes", dir + "/backgrounds"] }

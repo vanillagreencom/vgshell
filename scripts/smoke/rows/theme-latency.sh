@@ -490,6 +490,7 @@ expect "latency input bindings reload" ok hypr reload config-only
 cp -p -- "$repo/bin/vgshell" "$sandbox/vgshell-before-latency"
 cp -p -- "$repo/bin/vgshell" "$repo/bin/vgshell.latency-real"
 latency_gate="$sandbox/latency-catalog-gate"
+# Each catalog command the shell starts adds one line to this file.
 latency_started="$sandbox/latency-catalog-started"
 # Each apply's judge stamps its parts into this file, one line a process.
 latency_stamps="$sandbox/latency-apply-stamps"
@@ -501,7 +502,7 @@ latency_hold_ms=$((2 * smoke_poll_bound_ms))
 cat >"$repo/bin/vgshell" <<EOF
 #!/usr/bin/env bash
 if [[ \${1-} == theme && \${2-} == catalog ]]; then
-  touch '$latency_started'
+  printf 'catalog\n' >>'$latency_started'
   while [[ ! -e '$latency_gate' ]]; do sleep 0.01; done
 fi
 if [[ \${1-} == theme && \${2-} == apply ]]; then
@@ -512,6 +513,7 @@ exec '$repo/bin/vgshell.latency-real' "\$@"
 EOF
 chmod +x "$repo/bin/vgshell"
 latency_catalog_held() { [[ -e $latency_started ]] && echo held || echo pending; }
+latency_catalog_reads() { if [[ -e $latency_started ]]; then wc -l <"$latency_started"; else echo 0; fi; }
 # The switch reading's catalog themes, the filter `ar` shows, draw the
 # package previews they ship; in the sandbox copy lunar's is the small
 # test image instead, its control.
@@ -689,7 +691,7 @@ type_keys -k Escape || fail "the held-key browser close failed"
 expect_poll "the held-key browser closes" 0 layer_count vgs:overlay
 
 # An install, an update and a removal made outside the open view must
-# reach its retained answer without a new open-time catalog command.
+# reach its retained answer while it stays open.
 type_keys -M logo -M shift -k t -m shift -m logo || fail "the refresh browser open failed"
 expect_poll "the refresh browser holds the keyboard" true latency_theme_value activeFocus
 type_keys latency || fail "the refresh card filter failed"
@@ -709,15 +711,25 @@ rmdir -- "${home:?}/.config/vgshell/themes/latency-extra"
 expect_poll "a removed package leaves the open list" absent latency_extra
 expect "removal keeps the selected theme" '"latency"' latency_theme_value selectedName
 expect "unrelated changes keep the installed image cache URL" "$latency_unchanged_stamp" latency_stamp
-expect "the package change reads settle before the timer check" idle theme_idle
-expect_poll "the service has no refresh pending before the timer check" false ipc smoke readInstance service vgs.themes readingData
-rm -- "${latency_started:?}"
-expect "the registered refresh timer fires" ok ipc theme-latency serviceTimer
-expect_poll "the timer refreshes the retained catalog" held latency_catalog_held
-expect "the timer refresh settles" idle theme_idle
-expect "timer refresh keeps the selected theme" '"latency"' latency_theme_value selectedName
+expect "the package change reads settle before the reopen check" idle theme_idle
+expect_poll "the service has no read pending before the reopen check" false ipc smoke readInstance service vgs.themes readingData
 type_keys -k Escape -k Escape || fail "the refresh browser close failed"
 expect_poll "the refresh browser closes" 0 layer_count vgs:overlay
+
+# The service reads on no timer: opening a view asks one read round, whose
+# catalog command the gate holds while the view takes keys.
+rm -- "${latency_gate:?}" "${latency_started:?}"
+type_keys -M logo -M shift -k t -m shift -m logo || fail "the reopened browser open failed"
+expect_poll "the reopened browser holds the keyboard" true latency_theme_value activeFocus
+expect_poll "the reopen starts a held catalog read" held latency_catalog_held
+type_keys latency || fail "the reopened card filter failed"
+expect_poll "the reopened card is selected" '"latency"' latency_theme_value selectedName
+touch -- "$latency_gate"
+expect "the reopen read settles" idle theme_idle
+expect "the reopen read keeps the selected theme" '"latency"' latency_theme_value selectedName
+expect "the reopen asks one catalog read" 1 latency_catalog_reads
+type_keys -k Escape -k Escape || fail "the reopened browser close failed"
+expect_poll "the reopened browser closes" 0 layer_count vgs:overlay
 
 cp -p -- "$sandbox/vgshell-before-latency" "$repo/bin/vgshell"
 rm -- "$repo/bin/vgshell.latency-real"
