@@ -1253,7 +1253,7 @@ async function cases(kit, server, only = null, mutation = false) {
     // start and working sounds still reach the player, and the reply keeps
     // its written count.
     await run("voice-mute-spoken-only", async w => {
-        const kinds = from => [...new Set(w.writes.slice(from).map(write => write.pcm.every(byte => byte === 0) ? "silence"
+        const kinds = (from, keep = () => true) => [...new Set(w.writes.slice(from).filter(keep).map(write => write.pcm.every(byte => byte === 0) ? "silence"
             : write.pcm.every(byte => byte === 0x11) ? "voice" : "tone"))].sort();
         w.runner.dispatch({ type: "voice-mute-toggle" });
         w.runner.dispatch({ type: "preview", voice: "fixture" });
@@ -1274,6 +1274,9 @@ async function cases(kit, server, only = null, mutation = false) {
         await playOut(w);
         assert.equal(w.audio.lastPlayback.writtenFrames, 2880 + 4 * Fixture.WORD_FRAMES, "a muted reply keeps its written count");
         assert.deepEqual(kinds(turnFrom), ["silence", "tone"], "the start and working sounds play; the spoken words are silence");
+        const reply = w.writes.at(-1).source;
+        assert.deepEqual(kinds(turnFrom, write => write.source === reply), ["silence", "tone"],
+            "the working sound inside the spoken reply's source plays");
         assert.deepEqual(w.faults, []);
     }, { sounds: true });
 
@@ -3650,8 +3653,10 @@ async function groupPlants(root, server) {
     const plants = [
         ["start-earcon-silenced", 'pcm.writeInt16LE(Math.round(3900 * envelope * Math.sin(2 * Math.PI * frequency * frame / PCM_RATE)), frame * 2);',
             'pcm.writeInt16LE(0, frame * 2);', "feedback-start"],
-        ["working-earcon-silenced", 'c.turn.speech.readable.push(earcon("working"));',
-            'c.turn.speech.readable.push(Buffer.alloc(5760));', "feedback-working"],
+        ["working-earcon-silenced", 'c.turn.speech.readable.push({ pcm: earcon("working"), tone: true });',
+            'c.turn.speech.readable.push({ pcm: Buffer.alloc(5760), tone: true });', "feedback-working"],
+        ["working-earcon-unmarked", 'c.turn.speech.readable.push({ pcm: earcon("working"), tone: true });',
+            'c.turn.speech.readable.push({ pcm: earcon("working") });', "voice-mute-spoken-only"],
         ["feedback-text-suppression", "                        quiet(turn);\n                        say(c, turn, sentence);", "                        say(c, turn, sentence);", "feedback-suppressed-text"],
         ["feedback-tool-suppression", 'case "done":\n                    quiet(turn);',
             'case "done":\n                    void turn;', "feedback-suppressed-tool"],

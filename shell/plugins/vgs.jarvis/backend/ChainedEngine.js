@@ -1928,7 +1928,8 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 if (s.playback.cue === "working" && c.turn !== null && c.turn.op === s.playback.source
                         && c.turn.speech === null) {
                     c.turn.speech = speech(c);
-                    c.turn.speech.readable.push(earcon("working"));
+                    // Marked a tone, so voice mute leaves it audible.
+                    c.turn.speech.readable.push({ pcm: earcon("working"), tone: true });
                 }
                 if (s.playback.cue === "line" && c.turn !== null && c.turn.op === s.playback.source
                         && c.turn.lineStream === null) lineAdmitted(c, c.turn);

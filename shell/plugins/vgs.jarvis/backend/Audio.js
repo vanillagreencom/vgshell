@@ -3,8 +3,9 @@
 // or changes a default device. Session admits half-duplex only.
 // playbackSource(op) answers null or {readable, spoken}: spoken is true when
 // the readable carries Jarvis's spoken words, which voice mute silences, and
-// false for a start sound or a voice preview. In a spoken object-mode source
-// a bare Buffer packet is a tone, the working sound, and stays audible.
+// false for a start sound or a voice preview. A packet {pcm, tone: true} is
+// a tone the engine pushes into a spoken source, the working sound, and
+// stays audible; voice mute silences every other packet of a spoken source.
 "use strict";
 const cp = require("node:child_process");
 const path = require("node:path");
@@ -500,6 +501,7 @@ class Audio {
         if (!Buffer.isBuffer(pcm) || pcm.length > BUFFER_BYTES || pcm.length % 2 !== 0)
             throw new Error("playback-frame");
         const sentence = Buffer.isBuffer(packet) ? undefined : packet && packet.sentence;
+        const tone = !Buffer.isBuffer(packet) && packet.tone === true;
         if (sentence !== undefined) {
             if (sentence === null || typeof sentence.text !== "string" || sentence.text.trim() === ""
                     || !Number.isSafeInteger(sentence.frames) || sentence.frames < pcm.length / 2
@@ -532,7 +534,7 @@ class Audio {
             playback.sentenceEnd = playback.received + sentence.frames;
         }
         playback.received += pcm.length / 2;
-        return pcm;
+        return { pcm, tone };
     }
 
     async writePlayback(playback, owner, frame, spoken) {
@@ -637,9 +639,8 @@ class Audio {
                     await this.waitPlayback(playback, source, "readable");
                     continue;
                 }
-                const frame = this.playbackPacket(playback, packet);
-                await this.writePlayback(playback, owner, frame,
-                    spoken && !(source.readableObjectMode && Buffer.isBuffer(packet)));
+                const { pcm, tone } = this.playbackPacket(playback, packet);
+                await this.writePlayback(playback, owner, pcm, spoken && !tone);
             }
             if (this.playback !== playback || owner.stopping) return;
             if (playback.received < playback.sentenceEnd) throw new Error("playback-sentence-incomplete");

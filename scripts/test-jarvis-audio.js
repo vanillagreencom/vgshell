@@ -358,8 +358,10 @@ async function inside() {
     // words through the one paced write, for a chained voice's sentences and
     // a duplex voice's bytes alike: the written count and the acknowledgement
     // are a heard reply's, and the level still reads the voice. A source the
-    // engine hands as not spoken, a start sound or a preview, and a tone
-    // inside a spoken source, the working sound, stay audible.
+    // engine hands as not spoken, a start sound or a preview, and a packet
+    // the engine marks a tone inside a spoken source, the working sound, stay
+    // audible. Any unmarked packet of a spoken source is silenced, whatever
+    // its shape.
     async function voiceMute(Implementation = Audio) {
         const voice = Buffer.alloc(480), tone = Buffer.alloc(480);
         for (let i = 0; i < voice.length; i += 2) { voice.writeInt16LE(8192, i); tone.writeInt16LE(4096, i); }
@@ -376,7 +378,9 @@ async function inside() {
             ["chained reply heard", () => Readable.from([words]), true, false, [voice]],
             ["chained reply muted", () => Readable.from([words]), true, true, [silence]],
             ["duplex reply muted", () => bytesOf([voice]), true, true, [silence]],
-            ["working sound and reply muted", () => Readable.from([tone, words]), true, true, [tone, silence]],
+            ["working sound and reply muted", () => Readable.from([{ pcm: tone, tone: true }, words]), true, true, [tone, silence]],
+            ["unmarked bare packet muted", () => Readable.from([voice]), true, true, [silence]],
+            ["unmarked pcm packet muted", () => Readable.from([{ pcm: voice }]), true, true, [silence]],
             ["start sound muted", () => Readable.from([tone]), false, true, [tone]],
             ["chained preview muted", () => Readable.from([words]), false, true, [voice]],
             ["duplex preview muted", () => bytesOf([voice]), false, true, [voice]]
@@ -627,7 +631,9 @@ async function inside() {
         'const out = pcm;', voiceMute);
     await control("voice-mute-spoken", "const out = spoken && this.state.voiceMute.kind",
         "const out = this.state.voiceMute.kind", voiceMute);
-    await control("voice-mute-tone", "spoken && !(source.readableObjectMode && Buffer.isBuffer(packet))", "spoken", voiceMute);
+    await control("voice-mute-tone", "spoken && !tone", "spoken", voiceMute);
+    await control("voice-mute-unmarked", "const tone = !Buffer.isBuffer(packet) && packet.tone === true;",
+        "const tone = Buffer.isBuffer(packet) || packet.tone === true;", voiceMute);
     await control("voice-mute-level", 'this.reportLevel(playback.e.gen, "playback", pcm);',
         'this.reportLevel(playback.e.gen, "playback", out);', voiceMute);
     await control("node-cache-bound", 'this.nodes.set(node.id, { group, label: label.slice(0, 60), value });',
