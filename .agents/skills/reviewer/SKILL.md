@@ -24,7 +24,7 @@ VGS delivery policy overrides the shared workflow's mandatory review, CI-wait, b
 
 Kendex workflow policy VGS keeps (KEN-3470):
 
-- The VGS estimate scale, in implementation, planned and review-created issues and review findings: 1 means hours, 2 half a day, 3 a day, 4 two to three days, 5 a week or more. The numeric field keeps this consumer-defined meaning. Reassess the estimate when implementation changes the scope. (DV17, ORCH-M22, RV20)
+- In implementation, planned and review-created issues and review findings, the numeric estimate is the project-management package's relative size class, and the time beside an item is one nonstop-hours-to-merge figure, per project-management SKILL.md § Disposition. Reassess the estimate when implementation changes the scope. (DV17, ORCH-M22, RV20)
 
 ## VGS review policy
 
