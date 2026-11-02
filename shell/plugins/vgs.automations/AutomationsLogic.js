@@ -699,7 +699,7 @@ function summaryText(s) {
 
 var AUTOMATION_KEYS = ["id", "name", "command", "enabled", "schedule", "timeoutSeconds", "catchUp", "requiresNetwork", "workingDirectory", "notifyEveryRun"];
 // What `add` fills in when a definition leaves it out.
-var AUTOMATION_DEFAULTS = { enabled: true, timeoutSeconds: TIMEOUT_DEFAULT, catchUp: false, requiresNetwork: false, workingDirectory: "", notifyEveryRun: false };
+var AUTOMATION_DEFAULTS = { enabled: true, timeoutSeconds: TIMEOUT_DEFAULT, catchUp: false, requiresNetwork: true, workingDirectory: "", notifyEveryRun: false };
 
 // An absolute path with no control character: a working directory, or one
 // a unit or crontab line names.

@@ -263,7 +263,7 @@ function verify(logic) {
     const one = { version: 2, automations: [automation({})] };
     same(logic.parseStore(logic.serializeStore(one)), { ok: true, store: one }, "a store reads back as written");
     const added = logic.addAutomation(logic.emptyStore(), { name: "Back up notes!", command: "true", schedule: schedule({}) });
-    same(added.automation, { name: "Back up notes!", command: "true", enabled: true, schedule: schedule({}), timeoutSeconds: 3600, catchUp: false, requiresNetwork: false, workingDirectory: "", notifyEveryRun: false, id: "back-up-notes" }, "add fills the defaults and derives the id");
+    same(added.automation, { name: "Back up notes!", command: "true", enabled: true, schedule: schedule({}), timeoutSeconds: 3600, catchUp: false, requiresNetwork: true, workingDirectory: "", notifyEveryRun: false, id: "back-up-notes" }, "add fills the defaults and derives the id");
     same(logic.addAutomation(added.store, { name: "Back up notes", command: "true", schedule: schedule({}) }).automation.id, "back-up-notes-2", "a derived id steps past a taken one");
     same(logic.addAutomation(added.store, { id: "back-up-notes", name: "x", command: "true", schedule: schedule({}) }), { ok: false, error: "definition.id: taken=back-up-notes" });
     same(logic.addAutomation(added.store, { name: "x", command: "true", schedule: schedule({}), colour: "red" }), { ok: false, error: "definition.colour: unknown" });
@@ -839,6 +839,7 @@ const CONTROLS = [
     ["a command refuses control characters", "if (!isCommandText(a.command, COMMAND_MAX))", "if (typeof a.command !== \"string\")"],
     ["ids are distinct", "if (hasOwn(seen, doc.automations[i].id)) return { ok: false, error: \"store.automations.\" + i + \".id: duplicate\" };", "if (false) return null;"],
     ["add fills the defaults", "else if (hasOwn(AUTOMATION_DEFAULTS, key)) made[key] = AUTOMATION_DEFAULTS[key];", "else if (false) made[key] = null;"],
+    ["a new automation needs the network", "catchUp: false, requiresNetwork: true, workingDirectory: \"\"", "catchUp: false, requiresNetwork: false, workingDirectory: \"\""],
     ["a derived id steps past a taken one", "for (var n = 2; taken.indexOf(id) !== -1; n++) id = base + \"-\" + n;", "var n = 2;"],
     ["an edit keeps the id", "if (hasOwn(changes, \"id\") && changes.id !== id) return { ok: false, error: \"definition.id: fixed=\" + id };", "if (false) return null;"],
     ["a unit argument doubles %", ".replace(/%/g, \"%%\")", ""],

@@ -151,7 +151,7 @@ FocusScope {
                         width: parent.width
                         label: "Network"
                         inline: true
-                        hint: page.pending === null ? "" : [View.networkExplanation(page.pending), "Saving changes cancels the waiting run."].filter(text => text !== "").join(" ")
+                        hint: page.pending === null ? "On, a run waits for internet access before it starts; off, it starts at once, even offline" : [View.networkExplanation(page.pending), "Saving changes cancels the waiting run."].filter(text => text !== "").join(" ")
                         Switch {
                             size: "sm"
                             text: "Needs internet"

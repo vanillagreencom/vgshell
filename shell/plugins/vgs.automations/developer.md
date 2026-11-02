@@ -8,7 +8,7 @@ Saving an automation writes a timer and a service for it under `~/.config/system
 
 At each run the runner starts the command in the user's login shell and stops it at its timeout. It saves a transcript, each output line with its time, and a record of the outcome under `~/.local/state/vgshell/automations/runs/`.
 
-A definition with `requiresNetwork` waits until NetworkManager reports `Connectivity` FULL. The existing runner owns the wait, including Run now and Test run. Neither an unavailable reading nor the end of the active-time grace permits a command to start. Local definitions make no network call. `AutomationsLogic.js` owns the connectivity and missed-run decisions.
+A definition with `requiresNetwork` waits until NetworkManager reports `Connectivity` FULL. A new automation, from the editor or `add`, has `requiresNetwork` true; a stored value stays as written. The existing runner owns the wait, including Run now and Test run. Neither an unavailable reading nor the end of the active-time grace permits a command to start. Local definitions make no network call. `AutomationsLogic.js` owns the connectivity and missed-run decisions.
 
 The runner retains the original due time in an owned pending marker. The window reads that marker through the engine, shows waiting work and offers Cancel. Edit, Disable and Remove cancel a waiting attempt before changing its definition; they do not stop an admitted command. The engine checks the marker's process start and boot identity, so a crashed runner leaves no live waiting row. Waiting does not require VGS to stay open.
 

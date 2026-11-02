@@ -8330,9 +8330,13 @@ scene_automations() { # MODE
   # editor; an older tree's engine refuses that rule, so it has no such shot.
   local has_interval_rules=false
   grep -qF -- '"minutely"' "$tree/shell/plugins/vgs.automations/AutomationsLogic.js" && has_interval_rules=true
-  local success='{"name":"Shot success","command":"echo success","notifyEveryRun":true,"schedule":{"frequency":"weekly","interval":1,"weekdays":["mon"],"times":["09:00"],"start":"2026-01-05","end":{"type":"never"}}}'
-  local failure='{"name":"Shot failure","command":"echo nope >&2; exit 3","notifyEveryRun":true,"schedule":{"frequency":"weekly","interval":1,"weekdays":["fri"],"times":["17:30"],"start":"2026-01-09","end":{"type":"never"}}}'
-  local custom='{"name":"Shot custom","command":"printf custom","notifyEveryRun":false,"schedule":{"frequency":"weekly","interval":3,"weekdays":["mon","wed"],"times":["08:30","16:45"],"start":"2026-01-05","end":{"type":"never"}}}'
+  # A new automation needs the network where the tree has the requirement;
+  # these local commands turn it off.
+  local local_net=''
+  grep -qF 'requiresNetwork' "$tree/shell/plugins/vgs.automations/AutomationsLogic.js" && local_net='"requiresNetwork":false,'
+  local success='{"name":"Shot success","command":"echo success",'"$local_net"'"notifyEveryRun":true,"schedule":{"frequency":"weekly","interval":1,"weekdays":["mon"],"times":["09:00"],"start":"2026-01-05","end":{"type":"never"}}}'
+  local failure='{"name":"Shot failure","command":"echo nope >&2; exit 3",'"$local_net"'"notifyEveryRun":true,"schedule":{"frequency":"weekly","interval":1,"weekdays":["fri"],"times":["17:30"],"start":"2026-01-09","end":{"type":"never"}}}'
+  local custom='{"name":"Shot custom","command":"printf custom",'"$local_net"'"notifyEveryRun":false,"schedule":{"frequency":"weekly","interval":3,"weekdays":["mon","wed"],"times":["08:30","16:45"],"start":"2026-01-05","end":{"type":"never"}}}'
   automations_shot add --definition "$success" >/dev/null
   automations_shot add --definition "$failure" >/dev/null
   automations_shot add --definition "$custom" >/dev/null
@@ -8381,7 +8385,7 @@ scene_automations() { # MODE
   type_keys -k Escape || fail "closing the date picker failed"
   expect_poll "the date picker closes" false automation_date_open
   if "$has_interval_rules"; then
-    local ten='{"name":"Shot every 10 minutes","command":"printf ten","notifyEveryRun":false,"schedule":{"frequency":"minutely","interval":10,"start":"2026-01-05","end":{"type":"never"}}}'
+    local ten='{"name":"Shot every 10 minutes","command":"printf ten",'"$local_net"'"notifyEveryRun":false,"schedule":{"frequency":"minutely","interval":10,"start":"2026-01-05","end":{"type":"never"}}}'
     automations_shot add --definition "$ten" >/dev/null || fail "adding the every-10-minutes automation failed"
     automation_click IconButton "Back to automations" || fail "returning to the list for the every-10-minutes rule failed"
     expect_poll "the automations list shows the every-10-minutes rule" True automation_list_has "Shot every 10 minutes"
@@ -8576,7 +8580,9 @@ print(json.dumps([app, text[0], text[1], "{" + ", ".join(hints) + "}"]))'
 rows = json.load(sys.stdin)
 print(json.dumps(next(([a["label"] for a in v["actions"]] for _, _, v in rows if v["summary"] == sys.argv[1]), None)))' "Pull dotfiles failed"
   }
-  local definition='{"name":"Pull dotfiles","command":"echo Fetching origin; echo \"refused: local edits on paths the update changes: docs/hosts/px13.md\" >&2; exit 1","notifyEveryRun":false,"schedule":{"frequency":"daily","interval":1,"times":["07:00"],"start":"2026-01-05","end":{"type":"never"}}}'
+  local local_net=''
+  grep -qF 'requiresNetwork' "$repo/shell/plugins/vgs.automations/AutomationsLogic.js" && local_net='"requiresNetwork":false,'
+  local definition='{"name":"Pull dotfiles","command":"echo Fetching origin; echo \"refused: local edits on paths the update changes: docs/hosts/px13.md\" >&2; exit 1",'"$local_net"'"notifyEveryRun":false,"schedule":{"frequency":"daily","interval":1,"times":["07:00"],"start":"2026-01-05","end":{"type":"never"}}}'
   failure_engine add --definition "$definition" >/dev/null || fail "the failing automation could not be added"
   expect "enabling vgs.notifications for the failure scene is allowed" ok ipc shell setPluginEnabled vgs.notifications true
   expect_poll "vgs.notifications is built for the failure scene" True record_exists vgs.notifications

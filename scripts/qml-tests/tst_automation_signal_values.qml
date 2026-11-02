@@ -116,11 +116,11 @@ Item {
             compare(typeof window.draft.enabled, "boolean");
             const network = descendants(editor).find(item => item instanceof Switch && item.text === "Needs internet");
             verify(network !== undefined);
-            compare(network.checked, false);
+            compare(network.checked, true);
             network.toggled();
-            compare(window.draft.requiresNetwork, true);
+            compare(window.draft.requiresNetwork, false);
             compare(typeof window.draft.requiresNetwork, "boolean");
-            compare(View.definitionFromDraft(window.draft, Engine).requiresNetwork, true);
+            compare(View.definitionFromDraft(window.draft, Engine).requiresNetwork, false);
             compare(window.validationResult.ok, true);
         }
 

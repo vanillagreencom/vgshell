@@ -100,7 +100,7 @@ function blankDraft(nowMs, logic) {
         enabled: true,
         timeoutSeconds: logic.TIMEOUT_DEFAULT,
         catchUp: false,
-        requiresNetwork: false,
+        requiresNetwork: true,
         workingDirectory: "",
         notifyEveryRun: false
     };

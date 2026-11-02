@@ -41,7 +41,7 @@ function run(view, logic) {
     assert.equal(draft.times.length, 1);
     assert.equal(draft.zone, "local");
     assert.equal(draft.preset, "weekdays");
-    assert.equal(draft.requiresNetwork, false);
+    assert.equal(draft.requiresNetwork, true);
 
     const once = view.blankDraft(now, logic);
     once.name = "Once";

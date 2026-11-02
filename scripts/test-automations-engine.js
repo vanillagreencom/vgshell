@@ -200,7 +200,7 @@ function calls(w, name) {
 }
 
 function def(extra) {
-    return Object.assign({ name: "Job", command: "echo done", schedule: { frequency: "daily", interval: 1, times: ["09:00"], start: "2026-01-01", end: { type: "never" } } }, extra);
+    return Object.assign({ name: "Job", command: "echo done", requiresNetwork: false, schedule: { frequency: "daily", interval: 1, times: ["09:00"], start: "2026-01-01", end: { type: "never" } } }, extra);
 }
 
 function add(w, engine, extra) {

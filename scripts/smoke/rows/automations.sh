@@ -101,7 +101,7 @@ last_systemd_run_prefix() { tail -n 1 -- "$auto_stub/systemd-run.calls" | py_rep
 # auto_problem: the Engine status as `<tone> <operation>` and the exit word,
 # or `ok None`.
 auto_problem() { auto_status problem | py_reply 'import json,sys; v=json.load(sys.stdin); print(" ".join([v["tone"]] + v["text"].split(" ")[:2]))'; }
-failing='{"name": "Nightly", "command": "echo nope >&2; exit 3", "schedule": {"frequency": "weekly", "interval": 2, "weekdays": ["mon"], "times": ["03:00"], "start": "2026-01-05", "end": {"type": "never"}}}'
+failing='{"name": "Nightly", "command": "echo nope >&2; exit 3", "requiresNetwork": false, "schedule": {"frequency": "weekly", "interval": 2, "weekdays": ["mon"], "times": ["03:00"], "start": "2026-01-05", "end": {"type": "never"}}}'
 
 # The fixed clock and every XDG directory live under the row's sandbox tree.
 # This runs the same scheduler entry point as a timer, at the UTC month edge
@@ -129,7 +129,7 @@ utc_automations() {
 utc_last() { local out; out="$(utc_automations "$@")" || return; printf '%s\n' "${out##*$'\n'}"; }
 utc_fire() { utc_automations run --scheduled utc-month-end >/dev/null && echo ok; }
 utc_run_record() { python3 -c 'import glob,json,sys; p=glob.glob(sys.argv[1]+"/*.ended.json"); r=json.load(open(p[0])); print(json.dumps([r["trigger"],r["outcome"],r["slot"]],separators=(",",":")))' "$utc_test/state/vgshell/automations/runs"; }
-utc_definition='{"name":"UTC month end","command":"echo utc-slot","schedule":{"frequency":"monthly","interval":1,"monthly":{"by":"date","day":1},"times":["00:00"],"start":"2026-11-01","end":{"type":"never"},"zone":"utc"}}'
+utc_definition='{"name":"UTC month end","command":"echo utc-slot","requiresNetwork":false,"schedule":{"frequency":"monthly","interval":1,"monthly":{"by":"date","day":1},"times":["00:00"],"start":"2026-11-01","end":{"type":"never"},"zone":"utc"}}'
 expect "the nested scheduler stores the UTC month-end rule in its temporary XDG tree" added=utc-month-end utc_last add --definition "$utc_definition"
 expect "the UTC timer carries its schedule zone" True python3 -c 'import pathlib,sys; p=pathlib.Path(sys.argv[1]); print("OnCalendar=*-*-01 00:00:00 UTC" in p.read_text())' "$utc_test/config/systemd/user/vgs-automation-utc-month-end.timer"
 mkdir -p -- "$utc_test/state/vgshell/automations/guard"
@@ -253,15 +253,13 @@ expect "the pointer creates Smoke UI through the editor" ok ui_create "Smoke UI"
 expect_poll "the CLI reads the automation the window created" '"echo smoke-ui"' auto_row_value smoke-ui command
 expect "the window's draft is the saved automation" '"smoke-ui"' ui_draft id
 
-# A pointer toggles the requirement and saves it. Space on that same
-# focused switch toggles it back; Ctrl+S round-trips the keyboard edit.
-expect "a new automation does not require the network" false auto_row_value smoke-ui requiresNetwork
-expect "the pointer enables Needs internet" ok ui_click Switch "Needs internet"
-expect_poll "the requirement reaches the draft" true ui_draft requiresNetwork
-expect "Save stores the network requirement" ok ui_click Button Save
-expect_poll "the CLI reads the network requirement" true auto_row_value smoke-ui requiresNetwork
-expect "the pointer focuses Needs internet for its keyboard toggle" ok ui_click Switch "Needs internet"
-expect_poll "the focused switch is off" false ui_draft requiresNetwork
+# A new automation needs the network. A pointer toggles the requirement
+# off and focuses its switch; Space on that focused switch toggles it both
+# ways, and Ctrl+S stores the keyboard edit, leaving it off for the local
+# runs below.
+expect "a new automation requires the network" true auto_row_value smoke-ui requiresNetwork
+expect "the pointer turns off Needs internet" ok ui_click Switch "Needs internet"
+expect_poll "the cleared requirement reaches the draft" false ui_draft requiresNetwork
 expect "Space toggles the focused requirement on" ok ui_keys -k space
 expect_poll "Space reaches the checked draft" true ui_draft requiresNetwork
 expect "Space toggles it off and Ctrl+S stores the keyboard edit" ok ui_keys -k space -M ctrl -k s -m ctrl
@@ -746,7 +744,7 @@ leak_notifications_setup || { fail "automations: notification precondition faile
 expect_poll "the shell owns the sandbox's notification server name" 'org.freedesktop.Notifications shell' leak_bus_names org.freedesktop.Notifications
 auto_streak_flag="$sandbox/automations-streak-fails"
 : >"$auto_streak_flag"
-expect "the engine adds an automation that fails while the flag exists" added=smoke-streak auto_last add --definition '{"name": "Smoke streak", "command": "test ! -e '"$auto_streak_flag"'", "schedule": {"frequency": "weekly", "interval": 2, "weekdays": ["mon"], "times": ["03:00"], "start": "2026-01-05", "end": {"type": "never"}}}'
+expect "the engine adds an automation that fails while the flag exists" added=smoke-streak auto_last add --definition '{"name": "Smoke streak", "command": "test ! -e '"$auto_streak_flag"'", "requiresNetwork": false, "schedule": {"frequency": "weekly", "interval": 2, "weekdays": ["mon"], "times": ["03:00"], "start": "2026-01-05", "end": {"type": "never"}}}'
 auto_sent_before="$(python3 -c 'import os,sys; print(sum(1 for _ in open(sys.argv[1])) if os.path.exists(sys.argv[1]) else 0)' "$auto_stub/notify-send.calls")" || fail "the notify-send calls are unreadable"
 for auto_round in 1 2 3; do expect "failing run $auto_round" exit=1 auto_manual smoke-streak; done
 rm -- "$auto_streak_flag"
