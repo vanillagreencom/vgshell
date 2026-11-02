@@ -1567,7 +1567,7 @@ world(async () => {
                 .trim().split("\\n").filter(Boolean).map(JSON.parse));
         const before = auditRows().length;
         const answer = session.transfer(frame, () => {
-            fs.appendFileSync(${JSON.stringify(frameAudits)}, JSON.stringify({ frame: value, records: auditRows().slice(before) }) + "\\n");
+            fs.appendFileSync(${JSON.stringify(frameAudits)}, JSON.stringify({ frame: value, labels: frame.labels, before, records: auditRows().slice(before) }) + "\\n");
             return session.channel.send(frame, session.grants());
         });`));
         // "wrong-key" stores the other cloud voice's key, at the same origin,
@@ -1618,7 +1618,8 @@ world(async () => {
         let releaseReply;
         const heldReply = new Promise(resolve => { releaseReply = resolve; });
         try {
-            send({ type: "hello", settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain, model: "fixture-model", effort: "", fallbacks: [], taskTerminal: "auto",
+            send({ type: "hello", settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain, model: "fixture-model", effort: "",
+                fallbacks: only === "failover" ? [{ name: "backup", brain, model: "fixture-model" }] : [], taskTerminal: "auto",
                 cloudVision: "ask", privateWindows: "", voiceProvider: P.setting, voiceAccount: live, voice: only === "preview" ? P.previewVoice : "", clonedVoice: false, dictation: "" }, directories, locked: false,
                 keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C" } });
             if (only === "wrong-key") {
@@ -1663,14 +1664,18 @@ world(async () => {
             assert.equal(P.noTools(await P.open(conn)), true, "the daemon's voice has no tools");
             await wait(() => last()?.capture.kind === "open", "synthetic capture opens behind the indicator");
             const speech = { gen: last().speech.gen, op: last().speech.op };
-            // The stream's release rows: a pending row before each frame,
-            // then the one row its end writes.
+            // Every frame the session sent, with its label set and the audit
+            // rows written inside its own send callback.
+            const sent = () => fs.readFileSync(frameAudits, "utf8").trim().split("\n").map(JSON.parse);
+            // The stream's release rows: the connection's pending row, one
+            // pending row for each label set its frames carried, then the
+            // one row its end writes, however many frames it sent.
             const streamRows = () => rows().filter(row => row.kind === "release" && row.gen === speech.gen && row.op === speech.op);
             const closedAs = (outcome, cause, label) => {
-                const stream = streamRows();
-                assert.ok(stream.length >= 3, label + ": the connection and its frames each left a pending row");
-                assert.deepEqual([stream.slice(0, -1).every(row => row.outcome === "pending"), stream.at(-1).outcome, stream.at(-1).cause],
-                    [true, outcome, cause], label);
+                const frames = sent(), sets = new Set(frames.map(value => value.labels.join(",")));
+                assert.ok(frames.length >= sets.size + 2, label + ": the stream sent frames of one label set again");
+                assert.deepEqual(streamRows().map(row => [row.outcome, row.cause]),
+                    [...Array(1 + sets.size).fill(["pending", undefined]), [outcome, cause]], label);
             };
             if (unanswered) {
                 const cause = only === "silent" ? "input-silent" : "unheard";
@@ -1694,7 +1699,12 @@ world(async () => {
             else if (only === "heard") {
                 server.replies.push(BrainFixture.text("One. Two."));
                 conn.voice = [4800, 4800];
-            } else if (only === "stale") server.replies.push([{ wait: heldReply },
+            } else if (only === "failover")
+                // The primary's stream is cut after its first frame, a cause
+                // that fails over; the backup, the same local server, answers.
+                server.replies.push(BrainFixture.text({ wait: { then: (_, reject) => reject(new Error("fixture: primary stream cut")) } }),
+                    BrainFixture.text("Backup answered."));
+            else if (only === "stale") server.replies.push([{ wait: heldReply },
                 ...BrainFixture.calls({ id: "stale_delete", name: "files_delete", arguments: { path: victim } })]);
             else {
                 server.replies.push(BrainFixture.text({ wait: heldReply }, "Late reply."));
@@ -1727,17 +1737,42 @@ world(async () => {
                 const speakable = require(path.join(kit.folder, "Speakable.js")).create("", { tools: [] });
                 const sentences = [...speakable.push(answer), ...speakable.finish()].length;
                 await wait(() => conn.count(P.SPEAK) >= sentences + 1 && last()?.turn.kind === "none", "every sentence of the result is spoken");
-                const observed = fs.readFileSync(frameAudits, "utf8").trim().split("\n").map(JSON.parse)
-                    .filter(value => P.kind(value.frame) === P.SPEAK);
+                const observed = sent().filter(value => P.kind(value.frame) === P.SPEAK);
                 const commentary = conn.events.filter(value => P.kind(value) === P.SPEAK);
                 assert.deepEqual(commentary.map(P.words).slice(-2), ["Completed.", "Visit example."], "the voice reads the brain's sentences and nothing else of its result text");
                 assert.ok(rows().some(row => row.kind === "action" && row.effect === "destructive" && row.confirmed === "physical"));
                 assert.deepEqual(observed.map(value => value.frame), commentary);
-                assert.deepEqual({ check: "commentary-audit-before-send", audited: observed.every(value =>
-                    value.records.some(row => row.kind === "release" && row.decision === "send" && row.op === last().speech.op
-                        && row.outcome === "pending" && row.args.labels === "[redacted]")) },
-                    { check: "commentary-audit-before-send", audited: true },
-                    "each outbound spoken frame has its own prior audit");
+                // The result's sentences carry the turn's labels, a set the
+                // audio frames before them never did.
+                const audio = sent().find(value => P.kind(value.frame) !== P.SPEAK).labels.join(",");
+                assert.ok(observed.some(value => value.labels.join(",") !== audio),
+                    "a spoken frame carries another label set: " + JSON.stringify(sent().map(value => [P.kind(value.frame), value.labels])));
+                const seen = new Set();
+                assert.deepEqual({ check: "label-set-audit-before-send", audited: sent().map(value => {
+                    const labels = value.labels.join(","), first = !seen.has(labels);
+                    seen.add(labels);
+                    return value.records.some(row => row.kind === "release" && row.decision === "send" && row.op === last().speech.op
+                        && row.outcome === "pending" && row.args.labels === "[redacted]") === first;
+                }).every(Boolean) },
+                    { check: "label-set-audit-before-send", audited: true },
+                    "the first frame of each label set has its own prior audit, and later frames of that set ride on it");
+            } else if (only === "failover") {
+                // The failover gives the conversation a new recipient set and
+                // opens the voice again under the same stream.
+                await wait(() => main.conns.some(value => value.rig === null && !value.taken), "the failover reconnects the voice");
+                const again = main.conns.find(value => value.rig === null && !value.taken); again.taken = true;
+                again.auto = 1;
+                await P.open(again);
+                await wait(() => server.requests.length === 2 && last()?.turn.kind === "none", "the backup answers the request again");
+                // Between the old session's last frame and the new session's
+                // first, the reconnection writes the release to the new set.
+                const frames = sent(), opening = P.kind(frames[0].frame);
+                const reopened = frames.findIndex((value, index) => index > 0 && P.kind(value.frame) === opening);
+                assert.ok(reopened > 0, "the new session sends its opening frame");
+                const gap = rows().slice(frames[reopened - 1].before + frames[reopened - 1].records.length, frames[reopened].before)
+                    .filter(row => row.kind === "release" && row.op === speech.op && row.outcome === "pending");
+                assert.deepEqual({ check: "failover-reconnection-audit", rows: gap.length }, { check: "failover-reconnection-audit", rows: 1 },
+                    "the reconnection to the failover's recipient set writes its own pending row before any frame");
             } else if (only === "release") {
                 await wait(() => last()?.approval.kind === "held", "the whole recipient set asks for file release");
                 assert.equal(last().approval.purpose, "release");
@@ -2253,6 +2288,7 @@ world(async () => {
         daemonHeard: kit => daemonDelegation(kit, "heard"), daemonPreview: kit => daemonDelegation(kit, "preview"),
         daemonWrongKey: kit => daemonDelegation(kit, "wrong-key"),
         daemonUnheard: kit => daemonDelegation(kit, "unheard"), daemonSilent: kit => daemonDelegation(kit, "silent"),
+        daemonFailover: kit => daemonDelegation(kit, "failover"),
         groundTrip, gpreview, gheld, gthought, gunbiddenTimeout, gbinary, ginterrupted, gcaptions, gdelegation, gunread, gfailures,
         gredirect, gstartTimeout, gkeys,
         ...Object.fromEntries(["action", "stale", "release", "replacement", "interrupt", "heard", "preview", "wrong-key", "unheard"]
@@ -2623,6 +2659,8 @@ world(async () => {
             ["daemon-stream-cause", '"live=unheard": "unheard"', '"live=unheard": "voice-stopped"', "unheard"],
             ["daemon-stream-silent-cause", '"live=input-silent": "input-silent"', '"live=input-silent": "voice-stopped"', "silent"],
             ["daemon-stream-ended", "closeStream(c, null);\n        cancelRelease(c);", "cancelRelease(c);", "stale"],
+            ["daemon-stream-row-per-frame", "if (!stream.released.has(labels)) return transfer(", "if (true) return transfer(", "unheard"],
+            ["daemon-stream-recipients-reset", "if (stream.recipients !== c.recipients) {", "if (false) {", "failover"],
             ["daemon-gemini-stream-failed", "if (c.stream?.op === e.op) closeStream(c, reason);", "", "unheard", GEMINI],
             ["daemon-audit-before-send", 'const result = audit.before(releaseEvent(c, identity, item.labels, "send", "pending"), start);',
                 `if (item.content.startsWith('{"type":"response.create"')) return start();\n        const result = audit.before(releaseEvent(c, identity, item.labels, "send", "pending"), start);`, "action"]
@@ -2633,9 +2671,11 @@ world(async () => {
             new (require("node:vm").Script)(fs.readFileSync(path.join(kit.folder, "ChainedEngine.js"), "utf8"));
             const failed = name.endsWith("audit-before-send")
                 ? error => error instanceof assert.AssertionError
-                    && error.actual?.check === "commentary-audit-before-send" && error.actual.audited === false
+                    && error.actual?.check === "label-set-audit-before-send" && error.actual.audited === false
                     && error.expected?.audited === true
-                : assert.AssertionError;
+                : name === "daemon-stream-recipients-reset"
+                    ? error => error instanceof assert.AssertionError && error.actual?.check === "failover-reconnection-audit" && error.actual.rows === 0
+                    : assert.AssertionError;
             await assert.rejects(() => daemonDelegation(kit, scenario, P), failed, name + " must turn red");
             controls++;
             console.log("control=" + name + " detected");

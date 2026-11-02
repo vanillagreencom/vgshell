@@ -532,14 +532,34 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     function record(c, identity, labels, decision) {
         if (audit.record(releaseEvent(c, identity, labels, decision, "completed")).kind !== "recorded") fail("audit-write");
     }
-    // A duplex stream leaves a pending release row before each frame, under
-    // the speech session's identity. Its end closes them with one row:
-    // completed, or failed with the stream cause Audit keeps, never the
-    // fault's own text.
-    function streamed(c, identity) {
-        if (c.stream !== null && c.stream.op === identity.op) return;
-        closeStream(c, null);
-        c.stream = { gen: identity.gen, op: identity.op };
+    // A duplex stream is one audited transfer under the speech session's
+    // identity, opened by its connection's own pending row. Each frame is
+    // judged by Policy.release; the first frame of each label set to the
+    // current recipient set leaves one pending row before it is sent, and
+    // later frames of that release ride on it, so a stream of ten frames a
+    // second writes no row per frame. A failover's new recipient set starts
+    // its releases afresh, its reconnection first. The stream's end closes
+    // its rows with one row: completed, or failed with the stream cause
+    // Audit keeps, never the fault's own text.
+    function streamTransfer(c, identity, item, start) {
+        const stream = c.stream !== null && c.stream.op === identity.op ? c.stream : null;
+        if (stream === null) return transfer(c, identity, item, () => {
+            closeStream(c, null);
+            c.stream = { gen: identity.gen, op: identity.op, recipients: c.recipients, released: new Set() };
+            return start();
+        });
+        if (stream.recipients !== c.recipients) {
+            stream.recipients = c.recipients;
+            stream.released = new Set();
+        }
+        // Policy.item keeps each label set in one canonical order.
+        const labels = item.labels.join(",");
+        if (!stream.released.has(labels)) return transfer(c, identity, item, () => {
+            stream.released.add(labels);
+            return start();
+        });
+        sendable(c, item);
+        return start();
     }
     function closeStream(c, reason) {
         const stream = c.stream;
@@ -553,8 +573,11 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         if (result.kind !== "recorded") log("jarvis: engine=audit-write stream cause=" + result.cause);
     }
     // Every transfer is judged against the whole set, then audited first.
-    function transfer(c, identity, item, start) {
+    function sendable(c, item) {
         if (Policy.release(item, c.recipients, c.grants).kind !== "send") fail("release-" + item.labels.join("-"));
+    }
+    function transfer(c, identity, item, start) {
+        sendable(c, item);
         const result = audit.before(releaseEvent(c, identity, item.labels, "send", "pending"), start);
         if (result.kind !== "started") fail("audit-write");
         return result.value;
@@ -580,10 +603,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 c.live = duplex.adapter.create({ provider: plan.speech.provider, clock, captionLimit,
                     log, conversation: e => ({ net: c.net, key: plan.speech.key, language: LANGUAGE, voice: offeredVoice(plan.speech, e.voice) ?? plan.speech.voice,
                         preview: e.preview === true ? PREVIEW_LINE : null,
-                        grants: () => c.grants, transfer: (item, start) => transfer(c, e, item, () => {
-                            streamed(c, e);
-                            return start();
-                        }) }) });
+                        grants: () => c.grants, transfer: (item, start) => streamTransfer(c, e, item, start) }) });
                 c.speech = { close: () => c.live.port.release() };
             } else {
                 reargue();
