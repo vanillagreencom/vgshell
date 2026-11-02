@@ -2,7 +2,7 @@
 
 Name:           vgshell-quickshell
 Version:        0.3.2
-Release:        3.2b4501a%{?dist}
+Release:        4.2b4501a%{?dist}
 Summary:        Quickshell with the VGS lifetime and crash fixes
 License:        LGPL-3.0-only
 URL:            https://git.outfoxxed.me/quickshell/quickshell
@@ -33,7 +33,7 @@ read failures with confirmed absence classification used by VGS.
 
 %build
 %cmake -GNinja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-    -DDISTRIBUTOR="VGS 3 (package: vgshell-quickshell)" \
+    -DDISTRIBUTOR="VGS 4 (package: vgshell-quickshell)" \
     -DGIT_REVISION=%{commit} -DINSTALL_QMLDIR=%{_libdir}/qt6/qml
 %cmake_build
 
@@ -49,6 +49,8 @@ read failures with confirmed absence classification used by VGS.
 %{_datadir}/icons/hicolor/*/apps/org.quickshell.*
 
 %changelog
+* Mon Nov 02 2026 VanillaGreen <brad@vanillagreen.com> - 0.3.2-4.2b4501a
+- Arm managed child lifetime before the parent-dependent forkfd handshake.
 * Thu Oct 29 2026 VanillaGreen <brad@vanillagreen.com> - 0.3.2-3.2b4501a
 - Guard FileView warnings and classify confirmed disappearance on read failure.
 * Wed Oct 21 2026 VanillaGreen <brad@vanillagreen.com> - 0.3.2-2.2b4501a

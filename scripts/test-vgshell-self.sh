@@ -559,7 +559,7 @@ read -r answer || exit 130
 [[ ! -f $ENGINE_STATE/fail ]] || exit 42
 [[ ! -f $ENGINE_STATE/retain ]] || exit 0
 printf 'vgshell-quickshell\n' >"$ENGINE_STATE/owner"
-[[ -f $ENGINE_STATE/stale ]] || printf '3\n' >"$ENGINE_STATE/release"
+[[ -f $ENGINE_STATE/stale ]] || printf '4\n' >"$ENGINE_STATE/release"
 PARU
 cat >"$migration_helpers/dnf" <<'DNF'
 #!/bin/bash
@@ -685,12 +685,12 @@ esac
 DPKG
 cat >"$migration_helpers/dpkg-query" <<'QUERY'
 #!/bin/bash
-if [[ -f $ENGINE_STATE/revision ]]; then echo 0.3.2+git2b4501a+vgs3-0
-else echo 0.3.2+git2b4501a+vgs3-1; fi
+if [[ -f $ENGINE_STATE/revision ]]; then echo 0.3.2+git2b4501a+vgs4-0
+else echo 0.3.2+git2b4501a+vgs4-1; fi
 QUERY
 cat >"$migration_helpers/dpkg-deb" <<'DEB'
 #!/bin/bash
-printf 'Package: vgshell-quickshell\nVersion: 0.3.2+git2b4501a+vgs3-1\nArchitecture: amd64\n'
+printf 'Package: vgshell-quickshell\nVersion: 0.3.2+git2b4501a+vgs4-1\nArchitecture: amd64\n'
 DEB
 cat >"$migration_helpers/apt-get" <<'APT'
 #!/bin/bash
@@ -705,7 +705,7 @@ echo 8BC162233D519169B9574148CC6862AD90B7D7EA
 SQV
 chmod +x "$migration_helpers/"*
 migration_pack
-engine_asset=vgshell-quickshell_0.3.2+git2b4501a+vgs3-1_debian-forky_amd64.deb
+engine_asset=vgshell-quickshell_0.3.2+git2b4501a+vgs4-1_debian-forky_amd64.deb
 printf 'engine fixture\n' >"$www/dl/$engine_asset"
 printf 'public fixture key\n' >"$www/dl/release-key.asc"
 printf 'fixture-signature\n' >"$www/dl/SHA256SUMS.asc"

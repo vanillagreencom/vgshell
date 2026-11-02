@@ -27,7 +27,7 @@
           # The unstructured cmakeFlags environment splits spaces. Keep the
           # distributor as one argument through CMake's supported shell array.
           preConfigure = (old.preConfigure or "") + ''
-            cmakeFlagsArray+=("-DDISTRIBUTOR=VGS 3 (package: vgshell-quickshell)")
+            cmakeFlagsArray+=("-DDISTRIBUTOR=VGS 4 (package: vgshell-quickshell)")
           '';
         });
       })));
