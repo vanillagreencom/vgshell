@@ -1,8 +1,6 @@
 .pragma library
 .import qs.Ui 1.0 as Ui
 
-var CATALOG_REFRESH_MS = 60000;
-
 // The browsers' decisions, with no QML object and no I/O, so
 // scripts/test-themes-browser.js runs every function under node: the
 // overlay's views and their payload; for the theme view the cards merged
