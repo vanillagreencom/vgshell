@@ -9,6 +9,7 @@ Rectangle {
     id: root
 
     property string text: ""
+    property var backgroundContext: null
     readonly property real sidePadding: Theme.controlPadding(Theme.kbd.paddingX, Theme.kbd.radius, Theme.kbd.height, label.lineBox)
 
     implicitWidth: Math.max(Theme.kbd.height, Math.round(label.opticalWidth + 2 * sidePadding))
@@ -22,7 +23,7 @@ Rectangle {
         id: label
         role: "kbd"
         text: root.text
-        color: Theme.kbd.foreground
+        color: Theme.keyHintInk(root.backgroundContext, true)
         x: Math.round((root.width - opticalWidth) / 2)
         y: topForCapCenter(root.height)
     }

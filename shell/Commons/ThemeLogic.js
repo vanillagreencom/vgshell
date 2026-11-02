@@ -258,6 +258,46 @@ function contrastColor(color) {
     return 1.05 / (light + 0.05) > (light + 0.05) / 0.05 ? parseColor("#ffffff") : parseColor("#000000");
 }
 
+// The shared hint's surface and selected plate, including the sheen's two
+// endpoints. Translucent surfaces retain both wallpaper endpoints; no
+// screenshot or wallpaper sample is an input to the drawing decision.
+function keyHintBackgrounds(context) {
+    var fills = context.fill.a === 1 ? [context.fill] :
+        [overlay(context.fill, parseColor("#000000")), overlay(context.fill, parseColor("#ffffff"))];
+    return fills.map(function (fill) { return overlay(context.plate, fill); }).reduce(function (out, fill) {
+        return out.concat([fill, overlay(context.sheen, fill)]);
+    }, []);
+}
+
+// Keep the shared default ink unless this actual surface needs more
+// contrast. Only ink changes: the cap fill, type and spacing stay shared.
+function keyHintInk(values, context, cap) {
+    var ink = parseColor(cap ? values.kbd.foreground : values.text.keyHint.color);
+    if (context === null) return ink;
+    var fills = keyHintBackgrounds(context).map(function (fill) {
+        return cap ? overlay(parseColor(values.kbd.background), fill) : fill;
+    });
+    var margin = cap ? 4.65 : 4.95;
+    var holds = function (color) { return fills.every(function (fill) { return contrastRatio(overlay(color, fill), fill) >= margin; }); };
+    if (holds(ink)) return ink;
+    var candidates = [parseColor("#000000"), parseColor("#ffffff")].map(function (endpoint) {
+        var candidate = endpoint;
+        for (var i = 0; i < fills.length; i++) {
+            var solved = contrastMix(endpoint, ink, fills[i], margin);
+            if (solved === null) return null;
+            // Select the solution furthest from the approved ink along
+            // this one direction, so every endpoint retains its margin.
+            var distance = function (color) { return Math.pow(color.r - ink.r, 2) + Math.pow(color.g - ink.g, 2) + Math.pow(color.b - ink.b, 2); };
+            if (i === 0 || distance(solved) > distance(candidate)) candidate = solved;
+        }
+        return holds(candidate) ? candidate : null;
+    }).filter(function (candidate) { return candidate !== null; });
+    if (candidates.length === 0) throw new Error("theme: key hint contrast unreachable on supplied surface");
+    var distance = function (color) { return Math.pow(color.r - ink.r, 2) + Math.pow(color.g - ink.g, 2) + Math.pow(color.b - ink.b, 2); };
+    candidates.sort(function (a, b) { return distance(a) - distance(b); });
+    return candidates[0];
+}
+
 // Text drawn at rest must meet WCAG 2.2 SC 1.4.3 AA for normal-size text
 // on each resting surface. Inactive controls and hover surfaces are exempt.
 // `color.accent` draws text roles such as eyebrow, checked buttons and badges.

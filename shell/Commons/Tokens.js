@@ -138,7 +138,7 @@ var TEXT = {
     kbd: role("mono", 0.7333333333, 600, 0.02, 1, false, "text"),
     // Start at the approved faded hint ink; the regular-stroke margin
     // keeps its drawn contrast above the judge's text floor.
-    keyHint: merge(role("sans", 0.8, 400, 0, 1.55, false, "textFaint"), {
+    keyHint: merge(role("sans", 0.8, 400, 0, 1, false, "textFaint"), {
         color: color("contrastMix(contrast({color.surfaceRaised}), mix({color.surfaceRaised}, readable({color.textFaint}, {color.surfaceRaised}, contrast({color.surfaceRaised})), 0.88), {color.surfaceRaised}, 4.95)")
     }),
     code: role("mono", 0.87, 500, 0, 1.5, false, "text"),

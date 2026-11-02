@@ -149,22 +149,11 @@ Item {
                 linkColor: row.look.text.link
                 onPageActivated: (page, tab) => row.launcher.shell.surfaces.openPage(page, tab)
             }
-            Row {
+            KeyHints {
                 id: hint
                 visible: row.openWithHintShown
-                spacing: row.look.row.lineGap
-                KeyCaps {
-                    anchors.verticalCenter: parent.verticalCenter
-                    shortcut: "Shift+Enter"
-                }
-                Text {
-                    textFormat: Text.PlainText
-                    text: "open with"
-                    color: row.look.text.detail.color
-                    font.family: row.look.font.family.sans
-                    font.pixelSize: row.look.text.detail.size
-                    anchors.verticalCenter: parent.verticalCenter
-                }
+                hints: [{ key: "Shift+Enter", text: "open with" }]
+                backgroundContext: row.launcher.hintBackgroundContext
             }
         }
     }

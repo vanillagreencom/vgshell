@@ -50,6 +50,8 @@ Item {
     readonly property bool glassSurface: true
     default property alias content: body.data
     property color fill: Theme.glass.glass.fill
+    // The body fill before a translucent window meets its backdrop.
+    readonly property color effectiveFill: drawn ? fill : solid ? Theme.glassSolid(fill) : standard.background
     // The look without glass of a surface that hands none.
     readonly property var raised: ({ background: Theme.surface.level.raised.background, border: Theme.surface.level.raised.border, radius: Theme.surface.radius })
     property var standard: raised
@@ -137,7 +139,7 @@ Item {
         id: body
         anchors.fill: parent
         radius: glass.corner
-        color: glass.drawn ? glass.fill : glass.solid ? Theme.glassSolid(glass.fill) : glass.standard.background
+        color: glass.effectiveFill
         clip: true
 
         // Light falling on the top of the glass, fading out `sheenHeight`

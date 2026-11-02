@@ -2,6 +2,7 @@ import QtQuick
 import QtTest
 import qs.Commons
 import qs.Unit
+import qs.Ui
 import "../../shell/plugins/vgs.launcher"
 
 // The launcher's pointer flyout, ContextMenu.qml, with glass on: it hands
@@ -27,6 +28,45 @@ Item {
     }
 
     FontMetrics { id: headerMetrics }
+
+    // A selected file/folder row uses the real delegate inside its view.
+    QtObject {
+        id: hintLauncher
+        property bool cursorActive: true
+        property int selectedIndex: 0
+        property string filterText: "f: sample"
+        property string flyoutPath: ""
+        property var freshIds: ({})
+        readonly property var listMotion: launcher.listMotion
+        readonly property var hintBackgroundContext: launcher.hintBackgroundContext
+        function rowHeightFor(detail) { return 56; }
+        function selectFromPointer(index, item, point) {}
+    }
+    ListView {
+        id: hintList
+        y: 500
+        width: 600
+        height: 60
+        model: 1
+        property string entryKind: "file"
+        delegate: LauncherRow {
+            width: hintList.width
+            look: launcher.look
+            launcher: hintLauncher
+            plate: hintPlate
+            itemId: "hint-file"
+            kind: hintList.entryKind
+            icon: ""
+            appIcon: ""
+            label: "Sample"
+            target: ""
+            detail: "/sandbox"
+            path: "/sandbox/sample"
+            childCount: 0
+            section: "files"
+        }
+        ListCursor { id: hintPlate; parent: hintList.contentItem }
+    }
 
     Component {
         id: ledScene
@@ -56,6 +96,39 @@ Item {
 
         function cleanup() {
             Theme.appearanceInput = "";
+        }
+
+        function test_selected_file_and_folder_use_the_shared_hint() {
+            const descendants = item => {
+                const found = [item];
+                for (let i = 0; i < found.length; i++)
+                    for (const child of found[i].children || []) found.push(child);
+                return found;
+            };
+            tryVerify(() => hintList.itemAtIndex(0) !== null);
+            const row = hintList.itemAtIndex(0);
+            const hint = descendants(row).find(item => String(item).indexOf("KeyHints") === 0);
+            verify(hint !== undefined, "the delegate composes the shared hint");
+            for (const kind of ["file", "folder"]) {
+                hintList.entryKind = kind;
+                hintLauncher.flyoutPath = "";
+                hintLauncher.cursorActive = true;
+                verify(waitForPolish(root.Window.window));
+                compare(row.openWithHintShown, true);
+                compare(hint.visible, true);
+                compare(hint.afterActions, false);
+                compare(hint.hints.length, 1);
+                compare(hint.hints[0].key, "Shift+Enter");
+                verify(hint.width > 0);
+                const at = hint.mapToItem(row, 0, 0);
+                verify(at.x >= 0 && at.x + hint.width <= row.width, "the reserved hint width fits the row");
+                hintLauncher.flyoutPath = row.path;
+                compare(hint.visible, false, "the file flyout covers this hint");
+                hintLauncher.flyoutPath = "";
+                hintLauncher.cursorActive = false;
+                compare(hint.visible, false, "an unselected row has no hint");
+            }
+            hintLauncher.cursorActive = true;
         }
 
         // The flyout among the launcher's children, and its glass surface.

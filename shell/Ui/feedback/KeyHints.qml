@@ -10,6 +10,8 @@ Row {
     id: root
 
     property var hints: []
+    // Only the fill under this hint; typography and styling stay shared.
+    property var backgroundContext: null
     // Row's padding is part of its implicit height, so every action footer
     // gets the same gap without a spacer in its dialog or card.
     // https://doc.qt.io/qt-6/qml-qtquick-row.html#topPadding-prop
@@ -41,12 +43,13 @@ Row {
                 visible: pair.keys.length > 0 && !(pair.keys.length === 1 && pair.keys[0] === "")
                 Repeater {
                     model: pair.keys
-                    KeyCaps { shortcut: String(modelData) }
+                    KeyCaps { shortcut: String(modelData); backgroundContext: root.backgroundContext }
                 }
             }
 
             Label {
                 role: "keyHint"
+                color: Theme.keyHintInk(root.backgroundContext, false)
                 // A fractional word width would put the next chord, and
                 // a right-aligned row, between device-pixel columns.
                 width: Math.ceil(implicitWidth)

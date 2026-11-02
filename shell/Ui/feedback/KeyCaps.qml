@@ -7,6 +7,7 @@ Row {
     id: root
 
     property string shortcut: ""
+    property var backgroundContext: null
     readonly property var caps: Logic.keyCaps(shortcut)
 
     spacing: Theme.space.sm
@@ -14,6 +15,6 @@ Row {
 
     Repeater {
         model: root.caps
-        Kbd { text: String(modelData) }
+        Kbd { text: String(modelData); backgroundContext: root.backgroundContext }
     }
 }

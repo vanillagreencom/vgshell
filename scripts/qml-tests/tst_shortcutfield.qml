@@ -121,6 +121,10 @@ Item {
             pair.width = column.width;
             pair.current = 0;
             pair.stopTyping();
+            narrow.keys = [];
+            narrow.width = Theme.size.panel.sm / 2;
+            narrow.current = 0;
+            narrow.stopTyping();
             mouseMove(before);
             before.forceActiveFocus(Qt.TabFocusReason);
             // Ending typing can leave its tool-row width until the next
@@ -689,6 +693,9 @@ Item {
         function narrowPair() {
             narrow.keys = ["SUPER+SPACE", "CTRL+ALT+K"];
             narrow.width = Theme.size.panel.sm / 2;
+            // Row places changed children during polish, after this script.
+            // https://doc.qt.io/qt-6/qml-qttest-testcase.html#waitForPolish-method
+            verify(waitForPolish(root.Window.window));
             compare(caps(narrow).length, 5);
         }
 
@@ -698,11 +705,14 @@ Item {
         function test_every_cap_lies_inside_the_box_at_a_narrow_width() {
             narrowPair();
             const b = box(narrow);
+            const tools = buttonLabelled(narrow, "Type the keys").parent;
+            const geometry = () => JSON.stringify({ field: { width: narrow.width, preferred: narrow.implicitWidth }, box: { width: b.width, preferred: b.implicitWidth }, tools: { width: tools.width, preferred: tools.implicitWidth, right: rect(tools, narrow).right } });
+            verify(narrow.width <= narrow.implicitWidth, "the constrained fixture exceeds its preferred width: " + geometry());
             tryVerify(() => caps(narrow).every(cap => inside(rect(cap, b), b)), 1000, "a cap lies outside the box " + b.width + " wide");
             for (const label of ["Type the keys", "Remove Super+Space"]) {
                 const tool = rect(buttonLabelled(narrow, label), b);
-                verify(tool.left >= b.width, label + " starts at " + tool.left + ", inside the box " + b.width + " wide");
-                verify(narrow.implicitWidth >= rect(buttonLabelled(narrow, label), narrow).right, "the field asks for " + narrow.implicitWidth + ", less than it draws");
+                verify(tool.left >= b.width, label + " starts at " + tool.left + ", inside the box: " + geometry());
+                verify(narrow.implicitWidth >= rect(buttonLabelled(narrow, label), narrow).right, "tool edge " + rect(buttonLabelled(narrow, label), narrow).right + " exceeds the preferred width: " + geometry());
             }
         }
 

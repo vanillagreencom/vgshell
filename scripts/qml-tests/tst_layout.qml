@@ -61,7 +61,7 @@ Item {
         name: "layout"
         when: windowShown
 
-        function init() { UnitTheme.reset(); tabs.currentIndex = 0; row.highlighted = false; clicks.clear(); actionClicks.clear(); }
+        function init() { UnitTheme.reset(); hints.backgroundContext = null; tabs.currentIndex = 0; row.highlighted = false; clicks.clear(); actionClicks.clear(); }
 
         function tabLabel(tab) { return findChild(tab.contentItem, "tabLabel"); }
 
@@ -305,6 +305,32 @@ Item {
             compare(hints.implicitHeight, height + 16);
             hints.afterActions = false;
             tryCompare(hints.children[0], "y", 0);
+        }
+
+        function test_hint_ink_follows_the_composed_surface_data() {
+            return [
+                { tag: "dark selected glass over white", mode: "dark", background: "#000000", foreground: "#d7d7d9", row: "#5d5d5d", cap: "#696969" },
+                { tag: "light selected glass over black", mode: "light", background: "#fffcf0", foreground: "#100f0f", row: "#afafaf", cap: "#a1a1a1" }
+            ];
+        }
+
+        function test_hint_ink_follows_the_composed_surface(data) {
+            compare(UnitTheme.override({ scheme: { mode: data.mode }, palette: { background: data.background, foreground: data.foreground } }), "ok");
+            hints.backgroundContext = { fill: data.row, plate: "transparent", sheen: "transparent" };
+            const pair = hints.children[0];
+            const label = pair.children[1];
+            const chord = pair.children[0].children.find(item => item.shortcut !== undefined);
+            const cap = chord.children.find(item => item.text !== undefined);
+            verify(cap !== undefined);
+            const key = cap.children.find(item => item.role === "kbd");
+            verify(Theme.contrastRatio(label.color, Qt.color(data.row)) >= 4.5, "the hint word reads on the supplied row fill");
+            verify(Theme.contrastRatio(key.color, Qt.color(data.cap)) >= 4.5, "the cap receives the composed surface through KeyCaps");
+            compare(String(cap.color), String(Qt.color(Theme.kbd.background)), "the context changes only ink");
+            compare(label.font.pixelSize, 12);
+            compare(key.font.pixelSize, 11);
+            hints.backgroundContext = null;
+            compare(label.color, Qt.color(Theme.text.keyHint.color), "ordinary surfaces keep the default muted label");
+            compare(key.color, Qt.color(Theme.kbd.foreground), "ordinary surfaces keep the default muted key");
         }
 
         // The title and secondary lines draw with whole-pixel line boxes,

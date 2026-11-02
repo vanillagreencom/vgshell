@@ -170,6 +170,13 @@ Singleton {
         return toColor(ThemeLogic.formatColor(ThemeLogic.contrastColor(color)));
     }
 
+    function keyHintInk(context, cap) {
+        const colors = context === null ? null : {
+            fill: Qt.color(context.fill), plate: Qt.color(context.plate), sheen: Qt.color(context.sheen)
+        };
+        return toColor(ThemeLogic.formatColor(ThemeLogic.keyHintInk(source.values, colors, cap)));
+    }
+
     // The room a row takes under its sub-text, a hint, error or warning
     // line, so the next row of `column` starts `stack.group` below that
     // line: the group space less the column's spacing. A row without

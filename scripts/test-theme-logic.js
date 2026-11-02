@@ -1850,7 +1850,7 @@ function launcherMenuFills(judge, look, values) {
     return [judge.parseColor(judge.formatColor(judge.liftedOpaque(judge.parseColor(look.card.fill), glass.values.glass.solidLift))),
         judge.parseColor(values.surface.level.raised.background)];
 }
-function launcherTextReadings(judge, launcher, menuFills = launcherMenuFills) {
+function launcherTextReadings(judge, launcher, menuFills = launcherMenuFills, hintInk = (values, context, cap) => judge.keyHintInk(values, context, cap)) {
     const out = [];
     for (const { name, values } of JUDGED_THEMES) {
         const result = judge.acceptAppearance(launcher.TOKENS, launcher.LIGHT, values);
@@ -1870,6 +1870,19 @@ function launcherTextReadings(judge, launcher, menuFills = launcherMenuFills) {
                 out.push([name, role, state, ratio(ink, fill, 400)]);
         for (const [state, fill] of menuFills(judge, look, values).flatMap(fill => [fill, plate(fill)]).entries())
             out.push([name, "menu", state, ratio(look.text.detail.color, fill, 400)]);
+        // Match GlassSurface's drawn, solid and glass-off branches. The
+        // shared owner expands drawn glass across both wallpaper ends and
+        // the selected plate's sheen range before choosing one ink.
+        for (const [branch, fill] of [judge.parseColor(look.card.fill), ...solid].entries()) {
+            const context = { fill, plate: judge.parseColor(look.highlight.plate), sheen: judge.parseColor(look.highlight.sheen) };
+            const word = hintInk(values, context, false);
+            const key = hintInk(values, context, true);
+            for (const [state, ground] of judge.keyHintBackgrounds(context).entries()) {
+                const capFill = judge.overlay(judge.parseColor(values.kbd.background), ground);
+                out.push([name, "keyHint", `${branch}/${state}`, judge.drawnTextRatio(word, ground, values.text.keyHint.weight)]);
+                out.push([name, "key", `${branch}/${state}`, judge.drawnTextRatio(key, capFill, values.text.kbd.weight)]);
+            }
+        }
     }
     return out;
 }
@@ -1878,8 +1891,16 @@ function launcherDetailShortfalls(judge, launcher) {
 }
 {
     const judge = load(judgeFile);
-    assert.deepEqual(launcherDetailShortfalls(judge, LAUNCHER), [], "the launcher's detail text and link read at 4.5:1 on the card in every theme");
+    assert.deepEqual(launcherDetailShortfalls(judge, LAUNCHER), [], "the launcher's detail, link and shared hint read at 4.5:1 on the card in every theme");
     const readings = launcherTextReadings(judge, LAUNCHER);
+    const oldSharedInks = launcherTextReadings(judge, LAUNCHER, launcherMenuFills, (values, context, cap) => judge.parseColor(cap ? values.kbd.foreground : values.text.keyHint.color));
+    for (const name of ["vgs", "catalog/flexoki-light"])
+        for (const role of ["key", "keyHint"])
+            assert.ok(oldSharedInks.some(([theme, ink, , ratio]) => theme === name && ink === role && ratio < 4.5), `control: the old default ${role} fails the composed Launcher fill in ${name}`);
+    for (const { name, values } of JUDGED_THEMES) {
+        assert.equal(judge.formatColor(judge.keyHintInk(values, null, true)), values.kbd.foreground, `${name}: ordinary key ink stays muted`);
+        assert.equal(judge.formatColor(judge.keyHintInk(values, null, false)), values.text.keyHint.color, `${name}: ordinary hint ink stays muted`);
+    }
     const checkStep = rows => assert.deepEqual(rows.filter(([, role, , ratio]) => role === "step" && ratio < 1.25), [], "launcher title/detail step is at least 1.25:1 in every theme");
     checkStep(readings);
     // Independent menu reading: vgs's lifted #212121 under its plate,
@@ -1930,6 +1951,7 @@ function launcherDetailShortfalls(judge, launcher) {
 // Each control removes one rule's behaviour from a copy of the judge and
 // keeps the text around it. The suite must fail on every copy.
 const CONTROLS = [
+    ["shared hint ignores its composed surface", "if (context === null) return ink;", "return ink;", judge => assert.deepEqual(launcherDetailShortfalls(judge, LAUNCHER), [], "shared hint inks keep the reached fill floor")],
     ["screensaver gradient is judged", '    ["screensaver.gradientStart", "screensaver.background"],\n', "", verifyScreensaver],
     ["screensaver fixed canvas", 'leaf.type === "color" && token === "screensaver.background" && (value.r !== 0 || value.g !== 0 || value.b !== 0 || value.a !== 1)', "false", verifyScreensaver],
     ["notice states the minimum", ' + ", needs " + shortfall.floor + ":1."', ' + "."'],
