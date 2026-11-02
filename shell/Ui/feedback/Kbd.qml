@@ -2,7 +2,7 @@ import QtQuick
 import qs.Commons
 import qs.Ui
 
-// A key cap: one key name in the kbd role inside a bordered chip
+// A key cap: one key name in the kbd role inside a muted chip
 // `kbd.height` tall, never narrower than it is tall. Under a rounded theme
 // the side padding grows until the label clears the drawn corner.
 Rectangle {
