@@ -23,7 +23,9 @@ import "SetupLogic.js" as SetupLogic
 // theme list, every image and the catalog, is read once at registration,
 // when a browser view opens and on a view's own request; a watched source
 // change and an apply read it again only while a view is open, since the
-// next view to open reads it then. Nothing reads it on a timer.
+// next view to open reads it then. Nothing reads it on a timer. One
+// helper process, helper/watch.py, watches every source with one inotify
+// instance while the service is registered.
 //   shortcut vgs.themes:themes              SUPER+SHIFT+T from the manifest's
 //                                            `hyprland` binds (README)
 //   shortcut vgs.themes:wallpapers          SUPER+SHIFT+W, the same way
@@ -69,6 +71,7 @@ Item {
         // The first view to open draws the retained answer at once, its
         // pictures and catalog rows included, rather than waiting on a read.
         Qt.callLater(root.readData);
+        watch.running = true;
         checkSetup();
     }
     onPolicyEndChanged: if (registeredWith !== null) checkSetup()
@@ -144,19 +147,16 @@ Item {
         sawDownload = download !== null;
     }
 
-    // A FileView on a directory emits on a change in its parent too
-    // (Quickshell 0.3.1 src/io/fileview.cpp: updateWatchedFiles watches the
-    // target and its parent, and onWatchedDirectoryChanged emits while the
-    // target is not in the watcher's files(), which a directory never is), so
-    // one change can fire two views: the themes folder and the user images
-    // under Paths.configDir, or a package's backgrounds and another entry. A
-    // call Qt.callLater already queued and not yet run takes no second place
+    // One change can print several watch lines, one per kernel read the
+    // helper makes, such as a file's creation and its finished write, and
+    // one line can name a list change and packages at once. A call
+    // Qt.callLater already queued and not yet run takes no second place
     // (qtdeclarative 6.12 qqmldelayedcallqueue.cpp addUniqueCall, keyed by
-    // object and method), so those fires cost one read, and the queue skips
-    // the call once this service is deleted or queued for deletion. With no
-    // view open the change only marks a package's images replaced, so the
-    // next view loads them anew, and reads nothing: that view's opening
-    // reads.
+    // object and method), so the lines of one turn cost one read, and the
+    // queue skips the call once this service is deleted or queued for
+    // deletion. With no view open a change only marks a package's images
+    // replaced, so the next view loads them anew, and reads nothing: that
+    // view's opening reads.
     function refreshData(replacedImages) {
         if (registeredWith === null) return;
         if (typeof replacedImages === "string") {
@@ -224,78 +224,65 @@ Item {
         function onDocumentRevisionChanged() { root.refreshData(); }
     }
 
-    // Every source the reads list is watched: the installed packages, where
-    // add, install, update and remove land, swap or delete a package
-    // folder; each listed package's entries; the user images folder; the
-    // catalog index; and each image. The shipped themes
-    // change only with a VGS update, which needs a restart.
-    // QFileSystemWatcher observes directory renames as well as removal.
-    // These views watch paths only; no directory is read as file content.
-    FileView {
-        path: Paths.configDir + "/themes"
-        preload: false
-        watchChanges: true
-        printErrors: false
-        onFileChanged: root.refreshData()
-    }
-    // Each image's own view is a file target, which a new file beside it
-    // does not fire.
-    FileView {
-        path: Paths.configDir + "/backgrounds"
-        preload: false
-        watchChanges: true
-        printErrors: false
-        onFileChanged: root.refreshData()
-    }
-    FileView {
-        path: Quickshell.shellDir + "/../themes/catalog/index.json"
-        preload: false
-        watchChanges: true
-        printErrors: false
-        onFileChanged: root.refreshData()
-    }
-    // The entries of a package folder the list and the images read: its two
-    // documents, the preview its card draws and its backgrounds folder. Each
-    // has its own view: a view on an absent entry fires once the entry is
-    // created (Quickshell 0.3.1 src/io/fileview.cpp: on a change in the
-    // target's parent, onWatchedDirectoryChanged emits when a target not yet
-    // watched exists), and a file written in place reaches only its own
-    // view, since a folder watch reports no write (qtbase 6.12
-    // qfilesystemwatcher_inotify.cpp watches a directory without
-    // IN_MODIFY).
-    readonly property var packageEntries: ["theme.json", "terminal.json", "preview.jpg", "backgrounds"]
-    // Every listed package that is read, refused ones included, so fixing
-    // a refused package reaches an open view; a shadowed shipped package is
-    // never read.
-    Variants {
-        model: {
-            const watches = [];
-            if (root.listing === null) return watches;
-            for (const p of root.listing.packages) {
-                if (p.state === "shadowed") continue;
-                for (const entry of root.packageEntries) watches.push({ name: p.name, path: p.path + "/" + entry });
-            }
-            return watches;
-        }
-        FileView {
-            required property var modelData
-            path: modelData.path
-            preload: false
-            watchChanges: true
-            printErrors: false
-            onFileChanged: root.refreshData(modelData.name)
-        }
+    // Every source the reads list is watched by one helper,
+    // helper/watch.py, whose header states what it watches and prints: the
+    // config folder, where a shell.json save and an apply's theme file
+    // land; the installed packages, each package folder, refused ones
+    // included, and its backgrounds; the user images folder; and the
+    // catalog index. It holds one inotify instance of directory watches
+    // however many packages and images there are; a FileView per path
+    // would hold one each (Quickshell 0.3.1 src/io/fileview.cpp
+    // updateWatchedFiles makes one QFileSystemWatcher per FileView, and
+    // each opens its own inotify instance). The shipped themes change only
+    // with a VGS update, which needs a restart, so none is watched. A list
+    // line asks for a read; a name marks that package's images replaced,
+    // "" the user images', and asks for a read. The ready line asks for
+    // nothing, as registration already did.
+    function watchLine(line) {
+        const change = JSON.parse(line);
+        if (change.ready === true) return;
+        if (change.list) refreshData();
+        for (const name of change.names) refreshData(name);
     }
 
-    Variants {
-        model: root.images.images === null ? [] : root.images.images
-        FileView {
-            required property var modelData
-            path: modelData.path
-            preload: false
-            watchChanges: true
-            printErrors: false
-            onFileChanged: root.refreshData(modelData.theme || "")
+    // The helper runs while the service is registered: registration starts
+    // it, and the engine ends it with the service (Quickshell 0.3.1
+    // src/io/process.cpp ~Process kills a running process and emits
+    // nothing). It exits on its own when a folder it must watch cannot be
+    // watched, at start or at a later reconcile, and a failed start or an
+    // exit loses changes. Each is logged, an exit with the helper's last
+    // stderr line, its `watch.py: watch=failed ...` line on a setup
+    // failure, and starts the helper again from the running change, the
+    // reference's restart pattern
+    // (https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/Process,
+    // running), at most watchRestartLimit times per registration, so a
+    // helper that cannot run stops after that many tries. A running change
+    // follows exited and the drained stderr collector (process.cpp
+    // onFinished), and a failed start emits only the running change, so its
+    // completion stays null.
+    readonly property int watchRestartLimit: 3
+    property int watchRestarts: 0
+    Process {
+        id: watch
+        command: ["python3", decodeURIComponent(String(Qt.resolvedUrl("helper/watch.py")).replace(/^file:\/\//, "")),
+            Paths.configDir, Quickshell.shellDir + "/../themes/catalog"]
+        stdout: SplitParser { onRead: line => root.watchLine(line) }
+        stderr: StdioCollector { id: watchErrors }
+        property var completion: null
+        onExited: (code, status) => { completion = { code: code, status: status }; }
+        onRunningChanged: {
+            if (running) return;
+            const lines = watchErrors.text.trim().split("\n");
+            const ended = completion === null ? "exit=not-started"
+                : "exit=" + completion.code + " status=" + completion.status + " stderr=" + JSON.stringify(lines[lines.length - 1]);
+            completion = null;
+            if (root.watchRestarts >= root.watchRestartLimit) {
+                console.error("themes: watch=stopped " + ended + " restarts=" + root.watchRestarts);
+                return;
+            }
+            root.watchRestarts++;
+            console.error("themes: watch=ended " + ended + " restart=" + root.watchRestarts + "/" + root.watchRestartLimit);
+            running = true;
         }
     }
 

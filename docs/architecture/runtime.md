@@ -44,6 +44,7 @@ A lock descriptor the shell inherits is held by every child the shell starts, so
 - Never let two components poll one source; the owner publishes, the rest read. Review holds it.
 - Never run a process-costing lookup per item; `bin/vgshell-scan` reads every manifest in one process.
 - Never walk the disk per keystroke; keep one index and cancel a stale query. Review holds it.
+- Do watch a set of paths that grows with user data through one inotify owner, never one `FileView` per path: each `FileView` with `watchChanges` opens an inotify instance of its own, and past the user's instance limit Qt falls back to polling. `scripts/smoke/rows/themes.sh` counts the Themes service's instances; review holds the rest.
 - Never sleep unconditionally on an apply path; read, then skip the write when nothing changes. Review holds it.
 - Do build no service before the first bar frame. `scripts/smoke/rows/start-order.sh` pins it.
 - Do name the tool and the run behind every figure a document or a comment states; a budget without its measurement is a defect. Review holds it.

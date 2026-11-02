@@ -13,7 +13,10 @@ import "../../shell/plugins/vgs.themes/BrowserLogic.js" as BrowserLogic
 // The browsers' data, the theme list, every image and the catalog, is read
 // on no timer: a round of the three reads runs at registration and once per
 // opened view, and, only while a view is open, once per watched change,
-// once per change fired in one turn and once per theme document. The fake
+// once per change fired in one turn and once per theme document. A watched
+// change is the line or lines helper/watch.py prints for it, said on the
+// stdout of the service's one watch Process, which runs from registration
+// and starts again after an exit a bounded number of times. The fake
 // shell lists an installed package with its images, a refused installed
 // package and a shipped package the first shadows, counts and answers each
 // read, records each IPC handler and each notice, and publishes `last`
@@ -52,7 +55,6 @@ Item {
         property var imageList: []
 
         readonly property string packageDir: Paths.configDir + "/themes/dusk"
-        readonly property string imagePath: packageDir + "/backgrounds/dawn.png"
         readonly property string refusedDir: Paths.configDir + "/themes/broken"
         readonly property string shadowedDir: Quickshell.shellDir + "/../themes/dusk"
 
@@ -123,10 +125,17 @@ Item {
             return view;
         }
 
-        // Fire `paths`' watches in one turn, and the theme document when
-        // `document` is set, as an apply's writes do.
-        function fire(paths, document) {
-            for (const view of paths.map(path => viewAt(path))) view.change();
+        // The watch helper's lines: a list change, and a change naming the
+        // packages in `names`, "" for the user images.
+        readonly property var listed: ({ list: true, names: [] })
+        function named(names) { return { list: false, names: names }; }
+
+        // Say `lines` on the watch helper's stdout in one turn, and raise
+        // the theme document when `document` is set, as an apply's writes
+        // do.
+        function fire(lines, document) {
+            const parser = watchProcess().stdout;
+            for (const line of lines) parser.read(JSON.stringify(line));
             if (document) compare(UnitTheme.override({ palette: { accent: "#123456" } }), "ok");
         }
 
@@ -173,10 +182,12 @@ Item {
             return "";
         }
 
-        function viewAt(path) {
-            const views = treeOf(service).filter(object => object.path === path && typeof object.change === "function");
-            compare(views.length, 1, "one watch on " + path);
-            return views[0];
+        // The service's one Process running helper/watch.py.
+        function watchProcess() {
+            const found = treeOf(service).filter(object => Array.isArray(object.command)
+                && object.command.some(word => String(word).endsWith("/helper/watch.py")));
+            compare(found.length, 1, "one watch helper Process");
+            return found[0];
         }
 
         function init() {
@@ -200,50 +211,105 @@ Item {
         }
 
         // Nothing in the service reads on its own: no Timer or other object
-        // runs or repeats on an interval, and no object polls. The walk
-        // must reach every watch, a Variants instance and a Process's
-        // stdout, or it proves nothing. A shadowed package is never read, so
-        // nothing watches it. With nothing changed and no view open, a
-        // second then passes with no read.
+        // runs or repeats on an interval, and no object polls. No FileView
+        // watches a path, as each held an inotify instance of its own: the
+        // one watch is the helper, which runs from registration on the
+        // config folder and the catalog. The walk must reach the helper
+        // Process and its stdout, or it proves nothing. With nothing
+        // changed and no view open, a second then passes with no read.
         function test_nothing_reads_while_nothing_changes() {
             const tree = treeOf(service);
             for (const object of tree) {
                 const why = pollsOnItsOwn(object);
                 compare(why, "", "an object reads on its own: " + String(object));
             }
-            const paths = tree.map(object => object.path).filter(path => typeof path === "string");
-            for (const path of [Paths.configDir + "/themes", Paths.configDir + "/backgrounds", packageDir + "/theme.json", packageDir + "/backgrounds", imagePath])
-                verify(paths.indexOf(path) !== -1, "the walk reaches the watch on " + path);
-            compare(paths.filter(path => path.startsWith(shadowedDir)).length, 0, "no watch on a shadowed package");
-            verify(paths.some(path => path.endsWith("/themes/catalog/index.json")), "the walk reaches the catalog index watch");
-            verify(tree.some(object => object.stdout !== undefined && object.stdout !== null && tree.indexOf(object.stdout) !== -1),
-                   "the walk reaches a Process's stdout");
+            compare(tree.filter(object => object.watchChanges === true).map(object => object.path), [], "no FileView watches a path");
+            const helper = watchProcess();
+            compare(helper.command.slice(2), [Paths.configDir, Quickshell.shellDir + "/../themes/catalog"], "the helper watches the config folder and the catalog");
+            compare(helper.command[0], "python3");
+            verify(helper.running, "the helper runs from registration");
+            verify(tree.indexOf(helper.stdout) !== -1, "the walk reaches the helper's stdout");
             wait(1000);
             compare(listCalls + imagesCalls + catalogCalls, 0, "no read while nothing changes");
         }
 
-        // Each source's watch, the two folder views under Paths.configDir
-        // that one change there fires (a shell.json save), and an apply,
-        // which renames the theme file into Paths.configDir, firing both
-        // folder views for each of its two entry events, and raises the
-        // theme document revision. Each reads once while a view is open and
-        // not at all while none is.
+        // The ready line reads nothing, a view open or not: registration
+        // and the view's opening already read.
+        function test_the_ready_line_reads_nothing_data() {
+            return [
+                { tag: "a view open", open: true },
+                { tag: "no view open", open: false }
+            ];
+        }
+
+        function test_the_ready_line_reads_nothing(data) {
+            if (data.open) openView();
+            fire([{ ready: true }]);
+            expectRounds(0, "the ready line");
+        }
+
+        // A name marks that package's images replaced, "" the user images',
+        // once per line naming it, with no view open too, where it reads
+        // nothing; a list line marks none.
+        function test_a_name_marks_its_images_replaced_data() {
+            return [
+                { tag: "a package", lines: [named(["dusk"])], want: { dusk: 1 } },
+                { tag: "the user images", lines: [named([""])], want: { "": 1 } },
+                { tag: "two packages in one line", lines: [named(["broken", "dusk"])], want: { broken: 1, dusk: 1 } },
+                { tag: "a package in two lines", lines: [named(["dusk"]), named(["dusk"])], want: { dusk: 2 } },
+                { tag: "a list change", lines: [listed], want: {} }
+            ];
+        }
+
+        function test_a_name_marks_its_images_replaced(data) {
+            fire(data.lines);
+            compare(JSON.stringify(service.generations), JSON.stringify(data.want), "the generations");
+            expectRounds(0, data.tag + " with no view open");
+        }
+
+        // A helper that ends, by an exit or a failed start, is logged and
+        // started again, watchRestartLimit times per registration, and no
+        // more: then it stays down.
+        // expected-log: themes: watch=ended exit=1 status=0 stderr="watch.py: watch=failed reason=init: Too many open files" restart=1/3 -- the helper's setup failure, logged with its line
+        // expected-log: themes: watch=ended exit=not-started restart=2/3 -- a start that failed
+        // expected-log: themes: watch=ended exit=-1 status=1 stderr="" restart=3/3 -- a helper killed
+        // expected-log: themes: watch=stopped exit=1 status=0 stderr="watch.py: watch=failed reason=init: Too many open files" restarts=3 -- the bound spent
+        function test_a_helper_that_ends_starts_again_a_bounded_number_of_times() {
+            const helper = watchProcess();
+            compare(service.watchRestartLimit, 3, "the bound these lines name");
+            const failure = "watch.py: watch=failed reason=init: Too many open files\n";
+            helper.finish(1, 0, "", failure);
+            verify(helper.running, "the first exit starts the helper again");
+            helper.failStart();
+            verify(helper.running, "a failed start starts the helper again");
+            helper.finish(-1, 1, "", "");
+            verify(helper.running, "the third end starts the helper again");
+            helper.finish(1, 0, "", failure);
+            verify(!helper.running, "the fourth end leaves the helper down");
+            compare(service.watchRestarts, 3, "three restarts");
+        }
+
+        // Each source's change as the helper prints it: one line for a
+        // write in place, one per kernel read for a file replaced by
+        // rename or a package copied in; a shell.json save, two list lines,
+        // and an apply, which renames the theme file into Paths.configDir,
+        // two list lines and a new theme document revision. Each reads
+        // once while a view is open and not at all while none is.
         function test_a_watched_change_data() {
-            const dir = Paths.configDir;
             const changes = [
-                { tag: "the installed themes folder", paths: [dir + "/themes"] },
-                { tag: "the user images folder", paths: [dir + "/backgrounds"] },
-                { tag: "the catalog index", paths: [Quickshell.shellDir + "/../themes/catalog/index.json"] },
-                { tag: "a package's theme.json", paths: [packageDir + "/theme.json"] },
-                { tag: "a package's terminal.json", paths: [packageDir + "/terminal.json"] },
-                { tag: "a package's preview", paths: [packageDir + "/preview.jpg"] },
-                { tag: "a package's backgrounds", paths: [packageDir + "/backgrounds"] },
-                { tag: "a refused package's theme.json", paths: [refusedDir + "/theme.json"] },
-                { tag: "a refused package's terminal.json", paths: [refusedDir + "/terminal.json"] },
-                { tag: "an image", paths: [imagePath] },
-                { tag: "a save under the config folder", paths: [dir + "/themes", dir + "/backgrounds"] },
-                { tag: "a new theme document", paths: [], document: true },
-                { tag: "a theme apply", paths: [dir + "/themes", dir + "/backgrounds", dir + "/themes", dir + "/backgrounds"], document: true }
+                { tag: "the installed themes folder", lines: [listed, named(["new"])] },
+                { tag: "the user images folder", lines: [named([""])] },
+                { tag: "the catalog index", lines: [listed] },
+                { tag: "a package's theme.json", lines: [named(["dusk"]), named(["dusk"])] },
+                { tag: "a package's terminal.json", lines: [named(["dusk"])] },
+                { tag: "a package's preview", lines: [named(["dusk"]), named(["dusk"])] },
+                { tag: "a package's backgrounds", lines: [named(["dusk"])] },
+                { tag: "a refused package's theme.json", lines: [named(["broken"])] },
+                { tag: "a refused package's terminal.json", lines: [named(["broken"])] },
+                { tag: "an image", lines: [named(["dusk"]), named(["dusk"])] },
+                { tag: "a save under the config folder", lines: [listed, listed] },
+                { tag: "a new theme document", lines: [], document: true },
+                { tag: "a theme apply", lines: [listed, listed], document: true }
             ];
             const rows = [];
             for (const change of changes) {
@@ -255,16 +321,15 @@ Item {
 
         function test_a_watched_change(data) {
             if (data.open) openView();
-            fire(data.paths, data.document === true);
+            fire(data.lines, data.document === true);
             expectRounds(data.rounds, data.tag);
         }
 
         // A view that opens after changes made while none was open reads
         // once and shows them.
         function test_a_view_opened_after_a_change_shows_it() {
-            const dir = Paths.configDir;
             imageList = [image("dawn.png"), image("noon.png")];
-            fire([dir + "/backgrounds", dir + "/themes"], true);
+            fire([named(["dusk"]), listed], true);
             expectRounds(0, "changes with no view open");
             const view = openView();
             const want = JSON.stringify(imageList);
@@ -287,7 +352,7 @@ Item {
             for (let i = 0; i < data.views; i++) views.push(openView());
             for (let i = 0; i < data.closed; i++) views[i].destroy();
             tryVerify(() => Object.keys(service.openViews).length === data.views - data.closed, 1000, "the closed views leave the service");
-            fire([Paths.configDir + "/themes"]);
+            fire([listed]);
             expectRounds(data.rounds, data.tag);
         }
 
@@ -302,7 +367,7 @@ Item {
             tryVerify(() => view.opened, 1000, "the view opens once the service answers");
             expectRounds(1, "the late opening");
             clearCalls();
-            fire([Paths.configDir + "/themes"]);
+            fire([listed]);
             expectRounds(1, "a change with the late view open");
         }
 

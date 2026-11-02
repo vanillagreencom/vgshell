@@ -7,8 +7,8 @@
 # catalog's flexoki-light, a light package, applies it and reads one colour
 # of each gallery section back as a property, then applies vgs so later
 # rows start from the defaults. The vgs.themes
-# block and its wallpaper block close the file, each delimited by its own
-# markers.
+# block, its watch count block and its wallpaper block follow, each
+# delimited by its own markers.
 # inputs: shell/plugins/vgs.themes/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/Commons/Reply.js shell/plugins/vgs.gallery/* scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/ThemeRunner.qml shell/Commons/Theme.qml shell/Commons/ThemeSource.qml bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js bin/lib/qml-library.js scripts/smoke/rows/theme.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Hosts/BarHost.qml shell/Ui/controls/RowAction.qml shell/Commons/Glass.js shell/Core/Notifier.qml shell/Core/NotificationHub.qml shell/Core/Capabilities.qml shell/shell.qml shell/plugins/vgs.notifications/* scripts/smoke/Probe.qml
 set -euo pipefail
 # A theme document that is not JSON is refused with its parse error.
@@ -1151,6 +1151,146 @@ click_outside || fail "the click closing the themes panel failed"
 expect_poll "the themes panel closes" closed panel_open
 # ---- end vgs.themes ---------------------------------------------------------
 
+# ---- vgs.themes watches: inotify instances per installed package ---------
+# The service's watches cost a fixed number of inotify instances however
+# many packages and images are installed (VGS-2218): helper/watch.py holds
+# one for every folder, where the bd17c06bf service held one FileView, so
+# one instance, per package entry and per image. With the themes panel
+# open, so the service has read every package and image, the block counts
+# the inotify descriptors (anon_inode:inotify links under /proc/PID/fd) of
+# the shell and every descendant, the helper among them, with none of
+# watch_k copies installed and with all of them, each with three images.
+# The budget is no instance per installed package: the two totals are
+# equal. The control is the bd17c06bf Service.qml in this sandbox's tree,
+# counted the same way with the same copies, which the budget must refuse.
+# Each total is read once the panel's read lists every copy and its
+# images, the service reads nothing and no theme job runs.
+watch_k=8
+# The tree's inotify holders: with `total`, the descriptor total, then
+# each holder as PID:COUNT:COMM; with `helpers`, how many watch helpers
+# run in it. A shell pid that cannot be read answers `unreadable`.
+shell_tree() { # total|helpers
+  python3 - "$shell_qs_pid" "$1" <<'PY'
+import os, sys
+root, mode = int(sys.argv[1]), sys.argv[2]
+pending, seen, holders, helpers = [root], set(), [], 0
+while pending:
+    pid = pending.pop()
+    if pid in seen:
+        continue
+    seen.add(pid)
+    try:
+        for task in os.listdir(f"/proc/{pid}/task"):
+            with open(f"/proc/{pid}/task/{task}/children") as f:
+                pending.extend(int(child) for child in f.read().split())
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            args = f.read().split(b"\0")
+        with open(f"/proc/{pid}/comm") as f:
+            comm = f.read().strip()
+        count = 0
+        for fd in os.listdir(f"/proc/{pid}/fd"):
+            try:
+                count += os.readlink(f"/proc/{pid}/fd/{fd}") == "anon_inode:inotify"
+            except FileNotFoundError:
+                pass
+    except (FileNotFoundError, ProcessLookupError):
+        if pid == root:
+            print("unreadable")
+            sys.exit(0)
+        continue
+    # The plugin runs from its scan snapshot, ROOT/<revision>/helper/watch.py.
+    helpers += any(arg.endswith(b"/helper/watch.py") for arg in args)
+    if count:
+        holders.append((pid, count, comm))
+if mode == "helpers":
+    print(helpers)
+else:
+    print(sum(count for _, count, _ in holders), " ".join(f"{pid}:{count}:{comm}" for pid, count, comm in holders))
+PY
+}
+# The budget, judged on two `shell_tree total` readings: within when the
+# total with every copy installed equals the total with none, over=N
+# otherwise.
+inotify_budget() { # NONE ALL
+  local none="${1%% *}" all="${2%% *}"
+  [[ $none =~ ^[0-9]+$ && $all =~ ^[0-9]+$ ]] || { echo "unreadable none=$1 all=$2"; return; }
+  if (( all == none )); then echo within; else echo "over=$(( all - none ))"; fi
+}
+inotify_budget_kind() { local verdict; verdict="$(inotify_budget "$1" "$2")"; echo "${verdict%%=*}"; }
+# The copies' cards and images the service's data lists: `CARDS IMAGES`.
+watch_copies_seen() {
+  ipc smoke readInstance service vgs.themes dataText | py_reply 'import json,sys
+d = json.loads(json.load(sys.stdin))
+cards = sum(1 for c in d["cards"] if c["name"].startswith("watchcount-"))
+images = sum(1 for i in (d["images"]["images"] or []) if (i.get("theme") or "").startswith("watchcount-"))
+print(cards, images)'
+}
+watch_copies_install() {
+  local i dir
+  for i in $(seq 1 "$watch_k"); do
+    dir="$sandbox/watchcount-$i"
+    mkdir -p -- "$dir/backgrounds"
+    printf '{ "schemaVersion": 1, "name": "watchcount-%s", "tokens": {} }\n' "$i" >"$dir/theme.json"
+    solid_png "$dir/backgrounds/a.png" 16 9 200 40 40
+    solid_png "$dir/backgrounds/b.png" 16 9 40 200 40
+    solid_png "$dir/backgrounds/c.png" 16 9 40 40 200
+    mv -T -- "$dir" "$installed/watchcount-$i"
+  done
+}
+watch_copies_remove() { local i; for i in $(seq 1 "$watch_k"); do rm -r -- "${installed:?}/watchcount-$i"; done; }
+# watch_settled LABEL CARDS IMAGES: the panel's read lists that many
+# copies and images, no read runs and no theme job waits.
+watch_settled() {
+  expect_poll "$1: the service lists $2 copies and $3 of their images" "$2 $3" watch_copies_seen
+  expect_poll "$1: the service reads nothing" false ipc smoke readInstance service vgs.themes readingData
+  expect "$1: no theme job runs" idle theme_idle
+}
+# watch_service LABEL SOURCE: rebuild every vgs.themes instance from
+# SOURCE as Service.qml, with the panel closed, and open the panel again.
+service_qml="$repo/shell/plugins/vgs.themes/Service.qml"
+watch_service() {
+  local before
+  before="$(builds)" || { fail "$1: buildCount unreadable"; return 1; }
+  cp -p -- "$2" "$service_qml.tmp" && mv -T -- "$service_qml.tmp" "$service_qml" || { fail "$1: $2 could not be installed"; return 1; }
+  rescan "a rescan builds $1"
+  expect_poll "$1 rebuilds every vgs.themes instance" "$((before + themes_instances))" builds
+  expect "the follow the rescan for $1 queued ends" idle theme_idle
+}
+cp -p -- "$service_qml" "$sandbox/Service.qml.watch.real"
+expect "the shortcut opens the themes panel for the watch count" ok hypr dispatch 'hl.dsp.global("vgs.themes:panel")'
+expect_poll "the themes panel opens for the watch count" open panel_open
+expect "one watch helper runs in the shell's tree" 1 shell_tree helpers
+watch_settled "with no copy installed" "0" "0"
+watch_none="$(shell_tree total)"
+watch_copies_install
+watch_settled "with $watch_k copies installed" "$watch_k" "$((watch_k * 3))"
+watch_all="$(shell_tree total)"
+ok "themes watch: shell tree inotify none=[$watch_none] all=[$watch_all] copies=$watch_k"
+expect "the shell's inotify instances grow by none for $watch_k installed packages" within inotify_budget "$watch_none" "$watch_all"
+click_outside || fail "the click closing the themes panel before the watch control failed"
+expect_poll "the themes panel closes before the watch control" closed panel_open
+if git -C "$source_repo" show bd17c06bf:shell/plugins/vgs.themes/Service.qml >"$sandbox/Service.qml.watch.vgs2198"; then
+  watch_service "the VGS-2198 watch control" "$sandbox/Service.qml.watch.vgs2198"
+  expect "the shortcut opens the themes panel on the watch control" ok hypr dispatch 'hl.dsp.global("vgs.themes:panel")'
+  expect_poll "the watch control's panel opens" open panel_open
+  expect "the watch control runs no watch helper" 0 shell_tree helpers
+  watch_settled "the watch control with $watch_k copies installed" "$watch_k" "$((watch_k * 3))"
+  watch_control_all="$(shell_tree total)"
+  watch_copies_remove
+  watch_settled "the watch control with no copy installed" "0" "0"
+  watch_control_none="$(shell_tree total)"
+  ok "themes watch control: shell tree inotify none=[$watch_control_none] all=[$watch_control_all] copies=$watch_k verdict=$(inotify_budget "$watch_control_none" "$watch_control_all")"
+  expect "control: the budget refuses the VGS-2198 service's instances per package" over inotify_budget_kind "$watch_control_none" "$watch_control_all"
+  click_outside || fail "the click closing the watch control's panel failed"
+  expect_poll "the watch control's panel closes" closed panel_open
+else
+  fail "the VGS-2198 Service.qml could not be read from $source_repo"
+  watch_copies_remove
+fi
+watch_service "the restored watch service" "$sandbox/Service.qml.watch.real"
+expect_poll "the restored service runs one watch helper" 1 shell_tree helpers
+# ---- end vgs.themes watches -------------------------------------------------
+
 # ---- vgs.themes wallpaper: the theme's background image ------------------
 # The background kind of vgs.themes, built on every screen since the
 # harness started, and the panel's wallpaper section. An installed package
@@ -1538,8 +1678,12 @@ fi
 
 expect "vgs applies after the no-image rows" "ok theme=vgs state=applied shell=applied" vgshell_theme apply vgs
 expect_poll "Black is current before the boundary" "\"$vgs_black\"" bg_current
+expect "the watch helper runs before the plugin is disabled" 1 shell_tree helpers
 expect "vgshell plugin disable takes the themes panel and background away" ok "${shell_env[@]}" "$repo/bin/vgshell" plugin disable vgs.themes
 expect_poll "every vgs.themes instance is gone" False record_exists vgs.themes
+# The engine ends a destroyed service's Process, so no watch helper outlives
+# the service.
+expect_poll "the watch helper ends with the disabled service" 0 shell_tree helpers
 # Disabling the plugin queues a scan and follow; the next row's apply must not race that theme lock.
 expect "the follow after disabling the themes plugin ends" idle theme_idle
 rm -r -- "$scenic" "$plain"
