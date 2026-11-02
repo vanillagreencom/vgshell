@@ -1552,8 +1552,14 @@ PY
     ok() { :; }
     fail() { failures=$((failures + 1)); }
     reader_stderr() { [[ ! -s $2 ]]; }
-    smoke_poll_tries() { smoke_poll_n=5; }
-    sleep() { :; }
+    smoke_poll_tries() { smoke_poll_n=5 smoke_poll_control=false; }
+    poll_clock=0
+    now_ms() { echo "$poll_clock"; }
+    sleep() {
+      local fraction="${1#*.}"
+      while ((${#fraction} < 3)); do fraction+=0; done
+      poll_clock=$((poll_clock + ${1%%.*} * 1000 + 10#$fraction))
+    }
     ships_plugin() { [[ $1 == vgs.displays ]]; }
     devices_up() { :; }
     devices_system_tree() { echo fixture; }

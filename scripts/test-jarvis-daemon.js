@@ -1507,6 +1507,7 @@ sleep() {
     tick="$(<"$clock")"
     printf '%s' "$((tick + 1))" >"$clock"
 }
+now_ms() { printf '%s\\n' "$(( $(<"$clock") * 200 ))"; }
 jarvis_key_pending() {
     local tick
     tick="$(<"$clock")"

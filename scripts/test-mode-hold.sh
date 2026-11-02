@@ -494,11 +494,16 @@ nested_socket=wayland-1 rt_dir="$stub_dir"
 shell_env=(env -i PATH="$PATH" WAYLAND_DISPLAY="$stub_dir/wayland-1")
 mode_hold=(WAYLAND-1 "3510x1866 scale=2")
 mode_hold_run_base=false
-smoke_poll_bound_ms=400 smoke_control_poll_bound_ms=400
+smoke_poll_bound_ms=400 smoke_control_poll_bound_ms=400 poll_clock=0
 pointer_at=before dependent=false continued=false
 : >"$stub_dir/cleanup-owned"
 ok() { :; }
-sleep() { :; }
+now_ms() { echo "$poll_clock"; }
+sleep() {
+  local fraction="${1#*.}"
+  while ((${#fraction} < 3)); do fraction+=0; done
+  poll_clock=$((poll_clock + ${1%%.*} * 1000 + 10#$fraction))
+}
 py_reply() { python3 -c "$@"; }
 held_json='\''[{"name":"WAYLAND-1","width":3510,"height":1866,"scale":2,"transform":0,"x":0,"y":0},{"name":"FAR","width":800,"height":600,"scale":1,"transform":0,"x":1755,"y":0}]'\''
 if [[ $stub_phase == single ]]; then

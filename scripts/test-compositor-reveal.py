@@ -39,7 +39,8 @@ expected_errors=()
 fail() { failures=$((failures + 1)); }
 ok() { :; }
 reader_stderr() { :; }
-smoke_poll_tries() { smoke_poll_n=1; }
+smoke_poll_tries() { smoke_poll_n=1 smoke_poll_control=false; }
+now_ms() { echo 0; }
 sleep() { :; }
 open_reveal() { reveal_pid=fixture; reveal_window=0x123; }
 reveal_other() { :; }

@@ -87,6 +87,105 @@ py_reply 'import sys; sys.exit(23)' < "$2"
     print("smoke-dumps: empty-and-multiline=kept diagnostic-exit=23")
 
 
+# Reader time consumes only the expected-failure control's elapsed bound.
+# Normal polls keep late successes within their read cap under fleet load.
+with tempfile.TemporaryDirectory(prefix="smoke-poll-") as scratch:
+    root = Path(scratch)
+    helpers = root / "poll.sh"
+    poll = function("expect_poll")
+    helpers.write_text(function("smoke_poll_tries") + poll)
+    fixture = r'''set -euo pipefail
+source "$1"
+sandbox="$2" mode="$3" read_ms="$4" match_at="$5" fault="$6"
+ipc_timeout_log="$sandbox/timeout"
+smoke_poll_bound_ms=1000 smoke_control_poll_bound_ms=1000 smoke_poll_scope=0
+printf '0\n' >"$sandbox/clock"
+printf '0\n' >"$sandbox/reads"
+: >"$sandbox/sleeps"
+failures=0 passes=0
+now_ms() { cat "$sandbox/clock"; }
+advance() { printf '%s\n' "$(( $(now_ms) + $1 ))" >"$sandbox/clock"; }
+sleep() {
+  printf '%s\n' "$1" >>"$sandbox/sleeps"
+  local fraction="${1#*.}"
+  while ((${#fraction} < 3)); do fraction+=0; done
+  advance "$(( ${1%%.*} * 1000 + 10#$fraction ))"
+}
+reader() {
+  local reads=$(( $(<"$sandbox/reads") + 1 ))
+  printf '%s\n' "$reads" >"$sandbox/reads"
+  advance "$read_ms"
+  case "$fault" in
+    timeout) : >"$ipc_timeout_log"; printf 'latched\n' >"$ipc_timeout_log" ;;
+    stderr) printf 'reader-error\n' >&2 ;;
+    coordinate) echo pending; return 17 ;;
+    retry) if ((reads == 1)); then echo pending; return 17; fi ;;
+  esac
+  if ((match_at > 0 && reads >= match_at)); then echo ready; else echo pending; fi
+}
+ok() { passes=$((passes + 1)); }
+fail() { failures=$((failures + 1)); }
+reader_stderr() { if [[ -s $2 ]]; then fail; return 1; fi; }
+poll_case() {
+  local status=0
+  [[ $fault != coordinate ]] || coordinate_scope=true
+  expect_poll example ready reader || status=$?
+  printf '%s %s %s %s %s %s\n' "$passes" "$failures" "$status" "$(<"$sandbox/reads")" "$(wc -l <"$sandbox/sleeps")" "$(now_ms)"
+}
+case "$mode" in
+  normal) poll_case ;;
+  control) (poll_case) ;;
+  scoped) (smoke_poll_scope=1; poll_case) ;;
+  scoped-control) (smoke_poll_scope=1; (poll_case)) ;;
+esac
+'''
+
+    # mode, reader ms, matching read (0 never matches), fault, expected
+    # passes/failures/status/reads/sleeps/clock-ms. All time is injected.
+    cases = (
+        ("normal", 700, 2, "none", (1, 0, 0, 2, 1, 1600)),
+        ("control", 450, 0, "none", (0, 1, 0, 2, 1, 1100)),
+        ("control", 300, 0, "none", (0, 1, 0, 2, 2, 1000)),
+        ("control", 750, 0, "none", (0, 1, 0, 2, 1, 1700)),
+        ("control", 850, 0, "none", (0, 1, 0, 1, 1, 1000)),
+        ("control", 1200, 1, "none", (1, 0, 0, 1, 0, 1200)),
+        ("control", 1200, 0, "none", (0, 1, 0, 1, 0, 1200)),
+        ("normal", 0, 0, "none", (0, 1, 0, 5, 4, 800)),
+        ("control", 0, 0, "none", (0, 1, 0, 5, 4, 800)),
+        ("scoped", 700, 2, "none", (1, 0, 0, 2, 1, 1600)),
+        ("scoped-control", 450, 0, "none", (0, 1, 0, 2, 1, 1100)),
+        ("control", 0, 1, "timeout", (0, 0, 124, 1, 0, 0)),
+        ("control", 0, 1, "stderr", (0, 1, 0, 1, 0, 0)),
+        ("control", 0, 0, "coordinate", (0, 0, 17, 1, 0, 0)),
+        ("control", 0, 2, "retry", (1, 0, 0, 2, 1, 200)),
+    )
+
+    def run_poll(helper, case, name):
+        folder = root / name
+        folder.mkdir()
+        mode, read_ms, match_at, fault, _ = case
+        result = subprocess.run(
+            [BASH, "-c", fixture, "_", str(helper), str(folder), mode,
+             str(read_ms), str(match_at), fault], env=ENV,
+            capture_output=True, text=True, timeout=10)
+        assert result.returncode == 0, (case, result.stdout, result.stderr)
+        return tuple(map(int, result.stdout.split()))
+
+    for index, case in enumerate(cases):
+        actual = run_poll(helpers, case, "case-%d" % index)
+        assert actual == case[-1], (case, actual)
+    # Preserve reads and assertions; removing only the elapsed control cutoff
+    # must repeat the slow reader past its deadline and fail the same case.
+    needle = 'if [[ $smoke_poll_control == true ]]; then deadline=$(( $(now_ms) + smoke_control_poll_bound_ms )); fi'
+    assert poll.count(needle) == 1
+    mutant = root / "no-elapsed-cutoff.sh"
+    mutant.write_text(function("smoke_poll_tries") + poll.replace(needle, ":"))
+    assert mutant.read_text() != helpers.read_text()
+    actual = run_poll(mutant, cases[1], "mutant")
+    assert actual != cases[1][-1] and actual[3] == 5, actual
+    print("smoke-poll: injected-clock=pass normal-late-success=kept control=slow-reader-rejected")
+
+
 # The real smoke_row must reject a timeout even when a reader catches its
 # status or runs in a command substitution. The call, page loop, poll,
 # leak reading and row verdict run their production code against stand-ins.
@@ -183,7 +282,7 @@ sink_check() { :; }
 row_log_check() { :; }
 row_log_tail() { :; }
 anr_row_boundary() { :; }
-smoke_poll_tries() { smoke_poll_n=50; }
+smoke_poll_tries() { smoke_poll_n=50 smoke_poll_control=false; }
 ok() { :; }
 smoke_row example "$sandbox"
 printf 'result failures=%s behaviour=%s\\n' "$failures" "$behaviour_failures"

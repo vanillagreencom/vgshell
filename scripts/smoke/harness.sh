@@ -2452,12 +2452,13 @@ log_lines() {
 # what a loaded host takes, so load cannot fail a check. A control runs
 # the row's own assertions in a subshell and expects them to fail: there
 # smoke_poll_tries uses smoke_control_poll_bound_ms instead, so each
-# expected failure ends after the 5 s the harness has always given it
-# rather than the long bound.
+# expected failure uses the shorter bound. expect_poll also counts reader
+# time at control depth; normal polls retain their read-count allowance.
 smoke_poll_bound_ms=30000
 smoke_control_poll_bound_ms=5000
 # smoke_poll_tries STEP_MS [CALLER_DEPTH]: the reads a poll of STEP_MS
-# steps makes before its bound, in smoke_poll_n. Called directly, never in
+# steps makes before its bound, in smoke_poll_n, and whether that bound is
+# for a control, in smoke_poll_control. Called directly, never in
 # $(), so it sees the caller's subshell depth: deeper than CALLER_DEPTH (0,
 # or 1 for point_item, which every caller reads through $()) plus
 # smoke_poll_scope is a control. A row that runs its own steps in a
@@ -2467,7 +2468,11 @@ smoke_control_poll_bound_ms=5000
 # as in a test that copies the function alone, it reads as 0.
 smoke_poll_scope=0
 smoke_poll_tries() { # STEP_MS [CALLER_DEPTH]
-  if (( BASH_SUBSHELL <= ${2:-0} + ${smoke_poll_scope:-0} )); then smoke_poll_n=$((smoke_poll_bound_ms / $1)); else smoke_poll_n=$((smoke_control_poll_bound_ms / $1)); fi
+  if (( BASH_SUBSHELL <= ${2:-0} + ${smoke_poll_scope:-0} )); then
+    smoke_poll_n=$((smoke_poll_bound_ms / $1)) smoke_poll_control=false
+  else
+    smoke_poll_n=$((smoke_control_poll_bound_ms / $1)) smoke_poll_control=true
+  fi
 }
 # expect_log LABEL COUNT PATTERN: the log holds at least COUNT matching
 # lines within smoke_poll_bound_ms. A row that asserts something did not
@@ -2544,15 +2549,20 @@ expect() {
   fi
   if [[ $got == "$want" ]]; then ok "$label"; else fail "$label: got $got"; fi
 }
-# expect_poll LABEL WANT CMD...: as expect, retried for up to
-# smoke_poll_bound_ms, for a
-# state that follows a write through the watcher, the merge and a rebuild.
+# expect_poll LABEL WANT CMD...: as expect, with smoke_poll_bound_ms of
+# 200 ms steps for a state following a write through the watcher, merge
+# and rebuild. Only expected-failure controls include reader time in their
+# shorter elapsed bound. An in-flight reader keeps its own transport bound
+# and can match; normal polls keep their read cap even under slow reads.
 # A failed read is retried; a traceback fails the row at once.
 expect_poll() { # LABEL WANT CMD...
   local label="$1" want="$2" got="" matched status err="$sandbox/reader-$BASHPID.stderr"
+  local attempt deadline=0 remaining pause
   shift 2
   smoke_poll_tries 200
-  for _ in $(seq 1 "$smoke_poll_n"); do
+  if [[ $smoke_poll_control == true ]]; then deadline=$(( $(now_ms) + smoke_control_poll_bound_ms )); fi
+  for attempt in $(seq 1 "$smoke_poll_n"); do
+    if (( attempt > 1 && deadline > 0 )) && (( $(now_ms) >= deadline )); then break; fi
     matched=false status=0
     got="$("$@" 2>"$err")" || status=$?
     [[ ! -s $ipc_timeout_log ]] || return 124
@@ -2560,7 +2570,15 @@ expect_poll() { # LABEL WANT CMD...
     reader_stderr "$label" "$err" || return 0
     if [[ $status -ne 0 && ${coordinate_scope:-false} == true ]]; then return "$status"; fi
     if [[ $matched == true ]]; then ok "$label"; return; fi
-    sleep 0.2
+    (( attempt < smoke_poll_n )) || break
+    if (( deadline > 0 )); then
+      remaining=$(( deadline - $(now_ms) ))
+      (( remaining > 0 )) || break
+      pause=$(( remaining < 200 ? remaining : 200 ))
+      sleep "$((pause / 1000)).$(printf '%03d' $((pause % 1000)))"
+    else
+      sleep 0.2
+    fi
   done
   fail "$label: got $got want $want"
 }
