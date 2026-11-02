@@ -442,9 +442,9 @@ python3 - "$jarvis_console_qml" <<'PY_DUPLEX'
 from pathlib import Path
 import sys
 p=Path(sys.argv[1]); s=p.read_text()
-needle='                    visible: !root.speechOnly\n\n                    TextField {'
+needle='                Column {\n                    width: parent.width\n                    visible: !root.speechOnly\n                    Row {'
 assert s.count(needle)==1, needle
-p.write_text(s.replace(needle, '\n                    TextField {'))
+p.write_text(s.replace(needle, '                Column {\n                    width: parent.width\n                    Row {'))
 PY_DUPLEX
 jarvis_console_duplex "duplex control"
 expect "control: a message box under a duplex voice fails the message box and Send assertions" 2 jarvis_console_speech_only_control

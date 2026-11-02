@@ -153,7 +153,7 @@ Item {
                 id: hint
                 visible: row.openWithHintShown
                 hints: [{ key: "Shift+Enter", text: "open with" }]
-                backgroundContext: row.launcher.hintBackgroundContext
+                backgroundContext: row.live ? row.launcher.hintBackgroundContext : null
             }
         }
     }

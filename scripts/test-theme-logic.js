@@ -1870,14 +1870,18 @@ function launcherTextReadings(judge, launcher, menuFills = launcherMenuFills, hi
                 out.push([name, role, state, ratio(ink, fill, 400)]);
         for (const [state, fill] of menuFills(judge, look, values).flatMap(fill => [fill, plate(fill)]).entries())
             out.push([name, "menu", state, ratio(look.text.detail.color, fill, 400)]);
-        // Match GlassSurface's drawn, solid and glass-off branches. The
-        // shared owner expands drawn glass across both wallpaper ends and
-        // the selected plate's sheen range before choosing one ink.
+        // Match GlassSurface's drawn, solid and glass-off branches. Build
+        // expected fills from this test's wallpaper/solid grounds and the
+        // selected plate's direct sheen, independently of the ink judge.
         for (const [branch, fill] of [judge.parseColor(look.card.fill), ...solid].entries()) {
             const context = { fill, plate: judge.parseColor(look.highlight.plate), sheen: judge.parseColor(look.highlight.sheen) };
             const word = hintInk(values, context, false);
             const key = hintInk(values, context, true);
-            for (const [state, ground] of judge.keyHintBackgrounds(context).entries()) {
+            const expectedGrounds = (branch === 0 ? grounds : [solid[branch - 1]]).flatMap(ground => {
+                const selected = plate(ground);
+                return [selected, judge.overlay(judge.parseColor(look.highlight.sheen), selected)];
+            });
+            for (const [state, ground] of expectedGrounds.entries()) {
                 const capFill = judge.overlay(judge.parseColor(values.kbd.background), ground);
                 out.push([name, "keyHint", `${branch}/${state}`, judge.drawnTextRatio(word, ground, values.text.keyHint.weight)]);
                 out.push([name, "key", `${branch}/${state}`, judge.drawnTextRatio(key, capFill, values.text.kbd.weight)]);
