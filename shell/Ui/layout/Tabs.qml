@@ -23,6 +23,9 @@ T.TabBar {
     id: root
 
     property var model: []
+    // Optional unread counts beside their existing tab labels. The mapping
+    // is keyed by label so rebuilding a model cannot misplace its count.
+    property var unreadCounts: ({})
     property var warningTabs: []
     property color foreground: Theme.tabs.foreground
     property color hover: Theme.tabs.hover
@@ -93,6 +96,8 @@ T.TabBar {
             readonly property color indicatorColor: root.indicatorColor
             readonly property bool hoverMark: root.hoverMark
             readonly property bool warning: root.warningTabs.indexOf(String(modelData)) !== -1
+            readonly property string unreadCount: root.unreadCounts === null || root.unreadCounts[String(modelData)] === undefined
+                ? "" : String(root.unreadCounts[String(modelData)])
             text: String(modelData)
             implicitWidth: implicitContentWidth + leftPadding + rightPadding
             implicitHeight: Theme.tabs.height
@@ -101,7 +106,7 @@ T.TabBar {
             hoverEnabled: true
             focusPolicy: Qt.NoFocus
             PointerCursor {}
-            Accessible.name: warning ? text + ": setup needed" : text
+            Accessible.name: (warning ? text + ": setup needed" : text) + (unreadCount === "" ? "" : ", " + unreadCount + " unread")
             // A selection callback can open a dialog. Give this press
             // its pointer focus before the template changes the index.
             onPressed: { root.forceActiveFocus(Qt.MouseFocusReason); root.focusReason = Qt.MouseFocusReason; }
@@ -127,6 +132,12 @@ T.TabBar {
                         verticalAlignment: Text.AlignVCenter
                         anchors.verticalCenter: parent.verticalCenter
                         Behavior on color { ColorAnimation { duration: Theme.motion.duration.fast; easing.type: Theme.motion.easing.standard } }
+                    }
+                    Badge {
+                        visible: tab.unreadCount !== ""
+                        variant: "unread"
+                        text: tab.unreadCount
+                        anchors.verticalCenter: parent.verticalCenter
                     }
                     Icon {
                         objectName: "tabWarning"

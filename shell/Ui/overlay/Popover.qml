@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import qs.Commons
+import qs.Core
 import qs.Ui
 import "../foundation/KeyNavLogic.js" as KeyNavLogic
 
@@ -17,6 +18,9 @@ Item {
 
     property alias title: pane.title
     property alias subtitle: pane.subtitle
+    // Composite content can name its keyboard owner instead of the first
+    // button in reading order, such as a calendar's day grid.
+    property Item initialFocus: null
     default property alias content: body.data
     readonly property bool opened: window.visible
     readonly property Item anchorItem: parent
@@ -37,11 +41,20 @@ Item {
     function open() {
         window.visible = true;
         Qt.callLater(() => {
-            if (!focusFirst(scope))
+            if (!root.opened) return;
+            if (root.initialFocus !== null && root.initialFocus.enabled && root.initialFocus.visible)
+                KeyNavLogic.focusInitial(root.initialFocus, scope.Window.window);
+            else if (!focusFirst(scope))
                 KeyNavLogic.focusInitial(scope, scope.Window.window);
         });
     }
-    function close() { window.visible = false; }
+    // A user choice returns native keys through the same owner as Menu.
+    // Outside dismissal and ordinary closes do not reclaim activation.
+    function close(restore) {
+        const owner = restore && anchorItem !== null ? anchorItem.QsWindow.window : null;
+        window.visible = false;
+        if (owner !== null && owner !== undefined) Compositor.activateWindow(owner);
+    }
     function toggle() { if (opened) close(); else open(); }
     function screenHeight() {
         const output = OverlayState.outputOf(anchorItem);

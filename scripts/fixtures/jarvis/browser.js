@@ -96,7 +96,15 @@ async function daemonLease(ending, removeClose = false) {
             assert.equal(signal, null, "stdin EOF must end the daemon");
             assert.equal(actual, 0, err);
             assert.equal(err, "");
-            assert.deepEqual((out.trim() === "" ? [] : out.trim().split("\n").map(JSON.parse)).filter(frame => !["homes", "voices", "personality", "start-text"].includes(frame.type)), [
+            const frames = out.trim() === "" ? [] : out.trim().split("\n").map(JSON.parse);
+            const Protocol = require(path.join(tree, "bin/lib/qml-library.js")).load(path.join(tree, "shell/plugins/vgs.jarvis/JarvisProtocol.js"));
+            const asks = frames.filter(frame => frame.type === "owner-asks");
+            assert.ok(asks.length > 0, "the absent Home publishes explicit asks availability");
+            for (const frame of asks) {
+                Protocol.accept(JSON.stringify(frame), "daemon");
+                assert.equal(frame.snapshot.kind, "unavailable", "no Home must not fabricate an empty inbox");
+            }
+            assert.deepEqual(frames.filter(frame => !["homes", "voices", "personality", "start-text", "owner-asks"].includes(frame.type)), [
                 { v: 1, type: "audit-failures", gen: 0, revision: hello.revision, rows: [] },
                 { v: 1, type: "shell-status", gen: 0, revision: hello.revision, availability: { kind: "checking" } },
                 { v: 1, type: "status", gen: 0, revision: hello.revision, daemon: "ready",

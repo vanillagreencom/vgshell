@@ -85,8 +85,11 @@ sys_focus() { ipc smoke focused window vgs.system | py_reply 'import json,sys; r
 sys_switch() { ipc smoke itemTexts window vgs.system Switch | py_reply 'import json,sys; print(json.dumps([t != [] for t in json.load(sys.stdin)]))'; }
 sys_switch_checked() { ipc smoke readDescendant window vgs.system Switch checked; }
 sys_payload() { ipc smoke readInstance window "$1" payload; }
-# Real Item parent links from the mounted fixture through the holder's
-# footer slot to its Pane, with the slot's height and bottom alignment.
+# Real Item parent links from the mounted fixture up to its nearest Pane:
+# the bar is in the footer when the Pane's child on that chain is its
+# lowest Slot (the header slot sits above it; the body's chain passes the
+# scroll area). Walking up keeps the reading true under any wrapper a slot
+# lays its children in. The height and bottom are that slot's.
 sys_footer_state() {
   ipc smoke descendantGeometry window vgs.system | py_reply '
 import json, sys
@@ -94,9 +97,13 @@ rows = json.load(sys.stdin)
 bars = [r for r in rows if r["type"] == "SaveBar"]
 if len(bars) != 1: print("absent" if not bars else "multiple"); sys.exit()
 bar = bars[0]
-slot = rows[bar["parent"]] if bar["parent"] >= 0 else None
-pane = rows[slot["parent"]] if slot is not None and slot["parent"] >= 0 else None
-parent = "footer" if pane is not None and pane["type"] == "Pane" else "body"
+child, up = rows.index(bar), bar["parent"]
+while up >= 0 and rows[up]["type"] != "Pane":
+    child, up = up, rows[up]["parent"]
+slot = rows[child] if up >= 0 else None
+slots = [r for r in rows if up >= 0 and r["parent"] == up and r["type"] == "Slot"]
+lowest = max(slots, key=lambda r: r["box"][1]) if slots else None
+parent = "footer" if slot is not None and slot is lowest else "body"
 print(json.dumps({"parent": parent, "height": slot["box"][3] if slot is not None else -1,
     "shown": bar["visible"], "bottom": bar["box"][1] + bar["box"][3]}))'
 }

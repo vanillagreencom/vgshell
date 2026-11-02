@@ -234,7 +234,7 @@ task_controls=(
   'floating-notice|message.answer === "floating"|false && message.answer === "floating"|a floating task answer shows its notice'
   "forward|send({ type: \"tui-state\", name: \"task\", running: taskTuiRunning });|if (!taskTuiRunning) send({ type: \"tui-state\", name: \"task\", running: taskTuiRunning });|the service forwards the running task TUI"
   "argv|shell.tui.run(\"task\", args, () => {|shell.tui.run(\"task\", [], () => {|the core runs the task TUI with the spec path alone"
-  "count|const reply = shell.status.set(\"tasks\", message.count);|const reply = \"ok\";|the daemon's live task count reaches the status"
+  "count|const reply = StatusPublication.write(shell.status, \"tasks\", message.count);|const reply = \"ok\";|the daemon's live task count reaches the status"
   "intent|        send(fields);
         return \"ok\";
     }

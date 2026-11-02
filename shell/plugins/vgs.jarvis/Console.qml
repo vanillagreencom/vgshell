@@ -7,6 +7,7 @@ import "Session.js" as Session
 import "WidgetView.js" as WidgetView
 import "SetupGate.js" as Gate
 import "AccountProviders.js" as Providers
+import "History.js" as History
 
 // Jarvis console: a keyboard-first window for typed turns. It asks the
 // service through IPC, reads the service's bounded conversation status, and
@@ -23,14 +24,165 @@ FocusScope {
     readonly property var detail: values.detail === undefined ? null : values.detail
     readonly property var state: detail === null || detail.state === undefined ? null : detail.state
     property int tab: 0
-    property int selectedTask: 0
-    readonly property var taskRows: Array.isArray(values.taskList) ? values.taskList : []
+    readonly property var asksState: values.ownerAsks === undefined ? ({ kind: "reading" }) : values.ownerAsks === null
+        ? ({ kind: "unavailable", cause: "The ask page is unavailable because the console is full. Refresh to read it again." }) : values.ownerAsks
+    readonly property bool asksReady: asksState.kind === "ready"
+    readonly property var activeAsks: asksReady ? asksState.active : []
+    readonly property var snoozedAsks: asksReady ? asksState.snoozed : []
+    readonly property var askOperation: values.ownerAskAnswer === undefined || values.ownerAskAnswer === null
+        || values.ownerAskAnswer.home !== currentHome ? null : values.ownerAskAnswer
+    readonly property var askAnswer: askOperation !== null && askOperation.kind === "answered" ? askOperation.result : null
+    property bool snoozedExpanded: false
+    property string askProblem: ""
+    readonly property string pendingAsk: askOperation !== null && (askOperation.kind === "first-pending" || askOperation.kind === "retry-pending")
+        ? askOperation.request.requestId : ""
+    readonly property var unconfirmedRequest: askOperation !== null && (askOperation.kind === "unknown" || askOperation.kind === "retry-pending")
+        ? askOperation.request : null
+    readonly property string askOutcome: askOperation === null ? "" : askOperation.kind === "unknown"
+        ? "The action was not confirmed. Retry your previous action."
+        : askOperation.kind === "not-sent" ? "The action was not sent. Try again."
+        : askAnswer !== null && askAnswer.kind !== "accepted" ? askAnswer.cause : ""
+    readonly property string askRecoveryText: askOperation === null || (pendingAsk === "" && unconfirmedRequest === null) ? ""
+        : recoveryText(askOperation.request, pendingAsk !== "")
+    readonly property string askRetryReason: pendingAsk !== "" ? "Wait for the current ask action to finish."
+        : shell === null || state === null ? "Wait for Jarvis to be ready."
+        : shell.session === undefined || shell.session.locked !== false ? "Unlock your session before answering an ask." : ""
+    property int askSerial: 0
+    property var editingAsk: null
+    property string editingHome: ""
+    property string editingAction: ""
+    property Item returnAskFocus: null
+    property string historyQuery: ""
+    property int historyType: 0
+    readonly property var historyGroups: History.conversations(conversation, historyQuery)
+    readonly property var historyProblems: History.problems(auditRows, historyQuery)
+    readonly property bool showConversations: tab === 2 && (historyType === 0 || historyType === 1)
+    readonly property bool showTasks: tab === 2 && (historyType === 0 || historyType === 2)
+    readonly property bool showProblems: tab === 2 && (historyType === 0 || historyType === 3)
+    readonly property string currentHome: shell === null ? "" : shell.settings.home
+    onCurrentHomeChanged: { editingAsk = null; askProblem = ""; }
+    onAskOperationChanged: {
+        askProblem = "";
+        if (askOperation !== null && askOperation.kind === "answered" && askOperation.result.kind === "accepted"
+                && editingAsk !== null && editingAsk.id === askOperation.request.id && editingAsk.revision === askOperation.request.expectedRevision
+                && editingAction === askOperation.request.action && (editingAction === "reply" ? replyField.text === askOperation.request.text
+                    : laterInstant() === askOperation.request.until))
+            closeAskEditor();
+    }
+
+    function refreshAsks() {
+        if (shell === null) return;
+        const reply = shell.ipc.call("owner-asks-refresh", "");
+        askProblem = reply !== "ok" ? "Jarvis is not ready to refresh your asks." : "";
+    }
+    function askPage(view, first) {
+        if (!asksReady || shell === null) return;
+        const cursor = first ? null : asksState[view + "NextCursor"];
+        const reply = shell.ipc.call("owner-asks-page", JSON.stringify({ view: view, cursor: cursor, expectedRevision: asksState.revision }));
+        askProblem = reply === "ok" ? "" : "This page changed. Press Refresh to start again.";
+    }
+    function askActions(row) {
+        return ["reply", "done", "later"].map(action => ({ id: action,
+            label: action === "reply" ? "Reply" : action === "done" ? "Done" : "Later",
+            disabledReason: pendingAsk !== "" ? "Wait for the current ask action to finish."
+                : unconfirmedRequest !== null ? "Retry your previous ask action first."
+                : row.actions[action].allowed ? "" : row.actions[action].reason }));
+    }
+    function chooseAsk(action, row, source) {
+        if (pendingAsk !== "" || unconfirmedRequest !== null || !row.actions[action].allowed) return;
+        askProblem = "";
+        returnAskFocus = source;
+        if (action === "done") { sendAsk(action, row, "", null); return; }
+        editingAsk = row;
+        editingHome = asksState.homeId;
+        editingAction = action;
+        replyField.text = "";
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        laterDate.date = laterDate.stamp(tomorrow.getFullYear(), tomorrow.getMonth() + 1, tomorrow.getDate());
+        laterTime.currentIndex = 0;
+        Qt.callLater(() => askDialog.forceActiveFocus(Qt.OtherFocusReason));
+    }
+    function closeAskEditor() {
+        if (editingAsk === null) return;
+        editingAsk = null;
+        Qt.callLater(() => {
+            if (returnAskFocus !== null && returnAskFocus.visible) returnAskFocus.forceActiveFocus(Qt.OtherFocusReason);
+            else if (root.tab === 1) asksBody.forceActiveFocus(Qt.OtherFocusReason);
+        });
+    }
+    function laterInstant() {
+        const date = laterDate.parse(laterDate.displayText);
+        if (date === null) return null;
+        return new Date(date.y, date.m - 1, date.d, [9, 12, 17][laterTime.currentIndex]).toISOString();
+    }
+    function editorReason() {
+        if (unconfirmedRequest !== null) return "Close this dialog and retry your previous action.";
+        if (editingAsk === null || !asksReady || asksState.homeId !== editingHome) return "This ask changed. Close this dialog and refresh.";
+        if (pendingAsk !== "") return "Wait for the current ask action to finish.";
+        if (editingAction === "reply") return replyField.text.trim() === "" ? "Write your reply first."
+            : /[\x00-\x09\x0b-\x1f\x7f]/.test(replyField.text) ? "Remove control characters from your reply."
+            : replyField.text.length > 4096 ? "Use up to 4,096 characters in your reply." : "";
+        const until = laterInstant();
+        return until === null ? "Choose a date from the calendar." : Date.parse(until) <= Date.now() ? "Choose a future date and time." : "";
+    }
+    function submitAskEditor() {
+        if (editorReason() !== "") return;
+        sendAsk(editingAction, editingAsk, editingAction === "reply" ? replyField.text : "", editingAction === "later" ? laterInstant() : null);
+    }
+    function sendAsk(action, row, text, until) {
+        if (shell === null || !asksReady || pendingAsk !== "" || unconfirmedRequest !== null) return;
+        const requestId = "console:" + Date.now() + ":" + (++askSerial);
+        const request = { action: action, id: row.id,
+            requestId: requestId, expectedRevision: row.revision, text: text, until: until };
+        sendAskRequest(request);
+    }
+    function retryAsk() {
+        if (unconfirmedRequest !== null && askRetryReason === "") sendAskRequest(unconfirmedRequest);
+    }
+    function sendAskRequest(request) {
+        if (shell === null || pendingAsk !== "") return;
+        const reply = shell.ipc.call("owner-ask-action", JSON.stringify(request));
+        if (reply !== "ok") askProblem = unconfirmedRequest === null ? "This ask could not be sent. Refresh before trying again."
+            : "The retry could not be sent. Your previous action is still unconfirmed.";
+    }
+    function openAskLink(row) {
+        if (shell === null) return;
+        const reply = shell.run.detached(DesktopLaunch.open(row.link.url));
+        askProblem = reply === "ok" ? "" : "The original thread could not be opened.";
+    }
+    // Every time the console shows reads in the shell's one wording, against
+    // the shared minute clock, so a recent one reads as its age.
+    function when(at) { return Timestamp.text(at, Time.now.getTime()); }
+    function askTime(row) { return "Asked " + when(Date.parse(row.askedAt)); }
+    // The ask and the action a pending or unconfirmed REQUEST holds, the one
+    // Retry previous action sends again. An ask off the current page keeps
+    // its action without its words.
+    function recoveryText(request, sending) {
+        const ask = activeAsks.concat(snoozedAsks).find(row => row.id === request.id);
+        const what = ask === undefined ? "an ask not on this page" : "“" + ask.what + "”";
+        if (request.action === "reply")
+            return (sending ? "Sending your reply to " + what + ": " : "Your reply to " + what + " is not confirmed: ") + "“" + request.text + "”";
+        if (request.action === "done")
+            return sending ? "Jarvis is checking that " + what + " is done." : "Your Done for " + what + " is not confirmed.";
+        const until = when(Date.parse(request.until));
+        return sending ? "Snoozing " + what + " until " + until + "." : "Your snooze of " + what + " until " + until + " is not confirmed.";
+    }
+    // A conversation group's heading: when its session started, and the
+    // first time on a later day it holds.
+    function sessionTitle(group) {
+        const started = new Date(group.startedAt), first = new Date(group.rows[0].at);
+        const sameDay = started.toDateString() === first.toDateString();
+        return "Session started " + when(group.startedAt) + (sameDay ? "" : " · continued " + when(group.rows[0].at));
+    }
+    function askState(row) { return row.state === "checking" ? "Checking…" : row.state === "snoozed" ? "Snoozed" : row.kind === "fleet-approval" ? "Fleet approval" : row.kind === "tracker-item" ? "Your approval" : "Needs reply"; }
+    function problemAction(row) {
+        if (row.settings) root.shell.surfaces.openPage("vgs.jarvis", "Settings");
+        else { root.tab = 0; Qt.callLater(() => root.composerFocus.forceActiveFocus()); }
+    }
+
+    readonly property var taskRows: History.tasks(Array.isArray(values.taskList) ? values.taskList : [], historyQuery)
     readonly property var auditRows: Array.isArray(values.auditFailures) ? values.auditFailures.slice().reverse() : []
-    readonly property var task: taskRows[selectedTask] === undefined ? null : taskRows[selectedTask]
-    readonly property bool canStopTask: task !== null && ["starting", "working", "waiting"].includes(task.state)
-    // Tasks.derive clears endedAt while the process is alive. A starting
-    // process has no terminal to open yet; a failed turn can still be alive.
-    readonly property bool canOpenTask: task !== null && task.endedAt === null && task.state !== "starting"
     property string draft: ""
     readonly property var refusal: Session.sayRefusal(state)
     readonly property bool ready: shell !== null && state !== null && refusal === null
@@ -70,6 +222,9 @@ FocusScope {
         payload = payloadJson ? JSON.parse(payloadJson) : {};
         problem = "";
         tab = 0;
+        editingAsk = null;
+        askProblem = "";
+        refreshAsks();
         Qt.callLater(() => root.composerFocus.forceActiveFocus());
         Qt.callLater(followEnd);
     }
@@ -78,7 +233,7 @@ FocusScope {
 
     function focusTab() {
         layout.scrollArea.contentY = 0;
-        const control = tab === 0 ? composerFocus : tab === 1 ? tasksBody : auditBody;
+        const control = tab === 0 ? composerFocus : tab === 1 ? asksBody : historySearch;
         control.forceActiveFocus(consoleTabs.activeFocus ? consoleTabs.focusReason : Qt.TabFocusReason);
         if (tab === 0) Qt.callLater(followEnd);
     }
@@ -101,43 +256,41 @@ FocusScope {
         return words[row.state];
     }
 
-    function taskDetail(row) {
-        const failure = row.failure === null ? "" : typeof row.failure === "number" ? "Exited with code " + row.failure : String(row.failure);
-        return taskState(row) + (failure === "" ? "" : " · " + failure);
+    function taskTone(row) {
+        return ["failed", "reported-failed", "lost"].includes(row.state) ? "danger" : row.state === "waiting" || row.state === "noisy" ? "warning"
+            : row.state === "reported-ok" ? "success" : ["starting", "working"].includes(row.state) ? "info" : "neutral";
     }
 
-    function taskAction(action) {
-        if (shell === null || task === null || (action === "stop" ? !canStopTask : !canOpenTask)) return;
-        const reply = shell.ipc.call(action === "stop" ? "stop-task" : "open-task", task.id);
+    function taskFailure(row) {
+        return row.failure === null ? "" : typeof row.failure === "number" ? "Exited with code " + row.failure : String(row.failure);
+    }
+
+    // The actions ROW's own task takes, in its row: Open while its process
+    // is alive, since Tasks.derive clears endedAt then and a failed turn can
+    // still be alive, and Stop while it runs. A starting process has no
+    // terminal to open yet.
+    function taskActions(row) {
+        const ready = state === null ? "Wait for Jarvis to be ready." : "";
+        const actions = [];
+        if (row.endedAt === null)
+            actions.push({ id: "open", label: "Open", disabledReason: ready || (row.state === "starting" ? "Wait for the task's terminal to start." : "") });
+        if (["starting", "working", "waiting"].includes(row.state)) actions.push({ id: "stop", label: "Stop", disabledReason: ready });
+        return actions;
+    }
+
+    // ACTION on ROW's task, from SOURCE, the row's button.
+    function taskAction(action, row, source) {
+        const offered = taskActions(row).find(item => item.id === action);
+        if (shell === null || offered === undefined || offered.disabledReason !== "") return;
+        const reply = shell.ipc.call(action === "stop" ? "stop-task" : "open-task", row.id);
         problem = reply === "ok" ? "" : reply === "refused: jarvis=not-ready" ? "Jarvis is not ready"
             : action === "stop" ? "The coding task could not be stopped" : "The coding task could not be opened";
-        // Stop disables its button when the task ends. Return to the list
-        // before that transition, keeping the keyboard or pointer focus reason.
-        if (reply === "ok" && action === "stop") tasksBody.forceActiveFocus(taskStopButton.focusReason);
+        // A stopped task's row drops its Open and Stop. Return to the list
+        // before that republish removes the focused button, keeping the
+        // keyboard or pointer focus reason.
+        if (reply === "ok" && action === "stop") tasksBody.forceActiveFocus(source === null ? Qt.OtherFocusReason : source.focusReason);
     }
 
-    // What a failed voice stream's cause says (Audit.js STREAM_CAUSES).
-    readonly property var streamCauses: ({
-        "input-silent": "the microphone sent only silence",
-        "unheard": "the voice service heard no words",
-        // A row keeps no provider, and the voice may have changed since.
-        "key-refused": "the voice service refused the key",
-        "voice-stopped": "the voice stopped after a problem"
-    })
-
-    function auditDetail(row) {
-        const result = row.decision === "refuse" ? "Refused" : row.decision === "withhold" ? "Withheld"
-            : row.outcome === "failed" ? "Failed" : "Result unknown";
-        // Qt's QML String API supplies regex replacement:
-        // https://doc.qt.io/qt-6/qtqml-javascript-functionlist.html#string-objects
-        return result + (row.refusal === null ? "" : " · " + String(row.refusal).replace(/-/g, " "))
-            + (row.cause === null ? "" : " · " + streamCauses[row.cause]);
-    }
-
-    onTaskRowsChanged: {
-        taskCursor.rebuilt();
-        selectedTask = Math.max(0, Math.min(selectedTask, taskRows.length - 1));
-    }
     Keys.onPressed: event => {
         if ((event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) && (event.modifiers & Qt.ControlModifier)) {
             event.accepted = consoleTabs.nav.handle(event);
@@ -282,7 +435,7 @@ FocusScope {
         function onContentHeightChanged() { if (root.tab === 0 && root.atEnd) Qt.callLater(root.followEnd); }
     }
     implicitWidth: Math.floor(Math.min(Theme.size.window.width, OverlayState.room(screen).width))
-    implicitHeight: Math.floor(Math.min(Theme.size.panel.maxHeight, OverlayState.windowRoom(screen).height))
+    implicitHeight: Math.floor(OverlayState.windowRoom(screen).height)
     focus: true
 
     Pane {
@@ -305,7 +458,7 @@ FocusScope {
                 Label {
                     width: parent.width
                     role: "hint"
-                    text: (root.speechOnly ? "Talk to Jarvis" : "Type to Jarvis") + " and read its replies. Tasks shows the coding tasks it started. Audit shows actions it refused or that failed."
+                    text: (root.speechOnly ? "Talk to Jarvis" : "Type to Jarvis") + " in Now. Needs you holds your asks. History shows conversations, tasks and problems."
                     color: Theme.color.textMuted
                     wrapMode: Text.Wrap
                 }
@@ -326,47 +479,74 @@ FocusScope {
             }
         ]
 
-        header: [
+        header: Column {
+            width: layout.contentWidth
+            spacing: Theme.stack.group
             Tabs {
                 id: consoleTabs
-                width: layout.contentWidth
-                model: ["Conversation", "Tasks", "Audit"]
+                width: parent.width
+                model: ["Now", "Needs you", "History"]
+                unreadCounts: root.asksReady && root.asksState.activeCount > 0 ? ({ "Needs you": root.asksState.activeCount }) : ({})
                 currentIndex: root.tab
-                // KeyNavigation assigns the explicit Tab/Backtab target.
-                // https://doc.qt.io/qt-6/qml-qtquick-keynavigation.html
-                KeyNavigation.tab: root.tab === 0 ? root.composerFocus : root.tab === 1 ? tasksBody : auditBody
+                KeyNavigation.tab: root.tab === 0 ? root.composerFocus : root.tab === 1 ? asksBody : historySearch
                 onCurrentIndexChanged: root.tab = currentIndex
             }
-        ]
+            Row {
+                visible: root.tab === 2
+                width: parent.width
+                spacing: Theme.stack.group
+                Item {
+                    width: parent.width - historyFilter.width - parent.spacing
+                    height: historySearch.implicitHeight
+                    TextField {
+                        id: historySearch
+                        x: -sidePadding
+                        width: parent.width
+                        placeholderText: "Search conversations, tasks and problems"
+                        leadingIcon: "search"
+                        rightPadding: 0
+                        topPadding: 0
+                        bottomPadding: 0
+                        onTextChanged: root.historyQuery = text
+                        Keys.onPressed: event => root.handleBacktab(event)
+                        Component.onCompleted: { background.color = "transparent"; background.border.width = 0; }
+                    }
+                    Rectangle {
+                        anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
+                        height: Theme.border.thin
+                        color: Theme.textField.borderColor
+                    }
+                }
+                ResultsFilter {
+                    id: historyFilter
+                    accessibleLabel: "Filter history results"
+                    model: ["All types", "Conversations", "Tasks", "Problems"]
+                    currentIndex: root.historyType
+                    // The body's scroll stop follows the header in item
+                    // order, so Tab names the shown result list that owns
+                    // its keys; conversations own none and take that stop
+                    // (https://doc.qt.io/qt-6/qml-qtquick-keynavigation.html#tab-prop).
+                    KeyNavigation.tab: root.showTasks ? tasksBody : root.showProblems ? auditBody : layout.scrollArea.focusProxy
+                    onActivated: index => root.historyType = index
+                }
+            }
+        }
 
         Column {
             visible: root.tab === 0
             width: layout.contentWidth
             spacing: Theme.stack.row
 
-            // Conversation rows are read-only transcript entries. They
-            // take no selection, so this list has no ListCursor.
             Repeater {
                 model: root.transcriptRows
-                Column {
+                MessageRow {
                     required property var modelData
                     width: layout.contentWidth
-                    spacing: Theme.row.lineGap
-
-                    Label {
-                        width: parent.width
-                        role: "label"
-                        text: root.speaker(modelData.role)
-                        color: Theme.color.textMuted
-                        elide: Text.ElideRight
-                    }
-                    Label {
-                        width: parent.width
-                        role: modelData.role === "user" ? "bodyStrong" : "body"
-                        text: String(modelData.text)
-                        wrapMode: Text.Wrap
-                        color: modelData.stage === "partial" ? Theme.color.textMuted : Theme.color.text
-                    }
+                    sender: root.speaker(modelData.role)
+                    timeText: modelData.at === undefined ? "Listening" : root.when(modelData.at)
+                    initials: modelData.role === "user" ? "Y" : ""
+                    avatarIcon: modelData.role === "assistant" ? "vgs-letter-j" : ""
+                    bodyText: String(modelData.text)
                 }
             }
             EmptyState {
@@ -450,103 +630,217 @@ FocusScope {
         }
 
         T.Control {
-            id: tasksBody
+            id: asksBody
             visible: root.tab === 1
+            width: layout.contentWidth
+            implicitHeight: asksColumn.implicitHeight
+            focusPolicy: Qt.StrongFocus
+            Keys.onPressed: event => {
+                if (root.handleBacktab(event)) return;
+                if (layout.scrollArea.handleScrollKey(event)) event.accepted = true;
+            }
+            FocusRing { target: asksBody; outside: true }
+            contentItem: Column {
+                id: asksColumn
+                width: asksBody.width
+                spacing: Theme.stack.group
+                Column {
+                    width: parent.width; spacing: Theme.row.lineGap
+                    Label { role: "bodyStrong"; text: root.asksReady ? root.asksState.activeCount + " waiting for you" : root.asksState.kind === "reading" ? "Reading your asks…" : "Your asks are unavailable" }
+                    Label { role: "hint"; width: parent.width; wrapMode: Text.Wrap; color: Theme.color.textMuted; text: root.asksState.kind === "unavailable" ? root.asksState.cause : "From your main Jarvis session" }
+                }
+                Label { visible: text !== ""; width: parent.width; role: "hint"; text: root.askProblem || root.askOutcome; color: Theme.color.danger; wrapMode: Text.Wrap }
+                Label { visible: root.editingAsk === null && text !== ""; width: parent.width; role: "body"; text: root.askRecoveryText; wrapMode: Text.Wrap }
+                GroupList {
+                    width: parent.width
+                    Repeater {
+                        id: activeAskRows
+                        // ScriptModel string keys retain delegates on Quickshell0.3.1; current payloads stay in the canonical page (DeviceList.qml).
+                        model: ScriptModel { values: root.activeAsks.map(row => row.id) }
+                        MessageRow {
+                            id: activeAskRow
+                            required property var modelData
+                            readonly property var ask: root.activeAsks.find(row => row.id === modelData)
+                            readonly property bool live: ask !== undefined
+                            visible: live
+                            width: asksColumn.width
+                            sender: live ? ask.askedBy.name : ""
+                            timeText: live ? root.askTime(ask) : ""
+                            initials: live ? ask.askedBy.name.slice(0, 1).toUpperCase() : ""
+                            avatarIcon: live && ask.kind === "jarvis-ask" ? "vgs-letter-j" : ""
+                            title: live ? ask.what : ""
+                            bodyText: !live || ask.statusText === undefined ? "" : ask.statusText
+                            linkText: live ? ask.link.label : ""
+                            stateText: live ? root.askState(ask) : ""
+                            stateTone: live && ask.state === "checking" ? "info" : "warning"
+                            actions: live ? root.askActions(ask) : []
+                            onSourceActivated: if (live) root.openAskLink(ask)
+                            onActionTriggered: action => { if (live) root.chooseAsk(action, ask, actionAt(["reply", "done", "later"].indexOf(action))); }
+                        }
+                    }
+                }
+                EmptyState { visible: root.asksReady && root.activeAsks.length === 0; width: parent.width; iconName: "circle-check"; text: "No asks need you now" }
+                RowActions {
+                    visible: root.asksReady
+                    RowAction { text: "Next asks"; visible: root.asksReady && root.asksState.activeNextCursor !== null; disabledReason: root.pendingAsk === "" ? "" : "Wait for the current ask action to finish."; onClicked: root.askPage("active", false) }
+                    RowAction { text: "Back to first"; visible: root.asksReady && root.asksState.activeCursor !== null; disabledReason: root.pendingAsk === "" ? "" : "Wait for the current ask action to finish."; onClicked: root.askPage("active", true) }
+                }
+                Section {
+                    visible: root.snoozedExpanded && root.asksReady
+                    title: "Snoozed"
+                    rowSpacing: Theme.stack.group
+                    GroupList {
+                        width: parent.width
+                        Repeater {
+                            // ScriptModel string keys retain delegates on Quickshell0.3.1; current payloads stay in the canonical page (DeviceList.qml).
+                            model: ScriptModel { values: root.snoozedAsks.map(row => row.id) }
+                            MessageRow {
+                                required property var modelData
+                                readonly property var ask: root.snoozedAsks.find(row => row.id === modelData)
+                                readonly property bool live: ask !== undefined
+                                visible: live
+                                width: asksColumn.width
+                                sender: live ? ask.askedBy.name : ""
+                                timeText: live ? root.askTime(ask) : ""
+                                initials: live ? ask.askedBy.name.slice(0, 1).toUpperCase() : ""
+                                avatarIcon: live && ask.kind === "jarvis-ask" ? "vgs-letter-j" : ""
+                                title: live ? ask.what : ""
+                                bodyText: live ? "Returns " + root.when(Date.parse(ask.snoozedUntil)) + "." : ""
+                                linkText: live ? ask.link.label : ""
+                                stateText: "Snoozed"
+                                actions: live ? root.askActions(ask) : []
+                                onSourceActivated: if (live) root.openAskLink(ask)
+                                onActionTriggered: action => { if (live) root.chooseAsk(action, ask, actionAt(["reply", "done", "later"].indexOf(action))); }
+                            }
+                        }
+                    }
+                    EmptyState { visible: root.snoozedAsks.length === 0; width: parent.width; iconName: "clock"; text: "No snoozed asks" }
+                    RowActions {
+                        RowAction { text: "Next snoozed asks"; visible: root.asksReady && root.asksState.snoozedNextCursor !== null; onClicked: root.askPage("snoozed", false) }
+                        RowAction { text: "Back to first snoozed"; visible: root.asksReady && root.asksState.snoozedCursor !== null; onClicked: root.askPage("snoozed", true) }
+                    }
+                }
+            }
+        }
+
+        Column {
+            visible: root.showConversations
+            width: layout.contentWidth
+            spacing: Theme.stack.group
+            Repeater {
+                model: root.historyGroups
+                Section {
+                    required property var modelData
+                    width: layout.contentWidth
+                    title: root.sessionTitle(modelData)
+                    GroupList {
+                        width: parent.width
+                        Repeater {
+                            model: modelData.rows
+                            MessageRow {
+                                required property var modelData
+                                width: layout.contentWidth
+                                sender: root.speaker(modelData.role)
+                                timeText: root.when(modelData.at)
+                                initials: modelData.role === "user" ? "Y" : ""
+                                avatarIcon: modelData.role === "assistant" ? "vgs-letter-j" : ""
+                                bodyText: modelData.text
+                            }
+                        }
+                    }
+                }
+            }
+            EmptyState { visible: root.historyGroups.length === 0; width: parent.width; iconName: "message-circle"; text: root.historyQuery === "" ? "No conversations yet" : "No matching conversations" }
+        }
+
+        T.Control {
+            id: tasksBody
+            visible: root.showTasks
             width: layout.contentWidth
             implicitHeight: taskColumn.implicitHeight
             focusPolicy: Qt.StrongFocus
-            Keys.priority: Keys.BeforeItem
+            // The list scrolls by key as Needs you and Problems do; Tab
+            // walks each task row's own Open and Stop, which the scroll
+            // area reveals as they take focus.
             Keys.onPressed: event => {
                 if (root.handleBacktab(event)) return;
-                event.accepted = taskNav.handle(event);
+                if (layout.scrollArea.handleScrollKey(event)) event.accepted = true;
             }
             FocusRing { target: tasksBody; outside: true }
-            ListCursor { id: taskCursor }
-            KeyNav {
-                id: taskNav
-                focusTarget: tasksBody
-                count: root.taskRows.length
-                currentIndex: root.selectedTask
-                cursor: taskCursor
-                wrap: false
-                flickable: layout.scrollArea
-                itemAt: index => taskList.itemAt(index)
-                onMoved: index => root.selectedTask = index
-                onActivated: root.taskAction("open")
-            }
-            contentItem: Column {
+            contentItem: Section {
                 id: taskColumn
-                width: tasksBody.width
-                Repeater {
-                    id: taskList
-                    // Keyed by the task's id, so a republished list keeps
-                    // each task's row and the hovered row keeps the plate
-                    // (ListCursor.rebuilt).
-                    model: ScriptModel { values: root.taskRows; objectProp: "id" }
-                    // keyboard-path: Tasks owns the cursor through KeyNav; its footer acts on the selection
-                    ListItem {
-                        required property var modelData
-                        required property int index
-                        width: tasksBody.width
-                        text: modelData.goal
-                        secondary: root.taskDetail(modelData)
-                        trailing: [Badge { text: modelData.agent; verbatim: true }]
-                        secondaryTone: ["failed", "reported-failed", "lost"].includes(modelData.state) ? "danger" : ""
-                        cursor: taskCursor
-                        highlighted: root.selectedTask === index
-                        focusPolicy: Qt.NoFocus
-                        onClicked: { root.selectedTask = index; tasksBody.forceActiveFocus(Qt.MouseFocusReason); }
+                title: "Coding tasks"
+                Label { visible: root.problem !== ""; width: parent.width; role: "hint"; text: root.problem; color: Theme.color.danger; wrapMode: Text.Wrap }
+                GroupList {
+                    id: taskGroups
+                    width: parent.width
+                    Repeater {
+                        // ScriptModel string keys retain delegates on Quickshell0.3.1; current payloads stay in the canonical list (DeviceList.qml).
+                        model: ScriptModel { values: root.taskRows.map(row => row.id) }
+                        MessageRow {
+                            required property var modelData
+                            readonly property var task: root.taskRows.find(row => row.id === modelData)
+                            readonly property bool live: task !== undefined
+                            visible: live
+                            width: taskGroups.width
+                            sender: live ? task.agent : ""
+                            avatarIcon: "terminal"
+                            title: live ? task.goal : ""
+                            bodyText: live ? root.taskFailure(task) : ""
+                            stateText: live ? root.taskState(task) : ""
+                            stateTone: live ? root.taskTone(task) : "neutral"
+                            actions: live ? root.taskActions(task) : []
+                            onActionTriggered: action => { if (live) root.taskAction(action, task, actionAt(actions.findIndex(item => item.id === action))); }
+                        }
                     }
+                    EmptyState { width: parent.width; visible: root.taskRows.length === 0; iconName: "terminal"; text: "No coding tasks" }
                 }
-                EmptyState { width: tasksBody.width; visible: root.taskRows.length === 0; iconName: "terminal"; text: "No coding tasks" }
             }
         }
 
         T.Control {
             id: auditBody
-            visible: root.tab === 2
+            visible: root.showProblems
             width: layout.contentWidth
-            padding: Theme.listItem.paddingX
-            implicitHeight: implicitContentHeight + topPadding + bottomPadding
+            implicitHeight: auditColumn.implicitHeight
             focusPolicy: Qt.StrongFocus
-            Keys.priority: Keys.BeforeItem
             Keys.onPressed: event => {
                 if (root.handleBacktab(event)) return;
                 if (layout.scrollArea.handleScrollKey(event)) event.accepted = true;
             }
             FocusRing { target: auditBody; outside: true }
-            // Audit rows are read-only, like the transcript, and take no cursor.
-            // Each record is one group of a GroupList, so a hairline parts it from the next.
-            // Control sizes its content inside padding; rows use that content width.
-            // https://doc.qt.io/qt-6/qml-qtquick-controls-control.html#contentItem-prop
-            contentItem: GroupList {
-                id: auditList
-                Repeater {
-                    model: root.auditRows
-                    Column {
-                        required property var modelData
-                        width: auditList.width
-                        spacing: Theme.row.lineGap
-                        Label { width: parent.width; role: "hint"; text: new Date(modelData.time).toLocaleTimeString(); textFormat: Text.PlainText; color: Theme.color.textMuted }
-                        Label { width: parent.width; role: "bodyStrong"; text: modelData.tool; textFormat: Text.PlainText; wrapMode: Text.Wrap }
-                        Label { width: parent.width; role: "body"; text: root.auditDetail(modelData); textFormat: Text.PlainText; color: Theme.color.danger; wrapMode: Text.Wrap }
+            contentItem: Section {
+                id: auditColumn
+                title: "Problems"
+                info: "This list holds the newest 20 failures. Search and the type filter apply to the records still in this list."
+                GroupList {
+                    id: auditList
+                    width: parent.width
+                    Repeater {
+                        model: root.historyProblems
+                        MessageRow {
+                            required property var modelData
+                            width: auditList.width
+                            sender: "Jarvis"
+                            avatarIcon: "vgs-letter-j"
+                            timeText: root.when(modelData.at)
+                            title: modelData.title
+                            bodyText: modelData.body
+                            linkText: modelData.action
+                            onSourceActivated: root.problemAction(modelData)
+                        }
                     }
+                    EmptyState { width: parent.width; visible: root.historyProblems.length === 0; iconName: "shield-check"; text: root.historyQuery === "" ? "No recent failures" : "No matching problems" }
                 }
-                EmptyState { width: auditList.width; visible: root.auditRows.length === 0; iconName: "shield-alert"; text: "No recent failures" }
             }
         }
 
         footer: [
-            Column {
+            RowActions {
                 visible: root.tab === 1
-                width: layout.contentWidth
-                spacing: Theme.stack.inline
-                Label { width: parent.width; role: "hint"; visible: root.problem !== ""; text: root.problem; color: Theme.color.danger; wrapMode: Text.Wrap }
-                Row {
-                    spacing: Theme.control.gap
-                    Button { text: "Open"; iconName: "external-link"; enabled: root.canOpenTask; onClicked: root.taskAction("open") }
-                    Button { id: taskStopButton; text: "Stop"; iconName: "square"; enabled: root.canStopTask; onClicked: root.taskAction("stop") }
-                }
+                RowAction { text: "Refresh"; disabledReason: root.pendingAsk === "" ? "" : "Wait for the current ask action to finish."; onClicked: root.refreshAsks() }
+                RowAction { text: "Retry previous action"; visible: root.unconfirmedRequest !== null; disabledReason: root.askRetryReason; onClicked: root.retryAsk() }
+                RowAction { text: root.snoozedExpanded ? "Hide snoozed" : "Snoozed (" + (root.asksReady ? root.asksState.snoozedCount : "?") + ")"; onClicked: root.snoozedExpanded = !root.snoozedExpanded }
             },
             Column {
                 id: composer
@@ -618,14 +912,6 @@ FocusScope {
                             if ((event.key === Qt.Key_PageUp || event.key === Qt.Key_PageDown) && layout.scrollArea.handleScrollKey(event)) event.accepted = true;
                         }
                     }
-                    Button {
-                        id: sendButton
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: "Send"
-                        iconName: "send"
-                        disabledReason: !root.ready ? root.refusalText(root.refusal) : entryField.text.trim() === "" ? "Type a message to Jarvis first" : ""
-                        onClicked: root.sendMessage()
-                    }
                     IconButton {
                         id: stopButton
                         anchors.verticalCenter: parent.verticalCenter
@@ -634,8 +920,70 @@ FocusScope {
                         tooltip: root.stopKey === "" ? "Stop Jarvis" : "Stop Jarvis " + root.stopKey
                         onClicked: root.stop()
                     }
+                    Button {
+                        id: sendButton
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "Send"
+                        iconName: "send"
+                        disabledReason: !root.ready ? root.refusalText(root.refusal) : entryField.text.trim() === "" ? "Type a message to Jarvis first" : ""
+                        onClicked: root.sendMessage()
+                    }
                 }
             }
         ]
+    }
+    Item {
+        anchors.fill: parent
+        visible: root.editingAsk !== null
+        Scrim { onClicked: if (root.pendingAsk === "") root.closeAskEditor() }
+        Dialog {
+            id: askDialog
+            anchors.centerIn: parent
+            width: Math.min(implicitWidth, parent.width - 2 * Theme.dialog.margin)
+            availableHeight: parent.height - 2 * Theme.dialog.margin
+            title: root.editingAction === "reply" ? "Reply to " + (root.editingAsk === null ? "" : root.editingAsk.askedBy.name) : "Show this ask later"
+            message: root.editingAsk === null ? "" : root.editingAsk.what
+            initialFocus: root.editingAction === "reply" ? replyField : laterDate.input
+            tabItems: root.editingAction === "reply" ? [replyField, askSubmit, askCancel] : [laterDate.input, laterTime, askSubmit, askCancel]
+            busy: root.pendingAsk !== ""
+            actions: []
+            onRejected: if (root.pendingAsk === "") root.closeAskEditor()
+            Column {
+                width: parent.width
+                spacing: Theme.stack.page
+                TextArea {
+                    id: replyField
+                    visible: root.editingAction === "reply"
+                    width: parent.width
+                    placeholderText: "Write your reply"
+                    Accessible.name: "Reply to the original ask"
+                    readOnly: root.pendingAsk !== "" || root.unconfirmedRequest !== null
+                }
+                Column {
+                    visible: root.editingAction === "later"
+                    width: parent.width
+                    spacing: Theme.stack.page
+                    Label { role: "body"; text: "Choose when this ask returns." }
+                    DateField { id: laterDate; width: parent.width }
+                    ResultsFilter { id: laterTime; accessibleLabel: "Return time"; model: ["9:00 am", "Noon", "5:00 pm"] }
+                }
+                Label { visible: text !== ""; width: parent.width; role: "hint"; text: root.askProblem || root.askOutcome; color: Theme.color.danger; wrapMode: Text.Wrap }
+                RowActions {
+                    Button {
+                        id: askSubmit
+                        text: root.editingAction === "reply" ? "Send reply" : "Snooze"
+                        disabledReason: root.editorReason()
+                        onClicked: root.submitAskEditor()
+                    }
+                    Button {
+                        id: askCancel
+                        text: "Cancel"
+                        variant: "secondary"
+                        disabledReason: root.pendingAsk === "" ? "" : "Wait for the current ask action to finish."
+                        onClicked: root.closeAskEditor()
+                    }
+                }
+            }
+        }
     }
 }

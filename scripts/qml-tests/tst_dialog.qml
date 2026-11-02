@@ -119,7 +119,7 @@ Item {
         function pane(of) { return of.children[1]; }
         function titleLabel(of) { return pane(of).children[0].children[0]; }
         function messageLabel(of) { return pane(of).children[0].children[4].contentItem.children[0]; }
-        function footer(of) { return pane(of).children[4].children[0]; }
+        function footer(of) { return pane(of).children[4].children[0].children[0]; }
         function headerSlot(of) { return pane(of).children[2]; }
         function footerSlot(of) { return pane(of).children[4]; }
         function spinner(of) { return footer(of).children[0]; }
@@ -592,6 +592,8 @@ Item {
             });
             const counts = () => JSON.stringify(spies.map(spy => spy.count));
             const [discard, save] = asks.buttons();
+            // The footer stacks its actions at the next layout pass (Pane).
+            tryVerify(() => footerSlot(asks).height > 0, 1000, "the footer lays out its actions");
             compare(discard.variant, "tertiary");
             compare(save.variant, "primary");
             mouseClick(discard);

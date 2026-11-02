@@ -21,6 +21,8 @@ Item {
     property string displayText: date
     readonly property bool valid: parse(displayText) !== null
     readonly property bool pickerOpen: picker.opened
+    // Dialog focus and tab order target the editor rather than its wrapper.
+    readonly property Item input: field
     property var shown: parse(date) || parse(today())
     property int highlightedDay: shown.d
     signal changed(string date)
@@ -70,7 +72,8 @@ Item {
         if (day < 1 || day > daysInMonth(shown.y, shown.m)) return;
         highlightedDay = day;
         displayText = stamp(shown.y, shown.m, day);
-        picker.close();
+        picker.close(true);
+        field.forceActiveFocus(Qt.OtherFocusReason);
         picked(displayText);
         changed(displayText);
     }
@@ -110,7 +113,7 @@ Item {
     Popover {
         id: picker
         width: Theme.size.panel.sm
-        onOpenedChanged: if (opened) Qt.callLater(() => grid.forceActiveFocus())
+        initialFocus: grid
 
         Column {
             width: parent.width

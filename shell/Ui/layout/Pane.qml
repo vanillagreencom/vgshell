@@ -18,7 +18,9 @@ import qs.Ui
 // shared title space. The scroll bar lives
 // in the right inset strip, outside the body's content width, so content
 // never moves when it overflows. The footer stays outside the scrolling
-// body, so its actions stay in view while the body scrolls. While the body
+// body, so its actions stay in view while the body scrolls; it stacks the
+// children that show, so a hidden one, such as another tab's bar, takes no
+// room. While the body
 // is scrolled, a divider runs under the header, and while more of it lies
 // below the view, one runs over the footer; both span the box from the
 // container's frame on one side to its frame on the other, meeting the
@@ -67,7 +69,7 @@ Item {
     property real frameBorder: frameBorderOf(container)
     property alias header: headerSlot.data
     default property alias body: bodyColumn.data
-    property alias footer: footerSlot.data
+    property alias footer: footerColumn.data
     signal switchToggled(bool checked)
     // The room a focus ring takes outside its row.
     readonly property real ringRoom: Theme.focusRing.width + Theme.focusRing.offset
@@ -111,7 +113,7 @@ Item {
     readonly property real headerWidth: Math.max(0, contentWidth - gearRoom)
     readonly property real bodyContentHeight: bodyColumn.implicitHeight
     readonly property real headerHeight: hasTitle ? titleBlockHeight + titleToHeaderGap + headerSlotImplicitHeight : Math.max(subtitleHeight + (subtitleHeight > 0 && headerSlotImplicitHeight > 0 ? gap : 0) + headerSlotImplicitHeight, gear.item ? gear.item.height : 0)
-    readonly property real footerHeight: footerSlot.children.length > 0 ? footerSlot.implicitHeight : 0
+    readonly property real footerHeight: footerSlot.implicitHeight
     readonly property bool contentBelowHeader: bodyContentHeight > 0 || footerHeight > 0
     readonly property real headerBodyGap: hasTitle && headerSlotImplicitHeight === 0 ? Theme.stack.titleSpace : gap
     // A sticky bar keeps the container inset between its content and its
@@ -371,12 +373,24 @@ Item {
         }
     }
 
+    // The footer stacks the children that show, so a hidden child, such as
+    // another tab's bar, takes no room and the shown bar keeps equal
+    // padding. A Column lays out no hidden child
+    // (https://doc.qt.io/qt-6/qml-qtquick-column.html); `childrenRect`
+    // counts one, and a binding that reads each child's `height` instead
+    // logs a binding loop on the body's measured height (qmltestrunner,
+    // Qt 6.12, tst_pane.qml, 2026-11-02).
     Slot {
         id: footerSlot
         x: root.contentInset
         y: scroll.y + scroll.height - root.ringRoom + root.footerGap
         width: root.contentWidth
         height: root.footerHeight
+        contentItem: footerColumn
+        Column {
+            id: footerColumn
+            width: parent.width
+        }
     }
 
     // Both dividers share one geometry: from the frame's border on one

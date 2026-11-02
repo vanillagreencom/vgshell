@@ -79,6 +79,7 @@ function layerTokens(size, layer) {
 }
 
 async function inside() {
+    const Protocol = require(path.join(tree, "bin/lib/qml-library.js")).load(path.join(tree, "shell/plugins/vgs.jarvis/JarvisProtocol.js"));
     process.chdir(process.env.JARVIS_TEST_ROOT);
     hello.directories = {
         state: path.join(process.env.JARVIS_TEST_ROOT, "state/vgshell/jarvis"),
@@ -122,6 +123,10 @@ async function inside() {
             const shownTypes = ["voices", "personality", "start-text"];
             const keepShown = expected.some(frame => shownTypes.includes(frame.type));
             const publicFrames = frames.filter(frame => ["task-list", "audit-failures"].includes(frame.type));
+            for (const frame of frames.filter(frame => frame.type === "owner-asks")) {
+                Protocol.accept(JSON.stringify(frame), "daemon");
+                assert.notEqual(frame.snapshot.kind, "ready", "this legacy Home has no asks source; startup must never fabricate an empty inbox");
+            }
             if (observations !== null) assert.deepEqual(publicFrames, observations, "startup publishes both bounded lists");
             for (const frame of publicFrames) {
                 assert.deepEqual(Object.keys(frame).sort(), ["gen", "revision", "rows", "type", "v"]);
@@ -133,7 +138,7 @@ async function inside() {
                     : ["cause", "decision", "effect", "outcome", "refusal", "time", "tool"]);
             }
             assert.deepEqual(frames.filter(frame => frame.type !== "shell-status"
-                && frame.type !== "task-list" && frame.type !== "audit-failures"
+                && frame.type !== "task-list" && frame.type !== "audit-failures" && frame.type !== "owner-asks"
                 && (keepMemory || frame.type !== "memory") && (keepMemoryInbox || frame.type !== "memory-inbox")
                 && (keepHomes || frame.type !== "homes")
                 && (keepShown || !shownTypes.includes(frame.type))), expected);
@@ -1634,7 +1639,6 @@ exit "$failures"
     const driverDaemon = daemonCopy("desktop-seam-driver");
     instrument(driverDaemon, gates);
     instrumentDesktop(driverDaemon, seamDriverRoot);
-    const Protocol = require(path.join(tree, "bin/lib/qml-library.js")).load(path.join(tree, "shell/plugins/vgs.jarvis/JarvisProtocol.js"));
     const seamDriver = async write => {
         for (const [tool, arguments_, kind, content] of [
             ["windows.focus", { window: "0xa1" }, "compositor.focusWindow", /Read back: window 0xa1 has the focus/]

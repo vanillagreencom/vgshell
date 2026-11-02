@@ -37,7 +37,7 @@ const session = load(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis"
 const widget = load(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "WidgetView.js"));
 // The libraries Service.qml imports beside SetupGate.js, for its functions
 // run under node.
-const SERVICE_IMPORTS = { View: widget, KeyNavLogic: load(path.join(__dirname, "..", "shell", "Ui", "foundation", "KeyNavLogic.js")),
+const SERVICE_IMPORTS = { StatusPublication: load(path.join(__dirname, "..", "shell/plugins/vgs.jarvis/StatusPublication.js")), View: widget, KeyNavLogic: load(path.join(__dirname, "..", "shell", "Ui", "foundation", "KeyNavLogic.js")),
     Providers: require(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "AccountProviders.js")) };
 let manifestControlCount = 0;
 // LocalTier's reading with no local voice model wanted or ready, as the
@@ -926,16 +926,19 @@ function helloSettings(gate, serviceSource, providers, manifest, settings, reade
 // whether the handler went on to register the keys, which it does first.
 function firstRead(serviceSource, gate, manifest, changed, reply) {
     const handler = serviceSource.match(/^    onShellChanged: \{\n([\s\S]*?)^    \}/m);
-    const migrate = serviceSource.match(/^    function migrateVoiceProvider\(\) \{\n[\s\S]*?^    \}/m);
-    assert.ok(handler && migrate, "the service's first read");
+    const methods = ["migrateVoiceProvider", "ownerAskOperation", "setOwnerAskOperation"].map(name =>
+        serviceSource.match(new RegExp("^    function " + name + "\\([a-z]*\\) \\{\\n[\\s\\S]*?^    \\}", "m")));
+    assert.ok(handler && methods.every(found => found !== null), "the service's first read");
     const writes = [], started = new Error("started");
+    // A fresh shell's status holds no retained owner-ask operation.
     const shell = { settings: { ...plain(manifest.settings), ...changed }, shortcut: { register: () => { throw started; } },
-        configure: { set: (key, value) => { writes.push([key, value]); return reply; } } };
+        configure: { set: (key, value) => { writes.push([key, value]); return reply; } }, status: { values: {} } };
     const root = { shell, lifetime: { kind: "new" }, voiceSettled: false };
+    const install = methods.map(found => "root." + found[0].match(/function (\w+)/)[1] + " = (" + found[0] + ");").join(" ");
     let went = false;
     try {
-        vm.runInNewContext("(function() { with(root) { root.migrateVoiceProvider = (" + migrate[0] + "); (function() {\n" + handler[1] + "}).call(root); } })()",
-            { root, Gate: gate, console: { warn: () => {} } });
+        vm.runInNewContext("(function() { with(root) { " + install + " (function() {\n" + handler[1] + "}).call(root); } })()",
+            { root, Gate: gate, StatusPublication: SERVICE_IMPORTS.StatusPublication, console: { warn: () => {} } });
     } catch (error) {
         if (error !== started) throw error;
         went = true;
@@ -2262,7 +2265,7 @@ function verifyStopIntents(serviceSource) {
             stopDeadline: { running: false, restart() { this.running = true; } },
             cancelDictation() { this.cancelled = true; }, cancelled: false,
             publishDaemon: () => true, notice: value => notices.push(value), sendIntent: name => sent.push(name) };
-        const intent = vm.runInNewContext("(function() { with(root) { return (" + found[0] + "); } })()", { root, Gate: load(file) });
+        const intent = vm.runInNewContext("(function() { with(root) { return (" + found[0] + "); } })()", { ...SERVICE_IMPORTS, root, Gate: load(file) });
         intent("stop");
         if (kind === "ready" && running && cause === "") {
             assert.deepEqual(sent, ["stop"], "ready Stop reaches Session");
@@ -3105,7 +3108,7 @@ function verifyDictationStart(serviceSource) {
             lockObservation: () => root.locked,
             reply: (message, result) => replies.push([message.id, result.answer]) };
         vm.runInNewContext("(function() { with(root) { " + source + "\n root.queueStart = queueStart; root.startDictation = startDictation; } })()",
-            { root, Gate: load(file) });
+            { ...SERVICE_IMPORTS, root, Gate: load(file) });
         return { core, replies, root };
     };
     // A cancel followed at once by a start: the start waits for the read.

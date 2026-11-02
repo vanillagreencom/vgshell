@@ -36,7 +36,7 @@ const READER_SOURCES = Object.fromEntries(["Accounts", "Keys", "LocalTier", "Ser
 const WORDS = require(path.join(JARVIS, "AccountStatus.js"));
 const PROVIDERS = require(path.join(JARVIS, "AccountProviders.js"));
 // The libraries Service.qml imports beside SetupGate.js.
-const SERVICE_IMPORTS = { Providers: PROVIDERS, View: load(path.join(JARVIS, "WidgetView.js"), { "qs.Commons 1.0": { PageReference: PAGE_REFERENCE } }),
+const SERVICE_IMPORTS = { StatusPublication: load(path.join(JARVIS, "StatusPublication.js")), Providers: PROVIDERS, View: load(path.join(JARVIS, "WidgetView.js"), { "qs.Commons 1.0": { PageReference: PAGE_REFERENCE } }),
     KeyNavLogic: load(path.join(path.dirname(LOGIC), "..", "Ui", "foundation", "KeyNavLogic.js")) };
 
 let failures = 0;
@@ -225,7 +225,7 @@ function continuationChecks(logic, check, sourceChanges = {}) {
             }
 
             world = make({});
-            root = loadReader({ shell: world.shell, childSerial: 0, lifetime: { kind: "retry", pendingMute: "none" },
+            root = loadReader({ ...SERVICE_IMPORTS, shell: world.shell, childSerial: 0, lifetime: { kind: "retry", pendingMute: "none" },
                 child: { running: false }, Conversation: load(path.join(JARVIS, "Conversation.js")),
                 publishHomes: () => true, publishInput: () => true, publishSetup: () => true, shellStatus: () => true, publish: () => true },
             sources.Service, ["start"]);
@@ -242,7 +242,8 @@ function continuationChecks(logic, check, sourceChanges = {}) {
                 helloDeadline: stoppedTimer, stopDeadline: stoppedTimer, startWait: stoppedTimer,
                 cancelDictation: () => {}, publishPreview: () => {}, shellStatus: () => {},
                 publishDaemon: () => {}, publishSetup: () => {}, console: { warn: () => {} },
-                retry: { start: () => retried++ } }, sources.Service, ["ended"]);
+                retry: { start: () => retried++ } }, sources.Service,
+            ["ended", "ownerAskOperation", "setOwnerAskOperation", "unconfirmOwnerAsk", "publishOwnerAsks"]);
             root.ended({ code: 1, status: 0 });
             check("continuation: " + state + " child exit schedules no retired retry", retried, live ? 1 : 0);
 
@@ -272,7 +273,7 @@ function continuationChecks(logic, check, sourceChanges = {}) {
                 world.shell.shortcut = { keys: null };
                 const events = [], broken = [], queue = [];
                 root = loadReader({ ...SERVICE_IMPORTS, shell: world.shell, Gate: GATE, Protocol: protocol, Session: protocol.Session,
-                    Conversation: load(path.join(JARVIS, "Conversation.js")), conversationLog: [], outputTail: "", cause: "",
+                    Conversation: load(path.join(JARVIS, "Conversation.js")), conversationLog: [], outputTail: "", cause: "", childSerial: 1,
                     lifetime: { kind: "starting", pendingMute: "none" }, sessionState: protocol.Session.initial(),
                     setupAnswer: { kind: "checking" }, homeRepair: { result: { kind: "unavailable" } }, homePathRead: { kind: "ready", path: "/home/user/Fixture" }, voiceStep: null, dictationState: null, personalityShown: null, startTextShown: null, startTextOver: {},
                     localRuntime: { setupCause: "", reading: null, republish: () => true }, localTier: { pickSize: "" }, sessionStart: { result: null },

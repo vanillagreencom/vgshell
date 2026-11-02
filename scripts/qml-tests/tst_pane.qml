@@ -119,6 +119,27 @@ Item {
         }
     }
 
+    // A fitted pane whose footer holds three bars of different heights, as
+    // a tabbed window's footer holds one bar a tab; `shown` lists the bars
+    // that show.
+    Component {
+        id: switchedFooter
+        Pane {
+            id: layer
+            property var shown: []
+            width: 240
+            container: "panel"
+            fitToContent: true
+            header: [ Item { width: 10; height: 20 } ]
+            Item { width: layer.contentWidth; height: 40 }
+            footer: [
+                Item { width: 10; height: 10; visible: layer.shown.includes(0) },
+                Item { width: 10; height: 30; visible: layer.shown.includes(1) },
+                Item { width: 10; height: 50; visible: layer.shown.includes(2) }
+            ]
+        }
+    }
+
     // A fitted pane at its cap whose save bar appears under the body once
     // `dirty` is set, as a Settings page's does after an edit, beside a
     // field outside the pane.
@@ -321,6 +342,8 @@ Item {
         function gear(of) { return of.children[1].item; }
         function headerSlot(of) { return of.children[2]; }
         function footerSlot(of) { return of.children[4]; }
+        // The footer's children stack in the column the slot holds.
+        function footerColumn(of) { return footerSlot(of).children[0]; }
         function divider(of) { return of.children[5]; }
         function footerDivider(of) { return of.children[6]; }
         // The scroll area's touchpad area is an item of its content too.
@@ -361,13 +384,13 @@ Item {
             holder.section = section;
             const bar = section.footer;
             holder.rememberedFooter = bar;
-            compare(bar.parent, footerSlot(holder));
+            compare(bar.parent, footerColumn(holder));
             verify(bar.parent !== body(holder));
             compare(holder.footerHeight, 0);
             compare(holder.footerGap, 0);
             section.dirty = true;
             tryCompare(bar, "drawn", true);
-            verify(holder.footerHeight > 0);
+            tryVerify(() => holder.footerHeight > 0, 1000, "the footer lays out the shown bar");
             compare(bar.width, holder.contentWidth);
             const bottom = bar.mapToItem(holder, 0, bar.height).y;
             compare(bottom, holder.height - holder.contentInset);
@@ -379,7 +402,7 @@ Item {
             section.destroy();
             tryCompare(holder, "section", null);
             tryCompare(holder, "rememberedFooter", null);
-            compare(footerSlot(holder).children.length, 0);
+            compare(footerColumn(holder).children.length, 0);
         }
 
         function test_displays_returns_the_keyboard_when_its_footer_hides() {
@@ -388,7 +411,7 @@ Item {
             const section = createTemporaryObject(displaysSection, root);
             holder.section = section;
             const bar = section.footer;
-            compare(bar.parent, footerSlot(holder));
+            compare(bar.parent, footerColumn(holder));
             section.outputDraft = { test: { scale: 2 } };
             tryCompare(bar, "drawn", true);
             const actions = bar.children.find(child => child.children.some(button => button.text === "Save"));
@@ -575,7 +598,7 @@ Item {
         function test_a_bare_header_beside_a_footer_loops_nothing() {
             const made = overTarget.createObject(root);
             const label = headerSlot(made.pane).children[0];
-            const footer = footerSlot(made.pane).children[0];
+            const footer = footerColumn(made.pane).children[0];
             compare(headerSlot(made.pane).implicitWidth, label.implicitWidth);
             tryCompare(footer, "width", made.pane.contentWidth);
             compare(footerSlot(made.pane).implicitWidth, footer.implicitWidth);
@@ -661,6 +684,32 @@ Item {
             compare(hiddenBody.bodyContentHeight, 0);
             compare(footerSlot(hiddenBody).y, headerSlot(hiddenBody).y + headerSlot(hiddenBody).height + hiddenBody.gap);
             compare(hiddenBody.implicitHeight, 2 * hiddenBody.contentInset + headerSlot(hiddenBody).height + hiddenBody.gap + footerSlot(hiddenBody).height);
+        }
+
+        // A hidden footer child takes no room, so the footer keeps equal
+        // padding round the bar that shows, shown bars stack, and a hidden
+        // pane measures what it would show.
+        function test_a_hidden_footer_child_takes_no_room_data() {
+            return [
+                { tag: "the middle bar shows", shown: [1], paneShown: true, footer: 30 },
+                { tag: "the short bar shows", shown: [0], paneShown: true, footer: 10 },
+                { tag: "no bar shows", shown: [], paneShown: true, footer: 0 },
+                { tag: "two bars stack", shown: [0, 2], paneShown: true, footer: 60 },
+                { tag: "a hidden pane keeps its shown height", shown: [0, 2], paneShown: false, footer: 60 }
+            ];
+        }
+        function test_a_hidden_footer_child_takes_no_room(data) {
+            const made = createTemporaryObject(switchedFooter, root, { shown: data.shown, visible: data.paneShown });
+            tryCompare(made, "footerHeight", data.footer);
+            compare(made.footerGap, data.footer > 0 ? Math.max(made.gap, made.stickyGap) : 0);
+            compare(made.implicitHeight, 2 * made.contentInset + made.headerHeight + made.headerGap + made.bodyContentHeight + made.footerGap + data.footer);
+            if (data.paneShown) {
+                const foot = footerSlot(made);
+                compare(foot.y + foot.height, made.height - made.contentInset, "the footer keeps the container's bottom padding");
+                // A tab change swaps the bar that shows.
+                made.shown = [1];
+                tryCompare(made, "footerHeight", 30);
+            }
         }
 
         // A plugin that owns its look hands its own padding and radius.

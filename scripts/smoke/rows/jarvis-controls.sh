@@ -598,9 +598,9 @@ python3 - "$jarvis_service" <<'PY'
 from pathlib import Path
 import sys
 p=Path(sys.argv[1]); source=p.read_text()
-needle='const result = shell.status.set("shell", value);'
+needle='const result = StatusPublication.write(shell.status, "shell", value);'
 assert source.count(needle)==1
-changed=source.replace(needle, 'const result = false ? shell.status.set("shell", value) : "ok";')
+changed=source.replace(needle, 'const result = false ? StatusPublication.write(shell.status, "shell", value) : "ok";')
 assert changed != source
 p.write_text(changed)
 PY
@@ -700,9 +700,9 @@ from pathlib import Path
 import sys
 p=Path(sys.argv[1])
 s=p.read_text()
-needle='const result = shell.status.set("detail", { phase: message.phase, seq: message.seq, state: message.state, brain: message.brain });'
+needle='const result = StatusPublication.write(shell.status, "detail", { phase: message.phase, seq: message.seq, state: message.state, brain: message.brain });'
 assert s.count(needle)==1
-changed=s.replace(needle, needle.replace("= shell.status", "= false ? shell.status").replace(" });", ' }) : "ok";'))
+changed=s.replace(needle, needle.replace("= StatusPublication.write", "= false ? StatusPublication.write").replace(" });", ' }) : "ok";'))
 assert changed != s
 p.write_text(changed)
 PY
@@ -792,9 +792,9 @@ from pathlib import Path
 import sys
 p=Path(sys.argv[1])
 s=p.read_text()
-needle='const reply = shell.status.set(key, deviceOffers(key, message[key]));'
+needle='const reply = StatusPublication.write(shell.status, key, deviceOffers(key, message[key]));'
 assert s.count(needle)==1
-changed=s.replace(needle, 'const reply = false ? shell.status.set(key, deviceOffers(key, message[key])) : "ok";')
+changed=s.replace(needle, 'const reply = false ? StatusPublication.write(shell.status, key, deviceOffers(key, message[key])) : "ok";')
 assert changed != s
 p.write_text(changed)
 PY
@@ -879,10 +879,10 @@ from pathlib import Path
 import sys
 p=Path(sys.argv[1])
 s=p.read_text()
-needle={"generation": "if (sessionState !== null && message.gen === sessionState.gen) {\n                        const reply = shell.status.set(\"transcript\"",
-        "write": "const reply = shell.status.set(\"transcript\""}[sys.argv[2]]
-replacement={"generation": "if (sessionState !== null) {\n                        const reply = shell.status.set(\"transcript\"",
-             "write": "const reply = false ? null : \"ok\"; void (\"transcript\""}[sys.argv[2]]
+needle={"generation": "if (sessionState !== null && message.gen === sessionState.gen) {\n                        const reply = StatusPublication.write(shell.status, \"transcript\"",
+        "write": "const reply = StatusPublication.write(shell.status, \"transcript\""}[sys.argv[2]]
+replacement={"generation": "if (sessionState !== null) {\n                        const reply = StatusPublication.write(shell.status, \"transcript\"",
+             "write": "const reply = false ? null : \"ok\"; void (shell.status, \"transcript\""}[sys.argv[2]]
 assert s.count(needle)==1
 changed=s.replace(needle, replacement)
 assert changed != s
