@@ -77,7 +77,7 @@ scripts/jarvis-selftest.sh --suite volume --brain <id>                          
 ```
 
 - The record goes under `tmp/selftest-records/` unless `--out` names a file. The last line of the run is `selftest=<key>`, and exit 77 means the run could not run.
-- The sandbox's shell finds the brain's program on the caller's `PATH` and runs it under the sandbox's HOME. A launcher that needs the caller's HOME, such as a version manager's shim, fails there: put the directory of the program itself first on `PATH`.
+- A sign-in brain runs its installed program under the sandbox's HOME. The run resolves that program through `mise which` when mise is installed, otherwise through the caller's command lookup, and links it into the harness's command shim under its command name. A failed lookup ends the run with exit 77 before the sandbox starts.
 - The run needs what `scripts/qml-smoke.sh` needs, and `pipewire`, `wireplumber` and `python-dbusmock` for the device fakes.
 - A brain that is a saved key, and `--voice realtime`, read that key from your keyring through a filtered bus, which needs `xdg-dbus-proxy`. A locked keyring or a key that is not stored ends the run with exit 77; the run never asks you to unlock.
 
