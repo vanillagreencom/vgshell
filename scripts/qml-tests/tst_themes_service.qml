@@ -11,13 +11,16 @@ import "../../shell/plugins/vgs.themes/BrowserLogic.js" as BrowserLogic
 // hands the answer to the service through `report-apply`; the next apply
 // result is that apply's, and a failed or partial one becomes one notice.
 // The browsers' data, the theme list, every image and the catalog, is read
-// on no timer: a round of the three reads runs once per watched change,
-// once per change fired in one turn, once per theme document and once per
-// opened view. The fake shell lists an installed package with one image,
-// a refused installed package and a shipped package the first shadows,
-// counts and answers each read, records each IPC handler and each notice,
-// and publishes `last` through a getter over a QtObject property, as
-// ThemeRunner's provider does.
+// on no timer: a round of the three reads runs at registration and once per
+// opened view, and, only while a view is open, once per watched change,
+// once per change fired in one turn and once per theme document. The fake
+// shell lists an installed package with its images, a refused installed
+// package and a shipped package the first shadows, counts and answers each
+// read, records each IPC handler and each notice, and publishes `last`
+// through a getter over a QtObject property, as ThemeRunner's provider
+// does. A view's fake shell routes its IPC calls to the recorded handlers
+// and answers `unknown:` once a test ends, as the core does for a service
+// that is gone.
 Item {
     id: root
 
@@ -46,6 +49,7 @@ Item {
         property int listCalls: 0
         property int imagesCalls: 0
         property int catalogCalls: 0
+        property var imageList: []
 
         readonly property string packageDir: Paths.configDir + "/themes/dusk"
         readonly property string imagePath: packageDir + "/backgrounds/dawn.png"
@@ -69,7 +73,7 @@ Item {
                     list: done => { tests.listCalls++; done({ reason: null }); },
                     images: (scope, done) => {
                         tests.imagesCalls++;
-                        done({ state: "ok", images: [{ background: "dawn.png", theme: "dusk", name: "Dawn", path: tests.imagePath }], reason: null });
+                        done({ state: "ok", images: tests.imageList, reason: null });
                         return "ok";
                     },
                     catalog: done => { tests.catalogCalls++; done({ entries: [], reason: null }); }
@@ -98,6 +102,32 @@ Item {
             compare(listCalls, count, why + ": theme list reads");
             compare(imagesCalls, count, why + ": image list reads");
             compare(catalogCalls, count, why + ": catalog reads");
+        }
+
+        function image(file) {
+            return { background: file, theme: "dusk", name: file, path: packageDir + "/backgrounds/" + file };
+        }
+
+        // A view's shell, whose calls reach the handlers the service
+        // recorded while this test runs.
+        function viewShell() {
+            return { ipc: { call: (name, argument) => handlers[name] === undefined ? "unknown: handler=" + name : handlers[name](argument) } };
+        }
+
+        // A view that opened, with its opening read done and counted out.
+        function openView() {
+            const view = createTemporaryObject(dataComponent, root, { shell: viewShell() });
+            verify(view !== null);
+            expectRounds(1, "an opened view");
+            clearCalls();
+            return view;
+        }
+
+        // Fire `paths`' watches in one turn, and the theme document when
+        // `document` is set, as an apply's writes do.
+        function fire(paths, document) {
+            for (const view of paths.map(path => viewAt(path))) view.change();
+            if (document) compare(UnitTheme.override({ palette: { accent: "#123456" } }), "ok");
         }
 
         function clearCalls() {
@@ -151,6 +181,7 @@ Item {
 
         function init() {
             store.last = Object.freeze({ applying: null, result: null, downloading: null });
+            imageList = [image("dawn.png")];
             handlers = {};
             notices = [];
             clearCalls();
@@ -164,6 +195,7 @@ Item {
         }
 
         function cleanup() {
+            handlers = {};
             UnitTheme.reset();
         }
 
@@ -190,9 +222,15 @@ Item {
             compare(listCalls + imagesCalls + catalogCalls, 0, "no read while nothing changes");
         }
 
-        function test_one_watched_change_reads_once_data() {
+        // Each source's watch, the two folder views under Paths.configDir
+        // that one change there fires (a shell.json save), and an apply,
+        // which renames the theme file into Paths.configDir, firing both
+        // folder views for each of its two entry events, and raises the
+        // theme document revision. Each reads once while a view is open and
+        // not at all while none is.
+        function test_a_watched_change_data() {
             const dir = Paths.configDir;
-            return [
+            const changes = [
                 { tag: "the installed themes folder", paths: [dir + "/themes"] },
                 { tag: "the user images folder", paths: [dir + "/backgrounds"] },
                 { tag: "the catalog index", paths: [Quickshell.shellDir + "/../themes/catalog/index.json"] },
@@ -203,22 +241,69 @@ Item {
                 { tag: "a refused package's theme.json", paths: [refusedDir + "/theme.json"] },
                 { tag: "a refused package's terminal.json", paths: [refusedDir + "/terminal.json"] },
                 { tag: "an image", paths: [imagePath] },
-                // One change under Paths.configDir fires both folder views.
-                { tag: "two views in one turn", paths: [dir + "/themes", dir + "/backgrounds"] }
+                { tag: "a save under the config folder", paths: [dir + "/themes", dir + "/backgrounds"] },
+                { tag: "a new theme document", paths: [], document: true },
+                { tag: "a theme apply", paths: [dir + "/themes", dir + "/backgrounds", dir + "/themes", dir + "/backgrounds"], document: true }
+            ];
+            const rows = [];
+            for (const change of changes) {
+                rows.push(Object.assign({}, change, { tag: change.tag + ", a view open", open: true, rounds: 1 }));
+                rows.push(Object.assign({}, change, { tag: change.tag + ", no view open", open: false, rounds: 0 }));
+            }
+            return rows;
+        }
+
+        function test_a_watched_change(data) {
+            if (data.open) openView();
+            fire(data.paths, data.document === true);
+            expectRounds(data.rounds, data.tag);
+        }
+
+        // A view that opens after changes made while none was open reads
+        // once and shows them.
+        function test_a_view_opened_after_a_change_shows_it() {
+            const dir = Paths.configDir;
+            imageList = [image("dawn.png"), image("noon.png")];
+            fire([dir + "/backgrounds", dir + "/themes"], true);
+            expectRounds(0, "changes with no view open");
+            const view = openView();
+            const want = JSON.stringify(imageList);
+            tryVerify(() => view.snapshot !== null && JSON.stringify(view.snapshot.images.images) === want, 1000, "the opened view shows the changed images");
+        }
+
+        // A view's destruction closes it: a change after the last view
+        // closed reads nothing, and one view's close leaves another open,
+        // as when the overlay switches from one view to the other.
+        function test_a_closed_view_reads_nothing_data() {
+            return [
+                { tag: "the only view closed", views: 1, closed: 1, rounds: 0 },
+                { tag: "one of two views closed", views: 2, closed: 1, rounds: 1 },
+                { tag: "both views closed", views: 2, closed: 2, rounds: 0 }
             ];
         }
 
-        function test_one_watched_change_reads_once(data) {
-            const views = data.paths.map(path => viewAt(path));
-            for (const view of views) view.change();
-            expectRounds(1, data.tag);
+        function test_a_closed_view_reads_nothing(data) {
+            const views = [];
+            for (let i = 0; i < data.views; i++) views.push(openView());
+            for (let i = 0; i < data.closed; i++) views[i].destroy();
+            tryVerify(() => Object.keys(service.openViews).length === data.views - data.closed, 1000, "the closed views leave the service");
+            fire([Paths.configDir + "/themes"]);
+            expectRounds(data.rounds, data.tag);
         }
 
-        // An apply that lands writes the theme file last, and the theme's
-        // document revision rises.
-        function test_a_new_theme_document_reads_once() {
-            compare(UnitTheme.override({ palette: { accent: "#123456" } }), "ok");
-            expectRounds(1, "a new theme document");
+        // A view that started before the service registered opens on a
+        // later poll, so a change then reads for it.
+        function test_a_view_started_before_registration_opens_later() {
+            let registered = false;
+            const call = (name, argument) => !registered || handlers[name] === undefined ? "unknown: handler=" + name : handlers[name](argument);
+            const view = createTemporaryObject(dataComponent, root, { shell: { ipc: { call: call } } });
+            verify(view !== null);
+            registered = true;
+            tryVerify(() => view.opened, 1000, "the view opens once the service answers");
+            expectRounds(1, "the late opening");
+            clearCalls();
+            fire([Paths.configDir + "/themes"]);
+            expectRounds(1, "a change with the late view open");
         }
 
         function test_opening_a_view_reads_once_data() {

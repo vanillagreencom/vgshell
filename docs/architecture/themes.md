@@ -124,7 +124,7 @@ A wallpaper another program draws must not be covered by a bare background colou
 - Do keep the last result in `ThemeRunner`, outside every plugin instance. `scripts/smoke/rows/themes.sh` pins it.
 - Do run a wallpaper download on its own lane, never on the queue. `scripts/smoke/rows/theme-browse.sh` pins it.
 - Do keep a view's decisions in a pure file with no QML object and no I/O, such as `shell/plugins/vgs.themes/BrowserLogic.js`. `scripts/test-themes-browser.js` pins it.
-- Never read the theme browser's data on a timer: the `vgs.themes` service reads the theme list, every image and the catalog when a browser view opens, when a watched theme folder, package file, image folder, image or the catalog index changes, and after an apply writes the theme file, once for the changes one turn of the event loop brings. `scripts/qml-tests/tst_themes_service.qml` pins it.
+- Never read the theme browser's data on a timer, and never after a change while no browser view is open. The data is the theme list, every image and the catalog. The `vgs.themes` service reads it once as it starts. It reads it again when a browser view opens: the theme view, the wallpaper view or the Themes panel. While a view is open, the service reads it again when a watched theme folder, package file, image folder, image or the catalog index changes. It also reads it after an apply writes the theme file. It reads once for all the changes one turn of the event loop brings. With no view open, a change reads nothing, and the next view to open reads. `scripts/qml-tests/tst_themes_service.qml` pins it.
 
 ## The canonical example
 

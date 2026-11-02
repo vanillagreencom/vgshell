@@ -20,9 +20,10 @@ import "SetupLogic.js" as SetupLogic
 // the answer, and hands the answer here through `report-apply`; the next
 // apply result, as the queue runs one job at a time, is that apply's, and a
 // failure or a partial apply becomes one notice. The browsers' data, the
-// theme list, every image and the catalog, is read again when a browser
-// view opens, when a watched source changes and after an apply, never on a
-// timer.
+// theme list, every image and the catalog, is read once at registration,
+// when a browser view opens and on a view's own request; a watched source
+// change and an apply read it again only while a view is open, since the
+// next view to open reads it then. Nothing reads it on a timer.
 //   shortcut vgs.themes:themes              SUPER+SHIFT+T from the manifest's
 //                                            `hyprland` binds (README)
 //   shortcut vgs.themes:wallpapers          SUPER+SHIFT+W, the same way
@@ -61,9 +62,13 @@ Item {
         shell.shortcut.register("gaps", "Window gaps on or off", () => root.toggleGaps());
         shell.ipc.handle("gaps", () => root.toggleGaps());
         shell.ipc.handle("browser-data", revision => revision === String(root.dataRevision) ? "" : root.dataText);
-        shell.ipc.handle("refresh-browser-data", () => { root.refreshData(); return "ok"; });
+        shell.ipc.handle("open-browser-view", key => { root.openView(key); return "ok"; });
+        shell.ipc.handle("close-browser-view", key => { root.closeView(key); return "ok"; });
+        shell.ipc.handle("refresh-browser-data", () => { Qt.callLater(root.readData); return "ok"; });
         shell.ipc.handle("report-apply", name => { root.reported = name; return "ok"; });
-        refreshData();
+        // The first view to open draws the retained answer at once, its
+        // pictures and catalog rows included, rather than waiting on a read.
+        Qt.callLater(root.readData);
         checkSetup();
     }
     onPolicyEndChanged: if (registeredWith !== null) checkSetup()
@@ -71,7 +76,7 @@ Item {
 
     // One retained answer per source. A view reads these through the
     // plugin's existing IPC capability, and its opening asks for one new
-    // read through `refresh-browser-data`.
+    // read through `open-browser-view`.
     property var catalog: ({ entries: null, reason: null })
     property var images: ({ images: null, reason: null })
     property string listReason: ""
@@ -148,7 +153,10 @@ Item {
     // call Qt.callLater already queued and not yet run takes no second place
     // (qtdeclarative 6.12 qqmldelayedcallqueue.cpp addUniqueCall, keyed by
     // object and method), so those fires cost one read, and the queue skips
-    // the call once this service is deleted or queued for deletion.
+    // the call once this service is deleted or queued for deletion. With no
+    // view open the change only marks a package's images replaced, so the
+    // next view loads them anew, and reads nothing: that view's opening
+    // reads.
     function refreshData(replacedImages) {
         if (registeredWith === null) return;
         if (typeof replacedImages === "string") {
@@ -157,7 +165,30 @@ Item {
             generations = next;
             dataRevision++;
         }
+        if (Object.keys(openViews).length > 0) Qt.callLater(root.readData);
+    }
+
+    // The browser views open now, keyed by each view's own key: the theme
+    // view, the wallpaper view and the Themes panel each hold a
+    // BrowserData, which opens here once it starts and closes on its
+    // destruction, and the summon host destroys a view's surface once it
+    // is hidden (shell/Hosts/SummonHost.qml). A key closes only its own
+    // entry, so a view torn down after another opened leaves the new one
+    // open: a view switch in the overlay's Loader builds the new view before
+    // the old one's deferred deletion (QQuickLoaderPrivate::clear calls
+    // deleteLater, qtdeclarative src/quick/items/qquickloader.cpp).
+    property var openViews: ({})
+    function openView(key) {
+        const next = Object.assign({}, openViews);
+        next[key] = true;
+        openViews = next;
         Qt.callLater(root.readData);
+    }
+    function closeView(key) {
+        if (!Object.prototype.hasOwnProperty.call(openViews, key)) return;
+        const next = Object.assign({}, openViews);
+        delete next[key];
+        openViews = next;
     }
 
     function readData() {

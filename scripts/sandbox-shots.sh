@@ -2649,7 +2649,9 @@ PYRADIUS
   expect_poll "vgs.themes is built for the wallpaper browser shot" True record_exists vgs.themes
   # In light set_mode published flexoki-light already, so the name proves
   # no apply; the service's images, which the browser opens on, must hold
-  # the two the apply chose from.
+  # the two the apply chose from. The service reads its sources for a
+  # change only while a browser view is open, so the scene asks it to read.
+  expect "the themes service reads its sources for the wallpaper browser shot" ok ipc vgs.themes invoke refresh-browser-data ''
   expect_poll "the themes service lists $name's two images for the wallpaper browser shot" '["a.jpg", "b.jpg"]' wallpaper_images_of "$name"
   expect "the wallpaper browser opens" ok ipc shell summon overlay vgs.themes '{"view":"wallpapers"}'
   expect_poll "the wallpaper browser maps" 1 layer_count vgs:overlay
@@ -5809,6 +5811,9 @@ scene_themes_panel() { # MODE
   if [[ $base == dark ]]; then
     { cp -- "$repo/themes/vgs/theme.json" "$theme_file.tmp" && mv -T -- "$theme_file.tmp" "$theme_file"; } || fail "the shipped vgs theme file could not be written for the themes panel"
   fi
+  # The service reads its sources for a change only while a browser view
+  # is open, so the scene asks it to read the install and the theme file.
+  expect "the themes service reads its sources for the themes panel ($1)" ok ipc vgs.themes invoke refresh-browser-data ''
   expect_poll "the theme list accepts the installed $themes_installed for the themes panel ($1)" True themes_listed_installed
   expect_poll "the catalog reads $themes_installed installed for the themes panel ($1)" True themes_catalog_installed
   if [[ $base == dark || $base == light ]]; then
