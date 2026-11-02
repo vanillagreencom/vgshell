@@ -102,17 +102,22 @@ them composes, transitively:
                      is unreadable; a third-party plugin directory's pane
                      is judged as a notice
 Appearance rules, on a plugin whose manifest declares `appearance` (each
-directory under shell/plugins, or each directory given): the plugin draws
-with its own table, `look`, instead of Theme, so
+directory under shell/plugins, or each directory given): a file of it that
+binds `Theme.appearance(`, or reads a `look.<path>` its owner hands it, draws
+with the plugin's own table, `look`, instead of Theme, and its other files
+read Theme as any plugin does (a look binds per surface:
+docs/decisions/D118-plugin-look-binds-per-surface.md), so
   appearance-refused the declared file throws as it loads, or
                      ThemeLogic.acceptAppearance refuses its TOKENS and LIGHT
                      in dark or in light mode against the shell's defaults;
                      the manifest is read through PluginLogic.validateManifest,
                      and a manifest it refuses or a file bin/lib/qml-library.js
                      refuses (absent, no pragma) is unreadable
-  look-unknown       a `look.<path>` names no path of that table
-  theme-read         a `Theme.<path>` other than `Theme.appearance`, since
-                     every other member carries the global look
+  look-unknown       a `look.<path>` in a file that binds the look names no
+                     path of that table
+  theme-read         a `Theme.<path>` other than `Theme.appearance` in a file
+                     that binds the look, since every other member carries
+                     the global look
   type-floor         a `length` under the table's `text` group, a font size,
                      resolves in either mode below the smallest size of the
                      shell's own text roles but `keyName`, which only the
@@ -121,7 +126,7 @@ with its own table, `look`, instead of Theme, so
                      § Appearance); read from Tokens.js, never a second number
 The declared file is exempt from the literal rules, since the judge types
 each of its values; every other file of the plugin stays under them, with a
-radius that names `look.` reading a token.
+radius that names `look.` reading a token in a file that binds the look.
 
 Usage: check-design-tokens.py [--repo DIR] [PLUGIN_DIR...]
 With no plugin directories, the repository's own trees are checked. With them,
@@ -492,6 +497,13 @@ def manifestless_plugin_dir(looks, path):
     return None
 
 
+# A file that binds its plugin's look, as `Theme.appearance(TOKENS, LIGHT)`.
+# It and a file that reads a path of a look its owner hands it, as
+# `menu.look.flyout.padding`, draw with the look; the plugin's other files
+# draw with Theme.
+LOOK_BINDING = re.compile(r"\bTheme\s*\.\s*appearance\s*\(")
+
+
 def look_of(looks, path):
     """The appearance of the plugin `path` sits in, or None."""
     for directory, look in looks.items():
@@ -522,10 +534,13 @@ def check_tree(root, table, literal, looks, surfaces, settings, findings, notice
     `settings` are the settings surfaces among them; `shared_icon_button` is
     qs.Ui's IconButton.qml."""
     files = set()
+    binders = set()
     for path, text in source_texts(root):
         if manifestless_plugin_dir(looks, path) is not None:
             continue
         code = blank_comments(text)
+        if LOOK_BINDING.search(code) or LOOK_REFERENCE.search(code):
+            binders.add(path)
         for match in SCREEN_GUTTER.finditer(code):
             number = code.count("\n", 0, match.start()) + 1
             findings.append(f"window-room {path}:{number} screen-gutter")
@@ -542,7 +557,8 @@ def check_tree(root, table, literal, looks, surfaces, settings, findings, notice
         if manifestless_plugin_dir(looks, path) is not None:
             continue
         files.add(path)
-        look = look_of(looks, path)
+        plugin_look = look_of(looks, path)
+        look = plugin_look if path in binders else None
         for m in THEME_REFERENCE.finditer(line):
             unknown = table.unknown(m.group(1))
             if unknown is not None:
@@ -554,7 +570,7 @@ def check_tree(root, table, literal, looks, surfaces, settings, findings, notice
                 unknown = unknown_prefix(m.group(1), look.paths, look.leaves)
                 if unknown is not None:
                     findings.append(f"look-unknown {path}:{number} look.{unknown}")
-        if literal is None or (look is not None and path == look.file):
+        if literal is None or (plugin_look is not None and path == plugin_look.file):
             continue
         for m in GROUP_BACKGROUND.finditer(line):
             if m.group(1) in surfaces:

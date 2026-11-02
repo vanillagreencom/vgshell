@@ -27,10 +27,6 @@ const DEFAULTS = [
     ["control.maxWidth", 480],
     ["field.minWidth", 128],
     ["scheme.mode", "dark"],
-    ["voiceBubble.maxWidth", 480],
-    ["voiceBubble.margin", 12],
-    ["voiceBubble.gap", 12],
-    ["voiceBubble.textLines", 3],
     ["palette.accent", "#ff5a36ff"],
     // mix(#000000, #d7d7d9, 0.05): 215 * 0.05 = 10.75, 217 * 0.05 = 10.85
     ["color.surface", "#0b0b0bff"],

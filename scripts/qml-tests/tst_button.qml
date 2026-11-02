@@ -31,6 +31,7 @@ Item {
     IconButton { id: smallIcon; iconName: "chevron-left"; label: "Back"; size: "sm"; y: 400 }
     IconButton { id: dangerIcon; iconName: "x"; label: "Close"; variant: "danger"; x: 200; y: 400 }
     IconButton { id: besideIcon; iconName: "settings"; label: "Settings"; tooltipSide: "right"; x: 200; y: 160 }
+    IconButton { id: lookIcon; iconName: "mic"; label: "Look"; x: 200; y: 230; restColor: "#a3a7b3"; activeColor: "#f4f5f8"; onColor: "#33cc66"; ringColor: "#4fd1c5" }
     SignalSpy { id: clicks; target: primary; signalName: "clicked" }
 
     TestCase {
@@ -273,6 +274,32 @@ Item {
             glyph(Theme.color.warning, "warning tone");
             bare("warning tone");
             checkedIcon.tone = "";
+        }
+
+        // A surface that owns its look hands the glyph its rest, active and
+        // on colours and the ring its colour; the theme's tokens draw none.
+        function test_icon_button_takes_a_looks_colours() {
+            const glyph = (want, state) => tryVerify(() => String(lookIcon.contentItem.color) === String(Qt.color(want)), 1000, state + ": glyph " + lookIcon.contentItem.color);
+            const ring = lookIcon.background.children.find(child => child.ringColor !== undefined);
+            verify(ring !== undefined, "the icon button holds its focus ring");
+            for (const want of ["#a3a7b3", "#f4f5f8", "#33cc66", "#4fd1c5"])
+                for (const token of [Theme.color.textMuted, lookIcon.tokens.foreground, Theme.button.checked.foreground, Theme.focusRing.color])
+                    verify(String(Qt.color(want)) !== String(Qt.color(token)), "the look colour " + want + " differs from the token it replaces");
+            mouseMove(root, root.width - 1, root.height - 1);
+            glyph("#a3a7b3", "rest");
+            mouseMove(lookIcon, lookIcon.width / 2, lookIcon.height / 2);
+            tryCompare(lookIcon, "hovered", true);
+            glyph("#f4f5f8", "hover");
+            mouseMove(root, root.width - 1, root.height - 1);
+            lookIcon.checked = true;
+            glyph("#33cc66", "on");
+            lookIcon.checked = false;
+            lookIcon.forceActiveFocus(Qt.TabFocusReason);
+            tryCompare(lookIcon, "visualFocus", true);
+            glyph("#f4f5f8", "focus");
+            verify(ring.visible, "keyboard focus draws the ring");
+            compare(String(ring.drawnColor), String(Qt.color("#4fd1c5")));
+            lookIcon.focus = false;
         }
 
         function test_theme_change_keeps_the_text_readable() {

@@ -143,6 +143,7 @@ Item {
             shell.shortcut.register("talk", "Talk to Jarvis",
                 () => intent("talk-down"), () => intent("talk-up"));
             shell.shortcut.register("mute", "Mute Jarvis", () => intent("mute"));
+            shell.shortcut.register("voice-mute", "Mute Jarvis's voice", () => intent("voice-mute"));
             shell.shortcut.register("stop", "Stop Jarvis", () => intent("stop"));
             shell.shortcut.register("confirm", "Confirm Jarvis", () => confirmApproval(displayedApproval(), "key"));
             shell.shortcut.register("console", "Open Jarvis console", () => summonConsole());
@@ -418,6 +419,10 @@ Item {
             publishDaemon({ tone: "warning", text: "Jarvis stopped", hint: Gate.START_RESTART });
             notice({ title: "Jarvis stopped", message: Gate.sentence(Gate.START_RESTART),
                 tone: "info", icon: "vgs-letter-j" });
+            return;
+        }
+        if (name === "voice-mute" && (lifetime.kind === "problem" || lifetime.kind === "stopped")) {
+            notice(Gate.voiceMuteRefusedNotice(cause));
             return;
         }
         if (name === "mute") {

@@ -473,13 +473,18 @@ function startStatus(cause, retrying) {
 }
 
 // The desktop notices after CAUSE stopped Jarvis for good, and after it
-// refused a mute press: the cause's title and action, never its key.
+// refused a mute or a voice mute press: the cause's title and action,
+// never its key.
 function stoppedNotice(cause) {
     var problem = startCause(cause);
     return { title: problem.title, message: sentence(problem.action), tone: "danger", icon: "vgs-letter-j" };
 }
 function muteRefusedNotice(cause) {
     return { title: "Jarvis mute not saved", message: "Mute request could not be saved: " + startCause(cause).title + ".",
+        tone: "danger", icon: "vgs-letter-j" };
+}
+function voiceMuteRefusedNotice(cause) {
+    return { title: "Jarvis voice mute not saved", message: "Voice mute request could not be saved: " + startCause(cause).title + ".",
         tone: "danger", icon: "vgs-letter-j" };
 }
 // The installed voice stays verified. Reinstalling it cannot free memory.

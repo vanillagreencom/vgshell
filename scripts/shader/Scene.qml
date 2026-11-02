@@ -7,11 +7,15 @@ import Quickshell.Wayland
 import qs.Commons
 import qs.Ui
 import "plugins/vgs.voice" as Voice
+import "plugins/vgs.jarvis" as Jarvis
 
 // One layer, no shell or plugin services, drawing the shader
-// VGS_SHADER_NAME names: VoiceOrb, or Voice's plasma orb fed a steady level
-// as the bridge's frames would feed it. The off scene keeps the same
-// animation and background; only the shader stops drawing.
+// VGS_SHADER_NAME names: VoiceOrb, Voice's plasma orb fed a steady level
+// as the bridge's frames would feed it, or Jarvis's particle orb listening
+// at capture level 1, its widest band. The off scene keeps the same
+// animation and background; only the shader stops drawing. The scene
+// selects the shader's own effect by its pack, so a visual that holds a
+// second effect still measures its own.
 ShellRoot {
     id: root
     property int frames: 0
@@ -21,8 +25,10 @@ ShellRoot {
     readonly property string shader: Quickshell.env("VGS_SHADER_NAME")
     readonly property bool complete: frames >= 730
 
+    readonly property var packs: ({ voiceorb: "voiceorb.frag.qsb", plasma: "plasma.frag.qsb", "jarvis-orb": "particleorb.frag.qsb" })
+
     function plant(item) {
-        const effect = item.children.find(child => child instanceof ShaderEffect);
+        const effect = item.children.find(child => child instanceof ShaderEffect && String(child.fragmentShader).endsWith("/" + root.packs[root.shader]));
         if (root.mode === "off") effect.visible = false;
         if (root.mode === "costly") effect.fragmentShader = Qt.resolvedUrl("costly-" + root.shader + ".frag.qsb");
     }
@@ -40,7 +46,7 @@ ShellRoot {
         Loader {
             id: visual
             anchors.fill: parent
-            sourceComponent: root.shader === "plasma" ? plasma : orb
+            sourceComponent: root.shader === "plasma" ? plasma : root.shader === "jarvis-orb" ? particle : orb
             onLoaded: root.plant(item)
         }
         // QQuickWindow.update requests rendering even without scene changes:
@@ -80,6 +86,14 @@ ShellRoot {
                 running: drawn.active
                 onTriggered: drawn.push(0.8)
             }
+        }
+    }
+    Component {
+        id: particle
+        Jarvis.ParticleOrb {
+            active: !root.complete
+            phase: "listening"
+            capture: 1
         }
     }
     IpcHandler {

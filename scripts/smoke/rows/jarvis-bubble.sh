@@ -3,8 +3,10 @@
 # runs through the real chained engine and its words are the engine's own
 # captions. No real audio, provider, authentication or network runs.
 # Presentation and state poll once per IPC round trip; no latency budget is
-# claimed.
-# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/plugins/vgs.bar/* shell/Ui/feedback/VoiceOrb.qml shell/Core/Layers.qml shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml scripts/smoke/toplevel/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/diagnostics.sh
+# claimed. The stillness reading counts the layer window's swapped frames
+# over 3 s of real time after the look settles, its own control the
+# speaking look in the same window, which must swap frames.
+# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/plugins/vgs.bar/* shell/Ui/controls/IconButton.qml shell/Ui/feedback/LinkText.qml shell/Core/Layers.qml shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml scripts/smoke/toplevel/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/diagnostics.sh
 set -euo pipefail
 jarvis_bubble_snapshots="$(mktemp -d "$sandbox/jarvis-bubble-snapshots.XXXXXX")"
 jarvis_bubble_row_config="$jarvis_bubble_snapshots/shell.json"
@@ -30,6 +32,7 @@ jarvis_bubble_abandon() {
 $jarvis_bubble_snapshots/engine $repo/shell/plugins/vgs.jarvis/backend/ChainedEngine.js
 $jarvis_bubble_snapshots/backend $jarvis_key_backend
 $jarvis_bubble_snapshots/bubble $repo/shell/plugins/vgs.jarvis/Bubble.qml
+$jarvis_bubble_snapshots/words $repo/shell/plugins/vgs.jarvis/Words.qml
 $jarvis_bubble_snapshots/fixture $repo/shell/plugins/vgs.jarvis/backend/scripted-fixture.js
 $sandbox/jarvis-key-service-before $jarvis_key_service
 EOF
@@ -43,6 +46,8 @@ EOF
   cp -p -- "$jarvis_bubble_row_config" "$home/.config/vgshell/shell.json.next"
   mv -T -- "$home/.config/vgshell/shell.json.next" "$home/.config/vgshell/shell.json"
   expect "the bubble row restores its configuration" ok ipc shell reloadConfig
+  # Voice mute persists in its own record; the row leaves it off.
+  rm -f -- "${home:?}/.local/state/vgshell/jarvis/voice-mute.json"
   # Early geometry failure can leave the source snapshots unchanged.
   rescan "the bubble row rescans its restored sources"
   jarvis_enable
@@ -98,11 +103,23 @@ jarvis_bubble_hide_bar() {
     *) printf '%s\n' "$answer" ;;
   esac
 }
+# A value of the overlay's own look (Appearance.js), as JSON, read from the
+# bubble that binds it.
+jarvis_bubble_look_value() { # DOTTED_PATH
+  ipc smoke layerItems vgs.jarvis Bubble look | py_reply '
+import json,sys
+rows=json.load(sys.stdin)
+if not rows: sys.exit("jarvis-bubble: look=absent")
+value=rows[0][2]["look"]
+for key in sys.argv[1].split("."): value=value[key]
+print(json.dumps(value))
+' "$1"
+}
 jarvis_bubble_geometry() {
   local box window margin
-  box="$(control_box vgs:layer vgs.jarvis Surface level raised)" &&
+  box="$(control_box vgs:layer vgs.jarvis QQuickItem objectName overlay)" &&
     window="$(surface_box vgs:layer)" &&
-    margin="$(ipc smoke themeValue voiceBubble.margin)" || return 1
+    margin="$(jarvis_bubble_look_value layout.margin)" || return 1
   [[ $box == \[* && $window == \[* ]] || { echo absent; return; }
   python3 -c '
 import json,sys
@@ -114,49 +131,107 @@ ok=(b[2]>0 and b[3]>0 and b[0]>=w[0] and b[1]>=w[1]
 print("bottom-centre" if ok else "wrong-geometry")
 ' "$box" "$window" "$margin"
 }
+# The orb's core, the square inside its ring, against the colour most of
+# its pixels hold: `drawn` when at least 2% of them differ from it by more
+# than 48 in a channel sum, `blank` when under 0.1% do, `faint` between.
+# Under a hidden shader the core holds only what lies below the layer.
 jarvis_bubble_pixels() {
-  local box colour socket geometry count
-  box="$(control_box vgs:layer vgs.jarvis VoiceOrb active true)" &&
-    colour="$(ipc smoke themeValue voiceOrb.tone.accent | py_reply 'import json,sys; print(json.load(sys.stdin)[-6:])')" &&
+  local box socket geometry verdict
+  box="$(control_box vgs:layer vgs.jarvis ParticleOrb active true)" &&
     socket="$(shot_socket "$rt_dir" "$nested_socket")" || return 1
   [[ $box == \[* ]] || { echo absent; return; }
-  geometry="$(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print("%d,%d %dx%d"%(x,y,w,h))' "$box")" || return 1
-  count="$(shot_grim "$socket" "$rt_dir" -g "$geometry" -t ppm - | python3 -c '
+  geometry="$(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); s=round(w*0.4); print("%d,%d %dx%d"%(x+w/2-s/2,y+h/2-s/2,s,s))' "$box")" || return 1
+  verdict="$(shot_grim "$socket" "$rt_dir" -g "$geometry" -t ppm - | python3 -c '
 import sys
+from collections import Counter
 d=sys.stdin.buffer.read().split(b"\n",3)
 if len(d)!=4 or d[0]!=b"P6" or d[2]!=b"255": sys.exit("jarvis-bubble: pixels=unreadable")
 w,h=map(int,d[1].split()); pixels=d[3]
-if len(pixels)!=w*h*3: sys.exit("jarvis-bubble: pixels=incomplete")
-c=bytes.fromhex(sys.argv[1])
-print(sum(pixels[i:i+3]==c for i in range(0,len(pixels),3)))
-' "$colour")" || return 1
-  [[ $count =~ ^[0-9]+$ ]] || return 1
-  [[ $count -gt 0 ]] && echo drawn || echo blank
+if len(pixels)!=w*h*3 or w*h==0: sys.exit("jarvis-bubble: pixels=incomplete")
+cells=[pixels[i:i+3] for i in range(0,len(pixels),3)]
+base=Counter(cells).most_common(1)[0][0]
+off=sum(sum(abs(a-b) for a,b in zip(c,base))>48 for c in cells)/len(cells)
+print("drawn" if off>=0.02 else "blank" if off<0.001 else "faint")
+')" || return 1
+  printf '%s\n' "$verdict"
 }
-# The fixture's assistant caption as the bubble draws it: one visible label
-# holding the whole text, longer than the token's three lines, inside one
-# clipping window of exactly that height. The label's bottom on the window's
-# bottom draws the text's end; its top on the window's top draws its start.
+# Jarvis's words as the bubble draws them while its voice is muted: one
+# visible Words view whose revealed words are the whole caption and whose
+# reveal has ended, longer than the look's line count, in exactly that many
+# visible clipping windows inside it. `latest-lines` when the bottom window
+# draws the text's last line, `wrong-order` otherwise; `progressing` while
+# words still appear.
 jarvis_bubble_words() {
-  local labels windows lines
-  labels="$(ipc smoke layerItems vgs.jarvis Label text,visible,lineCount,lineBox)" &&
+  local views windows labels lines
+  views="$(ipc smoke layerItems vgs.jarvis Words shown,settled,lineCount,visible)" &&
     windows="$(ipc smoke layerItems vgs.jarvis QQuickItem clip,visible)" &&
-    lines="$(ipc smoke themeValue voiceBubble.textLines)" || return 1
-  [[ $labels == \[* && $windows == \[* ]] || { printf 'jarvis-bubble: words-reader=unreadable labels=%s windows=%s\n' "$labels" "$windows" >&2; return 1; }
+    labels="$(ipc smoke layerItems vgs.jarvis Label visible,lineCount)" || return 1
+  [[ $views == \[* && $windows == \[* && $labels == \[* ]] || { printf 'jarvis-bubble: words-reader=unreadable views=%s windows=%s\n' "$views" "$windows" >&2; return 1; }
+  if [[ $views == '[]' ]]; then echo absent; return; fi
+  lines="$(jarvis_bubble_look_value words.lines)" || return 1
   python3 -c '
 import json,sys
-labels,windows=map(json.loads,sys.argv[1:3]); lines=int(sys.argv[3]); text=sys.argv[4]
-shown=[(s,r,v) for s,r,v in labels if v["visible"] and v["text"]==text]
+views,windows,labels=map(json.loads,sys.argv[1:4]); lines=int(json.loads(sys.argv[4])); text=" ".join(sys.argv[5].split())
+shown=[(s,b,v) for s,b,v in views if v["visible"]]
 if not shown: print("absent"); sys.exit()
 if len(shown)!=1: print("unbounded"); sys.exit()
-screen,(x,y,w,h),label=shown[0]
-held=[r for s,r,v in windows if s==screen and v["visible"] and v["clip"] and r[0]==x and r[2]==w]
-bounded=(len(held)==1 and label["lineCount"]>lines and abs(held[0][3]-lines*label["lineBox"])<=1
-         and abs(h-label["lineCount"]*label["lineBox"])<=1)
-if not bounded: print("unbounded"); sys.exit()
-top,height=held[0][1],held[0][3]
-print("latest-lines" if abs(y+h-top-height)<=1 else "first-lines" if abs(y-top)<=1 else "unbounded")
-' "$labels" "$windows" "$lines" "$jarvis_bubble_reply"
+screen,(x,y,w,h),view=shown[0]
+if not view["settled"] or view["shown"]!=text: print("progressing"); sys.exit()
+held=[b for s,b,v in windows if s==screen and v["visible"] and v["clip"] and b[0]==x and b[2]==w and b[1]>=y and b[1]+b[3]<=y+h]
+if view["lineCount"]<=lines or len(held)!=lines: print("unbounded"); sys.exit()
+bottom=max(held,key=lambda b:b[1])
+inside=[b for s,b,v in labels if s==screen and v["visible"] and b[0]==x and b[2]==w and b[1]<=bottom[1] and b[1]+b[3]>=bottom[1]+bottom[3]]
+if len(inside)!=1: print("unbounded"); sys.exit()
+print("latest-lines" if abs(inside[0][1]+inside[0][3]-bottom[1]-bottom[3])<=1 else "wrong-order")
+' "$views" "$windows" "$labels" "$lines" "$jarvis_bubble_reply"
+}
+# The phase whose look the shown orb draws: the orb's phase once each
+# palette uniform of its shader holds that phase's colour in the shipped
+# table (Appearance.js, read through the shell's library loader), else the
+# phase and the uniforms still easing toward it.
+jarvis_bubble_look() {
+  local orbs shaders
+  orbs="$(ipc smoke layerItems vgs.jarvis ParticleOrb phase,active)" &&
+    shaders="$(ipc smoke layerItems vgs.jarvis QQuickShaderEffect uTop,uUpper,uLower,uBottom,uCore,uHot)" || return 1
+  "$node_bin" - "$orbs" "$shaders" "$repo/bin/lib/qml-library.js" "$repo/shell/plugins/vgs.jarvis/Appearance.js" <<'JS'
+const [rawOrbs, rawShaders, library, table] = process.argv.slice(2);
+const looks = require(library).load(table).TOKENS.state;
+const orbs = JSON.parse(rawOrbs).filter(([, , value]) => value.active);
+if (orbs.length !== 1) { console.log("orbs=" + orbs.length); process.exit(0); }
+const [screen, box, orb] = orbs[0];
+const effects = JSON.parse(rawShaders).filter(([at, place]) => at === screen && JSON.stringify(place) === JSON.stringify(box));
+if (effects.length !== 1) { console.log("shaders=" + effects.length); process.exit(0); }
+const want = looks[orb.phase];
+if (want === undefined) { console.log("unknown=" + orb.phase); process.exit(0); }
+const easing = ["top", "upper", "lower", "bottom", "core", "hot"].filter(stop =>
+    effects[0][2]["u" + stop[0].toUpperCase() + stop.slice(1)].toLowerCase().slice(-6) !== want[stop].value.toLowerCase().slice(1, 7));
+console.log(easing.length === 0 ? orb.phase : orb.phase + ":easing=" + easing.join(","));
+JS
+}
+# `quiet` when the Jarvis layer window the probe watches swaps no frame
+# over 3 s, read after the look's transition and two frames at 60 Hz;
+# `swapped` otherwise.
+jarvis_bubble_still() {
+  local transition before after
+  transition="$(jarvis_bubble_look_value orb.transition)" || return 1
+  sleep "$(python3 -c 'import sys; print((int(sys.argv[1]) + 34) / 1000)' "$transition")"
+  before="$(ipc smoke layerFrames)" || return 1
+  # The acceptance interval is a real 3 s presentation observation.
+  sleep 3
+  after="$(ipc smoke layerFrames)" || return 1
+  [[ $before =~ ^[0-9]+$ && $after =~ ^[0-9]+$ ]] || { echo "unreadable before=$before after=$after"; return; }
+  printf '        jarvis_layer_frames_before=%s after=%s interval_s=3\n' "$before" "$after" >&2
+  if ((after == before)); then echo quiet; else echo swapped; fi
+}
+jarvis_bubble_voice_key() { hold_send "down 133" "down 64" "down 44" "up 44" "up 64" "up 133"; }
+jarvis_bubble_buttons() { ipc smoke layerItemsWith vgs.jarvis IconButton label "$1"; }
+# The words a visible Words view has revealed, `none` with none shown.
+jarvis_bubble_shown() {
+  ipc smoke layerItems vgs.jarvis Words shown,settled,visible | py_reply '
+import json,sys
+rows=[v for _,_,v in json.load(sys.stdin) if v["visible"]]
+print("none" if not rows else rows[0]["shown"] if rows[0]["settled"] else "progressing")
+'
 }
 jarvis_bubble_caption() {
   ipc smoke jarvisProcess | py_reply '
@@ -277,7 +352,7 @@ jarvis_bubble_request() {
   local state buttons clips fields
   state="$(ipc smoke jarvisProcess)" &&
     buttons="$(ipc smoke layerItems vgs.jarvis Button variant,visible)" &&
-    clips="$(ipc smoke layerItems vgs.jarvis QQuickItem clip,visible)" &&
+    clips="$(ipc smoke layerItems vgs.jarvis Words visible,shown)" &&
     fields="$(ipc smoke layerItems vgs.jarvis Label role,visible)" || return 1
   "$node_bin" - "$state" "$buttons" "$clips" "$fields" "$jarvis_key_gates/effects.jsonl" "$repo/shell/plugins/vgs.jarvis/backend/ToolRouter.js" <<'JS'
 const [rawState, rawButtons, rawClips, rawFields, effects, file] = process.argv.slice(2);
@@ -321,16 +396,10 @@ try {
         paths.sort((a, b) => a[1][1] - b[1][1]);
         assert.ok(paths[0][1][2] > 0 && paths[0][1][3] > 0);
     }
-    // The scrolling container also clips. The caption window sits above
-    // the held question and aligns its body label at its bottom edge.
-    const [screen, question] = questions[0];
-    const captions = JSON.parse(rawClips).filter(([clipScreen, box, value]) => value.clip === true
-        && clipScreen === screen && box[1] + box[3] <= question[1]
-        && labels.some(([labelScreen, labelBox, label]) => labelScreen === clipScreen && label.role === "body"
-            && labelBox[0] === box[0] && labelBox[2] === box[2]
-            && Math.abs(labelBox[1] + labelBox[3] - box[1] - box[3]) <= 1));
-    assert.equal(captions.length, 1);
-    assert.equal(captions[0][2].visible, false);
+    // Jarvis's words, which voice mute draws above the orb, give way to
+    // the held question: no Words view shows a word beside it.
+    const captions = JSON.parse(rawClips).filter(([, , value]) => value.visible && value.shown !== "");
+    assert.equal(captions.length, 0);
     console.log(1);
 } catch (error) {
     if (!(error instanceof assert.AssertionError)) throw error;
@@ -366,7 +435,7 @@ jarvis_bubble_console() {
   local field hint card output
   field="$(control_box window:Jarvis window vgs.jarvis TextField '')" &&
     hint="$(control_box window:Jarvis window vgs.jarvis Label 'Confirm or cancel the request first')" &&
-    card="$(control_box vgs:layer vgs.jarvis Surface level raised)" &&
+    card="$(control_box vgs:layer vgs.jarvis QQuickItem objectName overlay)" &&
     output="$(hypr -j monitors | py_reply 'import json,sys; m=next(m for m in json.load(sys.stdin) if m["focused"]); print(json.dumps([m["x"], m["y"], m["width"] / m["scale"], m["height"] / m["scale"]]))')" || return 1
   [[ $field == \[* && $hint == \[* && $card == \[* ]] || { echo absent; return; }
   python3 -c '
@@ -435,11 +504,12 @@ jarvis_bubble_client="$other_pid"
 expect_poll "the client below Jarvis has keyboard focus" '["smoke.other", "Other window"]' active_window
 jarvis_bubble_begin
 geometry expect_poll "the bubble clears reserved space and sits at bottom centre" bottom-centre jarvis_bubble_geometry
+expect_poll "listening draws its own look" listening jarvis_bubble_look
 expect "the bubble takes no keyboard focus" '["smoke.other", "Other window"]' active_window
 geometry expect_poll "the orb draws without a Jarvis bar widget" drawn jarvis_bubble_pixels
-expect "control: hide only the bubble's shader" ok ipc smoke layerShaderSet vgs.jarvis false
+expect "control: hide only the bubble's shader" ok ipc smoke layerShaderSet vgs.jarvis ParticleOrb false
 geometry expect_poll "control: the same pixel reader sees the hidden shader" blank jarvis_bubble_pixels
-expect "the shader is restored" ok ipc smoke layerShaderSet vgs.jarvis true
+expect "the shader is restored" ok ipc smoke layerShaderSet vgs.jarvis ParticleOrb true
 geometry expect_poll "the restored orb draws" drawn jarvis_bubble_pixels
 expect "the bar disables independently of Jarvis" ok jarvis_bubble_hide_bar
 expect_poll "the orb still presents without any bar" presented jarvis_bubble_state
@@ -447,8 +517,8 @@ geometry expect_poll "the bubble follows the free area without a bar" bottom-cen
 expect "the bar returns without restarting Jarvis" ok ipc shell setPluginEnabled vgs.bar true
 expect_poll "the bubble follows the restored reserved space" presented jarvis_bubble_state
 
-if ! orb_box="$(jarvis_bubble_required_box VoiceOrb active true)" ||
-   ! mute_box="$(jarvis_bubble_required_box IconButton label 'Mute Jarvis')" ||
+if ! orb_box="$(jarvis_bubble_required_box ParticleOrb active true)" ||
+   ! mute_box="$(jarvis_bubble_required_box IconButton label 'Mute microphone')" ||
    ! stop_box="$(jarvis_bubble_required_box IconButton label 'Stop Jarvis')"; then
   fail "the bubble's decorative targets are unreadable: orb=$orb_box mute=${mute_box-unread} stop=${stop_box-unread}"
   jarvis_bubble_abandon
@@ -456,26 +526,15 @@ if ! orb_box="$(jarvis_bubble_required_box VoiceOrb active true)" ||
 fi
 read -r orb_x orb_y orb_w orb_h < <(python3 -c 'import json,sys; print(*json.loads(sys.argv[1]))' "$orb_box")
 read -r mute_x mute_y mute_w mute_h < <(python3 -c 'import json,sys; print(*json.loads(sys.argv[1]))' "$mute_box")
-read -r stop_x stop_y stop_w stop_h < <(python3 -c 'import json,sys; print(*json.loads(sys.argv[1]))' "$stop_box")
-read -r orb_cx orb_cy mute_gap_x mute_gap_y < <(python3 -c '
-import sys
-orb = [float(v) for v in sys.argv[1:5]]
-mute = [float(v) for v in sys.argv[5:9]]
-ox, oy, ow, oh = orb
-mx, my, mw, mh = mute
-gap_left = ox + ow
-gap_right = mx
-if gap_right - gap_left < 1:
-    print("absent absent absent absent")
-else:
-    print(round(ox + ow / 2), round(oy + oh / 2), round((gap_left + gap_right) / 2), round(my + mh / 2))
-' "$orb_x" "$orb_y" "$orb_w" "$orb_h" "$mute_x" "$mute_y" "$mute_w" "$mute_h")
-if [[ $mute_gap_x == absent ]]; then
-  fail "the decorative gap between the Jarvis orb and Mute button is absent"
+# The orb's centre, its canvas left of the ring, and its canvas just above
+# the icon row: none is an input item.
+jarvis_bubble_pass "$((orb_x + orb_w / 2))" "$((orb_y + orb_h / 2))"
+jarvis_bubble_pass "$((orb_x + orb_w / 20))" "$((orb_y + orb_h / 2))"
+if ((mute_y - 6 > orb_y)); then
+  jarvis_bubble_pass "$((mute_x + mute_w / 2))" "$((mute_y - 6))"
+else
+  fail "the orb's canvas reaches above the icon row: orb=$orb_box mute=$mute_box"
 fi
-jarvis_bubble_pass "$orb_cx" "$orb_cy"
-jarvis_bubble_pass "$(((mute_x + mute_w + stop_x) / 2))" "$((mute_y + mute_h / 2))"
-[[ $mute_gap_x == absent ]] || jarvis_bubble_pass "$mute_gap_x" "$mute_gap_y"
 expect "decorative clicks cannot mute" off jarvis_key_state mute
 expect "decorative clicks keep capture live" open jarvis_key_state capture
 jarvis_bubble_click "Stop Jarvis"
@@ -508,13 +567,24 @@ for jarvis_bubble_stop_mode in hold toggle always; do
 done
 jarvis_key_mode hold
 jarvis_bubble_begin
-jarvis_bubble_click "Mute Jarvis"
+jarvis_bubble_click "Mute microphone"
 expect_poll "the labelled Mute button turns privacy mute on" on jarvis_key_state mute
 expect_poll "the Mute button closes capture before hiding" closed jarvis_key_state capture
 jarvis_key_talk_up
 jarvis_key_mute
 expect_poll "explicit unmute does not restore capture" off jarvis_key_state mute
 expect "unmute still leaves no capture" closed jarvis_key_state capture
+# Voice mute stays on from here through the mutation controls, so Jarvis's
+# words draw; the words section turns it off and on again.
+jarvis_bubble_begin
+jarvis_bubble_click "Mute Jarvis's voice"
+expect_poll "the voice button mutes Jarvis's voice" on jarvis_key_state voiceMute
+expect_poll "the voice button names its next action" 1 jarvis_bubble_buttons "Turn on Jarvis's voice"
+expect "voice mute leaves the microphone on" off jarvis_key_state mute
+expect "voice mute keeps capture live" open jarvis_key_state capture
+jarvis_key_talk_up
+jarvis_key_stop
+jarvis_key_stop_assertion
 
 for jarvis_bubble_answer in key Confirm Cancel Yes No; do
   jarvis_bubble_purpose=action
@@ -524,6 +594,7 @@ for jarvis_bubble_answer in key Confirm Cancel Yes No; do
   jarvis_bubble_before="$(jarvis_key_effects "$jarvis_bubble_effect")"
   jarvis_bubble_approval "$jarvis_bubble_purpose"
   expect_poll "the held request receives a drawn-frame acknowledgment" drawn jarvis_bubble_acknowledged
+  expect_poll "a held request draws the confirming look" confirming jarvis_bubble_look
   expect "the drawn hold binds its typed call and ordered button roles without a duplicate caption" 1 jarvis_bubble_request
   expect "drawing a hold starts no request" "$jarvis_bubble_before" jarvis_key_effects "$jarvis_bubble_effect"
   expect "approval keeps the application's keyboard focus" '["smoke.other", "Other window"]' active_window
@@ -542,14 +613,22 @@ expect_poll "the client below Jarvis has keyboard focus again" '["smoke.other", 
 jarvis_bubble_reply="$(python3 -c 'print("On it. " + " ".join(["scripted reply"] * 24))')"
 jarvis_bubble_begin
 jarvis_key_gate partial
-expect_poll "the user's partial draws while capture stays open" drawn jarvis_bubble_text 'scripted draft'
-expect "a drawn partial leaves the utterance collecting" collecting jarvis_key_state turn
+expect_poll "a partial leaves the utterance collecting" collecting jarvis_key_state turn
+expect "the user's words are not drawn" absent jarvis_bubble_text 'scripted draft'
 jarvis_bubble_think
-expect_poll "the acknowledgement replaces the user's draft while the brain thinks" drawn jarvis_bubble_text 'On it.'
-expect "the replaced draft leaves the bubble" absent jarvis_bubble_text 'scripted draft'
+expect_poll "Jarvis's acknowledgement draws while the brain thinks" "On it." jarvis_bubble_shown
+expect "the user's final words are not drawn" absent jarvis_bubble_text 'scripted draft'
 jarvis_key_gate reply
-expect_poll "the reply replaces the user's final" latest-lines jarvis_bubble_words
+expect_poll "the reply draws the latest lines of Jarvis's words" latest-lines jarvis_bubble_words
 jarvis_bubble_earlier="$(ipc smoke statusValues vgs.jarvis | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["transcript"]))')"
+# Jarvis's words draw only while its voice is muted: the button turns the
+# voice on and the words go, the key mutes it again and they return.
+jarvis_bubble_click "Turn on Jarvis's voice"
+expect_poll "the voice button turns Jarvis's voice on" off jarvis_key_state voiceMute
+expect_poll "with its voice on, Jarvis's words are not drawn" absent jarvis_bubble_words
+jarvis_bubble_voice_key
+expect_poll "the Voice mute key mutes Jarvis's voice" on jarvis_key_state voiceMute
+expect_poll "with its voice muted, Jarvis's words draw again" latest-lines jarvis_bubble_words
 jarvis_key_stop
 jarvis_key_stop_assertion
 jarvis_bubble_begin
@@ -557,15 +636,46 @@ jarvis_bubble_think caption
 expect_poll "the bubble draws the latest three lines of Jarvis's words" latest-lines jarvis_bubble_words
 expect "the worded bubble keeps its presented indicator" presented jarvis_bubble_state
 geometry expect_poll "the worded bubble stays at bottom centre" bottom-centre jarvis_bubble_geometry
-if ! words_box="$(jarvis_bubble_required_box QQuickItem clip true)"; then
+if ! words_box="$(jarvis_bubble_required_box Words visible true)"; then
   fail "the bubble's words target is unreadable: got $words_box"
   jarvis_bubble_abandon
   return 0
 fi
 read -r words_x words_y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(round(x+w/2),round(y+h/2))' "$words_box")
 jarvis_bubble_pass "$words_x" "$words_y"
+# Stillness. The reply speaks behind the played gate: its look has a clock
+# of its own, so the layer window swaps frames, the control for the
+# readings below in the same window. Each look a phase with no deadline
+# draws then stands still once its transition ends. Muting shows only
+# while capture closes, after which the bubble unmaps, so no reading holds
+# it for 3 s; scripts/qml-tests/tst_jarvis_orb.qml pins that its look has
+# no clock.
+expect_poll "the reply speaks behind the played gate" speaking jarvis_key_state phase
+expect_poll "speaking draws its own look" speaking jarvis_bubble_look
+expect "observe the Jarvis layer's own window" ok ipc smoke watchLayerFrames vgs.jarvis
+expect "control: speaking swaps frames in the window the stillness readings use" swapped jarvis_bubble_still
 jarvis_key_stop
 jarvis_key_stop_assertion
+jarvis_key_mode always
+expect_poll "Always mode waits for the word" armed jarvis_key_state phase
+expect_poll "the waiting bubble has presented on its own host" presented jarvis_bubble_state
+expect_poll "waiting draws the armed look" armed jarvis_bubble_look
+expect "the waiting bubble shows no words" none jarvis_bubble_shown
+expect "observe the Jarvis layer's own window" ok ipc smoke watchLayerFrames vgs.jarvis
+expect "the waiting orb swaps no frame over 3 s" quiet jarvis_bubble_still
+jarvis_key_mode hold
+expect_poll "Hold mode ends the wait" 0 layer_count vgs:layer
+jarvis_bubble_begin
+jarvis_key_gate device-lost
+expect_poll "device loss shows the fault" retrying jarvis_key_state fault
+expect_poll "the fault draws the error look" error jarvis_bubble_look
+expect "observe the Jarvis layer's own window" ok ipc smoke watchLayerFrames vgs.jarvis
+expect "the fault's orb swaps no frame over 3 s" quiet jarvis_bubble_still
+jarvis_key_stop
+jarvis_key_stop_assertion
+jarvis_key_gate device-back
+jarvis_key_talk_up
+rm -f -- "${jarvis_key_gates:?}/device-gone" "${jarvis_key_gates:?}/device-back"
 jarvis_bubble_begin
 # One long request: the scripted brain states a step at once, a second step
 # behind its gate and the answer behind the reply gate. Each line's playback
@@ -652,6 +762,9 @@ jarvis_disable
 jarvis_bubble_file="$repo/shell/plugins/vgs.jarvis/Bubble.qml"
 cp -- "$jarvis_bubble_file" "$jarvis_bubble_snapshots/bubble.next"
 mv -T -- "$jarvis_bubble_snapshots/bubble.next" "$jarvis_bubble_snapshots/bubble"
+jarvis_bubble_words_file="$repo/shell/plugins/vgs.jarvis/Words.qml"
+cp -- "$jarvis_bubble_words_file" "$jarvis_bubble_snapshots/words.next"
+mv -T -- "$jarvis_bubble_snapshots/words.next" "$jarvis_bubble_snapshots/words"
 # Row.layoutDirection reverses rendered positions (Qt Quick Row reference).
 # The position reader must reject that reversal, regardless of button copy.
 jarvis_bubble_fixture="$repo/shell/plugins/vgs.jarvis/backend/scripted-fixture.js"
@@ -659,6 +772,9 @@ cp -- "$jarvis_bubble_fixture" "$jarvis_bubble_snapshots/fixture.next"
 mv -T -- "$jarvis_bubble_snapshots/fixture.next" "$jarvis_bubble_snapshots/fixture"
 for jarvis_bubble_mutant in geometry console console-close focus words lines head generation approval-key approval-button approval-cancel approval-shown approval-caption approval-kind approval-path approval-role approval-order; do
   jarvis_bubble_mutation_file="$jarvis_bubble_file"
+  if [[ $jarvis_bubble_mutant == lines || $jarvis_bubble_mutant == head ]]; then
+    jarvis_bubble_mutation_file="$jarvis_bubble_words_file"
+  fi
   if [[ $jarvis_bubble_mutant == approval-key || $jarvis_bubble_mutant == approval-shown || $jarvis_bubble_mutant == console-close ]]; then
     jarvis_bubble_mutation_file="$jarvis_key_service"
   fi
@@ -670,19 +786,19 @@ from pathlib import Path
 import sys
 p=Path(sys.argv[1]); assert not p.is_symlink()
 needle,replacement={
-    "geometry": ("anchors.bottomMargin: Theme.voiceBubble.margin", "anchors.bottomMargin: Theme.voiceBubble.margin + Theme.voiceBubble.gap"),
+    "geometry": ("anchors.bottomMargin: root.look.layout.margin", "anchors.bottomMargin: root.look.layout.margin + root.look.layout.gap"),
     "console": ("when: root.overConsole", "when: false"),
     "console-close": ('event.name === "closewindow" || ', ""),
     "focus": ("screen.name === service.focusedOutput", "true"),
     "words": ('caption !== null && caption.gen', "false && caption.gen"),
-    "lines": ("Theme.voiceBubble.textLines * tail.lineBox", "(Theme.voiceBubble.textLines + 1) * tail.lineBox"),
-    "head": ("y: parent.height - height", "y: 0"),
+    "lines": ("model: root.look.words.lines", "model: root.look.words.lines + 1"),
+    "head": ("y: (last - index) * root.lineBox", "y: index * root.lineBox"),
     "generation": ("caption.gen === state.gen", "true"),
     "approval-key": ('() => confirmApproval(displayedApproval(), "key")', '() => {}'),
     "approval-button": ('root.service.confirmApproval(root.displayedHold, "button")', 'void root.displayedHold'),
     "approval-cancel": ('root.service.cancelApproval(root.displayedHold)', 'void root.displayedHold'),
     "approval-shown": ('send({ type: "shown", id: hold.id });', 'void hold;'),
-    "approval-caption": ('state === null || root.hold !== null || phase === "armed" ? ""', 'state === null || phase === "armed" ? ""'),
+    "approval-caption": ('|| root.hold !== null || phase === "armed" ? ""', '|| phase === "armed" ? ""'),
     "approval-kind": ('id: "files.delete", args:', 'id: "files.read", args:'),
     "approval-path": ('path: "/home/fixture/draft.txt"', 'path: "/home/fixture/other.txt"'),
     "approval-role": ('variant: "secondary"', 'variant: "primary"'),
@@ -780,7 +896,7 @@ PY
       expect_poll "control: a fourth line fails the same words reader" unbounded jarvis_bubble_words ;;
     head)
       jarvis_bubble_think caption
-      expect_poll "control: the first three lines fail the same words reader" first-lines jarvis_bubble_words ;;
+      expect_poll "control: the newest line on top fails the same words reader" wrong-order jarvis_bubble_words ;;
     generation)
       jarvis_bubble_think caption
       jarvis_bubble_earlier="$(ipc smoke statusValues vgs.jarvis | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["transcript"]))')"
@@ -794,6 +910,7 @@ PY
   jarvis_key_stop
   jarvis_disable
   cp -- "$jarvis_bubble_snapshots/bubble" "$jarvis_bubble_file"
+  cp -- "$jarvis_bubble_snapshots/words" "$jarvis_bubble_words_file"
 done
 # Restore the independent bindings in one disposable source copy. Clearing
 # its hold must make the shell log check fail. Only that copy's source URI
@@ -927,6 +1044,7 @@ expect "control: ignoring presentation fails lost-host capture teardown" 2 jarvi
 jarvis_key_talk_up
 jarvis_key_stop
 jarvis_disable
+rm -f -- "${home:?}/.local/state/vgshell/jarvis/voice-mute.json"
 cp -- "$jarvis_bubble_snapshots/bubble" "$jarvis_bubble_file"
 cp -- "$jarvis_bubble_snapshots/engine" "$jarvis_bubble_engine"
 cp -- "$jarvis_bubble_snapshots/backend" "$jarvis_key_backend"

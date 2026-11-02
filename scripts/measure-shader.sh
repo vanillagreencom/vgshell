@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Measure each passive shader layer on a real GPU in the nested sandbox:
-# VoiceOrb and Voice's plasma orb.
+# VoiceOrb, Voice's plasma orb and Jarvis's particle orb.
 # Usage: scripts/measure-shader.sh [--shader NAME] [--calibrate FILE [--runs N]] [--keep]
 # Default: check every shader against its record in
 # scripts/shader/ceilings.json and prove its 256-step control. --shader
-# measures one, voiceorb or plasma.
+# measures one, voiceorb, plasma or jarvis-orb.
 # Calibration measures N passes, 1 by default, in one sandbox and derives
 # each shader's ceilings as twice its highest reading over every pass and
 # scale, floored at each stream's instrument resolution, written in FILE with
@@ -28,7 +28,7 @@ repo="$(cd -- "$(dirname -- "$self")/.." && pwd -P)" || exit 1
 choice=(--check "$repo/scripts/shader/ceilings.json")
 keep=false
 runs=""
-shaders=(voiceorb plasma)
+shaders=(voiceorb plasma jarvis-orb)
 argv=("$@")
 while (($#)); do
   case "$1" in
@@ -39,7 +39,7 @@ while (($#)); do
       [[ $# -ge 2 && $2 =~ ^[1-9][0-9]*$ ]] || { printf 'shader-cost: refused argument=--runs value=%s\n' "${2:-}"; exit 2; }
       runs="$2"; shift 2 ;;
     --shader)
-      [[ $# -ge 2 && ( $2 == voiceorb || $2 == plasma ) ]] || { printf 'shader-cost: refused argument=--shader value=%s\n' "${2:-}"; exit 2; }
+      [[ $# -ge 2 && ( $2 == voiceorb || $2 == plasma || $2 == jarvis-orb ) ]] || { printf 'shader-cost: refused argument=--shader value=%s\n' "${2:-}"; exit 2; }
       shaders=("$2"); shift 2 ;;
     --keep) keep=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$self"; exit 0 ;;
@@ -80,7 +80,8 @@ source "$repo/scripts/smoke/harness.sh"
 cp -- "$source_repo/scripts/shader/Scene.qml" "$repo/shell/ShaderScene.qml"
 # Each shader's costly copy adds a 256-step dependent loop before its
 # output, each step made of that shader's own work: VoiceOrb's trigonometry,
-# and two of the plasma's four-octave noises. On host cachy on 2026-10-05
+# two of the plasma's four-octave noises, and two of the particle orb's
+# value noises. On host cachy on 2026-10-05
 # the trigonometric loop added 0.026 ms of GPU cost to the plasma's
 # 0.127 ms at scale 1, under the plasma's 0.548 ms ceiling (run
 # shader-cost-1791193446-3856419), and one noise a step read 0.642 ms
@@ -99,6 +100,10 @@ source, needle, seed, step, scaled = {
                "fragColor = vec4(outc, clamp(a, 0.0, 1.0)) * qt_Opacity;", "ang + uTime",
                "fbm(vec3(uv * 3.0, cost + float(i) * 0.37)) + fbm(vec3(uv.yx * 2.0, cost - float(i) * 0.21))",
                "fragColor = vec4(outc, clamp(a, 0.0, 1.0)) * qt_Opacity * (0.99 + 0.01 * sin(cost));"),
+    "jarvis-orb": ("shell/plugins/vgs.jarvis/shaders/particleorb.frag",
+                   "fragColor = vec4(min(col, vec3(a)), a) * qt_Opacity;", "r + uFlow",
+                   "vnoise(vec3(uv * 3.0, cost + float(i) * 0.37)) + vnoise(vec3(uv.yx * 2.0, cost - float(i) * 0.21))",
+                   "fragColor = vec4(min(col, vec3(a)), a) * qt_Opacity * (0.99 + 0.01 * sin(cost));"),
 }[shader]
 text = (repo / source).read_text()
 assert text.count(needle) == 1, "costly shader: output must match once"

@@ -163,6 +163,9 @@ Item {
                     Field { label: "Checked"; inline: true; width: parent.width; IconButton { iconName: "check"; label: "Checked"; checkable: true; checked: true } }
                     Field { label: "Disabled"; inline: true; width: parent.width; IconButton { iconName: "ban"; label: "Disabled"; enabled: false } }
                     Field { label: "Danger"; inline: true; width: parent.width; IconButton { iconName: "x"; label: "Close"; variant: "danger" } }
+                    // A surface's own look hands the glyph and ring colours.
+                    Field { label: "Look colours"; inline: true; width: parent.width; IconButton { iconName: "mic"; label: "Look colours"; restColor: Theme.color.info; activeColor: Theme.color.text; onColor: Theme.color.success; ringColor: Theme.color.warning } }
+                    Field { label: "Look colours, on"; inline: true; width: parent.width; IconButton { iconName: "mic-off"; label: "Look colours, on"; checkable: true; checked: true; restColor: Theme.color.info; activeColor: Theme.color.text; onColor: Theme.color.success; ringColor: Theme.color.warning } }
                 }
                 // A key/value row's action after the row's value, then
                 // pressed, disabled, in the danger tone, which leads with

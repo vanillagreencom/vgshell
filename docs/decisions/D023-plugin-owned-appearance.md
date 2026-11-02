@@ -3,7 +3,7 @@
 [← Decision Index](INDEX.md)
 
 **Date**: 2026-09-27
-**Status**: Active (the shared system key hint uses the shell's tokens on plugin-owned surfaces too; [VGS-2180](https://linear.app/vanillagreen/issue/VGS-2180), owner-approved uniform hint pattern)
+**Status**: Active (the shared system key hint uses the shell's tokens on plugin-owned surfaces too; [VGS-2180](https://linear.app/vanillagreen/issue/VGS-2180), owner-approved uniform hint pattern; the look binds per surface → [D118](D118-plugin-look-binds-per-surface.md))
 **Research**: [VGS-475](https://linear.app/vanillagreen/issue/VGS-475)
 **Refines**: [D015](D015-tokens-are-a-judged-table.md)
 

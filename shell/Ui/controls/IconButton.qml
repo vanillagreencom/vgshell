@@ -14,6 +14,9 @@ import qs.Ui
 // the icon in every state. Press dims the icon. The rest colour is
 // opaque, not a faded foreground: an icon's stroke overlaps itself at its
 // joins, so an icon drawn translucent shows each overlap brighter. A
+// surface that owns its look hands the glyph's colours, `restColor`,
+// `activeColor` (hover, focus or press) and `onColor` (checked), and the
+// focus ring's `ringColor`; each defaults to the shared token above. A
 // disabled button fades once on the whole control; one a `disabledReason`
 // locks (Button) fades its fill and icon, and shows the reason in place
 // of its action tooltip, so one tooltip shows. The icon is
@@ -30,6 +33,10 @@ Button {
     property string tooltipSide: "below"
     // A state tone names a Theme.color token, including in a plugin-owned look.
     property string tone: ""
+    property color restColor: Theme.color.textMuted
+    property color activeColor: tokens.foreground
+    property color onColor: Theme.button.checked.foreground
+    property color ringColor: Theme.focusRing.color
     readonly property real glyphStart: leftPadding + contentItem.painted[0]
     readonly property real glyphEnd: rightPadding + contentItem.size - contentItem.painted[2]
 
@@ -47,7 +54,7 @@ Button {
         color: root.lock.faded(root.tokens.background)
         border.width: Theme.button.border
         border.color: root.lock.faded(root.tokens.border)
-        FocusRing { target: root }
+        FocusRing { target: root; ringColor: root.ringColor }
     }
 
     Component.onCompleted: if (label === "") console.error("IconButton: label is required, icon=" + JSON.stringify(iconName))
@@ -56,7 +63,8 @@ Button {
         name: root.iconName
         size: root.sizeTokens.icon
         opacity: (root.down ? Theme.opacity.disabled : 1) * root.lock.fade
-        color: root.tone !== "" ? Theme.color[root.tone] : root.variant === "ghost" && root.enabled && !(root.hovered || root.visualFocus || root.down || root.checked) ? Theme.color.textMuted : root.foreground
+        color: root.tone !== "" ? Theme.color[root.tone] : root.checked ? root.onColor
+            : root.variant === "ghost" && root.enabled && !(root.hovered || root.visualFocus || root.down) ? root.restColor : root.activeColor
         Behavior on color { ColorAnimation { duration: Theme.motion.duration.fast; easing.type: Theme.motion.easing.standard } }
     }
 

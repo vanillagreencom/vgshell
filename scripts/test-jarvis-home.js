@@ -1195,7 +1195,7 @@ world(() => {
         for (const kept of ["localTier", "startAtBoot", "bootSession"]) delete settings[kept];
         const hello = { v: 1, type: "hello", gen: 0, revision: "a".repeat(64), locked: false,
             directories: { state, data: state + "/data", runtime: state + "/run" },
-            keys: { talk: null, mute: null, stop: null, confirm: null, console: null } };
+            keys: { talk: null, mute: null, stop: null, confirm: null, console: null, "voice-mute": null } };
         const result = cp.spawnSync(process.execPath, [daemon, "--tree", tree], {
             input: ["~/wire-home", home + "/wire-home", "", "/etc/refused-home"].map(value =>
                 JSON.stringify({ ...hello, settings: { ...settings, home: value } }) + "\n").join(""),

@@ -2,7 +2,7 @@
 # account, provider or network runs. No latency ceiling is measured.
 # State/effect reads poll once per nested IPC round trip. Fixture callback
 # gates poll at 10 ms; hold barriers use the shell's native marker.
-# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/Core/ShortcutRegistry.qml shell/Core/SessionLock.qml scripts/smoke/keyboard/* scripts/smoke/fixtures/plugins/acme.probe/* shell/plugins/vgs.bar/* shell/Ui/feedback/VoiceOrb.qml shell/Core/Layers.qml shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml scripts/smoke/toplevel/* shell/Core/HyprlandLayer.js scripts/smoke/rows/jarvis-bubble.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/hold-shortcuts.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/* scripts/smoke/rows/diagnostics.sh
+# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/Core/ShortcutRegistry.qml shell/Core/SessionLock.qml scripts/smoke/keyboard/* scripts/smoke/fixtures/plugins/acme.probe/* shell/plugins/vgs.bar/* shell/Core/Layers.qml shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml scripts/smoke/toplevel/* shell/Core/HyprlandLayer.js scripts/smoke/rows/jarvis-bubble.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/hold-shortcuts.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/* scripts/smoke/rows/diagnostics.sh
 set -euo pipefail
 # Jarvis holds `dictation`, and the shell finds no voxtype: the core's
 # probe does not start at each enable.
@@ -208,11 +208,12 @@ print("one" if d.get("kind") in ("starting","retry") and d.get("pendingMute")=="
 ' "$reading"
 }
 # Always mode's resting orb: the one presented bubble waits for the word with
-# no words, and its orb ticks no frame and draws no level.
+# no words, and its orb draws the armed look, which has no clock of its own
+# and reads no level, so its driver does not run.
 jarvis_key_resting() {
   local bubbles orbs
   bubbles="$(ipc smoke layerItems vgs.jarvis Bubble presented,phase,words)" &&
-    orbs="$(ipc smoke layerItems vgs.jarvis VoiceOrb active,level,secondaryLevel)" || return 1
+    orbs="$(ipc smoke layerItems vgs.jarvis ParticleOrb phase,moves,driven)" || return 1
   python3 -c '
 import json,sys
 bubbles,orbs=map(json.loads,sys.argv[1:3])
@@ -223,8 +224,8 @@ if bubble["phase"]!="armed" or bubble["words"]!="": print("phase=%s words=%d" % 
 orb=[v for s,_,v in orbs if s==screen]
 if len(orb)!=1: print("orbs=%d" % len(orb)); sys.exit()
 o=orb[0]
-print("resting" if o["active"] is False and o["level"]==0 and o["secondaryLevel"]==0
-      else "active=%s level=%s secondary=%s" % (o["active"],o["level"],o["secondaryLevel"]))
+print("resting" if o["phase"]=="armed" and o["moves"] is False and o["driven"]==0
+      else "phase=%s moves=%s driven=%s" % (o["phase"],o["moves"],o["driven"]))
 ' "$bubbles" "$orbs"
 }
 jarvis_key_resting_assertion() { expect_poll "Always mode presents the still resting orb" resting jarvis_key_resting; }
@@ -751,18 +752,18 @@ jarvis_key_tap_control "a Session whose press after a tap starts a new hold" \
         }
         recover(s, effects, e.at);" "        recover(s, effects, e.at);" jarvis_key_tap_listens jarvis_key_second_tap_sends
 jarvis_rescan
-# Keep the bubble and Always mode. Let only the resting orb tick; the same
-# resting assertion must fail once.
+# Keep the bubble and Always mode. Give every look a clock, so the resting
+# orb ticks; the same resting assertion must fail once.
 cp -- "$sandbox/jarvis-key-service-before" "$jarvis_key_service"
-jarvis_key_bubble="$repo/shell/plugins/vgs.jarvis/Bubble.qml"
+jarvis_key_bubble="$repo/shell/plugins/vgs.jarvis/ParticleOrb.qml"
 cp -- "$jarvis_key_bubble" "$sandbox/jarvis-key-bubble-before"
 python3 - "$jarvis_key_bubble" <<'PY'
 from pathlib import Path
 import sys
 p=Path(sys.argv[1]); assert not p.is_symlink()
-s=p.read_text(); needle='active: root.shown && !resting'
+s=p.read_text(); needle='readonly property bool timed: tone.flow > 0'
 assert s.count(needle)==1
-changed=s.replace(needle, 'active: root.shown')
+changed=s.replace(needle, 'readonly property bool timed: true || tone.flow > 0')
 assert changed!=s
 p.write_text(changed)
 PY

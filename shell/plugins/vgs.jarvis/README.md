@@ -21,6 +21,7 @@ Jarvis is a voice assistant for your desktop. Talk or type to the AI model you c
 - Share your instructions, skills and memory notes with every answering AI model.
 - Start or resume your Jarvis session and send it confirmed agent fleet requests.
 - Keep provider keys in your desktop keyring and mute Jarvis across restarts.
+- Mute Jarvis's voice and read its replies on screen.
 
 ## How it works
 
@@ -58,6 +59,8 @@ Jarvis comes with VGS. Open Plugin settings from the launcher and choose Jarvis.
 1. On Settings, choose an Account under AI model. On Setup, Sign in uses the app's own sign-in; Add key stores a provider key.
 2. On Settings, choose a Voice provider. On Setup, use Set up local voice for Local or Add a key for a cloud voice. Choose the cloud Voice key on Settings. Run Check microphone when Setup offers it.
 3. When the required Setup steps read Done, tap Talk, Super with J, and speak.
+
+While Jarvis works with you, an orb at the bottom of the screen shows what it does: it waits, listens, thinks, speaks or needs your answer. The buttons beside the orb mute the microphone, mute Jarvis's voice and stop Jarvis. While its voice is muted, Jarvis shows its reply above the orb.
 
 The Jarvis J in the bar shows what to do next. Click it to open the Console, or use its right-click menu to mute or unmute. A saved session's Resume offer takes that click until you resume or dismiss it. Change Jarvis's shortcuts in the Keys section on its Settings tab. The Enabled switch turns Jarvis off and stops its session.
 

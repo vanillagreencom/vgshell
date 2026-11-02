@@ -9,7 +9,7 @@
 # ceiling is measured: state, widget and bubble reads poll once per nested
 # IPC round trip; fixture callback gates poll at 10 ms; the window's close
 # waits on Session.js's WAKE_SILENCE_MS.
-# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* scripts/smoke/keyboard/* shell/plugins/vgs.bar/* shell/Ui/feedback/VoiceOrb.qml shell/Core/Layers.qml themes/catalog/flexoki-light/theme.json scripts/smoke/rows/jarvis.sh scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/hold-shortcuts.sh
+# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* scripts/smoke/keyboard/* shell/plugins/vgs.bar/* shell/Core/Layers.qml themes/catalog/flexoki-light/theme.json scripts/smoke/rows/jarvis.sh scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/hold-shortcuts.sh
 set -euo pipefail
 # The Jarvis fixtures log the set jarvis.sh declares.
 expected_errors+=("${jarvis_provoked_errors[@]}")

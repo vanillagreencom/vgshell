@@ -170,6 +170,10 @@ LOOK_ROWS = [
     ("a look path the table does not hold", {"View.qml": LOOK_VIEW.replace("look.card.fill", "look.card.glow")}, "look-unknown"),
     ("a property of a look value is not a finding", {"View.qml": LOOK_VIEW.replace("look.card.fill", "look.card.fill.shade.x").replace("color: look", "property var c: look")}, None),
     ("a Theme member other than appearance", {"View.qml": LOOK_VIEW.replace("color: look.card.fill", "color: Theme.color.text")}, "theme-read"),
+    # A look binds per surface: a file of the plugin that binds none draws
+    # in the theme's colours and names no look path.
+    ("a plugin file that binds no look reads Theme", {"Card.qml": "import QtQuick\nimport qs.Commons\nRectangle { color: Theme.color.text }\n"}, None),
+    ("a plugin file reading the look its owner hands it reads no other Theme member", {"Part.qml": "import QtQuick\nimport qs.Commons\nRectangle { property var look: null; color: Theme.color.text; radius: look.card.radius }\n"}, "theme-read"),
     ("the shared glass read from a plugin's own look", {"View.qml": LOOK_VIEW.replace("color: look.card.fill", "color: Theme.glass.glass.fill")}, "theme-read"),
     ("a literal in another file of the plugin is a finding", {"View.qml": LOOK_VIEW.replace("radius: look.card.radius", "width: 10")}, "literal-metric"),
     ("a radius from a look path inside arithmetic is not a finding", {"View.qml": LOOK_VIEW.replace("radius: look.card.radius", "radius: Math.min(look.card.radius, height / 2)")}, None),
@@ -246,9 +250,11 @@ def run_look_row(name, files, want):
                 fh.write(text)
         proc = run_check(root)
         keys = keys_of(proc)
-        # The look plugin adds Look.js and View.qml to the fixture.
+        # The look plugin adds Look.js, View.qml and any further source
+        # file of the row to the fixture.
+        added = len([name for name in plugin if name != "manifest.json"])
         if want is None:
-            good = proc.returncode == 0 and not keys and proc.stdout.splitlines()[-1:] == [f"check-design-tokens: ok files={FIXTURE_FILES + 2}"]
+            good = proc.returncode == 0 and not keys and proc.stdout.splitlines()[-1:] == [f"check-design-tokens: ok files={FIXTURE_FILES + added}"]
         else:
             good = proc.returncode == 1 and keys == {want}
         return report(name, good, proc)

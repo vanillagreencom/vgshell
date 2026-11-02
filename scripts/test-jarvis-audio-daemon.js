@@ -83,7 +83,7 @@ async function run(file, trigger) {
     const half = trigger.startsWith("speaking-");
     const hello = locked => JSON.stringify({ v: 1, type: "hello", gen: 0,
         settings: { home: "", sounds: false, mode: half ? "toggle" : "hold", microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", privateWindows: "bitwarden" },
-        keys: { talk: null, mute: null, stop: null, confirm: null, console: null }, locked,
+        keys: { talk: null, mute: null, stop: null, confirm: null, console: null, "voice-mute": null }, locked,
         directories: { state: process.env.HOME, data: process.env.HOME, runtime: process.env.XDG_RUNTIME_DIR },
         revision: "a".repeat(64) }) + "\n";
     try {
