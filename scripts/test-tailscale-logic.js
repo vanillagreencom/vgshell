@@ -284,7 +284,7 @@ function suite(logic, service = serviceSource) {
         // names why goes in the hint under it, which every line but Ready
         // carries and the published value keeps.
         assert.equal(shown.hint === "", tone === "ok", "a hint on every line but Ready: " + JSON.stringify(context));
-        const written = logic.statusWrites({ tone: "ok", text: "" }, shown, logic.unread(), logic.emptySnapshot("checking").devices, logic.emptySnapshot("checking").exitNodes)[1][1];
+        const written = logic.statusWrites({ tone: "ok", text: "" }, shown, logic.unread(), logic.emptySnapshot("checking").devices, logic.emptySnapshot("checking").exitNodes, logic.inboundIdle())[1][1];
         assert.equal(written.hint, shown.hint === "" ? undefined : shown.hint, "the published setup value keeps the hint");
         // A line that is not Ready and offers no step reads Not available on Setup.
         assert.equal(written.available, action === "" && tone !== "ok" ? false : undefined, "an unoffered line is Not available: " + JSON.stringify(context));
@@ -302,7 +302,7 @@ function suite(logic, service = serviceSource) {
         { missing: false, state: "service-off", service: "", operator: "" }
     ]) assert.equal(logic.setup(context), null, "no step reading, no setup line: " + JSON.stringify(context));
     assert.deepEqual([logic.setup({ missing: true, state: "checking", service: "", operator: "" }).tone], ["info"], "a missing command needs no step reading");
-    assert.deepEqual(plain(logic.statusWrites({ tone: "ok", text: "" }, null, logic.unread(), logic.emptySnapshot("checking").devices, logic.emptySnapshot("checking").exitNodes)[1]), ["setup", null], "a null line clears the setup entry");
+    assert.deepEqual(plain(logic.statusWrites({ tone: "ok", text: "" }, null, logic.unread(), logic.emptySnapshot("checking").devices, logic.emptySnapshot("checking").exitNodes, logic.inboundIdle())[1]), ["setup", null], "a null line clears the setup entry");
     const unoffered = ["absent", "denied", "unknown"].map(service => logic.setup({ missing: false, state: "service-off", service: service, operator: "unknown" }).hint);
     assert.equal(new Set(unoffered).size, unoffered.length, "each service state that offers no step names its own why");
 
@@ -448,6 +448,96 @@ function suite(logic, service = serviceSource) {
     assert.equal(logic.line(7), "");
     assert.equal(logic.line("x".repeat(500)).length, logic.TEXT_MAX);
 
+    // Who is connected to this machine (design VGS-2203 §§ 1, 4 and 8):
+    // the address index over the design's tailnet, then one socket table a
+    // case, each over the same listeners.
+    {
+    assert.equal(sheet.tun, true);
+    assert.equal(plain(logic.snapshot(0, text("sheet.json").replace('"TUN": true', '"TUN": false'), "")).tun, false);
+    assert.deepEqual(sheet.inboundIndex.ports, [51260, 45962], "each family's PeerAPI port");
+    assert.deepEqual(sheet.inboundIndex.addresses["100.64.0.3"], { id: "nSHEET0003CNTRL", name: "attic-nas", icon: "laptop", user: "Amelie Example" });
+    assert.equal(sheet.inboundIndex.addresses["fd7a:115c:a1e0::9"].id, "nSHEET0009CNTRL", "an IPv6 address maps its peer");
+    assert.equal(sheet.inboundIndex.addresses["100.64.0.2"].user, "", "a tagged peer has no user");
+    assert.equal("100.64.0.1" in sheet.inboundIndex.addresses, false, "this machine is no peer");
+    const T = 1700000000000;
+    const idle = logic.inboundIdle();
+    const LISTENERS = ["LISTEN 0 128 0.0.0.0:22 0.0.0.0:*", "LISTEN 0 128 [::]:22 [::]:*", "LISTEN 0 4096 100.64.0.1%tailscale0:51260 0.0.0.0:*",
+        "LISTEN 0 4096 127.0.0.1:41234 0.0.0.0:*", "LISTEN 0 4096 *:8080 *:*"];
+    const sockets = (rows, previous = idle, now = T) => plain(logic.inbound(0, LISTENERS.concat(rows).join("\n") + "\n", sheet.inboundIndex, previous, now));
+    const peersOf = value => value.rows.map(row => [row.id, row.kinds]);
+    for (const [name, rows, want] of [
+        ["an inbound SSH connection is counted", ["ESTAB 0 0 100.64.0.1:22 100.64.0.3:51514"], [["nSHEET0003CNTRL", ["ssh"]]]],
+        ["an inbound connection to another listening port is counted as that port", ["ESTAB 0 0 100.64.0.1:8080 100.64.0.4:40000"], [["nSHEET0004CNTRL", [8080]]]],
+        ["an outbound connection to a peer's port 22 is not counted", ["ESTAB 0 0 100.64.0.1:52020 100.64.0.7:22"], []],
+        ["a 100.64/10 remote that is no peer is not counted", ["ESTAB 0 0 100.64.0.1:22 100.100.1.1:50000"], []],
+        ["two connections from one peer are counted once with both kinds",
+            ["ESTAB 0 0 100.64.0.1:8080 100.64.0.3:40112", "ESTAB 0 0 100.64.0.1:22 100.64.0.3:51514", "ESTAB 0 0 100.64.0.1:22 100.64.0.3:51516"],
+            [["nSHEET0003CNTRL", ["ssh", 8080]]]],
+        ["an IPv4-mapped row on a `*` listener is counted", ["ESTAB 0 0 [::ffff:100.64.0.1]:8080 [::ffff:100.64.0.3]:40112"], [["nSHEET0003CNTRL", [8080]]]],
+        ["a `%iface` listener holds the PeerAPI port of a connection with no scope", ["ESTAB 0 0 100.64.0.1:51260 100.64.0.4:39000"], [["nSHEET0004CNTRL", ["tailscale"]]]],
+        ["an IPv6 peer on a `[::]` listener is counted", ["ESTAB 0 0 [fd7a:115c:a1e0::1]:22 [fd7a:115c:a1e0::9]:51000"], [["nSHEET0009CNTRL", ["ssh"]]]],
+        ["an outbound ephemeral port a loopback-only service also listens on is not counted", ["ESTAB 0 0 100.64.0.1:41234 100.64.0.9:22"], []],
+        ["a peer connected from both families is one peer",
+            ["ESTAB 0 0 100.64.0.1:22 100.64.0.9:51000", "ESTAB 0 0 [fd7a:115c:a1e0::1]:22 [fd7a:115c:a1e0::9]:51002"], [["nSHEET0009CNTRL", ["ssh"]]]]
+    ]) {
+        const value = sockets(rows);
+        assert.deepEqual([value.state, peersOf(value), value.count], ["read", want, want.length], name);
+    }
+    // The recorded tables the smoke row plants.
+    const recorded = plain(logic.inbound(0, text("inbound.ss"), sheet.inboundIndex, idle, T));
+    assert.deepEqual(recorded, { state: "read", count: 2, rows: [
+        { id: "nSHEET0003CNTRL", name: "attic-nas", icon: "laptop", user: "Amelie Example", kinds: ["ssh", 8080], since: T },
+        { id: "nSHEET0004CNTRL", name: "pixel", icon: "smartphone", user: "Amelie Example", kinds: ["tailscale"], since: T }] });
+    assert.deepEqual(plain(logic.inbound(0, text("outbound.ss"), sheet.inboundIndex, idle, T)), { state: "read", rows: [], count: 0 }, "outbound connections alone count no one");
+    // A since time is the first read that saw the peer; an unread keeps
+    // the rows and their times; a read drops a peer that left, which
+    // starts over when it comes back.
+    const later = sockets(["ESTAB 0 0 100.64.0.1:22 100.64.0.3:51514", "ESTAB 0 0 100.64.0.1:8080 100.64.0.4:40000"], recorded, T + 60000);
+    assert.deepEqual(later.rows.map(row => [row.id, row.since]), [["nSHEET0003CNTRL", T], ["nSHEET0004CNTRL", T]]);
+    for (const [code, output] of [[1, ""], [-1, text("inbound.ss")], [0, "UNCONN 0 0 0.0.0.0:68 0.0.0.0:*\n"], [0, "ESTAB 0 0 100.64.0.1\n"], [0, "ESTAB 0 0 100.64.0.1:22 100.64.0.3:x\n"]]) {
+        const failed = plain(logic.inbound(code, output, sheet.inboundIndex, later, T + 90000));
+        assert.deepEqual(failed, { state: "unread", rows: later.rows, count: 2 }, "an unread run keeps the rows: " + code + " " + JSON.stringify(output));
+    }
+    const kept = plain(logic.inbound(0, text("outbound.ss"), sheet.inboundIndex, plain(logic.inboundHeld("unread", later)), T + 120000));
+    assert.deepEqual(kept, { state: "read", rows: [], count: 0 }, "a read drops the peers it no longer shows");
+    const left = sockets(["ESTAB 0 0 100.64.0.1:22 100.64.0.3:51514"], later, T + 120000);
+    assert.deepEqual(left.rows.map(row => [row.id, row.since]), [["nSHEET0003CNTRL", T]]);
+    const back = sockets(["ESTAB 0 0 100.64.0.1:22 100.64.0.3:51514", "ESTAB 0 0 100.64.0.1:8080 100.64.0.4:40000"], left, T + 180000);
+    assert.deepEqual(back.rows.map(row => [row.id, row.since]), [["nSHEET0003CNTRL", T], ["nSHEET0004CNTRL", T + 180000]]);
+    // The gate, and the value each tag that reads no table publishes.
+    for (const [state, tun, missing, tag] of [
+        ["running", true, false, "read"], ["running", false, false, "userspace"], ["running", true, true, "no-ss"], ["running", false, true, "userspace"],
+        ["unavailable", true, false, "unread"], ["stopped", true, false, "off"], ["checking", false, false, "off"], ["starting", true, false, "off"],
+        ["signed-out", true, false, "off"], ["needs-approval", true, false, "off"], ["service-off", true, false, "off"]
+    ]) assert.equal(logic.inboundGate(state, tun, missing), tag, [state, tun, missing].join(" "));
+    assert.deepEqual(plain(logic.inboundHeld("unread", later)), { state: "unread", rows: later.rows, count: 2 });
+    for (const tag of ["off", "userspace", "no-ss"]) assert.deepEqual(plain(logic.inboundHeld(tag, later)), { state: tag, rows: [], count: 0 }, tag + " clears the times");
+    assert.throws(() => logic.inboundHeld("read", later), /inbound tag "read"/);
+    // What the views draw of it.
+    const clock = ms => "at" + (ms - T) / 60000;
+    const recordedView = plain(logic.inboundView(recorded, clock));
+    assert.deepEqual(recordedView, { shown: true, secondary: "2 devices · SSH, Tailscale, port 8080", info: false, offer: false, rows: [
+        { key: "nSHEET0003CNTRL", text: "attic-nas", iconName: "laptop", secondary: "Amelie Example · SSH, port 8080 · seen since at0" },
+        { key: "nSHEET0004CNTRL", text: "pixel", iconName: "smartphone", secondary: "Amelie Example · Tailscale · seen since at0" }] });
+    const tagged = sockets(["ESTAB 0 0 100.64.0.1:8080 100.64.0.2:40000"]);
+    assert.deepEqual(plain(logic.inboundView(tagged, clock)).rows.map(row => row.secondary), ["Port 8080 · seen since at0"], "a tagged peer names no user");
+    assert.equal(logic.inboundView(tagged, clock).secondary, "1 device · Port 8080");
+    for (const [value, want] of [
+        [plain(logic.inbound(0, text("outbound.ss"), sheet.inboundIndex, idle, T)), { shown: true, secondary: "No one right now", info: false, offer: false }],
+        [plain(logic.inboundHeld("unread", later)), { shown: true, secondary: "Could not check connections.", info: false, offer: false }],
+        [plain(logic.inboundHeld("userspace", later)), { shown: true, secondary: logic.USERSPACE_TEXT, info: true, offer: false }],
+        [plain(logic.inboundHeld("no-ss", later)), { shown: true, secondary: "Needs a tool to check connections.", info: false, offer: true }],
+        [idle, { shown: false, secondary: "", info: false, offer: false }],
+        [undefined, { shown: false, secondary: "", info: false, offer: false }]
+    ]) assert.deepEqual(plain(logic.inboundView(value, clock)), Object.assign({ rows: [] }, want), JSON.stringify(value));
+    assert.throws(() => logic.inboundView({ state: "later", rows: [], count: 0 }, clock), /inbound state "later"/);
+    assert.deepEqual(plain(logic.inboundBadge(recorded)), { count: "2", label: "Tailscale, 2 devices connected to this one", detail: "2 devices connected to this one" });
+    assert.deepEqual(plain(logic.inboundBadge(tagged)), { count: "1", label: "Tailscale, 1 device connected to this one", detail: "1 device connected to this one" });
+    for (const value of [undefined, idle, plain(logic.inboundHeld("unread", later)), kept])
+        assert.deepEqual(plain(logic.inboundBadge(value)), { count: "", label: "Tailscale", detail: "" }, "no badge: " + JSON.stringify(value));
+    assert.equal(logic.kindsLine(["ssh", "tailscale", 8080]), "SSH, Tailscale, port 8080");
+    }
+
     // The largest tailnet stays under the status ceiling, with its counts.
     const wide = "w".repeat(400);
     const crowd = [];
@@ -470,20 +560,35 @@ function suite(logic, service = serviceSource) {
     assert.deepEqual(largest.exitNodes.own.filter(row => row.active).map(row => row.id), ["n" + "299".padStart(63, "0")], "the node in use is kept");
     assert.equal(largest.devices.rows.length, logic.PEER_MAX);
     assert.deepEqual([largest.devices.count, largest.devices.online], [300, 200], "the counts cover every device, kept or not");
+    assert.equal(largest.inboundIndex.addresses["100.64.1.49"].id, "n" + "299".padStart(63, "0"), "the address index covers peers past the device list");
+    // The largest inbound value: every peer connected, each name and user
+    // at its ceiling.
+    const crowdIndex = { addresses: {}, ports: [] };
+    const crowdLines = ["LISTEN 0 128 *:22 *:*"];
+    for (let i = 0; i < 300; i++) {
+        const address = "100.64." + (3 + Math.floor(i / 250)) + "." + (i % 250);
+        crowdIndex.addresses[address] = { id: "p" + String(i).padStart(63, "0"), name: "w".repeat(logic.TEXT_MAX), icon: "smartphone", user: "u".repeat(logic.TEXT_MAX) };
+        crowdLines.push("ESTAB 0 0 100.64.0.1:22 " + address + ":40000", "ESTAB 0 0 100.64.0.1:8080 " + address + ":40001");
+    }
+    crowdLines.push("LISTEN 0 128 *:8080 *:*");
+    const crowdInbound = plain(logic.inbound(0, crowdLines.join("\n"), crowdIndex, logic.inboundIdle(), 1700000000000));
+    assert.deepEqual([crowdInbound.rows.length, crowdInbound.count], [logic.PEER_MAX, 300], "the rows stop at the ceiling and the count covers every peer");
     const manyAccounts = plain(logic.accounts(0, JSON.stringify(Array.from({ length: 40 }, (_, i) => ({ id: "a".repeat(63) + (i % 10), tailnet: wide, account: wide, selected: false }))))).rows;
     assert.equal(manyAccounts.length, logic.ACCOUNT_MAX);
     const bigValue = plain(logic.published(false, largest, ready, { accounts: manyAccounts, action: "exit-node", login: "opened", problem: wide.slice(0, 200) }));
-    const written = logic.statusWrites({ tone: "ok", text: "" }, denied, bigValue, largest.devices, largest.exitNodes);
+    const written = logic.statusWrites({ tone: "ok", text: "" }, denied, bigValue, largest.devices, largest.exitNodes, crowdInbound);
     const bytes = Buffer.byteLength(JSON.stringify(Object.fromEntries(written)));
     assert.ok(bytes < STATUS_MAX_BYTES, "the largest status is " + bytes + " bytes, the ceiling " + STATUS_MAX_BYTES);
     // Each data value within its own budget, and the budgets together
     // under the ceiling, so every mix of old and new values fits.
     const writtenValues = Object.fromEntries(written);
-    for (const [key, budget] of [["tailscale", logic.TAILSCALE_BYTES], ["devices", logic.DEVICES_BYTES], ["exitNodes", logic.EXIT_NODES_BYTES]]) {
+    for (const [key, budget] of [["tailscale", logic.TAILSCALE_BYTES], ["devices", logic.DEVICES_BYTES], ["exitNodes", logic.EXIT_NODES_BYTES], ["inbound", logic.INBOUND_BYTES]]) {
         const size = Buffer.byteLength(JSON.stringify(writtenValues[key]));
         assert.ok(size <= budget, key + " is " + size + " bytes, its budget " + budget);
     }
-    assert.ok(logic.TAILSCALE_BYTES + logic.DEVICES_BYTES + logic.EXIT_NODES_BYTES < STATUS_MAX_BYTES);
+    assert.ok(logic.TAILSCALE_BYTES + logic.DEVICES_BYTES + logic.EXIT_NODES_BYTES + logic.INBOUND_BYTES < STATUS_MAX_BYTES);
+    assert.ok(writtenValues.inbound.rows.length < crowdInbound.rows.length, "the largest inbound value is cut to its budget");
+    assert.equal(writtenValues.inbound.count, 300);
     // The bound drops rows and keeps the counts and the city in use.
     assert.ok(writtenValues.devices.rows.length < largest.devices.rows.length, "the largest devices value is cut to its budget");
     assert.deepEqual([writtenValues.devices.count, writtenValues.devices.online], [300, 200]);
@@ -494,7 +599,7 @@ function suite(logic, service = serviceSource) {
     // shrink/grow transitions and a null setup that clears its state entry.
     const publishBody = /function publish\(\) \{([\s\S]*?)\n    \}\n    onPublishedChanged/.exec(service);
     assert.ok(publishBody);
-    const publish = new Function("shell", "connection", "setup", "published", "snapshot", "Logic", "stepState", "outdated", publishBody[1]);
+    const publish = new Function("shell", "connection", "setup", "published", "snapshot", "Logic", "stepState", "outdated", "inbound", publishBody[1]);
     let values = {};
     const shell = { status: { isOk: core.statusReplyOk, set(key, value) {
         const result = core.statusWrite(manifest, values, key, value);
@@ -505,13 +610,14 @@ function suite(logic, service = serviceSource) {
     } } };
     for (const [data, snap, setupLine] of [[bigValue, largest, ready], [shown, running, denied], [bigValue, largest, denied], [shown, running, null]]) {
         const original = JSON.stringify([data, snap]);
-        publish(shell, { tone: data.tone, text: data.text }, setupLine, data, snap, logic, () => "needed", false);
+        publish(shell, { tone: data.tone, text: data.text }, setupLine, data, snap, logic, () => "needed", false, snap === largest ? crowdInbound : logic.inboundIdle());
         assert.equal(JSON.stringify([data, snap]), original);
         assert.equal(values.devices.count, snap.devices.count);
         assert.equal(values.exitNodes.cityCount, snap.exitNodes.cityCount);
         assert.deepEqual(values.exitNodes.own.filter(row => row.active), snap.exitNodes.own.filter(row => row.active));
         for (const row of values.exitNodes.own) assert.deepEqual(row, snap.exitNodes.own.find(input => input.id === row.id));
-        assert.deepEqual(Object.keys(values), setupLine === null ? ["connection", "tailscale", "devices", "exitNodes", "accountAdd"] : ["connection", "setup", "tailscale", "devices", "exitNodes", "accountAdd"]);
+        assert.equal(values.inbound.count, snap === largest ? 300 : 0);
+        assert.deepEqual(Object.keys(values), setupLine === null ? ["connection", "tailscale", "devices", "exitNodes", "inbound", "accountAdd"] : ["connection", "setup", "tailscale", "devices", "exitNodes", "inbound", "accountAdd"]);
     }
 }
 
@@ -628,6 +734,26 @@ try {
         ["an accounts read needs tailscaled to answer", 'return REACHED.indexOf(state) !== -1 ? operator : "";', 'return operator;'],
         ["a pending reading over an unread list names no control", '        if (tailscale.checkingSetup) return hintState(', '        if (false) return hintState('],
         ["a running change over an unread list names no control", '        if (tailscale.action !== "") return hintState(', '        if (false) return hintState('],
+        ["the remote must be a peer", "        if (!has(index.addresses, connection.remote.address)) return;\n", ""],
+        ["a connection needs a listener on its port", "        if (!listened) return;\n", ""],
+        ["a listener on another address holds no port", "&& (listener.address === connection.local.address || WILDCARDS.indexOf(listener.address) !== -1);", "&& true;"],
+        ["a wildcard listener holds its port", " || WILDCARDS.indexOf(listener.address) !== -1);", ");"],
+        ["an IPv4-mapped address reads as its IPv4", "return { address: mapped === null ? host : mapped[1],", "return { address: host,"],
+        ["a scope suffix is dropped", '        host = host.split("%")[0];\n', ""],
+        ["one peer counts once", "var peer = index.addresses[connection.remote.address];", "var peer = Object.assign({}, index.addresses[connection.remote.address], { id: connection.remote.address + \"/\" + connection.local.port });"],
+        ["each kind once a peer", "if (found[peer.id].kinds.indexOf(kind) === -1) found[peer.id].kinds.push(kind);", "found[peer.id].kinds.push(kind);"],
+        ["the PeerAPI port reads Tailscale", 'return ports.indexOf(port) !== -1 ? "tailscale" : port;', "return port;"],
+        ["a since time carries over", "since: has(since, id) ? since[id] : now", "since: now"],
+        ["an unread keeps the rows", 'case "unread": return { state: "unread", rows: previous.rows, count: previous.count };', 'case "unread": return { state: "unread", rows: [], count: 0 };'],
+        ["a failed run is unread", "var table = code === 0 ? sockets(text) : null;", "var table = sockets(text);"],
+        ["a line in another state is unread", "        else return null;\n    }\n    return out;", "    }\n    return out;"],
+        ["userspace networking is told apart", '    if (!tun) return "userspace";\n', ""],
+        ["a failed status read keeps the rows", '    if (state === "unavailable") return "unread";\n', ""],
+        ["missing ss is told apart", 'return ssMissing ? "no-ss" : "read";', 'return "read";'],
+        ["the index covers IPv6 addresses", "if (typeof address === \"string\" && address !== \"\") addresses[address.toLowerCase()] = entry;", "if (typeof address === \"string\" && address.indexOf(\":\") === -1) addresses[address.toLowerCase()] = entry;"],
+        ["a tagged peer has no user", "user: isTagged(peer) ? \"\" : userName(", "user: false ? \"\" : userName("],
+        ["the inbound value keeps its budget", "while (bytes(inboundOut) > INBOUND_BYTES", "while (bytes(inboundOut) > 2 * INBOUND_BYTES"],
+        ["an unread draws no badge", 'var count = isPlain(value) && value.state === "read" ? value.count : 0;', "var count = isPlain(value) ? value.count : 0;"],
         ["the online count covers every device", 'online: all.filter(function (row) { return row.online; }).length', 'online: all.slice(0, PEER_MAX).filter(function (row) { return row.online; }).length']
     ]) {
         assert.equal(source.split(needle).length - 1, 1, name + " mutation must match once");

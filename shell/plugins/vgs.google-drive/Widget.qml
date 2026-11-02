@@ -7,8 +7,8 @@ import "GoogleDriveLogic.js" as Logic
 // publishes and runs nothing itself: nothing until a folder pair exists,
 // then the headline's icon and tone (GoogleDriveLogic.headline, which the
 // popover and the Details tab also read), calm while the sync is fine,
-// with the count of files that need the user, never the notes, and a
-// spinner while a sync runs. The tooltip's title is the headline; its
+// with the count of files that need the user, never the notes, as its
+// corner badge, and a spinner while a sync runs. The tooltip's title is the headline; its
 // lines name each folder pair by its label and state, and the last sync's
 // time in the shell's one wording of a past moment (Timestamp); it never
 // shows a file name or an account. A click opens or closes the Google
@@ -48,6 +48,7 @@ BarWidget {
         iconName: widget.view.icon
         spinning: widget.view.spinning
         count: widget.view.badge
+        countLevel: widget.view.countLevel
         tone: widget.toneColor(widget.view.tone)
         tooltip: widget.tip.title
         tooltipDetails: widget.tip.details

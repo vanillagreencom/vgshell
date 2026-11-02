@@ -210,9 +210,10 @@ function tooltip(detail, now) {
     throw new Error("agent-warden: state=" + JSON.stringify(detail.state) + " unknown");
 }
 
-// The count beside the shield: the running agents while all is good, the
-// things that need a look or attention, and none otherwise, as text; ""
-// for none, for zero, or when SHOW_COUNT is off.
+// The count on the shield's corner badge: the running agents while all
+// is good, the things that need a look or attention, and none otherwise,
+// as whole digits, which BarItem caps; "" for none, for zero, or when
+// SHOW_COUNT is off.
 function count(detail, showCount) {
     if (!showCount || detail === null) return "";
     var n;
@@ -228,14 +229,21 @@ function count(detail, showCount) {
     default:
         n = null;
     }
-    return n === null || n === 0 ? "" : grouped(n);
+    return n === null || n === 0 ? "" : String(n);
 }
 
-// What the bar widget draws for DETAIL at NOW: { icon, tone, count, tooltip }.
+// The badge level of a widget TONE: a warning or danger shield gets a
+// badge of its own level, every other tone the normal one.
+function countLevel(tone) {
+    return tone === "warning" || tone === "danger" ? tone : "normal";
+}
+
+// What the bar widget draws for DETAIL at NOW: { icon, tone, count,
+// countLevel, tooltip }.
 function widget(detail, now, showCount) {
     var look = detail === null ? PENDING_LOOK : STATE_LOOKS[detail.state];
     if (look === undefined) throw new Error("agent-warden: state=" + JSON.stringify(detail.state) + " unknown");
-    return { icon: look.icon, tone: look.tone, count: count(detail, showCount), tooltip: tooltip(detail, now) };
+    return { icon: look.icon, tone: look.tone, count: count(detail, showCount), countLevel: countLevel(look.tone), tooltip: tooltip(detail, now) };
 }
 
 // Whether the widget is idle, which `hideWhenIdle` hides: all good with no

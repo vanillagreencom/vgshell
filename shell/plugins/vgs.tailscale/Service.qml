@@ -20,16 +20,22 @@ import "TailscaleLogic.js" as Logic
 //
 // The poll runs `tailscale status --json` every `pollSeconds` while no
 // view is open, and every 3 s while one is or Tailscale is starting, one
-// run at a time. A refresh also reads the accounts, `tailscale switch
+// run at a time. While Tailscale runs with its network interface and `ss`
+// is there (TailscaleLogic.inboundGate), the same poll then reads the
+// socket table, `ss -Htan state established state listening`, before it
+// ends, and publishes `inbound`, the peers connected to this machine; a
+// poll that reads no table publishes the gate's state at once. A refresh
+// also reads the accounts, `tailscale switch
 // --list --json`, and a read that gave no list runs again once the access
 // it ran under changes: the operator step or whether tailscaled answers
 // (rereadAccounts). `tailscale exit-node suggest` runs when the exit node
 // chooser asks and when the state turns running, one at a time. Each of
-// those reads is killed 10 s after its start, and a refresh never moves
-// that deadline. It publishes `connection` and `setup`, the lines the
-// Settings page draws, `tailscale`, the connection, account and this
-// device the views draw, and `devices` and `exitNodes`, each within its
-// byte budget (TailscaleLogic.statusWrites).
+// those reads is killed 10 s after its start, a poll's at whichever of
+// its two runs is running, and a refresh never moves that deadline. It
+// publishes `connection` and `setup`, the lines the Settings page draws,
+// `tailscale`, the connection, account and this device the views draw,
+// and `devices`, `exitNodes` and `inbound`, each within its byte budget
+// (TailscaleLogic.statusWrites).
 Item {
     id: root
 
@@ -64,6 +70,10 @@ Item {
     property int pollsStarted: 0
     property int pollsKilled: 0
     property var snapshot: Logic.emptySnapshot("checking")
+    // The peers connected to this machine as the last poll read them,
+    // whole: statusWrites bounds the published copy, and each row keeps
+    // its since time here.
+    property var inbound: Logic.inboundIdle()
     property var accounts: []
     // Why the last accounts read gave no list, "" for one that did, and
     // `unread` before the first read ends.
@@ -104,6 +114,7 @@ Item {
     // Read from the source, since a change handler can run before the
     // bindings that read it.
     function commandMissing() { return shell === null || shell.requirements.missing.indexOf("tailscale") !== -1; }
+    function socketsMissing() { return shell === null || shell.requirements.missing.indexOf("ss") !== -1; }
 
     function stepState(name) {
         const found = steps[name];
@@ -112,7 +123,7 @@ Item {
 
     function publish() {
         if (shell === null) return;
-        const writes = Logic.statusWrites(connection, setup, published, snapshot.devices, snapshot.exitNodes)
+        const writes = Logic.statusWrites(connection, setup, published, snapshot.devices, snapshot.exitNodes, inbound)
             .concat([["accountAdd", { tone: "info", text: "Add account", action: !outdated && stepState("tailscale-account-add") === "needed" }]]);
         for (const write of writes) {
             const reply = shell.status.set(write[0], write[1]);
@@ -121,6 +132,7 @@ Item {
     }
     onPublishedChanged: publish()
     onSetupChanged: publish()
+    onInboundChanged: publish()
 
     onShellChanged: {
         if (shell === null) return;
@@ -137,7 +149,11 @@ Item {
     }
     // A scan ends each requirement install, so the command may be new.
     onScansChanged: refresh()
-    onMissingChanged: if (missing) snapshot = Logic.emptySnapshot("checking")
+    onMissingChanged: {
+        if (!missing) return;
+        snapshot = Logic.emptySnapshot("checking");
+        inbound = Logic.inboundIdle();
+    }
 
     function refresh() {
         if (!registered) return "ok";
@@ -189,7 +205,10 @@ Item {
             case "kill":
                 pollsKilled++;
                 console.warn("tailscale: poll killed after " + Logic.WATCHDOG_MS + " ms kills=" + pollsKilled);
-                reader.signal(9);
+                // One poll runs the status read, then the socket read:
+                // the deadline ends whichever runs now.
+                if (reader.running) reader.signal(9);
+                else if (sockets.running) sockets.signal(9);
                 break;
             default:
                 throw new Error("tailscale: poll effect " + JSON.stringify(effect) + " is not one of start, arm, disarm, kill");
@@ -236,6 +255,37 @@ Item {
             root.statusReads++;
             if (next.state !== "running") root.suggestedName = "";
             else if (was !== "running") root.suggest();
+            const gate = Logic.inboundGate(next.state, next.tun, root.socketsMissing());
+            if (gate === "read") {
+                sockets.completion = null;
+                sockets.running = true;
+                return;
+            }
+            root.inbound = Logic.inboundHeld(gate, root.inbound);
+            root.runPoll("exit");
+        }
+    }
+
+    // The poll's second run: the socket table, read only after a status
+    // read that names the peers it maps (TailscaleLogic.inbound). As for
+    // `reader`, Process emits `exited` before `runningChanged`, and a run
+    // that failed to start emits only `runningChanged`, so its completion
+    // stays null (https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/Process/).
+    Process {
+        id: sockets
+        property var completion: null
+        command: Logic.SS_ARGV
+        stdout: StdioCollector { id: socketsText; waitForEnd: true }
+        stderr: StdioCollector { id: socketsErrors; waitForEnd: true }
+        onExited: (code, status) => { sockets.completion = { code: code, status: status }; }
+        onRunningChanged: {
+            if (running) return;
+            const code = root.codeOf(completion);
+            const next = Logic.inbound(code, socketsText.text, root.snapshot.inboundIndex, root.inbound, Date.now());
+            // One line a change into the state, not one a poll.
+            if (next.state === "unread" && root.inbound.state !== "unread")
+                console.info("tailscale: inbound=unread code=" + code + " " + socketsErrors.text.trim());
+            root.inbound = next;
             root.runPoll("exit");
         }
     }

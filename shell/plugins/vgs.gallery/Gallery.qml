@@ -131,8 +131,10 @@ Item {
                         Button { text: "Disabled"; enabled: false }
                     }
                 }
-                // The bar's items: an icon alone, an icon with a count in
-                // its tone, and workspace pills, the first focused.
+                // The bar's items: workspace pills, the first focused; an
+                // icon alone; the corner count at 1 and above 9 (9+) and at
+                // its warning and danger levels; a spinner; and readings
+                // with a detail beside them.
                 Rectangle {
                     width: parent.width
                     height: Theme.bar.height
@@ -144,10 +146,13 @@ Item {
                         BarItem { text: "1"; active: true }
                         BarItem { text: "2" }
                         BarItem { iconName: "settings"; label: "Settings" }
-                        BarItem { iconName: "shield-alert"; count: "2"; tone: Theme.color.warning; label: "Agent Warden" }
+                        BarItem { iconName: "route"; count: "1"; label: "Tailscale, 1 device connected to this one" }
+                        BarItem { iconName: "refresh-cw"; count: "12"; tone: Theme.color.accent; label: "Updates, 12 updates" }
+                        BarItem { iconName: "shield-alert"; count: "2"; countLevel: "warning"; label: "Agent Warden, 2 warnings" }
+                        BarItem { iconName: "shield-x"; count: "1"; countLevel: "danger"; label: "Agent Warden, 1 problem" }
                         BarItem { iconName: "refresh-cw"; spinning: true; label: "Updates" }
-                        BarItem { iconName: "cpu"; text: "5%"; count: "74°"; separator: "/"; countLevel: "warning"; label: "CPU reading" }
-                        BarItem { caption: "GPU"; text: "92%"; count: "88°"; separator: "/"; textLevel: "danger"; countLevel: "warning"; label: "GPU reading" }
+                        BarItem { iconName: "cpu"; text: "5%"; detail: "74°"; separator: "/"; detailLevel: "warning"; label: "CPU reading" }
+                        BarItem { caption: "GPU"; text: "92%"; detail: "88°"; separator: "/"; textLevel: "danger"; detailLevel: "warning"; label: "GPU reading" }
                     }
                 }
                 Column {
@@ -514,6 +519,29 @@ Item {
                             Badge { variant: "unread"; text: "3" }
                             Badge { variant: "unread"; text: "99" }
                             Badge { variant: "unread"; text: "120" }
+                            Badge { variant: "unread"; text: "3"; level: "warning" }
+                            Badge { variant: "unread"; text: "3"; level: "danger" }
+                        }
+                    }
+                    // The bar corner's size, on the bar's background its ring
+                    // parts from: 1, 9+ and each level.
+                    Field {
+                        label: "Unread corner"
+                        inline: true
+                        width: parent.width
+                        Rectangle {
+                            width: cornerCounts.width + 2 * Theme.space.xs
+                            height: Theme.bar.height
+                            color: Theme.bar.background
+                            Row {
+                                id: cornerCounts
+                                anchors.centerIn: parent
+                                spacing: Theme.stack.inline
+                                Badge { variant: "unread"; size: "corner"; text: "1"; anchors.verticalCenter: parent.verticalCenter }
+                                Badge { variant: "unread"; size: "corner"; text: "12"; anchors.verticalCenter: parent.verticalCenter }
+                                Badge { variant: "unread"; size: "corner"; text: "2"; level: "warning"; anchors.verticalCenter: parent.verticalCenter }
+                                Badge { variant: "unread"; size: "corner"; text: "1"; level: "danger"; anchors.verticalCenter: parent.verticalCenter }
+                            }
                         }
                     }
                     Field {

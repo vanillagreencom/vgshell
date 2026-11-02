@@ -23,7 +23,11 @@
     "Online": true,
     "ExitNode": false,
     "ExitNodeOption": false,
-    "Active": false
+    "Active": false,
+    "PeerAPIURL": [
+      "http://100.64.0.1:51260/",
+      "http://[fd7a:115c:a1e0::1]:45962/"
+    ]
   },
   "Health": [],
   "MagicDNSSuffix": "tail-fixture.ts.net",

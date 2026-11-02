@@ -347,18 +347,18 @@ function verifySelf(logic) {
 function verifyView(logic) {
   const ok = { tone: "ok", text: "Up to date" };
   const widgetRows = [
-    ["current", { pending: 0, checkState: ok, checking: false }, false, { state: "current", icon: "refresh-cw", tone: "calm", spinning: false, badge: "", badgeTone: "neutral", hidden: false }],
-    ["current hidden", { pending: 0, checkState: ok, checking: false }, true, { state: "current", icon: "refresh-cw", tone: "calm", spinning: false, badge: "", badgeTone: "neutral", hidden: true }],
-    ["pending", { pending: 7, checkState: { tone: "ok", text: "Updates waiting" }, checking: false }, true, { state: "pending", icon: "refresh-cw", tone: "accent", spinning: false, badge: "7", badgeTone: "accent", hidden: false }],
-    ["a new VGS version no step installs", { pending: 0, checkState: ok, checking: false, sources: [{ source: "vgs", count: 0, note: { kind: "reason", reason: "nix" } }] }, true, { state: "newVersion", icon: "refresh-cw", tone: "accent", spinning: false, badge: "", badgeTone: "accent", hidden: false }],
-    ["a VGS row with no note", { pending: 0, checkState: ok, checking: false, sources: [{ source: "vgs", count: 0, note: null }] }, true, { state: "current", icon: "refresh-cw", tone: "calm", spinning: false, badge: "", badgeTone: "neutral", hidden: true }],
-    ["pending past the badge", { pending: 150, checkState: { tone: "ok", text: "Updates waiting" } }, false, { state: "pending", icon: "refresh-cw", tone: "accent", spinning: false, badge: "99+", badgeTone: "accent", hidden: false }],
-    ["failed source", { pending: 3, checkState: { tone: "warning", text: "AUR: exit=1 network down" }, checking: false }, true, { state: "attention", icon: "triangle-alert", tone: "warning", spinning: false, badge: "3", badgeTone: "warning", hidden: false }],
-    ["failed check", { pending: 0, checkState: { tone: "danger", text: "exit=2 lock" }, checking: false }, true, { state: "attention", icon: "triangle-alert", tone: "warning", spinning: false, badge: "", badgeTone: "warning", hidden: false }],
-    ["stale", { pending: 0, checkState: { tone: "warning", text: "Check stale" }, checking: false }, true, { state: "attention", icon: "triangle-alert", tone: "warning", spinning: false, badge: "", badgeTone: "warning", hidden: false }],
-    ["checking", { pending: 2, checkState: { tone: "info", text: "Checking" }, checking: true }, true, { state: "checking", icon: "refresh-cw", tone: "calm", spinning: true, badge: "2", badgeTone: "accent", hidden: false }],
-    ["not checked", { checkState: { tone: "info", text: "Not checked" }, checking: false }, true, { state: "unchecked", icon: "circle-dashed", tone: "calm", spinning: false, badge: "", badgeTone: "neutral", hidden: false }],
-    ["nothing published", {}, true, { state: "unchecked", icon: "circle-dashed", tone: "calm", spinning: false, badge: "", badgeTone: "neutral", hidden: false }]
+    ["current", { pending: 0, checkState: ok, checking: false }, false, { state: "current", icon: "refresh-cw", tone: "calm", spinning: false, badge: "", badgeTone: "neutral", countLevel: "normal", hidden: false }],
+    ["current hidden", { pending: 0, checkState: ok, checking: false }, true, { state: "current", icon: "refresh-cw", tone: "calm", spinning: false, badge: "", badgeTone: "neutral", countLevel: "normal", hidden: true }],
+    ["pending", { pending: 7, checkState: { tone: "ok", text: "Updates waiting" }, checking: false }, true, { state: "pending", icon: "refresh-cw", tone: "accent", spinning: false, badge: "7", badgeTone: "accent", countLevel: "normal", hidden: false }],
+    ["a new VGS version no step installs", { pending: 0, checkState: ok, checking: false, sources: [{ source: "vgs", count: 0, note: { kind: "reason", reason: "nix" } }] }, true, { state: "newVersion", icon: "refresh-cw", tone: "accent", spinning: false, badge: "", badgeTone: "accent", countLevel: "normal", hidden: false }],
+    ["a VGS row with no note", { pending: 0, checkState: ok, checking: false, sources: [{ source: "vgs", count: 0, note: null }] }, true, { state: "current", icon: "refresh-cw", tone: "calm", spinning: false, badge: "", badgeTone: "neutral", countLevel: "normal", hidden: true }],
+    ["pending past the badge", { pending: 150, checkState: { tone: "ok", text: "Updates waiting" } }, false, { state: "pending", icon: "refresh-cw", tone: "accent", spinning: false, badge: "150", badgeTone: "accent", countLevel: "normal", hidden: false }],
+    ["failed source", { pending: 3, checkState: { tone: "warning", text: "AUR: exit=1 network down" }, checking: false }, true, { state: "attention", icon: "triangle-alert", tone: "warning", spinning: false, badge: "3", badgeTone: "warning", countLevel: "warning", hidden: false }],
+    ["failed check", { pending: 0, checkState: { tone: "danger", text: "exit=2 lock" }, checking: false }, true, { state: "attention", icon: "triangle-alert", tone: "warning", spinning: false, badge: "", badgeTone: "warning", countLevel: "warning", hidden: false }],
+    ["stale", { pending: 0, checkState: { tone: "warning", text: "Check stale" }, checking: false }, true, { state: "attention", icon: "triangle-alert", tone: "warning", spinning: false, badge: "", badgeTone: "warning", countLevel: "warning", hidden: false }],
+    ["checking", { pending: 2, checkState: { tone: "info", text: "Checking" }, checking: true }, true, { state: "checking", icon: "refresh-cw", tone: "calm", spinning: true, badge: "2", badgeTone: "accent", countLevel: "normal", hidden: false }],
+    ["not checked", { checkState: { tone: "info", text: "Not checked" }, checking: false }, true, { state: "unchecked", icon: "circle-dashed", tone: "calm", spinning: false, badge: "", badgeTone: "neutral", countLevel: "normal", hidden: false }],
+    ["nothing published", {}, true, { state: "unchecked", icon: "circle-dashed", tone: "calm", spinning: false, badge: "", badgeTone: "neutral", countLevel: "normal", hidden: false }]
   ];
   for (const [name, values, hide, want] of widgetRows) same(logic.widgetView(values, hide), want, "widget " + name);
   assert.throws(() => logic.widgetView({ checkState: { tone: "loud", text: "x" } }, false), /checkState tone "loud"/);
@@ -426,6 +426,8 @@ function verifyView(logic) {
     { key: "later", source: "later", label: "later", icon: "package", secondary: "1 update", badge: "1", badgeTone: "accent", updatable: true, detail: "", lines: ["x"], more: "" }
   ]);
   same(logic.windowRows({}), []);
+  same(logic.windowRows({ sources: [{ source: "pacman", count: 150, packages: [], checkedAt: today, error: null, more: 0 }] })[0].badge, "99+",
+    "a source's count past the badge reads 99+");
   for (const [source, pkg, line] of [
     ["aur", { name: "kendex-git", old: "1:r1621.bf9bed514-1", new: "latest-commit" }, "kendex-git 1:r1621.bf9bed514-1 → latest commit"],
     ["vgs", { name: "vgshell-git", old: "abc123", new: "def456" }, "vgshell-git abc123 → latest commit"],
@@ -620,6 +622,7 @@ const controls = [
   ["a warning or danger check draws attention", "case \"danger\": return \"attention\";", "case \"danger\": return \"current\";"],
   ["a running check spins", "if (v.checking === true) return \"checking\";", "if (false) return \"checking\";"],
   ["pending needs a count", 'if (pendingOf(v) > 0) return "pending";', 'return "pending";'],
+  ["a warning count takes the normal fill", "return tone === \"warning\" ? \"warning\" : \"normal\";", "return \"normal\";"],
   ["the badge is capped", "return count > BADGE_COUNT_MAX ? BADGE_COUNT_MAX + \"+\" : String(count);", "return String(count);"],
   ["the checked line reads the shared wording at now", "return \"Checked \" + timeText(lastCheck, now);", "return \"Checked \" + timeText(lastCheck, lastCheck);"],
   ["a source with no count reads failed in the tooltip", "sources[i].count === null ? \"check failed\" : sources[i].count", "sources[i].count"],

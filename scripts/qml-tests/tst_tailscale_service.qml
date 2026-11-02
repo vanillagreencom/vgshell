@@ -404,5 +404,51 @@ Item {
             verify(service.problem !== "");
             compare(service.action, "");
         }
+
+        // One poll: the status read, then, while Tailscale runs with its
+        // interface and `ss` is there, the socket read, and the poll ends
+        // only after it; the deadline ends whichever of the two runs.
+        readonly property string tunnel: JSON.stringify({ BackendState: "Running", TUN: true,
+            Self: { ID: "self", HostName: "desk", TailscaleIPs: ["100.64.0.1"] },
+            Peer: { a: { ID: "nPEER", HostName: "laptop", TailscaleIPs: ["100.64.0.3"] } } })
+        function sockets() { return ProcessRegistry.processes.filter(row => row.running && row.command[0] === "ss"); }
+        function pollTunnel() {
+            service.refresh();
+            process("status").finish(0, 0, tunnel, "");
+            accounts(); setup();
+        }
+        function test_a_poll_ends_after_its_socket_read() {
+            pollTunnel();
+            compare(sockets().length, 1, "the status read starts the socket read");
+            compare(JSON.stringify(sockets()[0].command), JSON.stringify(["ss", "-Htan", "state", "established", "state", "listening"]));
+            compare(service.poll.flight, true, "the poll holds its flight through the socket read");
+            sockets()[0].finish(0, 0, "LISTEN 0 128 0.0.0.0:22 0.0.0.0:*\nESTAB 0 0 100.64.0.1:22 100.64.0.3:51514\n", "");
+            compare(service.poll.flight, false, "the socket read ends the poll");
+            compare(JSON.stringify([root.writes.inbound.state, root.writes.inbound.count, root.writes.inbound.rows.map(row => row.id)]), JSON.stringify(["read", 1, ["nPEER"]]));
+        }
+        // expected-log: tailscale: poll killed after 10000 ms kills=1 -- the deadline the case fires
+        function test_the_deadline_ends_the_socket_read() {
+            pollTunnel();
+            compare(sockets().length, 1);
+            service.runPoll("deadline");
+            compare(sockets().length, 0, "the deadline signals the socket read");
+            compare(service.poll.flight, false);
+            compare(root.writes.inbound.state, "unread");
+        }
+        function test_a_poll_with_no_table_to_read_publishes_its_gate_data() {
+            return [
+                { tag: "userspace", status: JSON.stringify({ BackendState: "Running", TUN: false }), missing: [], state: "userspace" },
+                { tag: "no-ss", status: tunnel, missing: ["ss"], state: "no-ss" },
+                { tag: "stopped", status: JSON.stringify({ BackendState: "Stopped", TUN: true }), missing: [], state: "off" }
+            ];
+        }
+        function test_a_poll_with_no_table_to_read_publishes_its_gate(data) {
+            root.facade.requirements.missing = data.missing;
+            service.refresh();
+            process("status").finish(0, 0, data.status, "");
+            compare(sockets().length, 0, "no socket read starts");
+            compare(service.poll.flight, false);
+            compare(root.writes.inbound.state, data.state);
+        }
     }
 }

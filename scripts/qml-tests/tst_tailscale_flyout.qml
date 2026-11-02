@@ -36,6 +36,12 @@ import "../../shell/plugins/vgs.tailscale/TailscaleLogic.js" as Logic
 // expands exit countries inline: Tab enters the cities, Shift+Tab returns
 // to their Disclosure, and Clear search returns to the field. Stopping
 // returns the chooser's keyboard to the connection switch.
+// While Tailscale runs, "Connected to this device" sits between this
+// device and the network devices, a Tab stop, and in the pane between
+// This device and Exit node: each device connected in is a row that takes
+// no click, a failed read and userspace networking say so, the latter
+// with its info mark, and a missing `ss` offers its requirement; with no
+// reading it draws nothing.
 // inputs: shell/plugins/vgs.tailscale/* shell/Ui/* shell/Ui/**/* shell/Commons/*
 Item {
     id: root
@@ -71,6 +77,9 @@ Item {
     property var sshCalls: []
     property var sshDone: null
     property var offers: []
+    // The `inbound` value the service publishes, undefined before its
+    // first, which a case sets and cleanup() restores.
+    property var inbound: undefined
     readonly property var snapshot: Logic.snapshot(0, JSON.stringify({
         BackendState: root.backend,
         Self: { ID: "nDESK", HostName: "desk", DNSName: "desk.tail-fixture.ts.net.", OS: "linux", UserID: 1, TailscaleIPs: ["100.64.0.1"] },
@@ -99,7 +108,8 @@ Item {
             tailscale: Logic.published(false, snapshot, checkingSetup ? null : setupLine, { accounts: root.accountsRead ? accounts : [], accountsRead: root.accountsRead, action: "", login: "idle", problem: "",
                 suggestion: root.suggested ? Logic.suggestion("se-sto-wg-001.mullvad.ts.net", snapshot) : null }),
             devices: snapshot.devices,
-            exitNodes: snapshot.exitNodes
+            exitNodes: snapshot.exitNodes,
+            inbound: root.inbound
         };
     }
 
@@ -189,6 +199,7 @@ Item {
             root.sshCalls = [];
             root.sshDone = null;
             root.offers = [];
+            root.inbound = undefined;
         }
 
         function find(item, wanted) {
@@ -489,6 +500,72 @@ Item {
             compare(child.cursor.hovered, null);
             compare(network.focusItem.active, false);
             UnitTheme.reset();
+        }
+
+        // attic-nas over SSH and pixel over its PeerAPI port, read at 09:14
+        // local time.
+        readonly property real sinceMs: new Date(2026, 10, 2, 9, 14).getTime()
+        function inboundRead() {
+            return Logic.inbound(0, "LISTEN 0 128 0.0.0.0:22 0.0.0.0:*\nLISTEN 0 128 0.0.0.0:8080 0.0.0.0:*\n"
+                + "ESTAB 0 0 100.64.0.1:22 100.64.0.3:51514\nESTAB 0 0 100.64.0.1:8080 100.64.0.4:40000\n",
+                root.snapshot.inboundIndex, Logic.inboundIdle(), sinceMs);
+        }
+        function test_who_is_connected_reads_each_state_data() {
+            return [
+                { tag: "read", value: () => inboundRead(), secondary: "2 devices · SSH, port 8080", rows: 2, info: false, offer: false },
+                { tag: "no one", value: () => Logic.inbound(0, "", root.snapshot.inboundIndex, Logic.inboundIdle(), sinceMs), secondary: "No one right now", rows: 0, info: false, offer: false },
+                { tag: "unread", value: () => Logic.inboundHeld("unread", inboundRead()), secondary: "Could not check connections.", rows: 0, info: false, offer: false },
+                { tag: "userspace", value: () => Logic.inboundHeld("userspace", inboundRead()), secondary: Logic.USERSPACE_TEXT, rows: 0, info: true, offer: false },
+                { tag: "no-ss", value: () => Logic.inboundHeld("no-ss", inboundRead()), secondary: "Needs a tool to check connections.", rows: 0, info: false, offer: true }
+            ];
+        }
+        function test_who_is_connected_reads_each_state(data) {
+            root.inbound = data.value();
+            renderedFrame(panel);
+            const row = named("tailscale-inbound");
+            compare([row.text, row.secondary, row.expandable], ["Connected to this device", data.secondary, data.rows > 0]);
+            const device = named("tailscale-this-device"), network = named("tailscale-network-devices");
+            verify(device.mapToItem(panel, 0, 0).y < row.mapToItem(panel, 0, 0).y && row.mapToItem(panel, 0, 0).y < network.mapToItem(panel, 0, 0).y,
+                "the row sits between this device and the network devices");
+            compare(find(row, item => item.info !== undefined && item.title === "Connected to this device") !== null, data.info, "the info mark");
+            const install = find(row, item => item.text === "Install");
+            compare(install !== null, data.offer, "Install");
+            if (install !== null) {
+                mouseClick(install);
+                compare(JSON.stringify(root.offers), JSON.stringify([["ss"]]), "Install raises the ss requirement notice");
+            }
+            if (data.rows === 0) return;
+            row.expanded = true;
+            renderedFrame(panel);
+            const attic = named("tailscale-inbound-nATTIC");
+            compare([attic.text, attic.secondary, attic.clickable], ["attic-nas", "SSH · seen since 09:14", false]);
+            compare(named("tailscale-inbound-nPIXEL").secondary, "Port 8080 · seen since 09:14");
+        }
+        function test_with_no_reading_no_one_is_drawn() {
+            compare(find(panel, item => item.objectName === "tailscale-inbound"), null, "no reading draws no row");
+            root.inbound = Logic.inboundHeld("off", Logic.inboundIdle());
+            renderedFrame(panel);
+            compare(find(panel, item => item.objectName === "tailscale-inbound"), null, "off draws no row");
+        }
+        function test_tab_reaches_who_is_connected_after_this_device() {
+            root.inbound = inboundRead();
+            renderedFrame(panel);
+            tabTo(item => item !== null && item.text === "desk", "this device");
+            keyClick(Qt.Key_Tab);
+            compare(focused().text, "Connected to this device");
+            keyClick(Qt.Key_Tab);
+            compare(focused().text, "Network devices");
+        }
+        function test_the_pane_lists_who_is_connected_after_this_device() {
+            root.inbound = inboundRead();
+            const body = openPane();
+            const section = findIn(body, "tailscale-inbound-section");
+            compare(section.title, "Connected to this device");
+            const y = name => findIn(body, name).mapToItem(body, 0, 0).y;
+            verify(y("tailscale-device-section") < y("tailscale-inbound-section") && y("tailscale-inbound-section") < y("tailscale-exit-section"),
+                "the section sits between This device and Exit node");
+            compare(findIn(section, "tailscale-inbound-line").text, "2 devices · SSH, port 8080");
+            compare(findIn(section, "tailscale-inbound-nATTIC").secondary, "SSH · seen since 09:14");
         }
 
         function test_back_and_escape_return_to_the_exit_node_row() {

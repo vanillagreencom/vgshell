@@ -55,7 +55,11 @@ Item {
             return Qt.createQmlObject(source, root, "InstrumentedSpinner");
         }
         function badgeLabel(item) { return item.children.find(child => child.role === "label"); }
-        function badgeIconItem(item) { return item.children.find(child => child.name === item.iconName); }
+        // The chip's icon, which its Loader builds only while it draws one.
+        function badgeIconItem(item) {
+            const slot = item.children.find(child => child.item !== undefined && child.item !== null && child.item.name === item.iconName);
+            return slot === undefined ? undefined : slot.item;
+        }
         function kbdLabel(item) { return item.children[0]; }
 
         function test_spinner_turns_and_reduced_motion_stops_it() {
@@ -128,7 +132,7 @@ Item {
             fuzzyCompare(badge.width - (label.x + label.opticalWidth), Theme.badge.size.sm.paddingX, 0.5);
             const icon = badgeIconItem(badgeIcon);
             const iconLabel = badgeLabel(badgeIcon);
-            fuzzyCompare(icon.y + icon.height / 2, badgeIcon.height / 2, 1);
+            fuzzyCompare(icon.mapToItem(badgeIcon, 0, 0).y + icon.height / 2, badgeIcon.height / 2, 1);
             compare(iconLabel.y + iconLabel.baselineOffset, Math.round(iconLabel.y + iconLabel.baselineOffset), "a whole-pixel baseline");
             fuzzyCompare(iconLabel.y + iconLabel.capCentre, badgeIcon.height / 2, 0.5);
             fuzzyCompare(badgeIcon.width, 2 * Theme.badge.size.sm.paddingX + icon.width + Theme.badge.gap + iconLabel.opticalWidth, 0.5);

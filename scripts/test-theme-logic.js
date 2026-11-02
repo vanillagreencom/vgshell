@@ -692,6 +692,7 @@ const READABILITY_SURFACES = ["color.background", "color.surface", "color.surfac
 const BOUNDARY_ROLES = ["checkbox.borderColor", "radio.borderColor", "textField.borderColor", "toggle.off", "checkbox.checked", "radio.checked", "toggle.on"];
 const READABILITY_PAIRS = [["kbd.foreground", "kbd.background"], ["kbd.valueForeground", "kbd.background"], ["segmented.foreground", "segmented.background"], ["segmented.selectedForeground", "segmented.selected"], ["listItem.selectedForeground", "listItem.selected"],
     ...["neutral", "accent", "success", "warning", "danger", "info"].map(tone => [`badge.tone.${tone}.foreground`, `badge.tone.${tone}.background`]),
+    ...["normal", "warning", "danger"].map(level => [`badge.unread.tone.${level}.foreground`, `badge.unread.tone.${level}.background`]),
     ...["foreground", "gradientStart", "gradientEnd"].map(role => [`screensaver.${role}`, "screensaver.background"])];
 const BOUNDARY_PAIRS = [["toggle.knobOff", "toggle.off"], ["toggle.knobOn", "toggle.on"], ["checkbox.mark", "checkbox.checked"], ["segmented.indicatorColor", "segmented.selected"], ["segmented.indicatorColor", "segmented.background"]];
 const truncateRatio = value => Math.floor(value * 100) / 100;
@@ -2244,6 +2245,7 @@ const CONTROLS = [
     ["readability floor", "var READABILITY_FLOOR = 4.5;", "var READABILITY_FLOOR = 1;"],
     ["readability pairs", "    [\"segmented.foreground\", \"segmented.background\"],\n", ""],
     ["readability badge pairs", "    [\"badge.tone.success.foreground\", \"badge.tone.success.background\"],\n", ""],
+    ["readability count badge pairs", "    [\"badge.unread.tone.warning.foreground\", \"badge.unread.tone.warning.background\"],\n", ""],
     ["readability translucent fill over a surface", "if (fill === null || fill.a === 1)", "if (true)"],
     ["readability fill blend", "r: base.r + (fill.r - base.r) * fill.a,", "r: fill.r,"],
     ["readability fill named with its surface", 'pairs[q][1] + " over " + under', "pairs[q][1]"],

@@ -12,8 +12,8 @@ import "UpdatesLogic.js" as Logic
 // and nothing waits. A left click opens or closes the Updates window; a
 // middle click opens the `update` TUI for every source. The tooltip lists
 // each source's count and when the last check ran, in the shell's one
-// wording of a past moment (Timestamp). It is one BarItem, the
-// count drawn beside the icon in the icon's tone.
+// wording of a past moment (Timestamp). It is one BarItem, the pending
+// count drawn as its corner badge.
 BarWidget {
     id: widget
 
@@ -57,6 +57,7 @@ BarWidget {
         iconName: widget.view.icon
         spinning: widget.view.spinning
         count: widget.view.badge
+        countLevel: widget.view.countLevel
         tone: widget.toneColor(widget.view.tone)
         tooltip: widget.tip.title
         tooltipDetails: widget.tip.details

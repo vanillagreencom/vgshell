@@ -73,23 +73,23 @@ function secrets(doc) {
 // Fixture states: [fixture, seconds after its time, widget, sentence with
 // vsys installed, items, meter].
 const STATES = [
-    ["calm", 12, { icon: "shield-check", tone: "neutral", count: "1", tooltip: "1 agent running within its limits" },
+    ["calm", 12, { icon: "shield-check", tone: "neutral", count: "1", countLevel: "normal", tooltip: "1 agent running within its limits" },
         "1 agent is running within its limits.", [], { value: 38 / 64, text: "Agent memory: 38 of 64 GB before slowdown" }],
-    ["near-limit", 0, { icon: "shield-alert", tone: "warning", count: "1", tooltip: "claude in vsy-52 is near its memory limit" },
+    ["near-limit", 0, { icon: "shield-alert", tone: "warning", count: "1", countLevel: "warning", tooltip: "claude in vsy-52 is near its memory limit" },
         "One warning needs your attention.", [{ icon: "memory-stick", text: "claude in vsy-52 is near its memory limit", secondary: "50 GB, slowed at 64 GB" }],
         { value: 38 / 64, text: "Agent memory: 38 of 64 GB before slowdown" }],
-    ["holding-off", 0, { icon: "shield-x", tone: "danger", count: "2", tooltip: "Agents are close to their memory limit" },
+    ["holding-off", 0, { icon: "shield-x", tone: "danger", count: "2", countLevel: "danger", tooltip: "Agents are close to their memory limit" },
         "2 problems need your attention.",
         [{ icon: "hourglass", text: "Agents are close to their memory limit", secondary: "Waiting for free memory before applying limits to claude" },
             { icon: "gauge", text: "Agents are slowed down to save memory", secondary: "73 GB in use, slowed from 64 GB" }],
         { value: 1, text: "Agent memory: 73 GB, past the 64 GB slowdown point" }],
-    ["partial", 60, { icon: "shield-x", tone: "danger", count: "1", tooltip: "Part of an agent still runs without limits" },
+    ["partial", 60, { icon: "shield-x", tone: "danger", count: "1", countLevel: "danger", tooltip: "Part of an agent still runs without limits" },
         "One problem needs your attention.", [{ icon: "split", text: "Part of an agent still runs without limits", secondary: "Agent Warden tries again on its next check" }],
         { value: 38 / 64, text: "Agent memory: 38 of 64 GB before slowdown" }],
-    ["reaped", 0, { icon: "shield-x", tone: "danger", count: "1", tooltip: "Cleaned up after a finished agent" },
+    ["reaped", 0, { icon: "shield-x", tone: "danger", count: "1", countLevel: "danger", tooltip: "Cleaned up after a finished agent" },
         "One problem needs your attention.", [{ icon: "broom", text: "Cleaned up after a finished agent", secondary: "Stopped 42 leftover processes" }],
         { value: 38 / 64, text: "Agent memory: 38 of 64 GB before slowdown" }],
-    ["calm", 200, { icon: "shield-off", tone: "neutral", count: "", tooltip: "Agent Warden hasn't checked in 3m" },
+    ["calm", 200, { icon: "shield-off", tone: "neutral", count: "", countLevel: "normal", tooltip: "Agent Warden hasn't checked in 3m" },
         "Agent Warden has stopped checking.", [], null]
 ];
 
@@ -101,20 +101,20 @@ const MOVED = { kind: "moved", level: "info", count: 2, at: T - 120000 };
 // States without a fixture: [label, detail, now, widget, sentence with vsys
 // installed, sentence without it].
 const HAND = [
-    ["pending", null, T, { icon: "shield", tone: "neutral", count: "", tooltip: "Agent Warden is starting" }, null, null],
-    ["calm with no agent", hand({}), T, { icon: "shield-check", tone: "neutral", count: "", tooltip: "No agents running" },
+    ["pending", null, T, { icon: "shield", tone: "neutral", count: "", countLevel: "normal", tooltip: "Agent Warden is starting" }, null, null],
+    ["calm with no agent", hand({}), T, { icon: "shield-check", tone: "neutral", count: "", countLevel: "normal", tooltip: "No agents running" },
         "No agents are running.", "No agents are running."],
-    ["calm with unlisted lanes", hand({ agents: null }), T, { icon: "shield-check", tone: "neutral", count: "", tooltip: "Agents are within their limits" }, "Agents are within their limits.", "Agents are within their limits."],
-    ["calm with many agents", hand({ agents: 1234 }), T, { icon: "shield-check", tone: "neutral", count: "1,234", tooltip: "1,234 agents running within their limits" },
+    ["calm with unlisted lanes", hand({ agents: null }), T, { icon: "shield-check", tone: "neutral", count: "", countLevel: "normal", tooltip: "Agents are within their limits" }, "Agents are within their limits.", "Agents are within their limits."],
+    ["calm with many agents", hand({ agents: 1234 }), T, { icon: "shield-check", tone: "neutral", count: "1234", countLevel: "normal", tooltip: "1,234 agents running within their limits" },
         "1,234 agents are running within their limits.", "1,234 agents are running within their limits."],
-    ["working", hand({ state: "working", agents: 3, items: [MOVED] }), T, { icon: "shield-check", tone: "accent", count: "3", tooltip: "Moved 2 agents back into limits 2m ago" },
+    ["working", hand({ state: "working", agents: 3, items: [MOVED] }), T, { icon: "shield-check", tone: "accent", count: "3", countLevel: "normal", tooltip: "Moved 2 agents back into limits 2m ago" },
         "Moved 2 agents back into limits.", "Moved 2 agents back into limits."],
     ["unreadable", hand({ state: "not-checking", reason: "unreadable", checkedAt: null, agents: null }), T,
-        { icon: "shield-off", tone: "neutral", count: "", tooltip: "Agent Warden's status can't be read" }, "Agent Warden's status can't be read.", "Agent Warden's status can't be read."],
+        { icon: "shield-off", tone: "neutral", count: "", countLevel: "normal", tooltip: "Agent Warden's status can't be read" }, "Agent Warden's status can't be read.", "Agent Warden's status can't be read."],
     ["schema", hand({ state: "not-checking", reason: "schema", checkedAt: null, agents: null }), T,
-        { icon: "shield-off", tone: "neutral", count: "", tooltip: "Agent Warden's status needs a newer VGS" },
+        { icon: "shield-off", tone: "neutral", count: "", countLevel: "normal", tooltip: "Agent Warden's status needs a newer VGS" },
         "Update VGS to read Agent Warden status.", "Update VGS to read Agent Warden status."],
-    ["not set up", hand({ state: "not-set-up", checkedAt: null, agents: null }), T, { icon: "shield-question-mark", tone: "neutral", count: "", tooltip: "Agent Warden isn't set up" },
+    ["not set up", hand({ state: "not-set-up", checkedAt: null, agents: null }), T, { icon: "shield-question-mark", tone: "neutral", count: "", countLevel: "normal", tooltip: "Agent Warden isn't set up" },
         "Agent Warden isn't set up.", "Install vsys to set up Agent Warden."],
 ];
 
@@ -280,6 +280,7 @@ const CONTROLS = [
     ["the problem tone is a warning", "ViewLogic.js", "\"problem\": { icon: \"shield-x\", tone: \"danger\" }", "\"problem\": { icon: \"shield-x\", tone: \"warning\" }"],
     ["the count ignores its setting", "ViewLogic.js", "if (!showCount || detail === null)", "if (detail === null)"],
     ["a zero count is drawn", "ViewLogic.js", "return n === null || n === 0 ? \"\"", "return n === null ? \"\""],
+    ["a warning shield draws a normal badge", "ViewLogic.js", "return tone === \"warning\" || tone === \"danger\" ? tone : \"normal\";", "return \"normal\";"],
     ["idle ignores the agents", "ViewLogic.js", "detail.state === \"calm\" && detail.agents === 0", "detail.state === \"calm\""],
     ["setup before vsys", "WardenLogic.js", "return vsysMissing ? \"get-vsys\" : \"setup\";", "return false ? \"get-vsys\" : \"setup\";"],
     ["the link repeats the setup button", "ViewLogic.js", "return setupButton !== null && setupButton.action === out.action ? null : out;", "return out;"],

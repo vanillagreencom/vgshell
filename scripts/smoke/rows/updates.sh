@@ -381,7 +381,7 @@ expect_poll "the updates widget is built on the bar" '"vgs.updates"' ipc smoke r
 # The widget as it judges itself: [state, icon, tone, badge, badge tone].
 widget_view() { ipc smoke readInstance "$widget_key" vgs.updates view | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([v["state"], v["icon"], v["tone"], v["badge"], v["badgeTone"]]))'; }
 # The widget as drawn: [the icon it shows, or `spinner`, the tone its
-# colour is, the count it shows beside the icon, or ""]. A colour is read as the theme
+# colour is, the count its corner badge shows, or ""]. A colour is read as the theme
 # writes it and matched against the three the widget draws with.
 widget_drawn() {
   local colours accent warning calm icon spinning badge

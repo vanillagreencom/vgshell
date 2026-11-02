@@ -7,7 +7,9 @@ import "../../shell/plugins/vgs.agent-warden"
 
 // The Agent Warden shield draws in the Theme.color role of its state's
 // tone, `neutral` in textMuted, under the shipped vgs theme and the
-// catalog's flexoki-light, and never in the badge foreground of that tone.
+// catalog's flexoki-light, with its count on or off, and never in the
+// badge foreground of that tone; its corner count takes the level of that
+// tone.
 Item {
     id: root
     width: 200
@@ -35,28 +37,34 @@ Item {
             }
             return null;
         }
+        function button() { return find(widget, n => n.iconName !== undefined && n.label !== undefined); }
         function glyph() {
-            const button = find(widget, n => n.iconName !== undefined && n.label !== undefined);
-            return find(button.contentItem, n => n.name !== undefined && n.paths !== undefined);
+            return find(button().contentItem, n => n.name !== undefined && n.paths !== undefined);
         }
         function themes() {
-            return [{ tag: "vgs", theme: "vgs" }, { tag: "flexoki-light", theme: "catalog/flexoki-light" }];
+            const out = [];
+            for (const [tag, theme] of [["vgs", "vgs"], ["flexoki-light", "catalog/flexoki-light"]])
+                for (const shown of [true, false]) out.push({ tag: tag + (shown ? "" : "-no-count"), theme: theme, showCount: shown });
+            return out;
         }
+        function cleanup() { widget.settings = ({}); }
 
         function test_states_draw_their_colour_role_data() { return themes(); }
         function test_states_draw_their_colour_role(data) {
             compare(UnitTheme.override(themeTokens(data.theme)), "ok");
+            widget.settings = ({ showCount: data.showCount });
             const rows = [
-                [{ state: "calm", agents: 2 }, "textMuted", "neutral"],
-                [{ state: "look", issues: 1, items: [{ kind: "leftover", level: "look", count: 1, processes: 1 }] }, "warning", "warning"],
-                [{ state: "problem", issues: 1, items: [{ kind: "scan-failed", level: "problem" }] }, "danger", "danger"],
-                [{ state: "not-set-up" }, "textMuted", "neutral"]
+                [{ state: "calm", agents: 2 }, "textMuted", "neutral", "normal"],
+                [{ state: "look", issues: 1, items: [{ kind: "leftover", level: "look", count: 1, processes: 1 }] }, "warning", "warning", "warning"],
+                [{ state: "problem", issues: 1, items: [{ kind: "scan-failed", level: "problem" }] }, "danger", "danger", "danger"],
+                [{ state: "not-set-up" }, "textMuted", "neutral", "normal"]
             ];
-            for (const [detail, role, badge] of rows) {
+            for (const [detail, role, badge, level] of rows) {
                 widget.shell = { status: { values: { detail: detail } } };
                 const drawn = String(glyph().color);
                 compare(drawn, String(Qt.color(Theme.color[role])), detail.state);
                 verify(drawn !== String(Qt.color(Theme.badge.tone[badge].foreground)), detail.state + " draws no badge foreground");
+                compare(button().countLevel, level, detail.state + " counts at its tone's level");
             }
         }
 

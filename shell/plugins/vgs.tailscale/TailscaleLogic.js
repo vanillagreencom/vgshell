@@ -5,7 +5,8 @@
 // `tailscale switch --list --json`, the node `tailscale exit-node suggest`
 // names, each exit node's CLI target, the argv of every command, the three
 // status values and their byte budgets, and the lines and rows the views
-// draw. Service.qml runs the effects.
+// draw, and who holds a connection into this machine, read from `ss`.
+// Service.qml runs the effects.
 
 // A read, a poll, the accounts or a suggestion, that has not ended after
 // this long is killed. Only a read's start arms the deadline, so a refresh
@@ -310,7 +311,8 @@ var BACKEND_STATES = {
 
 function emptySnapshot(state) {
     return { state: state, device: { name: "", address: "", dnsName: "" }, tailnet: "", account: "", exit: null,
-        devices: { rows: [], count: 0, online: 0 }, exitNodes: { own: [], countries: [], cityCount: 0 }, targets: {} };
+        devices: { rows: [], count: 0, online: 0 }, exitNodes: { own: [], countries: [], cityCount: 0 }, targets: {},
+        tun: false, inboundIndex: { addresses: {}, ports: [] } };
 }
 
 // What one `tailscale status --json` run reads: CODE its exit code, -1 for
@@ -340,7 +342,241 @@ function snapshot(code, stdout, stderr) {
     out.exitNodes = { own: exits.own, countries: exits.countries, cityCount: exits.cityCount };
     out.targets = exits.targets;
     out.devices = devices(peers);
+    out.tun = doc.TUN === true;
+    out.inboundIndex = inboundIndex(peers, users, self);
     return out;
+}
+
+// ---- Who is connected to this machine ------------------------------------
+// `tailscale status --json` names no direction: `Active` is true for a peer
+// this machine connects out to as well (design VGS-2203 § 1, read on cachy,
+// tailscale 1.104.4, 2026-11-02). The kernel's socket table decides, read
+// with SS_ARGV, one socket a line (iproute2 7.3.0 on cachy, 2026-11-02):
+//   ESTAB  0      0              100.64.0.1:22        100.64.0.3:51514
+//   LISTEN 0      4096   100.91.153.2%tailscale0:51260     0.0.0.0:*
+// the state, the two queues, then the local and the remote address and
+// port. An IPv6 address is bracketed, a scope `%iface` follows the address,
+// and a dual-stack socket names an IPv4 client `[::ffff:a.b.c.d]`.
+var SS_ARGV = ["ss", "-Htan", "state", "established", "state", "listening"];
+var SSH_PORT = 22;
+// The addresses a listener bound to every address shows.
+var WILDCARDS = ["0.0.0.0", "::", "*"];
+var USERSPACE_TEXT = "Not available while Tailscale runs without its network interface.";
+var UNREAD_TEXT = "Could not check connections.";
+
+function userName(user) {
+    if (!isPlain(user)) return "";
+    var shown = line(user.DisplayName);
+    return shown !== "" ? shown : line(user.LoginName);
+}
+
+// What the inbound read maps a socket with: `addresses`, every peer's
+// Tailscale address, lowercased, to { id, name, icon, user }, `user` the
+// peer's user as the `User` map names it, "" for a tagged peer, which no
+// person owns; and `ports`, the local PeerAPI ports SELF's PeerAPIURL
+// names, each "http://<address>:<port>/" (peerAPIListener.urlStr,
+// ipn/ipnlocal/peerapi.go at tailscale v1.104.4), one a family.
+function inboundIndex(peers, users, self) {
+    var addresses = {};
+    peers.forEach(function (peer) {
+        if (!validId(peer.ID) || !Array.isArray(peer.TailscaleIPs)) return;
+        var entry = { id: peer.ID, name: peerName(peer), icon: peerIcon(peer), user: isTagged(peer) ? "" : userName(users[String(peer.UserID)]) };
+        peer.TailscaleIPs.forEach(function (address) {
+            if (typeof address === "string" && address !== "") addresses[address.toLowerCase()] = entry;
+        });
+    });
+    var ports = [];
+    (Array.isArray(self.PeerAPIURL) ? self.PeerAPIURL : []).forEach(function (url) {
+        var found = typeof url === "string" ? /:(\d{1,5})\/?$/.exec(url) : null;
+        if (found !== null && ports.indexOf(Number(found[1])) === -1) ports.push(Number(found[1]));
+    });
+    return { addresses: addresses, ports: ports };
+}
+
+// One `address:port` field of an SS_ARGV line: { address, port }, the
+// address lowercased with no brackets or scope and an IPv4-mapped one as
+// its IPv4, `port` 0 for `*`; null for a field this does not read.
+function endpoint(field) {
+    var at = field.lastIndexOf(":");
+    if (at <= 0) return null;
+    var host = field.slice(0, at);
+    var port = field.slice(at + 1);
+    if (port !== "*" && !/^\d{1,5}$/.test(port)) return null;
+    if (host.charAt(0) === "[") {
+        var close = host.indexOf("]");
+        if (close === -1) return null;
+        host = host.slice(1, close);
+    } else {
+        host = host.split("%")[0];
+    }
+    host = host.toLowerCase();
+    var mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(host);
+    return { address: mapped === null ? host : mapped[1], port: port === "*" ? 0 : Number(port) };
+}
+
+// The established and listening sockets of an SS_ARGV run's TEXT:
+// { connections: [{ local, remote }], listeners: [endpoint] }, or null
+// when a line holds another state or a field this does not read, since a
+// table read in part decides nothing.
+function sockets(text) {
+    var out = { connections: [], listeners: [] };
+    var lines = String(text).split("\n");
+    for (var i = 0; i < lines.length; i++) {
+        var fields = lines[i].trim().split(/\s+/);
+        if (fields.length === 1 && fields[0] === "") continue;
+        if (fields.length < 5) return null;
+        var local = endpoint(fields[3]);
+        var remote = endpoint(fields[4]);
+        if (local === null || remote === null) return null;
+        if (fields[0] === "ESTAB") out.connections.push({ local: local, remote: remote });
+        else if (fields[0] === "LISTEN") out.listeners.push(local);
+        else return null;
+    }
+    return out;
+}
+
+// What a connection to local PORT uses: `ssh`, `tailscale` for one of
+// the PeerAPI PORTS, which serve Taildrop, exit-node DNS, Funnel's ingress
+// and Taildrive, or the port number.
+function kindOf(port, ports) {
+    if (port === SSH_PORT) return "ssh";
+    return ports.indexOf(port) !== -1 ? "tailscale" : port;
+}
+
+function kindRank(kind) {
+    return kind === "ssh" ? -2 : kind === "tailscale" ? -1 : kind;
+}
+
+// KINDS in one order: SSH, Tailscale, then the ports, low first.
+function sortedKinds(kinds) {
+    return kinds.slice().sort(function (a, b) { return kindRank(a) - kindRank(b); });
+}
+
+// The `inbound` value before a read, and for a state with no reading.
+function inboundIdle() { return { state: "off", rows: [], count: 0 }; }
+
+// Whether a poll reads the sockets, from the snapshot's STATE, whether
+// Tailscale runs with its network interface (TUN) and whether `ss` is
+// missing (SS_MISSING): `read`; `unread` while the status read failed,
+// which proves no peer left; `off` while Tailscale does not run;
+// `userspace` without the interface, whose connections tailscaled
+// answers inside its own process, so no socket shows them; or `no-ss`.
+function inboundGate(state, tun, ssMissing) {
+    if (state === "unavailable") return "unread";
+    if (state !== "running") return "off";
+    if (!tun) return "userspace";
+    return ssMissing ? "no-ss" : "read";
+}
+
+// The `inbound` value for a poll that read no sockets, by the gate's TAG:
+// `unread` keeps PREVIOUS's rows and their since times, as a failed read
+// does not prove a peer left, and the views draw them only once a read
+// lands; every other tag holds no rows, so the since times start over.
+function inboundHeld(tag, previous) {
+    switch (tag) {
+    case "unread": return { state: "unread", rows: previous.rows, count: previous.count };
+    case "off":
+    case "userspace":
+    case "no-ss": return { state: tag, rows: [], count: 0 };
+    }
+    throw new Error("tailscale: inbound tag " + JSON.stringify(tag) + " is not one of unread, off, userspace, no-ss");
+}
+
+// The peers that hold a connection into this machine, from one SS_ARGV
+// run: CODE its exit code, -1 for a run that was killed or never started,
+// TEXT its output, INDEX the snapshot's inboundIndex, PREVIOUS the last
+// `inbound` value and NOW the time in epoch ms. A connection counts when
+// it is established, its remote address is a peer's (the index holds only
+// Tailscale addresses, 100.64.0.0/10 and fd7a:115c:a1e0::/48, and never
+// this machine's own), and a listener holds its local port, bound to its
+// local address or to every address, so an outbound connection whose
+// ephemeral port a loopback service also listens on is not counted.
+// Answers { state: "read", rows, count }: a row a peer, { id, name, icon,
+// user, kinds, since }, `kinds` each kind once in sortedKinds order and
+// `since` the time of the first read that saw the peer, carried from
+// PREVIOUS; rows by name, at most PEER_MAX, `count` every peer. A run that
+// failed, or output this does not read, answers inboundHeld("unread").
+function inbound(code, text, index, previous, now) {
+    var table = code === 0 ? sockets(text) : null;
+    if (table === null) return inboundHeld("unread", previous);
+    var found = {};
+    table.connections.forEach(function (connection) {
+        if (!has(index.addresses, connection.remote.address)) return;
+        var listened = table.listeners.some(function (listener) {
+            return listener.port === connection.local.port
+                && (listener.address === connection.local.address || WILDCARDS.indexOf(listener.address) !== -1);
+        });
+        if (!listened) return;
+        var peer = index.addresses[connection.remote.address];
+        if (!has(found, peer.id)) found[peer.id] = { peer: peer, kinds: [] };
+        var kind = kindOf(connection.local.port, index.ports);
+        if (found[peer.id].kinds.indexOf(kind) === -1) found[peer.id].kinds.push(kind);
+    });
+    var since = {};
+    previous.rows.forEach(function (row) { since[row.id] = row.since; });
+    var rows = Object.keys(found).map(function (id) {
+        var peer = found[id].peer;
+        return { id: id, name: peer.name, icon: peer.icon, user: peer.user, kinds: sortedKinds(found[id].kinds), since: has(since, id) ? since[id] : now };
+    }).sort(byText("name"));
+    return { state: "read", rows: rows.slice(0, PEER_MAX), count: rows.length };
+}
+
+// KINDS as one line: "SSH, Tailscale, port 8080", its first letter a
+// capital, so a port alone reads "Port 8080".
+function kindsLine(kinds) {
+    var text = kinds.map(function (kind) { return kind === "ssh" ? "SSH" : kind === "tailscale" ? "Tailscale" : "port " + kind; }).join(", ");
+    return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+// The "Connected to this device" row for VALUE, the published `inbound`,
+// undefined before the first: { shown, secondary, rows, info, offer }.
+// `rows` are the ListItems under it, each { key, text, secondary,
+// iconName }, CLOCK(ms) the shown time of a since; `info` says why the
+// userspace line holds no list, and `offer` is true while `ss` is
+// missing, whose requirement the row offers.
+function inboundView(value, clock) {
+    var shown = isPlain(value) ? value : inboundIdle();
+    var view = { shown: true, secondary: "", rows: [], info: false, offer: false };
+    switch (shown.state) {
+    case "read":
+        var kinds = [];
+        shown.rows.forEach(function (row) {
+            row.kinds.forEach(function (kind) { if (kinds.indexOf(kind) === -1) kinds.push(kind); });
+        });
+        view.secondary = shown.count === 0 ? "No one right now"
+            : (shown.count === 1 ? "1 device" : shown.count + " devices") + " · " + kindsLine(sortedKinds(kinds));
+        view.rows = shown.rows.map(function (row) {
+            return { key: row.id, text: row.name, iconName: row.icon,
+                secondary: (row.user === "" ? [] : [row.user]).concat([kindsLine(row.kinds), "seen since " + clock(row.since)]).join(" · ") };
+        });
+        return view;
+    case "unread":
+        view.secondary = UNREAD_TEXT;
+        return view;
+    case "userspace":
+        view.secondary = USERSPACE_TEXT;
+        view.info = true;
+        return view;
+    case "no-ss":
+        view.secondary = "Needs a tool to check connections.";
+        view.offer = true;
+        return view;
+    case "off":
+        view.shown = false;
+        return view;
+    }
+    throw new Error("tailscale: inbound state " + JSON.stringify(shown.state) + " is not one of read, unread, off, userspace, no-ss");
+}
+
+// The bar widget's corner count for VALUE, the published `inbound`:
+// { count, label, detail }, `count` "" with no one connected or no read,
+// `detail` the line that names it, "2 devices connected to this one", ""
+// with none, and `label` the widget's name with that line after it.
+function inboundBadge(value) {
+    var count = isPlain(value) && value.state === "read" ? value.count : 0;
+    if (count === 0) return { count: "", label: "Tailscale", detail: "" };
+    var detail = (count === 1 ? "1 device" : count + " devices") + " connected to this one";
+    return { count: String(count), label: "Tailscale, " + detail, detail: detail };
 }
 
 // The accounts `tailscale switch --list --json` prints: an array of
@@ -724,6 +960,7 @@ function searchRows(value, query) {
 var TAILSCALE_BYTES = 8000;
 var DEVICES_BYTES = 24000;
 var EXIT_NODES_BYTES = 28000;
+var INBOUND_BYTES = 4000;
 
 function bytes(value) { return Commons.SettingValues.utf8Bytes(JSON.stringify(value)); }
 
@@ -752,8 +989,8 @@ function boundedExitNodes(value) {
 }
 
 // The status writes, in order: `connection`, `setup`, `tailscale`,
-// `devices` and `exitNodes`, each data value within its budget.
-function statusWrites(connectionLine, setupLine, tailscaleValue, devicesValue, exitNodesValue) {
+// `devices`, `exitNodes` and `inbound`, each data value within its budget.
+function statusWrites(connectionLine, setupLine, tailscaleValue, devicesValue, exitNodesValue, inboundValue) {
     var setupValue = null;
     if (setupLine !== null) {
         setupValue = { tone: setupLine.tone, text: setupLine.text };
@@ -767,6 +1004,8 @@ function statusWrites(connectionLine, setupLine, tailscaleValue, devicesValue, e
     while (bytes(tailscale) > TAILSCALE_BYTES && tailscale.accounts.length > 0) tailscale.accounts.pop();
     var devicesOut = { rows: devicesValue.rows.slice(), count: devicesValue.count, online: devicesValue.online };
     while (bytes(devicesOut) > DEVICES_BYTES && devicesOut.rows.length > 0) devicesOut.rows.pop();
+    var inboundOut = { state: inboundValue.state, rows: inboundValue.rows.slice(), count: inboundValue.count };
+    while (bytes(inboundOut) > INBOUND_BYTES && inboundOut.rows.length > 0) inboundOut.rows.pop();
     return [["connection", { tone: connectionLine.tone, text: connectionLine.text }], ["setup", setupValue], ["tailscale", tailscale],
-        ["devices", devicesOut], ["exitNodes", boundedExitNodes(exitNodesValue)]];
+        ["devices", devicesOut], ["exitNodes", boundedExitNodes(exitNodesValue)], ["inbound", inboundOut]];
 }

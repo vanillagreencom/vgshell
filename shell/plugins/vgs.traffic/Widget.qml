@@ -67,13 +67,13 @@ BarWidget {
         onClicked: root.toggle()
         stacked: true
         iconName: root.captions ? "" : "arrow-up"
-        countIconName: root.captions ? "" : "arrow-down"
+        detailIconName: root.captions ? "" : "arrow-down"
         caption: root.captions ? "UPL" : ""
-        countCaption: root.captions ? "DNL" : ""
+        detailCaption: root.captions ? "DNL" : ""
         text: root.rate(root.traffic.up)
-        count: root.rate(root.traffic.down)
+        detail: root.rate(root.traffic.down)
         textSample: root.rateSample
-        countSample: root.rateSample
+        detailSample: root.rateSample
     }
     BarItem {
         id: button
@@ -81,7 +81,7 @@ BarWidget {
         anchors.centerIn: parent
         label: "Network Traffic"
         // It draws text, so it keeps a text item's padding: BarItem reads an
-        // item with no text, count or caption of its own as icon-only.
+        // item with no text, detail or caption of its own as icon-only.
         leftPadding: Theme.bar.item.paddingX
         tooltip: "Network Traffic"
         tooltipDetails: (root.traffic.interfaces || []).map(row => row.name + "  ↓ " + root.rate(row.down) + "  ↑ " + root.rate(row.up))

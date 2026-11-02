@@ -732,17 +732,25 @@ function changedKeys(previous, next) {
 // A headline tone as the bar draws it.
 var BAR_TONES = { ok: "calm", info: "calm", warning: "warning", danger: "danger" };
 
-// The bar widget: { hidden, icon, tone, spinning, badge }, the headline's
-// icon and tone (calm, warning or danger), and badge the count of files
-// that need the user as BarItem's `count` text, "" for none: a row that
+// The corner count's level for a bar TONE: a warning or danger icon counts
+// at its own level, a calm one at the normal level.
+function countLevel(tone) {
+    return tone === "warning" || tone === "danger" ? tone : "normal";
+}
+
+// The bar widget: { hidden, icon, tone, spinning, badge, countLevel }, the
+// headline's icon and tone (calm, warning or danger), badge the count of
+// files that need the user as BarItem's `count` text, "" for none, at
+// countLevel of that tone: a row that
 // needs nothing never counts. The icon is hidden until a folder pair
 // exists, so a bar that places it before setup shows nothing to act on, but
 // not while the pair list cannot be read. CLOUD is the published value,
 // undefined before the first.
 function widgetView(cloud, now) {
-    if (cloud === undefined || cloud === null || (cloud.pairs.length === 0 && pairListValid(cloud))) return { hidden: true, icon: "cloud", tone: "calm", spinning: false, badge: "" };
+    if (cloud === undefined || cloud === null || (cloud.pairs.length === 0 && pairListValid(cloud))) return { hidden: true, icon: "cloud", tone: "calm", spinning: false, badge: "", countLevel: "normal" };
     var head = headline(cloud, now);
-    return { hidden: false, icon: head.icon, tone: BAR_TONES[head.tone], spinning: cloud.state === "running", badge: cloud.needsYou > 0 ? String(cloud.needsYou) : "" };
+    var tone = BAR_TONES[head.tone];
+    return { hidden: false, icon: head.icon, tone: tone, spinning: cloud.state === "running", badge: cloud.needsYou > 0 ? String(cloud.needsYou) : "", countLevel: countLevel(tone) };
 }
 
 // The widget's tooltip: the headline as its title, then one line per pair,

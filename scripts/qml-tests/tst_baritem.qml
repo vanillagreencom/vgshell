@@ -6,7 +6,7 @@ import qs.Unit
 
 // BarItem: every bar widget's one item. It is `bar.item.height` tall and
 // never narrower; its content sits `bar.item.paddingX` in; the icon is
-// `bar.item.icon` wide at full opacity; a count draws in the bar role in
+// `bar.item.icon` wide at full opacity; a detail draws in the bar role in
 // the item's tone; a value draws its level's colour and the icon or its
 // caption the most severe level shown; the separator draws its own token;
 // the item is as wide as its padding and what it draws, with no room
@@ -14,7 +14,7 @@ import qs.Unit
 // samples shown and draws right aligned in that width, so its glyphs end
 // where the same item without held room ends, the item keeps its right
 // padding, and the icon or caption stays as far from its value as with no
-// held room; a stacked item draws text over count in `bar.stacked.size`,
+// held room; a stacked item draws text over detail in `bar.stacked.size`,
 // both lines inside the item at every item height, left aligned in a
 // block whose held width is its wider line's sample, in mixed case under
 // an uppercase bar role; with an icon each line draws its own,
@@ -29,14 +29,20 @@ import qs.Unit
 // reference in its tooltip is a link its keys reach: Tab makes it
 // current, and Enter, Return or Space on it emits `tooltipPageActivated`
 // with the page and tab and clicks nothing; while the link is current it
-// draws the one focus ring and the item draws none.
+// draws the one focus ring and the item draws none. The corner count
+// is Badge's unread count at its corner size, at the item's top-right
+// corner, `badge.unread.corner.height` tall and round, a pill for "9+",
+// which it reads above 9 while its name keeps the count, with no badge
+// for ""; it takes no room, so an icon-only item stays square as it
+// comes and goes; its fill and figures follow its level, its ring is the corner
+// border in the bar's background, and the icon takes its level colour.
 Item {
     id: root
     width: 300
     height: 260
 
     BarItem { id: icon; iconName: "settings"; label: "Settings"; onClicked: root.clicks += 1 }
-    BarItem { id: counted; iconName: "shield"; count: "12"; tone: "#ff0000"; y: 40 }
+    BarItem { id: detailed; iconName: "shield"; detail: "12"; tone: "#ff0000"; y: 40 }
     BarItem { id: pill; text: "1"; active: true; y: 80 }
     BarItem { id: spinner; iconName: "refresh-cw"; spinning: true; y: 120 }
     BarItem { id: tooltipItem; iconName: "settings"; label: "Settings"; tooltip: "Open settings"; tooltipDetails: ["Pinned in the bar"]; x: 80 }
@@ -86,21 +92,102 @@ Item {
         function test_geometry_follows_the_bar_item_tokens() {
             compare(icon.height, Theme.bar.item.height);
             compare(icon.width, Theme.bar.item.height, "an icon-only item is square");
-            compare(counted.leftPadding, Theme.bar.item.paddingX);
-            compare(counted.width, Math.ceil(counted.implicitContentWidth) + 2 * Theme.bar.item.paddingX);
+            compare(detailed.leftPadding, Theme.bar.item.paddingX);
+            compare(detailed.width, Math.ceil(detailed.implicitContentWidth) + 2 * Theme.bar.item.paddingX);
             compare(firstIcon(icon).size, Theme.bar.item.icon);
             compare(firstIcon(icon).opacity, 1);
             const glyph = firstIcon(icon);
             fuzzyCompare(glyph.mapToItem(icon, 0, 0).y + glyph.height / 2, icon.height / 2, 0.5);
         }
 
-        function test_count_draws_in_the_bar_role_and_the_tone() {
-            const found = labels(counted);
+        function test_detail_draws_in_the_bar_role_and_the_tone() {
+            const found = labels(detailed);
             compare(found.length, 1);
             compare(found[0].role, "bar");
             compare(found[0].text, "12");
             compare(String(found[0].color), "#ff0000");
-            compare(String(firstIcon(counted).color), "#ff0000");
+            compare(String(firstIcon(detailed).color), "#ff0000");
+        }
+
+        // The item's corner count, null while its Loader builds none.
+        function badgeOf(item) {
+            return item.children.find(child => child.objectName === "bar-item-count").item;
+        }
+        function figuresOf(badge) {
+            return badge.children.find(child => child.role !== undefined);
+        }
+
+        // Each count, at each width it takes: the badge's figures, whether
+        // it shows, and whether it is a pill wider than tall.
+        function test_the_corner_count_data() {
+            return [
+                { tag: "none", count: "", shown: false, figures: "", pill: false },
+                { tag: "one", count: "1", shown: true, figures: "1", pill: false },
+                { tag: "nine", count: "9", shown: true, figures: "9", pill: false },
+                { tag: "ten", count: "10", shown: true, figures: "9+", pill: true },
+                { tag: "many", count: "1234", shown: true, figures: "9+", pill: true }
+            ];
+        }
+
+        function test_the_corner_count(data) {
+            const bare = createTemporaryObject(readingCase, root, { iconName: "route", label: "Tailscale" });
+            const item = createTemporaryObject(readingCase, root, { iconName: "route", label: "Tailscale", count: data.count, y: 40 });
+            verify(bare !== null && item !== null);
+            compare(item.width, item.height, "an icon-only item with a count stays square");
+            compare(item.width, bare.width);
+            compare(labels(item).length, 0, "the count takes no place in the row");
+            const glyph = firstIcon(item), bareGlyph = firstIcon(bare);
+            compare(glyph.mapToItem(item, 0, 0).x, bareGlyph.mapToItem(bare, 0, 0).x, "the icon keeps its place");
+            const badge = badgeOf(item);
+            compare(badge !== null, data.shown, "the item builds its corner count only for a count");
+            if (!data.shown) return;
+            compare(badge.children.some(child => child.item !== undefined && child.item !== null), false, "the count builds no icon");
+            compare([badge.variant, badge.size], ["unread", "corner"], "the count is Badge's unread count at its corner size");
+            const figures = figuresOf(badge);
+            compare(figures.text, data.figures);
+            compare(badge.Accessible.name, data.count, "the badge's name keeps the whole count");
+            compare(badge.height, Theme.badge.unread.corner.height);
+            verify(badge.radius >= badge.height / 2, "the badge is round");
+            compare(badge.width > badge.height, data.pill);
+            verify(figures.opticalWidth <= badge.width - 2 * (Theme.badge.unread.corner.border + Theme.space.xxs), "the figures keep space.xxs inside the ring");
+            tryVerify(() => Math.abs(badge.mapToItem(item, 0, 0).x + badge.width - item.width) < 0.01, 1000, "the badge ends at the item's right edge");
+            compare(badge.mapToItem(item, 0, 0).y, 0, "the badge starts at the item's top");
+            compare(badge.border.width, Theme.badge.unread.corner.border);
+            compare(String(badge.border.color), String(Qt.color(Theme.bar.background)));
+            compare(figures.font.pixelSize, Theme.bar.stacked.size);
+            compare(figures.role, "bar");
+        }
+
+        // The count comes and goes on one item: its width holds.
+        function test_the_corner_count_keeps_the_width() {
+            const item = createTemporaryObject(readingCase, root, { iconName: "route", label: "Tailscale" });
+            verify(item !== null);
+            const width = item.width;
+            for (const count of ["1", "12", "", "3"]) {
+                item.count = count;
+                compare(item.width, width, "the width holds at count \"" + count + "\"");
+                compare(badgeOf(item) !== null, count !== "");
+            }
+        }
+
+        // Each level's fill and figures, and the icon in the level's colour.
+        function test_the_corner_count_follows_its_level_data() {
+            return [
+                { tag: "normal", level: "normal", fill: "color.accent", figures: "color.onAccent", icon: "tone" },
+                { tag: "warning", level: "warning", fill: "color.warning", figures: "color.onWarning", icon: "color.warning" },
+                { tag: "danger", level: "danger", fill: "color.danger", figures: "color.onDanger", icon: "color.danger" }
+            ];
+        }
+
+        function test_the_corner_count_follows_its_level(data) {
+            const tone = "#123456";
+            const token = path => path === "tone" ? tone : path.split(".").reduce((node, key) => node[key], Theme);
+            const item = createTemporaryObject(readingCase, root, { iconName: "shield", label: "Agent Warden", count: "2", countLevel: data.level, tone: tone });
+            verify(item !== null);
+            const badge = badgeOf(item);
+            compare(String(badge.color), String(Qt.color(token(data.fill))));
+            compare(String(figuresOf(badge).color), String(Qt.color(token(data.figures))));
+            compare(String(firstIcon(item).color), String(Qt.color(token(data.icon))));
         }
 
         function test_active_fills_and_states_move_the_fill() {
@@ -205,8 +292,8 @@ Item {
             compare(JSON.stringify(tip.details), JSON.stringify(["Pinned in the bar"]));
         }
 
-        // Workspaces supplies text alone; Gallery's counted Agent Warden
-        // supplies a distinct label. Explicit titles and details stay owned
+        // Workspaces supplies text alone; a counted Agent Warden supplies a
+        // distinct label, and its corner count stays out of the title. Explicit titles and details stay owned
         // by their caller, even when the title repeats the visible text.
         function test_tooltip_presence_data() {
             return [
@@ -216,7 +303,7 @@ Item {
                 { tag: "explicit-repeat", properties: { text: "1", tooltip: "1" }, title: "1", present: true },
                 { tag: "details", properties: { text: "1", hasDetails: true }, title: "1", present: true },
                 { tag: "count-name", properties: { iconName: "shield", count: "2", label: "Agent Warden" }, title: "Agent Warden", present: true },
-                { tag: "count-repeat", properties: { count: "2", label: "2" }, title: "", present: false }
+                { tag: "detail-repeat", properties: { detail: "2", label: "2" }, title: "", present: false }
             ];
         }
 
@@ -242,9 +329,9 @@ Item {
             return [
                 { tag: "text", properties: { text: "5%" } },
                 { tag: "icon-text", properties: { iconName: "cpu", text: "100%" } },
-                { tag: "icon-separated-count", properties: { iconName: "cpu", text: "5%", count: "54°", separator: "/" } },
-                { tag: "icon-spaced-count", properties: { iconName: "cpu", text: "5%", count: "54°" } },
-                { tag: "caption-long-reading", properties: { caption: "RAM", text: "999.9 GB", count: "100%", separator: "/" } }
+                { tag: "icon-separated-detail", properties: { iconName: "cpu", text: "5%", detail: "54°", separator: "/" } },
+                { tag: "icon-spaced-detail", properties: { iconName: "cpu", text: "5%", detail: "54°" } },
+                { tag: "caption-long-reading", properties: { caption: "RAM", text: "999.9 GB", detail: "100%", separator: "/" } }
             ];
         }
 
@@ -252,13 +339,13 @@ Item {
             const item = createTemporaryObject(readingCase, root, data.properties);
             verify(item !== null);
             const found = labels(item);
-            const shown = [data.properties.caption, data.properties.text, data.properties.separator, data.properties.count]
+            const shown = [data.properties.caption, data.properties.text, data.properties.separator, data.properties.detail]
                 .filter(value => value !== undefined && value !== "");
             compare(JSON.stringify(found.map(label => label.text)), JSON.stringify(shown));
             let content = data.properties.iconName === undefined ? 0 : Theme.bar.item.icon;
             if (data.properties.iconName !== undefined || data.properties.caption !== undefined) content += Theme.bar.item.iconGap;
             for (const label of found) content += label.implicitWidth;
-            if (data.properties.count !== undefined && data.properties.separator === undefined) content += Theme.bar.item.iconGap;
+            if (data.properties.detail !== undefined && data.properties.separator === undefined) content += Theme.bar.item.iconGap;
             // The content row lays out at its next polish.
             tryCompare(item, "implicitWidth", Theme.bar.item.paddingX + Math.ceil(content) + Theme.bar.item.paddingX);
             compare(item.width, item.implicitWidth);
@@ -290,12 +377,12 @@ Item {
         function test_a_held_reading_draws_right_aligned_data() {
             return [
                 { tag: "text", held: { text: "5%", textSample: "100%" }, wide: { text: "100%" }, bare: { text: "5%" } },
-                { tag: "count", held: { iconName: "cpu", text: "5%", count: "9°", countSample: "100°", separator: "/" },
-                    wide: { iconName: "cpu", text: "5%", count: "100°", separator: "/" }, bare: { iconName: "cpu", text: "5%", count: "9°", separator: "/" } },
-                { tag: "both", held: { iconName: "cpu", text: "5%", textSample: "100%", count: "9°", countSample: "100°", separator: "/" },
-                    wide: { iconName: "cpu", text: "100%", count: "100°", separator: "/" }, bare: { iconName: "cpu", text: "5%", count: "9°", separator: "/" } },
-                { tag: "spaced-count", held: { caption: "RAM", text: "1.0 GB", textSample: "12.0 GB", count: "9%", countSample: "100%" },
-                    wide: { caption: "RAM", text: "12.0 GB", count: "100%" }, bare: { caption: "RAM", text: "1.0 GB", count: "9%" } }
+                { tag: "detail", held: { iconName: "cpu", text: "5%", detail: "9°", detailSample: "100°", separator: "/" },
+                    wide: { iconName: "cpu", text: "5%", detail: "100°", separator: "/" }, bare: { iconName: "cpu", text: "5%", detail: "9°", separator: "/" } },
+                { tag: "both", held: { iconName: "cpu", text: "5%", textSample: "100%", detail: "9°", detailSample: "100°", separator: "/" },
+                    wide: { iconName: "cpu", text: "100%", detail: "100°", separator: "/" }, bare: { iconName: "cpu", text: "5%", detail: "9°", separator: "/" } },
+                { tag: "spaced-detail", held: { caption: "RAM", text: "1.0 GB", textSample: "12.0 GB", detail: "9%", detailSample: "100%" },
+                    wide: { caption: "RAM", text: "12.0 GB", detail: "100%" }, bare: { caption: "RAM", text: "1.0 GB", detail: "9%" } }
             ];
         }
 
@@ -312,9 +399,9 @@ Item {
             verify(renderedFrame(canvas));
             const img = grabImage(root);
             compare(img.width, root.width, "the root grabs at one pixel a point");
-            const values = item => labels(item).filter(label => label.text === data.held.text || label.text === data.held.count);
+            const values = item => labels(item).filter(label => label.text === data.held.text || label.text === data.held.detail);
             const heldValues = values(held), bareValues = values(bare);
-            compare(heldValues.length, [data.held.text, data.held.count].filter(value => value !== undefined).length);
+            compare(heldValues.length, [data.held.text, data.held.detail].filter(value => value !== undefined).length);
             compare(bareValues.length, heldValues.length);
             for (let index = 0; index < heldValues.length; index++)
                 verify(Math.abs(trailing(img, heldValues[index]) - trailing(img, bareValues[index])) <= 1,
@@ -332,9 +419,9 @@ Item {
             return -1;
         }
         // The values that start a line beside the icon or caption: the
-        // text, and stacked, the count too.
+        // text, and stacked, the detail too.
         function lineStarts(item) {
-            return labels(item).filter(label => label.text === item.text || (item.stackedShown && label.text === item.count));
+            return labels(item).filter(label => label.text === item.text || (item.stackedShown && label.text === item.detail));
         }
         // The mark before each value that starts a line: stacked, that
         // line's own icon or label; otherwise the icon or caption.
@@ -367,17 +454,17 @@ Item {
             return [
                 { tag: "short", held: { iconName: "cpu", text: "9%", textSample: "100%" } },
                 { tag: "widest", held: { iconName: "cpu", text: "100%", textSample: "100%" } },
-                { tag: "short-count", held: { iconName: "cpu", text: "9%", textSample: "100%", count: "9°", countSample: "100°", separator: "/" } },
-                { tag: "short-caption", held: { caption: "RAM", text: "1.0 GB", textSample: "12.0 GB", count: "9%", countSample: "100%" } },
-                { tag: "stacked-short", held: { iconName: "cpu", countIconName: "thermometer", text: "3%", textSample: "100%", count: "41°", countSample: "100°", stacked: true } },
-                { tag: "stacked-widest", held: { iconName: "cpu", countIconName: "thermometer", text: "100%", textSample: "100%", count: "100°", countSample: "100°", stacked: true } },
-                { tag: "stacked-caption", held: { caption: "RAM", countCaption: "SWP", text: "1.0 GB", textSample: "12.0 GB", count: "9%", countSample: "100%", stacked: true } }
+                { tag: "short-detail", held: { iconName: "cpu", text: "9%", textSample: "100%", detail: "9°", detailSample: "100°", separator: "/" } },
+                { tag: "short-caption", held: { caption: "RAM", text: "1.0 GB", textSample: "12.0 GB", detail: "9%", detailSample: "100%" } },
+                { tag: "stacked-short", held: { iconName: "cpu", detailIconName: "thermometer", text: "3%", textSample: "100%", detail: "41°", detailSample: "100°", stacked: true } },
+                { tag: "stacked-widest", held: { iconName: "cpu", detailIconName: "thermometer", text: "100%", textSample: "100%", detail: "100°", detailSample: "100°", stacked: true } },
+                { tag: "stacked-caption", held: { caption: "RAM", detailCaption: "SWP", text: "1.0 GB", textSample: "12.0 GB", detail: "9%", detailSample: "100%", stacked: true } }
             ];
         }
 
         function test_the_mark_stays_beside_its_value(data) {
             mouseMove(root, root.width - 1, 0);
-            const bareProperties = Object.assign({}, data.held, { textSample: "", countSample: "", y: Theme.bar.item.height + 4 });
+            const bareProperties = Object.assign({}, data.held, { textSample: "", detailSample: "", y: Theme.bar.item.height + 4 });
             const held = createTemporaryObject(heldCase, canvas, data.held);
             const bare = createTemporaryObject(heldCase, canvas, bareProperties);
             verify(held !== null && bare !== null);
@@ -399,7 +486,7 @@ Item {
         }
 
         function test_the_separated_reading_follows_the_icon() {
-            const item = createTemporaryObject(readingCase, root, { iconName: "cpu", text: "5%", count: "9°", separator: "/" });
+            const item = createTemporaryObject(readingCase, root, { iconName: "cpu", text: "5%", detail: "9°", separator: "/" });
             const found = labels(item), glyph = firstIcon(item);
             compare(found.length, 3);
             compare(found[1].text, "/");
@@ -408,17 +495,17 @@ Item {
             fuzzyCompare(found[2].mapToItem(item, 0, 0).x, found[1].mapToItem(item, found[1].width, 0).x, 0.5);
         }
 
-        // Each (text, count) level pair, with and without a count shown: the
+        // Each (text, detail) level pair, with and without a detail shown: the
         // values draw their own level, the separator draws its own token,
         // and the icon draws the most severe level of the values shown.
         function test_the_icon_draws_the_most_severe_value_data() {
             const order = ["normal", "warning", "danger"];
             const cases = [];
             for (const textLevel of order)
-                for (const countLevel of order) {
-                    cases.push({ tag: textLevel + "-" + countLevel, textLevel: textLevel, countLevel: countLevel, count: "9°",
-                        icon: order[Math.max(order.indexOf(textLevel), order.indexOf(countLevel))] });
-                    cases.push({ tag: textLevel + "-" + countLevel + "-hidden-count", textLevel: textLevel, countLevel: countLevel, count: "",
+                for (const detailLevel of order) {
+                    cases.push({ tag: textLevel + "-" + detailLevel, textLevel: textLevel, detailLevel: detailLevel, detail: "9°",
+                        icon: order[Math.max(order.indexOf(textLevel), order.indexOf(detailLevel))] });
+                    cases.push({ tag: textLevel + "-" + detailLevel + "-hidden-detail", textLevel: textLevel, detailLevel: detailLevel, detail: "",
                         icon: textLevel });
                 }
             return cases;
@@ -427,15 +514,15 @@ Item {
         function test_the_icon_draws_the_most_severe_value(data) {
             const tone = "#123456";
             const colours = { normal: Qt.color(tone), warning: Qt.color(Theme.color.warning), danger: Qt.color(Theme.color.danger) };
-            const item = createTemporaryObject(readingCase, root, { iconName: "cpu", text: "5%", count: data.count, separator: "/",
-                tone: tone, textLevel: data.textLevel, countLevel: data.countLevel });
+            const item = createTemporaryObject(readingCase, root, { iconName: "cpu", text: "5%", detail: data.detail, separator: "/",
+                tone: tone, textLevel: data.textLevel, detailLevel: data.detailLevel });
             verify(item !== null);
             const found = labels(item);
             compare(found[0].color, colours[data.textLevel]);
-            if (data.count !== "") {
+            if (data.detail !== "") {
                 compare(found.length, 3);
                 compare(found[1].color, Qt.color(Theme.bar.item.separator), "the separator takes no level or tone");
-                compare(found[2].color, colours[data.countLevel]);
+                compare(found[2].color, colours[data.detailLevel]);
             } else {
                 compare(found.length, 1);
             }
@@ -444,7 +531,7 @@ Item {
 
         function test_a_caption_takes_the_icon_place_and_colour() {
             const item = createTemporaryObject(readingCase, root, { iconName: "gpu", caption: "GPU", label: "GPU",
-                text: "5%", count: "88°", separator: "/", countLevel: "danger" });
+                text: "5%", detail: "88°", separator: "/", detailLevel: "danger" });
             verify(item !== null);
             const glyph = firstIcon(item);
             compare(glyph.parent.visible, false, "the caption replaces the icon");
@@ -466,7 +553,7 @@ Item {
         // Stacked readings at item heights around the shipped 24 and an odd
         // one: test-theme-logic.js walks the judge's whole length range for
         // the token arithmetic; this draws the lines. Each line's box and
-        // its ink stay inside the item, and the count's line is below the
+        // its ink stay inside the item, and the detail's line is below the
         // text's. The stacked text follows the item's height, so only the
         // shipped item draws it smaller than the bar text.
         function test_stacked_lines_fit_the_item_data() {
@@ -476,7 +563,7 @@ Item {
         function test_stacked_lines_fit_the_item(data) {
             mouseMove(root, root.width - 1, 0);
             compare(UnitTheme.override({ bar: { item: { height: data.height } } }), "ok");
-            const item = createTemporaryObject(stackedCase, canvas, { text: "100%", count: "100°", separator: "/" });
+            const item = createTemporaryObject(stackedCase, canvas, { text: "100%", detail: "100°", separator: "/" });
             verify(item !== null);
             compare(item.height, data.height);
             verify(item.y + item.height + 16 <= canvas.height, "the canvas holds the item and a margin under it");
@@ -487,7 +574,7 @@ Item {
                 compare(label.height, Theme.bar.stacked.lineHeight);
             }
             if (data.height === 24) verify(Theme.bar.stacked.size < Theme.text.bar.size, "the shipped stacked text is smaller than the bar text");
-            tryVerify(() => found[1].mapToItem(item, 0, 0).y >= found[0].mapToItem(item, 0, found[0].height).y, 1000, "the count's line is under the text's");
+            tryVerify(() => found[1].mapToItem(item, 0, 0).y >= found[0].mapToItem(item, 0, found[0].height).y, 1000, "the detail's line is under the text's");
             for (const label of found) {
                 const top = label.mapToItem(item, 0, 0).y;
                 verify(top >= 0 && top + label.height <= item.height, "\"" + label.text + "\" lies inside the item: top " + top + ", height " + label.height);
@@ -508,17 +595,17 @@ Item {
         // in it: a value change keeps the item's width, and both lines start
         // at one left edge.
         function test_stacked_lines_hold_their_samples() {
-            const item = createTemporaryObject(stackedCase, canvas, { caption: "RAM", countCaption: "SWP", text: "1.0 GB", textSample: "12.0 GB", count: "9%", countSample: "100%" });
+            const item = createTemporaryObject(stackedCase, canvas, { caption: "RAM", detailCaption: "SWP", text: "1.0 GB", textSample: "12.0 GB", detail: "9%", detailSample: "100%" });
             verify(item !== null);
-            const found = labels(item).filter(label => label.text === item.text || label.text === item.count);
+            const found = labels(item).filter(label => label.text === item.text || label.text === item.detail);
             compare(found.length, 2);
             tryVerify(() => item.width > item.height, 1000, "the item lays out");
             const width = item.width;
             const starts = () => found.map(label => Math.round(label.mapToItem(item, 0, 0).x));
             compare(starts()[0], starts()[1], "both lines start at one left edge");
-            verify(found[1].width < found[0].width, "the count's line is the narrower");
+            verify(found[1].width < found[0].width, "the detail's line is the narrower");
             item.text = "12.0 GB";
-            item.count = "100%";
+            item.detail = "100%";
             verify(renderedFrame(canvas));
             compare(item.width, width, "the item keeps its width as its readings change");
             compare(starts()[0], starts()[1]);
@@ -531,11 +618,11 @@ Item {
         // starting at the block's left edge.
         function test_stacked_lines_draw_their_own_icons_data() {
             return [
-                { tag: "levels", properties: { iconName: "cpu", countIconName: "thermometer", textLevel: "warning", countLevel: "danger" },
+                { tag: "levels", properties: { iconName: "cpu", detailIconName: "thermometer", textLevel: "warning", detailLevel: "danger" },
                     icons: ["cpu", "thermometer"], colours: ["warning", "danger"] },
-                { tag: "normal", properties: { iconName: "memory-stick", countIconName: "hard-drive" },
+                { tag: "normal", properties: { iconName: "memory-stick", detailIconName: "hard-drive" },
                     icons: ["memory-stick", "hard-drive"], colours: ["normal", "normal"] },
-                { tag: "count-without-icon", properties: { iconName: "cpu", countLevel: "danger" },
+                { tag: "detail-without-icon", properties: { iconName: "cpu", detailLevel: "danger" },
                     icons: ["cpu"], colours: ["normal"] }
             ];
         }
@@ -543,7 +630,7 @@ Item {
         function test_stacked_lines_draw_their_own_icons(data) {
             const tone = "#123456";
             const colours = { normal: Qt.color(tone), warning: Qt.color(Theme.color.warning), danger: Qt.color(Theme.color.danger) };
-            const item = createTemporaryObject(readingCase, root, Object.assign({ stacked: true, tone: tone, text: "5%", count: "41°" }, data.properties));
+            const item = createTemporaryObject(readingCase, root, Object.assign({ stacked: true, tone: tone, text: "5%", detail: "41°" }, data.properties));
             verify(item !== null);
             compare(firstIcon(item).parent.visible, false, "the one icon is gone");
             const values = labels(item);
@@ -571,14 +658,14 @@ Item {
         // the item is as wide as the same item showing its samples, and
         // keeps that width as its readings change.
         function test_stacked_icons_hold_the_block_width() {
-            const icons = { iconName: "cpu", countIconName: "thermometer", stacked: true };
-            const held = createTemporaryObject(readingCase, root, Object.assign({ text: "3%", textSample: "100%", count: "41°", countSample: "100°" }, icons));
-            const wide = createTemporaryObject(readingCase, root, Object.assign({ text: "100%", count: "100°", y: 40 }, icons));
+            const icons = { iconName: "cpu", detailIconName: "thermometer", stacked: true };
+            const held = createTemporaryObject(readingCase, root, Object.assign({ text: "3%", textSample: "100%", detail: "41°", detailSample: "100°" }, icons));
+            const wide = createTemporaryObject(readingCase, root, Object.assign({ text: "100%", detail: "100°", y: 40 }, icons));
             verify(held !== null && wide !== null);
             tryVerify(() => wide.width > wide.height, 1000, "the wide item lays out");
             tryCompare(held, "width", wide.width, 1000, "the held item is as wide as its samples shown");
             held.text = "100%";
-            held.count = "100°";
+            held.detail = "100°";
             verify(renderedFrame(held));
             compare(held.width, wide.width, "the item keeps its width as its readings change");
         }
@@ -588,7 +675,7 @@ Item {
         function test_stacked_lines_keep_their_case() {
             compare(UnitTheme.override({ text: { bar: { uppercase: true } } }), "ok");
             const one = createTemporaryObject(readingCase, root, { text: "1 MB/s" });
-            const item = createTemporaryObject(readingCase, root, { stacked: true, iconName: "arrow-up", countIconName: "arrow-down", text: "1 MB/s", count: "2 KB/s", y: 40 });
+            const item = createTemporaryObject(readingCase, root, { stacked: true, iconName: "arrow-up", detailIconName: "arrow-down", text: "1 MB/s", detail: "2 KB/s", y: 40 });
             verify(one !== null && item !== null);
             compare(labels(one)[0].font.capitalization, Font.AllUppercase, "the theme uppercases the bar role");
             const found = labels(item);
@@ -598,13 +685,13 @@ Item {
 
         // One line, a spinner or one reading shown: the item keeps its one
         // mark and its lines draw no icons. One line, a caption draws once
-        // and the count's label not at all.
+        // and the detail's label not at all.
         function test_the_one_mark_stays_data() {
             return [
-                { tag: "one-line", properties: { iconName: "cpu", countIconName: "thermometer", text: "5%", count: "41°", separator: "/" }, glyph: true },
-                { tag: "one-reading", properties: { iconName: "cpu", countIconName: "thermometer", text: "5%", stacked: true }, glyph: true },
-                { tag: "spinner", properties: { iconName: "cpu", countIconName: "thermometer", text: "5%", count: "41°", stacked: true, spinning: true }, glyph: true },
-                { tag: "one-line-caption", properties: { iconName: "cpu", countIconName: "thermometer", caption: "CPU", countCaption: "TMP", text: "5%", count: "41°", separator: "/" }, glyph: false }
+                { tag: "one-line", properties: { iconName: "cpu", detailIconName: "thermometer", text: "5%", detail: "41°", separator: "/" }, glyph: true },
+                { tag: "one-reading", properties: { iconName: "cpu", detailIconName: "thermometer", text: "5%", stacked: true }, glyph: true },
+                { tag: "spinner", properties: { iconName: "cpu", detailIconName: "thermometer", text: "5%", detail: "41°", stacked: true, spinning: true }, glyph: true },
+                { tag: "one-line-caption", properties: { iconName: "cpu", detailIconName: "thermometer", caption: "CPU", detailCaption: "TMP", text: "5%", detail: "41°", separator: "/" }, glyph: false }
             ];
         }
 
@@ -623,19 +710,19 @@ Item {
         // one column as wide as the wider, so both values start at one x.
         function test_stacked_lines_draw_their_own_labels_data() {
             return [
-                { tag: "levels", properties: { caption: "CPU", countCaption: "TMP", textLevel: "warning", countLevel: "danger" }, colours: ["warning", "danger"] },
-                { tag: "unequal", properties: { caption: "GPU", countCaption: "T" }, colours: ["normal", "normal"] },
-                { tag: "unequal-text-shorter", properties: { caption: "M", countCaption: "SWP", countLevel: "warning" }, colours: ["normal", "warning"] }
+                { tag: "levels", properties: { caption: "CPU", detailCaption: "TMP", textLevel: "warning", detailLevel: "danger" }, colours: ["warning", "danger"] },
+                { tag: "unequal", properties: { caption: "GPU", detailCaption: "T" }, colours: ["normal", "normal"] },
+                { tag: "unequal-text-shorter", properties: { caption: "M", detailCaption: "SWP", detailLevel: "warning" }, colours: ["normal", "warning"] }
             ];
         }
 
         function test_stacked_lines_draw_their_own_labels(data) {
             const tone = "#123456";
             const colours = { normal: Qt.color(tone), warning: Qt.color(Theme.color.warning), danger: Qt.color(Theme.color.danger) };
-            const item = createTemporaryObject(readingCase, root, Object.assign({ stacked: true, tone: tone, iconName: "cpu", text: "5%", count: "41°" }, data.properties));
+            const item = createTemporaryObject(readingCase, root, Object.assign({ stacked: true, tone: tone, iconName: "cpu", text: "5%", detail: "41°" }, data.properties));
             verify(item !== null);
             const found = labels(item);
-            compare(JSON.stringify(found.map(label => label.text)), JSON.stringify([data.properties.caption, "5%", data.properties.countCaption, "41°"]),
+            compare(JSON.stringify(found.map(label => label.text)), JSON.stringify([data.properties.caption, "5%", data.properties.detailCaption, "41°"]),
                 "each line draws its label and value, and no single caption stands before them");
             compare(firstIcon(item).parent.visible, false);
             compare(lineIcons(item).length, 0);
@@ -656,8 +743,8 @@ Item {
         // A spinner stays left of the stacked block: each line's box starts
         // the item gap after it, the shorter line too, with held room.
         function test_a_stacked_spinner_stands_the_item_gap_before_the_lines() {
-            const item = createTemporaryObject(readingCase, root, { stacked: true, spinning: true, iconName: "cpu", countIconName: "thermometer",
-                text: "3%", textSample: "100%", count: "41°", countSample: "100°" });
+            const item = createTemporaryObject(readingCase, root, { stacked: true, spinning: true, iconName: "cpu", detailIconName: "thermometer",
+                text: "3%", textSample: "100%", detail: "41°", detailSample: "100°" });
             verify(item !== null);
             const spinnerBox = firstIcon(item).parent;
             compare(spinnerBox.visible, true);
@@ -671,8 +758,8 @@ Item {
         function test_one_reading_stays_one_line_data() {
             return [
                 { tag: "text", properties: { text: "5%", stacked: true } },
-                { tag: "count", properties: { iconName: "shield", count: "12", stacked: true } },
-                { tag: "one-line", properties: { text: "5%", count: "9°", separator: "/" } }
+                { tag: "detail", properties: { iconName: "shield", detail: "12", stacked: true } },
+                { tag: "one-line", properties: { text: "5%", detail: "9°", separator: "/" } }
             ];
         }
 
@@ -691,7 +778,7 @@ Item {
         function test_theme_moves_the_item() {
             compare(UnitTheme.override({ bar: { item: { height: 30, paddingX: 9, icon: 20 } } }), "ok");
             compare(icon.height, 30);
-            compare(counted.leftPadding, 9);
+            compare(detailed.leftPadding, 9);
             compare(icon.width, 30);
             compare(firstIcon(icon).size, 20);
         }

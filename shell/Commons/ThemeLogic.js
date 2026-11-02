@@ -376,6 +376,9 @@ function readabilityWeights(values) {
         "badge.tone.warning.foreground": ["text.label.weight", "text.kbd.weight"],
         "badge.tone.danger.foreground": ["text.label.weight", "text.kbd.weight"],
         "badge.tone.info.foreground": ["text.label.weight", "text.kbd.weight"],
+        "badge.unread.tone.normal.foreground": ["text.label.weight", "text.bar.weight"],
+        "badge.unread.tone.warning.foreground": ["text.label.weight", "text.bar.weight"],
+        "badge.unread.tone.danger.foreground": ["text.label.weight", "text.bar.weight"],
         "carousel.hint": ["text.itemHint.weight", "text.h3.weight"],
         "carousel.hintActive": ["text.itemHint.weight", "text.h3.weight", "text.display.weight", "text.bodyStrong.weight"],
         "carousel.hintDanger": ["text.body.weight"],
@@ -408,6 +411,9 @@ var READABILITY_PAIRS = [
     ["badge.tone.warning.foreground", "badge.tone.warning.background"],
     ["badge.tone.danger.foreground", "badge.tone.danger.background"],
     ["badge.tone.info.foreground", "badge.tone.info.background"],
+    ["badge.unread.tone.normal.foreground", "badge.unread.tone.normal.background"],
+    ["badge.unread.tone.warning.foreground", "badge.unread.tone.warning.background"],
+    ["badge.unread.tone.danger.foreground", "badge.unread.tone.danger.background"],
     ["screensaver.foreground", "screensaver.background"],
     ["screensaver.gradientStart", "screensaver.background"],
     ["screensaver.gradientEnd", "screensaver.background"]
@@ -487,7 +493,10 @@ var READABILITY_NAMES = {
     "tooltip.detail": "Tooltip details", "tooltip.background": "tooltip backgrounds",
     "glass.fill solid": "glass panel backgrounds", "#000000": "black wallpaper",
     "screensaver.foreground": "Screensaver text", "screensaver.background": "the screensaver background",
-    "screensaver.gradientStart": "Screensaver gradient", "screensaver.gradientEnd": "Screensaver gradient tint"
+    "screensaver.gradientStart": "Screensaver gradient", "screensaver.gradientEnd": "Screensaver gradient tint",
+    "badge.unread.tone.normal.foreground": "Count figures", "badge.unread.tone.normal.background": "count badges",
+    "badge.unread.tone.warning.foreground": "Warning count figures", "badge.unread.tone.warning.background": "warning count badges",
+    "badge.unread.tone.danger.foreground": "Error count figures", "badge.unread.tone.danger.background": "error count badges"
 };
 var READABILITY_BADGE_NAMES = { neutral: "Neutral", accent: "Accent", success: "Success", warning: "Warning", danger: "Error", info: "Information" };
 

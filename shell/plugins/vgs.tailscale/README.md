@@ -9,6 +9,7 @@ Tailscale connects this computer to your tailnet. It turns the connection on and
 ## Features
 
 - A bar icon that shows the connection state and whether an exit node is in use.
+- A count on the bar icon of the devices connected to this computer, and a list of them with their user, what they use and since when.
 - A switch that turns Tailscale on and off and leaves your Tailscale settings as they are.
 - Saved accounts: switch between them, add one, sign in and sign out.
 - This device and your network devices, with their addresses to copy.

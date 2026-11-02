@@ -78,7 +78,7 @@ def mid_y(r): return r["box"][1] + r["box"][3] / 2
 def check(name, got, want):
     if not near(got, want): out.append("%s=%.2f want=%.2f" % (name, got, want))
 def children(rows, i, kind): return [c for c in rows if c["parent"] == i and c["type"] == kind]
-# A bar item draws its text and count as Readings (BarItem.qml), Labels
+# A bar item draws its text and detail as Readings (BarItem.qml), Labels
 # that hold a sample width.
 text_types = ("Label", "Reading")
 def within(rows, i, kinds):

@@ -37,7 +37,7 @@
     "showCount": {
       "type": "boolean",
       "label": "Show count",
-      "info": "Shows the number of running agents or problems beside the shield.",
+      "info": "Shows the number of running agents or problems on the corner of the shield.",
       "group": "Display"
     },
     "hideWhenIdle": {

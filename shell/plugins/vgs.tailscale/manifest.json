@@ -92,6 +92,17 @@
       "purpose": "Opens the Tailscale sign-in page and admin console in your browser"
     },
     {
+      "command": "ss",
+      "packages": {
+        "pacman": "iproute2",
+        "apt": "iproute2",
+        "dnf": "iproute",
+        "nix": "iproute2"
+      },
+      "optional": true,
+      "purpose": "Shows which devices are connected to this one"
+    },
+    {
       "command": "ssh",
       "packages": {
         "pacman": "openssh",
@@ -140,6 +151,10 @@
     "exitNodes": {
       "type": "data",
       "label": "Exit nodes"
+    },
+    "inbound": {
+      "type": "data",
+      "label": "Connected to this device"
     },
     "accountAdd": {
       "type": "state",

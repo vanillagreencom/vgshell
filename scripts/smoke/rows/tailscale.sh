@@ -33,6 +33,17 @@
 # start while a refresh arrives every second; sign-in hands the printed
 # address to the xdg-open stand-in; a daemon that is off offers Enable.
 #
+# Who is connected to this machine, over the row's `ss` stand-in, which
+# answers the socket table the row plants (fixtures inbound.ss and
+# outbound.ss over sheet.json) and records each call: every running poll
+# reads `ss -Htan state established state listening` after its status
+# read; two devices connected in draw 2 on the widget's corner, name it in
+# the widget's label and read in the flyout's "Connected to this device"
+# row, which Tab reaches after this device, and in the pane's section
+# after This device; outbound connections alone draw no badge and read No
+# one right now; a held socket read is killed at its poll's 10 s deadline
+# and the poll a refresh queued then starts and reads the table.
+#
 # The flyout, over the design's stand-in tailnet (fixtures sheet.json,
 # accounts.json, suggest.txt; design VGS-1923 § 4 and its VGS-1937
 # revision), by keys alone: the main view's title, switch, state line,
@@ -78,7 +89,8 @@
 # suggestion's deadline, retains a killed suggestion and does not know the access-denied text:
 # the stand-in records a call the service did not start, the held poll
 # and the held suggestion read outlive 20 s of asks, and the denied change
-# leaves the plain one's problem. The reason's place moved onto a text
+# leaves the plain one's problem. A copy whose deadline kills only the
+# status read leaves a held socket read running past 20 s. The reason's place moved onto a text
 # reads covered. The pointer off the locked switch reads its reason
 # closed, and the lock's Space reads no change, so neither reader always
 # passes.
@@ -86,9 +98,10 @@
 # The held poll's and the held suggestion's wait is the service's own 10 s
 # deadline, read on the wall clock with a refresh or an ask every second;
 # the row accepts 9 s to 20 s, since a request that moved the deadline
-# would hold it past any bound. Every other reading is expect_poll's, 0.2 s
+# would hold it past any bound. The held socket read takes one refresh,
+# which queues the next poll, and the same bounds. Every other reading is expect_poll's, 0.2 s
 # apart.
-# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.tailscale/* shell/plugins/vgs.system/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml scripts/fixtures/tailscale/* scripts/smoke/fixtures/devices/* shell/Commons/SettingValues.js shell/Commons/qmldir shell/Ui/layout/DeviceList.qml shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/TuiRunner.qml shell/Commons/Reply.js bin/lib/qml-library.js shell/plugins/vgs.vpn/manifest.json shell/Core/Config.qml shell/Core/Registry.qml shell/Core/ConfigLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system bin/vgshell-tui scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh shell/Ui/controls/RowAction.qml shell/Ui/controls/Switch.qml shell/Ui/controls/DisabledReason.qml shell/Ui/controls/UnlockMark.qml shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Ui/overlay/Tooltip.qml shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Ui/foundation/KeyNavLogic.js shell/Ui/feedback/CopyText.qml shell/Ui/feedback/Dialog.qml shell/Ui/feedback/EmptyState.qml shell/Ui/foundation/Scrim.qml shell/Ui/layout/Disclosure.qml shell/Ui/layout/ListItem.qml shell/Ui/layout/DeviceRow.qml shell/Ui/layout/Section.qml shell/Ui/controls/RowActions.qml shell/Ui/controls/TextField.qml shell/Hosts/NoticeHost.qml themes/vgs/theme.json themes/catalog/flexoki-light/theme.json shell/Ui/controls/Field.qml shell/Ui/controls/SegmentedControl.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Ui/controls/FormRow.qml shell/Ui/feedback/AvatarGroup.qml shell/Ui/feedback/AvatarFace.qml scripts/smoke/rows/capabilities.sh
+# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.tailscale/* shell/plugins/vgs.system/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml scripts/fixtures/tailscale/* scripts/smoke/fixtures/devices/* shell/Commons/SettingValues.js shell/Commons/qmldir shell/Ui/layout/DeviceList.qml shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/TuiRunner.qml shell/Commons/Reply.js bin/lib/qml-library.js shell/plugins/vgs.vpn/manifest.json shell/Core/Config.qml shell/Core/Registry.qml shell/Core/ConfigLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system bin/vgshell-tui scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh shell/Ui/controls/RowAction.qml shell/Ui/controls/Switch.qml shell/Ui/controls/DisabledReason.qml shell/Ui/controls/UnlockMark.qml shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Ui/overlay/Tooltip.qml shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Ui/foundation/KeyNavLogic.js shell/Ui/feedback/CopyText.qml shell/Ui/feedback/Dialog.qml shell/Ui/feedback/EmptyState.qml shell/Ui/foundation/Scrim.qml shell/Ui/layout/Disclosure.qml shell/Ui/layout/ListItem.qml shell/Ui/layout/DeviceRow.qml shell/Ui/layout/Section.qml shell/Ui/controls/RowActions.qml shell/Ui/controls/TextField.qml shell/Hosts/NoticeHost.qml themes/vgs/theme.json themes/catalog/flexoki-light/theme.json shell/Ui/controls/Field.qml shell/Ui/controls/SegmentedControl.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Ui/controls/FormRow.qml shell/Ui/feedback/AvatarGroup.qml shell/Ui/feedback/AvatarFace.qml shell/Ui/controls/BarItem.qml shell/Ui/feedback/Badge.qml scripts/smoke/rows/capabilities.sh
 set -euo pipefail
 expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: vgs[.]tailscale' 'plugins: split claim ignored id=vgs[.]tailscale reason=installed splitFrom=vgs[.]vpn')
 devices_ready tailscale || return 0
@@ -185,6 +198,23 @@ fi
 exec "$saved" "$@"
 EOF
 } | sentinel_stand_over "$shim/tailscale"
+# `ss` reads the sandbox's own network namespace, which holds no tailnet:
+# the row's stand-in answers the table the row plants in ss.table and
+# records each call, and on the `ss-hang` marker alone holds one read open
+# until `ss-release` or 60 s.
+cp -- "$tailscale_fixtures/outbound.ss" "$tailscale_dir/ss.table"
+{
+  printf '#!/usr/bin/env bash\ndir=%q\n' "$tailscale_dir"
+  cat <<'EOF'
+printf '%s\n' "$*" >>"$dir/ss.calls"
+if mv -- "$dir/ss-hang" "$dir/ss-hang.taken" 2>/dev/null; then
+  echo $$ >"$dir/ss-hang.pid.next" && mv -f -- "$dir/ss-hang.pid.next" "$dir/ss-hang.pid"
+  for _ in $(seq 1 600); do [[ -e $dir/ss-release ]] && exit 1; sleep 0.1; done
+  exit 1
+fi
+cat -- "$dir/ss.table"
+EOF
+} >"$shim/ss.next" && chmod 755 "$shim/ss.next" && mv -f -- "$shim/ss.next" "$shim/ss"
 
 tailscale_warning() { ipc smoke readInstance "$(bar_key)" vgs.tailscale view | py_reply 'import json,sys; print(str(json.load(sys.stdin)["warning"]).lower())'; }
 tailscale_widget() { ipc smoke readInstance "$(bar_key)" vgs.tailscale visible; }
@@ -467,6 +497,44 @@ tailscale_suggest_reading() {
 }
 tailscale_sign_out_look() { ipc smoke itemValues panel vgs.tailscale IconButton objectName,tone,iconName | py_reply 'import json,sys; print(json.dumps([[r["tone"], r["iconName"]] for r in json.load(sys.stdin) if r["objectName"] == "tailscale-sign-out"]))'; }
 tailscale_held() { [[ -e $tailscale_dir/hang.pid ]] && echo held || echo waiting; }
+# [state, count, peer ids] of the published `inbound`.
+tailscale_inbound() { ipc smoke statusValues vgs.tailscale | py_reply 'import json,sys; v=json.load(sys.stdin).get("inbound"); print("unpublished" if v is None else json.dumps([v["state"], v["count"], [r["id"] for r in v["rows"]]]))'; }
+tailscale_inbound_state() { ipc smoke statusValues vgs.tailscale | py_reply 'import json,sys; v=json.load(sys.stdin).get("inbound"); print("unpublished" if v is None else v["state"])'; }
+# The count the widget draws on its corner: `absent` while its BarItem
+# builds no Badge, `no-widget` while the bar holds no Tailscale BarItem.
+tailscale_badge() {
+  local item
+  item="$(ipc smoke readDescendant "$(bar_key)" vgs.tailscale BarItem count)" || return
+  [[ $item != absent ]] || { echo no-widget; return; }
+  ipc smoke readDescendant "$(bar_key)" vgs.tailscale Badge displayedText
+}
+# Holds the next socket read open, asks once more for a refresh, which
+# queues the poll after it, and waits for the held read to end: `killed`
+# when that takes 9 s to 20 s, with the time in $tailscale_dir/ss-hang.ms,
+# `killed ms=<n>` outside it, `postponed` when the read outlives 20 s,
+# which then releases it, `unheld` when no read took the marker.
+tailscale_ss_hang() {
+  local pid start elapsed
+  rm -f -- "${tailscale_dir:?}/ss-hang.pid" "${tailscale_dir:?}/ss-hang.taken" "${tailscale_dir:?}/ss-release"
+  : >"$tailscale_dir/ss-hang"
+  [[ $(tailscale_refresh) == ok ]] || { echo refresh-refused; return 0; }
+  for _ in $(seq 1 100); do
+    if [[ -e $tailscale_dir/ss-hang.pid ]]; then break; fi
+    sleep 0.1
+  done
+  [[ -e $tailscale_dir/ss-hang.pid ]] || { rm -f -- "${tailscale_dir:?}/ss-hang"; echo unheld; return 0; }
+  pid="$(<"$tailscale_dir/ss-hang.pid")"
+  start="$(now_ms)"
+  [[ $(tailscale_refresh) == ok ]] || { echo refresh-refused; return 0; }
+  while kill -0 "$pid" 2>/dev/null; do
+    elapsed=$(($(now_ms) - start))
+    if ((elapsed >= 20000)); then : >"$tailscale_dir/ss-release"; echo postponed; return 0; fi
+    sleep 0.2
+  done
+  elapsed=$(($(now_ms) - start))
+  printf '%s\n' "$elapsed" >"$tailscale_dir/ss-hang.ms"
+  if ((elapsed >= 9000)); then echo killed; else echo "killed ms=$elapsed"; fi
+}
 tailscale_view() { ipc smoke readInstance panel vgs.tailscale view; }
 tailscale_focus() { ipc smoke activeFocusItem "${1:-panel}" vgs.tailscale; }
 # The stop fixture's public access state and actual focus, before and
@@ -993,6 +1061,34 @@ device_reply tailscale 0 "$(<"$tailscale_fixtures/suggest.txt")" exit-node sugge
 expect "an ask reads the suggestion back" ok ipc vgs.tailscale invoke suggest ""
 expect_poll "the suggestion returns" '[{"id": "nSHEET0024CNTRL", "name": "Stockholm, Sweden"}, ""]' tailscale_suggest_reading
 
+# Who is connected to this machine, over the design's tailnet.
+expect "ss receives the socket table request" '-Htan state established state listening' head -1 "$tailscale_dir/ss.calls"
+expect_poll "outbound connections alone read no one" '["read", 0, []]' tailscale_inbound
+expect "outbound connections alone draw no badge" absent tailscale_badge
+cp -- "$tailscale_fixtures/inbound.ss" "$tailscale_dir/ss.table"
+expect "a refresh reads the inbound table" ok tailscale_refresh
+expect_poll "the service publishes the two devices connected in" '["read", 2, ["nSHEET0003CNTRL", "nSHEET0004CNTRL"]]' tailscale_inbound
+expect_poll "the widget draws 2 on its corner" '"2"' tailscale_badge
+expect "the widget's name says who is connected" '"Tailscale, 2 devices connected to this one"' ipc smoke readDescendant "$(bar_key)" vgs.tailscale BarItem label
+expect "the flyout opens on the devices connected in" ok ipc shell summon panel vgs.tailscale '{"source":"smoke"}'
+expect_poll "the flyout's row reads the two devices and their kinds" "$(words "Connected to this device" "2 devices · SSH, Tailscale, port 8080")" tailscale_drawn panel Disclosure tailscale-inbound
+expect "the flyout closes after the devices connected in" ok ipc shell hide panel vgs.tailscale
+cp -- "$tailscale_fixtures/outbound.ss" "$tailscale_dir/ss.table"
+expect "a refresh reads outbound connections alone" ok tailscale_refresh
+expect_poll "outbound connections alone read no one again" '["read", 0, []]' tailscale_inbound
+expect_poll "the badge goes with them" absent tailscale_badge
+# A held socket read: killed at the poll's deadline, and the poll the
+# refresh queued then starts and reads the table.
+cp -- "$tailscale_fixtures/inbound.ss" "$tailscale_dir/ss.table"
+read_count tailscale_kills_before "tailscale: polls killed before the held socket read" ipc smoke readInstance service vgs.tailscale pollsKilled
+expect "a held socket read is killed by the poll's 10 s deadline" killed tailscale_ss_hang
+if [[ -e $tailscale_dir/ss-hang.ms ]]; then printf '        the held socket read ended %s ms after it was held\n' "$(<"$tailscale_dir/ss-hang.ms")"; fi
+expect "the service counts the held socket read killed" "$((tailscale_kills_before + 1))" ipc smoke readInstance service vgs.tailscale pollsKilled
+expect_poll "the queued poll reads the table after the kill" '["read", 2, ["nSHEET0003CNTRL", "nSHEET0004CNTRL"]]' tailscale_inbound
+cp -- "$tailscale_fixtures/outbound.ss" "$tailscale_dir/ss.table"
+expect "a refresh returns to outbound connections alone" ok tailscale_refresh
+expect_poll "no one is connected again" '["read", 0, []]' tailscale_inbound
+
 # The denied sign-in above left its problem, which the views draw until
 # the next change starts; one change that ends clears it. The control
 # copy at the end reads `set --exit-node=` failing again.
@@ -1007,7 +1103,8 @@ expect_poll "the design pane's setup check finishes" ready tailscale_ready
 expect "the fresh setup reply leaves the design pane's focus on its body" '["TailscaleBody",null]' tailscale_focus window
 expect "the Connection field draws its switch" shown tailscale_shown_of window Field tailscale-connection-section
 expect "the pane's named sections end in Updates" \
-  '["This device", "Exit node", "Network devices", "Admin console", "Updates"]' tailscale_pane_sections
+  '["This device", "Connected to this device", "Exit node", "Network devices", "Admin console", "Updates"]' tailscale_pane_sections
+expect "the pane reads no one connected over outbound connections alone" '["Connected to this device", "No one right now"]' tailscale_drawn window Section tailscale-inbound-section
 expect "the accounts card is above the pane sections" shown tailscale_shown_of window Card tailscale-accounts-card
 expect "the card retains both saved account rows" \
   "$(words amelie@example.com example.com "In use" amelie@example.org example.org)" tailscale_drawn window DeviceList tailscale-accounts
@@ -1124,7 +1221,8 @@ tailscale_tab "Tab reaches the card Add account" '["IconButton","Add account"]'
 tailscale_tab "Tab reaches the card Sign out" '["IconButton","Sign out"]'
 tailscale_tab "Tab reaches the saved accounts" '["DeviceRow","amelie@example.com"]'
 tailscale_tab "Tab reaches this device" '["DeviceRow","desk"]'
-tailscale_tab "Tab passes this device's copy icon by" '["ListItem","Network devices"]'
+tailscale_tab "Tab passes this device's copy icon by to who is connected" '["ListItem","Connected to this device"]'
+tailscale_tab "Tab reaches the network devices row" '["ListItem","Network devices"]'
 tailscale_tab "Tab reaches the exit node row" '["ListItem","Exit node"]'
 tailscale_tab "Tab reaches Open admin console" '["Button","Open admin console"]'
 tailscale_tab "Tab reaches Tailscale settings" '["Button","Tailscale settings"]'
@@ -1153,6 +1251,7 @@ expect_poll "Return on the row reads Copied while CopyText confirms" '[true, "Co
 expect_poll "the nested clipboard holds this device's IPv4 address" 100.64.0.1 tailscale_clipboard
 expect_poll "the copy icon reads Copy again once the confirmation ends" '[false, "Copy"]' tailscale_copy_reading
 # The network devices, opened by keys.
+tailscale_tab "Tab reaches who is connected on the way" '["ListItem","Connected to this device"]'
 tailscale_tab "Tab reaches the network devices row to open it" '["ListItem","Network devices"]'
 tailscale_key space
 expect_poll "the network devices list each peer with its address, online first" \
@@ -1559,6 +1658,7 @@ text = service.read_text()
 for old, new in (
     ("        runPoll(\"refresh\");\n        requestAccounts();\n", "        if (watchdog.running) watchdog.restart();\n        runPoll(\"refresh\");\n        requestAccounts();\n"),
     ("        if (suggester.running) return \"busy\";\n", "        if (suggester.running) { suggestDeadline.restart(); return \"busy\"; }\n"),
+    ("else if (sockets.running) sockets.signal(9);", "else if (false) sockets.signal(9);"),
 ):
     assert text.count(old) == 1, old
     text = text.replace(old, new)
@@ -1592,6 +1692,8 @@ expect "control: the clipboard judge rejects a wrong value despite Copied" misma
 expect "the clipboard control pane closes" ok ipc shell hide window vgs.system
 expect_poll "control: a widget that polls on its own is a call the service did not start" extra tailscale_surplus "$tailscale_control_before"
 expect "control: a service that does not know the access-denied text leaves the plain failure's problem" same tailscale_failures
+expect "control: a deadline that kills only the status read leaves the held socket read past 20 s" postponed tailscale_ss_hang
+expect_poll "the released control read lets the poll end and read again" read tailscale_inbound_state
 expect "control: a refresh that restarts the watchdog holds the poll past 20 s" postponed tailscale_hang
 expect "the suggestion control reads the design's tailnet" ok tailscale_sheet_as Running
 expect_poll "the control's service reads Tailscale running before its suggestion control" '"running"' tailscale_value state
@@ -1622,5 +1724,6 @@ device_reply_clear tailscale
 device_reply_clear systemctl
 device_reply_clear xdg-open
 sentinel_restore "$shim/tailscale"
+rm -f -- "${shim:?}/ss"
 hypr_lua_restore tailscale || fail "hyprland.lua is put back after the Tailscale row's keyboard paths"
 expect "the nested instance reloads hyprland.lua as the row found it" ok hypr reload config-only

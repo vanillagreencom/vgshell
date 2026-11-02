@@ -110,6 +110,9 @@ function probe(over) {
 // The bar's tone and the popover header's Badge tone for each headline
 // tone, stated here apart from the logic.
 const BAR = { ok: "calm", info: "calm", warning: "warning", danger: "danger" };
+// The corner count's level under each headline tone: the icon's own
+// warning or danger, else normal.
+const COUNT_LEVEL = { ok: "normal", info: "normal", warning: "warning", danger: "danger" };
 const BADGE = { ok: "success", info: "info", warning: "warning", danger: "danger" };
 
 // The sentences that send the user to the Setup tab's sign-in step, read
@@ -284,6 +287,7 @@ function verify(L) {
         }
         const needing = rec.conflicts.filter(c => c.needs === "you").length;
         same([bar.hidden, bar.tone, bar.icon, bar.badge], [false, BAR[tone], icon, needing > 0 ? String(needing) : ""], label + ": the bar counts only the files that need the user");
+        assert.equal(bar.countLevel, COUNT_LEVEL[tone], label + ": the count takes the icon's level");
         assert.equal(bar.spinning, rec.state === "running", label + ": the spinner");
     }
 
@@ -804,6 +808,8 @@ function verify(L) {
 verify(load(file));
 
 const controls = [
+    ["a warning count takes the normal fill", 'return tone === "warning" || tone === "danger" ? tone : "normal";', 'return tone === "danger" ? tone : "normal";'],
+    ["a danger count takes the normal fill", 'return tone === "warning" || tone === "danger" ? tone : "normal";', 'return tone === "warning" ? tone : "normal";'],
     ["the first pair waits for a sign-in", 'if (presence !== null && presence.token.presence !== "present")\n        return', 'if (false)\n        return'],
     ["first pair cannot finish empty", 'if (cloud.pairs.length > 0) return { tone: "ok", text: "A folder pair is ready" };', 'return { tone: "ok", text: "A folder pair is ready" };'],
     ["the sign-in step offers Sign in while none is stored", 'text: "Not signed in", action: "signIn" };', 'text: "Not signed in" };'],
@@ -832,7 +838,7 @@ const controls = [
     ["an unreadable pair list keeps the bar", "(cloud.pairs.length === 0 && pairListValid(cloud))", "cloud.pairs.length === 0"],
     ["files that need the user win over the state", "if (cloud.needsYou > 0) return {", "if (false) return {"],
     ["a note never raises the headline", "if (cloud.needsYou > 0) return {", "if (cloud.conflictCount > 0) return {"],
-    ["the bar reads the headline", "var head = headline(cloud, now);\n    return { hidden: false", "var head = stateView(cloud.state, cloud.staleAfter, now);\n    return { hidden: false"],
+    ["the bar reads the headline", "var head = headline(cloud, now);\n    var tone", "var head = stateView(cloud.state, cloud.staleAfter, now);\n    var tone"],
     ["the tooltip reads the headline", "var head = headline(cloud, now);\n    var lines = pairLines(cloud.pairs, now);", "var head = stateView(cloud.state, cloud.staleAfter, now);\n    var lines = pairLines(cloud.pairs, now);"],
     ["the popover header reads the headline", "var head = headline(cloud, now);\n    var stopped", "var head = withCause(stateView(cloud.state, cloud.staleAfter, now), cloud.state);\n    var stopped"],
     ["the header says when the sync stopped", "if (!stopped && cloud.pairs.length > 0) meta +=", "if (cloud.pairs.length > 0) meta +="],

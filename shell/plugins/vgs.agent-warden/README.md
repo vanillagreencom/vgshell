@@ -30,7 +30,7 @@ vsys warden install
 
 | Setting | What it changes |
 | --- | --- |
-| Show count | Shows the number of running agents or problems beside the shield. |
+| Show count | Shows the number of running agents or problems on the corner of the shield. |
 | Hide when idle | Hides the shield when no agents run and nothing needs attention. |
 | Notifications | Alerts for problems, all events or none. |
 

@@ -747,6 +747,24 @@ var TOKENS = {
             warning: tone("warning"),
             danger: tone("danger"),
             info: tone("info")
+        },
+        // The unread count (Badge's `unread` variant): each level's fill
+        // and figures, and `corner`, the count at a bar item's top-right:
+        // a circle `height` across, a stacked line tall, with a `border`
+        // ring in `borderColor`, the bar's background, parting it from the
+        // glyph. At the shipped 24 px item the corner count is a 12 px
+        // circle with a 1 px ring.
+        unread: {
+            tone: {
+                normal: { background: color("{color.accent}"), foreground: color("{color.onAccent}") },
+                warning: { background: color("{color.warning}"), foreground: color("{color.onWarning}") },
+                danger: { background: color("{color.danger}"), foreground: color("{color.onDanger}") }
+            },
+            corner: {
+                height: length("{bar.stacked.lineHeight}"),
+                border: length("{border.thin}"),
+                borderColor: color("{bar.background}")
+            }
         }
     },
 

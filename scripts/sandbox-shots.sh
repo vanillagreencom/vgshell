@@ -7059,9 +7059,13 @@ backend_widget_shots() { # NAME MODE
   expect_poll "the $1 tooltip closes" false tooltip_opened "vgs.$1"
 }
 # The pane and widget shots run over the design's tailnet, whose account
-# list is accounts.json, so the account row and its list name one account.
+# list is accounts.json, so the account row and its list name one account,
+# and with the two devices connected in of the smoke row's inbound.ss,
+# from an `ss` stand-in, since the sandbox's own sockets hold no tailnet.
 tailscale_shot_prepare() {
   devices_ready tailscale-shot || return 1
+  printf '#!/usr/bin/env bash\nexec cat -- %q\n' "$checkout/scripts/fixtures/tailscale/inbound.ss" >"$shim/ss.next" \
+    && chmod 755 "$shim/ss.next" && mv -f -- "$shim/ss.next" "$shim/ss" || { fail "the Tailscale shot's ss stand-in could not be written"; return 1; }
   device_reply tailscale 0 "$(<"$repo/scripts/fixtures/tailscale/sheet.json")" status --json
   device_reply tailscale 0 "$(<"$repo/scripts/fixtures/tailscale/accounts.json")" switch --list --json
   device_reply tailscale 0 "$(<"$repo/scripts/fixtures/tailscale/suggest-none.txt")" exit-node suggest
@@ -7100,7 +7104,9 @@ tailscale_shot_finish() {
   expect "Tailscale disables after its shot" ok ipc shell setPluginEnabled vgs.tailscale false
   device_reply_clear tailscale
   device_reply_clear systemctl
+  rm -f -- "${shim:?}/ss"
 }
+tailscale_shot_inbound() { ipc smoke readMatchingDescendant panel vgs.tailscale Disclosure objectName tailscale-inbound "$1"; }
 scene_tailscale-starting() { # MODE
   tailscale_shot_prepare || return 0
   tailscale_starting_shot "$1"
@@ -7108,6 +7114,16 @@ scene_tailscale-starting() { # MODE
 }
 scene_tailscale() { # MODE
   tailscale_shot_prepare || return 0
+  tailscale_shot_views "$1"
+  expect "System disables after the Tailscale shot" ok ipc shell setPluginEnabled vgs.system false
+  tailscale_shot_finish
+}
+# The pane, dropdown and widget shots of scene_tailscale. A step that
+# stops the shots records its failure and returns 0, so the scene's
+# teardown still runs. The scene calls this outside any condition: there
+# errexit still ends the run at a failure nothing recorded, where a call
+# in an || list would run this body with errexit off.
+tailscale_shot_views() { # MODE
   expect "System enables for the Tailscale shot" ok ipc shell setPluginEnabled vgs.system true
   expect "the Tailscale pane summons" ok ipc shell summon window vgs.system '{"pane":"vgs.tailscale"}'
   expect_poll "the Tailscale pane reads its fixture" '["running", 2]' tailscale_shot_read
@@ -7131,11 +7147,19 @@ scene_tailscale() { # MODE
   expect_poll "the Tailscale dropdown opens" shown tailscale_shot_panel
   park_pointer
   take "tailscale-$1-dropdown"
+  # A tree that draws who is connected to this device opens that row.
+  local inbound
+  inbound="$(tailscale_shot_inbound visible)" || { fail "the Tailscale dropdown's Connected to this device row is unreadable"; return 0; }
+  if [[ $inbound == true ]]; then
+    tailscale_flyout_tab_to '["ListItem","Connected to this device"]' || return 0
+    type_keys -k space || fail "Space on the Connected to this device row failed"
+    expect_poll "the Connected to this device row opens" true tailscale_shot_inbound expanded
+    park_pointer
+    take "tailscale-$1-dropdown-connected"
+  fi
   expect "the Tailscale dropdown hides" ok ipc shell hide panel vgs.tailscale
-  backend_widget_shots tailscale "$1"
+  backend_widget_shots tailscale "$1" || return 0
   tailscale_starting_shot "$1"
-  expect "System disables after the Tailscale shot" ok ipc shell setPluginEnabled vgs.system false
-  tailscale_shot_finish
 }
 tailscale_shot_end() { ipc smoke revealText window vgs.system Field "Check every" | py_reply 'import sys; s=sys.stdin.read().strip(); print("scrolled" if s.replace(".", "", 1).isdigit() else s)'; }
 tailscale_shot_panel() {
@@ -7221,7 +7245,7 @@ print("state=%s text=%s exit=%s suggestion=%s accounts=%d view=%s focus=%s icon=
 tailscale_flyout_take() { # NAME [posed]
   local reading
   reading="$(tailscale_flyout_reading)" || reading=unreadable
-  printf '%s\t%s\t%s\n' tailscale-flyout "$1.png" "$reading" >>"$SHOT_DIR/tailscale-states.tsv"
+  printf '%s\t%s\t%s\n' tailscale-flyout "$1.png" "$reading" >>"$SHOT_DIR/tailscale-states.tsv" || { fail "shot $1 not taken: its tailscale-states.tsv line was not written"; return; }
   if [[ ${2:-} == posed ]]; then take_posed "$1"; else take "$1"; fi
 }
 # tailscale_flyout_tab_to WANT: Tab until the flyout's keys are on WANT, up
@@ -7232,7 +7256,7 @@ tailscale_flyout_tab_to() { # WANT
   for _ in $(seq 1 20); do
     [[ $at == "$1" ]] && return 0
     before="$at"
-    type_keys -k Tab || return 1
+    type_keys -k Tab || { fail "Tab in the Tailscale flyout failed at $at"; return 1; }
     for _ in $(seq 1 10); do
       at="$(tailscale_flyout_focus)" || at=unreadable
       [[ $at != "$before" ]] && break
@@ -7240,6 +7264,193 @@ tailscale_flyout_tab_to() { # WANT
     done
   done
   [[ $at == "$1" ]] || { fail "Tab never reached $1 in the Tailscale flyout: at $at"; return 1; }
+}
+# The shots of scene_tailscale-flyout, over its stand-in and its DIR of
+# markers. A failed step stops them as one stops tailscale_shot_views.
+tailscale_flyout_shots() { # MODE DIR
+  local mode="$1" dir="$2"
+  # The bar icon, v2-bar-icons' Tailscale strip.
+  tailscale_flyout_bar_shot "$mode" exit-node '"earth-lock"' false || return 0
+  expect "Tailscale reads the tailnet with no exit node" ok tailscale_flyout_status Running none
+  expect_poll "Tailscale publishes Connected" '["running", "Connected"]' tailscale_flyout_published
+  tailscale_flyout_bar_shot "$mode" connected '"route"' false || return 0
+  expect "Tailscale reads the tailnet starting" ok tailscale_flyout_status Starting
+  expect_poll "Tailscale publishes Starting" '["starting", "Starting"]' tailscale_flyout_published
+  tailscale_flyout_bar_shot "$mode" starting '"route-off"' true || return 0
+  expect "Tailscale reads the tailnet off" ok tailscale_flyout_status Stopped
+  expect_poll "Tailscale publishes Off" '["stopped", "Off"]' tailscale_flyout_published
+  tailscale_flyout_bar_shot "$mode" off '"route-off"' false || return 0
+  device_reply tailscale 0 "$(<"$(tailscale_fixture logged-out.json)")" status --json
+  expect "Tailscale reads the tailnet signed out" ok ipc vgs.tailscale invoke refresh ""
+  expect_poll "Tailscale publishes Signed out" '["signed-out", "Signed out"]' tailscale_flyout_published
+  tailscale_flyout_bar_shot "$mode" signed-out '"route-off"' false || return 0
+  : >"$dir/service-off"
+  device_reply systemctl 3 "" is-active --quiet tailscaled.service
+  tree_rescan "the Tailscale flyout shots probe the stopped service"
+  expect "Tailscale reads the service off" ok ipc vgs.tailscale invoke refresh ""
+  expect_poll "Tailscale publishes the service off" '["service-off", "The Tailscale service is off."]' tailscale_flyout_published
+  expect_poll "the service-off icon draws the warning tone" true tailscale_flyout_warning
+  tailscale_flyout_bar_shot "$mode" service-off '"route-off"' false || return 0
+
+  # Service off, with Enable on the locked switch (tailscale-flyout-c).
+  expect_poll "a stopped service offers Enable for its flyout" enable tailscale_flyout_setup
+  tailscale_flyout_open "the service-off shot" || return 0
+  expect_poll "the service-off flyout offers Enable" true tailscale_flyout_named RowAction tailscale-setup visible
+  tailscale_flyout_take "tailscale-flyout-$mode-service-off"
+  rm -f -- "${dir:?}/service-off"
+  device_reply systemctl 0 "" is-active --quiet tailscaled.service
+  tree_rescan "the Tailscale flyout shots find the service running again"
+
+  # Main, Account open with the keys on Sign out, the sign-out
+  # confirmation (v2-tailscale-flyout), then account and devices open with
+  # Copied (tailscale-flyout-a).
+  device_reply tailscale 0 "$(<"$(tailscale_fixture sheet.json)")" status --json
+  expect "Tailscale reads the design's tailnet again" ok ipc vgs.tailscale invoke refresh ""
+  expect_poll "Tailscale publishes the exit node in use again" '["running", "Connected through Stockholm, Sweden"]' tailscale_flyout_published
+  expect_poll "Tailscale publishes the suggestion again" '"Stockholm, Sweden"' tailscale_flyout_suggestion
+  tailscale_flyout_open "the main shot" || return 0
+  tailscale_flyout_take "tailscale-flyout-$mode-main"
+  expect_poll "the account card is visible" true tailscale_flyout_named Card tailscale-accounts-card visible
+  tailscale_flyout_tab_to '["IconButton","Sign out"]' || return 0
+  tailscale_flyout_take "tailscale-flyout-$mode-account-sign-out-focus" posed
+  type_keys -k Return || fail "Return on Sign out failed"
+  expect_poll "Sign out's confirmation opens on Cancel" '["Button","Cancel"]' tailscale_flyout_focus
+  tailscale_flyout_take "tailscale-flyout-$mode-sign-out-confirm" posed
+  type_keys -k Return || fail "Return on Cancel failed"
+  expect_poll "Cancel returns the keys to Sign out" '["IconButton","Sign out"]' tailscale_flyout_focus
+  tailscale_flyout_tab_to '["ListItem","Network devices"]' || return 0
+  type_keys -k space || fail "Space on the network devices row failed"
+  expect_poll "the network devices row opens" true tailscale_flyout_named Disclosure tailscale-network-devices expanded
+  # This device's row, the Tab stop before the network devices row, copies
+  # on Return, as its copy icon does on a click.
+  type_keys -M shift -k Tab -m shift || fail "Shift+Tab to this device failed"
+  # A tree that draws who is connected to this device holds that row
+  # between the two.
+  local inbound
+  inbound="$(tailscale_flyout_named Disclosure tailscale-inbound visible)" || { fail "the flyout's Connected to this device row is unreadable"; return 0; }
+  if [[ $inbound == true ]]; then
+    expect_poll "the keys reach who is connected" '["ListItem","Connected to this device"]' tailscale_flyout_focus
+    type_keys -M shift -k Tab -m shift || fail "Shift+Tab past who is connected failed"
+  fi
+  expect_poll "the keys reach this device" '["DeviceRow","desk"]' tailscale_flyout_focus
+  type_keys -k Return || fail "Return on this device failed"
+  expect_poll "Copy reads Copied" true ipc smoke readDescendant panel vgs.tailscale CopyText confirming
+  tailscale_flyout_take "tailscale-flyout-$mode-account-devices-copied" posed
+
+  # The device rows (VGS-2109): this device's copy icon, Connect in
+  # terminal before copy on the devices that run an ssh server, copy alone
+  # on a phone; each icon's tooltip, and Copied after a click.
+  tailscale_flyout_open "the device row shots" || return 0
+  tailscale_flyout_tab_to '["ListItem","Network devices"]' || return 0
+  type_keys -k space || fail "Space on the network devices row failed"
+  expect_poll "the network devices row opens for the row shots" true tailscale_flyout_named Disclosure tailscale-network-devices expanded
+  expect_poll "attic-nas draws Connect in terminal" true tailscale_flyout_named IconButton nSHEET0003CNTRL/connect visible
+  expect_poll "pixel draws copy" true tailscale_flyout_named IconButton nSHEET0004CNTRL/copy visible
+  expect "pixel draws no Connect in terminal" absent tailscale_flyout_named IconButton nSHEET0004CNTRL/connect visible
+  tailscale_flyout_take "tailscale-flyout-$mode-device-rows"
+  # A network row's menu, from Shift+F10: it holds the row's icons and
+  # hangs from them, since the row draws no overflow button.
+  type_keys -k Tab || fail "Tab to the network devices' list failed"
+  expect_poll "the keys reach attic-nas for its menu" '["DeviceRow","attic-nas"]' tailscale_flyout_focus
+  type_keys -M shift -k F10 -m shift || fail "Shift+F10 on attic-nas failed"
+  expect_poll "attic-nas's menu opens" true tailscale_flyout_menu_shown
+  tailscale_flyout_take "tailscale-flyout-$mode-device-menu" posed
+  type_keys -k Escape || fail "Escape from attic-nas's menu failed"
+  expect_poll "the menu closes" false tailscale_flyout_menu_shown
+  type_keys -M shift -k Tab -m shift || fail "Shift+Tab to the network devices row failed"
+  expect_poll "the keys return to the network devices row" '["ListItem","Network devices"]' tailscale_flyout_focus
+  expect "the device rows scroll to their end" moved tailscale_flyout_scroll_end
+  tailscale_flyout_take "tailscale-flyout-$mode-device-rows-end"
+  ipc smoke scrollTo panel vgs.tailscale 0 >/dev/null || fail "the flyout did not scroll back to its top"
+  tailscale_flyout_icon_tip "Copy" "this device's copy" || return 0
+  tailscale_flyout_take "tailscale-flyout-$mode-copy-tooltip" posed
+  tailscale_flyout_icon_tip "Connect in terminal" "attic-nas's Connect in terminal" || return 0
+  tailscale_flyout_take "tailscale-flyout-$mode-connect-tooltip" posed
+  # Copied under the pointer: the copy runs from the row's Return, since a
+  # press on the icon closes its tooltip until the pointer leaves.
+  type_keys -M shift -k Tab -m shift || fail "Shift+Tab to this device failed"
+  expect_poll "the keys reach this device for Copied" '["DeviceRow","desk"]' tailscale_flyout_focus
+  tailscale_flyout_icon_tip "Copy" "this device's copy before Copied" || return 0
+  type_keys -k Return || fail "Return on this device failed"
+  expect_poll "this device's copy reads Copied" '"Copied"' tailscale_flyout_named IconButton tailscale-self-copy label
+  expect_poll "the copy icon's tooltip reads Copied" '"Copied"' tailscale_flyout_tip
+  tailscale_flyout_take "tailscale-flyout-$mode-copied-tooltip" posed
+  park_pointer
+
+  # The Exit nodes view, Sweden's view, a search and no match
+  # (tailscale-flyout-a and -b).
+  tailscale_flyout_open "the Exit nodes shots" || return 0
+  tailscale_flyout_tab_to '["ListItem","Exit node"]' || return 0
+  type_keys -k Return || fail "Return on the exit node row failed"
+  expect_poll "the Exit nodes view opens on its search field" '["TextField",""]' tailscale_flyout_focus
+  expect_poll "the Exit nodes view lists Recommended first" '"recommended"' ipc smoke readMatchingDescendant panel vgs.tailscale DeviceList objectName tailscale-exit-top currentKey
+  tailscale_flyout_take "tailscale-flyout-$mode-exit-nodes" posed
+  type_keys -k Down || fail "Down from the search field failed"
+  tailscale_flyout_tab_to '["DeviceRow","Germany"]' || return 0
+  type_keys -k Down || fail "Down on the countries failed"
+  expect_poll "the countries reach Sweden" '["DeviceRow","Sweden"]' tailscale_flyout_focus
+  expect "the countries' selection is Sweden" '"SE"' tailscale_flyout_named DeviceList tailscale-exit-countries currentKey
+  type_keys -k Return || fail "Return on Sweden failed"
+  expect_poll "Sweden's view opens" '"country"' tailscale_flyout_view
+  tailscale_flyout_take "tailscale-flyout-$mode-country" posed
+  type_keys -k Escape || fail "Escape from Sweden's view failed"
+  expect_poll "Escape returns to the Exit nodes view" '"exit-nodes"' tailscale_flyout_view
+  type_keys -k Escape || fail "Escape from the Exit nodes view failed"
+  expect_poll "Escape returns to the main view" '"main"' tailscale_flyout_view
+  expect_poll "the exit node row holds the keys" '["ListItem","Exit node"]' tailscale_flyout_focus
+  type_keys -k Return || fail "Return on the exit node row failed"
+  expect_poll "the search field takes the keys" '["TextField",""]' tailscale_flyout_focus
+  type_keys zur || fail "typing the search failed"
+  expect_poll "the search reads zur" '"zur"' ipc smoke readDescendant panel vgs.tailscale ExitNodes query
+  tailscale_flyout_take "tailscale-flyout-$mode-search" posed
+  type_keys -k BackSpace -k BackSpace -k BackSpace xyz || fail "retyping the search failed"
+  expect_poll "the search matches nothing" true tailscale_flyout_named EmptyState tailscale-exit-no-match visible
+  tailscale_flyout_take "tailscale-flyout-$mode-no-match" posed
+  # A search past the ceiling over Mullvad's further cities, scrolled to
+  # its count.
+  device_reply tailscale 0 "$(<"$(tailscale_fixture sheet-cities.json)")" status --json
+  expect "Tailscale reads Mullvad's further cities" ok ipc vgs.tailscale invoke refresh ""
+  type_keys -k BackSpace -k BackSpace -k BackSpace united || fail "typing the long search failed"
+  expect_poll "the long search draws its ceiling of rows" 20 tailscale_flyout_named DeviceList tailscale-exit-search count
+  expect_poll "the long search counts its matches" true tailscale_flyout_search_counted
+  expect "the long search scrolls to its count" moved tailscale_flyout_scroll_end
+  tailscale_flyout_take "tailscale-flyout-$mode-search-more" posed
+
+  # The other states (tailscale-flyout-c and -d).
+  expect "Tailscale reads the tailnet off for its flyout" ok tailscale_flyout_status Stopped
+  expect_poll "Tailscale publishes Off for its flyout" '["stopped", "Off"]' tailscale_flyout_published
+  tailscale_flyout_open "the off shot" || return 0
+  tailscale_flyout_take "tailscale-flyout-$mode-off"
+  expect "Tailscale reads the tailnet starting for its flyout" ok tailscale_flyout_status Starting
+  expect_poll "Tailscale publishes Starting for its flyout" '["starting", "Starting"]' tailscale_flyout_published
+  tailscale_flyout_open "the starting shot" || return 0
+  tailscale_flyout_take "tailscale-flyout-$mode-starting"
+  device_reply tailscale 0 "$(<"$(tailscale_fixture logged-out.json)")" status --json
+  device_reply tailscale 0 "$(<"$(tailscale_fixture accounts-signed-out.json)")" switch --list --json
+  expect "Tailscale reads the tailnet signed out for its flyout" ok ipc vgs.tailscale invoke refresh ""
+  expect_poll "Tailscale publishes Signed out for its flyout" '["signed-out", "Signed out"]' tailscale_flyout_published
+  expect_poll "Tailscale publishes the other account alone" '["c3d4"]' tailscale_flyout_accounts
+  tailscale_flyout_open "the signed-out shot" || return 0
+  expect_poll "the signed-out flyout retains its account list" true tailscale_flyout_named DeviceList tailscale-accounts visible
+  tailscale_flyout_take "tailscale-flyout-$mode-signed-out"
+  device_reply tailscale 0 "$(<"$(tailscale_fixture accounts.json)")" switch --list --json
+  expect "Tailscale reads the tailnet waiting for approval" ok tailscale_flyout_status NeedsMachineAuth
+  expect_poll "Tailscale publishes Waiting for approval" '["needs-approval", "Waiting for approval"]' tailscale_flyout_published
+  tailscale_flyout_open "the approval shot" || return 0
+  tailscale_flyout_take "tailscale-flyout-$mode-approval"
+  device_reply tailscale 1 "" status --json
+  expect "Tailscale reads a daemon that does not answer" ok ipc vgs.tailscale invoke refresh ""
+  expect_poll "Tailscale publishes Not answering" '["unavailable", "Not answering"]' tailscale_flyout_published
+  tailscale_flyout_open "the not answering shot" || return 0
+  tailscale_flyout_take "tailscale-flyout-$mode-not-answering"
+  device_reply tailscale 0 "" get operator
+  expect "Tailscale reads the design's tailnet for the access shot" ok tailscale_flyout_status Running
+  tree_rescan "the Tailscale flyout shots probe the unset operator"
+  expect_poll "an unset operator offers Allow for the access shot" allow tailscale_flyout_setup
+  tailscale_flyout_open "the access-needed shot" || return 0
+  expect_poll "the access-needed flyout offers its step" true tailscale_flyout_named RowAction tailscale-setup visible
+  tailscale_flyout_take "tailscale-flyout-$mode-access-needed"
+
 }
 # Whether a menu of the flyout is open.
 tailscale_flyout_menu_shown() { ipc smoke menus panel vgs.tailscale | py_reply 'import json,sys; print(str(any(m["opened"] for m in json.load(sys.stdin))).lower())'; }
@@ -7307,180 +7518,7 @@ EOF
   expect_poll "Tailscale publishes the suggested exit node" '"Stockholm, Sweden"' tailscale_flyout_suggestion
   park_pointer
 
-  # The bar icon, v2-bar-icons' Tailscale strip.
-  tailscale_flyout_bar_shot "$mode" exit-node '"earth-lock"' false
-  expect "Tailscale reads the tailnet with no exit node" ok tailscale_flyout_status Running none
-  expect_poll "Tailscale publishes Connected" '["running", "Connected"]' tailscale_flyout_published
-  tailscale_flyout_bar_shot "$mode" connected '"route"' false
-  expect "Tailscale reads the tailnet starting" ok tailscale_flyout_status Starting
-  expect_poll "Tailscale publishes Starting" '["starting", "Starting"]' tailscale_flyout_published
-  tailscale_flyout_bar_shot "$mode" starting '"route-off"' true
-  expect "Tailscale reads the tailnet off" ok tailscale_flyout_status Stopped
-  expect_poll "Tailscale publishes Off" '["stopped", "Off"]' tailscale_flyout_published
-  tailscale_flyout_bar_shot "$mode" off '"route-off"' false
-  device_reply tailscale 0 "$(<"$(tailscale_fixture logged-out.json)")" status --json
-  expect "Tailscale reads the tailnet signed out" ok ipc vgs.tailscale invoke refresh ""
-  expect_poll "Tailscale publishes Signed out" '["signed-out", "Signed out"]' tailscale_flyout_published
-  tailscale_flyout_bar_shot "$mode" signed-out '"route-off"' false
-  : >"$dir/service-off"
-  device_reply systemctl 3 "" is-active --quiet tailscaled.service
-  tree_rescan "the Tailscale flyout shots probe the stopped service"
-  expect "Tailscale reads the service off" ok ipc vgs.tailscale invoke refresh ""
-  expect_poll "Tailscale publishes the service off" '["service-off", "The Tailscale service is off."]' tailscale_flyout_published
-  expect_poll "the service-off icon draws the warning tone" true tailscale_flyout_warning
-  tailscale_flyout_bar_shot "$mode" service-off '"route-off"' false
-
-  # Service off, with Enable on the locked switch (tailscale-flyout-c).
-  expect_poll "a stopped service offers Enable for its flyout" enable tailscale_flyout_setup
-  tailscale_flyout_open "the service-off shot" || return
-  expect_poll "the service-off flyout offers Enable" true tailscale_flyout_named RowAction tailscale-setup visible
-  tailscale_flyout_take "tailscale-flyout-$mode-service-off"
-  rm -f -- "${dir:?}/service-off"
-  device_reply systemctl 0 "" is-active --quiet tailscaled.service
-  tree_rescan "the Tailscale flyout shots find the service running again"
-
-  # Main, Account open with the keys on Sign out, the sign-out
-  # confirmation (v2-tailscale-flyout), then account and devices open with
-  # Copied (tailscale-flyout-a).
-  device_reply tailscale 0 "$(<"$(tailscale_fixture sheet.json)")" status --json
-  expect "Tailscale reads the design's tailnet again" ok ipc vgs.tailscale invoke refresh ""
-  expect_poll "Tailscale publishes the exit node in use again" '["running", "Connected through Stockholm, Sweden"]' tailscale_flyout_published
-  expect_poll "Tailscale publishes the suggestion again" '"Stockholm, Sweden"' tailscale_flyout_suggestion
-  tailscale_flyout_open "the main shot" || return
-  tailscale_flyout_take "tailscale-flyout-$mode-main"
-  expect_poll "the account card is visible" true tailscale_flyout_named Card tailscale-accounts-card visible
-  tailscale_flyout_tab_to '["IconButton","Sign out"]' || return
-  tailscale_flyout_take "tailscale-flyout-$mode-account-sign-out-focus" posed
-  type_keys -k Return || fail "Return on Sign out failed"
-  expect_poll "Sign out's confirmation opens on Cancel" '["Button","Cancel"]' tailscale_flyout_focus
-  tailscale_flyout_take "tailscale-flyout-$mode-sign-out-confirm" posed
-  type_keys -k Return || fail "Return on Cancel failed"
-  expect_poll "Cancel returns the keys to Sign out" '["IconButton","Sign out"]' tailscale_flyout_focus
-  tailscale_flyout_tab_to '["ListItem","Network devices"]' || return
-  type_keys -k space || fail "Space on the network devices row failed"
-  expect_poll "the network devices row opens" true tailscale_flyout_named Disclosure tailscale-network-devices expanded
-  # This device's row, the Tab stop before the network devices row, copies
-  # on Return, as its copy icon does on a click.
-  type_keys -M shift -k Tab -m shift || fail "Shift+Tab to this device failed"
-  expect_poll "the keys reach this device" '["DeviceRow","desk"]' tailscale_flyout_focus
-  type_keys -k Return || fail "Return on this device failed"
-  expect_poll "Copy reads Copied" true ipc smoke readDescendant panel vgs.tailscale CopyText confirming
-  tailscale_flyout_take "tailscale-flyout-$mode-account-devices-copied" posed
-
-  # The device rows (VGS-2109): this device's copy icon, Connect in
-  # terminal before copy on the devices that run an ssh server, copy alone
-  # on a phone; each icon's tooltip, and Copied after a click.
-  tailscale_flyout_open "the device row shots" || return
-  tailscale_flyout_tab_to '["ListItem","Network devices"]' || return
-  type_keys -k space || fail "Space on the network devices row failed"
-  expect_poll "the network devices row opens for the row shots" true tailscale_flyout_named Disclosure tailscale-network-devices expanded
-  expect_poll "attic-nas draws Connect in terminal" true tailscale_flyout_named IconButton nSHEET0003CNTRL/connect visible
-  expect_poll "pixel draws copy" true tailscale_flyout_named IconButton nSHEET0004CNTRL/copy visible
-  expect "pixel draws no Connect in terminal" absent tailscale_flyout_named IconButton nSHEET0004CNTRL/connect visible
-  tailscale_flyout_take "tailscale-flyout-$mode-device-rows"
-  # A network row's menu, from Shift+F10: it holds the row's icons and
-  # hangs from them, since the row draws no overflow button.
-  type_keys -k Tab || fail "Tab to the network devices' list failed"
-  expect_poll "the keys reach attic-nas for its menu" '["DeviceRow","attic-nas"]' tailscale_flyout_focus
-  type_keys -M shift -k F10 -m shift || fail "Shift+F10 on attic-nas failed"
-  expect_poll "attic-nas's menu opens" true tailscale_flyout_menu_shown
-  tailscale_flyout_take "tailscale-flyout-$mode-device-menu" posed
-  type_keys -k Escape || fail "Escape from attic-nas's menu failed"
-  expect_poll "the menu closes" false tailscale_flyout_menu_shown
-  type_keys -M shift -k Tab -m shift || fail "Shift+Tab to the network devices row failed"
-  expect_poll "the keys return to the network devices row" '["ListItem","Network devices"]' tailscale_flyout_focus
-  expect "the device rows scroll to their end" moved tailscale_flyout_scroll_end
-  tailscale_flyout_take "tailscale-flyout-$mode-device-rows-end"
-  ipc smoke scrollTo panel vgs.tailscale 0 >/dev/null || fail "the flyout did not scroll back to its top"
-  tailscale_flyout_icon_tip "Copy" "this device's copy" || return
-  tailscale_flyout_take "tailscale-flyout-$mode-copy-tooltip" posed
-  tailscale_flyout_icon_tip "Connect in terminal" "attic-nas's Connect in terminal" || return
-  tailscale_flyout_take "tailscale-flyout-$mode-connect-tooltip" posed
-  # Copied under the pointer: the copy runs from the row's Return, since a
-  # press on the icon closes its tooltip until the pointer leaves.
-  type_keys -M shift -k Tab -m shift || fail "Shift+Tab to this device failed"
-  expect_poll "the keys reach this device for Copied" '["DeviceRow","desk"]' tailscale_flyout_focus
-  tailscale_flyout_icon_tip "Copy" "this device's copy before Copied" || return
-  type_keys -k Return || fail "Return on this device failed"
-  expect_poll "this device's copy reads Copied" '"Copied"' tailscale_flyout_named IconButton tailscale-self-copy label
-  expect_poll "the copy icon's tooltip reads Copied" '"Copied"' tailscale_flyout_tip
-  tailscale_flyout_take "tailscale-flyout-$mode-copied-tooltip" posed
-  park_pointer
-
-  # The Exit nodes view, Sweden's view, a search and no match
-  # (tailscale-flyout-a and -b).
-  tailscale_flyout_open "the Exit nodes shots" || return
-  tailscale_flyout_tab_to '["ListItem","Exit node"]' || return
-  type_keys -k Return || fail "Return on the exit node row failed"
-  expect_poll "the Exit nodes view opens on its search field" '["TextField",""]' tailscale_flyout_focus
-  expect_poll "the Exit nodes view lists Recommended first" '"recommended"' ipc smoke readMatchingDescendant panel vgs.tailscale DeviceList objectName tailscale-exit-top currentKey
-  tailscale_flyout_take "tailscale-flyout-$mode-exit-nodes" posed
-  type_keys -k Down || fail "Down from the search field failed"
-  tailscale_flyout_tab_to '["DeviceRow","Germany"]' || return
-  type_keys -k Down || fail "Down on the countries failed"
-  expect_poll "the countries reach Sweden" '["DeviceRow","Sweden"]' tailscale_flyout_focus
-  expect "the countries' selection is Sweden" '"SE"' tailscale_flyout_named DeviceList tailscale-exit-countries currentKey
-  type_keys -k Return || fail "Return on Sweden failed"
-  expect_poll "Sweden's view opens" '"country"' tailscale_flyout_view
-  tailscale_flyout_take "tailscale-flyout-$mode-country" posed
-  type_keys -k Escape || fail "Escape from Sweden's view failed"
-  expect_poll "Escape returns to the Exit nodes view" '"exit-nodes"' tailscale_flyout_view
-  type_keys -k Escape || fail "Escape from the Exit nodes view failed"
-  expect_poll "Escape returns to the main view" '"main"' tailscale_flyout_view
-  expect_poll "the exit node row holds the keys" '["ListItem","Exit node"]' tailscale_flyout_focus
-  type_keys -k Return || fail "Return on the exit node row failed"
-  expect_poll "the search field takes the keys" '["TextField",""]' tailscale_flyout_focus
-  type_keys zur || fail "typing the search failed"
-  expect_poll "the search reads zur" '"zur"' ipc smoke readDescendant panel vgs.tailscale ExitNodes query
-  tailscale_flyout_take "tailscale-flyout-$mode-search" posed
-  type_keys -k BackSpace -k BackSpace -k BackSpace xyz || fail "retyping the search failed"
-  expect_poll "the search matches nothing" true tailscale_flyout_named EmptyState tailscale-exit-no-match visible
-  tailscale_flyout_take "tailscale-flyout-$mode-no-match" posed
-  # A search past the ceiling over Mullvad's further cities, scrolled to
-  # its count.
-  device_reply tailscale 0 "$(<"$(tailscale_fixture sheet-cities.json)")" status --json
-  expect "Tailscale reads Mullvad's further cities" ok ipc vgs.tailscale invoke refresh ""
-  type_keys -k BackSpace -k BackSpace -k BackSpace united || fail "typing the long search failed"
-  expect_poll "the long search draws its ceiling of rows" 20 tailscale_flyout_named DeviceList tailscale-exit-search count
-  expect_poll "the long search counts its matches" true tailscale_flyout_search_counted
-  expect "the long search scrolls to its count" moved tailscale_flyout_scroll_end
-  tailscale_flyout_take "tailscale-flyout-$mode-search-more" posed
-
-  # The other states (tailscale-flyout-c and -d).
-  expect "Tailscale reads the tailnet off for its flyout" ok tailscale_flyout_status Stopped
-  expect_poll "Tailscale publishes Off for its flyout" '["stopped", "Off"]' tailscale_flyout_published
-  tailscale_flyout_open "the off shot" || return
-  tailscale_flyout_take "tailscale-flyout-$mode-off"
-  expect "Tailscale reads the tailnet starting for its flyout" ok tailscale_flyout_status Starting
-  expect_poll "Tailscale publishes Starting for its flyout" '["starting", "Starting"]' tailscale_flyout_published
-  tailscale_flyout_open "the starting shot" || return
-  tailscale_flyout_take "tailscale-flyout-$mode-starting"
-  device_reply tailscale 0 "$(<"$(tailscale_fixture logged-out.json)")" status --json
-  device_reply tailscale 0 "$(<"$(tailscale_fixture accounts-signed-out.json)")" switch --list --json
-  expect "Tailscale reads the tailnet signed out for its flyout" ok ipc vgs.tailscale invoke refresh ""
-  expect_poll "Tailscale publishes Signed out for its flyout" '["signed-out", "Signed out"]' tailscale_flyout_published
-  expect_poll "Tailscale publishes the other account alone" '["c3d4"]' tailscale_flyout_accounts
-  tailscale_flyout_open "the signed-out shot" || return
-  expect_poll "the signed-out flyout retains its account list" true tailscale_flyout_named DeviceList tailscale-accounts visible
-  tailscale_flyout_take "tailscale-flyout-$mode-signed-out"
-  device_reply tailscale 0 "$(<"$(tailscale_fixture accounts.json)")" switch --list --json
-  expect "Tailscale reads the tailnet waiting for approval" ok tailscale_flyout_status NeedsMachineAuth
-  expect_poll "Tailscale publishes Waiting for approval" '["needs-approval", "Waiting for approval"]' tailscale_flyout_published
-  tailscale_flyout_open "the approval shot" || return
-  tailscale_flyout_take "tailscale-flyout-$mode-approval"
-  device_reply tailscale 1 "" status --json
-  expect "Tailscale reads a daemon that does not answer" ok ipc vgs.tailscale invoke refresh ""
-  expect_poll "Tailscale publishes Not answering" '["unavailable", "Not answering"]' tailscale_flyout_published
-  tailscale_flyout_open "the not answering shot" || return
-  tailscale_flyout_take "tailscale-flyout-$mode-not-answering"
-  device_reply tailscale 0 "" get operator
-  expect "Tailscale reads the design's tailnet for the access shot" ok tailscale_flyout_status Running
-  tree_rescan "the Tailscale flyout shots probe the unset operator"
-  expect_poll "an unset operator offers Allow for the access shot" allow tailscale_flyout_setup
-  tailscale_flyout_open "the access-needed shot" || return
-  expect_poll "the access-needed flyout offers its step" true tailscale_flyout_named RowAction tailscale-setup visible
-  tailscale_flyout_take "tailscale-flyout-$mode-access-needed"
-
+  tailscale_flyout_shots "$mode" "$dir"
   expect "the Tailscale flyout hides after its shots" ok ipc shell hide panel vgs.tailscale
   expect "Tailscale disables after its flyout shots" ok ipc shell setPluginEnabled vgs.tailscale false
   rm -f -- "${link:?}" "${dir:?}/service-off"
@@ -7498,46 +7536,20 @@ EOF
 tailscale_section_named() { ipc smoke readMatchingDescendant window vgs.tailscale "$1" objectName "$2" "$3"; }
 tailscale_section_take() { # MODE NAME CAPTION [posed]
   local values sections focus scroll
-  values="$(ipc smoke statusValues vgs.tailscale)" || return 1
-  sections="$(ipc smoke itemValues window vgs.tailscale Section 'title,visible')" || return 1
-  focus="$(ipc smoke activeFocusItem window vgs.tailscale)" || return 1
-  scroll="$(ipc smoke viewHolding window vgs.system "Check every")" || return 1
-  printf '%s\t%s\t%s\tstate=%s sections=%s focus=%s scroll=%s\n' "$1" "tailscale-section-$1-$2.png" "$3" "$values" "$sections" "$focus" "$scroll" >>"$SHOT_DIR/tailscale-section-states.tsv"
+  # As take does, an unreadable state skips the shot and records it failed.
+  values="$(ipc smoke statusValues vgs.tailscale)" \
+    && sections="$(ipc smoke itemValues window vgs.tailscale Section 'title,visible')" \
+    && focus="$(ipc smoke activeFocusItem window vgs.tailscale)" \
+    && scroll="$(ipc smoke viewHolding window vgs.system "Check every")" \
+    || { fail "shot tailscale-section-$1-$2 not taken: its state is unreadable"; return; }
+  printf '%s\t%s\t%s\tstate=%s sections=%s focus=%s scroll=%s\n' "$1" "tailscale-section-$1-$2.png" "$3" "$values" "$sections" "$focus" "$scroll" >>"$SHOT_DIR/tailscale-section-states.tsv" \
+    || { fail "shot tailscale-section-$1-$2 not taken: its tailscale-section-states.tsv line was not written"; return; }
   if [[ ${4:-} == posed ]]; then take_posed "tailscale-section-$1-$2"; else take "tailscale-section-$1-$2"; fi
 }
-tailscale_section_top() { ipc smoke scrollTo window vgs.system 0; }
-tailscale_section_reveal() { # TYPE TEXT
-  ipc smoke revealText window vgs.system "$1" "$2" | py_reply 'import sys; value=sys.stdin.read().strip(); print("shown" if value.replace(".", "", 1).isdigit() else value)'
-}
-scene_tailscale-section() { # MODE
-  local mode="$1" dir="$sandbox/tailscale-section-shot" link="$devices_system_root/usr/bin/tailscale"
-  devices_ready tailscale-section-shot || return 0
-  device_reply tailscale 0 '1.104.1' --version
-  mkdir -p -- "$dir"
-  rm -f -- "${dir:?}/service-off"
-  {
-    printf '#!/usr/bin/env bash\nsaved=%q text=%q marker=%q\n' "$(sentinel_saved "$shim/tailscale")" "$(tailscale_fixture service-off.txt)" "$dir/service-off"
-    cat <<'TSSECTION'
-if [[ "$*" == "status --json" && -e $marker ]]; then
-  "$saved" "$@" >/dev/null 2>&1 || true
-  cat -- "$text" >&2
-  exit 1
-fi
-exec "$saved" "$@"
-TSSECTION
-  } | sentinel_stand_over "$shim/tailscale"
-  device_reply tailscale 0 "$(<"$(tailscale_fixture sheet.json)")" status --json
-  device_reply tailscale 0 "$(<"$(tailscale_fixture accounts.json)")" switch --list --json
-  device_reply tailscale 0 "$(<"$(tailscale_fixture suggest.txt)")" exit-node suggest
-  device_reply tailscale 0 "$(id -un)" get operator
-  device_reply systemctl 0 "" is-active --quiet tailscaled.service
-  device_reply systemctl 0 loaded show --property=LoadState --value tailscaled.service
-  expect "the section shots resolve system steps in the fakes' tree" prefixed devices_system_tree
-  ln -sfn -- "$shim/tailscale" "$link"
-  expect "Tailscale enables for its section shots" ok ipc shell setPluginEnabled vgs.tailscale true
-  expect "System enables for the Tailscale section shots" ok ipc shell setPluginEnabled vgs.system true
-  tree_rescan "the section shots read the design tailnet"
-  expect_poll "the section shots read the running tailnet" '["running", "Connected through Stockholm, Sweden"]' tailscale_flyout_published
+# The shots of scene_tailscale-section, over its stand-in and its DIR of
+# markers. A failed step stops them as one stops tailscale_shot_views.
+tailscale_section_shots() { # MODE DIR
+  local mode="$1" dir="$2"
   expect "the section window summons" ok ipc shell summon window vgs.system '{"pane":"vgs.tailscale"}'
   expect_poll "the section mounts the design tailnet" '["running", 2]' tailscale_shot_read
   tailscale_section_take "$mode" top "System Settings › Tailscale · Top"
@@ -7600,19 +7612,53 @@ TSSECTION
   tailscale_section_top >/dev/null
   tailscale_section_take "$mode" service-off "System Settings › Tailscale · Service off"
 
+}
+tailscale_section_top() { ipc smoke scrollTo window vgs.system 0; }
+tailscale_section_reveal() { # TYPE TEXT
+  ipc smoke revealText window vgs.system "$1" "$2" | py_reply 'import sys; value=sys.stdin.read().strip(); print("shown" if value.replace(".", "", 1).isdigit() else value)'
+}
+scene_tailscale-section() { # MODE
+  local mode="$1" dir="$sandbox/tailscale-section-shot" link="$devices_system_root/usr/bin/tailscale"
+  devices_ready tailscale-section-shot || return 0
+  device_reply tailscale 0 '1.104.1' --version
+  mkdir -p -- "$dir"
+  rm -f -- "${dir:?}/service-off"
+  {
+    printf '#!/usr/bin/env bash\nsaved=%q text=%q marker=%q\n' "$(sentinel_saved "$shim/tailscale")" "$(tailscale_fixture service-off.txt)" "$dir/service-off"
+    cat <<'TSSECTION'
+if [[ "$*" == "status --json" && -e $marker ]]; then
+  "$saved" "$@" >/dev/null 2>&1 || true
+  cat -- "$text" >&2
+  exit 1
+fi
+exec "$saved" "$@"
+TSSECTION
+  } | sentinel_stand_over "$shim/tailscale"
+  device_reply tailscale 0 "$(<"$(tailscale_fixture sheet.json)")" status --json
+  device_reply tailscale 0 "$(<"$(tailscale_fixture accounts.json)")" switch --list --json
+  device_reply tailscale 0 "$(<"$(tailscale_fixture suggest.txt)")" exit-node suggest
+  device_reply tailscale 0 "$(id -un)" get operator
+  device_reply systemctl 0 "" is-active --quiet tailscaled.service
+  device_reply systemctl 0 loaded show --property=LoadState --value tailscaled.service
+  expect "the section shots resolve system steps in the fakes' tree" prefixed devices_system_tree
+  ln -sfn -- "$shim/tailscale" "$link"
+  expect "Tailscale enables for its section shots" ok ipc shell setPluginEnabled vgs.tailscale true
+  expect "System enables for the Tailscale section shots" ok ipc shell setPluginEnabled vgs.system true
+  tree_rescan "the section shots read the design tailnet"
+  expect_poll "the section shots read the running tailnet" '["running", "Connected through Stockholm, Sweden"]' tailscale_flyout_published
+  tailscale_section_shots "$mode" "$dir"
   rm -f -- "${dir:?}/service-off" "${link:?}"
   sentinel_restore "$shim/tailscale"
   mv -- "$shim/tailscale" "$dir/hidden-tailscale"
   if [[ $(shell_resolves tailscale) != none ]]; then
-    mv -- "$dir/hidden-tailscale" "$shim/tailscale"
     fail "the missing Tailscale scene found a command outside its stand-in"
-    return 1
+  else
+    ok "the missing Tailscale scene resolves no host command"
+    tree_rescan "the section shots find Tailscale missing"
+    expect_poll "the section publishes missing" '["missing", "Tailscale is not installed."]' tailscale_flyout_published
+    tailscale_section_top >/dev/null
+    tailscale_section_take "$mode" missing "System Settings › Tailscale · Not installed"
   fi
-  ok "the missing Tailscale scene resolves no host command"
-  tree_rescan "the section shots find Tailscale missing"
-  expect_poll "the section publishes missing" '["missing", "Tailscale is not installed."]' tailscale_flyout_published
-  tailscale_section_top >/dev/null
-  tailscale_section_take "$mode" missing "System Settings › Tailscale · Not installed"
   mv -- "$dir/hidden-tailscale" "$shim/tailscale"
   expect "System closes after the section shots" ok ipc shell hide window vgs.system
   expect "System disables after the section shots" ok ipc shell setPluginEnabled vgs.system false

@@ -8,7 +8,7 @@ import "ViewLogic.js" as View
 // sentence. A click opens or closes the flyout under it. Entering Working
 // pulses the shield once. With `hideWhenIdle` the widget takes no room
 // while no agent runs and all is good. It is one BarItem, the count drawn
-// beside the shield in its tone.
+// as its corner badge at the level of the shield's tone.
 BarWidget {
     id: widget
 
@@ -49,6 +49,7 @@ BarWidget {
         label: "Agent Warden"
         iconName: widget.view.icon
         count: widget.view.count
+        countLevel: widget.view.countLevel
         tone: widget.tone
         tooltip: widget.view.tooltip
         onClicked: widget.toggle()

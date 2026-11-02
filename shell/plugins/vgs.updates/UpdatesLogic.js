@@ -688,13 +688,22 @@ function widgetState(values) {
     }
 }
 
+// The corner count's level for a widget TONE: a warning icon counts at
+// the warning level, every other tone at the normal one.
+function countLevel(tone) {
+    return tone === "warning" ? "warning" : "normal";
+}
+
 // What the widget draws: { state, icon, tone, spinning, badge, badgeTone,
-// hidden }. `badge` is the pending count, "" when nothing waits.
+// countLevel, hidden }. `badge` is the pending count, "" when nothing
+// waits, whole: BarItem's corner badge caps what it draws, at
+// `countLevel`.
 function widgetView(values, hideWhenCurrent) {
     var state = widgetState(values);
     var look = WIDGET_STATES[state];
     var pending = pendingOf(values);
-    return { state: state, icon: look.icon, tone: look.tone, spinning: look.spinning, badge: pending > 0 ? badgeText(pending) : "", badgeTone: look.badgeTone, hidden: hideWhenCurrent === true && state === "current" };
+    return { state: state, icon: look.icon, tone: look.tone, spinning: look.spinning, badge: pending > 0 ? String(pending) : "", badgeTone: look.badgeTone,
+        countLevel: countLevel(look.tone), hidden: hideWhenCurrent === true && state === "current" };
 }
 
 // The one line that says where updates stand, as the tooltip shows it and

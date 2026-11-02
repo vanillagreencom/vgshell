@@ -51,17 +51,17 @@ BarWidget {
             visible: root.setting("showCpu") === true
             label: "CPU"
             iconName: root.captions ? "" : "cpu"
-            countIconName: root.captions ? "" : "thermometer"
+            detailIconName: root.captions ? "" : "thermometer"
             caption: root.captions ? "CPU" : ""
-            countCaption: root.captions ? "TMP" : ""
+            detailCaption: root.captions ? "TMP" : ""
             text: root.percent(root.cpu.use)
-            count: root.setting("cpuTemperature") ? root.degrees(root.cpu.temperature) : ""
+            detail: root.setting("cpuTemperature") ? root.degrees(root.cpu.temperature) : ""
             textSample: root.percentSample
-            countSample: root.degreesSample
+            detailSample: root.degreesSample
             separator: "/"
             stacked: root.stacked
             textLevel: Logic.tone(root.cpu.use, 60, 80)
-            countLevel: Logic.tone(root.cpu.temperature, 70, 85)
+            detailLevel: Logic.tone(root.cpu.temperature, 70, 85)
             tooltip: "CPU " + root.percent(root.cpu.use) + " · " + root.degrees(root.cpu.temperature)
             onClicked: root.toggle()
         }
@@ -69,14 +69,14 @@ BarWidget {
             visible: root.setting("showMemory") === true
             label: "Memory"
             iconName: root.captions ? "" : "memory-stick"
-            countIconName: root.captions ? "" : "hard-drive"
+            detailIconName: root.captions ? "" : "hard-drive"
             caption: root.captions ? "RAM" : ""
-            countCaption: root.captions ? "SWP" : ""
+            detailCaption: root.captions ? "SWP" : ""
             text: root.setting("memoryUnit") === "used" ? root.gb(root.memory.used) : root.percent(root.memory.use)
-            count: root.setting("showSwap") ? root.percent(root.memory.swapUse) : ""
+            detail: root.setting("showSwap") ? root.percent(root.memory.swapUse) : ""
             // Used memory never exceeds the total.
             textSample: root.setting("memoryUnit") === "used" ? root.gb(root.memory.total) : root.percentSample
-            countSample: root.percentSample
+            detailSample: root.percentSample
             separator: "/"
             stacked: root.stacked
             textLevel: Logic.tone(root.memory.use, 75, 90)
@@ -87,16 +87,16 @@ BarWidget {
             visible: root.setting("showGpu") === true && root.gpu !== null
             label: "GPU"
             iconName: root.captions ? "" : "gpu"
-            countIconName: root.captions ? "" : "thermometer"
+            detailIconName: root.captions ? "" : "thermometer"
             caption: root.captions ? "GPU" : ""
-            countCaption: root.captions ? "TMP" : ""
+            detailCaption: root.captions ? "TMP" : ""
             text: root.percent(root.gpu && root.gpu.state === "asleep" ? null : root.gpu ? root.gpu.use : null)
-            count: root.setting("gpuTemperature") ? root.degrees(root.gpuTemperature) : ""
+            detail: root.setting("gpuTemperature") ? root.degrees(root.gpuTemperature) : ""
             textSample: root.percentSample
-            countSample: root.degreesSample
+            detailSample: root.degreesSample
             separator: "/"
             stacked: root.stacked
-            countLevel: Logic.tone(root.gpuTemperature, 65, 80)
+            detailLevel: Logic.tone(root.gpuTemperature, 65, 80)
             tooltip: root.gpu ? root.gpu.name + " · " + (root.gpu.state === "asleep" ? "Asleep" : root.percent(root.gpu.use) + " · " + root.degrees(root.gpu.temperature)) : "GPU"
             onClicked: root.toggle()
         }

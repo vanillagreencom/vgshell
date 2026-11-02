@@ -27,6 +27,14 @@ import "TailscaleLogic.js" as Logic
 // and Shift+F10 opens a device's menu, which holds its icon actions. Sign
 // out asks first and opens with Cancel focused, in the flyout's Pane or
 // beside the pane's account actions inside its scrolling body.
+//
+// While Tailscale runs, "Connected to this device" sits after this device,
+// a flyout disclosure and a pane section, from the `inbound` value
+// (TailscaleLogic.inboundView): who holds a connection into this machine,
+// each a row that takes no click with its user, what it uses and since
+// when. Its line says when no one does, when the sockets could not be
+// read, why userspace networking shows no list, with an info mark, and
+// while `ss` is missing, an Install that raises its requirement notice.
 FocusScope {
     id: root
 
@@ -58,6 +66,8 @@ FocusScope {
     readonly property var tailscale: values.tailscale ? values.tailscale : Logic.unread()
     readonly property var devices: values.devices ? values.devices : Logic.emptySnapshot("checking").devices
     readonly property var exitNodes: values.exitNodes ? values.exitNodes : Logic.emptySnapshot("checking").exitNodes
+    // Since times read as the bar clock does.
+    readonly property var inbound: Logic.inboundView(values.inbound, ms => Qt.formatTime(new Date(ms), "HH:mm"))
     readonly property bool busy: tailscale.action !== ""
     readonly property bool switchable: ["running", "starting", "stopped"].indexOf(tailscale.state) !== -1
     readonly property bool reached: switchable || tailscale.state === "signed-out" || tailscale.state === "needs-approval"
@@ -166,6 +176,10 @@ FocusScope {
         localProblem = reply === "ok" ? "" : Reply.line(reply);
         if (reply !== "ok") console.warn("tailscale: connect " + reply);
     }
+    function offerSockets() {
+        const offered = shell.requirements.offer(["ss"]);
+        if (offered !== "ok") console.warn("tailscale: offer ss " + offered);
+    }
     function connectEnded(end) {
         if (end.reason === null) return;
         console.warn("tailscale: connect reason=" + end.reason);
@@ -225,6 +239,42 @@ FocusScope {
     }
 
     CopyText { id: copier }
+
+    // The inbound line's info mark and Install, after its text. An inline
+    // component reaches no id of this file, so it takes both as properties
+    // (https://doc.qt.io/qt-6/qtqml-documents-definetypes.html#inline-components).
+    component InboundActions: Row {
+        id: actions
+        property bool info: false
+        property bool offer: false
+        signal install()
+        spacing: Theme.stack.inline
+        InfoButton {
+            anchors.verticalCenter: parent.verticalCenter
+            visible: actions.info
+            title: "Connected to this device"
+            info: "Without its network interface, Tailscale handles each connection inside its own program, so the connections never reach the list this computer keeps, where VGS reads them."
+        }
+        RowAction {
+            anchors.verticalCenter: parent.verticalCenter
+            visible: actions.offer
+            text: "Install"
+            onClicked: actions.install()
+        }
+    }
+    // One device connected to this one, which takes no click. A Repeater
+    // builds a row before it parents it and unparents a row a read drops
+    // before it destroys it, so a row's width reads its list's id, never
+    // `parent`, which the tailscale smoke row's shell log read as null
+    // under Qt 6.11 on 2026-11-02.
+    component InboundRow: ListItem {
+        required property var modelData
+        objectName: "tailscale-inbound-" + modelData.key
+        clickable: false
+        iconName: modelData.iconName
+        text: modelData.text
+        secondary: modelData.secondary
+    }
 
     Component {
         id: networkContents
@@ -483,6 +533,26 @@ FocusScope {
                     }
                 }
                 Disclosure {
+                    id: inboundRow
+                    objectName: "tailscale-inbound"
+                    width: parent.width
+                    visible: root.connected && root.inbound.shown
+                    expandable: root.inbound.rows.length > 0
+                    cursor: rowCursor
+                    iconName: "users"
+                    text: "Connected to this device"
+                    secondary: root.inbound.secondary
+                    trailing: [InboundActions { info: root.inbound.info; offer: root.inbound.offer; onInstall: root.offerSockets() }]
+                    Column {
+                        id: inboundList
+                        width: parent.width
+                        Repeater {
+                            model: root.inbound.rows
+                            InboundRow { width: inboundList.width }
+                        }
+                    }
+                }
+                Disclosure {
                     id: devicesRow
                     objectName: "tailscale-network-devices"
                     width: parent.width
@@ -561,6 +631,40 @@ FocusScope {
                 label: "Network"
                 inline: true
                 Label { text: root.tailscale.tailnet; role: "body" }
+            }
+        }
+        Section {
+            objectName: "tailscale-inbound-section"
+            visible: root.expanded && root.connected && root.inbound.shown
+            title: "Connected to this device"
+            Row {
+                width: parent.width
+                spacing: Theme.stack.inline
+                Label {
+                    objectName: "tailscale-inbound-line"
+                    width: Math.min(implicitWidth, parent.width - (inboundActions.width > 0 ? inboundActions.width + parent.spacing : 0))
+                    anchors.verticalCenter: parent.verticalCenter
+                    role: "body"
+                    textFormat: Text.PlainText
+                    text: root.inbound.secondary
+                    wrapMode: Text.Wrap
+                }
+                InboundActions {
+                    id: inboundActions
+                    anchors.verticalCenter: parent.verticalCenter
+                    info: root.inbound.info
+                    offer: root.inbound.offer
+                    onInstall: root.offerSockets()
+                }
+            }
+            Column {
+                id: inboundSectionRows
+                width: parent.width
+                visible: root.inbound.rows.length > 0
+                Repeater {
+                    model: root.inbound.rows
+                    InboundRow { width: inboundSectionRows.width }
+                }
             }
         }
         Section {

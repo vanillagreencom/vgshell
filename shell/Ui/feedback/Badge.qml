@@ -16,8 +16,15 @@ import qs.Ui
 // side padding grows until the content clears the drawn corner. Given a
 // width under its implicit width, the chip keeps its side padding and
 // elides the label at its end; at its implicit width the label is whole.
-// `variant: "unread"` draws a circular accent count. Counts above 99 read
-// 99+ in the next control size while the accessible name keeps the count.
+// `variant: "unread"` draws a circular count, its fill and figures from
+// `Theme.badge.unread.tone` at `level`, `normal` (the accent), `warning`
+// or `danger`; an unknown level is logged and drawn normal. Counts above
+// 99 read 99+ in the next control size while the accessible name keeps
+// the count. `size: "corner"` is the count at a bar item's top-right
+// (BarItem's `count`): a `badge.unread.corner` circle with its ring in the
+// bar's background, figures in the bar role at `bar.stacked.size`, and
+// above 9 it reads 9+ in a pill that holds `space.xxs` inside its ring
+// either side.
 Rectangle {
     id: root
 
@@ -27,13 +34,20 @@ Rectangle {
     property string size: "sm"
     property string tone: "neutral"
     property bool verbatim: false
+    // The unread count's level: "normal", "warning" or "danger".
+    property string level: "normal"
     readonly property bool unread: variant === "unread"
-    readonly property string displayedText: unread && /^[0-9]+$/.test(text) && Number(text) > 99 ? "99+" : text
-    readonly property real diameter: unread && displayedText.length > 2 ? Math.max(sizeTokens.height, Theme.size.control.sm) : sizeTokens.height
-    readonly property color foreground: unread ? Theme.color.onAccent : tokens.foreground
+    readonly property bool corner: unread && size === "corner"
+    // The most a count draws before it reads N+.
+    readonly property int countMax: corner ? 9 : 99
+    readonly property string displayedText: unread && /^[0-9]+$/.test(text) && Number(text) > countMax ? countMax + "+" : text
+    readonly property real diameter: unread && !corner && displayedText.length > 2 ? Math.max(sizeTokens.height, Theme.size.control.sm) : sizeTokens.height
+    readonly property color foreground: unread ? unreadTokens.foreground : tokens.foreground
     readonly property var tokens: toneOf(tone)
-    readonly property var sizeTokens: sizeOf(size)
-    readonly property real sidePadding: unread ? Math.max(0, (diameter - label.opticalWidth) / 2)
+    readonly property var unreadTokens: levelOf(level)
+    readonly property var sizeTokens: corner ? Theme.badge.unread.corner : sizeOf(size)
+    readonly property real sidePadding: corner ? Math.max((diameter - label.opticalWidth) / 2, Theme.space.xxs + Theme.badge.unread.corner.border)
+        : unread ? Math.max(0, (diameter - label.opticalWidth) / 2)
         : Theme.controlPadding(sizeTokens.paddingX, Theme.badge.radius, sizeTokens.height, Math.max(icon.visible ? icon.height : 0, label.lineBox))
 
     Accessible.role: Accessible.StaticText
@@ -46,6 +60,13 @@ Rectangle {
         return Theme.badge.tone.neutral;
     }
 
+    function levelOf(name) {
+        const found = Theme.badge.unread.tone[name];
+        if (found !== undefined) return found;
+        console.error("Badge: no level named " + JSON.stringify(name));
+        return Theme.badge.unread.tone.normal;
+    }
+
     function sizeOf(name) {
         const found = Theme.badge.size[name];
         if (found !== undefined) return found;
@@ -56,21 +77,41 @@ Rectangle {
     implicitWidth: 2 * sidePadding + label.opticalWidth + (icon.visible ? icon.width + Theme.badge.gap : 0)
     implicitHeight: unread ? diameter : sizeTokens.height
     radius: unread ? Theme.radius.full : Theme.badge.radius
-    color: unread ? Theme.color.accent : tokens.background
+    color: unread ? unreadTokens.background : tokens.background
+    // A Rectangle draws its border inside its edge, so the corner count's
+    // ring takes from its fill, not its size.
+    border.width: corner ? Theme.badge.unread.corner.border : 0
+    border.color: Theme.badge.unread.corner.borderColor
 
-    Icon {
+    // The icon is built only for a chip that draws one, so a count or a
+    // chip without one holds no hidden Icon for a reader of the item it
+    // sits in to find first. A Loader with no size of its own takes its
+    // item's size, and 0 while inactive
+    // (https://doc.qt.io/qt-6/qml-qtquick-loader.html#loader-sizing-behavior).
+    Loader {
         id: icon
-        visible: root.iconName !== "" && !root.unread
-        name: root.iconName
-        size: Theme.icon.size.xs
-        color: root.foreground
+        active: root.iconName !== "" && !root.unread
+        visible: active
         x: root.sidePadding
         y: Math.round(root.height / 2 - height / 2)
+        sourceComponent: Icon {
+            name: root.iconName
+            size: Theme.icon.size.xs
+            color: root.foreground
+        }
     }
 
     Label {
         id: label
-        role: root.verbatim ? "kbd" : "label"
+        role: root.verbatim ? "kbd" : root.corner ? "bar" : "label"
+        // The corner figures take the bar role at the stacked size, with
+        // the role's tracking at that size, as a stacked bar reading does.
+        // Each reads the size, not font.pixelSize: a font sub-property
+        // read inside the font group's own binding loops (qmltestrunner,
+        // Qt 6.11, 2026-11-02).
+        readonly property real size: root.corner ? Theme.bar.stacked.size : typography.size
+        font.pixelSize: size
+        font.letterSpacing: typography.letterSpacing * size
         text: root.displayedText
         color: root.foreground
         x: root.sidePadding + (icon.visible ? icon.width + Theme.badge.gap : 0)

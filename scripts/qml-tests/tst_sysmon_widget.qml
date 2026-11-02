@@ -218,7 +218,7 @@ Item {
             const shownItems = items().filter(item => item.visible);
             compare(JSON.stringify(shownItems.map(item => item.label)), JSON.stringify(["CPU", "Memory", "GPU"]));
             for (const item of shownItems) {
-                const values = drawn(item).filter(label => label.text !== item.caption && label.text !== item.countCaption && label.text !== "/");
+                const values = drawn(item).filter(label => label.text !== item.caption && label.text !== item.detailCaption && label.text !== "/");
                 compare(values.length, data.settings.cpuTemperature ? 2 : 1, item.label + " shows its readings");
                 const size = data.stacked ? Theme.bar.stacked.size : Theme.text.bar.size;
                 for (const label of values) compare(label.font.pixelSize, size, item.label + " draws \"" + label.text + "\" in its layout's size");
@@ -280,8 +280,8 @@ Item {
             const readings = items();
             compare(drawnText(readings[0]), "12%/158°");
             compare(drawnText(readings[2]), "12%/149°");
-            compare(readings[0].countLevel, "warning");
-            compare(readings[2].countLevel, "warning");
+            compare(readings[0].detailLevel, "warning");
+            compare(readings[2].detailLevel, "warning");
             compare(drawn(readings[0])[2].color, Qt.color(Theme.color.warning));
             compare(drawn(readings[2])[2].color, Qt.color(Theme.color.warning));
             verify(readings[0].tooltip.indexOf("158°") !== -1);
@@ -431,8 +431,8 @@ Item {
             const rules = [
                 { name: "cpu-use", reading: "cpu", field: "use", icon: "cpu", output: "textLevel", label: 0, warning: 60, danger: 80 },
                 { name: "memory-use", reading: "memory", field: "use", icon: "memory-stick", output: "textLevel", label: 0, warning: 75, danger: 90 },
-                { name: "cpu-temperature", reading: "cpu", field: "temperature", icon: "cpu", output: "countLevel", label: 2, warning: 70, danger: 85 },
-                { name: "gpu-temperature", reading: "gpu", field: "temperature", icon: "gpu", output: "countLevel", label: 2, warning: 65, danger: 80 }
+                { name: "cpu-temperature", reading: "cpu", field: "temperature", icon: "cpu", output: "detailLevel", label: 2, warning: 70, danger: 85 },
+                { name: "gpu-temperature", reading: "gpu", field: "temperature", icon: "gpu", output: "detailLevel", label: 2, warning: 65, danger: 80 }
             ];
             const cases = [];
             for (const rule of rules) {
@@ -515,7 +515,7 @@ Item {
             compare(widget.visible, true);
             const gpu = items()[2];
             compare(drawnText(gpu), "--/--");
-            compare(gpu.countLevel, "normal", "a sleeping card's hidden temperature takes no level");
+            compare(gpu.detailLevel, "normal", "a sleeping card's hidden temperature takes no level");
         }
     }
 }

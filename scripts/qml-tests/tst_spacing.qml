@@ -141,9 +141,9 @@ Item {
         // the text after it.
         function gapOf(row) { return row.children[1].x - (row.children[0].x + row.children[0].width); }
         function badgeGap(item) {
-            const icon = item.children.find(child => child.name === item.iconName);
+            const icon = item.children.find(child => child.item !== undefined && child.item !== null && child.item.name === item.iconName).item;
             const label = item.children.find(child => child.role === "label");
-            return label.x - (icon.x + icon.width);
+            return label.x - (icon.mapToItem(item, 0, 0).x + icon.width);
         }
         function hintGap(field, control) {
             const hint = field.children[2].children[0];
