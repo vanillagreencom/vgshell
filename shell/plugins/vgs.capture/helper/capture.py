@@ -115,6 +115,10 @@ LOG_TAIL_CHARS = 140
 LOG_TAIL_READ = 4096
 # gpu-screen-recorder's exit status when the user cancels the portal picker.
 PORTAL_CANCELLED = 60
+# Seconds between a wait's checks for a recorded SIGTERM or SIGHUP. It adds
+# to release's 4 s bound inside the service's 5 s cleanup grace
+# (docs/architecture/runtime.md § Process).
+POLL = 0.1
 
 
 class Capture:
@@ -122,8 +126,10 @@ class Capture:
 
     def __init__(self):
         self.children = []
+        self.pidfds = {}
         self.recorder = None
         self.control = b""
+        self.signalled = 0
         signal.signal(signal.SIGTERM, self.terminate)
         signal.signal(signal.SIGHUP, self.terminate)
 
@@ -135,14 +141,17 @@ class Capture:
         # slurp reads boxes from a stdin that is not a terminal until EOF, so
         # an inherited pipe holds it before it maps any surface.
         kwargs.setdefault("stdin", subprocess.DEVNULL)
+        self.exit_if_signalled()
         child = subprocess.Popen([sys.executable, __file__, "--owned", str(int(stop)), str(os.getpid()), *argv], **kwargs)
         self.children.append(child)
+        # Only the main thread reaps, so the child is still unreaped here.
+        self.pidfds[child] = os.pidfd_open(child.pid)
         return child
 
     def run(self, argv, timeout=None, **kwargs):
         child = self.spawn(argv, **kwargs)
         try:
-            stdout, stderr = child.communicate(timeout=timeout)
+            stdout, stderr = self.wait(child, timeout=timeout)
         except subprocess.TimeoutExpired:
             child.kill()
             child.communicate()
@@ -167,8 +176,42 @@ class Capture:
                     child.wait()
 
     def terminate(self, signum, frame):
-        self.release()
-        raise SystemExit(128 + signum)
+        """Record the signal and pass the stop on to each running child.
+
+        The handler can run inside a Popen poll or wait, whose waitpid lock
+        does not re-enter, so it makes no Popen call and raises nothing: the
+        main thread ends the capture at its next wait. A pidfd names only its
+        own child; a bare PID could name another process once a poll has
+        reaped the child and before it sets returncode.
+        """
+        self.signalled = self.signalled or signum
+        for child, pidfd in self.pidfds.items():
+            if child.returncode is None:
+                try:
+                    signal.pidfd_send_signal(pidfd, signal.SIGINT if child is self.recorder else signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+
+    def exit_if_signalled(self):
+        """Release every child and exit 128+signum once a signal is recorded."""
+        if self.signalled:
+            self.release()
+            raise SystemExit(128 + self.signalled)
+
+    def wait(self, child, timeout=None):
+        """CHILD's (stdout, stderr) once it exits, polled so a recorded signal
+        ends the wait; TimeoutExpired once TIMEOUT seconds pass."""
+        deadline = math.inf if timeout is None else time.monotonic() + timeout
+        while True:
+            self.exit_if_signalled()
+            try:
+                output = child.communicate(timeout=max(0, min(POLL, deadline - time.monotonic())))
+            except subprocess.TimeoutExpired:
+                if time.monotonic() >= deadline:
+                    raise
+                continue
+            self.exit_if_signalled()
+            return output
 
     def read_control(self, timeout=0):
         """One control line, EOF as an empty string, or None after TIMEOUT.
@@ -179,9 +222,13 @@ class Capture:
         """
         deadline = time.monotonic() + timeout
         while b"\n" not in self.control:
-            ready, _, _ = select.select([sys.stdin], [], [], max(0, deadline - time.monotonic()))
+            self.exit_if_signalled()
+            left = deadline - time.monotonic()
+            ready, _, _ = select.select([sys.stdin], [], [], max(0, min(left, POLL)))
             if not ready:
-                return None
+                if left <= POLL:
+                    return None
+                continue
             data = os.read(sys.stdin.fileno(), 4096)
             if not data:
                 line, self.control = self.control, b""
@@ -305,7 +352,7 @@ class Capture:
                 cancelled = True
                 child.terminate()
                 break
-        out, err = child.communicate()
+        out, err = self.wait(child)
         geometry = out.decode().strip()
         err = err.strip()
         # A cancel read as slurp answers wins over the geometry it printed.
@@ -438,9 +485,14 @@ class Capture:
         if picked is None:
             emit("cancelled")
             return
-        reader = self.spawn(["tesseract", "stdin", "stdout", "--oem", "1", "--psm", "6", "-l", languages, "--dpi", "300", "-c", "preserve_interword_spaces=1"],
-                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        text, err = reader.communicate(image)
+        # A file holds the image, so no retry of the polled wait has to carry
+        # unsent input through a pipe.
+        with tempfile.TemporaryFile() as source:
+            source.write(image)
+            source.seek(0)
+            reader = self.spawn(["tesseract", "stdin", "stdout", "--oem", "1", "--psm", "6", "-l", languages, "--dpi", "300", "-c", "preserve_interword_spaces=1"],
+                                stdin=source, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        text, err = self.wait(reader)
         if reader.returncode:
             detail = err.decode(errors="replace").strip()
             for pattern, reason, message in OCR_FAILURES:
@@ -474,6 +526,11 @@ class Capture:
         with clipboard:
             self.release()
             os.dup2(clipboard.fileno(), sys.stdin.fileno())
+        # From here a signal ends this process by its default action, as no
+        # Python handler outlives exec to act on one recorded too late.
+        for signum in (signal.SIGTERM, signal.SIGHUP):
+            signal.signal(signum, signal.SIG_DFL)
+        self.exit_if_signalled()
         os.execvpe("wl-copy", ["wl-copy", "--foreground", "--type", mime], os.environ)
 
     def record(self, request):
@@ -554,7 +611,7 @@ class Capture:
                     self.recorder.send_signal(signal.SIGINT)
                     stopping = True
                     try:
-                        self.recorder.wait(timeout=5)
+                        self.wait(self.recorder, timeout=5)
                     except subprocess.TimeoutExpired:
                         raise RuntimeError("The recorder did not stop; the video may be incomplete")
                     break
@@ -576,17 +633,11 @@ class Capture:
              actions=actions(request, path, (("default", "Open", "player"), ("show", "Show", "browser"))))
         self.clipboard_exit(child)
 
-    def wait(self, child):
-        """Wait for a child in short polls, so SIGTERM's release can reap it."""
-        while child.poll() is None:
-            select.select([], [], [], 0.1)
-        return child.returncode
-
     def end_recorder(self):
         """Stop a recorder that never wrote its file; it saves nothing."""
         self.recorder.send_signal(signal.SIGINT)
         try:
-            self.recorder.wait(timeout=5)
+            self.wait(self.recorder, timeout=5)
         except subprocess.TimeoutExpired:
             self.recorder.kill()
             self.recorder.wait()
@@ -609,7 +660,8 @@ class Capture:
             else:
                 args += ["-c:v", "copy", "-an"]
             child = self.spawn(args + [str(temp)], stdout=log, stderr=log)
-            code = self.wait(child)
+            self.wait(child)
+            code = child.returncode
             if code or temp.stat().st_size == 0:
                 return False
             os.replace(temp, path)
@@ -625,7 +677,8 @@ class Capture:
         thumbnail = folder / (path.stem + ".jpg")
         child = self.spawn(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-ss", "1", "-i", str(path), "-frames:v", "1", str(thumbnail)],
                            stdout=log, stderr=log)
-        if self.wait(child) == 0 and thumbnail.is_file() and thumbnail.stat().st_size > 0:
+        self.wait(child)
+        if child.returncode == 0 and thumbnail.is_file() and thumbnail.stat().st_size > 0:
             return str(thumbnail)
         thumbnail.unlink(missing_ok=True)
         return ""
@@ -1222,17 +1275,21 @@ def main():
     request = json.loads(sys.argv[1])
     capture = Capture()
     try:
-        match request["action"]:
-            case "screenshot" | "screenshot-area" | "screenshot-window" | "screenshot-display" | "screenshot-all":
-                capture.screenshot(request)
-            case "text":
-                capture.text(request)
-            case "record" | "record-window" | "record-display" | "record-output" | "record-portal":
-                capture.record(request)
-            case "probe":
-                capture.probe(request)
-            case other:
-                raise RuntimeError(f"Unknown capture action: {other}")
+        try:
+            match request["action"]:
+                case "screenshot" | "screenshot-area" | "screenshot-window" | "screenshot-display" | "screenshot-all":
+                    capture.screenshot(request)
+                case "text":
+                    capture.text(request)
+                case "record" | "record-window" | "record-display" | "record-output" | "record-portal":
+                    capture.record(request)
+                case "probe":
+                    capture.probe(request)
+                case other:
+                    raise RuntimeError(f"Unknown capture action: {other}")
+        finally:
+            # An action a signal ended reports no result of its own.
+            capture.exit_if_signalled()
         return 0
     except CaptureCancelled:
         emit("cancelled")

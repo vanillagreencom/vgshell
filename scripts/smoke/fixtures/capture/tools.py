@@ -15,7 +15,9 @@ slurp reads stdin to EOF when it is not a terminal, as the real slurp does.
 The recorder logs its start and output name, then writes `finalized`, or
 copies the fixture's `video`, only after SIGINT, never on a hard stop.
 ffmpeg copies its input, or writes a small JPEG for a one-frame thumbnail;
-ffmpegHold holds it half way until `ffmpeg-release` exists. grimHeldCall N
+ffmpegHold holds it half way until `ffmpeg-release` exists, and
+ffmpegOutlivesTerm keeps that held ffmpeg past its first SIGTERM; a second
+ends it, as a tool still finishing when its owner signals again. grimHeldCall N
 holds the Nth grim run until `grim-release` exists. slurpAnswersTerm holds
 slurp, then answers the terminate a cancel sends with its box, a stderr
 line and exit 0, as a slurp that answered just before the signal does.
@@ -142,6 +144,8 @@ match tool:
         if "-frames:v" in sys.argv:
             target.write_bytes(THUMBNAIL)
             sys.exit(0)
+        if config.get("ffmpegOutlivesTerm"):
+            signal.signal(signal.SIGTERM, lambda signum, frame: signal.signal(signal.SIGTERM, signal.SIG_DFL))
         if config.get("ffmpegHold"):
             # Held half way until the check writes ffmpeg-release.
             target.write_bytes(b"partial")

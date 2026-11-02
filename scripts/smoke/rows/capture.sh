@@ -1593,7 +1593,7 @@ changes = {
     "copy-only": ('if processing == "copy":', 'if False:', 1),
     "save-only": ('if processing != "save":', 'if True:', 1),
     "focus": ('emit("selection-ended")', 'pass', 2),
-    "timeout": ('child.communicate(timeout=timeout)', 'child.communicate()', 1),
+    "timeout": ('stdout, stderr = self.wait(child, timeout=timeout)', 'stdout, stderr = self.wait(child)', 1),
     "output-match": ('target = next((r["name"] for r in request["outputs"] if (r["x"], r["y"], r["width"], r["height"]) == (x, y, width, height)), None)', 'target = None', 1),
     "options": ('*options, ', '', 1),
     "choices": ('audio.append((label, "device:" + name))', 'pass', 1),
