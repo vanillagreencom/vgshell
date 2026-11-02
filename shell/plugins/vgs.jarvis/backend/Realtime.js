@@ -7,7 +7,11 @@
 // The voice has no tools and never answers on its own. Session owns the
 // lifetime through the speech port; Audio owns devices and calls captureSink
 // and playbackSource. Protocol: OpenAI's Realtime guides and the event types
-// of openai-node 7.31.0, read 2026-10-09. Contract:
+// of openai-node 7.31.0, read 2026-10-09. The transcription's keywords
+// field: the Realtime reference's AudioTranscription.keywords, "Words or
+// phrases to guide transcription of the input audio. Supported by
+// gpt-transcribe and gpt-live-transcribe", and the speech-to-text guide's
+// keyword rule, read 2026-11-02. Contract:
 // docs/decisions/D089-jarvis-chained-engine-and-heard-prefix.md.
 "use strict";
 const { Readable, Writable } = require("node:stream");
@@ -16,6 +20,7 @@ const Providers = require("./Providers.js");
 const Net = require("./net.js");
 const Guidance = require("./Guidance.js");
 const Speakable = require("./Speakable.js");
+const Child = require("./Child.js");
 const { sourceLimit, peak, SILENT_PEAK, PCM_RATE } = require("./Audio.js");
 
 const FORMAT = Object.freeze({ type: "audio/pcm", rate: PCM_RATE });
@@ -59,6 +64,16 @@ const VOICES = Object.freeze(["marin", "cedar", "alloy", "ash", "ballad", "coral
     .map(name => Object.freeze({ label: name[0].toUpperCase() + name.slice(1), value: name })));
 // The delegation a preview's words answer: no user request exists.
 const PREVIEW = "preview";
+// The user's dictation vocabulary, which voxtype answers as `.replacements`
+// of `voxtype config schema --json`, the resolved [text.replacements] table
+// (voxtype 1.1.1). `voxtype config get` refuses that key. A recovery bound,
+// not a measured budget, and an output ceiling above the 73 KiB the command
+// printed on cachy, 2026-11-02.
+const VOCABULARY_MS = 2000;
+const VOCABULARY_BYTES = 1024 * 1024;
+// setpriv's exit when the command it runs is not found: util-linux errexec,
+// EX_EXEC_ENOENT, seen from setpriv 2.42.4, 2026-11-02.
+const NOT_FOUND = 127;
 
 function fail(code) { throw new Error("jarvis: live=" + code); }
 function plain(value) { return value !== null && typeof value === "object" && !Array.isArray(value); }
@@ -70,6 +85,40 @@ function identity(value) {
 function token(value) { return typeof value === "string" && /^[A-Za-z0-9_.-]{1,64}$/.test(value) ? value : "unrecognized"; }
 function reasonOf(error) { return String(error.message).replace(/^jarvis: /, "").slice(0, 160); }
 function clean(text) { return text.replace(/[\x00-\x1f\x7f]/g, " "); }
+
+/**
+ * The target words of the user's voxtype [text.replacements], once each in
+ * the order voxtype lists them: {kind: "words", words}, empty when voxtype is
+ * not installed or its table holds no word, or {kind: "unread", cause}.
+ * The cause is a key built from Child.run's answer, never its output, which
+ * can hold the table's words: the stop reason (timeout, output-limit,
+ * cancelled), spawn=<code>, exit=<N>, signal=<S>, json when stdout does not
+ * parse (voxtype 1.1.1 prints a WARN line there for a config section it
+ * skips) or shape when .replacements is not a table of strings. The
+ * speech-to-text guide keeps each keyword on one line with no < or >, and the
+ * API rejects the whole request otherwise, so such a word is dropped. The
+ * table's own replacements never touch a transcript: its left-hand forms are
+ * voxtype's local engine's errors, not the provider's.
+ */
+async function vocabulary(clock, signal) {
+    // PATH finds setpriv and voxtype; voxtype finds its config from HOME or
+    // XDG_CONFIG_HOME. No other daemon variable, and so no key, reaches it.
+    const env = { LC_ALL: "C.UTF-8" };
+    for (const name of ["PATH", "HOME", "XDG_CONFIG_HOME"]) if (process.env[name] !== undefined) env[name] = process.env[name];
+    const result = await Child.run("setpriv", ["--pdeathsig", "KILL", "--", "voxtype", "config", "schema", "--json"],
+        { env, limit: VOCABULARY_BYTES, deadline: VOCABULARY_MS, group: true, signal, clock });
+    const unread = cause => ({ kind: "unread", cause });
+    if (result.kind === "stopped") return unread(result.reason);
+    // Child.run's error is the spawn error's code, or its message when it has none.
+    if (result.kind === "error") return unread(result.reason + "=" + token(result.error));
+    if (result.code === NOT_FOUND) return { kind: "words", words: [] };
+    if (result.code === null) return unread("signal=" + result.signal);
+    if (result.code !== 0) return unread("exit=" + result.code);
+    let table;
+    try { table = JSON.parse(result.stdout).replacements; } catch { return unread("json"); }
+    if (!plain(table) || !Object.values(table).every(word => typeof word === "string")) return unread("shape");
+    return { kind: "words", words: [...new Set(Object.values(table))].filter(word => word.trim() !== "" && !/[<>\r\n]/.test(word)) };
+}
 
 /**
  * The one narrowing door for a server message. Returns a tagged event or
@@ -181,6 +230,7 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         session.delegation = null;
         session.said = [];
         session.taken = null;
+        session.reading.abort();
         // Closing a connecting channel can emit close synchronously. The
         // released session must refuse that callback before it closes.
         session.state = { kind: "ended" };
@@ -397,7 +447,7 @@ function create({ provider, clock, conversation, captionLimit, log }) {
             case "created":
                 if (kind !== "connecting") fail("event-order");
                 session.state = { kind: "starting" };
-                send(session, session.update);
+                void session.vocabulary.then(answer => configure(session, answer));
                 break;
             case "started":
                 if (kind !== "starting") fail("event-order");
@@ -470,6 +520,24 @@ function create({ provider, clock, conversation, captionLimit, log }) {
             }
         } catch (error) { failed(session, reasonOf(error)); }
     }
+    // The session's configuration, once the provider created it and the
+    // vocabulary read answered. The words leave as the user's own desktop
+    // text beside the speech frame, and no keywords field leaves without one.
+    // No tools, and create_response false: the voice has no function to
+    // call and never answers a turn on its own.
+    function configure(session, answer) {
+        if (session.state.kind !== "starting") return;
+        if (answer.kind === "unread") log("jarvis: live=vocabulary-unread cause=" + answer.cause);
+        const keywords = answer.kind === "words" ? answer.words : [];
+        const transcription = keywords.length === 0 ? { model: TRANSCRIBE } : { model: TRANSCRIBE, keywords };
+        const update = { type: "session.update", session: { type: "realtime", output_modalities: ["audio"], tools: [],
+            audio: { input: { format: FORMAT, transcription,
+                turn_detection: { type: "semantic_vad", create_response: false, interrupt_response: false } },
+                output: { format: FORMAT, voice: session.voice } }, ...provider.noStore } };
+        const items = [Policy.item("", ["speech"])];
+        if (keywords.length !== 0) items.push(Policy.item(keywords.join("\n"), ["desktop"]));
+        try { send(session, update, items); } catch (error) { failed(session, reasonOf(error)); }
+    }
     function connect(session, { net, key, language, voice, preview, transfer, grants }) {
         session.transfer = transfer;
         session.grants = grants;
@@ -479,12 +547,7 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         if (!VOICES.some(row => row.value === voice)) fail("voice");
         Net.assertKeyTarget(provider.base, key.reference.origin);
         session.reader = Guidance.compose("duplex", "duplex", language).instructions;
-        // No tools, and create_response false: the voice has no function to
-        // call and never answers a turn on its own.
-        session.update = { type: "session.update", session: { type: "realtime", output_modalities: ["audio"], tools: [],
-            audio: { input: { format: FORMAT, transcription: { model: TRANSCRIBE },
-                turn_detection: { type: "semantic_vad", create_response: false, interrupt_response: false } },
-                output: { format: FORMAT, voice } }, ...provider.noStore } };
+        session.voice = voice;
         const secret = key.secrets.lookup(key.reference);
         let answer;
         try {
@@ -500,12 +563,18 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         // A handshake answered 401 or 403 refused the key; its body is never read.
         answer.events.addEventListener("close", event => failed(session,
             Net.keyRefused(event) ? "live=key-refused" : "live=disconnected code=" + event.code));
+        // Read while the handshake runs. Node throws, rather than emits, a
+        // spawn errno outside EACCES, EAGAIN, EMFILE, ENFILE and ENOENT
+        // (lib/internal/child_process.js, Node 26.12.1).
+        session.vocabulary = vocabulary(clock, session.reading.signal)
+            .catch(error => ({ kind: "unread", cause: "thrown=" + token(error.code) }));
     }
 
     const port = {
         open(e, events) {
             if (live !== null) throw new Error("jarvis: live=session-live");
-            const session = { op: e.op, events, state: { kind: "connecting" }, channel: null, update: null, reader: "",
+            const session = { op: e.op, events, state: { kind: "connecting" }, channel: null, voice: null, reader: "",
+                reading: new AbortController(), vocabulary: null,
                 timers: { start: null, silence: null, idle: null, gap: null, words: null, preview: null, unheard: null },
                 pending: [], pendingBytes: 0, inputAt: clock.now(), capture: null, captured: false, peak: 0, answered: false,
                 talking: false, playing: null, next: null,

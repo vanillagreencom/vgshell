@@ -49,7 +49,7 @@ flowchart TD
 
 Jarvis turns your words into text and asks your chosen AI model to answer. The model uses your instructions and reads skills or memory notes when it needs them. Jarvis checks an action before it runs and checks the result before it calls the action done. A request for your agent fleet goes to your Jarvis session after you confirm it; that session works through its mail.
 
-Your request goes to the AI model you choose, over the network when that model runs elsewhere. Local voice keeps speech on your computer. OpenAI Realtime sends speech to OpenAI; Gemini Live sends it to Google. With ElevenLabs, Local voice hears you on your computer. ElevenLabs receives the reply text and turns it into speech. ElevenLabs may keep request history and use data for model training. To stop new data being used for training, open Terms and privacy → Data use in your account ([ElevenLabs help](https://elevenlabs.io/docs/help-center/legal/is-my-data-used-to-improve-eleven-labs-ai-models)).
+Your request goes to the AI model you choose, over the network when that model runs elsewhere. Local voice keeps speech on your computer. OpenAI Realtime sends speech to OpenAI, with the words your dictation replacements produce, so it spells them as you do; Gemini Live sends speech to Google. With ElevenLabs, Local voice hears you on your computer. ElevenLabs receives the reply text and turns it into speech. ElevenLabs may keep request history and use data for model training. To stop new data being used for training, open Terms and privacy → Data use in your account ([ElevenLabs help](https://elevenlabs.io/docs/help-center/legal/is-my-data-used-to-improve-eleven-labs-ai-models)).
 
 ## Setup
 

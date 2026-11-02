@@ -630,6 +630,55 @@ world(async () => {
         assert.equal(main.conns.length, opened, "it opens no connection");
     }
 
+    // The user's dictation vocabulary guides the transcription: the target
+    // words of voxtype's [text.replacements], each once, without a word the
+    // provider rejects a request for, released as desktop text beside the
+    // speech frame. No voxtype, no word or an unread table sends no keywords
+    // field. A stand-in voxtype on the world's PATH prints the shape of
+    // `voxtype config schema --json` (voxtype 1.1.1, run 2026-11-02),
+    // trimmed to the fields the engine reads.
+    async function vocabulary(kit) {
+        const standin = path.join(process.env.JARVIS_TEST_ROOT, "standins/voxtype");
+        const answer = path.join(process.env.JARVIS_TEST_ROOT, "voxtype-answer.json");
+        const printing = replacements => {
+            fs.writeFileSync(answer, JSON.stringify({ schema_version: 1, voxtype_version: "1.1.1", replacements }));
+            return 'exec cat "' + answer + '"';
+        };
+        const rows = [
+            ["words", () => printing({ BGS: "VGS", Cashy: "cachy", "PX 13": "px13", angled: "a<b", closed: "b>a", returned: "x\ry",
+                broken: "two\nlines", blank: "", bgs: "vgs", cashy: "cachy" }), ["VGS", "cachy", "px13", "vgs"], []],
+            ["no-voxtype", null, null, []],
+            ["empty-table", () => printing({}), null, []],
+            // Each unread table logs its cause and no word the output held.
+            ["exit", () => "echo BGS >&2; exit 1", null, ["jarvis: live=vocabulary-unread cause=exit=1"]],
+            ["signal", () => "kill -KILL $$", null, ["jarvis: live=vocabulary-unread cause=signal=SIGKILL"]],
+            // voxtype 1.1.1 prints this WARN on stdout ahead of the JSON for
+            // a config section it skips (run 2026-11-02).
+            ["json", () => "echo \"WARN Config section 'whisper' could not be read: BGS\"; " + printing({ BGS: "VGS" }), null,
+                ["jarvis: live=vocabulary-unread cause=json"]],
+            // The world's PATH holds no yes or head: a shell loop doubles one
+            // line to 64 KiB and prints it until the ceiling ends the child.
+            ["output-limit", () => 's=BGS; while [ ${#s} -lt 65536 ]; do s=$s$s; done; while :; do echo "$s"; done', null, ["jarvis: live=vocabulary-unread cause=output-limit"]]
+        ];
+        for (const [name, body, keywords, logs] of rows) {
+            if (body !== null)
+                fs.writeFileSync(standin, '#!/bin/sh\n[ "$*" = "config schema --json" ] || exit 2\n' + body() + "\n", { mode: 0o700 });
+            try {
+                const w = rig(kit);
+                w.dispatch("talk-down");
+                const conn = await main.accept(w);
+                conn.play("created");
+                const update = await conn.event("session.update");
+                assert.deepEqual(update.session.audio.input.transcription,
+                    keywords === null ? { model: "gpt-live-transcribe" } : { model: "gpt-live-transcribe", keywords }, name + " transcription");
+                const judged = w.judged.filter(item => String(item.content).startsWith('{"type":"session.update"'));
+                assert.deepEqual(judged.map(item => [...item.labels]), [keywords === null ? ["speech"] : ["speech", "desktop"]], name + " release labels");
+                assert.deepEqual(w.logs, logs, name + " logs, and no word in them");
+                quiet(w, conn);
+            } finally { fs.rmSync(standin, { force: true }); }
+        }
+    }
+
     // Idle is 60 s with no user speech or transcript, no words for the voice,
     // no reply and no new capture.
     async function idle(kit, P = REALTIME) {
@@ -2280,7 +2329,7 @@ world(async () => {
         assert.equal(main.conns.filter(conn => conn.rig === String(w.id)).length, 0, "a withheld connection opens no socket");
     }
 
-    const cases = { roundTrip, preview, idle, idleRestarts, idleTurn, unheard, keyRefused, idleThinking, idleApproval, closing, captions, interruptPlaying,
+    const cases = { roundTrip, preview, vocabulary, idle, idleRestarts, idleTurn, unheard, keyRefused, idleThinking, idleApproval, closing, captions, interruptPlaying,
         interruptQueued, replacedReply, heardAccount, replyDue, replyDueCarried, releaseDue, labels, failures, unread, redirect,
         startTimeout, responseTimeout, keys, opening, releaseLifetime, pacing, replyQueue, backlog, delegation, lineQueue, violations,
         daemonDelegation, daemonStale: kit => daemonDelegation(kit, "stale"), daemonRelease: kit => daemonDelegation(kit, "release"),
@@ -2353,7 +2402,11 @@ world(async () => {
         const mutations = [
             ["no-tools", "output_modalities: [\"audio\"], tools: [],", 'output_modalities: ["audio"], tools: [{ type: "function", name: "files_delete" }],', as("roundTrip")],
             ["no-own-answer", "create_response: false", "create_response: true", as("roundTrip")],
-            ["no-voice", "output: { format: FORMAT, voice } }", "output: { format: FORMAT } }", as("preview")],
+            ["no-voice", "output: { format: FORMAT, voice: session.voice } }", "output: { format: FORMAT } }", as("preview")],
+            ["vocabulary-words", "keywords.length === 0 ? { model: TRANSCRIBE } : { model: TRANSCRIBE, keywords }", "{ model: TRANSCRIBE }", as("vocabulary")],
+            ["vocabulary-none", "keywords.length === 0 ? { model: TRANSCRIBE } : { model: TRANSCRIBE, keywords }", "{ model: TRANSCRIBE, keywords }", as("vocabulary")],
+            ["vocabulary-cause", 'log("jarvis: live=vocabulary-unread cause=" + answer.cause);', 'log("jarvis: live=vocabulary-unread");', as("vocabulary")],
+            ["vocabulary-label", 'if (keywords.length !== 0) items.push(Policy.item(keywords.join("\\n"), ["desktop"]));', "", as("vocabulary")],
             ["voice-unjudged", 'if (!VOICES.some(row => row.value === voice)) fail("voice");', "", as("preview")],
             ["no-preview", "commentary(PREVIEW, Policy.item(session.preview, [\"desktop\"]));", "", as("preview")],
             ["preview-unended", "session.timers.preview = clock.set(() => { session.timers.preview = null; session.events.idle(); }, 0);", "void session;", as("preview")],
