@@ -958,7 +958,7 @@ function verifyConsoleTalk(gate, consoleSource) {
         "the console's talk line is the talk sentence of the Talk mode");
     assert.ok(consoleSource.includes("readonly property var spelledKeys: WidgetView.spelledKeys("), "the console spells the keys as the bar does");
     for (const mode of ["hold", "toggle"])
-        for (const key of ["Super+Right Alt", null]) {
+        for (const key of ["Super+U", null]) {
             const talk = gate.talkHint(mode, key) + ".";
             const line = scope.speechOnlyLine({ tone: "info", text: "Gemini Live" }, talk);
             assert.ok(line.startsWith("Gemini Live ") && line.endsWith(" " + talk), mode + " " + key + ": the speech-only line ends with the talk sentence");
@@ -1655,7 +1655,7 @@ function verifyHintStops(gate) {
         for (const cause of ["speech=live-key-required", "speech=live-account-unselected", "speech=live-key-refused"])
             for (const keys of [0, 1])
                 take("voiceStep " + [provider, cause, keys].join(" "), gate.voiceStep({ tone: "warning", text: "To do", action: "key" },
-                    { provider, voice: cloudVoice(provider), causes: [cause], talk: gate.talkHint("hold", "Super+Right Alt"), keys, size: "", failure: null }));
+                    { provider, voice: cloudVoice(provider), causes: [cause], talk: gate.talkHint("hold", "Super+U"), keys, size: "", failure: null }));
     for (const [label, facts] of ELEVEN_ROWS) take("elevenLabsStep " + label, gate.elevenLabsStep(facts));
     for (const option of manifest.schema.voiceProvider.options) take("voiceRoute " + option.value, gate.voiceRoute(option.value, cloudVoice(option.value)));
     for (const kind of ["failed", "unreadable", "timeout"]) take("checkFailure " + kind, gate.checkFailure(kind, manifest.status.localRuntime));
@@ -1929,7 +1929,7 @@ function verifyLocalSetup(gate) {
         assert.equal(failure !== null, kept, "local failure: " + label);
         if (kept) assert.deepEqual(plain(failure), { cause: "busy", log, text: "Medium is not set up" }, "local failure fields: " + label);
     }
-    const facts = (provider, failure) => ({ provider, voice: cloudVoice(provider), causes: [], talk: "Tap or hold Super+Right Alt, then speak", keys: 0, size: "1.2 GB", failure });
+    const facts = (provider, failure) => ({ provider, voice: cloudVoice(provider), causes: [], talk: "Tap or hold Super+U, then speak", keys: 0, size: "1.2 GB", failure });
     const hints = new Set();
     for (const cause of LOCAL_CAUSES) {
         const failure = gate.localFailure(record(cause), "medium", "small");
@@ -2078,7 +2078,7 @@ function verify(gate) {
         [{ kind: "finishing" }, "info", undefined], [{ kind: "failed", reason: "check-timeout" }, "danger", "check"],
         [{ kind: "failed", reason: "speech=local-wake-failed" }, "danger", "check"], [{ kind: "done", result: "ready" }, "ok", "check"],
         [{ kind: "done", result: "silent" }, "warning", "check"], [{ kind: "done", result: "not-heard" }, "warning", "check"]]) {
-        const value = gate.voiceCheck(gate.DONE, check, gate.talkHint("hold", "Super+Right Alt"));
+        const value = gate.voiceCheck(gate.DONE, check, gate.talkHint("hold", "Super+U"));
         assert.deepEqual([value.tone, value.action], [tone, action]);
         assert.equal(judge.statusWrite(manifest, {}, "setupVoice", value).ok, true, JSON.stringify(check));
     }
@@ -3141,7 +3141,7 @@ function verifyOneReadiness(gate) {
         ...Object.keys(gate.DICTATION), "speech=local-loading", "speech=dictation-starting", "speech=elevenlabs-voices-reading"];
     assert.equal(daemonCauses.includes(shellCause), false, "the shell's cause is no daemon cause");
     const sets = [[], [shellCause], ...daemonCauses.map(cause => [cause]), ...daemonCauses.map(cause => [shellCause, cause])];
-    const keys = { talk: "Super+Right Alt", mute: "Super+Shift+Right Alt", stop: "Super+Alt+Period", confirm: "Super+Alt+Y", console: "Super+Alt+C" };
+    const keys = { talk: "Super+U", mute: "Super+Shift+U", stop: "Super+Alt+Period", confirm: "Super+Alt+Y", console: "Super+Alt+C" };
     for (const causes of sets) {
         const status = plain(readiness(gate, { kind: "answered", causes }));
         const configured = causes.every(cause => cause === shellCause || cause === "speech=local-loading");
@@ -3159,7 +3159,7 @@ function verifyOneReadiness(gate) {
 // failed start (the bar tooltip, the desktop notices and the Setup values)
 // words its state; the service log keeps the keyed cause.
 function verifyWordedText(gate) {
-    const keys = { talk: "Super+Right Alt", mute: "Super+Shift+Right Alt", stop: "Super+Alt+Period", confirm: "Super+Alt+Y", console: "Super+Alt+C" };
+    const keys = { talk: "Super+U", mute: "Super+Shift+U", stop: "Super+Alt+Period", confirm: "Super+Alt+Y", console: "Super+Alt+C" };
     const state = Object.assign(plain(session.initial()), { gate: { kind: "down", reason: "unconfigured" } });
     const up = { daemon: { tone: "info", text: "Jarvis is ready; microphone is off" }, audio: { tone: "ok", text: "Device list ready" },
         detail: { phase: session.phaseOf(state), seq: 1, state } };

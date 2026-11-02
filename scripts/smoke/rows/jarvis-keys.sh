@@ -108,15 +108,15 @@ jarvis_key_wait_past() { # AT MS
   local left=$(( $1 + $2 - $(now_ms) ))
   (( left <= 0 )) || sleep "$((left / 1000)).$(printf '%03d' $((left % 1000)))"
 }
-jarvis_key_talk_down() { hold_send "down 133" "down 108"; jarvis_key_down_at="$(now_ms)"; }
+jarvis_key_talk_down() { hold_send "down 133" "down 30"; jarvis_key_down_at="$(now_ms)"; }
 # A hold: the release comes 300 ms past Session's tap bound, so it ends the
 # request at the release.
 jarvis_key_talk_up() {
   jarvis_key_wait_past "$jarvis_key_down_at" $((jarvis_key_tap_ms + 300))
-  hold_send "up 108" "up 133"
+  hold_send "up 30" "up 133"
 }
 # A tap: both edges at once, far inside the tap bound.
-jarvis_key_tap() { hold_send "down 133" "down 108" "up 108" "up 133"; jarvis_key_tapped_at="$(now_ms)"; }
+jarvis_key_tap() { hold_send "down 133" "down 30" "up 30" "up 133"; jarvis_key_tapped_at="$(now_ms)"; }
 # Whether the request is sent, phase thinking, before DEADLINE, a now_ms
 # reading. A silent tapped request ends by itself TAP_SILENCE_MS after its
 # release, so the callers' deadline, half that bound past the key, catches
@@ -177,7 +177,7 @@ jarvis_key_tap_judged() { # FUNCTION
    "$1" >"$sandbox/jarvis-key-tap-control-$1.log"
    echo "$failures")
 }
-jarvis_key_mute() { hold_send "down 133" "down 50" "down 108" "up 108" "up 50" "up 133"; }
+jarvis_key_mute() { hold_send "down 133" "down 50" "down 30" "up 30" "up 50" "up 133"; }
 jarvis_key_stop() { hold_send "down 133" "down 64" "down 60" "up 60" "up 64" "up 133"; }
 jarvis_key_commit() { expect_poll "release commits the scripted utterance" thinking jarvis_key_state phase; }
 jarvis_key_commit_control() {
@@ -455,7 +455,7 @@ for planted in '{"kind":"retry","pendingMute":["waiting","waiting"]}' '{"kind":"
 done
 jarvis_shortcut_assertion
 expect_poll "the service reads the effective default key map" \
-  '{"talk":"SUPER+code:108","mute":"SUPER+SHIFT+code:108","stop":"SUPER+ALT+PERIOD","confirm":"SUPER+ALT+Y","console":"SUPER+ALT+C"}' \
+  '{"talk":"SUPER+code:30","mute":"SUPER+SHIFT+code:30","stop":"SUPER+ALT+PERIOD","confirm":"SUPER+ALT+Y","console":"SUPER+ALT+C"}' \
   ipc smoke readInstance service vgs.jarvis effectiveKeys
 : >"$jarvis_gate"
 jarvis_key_muted
@@ -593,7 +593,7 @@ jarvis_key_talk_down
 expect_poll "the physical talk key starts listening" listening jarvis_key_state phase
 expect "one key press opens one scripted capture" "$((jarvis_key_initial_opens + 1))" jarvis_key_effects capture-open
 jarvis_key_received_before="$(jarvis_key_received count)"
-hold_send "down 108" "down 108"
+hold_send "down 30" "down 30"
 hold_barrier
 expect "physical repeat opens no second capture" "$((jarvis_key_initial_opens + 1))" jarvis_key_effects capture-open
 jarvis_key_talk_up

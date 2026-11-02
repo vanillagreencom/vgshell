@@ -972,7 +972,7 @@ world(async () => {
                 settings: { home: homeSetting, sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", privateWindows: "" },
                 directories: { state, data: path.join(process.env.JARVIS_TEST_ROOT, name + "-data"),
                     runtime: path.join(process.env.JARVIS_TEST_ROOT, name + "-run") },
-                keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C" } }) + "\n");
+                keys: { talk: "SUPER+code:30", mute: "SUPER+SHIFT+code:30", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C" } }) + "\n");
             for (const [id, tool, args] of calls) {
                 fs.mkdirSync(driver, { recursive: true });
                 fs.writeFileSync(path.join(driver, "call.next"), JSON.stringify({ id, tool, arguments: args }));

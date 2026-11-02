@@ -77,7 +77,7 @@ To talk to Jarvis, do the steps that the Setup tab of the Jarvis page shows:
 
 1. Under AI model, choose an Account. Sign in opens an app's own sign-in. Add key stores an API key.
 2. Under Voice, choose Local or a cloud voice. With Local, press Set up local voice: it downloads the voice that runs best on your computer. A cloud voice with no key opens Add a key.
-3. Tap Talk, Super with Right Alt, and speak.
+3. Tap Talk, Super with U, and speak.
 
 Setup says Ready when Jarvis has an AI model and the selected voice.
 
@@ -104,13 +104,13 @@ After the computer restarts while your Jarvis session ran, and Start Jarvis at b
 
 | Key | Default | What it does |
 | --- | --- | --- |
-| Talk | Super with Right Alt | Opens the microphone. In Tap or hold mode, tap it to start, then tap again or stop speaking to send; or hold it while you speak. Talk mode decides how it works. Press it while Jarvis speaks to interrupt. |
-| Mute | Super with Shift and Right Alt | Turns the Jarvis microphone off or on, as Mute Jarvis in the bar icon's right-click menu does. Mute stays on across restarts and blocks Talk. |
+| Talk | Super with U | Opens the microphone. In Tap or hold mode, tap it to start, then tap again or stop speaking to send; or hold it while you speak. Talk mode decides how it works. Press it while Jarvis speaks to interrupt. |
+| Mute | Super with Shift and U | Turns the Jarvis microphone off or on, as Mute Jarvis in the bar icon's right-click menu does. Mute stays on across restarts and blocks Talk. |
 | Stop | Super with Alt and Period | Stops what Jarvis does now: listening, thinking or speaking. |
 | Confirm | Super with Alt and Y | Confirms the Jarvis request on the screen. |
 | Console | Super with Alt and C | Opens the Console window, as a click on the bar icon does. |
 
-You can change the keys under Keys on the Jarvis page.
+Talk and Mute use the physical U position on a US keyboard. That position stays the same on another layout. You can change the keys under Keys on the Jarvis page.
 
 - In the Console, Conversation lets you type to Jarvis and read its replies. With OpenAI Realtime or Gemini Live, which take speech only, it says how to talk in place of the message box. Tasks shows coding tasks, and opens or stops the selected task. Audit shows recent actions that Jarvis refused or that failed, and why a voice stream failed: the microphone sent only silence, the voice service heard no words, it refused the key, or the voice stopped after a problem.
 - The listening bubble lets clicks go through to the application below it. While Jarvis waits for Hey Jarvis, the bubble shows a still orb.

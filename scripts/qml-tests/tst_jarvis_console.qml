@@ -31,7 +31,7 @@ Item {
             screens: { current: null },
             status: { values: values },
             settings: { mode: "hold", voiceProvider: "gemini" },
-            shortcut: { keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C" } },
+            shortcut: { keys: { talk: "SUPER+code:30", mute: "SUPER+SHIFT+code:30", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C" } },
             ipc: { call: (name, arg) => "ok" },
             surfaces: { openPage: (page, tab) => { root.opened = root.opened.concat([[page, tab]]); } }
         };

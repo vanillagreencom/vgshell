@@ -274,8 +274,8 @@ function keyCaps(shortcut) {
 }
 
 // Return the display label for one shortcut part. A `code:` part is an XKB
-// keycode, which names one physical key on every layout: 105 is RCTL and 108
-// is RALT in the evdev keycodes, the two VGS binds by default.
+// keycode. The evdev map names physical positions independently of layout:
+// AD07 is 30 (the US U position), RCTL is 105 and RALT is 108.
 function display(key) {
     var upper = key.toUpperCase();
     if (/^CODE:[0-9]+$/.test(upper)) upper = "CODE:" + String(Number(upper.slice(5)));
@@ -299,6 +299,7 @@ function display(key) {
         "RIGHT": "Right",
         "UP": "Up",
         "DOWN": "Down",
+        "CODE:30": "U",
         "CODE:105": "Right Ctrl",
         "CODE:108": "Right Alt"
     };

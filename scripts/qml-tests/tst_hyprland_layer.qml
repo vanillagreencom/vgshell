@@ -13,7 +13,7 @@ import qs.Unit
 Item {
     id: root
 
-    readonly property string configText: JSON.stringify({ version: 3 }, null, 2) + "\n"
+    readonly property string configText: JSON.stringify({ version: 4 }, null, 2) + "\n"
     // A theme apply as a catalog theme makes it: one document that moves
     // several of the layer's inputs at once.
     readonly property var themeTokens: ({

@@ -26,7 +26,7 @@ Item {
         return {
             status: { values: values },
             settings: { mode: "hold" },
-            shortcut: { keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C" } },
+            shortcut: { keys: { talk: "SUPER+code:30", mute: "SUPER+SHIFT+code:30", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C" } },
             ipc: { call: (name, arg) => { root.calls = root.calls.concat([[name, arg]]); return root.reply; } }
         };
     }
@@ -79,11 +79,11 @@ Item {
             const click = "Click or press Super+Alt+C to open the console.";
             const rows = [
                 [{ daemon: { tone: "info", text: "Starting" }, detail: null }, "loader", Theme.color.info, "Jarvis is starting\nWait for Jarvis to start.\n" + click],
-                [root.ready({}), "vgs-letter-j", Theme.bar.foreground, "Ready to talk\nTap or hold Super+Right Alt, then speak.\n" + click],
+                [root.ready({}), "vgs-letter-j", Theme.bar.foreground, "Ready to talk\nTap or hold Super+U, then speak.\n" + click],
                 [root.ready({ capture: { kind: "open", gen: 1, op: 2, mode: "hold" } }), "audio-lines", Theme.color.accent, "Jarvis is listening\nSpeak now.\n" + click],
                 [root.ready({ turn: { kind: "thinking", gen: 1, op: 3, deadline: 70 } }), "brain", Theme.color.info, "Jarvis is thinking\nPress Super+Alt+Period to stop.\n" + click],
                 [root.ready({ playback: { kind: "playing", gen: 1, op: 5, source: 4, interruptible: true, admission: { kind: "started" }, deadline: null } }), "volume-2", Theme.color.accent, "Jarvis is speaking\nPress Super+Alt+Period to stop.\n" + click],
-                [root.ready({ mute: { kind: "on" } }), "mic-off", Theme.color.textMuted, "Jarvis is muted\nPress Super+Shift+Right Alt to unmute.\n" + click],
+                [root.ready({ mute: { kind: "on" } }), "mic-off", Theme.color.textMuted, "Jarvis is muted\nPress Super+Shift+U to unmute.\n" + click],
                 [{ daemon: { tone: "danger", text: "Jarvis needs Node 22 or later", hint: "Update Node to version 22 or later, then turn Jarvis off and on again in Settings > Jarvis", lines: ["jarvis: node=21.0.0 need=22"] }, detail: null }, "circle-alert", Theme.color.danger, "Jarvis needs Node 22 or later\nUpdate Node to version 22 or later, then turn Jarvis off and on again in Settings > Jarvis.\n" + click]
             ];
             const badges = [Theme.badge.tone.info, Theme.badge.tone.accent, Theme.badge.tone.neutral, Theme.badge.tone.danger].map(t => String(Qt.color(t.foreground)));
