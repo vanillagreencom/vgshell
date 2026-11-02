@@ -265,6 +265,7 @@ const cases = [
     ["key-empty", changed(hello, { keys: { ...hello.keys, talk: "" } }), "shell", "key-talk"],
     ["intent-direction", JSON.stringify(intent), "daemon", "direction-intent"],
     ["intent-shape", changed(intent, { extra: true }), "shell", "shape-intent"],
+    ["voice-mute-shape", changed(intent, { intent: "voice-mute", muted: true }), "shell", "shape-intent"],
     ["intent-name", changed(intent, { intent: "approve" }), "shell", "intent"],
     ["preview-without-voice", changed(intent, { intent: "preview" }), "shell", "shape-preview"],
     ["preview-empty-voice", changed(intent, { intent: "preview", voice: "" }), "shell", "preview-voice"],
@@ -450,7 +451,7 @@ const dueState = (() => {
 assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(dueState), "daemon")), JSON.stringify(dueState), "a due reply is a wire state");
 rejected(Protocol, ["state-speech-reply", JSON.stringify({ ...dueState, state: { ...dueState.state, speech: { ...dueState.state.speech, reply: { kind: "coming" } } } }),
     "daemon", "state"]);
-for (const name of ["talk-down", "talk-up", "mute", "stop", "voice-check"])
+for (const name of ["talk-down", "talk-up", "mute", "voice-mute", "stop", "voice-check"])
     assert.equal(Protocol.accept(changed(intent, { intent: name }), "shell").intent, name);
 // A preview always names the voice it plays (Service.previewVoice).
 assert.equal(Protocol.accept(changed(intent, { intent: "preview", voice: "marin" }), "shell").voice, "marin");
@@ -682,7 +683,7 @@ try {
         ["key-type", 'fail("key-" + shortcut);', ';', "key-type"],
         ["intent-direction", 'if (direction !== "shell") fail("direction-intent");',
             'if (false) fail("direction-intent");', "intent-direction"],
-        ["intent-name", 'if (["talk-down", "talk-up", "mute", "stop", "voice-check", "owner-asks-refresh"].indexOf(message.intent) === -1) fail("intent");',
+        ["intent-name", 'if (["talk-down", "talk-up", "mute", "voice-mute", "stop", "voice-check", "owner-asks-refresh"].indexOf(message.intent) === -1) fail("intent");',
             'if (false) fail("intent");', "intent-name"],
         ["preview-voice-required", '} else if (message.intent === "preview") {',
             '} else if (message.intent === "preview" && message.voice !== undefined) {', "preview-without-voice"],

@@ -29,6 +29,7 @@ function setup(Implementation = Audio, sink = null, source = null, clock = null)
     ports.capture = { ...ports.capture, ...audio.capturePort,
         collect: () => {} }; // Speech is outside this audio lifetime surface.
     ports.playback = audio.playbackPort;
+    ports.voiceMute = { store: () => {} }; // Its record is the daemon's.
     ports.brain.send = () => {}; // No speech/brain implementation enters this audio fixture.
     // Session's clock, which release() moves past a tap.
     let skew = 0;
@@ -353,6 +354,47 @@ async function inside() {
     for (const operation of ["complete", "interrupt", "talk", "release", "mute", "stop", "locked", "unknown",
         "indicator", "provider", "device", "lease"]) await halfDuplex(Audio, operation);
 
+    // Voice mute sends the speaker silence of the voice's length through the
+    // one paced write, for a chained voice's sentences and a duplex voice's
+    // bytes alike: the written count and the acknowledgement are a heard
+    // reply's, and the level still reads the voice.
+    async function voiceMute(Implementation = Audio) {
+        const frame = Buffer.alloc(480);
+        for (let i = 0; i < frame.length; i += 2) frame.writeInt16LE(8192, i);
+        const sources = {
+            chained: () => Readable.from([{ pcm: frame, sentence: { text: "fixture", frames: frame.length / 2 } }]),
+            duplex: () => {
+                const source = new Readable({ read() {} });
+                source.push(frame);
+                source.push(null);
+                return source;
+            }
+        };
+        const record = path.join(process.env.HOME, "playback-record");
+        const bytes = path.join(process.env.HOME, "playback-bytes");
+        fs.writeFileSync(record, "");
+        try {
+            for (const [voice, source] of Object.entries(sources)) for (const muted of [false, true]) {
+                const name = voice + (muted ? " muted" : " heard");
+                fs.rmSync(bytes, { force: true });
+                const w = setup(Implementation, null, source());
+                try {
+                    await capture(w);
+                    w.dispatch("final", { gen: w.runner.state.turn.gen, op: w.runner.state.turn.op, text: "fixture" });
+                    await until(() => w.runner.state.capture.kind === "closed", name + " capture ends before playback");
+                    if (muted) w.dispatch("voice-mute-toggle");
+                    w.tick(40);
+                    w.dispatch("play", { gen: w.runner.state.turn.gen, op: w.runner.state.turn.op, interruptible: true });
+                    await until(() => w.runner.state.playback.kind === "idle", name + " playback is acknowledged");
+                    assert.deepEqual(fs.readFileSync(bytes), muted ? Buffer.alloc(frame.length) : frame, name + " speaker bytes");
+                    assert.equal(w.audio.lastPlayback.writtenFrames, frame.length / 2, name + " written count");
+                    assert.ok(w.levels.some(row => row.value.playback === 0.25), name + " level reads the voice");
+                } finally { w.runner.close(); await w.audio.close("test-end"); }
+            }
+        } finally { fs.rmSync(record, { force: true }); fs.rmSync(bytes, { force: true }); }
+    }
+    await voiceMute();
+
     async function playbackExit(Implementation = Audio) {
         fs.writeFileSync(path.join(process.env.HOME, "playback-exits"), "");
         const source = new PassThrough();
@@ -571,6 +613,10 @@ async function inside() {
         'if (false && this.playbackFeed !== null)', playback);
     await control("playback-level", 'this.reportLevel(playback.e.gen, "playback", pcm);',
         'if (false) this.reportLevel(playback.e.gen, "playback", pcm);', playback);
+    await control("voice-mute-silence", 'const out = this.state.voiceMute.kind === "on" ? Buffer.alloc(bytes) : pcm;',
+        'const out = pcm;', voiceMute);
+    await control("voice-mute-level", 'this.reportLevel(playback.e.gen, "playback", pcm);',
+        'this.reportLevel(playback.e.gen, "playback", out);', voiceMute);
     await control("node-cache-bound", 'this.nodes.set(node.id, { group, label: label.slice(0, 60), value });',
         'this.nodes.set(node.id, { ...props, group, label: label.slice(0, 60), value });', cacheBound);
     await control("closed-owner", 'this.lifetime.kind === "closed" || (kind !== "discovery"',

@@ -24,6 +24,7 @@ function world(implementation = Owner, synchronous = false, session = Session) {
     };
     const runner = new implementation.SessionRunner(session, {
         mute: { store: value => calls.push({ name: "mute-store", value }) },
+        voiceMute: { store: value => calls.push({ name: "voice-mute-store", value }) },
         transcript: port("transcript"),
         capture: { open: port("open"), close: port("close"), collect: port("collect") },
         brain: {
@@ -185,6 +186,27 @@ const tests = [
         };
         w.dispatch("mute-toggle");
         w.dispatch("mute-toggle");
+    }],
+    // A published voice mute is already stored; a failed store publishes
+    // nothing and reaches the daemon.
+    ["durable-voice-mute", impl => {
+        const w = world(impl);
+        let stored = false;
+        w.runner.ports.voiceMute.store = value => { stored = value; };
+        const publish = w.runner.publish;
+        w.runner.publish = (state, phase) => {
+            assert.equal(stored, state.voiceMute.kind === "on");
+            publish(state, phase);
+        };
+        w.dispatch("voice-mute-toggle");
+        assert.equal(stored, true);
+        w.dispatch("voice-mute-toggle");
+        assert.equal(stored, false);
+        const failure = new Error("jarvis: voice-mute=fixture-write-failed");
+        w.runner.ports.voiceMute.store = () => { throw failure; };
+        const publications = w.published.length;
+        assert.throws(() => w.dispatch("voice-mute-toggle"), error => error === failure);
+        assert.equal(w.published.length, publications, "failed storage cannot publish changed voice mute");
     }],
     ...["capture", "playback"].map(resource => ["failed-mute-" + resource, impl => {
         const w = world(impl);
@@ -480,8 +502,11 @@ try {
         ["speech-due", 'due: due => done("speech-due", { due }),', "due: () => {},", "speech-due-identity"],
         ["speech-due-value", 'due: due => done("speech-due", { due }),', 'due: () => done("speech-due", { due: true }),', "speech-due-identity"],
         ["speech-deadline-scheduling", 'this.state.playback, ', '', "speech-deadlines"],
-        ["durable-mute", 'if (effect.kind === "mute-store") this.consume(effect);',
+        ["durable-mute", 'if (STORES.includes(effect.kind)) this.consume(effect);',
             'if (false) this.consume(effect);', "durable-mute"],
+        ["durable-voice-mute", 'const STORES = ["mute-store", "voice-mute-store"];',
+            'const STORES = ["mute-store"];', "durable-voice-mute"],
+        ["voice-mute-persistence", 'this.ports.voiceMute.store(e.muted);', 'void e.muted;', "durable-voice-mute"],
         ["mute-cleanup-order", 'catch (error) { persistence = { kind: "failed", error }; }',
             'catch (error) { throw error; }', "failed-mute-capture"],
         ["mute-capture-close", 'this.ports.capture.close(e, () => done("capture-closed"));',

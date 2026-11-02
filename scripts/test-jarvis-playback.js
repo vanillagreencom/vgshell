@@ -424,9 +424,9 @@ async function inside() {
     await control("startup-flush", "this.playback = null;\n            if (this.playbackFeed !== null)",
         "if (false) this.playback = null;\n            if (this.playbackFeed !== null)", startup);
     await control("stall-buffer-verdict", "const written = this.waitPlayback(playback, owner.child.stdin, null, null,\n" +
-        "                acknowledged => owner.child.stdin.write(pcm, acknowledged));",
+        "                acknowledged => owner.child.stdin.write(out, acknowledged));",
     'if (owner.child.stdin.writableLength + bytes > BUFFER_BYTES) throw new Error("playback-overflow");\n' +
-        '            const flowing = owner.child.stdin.write(pcm);\n' +
+        '            const flowing = owner.child.stdin.write(out);\n' +
         '            const written = flowing ? Promise.resolve() : this.waitPlayback(playback, owner.child.stdin, "drain");',
     stalledDeadline);
     console.log("test-jarvis-playback: ok controls=21 lead_frames=1440 node_frames=480");

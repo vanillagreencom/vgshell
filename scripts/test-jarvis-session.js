@@ -11,7 +11,7 @@ const { load } = require("../bin/lib/qml-library.js");
 const file = path.resolve(__dirname, "../shell/plugins/vgs.jarvis/Session.js");
 const Session = load(file);
 const copy = value => JSON.parse(JSON.stringify(value));
-const events = ["snapshot", "indicator", "talk-down", "talk-up", "toggle", "mute", "unmute", "mute-toggle", "stop",
+const events = ["snapshot", "indicator", "talk-down", "talk-up", "toggle", "mute", "unmute", "mute-toggle", "voice-mute", "voice-mute-toggle", "stop",
     "cancel", "interrupt", "capture-opened", "capture-closed", "capture-failed", "playback-failed", "partial", "final", "say", "collect-failed", "brain-done",
     "brain-failed", "brain-ended", "cancelled", "play", "played", "flushed", "tool", "tool-done", "approval",
     "shown", "confirm", "approval-cancel", "deadline", "lease-ended", "speak", "speech-due", "transcript", "speech-idle", "speech-failed", "feedback", "delegation", "relay", "wake", "voice-check", "voice-checked", "voice-check-failed",
@@ -1258,6 +1258,39 @@ const table = [
         assert.equal(ack.state.mute.kind, "on");
         assert.equal(step(logic, ack.state, event("unmute")).state.mute.kind, "off");
     }],
+    // Voice mute is Audio's: the reply, its playback deadline and the
+    // speaking phase run as when heard, and only its own events change it.
+    ["voice-mute", logic => {
+        assert.deepEqual(copy(logic.initial()).voiceMute, { kind: "off" });
+        const audible = speaking(logic);
+        const muted = step(logic, audible, event("voice-mute-toggle", 41));
+        assert.deepEqual(muted.state.voiceMute, { kind: "on" });
+        assert.deepEqual(muted.effects.map(e => [e.kind, e.muted]), [["voice-mute-store", true]]);
+        assert.deepEqual({ ...muted.state, voiceMute: audible.voiceMute, nextOp: audible.nextOp }, audible,
+            "voice mute changes nothing else");
+        assert.equal(logic.phaseOf(muted.state), "speaking");
+        const unmuted = step(logic, muted.state, event("voice-mute-toggle", 42));
+        assert.deepEqual(unmuted.state.voiceMute, { kind: "off" });
+        assert.deepEqual(unmuted.effects.map(e => [e.kind, e.muted]), [["voice-mute-store", false]]);
+        // A restored record sets it and stores nothing.
+        const restored = step(logic, logic.initial(), event("voice-mute", 1));
+        assert.deepEqual(restored.state.voiceMute, { kind: "on" });
+        assert.deepEqual(restored.effects, []);
+        const before = thinking(logic);
+        const quiet = step(logic, before, event("voice-mute-toggle", 35)).state;
+        const reply = s => {
+            s = step(logic, s, callback("play", s.turn, 40, { interruptible: true })).state;
+            s = step(logic, s, callback("brain-done", s.turn, 45)).state;
+            assert.equal(logic.phaseOf(s), "speaking");
+            return { ...s.playback, op: null };
+        };
+        assert.equal(reply(before).deadline, 45 + logic.PLAYBACK_TIMEOUT_MS);
+        assert.deepEqual(reply(quiet), reply(before), "a muted reply plays to the same deadline");
+        for (const type of events.filter(type => !type.startsWith("voice-mute")))
+            for (const seed of [muted.state, step(logic, logic.initial(), event("voice-mute", 1)).state])
+                assert.deepEqual(step(logic, seed, fixtureEvent(type, seed, 50)).state.voiceMute, { kind: "on" },
+                    type + " keeps voice mute");
+    }],
     ["collect-failed", logic => {
         let s = listening(logic);
         s = step(logic, s, event("talk-up", 30)).state;
@@ -2121,6 +2154,7 @@ function invariants(before, e, r) {
     assert.ok(s.gen >= before.gen);
     assert.ok(s.stale >= before.stale);
     assert.ok(s.nextOp >= before.nextOp);
+    if (!e.type.startsWith("voice-mute")) assert.deepEqual(s.voiceMute, before.voiceMute, e.type + " keeps voice mute");
     if (s.capture.kind === "open" || s.capture.kind === "opening") {
         assert.equal(s.gate.kind, "up");
         assert.equal(s.mute.kind, "off");
@@ -2363,6 +2397,10 @@ try {
         ["check indicator", 'if (!e.shown && s.input.kind === "check" && s.capture.kind !== "closed")', 'if (false)', "voice-check-lifetime"],
         ["check result identity", 'if (!live(s, e, "check", ["finishing"]))', 'if (false)', "voice-check-lifetime"],
         ["check admission", 'if (!canCheck(s)) break;', 'if (false) break;', "voice-check-lifetime"],
+        ["voice mute store", 'effect(s, effects, "voice-mute-store", { muted: s.voiceMute.kind === "on" });', 'void effects;', "voice-mute"],
+        ["voice mute restore", 'case "voice-mute":\n        s.voiceMute = { kind: "on" };', 'case "voice-mute":\n        s.voiceMute = { kind: "off" };', "voice-mute"],
+        ["stop clears voice mute", 'case "stop":\n', 'case "stop":\n        s.voiceMute = { kind: "off" };\n', "voice-mute", "stop keeps voice mute"],
+        ["talk clears voice mute", 'case "talk-down":\n', 'case "talk-down":\n        s.voiceMute = { kind: "off" };\n', "voice-mute", "talk-down keeps voice mute"],
         ["collect-limit", 's.turn.kind === "collecting" && s.turn.deadline !== null && at >= s.turn.deadline', 'false && s.turn.kind === "collecting" && s.turn.deadline !== null && at >= s.turn.deadline', "collection-deadline"],
         ["playback-limit", '["playing", "feedback"].indexOf(s.playback.kind) !== -1 && s.playback.deadline !== null && at >= s.playback.deadline', 'false && ["playing", "feedback"].indexOf(s.playback.kind) !== -1 && s.playback.deadline !== null && at >= s.playback.deadline', "playback-deadline"],
         ["feedback-start-sounds", 's.settings.sounds === true && s.engine.kind === "chained"', 'true && s.engine.kind === "chained"', "feedback-start"],

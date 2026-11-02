@@ -583,7 +583,7 @@ function accept(line, direction) {
             if (!printable(message.voice, 1, 128)) fail("preview-voice");
         } else {
             keys(message, fields, "intent");
-            if (["talk-down", "talk-up", "mute", "stop", "voice-check", "owner-asks-refresh"].indexOf(message.intent) === -1) fail("intent");
+            if (["talk-down", "talk-up", "mute", "voice-mute", "stop", "voice-check", "owner-asks-refresh"].indexOf(message.intent) === -1) fail("intent");
         }
         break;
     case "shown":

@@ -113,7 +113,7 @@ async function inside() {
             else assert.equal(err, "");
             const frames = out.trim() === "" ? [] : out.trim().split("\n").map(line => JSON.parse(line));
             const shell = frames.filter(frame => frame.type === "shell-status");
-            assert.deepEqual(shell, expected.length || (typeof reason === "string" && reason.startsWith("jarvis: mute=")) ? [{ v: 1, type: "shell-status", gen: hello.gen,
+            assert.deepEqual(shell, expected.length || (typeof reason === "string" && /^jarvis: (voice-)?mute=/.test(reason)) ? [{ v: 1, type: "shell-status", gen: hello.gen,
                 revision: hello.revision, availability: { kind: "checking" } }] : []);
             const keepMemory = expected.some(frame => frame.type === "memory");
             const keepMemoryInbox = expected.some(frame => frame.type === "memory-inbox");
@@ -158,7 +158,7 @@ async function inside() {
                 seq: ++seq, state: {
                     gen: 1, nextOp: 1, stale: 0, settings: hello.settings,
                     gate: { kind: "down", reason: locked ? "locked" : "unconfigured" },
-                    mute: { kind: "off" }, capture: { kind: "closed" }, turn: { kind: "none" }, brain: { kind: "closed" },
+                    mute: { kind: "off" }, voiceMute: { kind: "off" }, capture: { kind: "closed" }, turn: { kind: "none" }, brain: { kind: "closed" },
                     playback: { kind: "idle" }, action: { kind: "none" }, approval: { kind: "none" }, fault: { kind: "none" },
                     conversation: { kind: "ended" }, input: { kind: "released" }, followUp: { kind: "none" },
                     indicator: { kind: "gone" },
@@ -866,7 +866,7 @@ async function inside() {
     fs.writeFileSync(muteFile, JSON.stringify({ muted: false }));
     await control("mute-store", 'fs.renameSync(file, path.join(directory, name));',
         'void directory;', muteCheck);
-    await control("intent-consumer", 'runner.dispatch(message.intent === "mute" ? { type: "mute-toggle" }\n                                : message.intent === "say" ? { type: "say", text: message.text }\n                                : message.intent === "preview" ? { type: "preview", voice: message.voice }\n                                : { type: message.intent });',
+    await control("intent-consumer", 'runner.dispatch(message.intent === "mute" ? { type: "mute-toggle" }\n                                : message.intent === "voice-mute" ? { type: "voice-mute-toggle" }\n                                : message.intent === "say" ? { type: "say", text: message.text }\n                                : message.intent === "preview" ? { type: "preview", voice: message.voice }\n                                : { type: message.intent });',
         'void message.intent;', muteCheck);
     for (const [bytes, reason] of [["{", "record-json"], ['{"muted":"yes"}', "record-shape"],
         ['{"muted":true,"extra":0}', "record-shape"], [" ".repeat(65), "record-size"]]) {
@@ -887,7 +887,7 @@ async function inside() {
             fs.writeFileSync(muteFile, '{"muted":false}' + " ".repeat(51));
             await run(file, [JSON.stringify(hello) + "\n"], 78, "jarvis: mute=record-size");
         });
-    await control("mute-shape", 'throw new Error("jarvis: mute=record-shape");', ';',
+    await control("mute-shape", 'throw new Error("jarvis: " + area + "=record-shape");', ';',
         async file => {
             fs.writeFileSync(muteFile, '{"muted":false,"extra":0}');
             await run(file, [JSON.stringify(hello) + "\n"], 78, "jarvis: mute=record-shape");
@@ -901,6 +901,40 @@ async function inside() {
         'fs.constants.O_RDONLY | fs.constants.O_NONBLOCK',
         file => run(file, [JSON.stringify(hello) + "\n"], 78, "jarvis: mute=read-failed"));
     fs.unlinkSync(muteFile);
+    // Voice mute keeps its own record: the intent stores it, talk and stop
+    // keep it, the next daemon restores it, and a malformed record is
+    // refused like the microphone's.
+    const voiceMuteFile = path.join(hello.directories.state, "voice-mute.json");
+    const storedVoiceMute = () => fs.existsSync(voiceMuteFile) ? JSON.parse(fs.readFileSync(voiceMuteFile, "utf8")) : null;
+    const voiceMuteCheck = async file => {
+        try { await voiceMuteRestart(file); } finally { fs.rmSync(voiceMuteFile, { force: true }); }
+    };
+    const voiceMuteRestart = async file => {
+        await conversation(file, async w => {
+            assert.equal(w.last().state.voiceMute.kind, "off");
+            w.send("voice-mute");
+            await w.wait(m => m.state.voiceMute.kind === "on");
+            assert.deepEqual(storedVoiceMute(), { muted: true });
+            assert.equal(fs.statSync(voiceMuteFile).mode & 0o777, 0o600);
+            for (const name of ["talk-down", "talk-up", "stop"]) w.send(name);
+            await w.wait(m => m.seq >= 5);
+            assert.equal(w.last().state.voiceMute.kind, "on");
+        });
+        await conversation(file, async w => {
+            assert.equal(w.last().state.voiceMute.kind, "on", "the next daemon restores voice mute");
+            assert.equal(w.last().state.mute.kind, "off", "voice mute is not the microphone's");
+            w.send("voice-mute");
+            await w.wait(m => m.state.voiceMute.kind === "off");
+            assert.deepEqual(storedVoiceMute(), { muted: false });
+        });
+    };
+    await voiceMuteCheck(daemon);
+    await control("voice-mute-restore", 'if (first && readVoiceMute()) runner.dispatch({ type: "voice-mute" });',
+        'if (false && first && readVoiceMute()) runner.dispatch({ type: "voice-mute" });', voiceMuteCheck);
+    await control("voice-mute-intent", ': message.intent === "voice-mute" ? { type: "voice-mute-toggle" }', '', voiceMuteCheck);
+    fs.writeFileSync(voiceMuteFile, '{"muted":"yes"}');
+    await run(daemon, [JSON.stringify(hello) + "\n"], 78, "jarvis: voice-mute=record-shape");
+    fs.unlinkSync(voiceMuteFile);
 
     const scripted = daemonCopy("scripted");
     const gates = path.join(root, "gates");
@@ -1224,7 +1258,7 @@ async function inside() {
     console.log("test-jarvis-daemon: control=stop-settled detected");
     const stopControl = daemonCopy("stop-routing");
     instrument(stopControl, gates);
-    const dispatch = 'runner.dispatch(message.intent === "mute" ? { type: "mute-toggle" }\n                                : message.intent === "say" ? { type: "say", text: message.text }\n                                : message.intent === "preview" ? { type: "preview", voice: message.voice }\n                                : { type: message.intent });';
+    const dispatch = 'runner.dispatch(message.intent === "mute" ? { type: "mute-toggle" }';
     const stopSource = fs.readFileSync(stopControl, "utf8");
     assert.equal(stopSource.split(dispatch).length - 1, 1);
     const misrouted = stopSource.replace(dispatch, 'if (message.intent === "stop") message.intent = "talk-up";\n                    ' + dispatch);

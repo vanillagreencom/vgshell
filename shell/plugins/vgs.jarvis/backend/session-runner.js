@@ -5,6 +5,9 @@
 // A speech port's callbacks are stamped with the speech-open effect's identity.
 "use strict";
 
+// Effects whose value must already survive a daemon restart when published.
+const STORES = ["mute-store", "voice-mute-store"];
+
 class SessionRunner {
     constructor(session, ports, clock, publish) {
         this.session = session;
@@ -27,16 +30,15 @@ class SessionRunner {
                 const result = this.session.reduce(this.state, this.queue.shift());
                 this.state = result.state;
                 this.ports.tools.sync(this.state);
-                // A published mute value must already survive a daemon restart.
                 let persistence = { kind: "stored" };
                 try {
                     for (const effect of result.effects)
-                        if (effect.kind === "mute-store") this.consume(effect);
+                        if (STORES.includes(effect.kind)) this.consume(effect);
                 } catch (error) { persistence = { kind: "failed", error }; }
                 if (persistence.kind === "stored")
                     this.publish(this.state, this.session.phaseOf(this.state));
                 for (const effect of result.effects)
-                    if (effect.kind !== "mute-store") this.consume(effect);
+                    if (!STORES.includes(effect.kind)) this.consume(effect);
                 if (persistence.kind === "failed") throw persistence.error;
             }
             this.schedule();
@@ -67,6 +69,7 @@ class SessionRunner {
         case "approval-ended": this.ports.approval.end(e); break;
         case "confirm-refused": this.ports.approval.refused(e); break;
         case "mute-store": this.ports.mute.store(e.muted); break;
+        case "voice-mute-store": this.ports.voiceMute.store(e.muted); break;
         case "speech-open": this.ports.speech.open(e, {
             speak: () => done("speak"),
             due: due => done("speech-due", { due }),

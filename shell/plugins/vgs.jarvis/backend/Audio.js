@@ -546,12 +546,16 @@ class Audio {
             }
             const bytes = needed * 2;
             const pcm = frame.subarray(offset, offset + bytes);
+            // Voice mute writes silence of the same length, so pacing, the
+            // written count and the acknowledgement run as for a heard reply,
+            // and the level below still reads the voice for the speaking look.
+            const out = this.state.voiceMute.kind === "on" ? Buffer.alloc(bytes) : pcm;
             // Node calls the write callback when this chunk is handled. Keep
             // only one paced chunk pending; Session owns a stalled player's
             // deadline. Flush also wakes this waiter before the late callback.
             // https://nodejs.org/api/stream.html#writablewritechunk-encoding-callback
             const written = this.waitPlayback(playback, owner.child.stdin, null, null,
-                acknowledged => owner.child.stdin.write(pcm, acknowledged));
+                acknowledged => owner.child.stdin.write(out, acknowledged));
             playback.written += bytes / 2;
             playback.frontier += bytes * 1000 / (PCM_RATE * 2);
             offset += bytes;

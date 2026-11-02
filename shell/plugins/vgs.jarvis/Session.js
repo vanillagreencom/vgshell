@@ -37,7 +37,7 @@ var TAP_SILENCE_MS = 6000;
 var TAP_MS = 600;
 var TRANSCRIPT_CHARS = 4096;
 var EVENTS = [
-    "snapshot", "indicator", "talk-down", "talk-up", "toggle", "mute", "unmute", "mute-toggle",
+    "snapshot", "indicator", "talk-down", "talk-up", "toggle", "mute", "unmute", "mute-toggle", "voice-mute", "voice-mute-toggle",
     "stop", "cancel", "interrupt", "capture-opened", "capture-closed", "capture-failed", "playback-failed", "partial",
     "final", "say", "collect-failed", "brain-done", "brain-failed", "brain-ended", "cancelled", "play", "played",
     "flushed", "tool", "tool-done", "approval", "shown", "confirm", "approval-cancel", "deadline", "lease-ended",
@@ -49,7 +49,7 @@ function initial() {
     return {
         gen: 0, nextOp: 1, stale: 0, settings: {},
         gate: { kind: "down", reason: "starting" },
-        mute: { kind: "off" }, capture: { kind: "closed" },
+        mute: { kind: "off" }, voiceMute: { kind: "off" }, capture: { kind: "closed" },
         turn: { kind: "none" }, brain: { kind: "closed" }, playback: { kind: "idle" },
         action: { kind: "none" }, approval: { kind: "none" }, fault: { kind: "none" },
         conversation: { kind: "ended" }, input: { kind: "released" }, followUp: { kind: "none" },
@@ -633,6 +633,18 @@ function reduce(state, e) {
         // An in-flight close must finish before a new capture can open.
         if (s.mute.kind === "on") s.mute = { kind: "off" };
         break;
+    // Voice mute changes no other region: Audio's paced write reads it and
+    // sends silence, so the reply, its playback and its deadline run as when
+    // heard. Only these two events change it; talk, stop and a new
+    // conversation keep it. voice-mute applies the restored record and
+    // stores nothing.
+    case "voice-mute-toggle":
+        s.voiceMute = { kind: s.voiceMute.kind === "on" ? "off" : "on" };
+        effect(s, effects, "voice-mute-store", { muted: s.voiceMute.kind === "on" });
+        break;
+    case "voice-mute":
+        s.voiceMute = { kind: "on" };
+        break;
     case "stop":
         var faulted = s.fault.kind !== "none" || s.input.kind === "stopped";
         end(s, effects, e.at, "stop", true);
@@ -984,7 +996,7 @@ function reduce(state, e) {
 // The state wire contains this exact record. This table is its sole region
 // shape definition; both endpoints use it through JarvisProtocol.
 var REGIONS = {
-    gate: { down: "reason", up: "" }, mute: { off: "", muting: "", on: "" },
+    gate: { down: "reason", up: "" }, mute: { off: "", muting: "", on: "" }, voiceMute: { off: "", on: "" },
     capture: { closed: "", opening: "gen op mode", open: "gen op mode", closing: "gen op" },
     turn: { none: "", collecting: "gen op partial deadline", thinking: "gen op deadline", cancelling: "gen op deadline" },
     brain: { closed: "", acquired: "gen op" },
