@@ -48,6 +48,17 @@
 # and the recorder's separate `collection` judgment to its effective exit
 # and reason. Only completion.json is published; hidden candidates are not
 # receipts. A missing required record is incomplete, never passing proof.
+# VGS_SMOKE_RESULTS_DIR, an existing directory, holds the driver's
+# directory in place of TMPDIR, so the per-row results of a run that is
+# cut off outlive its caller's scratch. Under it, each attempt's
+# qml-smoke-resume.*/<n>/results/<row> is written as that row ends:
+# NUL-separated, the row's failure count, then each check it could not
+# measure. partial/<row> holds the same as the row goes, so it stands for
+# a row the attempt left open; outside-failures holds the failures outside
+# every row, and run.log the attempt's output with its `qml-smoke:
+# row-secs` lines. scripts/validate names one per run, reads them back
+# into its row records and removes it; the evidence of a failed row stays
+# in the log directory.
 #
 # --first-bar-runs N, N a positive integer, measures the first bar alone:
 # it starts the sandbox N times, runs no row, and prints one line per run,
@@ -369,7 +380,7 @@ fi
 if [[ -z ${qml_smoke_attempt:-} ]]; then
   # Only private bookkeeping is written here. The world owns validation and
   # creation of every requested output before the worker writes there.
-  qml_smoke_driver="$(mktemp -d "${TMPDIR:-/tmp}/qml-smoke-resume.XXXXXX")" || { echo 'qml-smoke: scratch=mktemp-failed' >&2; exit 1; }
+  qml_smoke_driver="$(mktemp -d "${VGS_SMOKE_RESULTS_DIR:-${TMPDIR:-/tmp}}/qml-smoke-resume.XXXXXX")" || { echo 'qml-smoke: scratch=mktemp-failed' >&2; exit 1; }
   [[ -d $qml_smoke_driver && ! -L $qml_smoke_driver ]] || { echo 'qml-smoke: scratch=not-a-directory' >&2; exit 1; }
   qml_smoke_driver="$(cd -- "$qml_smoke_driver" && pwd -P)" || { echo 'qml-smoke: scratch=resolve-failed' >&2; exit 1; }
   qml_smoke_pending=()

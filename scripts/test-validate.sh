@@ -1418,9 +1418,9 @@ python3 - "$d/scripts/validate" <<'PYSELECT'
 import pathlib, sys
 p = pathlib.Path(sys.argv[1])
 s = p.read_text()
-needle = '        if [[ $path == scripts/test-* && ! -e $path && ! -L $path ]]; then continue; fi\n'
+needle = '  if [[ -z $hits && ! ( $path == scripts/test-* && ! -e $path && ! -L $path ) ]]; then\n'
 assert s.count(needle) == 1, "deleted test exemption must match once"
-p.write_text(s.replace(needle, needle.replace('continue;', ':;')))
+p.write_text(s.replace(needle, '  if [[ -z $hits ]]; then\n'))
 PYSELECT
 for args in default explicit; do
   test_args=()
@@ -1611,11 +1611,11 @@ declare -A smoke_mutant_old=(
   [path]=$'        [[ $path == $glob ]] || continue\n        want[$row]=1'
   [core]=$'      printf \'validate: smoke-rows=all reason=core-row-missing row=%s\\n\' "$row" >&2; return 0\n    fi\n    want[$row]=1\n  done'
   [core-missing]=$'reason=core-row-missing row=%s\\n\' "$row" >&2; return 0'
-  [closure]='do want[$needed]=1; done'
-  [harness]='for glob in scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/harness.sh "${smoke_globs[@]}"; do'
-  [library]='for glob in scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/harness.sh "${smoke_globs[@]}"; do'
-  [runner]='for glob in scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/harness.sh "${smoke_globs[@]}"; do'
-  [reader]='for glob in scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/harness.sh "${smoke_globs[@]}"; do'
+  [closure]='do smoke_close_set[$needed]=1; done'
+  [harness]='smoke_harness_inputs=(scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/harness.sh "${smoke_globs[@]}")'
+  [library]='smoke_harness_inputs=(scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/harness.sh "${smoke_globs[@]}")'
+  [runner]='smoke_harness_inputs=(scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/harness.sh "${smoke_globs[@]}")'
+  [reader]='smoke_harness_inputs=(scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/harness.sh "${smoke_globs[@]}")'
   [harness-line]="    every='reason=harness-line-unreadable'"
   [unknown]=$'      export VGS_VALIDATE_CHANGED="$paths_file"\n      smoke_scoped=true\n    fi'
   [full]=$'smoke_scoped=false\naffected=()'
@@ -1631,10 +1631,10 @@ declare -A smoke_mutant_new=(
   [core]=$'      printf \'validate: smoke-rows=all reason=core-row-missing row=%s\\n\' "$row" >&2; return 0\n    fi\n  done'
   [core-missing]=$'reason=core-row-missing row=%s\\n\' "$row" >&2'
   [closure]='do :; done'
-  [harness]='for glob in scripts/qml-smoke.sh scripts/smoke/row-inputs.sh "${smoke_globs[@]}"; do'
-  [library]='for glob in scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/harness.sh; do'
-  [runner]='for glob in scripts/smoke/row-inputs.sh scripts/smoke/harness.sh "${smoke_globs[@]}"; do'
-  [reader]='for glob in scripts/qml-smoke.sh scripts/smoke/harness.sh "${smoke_globs[@]}"; do'
+  [harness]='smoke_harness_inputs=(scripts/qml-smoke.sh scripts/smoke/row-inputs.sh "${smoke_globs[@]}")'
+  [library]='smoke_harness_inputs=(scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/harness.sh)'
+  [runner]='smoke_harness_inputs=(scripts/smoke/row-inputs.sh scripts/smoke/harness.sh "${smoke_globs[@]}")'
+  [reader]='smoke_harness_inputs=(scripts/qml-smoke.sh scripts/smoke/harness.sh "${smoke_globs[@]}")'
   [harness-line]='    :'
   [unknown]=$'      export VGS_VALIDATE_CHANGED="$paths_file"\n    fi\n    smoke_scoped=true'
   [full]=$'smoke_scoped=true\naffected=()'
@@ -2012,6 +2012,125 @@ row_re "content that changes during the run keeps the pass unrecorded" "$tmp/bas
   "~validate: last-pass=unrecorded reason=content-changed from=" "!validate: last-pass=recorded"
 row_re "control: content that changes during the run no longer keeps the pass unrecorded" "$tmp/base-record-changed-control" 0 "" \
   "~validate: last-pass=recorded area=qml tree="
+
+# The row records. A lane's run is cut off while the nested smoke runs or
+# after it, by validate's TERM at the bound or a KILL, and the next run on
+# the lane's tree reruns only what did not end and what changed. Each
+# fixture's stand-ins act as the real runners do for the records: the
+# smoke writes each row's result as it ends under VGS_SMOKE_RESULTS_DIR,
+# beside its row-secs lines, and the stand-in named in .git/hang reports
+# its PID in .git/hung and waits to be stopped. With .git/edit, the smoke
+# also appends to the launcher's panel, a change while the run reads, and
+# a row named in .git/fail records one failure. The
+# lane's change stays uncommitted and --changed HEAD scopes both runs to
+# it, so rows run, launcher among them, and fatal-controls after the
+# smoke; a file no row maps selects the whole area. The controls are
+# copies of validate with one binding removed.
+reuse_fixture() { # DIR [OLD NEW]
+  local dir="$1"
+  smoke_fixture "$dir"
+  if [[ $# -eq 3 ]]; then plant "$dir/scripts/validate" "$2" "$3"; fi
+  cat >"$dir/scripts/qml-smoke.sh" <<'SH'
+#!/usr/bin/env bash
+list="$(dirname -- "$0")/smoke/rows.list"
+if [[ ${1-} == --list-rows ]]; then awk '!/^#/ && NF' "$list"; exit 0; fi
+git_dir="$(git rev-parse --absolute-git-dir)"
+hang="$(cat -- "$git_dir/hang" 2>/dev/null || true)"
+if [[ -e $git_dir/edit ]]; then printf 'edited\n' >>shell/plugins/acme.launcher/Panel.qml; fi
+rows=",${2-},"
+driver="$(mktemp -d "${VGS_SMOKE_RESULTS_DIR:?}/qml-smoke-resume.XXXXXX")"
+mkdir -p "$driver/1/results" "$driver/1/partial"
+for row in $(awk '!/^#/ && NF' "$list"); do
+  [[ $rows == ,, || $rows == *",$row,"* ]] || continue
+  if [[ $row == "$hang" ]]; then printf '%s\n' "$$" >"$git_dir/hung"; exec sleep 600; fi
+  printf 'qml-smoke: row-secs row=%s secs=3 cpu_some_pct=0.1 load1=0.1\n' "$row" >>"$driver/1/run.log"
+  if [[ $row == "$(cat -- "$git_dir/fail" 2>/dev/null)" ]]; then printf '1\0'; status=1; else printf '0\0'; fi >"$driver/1/results/$row"
+done
+exit "${status:-0}"
+SH
+  cat >"$dir/scripts/test-qml-smoke.sh" <<'SH'
+#!/usr/bin/env bash
+git_dir="$(git rev-parse --absolute-git-dir)"
+if [[ "$(cat -- "$git_dir/hang" 2>/dev/null)" == fatal-controls ]]; then printf '%s\n' "$$" >"$git_dir/hung"; exec sleep 600; fi
+SH
+  commit "$dir" stand-ins
+  printf 'lane\n' >>"$dir/shell/plugins/acme.launcher/Panel.qml"
+  printf 'lane\n' >>"$dir/shell/plugins/acme.notify/Panel.qml"
+}
+# reuse_cut DIR SIGNAL HANG: run `validate qml --changed HEAD` in DIR until
+# the stand-in HANG reports that it waits, then send SIGNAL to validate,
+# and after a KILL, which leaves validate's rows going, KILL that stand-in.
+# Asserts the exit SIGNAL gives; the run's log is DIR.cut.log.
+reuse_cut() { # DIR SIGNAL HANG
+  local dir="$1" signal="$2" git_dir pid tick status=0 want=143
+  git_dir="$("${base_env[@]}" git -C "$dir" rev-parse --absolute-git-dir)"
+  printf '%s\n' "$3" >"$git_dir/hang"
+  (cd -- "$dir" && exec "${base_env[@]}" bash scripts/validate qml --changed HEAD) >"$dir.cut.log" 2>&1 &
+  pid=$!
+  # A bound on the wait for the reported state, not a reading.
+  for ((tick = 0; tick < 600; tick++)); do
+    if [[ -s $git_dir/hung ]] || ! kill -0 "$pid" 2>/dev/null; then break; fi
+    sleep 0.1
+  done
+  if [[ ! -s $git_dir/hung ]]; then
+    fail "$dir: the stand-in $3 never waited"; sed 's/^/        /' "$dir.cut.log"
+    kill -KILL "$pid" 2>/dev/null || true; wait "$pid" || true; return 0
+  fi
+  kill -s "$signal" "$pid"
+  # The redirection keeps bash's own report of a killed job off the log.
+  { wait "$pid"; } 2>/dev/null || status=$?
+  if [[ $signal == KILL ]]; then want=137; kill -KILL "$(cat -- "$git_dir/hung")" 2>/dev/null || true; fi
+  rm -f -- "${git_dir:?}/hang" "${git_dir:?}/hung" "${git_dir:?}/edit" "${git_dir:?}/fail"
+  [[ $status == "$want" ]] || { fail "$dir: the cut run exited $status, not $want"; sed 's/^/        /' "$dir.cut.log"; }
+}
+smoke_both="scripts/qml-smoke.sh --rows $smoke_core,launcher,notifications,notifications-keys,$smoke_always,$smoke_tail"
+smoke_digest_old='    smoke_digests[$row]="$(record_digest "smoke=$row" "$common" "${lines[$row]-}")"'
+row_digest_old='  record_digest "row=${rows[$1]}" "base=${base_commit:-none} scope=$scope" "$lines"'
+untraced_old='    "$record_validate" "$record_point" "$record_untraced" "$1" "$2" "$3"'
+core_old='      if [[ ${here[$row]-} == fail ]]; then proven=false; fi'
+void_old='  if [[ $end == "$pass_tree" ]]; then return 0; fi'
+# name|signal|stand-in that waits|after the cut|mutant: old^new|wanted lines, ^ between them
+reuse_cases=(
+  "a run cut off at its bound keeps the smoke rows it finished|TERM|notifications|||validate: reused secs=3 smoke=launcher^validate: rerun secs=unknown smoke=notifications^validate: rerun secs=3 reason=core smoke=bar^validate: rerun secs=unknown reason=untraced smoke=bare^$smoke_notify"
+  "a killed run's finished smoke rows reach the next run|KILL|notifications|||validate: reused secs=3 smoke=launcher^$smoke_notify"
+  "a finished smoke row whose input changed after the cut runs again|TERM|notifications|edit||validate: rerun secs=3 smoke=launcher^$smoke_both"
+  "control: a smoke row's changed input no longer reruns it|TERM|notifications|edit|$smoke_digest_old^    smoke_digests[\$row]=\"\$(record_digest \"smoke=\$row\" \"\$common\" \"\")\"|validate: reused secs=3 smoke=launcher^$smoke_notify"
+  "an unknown input added after the cut reuses nothing|TERM|notifications|unknown||validate: selection=full unknown-input=new-source.bin^validate: rerun secs=3 smoke=launcher^scripts/qml-smoke.sh"
+  "control: an unknown input added after the cut no longer stops reuse|TERM|notifications|unknown|$untraced_old^    \"\$record_validate\" \"\$record_point\" \"\" \"\$1\" \"\$2\" \"\$3\"|validate: reused secs=3 smoke=launcher"
+  "a failed core row leaves its run's smoke passes unproved|TERM|fatal-controls|auth-fail||validate: rerun secs=3 smoke=notifications^$smoke_both"
+  "control: a failed core row no longer leaves its run's passes unproved|TERM|fatal-controls|auth-fail|$core_old^      :|validate: reused secs=3 smoke=notifications^$smoke_none"
+  "a run cut off after the nested smoke keeps the smoke's pass|TERM|fatal-controls|||~validate: reuse=on rows-reused=1 ^scripts/test-qml-smoke.sh^!scripts/qml-smoke.sh"
+  "a changed input reruns the nested smoke a cut run passed, and only its changed row|TERM|fatal-controls|edit||validate: reused secs=3 smoke=notifications^$smoke_launcher"
+  "control: a changed input no longer reruns the nested smoke|TERM|fatal-controls|edit|$row_digest_old^  record_digest \"row=\${rows[\$1]}\" \"base=\${base_commit:-none} scope=\$scope\" \"\"|~validate: reuse=on rows-reused=1 ^!scripts/qml-smoke.sh"
+  "a run whose tree changed while it ran leaves nothing to reuse|TERM|fatal-controls|revert||validate: rerun secs=unknown smoke=launcher^validate: rerun secs=unknown smoke=notifications^$smoke_both"
+  "control: a run whose tree changed while it ran no longer withdraws its records|TERM|fatal-controls|revert|$void_old^  return 0|~validate: reuse=on rows-reused=1 ^!scripts/qml-smoke.sh"
+)
+reuse_case() { # SPEC
+  local name signal hang after mutant wanted old="" new="" d git_dir panel
+  local -a lines
+  IFS='|' read -r name signal hang after mutant wanted <<<"$1"
+  [[ -z $mutant ]] || { old="${mutant%%^*}"; new="${mutant#*^}"; }
+  d="$tmp/reuse-${name//[^a-z]/-}"
+  if [[ -n $old ]]; then reuse_fixture "$d" "$old" "$new"; else reuse_fixture "$d"; fi
+  git_dir="$("${base_env[@]}" git -C "$d" rev-parse --absolute-git-dir)"
+  panel="$(cat -- "$d/shell/plugins/acme.launcher/Panel.qml")"
+  [[ $after != revert ]] || : >"$git_dir/edit"
+  [[ $after != auth-fail ]] || printf 'auth-sentinel\n' >"$git_dir/fail"
+  reuse_cut "$d" "$signal" "$hang"
+  case "$after" in
+    edit) printf 'fix\n' >>"$d/shell/plugins/acme.launcher/Panel.qml" ;;
+    unknown) printf 'source\n' >"$d/new-source.bin" ;;
+    revert)
+      grep -q '^validate: row-records=void reason=content-changed ' "$d.cut.log" ||
+        [[ -n $old ]] || fail "$name: the cut run withdrew nothing"
+      printf '%s\n' "$panel" >"$d/shell/plugins/acme.launcher/Panel.qml" ;;
+  esac
+  IFS='^' read -r -a lines <<<"$wanted"
+  test_area=qml test_args=(--changed HEAD --list)
+  row_re "$name" "$d" 0 "" "${lines[@]}"
+}
+parallel_cases reuse_case reuse "${reuse_cases[@]}"
+test_area=qml test_args=()
 
 # A repository whose last repo pass is the commit `passed`, which a real
 # run records; validate is the copy under test, with OLD replaced by NEW
@@ -3311,7 +3430,7 @@ for spec in TERM@143 HUP@129; do
   fi
 done
 d="$tmp/jobs-HUP-control"; hold_rows "$d"
-hold_mutant "$d" "trap 'stop_rows; chmod" "trap 'chmod"
+hold_mutant "$d" "trap 'stop_rows; records_finish; chmod" "trap 'records_finish; chmod"
 hold_run "$d" HUP
 if [[ $freed == 0 ]]; then
   ok "control: a validate whose exit path stops no row leaves its rows running"

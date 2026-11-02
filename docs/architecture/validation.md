@@ -12,7 +12,7 @@ A check that could not run says so, and that is never a pass: exit 77 in [AGENTS
 
 ## Why
 
-Only selection cuts the time a fix round costs. A row that runs when it cannot prove it is unaffected keeps the coverage a skipped row would silently lose.
+Only selection cuts the time a fix round costs. A row that runs when it cannot prove it is unaffected keeps the coverage a skipped row would silently lose. A run cut off at its bound loses every row it ended unless their results outlive it.
 
 Stand-ins alone cannot bound a run. A missing stand-in can expose a host command, and a cleanup target can name the checkout. The world makes the host read-only, hides session sockets and the network, and gives one owner the run's temporary trees. Authentication stand-ins still refuse privileged steps.
 
@@ -29,6 +29,8 @@ A broken environment that reads as a pass hides the regression the check exists 
 - Never add a `repo` row for a check a path pattern can select; a `repo` row runs on every change. Review holds it.
 - Never leave a row out of a scoped run without a line that names it. `scripts/test-validate.sh` holds the lines a scoped run prints.
 - Never let a time figure remove a row the change reaches: neither a row's median nor a lane's run time removes it, and the batch run on main still runs every row once more. `scripts/test-validate.sh` holds a reached row with a long median staying selected.
+- Do reuse a selected row that passed on the inputs, base and scope it has now, inputs as selection names them, instead of running it again, and name it in a `validate: reused` line. A row records its result as it ends, so a run cut off at its bound or killed keeps what its ended rows proved; a run whose tree changed while it ran withdraws its records. A repo row, a row with a `$NAME` or `device:` input, a smoke row whose line cannot select and the core smoke rows always run, and `--full` reruns every row. `scripts/test-validate.sh` holds reuse after a cut and a killed run, and reruns after a changed input, an unknown input and a tree that changed during the run.
+- Do withhold reuse from every smoke pass of a run whose core row failed: `auth-sentinel` reads the authentication calls of every row its run held. Know that a run cut off before its core rows ended still keeps its passes, as a row that ended before a fatal resume does, and that `tui-guard`, no core row, reads only the rows its own run holds. `scripts/test-validate.sh` holds the failed core row.
 
 ### Plugin inputs
 
@@ -40,7 +42,7 @@ A broken environment that reads as a pass hides the regression the check exists 
 
 ### Test isolation
 
-- Do run every check through the row runner in `scripts/validate`. The world gives each row its own home, XDG directories and scratch root, and removes them after the row. Package and nix use their own containers; `scripts/test-gpu-fence.sh` runs outside the world to test its boundary. Selection and last-pass records stay in validate's own process. `scripts/test-validate.sh` holds it.
+- Do run every check through the row runner in `scripts/validate`. The world gives each row its own home, XDG directories and scratch root, and removes them after the row. Package and nix use their own containers; `scripts/test-gpu-fence.sh` runs outside the world to test its boundary. Selection, last-pass and row records stay in validate's own process; the nested smoke's driver, outside its world, writes its per-row results only in the directory validate names it. `scripts/test-validate.sh` holds it.
 - Do select the live engine publication check for a floor or engine recipe change. Its explicit `network` row owner enables the world's network only for that operation; `offline` excludes it and keeps its process-boundary controls. Keep the default packaging judge offline so publication can run before availability. `scripts/test-validate.sh` holds selection and the declaration.
 - Do run the installed-engine prerequisite synchronously before a selected nested entry, including an explicit `scripts/validate qml`. A failure or unreadable executable prevents entry dispatch and names the fleet installation step; a parallel packaging row cannot provide that ordering. `scripts/test-validate.sh` holds the refusal before dispatch.
 - Do keep scratch indexes and their new git objects under the row root. A row reads the checkout's existing objects without writing its git directory. `scripts/test-validate.sh` holds it.
