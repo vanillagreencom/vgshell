@@ -1401,7 +1401,15 @@ verify(load(judgeFile));
 
 // The production judge owns the rendering margin. These old catalogue
 // amounts passed token contrast but fail the sampled-stroke floor.
-function verifyHintMargin(judge) {
+function verifyHintMargin(judge, table = TOKENS) {
+    for (const name of ["vgs", "catalog/flexoki-light"]) {
+        const source = fs.readFileSync(path.join(repo, "themes", name, "theme.json"), "utf8");
+        const result = judge.accept(table, source);
+        assert.equal(result.ok, true, name + ": shared hint theme is accepted");
+        const values = result.values;
+        const ratio = judge.contrastRatio(judge.parseColor(values.text.keyHint.color), judge.parseColor(values.color.surfaceRaised));
+        assert.ok(ratio >= 5.2, name + ": shared hint keeps its solid rendering margin");
+    }
     for (const [name, oldInk, expected] of [
         ["vgs", "#7d7d7e", null],
         ["catalog/flexoki-light", "#6b6965", null],
@@ -1411,7 +1419,7 @@ function verifyHintMargin(judge) {
     ]) {
         const source = JSON.parse(fs.readFileSync(path.join(repo, "themes", name, "theme.json"), "utf8"));
         source.tokens.color = { ...source.tokens.color, textFaint: oldInk };
-        const values = judge.accept(TOKENS, JSON.stringify(source)).values;
+        const values = judge.accept(table, JSON.stringify(source)).values;
         assert.ok(judge.contrastRatio(judge.parseColor(values.color.textFaint), judge.parseColor(values.color.surfaceRaised)) >= 4.5, name + ": old token contrast passes");
         const row = readability(judge, values).find(row => row.text === "color.textFaint" && row.surface === "color.surfaceRaised");
         assert.ok(row, name + ": old hint is refused by stroke-core contrast");
@@ -1787,6 +1795,7 @@ function verifyTitleSpace(table) {
 }
 verifyTitleSpace(TOKENS);
 const TOKEN_CONTROLS = [
+    ["shared hint solid margin", '{color.surfaceRaised}, 5.2)")', '{color.surfaceRaised}, 4.95)")', table => verifyHintMargin(load(judgeFile), table)],
     ["title space", 'titleSpace: bodyLines(1)', 'titleSpace: bodyLines(1.2)', verifyTitleSpace],
     ["status text on its fill", 'color("contrast({color." + name + "})")', 'color("contrast({palette." + name + "})")', verifyStatusText],
     ["bar separator colour", 'line: color("alpha({bar.foreground}, 0.2)")', 'line: color("alpha({bar.foreground}, 0.4)")', verifyBarSeparator],

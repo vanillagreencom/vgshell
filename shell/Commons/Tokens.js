@@ -139,7 +139,7 @@ var TEXT = {
     // Start at the approved faded hint ink; the regular-stroke margin
     // keeps its drawn contrast above the judge's text floor.
     keyHint: merge(role("sans", 0.8, 400, 0, 1, false, "textFaint"), {
-        color: color("contrastMix(contrast({color.surfaceRaised}), mix({color.surfaceRaised}, readable({color.textFaint}, {color.surfaceRaised}, contrast({color.surfaceRaised})), 0.88), {color.surfaceRaised}, 4.95)")
+        color: color("contrastMix(contrast({color.surfaceRaised}), mix({color.surfaceRaised}, readable({color.textFaint}, {color.surfaceRaised}, contrast({color.surfaceRaised})), 0.88), {color.surfaceRaised}, 5.2)")
     }),
     code: role("mono", 0.87, 500, 0, 1.5, false, "text"),
     bar: role("caps", 0.8, 500, 0.08, 1, true, "text")
