@@ -1370,7 +1370,7 @@ PY
     IFS='|' read -r provider brain_id account_directory <<<"$provider_row"
     holds "$provider executes its installed program and keeps the selected account" provider_program "$provider" "$brain_id" "$account_directory"
   done
-  control plant "a runner whose sandbox PATH keeps the account-changing wrapper first" '[[ -z $brain_program ]] || export PATH="$(dirname -- "$brain_program"):$PATH"' ':' provider_program codex "$codex_id" "$world/.codex"
+  control plant "a runner whose sandbox shim names no selected program" '[[ -z $brain_program ]] || ln -s -- "$brain_program" "$shim/$brain_provider" || stopped brain-program-not-linked' ':' provider_program codex "$codex_id" "$world/.codex"
   proxy_stop || fail "world proxy cleanup"
   selftest_proxy_env=()
   session_bus=()

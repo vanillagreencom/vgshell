@@ -41,8 +41,9 @@
 # environment that enters the sandbox.
 # Copilot also receives a filtered session bus for its native keyring read.
 # The filter refuses unlocks and writes. No token enters a file or log.
-# A sign-in brain uses its installed program directory first on PATH,
-# resolved by mise when installed, otherwise by the caller's command lookup.
+# A sign-in brain uses its installed program, resolved by mise when
+# installed, otherwise by the caller's command lookup, which the sandbox
+# shell finds under its command name in the harness's command shim.
 # A failed lookup ends the run before the sandbox starts.
 # --model NAME sets the sandbox's model before the turn. A local server
 # brain requires it: the account reader offers no local-server model list.
@@ -1522,14 +1523,16 @@ if [[ -n $suite_name ]]; then
 fi
 selftest_gpu_fence
 
-# The harness puts its command sentinels before this host PATH. Keep the
-# install's bin directory, not a symlink target's directory: npm's codex
-# executable can link to codex.js, whose directory holds no codex command.
-[[ -z $brain_program ]] || export PATH="$(dirname -- "$brain_program"):$PATH"
-
 # shellcheck disable=SC2034 # the harness sourced below reads both
 keep=false timeout_s=60
 source "$repo/scripts/smoke/harness.sh"
+# The harness's host PATH links no command from the caller's home, where a
+# sign-in brain's program usually lives:
+# docs/architecture/validation.md § Host safety. The shim, first on the
+# shell's PATH, names the selected program by the command the adapters run.
+# The link names the install's own path, not its resolved target: npm's
+# codex executable links to codex.js.
+[[ -z $brain_program ]] || ln -s -- "$brain_program" "$shim/$brain_provider" || stopped brain-program-not-linked
 # From here $repo is the sandbox's copy and $source_repo the checkout.
 plugin="$source_repo/shell/plugins/vgs.jarvis"
 draw_ms=0

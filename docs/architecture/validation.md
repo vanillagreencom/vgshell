@@ -65,6 +65,7 @@ A broken environment that reads as a pass hides the regression the check exists 
 - Do assert the argv a stand-in recorded, never the effect of the script it stands in for. Review holds it.
 - Never add a device fake or a device-command stand-in in a row; `scripts/smoke/devices.sh` owns them. Review holds it.
 - Do hide every stand-in registry name from the shell's host PATH in both smoke and capture runs. Removing a stand-in must resolve to `none`. `scripts/test-sandbox-shots.sh` holds it.
+- Never expose a command from the invoking user's home on the shell's host PATH. A per-user install or shim there can install on use, and the shell runs `--version` on each command a requirement names. A row that needs such a command writes its own stand-in, and `scripts/jarvis-selftest.sh` links its selected brain program into the harness's command shim. `scripts/test-sandbox-shots.sh` holds it.
 - Do start a device row behind the guard in `scripts/smoke/devices.sh`, which records the row not measured when it reads a leak to the host. `scripts/smoke/rows/device-fakes.sh` holds the guard.
 - Do capture the sandbox only through `scripts/smoke/shot.sh`, which refuses a socket outside the sandbox's runtime dir and an output outside `tmp/`. `scripts/test-sandbox-shots.sh` holds it.
 - Never reach the host compositor from a run: the sandbox reads, dispatches to and draws on no live session. Review holds it.

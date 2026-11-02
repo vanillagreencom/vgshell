@@ -75,7 +75,7 @@ log="$tmp/log"
 # The doctor rows' PATH: the stubs, then only what bin/vgshell, the scan and
 # the judge run, so the core's other commands are missing on every host.
 tools="$tmp/tools"; mkdir -p "$tools"
-for tool in bash readlink dirname python3; do
+for tool in bash readlink dirname python3 env setpriv; do
   found="$(command -v "$tool")" || { echo "test-vgshell-requirements: status=not-measured missing=$tool"; exit 77; }
   ln -s -- "$(readlink -f -- "$found")" "$tools/$tool"
 done

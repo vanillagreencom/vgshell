@@ -58,9 +58,11 @@ that failed. A failed read is one stderr line, `vgshell-scan: version=unread
 command=<name> cause=<cause>`: `absent` for a command not on PATH,
 `name` for one that is no bare file name, `spawn=<strerror>`, `exit=<n>`,
 `timeout=<s>` for one still running VERSION_SECONDS after the start, whose
-process group is then killed, or `empty` for one that printed nothing. The
-shell's judge reads the version out of the line; this mode judges nothing.
-Exit 0 once the object is printed.
+process group is then killed, or `empty` for one that printed nothing. Each
+read runs in a group bin/lib/owned-group.py owns, so every program it starts
+in that group ends with the read or with this process, within the owner's
+five-second grace. The shell's judge reads the version out of the line; this
+mode judges nothing. Exit 0 once the object is printed.
 
 --snapshot-dir publishes each plugin's files under ROOT/<revision>/, written
 once and never changed, and `loadUrl` is that directory's file:// URL. The
@@ -722,16 +724,17 @@ VERSION_ENVIRONMENT = ("PATH", "HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_
 
 def read_versions(commands):
     """Each of COMMANDS mapped to the first line its `--version` printed, or
-    to None with one stderr line naming why. Every read runs at once, in
-    its own session, and dies with this process."""
-    import ctypes
+    to None with one stderr line naming why. Every read runs at once, each
+    in a session bin/lib/owned-group.py leads, and ends with this process.
+    A parent-death signal alone reaches only the direct child: a program
+    that forks, such as a shim that installs on first use, would leave the
+    fork running (docs/architecture/runtime.md § Process)."""
     import selectors
     import shutil
     import signal
     import subprocess
 
-    libc = ctypes.CDLL(None, use_errno=True)
-    PR_SET_PDEATHSIG = 1
+    owner = os.path.join(os.path.dirname(os.path.realpath(__file__)), "lib", "owned-group.py")
     environment = {name: os.environ[name] for name in VERSION_ENVIRONMENT if name in os.environ}
     environment["LC_ALL"] = "C"
     out = {}
@@ -752,10 +755,14 @@ def read_versions(commands):
             unread(name, "absent")
             continue
         try:
+            # The owner refuses unless it leads its own session. setpriv arms
+            # its parent-death signal; it then stops its whole group on that
+            # signal, and once the read exits it ends what the read left.
             running[name] = subprocess.Popen(
-                [program, "--version"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                env=environment, cwd=os.environ.get("HOME") or "/", start_new_session=True,
-                preexec_fn=lambda: libc.prctl(PR_SET_PDEATHSIG, signal.SIGKILL, 0, 0, 0))
+                ["env", "--default-signal=TERM,INT,HUP", "setpriv", "--pdeathsig", "TERM", "--",
+                 owner, str(os.getpid()), "5", program, "--version"],
+                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                env=environment, cwd=os.environ.get("HOME") or "/", start_new_session=True)
         except OSError as exc:
             unread(name, f"spawn={exc.strerror}")
     # Every pipe is read until its end, so one stalled program holds back
@@ -781,8 +788,8 @@ def read_versions(commands):
         try:
             child.wait(timeout=max(0, deadline - time.monotonic()))
         except subprocess.TimeoutExpired:
-            # The child leads the session it started in, so its group holds
-            # every program it started.
+            # The owner leads the session it started in, so its group holds
+            # every program the read started there.
             os.killpg(child.pid, signal.SIGKILL)
             child.wait()
             child.stdout.close()

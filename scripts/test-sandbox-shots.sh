@@ -31,7 +31,12 @@ ok() { printf '  ok    %s\n' "$*"; }
 fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
 
 # Execute the harness's PATH builder with planted host files. Lookup alone
-# must find each registry stand-in, then none after it is moved away.
+# must find each registry stand-in, then none after it is moved away. The
+# builder's account home is a scratch directory, so the cases hold wherever
+# the caller's TMPDIR lies; the home case requires a shim link in a PATH
+# directory under that home, and a host link that resolves into it, to
+# resolve to none, while an ordinary host command still resolves. Each of
+# the builder's two home checks has a control that drops it alone.
 if python3 - "$repo" "$tmp" "$BASH" <<'PYPATH'
 from pathlib import Path
 import os
@@ -50,32 +55,69 @@ builder = harness[start:harness.index('shell_start_path="$shim:$shell_host_path"
 resolver = next(line for line in harness.splitlines() if line.startswith("shell_resolves() {"))
 needle = '"${device_stand_in_names[@]}" "${auth_sentinels[@]}" crontab hyprctl '
 assert builder.count(needle) == 1
+account_home = "pwd.getpwuid(os.getuid()).pw_dir"
+assert builder.count(account_home) == 1
+in_home_directory = "    if in_home(directory):\n        continue\n"
+in_home_file = " or in_home(file)"
+assert builder.count(in_home_directory) == 1 and builder.count(in_home_file) == 1
+def run(name, code, own="", check=None, plant=None):
+    """CODE, a copy of the builder, over a host directory of planted files
+    and a scratch account home; CHECK, when given, replaces the registry
+    loop, and PLANT(host, home) adds files and returns extra PATH entries."""
+    root = scratch / name
+    shim, host, sandbox, home = root / "shim", root / "host", root / "sandbox", root / "home"
+    for directory in (shim, host, sandbox, home):
+        directory.mkdir(parents=True)
+    path = [str(host)] + (plant(host, home) if plant else [])
+    code = code.replace(account_home, repr(str(home)))
+    script = root / "case.sh"
+    script.write_text('set -euo pipefail\n' + registry + '\n' + auth + '\n' +
+        'shim=$1 sandbox=$2 node_bin=$3\nshell_hidden_commands=(' + own + ')\n' +
+        'names=("${device_stand_in_names[@]}" "${auth_sentinels[@]}" crontab hyprctl)\n' +
+        'for name in "${names[@]}"; do printf "#!/bin/sh\\nexit 99\\n" >"$shim/$name"; /bin/chmod 755 "$shim/$name"; /bin/cp "$shim/$name" "$4/$name"; done\n' +
+        code + 'shell_start_path="$shim:$shell_host_path"\n' + resolver + '\n' +
+        (check or 'for name in "${names[@]}"; do [[ $(shell_resolves "$name") == "$shim/$name" ]] || exit 21; /bin/mv "$shim/$name" "$shim/$name.moved"; [[ $(shell_resolves "$name") == none ]] || exit 22; done\n'))
+    (host / "python3").symlink_to(shutil.which("python3"))
+    return subprocess.run([bash, str(script), str(shim), str(sandbox), "/usr/bin/true", str(host)],
+                          env={"PATH": ":".join(path), "LC_ALL": "C"}, capture_output=True, text=True, timeout=10)
 for runner, own in (("qml-smoke", "vsys voxtype claude codex"), ("sandbox-shots", "voxtype voxtype-audio-bridge")):
-    def run(name, code):
-        root = scratch / (runner + "-" + name)
-        shim, host, sandbox = root / "shim", root / "host", root / "sandbox"
-        for directory in (shim, host, sandbox):
-            directory.mkdir(parents=True)
-        script = root / "case.sh"
-        script.write_text('set -euo pipefail\n' + registry + '\n' + auth + '\n' +
-            'shim=$1 sandbox=$2 node_bin=$3\nshell_hidden_commands=(' + own + ')\n' +
-            'names=("${device_stand_in_names[@]}" "${auth_sentinels[@]}" crontab hyprctl)\n' +
-            'for name in "${names[@]}"; do printf "#!/bin/sh\\nexit 99\\n" >"$shim/$name"; /bin/chmod 755 "$shim/$name"; /bin/cp "$shim/$name" "$4/$name"; done\n' +
-            code + 'shell_start_path="$shim:$shell_host_path"\n' + resolver + '\n' +
-            'for name in "${names[@]}"; do [[ $(shell_resolves "$name") == "$shim/$name" ]] || exit 21; /bin/mv "$shim/$name" "$shim/$name.moved"; [[ $(shell_resolves "$name") == none ]] || exit 22; done\n')
-        (host / "python3").symlink_to(shutil.which("python3"))
-        return subprocess.run([bash, str(script), str(shim), str(sandbox), "/usr/bin/true", str(host)],
-                              env={"PATH": str(host), "LC_ALL": "C"}, capture_output=True, timeout=10)
-    result = run("world", builder)
+    result = run(runner + "-world", builder, own)
     assert result.returncode == 0, (runner, result.returncode, result.stderr)
-    result = run("mutant", builder.replace(needle, ""))
+    result = run(runner + "-mutant", builder.replace(needle, ""), own)
     assert result.returncode == 22, (runner, result.returncode, result.stderr)
     print("registry-hiding: runner=%s stand-ins=present missing=none control=host-fixture-found" % runner)
+def home_plant(host, home):
+    # pi: a version manager's shim, a link in a PATH directory under the
+    # home whose file is outside it (mise's shims link to /usr/bin/mise).
+    # agent-cli: a host PATH link whose file is in the home. host-tool:
+    # neither.
+    outside = home.parent / "outside"
+    for directory, name in ((outside, "mise"), (home / "tools", "agent-cli"), (host, "host-tool")):
+        directory.mkdir(exist_ok=True)
+        (directory / name).write_text("#!/bin/sh\nexit 0\n")
+        (directory / name).chmod(0o755)
+    (home / "bin").mkdir()
+    (home / "bin" / "pi").symlink_to(outside / "mise")
+    (host / "agent-cli").symlink_to(home / "tools" / "agent-cli")
+    return [str(home / "bin")]
+home_check = 'for name in pi agent-cli host-tool; do shell_resolves "$name"; done\n'
+def home_case(name, code):
+    result = run(name, code, check=home_check, plant=home_plant)
+    assert result.returncode == 0, (name, result.returncode, result.stderr)
+    return [line.rsplit("/", 2)[-2:] if line != "none" else "none" for line in result.stdout.splitlines()]
+got = home_case("home-world", builder)
+assert got == ["none", "none", ["host-path", "host-tool"]], got
+got = home_case("home-no-directory-check", builder.replace(in_home_directory, ""))
+assert got == [["host-path", "pi"], "none", ["host-path", "host-tool"]], got
+got = home_case("home-no-file-check", builder.replace(in_home_file, ""))
+assert got == ["none", ["host-path", "agent-cli"], ["host-path", "host-tool"]], got
+print("home-commands: pi=none agent-cli=none host-tool=linked controls=directory-check:pi-linked,file-check:agent-cli-linked")
 PYPATH
 then
   ok "both runners hide the whole stand-in registry and reject a harness without registry hiding"
+  ok "the host PATH links no command from the account home and rejects a harness without the home rule"
 else
-  fail "stand-in registry hiding"
+  fail "stand-in registry hiding or the home rule"
 fi
 
 # These records come from the scene desktop before a modal scrim opens.

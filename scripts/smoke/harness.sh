@@ -434,20 +434,32 @@ sentinel_restore() { # FILE
 shell_resolves() { PATH="$shell_start_path" command -v -- "$1" || echo none; }
 # The host PATH always hides the stand-in registry, so removing a stand-in
 # cannot expose its host command. Runners add only their own absent names.
+# The host PATH links no command from the invoking user's home, judged by
+# the PATH directory and by the file each link would resolve to. A per-user
+# install or shim there (~/.local/bin, a version manager's installs and
+# shims, ~/.cargo/bin) can install or update on use, and the shell runs
+# `--version` on what it finds; a row that needs such a command writes its
+# own stand-in. node alone is linked by its resolved binary, wherever it is.
 python3 - "$sandbox/host-path" "$PATH" "$node_bin" "${device_stand_in_names[@]}" "${auth_sentinels[@]}" crontab hyprctl "${shell_hidden_commands[@]}" <<'PY'
-import os, sys
+import os, pwd, sys
 links, path, node, taken = sys.argv[1], sys.argv[2], sys.argv[3], set(sys.argv[4:])
+# HOME is the sandbox's own here; the account database names the user's.
+home = os.path.realpath(pwd.getpwuid(os.getuid()).pw_dir)
+def in_home(file):
+    return os.path.commonpath([home, os.path.realpath(file)]) == home
 os.mkdir(links)
 os.symlink(node, os.path.join(links, "node"))
 taken.add("node")
 for directory in path.split(":"):
+    if in_home(directory):
+        continue
     try:
         names = sorted(os.listdir(directory))
     except OSError:
         continue
     for name in names:
         file = os.path.join(directory, name)
-        if name in taken or not os.path.isfile(file) or not os.access(file, os.X_OK):
+        if name in taken or not os.path.isfile(file) or not os.access(file, os.X_OK) or in_home(file):
             continue
         taken.add(name)
         os.symlink(file, os.path.join(links, name))

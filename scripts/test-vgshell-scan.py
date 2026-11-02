@@ -16,7 +16,11 @@ stub programs and read each command's line, or null with the cause its
 stderr line names; one row runs a copy whose bound is one second against a
 program that never ends. Their controls keep every line, pass no argument,
 read a failed command, hand down the whole environment, start in the
-scanner's directory, run a path and leave the stalled program alone. The core watch rows run --watch-core with bounded
+scanner's directory, run a path and leave the stalled program alone. The
+version lifetime rows fork a long-lived program from a read, then kill the
+scanner or let the read answer, and require the fork gone within the group
+owner's grace; their control runs a copy that starts each read in its own
+session with a parent-death signal alone and requires the fork to survive. The core watch rows run --watch-core with bounded
 pipe reads and prove edits to core files and new directories produce one
 changed revision while the top-level plugins directory is neither watched
 nor hashed. The URL rows publish a snapshot under a root whose
@@ -281,9 +285,7 @@ def mutant_control(label, needle, replacement, rows):
     if source.count(needle) != 1:
         return report(f"control: {needle!r} occurs once in the scanner", False, f" (count={source.count(needle)})")
     with tempfile.TemporaryDirectory() as tmp:
-        mutant = os.path.join(tmp, "vgshell-scan")
-        with open(mutant, "w", encoding="utf-8") as fh:
-            fh.write(source.replace(needle, replacement))
+        mutant = scanner_copy(tmp, source.replace(needle, replacement))
         return report(f"control: {label}", not all(rows(mutant, quiet=True)))
 
 
@@ -740,6 +742,8 @@ VERSION_STUBS = {
     "placed": 'echo "${SECRET-unset}|$LC_ALL|$(pwd)"\n',
     "stalled": 'while :; do :; done\n',
 }
+VERSION_TOOLS = ("env", "setpriv", "python3", "sleep")
+VERSION_FORK_SECONDS = "3183"
 VERSION_ROWS = [
     ("a version is the first line the command prints", ["named", "bare"], {"named": "named 0.9.1", "bare": "1.2.3"}, {}),
     ("the command is asked with --version alone", ["argued"], {"argued": "1:--version"}, {}),
@@ -752,9 +756,12 @@ VERSION_ROWS = [
 ]
 
 
+def version_env(tmp):
+    return {"PATH": os.path.join(tmp, "stubs") + os.pathsep + os.path.join(tmp, "tools"), "HOME": os.path.join(tmp, "home"), "SECRET": "leaked", "LC_ALL": "en_US.UTF-8"}
+
+
 def version_scan(tmp, commands, script):
-    env = {"PATH": os.path.join(tmp, "stubs"), "HOME": os.path.join(tmp, "home"), "SECRET": "leaked", "LC_ALL": "en_US.UTF-8"}
-    return subprocess.run([sys.executable, script, "--versions", *commands], capture_output=True, text=True, check=False, env=env, cwd=tmp, timeout=8)
+    return subprocess.run([sys.executable, script, "--versions", *commands], capture_output=True, text=True, check=False, env=version_env(tmp), cwd=tmp, timeout=8)
 
 
 def plant_version_stubs(tmp):
@@ -762,6 +769,22 @@ def plant_version_stubs(tmp):
     for name in VERSION_STUBS:
         os.chmod(os.path.join(tmp, "stubs", name), 0o755)
     os.mkdir(os.path.join(tmp, "home"))
+    # The programs that start each read's group owner, its interpreter and
+    # the program a lifetime stub forks, alone in their own PATH directory,
+    # so no stub name finds a host program.
+    os.mkdir(os.path.join(tmp, "tools"))
+    for name in VERSION_TOOLS:
+        os.symlink(shutil.which(name), os.path.join(tmp, "tools", name))
+
+
+def scanner_copy(tmp, source):
+    """A disposable scanner at TMP/vgshell-scan holding SOURCE, beside the
+    library directory the scanner loads helpers from."""
+    copy = os.path.join(tmp, "vgshell-scan")
+    with open(copy, "w", encoding="utf-8") as fh:
+        fh.write(source)
+    os.symlink(os.path.join(os.path.dirname(os.path.realpath(SCAN)), "lib"), os.path.join(tmp, "lib"))
+    return copy
 
 
 def version_rows(script=SCAN, quiet=False):
@@ -786,9 +809,7 @@ def version_rows(script=SCAN, quiet=False):
         source = fh.read()
     with tempfile.TemporaryDirectory() as tmp:
         plant_version_stubs(tmp)
-        short = os.path.join(tmp, "vgshell-scan")
-        with open(short, "w", encoding="utf-8") as fh:
-            fh.write(source.replace("VERSION_SECONDS = 10\n", "VERSION_SECONDS = 1\n"))
+        short = scanner_copy(tmp, source.replace("VERSION_SECONDS = 10\n", "VERSION_SECONDS = 1\n"))
         try:
             proc = version_scan(tmp, ["stalled", "bare"], short)
             good = source.count("VERSION_SECONDS = 10\n") == 1 and proc.returncode == 0 and json.loads(proc.stdout) == {"stalled": None, "bare": "1.2.3"} and "command=stalled cause=timeout=1" in proc.stderr
@@ -799,10 +820,125 @@ def version_rows(script=SCAN, quiet=False):
     return results
 
 
+# version lifetime rows: name, the stub's body, and whether the scanner is
+# killed while the read runs or left to finish. Each stub forks a `sleep`
+# into the read's group and records its pid, so the row can watch the fork
+# rather than the stub the scanner started.
+VERSION_FORK = "sleep " + VERSION_FORK_SECONDS
+VERSION_LIFETIME_ROWS = [
+    ("a read whose scanner is killed ends its forked program",
+     f'{VERSION_FORK} &\necho $! >"$0.pid"\nwait\n', True),
+    ("a read that answers and leaves a forked program running ends it",
+     f'{VERSION_FORK} >/dev/null 2>&1 &\necho $! >"$0.pid"\necho 2.0.0\n', False),
+]
+# The group owner's grace (bin/lib/owned-group.py, as the scanner starts it)
+# and one second of margin for a loaded host.
+VERSION_FORK_BOUND = 6
+
+
+def version_fork(path):
+    """A pidfd for the `sleep` whose pid PATH records, or None when that
+    process is gone. The fork runs the stub until it executes `sleep`, so
+    its command line is polled while the pidfd holds it; a pid reused
+    before the pidfd was taken never reads as `sleep` and times out."""
+    with open(path, encoding="utf-8") as fh:
+        pid = int(fh.read())
+    try:
+        fd = os.pidfd_open(pid)
+    except ProcessLookupError:
+        return None
+    deadline = time.monotonic() + 5
+    while not select.select([fd], [], [], 0)[0] and time.monotonic() < deadline:
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as fh:
+                if fh.read() == VERSION_FORK.replace(" ", "\0").encode() + b"\0":
+                    return fd
+        except FileNotFoundError:
+            break
+        time.sleep(0.01)
+    os.close(fd)
+    return None
+
+
+def version_lifetime(script=SCAN):
+    """Each lifetime row's outcome against SCRIPT: `ended` when the fork is
+    gone within VERSION_FORK_BOUND seconds of the scanner's end, `survived`
+    when it is not, `unreached` when the read never forked or answered."""
+    outcomes = []
+    for name, body, killed in VERSION_LIFETIME_ROWS:
+        with tempfile.TemporaryDirectory() as tmp:
+            plant_version_stubs(tmp)
+            stub = os.path.join(tmp, "stubs", "forker")
+            plant(tmp, {os.path.join("stubs", "forker"): "#!/bin/sh\n" + body})
+            os.chmod(stub, 0o755)
+            recorded = stub + ".pid"
+            fd = None
+            proc = None
+            try:
+                if killed:
+                    proc = subprocess.Popen([sys.executable, script, "--versions", "forker"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=version_env(tmp), cwd=tmp)
+                    deadline = time.monotonic() + 5
+                    while time.monotonic() < deadline and not (os.path.exists(recorded) and pathlib.Path(recorded).read_text(encoding="utf-8").endswith("\n")):
+                        time.sleep(0.02)
+                    fd = version_fork(recorded) if os.path.exists(recorded) else None
+                    if fd is None:
+                        outcomes.append((name, "unreached"))
+                        continue
+                    proc.kill()
+                    proc.wait(timeout=5)
+                else:
+                    answered = version_scan(tmp, ["forker"], script)
+                    if answered.returncode != 0 or json.loads(answered.stdout) != {"forker": "2.0.0"} or not os.path.exists(recorded):
+                        outcomes.append((name, "unreached"))
+                        continue
+                    fd = version_fork(recorded)
+                    if fd is None:
+                        outcomes.append((name, "ended"))
+                        continue
+                outcomes.append((name, "ended" if select.select([fd], [], [], VERSION_FORK_BOUND)[0] else "survived"))
+            finally:
+                if proc is not None:
+                    kill_process(proc)
+                if fd is not None:
+                    if not select.select([fd], [], [], 0)[0]:
+                        signal.pidfd_send_signal(fd, signal.SIGKILL)
+                        select.select([fd], [], [], 5)
+                    os.close(fd)
+    return outcomes
+
+
+def version_lifetime_rows():
+    return [report("versions: " + name, outcome == "ended", f" ({outcome})") for name, outcome in version_lifetime()]
+
+
+# A read start with no group owner: its own session, and a parent-death
+# signal on the direct child alone.
+VERSION_OWNER_START = """                ["env", "--default-signal=TERM,INT,HUP", "setpriv", "--pdeathsig", "TERM", "--",
+                 owner, str(os.getpid()), "5", program, "--version"],
+                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                env=environment, cwd=os.environ.get("HOME") or "/", start_new_session=True)"""
+VERSION_SESSION_START = """                [program, "--version"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                env=environment, cwd=os.environ.get("HOME") or "/", start_new_session=True,
+                preexec_fn=lambda: __import__("ctypes").CDLL(None).prctl(1, signal.SIGKILL, 0, 0, 0))"""
+
+
+def version_lifetime_control():
+    """Every lifetime row's fork must survive a copy of the scanner that
+    starts each read in its own session with a parent-death signal alone."""
+    with open(SCAN, encoding="utf-8") as fh:
+        source = fh.read()
+    if source.count(VERSION_OWNER_START) != 1:
+        return report("control: the owned read start occurs once in the scanner", False, f" (count={source.count(VERSION_OWNER_START)})")
+    with tempfile.TemporaryDirectory() as tmp:
+        mutant = scanner_copy(tmp, source.replace(VERSION_OWNER_START, VERSION_SESSION_START))
+        outcomes = version_lifetime(mutant)
+        return report("control: a read in its own session leaves its forked program running", all(outcome == "survived" for _, outcome in outcomes), f" ({outcomes})")
+
+
 def version_controls():
     return [
         mutant_control("the version rows fail on a scanner that keeps every line", "out[name] = lines[0].strip()[:VERSION_LINE_MAX]", "out[name] = heads[name].decode()", version_rows),
-        mutant_control("the version rows fail on a scanner that asks with no argument", '[program, "--version"]', "[program]", version_rows),
+        mutant_control("the version rows fail on a scanner that asks with no argument", 'program, "--version"]', "program]", version_rows),
         mutant_control("the version rows fail on a scanner that reads a failed command", "if child.returncode != 0:", "if False:", version_rows),
         mutant_control("the version rows fail on a scanner that hands down its whole environment", "environment = {name: os.environ[name] for name in VERSION_ENVIRONMENT if name in os.environ}", "environment = dict(os.environ)", version_rows),
         mutant_control("the version rows fail on a scanner that reads from its own directory", 'cwd=os.environ.get("HOME") or "/"', "cwd=None", version_rows),
@@ -934,6 +1070,8 @@ def main():
     results += watch_controls()
     results += version_rows()
     results += version_controls()
+    results += version_lifetime_rows()
+    results.append(version_lifetime_control())
     results += snapshot_lifetime_rows()
     results += snapshot_lifetime_controls()
     results += url_spelling_rows()
