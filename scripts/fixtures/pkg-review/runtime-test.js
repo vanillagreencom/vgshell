@@ -6,15 +6,41 @@ const {create}=require("./world.js");
 const only=process.argv.includes("--cancel-control");
 const surfaceAt=process.argv.indexOf("--surface"),surface=surfaceAt<0?"all":process.argv[surfaceAt+1];
 const select=name=>surface==="all"||surface===name;
-assert.ok(["all","direct","routes","choices","authority","availability","evidence","updates","bootstrap","settings","protocol","origin","workspace","control","origin-control","customize","customize-control","retry","retry-held"].includes(surface));
+assert.ok(["all","direct","routes","choices","authority","availability","evidence","updates","bootstrap","settings","protocol","origin","workspace","control","origin-control","customize","customize-control","retry","retry-held","retry-held-control","publisher","publisher-control"].includes(surface));
 if(only)assert.ok(["all","direct"].includes(surface));
 const overrideAt=process.argv.indexOf("--owner"),ownerOverride=overrideAt<0?null:process.argv[overrideAt+1];
 const scratch=fs.mkdtempSync(path.join(os.tmpdir(),"package-review-runtime-"));
 const q=s=>"'"+s.replaceAll("'","'\\''")+"'";
 function tty(w,args){
- const executable=args[0]==="vgshell"?["/usr/bin/bash",path.resolve(__dirname,"../../../bin/vgshell"),...args.slice(1)]:[process.execPath,ownerOverride||w.owner,...args];
+ const executable=args[0]==="vgshell"?["/usr/bin/bash",path.resolve(__dirname,"../../../bin/vgshell"),...args.slice(1)]:[process.execPath,w.tree||ownerOverride||w.owner,...args];
  const command=executable.map(s=>"'"+s.replaceAll("'","'\\''")+"'").join(" ");
  return cp.spawnSync("/usr/bin/script",["-qec",command,"/dev/null"],{env:{...w.env,SHELL:"/usr/bin/bash"},encoding:"utf8",timeout:30000});
+}
+// A disposable owner tree: bin/vgshell-pkg, bin/lib/pkg-review.js and its
+// loader bin/lib/pkg-retry.js are copies, since node runs a linked module
+// from its target, with each of
+// EDITS, [file, needle, replacement], applied to its one match; the rest
+// links to the tree under test. Without recipes it has no packaging/arch.
+function ownerTree(name,edits=[],{recipes=true}={}){
+ const source=ownerOverride?path.resolve(path.dirname(ownerOverride),".."):path.resolve(__dirname,"../../.."),copy=path.join(scratch,name);
+ const copied=new Set(["bin/vgshell-pkg","bin/lib/pkg-review.js","bin/lib/pkg-retry.js",...edits.map(edit=>edit[0])]);
+ fs.mkdirSync(path.join(copy,"bin/lib"),{recursive:true});
+ for(const entry of ["shell","config","VERSION","bin/vgshell",...(recipes?["packaging"]:[])])fs.symlinkSync(path.join(source,entry),path.join(copy,entry));
+ for(const entry of fs.readdirSync(path.join(source,"bin/lib")))if(!copied.has("bin/lib/"+entry))fs.symlinkSync(path.join(source,"bin/lib",entry),path.join(copy,"bin/lib",entry));
+ for(const file of copied)fs.copyFileSync(path.join(source,file),path.join(copy,file));
+ for(const [file,needle,replacement] of edits){
+  const text=fs.readFileSync(path.join(copy,file),"utf8");assert.equal(text.split(needle).length-1,1,name+": "+needle);
+  fs.writeFileSync(path.join(copy,file),text.replace(needle,replacement));
+ }
+ return path.join(copy,"bin/vgshell-pkg");
+}
+// A must-fail control: SURFACE run against the owner with EDITS must fail
+// at the row FAILS names.
+function control(name,surface,edits,fails){
+ const r=cp.spawnSync(process.execPath,[__filename,"--surface",surface,"--owner",ownerTree(name,edits)],{env:{PATH:"/usr/bin:/bin",TMPDIR:scratch},encoding:"utf8",timeout:120000});
+ assert.equal(r.status,1,name+": "+r.stdout+r.stderr);assert.match(r.stderr,fails,name+": "+r.stdout+r.stderr);
+ console.log("package-control-proof: "+JSON.stringify({name,status:r.status}));
+ return r;
 }
 try{
  for(const manager of ["pacman","aur"])for(const scenario of ["review","decline","cancel"]){
@@ -75,16 +101,78 @@ try{
   const mutation=calls.find(c=>c.kind==="mutation");assert.ok(mutation);assert.deepEqual(mutation.args,expected);
   console.log("package-route-proof: "+JSON.stringify({route,args,calls}));
  }
+ // [label, saved settings, agents installed, the offer's selected row or
+ // null for no offer]: a saved Install without review asks nothing and
+ // installs as a submitted decline; every other saved choice asks.
  if(!only&&select("choices"))for(const [label,settings,agents,selectedIndex] of [
   ["saved-on",{enabled:true,agent:"",command:""},false,0],
-  ["saved-off",{enabled:false,agent:"claude",command:""},true,1],
+  ["saved-off",{enabled:false,agent:"claude",command:""},true,null],
   ["absent-configured",{agent:"claude",command:""},true,0],
   ["absent-configured-unavailable",{agent:"claude",command:""},false,0],
   ["absent-default",{agent:"",command:""},true,0],
   ["absent-neither",{agent:"",command:""},false,1]]){
-  const w=create(path.join(scratch,label),{settings,agents,choices:["cancel"]});const r=tty(w,["run","install","--manager","aur","--config",w.config,"widget"]);
-  assert.equal(r.status,130,r.stdout);assert.equal(w.calls().find(c=>c.kind==="offer").selectedIndex,selectedIndex);assert.ok(!w.calls().some(c=>c.kind==="mutation"||c.kind==="credential"));
+  const w=create(path.join(scratch,label),{settings,agents,choices:["cancel"]});const r=tty(w,["run","install","--manager","aur","--config",w.config,"widget"]),calls=w.calls();
+  const offer=calls.find(c=>c.kind==="offer");
+  if(selectedIndex===null){
+   assert.equal(r.status,0,label+": "+r.stdout);assert.equal(offer,undefined,label);assert.ok(!calls.some(c=>c.kind==="agent"),label);
+   assert.deepEqual(calls.find(c=>c.kind==="mutation")?.args,["--config",w.config,"-S","--needed","--","widget"],label);
+  }else{
+   assert.equal(r.status,130,label+": "+r.stdout);assert.equal(offer?.selectedIndex,selectedIndex,label);assert.ok(!calls.some(c=>c.kind==="mutation"||c.kind==="credential"),label);
+  }
  }
+ // A package VGS publishes, named by its recipes' pkgname lines, is not
+ // listed for review when the owner resolved it through the AUR helper. Its
+ // dependencies note stays, since its build may add packages no one has
+ // reviewed, so a request with nothing else to review offers Review, asks no
+ // agent and goes to the unavailable-evidence question, No selected. The
+ // same name from any pacman repository, one named aur included, is
+ // reviewed; recipes the owner cannot read are unavailable evidence. Each
+ // row, under saved Review with an agent: [label, owner arguments, world
+ // files, the owner's tree, lines the agent's packages.txt holds (none: no
+ // agent runs), patterns no line of it matches, the AUR recipes fetched,
+ // whether the requested package installs, the choices made].
+ const REVIEWED=["Review","Use Claude Code","Yes"];
+ if(!only&&select("publisher"))for(const [label,args,files,tree,listed,unlisted,fetched,installs,choices] of [
+  ["mixed",["run","reinstall","--manager","aur","vgshell-git","foreign"],{},"checkout",["aur foreign ? ?","unknown dependencies=unresolved name=vgshell-git"],[/^aur vgshell/],["foreign"],true,REVIEWED],
+  ["vgs-only",["run","reinstall","--manager","aur","vgshell-git"],{},"checkout",[],[],[],false,["Review","No"]],
+  ["repository-same-name",["run","install","--manager","pacman","vgshell-git"],{"sync-extra":"custom vgshell-git 2"},"checkout",["repo custom vgshell-git ? ?"],[],[],true,REVIEWED],
+  ["repository-named-aur",["run","install","--manager","pacman","vgshell-git"],{"repo-aur":"","sync-extra":"aur vgshell-git 2"},"checkout",
+   ["repo aur vgshell-git ? ?","siglevel aur Required DatabaseOptional"],[/^aur /],[],true,REVIEWED],
+  ["recipes-unreadable",["run","reinstall","--manager","aur","vgshell-git"],{},"no-recipes",
+   ["aur vgshell-git ? ?","unknown vgs-packages=unreadable cause=ENOENT","unknown dependencies=unresolved name=vgshell-git"],[],["vgshell-git"],true,REVIEWED]
+ ]){
+  const w=create(path.join(scratch,"publisher-"+label),{settings:{enabled:true,agent:"claude",command:""},choices});
+  for(const [name,text] of Object.entries(files))fs.writeFileSync(path.join(w.root,name),text);
+  if(tree==="no-recipes")w.tree=ownerTree("publisher-tree-"+label,[],{recipes:false});
+  const requested=args.slice(4),r=tty(w,[...args.slice(0,4),"--config",w.config,...requested]),calls=w.calls();
+  assert.equal(r.status,0,label+": "+r.stdout+r.stderr);
+  assert.ok(calls.some(c=>c.kind==="offer"&&c.offered.includes("Review")),label+": the offer is shown");
+  const agent=calls.find(c=>c.kind==="agent"),packages=agent?.packages||[];
+  assert.equal(agent!==undefined,listed.length>0,label+": "+(listed.length?"the agent reviews":"no agent runs"));
+  if(!listed.length){
+   assert.ok(!calls.some(c=>c.kind==="offer"&&c.offered.includes("Customize")),label+": no agent is chosen");
+   const unavailable=calls.find(c=>c.kind==="offer"&&c.offered.includes("Yes"));
+   assert.equal(unavailable?.selected,"No",label+": the unavailable question, No selected");
+  }
+  for(const line of listed)assert.ok(packages.includes(line),label+": listed "+line+" in "+JSON.stringify(packages));
+  for(const pattern of unlisted)assert.ok(!packages.some(line=>pattern.test(line)),label+": unlisted "+pattern+" in "+JSON.stringify(packages));
+  assert.deepEqual(calls.filter(c=>c.kind==="query"&&c.args.includes("-G")).flatMap(c=>c.args.slice(c.args.indexOf("--")+1)),fetched,label+": fetched");
+  const built=calls.filter(c=>c.kind==="mutation").flatMap(c=>c.args);
+  assert.equal(built.includes(requested.at(-1)),installs,label+": "+(installs?"installs":"nothing installs")+" "+JSON.stringify(calls));
+  console.log("package-publisher-proof: "+JSON.stringify({label,packages}));
+ }
+ // Each rule above and the saved choice fails its row when its code is
+ // undone: the exemption, Review with nothing reviewable, the AUR fact kept
+ // apart from a repository's name, and the saved Install without review.
+ if(!only&&(select("control")||surface==="publisher-control")){
+  const owner="bin/lib/pkg-review.js";
+  control("publisher-exemption","publisher",[[owner,'published: publisher === "vgs",','published: false,']],/mixed: unlisted/);
+  control("publisher-nothing-reviewable","publisher",[[owner,"const reviewable = thirdParty.length > 0;","const reviewable = true;"]],/vgs-only: /);
+  control("publisher-repository-aur","publisher",[[owner,"judge.publisher(name, viaAur, recipes.names)",'judge.publisher(name, origin === "aur", recipes.names)']],/repository-named-aur: the offer is shown/);
+  control("saved-decline","choices",[[owner,"if (!judge.initialChoice(settings, foundAgents(settings)).ask) {","if (false) {"]],/saved-off:/);
+ }
+
+
  // A review run through Customize, with one edit view opened and left, keeps
  // the caller's screen: no kind, the inline editor included, clears it.
  if(!only&&select("customize")){
@@ -151,8 +239,9 @@ try{
   ["agent-dependency","foreign",["Review","Use Claude Code","No"],false,true],
   ["fetch-failed","foreign",["Review","Use Claude Code","No"],false,false],
   ["server-empty","widget",["Review","Use Claude Code","No"],false,true],
-  ["query-failed","widget",["Review","Use Claude Code","No"],false,true],
-  ["provider-ambiguous","foreign",["Review","Use Claude Code","No"],false,true],
+  // With no package listed, Review asks no agent: the unavailable question follows.
+  ["query-failed","widget",["Review","No"],false,false],
+  ["provider-ambiguous","foreign",["Review","No"],false,false],
   ["agent-concern","widget",["Review","Use Claude Code","Skip"],false,true]
  ]){
   const w=create(path.join(scratch,"evidence-"+marker),{choices});fs.writeFileSync(path.join(w.root,marker),"");
@@ -311,7 +400,7 @@ try{
   const w=create(path.join(scratch,"retry-held"),{choices:[]}),records=path.join(w.root,"run/vgshell/tui"),held=path.join(w.root,"run/vgshell/package-review/retry");
   const choose=list=>fs.writeFileSync(path.join(w.root,"choices.json"),JSON.stringify(list));
   const present=(key,run,args,wrap)=>{
-   const owner=[process.execPath,w.owner,...args],command=wrap?["/usr/bin/bash","-c",owner.map(q).join(" ")+"; exit $?"]:owner;
+   const owner=[process.execPath,ownerOverride||w.owner,...args],command=wrap?["/usr/bin/bash","-c",owner.map(q).join(" ")+"; exit $?"]:owner;
    const argv=["/usr/bin/bash",path.resolve(__dirname,"../../../bin/vgshell-tui"),"present","--presentation","plain","--record",key,"--run",run,"--record-dir",records,"--app-id","vgs-test","--window-title","Test","--",...command];
    const r=cp.spawnSync("/usr/bin/script",["-qec",argv.map(q).join(" "),"/dev/null"],{env:{...w.env,SHELL:"/usr/bin/bash"},encoding:"utf8",timeout:60000});
    const ended=path.join(records,key.replace("/","@")+"@"+run+".ended.json");
@@ -319,7 +408,7 @@ try{
   };
   const install=["run","install","--manager","aur","--config",w.config,TARGET],INSTALL="core/requirements-install";
   const checkFailed=(run,state,status=1)=>({kind:"package-check-failed",manager:"aur",helper:"paru",package:TARGET,status,retry:state===null?null:{originRun:run,state}});
-  const stop=(run,key=INSTALL)=>{choose(["Install without review","Stop"]);scenario(w,CHECK,null);return present(key,run,install);};
+  const stop=(run,key=INSTALL,target=TARGET)=>{choose(["Install without review","Stop"]);scenario(w,{...CHECK,base:target},null);return present(key,run,install.slice(0,-1).concat(target));};
   const retried=(run,origin,retry)=>{
    choose([]);scenario(w,null,retry);const before=w.calls().length,r=present(INSTALL,run,["retry",origin]),after=w.calls().slice(before);
    assert.ok(!after.some(c=>c.kind==="offer"),"a held retry asks nothing again");
@@ -372,22 +461,20 @@ try{
    assert.equal(r.record.code,130,run+": "+r.stdout);assert.deepEqual(r.record.package,{kind:"package-cancelled",manager:"aur",status:130},run);
    assert.doesNotMatch(r.stdout,/package-outcome=unwritten/,run);
   }
+  // A package VGS publishes, which no review lists, holds its recipe too.
+  r=stop("run26",INSTALL,"vgshell-git");assert.ok(heldRuns().includes("core@requirements-install@run26.json"),"vgs-recipe: held "+r.stdout);
+  r=marked("recipe-changed",()=>retried("run27","run26",PASS));
+  assert.deepEqual(r.built,[],"vgs-recipe: a changed recipe builds nothing");assert.match(r.stdout,/retry=changed run=run26/);
   assert.ok(!fs.readdirSync(records).some(n=>n.includes(".outcome.")),"each presenter removes its channel");
   console.log("package-retry-held-proof: ok");
  }
+ // The held recipe of a VGS package fails its row when gather drops the
+ // package before the retry's binding reads it.
+ if(!only&&(select("control")||surface==="retry-held-control"))
+  control("retry-published-recipe","retry-held",[["bin/lib/pkg-review.js","const pkg = { name, origin,",'if (publisher === "vgs") continue;\n                const pkg = { name, origin,']],/vgs-recipe: a changed recipe builds nothing/);
  for(const entry of fs.readdirSync(scratch)){const dir=path.join(scratch,entry,"run/vgshell/package-review");if(fs.existsSync(dir)&&!entry.startsWith("authority-"))assert.ok(!fs.readdirSync(dir).some(n=>/^(review|bootstrap|transaction|build|helper|recipe)-/.test(n)),entry);}
  if(!only&&(select("control")||surface==="origin-control")){
-  const repo=path.resolve(__dirname,"../../.."),copy=path.join(scratch,"origin-mutant");
-  fs.mkdirSync(path.join(copy,"bin/lib"),{recursive:true});
-  fs.symlinkSync(path.join(repo,"bin/vgshell"),path.join(copy,"bin/vgshell"));
-  for(const entry of ["shell","config","VERSION"])fs.symlinkSync(path.join(repo,entry),path.join(copy,entry));
-  for(const entry of fs.readdirSync(path.join(repo,"bin/lib")))if(entry!=="pkg-review.js")fs.symlinkSync(path.join(repo,"bin/lib",entry),path.join(copy,"bin/lib",entry));
-  fs.copyFileSync(path.join(repo,"bin/vgshell-pkg"),path.join(copy,"bin/vgshell-pkg"));
-  const source=fs.readFileSync(path.join(repo,"bin/lib/pkg-review.js"),"utf8"),needle='target.origin === "aur" && matches.length > 0';
-  assert.equal(source.split(needle).length-1,1);
-  const changed=source.replace(needle,'target.origin === "never-aur" && matches.length > 0');assert.notEqual(changed,source);
-  fs.writeFileSync(path.join(copy,"bin/lib/pkg-review.js"),changed);
-  const control=cp.spawnSync(process.execPath,[__filename,"--surface","origin","--owner",path.join(copy,"bin/vgshell-pkg")],{env:{PATH:"/usr/bin:/bin",TMPDIR:scratch},encoding:"utf8",timeout:60000});
+  const control=cp.spawnSync(process.execPath,[__filename,"--surface","origin","--owner",ownerTree("origin-mutant",[["bin/lib/pkg-review.js",'target.origin === "aur" && matches.length > 0','target.origin === "never-aur" && matches.length > 0']])],{env:{PATH:"/usr/bin:/bin",TMPDIR:scratch},encoding:"utf8",timeout:60000});
   assert.equal(control.status,1,control.stdout+control.stderr);
   assert.match(control.stderr,/ERR_ASSERTION/,control.stdout+control.stderr);
   const attempted=control.stdout.split("\n").filter(line=>line.startsWith("package-origin-attempt-proof: ")).map(line=>JSON.parse(line.slice("package-origin-attempt-proof: ".length)));
@@ -395,22 +482,7 @@ try{
   assert.deepEqual(mutant,{manager:"aur",status:0,offered:false,mutated:true});
   console.log("package-origin-control-proof: "+JSON.stringify({status:control.status,mutant}));
  }
- if(!only&&(select("control")||surface==="customize-control")){
-  const repo=path.resolve(__dirname,"../../.."),copy=path.join(scratch,"customize-mutant");
-  fs.mkdirSync(path.join(copy,"bin/lib"),{recursive:true});
-  fs.symlinkSync(path.join(repo,"bin/vgshell"),path.join(copy,"bin/vgshell"));
-  for(const entry of ["shell","config","VERSION"])fs.symlinkSync(path.join(repo,entry),path.join(copy,entry));
-  // node runs a linked module from its target, so pkg-review.js is a copy:
-  // it finds the mutant pkg-review.sh beside it.
-  for(const entry of fs.readdirSync(path.join(repo,"bin/lib")))if(!["pkg-review.sh","pkg-review.js"].includes(entry))fs.symlinkSync(path.join(repo,"bin/lib",entry),path.join(copy,"bin/lib",entry));
-  for(const file of ["bin/vgshell-pkg","bin/lib/pkg-review.js"])fs.copyFileSync(path.join(repo,file),path.join(copy,file));
-  const source=fs.readFileSync(path.join(repo,"bin/lib/pkg-review.sh"),"utf8"),needle='vgs_pkg_review_settings "$1" inline ;;';
-  assert.equal(source.split(needle).length-1,1);
-  fs.writeFileSync(path.join(copy,"bin/lib/pkg-review.sh"),source.replace(needle,'vgs_pkg_review_settings "$1" ;;'),{mode:0o755});
-  const control=cp.spawnSync(process.execPath,[__filename,"--surface","customize","--owner",path.join(copy,"bin/vgshell-pkg")],{env:{PATH:"/usr/bin:/bin",TMPDIR:scratch},encoding:"utf8",timeout:60000});
-  assert.equal(control.status,1,control.stdout+control.stderr);
-  assert.match(control.stderr,/package-customize=screen-cleared/,control.stdout+control.stderr);
-  console.log("package-customize-control-proof: "+JSON.stringify({status:control.status}));
- }
+ if(!only&&(select("control")||surface==="customize-control"))
+  control("customize-inline","customize",[["bin/lib/pkg-review.sh",'vgs_pkg_review_settings "$1" inline ;;','vgs_pkg_review_settings "$1" ;;']],/package-customize=screen-cleared/);
  console.log("test-package-review-runtime: ok");
 }finally{fs.rmSync(scratch,{recursive:true,force:true});}

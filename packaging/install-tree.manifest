@@ -65,6 +65,9 @@ f share/vgshell/config/voxtype/sounds/bloop/LICENSE
 f share/vgshell/config/voxtype/sounds/bloop/error.wav
 f share/vgshell/config/voxtype/sounds/bloop/start.wav
 f share/vgshell/config/voxtype/sounds/bloop/stop.wav
+f share/vgshell/packaging/arch/vgshell-git/.SRCINFO
+f share/vgshell/packaging/arch/vgshell-quickshell/.SRCINFO
+f share/vgshell/packaging/arch/vgshell/.SRCINFO
 f share/vgshell/packaging/jarvis-home/.agents/skills/jarvis/README.md
 f share/vgshell/packaging/jarvis-home/.agents/skills/jarvis/SKILL.md
 f share/vgshell/packaging/jarvis-home/.agents/skills/jarvis/persona.md

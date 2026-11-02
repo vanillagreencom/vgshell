@@ -42,7 +42,7 @@ function build(){
 const configAt=args.indexOf("--config");if(configAt>=0)args.splice(configAt,2);
 if(name==="pacman-conf"){
  if(fs.existsSync(path.join(root,"query-failed")))process.exit(7);
- if(args.includes("--repo-list"))console.log("core\ncustom");
+ if(args.includes("--repo-list"))console.log("core\ncustom"+(fs.existsSync(path.join(root,"repo-aur"))?"\naur":""));
  else if(args.includes("Server")&&!fs.existsSync(path.join(root,"server-empty")))console.log("https://user:secret@packages.example.org/$repo/$arch");
  else if(args.includes("SigLevel"))console.log("Required DatabaseOptional");
  else if(args.includes("DBPath"))console.log(path.join(root,"db"));
@@ -51,7 +51,7 @@ if(name==="pacman-conf"){
 }
 if(name==="checkupdates"||args.includes("-Qua")||args.includes("-Qu")){console.log("widget 1 -> "+(fs.existsSync(path.join(root,"pending-changed"))?"3":"2"));process.exit(0);}
 if(name==="pacman"||name==="paru"||name==="yay"){
- if(args.includes("-Sl")){console.log("core official 1\n"+(fs.existsSync(path.join(root,"origin-changed"))?"core":"custom")+" widget 2\ncustom aurpkg 2");process.exit(0);}
+ if(args.includes("-Sl")){console.log("core official 1\n"+(fs.existsSync(path.join(root,"origin-changed"))?"core":"custom")+" widget 2\ncustom aurpkg 2"+(fs.existsSync(path.join(root,"sync-extra"))?"\n"+fs.readFileSync(path.join(root,"sync-extra"),"utf8").trim():""));process.exit(0);}
  if(args.includes("-Si")){if(fs.existsSync(path.join(root,"info-failed")))process.exit(1);console.log("Repository : aur\nName : "+(fs.existsSync(path.join(root,"provider-ambiguous"))?"provider":args.at(-1)));process.exit(0);}
  if(args.includes("-Qoq")){console.log("vgshell-git");process.exit(0);}
  if(args.includes("-Qtdq"))process.exit(1);
@@ -89,7 +89,8 @@ if(name==="makepkg"){
  log("mutation",{cwd:process.cwd()});const status=build();if(status===0)fs.symlinkSync(fs.realpathSync(__filename),path.join(root,"tools/paru"));process.exit(status);
 }
 if(name==="claude"||name==="codex"){
- log("agent",{cwd:process.cwd(),reviewDir:/The review directory is `([^`]+)`/.exec(args.at(-1))?.[1]});if(fs.existsSync(path.join(root,"agent-failed")))process.exit(4);const prompt=args.at(-1),match=/The review directory is `([^`]+)`/.exec(prompt);
+ const reviewDir=/The review directory is `([^`]+)`/.exec(args.at(-1))?.[1],listed=reviewDir&&path.join(reviewDir,"packages.txt");
+ log("agent",{cwd:process.cwd(),reviewDir,packages:listed&&fs.existsSync(listed)?fs.readFileSync(listed,"utf8").split("\n").filter(Boolean):null});if(fs.existsSync(path.join(root,"agent-failed")))process.exit(4);const prompt=args.at(-1),match=/The review directory is `([^`]+)`/.exec(prompt);
  if(!match)throw new Error("fixture missing review directory");
  console.log("Reviewing package origin and build files as your user.");
  if(!fs.existsSync(path.join(root,"agent-no-verdict"))){

@@ -222,8 +222,22 @@ function pending(group, config, binary) {
     if (result.error) throw new Error("pending=" + result.error);
     return { complete: found.complete, origin: found.origin, packages: result.packages.filter(p => !group.ignored.includes(p.name)) };
 }
+// The package names VGS publishes: the pkgname lines of its Arch recipes'
+// .SRCINFO files, which install-system.sh ships into the runtime tree, so a
+// checkout and an installed tree read the same path. { names: null, cause }
+// when a recipe cannot be read or none names a package.
+function publishedPackages() {
+    const dir = path.join(repo, "packaging/arch"), names = [];
+    try {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true }))
+            if (entry.isDirectory()) for (const field of judge.srcinfoFields(fs.readFileSync(path.join(dir, entry.name, ".SRCINFO"), "utf8")))
+                if (field.key === "pkgname") names.push(field.value);
+    } catch (e) { return { names: null, cause: e.code || "read" }; }
+    return names.length ? { names, cause: null } : { names: null, cause: "empty" };
+}
 function gather(request) {
     const state = { steps: [], packages: [], unknown: [], lines: [], recipes: [] };
+    const recipes = publishedPackages();
     let repositoryData = null;
     function repositories(config) {
         if (repositoryData?.config === config) return repositoryData;
@@ -264,8 +278,10 @@ function gather(request) {
                 const qualified = /^([^/]+)\/([^/]+)$/.exec(target.target);
                 const [qualifier, name] = qualified === null ? [null, target.target] : [qualified[1], qualified[2]];
                 const matches = repos.rows.filter(row => row.name === name && (qualifier === null || qualifier === row.repository));
-                let origin;
-                if (request.mode === "bootstrap") origin = "aur";
+                // viaAur is set only where the owner itself resolved the AUR:
+                // a pacman repository may be named `aur`.
+                let origin, viaAur = false;
+                if (request.mode === "bootstrap") { origin = "aur"; viaAur = true; }
                 else if (target.origin === "aur" && matches.length > 0) { state.unknown.push("origin=aur-repository-collision name=" + name); origin = "unknown"; }
                 else if (matches.length === 1) origin = matches[0].repository;
                 else if (matches.length > 1) { state.unknown.push("origin=ambiguous name=" + name); origin = "unknown"; }
@@ -273,17 +289,29 @@ function gather(request) {
                     const info = output([found.binary, "--config", config, "-Si", "--", name]);
                     const identity = /^Name\s*:\s*(\S+)\s*$/m.exec(info);
                     if (!/^Repository\s*:\s*aur\s*$/m.test(info) || identity === null || identity[1] !== name) throw new Error("origin=unresolved name=" + name);
-                    origin = "aur";
+                    origin = "aur"; viaAur = true;
                     // Helpers can add providers/dependencies at build time. This
-                    // review covers its listed request, never that future choice.
+                    // review covers its listed request, never that future choice,
+                    // a VGS package's included.
                     state.unknown.push("dependencies=unresolved name=" + name);
                 } else { state.unknown.push("origin=unresolved name=" + name); origin = "unknown"; }
                 binding.origins.push({ target: target.target, origin, candidates: matches.map(row => ({ repository: row.repository, version: row.version })) });
                 if (judge.officialRepository(origin)) continue;
-                const pkg = { name, origin, old: target.old, next: target.next, manager: group.manager, binary: found.binary, config };
-                if (!state.packages.some(p => p.name === name && p.origin === origin)) state.packages.push(pkg);
-                state.lines.push(origin === "aur" ? `aur ${name} ${target.old || "?"} ${target.next || "?"}` : `repo ${origin} ${name} ${target.old || "?"} ${target.next || "?"}`);
-                if (origin !== "aur" && origin !== "unknown") {
+                const publisher = judge.publisher(name, viaAur, recipes.names);
+                if (publisher === "unread") {
+                    const cause = "vgs-packages=unreadable cause=" + recipes.cause;
+                    if (!state.unknown.includes(cause)) state.unknown.push(cause);
+                }
+                // A package VGS publishes is not third-party code: no review
+                // lists, fetches or judges it. It stays a package so a held
+                // retry binds the recipe its build would fetch. Its
+                // dependencies note above stays: what its build adds is not
+                // known before the build.
+                const pkg = { name, origin, aur: viaAur, published: publisher === "vgs", old: target.old, next: target.next, manager: group.manager, binary: found.binary, config };
+                if (!state.packages.some(p => p.name === name && p.origin === origin && p.aur === viaAur)) state.packages.push(pkg);
+                if (pkg.published) continue;
+                state.lines.push(viaAur ? `aur ${name} ${target.old || "?"} ${target.next || "?"}` : `repo ${origin} ${name} ${target.old || "?"} ${target.next || "?"}`);
+                if (!viaAur && origin !== "unknown") {
                     const servers = output(["pacman-conf", "--config", config, "--repo", origin, "Server"]).trim().split("\n").filter(Boolean);
                     if (!servers.length) throw new Error("origin=server-unreadable name=" + name);
                     for (const server of servers) {
@@ -317,13 +345,11 @@ function installEvidence(dir, pkg, state) {
         const src = path.join(folder, ".SRCINFO");
         if (!fs.existsSync(src) || !fs.lstatSync(src).isFile()) continue;
         let section = "", base = "", own = "", ownSet = false, found = false;
-        for (const line of fs.readFileSync(src, "utf8").split("\n")) {
-            const m = /^\s*(\w+)\s*=\s*(.*?)\s*$/.exec(line);
-            if (!m) continue;
-            if (m[1] === "pkgbase") section = "base";
-            if (m[1] === "pkgname") { section = m[2] === pkg.name ? "own" : "other"; if (section === "own") found = true; }
-            if (m[1] === "install" && section === "base") base = m[2];
-            if (m[1] === "install" && section === "own") { own = m[2]; ownSet = true; }
+        for (const { key, value } of judge.srcinfoFields(fs.readFileSync(src, "utf8"))) {
+            if (key === "pkgbase") section = "base";
+            if (key === "pkgname") { section = value === pkg.name ? "own" : "other"; if (section === "own") found = true; }
+            if (key === "install" && section === "base") base = value;
+            if (key === "install" && section === "own") { own = value; ownSet = true; }
         }
         if (found) { selected = { folder, script: ownSet ? own : base, src }; break; }
     }
@@ -403,17 +429,27 @@ async function reviewRequest(request, storage) {
     const state = gather(request);
     let settings = settingsRead().settings;
     const result = { version: 1, decision: "proceed", reviewed: [], skipped: [], coverage: "complete", receipt: null };
-    if (state.packages.length || state.unknown.length) {
-        const known = state.packages.map(p => p.name);
+    const thirdParty = state.packages.filter(p => !p.published), published = state.packages.filter(p => p.published).map(p => p.name);
+    if (thirdParty.length || state.unknown.length) {
+        const known = thirdParty.map(p => p.name);
         const requested = request.groups.flatMap(g => g.names.concat(g.installs)).concat(request.rebuild);
-        const listed = known.concat(requested.filter(n => !known.includes(n.split("/").pop())));
-        const packageList = "Packages: " + ([...new Set(listed)].join(", ") || "origin or pending list unavailable");
-        let choice;
-        for (;;) {
+        const listed = known.concat(requested.filter(n => !known.includes(n.split("/").pop())), published);
+        const packageList = "Packages: " + ([...new Set(listed)].join(", ") || "origin or pending list unavailable")
+            + (published.length ? "\nNot reviewed: " + published.join(", ") + ", published by VGS. The build may add packages that cannot be reviewed in advance." : "");
+        // With no package to review, Review asks no agent: the
+        // unavailable-evidence question follows at once.
+        const reviewable = thirdParty.length > 0;
+        let choice = null;
+        if (!judge.initialChoice(settings, foundAgents(settings)).ask) {
+            const shown = await ui("saved-decline", packageList);
+            if (shown.cancelled) return { ...result, decision: "cancelled", coverage: "unknown", status: shown.status };
+            choice = { value: "Install without review" };
+        }
+        while (choice === null) {
             const found = foundAgents(settings), initial = judge.initialChoice(settings, found);
-            choice = await ui("offer", initial.action === "review" ? "Review" : "Install without review", packageList);
+            choice = await ui("offer", initial.action === "review" ? "Review" : "Install without review", packageList, reviewable ? "reviewable" : "unreviewable");
             if (choice.cancelled) return { ...result, decision: "cancelled", coverage: "unknown", status: choice.status };
-            if (choice.value !== "Review") break;
+            if (choice.value !== "Review" || !reviewable) break;
             // The offer above names the packages until the editor's views
             // stand between it and the agent choice.
             let edited = false;
@@ -431,7 +467,6 @@ async function reviewRequest(request, storage) {
                 if (edit.error || (edit.status !== 0 && edit.status !== 130)) refuse("review=editor-unavailable");
                 settings = settingsRead().settings;
             }
-            if (choice !== null) break;
         }
         if (choice.value === "Install without review") result.coverage = "declined";
         else if (choice.value === "Review") {
@@ -440,8 +475,9 @@ async function reviewRequest(request, storage) {
             const dir = path.join(storage, "evidence");
             fs.mkdirSync(dir, { mode: 0o700 }); fs.mkdirSync(path.join(dir, "build"), { mode: 0o700 }); fs.mkdirSync(path.join(dir, "install"), { mode: 0o700 });
             try {
+                if (!reviewable) throw new Error("review=nothing-reviewable");
                 if (!["agent", "command"].includes(plan.state)) throw new Error("agent=" + plan.state);
-                for (const pkg of state.packages.filter(p => p.origin === "aur")) {
+                for (const pkg of thirdParty.filter(p => p.aur)) {
                     const fetch = request.mode === "bootstrap" ? ["git", "clone", "--", "https://aur.archlinux.org/paru.git", "paru"] : [pkg.binary, "--config", pkg.config, "-G", "--", pkg.name];
                     const shownFetch = await ui("show", "Fetching package build files as your user", ...fetch);
                     if (shownFetch.cancelled) return { ...result, decision: "cancelled", coverage: "unknown", status: shownFetch.status };
@@ -459,9 +495,9 @@ async function reviewRequest(request, storage) {
                 const run = await interactive(plan.command.concat(prompt), { cwd: agentHome() });
                 if (run.signal) return { ...result, decision: "cancelled", coverage: "unknown", status: 128 + os.constants.signals[run.signal] };
                 if (run.error || run.status !== 0) throw new Error("agent=failed");
-                verdict = judge.parseVerdict(privateFile(path.join(dir, "verdict")), state.packages.map(p => p.name));
+                verdict = judge.parseVerdict(privateFile(path.join(dir, "verdict")), known);
                 if (!verdict.ok) throw new Error("verdict=invalid");
-                result.reviewed = state.packages.map(p => p.name);
+                result.reviewed = known;
             } catch (e) { state.unknown.push(e.message); }
             if (verdict === null || !verdict.ok || state.unknown.length) {
                 result.coverage = "unknown";

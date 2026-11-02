@@ -114,7 +114,7 @@ function binding(manager, action, target, config) {
     const unread = state.unknown.filter(key => !key.startsWith("dependencies=unresolved "));
     if (unread.length > 0) return { unreadable: unread[0] };
     const recipes = [];
-    for (const pkg of state.packages.filter(p => p.origin === "aur")) {
+    for (const pkg of state.packages.filter(p => p.aur)) {
         const fetched = recipe(pkg);
         if (fetched.unreadable !== undefined) return fetched;
         recipes.push({ name: pkg.name, files: fetched.files });

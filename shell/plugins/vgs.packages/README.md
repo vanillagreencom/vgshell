@@ -7,7 +7,7 @@ Choose how VGS checks for updates and offers an AI review before a package insta
 ## Features
 
 - Change the same update options shown on the Updates plugin's Settings page.
-- Choose whether VGS first offers Review with an agent, Install without review, or Automatic when it asks before an install or update.
+- Choose what VGS does before an install or update: Review with an agent and Automatic ask first, and Install without review installs without asking unless VGS cannot check the AUR command.
 - Choose the AI agent, or let VGS use one available on this computer.
 - Set an optional review command instead of the selected agent's default.
 
