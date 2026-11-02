@@ -341,7 +341,7 @@ async function successive() {
         await turn();
         await w.flush();
         await finish(first);
-        w.audio.playbackSource = () => sources[1];
+        w.audio.playbackSource = () => ({ readable: sources[1], spoken: true });
         const second = w.start();
         await ready(w);
         sources[0].emit("error", new Error("late old source"));
@@ -357,7 +357,7 @@ async function successive() {
 async function factoryInterruption() {
     const source = new PassThrough();
     const w = setup(source);
-    w.audio.playbackSource = () => { void w.flush(); return source; };
+    w.audio.playbackSource = () => { void w.flush(); return { readable: source, spoken: true }; };
     try {
         await finish(w.start());
         await w.audio.release;

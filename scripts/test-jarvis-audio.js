@@ -9,7 +9,7 @@ const { SessionRunner, unavailable } = require("../shell/plugins/vgs.jarvis/back
 const file = path.join(tree, "shell/plugins/vgs.jarvis/backend/Audio.js");
 const { Audio } = require(file);
 
-function setup(Implementation = Audio, sink = null, source = null, clock = null) {
+function setup(Implementation = Audio, sink = null, source = null, clock = null, spoken = true) {
     const levels = [], offers = [], faults = [];
     let frames = 0, at = 0;
     const audio = new Implementation({
@@ -22,7 +22,7 @@ function setup(Implementation = Audio, sink = null, source = null, clock = null)
         fault: value => faults.push(value),
         captureSink: e => typeof sink === "function" ? sink(e)
             : sink || new Writable({ write(frame, encoding, done) { frames++; at += 10; done(); } }),
-        playbackSource: () => source || new PassThrough()
+        playbackSource: () => ({ readable: source || new PassThrough(), spoken })
     });
     const ports = unavailable();
     ports.transcript = () => {}; // Captions are outside this audio lifetime surface.
@@ -354,30 +354,40 @@ async function inside() {
     for (const operation of ["complete", "interrupt", "talk", "release", "mute", "stop", "locked", "unknown",
         "indicator", "provider", "device", "lease"]) await halfDuplex(Audio, operation);
 
-    // Voice mute sends the speaker silence of the voice's length through the
-    // one paced write, for a chained voice's sentences and a duplex voice's
-    // bytes alike: the written count and the acknowledgement are a heard
-    // reply's, and the level still reads the voice.
+    // Voice mute sends the speaker silence of the length of Jarvis's spoken
+    // words through the one paced write, for a chained voice's sentences and
+    // a duplex voice's bytes alike: the written count and the acknowledgement
+    // are a heard reply's, and the level still reads the voice. A source the
+    // engine hands as not spoken, a start sound or a preview, and a tone
+    // inside a spoken source, the working sound, stay audible.
     async function voiceMute(Implementation = Audio) {
-        const frame = Buffer.alloc(480);
-        for (let i = 0; i < frame.length; i += 2) frame.writeInt16LE(8192, i);
-        const sources = {
-            chained: () => Readable.from([{ pcm: frame, sentence: { text: "fixture", frames: frame.length / 2 } }]),
-            duplex: () => {
-                const source = new Readable({ read() {} });
-                source.push(frame);
-                source.push(null);
-                return source;
-            }
+        const voice = Buffer.alloc(480), tone = Buffer.alloc(480);
+        for (let i = 0; i < voice.length; i += 2) { voice.writeInt16LE(8192, i); tone.writeInt16LE(4096, i); }
+        const silence = Buffer.alloc(voice.length);
+        const words = { pcm: voice, sentence: { text: "fixture", frames: voice.length / 2 } };
+        const bytesOf = packets => {
+            const source = new Readable({ read() {} });
+            for (const packet of packets) source.push(packet);
+            source.push(null);
+            return source;
         };
+        // name, source, spoken, voice muted, the bytes the speaker gets
+        const rows = [
+            ["chained reply heard", () => Readable.from([words]), true, false, [voice]],
+            ["chained reply muted", () => Readable.from([words]), true, true, [silence]],
+            ["duplex reply muted", () => bytesOf([voice]), true, true, [silence]],
+            ["working sound and reply muted", () => Readable.from([tone, words]), true, true, [tone, silence]],
+            ["start sound muted", () => Readable.from([tone]), false, true, [tone]],
+            ["chained preview muted", () => Readable.from([words]), false, true, [voice]],
+            ["duplex preview muted", () => bytesOf([voice]), false, true, [voice]]
+        ];
         const record = path.join(process.env.HOME, "playback-record");
         const bytes = path.join(process.env.HOME, "playback-bytes");
         fs.writeFileSync(record, "");
         try {
-            for (const [voice, source] of Object.entries(sources)) for (const muted of [false, true]) {
-                const name = voice + (muted ? " muted" : " heard");
+            for (const [name, source, spoken, muted, expected] of rows) {
                 fs.rmSync(bytes, { force: true });
-                const w = setup(Implementation, null, source());
+                const w = setup(Implementation, null, source(), null, spoken);
                 try {
                     await capture(w);
                     w.dispatch("final", { gen: w.runner.state.turn.gen, op: w.runner.state.turn.op, text: "fixture" });
@@ -386,9 +396,9 @@ async function inside() {
                     w.tick(40);
                     w.dispatch("play", { gen: w.runner.state.turn.gen, op: w.runner.state.turn.op, interruptible: true });
                     await until(() => w.runner.state.playback.kind === "idle", name + " playback is acknowledged");
-                    assert.deepEqual(fs.readFileSync(bytes), muted ? Buffer.alloc(frame.length) : frame, name + " speaker bytes");
-                    assert.equal(w.audio.lastPlayback.writtenFrames, frame.length / 2, name + " written count");
-                    assert.ok(w.levels.some(row => row.value.playback === 0.25), name + " level reads the voice");
+                    assert.deepEqual(fs.readFileSync(bytes), Buffer.concat(expected), name + " speaker bytes");
+                    assert.equal(w.audio.lastPlayback.writtenFrames, Buffer.concat(expected).length / 2, name + " written count");
+                    if (expected[0] !== tone) assert.ok(w.levels.some(row => row.value.playback === 0.25), name + " level reads the voice");
                 } finally { w.runner.close(); await w.audio.close("test-end"); }
             }
         } finally { fs.rmSync(record, { force: true }); fs.rmSync(bytes, { force: true }); }
@@ -613,8 +623,11 @@ async function inside() {
         'if (false && this.playbackFeed !== null)', playback);
     await control("playback-level", 'this.reportLevel(playback.e.gen, "playback", pcm);',
         'if (false) this.reportLevel(playback.e.gen, "playback", pcm);', playback);
-    await control("voice-mute-silence", 'const out = this.state.voiceMute.kind === "on" ? Buffer.alloc(bytes) : pcm;',
+    await control("voice-mute-silence", 'const out = spoken && this.state.voiceMute.kind === "on" ? Buffer.alloc(bytes) : pcm;',
         'const out = pcm;', voiceMute);
+    await control("voice-mute-spoken", "const out = spoken && this.state.voiceMute.kind",
+        "const out = this.state.voiceMute.kind", voiceMute);
+    await control("voice-mute-tone", "spoken && !(source.readableObjectMode && Buffer.isBuffer(packet))", "spoken", voiceMute);
     await control("voice-mute-level", 'this.reportLevel(playback.e.gen, "playback", pcm);',
         'this.reportLevel(playback.e.gen, "playback", out);', voiceMute);
     await control("node-cache-bound", 'this.nodes.set(node.id, { group, label: label.slice(0, 60), value });',

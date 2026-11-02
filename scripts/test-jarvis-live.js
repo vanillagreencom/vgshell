@@ -371,7 +371,7 @@ world(async () => {
         ack } = {}) {
         const clock = manual();
         const w = { id: ++conversations, kit, clock, played: [], flushes: 0, transcripts: [], logs: [], collected: [], sink: null,
-            source: null, handed: [], backlog: null, delegations: [], tools: 0, starts: 0, judged: [], approvals: [],
+            source: null, spoken: [], handed: [], backlog: null, delegations: [], tools: 0, starts: 0, judged: [], approvals: [],
             stall: false, read: null, dues: [], urls: [], protocol };
         const Adapter = protocol === GEMINI ? kit.Gemini : kit.Live;
         voice ??= Adapter.VOICES[0].value;
@@ -421,8 +421,10 @@ world(async () => {
         };
         ports.playback = {
             start: (e, done, failed) => {
-                const source = engine.playbackSource(e.source);
-                if (source === null) { failed("playback-source-unavailable"); return; }
+                const handed = engine.playbackSource(e.source);
+                if (handed === null) { failed("playback-source-unavailable"); return; }
+                const source = handed.readable;
+                w.spoken.push(handed.spoken);
                 w.source = source;
                 w.starts++;
                 // Audio reads at its own pace: a stalled rig leaves the reply unread until w.read().
@@ -581,6 +583,7 @@ world(async () => {
         conn.play("late-old");
         await until(() => bytes(w, 0x11) === 1920, "a later delta joins the playing reply");
         assert.deepEqual([w.state.playback.kind, w.starts], ["playing", 1], "a response in flight keeps its reply open");
+        assert.deepEqual(w.spoken, [true], "a reply is Jarvis's spoken words, which voice mute silences");
         conn.play("done-old");
         await mark(w, conn, "done");
         w.clock.advance(499);
@@ -612,6 +615,7 @@ world(async () => {
             [kit.Guidance.compose("duplex", "duplex", "").instructions, PREVIEW_LINE], "the preview's sentence, exactly");
         conn.play("reply-old");
         await until(() => bytes(w, 0x11) === 1440, "the sentence reaches playback");
+        assert.deepEqual(w.spoken, [false], "voice mute leaves a preview audible");
         conn.play("done-old");
         await mark(w, conn, "done");
         w.clock.advance(500);
@@ -2009,6 +2013,7 @@ world(async () => {
         conn.play("late-old");
         await until(() => bytes(w, 0x11) === 1920, "later audio joins the playing reply");
         assert.deepEqual([w.state.playback.kind, w.starts], ["playing", 1], "a model turn in flight keeps its reply open");
+        assert.deepEqual(w.spoken, [true], "a reply is Jarvis's spoken words, which voice mute silences");
         conn.play("done-old");
         await gmark(w, conn, "done");
         w.clock.advance(499);
@@ -2033,6 +2038,7 @@ world(async () => {
         conn.play("reply-old");
         conn.play("done-old");
         await until(() => bytes(w, 0x11) === 1440, "the sentence reaches playback");
+        assert.deepEqual(w.spoken, [false], "voice mute leaves a preview audible");
         w.clock.advance(500);
         await until(() => w.state.playback.kind === "idle", "the sentence plays out");
         w.clock.advance(0);
@@ -2410,6 +2416,8 @@ world(async () => {
             ["voice-unjudged", 'if (!VOICES.some(row => row.value === voice)) fail("voice");', "", as("preview")],
             ["no-preview", "commentary(PREVIEW, Policy.item(session.preview, [\"desktop\"]));", "", as("preview")],
             ["preview-unended", "session.timers.preview = clock.set(() => { session.timers.preview = null; session.events.idle(); }, 0);", "void session;", as("preview")],
+            ["preview-spoken", "spoken: session.preview === null };", "spoken: true };", as("preview")],
+            ["reply-unspoken", "spoken: session.preview === null };", "spoken: false };", as("roundTrip")],
             ["no-trace", "...provider.noStore } };", "} };", as("roundTrip")],
             ["out-of-band", 'response: { conversation: "none", ', "response: { ", as("roundTrip")],
             ["exact-words", 'text: JSON.stringify(words.text) }', 'text: JSON.stringify("") }', as("roundTrip")],

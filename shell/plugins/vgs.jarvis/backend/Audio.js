@@ -1,6 +1,10 @@
 // One owner for capture, paced playback, heard-prefix reports and the sidecar feed.
 // Speech consumers supply PCM sinks/sources. Audio never transcribes
 // or changes a default device. Session admits half-duplex only.
+// playbackSource(op) answers null or {readable, spoken}: spoken is true when
+// the readable carries Jarvis's spoken words, which voice mute silences, and
+// false for a start sound or a voice preview. In a spoken object-mode source
+// a bare Buffer packet is a tone, the working sound, and stays audible.
 "use strict";
 const cp = require("node:child_process");
 const path = require("node:path");
@@ -531,7 +535,7 @@ class Audio {
         return pcm;
     }
 
-    async writePlayback(playback, owner, frame) {
+    async writePlayback(playback, owner, frame, spoken) {
         let offset = 0;
         while (offset < frame.length && this.playback === playback && !owner.stopping) {
             const now = this.clock.now();
@@ -546,10 +550,11 @@ class Audio {
             }
             const bytes = needed * 2;
             const pcm = frame.subarray(offset, offset + bytes);
-            // Voice mute writes silence of the same length, so pacing, the
-            // written count and the acknowledgement run as for a heard reply,
-            // and the level below still reads the voice for the speaking look.
-            const out = this.state.voiceMute.kind === "on" ? Buffer.alloc(bytes) : pcm;
+            // Voice mute writes silence of the same length for spoken words,
+            // so pacing, the written count and the acknowledgement run as for
+            // a heard reply, and the level below still reads the voice for
+            // the speaking look.
+            const out = spoken && this.state.voiceMute.kind === "on" ? Buffer.alloc(bytes) : pcm;
             // Node calls the write callback when this chunk is handled. Keep
             // only one paced chunk pending; Session owns a stalled player's
             // deadline. Flush also wakes this waiter before the late callback.
@@ -586,8 +591,9 @@ class Audio {
             if (this.playbackSource === null) throw new Error("playback-source-unavailable");
             const target = this.selected("speakers", "speaker");
             playback.target = target;
-            const source = this.playbackSource(e.source);
-            if (source === null) throw new Error("playback-source-unavailable");
+            const handed = this.playbackSource(e.source);
+            if (handed === null) throw new Error("playback-source-unavailable");
+            const { readable: source, spoken } = handed;
             if (!(source instanceof Readable)) throw new Error("playback-source");
             this.playbackFeed = source;
             source.on("error", error => {
@@ -632,7 +638,8 @@ class Audio {
                     continue;
                 }
                 const frame = this.playbackPacket(playback, packet);
-                await this.writePlayback(playback, owner, frame);
+                await this.writePlayback(playback, owner, frame,
+                    spoken && !(source.readableObjectMode && Buffer.isBuffer(packet)));
             }
             if (this.playback !== playback || owner.stopping) return;
             if (playback.received < playback.sentenceEnd) throw new Error("playback-sentence-incomplete");

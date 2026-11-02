@@ -51,7 +51,7 @@ function daemonCopy(name, mutant = null, half = false) {
             '                if (fs.existsSync(path.join(process.env.HOME, "audio-complete"))) source.end();\n' +
             '            }, 10);\n' +
             '            source.once("close", () => clearInterval(timer));\n' +
-            '            return source;\n' +
+            '            return { readable: source, spoken: true };\n' +
             '        };\n' +
             '    }');
     }

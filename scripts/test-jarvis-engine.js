@@ -92,7 +92,7 @@ function rig(kit, server, options = {}) {
         }
         return owner;
     };
-    const ports = { ...unavailable(), mute: { store() {} } };
+    const ports = { ...unavailable(), mute: { store() {} }, voiceMute: { store() {} } };
     ports.capture = { ...ports.capture, ...audio.capturePort };
     ports.transcript = e => captions.push([e.gen, e.role, e.stage, e.rev, e.text]);
     let engine = null;
@@ -1247,6 +1247,34 @@ async function cases(kit, server, only = null, mutation = false) {
                 (request.receivedAt - control.finalTimes[0]).toFixed(3) + " provider-byte-emitted-to-player-pipe-write-ms=" +
                 (responseWrite.at - request.firstByteAt).toFixed(3));
         }
+    }, { sounds: true });
+
+    // Voice mute silences Jarvis's spoken words only: a voice preview and the
+    // start and working sounds still reach the player, and the reply keeps
+    // its written count.
+    await run("voice-mute-spoken-only", async w => {
+        const kinds = from => [...new Set(w.writes.slice(from).map(write => write.pcm.every(byte => byte === 0) ? "silence"
+            : write.pcm.every(byte => byte === 0x11) ? "voice" : "tone"))].sort();
+        w.runner.dispatch({ type: "voice-mute-toggle" });
+        w.runner.dispatch({ type: "preview", voice: "fixture" });
+        await w.observed(() => control.spoken.length === 1, "the preview speaks");
+        await playOut(w);
+        assert.deepEqual(kinds(0), ["voice"], "a muted preview plays its voice");
+        const turnFrom = w.writes.length;
+        const first = await say(w, utterance("Are you there?"));
+        await requested(w, first + 1, "the request starts after the user finishes");
+        await w.observed(() => control.spoken.includes("Let me check."), "the acknowledgement reaches speech");
+        await until(() => w.s().capture.kind === "closed", "capture closes before the acknowledgement playback drains");
+        await playOut(w);
+        w.advanceRunner(2400);
+        assert.equal(w.s().playback.cue, "working");
+        await advance(w, 6);
+        server.replies.push(text("Yes I am here."));
+        await until(() => w.s().turn.kind === "none", "the brain finishes independently of playback");
+        await playOut(w);
+        assert.equal(w.audio.lastPlayback.writtenFrames, 2880 + 4 * Fixture.WORD_FRAMES, "a muted reply keeps its written count");
+        assert.deepEqual(kinds(turnFrom), ["silence", "tone"], "the start and working sounds play; the spoken words are silence");
+        assert.deepEqual(w.faults, []);
     }, { sounds: true });
 
     for (const [kind, reply] of [["text", held => text("A sentence for speech. ", { wait: held.wait })],
@@ -3728,6 +3756,8 @@ async function groupPlants(root, server) {
         ["line-flush-heard", 'report === null || flushedLine ? "" : withoutLinePrefix', 'report === null ? "" : withoutLinePrefix', "line-held-reply-interrupt"],
         ["preview-speaker", ".speak(sentenceInput, speaker ?? c.plan.speech.speaker)", '.speak(sentenceInput, "fixture")', "voice-preview"],
         ["preview-unspoken", "fixedLine(c, turn, PREVIEW_LINE);", 'turn.done("brain-done");', "voice-preview"],
+        ["voice-mute-preview", "spoken: turn.preview !== true }", "spoken: true }", "voice-mute-spoken-only"],
+        ["voice-mute-reply", "spoken: turn.preview !== true }", "spoken: false }", "voice-mute-spoken-only"],
         ["dictation-reply-dropped", 'settle(ok(result) ? { kind: "text", text: result.data.text }',
             'settle(ok(result) ? { kind: "text", text: "" }', "dictation-hold-turn"],
         ...["mute", "stop", "lock", "daemon-end"].map(trigger => ["dictation-abort-records-on-" + trigger,
