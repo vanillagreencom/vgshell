@@ -77,7 +77,8 @@ const COMPARE_FILES = 300;
 const COMMIT_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 // What the vgshell-git recipe installs or builds from. Its package() runs
 // packaging/install-system.sh with SYSCONFDIR, which copies bin, shell,
-// config, themes, packaging/jarvis-home and VERSION into the tree, README.md
+// config, themes, packaging/jarvis-home, each Arch recipe's .SRCINFO and
+// VERSION into the tree, README.md
 // and LICENSE beside it, and the Hyprland portal preference; the installer
 // and the recipe decide what lands. A directory ends in `/`. Markdown under
 // shell/ that the installer drops still counts: matching the installer's
@@ -85,7 +86,8 @@ const COMMIT_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 // less than a missed one. scripts/test-vgshell-self.sh holds the list to
 // the installer.
 const INSTALLED_PATHS = ["bin/", "shell/", "config/", "themes/", "packaging/jarvis-home/", "VERSION", "README.md", "LICENSE",
-    "packaging/xdg-desktop-portal/hyprland-portals.conf", "packaging/install-system.sh", "packaging/arch/vgshell-git/"];
+    "packaging/xdg-desktop-portal/hyprland-portals.conf", "packaging/install-system.sh", "packaging/arch/vgshell-git/",
+    "packaging/arch/vgshell/.SRCINFO", "packaging/arch/vgshell-quickshell/.SRCINFO"];
 
 function usage(first) {
     process.stderr.write("vgshell: refused: " + first + "\nusage: self.js detect|latest|changed|helper|report|install ...\n");

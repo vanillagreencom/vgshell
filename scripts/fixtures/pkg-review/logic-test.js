@@ -59,19 +59,39 @@ post_remove() {
 
 
 function verify(logic) {
+  // [settings, agents found, initial row, preference, availability, asks]:
+  // only a saved Install without review asks nothing.
   const cases = [
-    [{enabled:true}, [], "review", "on", "unavailable"],
-    [{enabled:false,agent:"claude"}, ["claude"], "decline", "off", "available"],
-    [{agent:"codex"}, ["codex"], "review", "absent", "available"],
-    [{agent:"codex"}, [], "review", "absent", "unavailable"],
-    [{}, ["claude"], "review", "absent", "available"],
-    [{}, [], "decline", "absent", "unavailable"],
-    [{command:"/abs/agent --flag"}, [], "review", "absent", "unavailable"]
+    [{enabled:true}, [], "review", "on", "unavailable", true],
+    [{enabled:false,agent:"claude"}, ["claude"], "decline", "off", "available", false],
+    [{enabled:false}, [], "decline", "off", "unavailable", false],
+    [{agent:"codex"}, ["codex"], "review", "absent", "available", true],
+    [{agent:"codex"}, [], "review", "absent", "unavailable", true],
+    [{}, ["claude"], "review", "absent", "available", true],
+    [{}, [], "decline", "absent", "unavailable", true],
+    [{command:"/abs/agent --flag"}, [], "review", "absent", "unavailable", true]
   ];
-  for(const [settings,found,action,preference,availability] of cases) {
-    const result=logic.initialChoice(settings,found);
-    assert.equal(result.action,action);assert.equal(result.preference,preference);assert.equal(result.availability,availability);
+  for(const [settings,found,action,preference,availability,ask] of cases) {
+    const result=logic.initialChoice(settings,found),row=JSON.stringify(settings);
+    assert.equal(result.action,action,row);assert.equal(result.preference,preference,row);assert.equal(result.availability,availability,row);assert.equal(result.ask,ask,row);
   }
+  // [name, origin, the recipes' names or null, publisher]: VGS publishes
+  // through the AUR alone, and unread recipes never exempt a package.
+  const published=["vgshell","vgshell-git","vgshell-quickshell"];
+  for(const [name,origin,names,want] of [
+    ["vgshell-git","aur",published,"vgs"],
+    ["vgshell-quickshell","aur",published,"vgs"],
+    ["cpptrace","aur",published,"third-party"],
+    ["vgshell-git","custom",published,"third-party"],
+    ["vgshell-git","chaotic-aur",published,"third-party"],
+    ["vgshell-git","unknown",published,"third-party"],
+    ["vgshell-git","aur",null,"unread"],
+    ["widget","aur",null,"unread"],
+    ["vgshell-git","custom",null,"third-party"]
+  ])assert.equal(logic.publisher(name,origin,names),want,name+" from "+origin);
+  // A split recipe's .SRCINFO, as makepkg --printsrcinfo writes it.
+  same(logic.srcinfoFields("pkgbase = vgshell\n\tpkgver = 1.0\n\n# a comment\npkgname = vgshell\npkgname = vgshell-extra\n\tinstall = vgshell.install\n"),
+    [{key:"pkgbase",value:"vgshell"},{key:"pkgver",value:"1.0"},{key:"pkgname",value:"vgshell"},{key:"pkgname",value:"vgshell-extra"},{key:"install",value:"vgshell.install"}]);
   same(logic.reviewChoices(["codex","claude"]).map(a=>a.value),["claude","codex"]);
   same(logic.commandWords(' cmd "word quoted" $(literal)'),["cmd",'"word','quoted"',"$(literal)"]);
   assert.equal(logic.reviewPlan({agent:"codex"},["claude"]).state,"missing");

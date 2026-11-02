@@ -68,6 +68,11 @@ case "$kind" in
     vgs_tui_text "${2:-Package source information is unavailable.}" >&2
     vgs_tui_text 'An AI agent can check these packages before installation.' >&2
     vgs_pkg_review_choose 'Review before installation?' --selected "$1" -- Review 'Install without review' ;;
+  # A saved "Install without review" answers the offer, so nothing is asked.
+  saved-decline) # PACKAGES
+    vgs_tui_step 'Review third-party packages' >&2
+    vgs_tui_text "${1:-Package source information is unavailable.}" >&2
+    vgs_tui_text 'Your saved choice installs these packages without a review.' >&2 ;;
   # PACKAGES, the offer's package line, when the agent choice does not
   # follow the offer that shows it.
   agent) # LABEL [PACKAGES]

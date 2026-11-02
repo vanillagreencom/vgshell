@@ -6,7 +6,7 @@ const {create}=require("./world.js");
 const only=process.argv.includes("--cancel-control");
 const surfaceAt=process.argv.indexOf("--surface"),surface=surfaceAt<0?"all":process.argv[surfaceAt+1];
 const select=name=>surface==="all"||surface===name;
-assert.ok(["all","direct","routes","choices","authority","availability","evidence","updates","bootstrap","settings","protocol","origin","workspace","control","origin-control","customize","customize-control","retry","retry-held"].includes(surface));
+assert.ok(["all","direct","routes","choices","authority","availability","evidence","updates","bootstrap","settings","protocol","origin","workspace","control","origin-control","customize","customize-control","retry","retry-held","publisher"].includes(surface));
 if(only)assert.ok(["all","direct"].includes(surface));
 const overrideAt=process.argv.indexOf("--owner"),ownerOverride=overrideAt<0?null:process.argv[overrideAt+1];
 const scratch=fs.mkdtempSync(path.join(os.tmpdir(),"package-review-runtime-"));
@@ -75,15 +75,60 @@ try{
   const mutation=calls.find(c=>c.kind==="mutation");assert.ok(mutation);assert.deepEqual(mutation.args,expected);
   console.log("package-route-proof: "+JSON.stringify({route,args,calls}));
  }
+ // [label, saved settings, agents installed, the offer's selected row or
+ // null for no offer]: a saved Install without review asks nothing and
+ // installs as a submitted decline; every other saved choice asks.
  if(!only&&select("choices"))for(const [label,settings,agents,selectedIndex] of [
   ["saved-on",{enabled:true,agent:"",command:""},false,0],
-  ["saved-off",{enabled:false,agent:"claude",command:""},true,1],
+  ["saved-off",{enabled:false,agent:"claude",command:""},true,null],
   ["absent-configured",{agent:"claude",command:""},true,0],
   ["absent-configured-unavailable",{agent:"claude",command:""},false,0],
   ["absent-default",{agent:"",command:""},true,0],
   ["absent-neither",{agent:"",command:""},false,1]]){
-  const w=create(path.join(scratch,label),{settings,agents,choices:["cancel"]});const r=tty(w,["run","install","--manager","aur","--config",w.config,"widget"]);
-  assert.equal(r.status,130,r.stdout);assert.equal(w.calls().find(c=>c.kind==="offer").selectedIndex,selectedIndex);assert.ok(!w.calls().some(c=>c.kind==="mutation"||c.kind==="credential"));
+  const w=create(path.join(scratch,label),{settings,agents,choices:["cancel"]});const r=tty(w,["run","install","--manager","aur","--config",w.config,"widget"]),calls=w.calls();
+  const offer=calls.find(c=>c.kind==="offer");
+  if(selectedIndex===null){
+   assert.equal(r.status,0,label+": "+r.stdout);assert.equal(offer,undefined,label);assert.ok(!calls.some(c=>c.kind==="agent"),label);
+   assert.deepEqual(calls.find(c=>c.kind==="mutation")?.args,["--config",w.config,"-S","--needed","--","widget"],label);
+  }else{
+   assert.equal(r.status,130,label+": "+r.stdout);assert.equal(offer?.selectedIndex,selectedIndex,label);assert.ok(!calls.some(c=>c.kind==="mutation"||c.kind==="credential"),label);
+  }
+ }
+ // A package VGS publishes, named by its recipes' pkgname lines, is not
+ // listed for review when it comes from the AUR, while its dependencies
+ // note keeps the offer for the AUR packages its recipe pulls in. The same
+ // name from a pacman repository is reviewed, and recipes the owner cannot
+ // read are unavailable evidence. Each row: [label, owner arguments, the
+ // owner's tree, extra sync index lines, lines the agent's packages.txt
+ // holds, lines it never holds, the AUR recipes fetched for review].
+ if(!only&&select("publisher"))for(const [label,args,tree,sync,listed,unlisted,fetched] of [
+  ["vgs-alone",["run","reinstall","--manager","aur","vgshell-git"],"checkout",null,["unknown dependencies=unresolved name=vgshell-git"],["aur vgshell-git ? ?"],[]],
+  ["vgs-engine",["run","reinstall","--manager","aur","vgshell-quickshell"],"checkout",null,["unknown dependencies=unresolved name=vgshell-quickshell"],["aur vgshell-quickshell ? ?"],[]],
+  ["mixed",["run","reinstall","--manager","aur","vgshell-git","foreign"],"checkout",null,["aur foreign ? ?","unknown dependencies=unresolved name=vgshell-git"],["aur vgshell-git ? ?"],["foreign"]],
+  ["repository-same-name",["run","install","--manager","pacman","vgshell-git"],"checkout","custom vgshell-git 2",["repo custom vgshell-git ? ?"],[],[]],
+  ["recipes-unreadable",["run","reinstall","--manager","aur","vgshell-git"],"no-recipes",null,["aur vgshell-git ? ?","unknown vgs-packages=unreadable cause=ENOENT"],[],["vgshell-git"]]
+ ]){
+  const w=create(path.join(scratch,"publisher-"+label),{settings:{enabled:true,agent:"claude",command:""},choices:["Review","Use Claude Code","Yes"]});
+  if(sync)fs.writeFileSync(path.join(w.root,"sync-extra"),sync);
+  if(tree==="no-recipes"){
+   // An owner tree without packaging/arch: node runs a linked module from
+   // its target, so pkg-review.js is a copy and reads beside it.
+   const repo=path.resolve(__dirname,"../../.."),copy=path.join(scratch,"publisher-tree-"+label);
+   fs.mkdirSync(path.join(copy,"bin/lib"),{recursive:true});
+   for(const entry of ["shell","config","VERSION","bin/vgshell"])fs.symlinkSync(path.join(repo,entry),path.join(copy,entry));
+   for(const entry of fs.readdirSync(path.join(repo,"bin/lib")))if(entry!=="pkg-review.js")fs.symlinkSync(path.join(repo,"bin/lib",entry),path.join(copy,"bin/lib",entry));
+   for(const file of ["bin/vgshell-pkg","bin/lib/pkg-review.js"])fs.copyFileSync(path.join(repo,file),path.join(copy,file));
+   w.owner=path.join(copy,"bin/vgshell-pkg");
+  }
+  const r=tty(w,[...args.slice(0,4),"--config",w.config,...args.slice(4)]),calls=w.calls();
+  assert.equal(r.status,0,label+": "+r.stdout+r.stderr);
+  assert.ok(calls.some(c=>c.kind==="offer"&&c.offered.includes("Review")),label+": the offer is shown");
+  const agent=calls.find(c=>c.kind==="agent");assert.ok(agent?.packages,label+": "+JSON.stringify(calls));
+  for(const line of listed)assert.ok(agent.packages.includes(line),label+": listed "+line+" in "+JSON.stringify(agent.packages));
+  for(const line of unlisted)assert.ok(!agent.packages.includes(line),label+": unlisted "+line);
+  assert.deepEqual(calls.filter(c=>c.kind==="query"&&c.args.includes("-G")).flatMap(c=>c.args.slice(c.args.indexOf("--")+1)),fetched,label);
+  assert.ok(calls.some(c=>c.kind==="mutation"&&c.args.includes(args.at(-1))),label+": "+JSON.stringify(calls));
+  console.log("package-publisher-proof: "+JSON.stringify({label,packages:agent.packages}));
  }
  // A review run through Customize, with one edit view opened and left, keeps
  // the caller's screen: no kind, the inline editor included, clears it.

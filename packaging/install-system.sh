@@ -10,9 +10,10 @@
 # and LICENSE land under share/doc/vgshell and share/licenses/vgshell.
 # The installed shell tree drops developer Markdown under shell/.
 # Jarvis's backend/skills Markdown is runtime guidance and ships, and so
-# are the Updates review's instructions, vgs.updates/review/*.md, and
+# are the Updates review's instructions, vgs.updates/review/*.md,
 # packaging/jarvis-home, the Jarvis package's render Jarvis copies into each
-# home kendex did not install it in.
+# home kendex did not install it in, and each Arch recipe's .SRCINFO, whose
+# pkgname lines are the packages the package review knows VGS publishes.
 # SYSCONFDIR, set by a system package alone, also installs the browser
 # theme writer, a copy of bin/vgshell-browser-policy at
 # $DESTDIR$PREFIX/bin/vgshell-browser-policy, 0755, and the sudoers rule it
@@ -98,7 +99,7 @@ directory_nonempty() { # DIR
 enumerate_tree() {
   local top
   if top="$(git -C "$source_root" rev-parse --show-toplevel 2>/dev/null)" && [[ $top == "$source_root" ]]; then
-    git -C "$source_root" ls-files -- bin shell config themes packaging/jarvis-home VERSION
+    git -C "$source_root" ls-files -- bin shell config themes packaging/jarvis-home 'packaging/arch/*/.SRCINFO' VERSION
   else
     python3 - "$source_root" <<'PY'
 import os
@@ -117,6 +118,8 @@ for base in ("bin", "shell", "config", "themes", "packaging/jarvis-home"):
             path = pathlib.Path(current) / name
             if path.is_file() or path.is_symlink():
                 print(path.relative_to(root).as_posix())
+for recipe in sorted(root.glob("packaging/arch/*/.SRCINFO")):
+    print(recipe.relative_to(root).as_posix())
 version = root / "VERSION"
 if version.is_file() or version.is_symlink():
     print("VERSION")

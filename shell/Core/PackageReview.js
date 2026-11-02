@@ -19,6 +19,30 @@ function officialRepository(name) {
     return OFFICIAL_REPOSITORY.test(String(name));
 }
 
+// The `key = value` lines of a .SRCINFO, each { key, value } in file order;
+// any other line is none.
+function srcinfoFields(text) {
+    var out = [];
+    var lines = String(text).split("\n");
+    for (var i = 0; i < lines.length; i++) {
+        var m = /^\s*(\w+)\s*=\s*(.*?)\s*$/.exec(lines[i]);
+        if (m !== null) out.push({ key: m[1], value: m[2] });
+    }
+    return out;
+}
+
+// Who publishes the target NAME resolved to ORIGIN, given PUBLISHED, the
+// pkgname lines of VGS's own Arch recipes, or null when they could not be
+// read: "vgs", "third-party", or "unread" when the answer needs the recipes.
+// VGS publishes its pacman-family packages through the AUR alone, so only
+// the AUR's package of a recipe's name is VGS's; the same name from any
+// pacman repository, or an origin the owner could not resolve, is not.
+function publisher(name, origin, published) {
+    if (origin !== "aur") return "third-party";
+    if (published === null) return "unread";
+    return published.indexOf(name) >= 0 ? "vgs" : "third-party";
+}
+
 function reviewAgentRow(id) {
     for (var i = 0; i < REVIEW_AGENTS.length; i++)
         if (REVIEW_AGENTS[i].id === id) return REVIEW_AGENTS[i];
@@ -61,15 +85,18 @@ function reviewPlan(settings, found) {
         label: row === null ? chosen : row.label, command: row === null ? null : row.command.slice() };
 }
 
-// Only a submitted offer grants consent. Presence, including explicit false,
-// selects the initial row; an availability probe cannot change saved policy.
+// Consent to install without review is a submitted offer or a saved
+// "Install without review", the explicit false: `ask` is false for that
+// alone, and the owner then asks nothing. Otherwise presence selects the
+// initial row; an availability probe cannot change saved policy.
 function initialChoice(settings, found) {
     var s = isPlainObject(settings) ? settings : {};
     var configured = (typeof s.agent === "string" && s.agent !== "") || commandWords(s.command || "").length > 0;
     var plan = reviewPlan(s, found);
     return { action: hasOwn(s, "enabled") ? (s.enabled ? "review" : "decline") : (configured || plan.state === "agent" ? "review" : "decline"),
         preference: hasOwn(s, "enabled") ? (s.enabled ? "on" : "off") : "absent", configured: configured,
-        availability: plan.state === "missing" || plan.state === "none" ? "unavailable" : "available" };
+        availability: plan.state === "missing" || plan.state === "none" ? "unavailable" : "available",
+        ask: !(hasOwn(s, "enabled") && s.enabled === false) };
 }
 
 // The verdict file an agent wrote, judged against REVIEWED, the names the

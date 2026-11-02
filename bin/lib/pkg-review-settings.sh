@@ -19,13 +19,13 @@ vgs_pkg_review_settings() { # OWNER [inline]
     local owner=$1 mode=${2:-} snapshot saved choices row value summary shown="" plan options presets_text input_help id label state
     local heading='Set agent review before a package installs or updates'
     local purpose='Choose whether to review packages, which AI agent to use, and an optional command.'
-    local rules='VGS asks each time. Your saved choice is selected; you still confirm each install or update.
+    local rules='Install without review installs without asking. Review with an agent and Automatic ask before each install or update.
 Review with an agent
-  Selects review with the agent and command below.
+  Asks with review selected, using the agent and command below.
 Install without review
-  Selects installation without an agent review.
+  Installs without an agent review and without asking.
 Automatic (review when an agent is available)
-  Selects review when you choose an agent or command, or VGS finds an agent.'
+  Asks with review selected when you choose an agent or command, or VGS finds an agent.'
     local -a agents=() presets=() words=()
     snapshot="$("$owner" review-settings-read)" || return
     choices="$(node -e 'process.stdout.write(JSON.stringify(JSON.parse(process.argv[1]).settings))' "$snapshot")" || return

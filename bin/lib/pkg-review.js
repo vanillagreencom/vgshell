@@ -222,8 +222,22 @@ function pending(group, config, binary) {
     if (result.error) throw new Error("pending=" + result.error);
     return { complete: found.complete, origin: found.origin, packages: result.packages.filter(p => !group.ignored.includes(p.name)) };
 }
+// The package names VGS publishes: the pkgname lines of its Arch recipes'
+// .SRCINFO files, which install-system.sh ships into the runtime tree, so a
+// checkout and an installed tree read the same path. { names: null, cause } when a
+// recipe cannot be read or none names a package.
+function publishedPackages() {
+    const dir = path.join(repo, "packaging/arch"), names = [];
+    try {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true }))
+            if (entry.isDirectory()) for (const field of judge.srcinfoFields(fs.readFileSync(path.join(dir, entry.name, ".SRCINFO"), "utf8")))
+                if (field.key === "pkgname") names.push(field.value);
+    } catch (e) { return { names: null, cause: e.code || "read" }; }
+    return names.length ? { names, cause: null } : { names: null, cause: "empty" };
+}
 function gather(request) {
-    const state = { steps: [], packages: [], unknown: [], lines: [], recipes: [] };
+    const state = { steps: [], packages: [], unknown: [], lines: [], recipes: [], published: [] };
+    const recipes = publishedPackages();
     let repositoryData = null;
     function repositories(config) {
         if (repositoryData?.config === config) return repositoryData;
@@ -280,6 +294,17 @@ function gather(request) {
                 } else { state.unknown.push("origin=unresolved name=" + name); origin = "unknown"; }
                 binding.origins.push({ target: target.target, origin, candidates: matches.map(row => ({ repository: row.repository, version: row.version })) });
                 if (judge.officialRepository(origin)) continue;
+                // A package VGS publishes is not third-party code; the
+                // dependencies note above stays, since its recipe's AUR
+                // dependencies are.
+                const publisher = judge.publisher(name, origin, recipes.names);
+                if (publisher === "unread") {
+                    const cause = "vgs-packages=unreadable cause=" + recipes.cause;
+                    if (!state.unknown.includes(cause)) state.unknown.push(cause);
+                } else if (publisher === "vgs") {
+                    if (!state.published.includes(name)) state.published.push(name);
+                    continue;
+                }
                 const pkg = { name, origin, old: target.old, next: target.next, manager: group.manager, binary: found.binary, config };
                 if (!state.packages.some(p => p.name === name && p.origin === origin)) state.packages.push(pkg);
                 state.lines.push(origin === "aur" ? `aur ${name} ${target.old || "?"} ${target.next || "?"}` : `repo ${origin} ${name} ${target.old || "?"} ${target.next || "?"}`);
@@ -317,13 +342,11 @@ function installEvidence(dir, pkg, state) {
         const src = path.join(folder, ".SRCINFO");
         if (!fs.existsSync(src) || !fs.lstatSync(src).isFile()) continue;
         let section = "", base = "", own = "", ownSet = false, found = false;
-        for (const line of fs.readFileSync(src, "utf8").split("\n")) {
-            const m = /^\s*(\w+)\s*=\s*(.*?)\s*$/.exec(line);
-            if (!m) continue;
-            if (m[1] === "pkgbase") section = "base";
-            if (m[1] === "pkgname") { section = m[2] === pkg.name ? "own" : "other"; if (section === "own") found = true; }
-            if (m[1] === "install" && section === "base") base = m[2];
-            if (m[1] === "install" && section === "own") { own = m[2]; ownSet = true; }
+        for (const { key, value } of judge.srcinfoFields(fs.readFileSync(src, "utf8"))) {
+            if (key === "pkgbase") section = "base";
+            if (key === "pkgname") { section = value === pkg.name ? "own" : "other"; if (section === "own") found = true; }
+            if (key === "install" && section === "base") base = value;
+            if (key === "install" && section === "own") { own = value; ownSet = true; }
         }
         if (found) { selected = { folder, script: ownSet ? own : base, src }; break; }
     }
@@ -406,10 +429,17 @@ async function reviewRequest(request, storage) {
     if (state.packages.length || state.unknown.length) {
         const known = state.packages.map(p => p.name);
         const requested = request.groups.flatMap(g => g.names.concat(g.installs)).concat(request.rebuild);
-        const listed = known.concat(requested.filter(n => !known.includes(n.split("/").pop())));
+        const thirdParty = requested.filter(n => !known.includes(n.split("/").pop()) && !state.published.includes(n.split("/").pop()));
+        // A VGS package's review covers only the AUR dependencies its recipe pulls in.
+        const listed = known.concat(thirdParty, state.published.map(n => "dependencies of " + n));
         const packageList = "Packages: " + ([...new Set(listed)].join(", ") || "origin or pending list unavailable");
-        let choice;
-        for (;;) {
+        let choice = null;
+        if (!judge.initialChoice(settings, foundAgents(settings)).ask) {
+            const shown = await ui("saved-decline", packageList);
+            if (shown.cancelled) return { ...result, decision: "cancelled", coverage: "unknown", status: shown.status };
+            choice = { value: "Install without review" };
+        }
+        while (choice === null) {
             const found = foundAgents(settings), initial = judge.initialChoice(settings, found);
             choice = await ui("offer", initial.action === "review" ? "Review" : "Install without review", packageList);
             if (choice.cancelled) return { ...result, decision: "cancelled", coverage: "unknown", status: choice.status };
@@ -431,7 +461,6 @@ async function reviewRequest(request, storage) {
                 if (edit.error || (edit.status !== 0 && edit.status !== 130)) refuse("review=editor-unavailable");
                 settings = settingsRead().settings;
             }
-            if (choice !== null) break;
         }
         if (choice.value === "Install without review") result.coverage = "declined";
         else if (choice.value === "Review") {
