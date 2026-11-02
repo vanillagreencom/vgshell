@@ -10,8 +10,10 @@
 // The theme reaches this table through `palette.accent`, which draws an
 // icon toggle's glyph while it is on, `motion.scale`, which scales every
 // duration here (0 stills the orb and shows the words whole), and its
-// `scheme.mode`, which applies LIGHT. The overlay draws on a dark field in
-// both modes, so LIGHT changes nothing. Text takes its family and size from
+// `scheme.mode`, which applies LIGHT. Every ink here is chosen for a dark
+// field in both modes, the field the overlay's backdrop is to supply; no
+// backdrop draws yet, so the overlay stands straight on the desktop. LIGHT
+// is empty. Text takes its family and size from
 // its qs.Ui Label role; this table hands it its colour alone.
 //
 // Each state is one set of the orb shader's inputs (shaders/particleorb.frag).

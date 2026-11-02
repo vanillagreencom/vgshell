@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
-"""Compile VoiceOrb's source with Qt qsb and compare its shipped pack.
+"""Compile each shipped shader's source with Qt qsb and compare its pack.
 
 qsb is a build/validation tool, not a runtime requirement. Find it on PATH
 or in Qt's Linux tool directories; QSB overrides the lookup for test copies.
 Exit 77 when it is absent. Exit 1 on unreadable, invalid, stale or forbidden
-source. --write regenerates the pack. --source selects a disposable copy.
+source. SHADERS holds every shipped shader, its source and the rules that
+source keeps; the judge checks each, or the one --shader names. --write
+regenerates the pack. --source, with --shader, selects a disposable copy.
 The qsb --qt6 targets and --qsbversion 64 are the reproducible build contract.
 A pack is fresh when it holds the shader a fresh compile holds. A pack is
 qCompress output, a 4-byte big-endian length and a zlib stream, and two zlib
 builds deflate one shader to different bytes (zlib 1.3.2 on Arch, zlib-ng
 2.3.3 on CachyOS), so the pack is compared decompressed. check() is the one
-judge of a shipped pack; scripts/check-plasma-shader.py hands it Voice's
-plasma source with that source's own rules.
+judge of a shipped pack; scripts/measure-shader.sh reads its compiler.
 """
 import argparse
 import os
@@ -22,15 +23,23 @@ import subprocess
 import tempfile
 import zlib
 
-SOURCE = Path(__file__).resolve().parents[1] / "shell/Ui/feedback/shaders/voiceorb.frag"
+ROOT = Path(__file__).resolve().parents[1]
 OPTIONS = ("--qt6", "--qsbversion", "64")
 # Each rule a source may break, as a pattern over its code.
 PATTERNS = {
     "loop": r"\b(?:for|while|do)\b",
     "texture": r"\b(?:sampler\w*|texture\w*|texelFetch\w*)\b",
 }
-# The visual is analytic. No iteration or texture sampling is needed.
-RULES = ("loop", "texture")
+# Each shipped shader: its source and the rules it keeps. VoiceOrb is
+# analytic and needs no iteration. Voice's plasma is a short volumetric
+# raymarch and Jarvis's orb tests a bounded set of shells, faces and
+# lattice dots per pixel, so each may loop, every loop to a constant
+# bound. None samples a texture.
+SHADERS = {
+    "voiceorb": (ROOT / "shell/Ui/feedback/shaders/voiceorb.frag", ("loop", "texture")),
+    "plasma": (ROOT / "shell/plugins/vgs.voice/shaders/plasma.frag", ("loop-bound", "texture")),
+    "jarvis-orb": (ROOT / "shell/plugins/vgs.jarvis/shaders/particleorb.frag", ("loop-bound", "texture")),
+}
 
 
 def breaks(rule, code):
@@ -68,7 +77,7 @@ def shader(pack):
     return held if len(pack) >= 4 and int.from_bytes(pack[:4], "big") == len(held) else None
 
 
-def check(source, write=False, rules=RULES, label="voiceorb-shader"):
+def check(source, write, rules, label):
     """Judge one source/pack pair against RULES; never alter the source."""
     tool = qsb_tool()
     if tool is None:
@@ -105,9 +114,23 @@ def check(source, write=False, rules=RULES, label="voiceorb-shader"):
     return 0
 
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source", type=Path, default=SOURCE)
+    parser.add_argument("--shader", choices=list(SHADERS))
+    parser.add_argument("--source", type=Path)
     parser.add_argument("--write", action="store_true")
     args = parser.parse_args()
-    raise SystemExit(check(args.source, args.write))
+    if args.source is not None and args.shader is None:
+        parser.error("--source needs --shader")
+    status = 0
+    for name in [args.shader] if args.shader is not None else list(SHADERS):
+        default, rules = SHADERS[name]
+        result = check(args.source or default, args.write, rules, name + "-shader")
+        if result == 77:
+            return 77
+        status = max(status, result)
+    return status
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

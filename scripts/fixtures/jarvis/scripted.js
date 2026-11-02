@@ -145,7 +145,13 @@ function ports(root, engine, state) {
             }
         },
         tools: {
-            start: (e, done) => { record("tool-start", e); done("completed"); },
+            // A hold-tool file keeps the action running until the tool gate,
+            // so a row can read the acting phase.
+            start: (e, done) => {
+                record("tool-start", e);
+                if (fs.existsSync(path.join(root, "hold-tool"))) wait("tool", () => done("completed"));
+                else done("completed");
+            },
             cancel: () => { throw new Error("scripted: unexpected-tool"); },
             outcome: e => record("tool-outcome", e),
             sync: () => {}, close: () => {}

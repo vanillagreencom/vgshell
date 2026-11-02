@@ -1,21 +1,30 @@
 import QtQuick
-import qs.Commons
 import qs.Ui
-import "Appearance.js" as Appearance
 
 // Jarvis's words while its voice is muted, above the orb: the newest line
 // at the bottom and at most `words.lines` lines, each older line fainter.
 // Words appear one each `words.step` until they catch up with `text`, the
 // newest fading in over `words.fade`; a new line moves the lines up over
-// `words.lift`. Each is a Qt animation that ends once the words catch up,
-// never a ticking driver, and at motion scale 0 every duration is 0, so
-// the text appears whole. A `text` that does not extend the words shown
-// starts over. It draws only.
+// `words.lift` while the line leaving the top fades out. Each is a Qt
+// animation that ends once the words catch up, never a ticking driver, and
+// at motion scale 0 every duration is 0, so the text appears whole. It
+// draws only, in the look its bubble hands it.
+//
+// A caption that grows, as a duplex voice's does chunk by chunk, keeps the
+// words drawn: it extends them when every drawn word but the last is the
+// same and the last drawn word begins the word in its place, as "that"
+// becomes "that." A caption that changes an earlier word starts over.
+//
+// Per frame only the reveal's count, the newest word's opacity and the
+// lift move; no text is laid out again. The lines are laid out here, at
+// spaces, when a word is added or the caption, width or font changes, and
+// only from `start`, the first word of the oldest line still drawn, so a
+// long reply lays out its tail alone.
 Item {
     id: root
 
+    required property var look
     property string text: ""
-    readonly property var look: Theme.appearance(Appearance.TOKENS, Appearance.LIGHT)
     readonly property var list: text.trim() === "" ? [] : text.trim().split(/\s+/)
     property real progress: 0
     readonly property int count: Math.min(list.length, Math.floor(progress))
@@ -24,91 +33,155 @@ Item {
     // The newest word's opacity while it fades in.
     property real newest: 1
     property real lift: 0
-    readonly property int lineCount: count === 0 ? 0 : measure.lineCount
-    readonly property real lineBox: measure.lineBox
+    // How many lines the window shows.
+    readonly property int window: look.words.lines
+    readonly property real lineBox: probe.lineBox
+    // The laid-out tail, oldest first, each { from, head, last }: a line's
+    // first word in `list`, its words but the last, and its last word. It
+    // holds one line above the window, the line a lift fades out.
+    property var lines: []
+    // Lines dropped from the front of the tail; with `lines`, how many
+    // lines the shown words take.
+    property int dropped: 0
+    property int start: 0
+    readonly property int lineCount: count === 0 ? 0 : dropped + lines.length
     readonly property bool settled: count === list.length && !reveal.running && !fade.running && !rise.running
-    // The words of `list` the reveal last started from.
+    // The previous caption's words, which the next must extend.
     property var held: []
-    property int laidLines: 0
 
-    implicitHeight: look.words.lines * lineBox
+    implicitHeight: window * lineBox
     visible: count > 0
+    clip: true
     Accessible.ignored: true
 
-    function escaped(words) {
-        return words.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    function extendsDrawn(drawn, next) {
+        if (drawn.length > next.length) return false;
+        for (let i = 0; i < drawn.length - 1; i++) if (drawn[i] !== next[i]) return false;
+        return drawn.length === 0 || next[drawn.length - 1].startsWith(drawn[drawn.length - 1]);
     }
-    // Styled text draws a `#aarrggbb` font colour at its alpha, which is
-    // how Qt.alpha's colour converts to a string (both checked with
-    // qmltestrunner on Qt 6.12.0), so the newest word fades on its own.
-    readonly property string markup: count === 0 ? ""
-        : escaped(list.slice(0, count - 1).join(" ")) + (count > 1 ? " " : "")
-          + "<font color=\"" + Qt.alpha(look.ink.words, newest) + "\">" + escaped(list[count - 1]) + "</font>"
+
+    // The words from `start` to `count` broken at spaces into lines no wider
+    // than the view: each line takes the next word while it fits, as
+    // qs.Ui's LineBreak.atSpaces does, measured by a TextMetrics in the
+    // label's font, whose advance is the width the label draws a line at
+    // (LineBreak.js). A word wider than the view takes a line of its own.
+    // It writes metrics.text, so it runs from handlers only.
+    function relayout() {
+        const before = lineCount;
+        if (count === 0 || !(width > 0)) {
+            lines = [];
+            return;
+        }
+        let rows = [];
+        let line = null;
+        let first = start;
+        for (let i = start; i < count; i++) {
+            const longer = line === null ? list[i] : line + " " + list[i];
+            metrics.text = longer;
+            if (line === null || metrics.advanceWidth <= width) {
+                line = longer;
+            } else {
+                rows.push({ from: first, to: i });
+                line = list[i];
+                first = i;
+            }
+        }
+        rows.push({ from: first, to: count });
+        const keep = window + 1;
+        if (rows.length > keep) {
+            dropped += rows.length - keep;
+            rows = rows.slice(rows.length - keep);
+            start = rows[0].from;
+        }
+        lines = rows.map(row => ({ from: row.from, head: list.slice(row.from, row.to - 1).join(" "), last: list[row.to - 1] }));
+        // A new line lifts the lines above it; a caption that starts over
+        // lifts nothing.
+        if (before > 0 && lineCount > before) {
+            lift = lineBox;
+            rise.restart();
+        }
+    }
 
     onListChanged: {
-        const drawn = Math.min(held.length, count);
-        let extends_ = drawn <= list.length;
-        for (let i = 0; extends_ && i < drawn; i++) extends_ = held[i] === list[i];
+        const drawn = held.slice(0, Math.min(held.length, Math.floor(progress)));
         held = list;
         reveal.stop();
-        if (!extends_) progress = 0;
+        if (!extendsDrawn(drawn, list)) {
+            rise.stop();
+            lift = 0;
+            lines = [];
+            dropped = 0;
+            start = 0;
+            progress = 0;
+        }
+        relayout();
         reveal.to = list.length;
         reveal.duration = Math.max(0, list.length - progress) * look.words.step;
         reveal.start();
     }
     onCountChanged: {
+        relayout();
         if (count === 0) return;
         newest = 0;
         fade.restart();
     }
-    // A new line lifts the lines above it; a caption that starts over
-    // lifts nothing.
-    onLineCountChanged: {
-        const added = lineCount > laidLines && laidLines > 0;
-        laidLines = lineCount;
-        if (!added) return;
-        lift = lineBox;
-        rise.restart();
-    }
+    onWidthChanged: relayout()
 
     NumberAnimation { id: reveal; target: root; property: "progress" }
     NumberAnimation { id: fade; target: root; property: "newest"; from: 0; to: 1; duration: root.look.words.fade }
     NumberAnimation { id: rise; target: root; property: "lift"; to: 0; duration: root.look.words.lift }
 
-    // Lays the shown words out once, for their line count.
+    // The body role's font and line box, which every line draws in.
     Label {
-        id: measure
+        id: probe
         visible: false
-        width: root.width
         role: "body"
-        text: root.markup
-        textFormat: Text.StyledText
-        wrapMode: Text.Wrap
-        horizontalAlignment: Text.AlignHCenter
+    }
+    TextMetrics {
+        id: metrics
+        font: probe.font
+        onFontChanged: root.relayout()
+    }
+    TextMetrics {
+        id: space
+        font: probe.font
+        text: " "
     }
 
-    // One window per line, the newest at the bottom: each clips the whole
-    // text to its own line, at its own opacity.
+    // One slot per line, the newest at the bottom, each at its own opacity.
+    // The slot above the window draws the line a lift moves out, fading.
     Repeater {
-        model: root.look.words.lines
+        model: root.window + 1
         Item {
+            id: slot
             required property int index
-            readonly property int last: root.look.words.lines - 1
+            readonly property var line: root.lines.length > index ? root.lines[root.lines.length - 1 - index] : null
             width: root.width
             height: root.lineBox
-            y: (last - index) * root.lineBox
-            clip: true
-            visible: root.lineCount > index
-            opacity: index === 0 ? root.look.words.newest : index === last ? root.look.words.oldest : root.look.words.middle
-            Label {
-                width: root.width
-                y: (index - root.lineCount + 1) * root.lineBox + root.lift
-                role: "body"
-                color: root.look.ink.words
-                text: root.markup
-                textFormat: Text.StyledText
-                wrapMode: Text.Wrap
-                horizontalAlignment: Text.AlignHCenter
+            y: (root.window - 1 - index) * root.lineBox + root.lift
+            visible: line !== null && (index < root.window || root.lift > 0)
+            opacity: index === 0 ? root.look.words.newest
+                : index === root.window ? root.look.words.oldest * root.lift / Math.max(1, root.lineBox)
+                : index === root.window - 1 ? root.look.words.oldest : root.look.words.middle
+            Row {
+                x: Math.max(0, (slot.width - width) / 2)
+                spacing: space.advanceWidth
+                Label {
+                    visible: text !== ""
+                    role: "body"
+                    color: root.look.ink.words
+                    textFormat: Text.PlainText
+                    text: slot.line === null ? "" : slot.line.head
+                }
+                // A line's last word, the newest word on the bottom line,
+                // which fades in on its own.
+                Label {
+                    role: "body"
+                    color: root.look.ink.words
+                    textFormat: Text.PlainText
+                    opacity: slot.index === 0 ? root.newest : 1
+                    text: slot.line === null ? "" : slot.line.last
+                }
             }
         }
     }

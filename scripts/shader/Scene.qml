@@ -8,11 +8,15 @@ import qs.Commons
 import qs.Ui
 import "plugins/vgs.voice" as Voice
 import "plugins/vgs.jarvis" as Jarvis
+import "plugins/vgs.jarvis/Appearance.js" as JarvisLook
 
 // One layer, no shell or plugin services, drawing the shader
 // VGS_SHADER_NAME names: VoiceOrb, Voice's plasma orb fed a steady level
-// as the bridge's frames would feed it, or Jarvis's particle orb listening
-// at capture level 1, its widest band. The off scene keeps the same
+// as the bridge's frames would feed it, or Jarvis's particle orb speaking
+// at playback level 1: speaking is the one look whose level widens the
+// orb's radius (Appearance.js `driveRadius`), and the shader returns at
+// once past 1.3 radii, so it gives the most pixels the shader's full work.
+// The off scene keeps the same
 // animation and background; only the shader stops drawing. The scene
 // selects the shader's own effect by its pack, so a visual that holds a
 // second effect still measures its own.
@@ -92,8 +96,9 @@ ShellRoot {
         id: particle
         Jarvis.ParticleOrb {
             active: !root.complete
-            phase: "listening"
-            capture: 1
+            look: Theme.appearance(JarvisLook.TOKENS, JarvisLook.LIGHT)
+            phase: "speaking"
+            playback: 1
         }
     }
     IpcHandler {

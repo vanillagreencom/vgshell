@@ -92,12 +92,14 @@ Item {
     readonly property var caption: service === null || service.shell === null ? null
         : service.shell.status.values.transcript || null
     // Jarvis's words for this conversation, shown only while its voice is
-    // muted. The status keeps an ended conversation's caption until the
-    // next one. Waiting for the word shows no words: a reply left on
-    // screen could stand there until the next request, however long that
-    // is. A held request shows its own question in their place.
+    // muted. The caption is the conversation's latest line, the user's or
+    // Jarvis's; only Jarvis's draws, so the user's words clear it. The
+    // status keeps an ended conversation's caption until the next one.
+    // Waiting for the word shows no words: a reply left on screen could
+    // stand there until the next request, however long that is. A held
+    // request shows its own question in their place.
     readonly property string words: state === null || !voiceMuted || root.hold !== null || phase === "armed" ? ""
-        : caption !== null && caption.gen === state.gen ? caption.text : ""
+        : caption !== null && caption.role === "assistant" && caption.gen === state.gen ? caption.text : ""
     readonly property var shortcutKeys: service === null ? null : service.effectiveKeys
     // The ring of the orb at rest, which the icon row and the line under
     // the orb stand against.
@@ -109,8 +111,25 @@ Item {
         acting: "Working", speaking: "Speaking", confirming: "Waiting for you", error: "", down: "Stopping"
     })
 
-    function keyed(label, key) {
-        return shortcutKeys === null ? label : label + (shortcutKeys[key] === null || shortcutKeys[key] === undefined ? " (unbound)" : " (" + shortcutKeys[key] + ")");
+    // One button of the icon row: the look's glyph and ring colours, the
+    // intent it sends, and its label with the effective key, or the label
+    // alone with none. An inline component does not share this file's
+    // scope (https://doc.qt.io/qt-6/qtqml-documents-definetypes.html#inline-components),
+    // so each takes the look, the service and the keys. Its instances read
+    // as type RowButton, not IconButton (qml-unit run, Qt 6.12.0), which
+    // scripts/smoke/rows/jarvis-bubble.sh names.
+    component RowButton: IconButton {
+        required property var look
+        required property var service
+        required property var keys
+        required property string intentName
+        size: "sm"
+        tooltip: keys === null || !keys[intentName] ? label : label + " (" + keys[intentName] + ")"
+        restColor: look.icon.rest
+        activeColor: look.icon.active
+        onColor: look.palette.accent
+        ringColor: look.icon.ring
+        onClicked: if (service !== null) service.intent(intentName)
     }
 
     visible: shown
@@ -141,6 +160,7 @@ Item {
 
         Words {
             id: words
+            look: root.look
             x: overlay.centre - width / 2
             width: root.look.layout.prompt
             height: visible ? implicitHeight : 0
@@ -152,6 +172,7 @@ Item {
         // level and stands still (ParticleOrb's driver).
         ParticleOrb {
             id: orb
+            look: root.look
             x: overlay.centre - width / 2
             y: words.height
             width: root.look.orb.size
@@ -166,43 +187,34 @@ Item {
             id: icons
             x: overlay.centre + root.ring
             y: overlay.orbCentre - root.ring - height / 2
-            IconButton {
+            RowButton {
                 id: mic
-                size: "sm"
+                look: root.look
+                service: root.service
+                keys: root.shortcutKeys
+                intentName: "mute"
                 iconName: root.micMuted ? "mic-off" : "mic"
                 label: root.micMuted ? "Turn on microphone" : "Mute microphone"
-                tooltip: root.keyed(label, "mute")
                 checked: root.micMuted
-                restColor: root.look.icon.rest
-                activeColor: root.look.icon.active
-                onColor: root.look.palette.accent
-                ringColor: root.look.icon.ring
-                onClicked: if (root.service !== null) root.service.intent("mute")
             }
-            IconButton {
+            RowButton {
                 id: voice
-                size: "sm"
+                look: root.look
+                service: root.service
+                keys: root.shortcutKeys
+                intentName: "voice-mute"
                 iconName: root.voiceMuted ? "volume-x" : "volume-2"
-                label: root.voiceMuted ? "Turn on Jarvis's voice" : "Mute Jarvis's voice"
-                tooltip: root.keyed(label, "voice-mute")
+                label: root.voiceMuted ? "Unmute Jarvis's voice" : "Mute Jarvis's voice"
                 checked: root.voiceMuted
-                restColor: root.look.icon.rest
-                activeColor: root.look.icon.active
-                onColor: root.look.palette.accent
-                ringColor: root.look.icon.ring
-                onClicked: if (root.service !== null) root.service.intent("voice-mute")
             }
-            IconButton {
+            RowButton {
                 id: stop
-                size: "sm"
+                look: root.look
+                service: root.service
+                keys: root.shortcutKeys
+                intentName: "stop"
                 iconName: "square"
                 label: "Stop Jarvis"
-                tooltip: root.keyed(label, "stop")
-                restColor: root.look.icon.rest
-                activeColor: root.look.icon.active
-                onColor: root.look.palette.accent
-                ringColor: root.look.icon.ring
-                onClicked: if (root.service !== null) root.service.intent("stop")
             }
         }
 

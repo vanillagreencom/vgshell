@@ -1,11 +1,10 @@
 import QtQuick
 import Quickshell
-import qs.Commons
-import "Appearance.js" as Appearance
 
 // Jarvis's particle orb, drawn by shaders/particleorb.frag: one look per
-// Session phase from the plugin's own table (Appearance.js `state`). It
-// draws only; the bubble owns its surface, screen and phase.
+// Session phase from the plugin's own table (Appearance.js `state`), in
+// the look its bubble hands it. It draws only; the bubble owns its
+// surface, screen and phase.
 //
 // A phase change eases every drawn value to the next look over the look's
 // transition, with Qt animations that end on their own. The driver, which
@@ -27,7 +26,7 @@ Item {
     // The reduced look for an integrated GPU. Nothing selects it yet: the
     // rule waits for the px13 and MacBook readings (VGS-2210).
     property bool reduced: false
-    readonly property var look: Theme.appearance(Appearance.TOKENS, Appearance.LIGHT)
+    required property var look
     readonly property var tone: look.state[phase]
     // The window the orb draws in, read as vgs.voice's Plasma reads it: a
     // plugin may not import QtQuick.Window (scripts/check-plugin-boundary.py).
@@ -37,7 +36,9 @@ Item {
     // The eased level while the driver runs, the target while it stands.
     readonly property real driven: driver.running ? clock.level : target
     readonly property bool timed: tone.flow > 0 || tone.quarterTurn > 0 || tone.throb > 0
-    readonly property bool moves: timed || target > look.orb.floor || clock.level > look.orb.floor
+    // Motion scale 0 stills every look: the clocks' rates divide by it.
+    readonly property bool moves: look.motion.scale > 0
+        && (timed || target > look.orb.floor || clock.level > look.orb.floor)
 
     function clamp(level) { return Math.max(0, Math.min(1, level)); }
 
@@ -148,7 +149,7 @@ Item {
 
     FrameAnimation {
         id: driver
-        running: root.active && root.visible && root.look.motion.scale > 0 && root.moves
+        running: root.active && root.visible && root.moves
                  && root.host !== null && root.host.visible
         onTriggered: {
             // A frame after a stall moves the orb by at most 50 ms.

@@ -466,6 +466,8 @@ const START_CAUSES = [
     ["hello timeout", "jarvis: hello=timeout", "hello-timeout"],
     ["Node too old", "jarvis: node=20.19.5 need=22", "node-too-old"],
     ["Node exit", "jarvis: daemon=exit code=78 status=0", "node-too-old"],
+    ["voice mute not saved", "jarvis: voice-mute=write-failed", "mute-not-saved"],
+    ["mute record unreadable", "jarvis: mute=record-shape", "mute-not-saved"],
     ["daemon exit", "jarvis: daemon=exit code=1 status=0", "daemon-exit"],
     ["daemon ended", "jarvis: daemon=ended", "daemon-exit"],
     ["wire defect", "jarvis: protocol=identity", "wire-defect"]

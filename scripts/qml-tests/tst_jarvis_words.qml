@@ -4,17 +4,20 @@ import qs.Commons
 import qs.Ui
 import qs.Unit
 import "../../shell/plugins/vgs.jarvis"
+import "../../shell/plugins/vgs.jarvis/Appearance.js" as Appearance
 
 // Jarvis's words while its voice is muted: they appear a word at a time
 // until they catch up with the caption, then every animation has ended;
-// at most three lines draw, the newest at the bottom; a caption that does
-// not extend the words starts over; motion scale 0 shows the text whole.
+// at most three lines draw, the newest at the bottom, and only the tail
+// they need is laid out; a caption that grows inside its last drawn word
+// keeps its words, and one that changes an earlier word starts over;
+// motion scale 0 shows the text whole.
 Item {
     id: root
     width: 400
     height: 200
 
-    Words { id: words; width: 380 }
+    Words { id: words; width: 380; look: Theme.appearance(Appearance.TOKENS, Appearance.LIGHT) }
 
     TestCase {
         name: "jarvis-words"
@@ -25,8 +28,13 @@ Item {
             words.text = "";
         }
 
-        function windows() {
-            return words.children.filter(child => child.clip === true && child.visible);
+        // The drawn lines, top to bottom, each as its plain text.
+        function drawn() {
+            return words.children.filter(child => child.line !== undefined && child.visible)
+                .sort((a, b) => a.y - b.y);
+        }
+        function textOf(slot) {
+            return (slot.line.head === "" ? "" : slot.line.head + " ") + slot.line.last;
         }
 
         function test_words_catch_up_then_stand_still() {
@@ -39,18 +47,21 @@ Item {
         }
 
         function test_three_lines_at_most_newest_at_the_bottom() {
-            words.text = Array(40).fill("scripted reply").join(" ");
+            const text = Array(40).fill("scripted reply").join(" ") + " end";
             compare(UnitTheme.override({ motion: { scale: 0 } }), "ok");
-            words.text = words.text + " end";
+            words.text = text;
             tryVerify(() => words.settled && words.count === 81, 1000);
             verify(words.lineCount > words.look.words.lines, "the caption is longer than the window: " + words.lineCount);
-            const shown = windows();
+            verify(words.start > 0 && words.lines.length <= words.look.words.lines + 1,
+                "only the tail is laid out: start=" + words.start + " lines=" + words.lines.length);
+            const shown = drawn();
             compare(shown.length, words.look.words.lines);
-            const bottom = shown.reduce((a, b) => a.y > b.y ? a : b);
-            const label = bottom.children[0];
+            const bottom = shown[shown.length - 1];
             compare(bottom.y + bottom.height, words.implicitHeight, "the newest line sits at the bottom");
-            compare(label.y + label.height, bottom.height, "the bottom window shows the last line");
-            verify(bottom.opacity > shown.reduce((a, b) => a.y < b.y ? a : b).opacity, "the oldest line is fainter");
+            verify(textOf(bottom).endsWith("end"), "the bottom line ends the caption: " + textOf(bottom));
+            const tail = shown.map(textOf).join(" ");
+            verify(text.endsWith(" " + tail), "the lines are the caption's last, in order: " + tail);
+            verify(bottom.opacity > shown[0].opacity, "the oldest line is fainter");
         }
 
         function test_motion_scale_zero_shows_the_text_whole() {
@@ -59,16 +70,26 @@ Item {
             tryVerify(() => words.settled && words.shown === "Done in one", 100);
         }
 
-        function test_a_caption_that_does_not_extend_starts_over() {
+        function test_a_caption_that_grows_inside_its_last_word_keeps_its_words() {
+            compare(UnitTheme.override({ motion: { scale: 0 } }), "ok");
+            words.text = "help you with that";
+            tryVerify(() => words.settled && words.count === 4, 100);
+            UnitTheme.reset();
+            words.text = "help you with that.";
+            compare(words.count, 4, "the drawn words stay");
+            tryVerify(() => words.settled && words.shown === "help you with that.", 2000);
+        }
+
+        function test_a_caption_that_changes_an_earlier_word_starts_over() {
             compare(UnitTheme.override({ motion: { scale: 0 } }), "ok");
             words.text = "first reply here";
             tryVerify(() => words.settled, 100);
             UnitTheme.reset();
             words.text = "first reply here and more";
             verify(words.count >= 3, "an extended caption keeps its words");
-            words.text = "another reply";
+            words.text = "another reply here today";
             verify(words.count < 2, "a new caption starts over: " + words.count);
-            tryVerify(() => words.settled && words.shown === "another reply", 2000);
+            tryVerify(() => words.settled && words.shown === "another reply here today", 2000);
             words.text = "";
             compare(words.visible, false);
         }

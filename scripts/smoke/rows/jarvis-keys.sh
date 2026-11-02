@@ -207,33 +207,19 @@ d=json.loads(sys.argv[1])
 print("one" if d.get("kind") in ("starting","retry") and d.get("pendingMute")=="waiting" and len(d)==2 else sys.argv[1])
 ' "$reading"
 }
-# Always mode's resting orb: the one presented bubble waits for the word with
-# no words, and its orb draws the armed look, which has no clock of its own
-# and reads no level, so its driver does not run.
+# Always mode's resting bubble: the one presented bubble waits for the word
+# with no words. Its orb's stillness is scripts/qml-tests/tst_jarvis_orb.qml's
+# and the frame reading of scripts/smoke/rows/jarvis-bubble.sh.
 jarvis_key_resting() {
-  local bubbles orbs
-  bubbles="$(ipc smoke layerItems vgs.jarvis Bubble presented,phase,words)" &&
-    orbs="$(ipc smoke layerItems vgs.jarvis ParticleOrb phase,moves,driven)" || return 1
-  python3 -c '
+  ipc smoke layerItems vgs.jarvis Bubble presented,phase,words | py_reply '
 import json,sys
-bubbles,orbs=map(json.loads,sys.argv[1:3])
-shown=[(screen,v) for screen,_,v in bubbles if v["presented"]]
+shown=[v for _,_,v in json.load(sys.stdin) if v["presented"]]
 if len(shown)!=1: print("presented=%d" % len(shown)); sys.exit()
-screen,bubble=shown[0]
-if bubble["phase"]!="armed" or bubble["words"]!="": print("phase=%s words=%d" % (bubble["phase"],len(bubble["words"]))); sys.exit()
-orb=[v for s,_,v in orbs if s==screen]
-if len(orb)!=1: print("orbs=%d" % len(orb)); sys.exit()
-o=orb[0]
-print("resting" if o["phase"]=="armed" and o["moves"] is False and o["driven"]==0
-      else "phase=%s moves=%s driven=%s" % (o["phase"],o["moves"],o["driven"]))
-' "$bubbles" "$orbs"
+bubble=shown[0]
+print("resting" if bubble["phase"]=="armed" and bubble["words"]=="" else "phase=%s words=%d" % (bubble["phase"],len(bubble["words"])))
+'
 }
-jarvis_key_resting_assertion() { expect_poll "Always mode presents the still resting orb" resting jarvis_key_resting; }
-jarvis_key_resting_control() {
-  (failures=0 behaviour_failures=0
-   jarvis_key_resting_assertion >"$sandbox/jarvis-key-resting-control.log"
-   echo "$failures")
-}
+jarvis_key_resting_assertion() { expect_poll "Always mode presents the resting bubble" resting jarvis_key_resting; }
 
 jarvis_shortcuts() {
   hypr globalshortcuts | python3 -c 'import json,re,sys; print(json.dumps(sorted(set(re.findall(r"vgs\.jarvis:[A-Za-z0-9_.-]+", sys.stdin.read())))))'
@@ -752,28 +738,6 @@ jarvis_key_tap_control "a Session whose press after a tap starts a new hold" \
         }
         recover(s, effects, e.at);" "        recover(s, effects, e.at);" jarvis_key_tap_listens jarvis_key_second_tap_sends
 jarvis_rescan
-# Keep the bubble and Always mode. Give every look a clock, so the resting
-# orb ticks; the same resting assertion must fail once.
-cp -- "$sandbox/jarvis-key-service-before" "$jarvis_key_service"
-jarvis_key_bubble="$repo/shell/plugins/vgs.jarvis/ParticleOrb.qml"
-cp -- "$jarvis_key_bubble" "$sandbox/jarvis-key-bubble-before"
-python3 - "$jarvis_key_bubble" <<'PY'
-from pathlib import Path
-import sys
-p=Path(sys.argv[1]); assert not p.is_symlink()
-s=p.read_text(); needle='readonly property bool timed: tone.flow > 0'
-assert s.count(needle)==1
-changed=s.replace(needle, 'readonly property bool timed: true || tone.flow > 0')
-assert changed!=s
-p.write_text(changed)
-PY
-jarvis_rescan
-jarvis_enable
-jarvis_key_mode always
-expect_poll "the resting control waits for the word" armed jarvis_key_state phase
-expect "a ticking resting orb breaks the same resting assertion" 1 jarvis_key_resting_control
-jarvis_disable
-cp -- "$sandbox/jarvis-key-bubble-before" "$jarvis_key_bubble"
 expect_poll "disable unregisters every Jarvis key" 0 hold_native vgs.jarvis:
 hold_barrier
 hold_stop_keyboard

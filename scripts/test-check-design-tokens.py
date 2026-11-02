@@ -173,6 +173,7 @@ LOOK_ROWS = [
     # A look binds per surface: a file of the plugin that binds none draws
     # in the theme's colours and names no look path.
     ("a plugin file that binds no look reads Theme", {"Card.qml": "import QtQuick\nimport qs.Commons\nRectangle { color: Theme.color.text }\n"}, None),
+    ("a file that binds the look and reads none of it reads no other Theme member", {"Bound.qml": "import QtQuick\nimport qs.Commons\nimport \"Look.js\" as Look\nRectangle {\n    readonly property var look: Theme.appearance(Look.TOKENS, Look.LIGHT)\n    color: Theme.color.text\n}\n"}, "theme-read"),
     ("a plugin file reading the look its owner hands it reads no other Theme member", {"Part.qml": "import QtQuick\nimport qs.Commons\nRectangle { property var look: null; color: Theme.color.text; radius: look.card.radius }\n"}, "theme-read"),
     ("the shared glass read from a plugin's own look", {"View.qml": LOOK_VIEW.replace("color: look.card.fill", "color: Theme.glass.glass.fill")}, "theme-read"),
     ("a literal in another file of the plugin is a finding", {"View.qml": LOOK_VIEW.replace("radius: look.card.radius", "width: 10")}, "literal-metric"),

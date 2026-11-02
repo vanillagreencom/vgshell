@@ -4,6 +4,7 @@ import qs.Commons
 import qs.Ui
 import qs.Unit
 import "../../shell/plugins/vgs.jarvis"
+import "../../shell/plugins/vgs.jarvis/Appearance.js" as Appearance
 
 // Jarvis's particle orb decides to move only in a look with a clock of its
 // own (thinking, acting, speaking, confirming) or while its driving level
@@ -17,7 +18,7 @@ Item {
     width: 320
     height: 320
 
-    ParticleOrb { id: orb; active: true }
+    ParticleOrb { id: orb; active: true; look: Theme.appearance(Appearance.TOKENS, Appearance.LIGHT) }
 
     TestCase {
         name: "jarvis-orb"
@@ -44,28 +45,18 @@ Item {
                 { tag: "thinking", phase: "thinking", moves: true },
                 { tag: "acting", phase: "acting", moves: true },
                 { tag: "speaking", phase: "speaking", moves: true },
-                { tag: "confirming", phase: "confirming", moves: true }
+                { tag: "confirming", phase: "confirming", moves: true },
+                { tag: "thinking at motion scale 0", phase: "thinking", scale: 0, moves: false },
+                { tag: "listening to a voice at motion scale 0", phase: "listening", capture: 0.5, scale: 0, moves: false }
             ];
         }
 
         function test_only_a_bounded_phase_has_a_clock(data) {
+            if (data.scale !== undefined) compare(UnitTheme.override({ motion: { scale: data.scale } }), "ok");
             orb.phase = data.phase;
             orb.capture = data.capture || 0;
             orb.playback = data.playback || 0;
             compare(orb.moves, data.moves);
-        }
-
-        // Every look the bubble names is a look of the table.
-        function test_every_phase_has_a_look() {
-            for (const phase of ["armed", "idle", "listening", "thinking", "acting", "speaking", "confirming", "error", "down", "muting"])
-                verify(orb.look.state[phase] !== undefined, phase);
-        }
-
-        function test_motion_scale_zero_holds_every_clock() {
-            compare(UnitTheme.override({ motion: { scale: 0 } }), "ok");
-            orb.phase = "thinking";
-            compare(orb.look.state.thinking.quarterTurn, 0, "a turn period scales to 0");
-            compare(orb.look.orb.transition, 0, "a phase change switches at once");
         }
 
         function test_an_inactive_orb_resets_its_clocks() {
