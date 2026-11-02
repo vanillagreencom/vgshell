@@ -489,10 +489,57 @@ exit 19
     assert all(p.stat().st_size <= 1024 * 1024 for p in retained.rglob("*") if p.is_file())
     print("smoke-evidence: bound retained-bytes=%d bound-bytes=%d" % (total, BOUND))
 
-    # Keep inputs intact but remove the copy. The same snapshot assertions
-    # must reject that disposable production implementation.
     copier = REPO / "scripts/smoke/evidence.py"
     source = copier.read_text()
+
+    # Real readings record the offsets; other rows write before and after.
+    def ipc_case(name, program, call, failed=True):
+        sandbox, runtime, output = fixture(root / name)
+        active = sandbox / "evidence/active"
+        active.write_text("example\n" + str(runtime / "quickshell/by-id/example/log.log") + "\n")
+        ipc = sandbox / "ipc.log"
+        ipc.write_bytes(b"earlier row call\n")
+        for reading, written in (("1-1", call), ("1-2", b"")):
+            (sandbox / "leaks" / reading).mkdir(exist_ok=True)
+            result = subprocess.run(["python3", str(copier), "--reading", str(sandbox), str(sandbox / "leaks" / reading)],
+                                    env=ENV, capture_output=True, text=True, timeout=30)
+            assert result.returncode == 0 and not result.stderr, result.stderr
+            with ipc.open("ab") as stream:
+                stream.write(written)
+        if failed:
+            active.rename(sandbox / "evidence/failed/example")
+        with ipc.open("ab") as stream:
+            stream.write(b"later row call\n")
+        result = subprocess.run(["python3", str(program), str(sandbox.parent), str(sandbox), str(output)],
+                                env=ENV, capture_output=True, text=True, timeout=30)
+        assert result.returncode == 0, result.stderr
+        retained = next(output.glob("smoke-evidence-*/example"))
+        span = call if failed else call + b"later row call\n"
+        kept = span[-1024 * 1024:]
+        assert (retained / "ipc.log").is_file(), "ipc-span-missing"
+        assert (retained / "ipc.log").read_bytes() == kept
+        index = (retained / "index.txt").read_text().splitlines()
+        assert "file=ipc.log source-bytes=%d kept-bytes=%d" % (len(span), len(kept)) in index, index
+
+    for name, call, failed in (("ipc", b"ipc: shell listPlugins: unreadable\n", True),
+                               ("ipc-interrupted", b"ipc: shell listPlugins: unreadable\n", False),
+                               ("ipc-cap", b"x" * (1024 * 1024) + b"final call\n", True)):
+        ipc_case(name, copier, call, failed)
+        print("smoke-evidence: ipc-span=%s retained" % name)
+    needle = '            candidates.append((sandbox / "ipc.log", "ipc.log"))\n'
+    assert source.count(needle) == 1
+    mutant = root / "no-ipc-span.py"
+    mutant.write_text(source.replace(needle, "            pass\n"))
+    try:
+        ipc_case("ipc-control", mutant, b"ipc: shell listPlugins: unreadable\n")
+    except AssertionError as error:
+        assert str(error) == "ipc-span-missing", error
+        print("smoke-evidence: control=old-candidates-ipc-span-rejected")
+    else:
+        raise AssertionError("copier without ipc.log candidate passed")
+
+    # Keep inputs intact but remove the copy. The same snapshot assertions
+    # must reject that disposable production implementation.
     def incident_snapshot(name, program):
         sandbox, runtime, output = fixture(root / name, oversized=True)
         incident = sandbox / "rows/example.anr/1"

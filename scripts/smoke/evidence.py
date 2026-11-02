@@ -5,6 +5,8 @@ The harness writes private metadata under its sandbox's evidence directory.
 The world calls this once after all namespace processes stop.
 Each row keeps at most 8 MiB, including its index; each file keeps at most
 1 MiB. ANR spans are frozen at observation; other files keep their tail.
+ipc.log keeps the tail of the span the row wrote, from its first reading's
+recorded size to its last's, or to the end for an interrupted row.
 This is a storage cap, not a latency or product memory budget.
 """
 import json
@@ -28,6 +30,13 @@ def reading(sandbox, snapshot):
     # Register before acquisition so an interrupted reading also survives.
     with active.open("a") as stream:
         stream.write(snapshot.name + "\n")
+    # Taken before this reading's own IPC calls append to ipc.log.
+    try:
+        info = os.lstat(owned / "ipc.log")
+        if stat.S_ISREG(info.st_mode):
+            (snapshot / "ipc-offset").write_text("%d\n" % info.st_size)
+    except FileNotFoundError:
+        (snapshot / "ipc-offset").write_text("0\n")
     # harness.sh fixes XDG_STATE_HOME to this owned home. No caller HOME,
     # credential store or image bytes enter this diagnostic.
     home = owned / "home"
@@ -95,6 +104,7 @@ def retain(root, sandbox, outputs):
         if (target / "index.txt").exists():
             continue
         target.mkdir(parents=True, exist_ok=True)
+        index = ["row=" + row, "state=" + ("interrupted" if record.name == "active" else "failed")]
         candidates = []
         incident_root = sandbox / "rows" / (row + ".anr")
         candidates += [(p, "row/" + str(p.relative_to(sandbox / "rows")))
@@ -111,6 +121,14 @@ def retain(root, sandbox, outputs):
         candidates.append((sandbox / "hyprland.log", "compositor-launch.log"))
         candidates.append((sandbox / "sink.log", "sink.log"))
         candidates.append((sandbox / "rows" / (row + ".out"), "row/" + row + ".out"))
+        # Other rows' calls share ipc.log, so only this row's span is kept.
+        spans = {}
+        try:
+            first, last = (int((sandbox / "leaks" / r / "ipc-offset").read_text()) for r in (readings[0], readings[-1]))
+            spans[sandbox / "ipc.log"] = (first, None if record.name == "active" else last)
+            candidates.append((sandbox / "ipc.log", "ipc.log"))
+        except (IndexError, OSError, ValueError) as error:
+            index.append("unavailable=ipc.log cause=%s" % error)
         for entry in sorted((sandbox / "rows").glob(row + ".*")):
             if entry.is_dir() and not entry.is_symlink():
                 candidates += [(p, "row/" + str(p.relative_to(sandbox / "rows")))
@@ -125,7 +143,6 @@ def retain(root, sandbox, outputs):
         candidates[incident_count:incident_count] = boundary
         candidates += [(p, "instance-" + p.parent.name + ".log") for p in instances]
         remaining = ROW_BYTES - INDEX_BYTES
-        index = ["row=" + row, "state=" + ("interrupted" if record.name == "active" else "failed")]
         seen = set()
         for source, name in candidates:
             if source in seen or remaining <= 0:
@@ -141,14 +158,19 @@ def retain(root, sandbox, outputs):
                     size = os.fstat(stream.fileno()).st_size
                     if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
                         continue
-                    length = min(size, FILE_BYTES, remaining)
-                    stream.seek(max(0, size - length))
+                    start, end = spans.get(source, (0, None))
+                    end = size if end is None else end
+                    if not start <= end <= size:
+                        index.append("unavailable=%s cause=span start=%d end=%d size=%d" % (name, start, end, size))
+                        continue
+                    length = min(end - start, FILE_BYTES, remaining)
+                    stream.seek(end - length)
                     data = stream.read(length)
                 out = target / name
                 out.parent.mkdir(parents=True, exist_ok=True)
                 out.write_bytes(data)
                 remaining -= len(data)
-                index.append("file=%s source-bytes=%d kept-bytes=%d" % (name, size, len(data)))
+                index.append("file=%s source-bytes=%d kept-bytes=%d" % (name, end - start, len(data)))
             except FileNotFoundError:
                 index.append("missing=" + name)
         (target / "index.txt").write_bytes(("\n".join(index) + "\n").encode()[:INDEX_BYTES])
