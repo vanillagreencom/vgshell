@@ -119,7 +119,7 @@
 # file returns unchanged.
 # Never is observed past the locked delay with no DPMS request, and unload
 # must leave no Power watch in the core's lending record. No password is typed.
-# inputs: shell/plugins/vgs.power/* shell/plugins/vgs.lock/* shell/Core/SessionLock.qml shell/Commons/SessionLockState.js shell/Hosts/LockHost.qml shell/Core/Compositor.qml shell/Core/Dispatch.js shell/Core/HyprlandLayer.js shell/Core/HyprlandState.js shell/Core/HyprlandState.qml shell/Core/HyprctlReader.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/plugins/vgs.system/* shell/Hosts/PaneHost.qml shell/Core/IdleRegistry.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/Field.qml shell/Ui/controls/Select.qml shell/Ui/controls/SegmentedControl.qml shell/Ui/controls/Switch.qml shell/Ui/controls/InfoButton.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/ValueSourceRow.qml shell/Ui/layout/Section.qml shell/Ui/layout/SectionHeader.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Commons/SettingValues.js shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/Notifier.qml shell/Hosts/NoticeHost.qml shell/Hosts/SummonHost.qml bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/power-fakes.sh bin/vgshell-system config/system/udev/69-vgs-disk-sleep.rules scripts/smoke/rows/system-steps.sh scripts/smoke/fixtures/devices/network.py shell/Core/SystemSteps.qml config/system/udev/* scripts/smoke/fixtures/devices/*
+# inputs: shell/plugins/vgs.power/* shell/plugins/vgs.lock/* shell/Core/SessionLock.qml shell/Commons/SessionLockState.js shell/Hosts/LockHost.qml shell/Core/Compositor.qml shell/Core/Dispatch.js bin/lib/qml-library.js shell/Core/HyprlandLayer.js shell/Core/MonitorLogic.js shell/Core/HyprlandState.js shell/Core/HyprlandState.qml shell/Core/HyprctlReader.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/plugins/vgs.system/* shell/Hosts/PaneHost.qml shell/Core/IdleRegistry.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/Field.qml shell/Ui/controls/Select.qml shell/Ui/controls/SegmentedControl.qml shell/Ui/controls/Switch.qml shell/Ui/controls/InfoButton.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/ValueSourceRow.qml shell/Ui/layout/Section.qml shell/Ui/layout/SectionHeader.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Commons/SettingValues.js shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/Notifier.qml shell/Hosts/NoticeHost.qml shell/Hosts/SummonHost.qml bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/power-fakes.sh bin/vgshell-system config/system/udev/69-vgs-disk-sleep.rules scripts/smoke/rows/system-steps.sh scripts/smoke/fixtures/devices/network.py shell/Core/SystemSteps.qml config/system/udev/* scripts/smoke/fixtures/devices/*
 set -euo pipefail
 source "$repo/scripts/smoke/power-fakes.sh"
 
@@ -455,14 +455,39 @@ print(len(watches) if all("--system" in run and not {"--session", "--address"}.i
 # Reopen for every poll: redirecting expect_poll itself shares an EOF
 # offset across its retries and counts only later appends.
 power_prepare_sleep_count() { wc -l <"$power_prepare_sleep_signals"; }
-power_idle_calls() { wc -l <"$sandbox/power-idle.calls"; }
-power_idle_no_dispatch_for() { # MILLISECONDS: negative window, sampled every 0.2 s
+power_idle_calls() { wc -l <"${1:-$sandbox/power-idle.calls}"; } # [FILE]: every DPMS dispatch
+# The requests shell/Core/Dispatch.js builds for displayPower, asked of it
+# under node once at row start so the count follows its forms: the Lua and
+# classic display-on requests, then the Lua display-off. Both stay empty
+# unless the read succeeds, and power_idle_on_calls then refuses to count.
+power_display_on=()
+power_display_off=""
+power_display_read() {
+  local text lines
+  text="$("$node_bin" -e 'const D = require(process.argv[1]).load(process.argv[2]);
+for (const [state, lua] of [["on", true], ["on", false], ["off", true]]) {
+  const r = D.request("displayPower", [state], lua);
+  if (!r.ok) { process.stderr.write(r.error + "\n"); process.exit(2); }
+  console.log(r.request);
+}' "$repo/bin/lib/qml-library.js" "$repo/shell/Core/Dispatch.js")" || return 1
+  mapfile -t lines <<<"$text"
+  [[ ${#lines[@]} == 3 && -n ${lines[0]} && -n ${lines[1]} && -n ${lines[2]} ]] || return 1
+  power_display_on=("${lines[0]}" "${lines[1]}")
+  power_display_off="${lines[2]}"
+}
+# [FILE]: display-on dispatches only. An idle watch's display-off never
+# counts. grep -c prints 0 and exits 1 when no line matches; 2 is a failed read.
+power_idle_on_calls() {
+  (( ${#power_display_on[@]} == 2 )) || return 1
+  grep -c -x -F -e "${power_display_on[0]}" -e "${power_display_on[1]}" -- "${1:-$sandbox/power-idle.calls}" || (( $? == 1 ))
+}
+power_idle_no_dispatch_for() { # MILLISECONDS COUNTER [FILE]: negative window, sampled every 0.2 s and at least once
   local before current deadline
-  before="$(power_idle_calls)" || return 1
+  before="$("${@:2}")" || return 1
   deadline=$(( $(now_ms) + $1 ))
-  while (( $(now_ms) < deadline )); do
-    current="$(power_idle_calls)" || return 1
-    [[ $current == "$before" ]] || { echo "$current"; return; }
+  while :; do
+    current="$("${@:2}")" || return 1
+    [[ $current == "$before" ]] && (( $(now_ms) < deadline )) || break
     sleep 0.2
   done
   echo "$current"
@@ -706,15 +731,34 @@ EOF_IDLE
   expect_poll "both Power watches reach idle again before the second resume" '[[10, true], [10, true]]' power_idle_watch_state
   # Light the nested outputs without input, leaving both watches idle.
   # Only a consumed resume can reset them in the following assertions.
-  expect "the nested compositor lights outputs before the second resume" ok hypr dispatch 'hl.dsp.dpms({ action = "enable" })'
+  expect "the nested compositor lights outputs before the second resume" ok hypr dispatch "${power_display_on[0]-}"
   expect_poll "every output is already on before the second resume" True power_idle_outputs true
   expect "lighting the outputs leaves both watches idle" '[[10, true], [10, true]]' power_idle_watch_state
-  before="$(power_idle_calls)"
+  before="$(power_idle_on_calls)"
   : >"$power_prepare_sleep_2"
   expect_poll "the logind stand-in sent its second resume line" 2 power_prepare_sleep_count
   expect_poll "the second resume replaces both watches again" '[[10, false], [10, false]]' power_idle_watch_state
   expect_poll "the second resume keeps every output lit" True power_idle_outputs true
-  expect "a second resume with every output on sends no dispatch" "$before" power_idle_no_dispatch_for 1000
+  expect "a second resume with every output on sends no display-on dispatch" "$before" power_idle_no_dispatch_for 1000 power_idle_on_calls
+  # The resumed watches can go idle within this span and send a display-off,
+  # which the check must ignore; a second display-on it must still count.
+  # Planted in a copy, since the shim's log is the run's evidence.
+  cp -- "$sandbox/power-idle.calls" "$sandbox/power-idle-resume.calls"
+  (
+    failures=0
+    all="$(power_idle_calls "$sandbox/power-idle-resume.calls")" || all=unread
+    on="$(power_idle_on_calls "$sandbox/power-idle-resume.calls")" || on=unread
+    printf '%s\n' "$power_display_off" >>"$sandbox/power-idle-resume.calls"
+    expect "control: counting every dispatch fails a late idle display-off" "$all" power_idle_no_dispatch_for 0 power_idle_calls "$sandbox/power-idle-resume.calls"
+    printf 'control-failures=%s\n' "$failures"
+    expect "control: counting display-on dispatches passes a late idle display-off" "$on" power_idle_no_dispatch_for 0 power_idle_on_calls "$sandbox/power-idle-resume.calls"
+    printf 'control-failures=%s\n' "$failures"
+    printf '%s\n' "${power_display_on[0]-}" >>"$sandbox/power-idle-resume.calls"
+    expect "control: counting display-on dispatches fails a duplicate display-on" "$on" power_idle_no_dispatch_for 0 power_idle_on_calls "$sandbox/power-idle-resume.calls"
+    printf 'control-failures=%s\n' "$failures"
+  ) >"$sandbox/power-idle-resume-control.log"
+  count="$(sed -n 's/^control-failures=//p' "$sandbox/power-idle-resume-control.log" | paste -sd ' ')"
+  expect "control: only the late display-off under every-dispatch counting and the duplicate display-on fail" "1 1 2" printf '%s' "$count"
   expect "both resumes use the original logind monitor" 1 power_logind_watch_count
   cat -- "$power_prepare_sleep_signals"
   expect "Never stops the idle watches after the second resume" ok power_idle_set vgs.power displayOffSeconds 0
@@ -740,6 +784,7 @@ EOF_IDLE
 
 power_main() {
   devices_ready power || return 0
+  power_display_read || fail "power: display-power requests unread from shell/Core/Dispatch.js"
   power_logind_start
   smoke_row_abandon=(power_logind_stop)
   expect "Power's system step resolves in the fake tree" prefixed devices_system_tree
