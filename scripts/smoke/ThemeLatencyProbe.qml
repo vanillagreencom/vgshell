@@ -441,13 +441,5 @@ Scope {
             row.instance.shell.theme.list(() => {});
             return "ok";
         }
-        function serviceTimer(): string {
-            const row = (Plugins.built.service || []).find(row => row.id === "vgs.themes");
-            if (row === undefined) return "absent";
-            const timer = descendants(row.instance).find(child => child.interval === 60000 && child.repeat === true && child.running === true);
-            if (timer === undefined) return "absent";
-            timer.triggered();
-            return "ok";
-        }
     }
 }

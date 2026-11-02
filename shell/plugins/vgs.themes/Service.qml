@@ -19,7 +19,10 @@ import "SetupLogic.js" as SetupLogic
 // ran. The theme browser closes on the publish of an apply it ran, before
 // the answer, and hands the answer here through `report-apply`; the next
 // apply result, as the queue runs one job at a time, is that apply's, and a
-// failure or a partial apply becomes one notice.
+// failure or a partial apply becomes one notice. The browsers' data, the
+// theme list, every image and the catalog, is read again when a browser
+// view opens, when a watched source changes and after an apply, never on a
+// timer.
 //   shortcut vgs.themes:themes              SUPER+SHIFT+T from the manifest's
 //                                            `hyprland` binds (README)
 //   shortcut vgs.themes:wallpapers          SUPER+SHIFT+W, the same way
@@ -66,8 +69,9 @@ Item {
     onPolicyEndChanged: if (registeredWith !== null) checkSetup()
     onRequirementsRevisionChanged: if (registeredWith !== null) checkSetup()
 
-    // One retained answer per source. Opening a view reads these through
-    // the plugin's existing IPC capability and starts no runner command.
+    // One retained answer per source. A view reads these through the
+    // plugin's existing IPC capability, and its opening asks for one new
+    // read through `refresh-browser-data`.
     property var catalog: ({ entries: null, reason: null })
     property var images: ({ images: null, reason: null })
     property string listReason: ""
@@ -135,6 +139,16 @@ Item {
         sawDownload = download !== null;
     }
 
+    // A FileView on a directory emits on a change in its parent too
+    // (Quickshell 0.3.1 src/io/fileview.cpp: updateWatchedFiles watches the
+    // target and its parent, and onWatchedDirectoryChanged emits while the
+    // target is not in the watcher's files(), which a directory never is), so
+    // one change can fire two views: the themes folder and the user images
+    // under Paths.configDir, or a package's backgrounds and another entry. A
+    // call Qt.callLater already queued and not yet run takes no second place
+    // (qtdeclarative 6.12 qqmldelayedcallqueue.cpp addUniqueCall, keyed by
+    // object and method), so those fires cost one read, and the queue skips
+    // the call once this service is deleted or queued for deletion.
     function refreshData(replacedImages) {
         if (registeredWith === null) return;
         if (typeof replacedImages === "string") {
@@ -143,6 +157,10 @@ Item {
             generations = next;
             dataRevision++;
         }
+        Qt.callLater(root.readData);
+    }
+
+    function readData() {
         if (readingData) { dataPending = true; return; }
         readingData = true;
         let waiting = 3;
@@ -151,7 +169,7 @@ Item {
             dataRevision++;
             if (waiting !== 0) return;
             readingData = false;
-            if (dataPending) { dataPending = false; refreshData(); }
+            if (dataPending) { dataPending = false; readData(); }
         };
         shell.theme.list(result => { root.listReason = result.reason === null ? "" : result.reason; answered(); });
         shell.theme.images("all", result => {
@@ -166,22 +184,33 @@ Item {
         });
     }
 
-    Timer {
-        interval: BrowserLogic.CATALOG_REFRESH_MS
-        running: root.registeredWith !== null
-        repeat: true
-        onTriggered: root.refreshData()
-    }
-
+    // The after-apply read: every apply that lands writes the shell's theme
+    // file last (docs/architecture/themes.md § Applying), and a read queued
+    // behind a running apply waits for it in ThemeRunner.enqueue, so the
+    // round reads the applied state. An apply result adds no second read.
     Connections {
         target: Theme
         function onDocumentRevisionChanged() { root.refreshData(); }
     }
 
+    // Every source the reads list is watched: the installed packages, where
+    // add, install, update and remove land, swap or delete a package
+    // folder; each listed package's entries; the user images folder; the
+    // catalog index; and each image. The shipped themes
+    // change only with a VGS update, which needs a restart.
     // QFileSystemWatcher observes directory renames as well as removal.
     // These views watch paths only; no directory is read as file content.
     FileView {
         path: Paths.configDir + "/themes"
+        preload: false
+        watchChanges: true
+        printErrors: false
+        onFileChanged: root.refreshData()
+    }
+    // Each image's own view is a file target, which a new file beside it
+    // does not fire.
+    FileView {
+        path: Paths.configDir + "/backgrounds"
         preload: false
         watchChanges: true
         printErrors: false
@@ -194,22 +223,32 @@ Item {
         printErrors: false
         onFileChanged: root.refreshData()
     }
+    // The entries of a package folder the list and the images read: its two
+    // documents, the preview its card draws and its backgrounds folder. Each
+    // has its own view: a view on an absent entry fires once the entry is
+    // created (Quickshell 0.3.1 src/io/fileview.cpp: on a change in the
+    // target's parent, onWatchedDirectoryChanged emits when a target not yet
+    // watched exists), and a file written in place reaches only its own
+    // view, since a folder watch reports no write (qtbase 6.12
+    // qfilesystemwatcher_inotify.cpp watches a directory without
+    // IN_MODIFY).
+    readonly property var packageEntries: ["theme.json", "terminal.json", "preview.jpg", "backgrounds"]
+    // Every listed package that is read, refused ones included, so fixing
+    // a refused package reaches an open view; a shadowed shipped package is
+    // never read.
     Variants {
-        model: root.listing === null ? [] : root.listing.packages.filter(p => p.state === "ok")
-        FileView {
-            required property var modelData
-            path: modelData.path + "/theme.json"
-            preload: false
-            watchChanges: true
-            printErrors: false
-            onFileChanged: root.refreshData(modelData.name)
+        model: {
+            const watches = [];
+            if (root.listing === null) return watches;
+            for (const p of root.listing.packages) {
+                if (p.state === "shadowed") continue;
+                for (const entry of root.packageEntries) watches.push({ name: p.name, path: p.path + "/" + entry });
+            }
+            return watches;
         }
-    }
-    Variants {
-        model: root.listing === null ? [] : root.listing.packages.filter(p => p.state === "ok")
         FileView {
             required property var modelData
-            path: modelData.path + "/backgrounds"
+            path: modelData.path
             preload: false
             watchChanges: true
             printErrors: false
