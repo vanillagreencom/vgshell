@@ -174,10 +174,19 @@ Singleton {
     // the composed ground CONTEXT hands, or its default ink for null
     // (ThemeLogic.keyHintInk).
     function keyHintInk(context, part) {
+        if (context === null && keyHintDefaults[part] !== undefined) return keyHintDefaults[part];
         const colors = context === null ? null : {
             fill: Qt.color(context.fill), plate: Qt.color(context.plate), sheen: Qt.color(context.sheen)
         };
         return toColor(ThemeLogic.formatColor(ThemeLogic.keyHintInk(source.values, colors, part)));
+    }
+    // Each part's ink on a resting surface, resolved once per theme, so a
+    // hint without a context reads it instead of solving it per cap.
+    readonly property var keyHintDefaults: {
+        const out = {};
+        for (const part of Object.keys(ThemeLogic.KEY_HINT_PARTS))
+            out[part] = toColor(ThemeLogic.formatColor(ThemeLogic.keyHintInk(source.values, null, part)));
+        return Object.freeze(out);
     }
 
     // The room a row takes under its sub-text, a hint, error or warning

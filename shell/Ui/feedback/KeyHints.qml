@@ -12,6 +12,8 @@ Row {
     property var hints: []
     // Only the fill under this hint; typography and styling stay shared.
     property var backgroundContext: null
+    // Resolved once for every word of the row.
+    readonly property color wordInk: Theme.keyHintInk(backgroundContext, "word")
     // Row's padding is part of its implicit height, so every action footer
     // gets the same gap without a spacer in its dialog or card.
     // https://doc.qt.io/qt-6/qml-qtquick-row.html#topPadding-prop
@@ -49,7 +51,7 @@ Row {
 
             Label {
                 role: "keyHint"
-                color: Theme.keyHintInk(root.backgroundContext, "word")
+                color: root.wordInk
                 // A fractional word width would put the next chord, and
                 // a right-aligned row, between device-pixel columns.
                 width: Math.ceil(implicitWidth)

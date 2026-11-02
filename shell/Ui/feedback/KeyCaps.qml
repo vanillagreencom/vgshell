@@ -10,6 +10,8 @@ Row {
     // The caps show a field's value, not a key hint (Kbd.value).
     property bool value: false
     property var backgroundContext: null
+    // Resolved once for every cap of the chord.
+    readonly property color ink: Theme.keyHintInk(backgroundContext, value ? "value" : "key")
     readonly property var caps: Logic.keyCaps(shortcut)
 
     spacing: Theme.space.sm
@@ -17,6 +19,6 @@ Row {
 
     Repeater {
         model: root.caps
-        Kbd { text: String(modelData); value: root.value; backgroundContext: root.backgroundContext }
+        Kbd { text: String(modelData); value: root.value; ink: root.ink }
     }
 }

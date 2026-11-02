@@ -676,7 +676,10 @@ Item {
         function test_bound_keys_read_on_the_field_and_its_selection_mark() {
             compare(UnitTheme.override({ scheme: { mode: "dark" }, color: { text: "#d0d0d0", selection: "#c8c8c8" } }), "ok");
             const keyName = cap => cap.children[0];
-            for (const cap of caps(pair)) compare(keyName(cap).color, Qt.color(Theme.color.text), "a bound key draws in body ink");
+            for (const cap of caps(pair)) {
+                compare(keyName(cap).role, "kbd", "a bound key draws in the chrome key role");
+                compare(keyName(cap).color, Qt.color(Theme.color.text), "a bound key draws in body ink");
+            }
             const over = (fill, base) => Qt.rgba(base.r + (fill.r - base.r) * fill.a, base.g + (fill.g - base.g) * fill.a, base.b + (fill.b - base.b) * fill.a, 1);
             const ground = over(Qt.color(Theme.kbd.background), over(Qt.color(Theme.color.selection), Qt.color(Theme.textField.background)));
             verify(Theme.contrastRatio(Qt.color(Theme.color.text), ground) < 4.5, "body ink alone fails this fixture's selection mark");

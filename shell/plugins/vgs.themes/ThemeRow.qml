@@ -46,6 +46,9 @@ Column {
     property string currentKey: ""
     property ListCursor cursor: null
     property bool listActiveFocus: false
+    // The opaque fill under the list's selected plate, which the panel
+    // hands so the Alt+D keys read on that plate; null for none.
+    property var hintGround: null
     readonly property bool selected: rowKey !== "" && rowKey === currentKey
     readonly property bool secondaryShortcutShown: selected && listActiveFocus && actionLabel !== "" && applicable
 
@@ -140,7 +143,10 @@ Column {
                     Row {
                         visible: root.secondaryShortcutShown
                         spacing: Theme.space.xxs
-                        KeyCaps { shortcut: "ALT+D" }
+                        KeyCaps {
+                            shortcut: "ALT+D"
+                            backgroundContext: root.hintGround === null ? null : ({ fill: root.hintGround, plate: Theme.listItem.selected, sheen: "transparent" })
+                        }
                     }
                     ThemeSwatch { swatch: root.swatch }
                 }

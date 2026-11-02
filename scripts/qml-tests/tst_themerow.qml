@@ -162,5 +162,28 @@ Item {
             expectFailContinue("", "the detached action is nearer the next theme");
             verify(nearerOwnName(detached));
         }
+
+        // The selected row's Alt+D keys stand on the list plate, which
+        // shows through their translucent fill. On the ground the panel
+        // hands, their ink keeps the text floor there.
+        function test_selected_row_keys_read_on_the_list_plate() {
+            own.installed = true;
+            own.applicable = true;
+            own.actionLabel = "Download wallpapers";
+            own.hintGround = Theme.color.surface;
+            const chord = find(own, child => child.shortcut === "ALT+D");
+            verify(chord !== null && chord.visible, "the selected row shows Alt+D");
+            const over = (fill, base) => Qt.rgba(base.r + (fill.r - base.r) * fill.a, base.g + (fill.g - base.g) * fill.a, base.b + (fill.b - base.b) * fill.a, 1);
+            const ground = over(Qt.color(Theme.kbd.background), over(Qt.color(Theme.listItem.selected), Qt.color(Theme.color.surface)));
+            verify(Theme.contrastRatio(Qt.color(Theme.kbd.foreground), ground) < 4.5, "the default key ink fails this plate");
+            const keys = chord.children.filter(child => child.ink !== undefined);
+            compare(keys.length, 2);
+            for (const key of keys) verify(Theme.contrastRatio(key.children[0].color, ground) >= 4.5, "a key on the plate reads " + Theme.contrastRatio(key.children[0].color, ground));
+            own.hintGround = null;
+            for (const key of keys) compare(key.children[0].color, Qt.color(Theme.kbd.foreground), "without a ground the keys keep the muted default");
+            own.installed = false;
+            own.applicable = false;
+            own.actionLabel = "Install";
+        }
     }
 }

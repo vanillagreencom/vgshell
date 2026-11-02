@@ -1924,6 +1924,25 @@ function selectionHintReadings(judge, hintInk = (values, context) => judge.keyHi
 function selectionHintShortfalls(judge) {
     return selectionHintReadings(judge).filter(([, ratio]) => ratio < 4.5);
 }
+// A selected Themes row's Alt+D keys: the list plate over the panel as the
+// judge reads list text on glass (GLASS_PLATE_PAIRS, glass made opaque and
+// lifted, rounded as drawn) and over the panel without glass.
+function plateHintReadings(judge, hintInk = (values, context) => judge.keyHintInk(values, context, "key")) {
+    return JUDGED_THEMES.flatMap(({ name, values }) => {
+        const glass = judge.acceptAppearance(GLASS.TOKENS, GLASS.LIGHT, values);
+        assert.equal(glass.ok, true, glass.ok ? "" : judge.refusalLine(glass));
+        const solid = judge.parseColor(judge.formatColor(judge.liftedOpaque(judge.parseColor(glass.values.glass.fill), glass.values.glass.solidLift)));
+        const plate = judge.parseColor(values.listItem.selected);
+        return [["glass", solid], ["standard", judge.parseColor(values.surface.level.base.background)]].map(([ground, fill]) => {
+            const ink = hintInk(values, { fill, plate, sheen: judge.parseColor("#00000000") });
+            const capFill = judge.overlay(judge.parseColor(values.kbd.background), judge.overlay(plate, fill));
+            return [name, ground, judge.drawnTextRatio(ink, capFill, values.text.keyName.weight)];
+        });
+    });
+}
+function plateHintShortfalls(judge) {
+    return plateHintReadings(judge).filter(([, , ratio]) => ratio < 4.5);
+}
 function launcherDetailShortfalls(judge, launcher) {
     return launcherTextReadings(judge, launcher).filter(([, role, , ratio]) => role !== "step" && ratio < judge.READABILITY_FLOOR);
 }
@@ -1946,6 +1965,10 @@ function launcherDetailShortfalls(judge, launcher) {
     assert.deepEqual(selectionHintShortfalls(judge), [], "a field's bound key reads at 4.5:1 on its selection mark in every theme");
     const oldValueInk = selectionHintReadings(judge, values => judge.parseColor(values.kbd.valueForeground));
     assert.ok(oldValueInk.some(([, ratio]) => ratio < 4.5), "control: body ink alone fails a field's selection mark in some theme");
+    assert.deepEqual(plateHintShortfalls(judge), [], "a selected row's keys read at 4.5:1 on the list plate in every theme");
+    const oldKeyInk = plateHintReadings(judge, values => judge.parseColor(values.kbd.foreground));
+    for (const name of ["vgs", "catalog/flexoki-light"])
+        assert.ok(oldKeyInk.some(([theme, , ratio]) => theme === name && ratio < 4.5), `control: the default key ink fails the list plate in ${name}`);
     const checkStep = rows => assert.deepEqual(rows.filter(([, role, , ratio]) => role === "step" && ratio < 1.25), [], "launcher title/detail step is at least 1.25:1 in every theme");
     checkStep(readings);
     // Independent menu reading: vgs's lifted #212121 under its plate,
@@ -1997,6 +2020,7 @@ function launcherDetailShortfalls(judge, launcher) {
 // keeps the text around it. The suite must fail on every copy.
 const CONTROLS = [
     ["shared hint ignores its composed surface", "if (context === null) return ink;", "return ink;", judge => assert.deepEqual(launcherDetailShortfalls(judge, LAUNCHER), [], "shared hint inks keep the reached fill floor")],
+    ["a selected row's keys ignore the list plate", "if (context === null) return ink;", "return ink;", judge => assert.deepEqual(plateHintShortfalls(judge), [], "a selected row's keys keep the floor on the list plate")],
     ["a field's bound key ignores its selection mark", "if (context === null) return ink;", "return ink;", judge => assert.deepEqual(selectionHintShortfalls(judge), [], "a bound key keeps the floor on its selection mark")],
     ["a surface-solved hint word keeps the old margin", "var margin = valueAt(values, spec.margin);", "var margin = spec.cap ? valueAt(values, spec.margin) : 4.95;", judge => verifyHintMargin(judge)],
     ["screensaver gradient is judged", '    ["screensaver.gradientStart", "screensaver.background"],\n', "", verifyScreensaver],
