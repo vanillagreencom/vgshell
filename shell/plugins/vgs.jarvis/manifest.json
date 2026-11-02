@@ -41,8 +41,8 @@
   },
   "hyprland": {
     "binds": [
-      { "shortcut": "talk", "key": "SUPER+code:108", "hold": true, "info": "Tap the keys to start listening. Tap again, or stop speaking, to send. Or hold the keys while you speak. In Toggle mode the conversation stays open. Pressing it while Jarvis speaks interrupts it." },
-      { "shortcut": "mute", "key": "SUPER+SHIFT+code:108", "info": "Turns the Jarvis microphone off, or on again. Mute stays on after a restart, and Talk does nothing while it is on." },
+      { "shortcut": "talk", "key": "SUPER+code:30", "hold": true, "info": "Tap the keys to start listening. Tap again, or stop speaking, to send. Or hold the keys while you speak. In Toggle mode the conversation stays open. Pressing it while Jarvis speaks interrupts it." },
+      { "shortcut": "mute", "key": "SUPER+SHIFT+code:30", "info": "Turns the Jarvis microphone off, or on again. Mute stays on after a restart, and Talk does nothing while it is on." },
       { "shortcut": "stop", "key": "SUPER+ALT+PERIOD", "info": "Ends what Jarvis is doing now: listening, thinking or speaking." },
       { "shortcut": "confirm", "key": "SUPER+ALT+Y", "info": "Confirms the Jarvis request shown on screen." },
       { "shortcut": "console", "key": "SUPER+ALT+C", "info": "Opens the Jarvis console: type to Jarvis, see its coding tasks and what it refused." }

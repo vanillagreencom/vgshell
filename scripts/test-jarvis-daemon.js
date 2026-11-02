@@ -33,7 +33,7 @@ const hello = { v: 1, type: "hello", gen: 0, settings: { home: "", sounds: false
     cloudVision: "ask", privateWindows: "bitwarden" }, directories: {
     state: "/private/state", data: "/private/data", runtime: "/private/runtime"
 }, revision: "a".repeat(64), locked: false,
-keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C" } };
+keys: { talk: "SUPER+code:30", mute: "SUPER+SHIFT+code:30", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C" } };
 // The rows of a file another process appends to. Every writer ends a row
 // with a newline, so the text after the last one is a row still being
 // written: a poll skips it rather than parse half a row.

@@ -292,9 +292,9 @@ function doctorLines(report) {
 // user makes in an editor meanwhile and makes the file when absent: EDIT
 // maps its configuration, null for an absent file, to the configuration to
 // write, or null to leave the file. EDIT may run twice, as editFile's may.
-function editUserConfig(userPath, source, edit) {
+function editUserConfig(userPath, source, shortcutKeyMigrations, edit) {
     const failure = editFile("user-config", userPath, true, current => {
-        const next = edit(current === undefined ? null : readUserConfig(configLogic, userPath, "user-config", source));
+        const next = edit(current === undefined ? null : readUserConfig(configLogic, userPath, "user-config", source, shortcutKeyMigrations));
         if (next === null) return null;
         // editFile writes one byte per character; the JSON is UTF-8.
         return Buffer.from(JSON.stringify(next, null, 2) + "\n", "utf8").toString("latin1");
@@ -404,7 +404,7 @@ main(() => {
         const defaultBarId = logic.activeBarId(shipped, "");
         const shown = logic.landsShown(manifest);
         let written = false;
-        editUserConfig(userPath, shipped.packageReviewSettingsSource, user => {
+        editUserConfig(userPath, shipped.packageReviewSettingsSource, shipped.shortcutKeyMigrations, user => {
             const effective = configLogic.effectiveConfig(shipped, user);
             written = shown !== logic.isEnabled(effective, manifest, defaultBarId) || (shown && !logic.isPlaced(effective, manifest));
             return written ? logic.withEnabled(user, manifest, shown, effective) : null;
@@ -416,7 +416,7 @@ main(() => {
         const [form, shippedPath, userPath, id] = args;
         const json = format(form) === "json";
         const shipped = readConfig(configLogic, shippedPath, "shipped-config");
-        const user = readUserConfig(configLogic, userPath, "user-config", shipped.packageReviewSettingsSource);
+        const user = readUserConfig(configLogic, userPath, "user-config", shipped.packageReviewSettingsSource, shipped.shortcutKeyMigrations);
         const plugin = pluginOf(registryOf(readScan()), id);
         const enabled = logic.isEnabled(configLogic.effectiveConfig(shipped, user), plugin.manifest, logic.activeBarId(shipped, "")) ? [id] : [];
         const rows = reportRows(plugin.manifest.requirements, plugin.missing, systemRead({ [id]: plugin.manifest }, { [id]: plugin.missing }, enabled));
@@ -427,7 +427,7 @@ main(() => {
     case "settings": {
         const [shippedPath, userPath, id] = args;
         const shipped = readConfig(configLogic, shippedPath, "shipped-config");
-        const user = readUserConfig(configLogic, userPath, "user-config", shipped.packageReviewSettingsSource);
+        const user = readUserConfig(configLogic, userPath, "user-config", shipped.packageReviewSettingsSource, shipped.shortcutKeyMigrations);
         const manifest = pluginOf(registryOf(readScan()), id).manifest;
         const settings = logic.settingsFor(configLogic.effectiveConfig(shipped, user), manifest);
         for (const key of Object.keys(manifest.schema)) {
@@ -442,7 +442,7 @@ main(() => {
         const json = format(form) === "json";
         if (!Object.prototype.hasOwnProperty.call(SESSION_LINES, graphicalSession)) refuse("graphical-session=" + graphicalSession);
         const shipped = readConfig(configLogic, shippedPath, "shipped-config");
-        const user = readUserConfig(configLogic, userPath, "user-config", shipped.packageReviewSettingsSource);
+        const user = readUserConfig(configLogic, userPath, "user-config", shipped.packageReviewSettingsSource, shipped.shortcutKeyMigrations);
         const core = coreRequirements(corePath);
         const report = doctorReport(registryOf(readScan()), shipped, user, core);
         report.session = { graphicalSession };

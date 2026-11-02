@@ -14,7 +14,7 @@ const hello = { v: 1, type: "hello", gen: 0, settings: { home: "", sounds: false
     cloudVision: "ask", privateWindows: "bitwarden, incognito" }, directories: {
     state: "/private/state", data: "/private/data", runtime: "/private/runtime"
 }, revision: "a".repeat(64), locked: false,
-keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C" } };
+keys: { talk: "SUPER+code:30", mute: "SUPER+SHIFT+code:30", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C" } };
 const intent = { v: 1, type: "intent", gen: 0, revision: hello.revision, intent: "talk-down" };
 const id = "11111111-1111-4111-8111-111111111111";
 const confirm = { ...intent, intent: "confirm", id, digest: "a".repeat(64), source: "key" };
@@ -48,8 +48,8 @@ assert.deepEqual(manifest.tui.task, { script: "tui/task.sh", title: "Jarvis codi
 assert.deepEqual(manifest.status.tasks.type, "count");
 assert.equal(manifest.hyprland.binds.every(bind => typeof bind.info === "string" && bind.info !== ""), true);
 assert.deepEqual(manifest.hyprland.binds.map(({ info, ...bind }) => bind), [
-    { shortcut: "talk", key: "SUPER+code:108", hold: true },
-    { shortcut: "mute", key: "SUPER+SHIFT+code:108" },
+    { shortcut: "talk", key: "SUPER+code:30", hold: true },
+    { shortcut: "mute", key: "SUPER+SHIFT+code:30" },
     { shortcut: "stop", key: "SUPER+ALT+PERIOD" },
     { shortcut: "confirm", key: "SUPER+ALT+Y" },
     { shortcut: "console", key: "SUPER+ALT+C" }

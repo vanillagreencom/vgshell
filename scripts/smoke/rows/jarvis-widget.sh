@@ -66,9 +66,9 @@ PY
 # One fact a line after the state's first: the AI model, then the voice
 # (the scripted brain, the default Local), then what a click does.
 jarvis_widget_facts='AI model: Scripted\nVoice: Local\nClick or press Super+Alt+C to open the console.'
-jarvis_widget_ready="[\"vgs-letter-j\", \"calm\", \"Ready to talk\\nTap or hold Super+Right Alt, then speak.\\n${jarvis_widget_facts}\"]"
+jarvis_widget_ready="[\"vgs-letter-j\", \"calm\", \"Ready to talk\\nTap or hold Super+U, then speak.\\n${jarvis_widget_facts}\"]"
 jarvis_widget_listening="[\"audio-lines\", \"accent\", \"Jarvis is listening\\nSpeak now.\\n${jarvis_widget_facts}\"]"
-jarvis_widget_muted="[\"mic-off\", \"neutral\", \"Jarvis is muted\\nPress Super+Shift+Right Alt to unmute.\\n${jarvis_widget_facts}\"]"
+jarvis_widget_muted="[\"mic-off\", \"neutral\", \"Jarvis is muted\\nPress Super+Shift+U to unmute.\\n${jarvis_widget_facts}\"]"
 jarvis_widget_click() { click_centre "$jarvis_widget_key" vgs.jarvis || fail "the click on the Jarvis widget failed"; }
 jarvis_widget_consoles() { window_count Jarvis; }
 jarvis_widget_click_opens() { expect_poll "a click on the widget opens the console" 1 jarvis_widget_consoles; }

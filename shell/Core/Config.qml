@@ -146,7 +146,7 @@ Singleton {
             console.error("config: " + label + " does not parse: " + e.message);
             return { state: "unparseable" };
         }
-        const moved = migrate ? ConfigLogic.migrateConfig(value, shipped.packageReviewSettingsSource) : { config: value, migrated: false };
+        const moved = migrate ? ConfigLogic.migrateConfig(value, shipped.packageReviewSettingsSource, shipped.shortcutKeyMigrations) : { config: value, migrated: false };
         const bad = moved.error || ConfigLogic.configError(moved.config);
         if (bad !== "") {
             console.error("config: " + label + " malformed: " + bad);

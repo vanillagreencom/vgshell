@@ -44,9 +44,9 @@ var HYPRLAND_KEY_NAME = /^[A-Za-z0-9_]+$/;
 // PluginLogic.js (`withEnabled`, `withPlaced`, `withSetting`, `withKey`,
 // `withAppearance`) writes it into a user file that has none. Version 2
 // keeps every setting of a plugin in its plugins[] row; version 3 moves
-// saved package review choices to the package owner. Retained converters
-// run in saved-version order.
-var CONFIG_VERSION = 3;
+// saved package review choices to the package owner; version 4 replaces
+// retired shortcut defaults. Retained converters run in saved-version order.
+var CONFIG_VERSION = 4;
 
 // The first defect of a configuration file (shipped or user), or "". The
 // file is an object; `version`, when present, is CONFIG_VERSION; `plugins`
@@ -73,6 +73,17 @@ function configError(config) {
         return "config must be an object";
     if (config.version !== undefined && config.version !== CONFIG_VERSION)
         return "version must be " + CONFIG_VERSION + ", got " + JSON.stringify(config.version);
+    if (config.shortcutKeyMigrations !== undefined) {
+        if (!Array.isArray(config.shortcutKeyMigrations))
+            return "shortcutKeyMigrations must be a list";
+        for (var m = 0; m < config.shortcutKeyMigrations.length; m++) {
+            var replacement = config.shortcutKeyMigrations[m];
+            if (!isPlainObject(replacement) || typeof replacement.id !== "string" || typeof replacement.shortcut !== "string" || !NAME_PATTERN.test(replacement.shortcut))
+                return "shortcutKeyMigrations." + m + " must name a plugin id and shortcut";
+            if (!hyprlandKey(replacement.from).ok || !hyprlandKey(replacement.to).ok)
+                return "shortcutKeyMigrations." + m + " must name valid from and to keys";
+        }
+    }
     var rows = function (list, at) {
         if (!Array.isArray(list))
             return at + " must be a list";
@@ -207,9 +218,9 @@ function migrateLayout(config) {
     return { config: out, migrated: true };
 }
 
-// D107 retains both converters and the shipped-only source datum, including
+// D107 retains the converters and the shipped-only source datum, including
 // skipped releases. Destination presence wins independently for each field.
-function migrateConfig(config, packageReviewSettingsSource) {
+function migratePackageReview(config, packageReviewSettingsSource) {
     var same = { config: config, migrated: false };
     if (!isPlainObject(config) || (config.version !== undefined && config.version !== 1 && config.version !== 2)) return same;
     var layout = migrateLayout(config);
@@ -237,6 +248,46 @@ function migrateConfig(config, packageReviewSettingsSource) {
         }
     }
     if (config.version === undefined && !layout.migrated && !moved) return same;
+    out.version = 3;
+    return { config: out, migrated: true };
+}
+
+// Replacement data comes from the shipped layer, never from the user file.
+// Only a saved value matching a retired default moves; null and custom keys
+// stay intact. Normalizing through the key judge also reaches old spellings.
+function migrateConfig(config, packageReviewSettingsSource, shortcutKeyMigrations) {
+    var same = { config: config, migrated: false };
+    if (!isPlainObject(config) || (config.version !== undefined && config.version !== 1 && config.version !== 2 && config.version !== 3)) return same;
+    var previous = migratePackageReview(config, packageReviewSettingsSource);
+    if (previous.error !== undefined) return previous;
+    var out = clone(previous.config);
+    var moved = previous.migrated;
+    var replacements = shortcutKeyMigrations === undefined ? [] : shortcutKeyMigrations;
+    replacements.forEach(function (replacement) {
+        if (!Array.isArray(out.plugins)) return;
+        out.plugins.forEach(function (row) {
+            if (!isPlainObject(row) || row.id !== replacement.id || !isPlainObject(row.keys)) return;
+            var value = row.keys[replacement.shortcut];
+            if (value === undefined || value === null || keyValueError(value, "key", false) !== "") return;
+            var from = hyprlandKey(replacement.from).key;
+            var to = hyprlandKey(replacement.to).key;
+            var changed = false;
+            var values = (Array.isArray(value) ? value : [value]).map(function (key) {
+                if (hyprlandKey(key).key !== from) return key;
+                changed = true;
+                return to;
+            });
+            if (!changed) return;
+            // A valid list may already include the replacement beside the old
+            // default. Keep its first occurrence after the conversion.
+            values = values.filter(function (key, index) {
+                return values.findIndex(function (other) { return hyprlandKey(other).key === hyprlandKey(key).key; }) === index;
+            });
+            row.keys[replacement.shortcut] = Array.isArray(value) ? values : values[0];
+            moved = true;
+        });
+    });
+    if (config.version === undefined && !moved) return same;
     out.version = CONFIG_VERSION;
     return { config: out, migrated: true };
 }

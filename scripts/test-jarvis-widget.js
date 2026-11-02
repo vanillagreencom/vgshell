@@ -31,7 +31,7 @@ const KeyNavLogic = load(path.join(__dirname, "..", "shell", "Ui", "foundation",
 const MANIFEST_KEYS = Object.fromEntries(JSON.parse(fs.readFileSync(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "manifest.json"), "utf8"))
     .hyprland.binds.map(bind => [bind.shortcut, bind.key]));
 const copy = value => JSON.parse(JSON.stringify(value));
-const KEYS = { talk: "Super+Right Alt", mute: "Super+Shift+Right Alt", stop: "Super+Alt+Period", confirm: "Super+Alt+Y", console: "Super+Alt+C" };
+const KEYS = { talk: "Super+U", mute: "Super+Shift+U", stop: "Super+Alt+Period", confirm: "Super+Alt+Y", console: "Super+Alt+C" };
 const UNBOUND = { talk: null, mute: null, stop: null, confirm: null, console: null };
 // The Voice widget's icon, which no Jarvis look takes.
 const VOICE_ICON = /iconName: "([a-z0-9-]+)"/.exec(fs.readFileSync(path.join(__dirname, "..", "shell", "plugins", "vgs.voice", "Widget.qml"), "utf8"))[1];
@@ -68,7 +68,7 @@ const START_CAUSES = [
 ];
 const SETTING_CAUSES = [
     ["speech=local-ready-timeout", "off", "Jarvis needs local voice", ["Local voice timed out: [turn Jarvis off and on again, or set it up again](page:vgs.jarvis/Setup).", "Click or press Super+Alt+C to open the console."]],
-    ["setup=probe-timeout", "ready", "Ready to talk", ["Tap or hold Super+Right Alt, then speak.", "Jarvis answers, but its check of the local voice did not finish.", "Click or press Super+Alt+C to open the console."]]
+    ["setup=probe-timeout", "ready", "Ready to talk", ["Tap or hold Super+U, then speak.", "Jarvis answers, but its check of the local voice did not finish.", "Click or press Super+Alt+C to open the console."]]
 ];
 const OVERFLOW = { tone: "danger", text: "capture-overflow" };
 // A ready Setup summary beside a Jarvis session row that cannot start.
@@ -83,8 +83,8 @@ const PROBE_TIMEOUT = setupReadiness({ kind: "answered", causes: ["setup=probe-t
 const up = (regions, extra) => Object.assign({ daemon: READY, audio: DEVICES, detail: detail(regions) }, extra);
 
 const CLICK = "Click or press Super+Alt+C to open the console.";
-const UNMUTE = "Press Super+Shift+Right Alt to unmute.";
-const HOLD = "Tap or hold Super+Right Alt, then speak.";
+const UNMUTE = "Press Super+Shift+U to unmute.";
+const HOLD = "Tap or hold Super+U, then speak.";
 const STOP = "Press Super+Alt+Period to stop.";
 const CONFIRM = "Confirm on screen, or press Super+Alt+Y.";
 const fault = kind => v => v.FAULT_TEXT[kind];

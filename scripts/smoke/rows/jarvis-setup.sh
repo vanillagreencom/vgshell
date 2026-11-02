@@ -1022,7 +1022,7 @@ PYHOME
 )" || fail "the synthetic audio world's home is unreadable"
 expect "Check microphone asks the daemon to start" ok ipc vgs.jarvis invoke check-microphone ''
 expect_poll "the selected stand-in source wakes the detector" ready setup_check_result
-expect_poll "Voice reports the passed check, how to talk, and keeps the check action" '["ok", "Microphone check passed", "Tap or hold Super+Right Alt, then speak", "check-microphone"]' setup_check_row
+expect_poll "Voice reports the passed check, how to talk, and keeps the check action" '["ok", "Microphone check passed", "Tap or hold Super+U, then speak", "check-microphone"]' setup_check_row
 expect "Check microphone can run again" ok ipc vgs.jarvis invoke check-microphone ''
 expect_poll "sound without the wake phrase is not Ready" not-heard setup_check_result
 expect_poll "Voice gives not-heard guidance and keeps the check action" '["warning", "Not heard", true, "check-microphone"]' setup_check_row_hint_present
