@@ -52,8 +52,6 @@ note_audio_paths=(
   "$home/.config/wireplumber/wireplumber.conf.d/90-vgs-smoke.conf"
   "$home/.config/wireplumber/wireplumber.conf.d/90-vgs-notification-sounds.conf"
   "$home/.local/share/wireplumber/scripts/vgs-notification-sounds.lua"
-  "$home/.local/state/vgshell/notifications/sound-rule-restarted"
-  "$home/.local/state/vgshell/notifications/sound-rule-store-restarted"
   "$home/.config/pipewire/pipewire.conf.d/90-vgs-notification-hold.conf"
   "$home/.local/state/wireplumber/stream-properties"
 )
@@ -92,7 +90,7 @@ rule=any(o.get("type")=="PipeWire:Interface:Metadata" and o.get("props",{}).get(
 print(json.dumps([sinks,rule]))'
 }
 notification_audio_removed() {
-  python3 -c 'import os,sys; print("removed" if all(not os.path.lexists(p) for p in sys.argv[1:]) else "waiting")' "${note_audio_paths[@]:1:5}"
+  python3 -c 'import os,sys; print("removed" if all(not os.path.lexists(p) for p in sys.argv[1:]) else "waiting")' "${note_audio_paths[@]:1:3}"
 }
 notification_audio_restore() {
   notification_hold_restore_delivery || return 1
@@ -5480,10 +5478,11 @@ JS
 wireplumber.profiles = { vgs-smoke = { hooks.stream.state = required } }
 wireplumber.settings = { node.stream.restore-props = false node.stream.restore-target = false }
 CONF
-  # This private custom-service deployment cannot perform an automatic
-  # user-unit bootstrap. Its notice and supported installer/migration path
-  # are also held at the SoundRule owner unit boundary.
-  expect "the custom-service bootstrap starts without an owned marker" ok ipc shell setPluginEnabled vgs.notifications false
+  # This private custom-service deployment is not the user's default audio
+  # services, which alone read the drop-ins, so a first install refuses it.
+  # The installer and its migration are held by
+  # scripts/test-notification-sound-install.py.
+  expect "the custom-service bootstrap starts without owned files" ok ipc shell setPluginEnabled vgs.notifications false
   expect_poll "the custom-service bootstrap waits for removal" False record_exists vgs.notifications
   expect_poll "the custom-service bootstrap waits for owned-file removal" removed notification_audio_removed
   [[ $(notification_audio_removed) == removed ]] || return 1
@@ -5492,7 +5491,7 @@ CONF
   expect "the custom-service bootstrap enables notifications" ok ipc shell setPluginEnabled vgs.notifications true
   expect_poll "custom-service bootstrap reports its Settings requirement" '"unavailable"' rule_phase
   expect "the unsupported custom-service bootstrap publishes its Settings requirement" True notification_hold_notice
-  # Install the generated owned files and marker only in this row's private
+  # Install the generated owned files only in this row's private
   # home; the real daemon receives the fragment through a private config copy.
   notification_hold_install
   rule_version="$(rule_fragment version)"

@@ -188,71 +188,148 @@ try {
 }
 if (process.argv.includes("--app-sounds")) process.exit(0);
 
-// Exercise the install owner's real handlers without starting a service.
-// Process completions are explicit deliveries; no fixture runs systemctl.
+// Drive the install owner's real handlers through bootstrap, update,
+// reinstall and a rule the audio services started with and did not load,
+// with every Process start recorded and none run. Then read the program
+// each start site in SoundRule's source names: every Process command,
+// every Supervised argv and every exec or execDetached argument, with the
+// count of each kind proving discovery found them all (a Process's
+// startDetached runs its own command). None may be an audio service job: a
+// restart drops every live call's devices (VGS-2231).
 function verifySoundRuleActivation(source) {
     const logic = load(file, commons);
-    const block = id => {
-        const start = source.indexOf("    Process {\n        id: " + id + "\n");
-        assert.notEqual(start, -1, "exercise SoundRule process " + id);
+    const discover = kind => {
+        const ids = Array.from(source.matchAll(new RegExp("^    " + kind + " \\{\\n        id: (\\w+)\\n", "gm")), m => m[1]);
+        assert.equal((source.match(new RegExp("\\b" + kind + "\\s*\\{", "g")) || []).length, ids.length, "every " + kind + " block names its id first");
+        return ids;
+    };
+    const ids = discover("Process");
+    assert.ok(["installer", "reader", "startCheck"].every(id => ids.includes(id)), "discover SoundRule's processes");
+    const block = (kind, id) => {
+        const start = source.indexOf("    " + kind + " {\n        id: " + id + "\n");
+        assert.notEqual(start, -1, "exercise SoundRule " + kind + " " + id);
         const end = source.indexOf("\n    }", start);
         assert.notEqual(end, -1);
         return source.slice(start, end);
     };
-    const handler = id => {
-        const found = block(id).match(/        onRunningChanged: \{([\s\S]*)\n        \}/);
-        assert.ok(found, "exercise SoundRule completion " + id);
-        return "(function() {" + found[1] + "\n})()";
+    const handler = (kind, id, name) => {
+        const found = block(kind, id).match(new RegExp("^        " + name + ": \\{([\\s\\S]*?)\\n        \\}", "m"));
+        assert.ok(found, "exercise SoundRule " + kind + " " + id + " " + name);
+        // Inside a Process handler `running` is that Process's own, false
+        // once it has ended; the rule's own `running` is shadowed there.
+        return "(function(running) {" + found[1] + "\n})(" + (kind === "Process" ? "false" : "rule.running") + ")";
     };
-    const command = id => {
-        const found = block(id).match(/^        command: (.+)$/m);
-        assert.ok(found);
+    const binding = (kind, id, name) => {
+        // A binding ends where the next member or the block's end starts.
+        const found = (block(kind, id) + "\n    }").match(new RegExp("^        " + name + ": ([\\s\\S]*?)\\n(?=        \\w|    \\})", "m"));
+        assert.ok(found, "read SoundRule " + kind + " " + id + " " + name);
         return found[1];
     };
-    const read = source.match(/^    function read\(text\) \{[\s\S]*?^    \}/m);
-    assert.ok(read);
-    for (const [marker, expected] of [["", "pipewire.service"], ["hold-store-v1 v1", "wireplumber.service"]]) {
-        let settled = 0;
-        const context = { Logic: logic, version: "v2", marker, bootstrap: false, step: "reading", problem: "",
-            markerWriter: { running: false }, restart: { running: false }, resumer: { running: false },
-            running: false, completion: null, markedResult: { text: "marked\n" }, restartErr: { text: "" },
-            settle: { restart() { settled++; } }, console: { info() {} },
-            stop() { this.step = "failed"; } };
-        context.rule = context;
-        vm.createContext(context);
-        vm.runInContext(read[0], context);
-        context.read("[]");
-        assert.equal(context.markerWriter.running, true, "activation records its attempt before restarting");
-        assert.equal(context.restart.running, false);
-        assert.equal(context.resumer.running, false);
-        context.completion = { code: 0, status: 0 };
-        vm.runInContext(handler("markerWriter"), context);
-        assert.equal(context.restart.running, true);
-        assert.equal(context.resumer.running, false, "WirePlumber waits for the PipeWire restart result");
-        assert.deepEqual(Array.from(vm.runInContext(command("restart"), context)), ["systemctl", "--user", "restart", expected]);
-        context.completion = { code: 0, status: 0 };
-        vm.runInContext(handler("restart"), context);
-        if (expected === "pipewire.service") {
-            assert.equal(context.resumer.running, true, "bootstrap resumes WirePlumber after the daemon restart");
-            assert.equal(settled, 0, "bootstrap is not done before WirePlumber resumes");
-            assert.deepEqual(Array.from(vm.runInContext(command("resumer"), context)), ["systemctl", "--user", "start", "wireplumber.service"]);
-            context.completion = { code: 0, status: 0 };
-            vm.runInContext(handler("resumer"), context);
-        } else assert.equal(context.resumer.running, false, "a Lua upgrade needs no second service job");
-        assert.equal(settled, 1);
-    }
+    const argument = open => {
+        let depth = 0, quote = "";
+        for (let i = open; i < source.length; i++) {
+            const c = source[i];
+            if (quote) {
+                if (c === "\\") i++;
+                else if (c === quote) quote = "";
+            } else if (c === '"' || c === "'" || c === "`") quote = c;
+            else if ("([{".includes(c)) depth++;
+            else if (")]}".includes(c) && --depth === 0) return source.slice(open + 1, i);
+        }
+        assert.fail("read SoundRule call at " + open);
+    };
+    const operation = name => {
+        const found = source.match(new RegExp("^    function " + name + "\\([^\\n]*\\) \\{[\\s\\S]*?^    \\}", "m"));
+        assert.ok(found, "exercise shipped " + name);
+        return found[0];
+    };
+    const serviceJob = argv => argv.some(word => /(^|\/)systemctl$/.test(word) || /^(pipewire|pipewire-pulse|wireplumber)\.(service|socket)$/.test(word));
+    const context = () => {
+        const rule = { Logic: logic, Pipewire: { ready: true }, console: { info() {} }, started: [],
+            helperPath: "/plugin/sound-rule-install.sh", shippedPath: "/plugin/wireplumber/vgs-notification-sounds.lua",
+            scriptPath: "/home/u/.local/share/wireplumber/scripts/vgs-notification-sounds.lua",
+            installPaths: ["/home/u/.config", "/home/u/.local/share", "/home/u/.local/state", "/home/u"],
+            version: "v2", shipped: "-- script", step: "installing", problem: "", running: false, completion: null,
+            installedResult: { text: "installed\n" }, installErr: { text: "" }, dumped: { text: "" }, startedResult: { text: "" },
+            readRetry: { tries: 0, restart() { assert.fail("a read that succeeds is not retried"); } },
+            settle: { restart() { rule.started.push("settle"); } },
+            stop(line) { this.problem = line; this.step = "failed"; } };
+        rule.rule = rule;
+        for (const id of ids) {
+            let running = false;
+            rule[id] = { get running() { return running; }, set running(value) { running = value; if (value) rule.started.push(id); } };
+        }
+        vm.createContext(rule);
+        for (const name of ["install", "readRule", "read", "judge"]) vm.runInContext(operation(name), rule);
+        return rule;
+    };
     const manifest = pluginLogic.validateManifest(JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8")), path.dirname(file));
     assert.equal(manifest.ok, true);
+    const ruleMeta = version => JSON.stringify([{ id: 40, type: "PipeWire:Interface:Metadata", props: { "metadata.name": "vgs-notification-sounds" },
+        metadata: [{ subject: 0, key: "version", type: "Spa:String", value: version }] }]);
+    const read = ["installer", "reader"], judged = read.concat(["settle", "startCheck"]);
+    // [label, the read's pw-dump, when the watcher sees v2 (read, grace,
+    // check or never), the start check's reply, the step, the starts].
+    for (const [label, dump, seen, reply, want, starts] of [
+        ["bootstrap: no rule has run", "[]", "never", "waiting", "pending", judged],
+        ["update: the rule runs an older version", ruleMeta("v1"), "never", "waiting", "pending", judged],
+        ["the services started with these files and no rule runs", "[]", "never", "started", "absent", judged],
+        ["the services started with these files and an older rule runs", ruleMeta("v1"), "never", "started", "absent", judged],
+        ["the start check cannot read the services", "[]", "never", "unsupported:unit", "failed", judged],
+        ["the rule comes up while the start check reads", "[]", "check", "started", "installed", judged],
+        ["the rule comes up within the grace", "[]", "grace", null, "installed", read.concat(["settle"])],
+        ["reinstall: the rule runs this version", ruleMeta("v2"), "never", null, "installed", read],
+        ["the watcher saw this version before the read", "[]", "read", null, "installed", read]
+    ]) {
+        const rule = context();
+        rule.running = seen === "read";
+        rule.install();
+        rule.completion = { code: 0, status: 0 };
+        vm.runInContext(handler("Process", "installer", "onRunningChanged"), rule);
+        assert.equal(rule.step, "reading", label);
+        rule.dumped.text = dump;
+        rule.completion = { code: 0, status: 0 };
+        vm.runInContext(handler("Process", "reader", "onRunningChanged"), rule);
+        if (rule.started.includes("settle")) {
+            assert.equal(rule.step, "reading", "a rule the read did not find waits out the grace: " + label);
+            rule.running = seen === "grace";
+            vm.runInContext(handler("Timer", "settle", "onTriggered"), rule);
+        }
+        if (rule.started.includes("startCheck")) {
+            rule.running = seen === "check";
+            rule.startedResult.text = reply + "\n";
+            rule.completion = { code: 0, status: 0 };
+            vm.runInContext(handler("Process", "startCheck", "onRunningChanged"), rule);
+        }
+        assert.equal(rule.step, want, "rule step: " + label);
+        if (want === "failed") assert.match(rule.problem, /^start-check=failed result="unsupported:unit"/, "rule problem: " + label);
+        else assert.equal(rule.problem, want === "absent" ? "not-loaded" : "", "rule problem: " + label);
+        assert.deepEqual(rule.started, starts, "the install starts only its install, its read and its start check: " + label);
+        if (want !== "pending" && want !== "absent") continue;
+        const status = logic.soundRuleSetup(rule.step, rule.problem);
+        assert.equal(status.text, want === "pending" ? "After restart" : "Unavailable", "Settings reads the step: " + label);
+        if (want === "absent")
+            assert.notEqual(status.hint, logic.soundRuleSetup("absent", "unknown").hint, "a rule not loaded says so: " + label);
+        assert.equal(pluginLogic.statusWrite(manifest.manifest, {}, "soundRuleSetup", status).ok, true, "Settings admits the step: " + label);
+    }
+    const starts = ids.map(id => ["Process " + id, binding("Process", id, "command")])
+        .concat(discover("Supervised").map(id => ["Supervised " + id, binding("Supervised", id, "argv")]))
+        .concat(Array.from(source.matchAll(/\bexec(?:Detached)?\s*\(/g), m => [m[0], argument(m.index + m[0].length - 1)]));
+    assert.ok(starts.some(([site]) => site === "execDetached("), "discover SoundRule's detached start");
+    for (const [site, expression] of starts) {
+        const value = vm.runInContext(expression, context());
+        const argv = Array.from(Array.isArray(value) ? value : value.command, String);
+        assert.ok(!serviceJob(argv), "SoundRule starts no audio service job: " + site + " " + JSON.stringify(argv));
+    }
     for (const reason of ["config", "manager", "unit"]) {
-        const context = { Logic: logic, running: false, completion: { code: 0, status: 0 },
-            installedResult: { text: "unsupported:" + reason + "\n" }, installErr: { text: "" },
-            console: { info() {} }, readRule() { assert.fail("unsupported installation must not activate services"); } };
-        context.rule = context;
-        vm.createContext(context);
-        vm.runInContext(handler("installer"), context);
-        assert.equal(context.step, "unavailable");
-        assert.equal(context.problem, reason);
-        const status = logic.soundRuleSetup(context.step, context.problem);
+        const rule = context();
+        rule.installedResult.text = "unsupported:" + reason + "\n";
+        rule.completion = { code: 0, status: 0 };
+        rule.readRule = () => assert.fail("an unsupported installation reads no rule");
+        vm.runInContext(handler("Process", "installer", "onRunningChanged"), rule);
+        assert.equal(rule.step, "unavailable", "an unsupported install reports unavailable");
+        assert.equal(rule.problem, reason);
+        const status = logic.soundRuleSetup(rule.step, rule.problem);
         assert.equal(status.available, false);
         const written = pluginLogic.statusWrite(manifest.manifest, {}, "soundRuleSetup", status);
         assert.equal(written.ok, true, "Settings admits the unsupported setup notice");
@@ -265,22 +342,37 @@ const soundRuleSource = fs.readFileSync(soundRuleFile, "utf8");
 verifySoundRuleActivation(soundRuleSource);
 const activationControl = fs.mkdtempSync(path.join(os.tmpdir(), "vgs-activation-control-"));
 try {
-    for (const [name, needle, replacement] of [
-        ["daemon restart argv", '["systemctl", "--user", "restart", "pipewire.service"]', '["systemctl", "--user", "restart", "wireplumber.service"]'],
-        ["WirePlumber resumption", 'if (rule.bootstrap) resumer.running = true;', 'if (rule.bootstrap) settle.restart();'],
-        ["unsupported setup notice", 'rule.step = "unavailable";', 'rule.step = "installed";']
+    // The restart this owner ran before VGS-2231, put back as each kind of
+    // start: started by the judgement that the rule waits for the next
+    // start, declared outside the install path, supervised, detached, and
+    // in a Process whose id is not its first line.
+    const restartArgv = '["systemctl", "--user", "restart", "pipewire.service"]';
+    const restart = '    Process {\n        id: restart\n        command: ' + restartArgv + '\n    }\n\n';
+    const anchor = "    Timer {\n        id: readRetry\n";
+    const ready = '            if (Pipewire.ready && rule.step === "reading"';
+    for (const [name, edits, guard] of [
+        ["restart after the judgement", [[anchor, restart + anchor], ['            step = "pending";\n', '            step = "pending";\n            restart.running = true;\n']], /starts only its install, its read and its start check/],
+        ["restart declared", [[anchor, restart + anchor]], /starts no audio service job: Process restart/],
+        ["restart supervised", [[anchor, '    Supervised {\n        id: restarter\n        argv: ' + restartArgv + '\n    }\n\n' + anchor]], /starts no audio service job: Supervised restarter/],
+        ["restart detached", [[ready, '            if (rule.step === "pending") Quickshell.execDetached(' + restartArgv + ');\n' + ready]], /starts no audio service job: execDetached\(/],
+        ["restart in a Process with its id later", [[anchor, '    Process {\n        running: false\n        id: hidden\n        command: ' + restartArgv + '\n    }\n\n' + anchor]], /every Process block names its id first/],
+        ["not loaded folded into pending", [['} else if (result === "waiting") {', '} else if (true) {']], /rule step: the services started with these files and no rule runs/],
+        ["unsupported setup notice", [['rule.step = "unavailable";', 'rule.step = "installed";']], /an unsupported install reports unavailable/]
     ]) {
-        assert.equal(soundRuleSource.split(needle).length, 2, "SoundRule control matches once: " + name);
+        let changed = soundRuleSource;
+        for (const [needle, replacement] of edits) {
+            assert.equal(changed.split(needle).length, 2, "SoundRule control matches once: " + name);
+            changed = changed.replace(needle, replacement);
+        }
         const copy = path.join(activationControl, "SoundRule.qml");
-        const changed = soundRuleSource.replace(needle, replacement);
-        assert.notEqual(changed, soundRuleSource);
         fs.writeFileSync(copy, changed);
-        assert.throws(() => verifySoundRuleActivation(fs.readFileSync(copy, "utf8")), assert.AssertionError, name + " control must fail");
+        assert.throws(() => verifySoundRuleActivation(fs.readFileSync(copy, "utf8")),
+            error => error instanceof assert.AssertionError && guard.test(error.message), name + " control must fail at its guard");
     }
 } finally {
     fs.rmSync(activationControl, { recursive: true, force: true });
 }
-console.log("test-notifications-logic: sound-rule-activation=pass controls=argv,resumption,unsupported-notice-rejected");
+console.log("test-notifications-logic: sound-rule-activation=pass controls=restart-after-judgement,restart-declared,restart-supervised,restart-detached,restart-id-later,not-loaded-as-pending,unsupported-notice-rejected");
 
 // Deliver real metadata and watcher events through the shipped readiness,
 // publisher and status judge. Only Qt's property notifications and status I/O
@@ -304,9 +396,9 @@ function verifySoundRuleStatus(logic, ruleSource, serviceSource) {
     assert.ok(watcher);
     const manifest = pluginLogic.validateManifest(JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8")), path.dirname(file));
     assert.equal(manifest.ok, true);
-    for (const initial of ["installed", "restarting", "installing", "reading"]) {
+    for (const initial of ["installed", "pending", "absent", "installing", "reading"]) {
         for (const loss of ["removed", "withdrawn", "watch-ended", "watch-started"]) {
-            const rule = { Logic: logic, version: "v2", observed: "", held: [], step: initial, problem: "",
+            const rule = { Logic: logic, version: "v2", observed: "", held: [], step: initial, problem: initial === "absent" ? "not-loaded" : "",
                 metadataWatch: { pending: "", metadataId: 0 }, console: { warn() {}, info() {} },
                 stop() { assert.fail("valid metadata must parse"); } };
             rule.rule = rule;
@@ -343,7 +435,10 @@ function verifySoundRuleStatus(logic, ruleSource, serviceSource) {
             assert.equal(reading(), undefined, initial + ": completed setup leaves the Settings list");
             if (initial === "installing" || initial === "reading")
                 assert.equal(rule.step, initial, "observed readiness does not skip pending file installation/read");
-            else assert.equal(rule.step, "installed", "completed activation never remains restarting");
+            else {
+                assert.equal(rule.step, "installed", "an observed rule ends the wait for the next start");
+                assert.equal(rule.problem, "", "an observed rule clears why it was not loaded");
+            }
             if (loss === "removed") deliver([{ id: 40, info: null }]);
             else if (loss === "withdrawn") deliver([{ id: 40, type: "PipeWire:Interface:Metadata", props: { "metadata.name": "vgs-notification-sounds" },
                 metadata: [{ subject: 0, key: "version", value: null }] }]);
@@ -361,7 +456,7 @@ function verifySoundRuleStatus(logic, ruleSource, serviceSource) {
             assert.equal(reading(), undefined, loss + ": later readiness removes the setup notice");
         }
     }
-    for (const phase of ["installing", "reading", "restarting"]) {
+    for (const phase of ["installing", "reading", "pending"]) {
         const pending = logic.soundRuleSetup(phase, "");
         assert.notEqual(pending, null, "activation publishes its current checking state");
         assert.notEqual(pending.tone, "ok");
@@ -389,7 +484,7 @@ try {
     const needle = 'function soundRuleSetup(phase, problem) {';
     assert.equal(source.split(needle).length, 2);
     const mutant = path.join(statusControl, "NotificationLogic.js");
-    const changed = source.replace(needle, needle + '\n    if (phase === "installed" || phase === "restarting") return null;');
+    const changed = source.replace(needle, needle + '\n    if (phase === "installed" || phase === "pending") return null;');
     assert.notEqual(changed, source);
     fs.writeFileSync(mutant, changed, { flag: "wx" });
     const publisher = 'if (JSON.stringify(shell.status.values.soundRuleSetup) === JSON.stringify(value)) return;';
@@ -962,16 +1057,6 @@ function verify(logic) {
         same(logic.soundRuleRunning(JSON.stringify(objects)), want, "running rule: " + label);
     same(logic.soundRuleRunning("Error: failed to connect"), { ok: false, error: "json" }, "running rule: no pw-dump text");
     same(logic.soundRuleRunning("{}"), { ok: false, error: "not-list" }, "running rule: no pw-dump list");
-    // The installer's step: [label, running version, marker, the step].
-    for (const [label, running, marker, want] of [
-        ["initial install bootstraps the daemon store", "", "", "bootstrap"],
-        ["an existing rule still needs its first daemon-store bootstrap", "v2", "", "bootstrap"],
-        ["the rule runs at this version", "v2", "hold-store-v1 v1", "running"],
-        ["an older rule restarts only WirePlumber", "v1", "hold-store-v1 v1", "restart"],
-        ["this version was restarted for once already", "", "hold-store-v1 v2", "absent"],
-        ["the rule runs at this version after its restart", "v2", "hold-store-v1 v2", "running"]
-    ])
-        assert.equal(logic.soundRuleStep("v2", running, marker), want, "rule step: " + label);
 
     // Lifetimes: [urgency, sender's timeout, the duration setting in
     // milliseconds, milliseconds shown].
@@ -1983,7 +2068,6 @@ const CONTROLS = [
     ["the hold matches a role", "if (typeof role === \"string\" && hold.roles.indexOf(role.toLowerCase()) !== -1) return true;", ""],
     ["the version reads the script", "h ^= text.charCodeAt(i);", "h ^= 0;"],
     ["the version is no number", "return \"v\" + (\"0000000\" + h.toString(16)).slice(-8);", "return (\"0000000\" + h.toString(16)).slice(-8);"],
-    ["one restart per version", 'return marker === "hold-store-v1 " + version ? "absent" : "restart";', 'return "restart";'],
     ["the rule's version is on subject 0", "if (!isPlainObject(m) || m.subject !== 0) continue;", "if (!isPlainObject(m)) continue;"],
     ["the main profile requires the feature that wants the script", '"    custom.vgs-notification-sounds = required",', '"    custom.vgs-notification-sounds = optional",'],
     ["the rule waits for prepared event-source managers", '        "    requires = [ support.standard-event-source ]",', '        "    requires = [ ]",'],
@@ -1998,7 +2082,6 @@ const CONTROLS = [
     ["held-only deltas keep the observed version", "if (o.id !== next.id) {", "if (true) {"],
     ["older removals keep replacement state", "if (o.id === next.id) {", "if (true) {"],
     ["unadopted rule holds receive the shell deadline", "deadlineMs: APP_SOUND_HOLD", "deadlineMs: 0"],
-    ["an unbootstrapped install restarts PipeWire", 'if (marker.indexOf("hold-store-v1 ") !== 0) return "bootstrap";', 'if (false) return "bootstrap";'],
     ["the hold entry names the roles", "roles: HOLD_ROLES, streams: streams, released: released", "roles: [], streams: streams, released: released"],
     ["the hold entry carries exact release intent", "streams: streams, released: released", "streams: streams, released: []"],
     ["rule readback uses object serial identity", 'held.indexOf(props["object.serial"]) === -1', "held.length === 0"],

@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """SoundRule's filesystem and supported-user-deployment contract.
 
+The bootstrap, update, reinstall and the start check start no audio service
+job: the stub service manager records every call, and only reads may appear
+(VGS-2231).
 The fixture executable is an owned, held process, never an invented PID.
 No PipeWire, service manager or audio device is contacted by this test.
 """
@@ -30,7 +33,9 @@ def verify(source, root):
     subprocess.run(["cc", str(code), "-o", str(programs / "pipewire")], check=True,
                    env={"PATH": "/usr/bin:/bin", "LANG": "C"}, capture_output=True)
     manager = programs / "systemctl"
-    manager.write_text('#!/bin/bash\ncat -- "$MANAGER_REPLY"\nexit "$MANAGER_STATUS"\n')
+    # A reply named for the unit ($3 of `--user show UNIT`) answers for it.
+    manager.write_text('#!/bin/bash\nprintf "%s\\n" "$*" >>"$MANAGER_LOG"\nreply=$MANAGER_REPLY\n[[ ! -e $reply.$3 ]] || reply=$reply.$3\n'
+                       'cat -- "$reply"\nexit "$MANAGER_STATUS"\n')
     manager.chmod(0o755)
 
     def scenario(name, custom=False, manager_status=0, loaded=True):
@@ -47,15 +52,18 @@ def verify(source, root):
             reply = home / "manager-reply"
             reply.write_text("\n".join([
                 "LoadState=" + ("loaded" if loaded else "not-found"),
-                "ActiveState=active", "CanStart=yes", "CanStop=yes",
-                "RefuseManualStart=no", "RefuseManualStop=no", "MainPID=" + str(child.pid), ""]))
-            env.update(MANAGER_REPLY=str(reply), MANAGER_STATUS=str(manager_status))
+                "ActiveState=active", "MainPID=" + str(child.pid), ""]))
+            calls = home / "manager-calls"
+            calls.write_text("")
+            env.update(MANAGER_REPLY=str(reply), MANAGER_STATUS=str(manager_status), MANAGER_LOG=str(calls))
             base = [str(config), str(data), str(state), str(home)]
 
             def run(action, *args):
                 result = subprocess.run(["/bin/bash", str(helper), action, *base, *args],
                                         env=env, text=True, capture_output=True, timeout=10)
                 assert result.returncode == 0, (name, result.returncode, result.stderr)
+                jobs = [c for c in calls.read_text().splitlines() if c.split()[:2] != ["--user", "show"]]
+                assert not jobs, ("the install starts no audio service job", name, jobs)
                 return result.stdout.strip()
 
             install = lambda: run("install", str(SCRIPT), VERSION, WP, PW)
@@ -63,28 +71,63 @@ def verify(source, root):
                 assert install().startswith("unsupported:"), "unsupported deployment must refuse"
                 assert not config.exists(), "unsupported bootstrap writes no files"
                 return
-            old_marker = state / "vgshell/notifications/sound-rule-restarted"
+            # The markers of the retired restart, as their writers left them.
+            markers = [(state / "vgshell/notifications/sound-rule-restarted", "v00000000\n"),
+                       (state / "vgshell/notifications/sound-rule-store-restarted", "hold-store-v1 v00000000\n")]
             old_script = data / "wireplumber/scripts/vgs-notification-sounds.lua"
             old_conf = config / "wireplumber/wireplumber.conf.d/90-vgs-notification-sounds.conf"
-            for path, text in [(old_marker, "v00000000\n"),
-                               (old_script, SCRIPT.read_text().splitlines()[0] + "\nold script\n"),
-                               (old_conf, WP.splitlines()[0] + "\nold fragment\n")]:
+            for path, text in markers + [(old_script, SCRIPT.read_text().splitlines()[0] + "\nold script\n"),
+                                         (old_conf, WP.splitlines()[0] + "\nold fragment\n")]:
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(text)
             assert install() == "installed", "default user service is supported"
-            assert not old_marker.exists(), "old marker is retired"
+            assert calls.read_text(), "the bootstrap reads the user services"
+            assert not any(p.exists() for p, _ in markers), "old markers are retired"
             assert old_script.read_bytes() == SCRIPT.read_bytes(), "old script migrates in place"
             assert old_conf.read_text() == WP, "old fragment migrates in place"
             hold = config / "pipewire/pipewire.conf.d/90-vgs-notification-hold.conf"
             assert hold.read_text() == PW, "daemon drop-in is installed"
-            assert run("mark", VERSION) == "marked"
-            marker = state / "vgshell/notifications/sound-rule-store-restarted"
-            assert marker.read_text() == "hold-store-v1 " + VERSION + "\n"
-            before = [(p.stat().st_ino, p.stat().st_mtime_ns) for p in (old_script, old_conf, hold, marker)]
+            before = [(p.stat().st_ino, p.stat().st_mtime_ns) for p in (old_script, old_conf, hold)]
+            checked = calls.read_text()
             assert install() == "installed"
-            assert run("mark", VERSION) == "marked"
-            after = [(p.stat().st_ino, p.stat().st_mtime_ns) for p in (old_script, old_conf, hold, marker)]
+            after = [(p.stat().st_ino, p.stat().st_mtime_ns) for p in (old_script, old_conf, hold)]
             assert after == before, "second install keeps identical files"
+            assert calls.read_text() == checked, "an installed rule is not checked again"
+            # Whether both services started after the newest file. The
+            # script, read first, is a minute newer than the drop-ins, so a
+            # start between them must still wait. The files are two days
+            # old, so the midnight `date` reads from an empty start stamp
+            # falls after them. [label, pipewire, wireplumber, reply]: a
+            # start as seconds after the newest file, None for no start
+            # recorded, (ActiveState, start) for a unit that is not active.
+            dropins = time.time_ns() // 1000 - 2 * 86400 * 10**6
+            for path in (old_conf, hold):
+                os.utime(path, ns=(dropins * 1000,) * 2)
+            newest = dropins + 60 * 10**6
+            os.utime(old_script, ns=(newest * 1000,) * 2)
+
+            def unit_reply(unit, start):
+                active, start = start if isinstance(start, tuple) else ("active", start)
+                stamp = ""
+                if start is not None:
+                    began = newest + int(start * 10**6)
+                    stamp = time.strftime("%a %Y-%m-%d %H:%M:%S", time.gmtime(began // 10**6)) + ".%06d UTC" % (began % 10**6)
+                (home / ("manager-reply." + unit)).write_text("ActiveState=" + active + "\nExecMainStartTimestamp=" + stamp + "\n")
+
+            for label, pipewire, wireplumber, want in [
+                ("both services started after the files", 1, 1, "started"),
+                ("PipeWire started before the files", -1, 1, "waiting"),
+                ("WirePlumber started before the files", 1, -1, "waiting"),
+                ("a start between the script and the drop-ins", -1e-6, -30, "waiting"),
+                ("a start in the newest file's microsecond", 0, 0, "waiting"),
+                ("WirePlumber stopped after starting with the files", 1, ("inactive", 1), "waiting"),
+                ("PipeWire records no start", None, 1, "waiting"),
+            ]:
+                unit_reply("pipewire.service", pipewire)
+                unit_reply("wireplumber.service", wireplumber)
+                assert run("started") == want, ("services started after the files are read", label)
+            for unit in ("pipewire.service", "wireplumber.service"):
+                (home / ("manager-reply." + unit)).unlink()
             # The managed helper can be terminated while rename is pending.
             # The acknowledgement proves that it acquired/wrote the temp;
             # signal only the session this test starts and still holds.
@@ -120,11 +163,10 @@ def verify(source, root):
             assert install() == "unsupported:foreign-file", "foreign destination is refused"
             assert run("remove") == "unsupported:foreign-file", "foreign destination survives removal"
             hold.write_text(PW)
-            marker.write_text("foreign\n")
-            assert run("remove") == "unsupported:foreign-marker", "foreign marker survives removal"
-            marker.write_text("hold-store-v1 " + VERSION + "\n")
+            for path, _ in markers:
+                path.write_text("unread\n")
             assert run("remove") == "removed"
-            assert not any(p.exists() for p in (old_script, old_conf, hold, marker))
+            assert not any(p.exists() for p in [old_script, old_conf, hold] + [p for p, _ in markers])
         finally:
             child.terminate()
             child.wait(timeout=5)
@@ -148,11 +190,18 @@ def main():
              "unsupported deployment must refuse"),
             ("unit", '[[ $\'\\n\'$properties$\'\\n\' == *$\'\\n\'"$expected"$\'\\n\'* ]] || refuse unit',
              ': "$expected"', "unsupported deployment must refuse"),
-            ("inaccessible", 'properties=$(systemctl --user show "$unit" --property=LoadState,ActiveState,CanStart,CanStop,RefuseManualStart,RefuseManualStop,MainPID) || refuse unit',
-             'properties=$(systemctl --user show "$unit" --property=LoadState,ActiveState,CanStart,CanStop,RefuseManualStart,RefuseManualStop,MainPID) || true',
+            ("inaccessible", 'properties=$(systemctl --user show "$unit" --property=LoadState,ActiveState,MainPID) || refuse unit',
+             'properties=$(systemctl --user show "$unit" --property=LoadState,ActiveState,MainPID) || true',
              "unsupported deployment must refuse"),
-            ("migration", 'rm -f -- "$old_marker"', ': "$old_marker"', "old marker is retired"),
+            ("migration", 'rm -f -- "${retired_markers[@]}"\necho installed', 'echo installed', "old markers are retired"),
+            # The restart the install once caused, put back in the helper.
+            ("restart", '\necho installed', '\nsystemctl --user restart pipewire.service\necho installed',
+             "the install starts no audio service job"),
             ("noop", '[[ $current != "$value" ]] || return 0', ': "$current"', "second install keeps identical files"),
+            ("start-order", 'if (( 10#$began <= newest )); then echo waiting; exit; fi', ': "$began"',
+             "services started after the files are read"),
+            ("newest", '(( 10#$written <= newest )) || newest=$((10#$written))', 'newest=$((10#$written))',
+             "services started after the files are read"),
             ("interrupted", '  trap \'rm -f -- "${temporary:?}"\' EXIT',
              '  : "$temporary"', "interrupted install removes owned temporary"),
         ]
@@ -166,7 +215,7 @@ def main():
                 assert assertion in str(error), (name, str(error))
             else:
                 raise AssertionError("control survived: " + name)
-    print("notification sound install: pass controls=deployment,unit,inaccessible,migration,noop,interrupted")
+    print("notification sound install: pass controls=deployment,unit,inaccessible,migration,restart,noop,start-order,newest,interrupted")
 
 
 if __name__ == "__main__":

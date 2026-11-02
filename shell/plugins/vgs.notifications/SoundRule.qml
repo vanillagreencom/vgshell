@@ -7,9 +7,14 @@ import "NotificationLogic.js" as Logic
 
 // SoundRule owns install orchestration and the rule's version/held observer.
 // sound-rule-install.sh owns filesystem validation, migration and writes.
-// One marker precedes the daemon-store bootstrap; later Lua updates restart
-// WirePlumber alone. Hold intent lives in PipeWire and needs no rule-return
-// event or republish. The existing watcher only reports rule availability.
+// PipeWire and WirePlumber read the installed drop-ins only when they start
+// (WirePlumber 0.5 daemon/configuration/modifying_configuration: the
+// configuration file is only read at startup; pipewire.conf(5): the daemon
+// creates context.objects at startup), so a new or updated rule loads at the
+// next normal start of the user's audio services. Nothing here restarts
+// them: a restart drops every live call's devices (VGS-2231).
+// Hold intent lives in PipeWire and needs no rule-return event or
+// republish. The existing watcher only reports rule availability.
 Item {
     id: rule
 
@@ -22,16 +27,15 @@ Item {
     readonly property string dataHome: Quickshell.env("XDG_DATA_HOME") || (Quickshell.env("HOME") + "/.local/share")
     readonly property string stateHome: Quickshell.env("XDG_STATE_HOME") || (Quickshell.env("HOME") + "/.local/state")
     readonly property string scriptPath: dataHome + "/wireplumber/scripts/vgs-notification-sounds.lua"
-    readonly property string markerPath: stateHome + "/vgshell/notifications/sound-rule-store-restarted"
     readonly property var installPaths: [configHome, dataHome, stateHome, Quickshell.env("HOME")]
-    property bool bootstrap: false
     property string problem: ""
 
-    // The install's step: installing, reading, installed (the read found
-    // the rule running), restarting, absent (the
-    // rule is not loaded, after its one restart or a failed one) or failed
-    // (a file or a read failed). `phase` reads running whenever the rule
-    // runs.
+    // The install's step: installing, reading, installed (the rule ran at
+    // this version), pending (the audio services last started before these
+    // files and load the rule at their next start), absent (they started
+    // with these files and did not load it, problem not-loaded),
+    // unavailable (the install was refused) or failed (a read failed).
+    // `phase` reads running whenever the rule runs.
     property string step: "installing"
     readonly property string phase: running ? "running" : step
     property string version: ""
@@ -41,14 +45,14 @@ Item {
     property var held: []
     readonly property bool running: version !== "" && observed === version
     // Once readiness is observed, a later loss falls back to installed,
-    // not the completed restart's activation state.
+    // not the wait for the next start or a load that did not happen.
     onRunningChanged: {
-        if (running && step === "restarting") step = "installed";
+        if (!running || (step !== "pending" && step !== "absent")) return;
+        step = "installed";
+        problem = "";
     }
     // The shipped script's text, null until read.
     property var shipped: null
-    // Empty while no new-format activation marker exists; null until read.
-    property var marker: null
 
     function state() {
         return { phase: phase, version: version, problem: problem };
@@ -61,7 +65,7 @@ Item {
     }
 
     function install() {
-        if (step !== "installing" || shipped === null || marker === null) return;
+        if (step !== "installing" || shipped === null) return;
         installer.running = true;
     }
 
@@ -79,16 +83,27 @@ Item {
             stop("read=failed error=" + found.error);
             return;
         }
-        const next = Logic.soundRuleStep(version, found.version, marker);
-        if (next === "running") {
+        // The watcher may see the rule before this snapshot does.
+        if (found.version === version || running) {
             step = "installed";
-        } else if (next === "absent") {
+            return;
+        }
+        settle.restart();
+    }
+
+    // Judge a rule that is not running: pending while the audio services
+    // last started before these files, not loaded once they started with
+    // them.
+    function judge(result) {
+        if (running) {
+            step = "installed";
+        } else if (result === "waiting") {
+            step = "pending";
+            console.info("notifications: sound rule: pending version=" + version);
+        } else {
             problem = "not-loaded";
             step = "absent";
-            console.info("notifications: sound rule: not-loaded version=" + version + " restarted=before running=" + JSON.stringify(found.version));
-        } else {
-            bootstrap = next === "bootstrap";
-            markerWriter.running = true;
+            console.info("notifications: sound rule: not-loaded version=" + version + " started=after-files");
         }
     }
 
@@ -132,25 +147,6 @@ Item {
         onLoadFailed: error => rule.stop("script=unreadable path=" + rule.shippedPath + " error=" + FileViewError.toString(error))
     }
 
-    FileView {
-        id: markerFile
-        path: rule.markerPath
-        watchChanges: false
-        printErrors: false
-        onLoaded: {
-            rule.marker = text().trim();
-            rule.install();
-        }
-        onLoadFailed: error => {
-            if (error !== FileViewError.FileNotFound) {
-                rule.stop("marker=unreadable path=" + rule.markerPath + " error=" + FileViewError.toString(error));
-                return;
-            }
-            rule.marker = "";
-            rule.install();
-        }
-    }
-
     // The user configuration as the core persists it, read when the
     // service goes.
     FileView {
@@ -189,31 +185,9 @@ Item {
         }
     }
 
-    Process {
-        id: markerWriter
-        property var completion: null
-        command: ["bash", rule.helperPath, "mark"].concat(rule.installPaths, [rule.version])
-        clearEnvironment: true
-        environment: ({ PATH: null, HOME: null, LANG: "C.UTF-8" })
-        stdout: StdioCollector { id: markedResult }
-        onExited: (code, status) => { completion = { code: code, status: status }; }
-        onRunningChanged: {
-            if (running) return;
-            const done = completion;
-            completion = null;
-            if (done === null || done.code !== 0 || markedResult.text.trim() !== "marked") {
-                rule.stop("marker=failed exit=" + JSON.stringify(done));
-                return;
-            }
-            rule.marker = "hold-store-v1 " + rule.version;
-            rule.step = "restarting";
-            restart.running = true;
-        }
-    }
-
-    // pw-dump and systemctl need the program path and the session's
-    // PipeWire or bus alone; under clearEnvironment a null value passes the
-    // shell's own value through (Quickshell 0.3.1, Process.clearEnvironment).
+    // pw-dump needs the program path and the session's PipeWire alone;
+    // under clearEnvironment a null value passes the shell's own value
+    // through (Quickshell 0.3.1, Process.clearEnvironment).
     Process {
         id: reader
         property var completion: null
@@ -241,50 +215,38 @@ Item {
         }
     }
 
-    Process {
-        id: restart
-        property var completion: null
-        command: rule.bootstrap ? ["systemctl", "--user", "restart", "pipewire.service"] : ["systemctl", "--user", "restart", "wireplumber.service"]
-        clearEnvironment: true
-        environment: ({ PATH: null, XDG_RUNTIME_DIR: null, DBUS_SESSION_BUS_ADDRESS: null, LANG: "C.UTF-8" })
-        stderr: StdioCollector { id: restartErr }
-        onExited: (code, status) => { completion = { code: code, status: status }; }
-        onRunningChanged: {
-            if (running) return;
-            const done = completion;
-            completion = null;
-            if (done === null || done.code !== 0) {
-                rule.problem = "restart";
-                rule.step = "absent";
-                console.info("notifications: sound rule: restart=failed version=" + rule.version + " exit=" + JSON.stringify(done) + " " + restartErr.text.trim().split("\n")[0]);
-                return;
-            }
-            if (rule.bootstrap) resumer.running = true;
-            else settle.restart();
+    // WirePlumber loads its scripts after its unit starts, so a read at
+    // sign-in can come before the rule publishes its version.
+    Timer {
+        id: settle
+        interval: Logic.RULE_GRACE
+        onTriggered: {
+            if (rule.running) rule.step = "installed";
+            else startCheck.running = true;
         }
     }
 
-    // WirePlumber BindsTo PipeWire, so restarting the daemon may stop it.
-    // Start it only after the daemon's restart job completed (WP 0.5.18,
-    // src/systemd/user/wireplumber.service.in: BindsTo/After=pipewire.service).
+    // Reads the files' times and the services' start times and starts no
+    // job; systemctl needs the program path and the session bus (Quickshell
+    // 0.3.1, Process.clearEnvironment).
     Process {
-        id: resumer
+        id: startCheck
         property var completion: null
-        command: ["systemctl", "--user", "start", "wireplumber.service"]
+        command: ["bash", rule.helperPath, "started"].concat(rule.installPaths)
         clearEnvironment: true
         environment: ({ PATH: null, XDG_RUNTIME_DIR: null, DBUS_SESSION_BUS_ADDRESS: null, LANG: "C.UTF-8" })
+        stdout: StdioCollector { id: startedResult }
         onExited: (code, status) => { completion = { code: code, status: status }; }
         onRunningChanged: {
             if (running) return;
             const done = completion;
             completion = null;
-            if (done === null || done.code !== 0) {
-                rule.problem = "restart";
-                rule.step = "absent";
-                console.info("notifications: sound rule: resume=failed exit=" + JSON.stringify(done));
+            const result = startedResult.text.trim();
+            if (done === null || done.code !== 0 || (result !== "started" && result !== "waiting")) {
+                rule.stop("start-check=failed result=" + JSON.stringify(result) + " exit=" + JSON.stringify(done));
                 return;
             }
-            settle.restart();
+            rule.judge(result);
         }
     }
 
@@ -298,20 +260,6 @@ Item {
         target: Pipewire
         function onReadyChanged() {
             if (Pipewire.ready && rule.step === "reading" && !reader.running && !readRetry.running) rule.readRule();
-        }
-    }
-
-    // systemctl returns once the unit has started, and WirePlumber loads
-    // its scripts after that: a rule not seen within the grace is not
-    // loaded, and the watcher goes on.
-    Timer {
-        id: settle
-        interval: Logic.RULE_GRACE
-        onTriggered: {
-            if (rule.running) return;
-            rule.problem = "not-loaded";
-            rule.step = "absent";
-            console.info("notifications: sound rule: not-loaded version=" + rule.version + " after=restart");
         }
     }
 

@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# SoundRule supplies the generated fragments and owns activation/status.
+# SoundRule supplies the generated fragments and owns status. The user's
+# audio services read these files at their next start; nothing here starts,
+# stops or restarts them. `started` reads whether they have started since.
 set -euo pipefail
 refuse() { printf 'unsupported:%s\n' "$1"; exit 0; }
 [[ $# -ge 5 ]] || refuse arguments
@@ -12,8 +14,8 @@ shift 5
 script_path=$data_root/wireplumber/scripts/vgs-notification-sounds.lua
 conf_path=$config_root/wireplumber/wireplumber.conf.d/90-vgs-notification-sounds.conf
 hold_path=$config_root/pipewire/pipewire.conf.d/90-vgs-notification-hold.conf
-marker_path=$state_root/vgshell/notifications/sound-rule-store-restarted
-old_marker=$state_root/vgshell/notifications/sound-rule-restarted
+# Activation markers of the retired restart, deleted unread (D107).
+retired_markers=("$state_root/vgshell/notifications/sound-rule-store-restarted" "$state_root/vgshell/notifications/sound-rule-restarted")
 script_head="-- VGS notifications: an app's own notification sound held silent from its"
 conf_head="# VGS notifications: holds an app's own notification sound silent while"
 hold_head="# VGS notifications: daemon-owned notification hold"
@@ -42,23 +44,45 @@ check_owned() {
 check_owned "$script_path" "$script_head"
 check_owned "$conf_path" "$conf_head"
 check_owned "$hold_path" "$hold_head"
-for marker in "$marker_path" "$old_marker"; do
-  check_path "$marker"
-  if [[ -e $marker ]]; then
-    IFS= read -r value <"$marker" || refuse marker
-    if [[ $marker == "$marker_path" ]]; then
-      [[ $value =~ ^hold-store-v1\ v[0-9a-f]{8}$ ]] || refuse foreign-marker
-    else
-      [[ $value =~ ^v[0-9a-f]{8}$ ]] || refuse foreign-marker
-    fi
-  fi
-done
 if [[ $action == remove ]]; then
-  rm -f -- "$script_path" "$conf_path" "$hold_path" "$marker_path" "$old_marker"
+  rm -f -- "$script_path" "$conf_path" "$hold_path" "${retired_markers[@]}"
   echo removed
   exit
 fi
-[[ $action == install || $action == mark ]] || refuse action
+# Whether both audio services started after the newest of these files was
+# last written, and so read them all at their start: `started`, else
+# `waiting`. A rename sets a written file's mtime, and an unchanged install
+# writes nothing, so the newest mtime is when the current files appeared.
+# Reads only: `systemctl show` starts no job.
+if [[ $action == started ]]; then
+  [[ $# == 0 ]] || refuse arguments
+  newest=0
+  for path in "$script_path" "$conf_path" "$hold_path"; do
+    [[ -f $path ]] || refuse files
+    written=$(stat -c %.6Y -- "$path") || refuse unreadable
+    written=${written/./}
+    [[ $written =~ ^[0-9]+$ ]] || refuse unreadable
+    (( 10#$written <= newest )) || newest=$((10#$written))
+  done
+  command -v systemctl >/dev/null 2>&1 || refuse manager
+  for unit in pipewire.service wireplumber.service; do
+    properties=$(systemctl --user show "$unit" --timestamp=us+utc --property=ActiveState,ExecMainStartTimestamp) || refuse unit
+    active=no stamp=
+    while IFS= read -r line; do
+      case $line in
+        ActiveState=active) active=yes ;;
+        ExecMainStartTimestamp=*) stamp=${line#ExecMainStartTimestamp=} ;;
+      esac
+    done <<<"$properties"
+    if [[ $active == no || -z $stamp ]]; then echo waiting; exit; fi
+    began=$(date -u -d "$stamp" +%s%6N) || refuse unit
+    [[ $began =~ ^[0-9]+$ ]] || refuse unit
+    if (( 10#$began <= newest )); then echo waiting; exit; fi
+  done
+  echo started
+  exit
+fi
+[[ $action == install ]] || refuse action
 atomic_text() {
   local path=$1 value=$2 temporary current
   while [[ $value == *$'\n' ]]; do value=${value%$'\n'}; done
@@ -75,12 +99,6 @@ atomic_text() {
   fi
   trap - EXIT
 }
-if [[ $action == mark ]]; then
-  [[ $# == 1 && $1 =~ ^v[0-9a-f]{8}$ ]] || refuse version
-  atomic_text "$marker_path" "hold-store-v1 $1"
-  echo marked
-  exit
-fi
 [[ $# == 4 ]] || refuse arguments
 shipped=$1
 version=$2
@@ -91,12 +109,14 @@ hold_fragment=$4
 [[ -f $shipped && ! -L $shipped && -r $shipped ]] || refuse shipped
 script=$(cat -- "$shipped") || refuse shipped
 [[ $script == "$script_head"$'\n'* ]] || refuse shipped
-# Only a default user daemon can consume this home drop-in automatically.
-if [[ ! -e $marker_path ]]; then
+# Only the user's default audio services read these home drop-ins at their
+# next start. A first install proves that once; an installed daemon drop-in
+# shows that a past install proved it.
+if [[ ! -e $hold_path ]]; then
   command -v systemctl >/dev/null 2>&1 || refuse manager
   for unit in pipewire.service wireplumber.service; do
-    properties=$(systemctl --user show "$unit" --property=LoadState,ActiveState,CanStart,CanStop,RefuseManualStart,RefuseManualStop,MainPID) || refuse unit
-    for expected in LoadState=loaded ActiveState=active CanStart=yes CanStop=yes RefuseManualStart=no RefuseManualStop=no; do
+    properties=$(systemctl --user show "$unit" --property=LoadState,ActiveState,MainPID) || refuse unit
+    for expected in LoadState=loaded ActiveState=active; do
       [[ $'\n'$properties$'\n' == *$'\n'"$expected"$'\n'* ]] || refuse unit
     done
     if [[ $unit == pipewire.service ]]; then
@@ -124,5 +144,5 @@ fi
 atomic_text "$script_path" "$script"
 atomic_text "$conf_path" "$fragment"
 atomic_text "$hold_path" "$hold_fragment"
-rm -f -- "$old_marker"
+rm -f -- "${retired_markers[@]}"
 echo installed

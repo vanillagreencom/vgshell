@@ -1008,9 +1008,9 @@ function soundRuleHeld(text) {
 }
 
 // The version the shell writes into the rule's WirePlumber fragment, from
-// the shipped script's TEXT, so an updated script carries a new one and
-// WirePlumber is restarted for it once: `v` and FNV-1a over its UTF-16
-// units as eight hex digits. The letter keeps it a string: pw-dump prints
+// the shipped script's TEXT, so an updated script carries a new one, which
+// the rule reports once WirePlumber next starts: `v` and FNV-1a over its
+// UTF-16 units as eight hex digits. The letter keeps it a string: pw-dump prints
 // a metadata value of digits alone as a JSON number (read in the nested
 // sandbox, PipeWire 1.6.9, VGS-1424).
 function soundRuleVersion(text) {
@@ -1078,26 +1078,19 @@ function soundRuleRunning(text) {
     return read.ok ? { ok: true, version: read.version } : read;
 }
 
-// The new marker records the one daemon-store bootstrap and the version
-// last restarted. It is written before restarting: a failed activation
-// remains unavailable rather than interrupting audio again on every login.
-function soundRuleStep(version, running, marker) {
-    if (marker.indexOf("hold-store-v1 ") !== 0) return "bootstrap";
-    if (running === version) return "running";
-    return marker === "hold-store-v1 " + version ? "absent" : "restart";
-}
-
 // Sound muting is an optional setup notice while it is unavailable. Once
 // the rule runs, there is no remaining setup for Settings to show.
 function soundRuleSetup(phase, problem) {
     if (phase === "running") return { hidden: true };
-    if (["installing", "reading", "restarting"].indexOf(phase) !== -1)
+    if (["installing", "reading"].indexOf(phase) !== -1)
         return { text: "Checking…", tone: "info", available: false,
             hint: "Notification sound muting is unavailable while the audio setup starts." };
+    if (phase === "pending")
+        return { text: "After restart", tone: "info", available: false,
+            hint: "VGS does not restart your audio services because that stops calls, so notification sound muting starts when they next start or the computer restarts." };
     var hints = {
-        restart: "The audio service could not restart. Notification sound muting is unavailable until the audio service starts with the VGS setup.",
-        "not-loaded": "The audio service has not loaded notification sound muting. It is unavailable until the audio service starts with the VGS setup.",
-        "": "Notification sound muting is unavailable until the audio service loads the VGS setup.",
+        "not-loaded": "Your audio services started with the VGS setup and did not load notification sound muting. It stays unavailable until an update to VGS or to your audio services lets them load it.",
+        "": "Notification sound muting is unavailable until your audio services load the VGS setup.",
         install: "VGS could not save its audio setup. Notification sound muting is unavailable until your audio setup permits the change."
     };
     return { text: "Unavailable", tone: "info", available: false,
@@ -1145,9 +1138,10 @@ function restartStep(streak, ran) {
     return { streak: next + 1, delay: next < RESTART_DELAYS.length ? RESTART_DELAYS[next] : -1 };
 }
 
-// How long the hold may stay unconfirmed, or the rule unseen, before the
-// shell reports that routing is unavailable: the restart's own wait, 20 reads
-// 500 ms apart (SoundRule.qml).
+// How long AppSounds waits for the rule at startup before it reports that
+// routing is unavailable (AppSounds.qml, ruleGrace), and SoundRule waits
+// for a rule its read did not find before it judges why (SoundRule.qml,
+// settle).
 var RULE_GRACE = 10000;
 
 // Apply one JSON array from pw-dump 1.6.9 --monitor. Metadata contains

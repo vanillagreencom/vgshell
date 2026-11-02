@@ -14,8 +14,7 @@ const copy = path.join(home, ".local/share/wireplumber/scripts/vgs-notification-
 for (const [file, text] of [
     [copy, script],
     [path.join(home, ".config/wireplumber/wireplumber.conf.d/90-vgs-notification-sounds.conf"), logic.soundRuleFragment(copy, version)],
-    [path.join(home, ".config/pipewire/pipewire.conf.d/90-vgs-notification-hold.conf"), logic.soundHoldFragment()],
-    [path.join(home, ".local/state/vgshell/notifications/sound-rule-store-restarted"), "hold-store-v1 " + version + "\n"]
+    [path.join(home, ".config/pipewire/pipewire.conf.d/90-vgs-notification-hold.conf"), logic.soundHoldFragment()]
 ]) {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, text);

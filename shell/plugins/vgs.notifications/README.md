@@ -34,7 +34,7 @@ The keys are under Keys on the plugin's Settings page. The Tools step on Setup l
 
 ### App sounds
 
-To mute an app's own notification sound, VGS adds a small rule to WirePlumber, the part of your system that routes sound. VGS installs it when the plugin starts. The first setup restarts PipeWire and resumes WirePlumber, which can interrupt sound for a moment. Later rule updates restart WirePlumber alone. If your audio services cannot load the rule, System Settings → Notifications shows that notification sound muting is unavailable.
+To mute an app's own notification sound, VGS adds a small rule to WirePlumber, the part of your system that routes sound. VGS installs it when the plugin starts. Your audio services load a new or updated rule the next time they start, at the latest when you restart the computer; signing out may leave them running. VGS never restarts them, so calls and other sound continue. Until then, System Settings → Notifications shows that muting starts after a restart. If your audio services start with the rule and do not load it, it shows that notification sound muting is unavailable.
 
 While Sound is off or Do Not Disturb is on, a call or media that an app starts plays silent for its first second. If a notification from that app comes in that second, it stays silent until it pauses, at most 15 seconds. Sounds that VGS plays itself still play. Turning the plugin off removes the rule.
 
