@@ -6,7 +6,7 @@
 **Status**: Active
 **Research**: [VGS-786](https://linear.app/vanillagreen/issue/VGS-786)
 
-**Decision**: Every change that adds a surface, a service, a plugin or a check adds its validation row in the same change, and the nested sandbox is the only place a shell starts. Every row declares its inputs in its own file, and a diff-scoped run executes only the rows a changed file reaches, with the core rows always on and an undeclarable row always run. A lane validates its final diff once with the rows its change names; a batch run of main covers the rest and gates nothing.
+**Decision**: Every change that adds a surface, a service, a plugin or a check adds its validation row in the same change, and the nested sandbox is the only place a shell starts. Every row declares its inputs in its own file, and a diff-scoped run executes only the rows a changed file reaches and no recorded pass on the same inputs covers, with the core rows on whenever the nested smoke runs and an undeclarable row always run. A lane validates its final diff once with the rows its change names; a batch run of main covers the rest and gates nothing.
 
 **Why**: A 29-minute smoke on almost every change made each fix round cost a full run, while an audit of the 943 checks found 7 to delete and 9 to merge, saving 23 s of the 5,162 s the three measured runs took on host cachy on 2026-10-03. The time is in checks that guard real failures, so only selection can cut it. A missing declaration that ran nothing would lose coverage silently, so it runs the row instead. `scripts/test-validate.sh` holds the selection.
 

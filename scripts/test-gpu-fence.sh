@@ -1425,7 +1425,7 @@ open(path, "w").write(text)
 PY
   if [[ $name == qml-smoke.sh && ${4:-} != non-nixos ]]; then : >"$tree/NIXOS"; fi
   cp -- "$TMP_ROOT/fence-stand-in" "$tree/scripts/smoke/gpu-fence.sh"
-  cp -- "$repo/scripts/smoke/shot.sh" "$repo/scripts/smoke/tree.sh" "$tree/scripts/smoke/"
+  cp -- "$repo/scripts/smoke/shot.sh" "$repo/scripts/smoke/tree.sh" "$repo/scripts/smoke/row-inputs.sh" "$tree/scripts/smoke/"
   git -C "$tree" init -q
   git -C "$tree" -c user.name=t -c user.email=t@t commit -q --allow-empty -m fixture
   cp -- "$repo/scripts/smoke/rows.list" "$tree/scripts/smoke/rows.list"

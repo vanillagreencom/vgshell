@@ -3437,6 +3437,43 @@ EOF
     return 1
   fi
 }
+# tui_refusal_shipped ID SCRIPT: true when SCRIPT, a refusal line's script,
+# is a TUI script under the shipped plugin ID's tui/ in the checkout. The
+# stand-in refuses those as it refuses any script but a fixture's; a
+# refusal of anything else is a row that pointed the stand-in at a script
+# that is neither, which rows/tui-guard.sh and smoke_judge_reading judge.
+# Classes are spelled out, since a range follows the locale.
+tui_refusal_shipped() { # ID SCRIPT
+  local name='[0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ]'
+  [[ $1 =~ ^$name($name|[._-])*$ && $2 =~ ^tui/$name($name|[._-])*$ && -f $source_repo/shell/plugins/$1/$2 ]]
+}
+# smoke_judge_reading: one line, `<calls> <refused> <state>`, of what the
+# judge rows read: the authentication calls in $auth_log, the refusals in
+# $tui_refused that tui_refusal_shipped refuses, and `intact` when no
+# sentinel is stood over and every sentinel, the tree's browser-policy
+# writer and the stand-in terminal are still the harness's own, else the
+# first that is not, or `unreadable`. qml-smoke.sh takes one at each row's
+# start and end, so a row's pass carries its own judges' reading whether or
+# not the judge rows run after it (smoke_attempt_judged in row-inputs.sh).
+smoke_judge_reading() {
+  local calls=0 refused=0 state=intact key id script name
+  if [[ -e $auth_log ]] && ! calls="$(wc -l <"$auth_log")"; then calls=0 state=unreadable; fi
+  if [[ -r $tui_refused ]]; then
+    while read -r key id script; do
+      tui_refusal_shipped "$id" "$script" || refused=$((refused + 1))
+    done <"$tui_refused"
+  else
+    state=unreadable
+  fi
+  if [[ $state == intact && -s $sentinels_stood ]]; then state=stood; fi
+  for name in "${auth_sentinels[@]/#/$shim/}" ${repo:+"$repo/bin/vgshell-browser-policy"}; do
+    [[ $state == intact ]] || break
+    [[ $name == "$repo/bin/vgshell-browser-policy" && ! -e $name ]] && continue
+    grep -q -F -- "$auth_log" "$name" 2>/dev/null || state="sentinel=${name##*/}"
+  done
+  if [[ $state == intact ]] && ! cmp -s -- "$tui_terminal" "$tui_terminal_written"; then state=terminal; fi
+  printf '%s %s %s\n' "$((calls))" "$refused" "$state"
+}
 # hold_runs keeps every run the stand-in replaces live, a core command's or
 # a refused plugin script's, until release_runs, so a row can read a busy
 # key or plant the state a run's end reads.

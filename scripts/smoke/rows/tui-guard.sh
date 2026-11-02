@@ -21,8 +21,6 @@ guard_marker="$sandbox/tui-guard-marker"
 guard_open="$sandbox/tui-guard-open"
 mkdir -p -- "$guard_dir" "$guard_records"
 : >"$guard_open"
-# Classes are spelled out, since a range follows the locale.
-guard_name='[0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ]'
 
 # The stand-in itself: no row wrote its own terminal, and the shell finds
 # this one first.
@@ -42,14 +40,14 @@ fi
 expect "no file or directory of the fixture index is writable" "" find "$tui_fixtures" -perm /222 -print
 
 # refusals_shipped LABEL LOG: every line of LOG, `<key> <plugin id>
-# <script>`, names a script under that shipped plugin's tui/. Prints each
+# <script>`, names a script under that shipped plugin's tui/, as
+# tui_refusal_shipped in harness.sh judges it. Prints each
 # refused line and fails once per line that names anything else.
 refusals_shipped() { # LABEL LOG
   local label="$1" log="$2" key id script bad=0
   if [[ ! -f $log || ! -r $log ]]; then fail "$label: $log is unreadable"; return 0; fi
   while read -r key id script; do
-    if [[ $id =~ ^$guard_name($guard_name|[._-])*$ && $script =~ ^tui/$guard_name($guard_name|[._-])*$ &&
-      -f $source_repo/shell/plugins/$id/$script ]]; then
+    if tui_refusal_shipped "$id" "$script"; then
       printf '        refused %s %s %s\n' "$key" "$id" "$script"
     else
       fail "$label: the refusal [$key $id $script] names no shipped plugin's TUI script"
