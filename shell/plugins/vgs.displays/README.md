@@ -6,14 +6,16 @@ Displays sets each screen's mode, scale, orientation and brightness. Apple Pro D
 
 ## Features
 
-- A brightness item in each bar. It controls the display on its own screen: scroll to change the brightness, click to open the flyout. It hides while no display it can control lights that screen.
-- A flyout with one slider per display, the bar's own display first, Link displays, and Display Settings.
-- The brightness keys change the display you work on, or every display. An on-screen display shows the new level.
-- System Settings → Displays: a display arrangement canvas, each screen's resolution, refresh rate, scale, orientation, colour mode, colour depth, HDR levels and brightness, the screen a display shows on when VGS cannot tell, Identify, Link displays, Dimming, and the access each kind of display needs.
-- A display mode change first opens a trial. Keep saves it, and Revert or the timer restores the old mode. When your Hyprland file sets that display after VGS, Displays says so and opens the file in one click.
-- Identify shows each screen's name and flashes the display, so you can tell two displays of one model apart.
-- The displays dim after a time without input, to a level you choose. Any input brings each display back to its level. A playing video keeps the displays from dimming.
-- When a display needs your permission, Allow opens a terminal that shows the one-time setup and asks for your password.
+- A brightness item in each bar. Scroll over it to change the brightness, or click it for a slider per display.
+- The brightness keys change the display you work on, or every display, and show the new level on screen.
+- System Settings → Displays: arrange your displays and set each one's resolution, refresh rate, scale, orientation, colour and HDR.
+- A mode change runs as a trial. Keep saves it; otherwise the old mode comes back.
+- Identify shows each screen's name, so you can tell two displays of one model apart.
+- The displays dim after a time without input. A playing video keeps them bright.
+
+## Setup
+
+Brightness control for Apple displays and other external displays can need a one-time permission. When it does, Allow under Access on the plugin's Setup tab opens a terminal that shows the setup and asks for your password.
 
 <details><summary>Show command</summary>
 
@@ -23,8 +25,6 @@ vgshell system apply i2c-dev
 ```
 
 </details>
-
-## Setup
 
 | Setting | What it changes |
 | --- | --- |

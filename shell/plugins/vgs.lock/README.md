@@ -6,16 +6,12 @@ Lock protects your session with your password. The lock screen uses your theme a
 
 ## Features
 
-- Locks with `SUPER+DELETE` or the launcher's Lock row. `vgshell lock` locks the session from a script or an idle daemon.
-- Locks after five minutes without input. A playing video that inhibits idle holds it off. A running screensaver stays over the lock until your first key, click or pointer movement, which shows the lock screen and types nothing into it.
-- Locks before the computer sleeps, and the sleep waits for the lock.
-- Shows the time, the date and the password field on every screen. Typing on any screen fills every field.
-- Pauses the password check for two minutes after ten wrong passwords, and says so.
-- Takes over from another lock screen that holds the session. If that lock screen later unlocks the session, the Lock reading on the Details tab warns you.
-- Warns you with a notification if the computer slept before the lock was confirmed.
-- Locks the session again when the shell starts after a crash while locked.
-- Can allow temporary password-free access without stopping VGS. This is off until you enable it.
-- Needs no setup. The password check uses the plugin's own PAM stack, and the shell's requirement notice installs a missing tool in one click.
+- Locks with `SUPER+DELETE` or the launcher's Lock row.
+- Locks after a time without input, and before the computer sleeps.
+- Shows the time, the date and the password field on every screen.
+- Pauses the password check for two minutes after ten wrong passwords.
+- Can allow temporary password-free access without stopping VGS. This is off until you turn it on.
+- Needs no setup. A missing tool installs from the requirement notice in one click.
 
 ## Setup
 
@@ -31,21 +27,22 @@ To allow your delegate to request access, open Settings → Plugins → Lock →
 
 Each request lasts 1 through 60 seconds and cannot extend an active request. The lock key, inactivity and sleep can lock sooner. The Details tab shows whether temporary access is off, allowed or active. An accepted request shows a notification.
 
-VGS must stay running and responsive to lock again. If VGS crashes or stops while deliberately unlocked, the desktop stays unlocked until VGS starts again, which locks it at once. A stall can delay expiry. With Lock before sleep off, sleep can extend access beyond the requested wall-clock time.
+VGS must stay running and responsive to lock again. If VGS crashes or stops while deliberately unlocked, the desktop stays unlocked until VGS starts again, which locks it at once. A stall can delay expiry. With Lock before sleep off, sleep can extend access beyond the requested time.
 
 ## Script integration
 
-A tool must wait until both lock readings show unlocked before it uses the desktop. It must always request a lock when its step ends, even after an error, and wait until both readings confirm the lock. A refusal or missed transition ends the step. The tool must bound its work within the requested time and must not obtain another grant automatically or restart VGS to recover.
+A tool that uses temporary access must wait until both lock readings report unlocked before it uses the desktop, and must finish its work within the time it asked for. When its step ends, even after an error, it must request a lock and wait until both readings confirm the lock. A refusal or a missed transition ends the step. The tool must not ask for another grant on its own or restart VGS to recover.
 
 <details>
 <summary>Show command</summary>
 
 ```sh
+vgshell lock
 vgshell ipc call vgs.lock invoke delegate-unlock '{"seconds":60}'
 vgshell ipc call vgs.lock invoke status ''
 vgshell ipc call vgs.lock invoke lock ''
 ```
 
-`seconds` is the only JSON field. It must be an integer from 1 through 60 in an ASCII argument of at most 64 characters. `ok` accepts the request; it does not confirm a compositor transition. Wait for `locked:false` and `secure:false` before the step, then for `locked:true` and `secure:true` after the final lock call. `delegateAllowed` reports the permission and `delegateActive` reports the active window. Refusals leave the lock in place.
+`seconds` is a whole number from 1 through 60. Wait for `locked:false` and `secure:false` before the step, then for `locked:true` and `secure:true` after the final lock call.
 
 </details>

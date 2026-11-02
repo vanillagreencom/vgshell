@@ -6,18 +6,15 @@ VGS keeps Google Drive folders on this computer and in Google Drive. It runs eve
 
 ## Features
 
-- Folder pairs: each pair joins one Google Drive folder and one folder on this computer. VGS copies both ways. The newer file wins.
-- Every hour while you are logged in, and when you select Sync now. An hour missed while you were logged out syncs once at the next login. One sync of a pair runs at a time, whoever starts it.
-- Google Docs, Sheets, Slides and Drawings arrive as Word, Excel, PowerPoint and SVG files. A local file at the same name is never uploaded.
+- Folder pairs: each pair joins one Google Drive folder and one folder on this computer. VGS copies both ways, and the newer file wins.
+- Sync every hour while you are logged in, and at once with Sync now.
+- Google Docs, Sheets, Slides and Drawings arrive as Word, Excel, PowerPoint and SVG files.
 - Nothing is deleted. A file removed on one side comes back from the other side.
-- When both sides changed, VGS keeps the older local copy in its records for 30 days when Google Drive was newer. When this computer was newer, Google Drive keeps the older Drive copy in the file version history for 30 days.
-- Editor temporary files, unfinished downloads, Git and agent folders, `local/`, keys and credential files and old backups are never copied.
-- Once a folder pair exists, a bar icon shows the state: up to date, files that need you, syncing, paused, offline, sign-in needed or failed, with the count of files that need you. The bar, its flyout and the Details tab of the Google Drive page in Settings show the same state. The tooltip names each folder pair and its state. It never shows a file name or an account.
-- A click on the bar icon opens a flyout with the state and the time of the last sync. When the sync has a problem, the flyout says what happened and how to fix it, with the fix one click away where VGS can run it, such as Sign in. Pause or Resume and Sync now are at the bottom while a sync can run, and the gear opens the Google Drive page in Settings. A click outside the flyout or Escape closes it.
-- Under Needs you, the flyout lists each file that needs you, with its folder pair and folder, what happened and what to do. When a file changed here and on Google Drive, Show older copy opens the folder of the copy VGS kept. Files that need nothing, such as a file VGS put back, fold into one line that says nothing was lost.
-- A notification when Google Drive needs you: a sign-in, a failed sync or a file that needs you. A file that needs nothing, such as a file VGS put back, sends no notification.
-- Pause stays on after VGS or the computer restarts. Disabling the plugin does not stop the hourly sync.
-- When Google Drive cannot be reached, the files stay as the last complete sync left them, and the flyout shows the time of that sync.
+- When both sides changed, the older copy is kept. When Google Drive was newer, VGS keeps the older local copy in its records for 30 days. When this computer was newer, Google Drive keeps the older Drive copy in the file version history for 30 days.
+- Editor temporary files, unfinished downloads, Git folders, keys and credential files are never copied.
+- A bar icon and its flyout show the sync state and the files that need you, with the fix one click away where VGS can run it.
+- A notification when Google Drive needs you: a sign-in, a failed sync or a file that needs you.
+- Pause stays on after a restart.
 
 ## Setup
 
@@ -25,17 +22,11 @@ Open the Google Drive page in Settings and select Setup. Take the steps in their
 
 1. At the top, Open the step-by-step guide opens [Get your Google Drive keys](#get-your-google-drive-keys). Follow it to make your Client ID and Client secret in Google Cloud.
 2. Under Google Cloud keys, select Add key beside Client ID and beside Client secret, and paste each key into its masked field. The Client ID ends in `.apps.googleusercontent.com`. The Client secret starts with `GOCSPX-`. VGS stores every key in your keyring.
-3. Under Sign in to Google, select Sign in. Google opens in your browser. Step 6 of the guide says what to select on each Google screen. VGS stores the sign-in in your keyring, and the Details tab shows the Google account.
-4. Under First folder pair, once you are signed in, select Add a folder pair. A setup window asks for a name, the Google Drive folder and the folder on this computer. A folder pair cannot be your home folder, a folder that holds a Git repository, a folder of VGS or your system services, or the whole Drive, and two pairs cannot overlap. The hourly sync turns on with the first folder pair.
+3. Under Sign in to Google, select Sign in. Google opens in your browser. Step 6 of the guide says what to select on each Google screen.
+4. Under First folder pair, select Add a folder pair and choose a name, the Google Drive folder and the folder on this computer. A folder pair cannot be your home folder, a folder that holds a Git repository, a folder of VGS or your system services, or the whole Drive, and two pairs cannot overlap. The hourly sync turns on with the first folder pair.
 5. Under Tools, select Review all missing or outdated tools when a tool is missing.
 
-The Settings tab lists each folder pair with its two folders and its state. Add a folder pair, under the list, adds another pair. Remove, beside a pair on the Settings tab, stops the sync of that pair after you confirm. Its files stay on this computer and in Google Drive.
-
-If the folder pair list cannot be read, the Folder pair list step on the Setup tab says why. Select Start the folder pair list again there. VGS keeps the damaged list beside a new empty list.
-
-Hourly sync, on the Setup tab, reads Done once the first folder pair has turned it on. If VGS could not turn it on, or it is from an earlier version of VGS, select Set up again beside it.
-
-The Details tab shows the Google account. Sign out, under Sign in to Google on the Setup tab, stops the sync and removes the sign-in from your keyring. Your files stay on this computer and in Google Drive. When Google refuses the sign-in, select Sign in again there.
+The Settings tab lists your folder pairs. Remove beside a pair stops its sync after you confirm. Sign out, on the Setup tab, stops the sync and removes the sign-in from your keyring. Either way, your files stay on this computer and in Google Drive. Disabling the plugin does not stop the hourly sync.
 
 ## Get your Google Drive keys
 

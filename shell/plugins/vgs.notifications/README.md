@@ -8,36 +8,35 @@ Notifications shows application notifications on each screen and keeps them in a
 
 ## Features
 
-- Super+N opens and closes the panel. Escape closes it too.
-- Super+Shift+N does what a click on the newest notification you have not dismissed in the panel does, also after it leaves the screen. A notification with no action shows No action. Change or clear both keys under Keys on the plugin's Settings page.
-- Super+Ctrl+N marks every notification as read, closes their popups and the panel, and keeps them in History.
-- The panel shows the notifications received since the last Mark all read that you have not dismissed there. The History icon shows the saved ones, and shows the unread ones again.
-- History keeps every notification that leaves the screen for 24 hours, at most the newest 100, and shows every one. Clear history or a restart of the computer removes them sooner.
-- Mark all read marks every notification as read, closes every popup on screen and closes the panel; the History keeps them all. Clear history removes the saved ones.
-- The Do Not Disturb icon keeps new notifications in History without showing them on screen. They play no VGS sound.
-- The Sound icon turns the VGS notification sound on or off. The sound plays only when you select one in System Settings → Sounds.
-- With Sound off or Do Not Disturb on, the sound an app plays for its own notification, such as the Slack chime, is muted too, from its first moment. The app's calls and media keep playing, but one that starts while either is on is silent for its first second. If a notification from that app comes in that second, the call or media stays silent until it pauses, at most 15 seconds.
-- For that, VGS adds a small rule to WirePlumber, the part of your system that routes sound. The rule holds a new sound from an app with notifications silent before it plays. If no notification from that app comes within one second, VGS lets the sound play, such as a call. VGS installs the audio setup when the plugin starts. The first setup restarts PipeWire and resumes WirePlumber automatically, which can interrupt sound for a moment. Later rule updates restart WirePlumber alone. If your audio services cannot load this setup automatically, System Settings → Notifications shows that notification sound muting is unavailable. The rule sends a held sound to a silent output named VGS notification mute hold. That output lasts while the rule runs, so it is ready before a sound starts, and never becomes the default output. VGS keeps no saved mute, volume or target for this output. An app keeps its own volume and returns to its normal output when the hold ends, even if the shell stops. With Sound on and Do Not Disturb off, the rule holds nothing. Turning the plugin off removes the installed rule and releases its holds. The silent output disappears when WirePlumber unloads the rule. Sounds that VGS plays itself, such as Test on the Sounds page, still play.
-- A normal notification stays on screen for at least the Notification duration. A critical one stays until closed. Pointing at a notification pauses its timer.
-- Pointing at a notification shows its current actions. A click runs its main action, such as View in Slack, and brings the application's window into view. An action removes the notification from the screen unless the app keeps it available for more actions, such as Open and Edit on a saved screenshot. Dismiss, or a right click, removes it from the screen.
-- Enter opens the selected notification in the panel, which keeps it. Delete, or Dismiss on its card, removes it from the Inbox and keeps it in History. In History, the same removes it for good.
+- `SUPER+N` opens and closes the panel of notifications you have not read.
+- `SUPER+SHIFT+N` runs the action of your newest notification, also after it leaves the screen.
+- `SUPER+CTRL+N` marks every notification as read and closes their popups.
+- History keeps notifications for 24 hours, at most the newest 100. Clear history or a restart of the computer empties it.
+- Do Not Disturb keeps new notifications off the screen and silent. Critical messages still show.
+- The Sound icon turns the VGS notification sound on or off. The sound plays only once you choose one in System Settings → Sounds.
+- With Sound off or Do Not Disturb on, an app's own notification sound, such as the Slack chime, is muted too.
+- A click runs a notification's main action and brings its app into view.
 - A file notification opens the file in your editor, or in the default app for the file.
-- Slack notifications show sender initials and workspace icons without setup. Custom emoji appear when Slack has saved their images. See [Slack notifications](slack.md).
-- The panel says so when the saved history cannot be read. Clear history starts a new one.
-- A message from any VGS plugin is a system notification, which this plugin draws. VGS has no toast of its own.
-- With this plugin off, VGS drops plugin messages and writes one line to its log. Only before VGS first shows a notification after it starts can another notification app show them.
+- Slack notifications show sender initials, workspace icons and custom emoji. See [Slack notifications](slack.md).
+- Every VGS plugin's messages show here. With this plugin off, VGS drops them, except right after VGS starts, when another notification app can show them.
 
 ## Setup
 
 | Setting | What it changes |
 | --- | --- |
-| VGlass | Whether notifications draw as frosted glass with a moving edge light, and enter from a glass bead. Off, they draw as plain panels that fade in and out. On by default. VGlass in the Windows page can turn glass on or off for every glass surface, and then this setting has no effect. |
-| Notification duration | The minimum time a normal notification stays on screen. |
-| Position | Where notifications show on each screen: top or bottom, at the left, center or right. The newest notification is nearest that edge. |
-| Slack photos | Whether sender photos load from Slack workspaces. Each workspace's token field and its Create Slack app stand under it. |
+| VGlass | Whether notifications draw as frosted glass. Off, they draw as plain panels. VGlass on the Windows page can turn glass on or off for every glass surface, and then this setting has no effect. |
+| Notification duration | The minimum time a normal notification stays on screen. A critical one stays until you close it. |
+| Position | Where notifications show on each screen. |
+| Slack photos | Whether sender photos load from Slack workspaces. |
 | Slack custom emoji | Whether custom emoji show in Slack notifications. |
 
-The shortcut is under Keys on the plugin's Settings page. The Tools step on Setup lists required tools, and the Optional tools step there installs the optional ones. Details lists the optional tools under Tools.
+The keys are under Keys on the plugin's Settings page. The Tools step on Setup lists required tools, and the Optional tools step there installs the optional ones.
+
+### App sounds
+
+To mute an app's own notification sound, VGS adds a small rule to WirePlumber, the part of your system that routes sound. VGS installs it when the plugin starts. The first setup restarts PipeWire and resumes WirePlumber, which can interrupt sound for a moment. Later rule updates restart WirePlumber alone. If your audio services cannot load the rule, System Settings → Notifications shows that notification sound muting is unavailable.
+
+While Sound is off or Do Not Disturb is on, a call or media that an app starts plays silent for its first second. If a notification from that app comes in that second, it stays silent until it pauses, at most 15 seconds. Sounds that VGS plays itself still play. Turning the plugin off removes the rule.
 
 ### Slack photos
 

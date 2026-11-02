@@ -8,25 +8,36 @@ Power shows the battery level and the power profile in the bar, and switches the
 
 ## Features
 
-- A bar icon with the battery level and the active power profile. On a desktop it shows the profile alone, and it hides when profile control is unavailable too.
-- A flyout with the battery level, the charging state, the time estimate and the power profiles.
-- Use power saver, Use balanced and Use performance in the launcher.
-- With a battery, switches to the profile you choose when you connect or disconnect power. It leaves the profile alone when VGS starts.
-- Sends a low battery alert and an urgent critical alert, each once per discharge.
-- Performance is unavailable on hardware without a performance profile.
-- An idle timeline in System Settings: each step, such as dim, screensaver and lock, in order with its time. Select a time to open the field that sets it. A step that starts before an earlier step shows a warning, such as a lock before the screensaver.
-- Turns every display off after you stop using the computer, and sooner while the screen is locked. A key press or pointer movement turns them on if your Hyprland config lets it, and the Power section of System Settings shows if each one can.
-- A power menu with Log out, Suspend, Hibernate, Reboot, Shut down and Switch user. It lists only the actions this computer can do: Hibernate where the system allows it, and Switch user where the login screen can switch users. Hold Space, Enter or the pointer on an action for 2 seconds to run it; release early to cancel. Open it from the launcher's System menu, or choose its key under Keys in Power's Settings. It has no key until you choose one.
+- A bar icon and flyout with the battery level, the charging state, the time left and the power profiles.
+- Power saver, balanced and, where the hardware has it, performance profiles, also from the launcher.
+- A profile of your choice when you connect or disconnect power.
+- A low battery alert and an urgent critical alert.
+- An idle timeline in System Settings: dimming, the screensaver, the lock, the displays turning off and sleep, in order, each with its time.
+- Turns the displays off after you stop using the computer, and sooner while the screen is locked.
+- A power menu to log out, suspend, hibernate, reboot, shut down or switch user. Hold an action for 2 seconds to run it. Open the menu from the launcher's System menu, or choose its key under Keys in Power's Settings.
+- Wake on LAN for a wired network device that NetworkManager manages.
 
 ## Setup
 
-The battery rows show only on a machine with a battery. The two profile rows also need the power profiles service, which is optional: without it, Power's section in System Settings offers to install it. Wake on LAN shows only on a machine with a wired network device that NetworkManager manages. Without a battery, Power sets one profile from the bar, and Details says so. The same settings show in Power's section of System Settings. If Power cannot save Wake on LAN, both views show the problem under the switch.
+Wake sources, a required step on the plugin's Setup tab, lets only keyboards and pointing devices wake the computer through USB or Bluetooth. The power button and a USB device you connect during sleep also wake it. Allow opens a terminal that asks for your password.
+
+<details><summary>Show command</summary>
+
+```bash
+vgshell system apply wake-sources
+```
+
+</details>
+
+The battery rows show only on a computer with a battery. The profiles need the power profiles service; without it, Power's section in System Settings offers to install it. The same settings show in Power's section of System Settings.
 
 | Setting | What it changes |
 | --- | --- |
-| Turn displays off | How long the displays stay on without input. While locked, they turn off after a short pause instead. Never keeps them on while locked too. |
-| Low battery alert | The battery level that sends an alert while discharging. |
-| Critical battery alert | The battery level that sends an urgent alert while discharging. |
+| Turn displays off | How long the displays stay on without input. |
+| Low battery alert | The battery level that sends an alert. |
+| Critical battery alert | The battery level that sends an urgent alert. |
 | When charging | The profile to use after you connect power. |
 | On battery | The profile to use after you disconnect power. |
-| Wake on LAN | Whether another device on the wired network can wake the computer from sleep. Power changes your wired connections only after you set this switch. Then it saves the value on every wired connection and, while it is on, on a connection added later. A connection in use takes it the next time it connects. When you turn Power off, the wired connections keep the last value, so turn Wake on LAN off first. |
+| Wake on LAN | Whether another device on the wired network can wake the computer from sleep. |
+
+Power changes your wired connections only after you set Wake on LAN. When you turn the Power plugin off, the wired connections keep the last value, so turn Wake on LAN off first.

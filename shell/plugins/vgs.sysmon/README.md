@@ -11,11 +11,9 @@ System Monitor shows CPU, memory and graphics card use in the bar. Its flyout sh
 - Show memory as a percentage or used GB.
 - Open the flyout for memory, swap and graphics memory details.
 - Open See all for the process list in btop.
-- Show unknown readings as `--`.
-- Show a sleeping graphics card as Asleep in the flyout.
 
 ## Setup
 
-Open Settings, Shell & Plugins, System Monitor. Readings comes first. Its Layout shows two readings of one item, such as CPU use and temperature, stacked on two short lines, each with its own icon, or on one line. Its Labels shows an icon or a short name before each reading; stacked, each line has its own, such as CPU over TMP. Readings also sets the refresh interval and the temperature unit. CPU, Memory and GPU each turn their bar value on or off and hold its options. Graphics card, under GPU, selects the card when the computer has more than one.
+Open Settings, Shell & Plugins, System Monitor. Readings sets how the bar lays out and labels its readings, the refresh interval and the temperature unit. CPU, Memory and GPU each turn their bar value on or off. Graphics card, under GPU, selects the card when the computer has more than one.
 
 If See all is missing, select Setup on the same page. Under Optional tools, select Review all missing or outdated tools to add btop for the process list.

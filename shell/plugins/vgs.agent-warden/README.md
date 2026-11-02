@@ -6,19 +6,19 @@ Agent Warden shows whether your AI coding agents stay within their memory and pr
 
 ## Features
 
-- A shield in the bar. Its colour and icon follow the agents' state, with the number of running agents or problems beside it.
-- A panel under the shield: one sentence on the state, the most serious items first, and the agent group's memory against its limit.
-- Open vsys in the panel opens the vsys dashboard in a floating terminal.
-- A desktop notification when an agent gets near a limit, when agents wait for memory, when a move fails, when leftover work is cleaned up, and when the warden stops checking.
+- A shield in the bar that shows the agents' state, with the number of running agents or problems beside it.
+- A panel that describes the state in one sentence, lists the most serious problems first and shows how close the agents' memory is to the point where they slow down.
+- Open vsys in the panel opens the vsys dashboard.
+- A notification when an agent nears a limit, when agents wait for memory, when the warden cannot apply a limit or cleans up after an agent, and when it stops checking.
 - `SUPER+CTRL+Y` opens and closes the panel. The Keys row on the plugin's Settings page changes it.
 
 ## How it works
 
-The plugin reads the warden's `status.json` and publishes the agent state for VGS to show. It observes limits and never enforces them. The warden runs as a systemd user timer, so its checks and corrections continue when VGS restarts or stops.
+Agent Warden only reports. The vsys warden checks your agents and tries to move them back into their limits on its own schedule, so it keeps working when VGS restarts or stops. Agent Warden reads what the warden found and shows it.
 
 ## Setup
 
-The plugin's Setup tab and its panel show each setup step as an action, only while the step is needed. Install vsys opens the install screen for vsys. Set up opens a floating terminal that starts the Agent Warden checks. Once Agent Warden runs, the page shows no setup action.
+While a setup step is needed, the plugin's Setup tab and its panel show it as a button. Install vsys opens the install notice for vsys. Set up opens a floating terminal that starts the warden's checks.
 
 <details><summary>Show command</summary>
 
@@ -31,7 +31,7 @@ vsys warden install
 | Setting | What it changes |
 | --- | --- |
 | Show count | Shows the number of running agents or problems beside the shield. |
-| Hide when idle | Hides the shield when no agents run and no problems need attention. |
-| Notifications | Alerts for problems, all events or none. Everything also tells you of each move back into limits. |
+| Hide when idle | Hides the shield when no agents run and nothing needs attention. |
+| Notifications | Alerts for problems, all events or none. |
 
 [developer.md](developer.md) states each state, notification and IPC function.

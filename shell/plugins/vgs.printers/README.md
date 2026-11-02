@@ -6,24 +6,23 @@ Printers adds, chooses and removes your printers. It has a Printers section in t
 
 ## Features
 
-- The list of your printers, with each printer's state, its queued jobs and the default printer marked.
-- While the section is open, the list changes when the printing service reports a change, such as a new job or a printer that stops. When the section is closed, Printers runs nothing in the background.
+- Your printers, with each printer's state, its queued jobs and the default printer marked.
 - Set as default makes a printer the one your apps print to first.
-- Remove takes a printer off the computer. Delete removes the selected printer.
-- Find printers lists the printers on this computer and your network. Add sets up a printer that needs no driver.
-- A printer that needs a driver opens Print Settings, where you choose its driver.
-- The address field adds a network printer by its name or IP address, such as `printer.local`.
+- Remove takes a printer off the computer.
+- Find printers lists the printers on this computer and your network. A printer that needs a driver opens Print Settings to choose one.
+- Adds a network printer by its name or address, such as `printer.local`.
 - Print Settings opens the full printer settings for drivers, paper size, two-sided printing and quality.
-- Each change asks your permission in the system's password prompt. VGS never sees the password. A change you do not allow changes nothing.
-- Turn on printing starts the printing service in a setup window when it is off.
+- Each change asks your permission in the system's password prompt. VGS never sees the password.
 
 ## Setup
 
-Printers reads your printers with the printing service's own tools, which come with CUPS. Without CUPS the section says that printing is not installed, and Install printing installs it in one press. On the plugin's Setup tab, the Printing step reads To do until CUPS is installed, and Review all missing or outdated tools on its row installs it. The printer helper is optional: without it the list works, and each change button offers to install it. Print Settings is optional too.
+Printers needs CUPS, the printing service. Without it, the section says printing is not installed, and Install printing installs it in one press. When the printing service is off, Turn on printing starts it in a setup window. The printer helper and Print Settings are optional; a change button offers to install the helper when it is missing.
 
 <details>
-<summary>Show command details</summary>
+<summary>Show command</summary>
 
-[`Service.qml`](Service.qml) owns printer reads and changes. [`PrintersLogic.js`](PrintersLogic.js) declares the CUPS queries and cups-pk-helper calls; [`bin/printers-watch`](bin/printers-watch) owns the change subscription and its renewal and cancellation. Closing the section ends the subscription. polkit asks through your session's agent. Turn on printing runs the core system step `service-cups`, `systemctl enable --now cups.service`, in the setup window. It is offered only while neither `cups.service` nor `cups.socket` is active.
+```bash
+systemctl enable --now cups.service
+```
 
 </details>

@@ -7,21 +7,21 @@ Updates checks your system, VGS, plugins, themes and developer tools for updates
 ## Features
 
 - Checks system packages, AUR packages, Flatpak apps, mise tools, VGS itself, installed plugins and installed themes.
-- Checks every six hours by default, and again when you choose Refresh.
-- A bar icon with the count of waiting updates. It turns to a warning when a check fails or is stale, and spins while a check runs.
-- A window on `SUPER+CTRL+U` or a click on the icon, with one row per source. A row lists its packages. Update installs one source, and Update everything installs all of them.
+- A bar icon with the count of waiting updates, and a warning when a check fails.
+- A window on `SUPER+CTRL+U` or a click on the icon, with one row per source. Update installs one source, and Update everything installs all of them.
 - Open last log shows the log of the last update run.
-- Saves a system snapshot with Snapper or Timeshift before an update, when one is installed.
-- Package installs and updates offer the same optional AI review in their terminal before administrator access or a build. Package review settings opens General > Packages in System Settings. A flagged package lets you skip it or install it anyway.
-- The steps of an update run are in [pipeline.md](pipeline.md).
+- A system snapshot with Snapper or Timeshift before an update, when one is installed.
+- An optional AI review of each package before it installs. A flagged package lets you skip it or install it anyway. Package review settings opens General > Packages in System Settings.
 
 ## Setup
 
 | Setting | What it changes |
 | --- | --- |
 | Check interval | Time between automatic update checks, 1 to 48 hours. |
-| Hide when up to date | Hides the bar icon only when a recent check finds no updates. |
-| AUR command | How Arch User Repository packages update: Automatic, or a paru or yay command of your own. |
+| Hide when up to date | Hides the bar icon when a recent check finds no updates. |
+| AUR command | How AUR packages update: Automatic, or a paru or yay command of your own. |
 | System snapshot | Saves a system snapshot before updates when a snapshot tool is available. |
-| Trust plugin and theme updates | Shows plugin and theme changes and applies them without confirmation. |
-| Reboot notice | On CachyOS, VGS asks once after all update steps finish when a restart is needed, with either choice. CachyOS and VGS keeps CachyOS notices for package updates outside VGS. VGS only turns those notices off. VGS asks for confirmation in a terminal before it applies or restores this setting. |
+| Trust plugin and theme updates | Applies plugin and theme changes without asking first. |
+| Reboot notice | On CachyOS, whether CachyOS also shows its restart notices for updates outside VGS. VGS asks once after an update that needs a restart either way. |
+
+[developer.md](developer.md) states the checks, the bar icon and the steps of an update run.

@@ -6,16 +6,15 @@ Network joins Wi-Fi and shows your Wi-Fi and Ethernet connections. It has a bar 
 
 ## Features
 
-- A dropdown under the bar icon with the Wi-Fi switch, the current connection, the Wi-Fi networks to join and each Ethernet device with its state. Network settings opens the System Settings section.
-- Joins Wi-Fi with a saved password, or asks for the password in a masked field. It asks again when a saved password fails.
-- Select a network and press Enter to join or disconnect. Delete forgets the selected saved network.
-- Turns the Wi-Fi radio and automatic joining on or off.
-- Shows the connection details of the selected device.
-- Sign in opens Apple's captive.apple.com page over plain HTTP so the network can redirect the browser to its sign-in page. Network shows Sign in when NetworkManager reports a captive portal. Check connection updates the result after sign-in.
-- Share QR code shows a QR code that joins another device to a saved network. VGS keeps neither the password nor the QR code after the view closes.
-- Shows the cause when NetworkManager is missing, stopped or refuses access. Wi-Fi passwords stay in NetworkManager's store.
-- Offers to install the details tool or the sharing tool when one is missing.
+- A dropdown under the bar icon with the Wi-Fi switch, the current connection, the networks to join and your Ethernet devices.
+- Joins Wi-Fi with a saved password, or asks for one in a masked field.
+- Forgets a saved network.
+- Turns Wi-Fi and automatic joining on or off.
+- Shows the connection details of a device.
+- Sign in opens a network's sign-in page, such as on hotel or airport Wi-Fi.
+- Share QR code joins another device to a saved network. VGS does not keep the QR code.
+- Says why when the network service is missing, stopped or refuses access.
 
 ## Setup
 
-Show disconnected icon keeps the network icon in the bar while disconnected.
+Show disconnected icon keeps the network icon in the bar while disconnected. When the tool for details or for sharing is missing, Network offers to install it.

@@ -6,22 +6,11 @@ Mouse sets pointer speed, scrolling and touchpad options. It is for anyone who w
 
 ## Features
 
-- A bar icon that opens the Mouse flyout.
-- A flyout with pointer speed, natural scroll, the touchpad switch when a touchpad exists, and Mouse Settings.
-- A Mouse section in the System Settings window with pointer settings, touchpad settings, device rows and a try-it area.
-- A setting you change here applies over your own Hyprland config. Where your config sets another value, the row shows that value and offers Use my Hyprland value, which makes VGS stop setting it.
+- A bar icon whose flyout holds pointer speed, natural scroll and, when a touchpad exists, the touchpad switch.
+- A Mouse section in System Settings with pointer and touchpad settings, your devices and an area to try them.
+- Pointer speed, acceleration, scroll speed, natural scroll and left-handed buttons.
+- Touchpad on or off, tap to click, two-finger right-click and disable while typing.
 
 ## Setup
 
-| Setting | What it changes |
-| --- | --- |
-| Pointer speed | How fast the pointer moves, from -1× to 1×. |
-| Acceleration | Adaptive or flat pointer acceleration. |
-| Natural scroll | Moves content in the same direction as your fingers. |
-| Left-handed | Swaps the main and secondary mouse buttons. |
-| Scroll speed | How fast the wheel scrolls, from 0× to 2×. |
-| Touchpad | Turns the touchpad on or off. |
-| Tap to click | Uses a tap as a click. |
-| Disable while typing | Ignores touchpad movement while you type. |
-| Two-finger right-click | Uses a two-finger click as right-click. |
-| Touchpad scroll speed | How fast the touchpad scrolls, from 0× to 2×. |
+A setting you change here applies over your own Hyprland config. Where your config sets another value, the row shows it and offers Use my Hyprland value, which makes VGS stop setting it.
