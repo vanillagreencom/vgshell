@@ -13,7 +13,7 @@
 # page reference in a FormRow's message opens the Settings window on that
 # page, by a click and by Tab then Enter. A page no plugin has and a shell
 # with the manager window off each answer a refusal.
-# inputs: shell/Ui/controls/FormRow.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Core/Capabilities.qml shell/Core/Plugins.qml shell/Core/Registry.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml scripts/smoke/fixtures/plugins/acme.surfaces/* shell/plugins/vgs.launcher/* shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Ui/layout/SurfaceHeight.qml shell/Hosts/SummonPopup.qml shell/Commons/AnchorTracker.qml shell/Ui/BarWidget.qml shell/Ui/overlay/Menu.qml shell/Hosts/PluginSlot.qml shell/Hosts/BackgroundHost.qml shell/Hosts/AppWindow.qml scripts/smoke/toplevel/* scripts/smoke/rows/sources.sh shell/Ui/foundation/FocusRing.qml shell/Ui/overlay/ModalDialog.qml shell/Ui/feedback/Dialog.qml shell/Ui/layout/Pane.qml shell/Commons/Tokens.js shell/Ui/foundation/KeyNavLogic.js scripts/smoke/rows/hyprland-consent.sh shell/Core/HyprlandLayer.js scripts/smoke/rows/plugins.sh
+# inputs: shell/Ui/controls/FormRow.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Core/Capabilities.qml shell/Core/Plugins.qml shell/Core/Registry.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml scripts/smoke/fixtures/plugins/acme.surfaces/* shell/plugins/vgs.launcher/* shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Core/Compositor.qml shell/Core/HyprlandLayer.qml shell/Ui/layout/SurfaceHeight.qml shell/Hosts/SummonPopup.qml shell/Commons/AnchorTracker.qml shell/Ui/BarWidget.qml shell/Ui/overlay/Menu.qml shell/Hosts/PluginSlot.qml shell/Hosts/BackgroundHost.qml shell/Hosts/AppWindow.qml scripts/smoke/toplevel/* scripts/smoke/rows/sources.sh shell/Ui/foundation/FocusRing.qml shell/Ui/overlay/ModalDialog.qml shell/Ui/feedback/Dialog.qml shell/Ui/layout/Pane.qml shell/Commons/Tokens.js shell/Ui/foundation/KeyNavLogic.js scripts/smoke/rows/hyprland-consent.sh shell/Core/HyprlandLayer.js scripts/smoke/rows/plugins.sh
 set -euo pipefail
 leak_plugin_setup vgs.themes true || { fail "surfaces: fixture precondition failed"; return 1; }
 surf="$home/.config/vgshell/plugins/acme.surfaces"
@@ -25,7 +25,26 @@ path = pathlib.Path(sys.argv[1])
 text = path.read_text()
 marker = '    function summonHere() { return shell.surfaces.summon("panel", "{\\"from\\":\\"widget\\"}", root); }\n'
 assert text.count(marker) == 1, "summonHere must occur once"
-text = text.replace(marker, marker + '    function summonPayload(payload) { return shell.surfaces.summon("panel", payload || "{}", root); }\n    function toggleHere(payload) { return shell.surfaces.toggle("panel", payload || "{}", root); }\n', 1)
+text = text.replace(marker, marker + '    function summonPayload(payload) { return shell.surfaces.summon("panel", payload || "{}", root); }\n    function toggleHere(payload) { return shell.surfaces.toggle("panel", payload || "{}", root); }\n    function focusedMonitor() { return Hyprland.focusedMonitor ? Hyprland.focusedMonitor.name : "none"; }\n', 1)
+assert text.count("import QtQuick\n") == 1, "the QtQuick import must occur once"
+text = text.replace("import QtQuick\n", "import QtQuick\nimport Quickshell\nimport Quickshell.Hyprland\n", 1)
+marker = "    implicitHeight: barSize\n"
+assert text.count(marker) == 1, "implicitHeight must occur once"
+text = text.replace(marker, marker + """    property int smokeReloads: 0
+    property int smokeReloadsRead: 0
+    Connections {
+        target: Hyprland
+        function onRawEvent(event) { if (event.name === "configreloaded") root.smokeReloads += 1; }
+    }
+    Variants {
+        model: Hyprland.monitors.values
+        Connections {
+            required property var modelData
+            target: modelData
+            function onLastIpcObjectChanged() { root.smokeReloadsRead = root.smokeReloads; }
+        }
+    }
+""", 1)
 path.write_text(text)
 PYEDIT
 python3 - "$surf/Summoned.qml" <<'PYEDIT'
@@ -229,6 +248,7 @@ summon_fade_copy="$repo/shell/Hosts/SummonPopupFadeHeld.qml"
 summon_fade_control="$repo/shell/Hosts/SummonPopupItemFade.qml"
 layer_copy="$repo/shell/Hosts/SummonLayerNoCatch.qml"
 layer_one_screen="$repo/shell/Hosts/SummonLayerOneScreen.qml"
+layer_catcher_first="$repo/shell/Hosts/SummonLayerCatcherFirst.qml"
 python3 - "$repo/shell/Hosts/SummonPopup.qml" "$summon_noescape" <<'PYEDIT'
 import pathlib, sys
 source, target = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
@@ -311,6 +331,16 @@ text = source.read_text()
 old = "        model: win.otherScreens\n"
 assert text.count(old) == 1, "the SummonLayer other-screen path must occur once: " + old
 target.write_text(text.replace(old, "        model: []\n"))
+PYEDIT
+# The catcher-first copy puts its other-screen catcher on its own screen
+# and none on the far monitor: the far-catcher check's must-fail control.
+python3 - "$repo/shell/Hosts/SummonLayer.qml" "$layer_catcher_first" <<'PYEDIT'
+import pathlib, sys
+source, target = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+text = source.read_text()
+old = "Quickshell.screens.filter(s => s !== win.screen)"
+assert text.count(old) == 1, "the SummonLayer other-screen filter must occur once: " + old
+target.write_text(text.replace(old, "Quickshell.screens.filter(s => s === win.screen)"))
 PYEDIT
 cp -- "$home/.config/vgshell/plugins/acme.surfaces/Summoned.qml" "$sandbox/Summoned.initial-focus"
 python3 - "$home/.config/vgshell/plugins/acme.surfaces/Summoned.qml" <<'PYEDIT'
@@ -471,11 +501,57 @@ fi
 # catchers, today's single-screen layer, stays open
 # through the same presses, as a panel and as the launcher.
 far_output=SMOKE-SURFACES-FAR
-# near_focus: the pointer and the monitor focus on the first monitor's
-# desktop, where an IPC summon or a probe copy opens.
-near_focus() {
+# focus_first: the pointer and the monitor focus on the first monitor's
+# desktop; `ok` once Hyprland accepts the focus dispatch.
+focus_first() {
   hover 40 "$((mon_h - 40))" || return $?
   hypr dispatch "hl.dsp.focus({ monitor = \"$screen_name\" })"
+}
+# shell_focused: the shell's Hyprland.focusedMonitor name, read by the
+# fixture widget on the first bar. Compositor.focusedScreen() gives the
+# screen of that name, so it names the screen an IPC summon or a probe copy
+# opens on while it names a listed screen.
+shell_focused() { ipc smoke invokeInstance "bar:$screen_name" acme.surfaces focusedMonitor ''; }
+# near_focus FOR: focus_first, then a wait for the shell's own focused
+# monitor to be the first. An IPC summon and a probe copy open on
+# Compositor.focusedScreen(), which reads Hyprland.focusedMonitor, and the
+# shell's Hyprland.focusedMonitor can lag the dispatch's accepted reply: in
+# the VGS-2224 run (cachy, 2026-11-02, a Probe trace of its changes) the
+# shell read the first monitor 41 ms after near_focus began and 6 ms before
+# the summon it preceded, and a summon issued before that reading built the
+# launcher on the far monitor the last far_press focused, its catcher on
+# the first.
+near_focus() {
+  expect "the first monitor takes the focus for $1" ok focus_first
+  expect_poll "the shell reads the first monitor focused for $1" "$screen_name" shell_focused
+}
+# reloads_seen: the Hyprland reloads the shell has seen, the fixture
+# widget's count of configreloaded events.
+reloads_seen() { ipc smoke readInstance "bar:$screen_name" acme.surfaces smokeReloads; }
+# reload_read_past COUNT: `read` once the shell has read the monitor list
+# after a reload past the first COUNT, the fixture widget's record of
+# reloads followed by a lastIpcObject update, which Quickshell makes on each
+# read (quickshell.org/docs/v0.3.1/types/Quickshell.Hyprland/HyprlandMonitor).
+reload_read_past() {
+  local n
+  n="$(ipc smoke readInstance "bar:$screen_name" acme.surfaces smokeReloadsRead)" || return 1
+  if [[ $n =~ ^[0-9]+$ ]] && (( n > $1 )); then echo read; else echo "reloads-read=$n"; fi
+}
+# plugin_toggle_settled ID ENABLED: the plugin enabled or disabled, then a
+# wait for the shell's read of the monitor list after the Hyprland reload
+# the change causes. On configreloaded Quickshell 0.3.1 fetches the list again
+# and takes the monitor whose `focused` is true as Hyprland.focusedMonitor
+# (HyprlandIpc::onEvent, HyprlandMonitor::updateFromObject), so a reply
+# Hyprland wrote before near_focus's focus move that the shell applies
+# after the focus event sets the far monitor back, and no later event
+# corrects it: without this wait the VGS-2224 runs (cachy, 2026-11-02) saw
+# the reload 25 to 33 ms into the next near_focus, and in one of three the
+# shell read the far monitor through near_focus's whole wait.
+plugin_toggle_settled() {
+  local reloads
+  read_count reloads "surfaces: the reloads the shell saw before $1 is set $2" reloads_seen
+  expect "$1 is set enabled=$2 beside the far monitor" ok ipc shell setPluginEnabled "$1" "$2"
+  expect_poll "the shell reads the monitors after $1's reload" read reload_read_past "$reloads"
 }
 # far_box: the far monitor as `x y w h`, or `absent`.
 far_box() { hypr -j monitors | py_reply 'import json,sys; ms=[m for m in json.load(sys.stdin) if m["name"] == sys.argv[1]]; print("%d %d %d %d" % (ms[0]["x"], ms[0]["y"], ms[0]["width"], ms[0]["height"]) if ms else "absent")' "$far_output"; }
@@ -506,6 +582,13 @@ far_press() {
 }
 # far_catchers NAMESPACE: the boxes of NAMESPACE's catchers.
 far_catchers() { layers_of "$1-outside"; }
+# far_check LABEL NAMESPACE: NAMESPACE's catchers are the box far_want
+# gives for its own layer, polled.
+far_check() {
+  local want
+  want="$(far_want "$2")" || { fail "$1: the own layer box is unreadable"; return 0; }
+  geometry expect_poll "$1" "$want" far_catchers "$2"
+}
 # far_want NAMESPACE: the box a catcher takes on the far monitor, which
 # holds a bar as the first does: NAMESPACE's own layer keeps the first
 # monitor's reserved space or ignores it, and the catcher does the same.
@@ -574,7 +657,7 @@ expect "the nested compositor adds the far monitor" ok create_output "$far_outpu
 expect_poll "the far monitor stands right of the first with a mode" sized far_sized
 read -r far_x _ far_w far_h < <(far_box) || fail "the far monitor's box is readable"
 expect_poll "the far monitor gets its bar" "$((monitors + 1))" bar_count
-expect "the first monitor takes the focus for the panel" ok near_focus
+near_focus "the panel"
 expect "a panel summons on the first monitor" ok ipc shell summon panel acme.surfaces "{\"closeMarker\":\"$sandbox/closed-by-far-press\"}"
 summon_drawn panel acme.surfaces || fail "the panel never drew before the far press"
 panel_far="$(far_want vgs:panel)" || fail "the panel's own layer box is readable"
@@ -605,37 +688,54 @@ expect_poll "control: a press on the far monitor leaves no press marker on the p
 expect "a press on the far monitor closes the panel" closed far_press vgs:panel
 expect_poll "the far press called the panel's close()" yes marker "$sandbox/closed-by-far-press"
 expect_poll "the closed panel's catcher is gone" "[]" far_catchers vgs:panel
-expect "the first monitor takes the focus for the menu" ok near_focus
+near_focus "the menu"
 expect "a menu summons on the first monitor" ok ipc shell summon menu acme.surfaces '{}'
 summon_drawn menu acme.surfaces || fail "the menu never drew before the far press"
-menu_far="$(far_want vgs:menu)" || fail "the menu's own layer box is readable"
-geometry expect_poll "the menu's catcher covers the far monitor as its own layer covers the first" "$menu_far" far_catchers vgs:menu
+far_check "the menu's catcher covers the far monitor as its own layer covers the first" vgs:menu
 expect "a press on the far monitor closes the menu" closed far_press vgs:menu
 expect_poll "the closed menu leaves the build records beside the far monitor" absent ipc smoke readInstance menu acme.surfaces opened
-expect "the launcher is enabled for the far press" ok ipc shell setPluginEnabled vgs.launcher true
-expect "the first monitor takes the focus for the launcher" ok near_focus
+plugin_toggle_settled vgs.launcher true
+near_focus "the launcher"
 expect "the launcher summons on the first monitor" ok ipc shell summon overlay vgs.launcher '{}'
 summon_drawn overlay vgs.launcher || fail "the launcher never drew before the far press"
-launcher_far="$(far_want vgs:overlay)" || fail "the launcher's own layer box is readable"
-geometry expect_poll "the launcher's catcher covers the far monitor as its own layer covers the first" "$launcher_far" far_catchers vgs:overlay
+launcher_far_label="the launcher's catcher covers the far monitor as its own layer covers the first"
+far_check "$launcher_far_label" vgs:overlay
 expect "a press on the far monitor closes the launcher" closed far_press vgs:overlay
 expect_poll "the closed launcher leaves the build records" absent ipc smoke readInstance overlay vgs.launcher opened
-expect "the first monitor takes the focus for the single-screen launcher copy" ok near_focus
+# Control: a launcher copy whose catcher stands on the first monitor beside
+# its own layer there, the far monitor holding none, fails the same check
+# with a want the far monitor can hold.
+# launcher_far_control LOG: the failures far_check counts on the launcher.
+launcher_far_control() { (failures=0 behaviour_failures=0; far_check "$launcher_far_label" vgs:overlay >"$1"; echo "$failures"); }
+near_focus "the catcher-first launcher copy"
+expect "control: the probe builds the catcher-first SummonLayer copy for the launcher" ok ipc smoke summonLayerLoad launcher-catcher-first "$layer_catcher_first" vgs.launcher overlay
+ipc smoke invokeInstance overlay vgs.launcher open '{}' >/dev/null || fail "control: the catcher-first launcher copy's open() could not be called"
+summon_drawn overlay vgs.launcher || fail "control: the catcher-first launcher copy never drew"
+geometry expect_poll "control: the catcher-first copy's own layer covers the first monitor" "[[0, 0, $mon_w, $mon_h]]" layers_of vgs:overlay
+geometry expect_poll "control: the catcher-first copy's catcher covers the first monitor" "[[0, 0, $mon_w, $mon_h]]" far_catchers vgs:overlay
+expect "control: the launcher's far-catcher check fails on the catcher-first copy" 1 launcher_far_control "$sandbox/launcher-catcher-first-control.log"
+control_output "$sandbox/launcher-catcher-first-control.log"
+expect "control: the probe drops the catcher-first launcher copy" ok ipc smoke popupDrop launcher-catcher-first
+expect_poll "control: the catcher-first copy's own layer is gone" 0 layer_count vgs:overlay
+expect_poll "control: the catcher-first copy's catcher is gone" "[]" far_catchers vgs:overlay
+near_focus "the single-screen launcher copy"
 expect "the probe builds the single-screen SummonLayer copy for the launcher" ok ipc smoke summonLayerLoad launcher-one-screen "$layer_one_screen" vgs.launcher overlay
 ipc smoke invokeInstance overlay vgs.launcher open '{}' >/dev/null || fail "the single-screen launcher copy's open() could not be called"
 summon_drawn overlay vgs.launcher || fail "the single-screen launcher copy never drew"
+expect "control: the launcher's far-catcher check fails on the single-screen launcher copy" 1 launcher_far_control "$sandbox/launcher-one-screen-control.log"
+control_output "$sandbox/launcher-one-screen-control.log"
 expect "control: a press on the far monitor leaves the single-screen launcher copy open" open far_press vgs:overlay
 expect "control: the single-screen launcher copy counted no dismissal" "0 1" copy_state launcher-one-screen vgs:overlay
 expect "the probe drops the single-screen launcher copy" ok ipc smoke popupDrop launcher-one-screen
 expect_poll "the single-screen launcher copy's surface is gone" 0 layer_count vgs:overlay
-expect "the launcher is disabled again" ok ipc shell setPluginEnabled vgs.launcher false
-expect "the first monitor takes the focus for the fixture's overlay" ok near_focus
+plugin_toggle_settled vgs.launcher false
+near_focus "the fixture's overlay"
 expect "the fixture's overlay summons on the first monitor" ok ipc shell summon overlay acme.surfaces '{}'
 summon_drawn overlay acme.surfaces || fail "the fixture's overlay never drew before the far press"
 expect "a press on the far monitor leaves an overlay without pressedOnOtherScreen open" open far_press vgs:overlay
 expect "hiding the fixture's overlay is allowed" ok ipc shell hide overlay acme.surfaces
 expect_poll "the fixture's overlay is gone" 0 layer_count vgs:overlay
-expect "the first monitor takes the focus for the single-screen copy" ok near_focus
+near_focus "the single-screen copy"
 expect "the probe builds the single-screen SummonLayer copy" ok ipc smoke summonLayerLoad layer-one-screen "$layer_one_screen" acme.surfaces panel
 ipc smoke invokeInstance panel acme.surfaces open '{}' >/dev/null || fail "the single-screen copy's open() could not be called"
 summon_drawn panel acme.surfaces || fail "the single-screen copy never drew"
@@ -644,7 +744,7 @@ expect "control: a press on the far monitor leaves the single-screen copy open" 
 expect "control: the single-screen copy counted no dismissal" "0 1" copy_state layer-one-screen vgs:panel
 expect "the probe drops the single-screen copy" ok ipc smoke popupDrop layer-one-screen
 expect_poll "the single-screen copy's surface is gone" 0 layer_count vgs:panel
-expect "the first monitor takes the focus for the hotplug panel" ok near_focus
+near_focus "the hotplug panel"
 expect "a panel summons for the far monitor's removal" ok ipc shell summon panel acme.surfaces '{}'
 summon_drawn panel acme.surfaces || fail "the hotplug panel never drew"
 geometry expect_poll "the hotplug panel's catcher covers the far monitor" "$panel_far" far_catchers vgs:panel
@@ -652,7 +752,7 @@ expect "the nested compositor removes the far monitor" ok hypr output remove "$f
 expect_poll "the removed monitor's bar is gone" "$monitors" bar_count
 expect_poll "the removed monitor's catcher is gone, not moved to the first" "[]" far_catchers vgs:panel
 expect "the panel stays open through the far monitor's removal" 1 layer_count vgs:panel
-expect "the pointer returns to the first monitor" ok near_focus
+expect "the pointer returns to the first monitor" ok focus_first
 expect "hiding the hotplug panel is allowed" ok ipc shell hide panel acme.surfaces
 expect_poll "the hotplug panel is gone" 0 layer_count vgs:panel
 
