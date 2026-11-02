@@ -322,7 +322,7 @@ Item {
             const chord = pair.children[0].children.find(item => item.shortcut !== undefined);
             const cap = chord.children.find(item => item.text !== undefined);
             verify(cap !== undefined);
-            const key = cap.children.find(item => item.role === "kbd");
+            const key = cap.children.find(item => item.role === "keyName");
             verify(Theme.contrastRatio(label.color, Qt.color(data.row)) >= 4.5, "the hint word reads on the supplied row fill");
             verify(Theme.contrastRatio(key.color, Qt.color(data.cap)) >= 4.5, "the cap receives the composed surface through KeyCaps");
             compare(String(cap.color), String(Qt.color(Theme.kbd.background)), "the context changes only ink");

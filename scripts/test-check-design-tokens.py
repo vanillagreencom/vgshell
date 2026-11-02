@@ -7,7 +7,6 @@ Each row builds a throwaway repository holding the shipped token table, judge,
 Theme.qml and library loader, plants one file, or an icon button row's file
 beside an IconButton.qml, runs the check on it and asserts the rule key and
 the exit status."""
-import json
 import os
 import shutil
 import subprocess
@@ -145,26 +144,6 @@ LOOK_VIEW = ("import QtQuick\nimport qs.Commons\nimport \"Look.js\" as Look\nRec
              "    color: look.card.fill\n    radius: look.card.radius\n}\n")
 LOOK_DIR = "shell/plugins/acme.look"
 
-# The planted violation follows the same shipped roles the checker judges;
-# a new smaller shared role must not turn a below-floor control into valid UI.
-def shared_type_floor():
-    script = (
-        "const { load } = require(process.argv[1]);"
-        "const judged = load(process.argv[2]).defaults(load(process.argv[3]).TOKENS);"
-        "if (!judged.ok) throw Error('shared default tokens refused');"
-        "process.stdout.write(JSON.stringify(Math.min(...Object.values(judged.values.text).map(role => role.size))));"
-    )
-    result = subprocess.run(
-        ["node", "-e", script, os.path.join(REPO, "bin/lib/qml-library.js"),
-         os.path.join(REPO, "shell/Commons/ThemeLogic.js"), os.path.join(REPO, "shell/Commons/Tokens.js")],
-        capture_output=True, text=True, check=True, env=ENV,
-    )
-    return json.loads(result.stdout)
-
-
-TYPE_FLOOR = shared_type_floor()
-BELOW_TYPE_FLOOR = TYPE_FLOOR - 1
-
 # rows: name, the plugin's files over the clean three, expected rule key or
 # None. The clean plugin adds two source files to the ten.
 LOOK_ROWS = [
@@ -182,9 +161,9 @@ LOOK_ROWS = [
     ("a literal in another file of the plugin is a finding", {"View.qml": LOOK_VIEW.replace("radius: look.card.radius", "width: 10")}, "literal-metric"),
     ("a radius from a look path inside arithmetic is not a finding", {"View.qml": LOOK_VIEW.replace("radius: look.card.radius", "radius: Math.min(look.card.radius, height / 2)")}, None),
     ("a radius that names no look path is a finding", {"View.qml": LOOK_VIEW.replace("radius: look.card.radius", "radius: height / 2")}, "literal-radius"),
-    ("a look font size at the shell's smallest text role is not a finding", {"Look.js": LOOK_TABLE.replace(" card: { fill: { type", f" text: {{ label: {{ size: {{ type: \"length\", value: {TYPE_FLOOR} }} }} }}, card: {{ fill: {{ type")}, None),
-    ("a look font size below the shell's smallest text role is a finding", {"Look.js": LOOK_TABLE.replace(" card: { fill: { type", f" text: {{ label: {{ size: {{ type: \"length\", value: {BELOW_TYPE_FLOOR} }} }} }}, card: {{ fill: {{ type")}, "type-floor"),
-    ("a light font size below the floor is a finding", {"Look.js": LOOK_TABLE.replace(" card: { fill: { type", " text: { label: { size: { type: \"length\", value: 12 } } }, card: { fill: { type").replace("card: { fill: \"#efefef\" }", f"text: {{ label: {{ size: {BELOW_TYPE_FLOOR} }} }}")}, "type-floor"),
+    ("a look font size at the shell's smallest text role is not a finding", {"Look.js": LOOK_TABLE.replace(" card: { fill: { type", " text: { label: { size: { type: \"length\", value: 12 } } }, card: { fill: { type")}, None),
+    ("a look font size below the shell's smallest text role is a finding", {"Look.js": LOOK_TABLE.replace(" card: { fill: { type", " text: { label: { size: { type: \"length\", value: 11 } } }, card: { fill: { type")}, "type-floor"),
+    ("a light font size below the floor is a finding", {"Look.js": LOOK_TABLE.replace(" card: { fill: { type", " text: { label: { size: { type: \"length\", value: 12 } } }, card: { fill: { type").replace("card: { fill: \"#efefef\" }", "text: { label: { size: 11 } }")}, "type-floor"),
 ]
 
 

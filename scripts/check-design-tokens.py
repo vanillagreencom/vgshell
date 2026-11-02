@@ -94,7 +94,8 @@ with its own table, `look`, instead of Theme, so
                      every other member carries the global look
   type-floor         a `length` under the table's `text` group, a font size,
                      resolves in either mode below the smallest size of the
-                     shell's own text roles, the chrome floor a plugin that
+                     shell's own text roles but `keyName`, which only the
+                     shared hint's cap draws: the chrome floor a plugin that
                      owns its look meets too (docs/architecture/design-system.md
                      § Appearance); read from Tokens.js, never a second number
 The declared file is exempt from the literal rules, since the judge types
@@ -160,7 +161,9 @@ APPEARANCE = (
     "const shell = judge.defaults(load(process.argv[4]).TOKENS).values;"
     "const dir = process.argv[5];"
     "const out = { error: null, appearance: null, refusals: [], paths: [], small: [] };"
-    "const floor = Math.min.apply(null, Object.keys(shell.text).map(role => shell.text[role].size));"
+    # keyName draws only inside the shared hint's cap (Kbd.qml), never in a
+    # plugin-owned look, so it sets no floor for one.
+    "const floor = Math.min.apply(null, Object.keys(shell.text).filter(role => role !== 'keyName').map(role => shell.text[role].size));"
     "let raw; try { raw = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8')); } catch (e) { out.error = e.message; }"
     "const judged = out.error === null ? plugins.validateManifest(raw, dir) : null;"
     "if (judged !== null && !judged.ok) out.error = 'manifest: ' + judged.error;"

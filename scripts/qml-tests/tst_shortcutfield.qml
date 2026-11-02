@@ -669,6 +669,30 @@ Item {
             compare(separators(field), 0, "one key draws no separator");
         }
 
+        // A bound key is the field's value, so each cap draws in body ink.
+        // The edited alternative's selection mark shows through the
+        // translucent cap fill; there its key keeps the text floor on that
+        // composed ground, and leaving the field restores the body ink.
+        function test_bound_keys_read_on_the_field_and_its_selection_mark() {
+            compare(UnitTheme.override({ scheme: { mode: "dark" }, color: { text: "#d0d0d0", selection: "#c8c8c8" } }), "ok");
+            const keyName = cap => cap.children[0];
+            for (const cap of caps(pair)) compare(keyName(cap).color, Qt.color(Theme.color.text), "a bound key draws in body ink");
+            const over = (fill, base) => Qt.rgba(base.r + (fill.r - base.r) * fill.a, base.g + (fill.g - base.g) * fill.a, base.b + (fill.b - base.b) * fill.a, 1);
+            const ground = over(Qt.color(Theme.kbd.background), over(Qt.color(Theme.color.selection), Qt.color(Theme.textField.background)));
+            verify(Theme.contrastRatio(Qt.color(Theme.color.text), ground) < 4.5, "body ink alone fails this fixture's selection mark");
+            box(pair).forceActiveFocus(Qt.TabFocusReason);
+            compare(pair.editing, 0);
+            const mark = descendants(box(pair)).find(item => item.visible && String(item).indexOf("QQuickRectangle") === 0 && Qt.colorEqual(item.color, Theme.color.selection));
+            verify(mark !== undefined, "the edited alternative shows its selection mark");
+            const marked = caps(pair).filter(cap => inside(rect(cap, mark), mark));
+            const plain = caps(pair).filter(cap => !inside(rect(cap, mark), mark));
+            verify(marked.length > 0 && plain.length > 0, "the fixture draws keys on and off the mark");
+            for (const cap of marked) verify(Theme.contrastRatio(keyName(cap).color, ground) >= 4.5, "a key on the selection mark reads " + Theme.contrastRatio(keyName(cap).color, ground));
+            for (const cap of plain) compare(keyName(cap).color, Qt.color(Theme.color.text), "a key off the mark keeps body ink");
+            before.forceActiveFocus(Qt.TabFocusReason);
+            for (const cap of marked) tryCompare(keyName(cap), "color", Qt.color(Theme.color.text));
+        }
+
         function test_the_box_grows_to_hold_every_alternative() {
             const b = box(pair);
             const oneLine = b.height;

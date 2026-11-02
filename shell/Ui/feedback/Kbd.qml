@@ -2,13 +2,17 @@ import QtQuick
 import qs.Commons
 import qs.Ui
 
-// A key cap: one key name in the kbd role inside a muted chip
-// `kbd.height` tall, never narrower than it is tall. Under a rounded theme
-// the side padding grows until the label clears the drawn corner.
+// A key cap: one key name inside a muted chip `kbd.height` tall, never
+// narrower than it is tall. A hint's key name draws in the keyName role
+// and hint ink; a `value` cap, a field's bound key, draws in the kbd role
+// and value ink. Under a rounded theme the side padding grows until the
+// label clears the drawn corner.
 Rectangle {
     id: root
 
     property string text: ""
+    // The cap shows a field's value, not a key hint.
+    property bool value: false
     property var backgroundContext: null
     readonly property real sidePadding: Theme.controlPadding(Theme.kbd.paddingX, Theme.kbd.radius, Theme.kbd.height, label.lineBox)
 
@@ -21,9 +25,9 @@ Rectangle {
 
     Label {
         id: label
-        role: "kbd"
+        role: root.value ? "kbd" : "keyName"
         text: root.text
-        color: Theme.keyHintInk(root.backgroundContext, true)
+        color: Theme.keyHintInk(root.backgroundContext, root.value ? "value" : "key")
         x: Math.round((root.width - opticalWidth) / 2)
         y: topForCapCenter(root.height)
     }

@@ -7,6 +7,8 @@ Row {
     id: root
 
     property string shortcut: ""
+    // The caps show a field's value, not a key hint (Kbd.value).
+    property bool value: false
     property var backgroundContext: null
     readonly property var caps: Logic.keyCaps(shortcut)
 
@@ -15,6 +17,6 @@ Row {
 
     Repeater {
         model: root.caps
-        Kbd { text: String(modelData); backgroundContext: root.backgroundContext }
+        Kbd { text: String(modelData); value: root.value; backgroundContext: root.backgroundContext }
     }
 }

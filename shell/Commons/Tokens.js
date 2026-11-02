@@ -99,12 +99,13 @@ function merge() {
 
 // Reading text and tooltips draw in sans; chrome (labels, buttons, key
 // caps, code and the bar) draws in mono at 12 and 13 px. At the default
-// size the floors are 13 px for reading text and 12 px for chrome, except
-// the muted key names at 11 px; a
-// plugin that owns its look draws no smaller. A `lineHeight` is
-// a multiple of the role's font size, chosen so a multi-line role's line
-// box is a multiple of 4 px at the default size. Label turns it into a
-// fixed line box unless that would undercut the font's own line box.
+// size the floors are 13 px for reading text and 12 px for chrome; a
+// plugin that owns its look draws no smaller. `keyName`, a hint's key name
+// at 11 px, draws only inside the shared hint's cap and sets no floor. A
+// `lineHeight` is a multiple of the role's font size, chosen so a
+// multi-line role's line box is a multiple of 4 px at the default size.
+// Label turns it into a fixed line box unless that would undercut the
+// font's own line box.
 var TEXT = {
     display: role("sans", 2.27, 700, -0.02, 1.3, false, "textHeading"),
     h1: role("sans", 1.6, 700, -0.01, 1.333, false, "textHeading"),
@@ -135,11 +136,12 @@ var TEXT = {
     hint: role("sans", 0.87, 400, 0, 1.55, false, "textFaint"),
     tooltip: role("sans", 0.8, 500, 0, 1.333, false, "text"),
     button: role("caps", 0.8, 500, 0.08, 1, true, "text"),
-    kbd: role("mono", 0.7333333333, 600, 0.02, 1, false, "text"),
-    // Start at the approved faded hint ink; the regular-stroke margin
-    // keeps its drawn contrast above the judge's text floor.
+    kbd: role("mono", 0.8, 600, 0.02, 1, false, "text"),
+    keyName: merge(role("mono", 0.7333333333, 600, 0.02, 1, false, "text"), { color: color("{kbd.foreground}") }),
+    // Start at the approved faded hint ink; `kbd.wordMargin` keeps its
+    // drawn contrast above the judge's text floor.
     keyHint: merge(role("sans", 0.8, 400, 0, 1, false, "textFaint"), {
-        color: color("contrastMix(contrast({color.surfaceRaised}), mix({color.surfaceRaised}, readable({color.textFaint}, {color.surfaceRaised}, contrast({color.surfaceRaised})), 0.88), {color.surfaceRaised}, 5.2)")
+        color: color("contrastMix(contrast({color.surfaceRaised}), mix({color.surfaceRaised}, readable({color.textFaint}, {color.surfaceRaised}, contrast({color.surfaceRaised})), 0.88), {color.surfaceRaised}, {kbd.wordMargin})")
     }),
     code: role("mono", 0.87, 500, 0, 1.5, false, "text"),
     bar: role("caps", 0.8, 500, 0.08, 1, true, "text")
@@ -749,7 +751,12 @@ var TOKENS = {
     },
 
     // A key cap: `height` tall, `paddingX` a side of its label's optical
-    // width, never narrower than it is tall.
+    // width, never narrower than it is tall. `foreground` is a hint's key
+    // name; `valueForeground` a field's bound key, which is its value, in
+    // body ink unless the cap's fill needs more contrast.
+    // `wordMargin` and `capMargin` are the token contrast a hint word and
+    // a cap's key are solved to, here and in ThemeLogic.keyHintInk: room
+    // over the 4.5:1 drawn floor for the font's rendering loss.
     kbd: {
         radius: length("{radius.sm}"),
         border: length(0),
@@ -757,7 +764,10 @@ var TOKENS = {
         paddingX: length("{space.sm}"),
         background: color("alpha(contrast({palette.background}), 0.08)"),
         borderColor: color("{color.borderStrong}"),
-        foreground: color("contrastMix(contrast(mix({color.surfaceRaised}, contrast({palette.background}), 0.08)), readable({color.textFaint}, {color.surfaceRaised}, contrast({color.surfaceRaised})), mix({color.surfaceRaised}, contrast({palette.background}), 0.08), 4.65)"),
+        foreground: color("contrastMix(contrast(mix({color.surfaceRaised}, contrast({palette.background}), 0.08)), readable({color.textFaint}, {color.surfaceRaised}, contrast({color.surfaceRaised})), mix({color.surfaceRaised}, contrast({palette.background}), 0.08), {kbd.capMargin})"),
+        valueForeground: color("contrastMix(contrast(mix({color.surfaceRaised}, contrast({palette.background}), 0.08)), readable({color.text}, {color.surfaceRaised}, contrast({color.surfaceRaised})), mix({color.surfaceRaised}, contrast({palette.background}), 0.08), {kbd.capMargin})"),
+        wordMargin: number(5.2, 4.5, 21),
+        capMargin: number(4.65, 4.5, 21),
         actionGap: length("{space.lg}")
     },
 

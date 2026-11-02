@@ -269,15 +269,27 @@ function keyHintBackgrounds(context) {
     }, []);
 }
 
-// Keep the shared default ink unless this actual surface needs more
-// contrast. Only ink changes: the cap fill, type and spacing stay shared.
-function keyHintInk(values, context, cap) {
-    var ink = parseColor(cap ? values.kbd.foreground : values.text.keyHint.color);
+// Each part of the shared hint: its default ink, the token margin its
+// ink is solved to, and whether it draws on the cap's fill. `value` is a
+// field's bound key, which shows the field's value rather than a hint.
+var KEY_HINT_PARTS = {
+    word: { ink: "text.keyHint.color", margin: "kbd.wordMargin", cap: false },
+    key: { ink: "kbd.foreground", margin: "kbd.capMargin", cap: true },
+    value: { ink: "kbd.valueForeground", margin: "kbd.capMargin", cap: true }
+};
+
+// Keep the shared default ink of PART unless this actual surface needs
+// more contrast. Only ink changes: the cap fill, type and spacing stay
+// shared.
+function keyHintInk(values, context, part) {
+    if (!hasOwn(KEY_HINT_PARTS, part)) throw new Error("theme: key hint part unknown: " + part);
+    var spec = KEY_HINT_PARTS[part];
+    var ink = parseColor(valueAt(values, spec.ink));
     if (context === null) return ink;
     var fills = keyHintBackgrounds(context).map(function (fill) {
-        return cap ? overlay(parseColor(values.kbd.background), fill) : fill;
+        return spec.cap ? overlay(parseColor(values.kbd.background), fill) : fill;
     });
-    var margin = cap ? 4.65 : 4.95;
+    var margin = valueAt(values, spec.margin);
     var holds = function (color) { return fills.every(function (fill) { return contrastRatio(overlay(color, fill), fill) >= margin; }); };
     if (holds(ink)) return ink;
     var candidates = [parseColor("#000000"), parseColor("#ffffff")].map(function (endpoint) {
@@ -336,7 +348,8 @@ function readabilityWeights(values) {
         "color.textMuted": ["text.subheading.weight", "text.label.weight", "text.body.weight", "text.hint.weight", "text.bar.weight", "text.value.weight", "text.bodyStrong.weight", "text.code.weight", "text.item.weight", "text.button.weight", "text.kbd.weight", tileWeight],
         "color.textFaint": ["text.hint.weight", "text.itemHint.weight", "text.menuItemHint.weight", "text.item.weight", "text.body.weight", "text.kbd.weight"],
         "text.keyHint.color": ["text.keyHint.weight"],
-        "kbd.foreground": ["text.kbd.weight"],
+        "kbd.foreground": ["text.keyName.weight"],
+        "kbd.valueForeground": ["text.kbd.weight"],
         "color.accent": ["text.eyebrow.weight", "text.body.weight", "text.bar.weight", "text.button.weight", "text.label.weight", "button.variant.primary.weight", "button.variant.secondary.weight", "button.variant.tertiary.weight", "button.variant.ghost.weight", "button.variant.danger.weight", tileWeight],
         "color.success": ["text.body.weight", "text.hint.weight", "text.value.weight"],
         "color.warning": ["text.body.weight", "text.hint.weight", "text.value.weight", "text.bar.weight"],
@@ -373,6 +386,7 @@ function drawnTextRatio(text, surface, weight) {
 // judged laid over each resting surface, as it is drawn.
 var READABILITY_PAIRS = [
     ["kbd.foreground", "kbd.background"],
+    ["kbd.valueForeground", "kbd.background"],
     ["segmented.foreground", "segmented.background"],
     ["segmented.selectedForeground", "segmented.selected"],
     ["listItem.selectedForeground", "listItem.selected"],
@@ -441,7 +455,7 @@ var GLASS_PLATE_PAIRS = [["listItem.selectedForeground", "listItem.selected"]];
 var READABILITY_NAMES = {
     "color.text": "Body text", "color.textHeading": "Headings",
     "color.textMuted": "Muted text", "color.textFaint": "Faint text",
-    "text.keyHint.color": "Key hints", "kbd.foreground": "Key names", "kbd.background": "key backgrounds",
+    "text.keyHint.color": "Key hints", "kbd.foreground": "Key names", "kbd.valueForeground": "Shortcut keys", "kbd.background": "key backgrounds",
     "color.accent": "Accent text", "color.success": "Success text",
     "color.warning": "Warning text", "color.danger": "Error text", "color.info": "Information text",
     "color.background": "the main background", "color.surface": "panel backgrounds",

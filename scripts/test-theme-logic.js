@@ -116,7 +116,8 @@ const DEFAULTS = [
     // Chrome is 12 px, 15 * 0.8, and a key/value value 13 px, 15 * 0.87
     // rounded: capitals within a pixel of each other's height.
     ["text.label.size", 12],
-    ["text.kbd.size", 11],
+    ["text.kbd.size", 12],
+    ["text.keyName.size", 11],
     ["text.keyHint.size", 12],
     ["text.button.size", 12],
     ["text.eyebrow.size", 12],
@@ -684,7 +685,7 @@ const catalogTheme = (name, mode, accent) => JSON.stringify({ schemaVersion: 1, 
 const READABILITY_ROLES = ["color.text", "color.textHeading", "color.textMuted", "color.textFaint", "text.keyHint.color", "color.accent", "color.success", "color.warning", "color.danger", "color.info"];
 const READABILITY_SURFACES = ["color.background", "color.surface", "color.surfaceRaised", "color.surfaceSunken"];
 const BOUNDARY_ROLES = ["checkbox.borderColor", "radio.borderColor", "textField.borderColor", "toggle.off", "checkbox.checked", "radio.checked", "toggle.on"];
-const READABILITY_PAIRS = [["kbd.foreground", "kbd.background"], ["segmented.foreground", "segmented.background"], ["segmented.selectedForeground", "segmented.selected"], ["listItem.selectedForeground", "listItem.selected"],
+const READABILITY_PAIRS = [["kbd.foreground", "kbd.background"], ["kbd.valueForeground", "kbd.background"], ["segmented.foreground", "segmented.background"], ["segmented.selectedForeground", "segmented.selected"], ["listItem.selectedForeground", "listItem.selected"],
     ...["neutral", "accent", "success", "warning", "danger", "info"].map(tone => [`badge.tone.${tone}.foreground`, `badge.tone.${tone}.background`]),
     ...["foreground", "gradientStart", "gradientEnd"].map(role => [`screensaver.${role}`, "screensaver.background"])];
 const BOUNDARY_PAIRS = [["toggle.knobOff", "toggle.off"], ["toggle.knobOn", "toggle.on"], ["checkbox.mark", "checkbox.checked"], ["segmented.indicatorColor", "segmented.selected"], ["segmented.indicatorColor", "segmented.background"]];
@@ -1407,6 +1408,13 @@ function verifyHintMargin(judge, table = TOKENS) {
         const result = judge.accept(table, source);
         assert.equal(result.ok, true, name + ": shared hint theme is accepted");
         const values = result.values;
+        // A surface-solved word keeps the same margin: on a field's
+        // selection mark, where the default word ink falls short of it.
+        const ground = judge.overlay(judge.parseColor(values.color.selection), judge.parseColor(values.textField.background));
+        const wordRatio = ink => judge.contrastRatio(ink, ground);
+        assert.ok(wordRatio(judge.parseColor(values.text.keyHint.color)) < 5.2, name + ": the default hint word is re-solved on the selection mark");
+        const context = { fill: judge.parseColor(values.textField.background), plate: judge.parseColor(values.color.selection), sheen: judge.parseColor("#00000000") };
+        assert.ok(wordRatio(judge.keyHintInk(values, context, "word")) >= 5.2, name + ": a surface-solved hint word keeps its solid rendering margin");
         const ratio = judge.contrastRatio(judge.parseColor(values.text.keyHint.color), judge.parseColor(values.color.surfaceRaised));
         assert.ok(ratio >= 5.2, name + ": shared hint keeps its solid rendering margin");
     }
@@ -1460,9 +1468,11 @@ function verifyDrawnWeights(judge) {
     verifyDrawingWeightSources(judge);
     // Every default typography colour has its drawing role represented.
     for (const [role, type] of Object.entries(TOKENS.text)) {
-        const colour = /^\{(color\.[^}]+)\}$/.exec(type.color.value);
-        const source = role === "keyHint" ? "text.keyHint.color" : colour === null ? null : colour[1];
-        assert.ok(source && judge.readabilityWeights(judge.defaults(TOKENS).values)[source].includes("text." + role + ".weight"), role + ": typography is judged at its own weight");
+        // A role that names one colour is judged as that colour; a role
+        // whose colour is an expression is judged under its own path.
+        const reference = /^\{([^}]+)\}$/.exec(type.color.value);
+        const source = reference === null ? "text." + role + ".color" : reference[1];
+        assert.ok(judge.readabilityWeights(judge.defaults(TOKENS).values)[source] !== undefined && judge.readabilityWeights(judge.defaults(TOKENS).values)[source].includes("text." + role + ".weight"), role + ": typography is judged at its own weight");
     }
 }
 
@@ -1795,7 +1805,7 @@ function verifyTitleSpace(table) {
 }
 verifyTitleSpace(TOKENS);
 const TOKEN_CONTROLS = [
-    ["shared hint solid margin", '{color.surfaceRaised}, 5.2)")', '{color.surfaceRaised}, 4.95)")', table => verifyHintMargin(load(judgeFile), table)],
+    ["shared hint solid margin", 'wordMargin: number(5.2, 4.5, 21)', 'wordMargin: number(4.95, 4.5, 21)', table => verifyHintMargin(load(judgeFile), table)],
     ["title space", 'titleSpace: bodyLines(1)', 'titleSpace: bodyLines(1.2)', verifyTitleSpace],
     ["status text on its fill", 'color("contrast({color." + name + "})")', 'color("contrast({palette." + name + "})")', verifyStatusText],
     ["bar separator colour", 'line: color("alpha({bar.foreground}, 0.2)")', 'line: color("alpha({bar.foreground}, 0.4)")', verifyBarSeparator],
@@ -1859,7 +1869,7 @@ function launcherMenuFills(judge, look, values) {
     return [judge.parseColor(judge.formatColor(judge.liftedOpaque(judge.parseColor(look.card.fill), glass.values.glass.solidLift))),
         judge.parseColor(values.surface.level.raised.background)];
 }
-function launcherTextReadings(judge, launcher, menuFills = launcherMenuFills, hintInk = (values, context, cap) => judge.keyHintInk(values, context, cap)) {
+function launcherTextReadings(judge, launcher, menuFills = launcherMenuFills, hintInk = (values, context, part) => judge.keyHintInk(values, context, part)) {
     const out = [];
     for (const { name, values } of JUDGED_THEMES) {
         const result = judge.acceptAppearance(launcher.TOKENS, launcher.LIGHT, values);
@@ -1884,8 +1894,8 @@ function launcherTextReadings(judge, launcher, menuFills = launcherMenuFills, hi
         // selected plate's direct sheen, independently of the ink judge.
         for (const [branch, fill] of [judge.parseColor(look.card.fill), ...solid].entries()) {
             const context = { fill, plate: judge.parseColor(look.highlight.plate), sheen: judge.parseColor(look.highlight.sheen) };
-            const word = hintInk(values, context, false);
-            const key = hintInk(values, context, true);
+            const word = hintInk(values, context, "word");
+            const key = hintInk(values, context, "key");
             const expectedGrounds = (branch === 0 ? grounds : [solid[branch - 1]]).flatMap(ground => {
                 const selected = plate(ground);
                 return [selected, judge.overlay(judge.parseColor(look.highlight.sheen), selected)];
@@ -1899,6 +1909,21 @@ function launcherTextReadings(judge, launcher, menuFills = launcherMenuFills, hi
     }
     return out;
 }
+// A ShortcutField's edited alternative: its caps' translucent fill over
+// the selection mark over the field, as ShortcutField hands that context.
+// The expected ground is composed here, independently of the ink judge.
+function selectionHintReadings(judge, hintInk = (values, context) => judge.keyHintInk(values, context, "value")) {
+    return JUDGED_THEMES.map(({ name, values }) => {
+        const fill = judge.parseColor(values.textField.background);
+        const plate = judge.parseColor(values.color.selection);
+        const ink = hintInk(values, { fill, plate, sheen: judge.parseColor("#00000000") });
+        const capFill = judge.overlay(judge.parseColor(values.kbd.background), judge.overlay(plate, fill));
+        return [name, judge.drawnTextRatio(ink, capFill, values.text.kbd.weight)];
+    });
+}
+function selectionHintShortfalls(judge) {
+    return selectionHintReadings(judge).filter(([, ratio]) => ratio < 4.5);
+}
 function launcherDetailShortfalls(judge, launcher) {
     return launcherTextReadings(judge, launcher).filter(([, role, , ratio]) => role !== "step" && ratio < judge.READABILITY_FLOOR);
 }
@@ -1906,14 +1931,21 @@ function launcherDetailShortfalls(judge, launcher) {
     const judge = load(judgeFile);
     assert.deepEqual(launcherDetailShortfalls(judge, LAUNCHER), [], "the launcher's detail, link and shared hint read at 4.5:1 on the card in every theme");
     const readings = launcherTextReadings(judge, LAUNCHER);
-    const oldSharedInks = launcherTextReadings(judge, LAUNCHER, launcherMenuFills, (values, context, cap) => judge.parseColor(cap ? values.kbd.foreground : values.text.keyHint.color));
+    const oldSharedInks = launcherTextReadings(judge, LAUNCHER, launcherMenuFills, (values, context, part) => judge.parseColor(part === "key" ? values.kbd.foreground : values.text.keyHint.color));
     for (const name of ["vgs", "catalog/flexoki-light"])
         for (const role of ["key", "keyHint"])
             assert.ok(oldSharedInks.some(([theme, ink, , ratio]) => theme === name && ink === role && ratio < 4.5), `control: the old default ${role} fails the composed Launcher fill in ${name}`);
     for (const { name, values } of JUDGED_THEMES) {
-        assert.equal(judge.formatColor(judge.keyHintInk(values, null, true)), values.kbd.foreground, `${name}: ordinary key ink stays muted`);
-        assert.equal(judge.formatColor(judge.keyHintInk(values, null, false)), values.text.keyHint.color, `${name}: ordinary hint ink stays muted`);
+        assert.equal(judge.formatColor(judge.keyHintInk(values, null, "key")), values.kbd.foreground, `${name}: ordinary key ink stays muted`);
+        assert.equal(judge.formatColor(judge.keyHintInk(values, null, "word")), values.text.keyHint.color, `${name}: ordinary hint ink stays muted`);
+        assert.equal(judge.formatColor(judge.keyHintInk(values, null, "value")), values.kbd.valueForeground, `${name}: ordinary bound key ink stays the value ink`);
     }
+    for (const { name, values } of JUDGED_THEMES.filter(({ name }) => name === "vgs" || name === "catalog/flexoki-light"))
+        assert.equal(values.kbd.valueForeground, values.color.text, `${name}: a field's bound key draws in body ink`);
+    assert.throws(() => judge.keyHintInk(JUDGED_THEMES[0].values, null, true), /key hint part unknown/, "a hint part outside the table is refused");
+    assert.deepEqual(selectionHintShortfalls(judge), [], "a field's bound key reads at 4.5:1 on its selection mark in every theme");
+    const oldValueInk = selectionHintReadings(judge, values => judge.parseColor(values.kbd.valueForeground));
+    assert.ok(oldValueInk.some(([, ratio]) => ratio < 4.5), "control: body ink alone fails a field's selection mark in some theme");
     const checkStep = rows => assert.deepEqual(rows.filter(([, role, , ratio]) => role === "step" && ratio < 1.25), [], "launcher title/detail step is at least 1.25:1 in every theme");
     checkStep(readings);
     // Independent menu reading: vgs's lifted #212121 under its plate,
@@ -1965,6 +1997,8 @@ function launcherDetailShortfalls(judge, launcher) {
 // keeps the text around it. The suite must fail on every copy.
 const CONTROLS = [
     ["shared hint ignores its composed surface", "if (context === null) return ink;", "return ink;", judge => assert.deepEqual(launcherDetailShortfalls(judge, LAUNCHER), [], "shared hint inks keep the reached fill floor")],
+    ["a field's bound key ignores its selection mark", "if (context === null) return ink;", "return ink;", judge => assert.deepEqual(selectionHintShortfalls(judge), [], "a bound key keeps the floor on its selection mark")],
+    ["a surface-solved hint word keeps the old margin", "var margin = valueAt(values, spec.margin);", "var margin = spec.cap ? valueAt(values, spec.margin) : 4.95;", judge => verifyHintMargin(judge)],
     ["screensaver gradient is judged", '    ["screensaver.gradientStart", "screensaver.background"],\n', "", verifyScreensaver],
     ["screensaver fixed canvas", 'leaf.type === "color" && token === "screensaver.background" && (value.r !== 0 || value.g !== 0 || value.b !== 0 || value.a !== 1)', "false", verifyScreensaver],
     ["notice states the minimum", ' + ", needs " + shortfall.floor + ":1."', ' + "."'],

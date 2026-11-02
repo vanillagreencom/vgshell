@@ -505,6 +505,7 @@ FocusScope {
                                     implicitHeight: chipRow.implicitHeight
 
                                     Rectangle {
+                                        id: selectionMark
                                         anchors.fill: parent
                                         anchors.margins: -Theme.space.xxs
                                         radius: Theme.kbd.radius
@@ -515,10 +516,16 @@ FocusScope {
                                     Row {
                                         id: chipRow
                                         spacing: comboCaps.visible && prompt.visible ? Theme.space.sm : 0
+                                        // The caps are the field's value. The
+                                        // translucent cap fill shows the
+                                        // selection mark under it, so the
+                                        // ink is solved on that ground.
                                         KeyCaps {
                                             id: comboCaps
                                             anchors.verticalCenter: parent.verticalCenter
                                             shortcut: group.modelData.combo
+                                            value: true
+                                            backgroundContext: selectionMark.visible ? ({ fill: Theme.textField.background, plate: Theme.color.selection, sheen: "transparent" }) : null
                                         }
                                         Label {
                                             id: prompt

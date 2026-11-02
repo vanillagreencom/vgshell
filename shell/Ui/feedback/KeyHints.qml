@@ -49,7 +49,7 @@ Row {
 
             Label {
                 role: "keyHint"
-                color: Theme.keyHintInk(root.backgroundContext, false)
+                color: Theme.keyHintInk(root.backgroundContext, "word")
                 // A fractional word width would put the next chord, and
                 // a right-aligned row, between device-pixel columns.
                 width: Math.ceil(implicitWidth)

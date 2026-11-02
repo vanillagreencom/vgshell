@@ -170,11 +170,14 @@ Singleton {
         return toColor(ThemeLogic.formatColor(ThemeLogic.contrastColor(color)));
     }
 
-    function keyHintInk(context, cap) {
+    // The ink of PART of the shared key hint, `word`, `key` or `value`, on
+    // the composed ground CONTEXT hands, or its default ink for null
+    // (ThemeLogic.keyHintInk).
+    function keyHintInk(context, part) {
         const colors = context === null ? null : {
             fill: Qt.color(context.fill), plate: Qt.color(context.plate), sheen: Qt.color(context.sheen)
         };
-        return toColor(ThemeLogic.formatColor(ThemeLogic.keyHintInk(source.values, colors, cap)));
+        return toColor(ThemeLogic.formatColor(ThemeLogic.keyHintInk(source.values, colors, part)));
     }
 
     // The room a row takes under its sub-text, a hint, error or warning
