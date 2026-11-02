@@ -266,6 +266,7 @@ var READABILITY_TEXT_ROLES = [
     "color.textHeading",
     "color.textMuted",
     "color.textFaint",
+    "text.keyHint.color",
     "color.accent",
     "color.success",
     "color.warning",
@@ -294,6 +295,8 @@ function readabilityWeights(values) {
         "color.textHeading": ["text.display.weight", "text.h1.weight", "text.h2.weight", "text.h3.weight", "text.windowTitle.weight"],
         "color.textMuted": ["text.subheading.weight", "text.label.weight", "text.body.weight", "text.hint.weight", "text.bar.weight", "text.value.weight", "text.bodyStrong.weight", "text.code.weight", "text.item.weight", "text.button.weight", "text.kbd.weight", tileWeight],
         "color.textFaint": ["text.hint.weight", "text.itemHint.weight", "text.menuItemHint.weight", "text.item.weight", "text.body.weight", "text.kbd.weight"],
+        "text.keyHint.color": ["text.keyHint.weight"],
+        "kbd.foreground": ["text.kbd.weight"],
         "color.accent": ["text.eyebrow.weight", "text.body.weight", "text.bar.weight", "text.button.weight", "text.label.weight", "button.variant.primary.weight", "button.variant.secondary.weight", "button.variant.tertiary.weight", "button.variant.ghost.weight", "button.variant.danger.weight", tileWeight],
         "color.success": ["text.body.weight", "text.hint.weight", "text.value.weight"],
         "color.warning": ["text.body.weight", "text.hint.weight", "text.value.weight", "text.bar.weight"],
@@ -329,6 +332,7 @@ function drawnTextRatio(text, surface, weight) {
 // the same floor. A translucent fill, such as a badge's faint tone, is
 // judged laid over each resting surface, as it is drawn.
 var READABILITY_PAIRS = [
+    ["kbd.foreground", "kbd.background"],
     ["segmented.foreground", "segmented.background"],
     ["segmented.selectedForeground", "segmented.selected"],
     ["listItem.selectedForeground", "listItem.selected"],
@@ -397,6 +401,7 @@ var GLASS_PLATE_PAIRS = [["listItem.selectedForeground", "listItem.selected"]];
 var READABILITY_NAMES = {
     "color.text": "Body text", "color.textHeading": "Headings",
     "color.textMuted": "Muted text", "color.textFaint": "Faint text",
+    "text.keyHint.color": "Key hints", "kbd.foreground": "Key names", "kbd.background": "key backgrounds",
     "color.accent": "Accent text", "color.success": "Success text",
     "color.warning": "Warning text", "color.danger": "Error text", "color.info": "Information text",
     "color.background": "the main background", "color.surface": "panel backgrounds",

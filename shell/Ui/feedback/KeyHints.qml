@@ -10,8 +10,13 @@ Row {
     id: root
 
     property var hints: []
+    // Row's padding is part of its implicit height, so every action footer
+    // gets the same gap without a spacer in its dialog or card.
+    // https://doc.qt.io/qt-6/qml-qtquick-row.html#topPadding-prop
+    property bool afterActions: false
 
     spacing: Theme.stack.group
+    topPadding: afterActions ? Theme.kbd.actionGap : 0
 
     function alternatives(entry) {
         if (entry.keys !== undefined) return entry.keys;
@@ -41,7 +46,10 @@ Row {
             }
 
             Label {
-                role: "hint"
+                role: "keyHint"
+                // A fractional word width would put the next chord, and
+                // a right-aligned row, between device-pixel columns.
+                width: Math.ceil(implicitWidth)
                 y: topForCapCenter(Math.max(Theme.kbd.height, caps.implicitHeight))
                 text: pair.modelData.text
             }

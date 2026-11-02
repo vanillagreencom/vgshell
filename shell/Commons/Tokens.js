@@ -99,7 +99,8 @@ function merge() {
 
 // Reading text and tooltips draw in sans; chrome (labels, buttons, key
 // caps, code and the bar) draws in mono at 12 and 13 px. At the default
-// size the floors are 13 px for reading text and 12 px for chrome; a
+// size the floors are 13 px for reading text and 12 px for chrome, except
+// the muted key names at 11 px; a
 // plugin that owns its look draws no smaller. A `lineHeight` is
 // a multiple of the role's font size, chosen so a multi-line role's line
 // box is a multiple of 4 px at the default size. Label turns it into a
@@ -134,7 +135,12 @@ var TEXT = {
     hint: role("sans", 0.87, 400, 0, 1.55, false, "textFaint"),
     tooltip: role("sans", 0.8, 500, 0, 1.333, false, "text"),
     button: role("caps", 0.8, 500, 0.08, 1, true, "text"),
-    kbd: role("mono", 0.8, 600, 0.02, 1, false, "text"),
+    kbd: role("mono", 0.7333333333, 600, 0.02, 1, false, "text"),
+    // Start at the approved faded hint ink; the regular-stroke margin
+    // keeps its drawn contrast above the judge's text floor.
+    keyHint: merge(role("sans", 0.8, 400, 0, 1.55, false, "textFaint"), {
+        color: color("contrastMix(contrast({color.surfaceRaised}), mix({color.surfaceRaised}, readable({color.textFaint}, {color.surfaceRaised}, contrast({color.surfaceRaised})), 0.88), {color.surfaceRaised}, 4.95)")
+    }),
     code: role("mono", 0.87, 500, 0, 1.5, false, "text"),
     bar: role("caps", 0.8, 500, 0.08, 1, true, "text")
 };
@@ -746,12 +752,13 @@ var TOKENS = {
     // width, never narrower than it is tall.
     kbd: {
         radius: length("{radius.sm}"),
-        border: length("{border.thin}"),
+        border: length(0),
         height: length("{badge.size.sm.height}"),
         paddingX: length("{space.sm}"),
-        background: color("{color.surfaceRaised}"),
+        background: color("alpha(contrast({palette.background}), 0.08)"),
         borderColor: color("{color.borderStrong}"),
-        foreground: color("{color.textMuted}")
+        foreground: color("contrastMix(contrast(mix({color.surfaceRaised}, contrast({palette.background}), 0.08)), readable({color.textFaint}, {color.surfaceRaised}, contrast({color.surfaceRaised})), mix({color.surfaceRaised}, contrast({palette.background}), 0.08), 4.65)"),
+        actionGap: length("{space.lg}")
     },
 
     // A command or path shown to copy: its text on a sunken fill, a Copy

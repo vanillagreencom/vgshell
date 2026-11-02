@@ -114,7 +114,8 @@ Item {
                 { tag: "label", family: mono, size: 12, weight: 500, spacing: 0.08, uppercase: true, lineHeight: 1 },
                 { tag: "value", family: sans, size: 13, weight: 400, spacing: 0, uppercase: false, lineHeight: 1 },
                 { tag: "button", family: mono, size: 12, weight: 500, spacing: 0.08, uppercase: true, lineHeight: 1 },
-                { tag: "kbd", family: mono, size: 12, weight: 600, spacing: 0.02, uppercase: false, lineHeight: 1 },
+                { tag: "kbd", family: mono, size: 11, weight: 600, spacing: 0.02, uppercase: false, lineHeight: 1 },
+                { tag: "keyHint", family: sans, size: 12, weight: 400, spacing: 0, uppercase: false, lineHeight: 1.55 },
                 { tag: "code", family: mono, size: 13, weight: 500, spacing: 0, uppercase: false, lineHeight: 1.5 },
                 { tag: "tooltip", family: sans, size: 12, weight: 500, spacing: 0, uppercase: false, lineHeight: 1.333 },
                 { tag: "bar", family: mono, size: 12, weight: 500, spacing: 0.08, uppercase: true, lineHeight: 1 }

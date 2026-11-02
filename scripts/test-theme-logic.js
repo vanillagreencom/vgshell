@@ -116,7 +116,8 @@ const DEFAULTS = [
     // Chrome is 12 px, 15 * 0.8, and a key/value value 13 px, 15 * 0.87
     // rounded: capitals within a pixel of each other's height.
     ["text.label.size", 12],
-    ["text.kbd.size", 12],
+    ["text.kbd.size", 11],
+    ["text.keyHint.size", 12],
     ["text.button.size", 12],
     ["text.eyebrow.size", 12],
     ["text.value.size", 13],
@@ -680,10 +681,10 @@ const CATALOG_REFUSED = [
 // A package a catalog entry names: theme.json with MODE and ACCENT over
 // CATALOG_PALETTE, under NAME.
 const catalogTheme = (name, mode, accent) => JSON.stringify({ schemaVersion: 1, name, tokens: { scheme: { mode }, palette: Object.assign({}, CATALOG_PALETTE, { accent }) } });
-const READABILITY_ROLES = ["color.text", "color.textHeading", "color.textMuted", "color.textFaint", "color.accent", "color.success", "color.warning", "color.danger", "color.info"];
+const READABILITY_ROLES = ["color.text", "color.textHeading", "color.textMuted", "color.textFaint", "text.keyHint.color", "color.accent", "color.success", "color.warning", "color.danger", "color.info"];
 const READABILITY_SURFACES = ["color.background", "color.surface", "color.surfaceRaised", "color.surfaceSunken"];
 const BOUNDARY_ROLES = ["checkbox.borderColor", "radio.borderColor", "textField.borderColor", "toggle.off", "checkbox.checked", "radio.checked", "toggle.on"];
-const READABILITY_PAIRS = [["segmented.foreground", "segmented.background"], ["segmented.selectedForeground", "segmented.selected"], ["listItem.selectedForeground", "listItem.selected"],
+const READABILITY_PAIRS = [["kbd.foreground", "kbd.background"], ["segmented.foreground", "segmented.background"], ["segmented.selectedForeground", "segmented.selected"], ["listItem.selectedForeground", "listItem.selected"],
     ...["neutral", "accent", "success", "warning", "danger", "info"].map(tone => [`badge.tone.${tone}.foreground`, `badge.tone.${tone}.background`]),
     ...["foreground", "gradientStart", "gradientEnd"].map(role => [`screensaver.${role}`, "screensaver.background"])];
 const BOUNDARY_PAIRS = [["toggle.knobOff", "toggle.off"], ["toggle.knobOn", "toggle.on"], ["checkbox.mark", "checkbox.checked"], ["segmented.indicatorColor", "segmented.selected"], ["segmented.indicatorColor", "segmented.background"]];
@@ -1452,7 +1453,8 @@ function verifyDrawnWeights(judge) {
     // Every default typography colour has its drawing role represented.
     for (const [role, type] of Object.entries(TOKENS.text)) {
         const colour = /^\{(color\.[^}]+)\}$/.exec(type.color.value);
-        assert.ok(colour && judge.readabilityWeights(judge.defaults(TOKENS).values)[colour[1]].includes("text." + role + ".weight"), role + ": typography is judged at its own weight");
+        const source = role === "keyHint" ? "text.keyHint.color" : colour === null ? null : colour[1];
+        assert.ok(source && judge.readabilityWeights(judge.defaults(TOKENS).values)[source].includes("text." + role + ".weight"), role + ": typography is judged at its own weight");
     }
 }
 
@@ -1464,7 +1466,8 @@ function verifyDrawingWeightSources(judge) {
         ["color.textMuted", "text.code.weight"], // Polkit Prompt
         ["color.textMuted", "text.item.weight"], // SaveBar
         ["color.textMuted", "text.button.weight"], // Tabs
-        ["color.textMuted", "text.kbd.weight"], // Kbd
+        ["color.textMuted", "text.kbd.weight"], // Mono chrome
+        ["text.keyHint.color", "text.keyHint.weight"], // KeyHints
         ["color.textFaint", "text.item.weight"], // TextField and Select placeholders
         ["color.textFaint", "text.body.weight"], // TextArea placeholder
         ["color.textFaint", "text.kbd.weight"], // ShortcutField placeholder

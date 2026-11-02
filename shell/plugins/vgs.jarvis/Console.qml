@@ -600,39 +600,51 @@ FocusScope {
                     }
                 }
 
-                Row {
+                Column {
                     width: parent.width
-                    spacing: Theme.control.gap
                     visible: !root.speechOnly
+                    Row {
+                        width: parent.width
+                        spacing: Theme.control.gap
 
-                    TextField {
-                        id: entryField
-                        width: parent.width - sendButton.width - stopButton.width - parent.spacing - parent.spacing
-                        placeholderText: "Message Jarvis"
-                        maximumLength: Session.TRANSCRIPT_CHARS
-                        onTextChanged: root.draft = text
-                        Keys.onReturnPressed: event => { root.sendMessage(); event.accepted = true; }
-                        Keys.onEnterPressed: event => { root.sendMessage(); event.accepted = true; }
-                        Keys.onPressed: event => {
-                            if (root.handleBacktab(event)) return;
-                            if ((event.key === Qt.Key_PageUp || event.key === Qt.Key_PageDown) && layout.scrollArea.handleScrollKey(event)) event.accepted = true;
+                        TextField {
+                            id: entryField
+                            width: parent.width - sendButton.width - stopButton.width - parent.spacing - parent.spacing
+                            placeholderText: "Message Jarvis"
+                            maximumLength: Session.TRANSCRIPT_CHARS
+                            onTextChanged: root.draft = text
+                            Keys.onReturnPressed: event => { root.sendMessage(); event.accepted = true; }
+                            Keys.onEnterPressed: event => { root.sendMessage(); event.accepted = true; }
+                            Keys.onPressed: event => {
+                                if (root.handleBacktab(event)) return;
+                                if ((event.key === Qt.Key_PageUp || event.key === Qt.Key_PageDown) && layout.scrollArea.handleScrollKey(event)) event.accepted = true;
+                            }
+                        }
+                        Button {
+                            id: sendButton
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "Send"
+                            iconName: "send"
+                            disabledReason: !root.ready ? root.refusalText(root.refusal) : entryField.text.trim() === "" ? "Type a message to Jarvis first" : ""
+                            onClicked: root.sendMessage()
+                        }
+                        IconButton {
+                            id: stopButton
+                            anchors.verticalCenter: parent.verticalCenter
+                            iconName: "square"
+                            label: "Stop Jarvis"
+                            tooltip: root.stopKey === "" ? "Stop Jarvis" : "Stop Jarvis " + root.stopKey
+                            onClicked: root.stop()
                         }
                     }
-                    Button {
-                        id: sendButton
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: "Send"
-                        iconName: "send"
-                        disabledReason: !root.ready ? root.refusalText(root.refusal) : entryField.text.trim() === "" ? "Type a message to Jarvis first" : ""
-                        onClicked: root.sendMessage()
-                    }
-                    IconButton {
-                        id: stopButton
-                        anchors.verticalCenter: parent.verticalCenter
-                        iconName: "square"
-                        label: "Stop Jarvis"
-                        tooltip: root.stopKey === "" ? "Stop Jarvis" : "Stop Jarvis " + root.stopKey
-                        onClicked: root.stop()
+                    KeyHints {
+                        afterActions: true
+                        hints: root.speechOnly ? [] : [
+                            { key: "Enter", text: "Send" },
+                            { key: root.shell === null ? "" : root.shell.shortcut.keys.talk || "", text: "Talk" },
+                            { key: root.stopKey, text: "Stop" }
+                        ]
+                        visible: !root.speechOnly
                     }
                 }
             }
