@@ -4,7 +4,7 @@
 # row of the unbound `power-menu` shortcut, opens the menu through that
 # shortcut, and drives it on the nested seat: the keyboard selection, a
 # hold with nothing selected, a release before 2 s, a release with Shift
-# down, a full key hold, Escape and Tab during a hold, a pointer hold and
+# down, a full key hold, Escape and focus loss during a hold, a pointer hold and
 # its early release, a press beside the card held across the deadline,
 # opening from the launcher's System > Power menu row, and a full hold with
 # Motion off. Each action runs `vgshell power <verb>`; the row's
@@ -153,6 +153,7 @@ EOF_STAND
   expect "Settings closes" ok ipc shell hide window vgs.settings
 
   pm_open "keyboard"
+  expect "the power menu carries no info control" '[]' ipc smoke itemValues overlay vgs.power InfoButton infoOpen
   type_keys -P space -s 2400 -p space || fail "the hold with nothing selected failed to type"
   expect "a hold with nothing selected runs nothing" '[]' pm_runs
   type_keys -k Down || fail "Down failed"
@@ -180,7 +181,12 @@ EOF_STAND
   expect "Escape during a hold runs nothing" '[]' pm_quiet 1000
 
   pm_open "focus"
-  type_keys -k Down -P Return -s 1000 -k Tab -s 2600 -p Return || fail "Tab during a hold failed to type"
+  type_keys -k Down -P Return -s 4200 -p Return &
+  local pm_focus_pid=$!
+  expect_poll "the focus-loss check starts a key hold" holding pm_phase
+  expect "focus moves off the action list" focused ipc smoke invokeInstance overlay vgs.power focusInstance ''
+  expect_poll "leaving the action list cancels the hold" idle pm_phase
+  wait "$pm_focus_pid" || fail "the hold during a focus move failed to type"
   expect "moving focus during a hold runs nothing" '[]' pm_quiet 1000
   expect "the menu stays open after focus moves" 1 layer_count vgs:overlay
   type_keys -k Escape || fail "Escape failed"

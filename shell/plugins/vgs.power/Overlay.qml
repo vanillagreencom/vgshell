@@ -175,12 +175,11 @@ Item {
         onTriggered: root.due()
     }
 
-    // Focus leaving the window, as to the lock screen, closes the menu;
-    // the info dialog's popup takes the keyboard while it stays open.
+    // Focus leaving the window, as to the lock screen, closes the menu.
     Connections {
         target: root.Window.window
         function onActiveChanged() {
-            if (!root.Window.window.active && !info.infoOpen) root.dismiss();
+            if (!root.Window.window.active) root.dismiss();
         }
     }
 
@@ -334,12 +333,6 @@ Item {
                 KeyHints {
                     anchors.verticalCenter: parent.verticalCenter
                     hints: [{ keys: ["Space", "Enter"], text: "Hold 2 s" }, { key: "Esc", text: "Close" }]
-                }
-                InfoButton {
-                    id: info
-                    anchors.verticalCenter: parent.verticalCenter
-                    title: "Power menu"
-                    info: "Hold Space, Enter or the pointer on an action for 2 seconds to run it. Release early to cancel.\nThe hold stops a stray key press or click from ending your work."
                 }
             }
         }
