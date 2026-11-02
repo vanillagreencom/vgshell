@@ -5,6 +5,7 @@
 "use strict";
 const { assert, fs, path, cp, tree, world, until, unlocked, copyBackend } = require("./fixtures/jarvis/audio.js");
 const { once } = require("node:events");
+const { isDeepStrictEqual } = require("node:util");
 const plugin = path.join(tree, "shell/plugins/vgs.jarvis");
 
 function daemonCopy(name, mutant = null, half = false) {
@@ -139,6 +140,75 @@ async function run(file, trigger) {
 }
 
 async function inside() {
+    // Audio's lease producer sends S once, then closes it at teardown. Data
+    // afterwards is the supervisor's protocol refusal, not another command.
+    async function supervisorWait(file, trigger) {
+        const child = cp.spawn("unshare", ["--map-current-user", "--pid", "--fork", "--kill-child=KILL", "--",
+            "python3", "-I", path.join(tree, "scripts/fixtures/jarvis/audio-supervisor.py"), file], {
+            env: { PATH: "/usr/bin:/bin", HOME: process.env.HOME },
+            stdio: ["pipe", "pipe", "pipe", "pipe", "pipe"]
+        });
+        const closed = once(child, "close");
+        let output = "", error = "";
+        child.stdout.on("data", data => { output += data; });
+        child.stderr.on("data", data => { error += data; });
+        child.stdio[4].resume();
+        const rows = () => output.split("\n").slice(0, -1).map(JSON.parse);
+        const deadline = setTimeout(() => child.kill("SIGKILL"), 3000);
+        try {
+            child.stdio[3].write("S");
+            await until(() => rows().some(row => row.select === "enter"), "supervisor entered its select");
+            // Timer-wiring evidence only: after the select acknowledgment,
+            // keep both producers quiet long enough to expose a 50 ms wake.
+            await new Promise(resolve => setTimeout(resolve, 150));
+            if (trigger === "child-exit") child.stdin.write("X");
+            else if (trigger === "lease-close") child.stdio[3].end();
+            else child.stdio[3].write("X");
+            const [code, signal] = await closed;
+            assert.equal(signal, null, error);
+            assert.equal(code, { "child-exit": 23, "lease-close": 0, "lease-data": 70 }[trigger], error);
+            assert.deepEqual(rows().filter(row => row.error), trigger === "lease-data" ? [{ error: "lease-data" }] : []);
+            const wakes = rows().filter(row => row.select === "timeout").length;
+            console.log("audio-supervisor: trigger=" + trigger + " timeout-wakes=" + wakes);
+            assert.deepEqual({ timeoutWakes: wakes }, { timeoutWakes: 0 }, "quiet supervisor never wakes on a timeout");
+            assert.ok(rows().filter(row => row.select === "enter").every(row => row.timeout === null));
+        } finally {
+            clearTimeout(deadline);
+            for (const pipe of [child.stdin, child.stdio[3]]) pipe.destroy();
+            if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+            await closed;
+        }
+    }
+    const supervisorFile = path.join(plugin, "backend/audio-child.py");
+    for (const trigger of ["child-exit", "lease-close", "lease-data"])
+        await supervisorWait(supervisorFile, trigger);
+    const pollingFolder = path.join(process.env.JARVIS_TEST_ROOT, "polling-control");
+    copyBackend(pollingFolder);
+    const pollingFile = path.join(pollingFolder, "audio-child.py");
+    const pollingSource = fs.readFileSync(pollingFile, "utf8");
+    const waitNeedle = "        pidfd = os.pidfd_open(child.pid)\n";
+    const endNeedle = "    finally:\n        if mode == \"host\":";
+    assert.equal(pollingSource.split(waitNeedle).length - 1, 1);
+    assert.equal(pollingSource.split(endNeedle).length - 1, 1);
+    const waitStart = pollingSource.indexOf(waitNeedle);
+    const waitEnd = pollingSource.indexOf(endNeedle, waitStart);
+    assert.ok(waitStart >= 0 && waitEnd > waitStart);
+    const oldLoop = "        selector = selectors.DefaultSelector()\n"
+        + "        selector.register(3, selectors.EVENT_READ)\n"
+        + "        while child.poll() is None:\n"
+        + "            if selector.select(0.05):\n"
+        + "                if os.read(3, 1) == b\"\":\n"
+        + "                    break\n"
+        + "                raise RuntimeError(\"lease-data\")\n";
+    const pollingChanged = pollingSource.slice(0, waitStart) + oldLoop + pollingSource.slice(waitEnd);
+    assert.notEqual(pollingChanged, pollingSource);
+    fs.writeFileSync(pollingFile, pollingChanged);
+    await assert.rejects(() => supervisorWait(pollingFile, "lease-close"),
+        error => error instanceof assert.AssertionError && error.operator === "deepStrictEqual"
+            && isDeepStrictEqual(error.expected, { timeoutWakes: 0 })
+            && isDeepStrictEqual(error.actual, { timeoutWakes: error.actual?.timeoutWakes })
+            && Number.isInteger(error.actual.timeoutWakes) && error.actual.timeoutWakes > 0);
+
     const file = daemonCopy("audio-daemon");
     for (const trigger of ["lease", "lock", "kill"]) await run(file, trigger);
     const half = daemonCopy("half-daemon", null, true);
@@ -208,6 +278,6 @@ async function inside() {
     // Let the same commands run without the PID boundary. The detached lock
     // survives daemon death, and the unchanged lifetime assertion turns red.
     await assert.rejects(() => run(mutant, "kill"), assert.AssertionError);
-    console.log("test-jarvis-audio-daemon: ok triggers=8 controls=3 startup-race=refused");
+    console.log("test-jarvis-audio-daemon: ok triggers=8 controls=4 startup-race=refused supervisor-ends=3");
 }
 world(inside).catch(error => { console.error(error); process.exitCode = 1; });

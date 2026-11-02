@@ -97,15 +97,18 @@ def main():
         env=dict(os.environ), pass_fds=(4,))
     try:
         os.close(4)
-        selector = selectors.DefaultSelector()
-        selector.register(3, selectors.EVENT_READ)
-        while child.poll() is None:
-            # This wait observes the lease while also reaping a naturally ended
-            # tool. It is not a startup delay or a device-retry backoff.
-            if selector.select(0.05):
-                if os.read(3, 1) == b"":
-                    break
-                raise RuntimeError("lease-data")
+        pidfd = os.pidfd_open(child.pid)
+        try:
+            with selectors.DefaultSelector() as selector:
+                selector.register(3, selectors.EVENT_READ)
+                selector.register(pidfd, selectors.EVENT_READ)
+                ready = selector.select()
+                if any(key.fd == pidfd for key, _ in ready):
+                    child.wait()
+                elif os.read(3, 1) != b"":
+                    raise RuntimeError("lease-data")
+        finally:
+            os.close(pidfd)
     finally:
         if mode == "host":
             finish_host(child)
