@@ -133,9 +133,9 @@ FocusScope {
                 width: parent.width
                 inline: true
                 label: "Before installing"
-                hint: beforeInstalling.currentIndex === 0 ? "Ask before each install or update, with an AI agent review selected"
+                hint: beforeInstalling.currentIndex === 0 ? "Ask each time, with review selected"
                     : beforeInstalling.currentIndex === 1 ? "Install and update packages without a review question"
-                    : "Ask before each install or update, with review selected when an AI agent is available"
+                    : "Ask each time, with review selected when an AI agent is found"
                 Select {
                     id: beforeInstalling
                     objectName: "packageReviewChoice"
