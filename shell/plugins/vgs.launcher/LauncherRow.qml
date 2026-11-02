@@ -12,6 +12,8 @@ Item {
     id: row
 
     required property var look
+    // The entrance outlives the launcher and needs its last motion value.
+    required property var listMotion
     // The launcher: its state and the functions a row calls.
     required property var launcher
     required property ListCursor plate
@@ -55,12 +57,9 @@ Item {
     opacity: entrance.progress
     transform: ListEntrance {
         id: entrance
+        motion: row.listMotion
         shift: row.look.row.enterX
     }
-    // Qt's declarative target evaluates only while enabled; RestoreNone
-    // keeps the last motion after the launcher is destroyed.
-    // https://doc.qt.io/qt-6/qml-qtqml-binding.html#conditional-bindings
-    Binding { when: row.live; entrance.motion: row.launcher.listMotion; restoreMode: Binding.RestoreNone }
     Component.onCompleted: {
         if (hasCursor) plate.follow(row, true);
         if (live && launcher.freshIds[itemId]) entrance.start(plate.enterSlot(), launcher.navDirection);

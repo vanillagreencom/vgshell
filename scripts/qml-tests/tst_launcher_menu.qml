@@ -53,6 +53,7 @@ Item {
         delegate: LauncherRow {
             width: hintList.width
             look: realLauncher.look
+            listMotion: hintLauncher.listMotion
             launcher: root.rowLauncher
             plate: hintPlate
             itemId: "hint-file"

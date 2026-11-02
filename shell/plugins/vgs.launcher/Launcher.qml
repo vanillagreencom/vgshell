@@ -1249,6 +1249,7 @@ Item {
 
                     delegate: LauncherRow {
                         look: root.look
+                        listMotion: root.listMotion
                         launcher: root
                         plate: cursorPlate
                         width: ListView.view.width
