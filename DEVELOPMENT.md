@@ -25,7 +25,7 @@ scripts/smoke/gpu-fence.sh -- scripts/test-x.sh # one test in its own world
 
 Exit 77 means a check could not run and is not a pass. The `qml` area is the nested sandbox and needs `XDG_RUNTIME_DIR` and a render node that is not AMD's, and no `WAYLAND_DISPLAY`; `scripts/qml-smoke.sh` runs it alone. A new check is a row in `scripts/validate` with its must-fail control beside it.
 
-Every validate row runs in the world that `scripts/smoke/gpu-fence.sh` owns, with a read-only checkout and private home, XDG directories and scratch. Package and nix use their own containers. `scripts/test-gpu-fence.sh` runs outside the world to test that boundary. Validate itself keeps selection and last-pass records outside the row worlds.
+Every validate row runs in the world that `scripts/smoke/gpu-fence.sh` owns, with a read-only checkout and private home, XDG directories and scratch. Package and nix use their own containers. `scripts/test-gpu-fence.sh` runs outside the world to test that boundary. Validate itself keeps selection, last-pass and row records outside the row worlds; a run cut off keeps the results of the rows it ended for the next run, as [validation.md § Selection](docs/architecture/validation.md#selection) sets out.
 
 A run that must outlive a tool call starts detached with HUP, INT and QUIT at their defaults and records its own pid: `setsid env --default-signal=HUP,INT,QUIT bash -c 'echo $$ >tmp/run.pid; exec scripts/validate offline' </dev/null >tmp/run.log 2>&1 &`. Under `nohup` or a bare `&` those signals start ignored, and the signal rows of `scripts/test-gpu-fence.sh` and `scripts/test-vgshell-tui.sh` fail. Wait with `tail --pid=PID -f /dev/null` on the recorded pid, never on `$!`, which `setsid` can leave at once, and never on a `pgrep -f` hit, which can match the caller's own shell.
 
@@ -77,7 +77,7 @@ scripts/jarvis-selftest.sh --suite volume --brain <id>                          
 ```
 
 - The record goes under `tmp/selftest-records/` unless `--out` names a file. The last line of the run is `selftest=<key>`, and exit 77 means the run could not run.
-- The sandbox's shell finds the brain's program on the caller's `PATH` and runs it under the sandbox's HOME. A launcher that needs the caller's HOME, such as a version manager's shim, fails there: put the directory of the program itself first on `PATH`.
+- A sign-in brain runs its installed program under the sandbox's HOME. The run resolves that program through `mise which` when mise is installed, otherwise through the caller's command lookup, and links it into the harness's command shim under its command name. A failed lookup ends the run with exit 77 before the sandbox starts.
 - The run needs what `scripts/qml-smoke.sh` needs, and `pipewire`, `wireplumber` and `python-dbusmock` for the device fakes.
 - A brain that is a saved key, and `--voice realtime`, read that key from your keyring through a filtered bus, which needs `xdg-dbus-proxy`. A locked keyring or a key that is not stored ends the run with exit 77; the run never asks you to unlock.
 

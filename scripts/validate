@@ -38,6 +38,9 @@
 #   A row's input `device:GLOB` requires a character device matching GLOB.
 #   --skip-unprepared leaves it unselected when none exists and prints
 #   `validate: unselected missing=device:GLOB row=<label>` on stderr.
+#   A row's input `%scope` says it reads VGS_VALIDATE_BASE and
+#   VGS_VALIDATE_CHANGED to narrow its own work; it matches no path, and
+#   only such a row's record binds the base and the scope.
 #   A row's input `@NAME` names state it shares with every other row that
 #   names it, a fixed file, socket or container; it matches no path. Rows
 #   that share a `@NAME` never run at the same time, and a row whose input
@@ -66,6 +69,17 @@
 #   alone; the tools row `smoke rows name the rows they read` fails on a
 #   `function=`, `variable=`, `source=` or `unparsed` line and exits 77 when the scan
 #   could not run: smoke_reads_named below.
+#   Each row that ends, and each nested smoke row, records its outcome and
+#   seconds in <git-dir>/vgs-validated-rows as it ends, and a selected row
+#   a recorded pass covers is reused and not run, by the rule in
+#   docs/architecture/validation.md § Selection: the row records below. A
+#   run prints each selected row as `validate: reused secs=<s>
+#   row=<label>` or `validate: rerun secs=<s> [reason=<reason>]
+#   row=<label>`, smoke=<row> for a smoke row, with its last recorded
+#   seconds or `unknown`, then `validate: reuse=on rows-reused=<n> ...`
+#   with the totals, or `validate: reuse=off reason=<reason>`, --full among
+#   the reasons, and `validate: smoke-reuse=off reason=<reason>` when what
+#   a smoke row's reach rests on cannot be read.
 #
 # VGS_VALIDATE_BASE: the commit the whitespace row diffs the tree against;
 #   used as the default change base too, ahead of the last pass. --changed
@@ -92,10 +106,12 @@
 # Every end of validate bash can see stops the running rows first: an INT,
 #   TERM, HUP or QUIT, which exit 130, 143, 129 or 131, and a fatal signal
 #   bash takes for its EXIT trap, such as a PIPE. Each row's process group
-#   gets TERM, then KILL once 10 s have passed or at a repeat signal, and
-#   then the run's scratch directory is removed. A KILL to validate itself
-#   cannot be caught: it leaves the running rows going, and validate's logs
-#   under its temporary directory. Each world still owns its row's root.
+#   gets TERM, then KILL once 10 s have passed or at a repeat signal; then
+#   the nested smoke's per-row results are recorded and the run's scratch
+#   directory is removed. A KILL to validate itself cannot be caught: it
+#   leaves the running rows going, validate's logs under its temporary
+#   directory, and the smoke's results for the next run to record. Each
+#   world still owns its row's root.
 set -euo pipefail
 
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
@@ -496,7 +512,7 @@ rows=(
   "cli|package manager table|node scripts/test-vgshell-pkg-table.js|shell/Core/PackageManagers.js bin/lib/qml-library.js bin/lib/pkg-file.js bin/lib/judge-files.js bin/vgshell-pkg bin/lib/owned-group.py config/keys/* scripts/fixtures/pkg/* scripts/test-vgshell-pkg-table.js scripts/vgshell-pkg-shared.js"
   "cli|vgshell pkg check owner and command rows|node scripts/test-vgshell-pkg-cli.js|shell/Core/PackageManagers.js shell/Core/PackageReview.js bin/vgshell-pkg bin/vgshell bin/lib/pkg-review.sh bin/lib/ipc-reply.sh bin/lib/tui.sh bin/lib/judge-files.js bin/lib/qml-library.js bin/lib/owned-group.sh bin/lib/owned-group.py scripts/fixtures/pkg/* scripts/test-vgshell-pkg-cli.js scripts/vgshell-pkg-shared.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Pads.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js shell/Commons/PageReference.js shell/Ui/icons/Lucide.js shell/Ui/icons/Own.js config/shell.json"
   "cli|vgshell pkg run and pickers|scripts/test-vgshell-pkg-run.sh|scripts/vgshell-rows.sh bin/vgshell bin/vgshell-pkg bin/lib/* packaging/arch/*/.SRCINFO shell/Core/PackageManagers.js shell/Core/PackageReview.js scripts/fixtures/pkg-review/runtime-test.js scripts/fixtures/pkg-review/* shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Pads.js shell/Ui/icons/Lucide.js shell/Ui/icons/Own.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js shell/Commons/PageReference.js config/shell.json scripts/fixtures/pkg/check-failure/*"
-  "cli|plugin scanner controls|python3 scripts/test-vgshell-scan.py|bin/vgshell-scan bin/lib/dbus_wire.py"
+  "cli|plugin scanner controls|python3 scripts/test-vgshell-scan.py|bin/vgshell-scan bin/lib/dbus_wire.py bin/lib/owned-group.py"
   "cli|plugin scaffold controls|python3 scripts/test-vgs-plugin.py|.agents/skills/vgs-plugin/scripts/* .agents/skills/vgs-plugin/templates/* shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Core/PackageReview.js shell/Ui/icons/Lucide.js shell/Ui/icons/Own.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js shell/Commons/PageReference.js bin/vgshell-scan bin/lib/check-manifests.js scripts/check-plugin-boundary.py scripts/check-design-tokens.py scripts/check-pointer-cursor.py scripts/check-user-commands.py scripts/check-keyboard.py scripts/qml_source.py scripts/qml_controls.py bin/lib/qml-library.js shell/Commons/* bin/lib/dbus_wire.py"
   "boundary|plugin boundary|python3 scripts/check-plugin-boundary.py|shell/* bin/vgshell-scan scripts/qml_source.py bin/lib/dbus_wire.py"
   "boundary|smoke fixture boundary|python3 scripts/check-plugin-boundary.py --shell scripts/smoke/fixtures|scripts/smoke/fixtures/* bin/vgshell-scan scripts/qml_source.py bin/lib/dbus_wire.py"
@@ -518,7 +534,7 @@ rows=(
   "tools|heap profile attribution|python3 scripts/test-attribute-heap-profile.py|scripts/attribute-heap-profile.py"
   "tools|landing time controls|python3 scripts/test-landing-times.py|scripts/landing-times.py"
   "tools|main runner controls|scripts/test-main-run.sh|scripts/main-run.sh scripts/smoke/rows/keyboard.sh .agents/skills/orch/scripts/orch-env .agents/skills/orch/scripts/lib/kendex-env.sh"
-  "tools|smoke verdict controls|scripts/test-smoke-verdict.sh|scripts/smoke/verdict.sh scripts/smoke/harness.sh scripts/smoke/mode-hold.sh"
+  "tools|smoke verdict controls|scripts/test-smoke-verdict.sh|scripts/smoke/verdict.sh scripts/smoke/harness.sh scripts/smoke/mode-hold.sh scripts/smoke/row-inputs.sh scripts/smoke/teardown.sh scripts/qml-smoke.sh"
   "tools|smoke hyprctl bound controls|scripts/test-smoke-hypr-bound.sh|scripts/smoke/hypr-call.sh scripts/smoke/verdict.sh scripts/smoke/harness.sh scripts/test-smoke-hypr-bound.sh"
   "tools|mode hold controls|scripts/test-mode-hold.sh|scripts/smoke/mode-hold.sh scripts/smoke/verdict.sh scripts/smoke/harness.sh scripts/qml-smoke.sh scripts/sandbox-shots.sh scripts/smoke/rows/surfaces.sh"
   "tools|smoke row readers|python3 scripts/check-smoke-readers.py|scripts/smoke/rows/* scripts/smoke/*.sh bin/lib/ipc-reply.sh scripts/smoke/rows.list"
@@ -543,7 +559,7 @@ rows=(
   "tools|smoke configuration restore controls|python3 scripts/test-smoke-user-config.py|scripts/test-smoke-user-config.py scripts/smoke/user-config.sh scripts/smoke/harness.sh scripts/smoke/rows/hold-shortcuts.sh scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/jarvis-widget.sh scripts/smoke/rows/sound.sh scripts/smoke/rows/network.sh scripts/smoke/rows/tailscale.sh scripts/smoke/rows/vpn.sh"
   "tools|sandbox shot controls|scripts/test-sandbox-shots.sh|scripts/smoke/display-record.sh scripts/smoke/socket_ends.py scripts/smoke/shot.sh scripts/smoke/tree.sh bin/lib/engine.js scripts/smoke/Probe.qml shell/Core/MonitorState.qml shell/Core/Compositor.qml shell/Core/MonitorLogic.js shell/Core/Dispatch.js shell/Core/HyprlandLayer.js bin/lib/qml-library.js scripts/sandbox-shots.sh scripts/clone-world.py scripts/smoke/harness.sh scripts/smoke/gpu-fence.sh bin/lib/ipc-reply.sh bin/vgshell-theme-judge bin/lib/judge-files.js bin/lib/theme-render.js bin/lib/theme-backgrounds.js bin/lib/theme-select.js bin/lib/theme-catalog.js bin/lib/account-folders.js bin/lib/anchored.js shell/Commons/ThemeLogic.js shell/Commons/Tokens.js shell/Commons/AccountDirectories.js shell/Core/ConfigLogic.js shell/Core/PackageManagers.js themes/targets/gum/* shell/Commons/Glass.js scripts/smoke/devices.sh scripts/smoke/fixtures/devices/rfkill.json scripts/smoke/fixtures/voxtype/* scripts/smoke/fixtures/plugins/acme.dictation/*"
   "tools|google drive shot scene reads its states from the code|node scripts/test-google-drive-scene.js|scripts/test-google-drive-scene.js scripts/sandbox-shots.sh shell/plugins/vgs.google-drive/GoogleDriveLogic.js bin/lib/qml-library.js"
-  "tools|GPU fence controls|scripts/test-gpu-fence.sh|scripts/smoke/gpu-fence.sh scripts/smoke/harness.sh scripts/qml-smoke.sh scripts/smoke/rows.list scripts/sandbox-shots.sh scripts/measure-shader.sh scripts/qml-unit.sh scripts/jarvis-selftest.sh scripts/test-smoke-sink.sh config/voxtype/*|control"
+  "tools|GPU fence controls|scripts/test-gpu-fence.sh|scripts/smoke/gpu-fence.sh scripts/smoke/harness.sh scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/rows.list scripts/sandbox-shots.sh scripts/measure-shader.sh scripts/qml-unit.sh scripts/jarvis-selftest.sh scripts/test-smoke-sink.sh config/voxtype/*|control"
   "tools|smoke owner controls|scripts/test-smoke-owner.sh|scripts/smoke/gpu-fence.sh scripts/smoke/teardown.sh"
   "tools|plugin README images|python3 scripts/check-readme-images.py|shell/plugins/* docs/images/*"
   "tools|plugin README image controls|python3 scripts/test-check-readme-images.py|scripts/check-readme-images.py"
@@ -571,7 +587,7 @@ rows=(
   "tools|theme package judge controls|node scripts/test-vgshell-theme-judge.js|scripts/test-vgshell-theme-judge.js bin/vgshell-theme-judge bin/lib/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js shell/Commons/Glass.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Core/PackageReview.js shell/Ui/icons/Lucide.js shell/Ui/icons/Own.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js shell/Commons/PageReference.js themes/* config/shell.json"
   "unit|Keyboard UI contracts|scripts/test-keyboard-ui.sh|shell/plugins/vgs.keyboard/* scripts/fixtures/keyboard-ui/* scripts/qml-tests/stand-ins/* scripts/qml-unit.sh shell/Ui/* shell/Commons/* shell/Core/* shell/assets/* scripts/smoke/gpu-fence.sh shell/shell.qml"
   "unit|qml unit tests|scripts/qml-unit.sh|shell/Ui/* shell/Commons/* shell/Core/Config.qml shell/Core/TuiRecords.qml shell/Core/ThemeRunner.qml shell/Core/SessionLock.qml shell/Core/ShortcutRegistry.qml shell/Core/KeyCapture.qml shell/Core/HyprlandLayer.qml shell/Core/HyprlandState.qml shell/Core/HyprlandState.js shell/Core/HyprctlReader.qml shell/Core/Dispatch.js shell/Core/PluginLogic.js shell/Commons/PageReference.js shell/Core/ConfigLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Core/PackageReview.js shell/Core/HyprlandLayer.js shell/assets/* scripts/qml-tests/* shell/plugins/vgs.tailscale/* shell/plugins/vgs.google-drive/Service.qml shell/plugins/vgs.google-drive/RunnerClient.qml shell/plugins/vgs.google-drive/GoogleDriveLogic.js shell/plugins/vgs.google-drive/Panel.qml shell/plugins/vgs.sysmon/* shell/plugins/vgs.traffic/* shell/plugins/vgs.notifications/* shell/plugins/vgs.themes/* shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/* shell/plugins/vgs.displays/* shell/plugins/vgs.automations/* shell/plugins/vgs.jarvis/Widget.qml shell/plugins/vgs.jarvis/Console.qml shell/plugins/vgs.jarvis/WidgetView.js shell/plugins/vgs.jarvis/Session.js shell/plugins/vgs.jarvis/Service.qml shell/plugins/vgs.jarvis/Conversation.js shell/plugins/vgs.jarvis/Bubble.qml shell/plugins/vgs.jarvis/LocalTier.qml shell/plugins/vgs.jarvis/CloneRuntime.qml shell/plugins/vgs.jarvis/BrowserRuntime.qml shell/plugins/vgs.jarvis/FleetRuntime.qml shell/plugins/vgs.jarvis/SessionStart.qml shell/plugins/vgs.jarvis/Keys.qml shell/plugins/vgs.jarvis/LocalRuntime.qml shell/plugins/vgs.jarvis/SetupGate.js shell/plugins/vgs.jarvis/Accounts.qml shell/plugins/vgs.jarvis/AccountProviders.js shell/plugins/vgs.jarvis/AccountStatus.js shell/plugins/vgs.jarvis/JarvisProtocol.js shell/plugins/vgs.agent-warden/Widget.qml shell/plugins/vgs.agent-warden/ViewLogic.js shell/plugins/vgs.agent-warden/WardenLogic.js shell/plugins/vgs.ai-usage/Widget.qml shell/plugins/vgs.ai-usage/UsageView.js shell/plugins/vgs.sudo/Widget.qml shell/plugins/vgs.sudo/SudoView.js themes/vgs/theme.json themes/catalog/flexoki-light/theme.json scripts/smoke/gpu-fence.sh shell/plugins/vgs.vpn/* shell/plugins/vgs.screensaver/ScreensaverLogic.js shell/plugins/vgs.screensaver/logo.txt shell/shell.qml"
-  "unit|qml unit controls|scripts/test-qml-unit.sh|scripts/qml-unit.sh scripts/qml-tests/* shell/Ui/* shell/Commons/* shell/Core/Config.qml shell/Core/TuiRecords.qml shell/Core/ThemeRunner.qml shell/Core/SessionLock.qml shell/Core/ShortcutRegistry.qml shell/Core/KeyCapture.qml shell/Core/HyprlandLayer.qml shell/Core/HyprlandState.qml shell/Core/HyprlandState.js shell/Core/HyprctlReader.qml shell/Core/Dispatch.js shell/Core/PluginLogic.js shell/Commons/PageReference.js shell/Core/ConfigLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Core/PackageReview.js shell/Core/HyprlandLayer.js shell/plugins/vgs.google-drive/Service.qml shell/plugins/vgs.google-drive/RunnerClient.qml shell/plugins/vgs.google-drive/GoogleDriveLogic.js shell/plugins/vgs.google-drive/Panel.qml shell/plugins/vgs.sysmon/* shell/plugins/vgs.traffic/* shell/plugins/vgs.notifications/* shell/plugins/vgs.themes/* shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/* shell/plugins/vgs.displays/* shell/plugins/vgs.automations/* shell/plugins/vgs.jarvis/Widget.qml shell/plugins/vgs.jarvis/Console.qml shell/plugins/vgs.jarvis/WidgetView.js shell/plugins/vgs.jarvis/Session.js shell/plugins/vgs.jarvis/Service.qml shell/plugins/vgs.jarvis/Conversation.js shell/plugins/vgs.jarvis/Bubble.qml shell/plugins/vgs.jarvis/LocalTier.qml shell/plugins/vgs.jarvis/CloneRuntime.qml shell/plugins/vgs.jarvis/BrowserRuntime.qml shell/plugins/vgs.jarvis/FleetRuntime.qml shell/plugins/vgs.jarvis/SessionStart.qml shell/plugins/vgs.jarvis/Keys.qml shell/plugins/vgs.jarvis/LocalRuntime.qml shell/plugins/vgs.jarvis/SetupGate.js shell/plugins/vgs.jarvis/Accounts.qml shell/plugins/vgs.jarvis/AccountProviders.js shell/plugins/vgs.jarvis/AccountStatus.js shell/plugins/vgs.jarvis/JarvisProtocol.js shell/plugins/vgs.agent-warden/Widget.qml shell/plugins/vgs.agent-warden/ViewLogic.js shell/plugins/vgs.agent-warden/WardenLogic.js shell/plugins/vgs.ai-usage/Widget.qml shell/plugins/vgs.ai-usage/UsageView.js shell/plugins/vgs.sudo/Widget.qml shell/plugins/vgs.sudo/SudoView.js themes/vgs/theme.json themes/catalog/flexoki-light/theme.json scripts/smoke/gpu-fence.sh shell/plugins/vgs.vpn/* shell/plugins/vgs.screensaver/ScreensaverLogic.js shell/plugins/vgs.screensaver/logo.txt shell/shell.qml"
+  "unit|qml unit controls|scripts/test-qml-unit.sh|%scope scripts/qml-unit.sh scripts/qml-tests/* shell/Ui/* shell/Commons/* shell/Core/Config.qml shell/Core/TuiRecords.qml shell/Core/ThemeRunner.qml shell/Core/SessionLock.qml shell/Core/ShortcutRegistry.qml shell/Core/KeyCapture.qml shell/Core/HyprlandLayer.qml shell/Core/HyprlandState.qml shell/Core/HyprlandState.js shell/Core/HyprctlReader.qml shell/Core/Dispatch.js shell/Core/PluginLogic.js shell/Commons/PageReference.js shell/Core/ConfigLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Core/PackageReview.js shell/Core/HyprlandLayer.js shell/plugins/vgs.google-drive/Service.qml shell/plugins/vgs.google-drive/RunnerClient.qml shell/plugins/vgs.google-drive/GoogleDriveLogic.js shell/plugins/vgs.google-drive/Panel.qml shell/plugins/vgs.sysmon/* shell/plugins/vgs.traffic/* shell/plugins/vgs.notifications/* shell/plugins/vgs.themes/* shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/* shell/plugins/vgs.displays/* shell/plugins/vgs.automations/* shell/plugins/vgs.jarvis/Widget.qml shell/plugins/vgs.jarvis/Console.qml shell/plugins/vgs.jarvis/WidgetView.js shell/plugins/vgs.jarvis/Session.js shell/plugins/vgs.jarvis/Service.qml shell/plugins/vgs.jarvis/Conversation.js shell/plugins/vgs.jarvis/Bubble.qml shell/plugins/vgs.jarvis/LocalTier.qml shell/plugins/vgs.jarvis/CloneRuntime.qml shell/plugins/vgs.jarvis/BrowserRuntime.qml shell/plugins/vgs.jarvis/FleetRuntime.qml shell/plugins/vgs.jarvis/SessionStart.qml shell/plugins/vgs.jarvis/Keys.qml shell/plugins/vgs.jarvis/LocalRuntime.qml shell/plugins/vgs.jarvis/SetupGate.js shell/plugins/vgs.jarvis/Accounts.qml shell/plugins/vgs.jarvis/AccountProviders.js shell/plugins/vgs.jarvis/AccountStatus.js shell/plugins/vgs.jarvis/JarvisProtocol.js shell/plugins/vgs.agent-warden/Widget.qml shell/plugins/vgs.agent-warden/ViewLogic.js shell/plugins/vgs.agent-warden/WardenLogic.js shell/plugins/vgs.ai-usage/Widget.qml shell/plugins/vgs.ai-usage/UsageView.js shell/plugins/vgs.sudo/Widget.qml shell/plugins/vgs.sudo/SudoView.js themes/vgs/theme.json themes/catalog/flexoki-light/theme.json scripts/smoke/gpu-fence.sh shell/plugins/vgs.vpn/* shell/plugins/vgs.screensaver/ScreensaverLogic.js shell/plugins/vgs.screensaver/logo.txt shell/shell.qml"
   "unit|Keys labels show whole|node scripts/test-key-labels.js|shell/plugins/*/manifest.json shell/plugins/*/Service.qml shell/plugins/vgs.themes/BrowserLogic.js shell/Ui/* shell/Commons/* shell/assets/* scripts/qml-unit.sh scripts/qml-tests/stand-ins/* bin/lib/qml-library.js scripts/smoke/gpu-fence.sh shell/shell.qml"
   "unit|session lock controls|scripts/test-session-lock.sh|shell/Core/SessionLock.qml shell/Commons/SessionLockState.js scripts/qml-unit.sh scripts/qml-tests/tst_session_lock.qml scripts/qml-tests/stand-ins/* scripts/smoke/gpu-fence.sh shell/shell.qml"
   "nix|nix flake package|scripts/test-flake.sh|flake.nix flake.lock packaging/arch/vgshell-quickshell/* config/requirements.json packaging/install-system.sh packaging/install-tree.manifest scripts/check-install-tree.sh bin/* shell/* config/* themes/* VERSION @alone|container"
@@ -902,6 +918,41 @@ private_keys_check() {
   echo "validate: no private key in the tree"
 }
 
+# A pattern index NAME: the input patterns of a set of members, each
+# matched against a path once. A pattern with no wildcard is a key of
+# NAME_literal, PATTERN -> members; each wildcard pattern is in NAME_globs
+# once, with its members in NAME_glob_members. index_add files a member
+# under a pattern; index_match sets index_hits to the members, space-led
+# and space-delimited, whose patterns match a path. The rows table's index
+# and the nested smoke rows' index are both of this kind.
+index_add() { # NAME PATTERN MEMBER
+  local -n index_add_literal="$1_literal" index_add_members="$1_glob_members" index_add_globs="$1_globs"
+  case "$2" in
+    # [[ == ]] reads ( as an extended pattern, so it is no literal.
+    *[\*\?\[\\\(]*)
+      [[ -n ${index_add_members[$2]+set} ]] || index_add_globs+=("$2")
+      index_add_members[$2]+=" $3" ;;
+    *) index_add_literal[$2]+=" $3" ;;
+  esac
+}
+index_match() { # NAME PATH
+  local -n index_match_literal="$1_literal" index_match_members="$1_glob_members" index_match_globs="$1_globs"
+  local glob
+  index_hits="${index_match_literal[$2]-}"
+  for glob in "${index_match_globs[@]}"; do
+    [[ $2 != $glob ]] || index_hits+="${index_match_members[$glob]}"
+  done
+}
+
+# What smoke_rows_read last read, which selection and the row records
+# share: the rows; each row's input globs, smoke_row_lines, and, for a row
+# whose reach can be traced, smoke_row_globs; the rows each row reads; the
+# harness inputs; the tracked files; the pattern index smoke_index of each
+# row's file and globs; smoke_read_fault; and smoke_path_reach's answers.
+smoke_names=() smoke_harness_inputs=() smoke_tracked=() smoke_index_globs=() smoke_read_fault=unread
+declare -A smoke_row_lines=() smoke_row_globs=() smoke_row_reads=() smoke_path_hit=()
+declare -A smoke_index_literal=() smoke_index_glob_members=()
+
 # The reader of a row's input line and the core rows, smoke_core, both of
 # which scripts/qml-smoke.sh shares.
 source scripts/smoke/row-inputs.sh
@@ -909,9 +960,9 @@ source scripts/smoke/row-inputs.sh
 # smoke_input_read KEY FILE: read FILE's input line into smoke_globs
 # through smoke_inputs_read and return 0. A line that is missing, repeated
 # or empty, or a file that cannot be read, prints its self-check line keyed
-# KEY and returns 1. Each glob that matches no file of the caller's tracked
-# list, matched as the rows table matches, prints its self-check line and
-# sets smoke_glob_unmatched; the caller's hits caches the answer per glob.
+# KEY and returns 1. Each glob that matches no file of smoke_tracked,
+# matched as the rows table matches, prints its self-check line and sets
+# smoke_glob_unmatched; the caller's hits caches the answer per glob.
 smoke_input_read() { # KEY FILE
   local key="$1" file="$2" glob path
   smoke_glob_unmatched=false
@@ -926,7 +977,7 @@ smoke_input_read() { # KEY FILE
   for glob in "${smoke_globs[@]}"; do
     if [[ -z ${hits[$glob]-} ]]; then
       hits[$glob]=none
-      for path in "${tracked[@]}"; do
+      for path in "${smoke_tracked[@]}"; do
         if [[ $path == $glob ]]; then hits[$glob]=some; break; fi
       done
     fi
@@ -948,7 +999,7 @@ smoke_input_read() { # KEY FILE
 # row file sourced by those parts must also appear on the caller's input line. A
 # file the scan cannot read to its end, a quote, heredoc or substitution
 # left open, prints its own line, and its names count nowhere. Reads
-# lines[] and reads[] from smoke_rows_selected.
+# smoke_row_lines and smoke_row_reads from smoke_rows_read.
 smoke_reads_check() { # ROW...
   local facts fact row kind name definers definer named
   if ! facts="$(python3 -I - "$@" <<'PY'
@@ -1307,143 +1358,183 @@ PY
     named=false
     for definer in ${definers//,/ }; do
       if [[ $kind == source ]]; then
-        [[ " ${lines[$row]-} " == *" scripts/smoke/rows/$definer.sh "* ]] || continue
+        [[ " ${smoke_row_lines[$row]-} " == *" scripts/smoke/rows/$definer.sh "* ]] || continue
       else
-        [[ " ${reads[$row]-} " == *" $definer "* ]] || continue
+        [[ " ${smoke_row_reads[$row]-} " == *" $definer "* ]] || continue
       fi
       named=true
     done
     [[ $named == false ]] || continue
     printf 'validate: smoke-input row=%s %s=%s from=scripts/smoke/rows/%s.sh; add to the line in scripts/smoke/rows/%s.sh: # inputs: %s scripts/smoke/rows/%s.sh\n' \
-      "$row" "$kind" "$name" "${definers//,/.sh,scripts/smoke/rows/}" "$row" "${lines[$row]-}" "${definers%%,*}" >&2
+      "$row" "$kind" "$name" "${definers//,/.sh,scripts/smoke/rows/}" "$row" "${smoke_row_lines[$row]-}" "${definers%%,*}" >&2
   done <<<"$facts"
 }
 
-# smoke_list_rows: mark in want[] each row an added line of
-# the row list names, against the change base; a line git shows as added is a new or a
-# moved row. A removed line whose name the list no longer holds is an
-# unlisted row: its name joins unlisted[], and the caller runs each row
-# whose input line names that row's file, since that row reads state the
-# unlisted row no longer leaves. A list the diff cannot read, or one git
-# does not track, whose lines no diff shows, sets every instead. Reads
-# names[], tracked[] and smoke_list from smoke_rows_selected.
-smoke_list_rows() {
-  local diff line sign hunk=false
-  if [[ " ${tracked[*]} " != *" $smoke_list "* ]]; then
-    printf -v every 'reason=rows-list-untracked path=%q' "$smoke_list"; return 0
+# smoke_rows_read: read what every nested smoke row's reach rests on into
+# the smoke_* globals above. `scripts/qml-smoke.sh --list-rows` names the
+# rows. Each row's file, scripts/smoke/rows/<row>.sh, carries an input line
+# smoke_input_read reads; its globs and the file itself are its inputs,
+# filed in the pattern index smoke_index. A row whose line cannot be read
+# or holds a glob that matches no tracked file has no smoke_row_globs
+# entry: its reach cannot be traced. A row reads the rows whose file its
+# line names exactly, their functions or state, and fails without them:
+# smoke_row_reads. scripts/smoke/harness.sh carries an input line too,
+# naming what the harness and the libraries it sources read for every row.
+# The harness inputs are scripts/qml-smoke.sh, which holds the latency
+# budgets and the commands the sandbox hides, scripts/smoke/row-inputs.sh,
+# which holds the core rows and reads the rows a row brings, harness.sh
+# and the paths its line matches; a harness glob that matches nothing only
+# reports. smoke_read_fault names a row list, core row, tracked-file list
+# or harness line this cannot read, after which no reach is traced. The
+# self-check lines smoke_input_read prints never change the exit status.
+smoke_rows_read() {
+  local listed row file needed glob smoke_glob_unmatched smoke_inputs_line smoke_inputs_fault
+  local -a smoke_globs smoke_inputs_named
+  local -A hits=()
+  smoke_names=() smoke_harness_inputs=() smoke_tracked=() smoke_read_fault=""
+  smoke_row_lines=() smoke_row_globs=() smoke_row_reads=() smoke_path_hit=()
+  smoke_index_literal=() smoke_index_glob_members=() smoke_index_globs=()
+  if ! listed="$(scripts/qml-smoke.sh --list-rows)" || [[ -z $listed ]]; then
+    smoke_read_fault=row-list-unreadable; return 0
   fi
-  if ! diff="$(git diff -U0 --no-color --no-ext-diff "$change_base" -- "$smoke_list")"; then
-    printf -v every 'reason=rows-list-diff-unreadable path=%q' "$smoke_list"; return 0
+  mapfile -t smoke_names <<<"$listed"
+  for row in "${smoke_core[@]}"; do
+    if [[ " ${smoke_names[*]} " != *" $row "* ]]; then smoke_read_fault="core-row-missing row=$row"; return 0; fi
+  done
+  if ! mapfile -d '' -t smoke_tracked < <(git ls-files -z) || ! wait "$!" || [[ ${#smoke_tracked[@]} -eq 0 ]]; then
+    smoke_read_fault=tracked-list-unreadable; return 0
   fi
-  while IFS= read -r line; do
-    if [[ $line == @@* ]]; then hunk=true; continue; fi
-    [[ $hunk == true && ( $line == +* || $line == -* ) ]] || continue
-    sign="${line:0:1}"; line="${line:1}"
-    [[ -z $line || $line == '#'* ]] && continue
-    if [[ $sign == - ]]; then
-      [[ " ${names[*]} " == *" $line "* ]] || unlisted+=("$line")
-      continue
+  if smoke_input_read harness=scripts/smoke/harness.sh scripts/smoke/harness.sh; then
+    smoke_harness_inputs=(scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/harness.sh "${smoke_globs[@]}")
+  else
+    smoke_read_fault=harness-line-unreadable
+  fi
+  for row in "${smoke_names[@]}"; do
+    file="scripts/smoke/rows/$row.sh"
+    if smoke_input_read "row=$row" "$file" && [[ $smoke_glob_unmatched == false ]]; then
+      smoke_row_globs[$row]="${smoke_globs[*]}"
     fi
-    if [[ " ${names[*]} " != *" $line "* ]]; then
-      printf -v every 'reason=rows-list-unlisted-line value=%q' "$line"; return 0
+    smoke_row_lines[$row]="${smoke_globs[*]}"
+    smoke_inputs_rows "$row"
+    smoke_row_reads[$row]=""
+    for needed in "${smoke_inputs_named[@]}"; do
+      [[ " ${smoke_names[*]} " != *" $needed "* ]] || smoke_row_reads[$row]+=" $needed"
+    done
+    for glob in "$file" "${smoke_globs[@]}"; do index_add smoke_index "$glob" "$row"; done
+  done
+}
+
+# smoke_path_reach BASE PATH: set smoke_reach to what a change to PATH
+# against BASE reaches among the rows smoke_rows_read last read: `harness`
+# for a harness input, which every row reads; `untraced reason=<reason>`
+# when its reach cannot be read; or else the rows, space-led, whose file or
+# input glob matches PATH. scripts/smoke/rows.list, which holds the row
+# order, is no harness input: a change to it reaches the rows its added
+# lines name, read from the diff against BASE, so a moved row runs and a
+# comment reaches nothing, and each row whose line names the file of a row
+# its removed lines unlist, since that row reads state the unlisted row no
+# longer leaves. A list git does not track, a diff this cannot read or an
+# added line no listed row holds cannot be traced. Selection and the smoke
+# rows' records read this one answer, cached per BASE and PATH.
+smoke_path_reach() { # BASE PATH
+  local key="$1 $2" glob diff line sign hunk=false row needed
+  local -a unlisted=()
+  if [[ -n ${smoke_path_hit[$key]+set} ]]; then smoke_reach="${smoke_path_hit[$key]}"; return 0; fi
+  smoke_reach=""
+  for glob in "${smoke_harness_inputs[@]}"; do
+    if [[ $2 == $glob ]]; then smoke_reach=harness; break; fi
+  done
+  if [[ -z $smoke_reach && $2 == scripts/smoke/rows.list ]]; then
+    if [[ " ${smoke_tracked[*]} " != *" $2 "* ]]; then
+      printf -v smoke_reach 'untraced reason=rows-list-untracked path=%q' "$2"
+    elif ! diff="$(git diff -U0 --no-color --no-ext-diff "$1" -- "$2")"; then
+      printf -v smoke_reach 'untraced reason=rows-list-diff-unreadable path=%q' "$2"
+    else
+      while IFS= read -r line; do
+        if [[ $line == @@* ]]; then hunk=true; continue; fi
+        [[ $hunk == true && ( $line == +* || $line == -* ) ]] || continue
+        sign="${line:0:1}"; line="${line:1}"
+        [[ -z $line || $line == '#'* ]] && continue
+        if [[ $sign == - ]]; then
+          [[ " ${smoke_names[*]} " == *" $line "* ]] || unlisted+=("$line")
+        elif [[ " ${smoke_names[*]} " != *" $line "* ]]; then
+          printf -v smoke_reach 'untraced reason=rows-list-unlisted-line value=%q' "$line"; break
+        else
+          smoke_reach+=" $line"
+        fi
+      done <<<"$diff"
+      if [[ $smoke_reach != untraced* ]]; then
+        for needed in "${unlisted[@]}"; do
+          for row in "${smoke_names[@]}"; do
+            [[ " ${smoke_row_lines[$row]-} " != *" scripts/smoke/rows/$needed.sh "* ]] || smoke_reach+=" $row"
+          done
+        done
+      fi
     fi
-    want[$line]=1
-  done <<<"$diff"
+  fi
+  if [[ $smoke_reach != harness && $smoke_reach != untraced* ]]; then
+    index_match smoke_index "$2"
+    smoke_reach+="$index_hits"
+  fi
+  smoke_path_hit[$key]="$smoke_reach"
 }
 
 # The nested smoke rows a diff-scoped run passes to scripts/qml-smoke.sh as
-# --rows, set in smoke_only comma-joined, or empty for every row.
-# `scripts/qml-smoke.sh --list-rows` names the rows. Each row's file,
-# scripts/smoke/rows/<row>.sh, carries an input line smoke_input_read
-# reads; its globs and the file itself are its inputs. A row runs when a
-# changed path matches an input, when it is a core row, or when a running
-# row names its file exactly as an input: that row reads the other's
-# functions or state and fails without it. A row whose line cannot be read
-# or holds a glob that matches no tracked file runs on every change.
-# scripts/smoke/harness.sh carries an input line too, naming what the
-# harness and the libraries it sources read for every row. The harness
-# inputs are scripts/qml-smoke.sh, which holds the latency budgets and the
-# commands the sandbox hides, scripts/smoke/row-inputs.sh, which holds
-# the core rows and reads the rows a row brings, harness.sh and the paths
-# its line matches: a change to one runs every row, as does a harness
-# line, row list or tracked-file list this cannot read; a harness glob
-# that matches nothing only reports. scripts/smoke/rows.list, which holds the row order, is no
-# harness input: a change to it runs the rows its added lines name, read
-# from the diff against the change base, so a moved row runs and a comment
-# runs nothing, and a row its removed lines unlist brings each row that
-# names its file. No time figure removes a reached row:
-# docs/architecture/validation.md § Selection. The self-check lines
-# smoke_input_read prints never change the exit status.
+# --rows, set in smoke_only comma-joined, or empty for every row. A row
+# runs when a changed path reaches it (smoke_path_reach against the change
+# base), when it is a core row, when its reach cannot be traced, or when a
+# running row reads it. A change to a harness input runs every row, as
+# does one whose reach, or a row list, core row, tracked-file list or
+# harness line, cannot be read. No time figure removes a reached row:
+# docs/architecture/validation.md § Selection.
 smoke_rows_selected() { # CHANGED_PATH...
-  local listed row file path glob needed count every="" smoke_list=scripts/smoke/rows.list
-  local -a names tracked smoke_globs smoke_inputs_named unlisted=()
-  local -A want=() reads=() hits=() lines=()
-  local smoke_glob_unmatched smoke_inputs_line smoke_inputs_fault
+  local row path every=""
+  local -A want=()
   smoke_only=""
-  if ! listed="$(scripts/qml-smoke.sh --list-rows)" || [[ -z $listed ]]; then
-    echo 'validate: smoke-rows=all reason=row-list-unreadable' >&2; return 0
-  fi
-  mapfile -t names <<<"$listed"
-  for row in "${smoke_core[@]}"; do
-    if [[ " ${names[*]} " != *" $row "* ]]; then
-      printf 'validate: smoke-rows=all reason=core-row-missing row=%s\n' "$row" >&2; return 0
-    fi
-    want[$row]=1
+  smoke_rows_read
+  case "$smoke_read_fault" in
+    row-list-unreadable|core-row-missing*|tracked-list-unreadable)
+      printf 'validate: smoke-rows=all reason=%s\n' "$smoke_read_fault" >&2; return 0 ;;
+    ?*) every="reason=$smoke_read_fault" ;;
+  esac
+  for row in "${smoke_core[@]}"; do want[$row]=1; done
+  for row in "${smoke_names[@]}"; do
+    [[ -n ${smoke_row_globs[$row]+set} ]] || want[$row]=1
   done
-  if ! mapfile -d '' -t tracked < <(git ls-files -z) || ! wait "$!" || [[ ${#tracked[@]} -eq 0 ]]; then
-    echo 'validate: smoke-rows=all reason=tracked-list-unreadable' >&2; return 0
-  fi
-  if ! smoke_input_read harness=scripts/smoke/harness.sh scripts/smoke/harness.sh; then
-    every='reason=harness-line-unreadable'
-  fi
   for path in "$@"; do
     [[ -z $every ]] || break
-    for glob in scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/harness.sh "${smoke_globs[@]}"; do
-      if [[ $path == $glob ]]; then printf -v every 'reason=harness-input path=%q' "$path"; break; fi
-    done
-    if [[ -z $every && $path == "$smoke_list" ]]; then smoke_list_rows; fi
+    smoke_path_reach "$change_base" "$path"
+    case "$smoke_reach" in
+      harness) printf -v every 'reason=harness-input path=%q' "$path" ;;
+      untraced\ *) every="${smoke_reach#untraced }" ;;
+      *) for row in $smoke_reach; do want[$row]=1; done ;;
+    esac
   done
-  for row in "${names[@]}"; do
-    file="scripts/smoke/rows/$row.sh"
-    if ! smoke_input_read "row=$row" "$file" || [[ $smoke_glob_unmatched == true ]]; then
-      want[$row]=1
-    fi
-    lines[$row]="${smoke_globs[*]}"
-    smoke_inputs_rows "$row"
-    for needed in "${smoke_inputs_named[@]}"; do
-      [[ " ${names[*]} " != *" $needed "* ]] || reads[$row]+=" $needed"
-    done
-    for path in "$@"; do
-      for glob in "$file" "${smoke_globs[@]}"; do
-        [[ $path == $glob ]] || continue
-        want[$row]=1
-        break
-      done
-    done
-  done
-  for needed in "${unlisted[@]}"; do
-    for row in "${names[@]}"; do
-      [[ " ${lines[$row]-} " != *" scripts/smoke/rows/$needed.sh "* ]] || want[$row]=1
-    done
-  done
-  smoke_reads_check "${names[@]}"
+  smoke_reads_check "${smoke_names[@]}"
   if [[ -n $every ]]; then
     printf 'validate: smoke-rows=all %s\n' "$every" >&2; return 0
   fi
-  # A row that runs brings the rows it reads, and theirs in turn.
-  count=-1
-  while [[ $count -ne ${#want[@]} ]]; do
-    count=${#want[@]}
-    for row in "${!want[@]}"; do
-      for needed in ${reads[$row]-}; do want[$needed]=1; done
-    done
-  done
-  if [[ ${#want[@]} -eq ${#names[@]} ]]; then
-    printf 'validate: smoke-rows=all reason=every-row-reached total=%s\n' "${#names[@]}" >&2; return 0
+  smoke_close want
+  if [[ ${#want[@]} -eq ${#smoke_names[@]} ]]; then
+    printf 'validate: smoke-rows=all reason=every-row-reached total=%s\n' "${#smoke_names[@]}" >&2; return 0
   fi
-  printf 'validate: smoke-rows=some selected=%s total=%s\n' "${#want[@]}" "${#names[@]}" >&2
-  for row in "${names[@]}"; do
+  printf 'validate: smoke-rows=some selected=%s total=%s\n' "${#want[@]}" "${#smoke_names[@]}" >&2
+  for row in "${smoke_names[@]}"; do
     [[ -z ${want[$row]-} ]] || smoke_only+="${smoke_only:+,}$row"
+  done
+}
+
+# smoke_close NAME: add to the associative array NAME each row a row in it
+# reads, as smoke_rows_read last read them, and theirs in turn: a row that
+# runs brings them.
+smoke_close() { # NAME
+  local -n smoke_close_set="$1"
+  local row needed count=-1
+  while [[ $count -ne ${#smoke_close_set[@]} ]]; do
+    count=${#smoke_close_set[@]}
+    for row in "${!smoke_close_set[@]}"; do
+      for needed in ${smoke_row_reads[$row]-}; do smoke_close_set[$needed]=1; done
+    done
   done
 }
 
@@ -1643,9 +1734,70 @@ rebased_scope() { # FILE
   done >"$file"
   printf 'validate: scope=rebased base=%s old-point=%s point=%s\n' "$base_commit" "$old_point" "$point" >&2
 }
+# The path patterns of each row that is not a repo row, its input globs,
+# every word of its command that holds a slash, and the world script for a
+# row run wraps in the world, filed by row index in the pattern index
+# row_index. A `$NAME`, `@NAME`, `%scope` or `device:` input matches no
+# path; row_traced[i] is false for a row that holds a `$NAME` or `device:`
+# one, since prepared state and devices have no content a record can bind,
+# and for a repo row. row_scoped[i] is true for a row whose `%scope` input
+# says it reads VGS_VALIDATE_BASE and VGS_VALIDATE_CHANGED.
+declare -A row_index_literal=() row_index_glob_members=()
+row_index_globs=()
+row_traced=()
+row_scoped=()
+for i in "${!rows[@]}"; do
+  IFS='|' read -r row_area _ command inputs owner <<<"${rows[i]}"
+  row_traced[i]=false row_scoped[i]=false
+  [[ $row_area != repo ]] || continue
+  row_traced[i]=true
+  # Command words without a slash, such as node, are not inputs.
+  read -r -a patterns <<<"$inputs"
+  # run wraps ordinary rows even when their command never names the world.
+  if [[ ${owner:-row} == row || $owner == network ]]; then
+    patterns+=(scripts/smoke/gpu-fence.sh)
+  fi
+  read -r -a words <<<"$command"
+  for word in "${words[@]}"; do
+    if [[ $word == */* ]]; then patterns+=("$word"); fi
+  done
+  for pattern in "${patterns[@]}"; do
+    case "$pattern" in
+      \$*|device:*) row_traced[i]=false ;;
+      %scope) row_scoped[i]=true ;;
+      @*) ;;
+      *) index_add row_index "$pattern" "$i" ;;
+    esac
+  done
+done
+
+# path_reach PATH: set path_hit[PATH] to the indexes of the rows one of
+# whose patterns matches PATH, space-delimited, or to `full` when none does
+# and PATH is a source no row maps, which selects the whole area. Selection
+# and the row records read this one answer, cached per path.
+declare -A path_hit=()
+path_reach() { # PATH
+  local path="$1" hits
+  [[ -z ${path_hit[$path]+set} ]] || return 0
+  index_match row_index "$path"
+  hits="$index_hits"
+  # A removed test has no remaining command to run. Its mapped consumers
+  # still run; other unmapped inputs select full.
+  if [[ -z $hits && ! ( $path == scripts/test-* && ! -e $path && ! -L $path ) ]]; then
+    case "$path" in
+      *.md|*.markdown|LICENSE|docs/*|.gitignore|.kendex*|kendex*.toml|.claude/*|.codex/*|.pi/*|.github/*) ;;
+      .agents/skills/vgs-plugin/*) hits=full ;;
+      .agents/*|.bot-instructions/*) ;;
+      *) hits=full ;;
+    esac
+  fi
+  path_hit[$path]="$hits"
+}
+
 # The tree a passing run records is read before the diff that selects its
 # rows, so an edit after that diff changes the end tree and records nothing.
-[[ $list_only == true ]] || pass_tree="$(worktree_tree)"
+# The row records bind their inputs in it too, so --list reads it as well.
+pass_tree="$(worktree_tree)"
 unset VGS_VALIDATE_CHANGED
 smoke_scoped=false
 affected=()
@@ -1662,37 +1814,11 @@ if [[ -n $change_base ]]; then
     for i in "${!rows[@]}"; do affected[i]=false; done
     full=false
     for path in "${changed_paths[@]}"; do
-      known=false
-      for i in "${!rows[@]}"; do
-        IFS='|' read -r row_area label command inputs owner <<<"${rows[i]}"
-        [[ $row_area == repo ]] && continue
-        # Command words without a slash, such as node, are not inputs.
-        read -r -a patterns <<<"$inputs"
-        # run wraps ordinary rows even when their command never names the world.
-        if [[ ${owner:-row} == row || $owner == network ]]; then
-          patterns+=(scripts/smoke/gpu-fence.sh)
-        fi
-        read -r -a words <<<"$command"
-        for word in "${words[@]}"; do
-          if [[ $word == */* ]]; then patterns+=("$word"); fi
-        done
-        for pattern in "${patterns[@]}"; do
-          [[ $pattern == [\$@]* || $pattern == device:* ]] && continue
-          if [[ $path == $pattern ]]; then affected[i]=true; known=true; break; fi
-        done
-      done
-      if [[ $known == false ]]; then
-        # A removed test has no remaining command to run. Its mapped
-        # consumers above still run; other unmapped inputs select full.
-        if [[ $path == scripts/test-* && ! -e $path && ! -L $path ]]; then continue; fi
-        case "$path" in
-          *.md|*.markdown|LICENSE|docs/*|.gitignore|.kendex*|kendex*.toml|.claude/*|.codex/*|.pi/*|.github/*) ;;
-          .agents/skills/vgs-plugin/*)
-            printf 'validate: selection=full unknown-input=%q\n' "$path" >&2; full=true; break ;;
-          .agents/*|.bot-instructions/*) ;;
-          *) printf 'validate: selection=full unknown-input=%q\n' "$path" >&2; full=true; break ;;
-        esac
+      path_reach "$path"
+      if [[ ${path_hit[$path]} == full ]]; then
+        printf 'validate: selection=full unknown-input=%q\n' "$path" >&2; full=true; break
       fi
+      for i in ${path_hit[$path]}; do affected[i]=true; done
     done
     if [[ $full == true ]]; then
       for i in "${!rows[@]}"; do affected[i]=true; done
@@ -1703,9 +1829,305 @@ if [[ -n $change_base ]]; then
   fi
 fi
 
+# The row records, which outlive the run that wrote them; what they let a
+# run reuse is docs/architecture/validation.md § Selection. Each row that
+# ends appends one line to this worktree's <git-dir>/vgs-validated-rows:
+#   <run> <digest> <outcome> <secs> <name>
+# run is the validate process as run_name gives it; outcome is pass, fail,
+# skip (exit 77) or unproved; secs is - when unknown; name is row=<label>,
+# or smoke=<row> for a nested smoke row. digest is record_digest's, or - for
+# a row no digest binds, whose line keeps only its seconds. `<run> void`
+# withdraws every line of that run, whose tree changed while it ran. A row
+# whose newest line for its digest is a pass is reused. The
+# nested smoke's rows reach the file through the directory
+# VGS_SMOKE_RESULTS_DIR names, <git-dir>/vgs-validated-smoke/<run>, which
+# holds `<digest> <row>` lines in digests and the runner's per-row results
+# (scripts/qml-smoke.sh); smoke_collect turns them into lines when the row
+# ends, at validate's exit, or, after a KILL, at the next run's start.
+record_file="" record_smoke_root="" record_run="" records_written=false
+reuse=off reuse_reason="" record_point="" record_validate="" record_untraced=""
+record_paths=() record_lines=()
+smoke_results_dir=""
+declare -A record_outcome=() record_secs=() reuse_count=() smoke_digests=()
+
+# run_name PID: pid-start-pidns, which no other process shares while PID
+# lives, or status 1 when /proc cannot read it.
+run_name() { # PID
+  local stat ns
+  local -a fields
+  read -r stat 2>/dev/null <"/proc/$1/stat" || return 1
+  read -r -a fields <<<"${stat##*) }"
+  ns="$(readlink "/proc/$1/ns/pid" 2>/dev/null)" || return 1
+  printf '%s-%s-%s\n' "$1" "${fields[19]}" "${ns//[^0-9]/}"
+}
+
+record_append() { # RUN DIGEST OUTCOME SECS NAME
+  if printf '%s %s %s %s %s\n' "$@" 2>/dev/null >>"$record_file"; then records_written=true; return 0; fi
+  printf 'validate: row-records=unwritten path=%s\n' "$record_file" >&2
+}
+
+record_outcome_of() { # STATUS
+  case "$1" in 0) echo pass ;; 77) echo skip ;; *) echo fail ;; esac
+}
+
+# records_load: read the newest outcome of each digest into record_outcome
+# and the newest seconds of each name into record_secs, past void runs. A
+# file over 5000 lines keeps its newest 2500, a few runs' worth; a lost
+# line costs a rerun.
+records_load() {
+  local run digest outcome secs name count=0
+  local -A void=()
+  [[ -e $record_file ]] || return 0
+  if ! while read -r run digest _; do
+         count=$((count + 1))
+         [[ $digest != void ]] || void[$run]=1
+       done <"$record_file"; then
+    printf 'validate: row-records=unreadable path=%s\n' "$record_file" >&2; return 0
+  fi
+  while read -r run digest outcome secs name; do
+    [[ $digest != void && -z ${void[$run]-} && -n $name ]] || continue
+    [[ $digest == - ]] || record_outcome[$digest]=$outcome
+    [[ ! $secs =~ ^[0-9]+$ ]] || record_secs[$name]=$secs
+  done <"$record_file"
+  if ((count > 5000)); then
+    if ! tail -n 2500 -- "$record_file" >"${record_file:?}.$$" || ! mv -f -- "${record_file:?}.$$" "$record_file"; then
+      rm -f -- "${record_file:?}.$$"
+    fi
+  fi
+}
+
+# smoke_collect DIR: append a line for each row DIR/digests names that the
+# nested smoke ran under DIR, with the outcome and seconds smoke_outcomes
+# reads over every attempt of every run of scripts/qml-smoke.sh under DIR,
+# in the order they ran, then remove DIR/digests and those row journals,
+# each attempt's results/, partial/ and judge-readings. The completion
+# records and run logs qml-smoke.sh printed stay where it printed them,
+# until record_prepare prunes the run. A DIR with no digests was collected.
+smoke_collect() { # DIR
+  local dir="$1" driver attempt n digest row
+  local -a attempts=() numbered
+  [[ -f $dir/digests ]] || return 0
+  for driver in "$dir"/qml-smoke-resume.*/; do
+    [[ -d $driver ]] || continue
+    numbered=()
+    for attempt in "$driver"*/; do
+      n="${attempt%/}"; n="${n##*/}"
+      [[ ! $n =~ ^[0-9]+$ ]] || numbered[n]="${attempt%/}"
+    done
+    attempts+=("${numbered[@]}")
+  done
+  smoke_outcomes "${attempts[@]}"
+  while read -r digest row; do
+    [[ -n ${smoke_outcome[$row]-} ]] || continue
+    record_append "${dir##*/}" "$digest" "${smoke_outcome[$row]}" "${smoke_outcome_secs[$row]:--}" "smoke=$row"
+  done <"$dir/digests"
+  for attempt in "${attempts[@]}"; do
+    chmod -R u+rwX -- "$attempt/results" "$attempt/partial" 2>/dev/null || true
+    rm -rf -- "${attempt:?}/results" "${attempt:?}/partial" "${attempt:?}/judge-readings"
+  done
+  rm -f -- "${dir:?}/digests"
+}
+
+# record_digest NAME CONTEXT LINES: the sha256 of what a row's result rests
+# on: the selector, this file; the branch point; every changed path no row
+# maps that selects the whole area; the row itself, NAME; CONTEXT; and
+# LINES, the `<mode> <blob> <path>` of each path the row's inputs match
+# that differs from the branch point, a removed one with mode 000000. Every
+# other input holds the branch point's content, so equal digests mean
+# equal inputs.
+record_digest() { # NAME CONTEXT LINES
+  local text sum
+  printf -v text 'validate-record 1\nvalidate=%s\npoint=%s\nuntraced:\n%sname=%s\n%s\ninputs:\n%s' \
+    "$record_validate" "$record_point" "$record_untraced" "$1" "$2" "$3"
+  sum="$(sha256sum <<<"$text")"
+  printf '%s\n' "${sum%% *}"
+}
+
+# row_digest I: row I's digest. A row whose `%scope` input says it reads
+# VGS_VALIDATE_BASE and VGS_VALIDATE_CHANGED binds the base and whether the
+# scope is the changed paths, which its inputs then fix; no other row
+# reads them, so none binds them.
+row_digest() { # I
+  local j lines="" scope=all context=""
+  for j in "${!record_paths[@]}"; do
+    [[ " ${path_hit[${record_paths[j]}]} " != *" $1 "* ]] || lines+="${record_lines[j]}"$'\n'
+  done
+  if [[ ${row_scoped[$1]} == true ]]; then
+    [[ -z ${VGS_VALIDATE_CHANGED:-} ]] || scope=changed
+    context="base=${base_commit:-none} scope=$scope"
+  fi
+  record_digest "row=${rows[$1]}" "$context" "$lines"
+}
+
+# smoke_digests_read: set smoke_digests[ROW] for each nested smoke row
+# smoke_rows_read last read, over what the harness reads for every row and
+# the changed paths smoke_path_reach gives each row of its read closure:
+# the row and every row it reads, and theirs in turn, since a row runs on
+# their state. A row whose closure holds a row whose reach cannot be
+# traced, or any row when a changed path's reach cannot be, gets -. Which
+# other rows ran before a row in its run is selection's, as for any --rows
+# run.
+smoke_digests_read() {
+  local row j member common="" untraced=false lines
+  local -A direct=() closure=()
+  smoke_digests=()
+  for j in "${!record_paths[@]}"; do
+    smoke_path_reach "$record_point" "${record_paths[j]}"
+    case "$smoke_reach" in
+      harness) common+="${record_lines[j]}"$'\n' ;;
+      untraced\ *) untraced=true ;;
+      *) for row in $smoke_reach; do direct[$row]+="${record_lines[j]}"$'\n'; done ;;
+    esac
+  done
+  for row in "${smoke_names[@]}"; do
+    smoke_digests[$row]=-
+    [[ $untraced == false ]] || continue
+    closure=([$row]=1)
+    smoke_close closure
+    lines=""
+    for member in "${smoke_names[@]}"; do
+      [[ -n ${closure[$member]-} ]] || continue
+      [[ -n ${smoke_row_globs[$member]+set} ]] || continue 2
+      lines+="${direct[$member]-}"
+    done
+    smoke_digests[$row]="$(record_digest "smoke=$row" "$common" "$lines")"
+  done
+}
+
+# record_prepare: name this run, collect the smoke results of runs that
+# ended without collecting them, keep the newest three collected runs'
+# directories, load the records and read what the digests bind. Sets
+# reuse_reason when nothing can be reused: --full, which reruns every row
+# by request, an unreadable git directory, tree, branch point or diff.
+record_prepare() {
+  local git_dir dir name own_ns live j mode sha path kept=0
+  local -a raw collected=()
+  if ! git_dir="$(git rev-parse --absolute-git-dir)" || ! record_run="$(run_name "$$")"; then
+    reuse_reason=records-unreadable; return 0
+  fi
+  record_file="$git_dir/vgs-validated-rows"
+  record_smoke_root="$git_dir/vgs-validated-smoke"
+  own_ns="${record_run##*-}"
+  # A run in another PID namespace cannot be judged gone from here.
+  for dir in "$record_smoke_root"/*/; do
+    dir="${dir%/}"; name="${dir##*/}"
+    [[ -d $dir && $name =~ ^[0-9]+-[0-9]+-[0-9]+$ && ${name##*-} == "$own_ns" ]] || continue
+    live="$(run_name "${name%%-*}")" || live=""
+    [[ $live != "$name" ]] || continue
+    smoke_collect "$dir"
+    [[ -f $dir/digests ]] || collected+=("$dir")
+  done
+  if ((${#collected[@]} > 3)) && mapfile -t collected < <(ls -1dt -- "${collected[@]}"); then
+    for dir in "${collected[@]}"; do
+      kept=$((kept + 1))
+      ((kept <= 3)) || { chmod -R u+rwX -- "$dir" 2>/dev/null || true; rm -rf -- "${dir:?}"; }
+    done
+  fi
+  records_load
+  if [[ $full_scope == true ]]; then reuse_reason=full; return 0; fi
+  if [[ $pass_tree == unreadable ]] || ! record_validate="$(git rev-parse --verify --quiet "$pass_tree:scripts/validate")"; then
+    reuse_reason=tree-unreadable; return 0
+  fi
+  if ! record_point="$(branch_point)"; then reuse_reason=no-branch-point; return 0; fi
+  if ! mapfile -d '' -t raw < <(git diff-tree -r -z --no-renames "$record_point" "$pass_tree") || ! wait "$!"; then
+    reuse_reason=diff-unreadable; return 0
+  fi
+  for ((j = 0; j + 1 < ${#raw[@]}; j += 2)); do
+    read -r _ mode _ sha _ <<<"${raw[j]}"
+    path="${raw[j + 1]}"
+    path_reach "$path"
+    record_paths+=("$path")
+    record_lines+=("$mode $sha $path")
+    [[ ${path_hit[$path]} != full ]] || record_untraced+="$mode $sha $path"$'\n'
+  done
+  reuse=on
+}
+
+# reuse_line KIND SCOPE NAME [REASON]: print one member of the reused or
+# rerun set with its last known seconds, and count it.
+reuse_line() { # KIND SCOPE NAME [REASON]
+  local secs="${record_secs[$3]-}"
+  printf 'validate: %s secs=%s%s %s\n' "$1" "${secs:-unknown}" "${4:+ reason=$4}" "$3" >&2
+  reuse_count[$2-$1]=$((${reuse_count[$2-$1]:-0} + 1))
+  if [[ -n $secs ]]; then
+    reuse_count[$2-$1-secs]=$((${reuse_count[$2-$1-secs]:-0} + secs))
+  else
+    reuse_count[$2-$1-unknown]=$((${reuse_count[$2-$1-unknown]:-0} + 1))
+  fi
+}
+
+# smoke_reuse: drop from the nested smoke rows this run would run each one
+# a recorded pass covers, by docs/architecture/validation.md § Selection,
+# keeping every row a kept row reads, since qml-smoke.sh --rows brings it
+# back, and set smoke_only to the kept rows. When smoke_rows_read could not
+# read what a row's reach rests on, prints `validate: smoke-reuse=off
+# reason=<cause>` and reuses and records nothing. Outside --list, write the
+# digests this run's results bind to in smoke_results_dir.
+smoke_reuse() {
+  local row digest
+  local -a wanted
+  local -A keep=() asked=()
+  if [[ -n $smoke_read_fault ]]; then
+    printf 'validate: smoke-reuse=off reason=%s\n' "$smoke_read_fault" >&2; return 0
+  fi
+  if [[ -n $smoke_only ]]; then IFS=, read -r -a wanted <<<"$smoke_only"; else wanted=("${smoke_names[@]}"); fi
+  smoke_digests_read
+  for row in "${wanted[@]}"; do
+    asked[$row]=1
+    digest="${smoke_digests[$row]:--}"
+    if [[ $digest == - || " ${smoke_core[*]} " == *" $row "* || ${record_outcome[$digest]-} != pass ]]; then keep[$row]=1; fi
+  done
+  smoke_close keep
+  for row in "${smoke_names[@]}"; do
+    if [[ -n ${keep[$row]-} ]]; then
+      if [[ ${smoke_digests[$row]} == - ]]; then reuse_line rerun smoke "smoke=$row" untraced
+      elif [[ " ${smoke_core[*]} " == *" $row "* ]]; then reuse_line rerun smoke "smoke=$row" core
+      else reuse_line rerun smoke "smoke=$row"; fi
+    elif [[ -n ${asked[$row]-} ]]; then
+      reuse_line reused smoke "smoke=$row"
+    fi
+  done
+  if [[ -n $smoke_only ]] || ((${#keep[@]} < ${#wanted[@]})); then
+    smoke_only=""
+    for row in "${smoke_names[@]}"; do
+      [[ -z ${keep[$row]-} ]] || smoke_only+="${smoke_only:+,}$row"
+    done
+  fi
+  [[ $list_only != true && ${#smoke_names[@]} -gt 0 ]] || return 0
+  smoke_results_dir="$record_smoke_root/$record_run"
+  if ! mkdir -p -- "$smoke_results_dir" ||
+     ! for row in "${smoke_names[@]}"; do printf '%s %s\n' "${smoke_digests[$row]}" "$row"; done >"$smoke_results_dir/digests"; then
+    printf 'validate: row-records=unwritten path=%s\n' "$smoke_results_dir" >&2
+    smoke_results_dir=""
+  fi
+}
+
+# records_finish, from the EXIT trap after the rows have stopped: collect
+# this run's smoke results, then withdraw this run's lines when its tree
+# changed while it ran, or print `validate: row-records=unwritten` when
+# the withdrawal cannot be written. A KILL runs neither: the next run
+# collects the results, and the lines stand on the tree the run read at
+# its start.
+records_finish() {
+  local end
+  if [[ -n $smoke_results_dir && -d $smoke_results_dir ]]; then smoke_collect "$smoke_results_dir"; fi
+  [[ $records_written == true && $reuse == on ]] || return 0
+  if ! end="$(worktree_tree)"; then end=unreadable; fi
+  if [[ $end == "$pass_tree" ]]; then return 0; fi
+  if printf '%s void\n' "$record_run" 2>/dev/null >>"$record_file"; then
+    printf 'validate: row-records=void reason=content-changed from=%s to=%s\n' "$pass_tree" "$end" >&2
+  else
+    printf 'validate: row-records=unwritten path=%s\n' "$record_file" >&2
+  fi
+}
+
+record_prepare
+[[ $reuse == on ]] || printf 'validate: reuse=off reason=%s\n' "$reuse_reason" >&2
+
 selected_count=0
 selected=()
 row_command=()
+row_digest=()
 validate_started=$SECONDS
 for i in "${!rows[@]}"; do
   IFS='|' read -r row_area label command inputs owner <<<"${rows[i]}"
@@ -1738,9 +2160,33 @@ for i in "${!rows[@]}"; do
       continue
     fi
   fi
+  # The nested smoke is reused per smoke row (smoke_reuse), whose digests
+  # bind each row's read closure; its own inputs bind neither the change
+  # base its row selection reads nor the smoke rows' inputs another table
+  # row owns, so it records no pass of its own.
+  digest=-
+  if [[ $reuse == on && ${row_traced[i]} == true && $command != scripts/qml-smoke.sh ]]; then
+    digest="$(row_digest "$i")"
+    if [[ ${record_outcome[$digest]-} == pass ]]; then
+      reuse_line reused rows "row=$label"
+      continue
+    fi
+  fi
+  if [[ $reuse == on ]]; then
+    if [[ $command == scripts/qml-smoke.sh ]]; then reuse_line rerun rows "row=$label" smoke-rows
+    elif [[ $digest == - ]]; then reuse_line rerun rows "row=$label" untraced
+    else reuse_line rerun rows "row=$label"; fi
+  fi
   selected_count=$((selected_count + 1))
-  if [[ $command == scripts/qml-smoke.sh && $smoke_scoped == true ]]; then
-    smoke_rows_selected "${changed_paths[@]}"
+  if [[ $command == scripts/qml-smoke.sh ]]; then
+    smoke_only=""
+    if [[ $smoke_scoped == true ]]; then
+      smoke_rows_selected "${changed_paths[@]}"
+    elif [[ $reuse == on ]]; then
+      # An unscoped run runs every row; reuse needs only what the rows read.
+      smoke_rows_read
+    fi
+    [[ $reuse != on ]] || smoke_reuse
     [[ -z $smoke_only ]] || command+=" --rows $smoke_only"
   fi
   if [[ $list_only == true ]]; then
@@ -1748,8 +2194,17 @@ for i in "${!rows[@]}"; do
   else
     selected+=("$i")
     row_command+=("$command")
+    row_digest+=("$digest")
   fi
 done
+if [[ $reuse == on ]]; then
+  printf 'validate: reuse=on rows-reused=%s rows-rerun=%s reused-secs=%s rerun-secs=%s rerun-secs-unknown=%s' \
+    "${reuse_count[rows-reused]:-0}" "${reuse_count[rows-rerun]:-0}" "${reuse_count[rows-reused-secs]:-0}" \
+    "${reuse_count[rows-rerun-secs]:-0}" "${reuse_count[rows-rerun-unknown]:-0}" >&2
+  printf ' smoke-reused=%s smoke-rerun=%s smoke-reused-secs=%s smoke-rerun-secs=%s smoke-rerun-secs-unknown=%s\n' \
+    "${reuse_count[smoke-reused]:-0}" "${reuse_count[smoke-rerun]:-0}" "${reuse_count[smoke-reused-secs]:-0}" \
+    "${reuse_count[smoke-rerun-secs]:-0}" "${reuse_count[smoke-rerun-unknown]:-0}" >&2
+fi
 if [[ $list_only == true ]]; then
   printf 'validate: selected=%s area=%s\n' "$selected_count" "$area" >&2
   exit 0
@@ -1773,7 +2228,7 @@ done
 # statuses fill failed and skipped in table order.
 run_dir="$(scratch_dir)" || { echo 'validate: run-dir=scratch-failed' >&2; exit 1; }
 declare -A row_of_pid=() held=()
-row_state=() row_alone=() row_locks=() row_status=()
+row_state=() row_alone=() row_locks=() row_status=() row_started=()
 for k in "${!selected[@]}"; do
   IFS='|' read -r _ _ _ inputs _ <<<"${rows[selected[k]]}"
   read -r -a patterns <<<"$inputs"
@@ -1786,21 +2241,25 @@ for k in "${!selected[@]}"; do
   done
 done
 start_row() { # K
-  local k="$1" row_area label name owner
+  local k="$1" row_area label name owner results
   IFS='|' read -r row_area label _ _ owner <<<"${rows[selected[k]]}"
   # Job control, on only while the job starts, gives it its own process
   # group and leaves its INT and QUIT at their defaults, which a bare `&`
   # would ignore and the Ctrl-C checks of the fence and TUI rows need.
   set -m
+  # Only the nested smoke keeps its per-row results where its run names.
+  results=""
+  [[ ${row_command[k]} != "scripts/qml-smoke.sh"* ]] || results="$smoke_results_dir"
   if [[ ${row_alone[k]} == true || $jobs_max -eq 1 ]]; then
     # shellcheck disable=SC2086
-    run "$run_dir/$k" "$owner" "$label" ${row_command[k]} </dev/null &
+    VGS_SMOKE_RESULTS_DIR="$results" run "$run_dir/$k" "$owner" "$label" ${row_command[k]} </dev/null &
   else
     # shellcheck disable=SC2086
-    run "$run_dir/$k" "$owner" "$label" ${row_command[k]} </dev/null >"$run_dir/$k.log" 2>&1 &
+    VGS_SMOKE_RESULTS_DIR="$results" run "$run_dir/$k" "$owner" "$label" ${row_command[k]} </dev/null >"$run_dir/$k.log" 2>&1 &
   fi
   set +m
   row_of_pid[$!]=$k
+  row_started[k]=$SECONDS
   row_state[k]=running
   for name in ${row_locks[k]}; do held[$name]=1; done
 }
@@ -1866,7 +2325,7 @@ on_signal() { # EXIT-STATUS
   if [[ $stopping == true ]]; then kill_groups KILL; return 0; fi
   exit "$1"
 }
-trap 'stop_rows; chmod -R u+rwx -- "$run_dir" 2>/dev/null; rm -rf -- "${run_dir:?}"; if [[ -n ${paths_file:-} ]]; then rm -f -- "$paths_file"; fi' EXIT
+trap 'stop_rows; records_finish; chmod -R u+rwx -- "$run_dir" 2>/dev/null; rm -rf -- "${run_dir:?}"; if [[ -n ${paths_file:-} ]]; then rm -f -- "$paths_file"; fi' EXIT
 trap 'on_signal 130' INT
 trap 'on_signal 143' TERM
 trap 'on_signal 129' HUP
@@ -1886,6 +2345,13 @@ while :; do
   unset 'row_of_pid[$pid]'
   row_state[k]=ended row_status[k]=$status
   for name in ${row_locks[k]}; do unset 'held[$name]'; done
+  if [[ -n $record_file ]]; then
+    IFS='|' read -r _ label _ <<<"${rows[selected[k]]}"
+    record_append "$record_run" "${row_digest[k]}" "$(record_outcome_of "$status")" "$((SECONDS - row_started[k]))" "row=$label"
+    if [[ ${row_command[k]} == "scripts/qml-smoke.sh"* && -n $smoke_results_dir && -d $smoke_results_dir ]]; then
+      smoke_collect "$smoke_results_dir"
+    fi
+  fi
   while [[ $printed -lt ${#selected[@]} && ${row_state[printed]} == ended ]]; do
     IFS='|' read -r _ label _ <<<"${rows[selected[printed]]}"
     if [[ ${row_alone[printed]} == false && $jobs_max -gt 1 ]]; then

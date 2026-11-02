@@ -3,7 +3,7 @@
 [← Decision Index](INDEX.md)
 
 **Date**: 2026-10-03
-**Status**: Active
+**Status**: Active (rerun of a passed reached row → D117)
 **Research**: [VGS-786](https://linear.app/vanillagreen/issue/VGS-786)
 
 **Decision**: Every change that adds a surface, a service, a plugin or a check adds its validation row in the same change, and the nested sandbox is the only place a shell starts. Every row declares its inputs in its own file, and a diff-scoped run executes only the rows a changed file reaches, with the core rows always on and an undeclarable row always run. A lane validates its final diff once with the rows its change names; a batch run of main covers the rest and gates nothing.

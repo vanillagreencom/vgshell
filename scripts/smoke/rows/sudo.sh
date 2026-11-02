@@ -39,10 +39,8 @@ sudo_list="$sandbox/sudo-row.list"
 sudo_calls="$sandbox/sudo-row.calls"
 sudo_sent="$sandbox/sudo-row.notices"
 sudo_config="$sandbox/sudo-row.shell.json"
-sentinel_of() { if grep -q -F -- "$auth_log" "$1"; then echo sentinel; else echo replaced; fi; }
-auth_count() { if [[ -e $auth_log ]]; then wc -l <"$auth_log"; else echo 0; fi; }
 expect "the sandbox copy of the grant resolves in the stand-in tree" 1 grep -c -x -F -- "prefix=$sudo_grant_root" "$repo/bin/vgshell-sudo-grant"
-expect "the tree's sudo is the harness's sentinel" sentinel sentinel_of "$sudo_bin/sudo"
+expect "the tree's sudo is the harness's sentinel" sentinel sentinel_state "$sudo_bin/sudo"
 expect "the tree holds no root half" absent bash -c '[[ -e $1 ]] && echo present || echo absent' _ "$sudo_half"
 
 # The core's read as `state until rootHalf`, one field of its record, and
@@ -129,12 +127,12 @@ EOF
 chmod 755 "$shim/notify-send"
 
 # No root half: the read runs no sudo.
-sudo_auth_before="$(auth_count)"
+sudo_auth_before="$(auth_call_count)"
 expect "enabling the lock is allowed" ok ipc shell setPluginEnabled vgs.sudo true
 expect_poll "the lock is built on the bar" '"vgs.sudo"' ipc smoke readInstance "$(bar_key)" vgs.sudo moduleName
 expect_poll "the lock holds sudo" '["vgs.sudo"]' sudo_holders
 expect_poll "with no root half the core reads absent" "absent  absent" sudo_core
-expect "the absent read reached no sudo" "$sudo_auth_before" auth_count
+expect "the absent read reached no sudo" "$sudo_auth_before" auth_call_count
 expect_poll "the lock is closed, not in the warning tone, and its tooltip says off" "lock other off" sudo_lock
 
 # A root half that is this copy, and a sudo that lists.
@@ -252,10 +250,10 @@ expect "the bar's refusal started no terminal" absent recorded
 expect "disabling the lock is allowed" ok ipc shell setPluginEnabled vgs.sudo false
 expect_poll "no plugin holds sudo once the lock is disabled" '[]' sudo_holders
 sentinel_restore "$sudo_bin/sudo"
-expect "the tree's sudo is the sentinel again" sentinel sentinel_of "$sudo_bin/sudo"
+expect "the tree's sudo is the sentinel again" sentinel sentinel_state "$sudo_bin/sudo"
 rm -f -- "$sudo_half" "$sudo_list" "$sudo_calls"
 rm -f -- "$shim/notify-send"
 [[ ! -e $sandbox/sudo-row.notify-send.saved ]] || mv -- "$sandbox/sudo-row.notify-send.saved" "$shim/notify-send"
 if [[ $sudo_notifications_were == False ]]; then notes_off "sudo"; fi
 user_config_restore "$sudo_config"
-expect "the row reached no authentication" "$sudo_auth_before" auth_count
+expect "the row reached no authentication" "$sudo_auth_before" auth_call_count

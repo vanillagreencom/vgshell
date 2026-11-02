@@ -12,24 +12,23 @@
 # is a run that called none, not a sentinel that logs nothing.
 # inputs: bin/* shell/* scripts/smoke/fixtures/*
 set -euo pipefail
+# The facts are harness.sh's judges' predicates, which smoke_judge_reading
+# reads at every row's start and end too.
 for name in "${auth_sentinels[@]}"; do
-  expect "$name resolves to the sandbox's own stand-in on every shell's PATH" "$shim/$name" shell_resolves "$name"
+  expect "$name resolves to the sandbox's own stand-in on every shell's PATH" first command_placement "$name" "$shim/$name"
 done
-sentinel_of() { if grep -q -F -- "$auth_log" "$1"; then echo sentinel; else echo replaced; fi; }
-for name in "${auth_sentinels[@]}"; do
-  expect "$name is the sentinel again, no row's stand-in" sentinel sentinel_of "$shim/$name"
+for file in "${auth_sentinel_files[@]}"; do
+  expect "${file##*/} is the sentinel again, no row's stand-in" sentinel sentinel_state "$file"
 done
-expect "the sandbox tree's browser-policy writer is the sentinel" sentinel sentinel_of "$repo/bin/vgshell-browser-policy"
 expect "no row left a sentinel stood over" "" cat -- "$sentinels_stood"
 auth_calls() { if [[ -e $auth_log ]]; then cat -- "$auth_log"; fi; }
 expect "no row reached sudo, doas, run0, pkexec, su, a mutating loginctl or secret-tool, or the privileged writer" "" auth_calls
-auth_count() { if [[ -e $auth_log ]]; then wc -l <"$auth_log"; else echo 0; fi; }
-auth_before="$(auth_count)"
+auth_before="$(auth_call_count)"
 expect "the control's sudo through the shell's PATH runs nothing" 1 bash -c 'PATH="$1" sudo -n true; echo $?' _ "$shell_start_path"
-expect "the control's sudo is logged" "$((auth_before + 1))" auth_count
+expect "the control's sudo is logged" "$((auth_before + 1))" auth_call_count
 expect "the control's call is the one logged" "sudo -n true" tail -n 1 -- "$auth_log"
 expect "the control's loginctl enable-linger through the shell's PATH runs nothing" 1 bash -c 'PATH="$1" loginctl enable-linger x; echo $?' _ "$shell_start_path"
 expect "the control's loginctl call is the one logged" "loginctl enable-linger x" tail -n 1 -- "$auth_log"
 expect "the control's secret-tool store through the shell's PATH runs nothing" 1 bash -c 'PATH="$1" secret-tool store x </dev/null; echo $?' _ "$shell_start_path"
 expect "the control's secret-tool call is the one logged" "secret-tool store x" tail -n 1 -- "$auth_log"
-expect "the controls logged three calls" "$((auth_before + 3))" auth_count
+expect "the controls logged three calls" "$((auth_before + 3))" auth_call_count

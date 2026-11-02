@@ -151,6 +151,8 @@ row_re() {
       ! grep -qF -e "${line:1}" <<<"$out" || present+="[${line:1}]"
     elif [[ ${line:0:1} == '~' ]]; then
       grep -qF -e "${line:1}" <<<"$out" || missing+="[${line:1}]"
+    elif [[ ${line:0:1} == '%' ]]; then
+      grep -qE -e "${line:1}" <<<"$out" || missing+="[${line:1}]"
     else
       grep -qxF -e "$line" <<<"$out" || missing+="[$line]"
     fi
@@ -789,7 +791,7 @@ cases=(
   "share-picker-suite|scripts/test-share-picker.py|cli|python3 scripts/test-share-picker.py"
   "share-picker-consumer|scripts/fixtures/share-picker/xdph-selection.cpp|cli|python3 scripts/test-share-picker.py"
   "jarvis-key-smoke|scripts/smoke/rows/jarvis-keys.sh|all|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-daemon.js"$'\n'"${jarvis_key_plan%$'\nscripts/qml-smoke.sh'}"$'\nscripts/test-validate.sh\nscripts/qml-smoke.sh'
-  "mode-startup-entry|scripts/qml-smoke.sh|tools|scripts/test-mode-hold.sh"$'\npython3 scripts/check-smoke-hidden.py\npython3 scripts/test-check-smoke-hidden.py\nsmoke_reads_named\npython3 scripts/test-smoke-evidence.py\nscripts/test-gpu-fence.sh\nscripts/test-validate.sh'
+  "mode-startup-entry|scripts/qml-smoke.sh|tools|scripts/test-smoke-verdict.sh"$'\nscripts/test-mode-hold.sh\npython3 scripts/check-smoke-hidden.py\npython3 scripts/test-check-smoke-hidden.py\nsmoke_reads_named\npython3 scripts/test-smoke-evidence.py\nscripts/test-gpu-fence.sh\nscripts/test-validate.sh'
   "mode-capture-entry|scripts/sandbox-shots.sh|tools|scripts/test-mode-hold.sh"$'\nscripts/test-smoke-input-guard.sh\nscripts/test-sandbox-shots.sh\nnode scripts/test-google-drive-scene.js\nscripts/test-gpu-fence.sh'
   "compositor-reveal-barrier-suite|scripts/test-compositor-reveal.py|tools|python3 scripts/test-compositor-reveal.py"
   "smoke-configuration-restore-suite|scripts/test-smoke-user-config.py|tools|python3 scripts/test-smoke-user-config.py"
@@ -1433,9 +1435,9 @@ python3 - "$d/scripts/validate" <<'PYSELECT'
 import pathlib, sys
 p = pathlib.Path(sys.argv[1])
 s = p.read_text()
-needle = '        if [[ $path == scripts/test-* && ! -e $path && ! -L $path ]]; then continue; fi\n'
+needle = '  if [[ -z $hits && ! ( $path == scripts/test-* && ! -e $path && ! -L $path ) ]]; then\n'
 assert s.count(needle) == 1, "deleted test exemption must match once"
-p.write_text(s.replace(needle, needle.replace('continue;', ':;')))
+p.write_text(s.replace(needle, '  if [[ -z $hits ]]; then\n'))
 PYSELECT
 for args in default explicit; do
   test_args=()
@@ -1623,15 +1625,15 @@ declare -A smoke_mutant_old=(
   [empty]=$'empty; fix the line in %s: # inputs: GLOB [GLOB...]\\n\' "$key" "$file" >&2; return 1'
   [unreadable]=$'unreadable path=%s\\n\' "$key" "$file" >&2; return 1'
   [matches-nothing]='      smoke_glob_unmatched=true'
-  [path]=$'        [[ $path == $glob ]] || continue\n        want[$row]=1'
-  [core]=$'      printf \'validate: smoke-rows=all reason=core-row-missing row=%s\\n\' "$row" >&2; return 0\n    fi\n    want[$row]=1\n  done'
-  [core-missing]=$'reason=core-row-missing row=%s\\n\' "$row" >&2; return 0'
-  [closure]='do want[$needed]=1; done'
-  [harness]='for glob in scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/harness.sh "${smoke_globs[@]}"; do'
-  [library]='for glob in scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/harness.sh "${smoke_globs[@]}"; do'
-  [runner]='for glob in scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/harness.sh "${smoke_globs[@]}"; do'
-  [reader]='for glob in scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/harness.sh "${smoke_globs[@]}"; do'
-  [harness-line]="    every='reason=harness-line-unreadable'"
+  [path]='      *) for row in $smoke_reach; do want[$row]=1; done ;;'
+  [core]='  for row in "${smoke_core[@]}"; do want[$row]=1; done'
+  [core-missing]='smoke_read_fault="core-row-missing row=$row"; return 0; fi'
+  [closure]='do smoke_close_set[$needed]=1; done'
+  [harness]='smoke_harness_inputs=(scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/harness.sh "${smoke_globs[@]}")'
+  [library]='smoke_harness_inputs=(scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/harness.sh "${smoke_globs[@]}")'
+  [runner]='smoke_harness_inputs=(scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/harness.sh "${smoke_globs[@]}")'
+  [reader]='smoke_harness_inputs=(scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/harness.sh "${smoke_globs[@]}")'
+  [harness-line]='    smoke_read_fault=harness-line-unreadable'
   [unknown]=$'      export VGS_VALIDATE_CHANGED="$paths_file"\n      smoke_scoped=true\n    fi'
   [full]=$'smoke_scoped=false\naffected=()'
   [own-file]='for glob in "$file" "${smoke_globs[@]}"; do'
@@ -1642,14 +1644,14 @@ declare -A smoke_mutant_new=(
   [empty]=$'empty; fix the line in %s: # inputs: GLOB [GLOB...]\\n\' "$key" "$file" >&2; return 0'
   [unreadable]=$'unreadable path=%s\\n\' "$key" "$file" >&2; return 0'
   [matches-nothing]='      :'
-  [path]='        [[ $path == $glob ]] || continue'
-  [core]=$'      printf \'validate: smoke-rows=all reason=core-row-missing row=%s\\n\' "$row" >&2; return 0\n    fi\n  done'
-  [core-missing]=$'reason=core-row-missing row=%s\\n\' "$row" >&2'
+  [path]='      *) ;;'
+  [core]='  :'
+  [core-missing]=':; fi'
   [closure]='do :; done'
-  [harness]='for glob in scripts/qml-smoke.sh scripts/smoke/row-inputs.sh "${smoke_globs[@]}"; do'
-  [library]='for glob in scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/harness.sh; do'
-  [runner]='for glob in scripts/smoke/row-inputs.sh scripts/smoke/harness.sh "${smoke_globs[@]}"; do'
-  [reader]='for glob in scripts/qml-smoke.sh scripts/smoke/harness.sh "${smoke_globs[@]}"; do'
+  [harness]='smoke_harness_inputs=(scripts/qml-smoke.sh scripts/smoke/row-inputs.sh "${smoke_globs[@]}")'
+  [library]='smoke_harness_inputs=(scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/harness.sh)'
+  [runner]='smoke_harness_inputs=(scripts/smoke/row-inputs.sh scripts/smoke/harness.sh "${smoke_globs[@]}")'
+  [reader]='smoke_harness_inputs=(scripts/qml-smoke.sh scripts/smoke/harness.sh "${smoke_globs[@]}")'
   [harness-line]='    :'
   [unknown]=$'      export VGS_VALIDATE_CHANGED="$paths_file"\n    fi\n    smoke_scoped=true'
   [full]=$'smoke_scoped=true\naffected=()'
@@ -1754,10 +1756,10 @@ python3 - "$d/scripts/validate" <<'PY'
 from pathlib import Path
 import sys
 path = Path(sys.argv[1])
-old = "echo 'validate: smoke-rows=all reason=row-list-unreadable' >&2; return 0"
+old = "smoke_read_fault=row-list-unreadable; return 0"
 source = path.read_text()
 assert source.count(old) == 1, old
-path.write_text(source.replace(old, "echo 'validate: smoke-rows=all reason=row-list-unreadable' >&2"))
+path.write_text(source.replace(old, "smoke_read_fault=row-list-unreadable"))
 PY
 "${base_env[@]}" git -C "$d" commit -q -am control
 printf '# changed\n' >>"$d/shell/plugins/acme.launcher/Panel.qml"
@@ -1929,11 +1931,11 @@ done
 # name~edit of the row list~wanted plan~text the control replaces~its replacement
 smoke_list_cases=(
   "a moved row in the row list runs that row alone~move~$smoke_launcher~~"
-  "control: a moved row no longer runs~move~$smoke_none~"'    if [[ -z $every && $path == "$smoke_list" ]]; then smoke_list_rows; fi'"~    :"
+  "control: a moved row no longer runs~move~$smoke_none~"'  if [[ -z $smoke_reach && $2 == scripts/smoke/rows.list ]]; then'"~  if false; then"
   "a comment in the row list runs no row~comment~$smoke_none~~"
   "control: a comment in the row list no longer reads as one~comment~scripts/qml-smoke.sh~"'    [[ -z $line || $line == '"'#'"'* ]] && continue'"~    :"
   "an unlisted row runs the rows that read it~unlist~scripts/qml-smoke.sh --rows $smoke_core,notifications-keys,$smoke_always,$smoke_tail~~"
-  "control: an unlisted row no longer runs the rows that read it~unlist~$smoke_none~"'      [[ " ${lines[$row]-} " != *" scripts/smoke/rows/$needed.sh "* ]] || want[$row]=1'"~      :"
+  "control: an unlisted row no longer runs the rows that read it~unlist~$smoke_none~"'            [[ " ${smoke_row_lines[$row]-} " != *" scripts/smoke/rows/$needed.sh "* ]] || smoke_reach+=" $row"'"~            :"
 )
 test_area=qml
 test_args=(--changed HEAD~1 --list)
@@ -2027,6 +2029,362 @@ row_re "content that changes during the run keeps the pass unrecorded" "$tmp/bas
   "~validate: last-pass=unrecorded reason=content-changed from=" "!validate: last-pass=recorded"
 row_re "control: content that changes during the run no longer keeps the pass unrecorded" "$tmp/base-record-changed-control" 0 "" \
   "~validate: last-pass=recorded area=qml tree="
+
+# The row records. A lane's run is cut off while the nested smoke runs or
+# after it, by validate's TERM at the bound or a KILL, and the next run on
+# the lane's tree reruns only what did not end, did not prove a pass, or
+# changed. Each fixture's stand-ins write what the real runners write for
+# the records: the smoke writes each row's results, partial records, judge
+# readings, outside-failures and row-secs lines under VGS_SMOKE_RESULTS_DIR
+# in the shapes scripts/qml-smoke.sh and harness.sh give them, with the
+# closing reading teardown.sh takes as an attempt ends, on a TERM too, and
+# the stand-in named in .git/hang reports its PIDs in .git/hung and waits
+# to be stopped. Before the cut the case may set, in the git directory:
+# edit, which makes the smoke append to the launcher's panel while the run
+# reads; harness-line, a lane that removes the harness's input line;
+# fail ROW, a row that records one failure, in its partial record from its
+# start; call ROW or refuse ROW, a row in whose window the judges read an
+# authentication call or a refusal of an unshipped script, as harness.sh's
+# smoke_judge_reading does, read by the closing reading alone when ROW is
+# the one that waits; and shape SHAPE, a real producer shape for launcher: skip, a check
+# not measured; partial, a row the attempt left open; outside, a failure
+# outside every row; replay, a failure in a first attempt and a pass when a
+# second replays it; unread, a row whose end reading is missing. The step
+# `other` makes other read launcher's file as part of the lane's change.
+# The lane's change stays uncommitted and
+# --changed HEAD scopes both runs to it, so rows run, launcher among them,
+# and fatal-controls after the smoke; a file no row maps selects the whole
+# area. Each control is a copy with one binding removed: FILE^OLD^NEW.
+reuse_fixture() { # DIR [FILE OLD NEW]
+  local dir="$1"
+  smoke_fixture "$dir"
+  if [[ $# -eq 4 ]]; then plant "$dir/$2" "$3" "$4"; fi
+  cat >"$dir/scripts/qml-smoke.sh" <<'SH'
+#!/usr/bin/env bash
+list="$(dirname -- "$0")/smoke/rows.list"
+if [[ ${1-} == --list-rows ]]; then awk '!/^#/ && NF' "$list"; exit 0; fi
+git_dir="$(git rev-parse --absolute-git-dir)"
+knob() { cat -- "$git_dir/$1" 2>/dev/null || true; }
+hang="$(knob hang)" shape="$(knob shape)"
+if [[ -e $git_dir/edit ]]; then printf 'edited\n' >>shell/plugins/acme.launcher/Panel.qml; fi
+rows=",${2-},"
+driver="$(mktemp -d "${VGS_SMOKE_RESULTS_DIR:?}/qml-smoke-resume.XXXXXX")"
+attempt() { # N
+  a="$driver/$1" calls=0 refused=0
+  mkdir -p "$a/results" "$a/partial"
+  printf '0\0' >"$a/outside-failures"
+}
+close() { printf -- '- close %s %s intact\n' "$calls" "$refused" >>"$a/judge-readings"; }
+attempt 1
+if [[ $shape == replay ]]; then
+  for row in $(awk '!/^#/ && NF' "$list"); do
+    [[ $rows == ,, || $rows == *",$row,"* ]] || continue
+    printf '%s start 0 0 intact\n' "$row" >>"$a/judge-readings"
+    if [[ $row == launcher ]]; then printf '1\0'; else printf '0\0'; fi >"$a/results/$row"
+    printf '%s end 0 0 intact\n' "$row" >>"$a/judge-readings"
+    [[ $row != launcher ]] || break
+  done
+  close
+  attempt 2
+fi
+for row in $(awk '!/^#/ && NF' "$list"); do
+  [[ $rows == ,, || $rows == *",$row,"* ]] || continue
+  printf '%s start %s %s intact\n' "$row" "$calls" "$refused" >>"$a/judge-readings"
+  if [[ $row == "$(knob fail)" ]]; then printf '1\0'; else printf '0\0'; fi >"$a/partial/$row"
+  if [[ $row == "$hang" ]]; then
+    trap '[[ $row != "$(knob call)" ]] || calls=$((calls + 1)); close; kill "$waiting" 2>/dev/null; exit 143' TERM
+    sleep 600 &
+    waiting=$!
+    printf '%s %s\n' "$$" "$waiting" >"$git_dir/hung"
+    wait "$waiting"
+  fi
+  [[ $row != launcher || $shape != partial ]] || continue
+  [[ $row != "$(knob call)" ]] || { calls=$((calls + 1)); status=1; }
+  [[ $row != "$(knob refuse)" ]] || { refused=$((refused + 1)); status=1; }
+  [[ $row == launcher && $shape == unread ]] ||
+    printf '%s end %s %s intact\n' "$row" "$calls" "$refused" >>"$a/judge-readings"
+  printf 'qml-smoke: row-secs row=%s secs=3 cpu_some_pct=0.1 load1=0.1\n' "$row" >>"$a/run.log"
+  if [[ $row == "$(knob fail)" ]]; then printf '1\0'; status=1
+  elif [[ $row == launcher && $shape == skip ]]; then printf '0\0launcher:planted-unavailable\0'
+  else printf '0\0'; fi >"$a/results/$row"
+  [[ $row != launcher || $shape != outside ]] || printf '1\0' >"$a/outside-failures"
+done
+close
+exit "${status:-0}"
+SH
+  cat >"$dir/scripts/test-qml-smoke.sh" <<'SH'
+#!/usr/bin/env bash
+git_dir="$(git rev-parse --absolute-git-dir)"
+if [[ "$(cat -- "$git_dir/hang" 2>/dev/null)" == fatal-controls ]]; then printf '%s\n' "$$" >"$git_dir/hung"; exec sleep 600; fi
+if [[ -e $git_dir/skip-controls ]]; then exit 77; fi
+SH
+  commit "$dir" stand-ins
+  printf 'lane\n' >>"$dir/shell/plugins/acme.launcher/Panel.qml"
+  printf 'lane\n' >>"$dir/shell/plugins/acme.notify/Panel.qml"
+}
+# reuse_cut DIR SIGNAL HANG: run `validate qml --changed HEAD` in DIR until
+# the stand-in HANG reports that it waits, then send SIGNAL to validate.
+# A KILL leaves validate's rows going, so the stand-in then gets the TERM
+# that ends it. Asserts the exit SIGNAL gives. HANG `-` lets the run end by
+# itself. The run's log is DIR.cut.log.
+reuse_cut() { # DIR SIGNAL HANG
+  local dir="$1" signal="$2" git_dir pid tick status=0 want=143
+  local -a hung
+  git_dir="$("${base_env[@]}" git -C "$dir" rev-parse --absolute-git-dir)"
+  printf '%s\n' "$3" >"$git_dir/hang"
+  (cd -- "$dir" && exec "${base_env[@]}" bash scripts/validate qml --changed HEAD) >"$dir.cut.log" 2>&1 &
+  pid=$!
+  if [[ $3 == - ]]; then
+    wait "$pid" || true
+    rm -f -- "${git_dir:?}/hang" "${git_dir:?}/skip-controls"
+    return 0
+  fi
+  # A bound on the wait for the reported state, not a reading.
+  for ((tick = 0; tick < 600; tick++)); do
+    if [[ -s $git_dir/hung ]] || ! kill -0 "$pid" 2>/dev/null; then break; fi
+    sleep 0.1
+  done
+  if [[ ! -s $git_dir/hung ]]; then
+    fail "$dir: the stand-in $3 never waited"; sed 's/^/        /' "$dir.cut.log"
+    kill -KILL "$pid" 2>/dev/null || true; wait "$pid" || true; return 0
+  fi
+  kill -s "$signal" "$pid"
+  # The redirection keeps bash's own report of a killed job off the log.
+  { wait "$pid"; } 2>/dev/null || status=$?
+  if [[ $signal == KILL ]]; then
+    want=137
+    read -r -a hung <"$git_dir/hung"
+    kill -TERM "${hung[0]}" 2>/dev/null || true
+    # A bound on the wait for the stand-in's end, not a reading.
+    for ((tick = 0; tick < 600; tick++)); do
+      kill -0 "${hung[0]}" 2>/dev/null || break
+      sleep 0.1
+    done
+  fi
+  rm -f -- "${git_dir:?}/hang" "${git_dir:?}/hung" "${git_dir:?}/edit" "${git_dir:?}/fail" "${git_dir:?}/call" "${git_dir:?}/refuse" "${git_dir:?}/shape"
+  [[ $status == "$want" ]] || { fail "$dir: the cut run exited $status, not $want"; sed 's/^/        /' "$dir.cut.log"; }
+}
+smoke_both="scripts/qml-smoke.sh --rows $smoke_core,launcher,notifications,notifications-keys,$smoke_always,$smoke_tail"
+smoke_other="scripts/qml-smoke.sh --rows $smoke_core,launcher,other,$smoke_always,$smoke_tail"
+# Each control's mutant: the file it plants in, the text it replaces and its
+# replacement, keyed by the case's mutant field.
+declare -A reuse_mutant_file=() reuse_mutant_old=() reuse_mutant_new=()
+reuse_mutant() { reuse_mutant_file[$1]="$2" reuse_mutant_old[$1]="$3" reuse_mutant_new[$1]="$4"; }
+judged=scripts/smoke/row-inputs.sh
+reuse_mutant direct scripts/validate '      lines+="${direct[$member]-}"' '      :'
+reuse_mutant closure scripts/validate '      lines+="${direct[$member]-}"' '      [[ $member != "$row" ]] || lines+="${direct[$member]-}"'
+reuse_mutant own-file scripts/validate 'for glob in "$file" "${smoke_globs[@]}"; do' 'for glob in "${smoke_globs[@]}"; do'
+reuse_mutant common scripts/validate $'      harness) common+="${record_lines[j]}"$\'\\n\' ;;' '      harness) ;;'
+reuse_mutant validate scripts/validate '    "$record_validate" "$record_point" "$record_untraced" "$1" "$2" "$3"' '    "" "$record_point" "$record_untraced" "$1" "$2" "$3"'
+reuse_mutant untraced scripts/validate '    "$record_validate" "$record_point" "$record_untraced" "$1" "$2" "$3"' '    "$record_validate" "$record_point" "" "$1" "$2" "$3"'
+reuse_mutant fault scripts/validate '  if [[ -n $smoke_read_fault ]]; then' '  if false; then'
+reuse_mutant row-lines scripts/validate '  record_digest "row=${rows[$1]}" "$context" "$lines"' '  record_digest "row=${rows[$1]}" "$context" ""'
+reuse_mutant void scripts/validate '  if [[ $end == "$pass_tree" ]]; then return 0; fi' '  return 0'
+reuse_mutant status scripts/validate 'case "$1" in 0) echo pass ;; 77) echo skip ;; *) echo fail ;; esac' 'case "$1" in 0|77) echo pass ;; *) echo fail ;; esac'
+reuse_mutant growth "$judged" '      [[ $own == calls ]] || ((calls == ${previous% *})) || return 1' '      :'
+reuse_mutant refused "$judged" '      [[ $own == refused ]] || ((refused == ${previous#* })) || return 1' '      :'
+reuse_mutant pair "$judged" '      [[ $own == refused ]] || ((refused == ${previous#* })) || return 1' '      [[ -n $own ]] || ((refused == ${previous#* })) || return 1'
+reuse_mutant own "$judged" '      [[ $own == calls ]] || ((calls == ${previous% *})) || return 1' '      ((calls == ${previous% *})) || return 1'
+reuse_mutant judge "$judged" '    smoke_record_verdict "$record" && [[ $smoke_verdict == pass ]] || return 1' '    :'
+reuse_mutant partial "$judged" '    [[ -e $record ]] || record="$attempt/partial/$judge"' '    :'
+reuse_mutant unread-close "$judged" '    [[ $closed == false && $calls =~' '    [[ $edge != close ]] || { closed=true; continue; }; [[ $closed == false && $calls =~'
+reuse_mutant whole scripts/validate '  if [[ $reuse == on && ${row_traced[i]} == true && $command != scripts/qml-smoke.sh ]]; then' '  if [[ $reuse == on && ${row_traced[i]} == true ]]; then'
+reuse_mutant skip "$judged" '  elif ((smoke_record_width > 1)); then smoke_verdict=skip' '  elif false; then smoke_verdict=skip'
+reuse_mutant open "$judged" '( -n ${ended[$row]-} && -z ${unproved[$row]-} )' '( -z ${unproved[$row]-} )'
+reuse_mutant outside "$judged" '  [[ ${fields[0]-} == 0 ]] || return 1' '  :'
+reuse_mutant rank "$judged" '((smoke_record_failures > worst_count[$row] ||' '((smoke_record_failures < worst_count[$row] ||'
+reuse_mutant reading "$judged" '[[ $judged == true && -n ${smoke_attempt_ended[$row]-} ]] || unproved' '[[ $judged == true ]] || unproved'
+# name|signal|stand-in that waits|before the cut|after the cut|mutant|wanted lines, ^ between them
+reuse_cases=(
+  "a run cut off at its bound keeps the smoke rows it finished|TERM|notifications||||validate: reused secs=3 smoke=launcher^validate: rerun secs=unknown smoke=notifications^validate: rerun secs=3 reason=core smoke=bar^validate: rerun secs=unknown reason=untraced smoke=bare^$smoke_notify"
+  "a killed run's finished smoke rows reach the next run|KILL|notifications||||validate: reused secs=3 smoke=launcher^$smoke_notify"
+  "a call made during the cut row, read by the closing reading alone, leaves passes unproved|TERM|notifications|call-cut|||validate: rerun secs=3 smoke=launcher^$smoke_both"
+  "control: the last row reading is final|TERM|notifications|call-cut||unread-close|validate: reused secs=3 smoke=launcher"
+  "a refusal in auth-sentinel's window, whose controls plant calls, leaves passes unproved|TERM|fatal-controls|refuse-auth|||validate: rerun secs=3 smoke=launcher^$smoke_both"
+  "control: a judge's window excuses either field|TERM|fatal-controls|refuse-auth||pair|validate: reused secs=3 smoke=launcher"
+  "a call in auth-sentinel's window, its controls' own, leaves passes proved|TERM|fatal-controls|call-auth|||validate: reused secs=3 smoke=launcher"
+  "control: a judge's window excuses nothing|TERM|fatal-controls|call-auth||own|validate: rerun secs=3 smoke=launcher"
+  "a judge row cut off after a failure leaves its attempt's passes unproved|TERM|auth-sentinel|auth-fail|||validate: rerun secs=3 smoke=launcher^$smoke_both"
+  "control: a judge row cut off after a failure no longer withholds passes|TERM|auth-sentinel|auth-fail||partial|validate: reused secs=3 smoke=launcher"
+  "a finished smoke row whose input changed after the cut runs again|TERM|notifications||edit||validate: rerun secs=3 smoke=launcher^$smoke_both"
+  "control: a smoke row's changed input no longer reruns it|TERM|notifications||edit|direct|validate: reused secs=3 smoke=launcher^$smoke_notify"
+  "a row's own file changed after the cut reruns it|TERM|notifications||row-file||validate: rerun secs=3 smoke=launcher"
+  "control: a row's own file no longer reruns it|TERM|notifications||row-file|own-file|validate: reused secs=3 smoke=launcher"
+  "a file the harness line names changed after the cut reruns every row|TERM|notifications||harness-file||validate: rerun secs=3 smoke=launcher^scripts/qml-smoke.sh"
+  "control: a harness input no longer reruns every row|TERM|notifications||harness-file|common|validate: reused secs=3 smoke=launcher"
+  "scripts/validate changed after the cut reuses nothing|TERM|notifications||validate-file||validate: rerun secs=3 smoke=launcher"
+  "control: a changed scripts/validate no longer stops reuse|TERM|notifications||validate-file|validate|validate: reused secs=3 smoke=launcher"
+  "a lane that removes the harness line records and reuses no smoke row|TERM|notifications|harness-line|||validate: smoke-reuse=off reason=harness-line-unreadable^!validate: reused secs=3 smoke=launcher"
+  "control: a lane that removes the harness line reuses its smoke rows|TERM|notifications|harness-line||fault|validate: reused secs=3 smoke=launcher"
+  "a producer's input changed after its reader passed reruns the reader|TERM|fatal-controls|other|edit||validate: rerun secs=3 smoke=other^$smoke_other"
+  "control: a reader no longer reruns when its producer's input changed|TERM|fatal-controls|other|edit|closure|validate: reused secs=3 smoke=other"
+  "an unknown input added after the cut reuses nothing|TERM|notifications||unknown||validate: selection=full unknown-input=new-source.bin^validate: rerun secs=3 smoke=launcher^scripts/qml-smoke.sh"
+  "control: an unknown input added after the cut no longer stops reuse|TERM|notifications||unknown|untraced|validate: reused secs=3 smoke=launcher"
+  "a sentinel call in a run cut off before auth-sentinel reruns the calling row|TERM|notifications|call|||validate: rerun secs=3 smoke=launcher^$smoke_both"
+  "control: a sentinel call no longer reruns the calling row|TERM|notifications|call||growth|validate: reused secs=3 smoke=launcher"
+  "an unshipped refusal the judge would fail reruns the refusing row unchanged|TERM|fatal-controls|refuse|||validate: rerun secs=3 smoke=launcher^$smoke_both"
+  "control: an unshipped refusal no longer reruns the refusing row|TERM|fatal-controls|refuse||refused|validate: reused secs=3 smoke=launcher"
+  "a failed judge row leaves its attempt's smoke passes unproved|TERM|fatal-controls|auth-fail|||validate: rerun secs=3 smoke=notifications^$smoke_both"
+  "control: a failed judge row no longer leaves its attempt's passes unproved|TERM|fatal-controls|auth-fail||judge|validate: reused secs=3 smoke=notifications^$smoke_none"
+  "a check not measured is no pass|TERM|notifications|skip|||validate: rerun secs=3 smoke=launcher"
+  "control: a check not measured reads as a pass|TERM|notifications|skip||skip|validate: reused secs=3 smoke=launcher"
+  "a row its attempt left open is no pass|TERM|notifications|partial|||validate: rerun secs=unknown smoke=launcher"
+  "control: a row its attempt left open reads as a pass|TERM|notifications|partial||open|validate: reused secs=unknown smoke=launcher"
+  "a failure outside every row leaves its attempt's passes unproved|TERM|notifications|outside|||validate: rerun secs=3 smoke=launcher"
+  "control: a failure outside every row no longer leaves passes unproved|TERM|notifications|outside||outside|validate: reused secs=3 smoke=launcher"
+  "a failure a replay passed stands over the replay|TERM|notifications|replay|||validate: rerun secs=3 smoke=launcher"
+  "control: a replay's pass stands over its failure|TERM|notifications|replay||rank|validate: reused secs=3 smoke=launcher"
+  "a row with no end reading is no pass|TERM|notifications|unread|||validate: rerun secs=3 smoke=launcher"
+  "control: a row with no end reading reads as a pass|TERM|notifications|unread||reading|validate: reused secs=3 smoke=launcher"
+  "a row that exited 77 is no pass|-|-|skip-controls|||scripts/test-qml-smoke.sh"
+  "control: a row that exited 77 reads as a pass|-|-|skip-controls||status|!scripts/test-qml-smoke.sh"
+  "a run cut off after the nested smoke reuses its smoke rows and runs the core rows again|TERM|fatal-controls||||validate: reused secs=3 smoke=launcher^validate: reused secs=3 smoke=notifications^%validate: rerun secs=[0-9]+ reason=smoke-rows row=nested smoke$^$smoke_none^scripts/test-qml-smoke.sh"
+  "control: the nested smoke a cut run passed is reused whole|TERM|fatal-controls|||whole|~validate: reuse=on rows-reused=1 ^!scripts/qml-smoke.sh"
+  "a changed input reruns the smoke row it reaches|TERM|fatal-controls||edit||validate: reused secs=3 smoke=notifications^$smoke_launcher"
+  "a changed input reruns a table row a finished run passed|-|-||edit||%validate: rerun secs=[0-9]+ row=smoke fatal row controls$^scripts/test-qml-smoke.sh"
+  "control: a changed input no longer reruns a table row|-|-||edit|row-lines|%validate: reused secs=[0-9]+ row=smoke fatal row controls$^!scripts/test-qml-smoke.sh"
+  "a run whose tree changed while it ran leaves nothing to reuse|TERM|fatal-controls|revert|revert||validate: rerun secs=unknown smoke=launcher^validate: rerun secs=unknown smoke=notifications^$smoke_both"
+  "control: a run whose tree changed while it ran no longer withdraws its records|TERM|fatal-controls|revert|revert|void|validate: reused secs=3 smoke=launcher^$smoke_none"
+)
+reuse_case() { # SPEC
+  local name signal hang before after mutant wanted d git_dir panel
+  local -a lines
+  IFS='|' read -r name signal hang before after mutant wanted <<<"$1"
+  d="$tmp/reuse-${name//[^a-z]/-}"
+  if [[ -n $mutant ]]; then
+    reuse_fixture "$d" "${reuse_mutant_file[$mutant]}" "${reuse_mutant_old[$mutant]}" "${reuse_mutant_new[$mutant]}"
+  else
+    reuse_fixture "$d"
+  fi
+  git_dir="$("${base_env[@]}" git -C "$d" rev-parse --absolute-git-dir)"
+  panel="$(cat -- "$d/shell/plugins/acme.launcher/Panel.qml")"
+  case "$before" in
+    revert) : >"$git_dir/edit" ;;
+    auth-fail) printf 'auth-sentinel\n' >"$git_dir/fail" ;;
+    call|refuse) printf 'launcher\n' >"$git_dir/$before" ;;
+    call-cut) printf 'notifications\n' >"$git_dir/call" ;;
+    call-auth|refuse-auth) printf 'auth-sentinel\n' >"$git_dir/${before%-auth}" ;;
+    skip|partial|outside|replay|unread) printf '%s\n' "$before" >"$git_dir/shape" ;;
+    skip-controls) : >"$git_dir/skip-controls" ;;
+    harness-line) plant "$d/scripts/smoke/harness.sh" $'# inputs: scripts/smoke/verdict.sh scripts/smoke/helper/* scripts/smoke/gone.sh\n' '' ;;
+    other) plant "$d/scripts/smoke/rows/other.sh" '# inputs: shell/plugins/acme.other/*' '# inputs: shell/plugins/acme.other/* scripts/smoke/rows/launcher.sh' ;;
+  esac
+  reuse_cut "$d" "$signal" "$hang"
+  case "$after" in
+    edit) printf 'fix\n' >>"$d/shell/plugins/acme.launcher/Panel.qml" ;;
+    row-file) printf '# changed\n' >>"$d/scripts/smoke/rows/launcher.sh" ;;
+    harness-file) printf 'changed\n' >>"$d/scripts/smoke/helper/click.c" ;;
+    validate-file) printf '# changed\n' >>"$d/scripts/validate" ;;
+    unknown) printf 'source\n' >"$d/new-source.bin" ;;
+    revert)
+      grep -q '^validate: row-records=void reason=content-changed ' "$d.cut.log" ||
+        [[ -n $mutant ]] || fail "$name: the cut run withdrew nothing"
+      printf '%s\n' "$panel" >"$d/shell/plugins/acme.launcher/Panel.qml" ;;
+  esac
+  IFS='^' read -r -a lines <<<"$wanted"
+  test_area=qml test_args=(--changed HEAD --list)
+  row_re "$name" "$d" 0 "" "${lines[@]}"
+}
+parallel_cases reuse_case reuse "${reuse_cases[@]}"
+test_area=qml test_args=()
+
+# The nested smoke row records no pass of its own: its inputs bind neither
+# the change base its row selection reads nor a smoke row's input another
+# table row owns. In `base` the lane's notifications change is committed,
+# so a pass under `--changed HEAD` ran launcher alone, and a run on the
+# same tree against HEAD~1 reaches notifications too. In `owned` other's
+# line names scripts/fixtures/vpn/acme.json, which the VPN decisions row
+# owns, and the lane edits that file after a passing run. The control is
+# a copy of validate that reuses the nested smoke row whole.
+# name|setup|mutant|wanted lines, ^ between them
+smoke_bind_cases=(
+  "a pass under one base reruns the smoke rows another base reaches on the same tree|base||validate: reused secs=3 smoke=launcher^validate: rerun secs=unknown smoke=notifications^$smoke_notify"
+  "control: a pass under one base covers the smoke another base reaches|base|whole|!scripts/qml-smoke.sh"
+  "a changed input only a smoke row's line names reruns that smoke row|owned||validate: rerun secs=3 smoke=other^scripts/qml-smoke.sh --rows $smoke_core,other,$smoke_always,$smoke_tail"
+  "control: a changed input only a smoke row's line names reruns nothing|owned|whole|!scripts/qml-smoke.sh"
+)
+smoke_bind_case() { # SPEC
+  local name setup mutant wanted d second=HEAD
+  local -a lines
+  IFS='|' read -r name setup mutant wanted <<<"$1"
+  d="$tmp/smoke-bind-${name//[^a-z]/-}"
+  if [[ -n $mutant ]]; then
+    reuse_fixture "$d" "${reuse_mutant_file[$mutant]}" "${reuse_mutant_old[$mutant]}" "${reuse_mutant_new[$mutant]}"
+  else
+    reuse_fixture "$d"
+  fi
+  case "$setup" in
+    base)
+      "${base_env[@]}" git -C "$d" add -- shell/plugins/acme.notify/Panel.qml
+      "${base_env[@]}" git -C "$d" commit -q -m notify
+      second=HEAD~1 ;;
+    owned)
+      mkdir -p "$d/scripts/fixtures/vpn"
+      printf '{}\n' >"$d/scripts/fixtures/vpn/acme.json"
+      plant "$d/scripts/smoke/rows/other.sh" '# inputs: shell/plugins/acme.other/*' '# inputs: shell/plugins/acme.other/* scripts/fixtures/vpn/acme.json'
+      commit "$d" owned
+      printf 'lane\n' >>"$d/shell/plugins/acme.other/Panel.qml" ;;
+  esac
+  (cd -- "$d" && exec "${base_env[@]}" bash scripts/validate qml --changed HEAD) >"$d.first.log" 2>&1 || true
+  [[ $setup != owned ]] || printf '{"lane": true}\n' >"$d/scripts/fixtures/vpn/acme.json"
+  IFS='^' read -r -a lines <<<"$wanted"
+  test_area=qml test_args=(--changed "$second" --list)
+  row_re "$name" "$d" 0 "" "${lines[@]}"
+}
+parallel_cases smoke_bind_case smoke-bind "${smoke_bind_cases[@]}"
+test_area=qml test_args=()
+
+# The records of rows a run cannot bind or that read the change base. A
+# fixture whose lane changes FILE runs `validate AREA --changed HEAD` to
+# its end, then, after `moved`, an empty commit that changes the base and
+# nothing it holds, lists the next run. A repo row and a row with a
+# `device:` input record but are never reused; a row whose `%scope` says
+# it reads the base reruns on a new one, and a row that reads none is
+# reused. The unit stand-ins pass. Each control is a copy of validate with
+# one binding removed, keyed in the record_mutant_* tables.
+declare -A record_mutant_old=(
+  [repo]='  [[ $row_area != repo ]] || continue'
+  [device]='      \$*|device:*) row_traced[i]=false ;;'
+  [every-base]='  if [[ ${row_scoped[$1]} == true ]]; then'
+  [scope]='      %scope) row_scoped[i]=true ;;'
+)
+declare -A record_mutant_new=(
+  [repo]='  :'
+  [device]='      \$*|device:*) ;;'
+  [every-base]='  if true; then'
+  [scope]='      %scope) ;;'
+)
+# name|area|lane's file|after the run|mutant|wanted lines, ^ between them
+record_cases=(
+  "a repo row records but is never reused|repo|clean.txt|||%validate: rerun secs=[0-9]+ reason=untraced row=whitespace errors against the base$"
+  "control: a repo row is reused|repo|clean.txt||repo|%validate: reused secs=[0-9]+ row=whitespace errors against the base$"
+  "a device row records but is never reused|tools|scripts/test-smoke-sink.sh|||%validate: rerun secs=[0-9]+ reason=untraced row=smoke sink compositor controls$"
+  "control: a device row is reused|tools|scripts/test-smoke-sink.sh||device|%validate: reused secs=[0-9]+ row=smoke sink compositor controls$"
+  "a new base reruns a row that reads it and reuses one that does not|unit|scripts/qml-unit.sh|moved||%validate: reused secs=[0-9]+ row=qml unit tests$^%validate: rerun secs=[0-9]+ row=qml unit controls$"
+  "control: a new base reruns a row that reads none|unit|scripts/qml-unit.sh|moved|every-base|%validate: rerun secs=[0-9]+ row=qml unit tests$"
+  "control: a new base no longer reruns a row that reads it|unit|scripts/qml-unit.sh|moved|scope|%validate: reused secs=[0-9]+ row=qml unit controls$"
+)
+record_case() { # SPEC
+  local name area file after mutant wanted d
+  local -a lines
+  IFS='|' read -r name area file after mutant wanted <<<"$1"
+  d="$tmp/record-${name//[^a-z]/-}"
+  fresh "$d"
+  [[ -z $mutant ]] || plant "$d/scripts/validate" "${record_mutant_old[$mutant]}" "${record_mutant_new[$mutant]}"
+  for stand_in in scripts/qml-unit.sh scripts/test-qml-unit.sh; do
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$d/$stand_in"
+    chmod +x "$d/$stand_in"
+  done
+  commit "$d" stand-ins
+  if [[ -e $d/$file ]]; then printf '# lane\n' >>"$d/$file"; else printf '#!/usr/bin/env bash\nexit 0\n' >"$d/$file"; chmod +x "$d/$file"; fi
+  (cd -- "$d" && exec "${base_env[@]}" bash scripts/validate "$area" --changed HEAD) >"$d.first.log" 2>&1 || true
+  [[ $after != moved ]] || "${base_env[@]}" git -C "$d" commit -q --allow-empty -m moved
+  IFS='^' read -r -a lines <<<"$wanted"
+  test_area=$area test_args=(--changed HEAD --list)
+  row_re "$name" "$d" 0 "" "${lines[@]}" || true
+}
+parallel_cases record_case record "${record_cases[@]}"
+test_area=qml test_args=()
 
 # A repository whose last repo pass is the commit `passed`, which a real
 # run records; validate is the copy under test, with OLD replaced by NEW
@@ -2306,7 +2664,7 @@ for dir in runner-reads runner-deep-control runner-refusal-control runner-short 
   chmod +x "$tmp/$dir/scripts/smoke/gpu-fence.sh"
   mkdir -p "$tmp/$dir/sandbox/evidence/failed" "$tmp/$dir/sandbox/results"
   printf 'sandbox=%q\nqml_smoke_attempt=$sandbox\nfailures=0\nnot_measured_rows=()\nleak_seq=0\n' "$tmp/$dir/sandbox" >"$tmp/$dir/scripts/smoke/harness.sh"
-  printf '%s\n' 'smoke_row() { printf "row=%s\n" "$1"; }' 'compositor_logs_on() { :; }' 'ok() { :; }' 'smoke_outcome_journal() { :; }' 'smoke_finish() { :; }' >>"$tmp/$dir/scripts/smoke/harness.sh"
+  printf '%s\n' 'smoke_row() { printf "row=%s\n" "$1"; }' 'compositor_logs_on() { :; }' 'ok() { :; }' 'smoke_outcome_journal() { :; }' 'smoke_judge_reading() { echo 0 0 intact; }' 'smoke_finish() { :; }' >>"$tmp/$dir/scripts/smoke/harness.sh"
 done
 # The registry owner hides device commands. The runner retains earlier
 # runner-specific hidden names when it appends its own absent tools.
@@ -3326,7 +3684,7 @@ for spec in TERM@143 HUP@129; do
   fi
 done
 d="$tmp/jobs-HUP-control"; hold_rows "$d"
-hold_mutant "$d" "trap 'stop_rows; chmod" "trap 'chmod"
+hold_mutant "$d" "trap 'stop_rows; records_finish; chmod" "trap 'records_finish; chmod"
 hold_run "$d" HUP
 if [[ $freed == 0 ]]; then
   ok "control: a validate whose exit path stops no row leaves its rows running"

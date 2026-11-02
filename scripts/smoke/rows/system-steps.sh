@@ -110,8 +110,7 @@ done
 device_reply gum 0 "" confirm --prompt.margin "0 0 0 3" --selected.margin "0 0 0 3" --unselected.margin "0 0 0 3" -- "$system_prompt"
 device_reply udevadm 0 "" control --reload
 device_reply udevadm 0 "" trigger --subsystem-match=hidraw --action=change --settle
-sentinel_of() { if grep -q -F -- "$auth_log" "$1"; then echo sentinel; else echo replaced; fi; }
-expect "the tree's sudo is the harness's sentinel" sentinel sentinel_of "$system_bin/sudo"
+expect "the tree's sudo is the harness's sentinel" sentinel sentinel_state "$system_bin/sudo"
 
 system_dir="$home/.config/vgshell/plugins/acme.system"
 mkdir -p "$system_dir"
@@ -154,7 +153,7 @@ system_udevadm_before="$(system_call_count udevadm)" || { fail "system steps: th
 : >"$system_calls"
 printf '#!/bin/sh\nprintf "%%s\\n" "$*" >>%q\ncase "$1" in -k|-n) exit 0 ;; esac\n[ "$1" = -- ] && shift\nexec %q -r "$@"\n' \
   "$system_calls" "$(command -v unshare)" | sentinel_stand_over "$system_bin/sudo"
-expect "the tree's sudo is the row's stand-in" replaced sentinel_of "$system_bin/sudo"
+expect "the tree's sudo is the row's stand-in" replaced sentinel_state "$system_bin/sudo"
 printf '#!/bin/sh\nif [ "$1" = trigger ] && [ -e %q ]; then chmod 0600 %q; fi\nexec %q "$@"\n' \
   "$system_rule" "$system_hidraw" "$(sentinel_saved "$shim/udevadm")" | sentinel_stand_over "$shim/udevadm"
 system_apply() {
@@ -168,7 +167,7 @@ expect "the step's command applies it" "ok system=apple-displays state=ready" sy
 expect "the stand-in ran the rule's install as root" 1 grep -c -F -- "-- $system_bin/install -m 0644 -o root -g root -T -- $repo/config/system/udev/60-vgs-apple-displays.rules $system_rule" "$system_calls"
 sentinel_restore "$system_bin/sudo"
 sentinel_restore "$shim/udevadm"
-expect "the tree's sudo is the sentinel again" sentinel sentinel_of "$system_bin/sudo"
+expect "the tree's sudo is the sentinel again" sentinel sentinel_state "$system_bin/sudo"
 system_gum_argv="$(python3 -c 'import json,sys; print(json.dumps([sys.argv[1:]]))' confirm --prompt.margin "0 0 0 3" --selected.margin "0 0 0 3" --unselected.margin "0 0 0 3" -- "$system_prompt")"
 expect "the step asked its one question through the gum stand-in" "$system_gum_argv" system_calls_since gum "$system_gum_before"
 expect "the udevadm stand-in reloaded the rules, then triggered hidraw" \
@@ -249,7 +248,7 @@ system_capture_command() {
 expect "capture apply grants the fixture binary" "ok system=bandwhich-capture state=ready" system_capture_command apply
 expect "capture apply ran only the closed-table grant" 1 grep -cxF -- "-- $system_bin/setcap cap_sys_ptrace,cap_dac_read_search,cap_net_raw,cap_net_admin+ep $system_bin/bandwhich" "$system_calls"
 sentinel_restore "$system_bin/sudo"
-expect "capture apply restored the sudo sentinel" sentinel sentinel_of "$system_bin/sudo"
+expect "capture apply restored the sudo sentinel" sentinel sentinel_state "$system_bin/sudo"
 expect "capture stays needed until the core run ends" "needed capture-needed" system_capture_core
 release_runs
 expect_run_end "the capture core/system run ends" core/system

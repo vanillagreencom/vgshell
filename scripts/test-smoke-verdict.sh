@@ -3,7 +3,9 @@
 # the counters smoke_finish hands it and fixture compositor logs, and fail,
 # which writes those counters by the row's class whatever the held mode
 # reads, a row not_measured records beside them, and read_count, the count
-# a row adds to, with a stub reader. No case needs a sandbox.
+# a row adds to, with a stub reader, and the judges' readings harness.sh
+# takes around each row with the judgement scripts/smoke/row-inputs.sh
+# makes of them. No case needs a sandbox.
 # Each verdict case pins the exit status and the first line the verdict
 # prints. The controls at the end plant one defect per rule in a
 # copy of the file and require the case that rule owns to go red.
@@ -270,11 +272,149 @@ for row in "${observations[@]}"; do
   if run_observation "$verdict" "$row"; then ok "${row%%|*}"; else fail "${row%%|*}"; fi
 done
 
-# mutate OLD NEW OUT: a copy of the verdict with OLD, which must occur once,
-# replaced by NEW.
+# The judges' readings: harness.sh's smoke_judge_reading, the predicates it
+# shares with rows/auth-sentinel.sh and rows/tui-guard.sh and the target
+# lists, qml-smoke.sh's qml_smoke_judge_reading, which records a reading,
+# and teardown.sh's cleanup, which takes the closing one, extracted from
+# the files, read a world of the files they read in a sandbox: the
+# sentinels, the browser-policy writer and the stand-in terminal as the
+# harness writes them, an empty authentication log, refusal log and stood
+# list, and a fixture tree whose one plugin holds a TUI script as the
+# shipped plugins. An attempt of rows w, x, tui-guard and auth-sentinel
+# takes a reading at each row's start and end, each row's results pass,
+# and the real teardown ends it. The case plants one defect inside one
+# row's window; a cut leaves that row open with a partial record and runs
+# no later row. The window `-` plants a call from a process in the
+# attempt's process groups as the teardown's TERM ends it, which only the
+# closing reading, taken after the groups end, reads.
+# scripts/smoke/row-inputs.sh's smoke_attempt_judged judges the readings.
+run_judged() { # HARNESS TEARDOWN ROW
+  local harness="$1" teardown="$2" label defect window cut want dir out status=0
+  IFS='|' read -r label defect window cut want <<<"$3"
+  dir="$(mktemp -d "$tmp/judged.XXXXXX")" || return 1
+  python3 - "$dir/judges.sh" "$harness" "$teardown" "$repo/scripts/qml-smoke.sh" <<'PYEXTRACT' || return 1
+import pathlib,sys
+out,harness,teardown,smoke=map(pathlib.Path,sys.argv[1:])
+def body(text,name):
+    start=text.index('\n'+name+'() {')+1
+    line=text[start:text.index('\n',start)]
+    end=start+len(line)+1 if line.endswith('}') else text.index('\n}\n',start)+3
+    return text[start:end]
+text=harness.read_text()
+parts=[]
+for name in ('auth_sentinels','auth_sentinel_files'):
+    start=text.index('\n'+name+'=(')+1
+    parts.append(text[start:text.index('\n',start)])
+for name in ('shell_resolves','tui_refusal_shipped','sentinel_state','command_placement','auth_call_count','stand_in_state','smoke_judge_reading'):
+    parts.append(body(text,name))
+parts.append(body(smoke.read_text(),'qml_smoke_judge_reading'))
+parts.append(body(teardown.read_text(),'cleanup'))
+out.write_text('\n'.join(parts)+'\n')
+PYEXTRACT
+  out="$(env -i PATH="$PATH" "$BASH" -c '
+set -euo pipefail
+checkout="$1" sandbox="$2" defect="$3" window="$4" cut="$5"
+shim="$sandbox/shim" repo="$sandbox/repo" source_repo="$sandbox/shipped"
+auth_log="$sandbox/auth-sentinel.calls" tui_refused="$sandbox/tui-refused.calls" sentinels_stood="$sandbox/sentinels.stood"
+tui_terminal="$shim/xdg-terminal-exec" tui_terminal_written="$sandbox/xdg-terminal-exec.harness"
+shell_start_path="$shim:$PATH"
+mkdir -p "$shim" "$repo/bin" "$source_repo/shell/plugins/acme.shipped/tui"
+printf "#!/bin/sh\nexit 0\n" >"$source_repo/shell/plugins/acme.shipped/tui/run.sh"
+source "$sandbox/judges.sh"
+for target in "${auth_sentinel_files[@]}"; do
+  printf "#!/bin/sh\nprintf \"%%s\\\\n\" \"%s \$*\" >>%q\nexit 1\n" "${target##*/}" "$auth_log" >"$target"
+  chmod 755 "$target"
+done
+printf "#!/bin/sh\nexit 0\n" >"$tui_terminal"
+chmod 755 "$tui_terminal"
+cp -- "$tui_terminal" "$tui_terminal_written"
+: >"$tui_refused"
+: >"$sentinels_stood"
+plant() {
+  case "$defect" in
+    none) ;;
+    call) PATH="$shell_start_path" sudo -n true || true ;;
+    unshipped) printf "%s\n" "acme.made-up/nothing acme.made-up tui/nothing.sh" >>"$tui_refused" ;;
+    shipped) printf "%s\n" "acme.shipped/run acme.shipped tui/run.sh" >>"$tui_refused" ;;
+    stood) printf "%s\n" "$shim/sudo" >>"$sentinels_stood" ;;
+    rewritten) printf "#!/bin/sh\nexit 0\n" >"$shim/pkexec" ;;
+    unexecutable) chmod 644 "$shim/su" ;;
+    writer) printf "#!/bin/sh\nexit 0\n" >"$repo/bin/vgshell-browser-policy" ;;
+    writer-gone) rm -- "$repo/bin/vgshell-browser-policy" ;;
+    terminal) printf "echo changed\n" >>"$tui_terminal" ;;
+    refusals-gone) rm -- "$tui_refused" ;;
+    *) echo "defect=$defect unknown" >&2; exit 2 ;;
+  esac
+}
+# late_call PATH READY: a process group that makes one authentication call
+# through PATH as a TERM ends it, after it writes its group to READY. The
+# loop is a bound on a group no teardown ends, not a reading.
+late_call() {
+  trap "PATH=$(printf %q "$1") sudo -n true; exit 0" TERM
+  printf "%s\n" "$$" >"$2"
+  for ((tick = 0; tick < 300; tick++)); do sleep 0.1; done
+}
+qml_smoke_attempt="$sandbox/attempt"
+a="$qml_smoke_attempt"
+mkdir -p "$a/results" "$a/partial"
+printf "0\0" >"$a/outside-failures"
+pgids=()
+if [[ $window == - ]]; then
+  [[ $defect == call ]] || { echo "defect=$defect window=- unknown" >&2; exit 2; }
+  setsid "$BASH" -c "$(declare -f late_call); late_call \"\$@\"" _ "$shell_start_path" "$sandbox/late.pgid" </dev/null >/dev/null 2>&1 &
+  for ((tick = 0; tick < 100; tick++)); do [[ ! -s $sandbox/late.pgid ]] || break; sleep 0.05; done
+  pgids+=("$(<"$sandbox/late.pgid")")
+fi
+for row in w x tui-guard auth-sentinel; do
+  qml_smoke_judge_reading "$row" start
+  [[ $row != "$window" ]] || plant
+  if [[ $row == "$window" && -n $cut ]]; then printf "%s\0" "$cut" >"$a/partial/$row"; break; fi
+  qml_smoke_judge_reading "$row" end
+  printf "0\0" >"$a/results/$row"
+done
+cleanup
+source "$checkout/scripts/smoke/row-inputs.sh"
+if smoke_attempt_judged "$a"; then echo proved; else echo unproved; fi
+' _ "$repo" "$dir" "$defect" "$window" "$cut")" || status=$?
+  [[ $status == 0 && $out == "$want" ]] && return 0
+  printf '        %s: status=%s got=%s want=%s readings:\n' "$label" "$status" "$out" "$want"
+  sed 's/^/          /' "$dir/attempt/judge-readings" 2>/dev/null || true
+  return 1
+}
+# Rows: label | the defect | the row in whose window it lands, `-` for a
+# call a process makes as the teardown ends it | empty when every row
+# ends, else the failure count of that row's partial record, the attempt
+# cut in that row | proved or unproved.
+judged=(
+  "readings that show nothing prove the attempt|none|x||proved"
+  "an authentication call in a row's window voids the attempt|call|x||unproved"
+  "a refusal of a script no shipped plugin holds voids the attempt|unshipped|x||unproved"
+  "a refusal of a shipped plugin's TUI script proves the attempt|shipped|x||proved"
+  "a sentinel left stood over voids the attempt|stood|x||unproved"
+  "a sentinel that no longer logs voids the attempt|rewritten|x||unproved"
+  "a sentinel no longer first on the shell's PATH voids the attempt|unexecutable|x||unproved"
+  "a browser-policy writer that no longer logs voids the attempt|writer|x||unproved"
+  "a missing browser-policy writer voids the attempt|writer-gone|x||unproved"
+  "a rewritten stand-in terminal voids the attempt|terminal|x||unproved"
+  "an unreadable refusal log voids the attempt|refusals-gone|x||unproved"
+  "a call in auth-sentinel's window, whose controls plant calls, proves the attempt|call|auth-sentinel||proved"
+  "a refusal in tui-guard's window, whose controls plant refusals, proves the attempt|unshipped|tui-guard||proved"
+  "a call in tui-guard's window voids the attempt|call|tui-guard||unproved"
+  "a refusal in auth-sentinel's window voids the attempt|unshipped|auth-sentinel||unproved"
+  "a call a process makes as the teardown ends it, read by the closing reading, voids the attempt|call|-||unproved"
+  "a judge row left open with a failure voids the attempt|none|tui-guard|1|unproved"
+  "a call in auth-sentinel's window, cut before its end reading, voids the attempt|call|auth-sentinel|0|unproved"
+  "a refusal in tui-guard's window, cut before its end reading, voids the attempt|unshipped|tui-guard|0|unproved"
+)
+for row in "${judged[@]}"; do
+  if run_judged "$repo/scripts/smoke/harness.sh" "$repo/scripts/smoke/teardown.sh" "$row"; then ok "${row%%|*}"; else fail "${row%%|*}"; fi
+done
+
+# mutate OLD NEW OUT [FILE]: a copy of FILE, the verdict by default, with
+# OLD, which must occur once, replaced by NEW.
 mutate() {
-  local text rest count
-  text="$(<"$verdict")"
+  local file="${4:-$verdict}" text rest count
+  text="$(<"$file")"
   rest="${text//"$1"/}"
   count=$(( (${#text} - ${#rest}) / ${#1} ))
   if [[ $count -ne 1 ]]; then
@@ -282,9 +422,30 @@ mutate() {
     return 1
   fi
   printf '%s\n' "${text/"$1"/"$2"}" >"$3"
-  cmp -s -- "$verdict" "$3" && { printf '        mutation left the file unchanged: %s\n' "$1"; return 1; }
+  cmp -s -- "$file" "$3" && { printf '        mutation left the file unchanged: %s\n' "$1"; return 1; }
   return 0
 }
+
+# The judges' readings' control: a harness whose reading pins the calls to
+# 0 must leave the call case green no longer.
+mutant="$tmp/mutant-harness.sh"
+if ! mutate "printf '%s %s %s\\n' \"\$((calls))\" \"\$refused\" \"\$state\"" "printf '%s %s %s\\n' 0 \"\$refused\" \"\$state\"" "$mutant" "$repo/scripts/smoke/harness.sh"; then
+  fail "control: a reading that pins the calls to 0"
+elif run_judged "$mutant" "$repo/scripts/smoke/teardown.sh" "${judged[1]}" >/dev/null; then
+  fail "control: a reading that pins the calls to 0 left '${judged[1]%%|*}' green"
+else
+  ok "control: a reading that pins the calls to 0"
+fi
+# The closing reading's control: a teardown that takes no closing reading
+# must leave the teardown call case green no longer.
+mutant="$tmp/mutant-teardown.sh"
+if ! mutate "if declare -F qml_smoke_judge_reading >/dev/null; then qml_smoke_judge_reading - close; fi" ":" "$mutant" "$repo/scripts/smoke/teardown.sh"; then
+  fail "control: a teardown that takes no closing reading"
+elif run_judged "$repo/scripts/smoke/harness.sh" "$mutant" "${judged[15]}" >/dev/null; then
+  fail "control: a teardown that takes no closing reading left '${judged[15]%%|*}' green"
+else
+  ok "control: a teardown that takes no closing reading"
+fi
 
 # Rows: label | text | replacement | the case label that must go red. A
 # field holds no `|`, the separator.

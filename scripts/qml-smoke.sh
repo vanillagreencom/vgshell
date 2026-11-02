@@ -48,6 +48,20 @@
 # and the recorder's separate `collection` judgment to its effective exit
 # and reason. Only completion.json is published; hidden candidates are not
 # receipts. A missing required record is incomplete, never passing proof.
+# VGS_SMOKE_RESULTS_DIR, an existing directory, holds the driver's
+# directory in place of TMPDIR, so the per-row results of a run that is
+# cut off outlive its caller's scratch. Under it, each attempt's
+# qml-smoke-resume.*/<n>/results/<row> is written as that row ends:
+# NUL-separated, the row's failure count, then each check it could not
+# measure. partial/<row> holds the same as the row goes, so it stands for
+# a row the attempt left open; outside-failures holds the failures outside
+# every row, judge-readings what the judge rows read at each row's start
+# and end and as the attempt ends, and run.log the attempt's output with
+# its `qml-smoke: row-secs` lines. smoke_outcomes in
+# scripts/smoke/row-inputs.sh reads the per-row records for this driver
+# and for scripts/validate, which names one directory per run; this driver
+# reads outside-failures for its own count too. What validate keeps of
+# them is in docs/architecture/validation.md § Selection.
 #
 # --first-bar-runs N, N a positive integer, measures the first bar alone:
 # it starts the sandbox N times, runs no row, and prints one line per run,
@@ -367,16 +381,19 @@ fi
 # The private source invocation selects one attempt without exporting state
 # or moving any of the harness's jobs, waits or descriptors to this driver.
 if [[ -z ${qml_smoke_attempt:-} ]]; then
+  # smoke_outcomes reads the attempts' row records.
+  source "$repo/scripts/smoke/row-inputs.sh"
   # Only private bookkeeping is written here. The world owns validation and
   # creation of every requested output before the worker writes there.
-  qml_smoke_driver="$(mktemp -d "${TMPDIR:-/tmp}/qml-smoke-resume.XXXXXX")" || { echo 'qml-smoke: scratch=mktemp-failed' >&2; exit 1; }
+  qml_smoke_driver="$(mktemp -d "${VGS_SMOKE_RESULTS_DIR:-${TMPDIR:-/tmp}}/qml-smoke-resume.XXXXXX")" || { echo 'qml-smoke: scratch=mktemp-failed' >&2; exit 1; }
   [[ -d $qml_smoke_driver && ! -L $qml_smoke_driver ]] || { echo 'qml-smoke: scratch=not-a-directory' >&2; exit 1; }
   qml_smoke_driver="$(cd -- "$qml_smoke_driver" && pwd -P)" || { echo 'qml-smoke: scratch=resolve-failed' >&2; exit 1; }
   qml_smoke_pending=()
   for qml_smoke_row in "${qml_smoke_rows[@]}"; do
     qml_smoke_wanted "$qml_smoke_row" && qml_smoke_pending+=("$qml_smoke_row")
   done
-  declare -A qml_smoke_results=() qml_smoke_fatal=() qml_smoke_blocked=()
+  declare -A qml_smoke_fatal=() qml_smoke_blocked=()
+  qml_smoke_read_attempts=()
   qml_smoke_status=0
   qml_smoke_incomplete=false
   qml_smoke_outside_failures=0
@@ -530,22 +547,9 @@ PY
       mapfile -d '' -t qml_smoke_outside <"$qml_smoke_attempt/outside-failures"
       ((qml_smoke_outside[0] <= qml_smoke_outside_failures)) || qml_smoke_outside_failures=${qml_smoke_outside[0]}
     fi
-    # A producer runs again to rebuild state; its result appears once. Keep
-    # its worst reading, including a new failure or unavailable measurement.
-    # Partial outcomes share the format; only results/ proves completion.
-    for qml_smoke_row in "${qml_smoke_rows[@]}"; do
-      for qml_smoke_record in "$qml_smoke_attempt/partial/$qml_smoke_row" "$qml_smoke_attempt/results/$qml_smoke_row"; do
-        [[ -f $qml_smoke_record ]] || continue
-        mapfile -d '' -t qml_smoke_result <"$qml_smoke_record"
-        qml_smoke_previous=(0)
-        if [[ -n ${qml_smoke_results[$qml_smoke_row]-} ]]; then
-          mapfile -d '' -t qml_smoke_previous <"${qml_smoke_results[$qml_smoke_row]}"
-        fi
-        if ((qml_smoke_result[0] > qml_smoke_previous[0] || (qml_smoke_result[0] == qml_smoke_previous[0] && ${#qml_smoke_result[@]} >= ${#qml_smoke_previous[@]}))); then
-          qml_smoke_results[$qml_smoke_row]=$qml_smoke_record
-        fi
-      done
-    done
+    # Each accepted attempt's row records count; smoke_outcomes below reads
+    # them, a replayed producer's worst reading among them.
+    qml_smoke_read_attempts+=("$qml_smoke_attempt")
     qml_smoke_left=()
     for qml_smoke_row in "${qml_smoke_pending[@]}"; do
       if [[ ! -f $qml_smoke_attempt/results/$qml_smoke_row ]]; then
@@ -588,9 +592,10 @@ PY
   done
   qml_smoke_failures=$((${#qml_smoke_fatal[@]} + ${#qml_smoke_blocked[@]} + qml_smoke_outside_failures))
   qml_smoke_unmeasured=()
+  smoke_outcomes "${qml_smoke_read_attempts[@]}"
   for qml_smoke_row in "${qml_smoke_rows[@]}"; do
-    if [[ -n ${qml_smoke_results[$qml_smoke_row]-} ]]; then
-      mapfile -d '' -t qml_smoke_result <"${qml_smoke_results[$qml_smoke_row]}"
+    if [[ -n ${smoke_outcome_record[$qml_smoke_row]-} ]]; then
+      mapfile -d '' -t qml_smoke_result <"${smoke_outcome_record[$qml_smoke_row]}"
       qml_smoke_failures=$((qml_smoke_failures + qml_smoke_result[0]))
       qml_smoke_unmeasured+=("${qml_smoke_result[@]:1}")
     fi
@@ -601,11 +606,16 @@ PY
     elif [[ $qml_smoke_incomplete == true && " ${qml_smoke_pending[*]} " == *" $qml_smoke_row "* ]]; then
       qml_smoke_failures=$((qml_smoke_failures + 1))
       printf 'qml-smoke: row-result row=%s status=failed cause=incomplete-attempt\n' "$qml_smoke_row"
-    elif [[ -n ${qml_smoke_results[$qml_smoke_row]-} ]]; then
-      if ((qml_smoke_result[0] > 0)); then qml_smoke_row_status=failed
-      elif ((${#qml_smoke_result[@]} > 1)); then qml_smoke_row_status=not-measured
-      else qml_smoke_row_status=ok; fi
+    elif [[ -n ${smoke_outcome_checks[$qml_smoke_row]-} ]]; then
+      case "${smoke_outcome_checks[$qml_smoke_row]}" in
+        fail) qml_smoke_row_status=failed ;;
+        skip) qml_smoke_row_status=not-measured ;;
+        *) qml_smoke_row_status=ok ;;
+      esac
       printf 'qml-smoke: row-result row=%s status=%s\n' "$qml_smoke_row" "$qml_smoke_row_status"
+    elif [[ -n ${smoke_outcome[$qml_smoke_row]-} ]]; then
+      qml_smoke_failures=$((qml_smoke_failures + 1))
+      printf 'qml-smoke: row-result row=%s status=failed cause=record-unreadable\n' "$qml_smoke_row"
     fi
   done
   if ((qml_smoke_status == 1 || (qml_smoke_failures > 0 && qml_smoke_status != 77))); then
@@ -655,6 +665,17 @@ source "$repo/scripts/smoke/harness.sh"
 printf '%s\n' "${sandbox##*/}" >"$qml_smoke_attempt/sandbox"
 qml_smoke_row_failures=0
 qml_smoke_attempt_owner=$BASHPID
+# qml_smoke_judge_reading ROW EDGE: append `<row> start|end <reading>` to
+# the attempt's judge-readings, smoke_judge_reading's at ROW's start or
+# end, or `- close <reading>` as teardown.sh ends the attempt, which
+# smoke_attempt_judged in row-inputs.sh reads. A reading that cannot be
+# written leaves passes unproved, not failed.
+qml_smoke_judge_reading() { # ROW EDGE
+  local reading
+  if ! reading="$(smoke_judge_reading)" || ! printf '%s %s %s\n' "$1" "$2" "$reading" >>"$qml_smoke_attempt/judge-readings"; then
+    printf 'qml-smoke: judge-reading=unwritten row=%s edge=%s\n' "$1" "$2" >&2
+  fi
+}
 
 # smoke_row (harness.sh) sources each row and fails one whose output holds
 # a traceback. The step after hyprland-consent runs whatever --rows names.
@@ -665,7 +686,9 @@ for qml_smoke_row in "${qml_smoke_rows[@]}"; do
     smoke_outcome_journal
     printf '%s\n' "$qml_smoke_row" "${instance_log:-}" >"$sandbox/evidence/active" || printf 'qml-smoke: evidence=row-registration-unavailable row=%s\n' "$qml_smoke_row" >&2
     printf '%s\n' "$qml_smoke_row" >"$qml_smoke_attempt/active"
+    qml_smoke_judge_reading "$qml_smoke_row" start
     smoke_row "$qml_smoke_row"
+    qml_smoke_judge_reading "$qml_smoke_row" end
     qml_smoke_row_failures=$((qml_smoke_row_failures + failures - qml_smoke_failures_before))
     printf '%s\0' "$((failures - qml_smoke_failures_before))" "${not_measured_rows[@]:qml_smoke_not_measured_before}" >"$qml_smoke_attempt/results/$qml_smoke_row.new"
     mv -- "$qml_smoke_attempt/results/$qml_smoke_row.new" "$qml_smoke_attempt/results/$qml_smoke_row"

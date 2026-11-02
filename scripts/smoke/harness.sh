@@ -3437,6 +3437,71 @@ EOF
     return 1
   fi
 }
+# tui_refusal_shipped ID SCRIPT: true when SCRIPT, a refusal line's script,
+# is a TUI script under the shipped plugin ID's tui/ in the checkout. The
+# stand-in refuses those as it refuses any script but a fixture's; a
+# refusal of anything else is a row that pointed the stand-in at a script
+# that is neither, which rows/tui-guard.sh and smoke_judge_reading judge.
+# Classes are spelled out, since a range follows the locale.
+tui_refusal_shipped() { # ID SCRIPT
+  local name='[0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ]'
+  [[ $1 =~ ^$name($name|[._-])*$ && $2 =~ ^tui/$name($name|[._-])*$ && -f $source_repo/shell/plugins/$1/$2 ]]
+}
+# The judges' predicates: the one statement of each fact rows/auth-sentinel.sh,
+# rows/tui-guard.sh and smoke_judge_reading read.
+# auth_sentinel_files: every file a privileged call reaches in place of the
+# host's, the sentinels on the shell's PATH and the tree's browser-policy
+# writer. A missing writer is no sentinel.
+auth_sentinel_files=("${auth_sentinels[@]/#/$shim/}" "$repo/bin/vgshell-browser-policy")
+# sentinel_state FILE: `sentinel` while FILE logs to $auth_log, as every
+# sentinel does, else `replaced`.
+sentinel_state() { if grep -q -F -- "$auth_log" "$1" 2>/dev/null; then echo sentinel; else echo replaced; fi; }
+# command_placement NAME FILE: `first` when NAME resolves to FILE on the
+# PATH every sandbox shell starts with, else `resolves=<what it resolves
+# to>`.
+command_placement() { # NAME FILE
+  local found
+  found="$(shell_resolves "$1")"
+  if [[ $found == "$2" ]]; then echo first; else echo "resolves=$found"; fi
+}
+# auth_call_count: the authentication calls the sentinels logged.
+auth_call_count() { if [[ -e $auth_log ]]; then wc -l <"$auth_log"; else echo 0; fi; }
+# stand_in_state: `same` while the stand-in terminal is the text
+# terminal_stand_in last wrote, else `differs`.
+stand_in_state() { if cmp -s -- "$tui_terminal" "$tui_terminal_written"; then echo same; else echo differs; fi; }
+# smoke_judge_reading: one line, `<calls> <refused> <state>`, of what the
+# judge rows read: auth_call_count; the refusals in $tui_refused that
+# tui_refusal_shipped refuses; and `intact` when no sentinel is stood over,
+# every sentinel resolves first and every file of auth_sentinel_files is a
+# sentinel, and the stand-in terminal is the harness's own and resolves
+# first, else the first fact that fails, or `unreadable`. The fixture
+# index tui-guard reads is not part of it. qml-smoke.sh takes one at each
+# row's start and end and one as the attempt ends (teardown.sh), so a
+# row's pass carries its own judges' reading whether or not the judge rows
+# run after it (smoke_attempt_judged in row-inputs.sh).
+smoke_judge_reading() {
+  local calls=0 refused=0 state=intact key id script name file
+  if ! calls="$(auth_call_count)" || [[ ! $calls =~ ^[[:space:]]*[0-9]+$ ]]; then calls=0 state=unreadable; fi
+  if [[ -r $tui_refused ]]; then
+    while read -r key id script; do
+      tui_refusal_shipped "$id" "$script" || refused=$((refused + 1))
+    done <"$tui_refused"
+  else
+    state=unreadable
+  fi
+  if [[ $state == intact && -s $sentinels_stood ]]; then state=stood; fi
+  for name in "${auth_sentinels[@]}"; do
+    [[ $state == intact ]] || break
+    [[ $(command_placement "$name" "$shim/$name") == first ]] || state="path=$name"
+  done
+  for file in "${auth_sentinel_files[@]}"; do
+    [[ $state == intact ]] || break
+    [[ $(sentinel_state "$file") == sentinel ]] || state="sentinel=${file##*/}"
+  done
+  if [[ $state == intact && $(stand_in_state) != same ]]; then state=terminal; fi
+  if [[ $state == intact && $(command_placement "${tui_terminal##*/}" "$tui_terminal") != first ]]; then state=terminal-path; fi
+  printf '%s %s %s\n' "$((calls))" "$refused" "$state"
+}
 # hold_runs keeps every run the stand-in replaces live, a core command's or
 # a refused plugin script's, until release_runs, so a row can read a busy
 # key or plant the state a run's end reads.
