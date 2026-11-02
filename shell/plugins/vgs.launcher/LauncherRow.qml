@@ -56,10 +56,11 @@ Item {
     transform: ListEntrance {
         id: entrance
         shift: row.look.row.enterX
-        // The launcher goes before its rows as the overlay is destroyed;
-        // the entrance keeps the motion it last had.
-        Binding on motion { when: row.live; value: row.live ? row.launcher.listMotion : null; restoreMode: Binding.RestoreNone }
     }
+    // Qt's declarative target evaluates only while enabled; RestoreNone
+    // keeps the last motion after the launcher is destroyed.
+    // https://doc.qt.io/qt-6/qml-qtqml-binding.html#conditional-bindings
+    Binding { when: row.live; entrance.motion: row.launcher.listMotion; restoreMode: Binding.RestoreNone }
     Component.onCompleted: {
         if (hasCursor) plate.follow(row, true);
         if (live && launcher.freshIds[itemId]) entrance.start(plate.enterSlot(), launcher.navDirection);
