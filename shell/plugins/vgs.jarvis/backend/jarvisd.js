@@ -735,6 +735,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                         policy: () => ({ profile: profile(), cloudVision: context.settings.cloudVision }), fault,
                         captionLimit: Protocol.TRANSCRIPT_CHARS, dispatch: event => runner.dispatch(event), clock, configured, fatal,
                         log: line => process.stderr.write(line + "\n"),
+                        modelUsed: choice => write({ v: 1, type: "model-fallback", gen: runner.state.gen, revision: context.revision, ...choice }),
                         harness: { bridge, gate, env: process.env, runtime: () => context.directories.runtime },
                         tasks: { held: () => tasks.held(),
                             answer: (task, prompt, value) => {

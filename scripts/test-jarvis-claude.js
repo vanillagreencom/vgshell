@@ -113,6 +113,7 @@ world(async () => {
         // The bridge stand-in forwards what the adapter opens with, so the real
         // bridge judges the session's generation and recipients.
         const harness = ClaudeCode.create({ model: options.model ?? "", effort: options.effort ?? "", recipients,
+            modelFallback: options.modelFallback ?? false, modelUsed: options.modelUsed,
             account: { kind: "cli", directory: a.directory }, gen: runner.state.gen,
             harness: { bridge: { open: async value => { opened = await bridge.open(value); return opened; } },
                 env: { ...process.env, ...PLANTED, ...(options.home === undefined ? {} : { FIXTURE_JARVIS_HOME: options.home }) },
@@ -370,6 +371,33 @@ world(async () => {
             assert.equal((await pending)?.message, "jarvis: brain=cancelled");
             assert.throws(() => w.say("next"), /brain=harness-ended/);
         }],
+        ["model-fallback", async folder => {
+            const refused = [{ raw: JSON.stringify({ type: "assistant", parent_tool_use_id: null, error: "model_not_found",
+                message: { id: "m1", role: "assistant", content: [{ type: "text", text: "Refused." }] } }) }, { result: "api-error" }];
+            // A custom saved spelling, the preferred model itself, and a
+            // program that also refuses the retry. Control requests are read
+            // back from the real child; its response depends on the model.
+            for (const [saved, used, twice] of [["claude-opus-5.5", "claude-fable-5-1", false],
+                ["claude-fable-5-1", "", false], ["claude-opus-5.5", "claude-fable-5-1", true]]) {
+                const notices = [];
+                const w = await make(folder, { turns: [[{ text: "Fallback answer." }]],
+                    modelTurns: { [saved]: [refused], ...(twice ? { [used]: [refused] } : {}) } },
+                    { model: saved, modelFallback: true, modelUsed: value => notices.push(value) });
+                if (twice) {
+                    await w.fails(w.say("go"), "harness-model-refused model=" + used);
+                    assert.deepEqual(notices, []);
+                } else {
+                    for (const text of ["go", "again"]) assert.deepEqual(await w.read(w.say(text)),
+                        { texts: ["Fallback answer."], reason: "stop" }, "refusal still yields an answer");
+                    assert.deepEqual(notices, [{ saved, used }], "one notice across questions");
+                }
+                assert.equal(w.account.calls().length, 1, "the same process keeps conversation history");
+                const changes = w.account.events().filter(event => event.kind === "input"
+                    && event.value.request?.subtype === "set_model").map(event => event.value.request.model);
+                assert.deepEqual(changes, [used || null], "one retry, with the same fallback as no saved model");
+                await w.harness.close();
+            }
+        }],
         ["results", async folder => {
             for (const [steps, key] of [
                 [[{ result: "api-error" }], "harness-api-error status=429"],
@@ -535,6 +563,7 @@ world(async () => {
             }
         }],
         ["engine", async folder => {
+          for (const [backup, refusedBackup] of [[false, false], [true, false], [true, true]]) {
             // The engine copy is made from this backend folder, so a mutant
             // applies; a mutant folder holds only the backend modules.
             const outer = path.dirname(folder);
@@ -544,11 +573,16 @@ world(async () => {
             const { folder: copied, Engine } = Fixture.copy(process.env.JARVIS_TEST_ROOT, [], outer);
             // The world's own harness stays unsent; the engine starts its brain
             // from the world's account folder.
-            const w = await make(path.join(copied, "backend"), { turns: [[{ tool: "windows_list", arguments: {} }, ...say("Two windows.")]] });
+            const refused = [{ raw: JSON.stringify({ type: "assistant", parent_tool_use_id: null, error: "model_not_found",
+                message: { id: "refused", role: "assistant", content: [] } }) }, { result: "api-error" }];
+            const w = await make(path.join(copied, "backend"), { turns: [[{ tool: "windows_list", arguments: {} }, ...say("Two windows.")]],
+                modelTurns: { "claude-opus-5.5": [refused], ...(refusedBackup ? { "claude-opus-5-5": [refused] } : {}) } });
+            const notices = [];
             const engine = Engine.create({ session: Session, state: () => w.runner.state, audit: w.audit, router: w.router,
                 accounts: () => ({ secrets: null, choose: id => ({ kind: "accepted", account: { id, provider: "claude", label: "default",
                     source: { kind: "cli", directory: w.account.directory }, model: "" } }) }),
                 policy: () => ({ profile: "standard", cloudVision: "ask" }), fault: reason => assert.fail("fault " + reason),
+                modelUsed: value => notices.push(value),
                 captionLimit: 4096, dispatch: e => w.runner.dispatch(e), clock: w.runnerClock,
                 // Built-in tools are off, so no approval request reaches the gate.
                 harness: { bridge: w.bridge, gate: Object.freeze({}), env: { ...process.env, ...PLANTED }, runtime: () => w.runtime } });
@@ -556,7 +590,10 @@ world(async () => {
             w.installEngine(engine);
             let answer;
             // The model and effort the service chose for this sign-in.
-            assert.doesNotThrow(() => { answer = engine.configure({ brain: "claude-fixture", model: "claude-fable-5-1", effort: "high" }); },
+            const settings = Object.freeze({ brain: "claude-fixture", model: "claude-opus-5.5", effort: "high",
+                fallbacks: backup ? [{ name: "Backup", brain: "claude-backup", model: "claude-opus-5-5" }] : [] });
+            const saved = JSON.stringify(settings);
+            assert.doesNotThrow(() => { answer = engine.configure(settings); },
                 "the engine has a Claude Code driver");
             assert.deepEqual(answer, { kind: "ready", cautions: [] });
             const { gen, turn: { op } } = w.runner.state;
@@ -575,10 +612,18 @@ world(async () => {
             assert.deepEqual(w.brain, [], "the bridge, not the brain port, answers a harness call");
             const [call] = w.account.calls();
             assert.equal(call.env.CLAUDE_CONFIG_DIR, w.account.directory, "the program keeps the account folder's login");
-            assert.deepEqual(call.args.slice(-4), ["--model", "claude-fable-5-1", "--effort", "high"], "the chosen model and effort reach the program");
+            assert.deepEqual(call.args.slice(-4), ["--model", "claude-opus-5.5", "--effort", "high"], "the saved choice reaches the program as written");
+            assert.equal(JSON.stringify(settings), saved, "the configured choice is unchanged");
+            assert.deepEqual(notices, backup && !refusedBackup ? [] : [{ saved: refusedBackup ? "claude-opus-5-5" : "claude-opus-5.5", used: "claude-fable-5-1" }]);
+            const switches = w.account.events().filter(event => event.kind === "input" && event.value.request?.subtype === "set_model");
+            assert.equal(switches.length, backup && !refusedBackup ? 0 : 1, "a configured backup takes precedence over the preferred model");
+            assert.equal(w.account.calls().length, backup ? 2 : 1);
+            if (backup) assert.equal(w.account.calls()[1].args.at(-1), "claude-opus-5-5");
             assert.deepEqual(leaked(call), [], "no planted key, token or pid reaches the program");
             const inputs = w.account.events().filter(event => event.kind === "input").map(event => event.value);
             assert.equal(inputs.at(-1).message.content.at(-1).text, "what is open", "the spoken turn reached the program");
+            await engine.close();
+          }
         }]
     ];
 
@@ -799,6 +844,7 @@ world(async () => {
             console.log("control=" + name + " detected");
         };
         for (const [name, needle, replacement, row] of [
+            ["old-model-rule", "if (!modelFallback || retried || model ===", "if (true || retried || model ===", "model-fallback"],
             ["tools-off", '"--tools", "", ', "", "replay"],
             ["strict-mcp", '"--strict-mcp-config", ', "", "replay"],
             ["no-hooks", '"--settings", JSON.stringify({ disableAllHooks: true }),', "", "replay"],
@@ -825,7 +871,7 @@ world(async () => {
             ["end-conversation-scope", '(name === END_CONVERSATION && context.offered.size !== 0)', "name === END_CONVERSATION", "built-ins"],
             ["release", "const decision = Policy.release(item, recipients, grants);", "const decision = { kind: \"send\", ...item };", "release"],
             ["release-empty", 'if (request.release.labels.length === 0) fail("release-empty");', "", "release"],
-            ["interrupt", "record.child.stdin.write(JSON.stringify({ type: \"control_request\"", "void (JSON.stringify({ type: \"control_request\"", "cancel"],
+            ["interrupt", "interrupts.add(id);\n                    record.child.stdin.write(JSON.stringify({ type: \"control_request\"", "interrupts.add(id);\n                    void (JSON.stringify({ type: \"control_request\"", "cancel"],
             ["interrupt-disarm", "if (timer !== null) { clock.clear(timer); timer = null; }", "if (false) { clock.clear(timer); timer = null; }", "cancel"],
             ["cancelled-text", 'case "cancelling": break;\n                    case "streaming":', 'case "cancelling":\n                    case "streaming":', "cancel"],
             ["late-answer", 'case "control": acknowledge(message); return;', 'case "control": fail("harness-order");', "cancel"],
@@ -845,7 +891,7 @@ world(async () => {
             ["line-tail", 'if (Buffer.byteLength(tail) > LINE_BYTES) refuse(new Error("jarvis: brain=harness-line-limit"));', "", "bounds"],
             ["models-line", 'if (Buffer.byteLength(text) > LINE_BYTES) { refuse(new Error("jarvis: brain=harness-line-limit")); return; }', "", "models"],
             ["model-refused", 'if (value.error === "model_not_found") return { kind: "model-refused" };', "", "results"],
-            ["model-refused-name", 'case "model-refused": return fail("harness-model-refused model=" + model);', 'case "model-refused": return fail("harness-model-refused");', "results"],
+            ["model-refused-name", 'if (!modelFallback || retried || model === "") return fail("harness-model-refused model=" + model);', 'if (!modelFallback || retried || model === "") return fail("harness-model-refused");', "results"],
             ["turn-raised", "const TURN_BYTES = 8 * 1024 * 1024;", "const TURN_BYTES = 8 * 1024 * 1024 + 1;", "bounds"],
             ["turn-lowered", "const TURN_BYTES = 8 * 1024 * 1024;", "const TURN_BYTES = 8 * 1024 * 1024 - 1;", "bounds"],
             ["context-bound", "const TURNS = 40;", "const TURNS = 41;", "bounds"],

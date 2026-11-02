@@ -107,7 +107,12 @@ const inputReady = { ...status, type: "input-ready", commands: ["wtype", "wlrctl
 delete inputReady.daemon;
 delete inputReady.causes;
 delete inputReady.cautions;
+const fallback = { v: 1, type: "model-fallback", gen: 0, revision: hello.revision, saved: "claude-opus-5.5", used: "claude-fable-5-1" };
+for (const used of ["", fallback.used]) assert.equal(JSON.stringify(Protocol.accept(changed(fallback, { used }), "daemon")), JSON.stringify({ ...fallback, used }));
 const cases = [
+    ["model-fallback-direction", JSON.stringify(fallback), "shell", "direction-model-fallback"],
+    ...[{ saved: "" }, { used: null }, { saved: 1 }].map(fields =>
+        ["model-fallback-shape", changed(fallback, fields), "daemon", "model-fallback"]),
     ["task-list-direction", JSON.stringify(taskList), "shell", "direction-task-list"],
     ["task-list-count", changed(taskList, { rows: Array(17).fill(taskRow) }), "daemon", "task-list"],
     ["task-list-goal", changed(taskList, { rows: [{ ...taskRow, goal: "g".repeat(201) }] }), "daemon", "task-row"],

@@ -13,6 +13,7 @@ const Harness = require("./HarnessProgram.js");
 const Policy = require("./Policy.js");
 const Private = require("./Private.js");
 const Tools = require("./Tools.js");
+const { unlistedChoice } = require("../AccountProviders.js");
 
 const COMMAND = "claude";
 // The MCP server name; Claude Code names its tools mcp__<server>__<tool>.
@@ -260,7 +261,7 @@ function exitError(cause, code, signalName) {
  * opens with {gen, recipients}; parent is the private runtime directory the
  * working directory is made in; environment is the daemon's environment.
  */
-function conversation({ directory, model, effort = "", recipients, bridge, gen, parent, environment, clock }) {
+function conversation({ directory, model, effort = "", recipients, bridge, gen, parent, environment, clock, modelFallback = false, modelUsed = () => {} }) {
     if (typeof directory !== "string" || !path.isAbsolute(directory) || path.normalize(directory) !== directory)
         fail("harness-directory");
     if (!Harness.isModel(model)) fail("model");
@@ -282,9 +283,13 @@ function conversation({ directory, model, effort = "", recipients, bridge, gen, 
     // null while open; once closing, the one promise every close returns.
     let closing = null;
     let requests = 0;
-    // Interrupts written and not yet answered. A turn can end before the
-    // program reads its interrupt, so the answer may arrive between turns or
-    // in a later turn; each is accepted once, wherever it arrives.
+    const savedModel = model;
+    const preferred = unlistedChoice({ model: "", effort: "" }, "claude");
+    const fallbackModel = preferred.model === model ? "" : preferred.model;
+    let retried = false, notified = false;
+    // Interrupts and model changes written and not yet answered. A turn can
+    // end before its answer arrives; each is accepted once, between turns
+    // or in a later turn too.
     const interrupts = new Set();
 
     function usable() {
@@ -433,6 +438,7 @@ function conversation({ directory, model, effort = "", recipients, bridge, gen, 
         let timer = null;
         let record = null;
         let streaming = null;
+        let refused = false, retryId = null;
         let wake = () => {};
         let settle;
         const finished = new Promise(resolve => { settle = resolve; });
@@ -460,10 +466,20 @@ function conversation({ directory, model, effort = "", recipients, bridge, gen, 
                 switch (message.kind) {
                 case "other": return;
                 case "init": admit(record, message); return;
-                case "control": return acknowledge(message);
+                case "control":
+                    if (message.id !== retryId) return acknowledge(message);
+                    acknowledge(message);
+                    retryId = null;
+                    if (message.subtype !== "success") fail("harness-model-refused model=" + model);
+                    if (state.kind === "streaming") record.child.stdin.write(request.line + "\n");
+                    return;
                 case "control-request": return fail("harness-control-request");
-                // No other model is tried; the fault names the one refused.
-                case "model-refused": return fail("harness-model-refused model=" + model);
+                case "model-refused":
+                    // Claude's model_not_found rejects inference before it acts.
+                    // Let a later configured brain take over before retrying here.
+                    if (!modelFallback || retried || model === "") return fail("harness-model-refused model=" + model);
+                    refused = true;
+                    return;
                 case "stream-start":
                     if (!record.initialized) fail("harness-order");
                     streaming = { id: message.id, block: null };
@@ -511,7 +527,21 @@ function conversation({ directory, model, effort = "", recipients, bridge, gen, 
                 case "result":
                     if (state.kind === "cancelling") {
                         state = { kind: "cancelled" };
+                    } else if (refused) {
+                        refused = false;
+                        retried = true;
+                        model = fallbackModel;
+                        streaming = null;
+                        retryId = "jarvis-model-" + ++requests;
+                        interrupts.add(retryId);
+                        // set_model keeps the program's history. null resets its
+                        // default (claude-agent-sdk 0.3.287 sdk.d.ts,
+                        // SDKControlSetModelRequest; code.claude.com/docs/en/agent-sdk/typescript#methods).
+                        record.child.stdin.write(JSON.stringify({ type: "control_request", request_id: retryId,
+                            request: { subtype: "set_model", model: model || null } }) + "\n");
+                        return;
                     } else if (message.outcome === "success") {
+                        if (retried && !notified) { notified = true; modelUsed({ saved: savedModel, used: model }); }
                         queue.push({ kind: "done", reason: "stop" });
                         state = { kind: "complete" };
                     } else fail(message.outcome === "api-error" ? "harness-api-error status=" + message.status
@@ -655,11 +685,11 @@ function conversation({ directory, model, effort = "", recipients, bridge, gen, 
  * harness turn yields no tool-call event: the program's calls reach the
  * router through the bridge.
  */
-function create({ model = "", effort = "", recipients, account, gen, harness, clock = CLOCK }) {
+function create({ model = "", effort = "", recipients, account, gen, harness, clock = CLOCK, modelFallback = false, modelUsed = () => {} }) {
     // An engine made without the daemon's harness facts cannot run a program.
     if (!plain(harness) || typeof harness.runtime !== "function") fail("harness-unwired");
     const brain = conversation({ directory: account.directory, model, effort, recipients, bridge: harness.bridge, gen,
-        parent: harness.runtime(), environment: harness.env, clock });
+        parent: harness.runtime(), environment: harness.env, clock, modelFallback, modelUsed });
     return Object.freeze({ ...brain,
         /** A harness turn is never answered by tool results. */
         record() { fail("record"); } });

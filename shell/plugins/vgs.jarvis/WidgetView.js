@@ -86,6 +86,11 @@ function keyRefusedText(voice) {
 // A model its app refused carries the model's name (ClaudeCode:
 // brain=harness-model-refused model=claude-fable-5-1).
 var MODEL_REFUSED = /^brain=harness-model-refused model=(.*)$/;
+function modelFallbackNotice(choice, field) {
+    return { title: "Jarvis used another model", tone: "info", icon: "vgs-letter-j",
+        message: "The AI app refused " + choice.saved + ". Jarvis answered with " + (choice.used || "the app's default model")
+            + ". Your saved choice is unchanged. [Choose a model](page:vgs.jarvis/Settings/" + (field || "model") + ")." };
+}
 var FAULT_KINDS = [
     [/^thinking-timeout$/, "slow"],
     [/^live=input-silent$/, "inputSilent"],

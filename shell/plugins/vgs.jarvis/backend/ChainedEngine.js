@@ -407,7 +407,7 @@ function selectBrain(settings, accounts, models) {
  * daemon's shell request port, ShellRequests' send, which a dictation row's
  * utterances record through.
  */
-function create({ session, state, audit, router, accounts, policy, fault, captionLimit, harness = null, tasks = null, directories, dispatch, clock, configured = () => {}, fatal = error => { throw error; }, log = () => {}, home = () => ({ kind: "none" }), rejudge, trace = {}, request = null }) {
+function create({ session, state, audit, router, accounts, policy, fault, captionLimit, harness = null, tasks = null, directories, dispatch, clock, configured = () => {}, fatal = error => { throw error; }, log = () => {}, home = () => ({ kind: "none" }), rejudge, trace = {}, request = null, modelUsed = () => {} }) {
     if (!Number.isSafeInteger(captionLimit) || captionLimit < 1) fail("caption-limit");
     const brainText = tracer(trace);
     let plan = unconfigured("engine=starting");
@@ -1194,7 +1194,8 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         if (conversation !== c) return false;
         c.brain = DRIVERS[c.plan.brain.provider.driver].create({ provider: c.plan.brain.provider,
             model: c.plan.brain.model, effort: c.plan.brain.effort, net: c.net, recipients: c.recipients, key: c.plan.brain.key,
-            account: c.plan.brain.account, gen: c.gen, harness });
+            account: c.plan.brain.account, gen: c.gen, harness,
+            modelFallback: c.entry + 1 === c.plan.entries.length, modelUsed });
         c.brain.start({ instructions: c.guidance.instructions, tools: router.offer() });
         c.owner = owner;
         return true;

@@ -82,6 +82,9 @@ function freshSuite(tree, suite, root) {
         fs.copyFileSync(path.join(tree, "shell/plugins/vgs.jarvis", beside), path.join(clone, "shell/plugins/vgs.jarvis", beside));
     // The render a home layout copies (backend/Core.js homeRender).
     fs.cpSync(path.join(tree, "packaging/jarvis-home"), path.join(clone, "packaging/jarvis-home"), { recursive: true });
+    fs.mkdirSync(path.join(clone, "scripts/fixtures/jarvis-claude"), { recursive: true });
+    for (const name of ["claude", "stream-json.schema.json"])
+        fs.copyFileSync(path.join(tree, "scripts/fixtures/jarvis-claude", name), path.join(clone, "scripts/fixtures/jarvis-claude", name));
     const file = path.join(clone, relative);
     const scratchParent = path.join(root, "fresh-scratch");
     const run = () => runBounded(process.execPath, [file, "--fresh"], {

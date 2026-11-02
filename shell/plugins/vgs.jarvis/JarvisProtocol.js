@@ -3,7 +3,7 @@
 
 // Shell produces hello, intent, indicator, shown, requirements-scan, tui-state and reply. Voice confirmation
 // is daemon-internal. Daemon produces status/state/devices/homes/voices/personality/start-text/level/audio-fault,
-// request, tasks, task-answer and transcript. A line excludes its LF.
+// request, tasks, task-answer, model-fallback and transcript. A line excludes its LF.
 // A transcript is one speaker's caption segment: partial text grows under
 // a rising rev; final closes the segment.
 var MAX_LINE_BYTES = 256 * 1024;
@@ -612,6 +612,11 @@ function accept(line, direction) {
         if (direction !== "shell") fail("direction-indicator");
         keys(message, ["v", "type", "gen", "revision", "shown"], "indicator");
         if (typeof message.shown !== "boolean") fail("indicator");
+        break;
+    case "model-fallback":
+        if (direction !== "daemon") fail("direction-model-fallback");
+        keys(message, ["v", "type", "gen", "revision", "saved", "used"], "model-fallback");
+        if (typeof message.saved !== "string" || message.saved === "" || typeof message.used !== "string") fail("model-fallback");
         break;
     case "status":
         if (direction !== "daemon") fail("direction-status");

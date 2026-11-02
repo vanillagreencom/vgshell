@@ -620,6 +620,47 @@ try {
     fs.rmSync(temp, { recursive: true, force: true });
 }
 
+// The service owns notice deduplication across daemon and conversation
+// lifetimes. Run its shipped callback, with the same settings held read-only.
+{
+    const source = fs.readFileSync(path.join(dir, "Service.qml"), "utf8");
+    const matches = [...source.matchAll(/^    function modelFallback\(message\) \{\n[\s\S]*?^    \}/gm)];
+    assert.equal(matches.length, 1);
+    const backup = Object.freeze({ model: "claude-opus-5-5" });
+    const notices = [], settings = Object.freeze({ model: "claude-opus-5.5", fallbacks: Object.freeze([backup]) });
+    const saved = JSON.stringify(settings);
+    const ctx = vm.createContext({ shell: { settings }, sessionState: { gen: 7 }, modelNotices: new Set(),
+        View: load(path.join(dir, "WidgetView.js")), notice: value => notices.push(value) });
+    const deliver = vm.runInContext("(" + matches[0][0] + ")", ctx);
+    const choice = { saved: settings.model, used: "claude-fable-5-1" };
+    for (const gen of [7, 8, 9]) {
+        ctx.sessionState = { gen };
+        deliver({ ...choice, gen });
+    }
+    deliver({ ...choice, gen: 8, saved: backup.model });
+    assert.equal(notices.length, 1, "one notice for a saved value across conversations and daemon messages");
+    for (const gen of [10, 11, 12]) {
+        ctx.sessionState = { gen };
+        deliver({ ...choice, gen, saved: backup.model });
+    }
+    assert.equal(notices.length, 2, "a refused last backup also gets one notice");
+    assert.equal(JSON.stringify(settings), saved, "primary and backup settings stay as written");
+    ctx.shell.settings = Object.freeze({ model: "", fallbacks: Object.freeze([]) });
+    deliver({ ...choice, gen: 12, saved: "claude-fable-5-1", used: "" });
+    assert.equal(notices.length, 2, "an inferred model with no stored choice raises no saved-choice notice");
+    ctx.shell.settings = Object.freeze({ model: "claude-fable-5-1", fallbacks: Object.freeze([]) });
+    deliver({ ...choice, gen: 12, saved: "claude-fable-5-1", used: "" });
+    assert.equal(notices.length, 3, "saving that same value later still gets its notice");
+    for (const [index, model, field] of [[0, choice.saved, "model"], [1, backup.model, "fallbacks"]]) {
+        for (const value of [model, choice.used]) assert.ok(notices[index].message.includes(value));
+        assert.equal(notices[index].tone, "info");
+        const links = pageReference.references(notices[index].message).links;
+        assert.equal(links.length, 1);
+        assert.deepEqual([links[0].page, links[0].tab], ["vgs.jarvis", "Settings/" + field]);
+    }
+    assert.equal(pageReference.references(ctx.View.modelFallbackNotice({ saved: choice.saved, used: "" }).message).links.length, 1);
+}
+
 // Execute Bubble's shipped callbacks with controlled GUI/render ordering.
 // The nested bubble row proves rendering; this case proves which queued frame
 // may acknowledge a real Session hold, without a second frame owner.

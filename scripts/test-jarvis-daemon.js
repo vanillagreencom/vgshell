@@ -83,7 +83,7 @@ async function inside() {
     hello.directories = {
         state: path.join(process.env.JARVIS_TEST_ROOT, "state/vgshell/jarvis"),
         data: path.join(process.env.JARVIS_TEST_ROOT, "data/vgshell/jarvis"),
-        runtime: path.join(process.env.JARVIS_TEST_ROOT, "run/vgshell/jarvis")
+        runtime: process.env.XDG_RUNTIME_DIR
     };
     let controls = 0;
     let cases = 0;
@@ -672,7 +672,7 @@ async function inside() {
         return clock;
     }
     async function conversation(file, check, mode = "hold", expectedCode = 0, expectedError = "", beforeState = null,
-        sounds = hello.settings.sounds) {
+        sounds = hello.settings.sounds, settings = {}) {
         const clock = holdClock(file);
         const child = cp.spawn("node", [file, "--tree", tree], { env: {
             PATH: process.env.PATH, HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
@@ -703,7 +703,7 @@ async function inside() {
             assert.fail("daemon state timeout: " + JSON.stringify(last()) + " stderr=" + err);
         };
         try {
-            send({ ...hello, settings: { ...hello.settings, mode, sounds } });
+            send({ ...hello, settings: { ...hello.settings, mode, sounds, ...settings } });
             if (beforeState !== null) await beforeState({ messages });
             await wait(m => m.state.gate.kind !== "down" || m.state.gate.reason === "unconfigured");
             const talk = name => send(intent(name));
@@ -1883,6 +1883,58 @@ exit "$failures"
     require(path.join(tree, "shell/plugins/vgs.jarvis/backend/Core.js")).use(tree);
     const { Accounts } = require(path.join(tree, "shell/plugins/vgs.jarvis/backend/Accounts.js"));
     const { PROVIDERS } = require(path.join(tree, "shell/plugins/vgs.jarvis/AccountProviders.js"));
+    // The real daemon's composition must carry the engine's model notice to
+    // stdout. Adapter and consumer tests alone cannot prove that connection.
+    async function modelFallback(file) {
+        const standins = path.join(process.env.JARVIS_TEST_ROOT, "standins");
+        const command = path.join(standins, "claude");
+        const account = path.join(process.env.HOME, ".claude-model-notice");
+        fs.mkdirSync(account);
+        fs.copyFileSync(path.join(tree, "scripts/fixtures/jarvis-claude/claude"), command);
+        fs.chmodSync(command, 0o700);
+        const saved = "claude-opus-5.5";
+        const refused = [{ raw: JSON.stringify({ type: "assistant", parent_tool_use_id: null, error: "model_not_found",
+            message: { id: "refused", role: "assistant", content: [] } }) }, { result: "api-error" }];
+        fs.writeFileSync(path.join(account, "script.json"), JSON.stringify({ tree,
+            turns: [[{ text: "Answered." }, { result: "success" }]], modelTurns: { [saved]: [refused] } }));
+        try {
+            const chosen = new Accounts(hello.directories.state, process.env).discover()
+                .find(row => row.source.kind === "cli" && row.source.directory === account);
+            assert.equal(chosen?.state.kind, "signed-in", "scratch Claude account is discovered through its stand-in");
+            await conversation(file, async w => {
+                w.send("talk-down");
+                await w.wait(m => m.phase === "listening");
+                await w.holdUp();
+                await w.wait(m => m.phase === "idle" && m.state.turn.kind === "none"
+                    && w.messages.some(frame => frame.type === "transcript" && frame.role === "assistant"
+                        && frame.stage === "final" && frame.text.endsWith(" Answered.")));
+                assert.equal(w.last().state.settings.model, saved, "the daemon retains the exact saved choice");
+                const notices = w.messages.filter(frame => frame.type === "model-fallback");
+                assert.deepEqual(notices, [{ v: 1, type: "model-fallback", gen: w.last().gen,
+                    revision: hello.revision, saved, used: "claude-fable-5-1" }], "the engine publishes one fallback notice on the daemon wire");
+                const Protocol = require("../bin/lib/qml-library.js").load(path.join(tree, "shell/plugins/vgs.jarvis/JarvisProtocol.js"));
+                assert.deepEqual(JSON.parse(JSON.stringify(Protocol.accept(JSON.stringify(notices[0]), "daemon"))), notices[0]);
+            }, "hold", 0, "", null, false, { brain: chosen.id, model: saved });
+        } finally {
+            fs.rmSync(command);
+            fs.rmSync(account, { recursive: true });
+        }
+    }
+    const noticeDaemon = engineCopy("model-fallback-wire");
+    await modelFallback(noticeDaemon);
+    const wrongFactory = engineCopy("model-fallback-wrong-factory");
+    const noticeWriter = '                        modelUsed: choice => write({ v: 1, type: "model-fallback", gen: runner.state.gen, revision: context.revision, ...choice }),\n';
+    const wrongSource = fs.readFileSync(wrongFactory, "utf8");
+    const memoryNotify = '                        notify: entries => writeMemoryInbox(entries) });';
+    assert.equal(wrongSource.split(noticeWriter).length - 1, 1);
+    assert.equal(wrongSource.split(memoryNotify).length - 1, 1);
+    const misplaced = wrongSource.replace(noticeWriter, "").replace(memoryNotify, noticeWriter + memoryNotify);
+    assert.notEqual(misplaced, wrongSource);
+    fs.writeFileSync(wrongFactory, misplaced);
+    await assert.rejects(() => modelFallback(wrongFactory), error => error instanceof assert.AssertionError
+        && error.message.startsWith("the engine publishes one fallback notice on the daemon wire"), "a writer on Memory.install must lose the wire notice");
+    controls++;
+    console.log("test-jarvis-daemon: control=model-fallback-wrong-factory detected");
     const ollama = PROVIDERS.find(row => row.id === "ollama");
     const brainId = new Accounts(hello.directories.state, { HOME: process.env.HOME })
         .account(ollama, "local", { kind: "found" }, { kind: "local", origin: ollama.origin }).id;

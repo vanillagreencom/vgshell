@@ -207,7 +207,8 @@ const answered = requestId => line("ControlResponse", { type: "control_response"
 const LINE = 1024 * 1024 + 1;
 
 async function run(prompt) {
-    const steps = script.turns[Math.min(turnIndex++, script.turns.length - 1)];
+    const turns = script.modelTurns?.[flags.get("--model") ?? ""] ?? script.turns;
+    const steps = turns[Math.min(turnIndex++, turns.length - 1)];
     const current = { interrupted: false };
     turn = current;
     turnBytes = 0;
@@ -334,6 +335,12 @@ process.stdin.on("data", chunk => {
         const value = JSON.parse(line);
         record("events.jsonl", { kind: "input", value });
         if (value.type === "control_request") {
+            if (Check.errors(excerpt, "SetModelRequest", value).length === 0) {
+                flags.set("--model", value.request.model ?? "");
+                write("ControlResponse", { type: "control_response", response: { subtype: "success",
+                    request_id: value.request_id, response: {} } });
+                continue;
+            }
             // The model list is script.models, each entry a ModelInfo.
             if (Check.errors(excerpt, "ListModelsRequest", value).length === 0) {
                 // rawModels is an answer outside the excerpt, for a refusal row.

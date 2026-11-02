@@ -215,10 +215,8 @@ async function inside() {
         assert.deepEqual([w.read(id).turn.kind, w.read(id).wait.kind], ["turn-ended", "question"]);
         assert.equal(w.runner.answer(id, question.id, { v: 1, kind: "reply", text: "main" }), "answered");
         // After the outcome is reported, a turn end holds nothing.
-        await until("agent exit", () => {
-            assert.deepEqual(w.runner.held(), [], "no prompt is held after the outcome is reported");
-            return w.read(id).process.kind === "exited";
-        });
+        await until("agent exit", () => !modules.Relay.present(w.prompts, question) && w.read(id).process.kind === "exited");
+        assert.deepEqual(w.runner.held(), [], "no prompt is held after the outcome is reported");
         await w.seen.launchers[0].closed;
         const entries = w.log();
         const { settings, env: agentEnv } = entries[0].start;
@@ -688,6 +686,8 @@ async function inside() {
             "if (false && dropped(result.stdout)) return;", ceiling);
         await control("exit-code", "claude-hook", "    process.exitCode = 1;\n", "    process.exitCode = 2;\n", failures);
         await control("engine-copy", "Tasks.js", '"TaskRelay.js", "claude-hook"];', '"TaskRelay.js"];', relay);
+        await control("prompt-withdrawal", "TaskRelay.js", 'io("unlink", file, () => fs.rmSync(file, { force: true }));',
+            'io("unlink", file, () => {});', relay);
         await control("answer-once", "TaskRelay.js", "fs.linkSync(temporary, answerFile(directory, task, id));",
             "fs.renameSync(temporary, answerFile(directory, task, id));", answers);
         await control("relay-project-lock", "TaskRelay.js", '["-w", "5", "--", file, process.execPath',

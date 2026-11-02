@@ -28,6 +28,8 @@ Item {
     property var audioHealth: ({ kind: "reading" })
     property var sessionState: null
     property var conversationLog: []
+    // Survives daemon restarts and new conversations within this service.
+    property var modelNotices: new Set()
     property var setupAnswer: ({ kind: "checking" })
     // The daemon's last personality message, null before one: its row
     // follows the status after it too (SetupGate.personalityRow).
@@ -792,6 +794,16 @@ Item {
         if (reply !== "ok") console.error("jarvis: notice " + reply);
     }
 
+    function modelFallback(message) {
+        if (sessionState === null || message.gen !== sessionState.gen || modelNotices.has(message.saved)) return;
+        // Hello resolves an unset model too; only a stored choice needs this notice.
+        const field = message.saved === shell.settings.model ? "model"
+            : shell.settings.fallbacks.some(row => row.model === message.saved) ? "fallbacks" : null;
+        if (field === null) return;
+        modelNotices.add(message.saved);
+        notice(View.modelFallbackNotice(message, field));
+    }
+
     function shellStatus(availability) {
         const value = availability.kind === "available" ? { tone: "ok", text: "Ready" }
             : availability.kind === "checking" ? { tone: "info", text: "Checking" }
@@ -1015,6 +1027,10 @@ Item {
                 const message = Protocol.accept(line, "daemon");
                 if (message.revision !== shell.manifest.__revision)
                     throw new Error("jarvis: protocol=identity");
+                if (message.type === "model-fallback") {
+                    modelFallback(message);
+                    continue;
+                }
                 if (message.type === "devices") {
                     for (const key of ["microphones", "speakers"]) {
                         const reply = shell.status.set(key, deviceOffers(key, message[key]));
