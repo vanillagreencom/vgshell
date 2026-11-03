@@ -75,20 +75,27 @@ function verify(logic) {
     const result=logic.initialChoice(settings,found),row=JSON.stringify(settings);
     assert.equal(result.action,action,row);assert.equal(result.preference,preference,row);assert.equal(result.availability,availability,row);assert.equal(result.ask,ask,row);
   }
-  // [name, origin, the recipes' names or null, publisher]: VGS publishes
-  // through the AUR alone, and unread recipes never exempt a package.
-  const published=["vgshell","vgshell-git","vgshell-quickshell"];
-  for(const [name,origin,names,want] of [
-    ["vgshell-git","aur",published,"vgs"],
-    ["vgshell-quickshell","aur",published,"vgs"],
-    ["cpptrace","aur",published,"third-party"],
-    ["vgshell-git","custom",published,"third-party"],
-    ["vgshell-git","chaotic-aur",published,"third-party"],
-    ["vgshell-git","unknown",published,"third-party"],
-    ["vgshell-git","aur",null,"unread"],
-    ["widget","aur",null,"unread"],
-    ["vgshell-git","custom",null,"third-party"]
-  ])assert.equal(logic.publisher(name,origin,names),want,name+" from "+origin);
+  // [name, resolved through the AUR helper, the recipes or null, publisher]:
+  // VGS publishes through the AUR alone, so a name from any pacman
+  // repository, one named aur included, is third-party, and unread recipes
+  // never exempt a package.
+  const published={"vgshell":[],"vgshell-git":["vgshell-quickshell>=1"],"vgshell-quickshell":["cpptrace"]};
+  for(const [name,viaAur,recipes,want] of [
+    ["vgshell-git",true,published,"vgs"],
+    ["vgshell-quickshell",true,published,"vgs"],
+    ["cpptrace",true,published,"third-party"],
+    ["vgshell-git",false,published,"third-party"],
+    ["vgshell-git",true,null,"unread"],
+    ["widget",true,null,"unread"],
+    ["vgshell-git",false,null,"third-party"],
+    ["constructor",true,published,"third-party"]
+  ])assert.equal(logic.publisher(name,viaAur,recipes),want,"publisher: "+name+(viaAur?" through the AUR":" from a repository"));
+  // A split recipe: a package's own depends replace the base's; build and
+  // check dependencies and every architecture's lines are the base's.
+  same(logic.recipeDependencies("pkgbase = pair\n\tmakedepends = git\n\tdepends = bash\n\tdepends_x86_64 = cpptrace>=1.0\n\tcheckdepends = xvfb-run\npkgname = pair\npkgname = pair-extra\n\tdepends = qt6-base>=6.7\n"),
+    {"pair":["bash","cpptrace>=1.0","git","xvfb-run"],"pair-extra":["qt6-base>=6.7","git","xvfb-run"]});
+  same(logic.recipeDependencies(""),{});
+  for(const [entry,name] of [["cpptrace","cpptrace"],["qt6-base>=6.7","qt6-base"],["foo<2","foo"],["bar=1:2-3","bar"]])assert.equal(logic.dependencyName(entry),name);
   // A split recipe's .SRCINFO, as makepkg --printsrcinfo writes it.
   same(logic.srcinfoFields("pkgbase = vgshell\n\tpkgver = 1.0\n\n# a comment\npkgname = vgshell\npkgname = vgshell-extra\n\tinstall = vgshell.install\n"),
     [{key:"pkgbase",value:"vgshell"},{key:"pkgver",value:"1.0"},{key:"pkgname",value:"vgshell"},{key:"pkgname",value:"vgshell-extra"},{key:"install",value:"vgshell.install"}]);
@@ -155,11 +162,20 @@ assert.equal(managers.reviewCheckFor("aur","paru","/nondefault.conf").origin,"au
 verify(load(file));
 const scratch=fs.mkdtempSync(path.join(os.tmpdir(),"test-package-review-"));
 try {
- const source=fs.readFileSync(file,"utf8"),needle="reviewed.indexOf(m[1]) < 0 || ";
- assert.equal(source.split(needle).length-1,1);
+ const source=fs.readFileSync(file,"utf8");
  // The judge imports the package table from beside it.
  fs.copyFileSync(path.join(path.dirname(file),"PackageManagers.js"),path.join(scratch,"PackageManagers.js"));
- const mutant=path.join(scratch,"PackageReview.js");fs.writeFileSync(mutant,source.replace(needle,""));
- assert.throws(()=>verify(load(mutant)));
+ // [mutant, needle, replacement, the row that must fail]: a flag for a
+ // package not reviewed; any repository's package read as VGS's; a saved
+ // Install without review that still asks.
+ for(const [label,needle,replacement,fails] of [
+  ["verdict","reviewed.indexOf(m[1]) < 0 || ","",/line=2/],
+  ["publisher","if (viaAur !== true) return \"third-party\";\n","",/publisher: vgshell-git from a repository/],
+  ["ask","ask: !(hasOwn(s, \"enabled\") && s.enabled === false) };","ask: true };",/"enabled":false/]
+ ]){
+  assert.equal(source.split(needle).length-1,1,label);
+  const mutant=path.join(scratch,"PackageReview-"+label+".js");fs.writeFileSync(mutant,source.replace(needle,replacement));
+  assert.throws(()=>verify(load(mutant)),fails,label);
+ }
 } finally {fs.rmSync(scratch,{recursive:true,force:true});}
 console.log("test-package-review: ok");

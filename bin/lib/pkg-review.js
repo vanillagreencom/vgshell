@@ -222,18 +222,27 @@ function pending(group, config, binary) {
     if (result.error) throw new Error("pending=" + result.error);
     return { complete: found.complete, origin: found.origin, packages: result.packages.filter(p => !group.ignored.includes(p.name)) };
 }
-// The package names VGS publishes: the pkgname lines of its Arch recipes'
-// .SRCINFO files, which install-system.sh ships into the runtime tree, so a
-// checkout and an installed tree read the same path. { names: null, cause } when a
-// recipe cannot be read or none names a package.
+// The packages VGS publishes, each with the dependencies its recipe names:
+// its Arch recipes' .SRCINFO files, which install-system.sh ships into the
+// runtime tree, so a checkout and an installed tree read the same path.
+// { recipes: null, cause } when a recipe cannot be read or none names a package.
 function publishedPackages() {
-    const dir = path.join(repo, "packaging/arch"), names = [];
+    const dir = path.join(repo, "packaging/arch"), recipes = {};
     try {
         for (const entry of fs.readdirSync(dir, { withFileTypes: true }))
-            if (entry.isDirectory()) for (const field of judge.srcinfoFields(fs.readFileSync(path.join(dir, entry.name, ".SRCINFO"), "utf8")))
-                if (field.key === "pkgname") names.push(field.value);
-    } catch (e) { return { names: null, cause: e.code || "read" }; }
-    return names.length ? { names, cause: null } : { names: null, cause: "empty" };
+            if (entry.isDirectory()) Object.assign(recipes, judge.recipeDependencies(fs.readFileSync(path.join(dir, entry.name, ".SRCINFO"), "utf8")));
+    } catch (e) { return { recipes: null, cause: e.code || "read" }; }
+    return Object.keys(recipes).length ? { recipes, cause: null } : { recipes: null, cause: "empty" };
+}
+// The entries of DEPENDENCIES the system under CONFIG does not satisfy.
+// pacman -T judges versions and providers; it prints each missing entry
+// and exits 127 when one is missing, 0 when none is (pacman 7.1.0, a run
+// of `pacman -T -- bash 'absent>=1'`, 2026-11-02).
+function unsatisfied(dependencies, config) {
+    if (!dependencies.length) return [];
+    const r = query(["pacman", "--config", config, "-T", "--", ...dependencies]);
+    if (r.error || ![0, 127].includes(r.status)) throw new Error("cause=" + (r.error?.code || r.status));
+    return r.stdout.split("\n").filter(Boolean);
 }
 function gather(request) {
     const state = { steps: [], packages: [], unknown: [], lines: [], recipes: [], published: [] };
@@ -274,12 +283,15 @@ function gather(request) {
             } else targets = [...group.names, ...group.installs].map(n => ({ target: n, old: null, next: null }));
             step.binding = binding;
             const repos = request.mode === "bootstrap" ? { rows: [], order: [] } : repositories(config);
+            const queued = new Set(targets.map(t => t.target));
             for (const target of targets) {
                 const qualified = /^([^/]+)\/([^/]+)$/.exec(target.target);
                 const [qualifier, name] = qualified === null ? [null, target.target] : [qualified[1], qualified[2]];
                 const matches = repos.rows.filter(row => row.name === name && (qualifier === null || qualifier === row.repository));
-                let origin;
-                if (request.mode === "bootstrap") origin = "aur";
+                // viaAur is set only where the owner itself resolved the AUR:
+                // a pacman repository may be named `aur`.
+                let origin, viaAur = false;
+                if (request.mode === "bootstrap") { origin = "aur"; viaAur = true; }
                 else if (target.origin === "aur" && matches.length > 0) { state.unknown.push("origin=aur-repository-collision name=" + name); origin = "unknown"; }
                 else if (matches.length === 1) origin = matches[0].repository;
                 else if (matches.length > 1) { state.unknown.push("origin=ambiguous name=" + name); origin = "unknown"; }
@@ -287,28 +299,38 @@ function gather(request) {
                     const info = output([found.binary, "--config", config, "-Si", "--", name]);
                     const identity = /^Name\s*:\s*(\S+)\s*$/m.exec(info);
                     if (!/^Repository\s*:\s*aur\s*$/m.test(info) || identity === null || identity[1] !== name) throw new Error("origin=unresolved name=" + name);
-                    origin = "aur";
-                    // Helpers can add providers/dependencies at build time. This
-                    // review covers its listed request, never that future choice.
-                    state.unknown.push("dependencies=unresolved name=" + name);
+                    origin = "aur"; viaAur = true;
                 } else { state.unknown.push("origin=unresolved name=" + name); origin = "unknown"; }
-                binding.origins.push({ target: target.target, origin, candidates: matches.map(row => ({ repository: row.repository, version: row.version })) });
+                // A dependency the official repositories supply binds nothing:
+                // an earlier step of the transaction may install it.
+                if (target.root === undefined || !judge.officialRepository(origin))
+                    binding.origins.push({ target: target.target, origin, candidates: matches.map(row => ({ repository: row.repository, version: row.version })) });
                 if (judge.officialRepository(origin)) continue;
-                // A package VGS publishes is not third-party code; the
-                // dependencies note above stays, since its recipe's AUR
-                // dependencies are.
-                const publisher = judge.publisher(name, origin, recipes.names);
+                const publisher = judge.publisher(name, viaAur, recipes.recipes);
                 if (publisher === "unread") {
                     const cause = "vgs-packages=unreadable cause=" + recipes.cause;
                     if (!state.unknown.includes(cause)) state.unknown.push(cause);
                 } else if (publisher === "vgs") {
+                    // A package VGS publishes is not third-party code. The
+                    // dependencies its recipe names that the system lacks are
+                    // reviewed in its place, each queued as a target of this
+                    // step and resolved like any other; a VGS one recurses.
                     if (!state.published.includes(name)) state.published.push(name);
+                    try {
+                        for (const entry of unsatisfied(recipes.recipes[name], config)) {
+                            const dependency = judge.dependencyName(entry);
+                            if (!queued.has(dependency)) { queued.add(dependency); targets.push({ target: dependency, old: null, next: null, neededBy: name, root: target.root ?? name }); }
+                        }
+                    } catch (e) { state.unknown.push("vgs-dependencies=unreadable name=" + name + " " + e.message); }
                     continue;
                 }
-                const pkg = { name, origin, old: target.old, next: target.next, manager: group.manager, binary: found.binary, config };
-                if (!state.packages.some(p => p.name === name && p.origin === origin)) state.packages.push(pkg);
-                state.lines.push(origin === "aur" ? `aur ${name} ${target.old || "?"} ${target.next || "?"}` : `repo ${origin} ${name} ${target.old || "?"} ${target.next || "?"}`);
-                if (origin !== "aur" && origin !== "unknown") {
+                // Helpers can add providers/dependencies at build time. This
+                // review covers its listed request, never that future choice.
+                if (viaAur && request.mode !== "bootstrap") state.unknown.push("dependencies=unresolved name=" + name);
+                const pkg = { name, origin, aur: viaAur, old: target.old, next: target.next, manager: group.manager, binary: found.binary, config, neededBy: target.neededBy, root: target.root };
+                if (!state.packages.some(p => p.name === name && p.origin === origin && p.aur === viaAur)) state.packages.push(pkg);
+                state.lines.push(viaAur ? `aur ${name} ${target.old || "?"} ${target.next || "?"}` : `repo ${origin} ${name} ${target.old || "?"} ${target.next || "?"}`);
+                if (!viaAur && origin !== "unknown") {
                     const servers = output(["pacman-conf", "--config", config, "--repo", origin, "Server"]).trim().split("\n").filter(Boolean);
                     if (!servers.length) throw new Error("origin=server-unreadable name=" + name);
                     for (const server of servers) {
@@ -430,8 +452,8 @@ async function reviewRequest(request, storage) {
         const known = state.packages.map(p => p.name);
         const requested = request.groups.flatMap(g => g.names.concat(g.installs)).concat(request.rebuild);
         const thirdParty = requested.filter(n => !known.includes(n.split("/").pop()) && !state.published.includes(n.split("/").pop()));
-        // A VGS package's review covers only the AUR dependencies its recipe pulls in.
-        const listed = known.concat(thirdParty, state.published.map(n => "dependencies of " + n));
+        // A dependency of a VGS package is listed with the package that needs it.
+        const listed = state.packages.map(p => p.neededBy === undefined ? p.name : p.name + " (needed by " + p.neededBy + ")").concat(thirdParty);
         const packageList = "Packages: " + ([...new Set(listed)].join(", ") || "origin or pending list unavailable");
         let choice = null;
         if (!judge.initialChoice(settings, foundAgents(settings)).ask) {
@@ -470,7 +492,7 @@ async function reviewRequest(request, storage) {
             fs.mkdirSync(dir, { mode: 0o700 }); fs.mkdirSync(path.join(dir, "build"), { mode: 0o700 }); fs.mkdirSync(path.join(dir, "install"), { mode: 0o700 });
             try {
                 if (!["agent", "command"].includes(plan.state)) throw new Error("agent=" + plan.state);
-                for (const pkg of state.packages.filter(p => p.origin === "aur")) {
+                for (const pkg of state.packages.filter(p => p.aur)) {
                     const fetch = request.mode === "bootstrap" ? ["git", "clone", "--", "https://aur.archlinux.org/paru.git", "paru"] : [pkg.binary, "--config", pkg.config, "-G", "--", pkg.name];
                     const shownFetch = await ui("show", "Fetching package build files as your user", ...fetch);
                     if (shownFetch.cancelled) return { ...result, decision: "cancelled", coverage: "unknown", status: shownFetch.status };
@@ -507,6 +529,10 @@ async function reviewRequest(request, storage) {
                 if (answer.value === "Skip") result.skipped.push(name);
                 else if (answer.value !== "Install anyway") refuse("review=choice-invalid");
             }
+            // The helper installs a dependency with the package that needs it,
+            // so a skipped dependency skips the requested VGS package.
+            for (const pkg of state.packages)
+                if (pkg.root !== undefined && result.skipped.includes(pkg.name) && !result.skipped.includes(pkg.root)) result.skipped.push(pkg.root);
         } else refuse("review=choice-invalid");
     }
     if (request.customAurArgv !== null && customMode(request.customAurArgv) === "unknown") {

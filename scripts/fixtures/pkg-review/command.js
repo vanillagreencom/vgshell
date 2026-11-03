@@ -42,7 +42,7 @@ function build(){
 const configAt=args.indexOf("--config");if(configAt>=0)args.splice(configAt,2);
 if(name==="pacman-conf"){
  if(fs.existsSync(path.join(root,"query-failed")))process.exit(7);
- if(args.includes("--repo-list"))console.log("core\ncustom");
+ if(args.includes("--repo-list"))console.log("core\ncustom"+(fs.existsSync(path.join(root,"repo-aur"))?"\naur":""));
  else if(args.includes("Server")&&!fs.existsSync(path.join(root,"server-empty")))console.log("https://user:secret@packages.example.org/$repo/$arch");
  else if(args.includes("SigLevel"))console.log("Required DatabaseOptional");
  else if(args.includes("DBPath"))console.log(path.join(root,"db"));
@@ -51,6 +51,13 @@ if(name==="pacman-conf"){
 }
 if(name==="checkupdates"||args.includes("-Qua")||args.includes("-Qu")){console.log("widget 1 -> "+(fs.existsSync(path.join(root,"pending-changed"))?"3":"2"));process.exit(0);}
 if(name==="pacman"||name==="paru"||name==="yay"){
+ // pacman -T: the entries whose name `unsatisfied` lists, exit 127 when any.
+ if(args.includes("-T")){
+  if(fs.existsSync(path.join(root,"deptest-failed")))process.exit(1);
+  const missing=fs.existsSync(path.join(root,"unsatisfied"))?fs.readFileSync(path.join(root,"unsatisfied"),"utf8").split("\n").filter(Boolean):[];
+  const out=args.slice(args.indexOf("--")+1).filter(entry=>missing.includes(entry.split(/[<>=]/)[0]));
+  if(out.length)console.log(out.join("\n"));process.exit(out.length?127:0);
+ }
  if(args.includes("-Sl")){console.log("core official 1\n"+(fs.existsSync(path.join(root,"origin-changed"))?"core":"custom")+" widget 2\ncustom aurpkg 2"+(fs.existsSync(path.join(root,"sync-extra"))?"\n"+fs.readFileSync(path.join(root,"sync-extra"),"utf8").trim():""));process.exit(0);}
  if(args.includes("-Si")){if(fs.existsSync(path.join(root,"info-failed")))process.exit(1);console.log("Repository : aur\nName : "+(fs.existsSync(path.join(root,"provider-ambiguous"))?"provider":args.at(-1)));process.exit(0);}
  if(args.includes("-Qoq")){console.log("vgshell-git");process.exit(0);}

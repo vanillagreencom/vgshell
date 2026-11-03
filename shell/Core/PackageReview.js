@@ -31,16 +31,47 @@ function srcinfoFields(text) {
     return out;
 }
 
-// Who publishes the target NAME resolved to ORIGIN, given PUBLISHED, the
-// pkgname lines of VGS's own Arch recipes, or null when they could not be
-// read: "vgs", "third-party", or "unread" when the answer needs the recipes.
-// VGS publishes its pacman-family packages through the AUR alone, so only
-// the AUR's package of a recipe's name is VGS's; the same name from any
-// pacman repository, or an origin the owner could not resolve, is not.
-function publisher(name, origin, published) {
-    if (origin !== "aur") return "third-party";
+// The dependencies each package of a .SRCINFO TEXT installs or builds
+// with: { name: [entry] }, each entry as written, its version constraint
+// included. A package's own depends lines replace its base's, as split
+// packages do; makedepends and checkdepends are the base's. Every
+// architecture's lines count, so no machine's dependency goes unread.
+function recipeDependencies(text) {
+    var out = {}, base = [], build = [], name = null, own = null;
+    var fields = srcinfoFields(text);
+    for (var i = 0; i <= fields.length; i++) {
+        var field = fields[i];
+        if (field === undefined || field.key === "pkgname") {
+            if (name !== null) out[name] = (own === null ? base : own).concat(build);
+            if (field === undefined) break;
+            name = field.value; own = null;
+            continue;
+        }
+        var kind = /^(depends|makedepends|checkdepends)(?:_\w+)?$/.exec(field.key);
+        if (kind === null) continue;
+        if (kind[1] !== "depends") build.push(field.value);
+        else if (name === null) base.push(field.value);
+        else (own === null ? (own = []) : own).push(field.value);
+    }
+    return out;
+}
+
+// The package a dependency ENTRY such as `qt6-base>=6.7` names.
+function dependencyName(entry) {
+    return String(entry).split(/[<>=]/)[0];
+}
+
+// Who publishes the target NAME, given VIA_AUR, whether the owner resolved
+// it through the AUR helper itself (never a repository's name, since any
+// pacman repository may be named `aur`), and PUBLISHED, the dependencies
+// recipeDependencies read from VGS's own Arch recipes, or null when they
+// could not be read: "vgs", "third-party", or "unread" when the answer
+// needs the recipes. VGS publishes its pacman-family packages through the
+// AUR alone, so the same name from any pacman repository is not VGS's.
+function publisher(name, viaAur, published) {
+    if (viaAur !== true) return "third-party";
     if (published === null) return "unread";
-    return published.indexOf(name) >= 0 ? "vgs" : "third-party";
+    return hasOwn(published, name) ? "vgs" : "third-party";
 }
 
 function reviewAgentRow(id) {

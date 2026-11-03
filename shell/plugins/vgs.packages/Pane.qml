@@ -134,7 +134,7 @@ FocusScope {
                 inline: true
                 label: "Before installing"
                 hint: beforeInstalling.currentIndex === 0 ? "Ask each time, with review selected"
-                    : beforeInstalling.currentIndex === 1 ? "Install and update packages without a review question"
+                    : beforeInstalling.currentIndex === 1 ? "Install without asking unless VGS cannot check the AUR command"
                     : "Ask each time, with review selected when an AI agent is found"
                 Select {
                     id: beforeInstalling

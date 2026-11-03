@@ -19,11 +19,11 @@ vgs_pkg_review_settings() { # OWNER [inline]
     local owner=$1 mode=${2:-} snapshot saved choices row value summary shown="" plan options presets_text input_help id label state
     local heading='Set agent review before a package installs or updates'
     local purpose='Choose whether to review packages, which AI agent to use, and an optional command.'
-    local rules='Install without review installs without asking. Review with an agent and Automatic ask before each install or update.
+    local rules='Install without review installs without asking, unless VGS cannot check the AUR command. Review with an agent and Automatic ask before each install or update.
 Review with an agent
   Asks with review selected, using the agent and command below.
 Install without review
-  Installs without an agent review and without asking.
+  Installs without an agent review. It asks only when VGS cannot check the AUR command.
 Automatic (review when an agent is available)
   Asks with review selected when you choose an agent or command, or VGS finds an agent.'
     local -a agents=() presets=() words=()
