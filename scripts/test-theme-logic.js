@@ -572,8 +572,8 @@ const APPEARANCE_ACCEPTED = [
     ["the theme's motion scale reaches the plugin's durations", LOOK, LOOK_LIGHT, shellTheme({ motion: { scale: 0 } }), [["motion.open", 0], ["motion.scale", 0]]],
     ["the scale doubles the plugin's durations", LOOK, LOOK_LIGHT, shellTheme({ motion: { scale: 2 } }), [["motion.open", 400]]],
     ["the theme's interface family reaches the plugin's text", FONT_LOOK, {}, shellTheme({ font: { family: { sans: "Serif" } } }), [["font.family.sans", "Serif"], ["card.title", "Serif"]]],
-    // alpha(#336699, 0.5): round(127.5) = 128 = 0x80.
-    ["the theme's raised surface reaches a look that holds it", RAISED_LOOK, {}, shellTheme({ color: { surfaceRaised: "#336699" } }), [["color.surfaceRaised", "#336699ff"], ["card.fill", "#33669980"]]]
+    // alpha(#224466, 0.5): round(127.5) = 128 = 0x80.
+    ["the theme's raised surface reaches a look that holds it", RAISED_LOOK, {}, shellTheme({ color: { surfaceRaised: "#224466" } }), [["color.surfaceRaised", "#224466ff"], ["card.fill", "#22446680"]]]
 ];
 
 // Refused appearance rows: [label, table, light, theme, reason, token].
@@ -1804,8 +1804,27 @@ function verifyTitleSpace(table) {
     assert.equal(load(judgeFile).defaults(table).values.stack.titleSpace, 1);
 }
 verifyTitleSpace(TOKENS);
+// Each default cap ink keeps its role's margin on the cap over the raised
+// surface in every theme. A hint's 11 px key name loses drawn contrast
+// natively: the Automations editor's Ctrl S keys read 4.32 dark and 4.21
+// light at token contrast 4.689 and 4.675 (VGS-2180 native line readings,
+// 2026-11-02), so it keeps 5.1; a field's 12 px value key keeps 4.65.
+function verifyCapMargin(table = TOKENS) {
+    const judge = load(judgeFile);
+    for (const { name } of JUDGED_THEMES) {
+        const result = judge.accept(table, fs.readFileSync(path.join(repo, "themes", name, "theme.json"), "utf8"));
+        assert.equal(result.ok, true, name + ": the theme is accepted");
+        const values = result.values;
+        const cap = judge.overlay(judge.parseColor(values.kbd.background), judge.parseColor(values.color.surfaceRaised));
+        for (const [role, ink, margin] of [["key name", values.kbd.foreground, 5.1], ["value key", values.kbd.valueForeground, 4.65]])
+            assert.ok(judge.contrastRatio(judge.parseColor(ink), cap) >= margin, `${name}: the default ${role} ink keeps its margin on its cap`);
+    }
+}
+verifyCapMargin();
 const TOKEN_CONTROLS = [
     ["shared hint solid margin", 'wordMargin: number(5.2, 4.5, 21)', 'wordMargin: number(4.95, 4.5, 21)', table => verifyHintMargin(load(judgeFile), table)],
+    ["shared key-name margin", 'capMargin: number(5.1, 4.5, 21)', 'capMargin: number(4.65, 4.5, 21)', verifyCapMargin],
+    ["shared value-key margin", 'valueMargin: number(4.65, 4.5, 21)', 'valueMargin: number(4.5, 4.5, 21)', verifyCapMargin],
     ["title space", 'titleSpace: bodyLines(1)', 'titleSpace: bodyLines(1.2)', verifyTitleSpace],
     ["status text on its fill", 'color("contrast({color." + name + "})")', 'color("contrast({palette." + name + "})")', verifyStatusText],
     ["bar separator colour", 'line: color("alpha({bar.foreground}, 0.2)")', 'line: color("alpha({bar.foreground}, 0.4)")', verifyBarSeparator],

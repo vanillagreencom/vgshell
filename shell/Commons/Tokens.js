@@ -754,9 +754,14 @@ var TOKENS = {
     // width, never narrower than it is tall. `foreground` is a hint's key
     // name; `valueForeground` a field's bound key, which is its value, in
     // body ink unless the cap's fill needs more contrast.
-    // `wordMargin` and `capMargin` are the token contrast a hint word and
-    // a cap's key are solved to, here and in ThemeLogic.keyHintInk: room
-    // over the 4.5:1 drawn floor for the font's rendering loss.
+    // `wordMargin`, `capMargin` and `valueMargin` are the token contrast a
+    // hint word, a hint's 11 px key name and a field's 12 px value key are
+    // solved to, here and in ThemeLogic.keyHintInk: room over the 4.5:1
+    // drawn floor for each role's rendering loss. The key name keeps 5.1,
+    // since at 4.65 the Automations editor's Ctrl S drew 4.32 dark and 4.21
+    // light (VGS-2180 native line readings, 2026-11-02); the value key keeps
+    // 4.65, which every theme reaches on a field's selection mark (kurayami
+    // reaches 4.693 at most there).
     kbd: {
         radius: length("{radius.sm}"),
         border: length(0),
@@ -765,9 +770,10 @@ var TOKENS = {
         background: color("alpha(contrast({palette.background}), 0.08)"),
         borderColor: color("{color.borderStrong}"),
         foreground: color("contrastMix(contrast(mix({color.surfaceRaised}, contrast({palette.background}), 0.08)), readable({color.textFaint}, {color.surfaceRaised}, contrast({color.surfaceRaised})), mix({color.surfaceRaised}, contrast({palette.background}), 0.08), {kbd.capMargin})"),
-        valueForeground: color("contrastMix(contrast(mix({color.surfaceRaised}, contrast({palette.background}), 0.08)), readable({color.text}, {color.surfaceRaised}, contrast({color.surfaceRaised})), mix({color.surfaceRaised}, contrast({palette.background}), 0.08), {kbd.capMargin})"),
+        valueForeground: color("contrastMix(contrast(mix({color.surfaceRaised}, contrast({palette.background}), 0.08)), readable({color.text}, {color.surfaceRaised}, contrast({color.surfaceRaised})), mix({color.surfaceRaised}, contrast({palette.background}), 0.08), {kbd.valueMargin})"),
         wordMargin: number(5.2, 4.5, 21),
-        capMargin: number(4.65, 4.5, 21),
+        capMargin: number(5.1, 4.5, 21),
+        valueMargin: number(4.65, 4.5, 21),
         actionGap: length("{space.lg}")
     },
 

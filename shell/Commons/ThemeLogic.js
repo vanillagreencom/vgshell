@@ -275,7 +275,7 @@ function keyHintBackgrounds(context) {
 var KEY_HINT_PARTS = {
     word: { ink: "text.keyHint.color", margin: "kbd.wordMargin", cap: false },
     key: { ink: "kbd.foreground", margin: "kbd.capMargin", cap: true },
-    value: { ink: "kbd.valueForeground", margin: "kbd.capMargin", cap: true }
+    value: { ink: "kbd.valueForeground", margin: "kbd.valueMargin", cap: true }
 };
 
 // Keep the shared default ink of PART unless this actual surface needs
