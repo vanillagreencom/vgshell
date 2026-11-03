@@ -373,7 +373,7 @@ printf '#!/bin/sh\nexit 99\n' >"$stubs/dnf5"; chmod +x "$stubs/dnf5"
 cat >"$stubs/rpm" <<'EOF'
 #!/bin/sh
 [ "$1 $2 $4" = "-qf --queryformat $STUB_OWNED" ] && { echo "$STUB_PACKAGE"; exit 0; }
-[ "$1 $2 $4 $5" = "-q --queryformat -- $STUB_PACKAGE" ] && { echo "$STUB_PKGVER"; exit 0; }
+[ "$1 $2 $3 $5 $6" = "-q --whatprovides --queryformat -- $STUB_PACKAGE" ] && { echo "$STUB_PKGVER"; exit 0; }
 exit 99
 EOF
 chmod +x "$stubs/rpm"
