@@ -123,8 +123,10 @@ const hard = [...fs.readFileSync(path.join(root, "packaging/arch/vgshell/.SRCINF
 const fedora = [...fs.readFileSync(path.join(root, "packaging/fedora/vgshell.spec"), "utf8").matchAll(/^Requires:\s+(\S+)/gm)]
     .map(match => match[1])
     .filter(name => !systemOnly.has(name));
-if (hard.length < 6 || fedora.length < 6 || !hard.includes("tesseract-data-eng") || !hard.includes("vsys") || !hard.includes("greetd") || !fedora.includes("qrencode")) throw Error("package group extractor is broken");
-process.stdout.write(JSON.stringify({ pacman: hard.filter(name => !aur.has(name)), aur: hard.filter(name => aur.has(name)), dnf: fedora }));
+if (hard.length < 6 || fedora.length < 6 || !hard.includes("tesseract-data-eng") || !hard.includes("vsys") || !hard.includes("greetd") || !fedora.includes("qrencode") || !fedora.includes("vgshell-quickshell")) throw Error("package group extractor is broken");
+// On dnf the engine step installs vgshell-quickshell after it enables the
+// engine's repository, so the requirements group leaves it out.
+process.stdout.write(JSON.stringify({ pacman: hard.filter(name => !aur.has(name)), aur: hard.filter(name => aur.has(name)), dnf: fedora.filter(name => name !== "vgshell-quickshell") }));
 JS
 installer_source_tree() {
   local manifest plugin
@@ -1036,10 +1038,52 @@ arch_engine_row() { # BIN ENGINE: the curl --git route installs a missing engine
   [[ $status == 0 && -f $d/git/bin/vgshell && -f $h/.fixture-engine-installed ]] &&
     grep -qxF aur "$install_log" && grep -qxF vgshell-quickshell "$install_log"
 }
+# Fedora's package database: rpm -qf names the engine's owner once the
+# presenter installed it, and rpm -q reads a requirement installed once the
+# presenter ran, but never vgshell or vgshell-git.
+fedora_os="$tmp/os-fedora"; printf 'ID=fedora\n' >"$fedora_os"
+dnf_managers="$tmp/dnf-managers"; mkdir -p "$dnf_managers"
+stub "$dnf_managers" dnf5 "" 1
+cat >"$dnf_managers/rpm" <<'RPM'
+#!/bin/sh
+for name; do :; done
+case "$1" in
+  -qf) [ -f "$HOME/.fixture-engine-installed" ] && echo vgshell-quickshell ;;
+  -q) case "$name" in vgshell|vgshell-git) exit 1 ;; esac
+    [ -f "$HOME/.fixture-packages-installed" ] && echo 1.0 ;;
+  *) exit 1 ;;
+esac
+RPM
+chmod +x "$dnf_managers/rpm"
+# The engine step can ask a question, which needs gum from the requirements
+# install. The fixture presenter logs each command as it starts and returns
+# only after its install, and install.sh runs them one at a time, so the
+# primary manager's install ends before any engine-run logged after it.
+order_row() { # BIN MANAGER MODE: the primary manager's install ends before engine-run starts
+  local manager="$2" path="$run_path" args=(--version 0.1.0)
+  new_home "order-$manager-$3"
+  if [[ $3 == git ]]; then
+    git config --file "$h/.gitconfig" url."file://$bare".insteadOf https://github.com/vanillagreencom/vgshell.git
+    args=(--git)
+  fi
+  if [[ $manager == dnf ]]; then with_os "$fedora_os"; path="$stubs:$dnf_managers:$tools"; fi
+  RUN_PATH="$path" run "$1" "${args[@]}"
+  RUN_WRAP=()
+  [[ $status == 0 && -f $h/.fixture-engine-installed ]] || return 1
+  awk -v manager="$manager" '
+    previous == "--manager" && $0 == manager && !install { install = NR }
+    $0 == "engine-run" && !engine { engine = NR }
+    { previous = $0 }
+    END { exit !(install && (!engine || install < engine)) }' "$install_log"
+}
 echo "git"
 row_job git_rows
 for engine in none 0.3.0; do
   row_job check "Arch curl install with engine=$engine" arch_engine_row "$installer" "$engine"
+done
+for order in "pacman release" "pacman git" "dnf release" "dnf git"; do
+  read -r manager mode <<<"$order"
+  row_job check "a $mode install on $manager installs the requirements before the engine step" order_row "$installer" "$manager" "$mode"
 done
 rows_join
 
@@ -1205,6 +1249,8 @@ row_job rule keep-lock lock_kept_row '^(current|git|\.engines|\.self-update-.*|[
 row_job rule floor-need drift_row 'quickshell 0.3.1   ^Quickshell' 'quickshell 0.3.0   ^Quickshell'
 copy_with arch-missing-engine "$installer" '[[ $tool != quickshell || ${engine_delivered:-false} == true || ! $manager =~ ^(pacman|dnf|apt|nix)$ ]] || continue' ':'
 row_job control "a copy that refuses Arch's missing engine before the AUR group" arch_engine_row none
+copy_with engine-first "$installer" '    runtime_install "$stage/git"' '    prepare_engine "$stage/git" "$data/git" "$revision"; runtime_install "$stage/git"'
+row_job control "a copy that prepares the engine before the requirements" order_row pacman git
 row_job rule requirement-package drift_row 'dnf=util-linux-core' 'dnf=util-linux'
 row_job rule runtime-packages packages_row 'runtime_install() { # TREE' 'runtime_install() { return 0 # TREE'
 row_job rule runtime-result runtime_failure_row '[[ $code == 0 ]] || refuse 1' '[[ $code == "$code" ]] || refuse 1'

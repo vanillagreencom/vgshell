@@ -45,7 +45,7 @@ VGS carries the Hyprland request-socket lifetime fix, the log-filter mutex fix, 
 | Fedora COPR | `vgshell-quickshell` in `vanillagreen/vgshell` | Both shell packages use the named engine from the VGS project. Repository priority does not select the engine. `errornointernet/quickshell` remains a build and runtime repository dependency for cpptrace. |
 | Nix flake | Quickshell overridden in the VGS closure | The flake pins upstream and applies the same local patches. It does not replace a host package. |
 | New curl installations on Arch | `vgshell-quickshell` | The installer's existing package presenter installs the named AUR engine. |
-| New curl installations on Fedora | `vgshell-quickshell` | The existing package presenter requires the engine from a configured repository. Publication belongs to the overseer. |
+| New curl installations on Fedora | `vgshell-quickshell` | The installer's engine step enables the VGS repository and installs the engine through the existing package presenter. Publication belongs to the overseer. |
 | Existing curl installations on Arch and Fedora | `vgshell-quickshell` | The next self-update replaces the stock engine before it changes the active VGS tree. |
 | Curl installer apt row | Signed `vgshell-quickshell` amd64 asset | The existing GitHub release supplies the Debian forky engine. Apt installs the verified local package and replaces either stock engine. |
 | Curl installer on NixOS | The VGS flake's exported Quickshell | Pinned flake inputs realize the same override as the VGS closure. An immutable root outside staging keeps the wrapped executable available. |
@@ -105,6 +105,7 @@ Judge Debian availability for the consumer that requests it. A checkout installe
 - Do refuse root, a non-Linux host, a system package and a foreign `~/.local/bin/vgshell` before writing. `scripts/test-install-sh.sh` pins each.
 - Do fetch with `curl --proto =https --tlsv1.2`, match the one `SHA256SUMS` line, replace `current` by rename only, and never remove a version directory from the installer. `scripts/test-install-sh.sh` pins each.
 - Do run required installs through the staged tree's presenter and package runner, which owns elevation. `scripts/test-install-sh.sh` pins it with a fake presenter.
+- Do install the required runtime packages before the engine step, since the engine step can ask a question and every question needs gum from that install. `scripts/test-install-sh.sh` pins the order for pacman and dnf.
 - Do hold the installer's floor and package tables to `bin/vgshell` and `config/requirements.json`; the drift rows of `scripts/test-install-sh.sh` pin them.
 - Do accept `VGS_RELEASE_API` only in a test run: a `file://` base in the installer, a loopback base in `self.js` for the release and the compare reads. `scripts/test-install-sh.sh` and `scripts/test-vgshell-self.sh` pin it.
 

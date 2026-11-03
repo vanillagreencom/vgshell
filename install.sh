@@ -32,7 +32,8 @@
 # A tool it finds but whose version it cannot read is named with the
 # probe's exit status and last error lines instead of an install command.
 # Required runtime packages install through the staged tree's existing
-# presenter and package runner before the tree is published.
+# presenter and package runner before the engine step and before the tree
+# is published.
 #
 # A release is read from the GitHub API and downloaded over HTTPS into a
 # temporary directory. The archive must match its one line in SHA256SUMS;
@@ -120,7 +121,7 @@ setpriv    present ^setpriv[[:space:]]from[[:space:]]util-linux[[:space:]]([0-9]
 pacman bash bubblewrap coreutils curl dbus fd ffmpeg file fontconfig fzf gawk git glib2 gpu-screen-recorder grim gum hyprland imagemagick iproute2 less libnotify libpulse libsecret libxkbcommon mise networkmanager nodejs pacman-contrib pipewire pipewire-audio playerctl python qrencode rclone sed slurp systemd tesseract tesseract-data-eng util-linux wireplumber wl-clipboard wtype xdg-terminal-exec xdg-utils xkeyboard-config greetd glibc
 aur vgshell-quickshell vsys
 apt bash bubblewrap coreutils curl dash dbus-bin ffmpeg file fontconfig fzf gawk git gpu-screen-recorder-cli grim gum hyprland imagemagick iproute2 less libglib2.0-0t64 libglib2.0-bin libnotify-bin libsecret-tools libxkbcommon0 network-manager nodejs pipewire-alsa pipewire-bin playerctl procps pulseaudio-utils python3 qrencode rfkill sed slurp systemd tesseract-ocr tesseract-ocr-eng util-linux wireplumber wl-clipboard wtype xdg-terminal-exec xdg-utils xkb-data greetd libc-bin
-dnf ImageMagick NetworkManager bash bubblewrap coreutils curl dbus-tools fd-find ffmpeg-free file fontconfig fzf gawk git glib2 grim gum hyprland iproute less libnotify libsecret libxkbcommon nodejs pipewire-alsa pipewire-utils playerctl pulseaudio-utils python3 qrencode vgshell-quickshell rclone sed slurp systemd tesseract tesseract-langpack-eng util-linux util-linux-core wireplumber wl-clipboard wtype xdg-terminal-exec xdg-utils xkeyboard-config greetd glibc-common
+dnf ImageMagick NetworkManager bash bubblewrap coreutils curl dbus-tools fd-find ffmpeg-free file fontconfig fzf gawk git glib2 grim gum hyprland iproute less libnotify libsecret libxkbcommon nodejs pipewire-alsa pipewire-utils playerctl pulseaudio-utils python3 qrencode rclone sed slurp systemd tesseract tesseract-langpack-eng util-linux util-linux-core wireplumber wl-clipboard wtype xdg-terminal-exec xdg-utils xkeyboard-config greetd glibc-common
 nix bash bubblewrap coreutils curl dbus fd ffmpeg file fontconfig fzf gawk git glib gpu-screen-recorder grim gum hyprland imagemagick iproute2 less libnotify libsecret libxkbcommon mise networkmanager nodejs pipewire playerctl pulseaudio python3 qrencode rclone gnused slurp systemd tesseract util-linux wireplumber wl-clipboard wtype xdg-terminal-exec xdg-utils xkeyboard_config greetd glibc.getent
 '
 
@@ -341,8 +342,11 @@ EOF
   }
 
   # The existing presenter runs the package runner, which owns elevation.
-  # The staged tree stays until its recorded run ends. Publication follows
-  # only after every required install group succeeds.
+  # It runs before prepare_engine: the engine step can ask a question, and
+  # every question needs gum, which this install provides. On dnf the engine
+  # step owns vgshell-quickshell, since only it enables the engine's
+  # repository. The staged tree stays until its recorded run ends.
+  # Publication follows only after every required install group succeeds.
   runtime_install() { # TREE
     local tree="$1" detected selection manager names record unsettled code run row rest manifest id key="core/requirements-install"
     local -a groups packages command
@@ -630,8 +634,8 @@ process.stdout.write(lines.join("\n") + "\n");
       url="$(asset_url "$asset")" || refuse 1 "asset=missing name=$asset"
       fetch download "$url" "$tmp/$asset" "$max_archive" "$download_seconds"
     fi
-    prepare_engine "$unpacked" "$unpacked" - "$tmp"
     runtime_install "$unpacked"
+    prepare_engine "$unpacked" "$unpacked" - "$tmp"
     if [[ -d $target ]]; then
       echo "ok up-to-date=vgshell version=$version path=$target"
       return 0
@@ -656,8 +660,8 @@ process.stdout.write(lines.join("\n") + "\n");
       refuse 1 "git=clone url=$git_url" "$(cat -- "$stage/git.err")"
     local revision
     revision="$(git -C "$stage/git" rev-parse HEAD)" || refuse 1 "git=revision-failed"
-    prepare_engine "$stage/git" "$data/git" "$revision"
     runtime_install "$stage/git"
+    prepare_engine "$stage/git" "$data/git" "$revision"
     mv -T -- "$stage/git" "$data/git" 2>/dev/null || refuse 1 "git=failed path=$data/git"
     echo "ok installed=vgshell git=$data/git"
   }

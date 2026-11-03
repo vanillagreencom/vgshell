@@ -32,8 +32,11 @@
 # A probe that fails is not measured either, never read as unpublished.
 #
 # Each bash fence of the section runs top to bottom in one fresh container,
-# in the home directory, with an empty line on stdin for every prompt, so
-# each prompt takes its default answer, except in the Fedora image. A command runs under pipefail, so a
+# in the home directory. In the arch, debian and nixos images script(1)
+# supplies a terminal and a CR, the byte Enter sends, arrives on it each
+# second, so each prompt takes its default answer: the wrapper below says
+# why CR and not LF. The Nix image gets an empty line on stdin for every
+# prompt, and the Fedora image `y`. A command runs under pipefail, so a
 # `curl ... | bash` whose download fails fails, though bash exits 0 on the
 # empty script. Each fence is one alternative the README offers, in the
 # image of its channel:
@@ -57,7 +60,7 @@
 # session runs in a container.
 #
 # Each command is ended after `command_seconds`, a bound for a prompt the
-# empty answers do not satisfy, not a budget. On 2026-09-29, with podman
+# default answers do not satisfy, not a budget. On 2026-09-29, with podman
 # 6.1.2 on the owner's workstation, the slowest command this script
 # measured took 5 s: the checkout's `git clone` and the curl `--git`
 # install. The AUR figure is a yay measurement, not a paru one: a yay build
@@ -564,10 +567,13 @@ for row in "${rows[@]}"; do
   started=$SECONDS
   status=0
   case "${block_image[$block]}" in
-    # The newline feeder is the wrapper's own child, ended once script
+    # The answer feeder is the wrapper's own child, ended once script
     # returns: as a pipeline's head it held the wrapper up to its next
-    # write, and as script's own child it kept script from exiting.
-    arch|debian|nixos) wrapper='printf -v argv "%q " timeout "$1" bash -o pipefail -c "$2"; exec 3< <(while printf "\\n"; do sleep 1; done 2>/dev/null); feeder=$!; script -qE never -ec "$argv" /dev/null <&3 3<&-; status=$?; kill "$feeder"; exit "$status"' ;;
+    # write, and as script's own child it kept script from exiting. It sends
+    # CR, the byte Enter sends: gum reads its terminal raw and takes LF as
+    # ctrl+j, which never confirms a choice, and a cooked-mode reader such as
+    # pacman or sudo still gets a newline through the pty's ICRNL.
+    arch|debian|nixos) wrapper='printf -v argv "%q " timeout "$1" bash -o pipefail -c "$2"; exec 3< <(while printf "\\r"; do sleep 1; done 2>/dev/null); feeder=$!; script -qE never -ec "$argv" /dev/null <&3 3<&-; status=$?; kill "$feeder"; exit "$status"' ;;
     fedora) wrapper='yes y | timeout "$1" bash -o pipefail -c "$2"' ;;
     *) wrapper='yes "" | timeout "$1" bash -o pipefail -c "$2"' ;;
   esac

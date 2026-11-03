@@ -613,7 +613,7 @@ function readInstaller(recipe) {
         if (!/^[a-zA-Z0-9][a-zA-Z0-9+_.-]*$/.test(name)) refuse("entry=unreadable channel=install text=" + name);
         return { name, op: "", version: "", epoch: "", text: name };
     });
-    // These two curl rows deliver the engine outside the runtime package list.
+    // These curl rows deliver the engine outside the runtime package list.
     if (recipe.deliveredEngine) hard.push({ name: ENGINE, op: "", version: "", epoch: "", text: ENGINE });
     return { hard, soft: [] };
 }
@@ -742,7 +742,7 @@ const CHANNELS = {
         read: readInstaller, licence: null, rules: () => {}, freshness: null, requiredOnly: true,
     },
     "install-dnf": {
-        recipes: [{ name: "dnf", manager: "dnf" }], managers: ["dnf"], enginePackage: ENGINE, hardField: "runtime_packages", softField: "optional",
+        recipes: [{ name: "dnf", manager: "dnf", deliveredEngine: true }], managers: ["dnf"], enginePackage: ENGINE, hardField: "runtime_packages", softField: "optional",
         exact: false, checkFloors: false, epochs: null,
         read: readInstaller, licence: null, rules: () => {}, freshness: null, requiredOnly: true,
     },

@@ -167,6 +167,14 @@ fi
 if [[ -n ${STUB_REQUIRE_TTY:-} ]]; then
   printf '%s\n' 'if ! { : 2>/dev/null <>/dev/tty; }; then echo "install.sh: refused: floor=xdg-terminal-exec have=none need=present" >&2; exit 78; fi'
 fi
+# A gum question reads its terminal raw, where only CR confirms the choice;
+# it skips other keys, such as what arrived before the terminal went raw.
+# timeout(1) leaves the fetched script in a background process group, so
+# the reader takes the terminal's foreground first, as a job-control shell
+# does, and reads in python: bash's read -n turns ICRNL back on.
+if [[ -n ${STUB_REQUIRE_ENTER:-} ]]; then
+  printf '%s\n' 'trap "" TTOU; python3 -c "import os, select, termios, tty; fd = os.open(os.ctermid(), os.O_RDWR); os.tcsetpgrp(fd, os.getpgrp()); old = termios.tcgetattr(fd); tty.setraw(fd); got = next((True for _ in range(10) if select.select([fd], [], [], 5)[0] and os.read(fd, 1) == bytes([13])), False); termios.tcsetattr(fd, termios.TCSADRAIN, old); raise SystemExit(0 if got else 75)" || { echo "gum: no choice confirmed" >&2; exit 75; }'
+fi
 exit "${STUB_FETCH_EXIT:-0}"
 EOF
 cat >"$stubs/paru" <<'EOF'
@@ -404,6 +412,7 @@ private_store_refusal >"$tmp/owner-control.log" 2>&1
 cp -p -- "$tmp/readme-install-owner.orig" "$tree/scripts/readme-install.sh"
 if ((failures == owner_before + 1)); then failures=$owner_before; ok "control: old cleanup publication order fails its ownership assertion"; else fail "control: old cleanup publication order passed its ownership assertion"; fi
 row "curl receives a controlling terminal" 77 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_REQUIRE_TTY=1 --
+row "curl confirms a raw-mode question with Enter" 77 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_REQUIRE_ENTER=1 --
 row "curl receives a noninteractive recipe pager" 77 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_REQUIRE_PAGER=1 --
 row "checkout versions use the canonical version and describe report" 77 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_DESCRIBE="$version.r14.g797b0cb" --
 if grep -qxF "readme-install: version line=$curl_line channel=curl value=vgshell $version.r14.g797b0cb" <<<"$row_output"; then ok "the checkout display is logged without alteration"; else fail "the checkout display was not logged"; fi
@@ -501,6 +510,8 @@ control "a runner without pipefail" 'printf -v argv "%q " timeout "$1" bash -o p
 # shellcheck disable=SC2016
 control "curl without a controlling terminal" 'script -qE never -ec "$argv" /dev/null' 'bash -c "$argv"' \
   "terminal" 77 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_REQUIRE_TTY=1 --
+control "a feeder that sends LF" 'while printf "\\r"; do sleep 1' 'while printf "\\n"; do sleep 1' \
+  "enter" 77 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_REQUIRE_ENTER=1 --
 # shellcheck disable=SC2016
 control "an interactive recipe pager" 'env PARU_PAGER=cat ' 'env ' \
   "pager" 77 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_REQUIRE_PAGER=1 --
