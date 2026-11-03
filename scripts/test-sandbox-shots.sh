@@ -2508,7 +2508,7 @@ ipc() {
 power_shot_pane_pages power-dark-pane
 '''
     runner = world / 'case.sh'
-    runner.write_text('set -euo pipefail\nworld=$3 sandbox=$3\nsource "$4/scripts/smoke/power-fakes.sh"\n'
+    runner.write_text('set -euo pipefail\nworld=$3 sandbox=$3 tree=$3\nsource "$4/scripts/smoke/power-fakes.sh"\n'
                       + functions(text, ('power_shot_pane_pages', 'power_shot_pane_coverage')) + '\n' + body)
     subprocess.run([bash, str(runner), str(content), str(sleep_after), str(world), str(repo)],
                    env={'PATH': os.environ['PATH'], 'LC_ALL': 'C'}, check=True, timeout=20)
