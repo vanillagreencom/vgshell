@@ -26,9 +26,10 @@
 # terminal `vgshell pkg run install` with the primary's package, the notice
 # has no surface while the run is live, and comes back with the keyboard,
 # naming the package the run left missing, when the rescan after the run
-# still misses it; a run that fails closes the notice for good, the
-# plugin's Setup step reads Failed with the run's last lines, its mirror
-# password masked, and its Try again runs the same install with no notice,
+# still misses it; a run that fails closes the notice for good and
+# refuses the plugin's suggestions, the plugin's Setup step reads Failed
+# with the run's last lines, its mirror password masked, and its Try
+# again runs the same install with no notice,
 # whose run that ends with code 0 clears the failure; a scan that finds
 # the command while the run is live keeps the installing notice in front of
 # a second plugin's waiting one, and the scan after the run closes it and
@@ -51,7 +52,7 @@
 # alone with Close. The enable trigger's control is
 # scripts/smoke/rows/notices-control.sh, the suite's last row: a shell copy
 # without the trigger raises no notice.
-# inputs: scripts/smoke/fixtures/plugins/acme.needs/* scripts/smoke/fixtures/failing-install.js bin/lib/pkg-retry.js bin/lib/pkg-outcome.js shell/Core/TuiRunner.qml shell/Core/TuiRecords.qml shell/plugins/vgs.settings/* shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/foundation/Scrim.qml shell/Ui/feedback/Badge.qml shell/Ui/foundation/Divider.qml shell/Ui/layout/GroupList.qml shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/fixtures/plugins/acme.layers/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/rows/layers.sh scripts/smoke/rows/manager.sh scripts/smoke/rows/settings.sh bin/vgshell-tui bin/vgshell-scan shell/Core/Registry.qml shell/Core/Capabilities.qml scripts/fixtures/pkg-review/* bin/lib/pkg-review.js bin/lib/pkg-review.sh bin/lib/pkg-review-settings.sh bin/lib/pkg-config.js bin/lib/judge-files.js shell/Core/PackageReview.js config/shell.json bin/lib/dbus_wire.py
+# inputs: scripts/smoke/fixtures/plugins/acme.needs/* scripts/smoke/fixtures/failing-install.js bin/lib/pkg-retry.js bin/lib/pkg-outcome.js shell/Core/TuiRunner.qml shell/Core/TuiRecords.qml shell/plugins/vgs.settings/* shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/foundation/Scrim.qml shell/Ui/feedback/Badge.qml shell/Ui/foundation/Divider.qml shell/Ui/layout/GroupList.qml shell/Ui/controls/Field.qml shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/fixtures/plugins/acme.layers/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/rows/layers.sh scripts/smoke/rows/manager.sh scripts/smoke/rows/settings.sh bin/vgshell-tui bin/vgshell-scan shell/Core/Registry.qml shell/Core/Capabilities.qml scripts/fixtures/pkg-review/* bin/lib/pkg-review.js bin/lib/pkg-review.sh bin/lib/pkg-review-settings.sh bin/lib/pkg-config.js bin/lib/judge-files.js shell/Core/PackageReview.js config/shell.json bin/lib/dbus_wire.py
 set -euo pipefail
 leak_plugin_setup acme.layers false || { fail "notices: fixture precondition failed"; return 1; }
 needs_src="$sandbox/src/acme.needs"
@@ -391,7 +392,7 @@ needs_tools() { ipc smoke itemTexts window vgs.settings Field | py_reply 'import
 needs_tools_failed() { needs_tools | py_reply 'import json,sys
 rows, lines = json.load(sys.stdin), json.loads(sys.argv[1])
 row = rows[0] if len(rows) == 1 else []
-ok = "Failed" in row and "Try again" in row and all(l in row for l in lines) and any("vgs-smoke-needs-pkg" in t for t in row) and "To do" not in row and "Review all missing or outdated tools" not in row
+ok = "Failed" in row and "Try again" in row and "\n".join(lines) in row and any("vgs-smoke-needs-pkg" in t for t in row) and "To do" not in row and "Review all missing or outdated tools" not in row
 print("true" if ok else json.dumps(rows))' "$failed_lines"; }
 # Whether the lending record holds WORD anywhere.
 lent_holds() { ipc shell lent | py_reply 'import sys; print(str(sys.argv[1] in sys.stdin.read()).lower())' "$1"; }
@@ -413,6 +414,11 @@ expect "the failure is kept for the Setup step with the record's last lines, the
 failure_record="$(notice_failure_path acme.needs)" || failure_record=absent
 expect "the failure names the run's ended record, which holds the failed outcome" true python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); print(str(r["code"] == 1 and r["package"]["kind"] == "package-failed").lower())' "$failure_record"
 expect "no status the shell lends carries the mirror's password" false lent_holds mirror-secret
+# A failure refuses the plugin's suggestions until its next attempt, so
+# no rest's end and no restart raises the notice again; the rest Not now
+# left would refuse it as `resting`.
+expect "a suggestion after a failed install is refused for the failure" "refused: requirements=acme.needs reason=install-failed" needs suggest vgs-smoke-needs
+expect "the refused suggestion raises no notice" null notice_shown
 expect "the Settings window opens on acme.needs" ok ipc shell summon window vgs.settings '{}'
 expect_poll "the Settings window maps for acme.needs" 1 window_count Plugins
 expect "the window opens the page of acme.needs" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.needs

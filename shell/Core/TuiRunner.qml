@@ -207,12 +207,20 @@ Scope {
 
     // openCore: the core's own TUI NAME, listed or not, with ARGS after its
     // argv, for a core component such as the requirement notice. `done`
-    // receives { code, reason, package } as run's does, then the run's id,
-    // whose ended record recordPath names, and belongs to the shell's
-    // lifetime, since the core has no instance to drop it with.
+    // receives { code, reason, package } as run's does, and belongs to the
+    // shell's lifetime, since the core has no instance to drop it with.
     function openCore(name, args, done) {
+        return launchCore(name, args, done).answer;
+    }
+
+    // As openCore, answering { answer, run }, `run` the id of the run an
+    // `ok` started, whose ended record recordPath names, for a core owner
+    // that keeps the run past the shell's lifetime, as the requirement
+    // notice keeps its install's.
+    function launchCore(name, args, done) {
         const launch = Logic.tuiCore(Logic.CORE_TUIS, coreBin, runner(), name, args);
-        return start(launch, null, done === undefined ? undefined : result => done(result, launch.run));
+        const answer = start(launch, null, done);
+        return { answer: answer, run: answer === "ok" ? launch.run : null };
     }
 
     // The path of KEY's run RUN's ended record, which bin/vgshell-tui keeps

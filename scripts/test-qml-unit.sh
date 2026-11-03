@@ -80,6 +80,7 @@ mutations=(
   "results filters lose their accessible purpose|controls/ResultsFilter.qml|Accessible.name: accessibleLabel + \": \" + currentText|Accessible.name: currentText|tst_message_patterns.qml"
   "a notification avatar loses its outcome badge|../plugins/vgs.notifications/MediaSlot.qml|visible: slot.showsOutcome|visible: false|tst_notification_media.qml"
   "a detached automation row loses its owning width|../plugins/vgs.automations/AutomationListPage.qml|width: listColumn.width|width: parent.width|tst_automation_signal_values.qml"
+  "a Field's output draws as a plain line|controls/Field.qml|role: \"code\"|role: \"value\"|tst_settings_setup.qml"
   "a removed Field hint measures an absent line|controls/Field.qml|if (last !== hintLine) return last === null ? null : controlRow.fontBelow(last);|if (last !== hintLine) return false && last === null ? null : controlRow.fontBelow(last);|tst_automation_network_hint.qml"
   "Tailscale account actions reject a second request during system completion|../plugins/vgs.tailscale/Service.qml|if (action !== \"\") return \"busy\";|if (false) return \"busy\";|tst_tailscale_service.qml"
   "Tailscale keeps reading below its version floor|../plugins/vgs.tailscale/Service.qml|const readable = !commandMissing();|const readable = !commandMissing() && !outdated;|tst_tailscale_service.qml"

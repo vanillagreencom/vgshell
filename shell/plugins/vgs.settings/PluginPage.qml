@@ -243,6 +243,7 @@ FocusScope {
         text: view.text
         muted: view.muted
         lines: view.lines
+        output: view.output === undefined ? [] : view.output
         plainLines: setup
         hint: view.hint
         hintLink: view.link === null ? "" : view.link.text
