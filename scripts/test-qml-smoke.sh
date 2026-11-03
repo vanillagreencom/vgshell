@@ -10,9 +10,18 @@
 # --case completion checks acknowledged lifecycle boundaries without QML.
 # --case late-exit stops real initial and resumed worlds during EXIT.
 # Each cancellation case has the private PID namespace and 60 s readiness /
-# 30 s stop bounds of test-smoke-owner.sh --live. Its end contains defects.
+# 30 s stop bounds of test-smoke-owner.sh --live. A world still starting at
+# the readiness bound is not measured when the case's CPU pressure is above
+# harness.sh's latency_pressure_limit or the 1-minute load per physical
+# core above its latency_load_limit: the run then ends 77 with the reading,
+# unless a case failed. Its end contains defects.
 set -euo pipefail
 selected_case=all
+unmeasured_cases=()
+end_run() {
+  ((${#unmeasured_cases[@]} == 0)) || { printf 'test-qml-smoke: status=not-measured cases=%s\n' "${unmeasured_cases[*]}"; exit 77; }
+  exit 0
+}
 if [[ ${1-} == --case && $# == 2 ]]; then
   selected_case=$2
   case "$selected_case" in resume|cancellation|producer|completion|late-exit) ;; *) echo 'test-qml-smoke: refused: case' >&2; exit 2 ;; esac
@@ -474,7 +483,7 @@ if sys.argv[1:] == ['--test-producers']:
     print('  ok    producers-bare-argv')
     sys.exit(0)
 tree, output = map(pathlib.Path, sys.argv[1:3])
-kind, phase, stop_phase = sys.argv[3:]
+kind, phase, stop_phase, ready_bound = sys.argv[3:]
 expected = {'INT': 130, 'TERM': 143, 'HUP': 129}[kind]
 log_path = output / 'log'
 def processes(text):
@@ -492,7 +501,7 @@ def processes(text):
 with log_path.open('wb') as stream:
     child = subprocess.Popen(['env', '--default-signal=INT,QUIT', str(tree / 'scripts/qml-smoke.sh'), '--log-dir', str(output / 'evidence')], stdout=stream, stderr=subprocess.STDOUT)
     ready = None
-    deadline = time.monotonic() + 60
+    deadline = time.monotonic() + float(ready_bound)
     while child.poll() is None and time.monotonic() < deadline:
         log = log_path.read_text(errors='replace')
         ready = re.search(r'^cancel-ready root=(\S+) sandbox=(\S+) attempt=(\S+) record=(\S+)$', log, re.M)
@@ -502,8 +511,13 @@ with log_path.open('wb') as stream:
     problems = []
     roots = []
     before = []
-    if ready is None:
+    # A world still starting at the bound may only be slow; one whose entry
+    # ended without the ready line is a defect at any load.
+    not_ready = ready is None and child.poll() is None
+    if not_ready:
         problems.append('prerequisite:cancel-row-not-ready')
+    elif ready is None:
+        problems.append('prerequisite:public-entry-ended-before-ready')
     else:
         root, sandbox, attempt, record = map(pathlib.Path, ready.groups())
         before = processes(str(sandbox))
@@ -583,12 +597,90 @@ with log_path.open('wb') as stream:
     print(json.dumps({'case': 'cancel-' + phase + '-' + kind, 'public_pid': child.pid, 'exit': child.returncode, 'expected_exit': expected, 'world_roots': list(map(str, roots)), 'before_producers': before, 'problems': problems}), flush=True)
     for line in log_path.read_text(errors='replace').splitlines():
         print('  CONTROL  ' + line)
-    sys.exit(bool(problems))
+    # 77 hands the host-load judgement to cancel_case.
+    sys.exit(77 if not_ready else bool(problems))
 PY
   if [[ $selected_case == all || $selected_case == producer ]]; then
     python3 "$TMP_ROOT/cancel-case.py" --test-producers
   fi
   [[ $selected_case != producer ]] || exit 0
+  # The latency rows' host reader and busy judge. Sourcing harness.sh
+  # starts a world, so only these definitions are taken from it.
+  python3 - "$repo/scripts/smoke/harness.sh" >"$TMP_ROOT/contention.sh" <<'PY'
+import re, sys
+text = open(sys.argv[1]).read()
+for name in ('now_ms', 'cpu_some_us', 'cpu_some_pct', 'load_average', 'load_per_core',
+             'latency_pressure_verdict', 'latency_load_verdict', 'latency_busy_reason'):
+    found = (re.findall(r'(?m)^' + name + r'\(\) \{.*\}\n', text)
+             or re.findall(r'(?ms)^' + name + r'\(\) \{[^\n]*\n.*?^\}\n', text))
+    assert len(found) == 1, (name, len(found))
+    sys.stdout.write(found[0])
+for name in ('latency_pressure_limit', 'latency_load_limit', 'latency_cores'):
+    found = re.findall(r'(?m)^' + name + r'=.*\n', text)
+    assert len(found) == 1, (name, len(found))
+    sys.stdout.write(found[0])
+PY
+  source "$TMP_ROOT/contention.sh"
+  # cancel_case NAME READY_BOUND_SECS ARG...: one cancel-case.py run in its
+  # private PID namespace; returns 0, 1 or 77, judged as the header says
+  # over the window of the case. An unreadable reading fails.
+  cancel_case() {
+    local name="$1" bound="$2" start_ms start_us status=0 load per_core pressure
+    shift 2
+    start_ms="$(now_ms)"
+    start_us="$(cpu_some_us)"
+    timeout -k 2 100 unshare --user --map-current-user --pid --fork --kill-child --mount-proc \
+      python3 "$TMP_ROOT/cancel-case.py" "$@" "$bound" || status=$?
+    case $status in
+      0) printf '  ok    %s\n' "$name"; return 0 ;;
+      77) ;;
+      *) printf '  FAIL  %s\n' "$name"; return 1 ;;
+    esac
+    load="$(load_average)"
+    per_core="$(load_per_core "$load")"
+    pressure="$(cpu_some_pct "$start_us" "$(cpu_some_us)" $(( $(now_ms) - start_ms )))"
+    printf '  ready=late bound_s=%s load=%s load_per_core=%s cpu_some_pct=%s\n' "$bound" "${load:-unmeasured}" "$per_core" "$pressure"
+    if [[ $(latency_load_verdict 0 "$pressure" "$per_core" 0) == unmeasured ]]; then
+      printf '  not-measured %s ready-at-%s\n' "$name" "$(latency_busy_reason "$pressure" "$per_core")"
+      return 77
+    fi
+    printf '  FAIL  %s\n' "$name"
+    return 1
+  }
+  if [[ $selected_case != late-exit ]]; then
+    # Controls of that verdict at a planted host reading, on a stand-in
+    # entry: one still starting at the bound, and one that ended without
+    # the ready line, a defect at any load.
+    mkdir -- "$TMP_ROOT/starting" "$TMP_ROOT/starting/scripts" "$TMP_ROOT/ended" "$TMP_ROOT/ended/scripts"
+    printf '#!/bin/sh\nexec sleep 300\n' >"$TMP_ROOT/starting/scripts/qml-smoke.sh"
+    printf '#!/bin/sh\nexit 0\n' >"$TMP_ROOT/ended/scripts/qml-smoke.sh"
+    chmod +x "$TMP_ROOT/starting/scripts/qml-smoke.sh" "$TMP_ROOT/ended/scripts/qml-smoke.sh"
+    # entry | planted 1-minute load on 16 cores | ready bound | status | reading line
+    controls=(
+      'starting|99.00|0|77|  ready=late bound_s=0 load=99.00 load_per_core=6.18 cpu_some_pct=0.0'
+      'starting|16.00|0|1|  ready=late bound_s=0 load=16.00 load_per_core=1.00 cpu_some_pct=0.0'
+      'ended|99.00|60|1|'
+    )
+    for control in "${controls[@]}"; do
+      IFS='|' read -r entry planted_load bound want reading <<<"$control"
+      name="control-$entry-load-$planted_load"
+      mkdir -- "$TMP_ROOT/$name"
+      status=0
+      output="$(
+        cpu_some_us() { echo 0; }
+        load_average() { echo "$planted_load"; }
+        latency_cores=16
+        cancel_case "$name" "$bound" "$TMP_ROOT/$entry" "$TMP_ROOT/$name" TERM initial row
+      )" || status=$?
+      if [[ $status != "$want" ]] || { [[ -n $reading ]] && ! grep -q -x -F -- "$reading" <<<"$output"; } ||
+        { [[ -z $reading ]] && grep -q '^  ready=' <<<"$output"; }; then
+        printf '%s\n' "$output"
+        printf '  FAIL  %s status=%s want=%s\n' "$name" "$status" "$want"
+        exit 1
+      fi
+      printf '  ok    %s status=%s\n' "$name" "$status"
+    done
+  fi
   cancellation_failures=0
   signals=(INT TERM HUP)
   forbidden=(cancel-forbidden)
@@ -603,19 +695,19 @@ PY
     for signal in "${signals[@]}"; do
       case_dir="$TMP_ROOT/cancel-$phase-$signal"
       mkdir -- "$case_dir"
-      if timeout -k 2 100 unshare --user --map-current-user --pid --fork --kill-child --mount-proc \
-        python3 "$TMP_ROOT/cancel-case.py" "$tree" "$case_dir" "$signal" "$phase" "$stop_phase"; then
-        printf '  ok    cancel-%s-%s\n' "$phase" "$signal"
-      else
-        cancellation_failures=$((cancellation_failures + 1))
-        printf '  FAIL  cancel-%s-%s\n' "$phase" "$signal"
-      fi
+      status=0
+      cancel_case "cancel-$phase-$signal" 60 "$tree" "$case_dir" "$signal" "$phase" "$stop_phase" || status=$?
+      case $status in
+        0) ;;
+        77) unmeasured_cases+=("cancel-$phase-$signal") ;;
+        *) cancellation_failures=$((cancellation_failures + 1)) ;;
+      esac
     done
   done
   ((cancellation_failures == 0)) || exit 1
   printf '%s\n' "${core[@]}" provider ordinary fatal-unbound fatal-arithmetic dependent following >"$tree/scripts/smoke/rows.list"
 fi
-[[ $selected_case != resume && $selected_case != cancellation && $selected_case != late-exit ]] || exit 0
+[[ $selected_case != resume && $selected_case != cancellation && $selected_case != late-exit ]] || end_run
 python3 - "$tree/scripts/qml-smoke.sh" <<'PY'
 from pathlib import Path
 import sys
@@ -661,4 +753,11 @@ import json, sys
 tree, snapshot = map(Path, sys.argv[1:])
 assert json.loads(snapshot.read_text()) == sorted(str(path.relative_to(tree)) for path in tree.rglob('*'))
 PY
-if [[ $selected_case == all ]]; then "$BASH" "$repo/scripts/test-qml-smoke.sh" --case late-exit; fi
+late_exit_status=0
+if [[ $selected_case == all ]]; then "$BASH" "$repo/scripts/test-qml-smoke.sh" --case late-exit || late_exit_status=$?; fi
+case $late_exit_status in
+  0) ;;
+  77) unmeasured_cases+=(late-exit) ;;
+  *) exit "$late_exit_status" ;;
+esac
+end_run
