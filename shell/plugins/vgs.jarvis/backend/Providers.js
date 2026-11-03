@@ -95,10 +95,12 @@ const ROWS = Object.freeze({
         noStore: null, retention: { text: "Set by the providers your own Pi setup uses; Jarvis keeps Pi from saving the conversation.", source: null } },
     // The Claude Code harness: the vendor's program owns its login and
     // sockets. base is the release recipient's origin, the API origin Claude
-    // Code's account Verify names; Jarvis opens no socket to it. No vendor
-    // documentation read here states the program hands MCP image content to
-    // its model, so a screen result travels as OCR text.
-    claude: { driver: "claude-code", base: "https://api.anthropic.com", key: "none", images: false,
+    // Code's account Verify names; Jarvis opens no socket to it. The program
+    // hands an MCP result's image block to its model: in one live turn on
+    // 2026-11-03 (VGS-2182), Claude Code 2.1.317 on claude-sonnet-5-5, run
+    // with ClaudeCode.js's flags, answered a Mcp.content image of a green
+    // triangle on dark blue, with no text naming either, by naming both.
+    claude: { driver: "claude-code", base: "https://api.anthropic.com", key: "none", images: true,
         noStore: null, retention: { text: "Set by the Anthropic account Claude Code signs in with; Jarvis cannot read its data controls.", source: null } },
     // A user's own server: no documentation states its image support or
     // retention, so images go to OCR text and the operator owns retention.

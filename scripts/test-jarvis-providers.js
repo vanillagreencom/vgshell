@@ -62,7 +62,7 @@ function pinned(logic) {
         ["codex", "codex-app-server", "https://chatgpt.com", "none", false, null, null]);
     const claude = logic.select("claude");
     assert.deepEqual([claude.id, claude.driver, claude.base, claude.key, claude.images, claude.noStore, claude.retention.source],
-        ["claude", "claude-code", "https://api.anthropic.com", "none", false, null, null]);
+        ["claude", "claude-code", "https://api.anthropic.com", "none", true, null, null]);
 }
 pinned(Providers);
 

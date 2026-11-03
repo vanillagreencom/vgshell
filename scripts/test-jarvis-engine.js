@@ -3180,7 +3180,9 @@ function selection(Engine) {
 // The brain plan's model and effort: the saved pair, else the choice
 // AccountProviders.unlistedChoice makes for the provider of the account the
 // daemon resolved, which a hello sent before the account reader's first
-// answer could not make. The copy's engine also answers its plan.
+// answer could not make. The copy's engine also answers its plan. The route
+// is the vision executor's, which jarvisd takes from engine.images(): Claude
+// Code passes an MCP image to its model (VGS-2182), Codex reads OCR text.
 const PLAN = ["        homeHeld: () => homeHeld,", "        homeHeld: () => homeHeld,\n        plan: () => plan,"];
 function brainPlan(Engine) {
     const accepted = (provider, source) => () => ({ kind: "accepted", account: { id: "a", provider, label: "fixture", source, model: "" } });
@@ -3188,16 +3190,16 @@ function brainPlan(Engine) {
     const claude = accepted("claude", { kind: "cli", directory: "/home/fixture/.claude" });
     const codex = accepted("codex", { kind: "cli", directory: "/home/fixture/.codex" });
     for (const [label, choose, saved, want] of [
-        ["an Anthropic key and nothing saved", key, {}, ["claude-opus-5-5", "high"]],
-        ["an Anthropic key and an effort saved alone", key, { effort: "max" }, ["claude-opus-5-5", "max"]],
-        ["an Anthropic key and a saved model", key, { model: "claude-haiku-4-5" }, ["claude-haiku-4-5", ""]],
-        ["Claude Code and nothing saved", claude, {}, ["claude-fable-5-1", "high"]],
-        ["Claude Code and a saved model and effort", claude, { model: "claude-opus-5-5", effort: "max" }, ["claude-opus-5-5", "max"]],
-        ["Codex and nothing saved", codex, {}, ["", ""]]]) {
+        ["an Anthropic key and nothing saved", key, {}, ["claude-opus-5-5", "high", "image"]],
+        ["an Anthropic key and an effort saved alone", key, { effort: "max" }, ["claude-opus-5-5", "max", "image"]],
+        ["an Anthropic key and a saved model", key, { model: "claude-haiku-4-5" }, ["claude-haiku-4-5", "", "image"]],
+        ["Claude Code and nothing saved", claude, {}, ["claude-fable-5-1", "high", "image"]],
+        ["Claude Code and a saved model and effort", claude, { model: "claude-opus-5-5", effort: "max" }, ["claude-opus-5-5", "max", "image"]],
+        ["Codex and nothing saved", codex, {}, ["", "", "text"]]]) {
         Fixture.reset({ ready: true });
         const engine = Engine.create({ accounts: () => ({ secrets: null, choose }), captionLimit: 1 });
         assert.deepEqual(engine.configure({ brain: "a", model: "", effort: "", ...saved }), { kind: "ready", cautions: [] }, label);
-        assert.deepEqual([engine.plan().brain.model, engine.plan().brain.effort], want, label);
+        assert.deepEqual([engine.plan().brain.model, engine.plan().brain.effort, engine.images() ? "image" : "text"], want, label);
     }
 }
 
@@ -3432,6 +3434,21 @@ async function groupSelection(root, server) {
     assert.throws(() => brainPlan(Fixture.copy(root, [PLAN, ["unlistedChoice(settings, account.provider);",
         "{ model: settings.model, effort: settings.effort };"]]).Engine), assert.AssertionError, "brain-plan-unlisted must turn red");
     console.log("control=brain-plan-unlisted detected");
+    controls++;
+    // The old text route: a claude row without images must turn the route red.
+    const textRoute = fs.mkdtempSync(path.join(root, "claude-text-route-"));
+    const tracked = path.join(tree, "shell/plugins/vgs.jarvis");
+    fs.cpSync(path.join(tracked, "backend"), path.join(textRoute, "backend"), { recursive: true });
+    for (const name of ["AccountProviders.js", "Session.js", "JarvisProtocol.js", "manifest.json"])
+        fs.copyFileSync(path.join(tracked, name), path.join(textRoute, name));
+    const rows = path.join(textRoute, "backend/Providers.js");
+    const claudeRow = 'claude: { driver: "claude-code", base: "https://api.anthropic.com", key: "none", images: true,';
+    const rowSource = fs.readFileSync(rows, "utf8");
+    assert.equal(rowSource.split(claudeRow).length - 1, 1, "the claude row match");
+    fs.writeFileSync(rows, rowSource.replace(claudeRow, claudeRow.replace("images: true", "images: false")));
+    assert.throws(() => brainPlan(Fixture.copy(root, [PLAN], textRoute).Engine), assert.AssertionError,
+        "brain-plan-claude-text-route must turn red");
+    console.log("control=brain-plan-claude-text-route detected");
     controls++;
     for (const [name, needle, replacement = ""] of [
         ["speech-first", "const failing = [speech, dictation, brain]", "const failing = [brain, dictation, speech]"],
