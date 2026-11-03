@@ -24,15 +24,13 @@ const READ_EVERY_MS = 60000;
 // Beside a session call's own variables (SessionCommand.callEnvironment):
 // the agent the forward's SSH call signs with.
 const SSH_ENVIRONMENT = ["SSH_AUTH_SOCK"];
-// A refused forward's first stderr line (session.py, forward.py main): no
-// entry was queued and nothing was sent.
-const REFUSED = /^jarvis-session: forward=refused cause=([a-z0-9-]{1,60})/;
+// A refused call's first stderr line, by its verb: a forward that queued no
+// entry and sent nothing (forward.py main), or a main-host setting the
+// setter stored nothing of (session.py main_host).
+const REFUSED = /^jarvis-session: (forward|main-host)=refused cause=([a-z0-9-]{1,60})/;
 // The package's argparse refusal of a verb or flag it lacks (session.py
 // Arguments.error): an installed package older than the call.
 const ARGUMENTS = /^jarvis-session: arguments=invalid/;
-// The causes a queued forward holds that no retry clears (forward.py
-// TERMINAL): the main, or its mailbox, will not take the request.
-const TERMINAL = ["mailbox-missing", "send-failed", "setting-invalid", "receipts-missed", "answer-unseen"];
 // The lines the main reads as a request's caller and its provenance: a
 // first line `voice-request: caller=...` (the package's agent-reach.md
 // § Main and satellites) and the `forwarded-request:` line forward.py
@@ -60,9 +58,26 @@ function settingOf(value, folder) {
     return value === "" || value.includes(":/") ? value : value + ":" + folder;
 }
 
+/** The cause of VERB's refusal in a call's STDERR, or undefined. */
+function refusal(verb, stderr) {
+    const match = REFUSED.exec(stderr.split("\n")[0]);
+    return match !== null && match[1] === verb ? match[2] : undefined;
+}
+
 /** Whether TEXT holds a line, trimmed and case-folded, that opens as CLAIM does. */
 function claims(text) {
     return text.split(LINES).some(line => CLAIM.test(line.trim().toLowerCase()));
+}
+
+/**
+ * The reading for VALUE, the Main Jarvis host setting, when its setter
+ * refused it with CAUSE (session.py main_host): a value the package's role
+ * rule judges no host reads as an unparsed setting; a setting it could not
+ * read or store, or a setter that did not answer, as a package to repair.
+ */
+function refused(cause, value) {
+    return cause === "setting-invalid" ? { kind: "satellite", host: hostOf(value), reachable: null, cause }
+        : { kind: "unavailable", host: hostOf(value), cause: "package" };
 }
 
 /**
@@ -70,13 +85,13 @@ function claims(text) {
  * setting, each with the host VALUE names: {kind:"satellite", host,
  * reachable, cause} while the package names that main; else
  * {kind:"unavailable", host, cause}, "setting-untaken" for a package that
- * answered role main or another main, "package" for any other answer.
+ * answered role main or another main, which a setter that is absent leaves,
+ * "package" for any other answer.
  */
 function reading(answer, value) {
     const host = hostOf(value);
     if (answer === null || typeof answer !== "object" || answer.v !== 1) return { kind: "unavailable", host, cause: "package" };
-    if (answer.role === "satellite" && answer.cause === "setting-invalid")
-        return { kind: "satellite", host, reachable: null, cause: "setting-invalid" };
+    if (answer.role === "satellite" && answer.cause === "setting-invalid") return refused("setting-invalid", value);
     if (answer.role === "main" || answer.role === "satellite" && answer.main !== host)
         return { kind: "unavailable", host, cause: "setting-untaken" };
     if (answer.role !== "satellite" || ![true, false, null].includes(answer.reachable))
@@ -99,6 +114,10 @@ function create({ home, mainHost, environment, publish, log, clock = CLOCK, run 
     let setting = Promise.resolve();
     // While a choice runs its setter, no read starts: the choice reads after.
     let choosing = false;
+    // The setting the last choice's setter refused, {setting, cause}, or
+    // null: the package kept its previous value, so its status names that
+    // one, and the reading names the refusal until the next choice.
+    let rejected = null;
     let closed = false;
 
     // The ready home's session command, {folder, command}, or {kind:
@@ -124,6 +143,7 @@ function create({ home, mainHost, environment, publish, log, clock = CLOCK, run 
         if (value === "") return { kind: "main" };
         const location = locate();
         if (location.kind === "blocked") return { kind: "unavailable", host: hostOf(value), cause: location.block };
+        if (rejected !== null && rejected.setting === settingOf(value, location.folder)) return refused(rejected.cause, value);
         const result = await session(location, ["status", "--main"], LOCAL_MS, signal);
         if (result.kind === "stopped" && result.reason === "cancelled") return null;
         if (result.kind !== "exited" || result.code !== 0) {
@@ -180,6 +200,7 @@ function create({ home, mainHost, environment, publish, log, clock = CLOCK, run 
             choosing = true;
             try {
                 stopRead();
+                rejected = null;
                 const location = locate();
                 if (location.kind === "blocked") {
                     // A home without the package holds no setting to clear,
@@ -187,10 +208,19 @@ function create({ home, mainHost, environment, publish, log, clock = CLOCK, run 
                     if (mainHost() !== "") log("jarvis: satellite=main-host cause=" + location.block);
                     return;
                 }
-                const result = await session(location, ["main-host", "--set=" + settingOf(mainHost(), location.folder)], LOCAL_MS);
-                if (result.kind !== "exited" || result.code !== 0)
-                    log("jarvis: satellite=main-host cause=" + (result.kind !== "exited" ? result.reason
-                        : ARGUMENTS.test(result.stderr) ? "setter-absent" : "exit-" + result.code));
+                const chosen = settingOf(mainHost(), location.folder);
+                const result = await session(location, ["main-host", "--set=" + chosen], LOCAL_MS);
+                if (result.kind === "exited" && result.code === 0) return;
+                // A setter that is absent stores nothing and says so; the
+                // status read then names the setting it has not taken.
+                if (result.kind === "exited" && ARGUMENTS.test(result.stderr)) {
+                    log("jarvis: satellite=main-host cause=setter-absent");
+                    return;
+                }
+                const named = result.kind === "exited" && result.code === 2 ? refusal("main-host", result.stderr) : undefined;
+                const cause = named !== undefined ? named : result.kind !== "exited" ? result.reason : "exit-" + result.code;
+                log("jarvis: satellite=main-host cause=" + cause);
+                rejected = { setting: chosen, cause };
             } finally {
                 choosing = false;
                 refresh();
@@ -232,19 +262,19 @@ function create({ home, mainHost, environment, publish, log, clock = CLOCK, run 
         if (result.code === 0)
             return { outcome: "completed", content: "Completed: the request reached your main Jarvis. Its answer comes in your Slack channel." };
         if (result.code === 75) {
-            // The package retries a queued forward from its Jarvis session's
-            // watch loop, which may not be running, and never retries one
-            // whose cause is terminal.
+            // A queued entry stays queued whatever its cause, and the
+            // package's watch loop sends every queued entry again on each
+            // pass (forward.py record, send, drain), so the answer states
+            // only that. The cause may be this computer's own, such as an
+            // ssh that could not start (forward.py host), so it blames no one.
             const cause = queuedCause(result.stdout);
-            if (TERMINAL.includes(cause))
-                return { outcome: "failed", content: "Failed: your main Jarvis refused the request (" + cause + "), so it was not delivered and will not be sent again." };
-            return { outcome: "completed", content: "Completed: the request is queued in this computer's outbox for your main Jarvis"
-                + (cause === "" ? "" : " (" + cause + ")") + ". The Jarvis package sends it when its Jarvis session runs." };
+            return { outcome: "completed", content: "Completed: the request is queued in this computer's outbox and not delivered yet"
+                + (cause === "" ? "" : "; the Jarvis package's last attempt ended with " + cause)
+                + ". The Jarvis package keeps sending it while its Jarvis session runs." };
         }
-        const first = result.stderr.split("\n")[0];
-        if (result.code === 2 && ARGUMENTS.test(first)) return failed("package-old");
-        const refused = result.code === 2 ? REFUSED.exec(first)?.[1] : undefined;
-        if (refused !== undefined) return failed(refused);
+        if (result.code === 2 && ARGUMENTS.test(result.stderr.split("\n")[0])) return failed("package-old");
+        const named = result.code === 2 ? refusal("forward", result.stderr) : undefined;
+        if (named !== undefined) return failed(named);
         return { outcome: "unknown", content: "Unknown: the Jarvis package ended with exit " + result.code + ", so the request may be in this computer's outbox or not." };
     }
 
@@ -259,7 +289,7 @@ function create({ home, mainHost, environment, publish, log, clock = CLOCK, run 
                 forward(call, confirmed).then(answer => { done(answer); refresh(); },
                     error => done(failed(error.code || "unexpected")));
             } },
-        forwarding, refresh, choose,
+        refresh, choose,
         close() {
             closed = true;
             stopRead();

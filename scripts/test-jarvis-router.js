@@ -169,9 +169,9 @@ esac
         const w = make(implementation);
         const mail = fleetHome();
         let chosen = mail.folder;
-        // Whether this computer forwards to a main Jarvis (Satellite.js).
-        let forwarding = false;
-        w.router.register("guidance", Help.create(undefined, null, () => chosen, mail.environment, () => forwarding));
+        // Whether this computer runs the main Jarvis: Main Jarvis host is empty.
+        let main = true;
+        w.router.register("guidance", Help.create(undefined, null, () => chosen, mail.environment, () => main));
         const offered = () => w.router.offer().some(row => row.id === "fleet.request");
         let at = 0;
         // The call, then the user's Confirm key once the draw guard has passed.
@@ -202,18 +202,19 @@ esac
         assert.equal(offered(), false, "no mailbox yet: no Jarvis session has read this folder's mail");
         mail.mailbox();
         assert.equal(offered(), true, "the home's mail tool and the Jarvis session's mailbox offer the row");
-        // A satellite whose forward is available hands a request to the main
-        // instead: no row, and one held from before goes nowhere.
-        forwarding = true;
-        assert.equal(offered(), false, "a satellite that forwards offers no fleet.request");
-        forwarding = false;
-        ask("Held before the forward.");
-        forwarding = true;
-        assert.deepEqual(await confirmed(), ["failed", "fleet-request:satellite"], "a request held while the forward became available");
+        // A computer whose Main Jarvis host names a main hands a request to
+        // it, through fleet.forward or not at all: no row, whether or not its
+        // forward is available, and one held from before goes nowhere.
+        main = false;
+        assert.equal(offered(), false, "a computer naming a main offers no fleet.request");
+        main = true;
+        ask("Held before the main was named.");
+        main = false;
+        assert.deepEqual(await confirmed(), ["failed", "fleet-request:satellite"], "a request held while Main Jarvis host was set");
         assert.deepEqual(mail.calls(), [], "it never reaches the mailbox");
-        forwarding = false;
+        main = true;
         turn();
-        assert.equal(offered(), true, "a satellite whose forward is unavailable keeps fleet.request");
+        assert.equal(offered(), true, "this computer offers the row again once Main Jarvis host is empty");
         const [outcome, content] = await hand("Rebase the lanes.\nThen report.");
         assert.equal(outcome, "completed");
         assert.deepEqual(mail.rows(), ["row-1"]);
@@ -1058,8 +1059,8 @@ esac
             ["request-confirmed", "Tools.js", 'effect: "exec", executor: "guidance"', 'effect: "reversible", executor: "guidance"', "ToolRouter.js", "fleet-request"],
             ["forward-confirmed", "Tools.js", 'effect: "external", executor: "satellite"', 'effect: "exec", executor: "satellite"', "ToolRouter.js", "fleet-forward"],
             ["forward-once", "Tools.js", 'executor: "satellite", command: null, once: true,', 'executor: "satellite", command: null,', "ToolRouter.js", "fleet-forward"],
-            ["request-satellite-offer", "ComputerHelp.js", "            if (forwarding()) return false;\n", "", "ComputerHelp.js", "fleet-request"],
-            ["request-satellite-start", "ComputerHelp.js", '        if (forwarding()) return failed("satellite");\n', "", "ComputerHelp.js", "fleet-request"]
+            ["request-satellite-offer", "ComputerHelp.js", "            if (!main()) return false;\n", "", "ComputerHelp.js", "fleet-request"],
+            ["request-satellite-start", "ComputerHelp.js", '        if (!main()) return failed("satellite");\n', "", "ComputerHelp.js", "fleet-request"]
         ]) {
             await mutant(path.join(backend, source), name, needle, replacement,
                 consumer === "ToolRouter.js" ? byName(row) : help => byName(row)(Router, null, help), consumer);

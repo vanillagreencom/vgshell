@@ -463,7 +463,8 @@ function mainHostSetting(value) {
 
 // What stops a forward before the main is read (Satellite.js): a block of
 // the home's session command (SessionCommand.place), a package that did not
-// answer, or one that has not taken the Main Jarvis host setting.
+// answer or could not store the Main Jarvis host setting, or one without
+// the setter, which has not taken it.
 var MAIN_REACH_UNAVAILABLE = ["no-home", "package", "vgs-package", "home-link", "home-kind", "home-unreadable", "setting-untaken"];
 
 // The `main-reach` message's reading of the main Jarvis (Satellite.js),

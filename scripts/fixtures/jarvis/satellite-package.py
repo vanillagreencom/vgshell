@@ -3,11 +3,13 @@
 for tests and sandbox scenes. A test copies it to
 <home>/.agents/skills/jarvis/scripts/jarvis-session. It opens no connection.
 
-The verbs are the installed package's `status --home HOME --main` and
-`forward --home HOME --record PATH` (scripts/lib/session.py, forward.py),
-and `main-host --home HOME --set DEST:HOME`, the setter KEN-4874 asks the
-package for, which prints {"v":1,"main":VALUE}. Keep that verb here until
-KEN-4874 lands; if it lands under another name, follow it.
+The verbs are the installed package's `status --home HOME --main`,
+`forward --home HOME --record PATH` (scripts/lib/session.py, forward.py)
+and its setter `main-host --home HOME --set VALUE` (session.py main_host),
+which judges VALUE by the package's role rule first and refuses one that is
+neither empty nor DEST:/abs/home with `jarvis-session: main-host=refused
+cause=setting-invalid` and exit 2, storing nothing, then prints
+{"JARVIS_MAIN_HOST":VALUE}.
 
 Beside itself it appends one JSON line a call to calls.log: the argv, the
 environment and, for a forward, the record it read. It answers from
@@ -17,7 +19,10 @@ satellite.json beside itself, all keys optional:
              does; plain `status`, the session reader's, answers a session
              that never started;
   "setter":  "absent" for the installed package before KEN-4874, which
-             refuses main-host alone;
+             refuses main-host alone; "unreadable" or "unwritable" for a
+             setter that cannot read the settings or write the private
+             file, which refuses as settings-unreadable or
+             private-file-unwritable and stores nothing;
   "main":    the stored setting, "" for the main, which main-host writes;
   "reachable": the last probe's answer, true, false or null;
   "forward": {"exit": 0} delivered, {"exit": 75, "cause": KEY} queued,
@@ -49,6 +54,14 @@ def refuse(line):
     sys.exit(2)
 
 
+def judged(value):
+    """The package's role judge (watch.py role): "main", "invalid" or the DEST:/abs/home match."""
+    if not value:
+        return "main"
+    match = re.fullmatch(r"([^\s:/-][^\s:/]*):(/.*)", value)
+    return match if match and match[2].isprintable() else "invalid"
+
+
 call = {"argv": argv, "env": dict(os.environ)}
 verb = argv[0] if argv else ""
 if verb == "forward" and option("--record") is not None:
@@ -71,19 +84,25 @@ if state.get("package") == "old":
 if verb == "main-host" and state.get("setter") == "absent":
     refuse("jarvis-session: arguments=invalid")
 if verb == "main-host" and option("--set") is not None:
-    state["main"] = option("--set")
+    value = option("--set")
+    if judged(value) == "invalid":
+        refuse("jarvis-session: main-host=refused cause=setting-invalid")
+    if state.get("setter") in ("unreadable", "unwritable"):
+        refuse("jarvis-session: main-host=refused cause="
+               + {"unreadable": "settings-unreadable", "unwritable": "private-file-unwritable"}[state["setter"]])
+    state["main"] = value
     with open(state_file + ".next", "w") as out:
         json.dump(state, out)
     os.replace(state_file + ".next", state_file)
-    print(json.dumps({"v": 1, "main": state["main"]}))
+    print(json.dumps({"JARVIS_MAIN_HOST": value}))
     sys.exit(0)
 if verb == "status" and "--main" in argv:
     main = state.get("main", "")
     if main == "":
         print(json.dumps({"v": 1, "role": "main"}))
         sys.exit(0)
-    # The package's role judge (watch.py role).
-    match = re.fullmatch(r"([^\s:/-][^\s:/]*):(/.*)", main)
+    match = judged(main)
+    match = None if match == "invalid" else match
     reachable = state.get("reachable")
     print(json.dumps({"v": 1, "role": "satellite", "main": match[1] if match else None,
                       "reachable": reachable, "checked_at": None,

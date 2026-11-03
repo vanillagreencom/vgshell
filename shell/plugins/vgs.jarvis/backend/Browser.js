@@ -310,10 +310,10 @@ function create({ environment, commandMs = COMMAND_MS, log = null }) {
  * Register only a setup-verified driver and browser. Help uses the same
  * owner; home() answers the Jarvis home folder its skills are read from, or
  * null, and environment is the daemon's, which help's mail tool run picks
- * from; forwarding() answers whether this computer forwards requests to a
- * main Jarvis, which withdraws fleet.request (ComputerHelp.create).
+ * from; main() answers whether this computer runs the main Jarvis, the one
+ * place fleet.request hands a request to (ComputerHelp.create).
  */
-function install({ router, environment, home = () => null, forwarding = () => false }) {
+function install({ router, environment, home = () => null, main = () => true }) {
     let registered = false;
     let current = null;
     let generation = null;
@@ -339,7 +339,7 @@ function install({ router, environment, home = () => null, forwarding = () => fa
         start(call, done) {
             try { done({ outcome: "completed", content: owner().guidance() }); }
             catch (error) { done({ outcome: "failed", content: error.message }); }
-        } }, home, environment, forwarding);
+        } }, home, environment, main);
     router.register("guidance", guidance);
     function register() {
         if (registered || closed) return;

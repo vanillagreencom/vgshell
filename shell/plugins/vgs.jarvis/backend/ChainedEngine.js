@@ -1687,16 +1687,16 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             // still blocks the next turn and this cancellation's acknowledgement.
             const cancelled = c.brain;
             c.quiet = (turn.phase === "fast" || turn.phase === "queued" || turn.phase === "relay" || cancelled === null ? c.quiet : cancelled.cancel()).then(() => {
+                // A running call's real outcome follows on a later turn,
+                // whichever brain asks next: a fleet-route change may have
+                // replaced this one since.
+                const running = routing ? turn.calls.find(call => turn.routing === call) : undefined;
+                if (running !== undefined) c.late.set(running.id, { call: running, op: turn.op });
                 // Every call in history gets an answer, so the next request is
-                // valid; a brain closed since keeps no history. A running
-                // call's real outcome follows on a later turn.
+                // valid; a brain closed since keeps no history.
                 if (routing && cancelled !== null && c.brain === cancelled) cancelled.record({ kind: "tool-results", results: turn.calls.map(call => {
                     if (turn.answers.has(call.id)) return { id: call.id, ...turn.answers.get(call.id) };
-                    if (turn.routing === call) {
-                        c.late.set(call.id, { call, op: turn.op });
-                        return router.interrupted(call, "running");
-                    }
-                    return router.interrupted(call, "not-started");
+                    return router.interrupted(call, turn.routing === call ? "running" : "not-started");
                 }) });
                 done();
             });

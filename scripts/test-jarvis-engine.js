@@ -2043,6 +2043,53 @@ async function cases(kit, server, only = null, mutation = false) {
         assert.equal(user(await requested(w, fourth + 1, "the fourth request")).at(-1), "Bye.");
     }, { holdTools: true });
 
+    // A duplex delegation cancels the turn and sends the next one in one
+    // drain. After the fleet route changed while a call ran, that send
+    // replaces the brain before the cancellation's continuation runs; the
+    // running call's real outcome still reaches the next user turn, once.
+    const replacedRoute = { main: true };
+    await run("stale-outcome-replaced", async w => {
+        // The brain port as a duplex Session's drain drives it (Session.js
+        // delegation): the delegation's brain-send right after its
+        // brain-cancel, here an empty one, which opens the new brain alone.
+        const port = w.runner.ports.brain;
+        let delegated = false;
+        w.runner.ports.brain = { ...port, cancel(e, done) {
+            port.cancel(e, done);
+            if (delegated) return;
+            delegated = true;
+            port.send({ gen: e.gen, op: e.target + 1000, owner: w.s().brain.op, text: "" }, () => {});
+        } };
+        const first = await say(w, utterance("Focus the editors."));
+        server.replies.push(calls({ id: "call_1", name: "windows_focus", arguments: { window: "0x1f" } }));
+        await until(() => w.held.length === 1, "the stand-in executor holds the call");
+        replacedRoute.main = false;
+        control.utterances.push(utterance("Wait."));
+        w.runner.dispatch({ type: "talk-down" });
+        await until(() => w.s().capture.kind === "open", "capture reopens while the tool runs");
+        assert.equal(delegated, true, "the interruption cancelled the routing turn");
+        server.replies.push(text("Waiting."));
+        release(w);
+        const faulted = () => w.s().fault.kind === "error";
+        const fleetTools = body => body.tools.map(tool => tool.function.name).filter(name => name.startsWith("fleet_"));
+        assert.deepEqual(fleetTools(await requested(w, first + 2, "the request after the interruption", faulted)), ["fleet_forward"],
+            "the new brain offers the new fleet route");
+        w.held[0]({ outcome: "completed", content: "focused late" });
+        await turn();
+        await settled(() => w.s().turn.kind === "none" && w.s().playback.kind !== "idle", faulted, "the second reply speaks");
+        await playOut(w);
+        const third = await say(w, utterance("Thanks."));
+        server.replies.push(text(""));
+        assert.equal(user(await requested(w, third + 1, "the third request")).at(-1),
+            "[late result] Your interrupted call windows.focus ended completed: focused late\n\nThanks.",
+            "the real outcome reaches the next user turn");
+        await settled(() => w.s().turn.kind === "none", faulted, "the third reply completes its turn");
+        const fourth = await say(w, utterance("Bye."));
+        server.replies.push(text(""));
+        assert.equal(user(await requested(w, fourth + 1, "the fourth request")).at(-1), "Bye.", "once");
+        assert.deepEqual(w.faults, []);
+    }, { holdTools: true, route: replacedRoute });
+
     // A tool result's image reaches the brain beside its text, for a brain
     // whose row takes images; an engine with no ready brain takes none.
     await run("screen-image", async w => {
@@ -3726,7 +3773,8 @@ async function groupPlants(root, server) {
         ["result-identity", 'if (turn !== null && turn.op === value.op && turn.phase === "routing" && turn.routing?.id === id) {',
             "if (turn !== null) {", "stale-outcome"],
         ["interrupted-answers", "if (routing && cancelled !== null && c.brain === cancelled) cancelled.record(", "if (false) cancelled.record(", "stale-outcome"],
-        ["not-started", 'return router.interrupted(call, "not-started");', 'return router.interrupted(call, "running");', "stale-outcome"],
+        ["not-started", 'return router.interrupted(call, turn.routing === call ? "running" : "not-started");', 'return router.interrupted(call, "running");', "stale-outcome"],
+        ["late-replaced-brain", "if (running !== undefined) c.late.set(", "if (running !== undefined && c.brain === cancelled) c.late.set(", "stale-outcome-replaced"],
         ["late-result", "c.results.push(lateItem(late.call, value.outcome, item));", "void lateItem;", "stale-outcome"],
         ["fleet-line-absent", '"fleet.request": { completed: "Asking Jarvis\'s session." },', "", "fleet-request-completed-silent"],
         ["fleet-route-kept", "fleetRoute(router.offer()) !== c.fleet", "false", "fleet-route"],

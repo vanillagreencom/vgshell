@@ -126,21 +126,38 @@ world(async () => {
             ]) assert.deepEqual(await forward(text), { outcome: "failed", content }, label);
             assert.equal(forwards().length, before, "a refused request never reaches the package");
 
-            for (const [label, answer, outcome, cause] of [
-                ["queued", { exit: 75, cause: "main-unreachable" }, "completed", "main-unreachable"],
-                ["refused by the main", { exit: 75, cause: "mailbox-missing" }, "failed", "mailbox-missing"]
-            ]) {
-                h.state({ main: "cachy:" + h.folder, forward: answer });
+            // The package keeps every queued entry and sends it again on each
+            // pass, whatever its cause (forward.py record, send, drain): each
+            // queued answer completes, naming the cause.
+            for (const [label, cause] of [["main unreachable", "main-unreachable"], ["main mailbox missing", "mailbox-missing"],
+                ["ssh not started", "send-failed"]]) {
+                h.state({ main: "cachy:" + h.folder, forward: { exit: 75, cause } });
                 const result = await forward("Queued.");
-                assert.deepEqual([result.outcome, result.content.includes(cause)], [outcome, true], label + " names its cause");
+                assert.deepEqual([result.outcome, result.content.includes(cause)], ["completed", true], label + " is queued and names its cause");
             }
             h.state({ main: "cachy:" + h.folder, forward: { exit: 2, cause: "request-conflict" } });
             assert.deepEqual(await forward("Refused."), { outcome: "failed", content: "fleet-forward:request-conflict" });
 
+            // The package's setter judges the value by its role rule and
+            // stores nothing it refuses (session.py main_host); the reading
+            // names the refusal, not the setting the package kept.
             value = "not a host";
+            const premise = cp.spawnSync("python3", ["-c", "import sys; sys.path.insert(0, sys.argv[1]); import watch; print(watch.role({'JARVIS_MAIN_HOST': sys.argv[2]}).kind)",
+                packageLib, Satellite.settingOf(value, h.folder)], { encoding: "utf8", env: { PATH: process.env.PATH, LANG: "C.UTF-8" } });
+            assert.equal(premise.stdout.trim(), "invalid", "the package's role rule refuses the value: " + premise.stderr);
             await s.choose();
             await until(() => published.at(-1).cause === "setting-invalid", "the package judges the setting");
+            assert.deepEqual(published.at(-1), { kind: "satellite", host: "not a host", reachable: null, cause: "setting-invalid" });
+            assert.ok(logs.includes("jarvis: satellite=main-host cause=setting-invalid"), logs.join("\n"));
             assert.equal(s.executor.available(), false, "an unparsed setting offers no forward");
+
+            // A setter that cannot store the setting leaves the package to repair.
+            h.state({ main: "cachy:" + h.folder, setter: "unwritable" });
+            value = "jarvis";
+            await s.choose();
+            await until(() => published.at(-1).host === "jarvis", "a refused store reads again");
+            assert.deepEqual(published.at(-1), { kind: "unavailable", host: "jarvis", cause: "package" });
+            assert.ok(logs.includes("jarvis: satellite=main-host cause=private-file-unwritable"), logs.join("\n"));
 
             // The installed package before its setter: the choice is logged
             // as refused, and the reading names the setting it did not take.
@@ -183,7 +200,7 @@ world(async () => {
     for (const [name, file, needle, replacement, check] of [
         ["caller-claim", satelliteFile, 'if (claims(call.args.text)) return failed("caller-claim");', "", live],
         ["secret", satelliteFile, 'if (Redact.secret(call.args.text)) return failed("secret");', "", live],
-        ["terminal-cause", satelliteFile, "if (TERMINAL.includes(cause))", "if (false)", live],
+        ["setter-refusal", satelliteFile, "                rejected = { setting: chosen, cause };\n", "", live],
         ["ssh-agent", satelliteFile, "SessionCommand.callEnvironment(environment, SSH_ENVIRONMENT)", "SessionCommand.callEnvironment(environment)", live],
         ["environment-pick", sessionFile, "for (const name of [...CALL_ENVIRONMENT, ...extra]) if (kept[name] !== undefined) picked[name] = kept[name];",
             "Object.assign(picked, kept);", live],
