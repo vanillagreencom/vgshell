@@ -1754,16 +1754,22 @@ function verify(logic) {
     ])
         same(logic.emojiSegments(logic.styledBody(body, "Slack", ""), lookup), want, "segments of " + label);
 
-    // One message from Slack's own client and from its web client: [label,
-    // the first copy, the second, whether they are one message].
+    // One message from Slack's own client and from its web client, or twice
+    // from one client: [label, the first copy, the second, whether they are
+    // one message]. The same-client window's edge is inclusive.
     const note = (key, app, summary, body, at) => ({ key, app, appIcon: "", desktopEntry: app === "Slack" ? "slack" : "", summary, body, timestamp: at });
     const desk = note("d", "Slack", "[acme] in master-operator", "fleet: Done: your agent settings", 1000);
     const web = note("w", "", "New message in master-operator", "app.slack.com\n\nfleet: Done:  your agent <b>settings</b>", 4000);
+    const copyAt = (entry, key, at) => Object.assign({}, entry, { key, timestamp: at });
     for (const [label, first, second, want] of [
         ["desktop then browser", desk, web, true],
         ["browser then desktop", web, desk, true],
-        ["both from the desktop", desk, Object.assign({}, desk, { key: "d2", timestamp: 2000 }), false],
-        ["both from a browser", web, Object.assign({}, web, { key: "w2", timestamp: 5000 }), false],
+        ["both from the desktop 81 ms apart", desk, copyAt(desk, "d2", 1081), true],
+        ["both from the desktop at the same-client edge", desk, copyAt(desk, "d2", 2000), true],
+        ["both from the desktop past the same-client edge", desk, copyAt(desk, "d2", 2001), false],
+        ["both from the desktop 5 s apart", desk, copyAt(desk, "d2", 6000), false],
+        ["both from a browser 81 ms apart", web, copyAt(web, "w2", 4081), true],
+        ["both from a browser 5 s apart", web, copyAt(web, "w2", 9000), false],
         ["outside the window", desk, Object.assign({}, web, { timestamp: 11001 }), false],
         ["at the window's edge", desk, Object.assign({}, web, { timestamp: 11000 }), true],
         ["another conversation", desk, Object.assign({}, web, { summary: "New message in eng" }), false],
@@ -1780,7 +1786,8 @@ function verify(logic) {
     for (const [label, prior, message, onScreen, want] of [
         ["a desktop copy after a browser card still on screen", "browser", "desktop", true, "message"],
         ["a desktop copy after a browser card that left", "browser", "desktop", false, "prior"],
-        ["a browser copy after a desktop card", "desktop", "browser", true, "prior"]
+        ["a browser copy after a desktop card", "desktop", "browser", true, "prior"],
+        ["a desktop copy after a desktop card still on screen", "desktop", "desktop", true, "prior"]
     ])
         assert.equal(logic.duplicateKept({ source: prior }, { source: message }, onScreen), want, "kept: " + label);
     const recent = Array.from({ length: 40 }, (_, i) => ({ key: "k" + i, at: 1000 + i }));
@@ -1792,13 +1799,13 @@ function verify(logic) {
     // what each does: "shown" (no copy), "kept-prior" or "kept-message"].
     // A matched pair is settled, so a later message as alike as either
     // copy shows.
-    const copyAt = (entry, key, at) => Object.assign({}, entry, { key, timestamp: at });
     for (const [label, entries, want] of [
+        ["desktop, then its desktop twin 81 ms later", [desk, copyAt(desk, "d2", 1081)], ["shown", "kept-prior"]],
         ["desktop, its browser copy, then another browser message", [desk, copyAt(web, "w", 2000), copyAt(web, "w2", 3000)], ["shown", "kept-prior", "shown"]],
         ["desktop, its browser copy, then another desktop message", [desk, copyAt(web, "w", 2000), copyAt(desk, "d2", 3000)], ["shown", "kept-prior", "shown"]],
         ["browser, its desktop copy, then another browser message", [copyAt(web, "w", 1000), copyAt(desk, "d", 2000), copyAt(web, "w2", 3000)], ["shown", "kept-message", "shown"]],
         ["browser, its desktop copy, then another desktop message", [copyAt(web, "w", 1000), copyAt(desk, "d", 2000), copyAt(desk, "d2", 3000)], ["shown", "kept-message", "shown"]],
-        ["an unmatched message stays remembered", [desk, copyAt(desk, "d2", 2000), copyAt(web, "w", 3000)], ["shown", "shown", "kept-prior"]]
+        ["an unmatched message stays remembered", [desk, copyAt(desk, "d2", 6000), copyAt(web, "w", 7000)], ["shown", "shown", "kept-prior"]]
     ]) {
         let remembered = [];
         const got = entries.map(entry => {
@@ -1983,12 +1990,14 @@ const CONTROLS = [
     ["a bot also goes by its (bot) name", 'names.concat(names.map(function (n) { return n + " (bot)"; }))', "names"],
     ["only a bot goes by a (bot) name", "slackUserNames(userNames, user.bot === true)", "slackUserNames(userNames, true)"],
     ["a face with no workspace takes the one holder's photo", "var only = holders.length === 1 ? slackUserPhotoMap(holders[0]) : {};", "var only = holders.length > 0 ? slackUserPhotoMap(holders[0]) : {};"],
-    ["copies come from two clients", "r.rule === message.rule && r.source !== message.source &&", "r.rule === message.rule &&"],
-    ["copies arrive within the window", "&& Math.abs(message.at - r.at) <= DUPLICATE_WINDOW) return r;", ") return r;"],
+    ["copies from one client are one message", "r.rule === message.rule && r.conversation", "r.rule === message.rule && r.source !== message.source && r.conversation"],
+    ["copies from one client arrive within the short window", "? SAME_CLIENT_WINDOW : DUPLICATE_WINDOW;", "? DUPLICATE_WINDOW : DUPLICATE_WINDOW;"],
+    ["copies arrive within the window", "&& Math.abs(message.at - r.at) <= within) return r;", ") return r;"],
     ["copies share a workspace or name none", "(r.workspace === message.workspace || r.workspace === \"\" || message.workspace === \"\")", "true"],
     ["copies share their text", "&& r.sender === message.sender && r.text === message.text", "&& r.sender === message.sender"],
     ["copies share their markup-free text", ".replace(/<[^>]*>/g, \" \").replace(/\\s+/g, \" \").trim(),", ","],
-    ["the desktop copy replaces a browser card on screen", "return message.source === \"desktop\" && priorOnScreen ? \"message\" : \"prior\";", "return \"prior\";"],
+    ["the desktop copy replaces a browser card on screen", "return message.source === \"desktop\" && prior.source !== \"desktop\" && priorOnScreen ? \"message\" : \"prior\";", "return \"prior\";"],
+    ["a copy from one client keeps the first card", " && prior.source !== \"desktop\" && priorOnScreen", " && priorOnScreen"],
     ["the remembered messages are capped", ".concat([message]).slice(-DUPLICATES_MAX);", ".concat([message]);"],
     ["a shortcode is read only between tags", "var run = open === -1 ? text.slice(i) : text.slice(i, open);", "var run = text.slice(i);"],
     ["a shortcode resolves by an own name alone", "if (count >= EMOJI_PER_BODY || !hasOwn(lookup, found[1])) {", "if (count >= EMOJI_PER_BODY || !lookup[found[1]]) {"],

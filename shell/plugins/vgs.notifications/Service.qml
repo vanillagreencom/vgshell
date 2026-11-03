@@ -495,7 +495,8 @@ Item {
     }
 
     // Whether a new notification shows: false for a second copy of a
-    // message another client already delivered, whose first copy stays;
+    // message another client already delivered, or the same client
+    // delivered moments before, whose first copy stays;
     // true otherwise, after the first copy's toast, while it is still on
     // screen, leaves with no history entry when this copy is the one to
     // keep. A matched pair is settled and matches no later message
