@@ -2704,8 +2704,9 @@ catalog_extract scene_power "$power_scene"
 power_tree="$tmp/power-tree"
 mkdir -p "$power_tree/shell/plugins/vgs.power"
 : >"$power_tree/shell/plugins/vgs.power/Pane.qml"
-power_scene_case() {
-  env -i PATH="$PATH" tree="$power_tree" "$BASH" -c '
+power_scene_case() { # SCENE [WANT [TREE]]
+  local want="${2:-$'power-dark-bar\npower-dark-panel\npower-dark-pane\npower-dark-notice-low\npower-dark-notice-critical\npower-dark-panel-no-battery'}"
+  env -i PATH="$PATH" tree="${3:-$power_tree}" "$BASH" -c '
     set -euo pipefail
     source "$1"
     devices_ready() { :; }
@@ -2739,9 +2740,20 @@ power_scene_case() {
     scene_power dark
     [[ $logind == stopped ]]
   ' _ "$1" >"$tmp/power-scene.out" &&
-    [[ $(<"$tmp/power-scene.out") == $'power-dark-bar\npower-dark-panel\npower-dark-pane\npower-dark-notice-low\npower-dark-notice-critical\npower-dark-panel-no-battery' ]]
+    [[ $(<"$tmp/power-scene.out") == "$want" ]]
 }
 if power_scene_case "$power_scene"; then ok "Power scans its fake daemon before enable and captures both notices and its panel with no battery"; else fail "Power scene order or captures failed"; fi
+# A tree that ships Stay awake adds its bar and flyout shots with and
+# without a battery; the section's own shot is power_shot_pane's.
+power_awake_tree="$tmp/power-awake-tree"
+mkdir -p "$power_awake_tree/shell/plugins/vgs.power"
+: >"$power_awake_tree/shell/plugins/vgs.power/Pane.qml"
+: >"$power_awake_tree/shell/plugins/vgs.power/StayAwake.qml"
+if power_scene_case "$power_scene" $'power-dark-bar\npower-dark-panel\npower-dark-bar-stay-awake\npower-dark-panel-stay-awake\npower-dark-pane\npower-dark-notice-low\npower-dark-notice-critical\npower-dark-panel-no-battery\npower-dark-bar-no-battery-stay-awake\npower-dark-panel-no-battery-stay-awake' "$power_awake_tree"; then
+  ok "a tree with Stay awake adds its bar and flyout shots with and without a battery"
+else
+  fail "Power scene Stay awake captures failed"
+fi
 power_mutant="$tmp/power-scene-mutant.sh"
 for defect in no-scan late-daemon; do
   python3 - "$power_scene" "$power_mutant" "$defect" <<'PYCONTROL'

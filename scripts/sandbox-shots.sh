@@ -6519,7 +6519,7 @@ scene_power() { # MODE
   expect "Power's panel hides" ok ipc shell hide panel vgs.power
   # A tree that ships Stay awake takes it on, for 2 hours, in the bar and
   # the flyout.
-  if power_shot_stay_awake_shipped; then
+  if [[ -f $tree/shell/plugins/vgs.power/StayAwake.qml ]]; then
     expect "Stay awake starts for its shot" ok ipc vgs.power invoke stay-awake 120
     expect_poll "Power publishes Stay awake on" True power_shot_stay_awake
     park_pointer
@@ -6549,9 +6549,7 @@ scene_power() { # MODE
   park_pointer
   take "power-$1-panel-no-battery"
   expect "Power's panel with no battery hides" ok ipc shell hide panel vgs.power
-  park_pointer
-  take "power-$1-bar-no-battery"
-  if power_shot_stay_awake_shipped; then
+  if [[ -f $tree/shell/plugins/vgs.power/StayAwake.qml ]]; then
     expect "Stay awake starts with no battery for its shot" ok ipc vgs.power invoke stay-awake 0
     expect_poll "Power publishes Stay awake on with no battery" True power_shot_stay_awake
     park_pointer
@@ -6681,7 +6679,7 @@ power_shot_pane() { # MODE
   [[ $wake == no ]] || expect_poll "Power's section draws Wake on LAN off" off power_wol_field
   park_pointer
   power_shot_pane_pages "power-$1-pane"
-  if power_shot_stay_awake_shipped; then
+  if [[ -f $tree/shell/plugins/vgs.power/StayAwake.qml ]]; then
     expect "Stay awake starts for the section shot" ok ipc vgs.power invoke stay-awake 120
     expect_poll "Power publishes Stay awake on for the section" True power_shot_stay_awake
     power_revealed "$(ipc smoke revealText window vgs.system Field "Time left")" || fail "Power's section did not reveal Stay awake"
@@ -6773,9 +6771,6 @@ print("complete" if stages and len(rows) == len(stages) else "incomplete", sum(r
 power_shot_install() { [[ $(ipc smoke windowGeometry window vgs.power RowAction "Install power profiles") == \[* ]] && echo shown || echo hidden; }
 power_shot_panel() { [[ $(ipc smoke instanceGeometry panel vgs.power) != absent ]] && echo shown || echo hidden; }
 power_shot_level() { ipc smoke statusValues vgs.power | py_reply 'import json,sys; print(json.load(sys.stdin)["power"]["battery"]["level"])'; }
-# Whether the tree under shot ships Stay awake, and whether Power
-# publishes it on.
-power_shot_stay_awake_shipped() { [[ -f $tree/shell/plugins/vgs.power/StayAwake.qml ]]; }
 power_shot_stay_awake() { ipc smoke statusValues vgs.power | py_reply 'import json,sys; print(json.load(sys.stdin)["power"].get("stayAwake", {}).get("active"))'; }
 power_shot_profiles() { ipc smoke statusValues vgs.power | py_reply 'import json,sys; print(json.load(sys.stdin)["power"]["profile"]["available"])'; }
 power_shot_battery() { ipc smoke statusValues vgs.power | py_reply 'import json,sys; print(json.load(sys.stdin)["power"]["battery"]["present"])'; }

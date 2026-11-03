@@ -7,8 +7,8 @@
 # - the provider refuses a hold past a day with the core's refusal;
 # - a hold until released pauses the idle source and holds a 1 s watch
 #   past its time;
-# - of two holds, the first one's disposer keeps the pause, and the
-#   second's ends it, after which the watch goes idle;
+# - of two holds, the second one's disposer keeps the pause, and the
+#   first's ends it, after which the watch goes idle;
 # - a 2 s hold ends by its timer and calls its end once, and a hold
 #   released before its timer calls no end;
 # - disabling the holder ends its hold, and the holder built again holds
@@ -42,7 +42,8 @@ sa_pause() { ipc shell lent | py_reply 'import json,sys; p=json.load(sys.stdin).
 # The fixture's plain 1 s watch: `true` or `false` while it is idle or
 # not, `none` with no such watch.
 sa_watch() { ipc shell lent | py_reply 'import json,sys; w=[x for x in json.load(sys.stdin)["idle"] if x["id"] == "acme.stayawake" and x["timeout"] == 1]; print(json.dumps(w[0]["idle"]) if len(w) == 1 else "none")'; }
-sa_invoke() { ipc acme.stayawake invoke "$@"; }
+# IPC invoke takes one argument, empty for a handler that reads none.
+sa_invoke() { ipc acme.stayawake invoke "$1" "${2:-}"; }
 sa_built() {
   rescan "a rescan after adding the Stay awake fixture answers ok"
   expect_poll "the Stay awake fixture is discovered" True plugin_known acme.stayawake
@@ -114,8 +115,8 @@ expect "the fixture takes a 1 s watch during the hold" ok sa_invoke watch 1
 sleep 3
 expect "a hold keeps a 1 s watch from going idle past its time" false sa_watch
 expect "the fixture takes a second hold" ok sa_invoke hold 0
-expect "the first hold's disposer is run" ok sa_invoke release
-expect "the second hold keeps the pause" "$sa_held" sa_pause
+expect "the second hold's disposer is run" ok sa_invoke release
+expect "the first hold keeps the pause" "$sa_held" sa_pause
 sa_release_check
 expect_poll "the watch counts again and goes idle" true sa_watch
 expect "the disposer again ends nothing more" none sa_invoke release

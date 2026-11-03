@@ -228,7 +228,9 @@ print(json.dumps(sorted(k for k in json.loads(sys.argv[2]) if schema[k]["label"]
 # power_pane_choices TYPE: the currentIndex of each shown TYPE control of
 # the mounted pane, top to bottom: the SegmentedControls of When charging
 # and On battery, or the Selects of Low and Critical battery alert.
-power_pane_choices() { ipc smoke itemValues window vgs.power "$1" currentIndex,visible | py_reply 'import json,sys; print(json.dumps([r["currentIndex"] for r in json.load(sys.stdin) if r["visible"]]))'; }
+# power_pane_choices TYPE: each shown TYPE's current index in the section's
+# settings groups, Stay awake's list left out.
+power_pane_choices() { ipc smoke itemValues window vgs.power "$1" currentIndex,visible,Accessible.name | py_reply 'import json,sys; print(json.dumps([r["currentIndex"] for r in json.load(sys.stdin) if r["visible"] and r["Accessible.name"] != "Stay awake for"]))'; }
 power_pane_list_open() { ipc smoke itemValues window vgs.power Select listOpen | py_reply 'import json,sys; print(any(r["listOpen"] for r in json.load(sys.stdin)))'; }
 
 # The message kind (ValueSourceRow) of Power's Key press wake and Pointer
@@ -275,8 +277,12 @@ DISPLAY_WAKE
 }
 # power_pane_pick FIELD TYPE TEXT: bring the TYPE reading TEXT inside the
 # Field labelled FIELD into view and click it. The System window holds the
-# page's scroll area, so the reveal goes through it.
+# page's scroll area, so the reveal goes through it. The section takes the
+# keys a moment after its window maps, and its scroll area then reveals
+# the focused item, the section's content from its top
+# (ScrollArea.revealFocus), so the reveal waits for the keys first.
 power_pane_pick() {
+  expect_poll "Power's section holds the keys before a pick" true ipc smoke activeFocusIn window vgs.power
   power_revealed "$(ipc smoke revealScopedText window vgs.system Field "$1" "$2" "$3")" || { echo "power_pane_pick: $2 $3 in $1 is not revealed" >&2; return 1; }
   click_scoped_in "window:System Settings" window vgs.power Field "$1" "$2" "$3"
 }
@@ -331,6 +337,8 @@ rows = [r for r in json.load(sys.stdin) if "Time left" in r or "Duration" in r]
 print(json.dumps(sorted(t for t in rows[0] if t in ("Time left", "Duration", "Until you end it") or t.endswith(" left")) if len(rows) == 1 else len(rows)))'; }
 # power_item_count: how many of the widget's bar items show.
 power_item_count() { ipc smoke itemValues "$(bar_key)" "${power_id:-vgs.power}" BarItem visible | py_reply 'import json,sys; print(sum(1 for r in json.load(sys.stdin) if r["visible"]))'; }
+# power_texts: the texts of each of the widget's three bar items, battery,
+# profile and Stay awake, shown or not.
 power_texts() { ipc smoke itemTexts "$(bar_key)" "${power_id:-vgs.power}" BarItem | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)))'; }
 power_setting() { python3 - "$home/.config/vgshell/shell.json" "$1" <<'PY_SET'
 import json, sys
@@ -1027,7 +1035,7 @@ EOF_STAND
   rescan "rescan after removing the wake fixtures answers ok"
   expect "the service's watch and reads name the system bus and no address" '["--system"]' power_service_buses
   expect "the first enable does not apply the remembered battery profile" power-saver power_profile_get
-  expect_poll "the widget draws the 51 percent battery text" '[["51%"], []]' power_texts
+  expect_poll "the widget draws the 51 percent battery text" '[["51%"], [], []]' power_texts
   expect_poll "with a battery and barProfile off the widget draws the medium battery icon alone" '["battery-medium"]' power_icons
   power_charging 52.0 2400
   expect_poll "the service reads the charging level" 52 power_level
@@ -1207,7 +1215,7 @@ EOF_STAND
   expect_poll "a second click stores barProfile off" false power_setting barProfile
   expect_poll "with barProfile off again the widget hides the profile item" 1 power_item_count
   power_no_battery
-  expect_poll "removing the display battery hides the widget battery text" '[[], []]' power_texts
+  expect_poll "removing the display battery hides the widget battery text" '[[], [], []]' power_texts
   expect_poll "removing the display battery leaves the profile icon" '["zap"]' power_icons
   expect_poll "with no battery the service publishes the battery absent" '"absent"' power_battery_presence
   expect_poll "with no battery Settings draws none of Power's battery fields" '[]' power_battery_fields

@@ -3,9 +3,9 @@ import QtQuick
 // Stay awake holds and one plain idle watch for
 // scripts/smoke/rows/stay-awake.sh, which reads them through the core's
 // lending record. IPC: `hold <seconds>` takes one more hold and answers
-// `ok` or the core's refusal; `release` runs the oldest hold's disposer;
-// `ends` counts the end calls the core made; `watch <seconds>` replaces
-// the watch.
+// `ok` or the core's refusal; `release` runs the newest hold's disposer,
+// one the timer ended among them; `ends` counts the end calls the core
+// made; `watch <seconds>` replaces the watch.
 Item {
     id: root
     property var shell: null
@@ -30,8 +30,8 @@ Item {
         });
         shell.ipc.handle("release", () => {
             if (root.holds.length === 0) return "none";
-            const dispose = root.holds[0];
-            root.holds = root.holds.slice(1);
+            const dispose = root.holds[root.holds.length - 1];
+            root.holds = root.holds.slice(0, -1);
             dispose();
             return "ok";
         });
