@@ -41,6 +41,7 @@ Item {
         id: fakePanel
         property var shell: null
         property var plugins: []
+        property var installFailures: ({})
         property var capture: null
         property var writing: null
         function writeKey() { return "ok"; }

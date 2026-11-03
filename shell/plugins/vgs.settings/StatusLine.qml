@@ -15,7 +15,8 @@ import "Steps.js" as Steps
 // `tone` "", `text` as one line in the value role, the label's pair,
 // or the itemHint role while `muted`; with neither, the hint itself on the
 // label's row, its `hintLink` words still a link, so a line that names a
-// group never leaves its value column empty. Its lines sit `field.gap` apart: one group of the row's GroupList.
+// group never leaves its value column empty. While `plainLines`, the
+// Field draws `lines`, then `output`, in place of those Badges. Its lines sit `field.gap` apart: one group of the row's GroupList.
 //
 // The step is one of: `actionLabel` while `actionOffered`, an action in
 // `actionTone`, a danger one led by the mark `actionIcon` names or by the
@@ -50,6 +51,9 @@ Column {
     property string tone: ""
     property string text: ""
     property var lines: []
+    // A program's own text under `lines` while `plainLines`, such as a
+    // failed install's last lines (Field `output`).
+    property var output: []
     property bool plainLines: false
     property bool muted: false
     property string actionLabel: ""
@@ -174,6 +178,7 @@ Column {
         onHintPageActivated: (page, tab) => line.hintPageActivated(page, tab)
         error: line.error
         lines: line.plainLines ? line.lines : []
+        output: line.plainLines ? line.output : []
         // The step stands right after the value, centred on the value's
         // first line, its chip or its text, while the two fit the value
         // column; past that, as for a long chip, the step goes under the

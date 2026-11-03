@@ -324,7 +324,8 @@ function suite(ctx, check) {
         check("noticeOwnerError: " + name, ctx.noticeOwnerError(owner, owners, ["acme.needs"]), want);
 
     // noticeAdmit: [name, queue, rest, id, request commands and required,
-    // trigger, want as [answer, queue as id: commands / required]].
+    // trigger, want as [answer, queue as id: commands / required]], with
+    // acme.failed's last install failed.
     const n = (id, commands, required) => ({ id, commands, required });
     const shown = q => q.map(e => e.id + ": " + e.commands.join(",") + " / " + e.required.join(","));
     const full = Array.from({ length: 8 }, (_, i) => n("acme.p" + i, ["c"], ["c"]));
@@ -343,14 +344,17 @@ function suite(ctx, check) {
         ["a resting plugin's suggestion merges into its held notice", [n("acme.needs", ["a"], ["a"])], { "acme.needs": 1500 }, "acme.needs", n("", ["b"], ["b"]), "suggested", ["ok", ["acme.needs: a,b / a,b"]]],
         ["a full queue refuses a ninth plugin", full, {}, "acme.needs", n("", ["a"], ["a"]), "installed", ["refused: notices=full limit=8", shown(full)]],
         ["a full queue still merges a held plugin", full, {}, "acme.p3", n("", ["d"], ["d"]), "installed", ["ok", shown(full).map(line => line.startsWith("acme.p3:") ? "acme.p3: c,d / c,d" : line)]],
+        ["a suggestion after a failed install is refused", [], {}, "acme.failed", n("", ["a"], ["a"]), "suggested", ["refused: requirements=acme.failed reason=install-failed", []]],
+        ...["offered", "installed", "enabled", "requested", "chosen"].map(trigger =>
+            ["a press after a failed install raises the notice: " + trigger, [], {}, "acme.failed", n("", ["a"], ["a"]), trigger, ["ok", ["acme.failed: a / a"]]]),
     ];
     for (const [name, queue, rest, id, request, trigger, want] of admitRows) {
         const before = JSON.stringify(queue);
-        const r = ctx.noticeAdmit(queue, rest, id, request, trigger, 1000);
+        const r = ctx.noticeAdmit(queue, rest, ["acme.failed"], id, request, trigger, 1000);
         check("noticeAdmit: " + name, [r.answer, shown(r.queue)], want);
         check("noticeAdmit leaves the queue it was handed alone: " + name, JSON.stringify(queue), before);
     }
-    check("noticeAdmit throws on a trigger no rule covers", (() => { try { ctx.noticeAdmit([], {}, "acme.needs", n("", ["a"], ["a"]), "asked", 0); return "answered"; } catch (e) { return e.message; } })(), "notices: trigger \"asked\" is not one of installed, enabled, offered, suggested, requested, chosen");
+    check("noticeAdmit throws on a trigger no rule covers", (() => { try { ctx.noticeAdmit([], {}, [], "acme.needs", n("", ["a"], ["a"]), "asked", 0); return "answered"; } catch (e) { return e.message; } })(), "notices: trigger \"asked\" is not one of installed, enabled, offered, suggested, requested, chosen");
     check("the queue holds eight plugins and an offer names sixteen commands", [ctx.NOTICE_QUEUE_MAX, ctx.NOTICE_OFFER_MAX], [8, 16]);
     check("a plugin's offers rest ten minutes after Not now", ctx.NOTICE_OFFER_REST_MS, 600000);
 
@@ -552,6 +556,75 @@ function suite(ctx, check) {
     }
     check("welcomeStep: a second read is refused", throws(() => ctx.welcomeStep("seen", { type: "read", seen: false })), "welcomeStep");
     check("welcomeStep: Close on a seen welcome is refused", throws(() => ctx.welcomeStep("seen", { type: "answer", answer: "close" })), "welcomeStep");
+
+    // An install attempt: what Notices keeps of a press's run from the
+    // press, how its end settles it, through the run's `done` or its ended
+    // record after a restart, what it reads back from its file, and what
+    // the plugin's Setup step shows of a failure.
+    const installRun = ctx.noticeRun("pacman", true, ["one", "two"], []);
+    const updateRun = ctx.noticeRun("aur", false, ["two-git"], ["old-bin"]);
+    check("noticeRun: the primary's install names its packages alone", [installRun.action, installRun.args], ["install", ["one", "two"]]);
+    check("noticeRun: an update of another manager names it, then the installs", [updateRun.action, updateRun.args], ["update", ["--manager", "aur", "old-bin", "--install", "two-git"]]);
+    const attempt = ctx.installAttempt(installRun, "7-1");
+    check("installAttempt: a press keeps its key, run and packages, pending", attempt, { state: "pending", key: "core/requirements-install", run: "7-1", manager: "pacman", primary: true, installs: ["one", "two"], updates: [], lines: [] });
+    const updateAttempt = ctx.installAttempt(updateRun, "7-2");
+    check("installAttempt: an update keeps the update key and its manager's place", [updateAttempt.key, updateAttempt.primary], ["core/requirements-update", false]);
+    const failedOutcome = { kind: "package-failed", manager: "pacman", helper: null, status: 1, lines: ["error: failed retrieving file", "error: failed to commit transaction"] };
+    const failedRun = Object.assign({}, attempt, { state: "failed", lines: failedOutcome.lines });
+    // installEnd: [name, result, want].
+    const endRows = [
+        ["a run that ended with code 0 keeps nothing", { code: 0, reason: null, package: null }, null],
+        ["a failed run keeps its outcome's last lines", { code: 1, reason: null, package: failedOutcome }, failedRun],
+        ["a failed run whose outcome holds no lines keeps none", { code: 2, reason: null, package: Object.assign({}, failedOutcome, { lines: undefined }) }, Object.assign({}, failedRun, { lines: [] })],
+        ["a failed run with no outcome keeps no lines", { code: 1, reason: null, package: null }, Object.assign({}, failedRun, { lines: [] })],
+        ["a launch that never started keeps no run", { code: null, reason: "launcher-failed", package: null }, Object.assign({}, failedRun, { run: null, lines: [] })],
+        ["a run the reaper ended keeps its run", { code: null, reason: "vanished", package: null }, Object.assign({}, failedRun, { lines: [] })],
+    ];
+    for (const [name, result, want] of endRows) check("installEnd: " + name, ctx.installEnd(attempt, result), want);
+    check("noticeRun: a kept failure runs again as it ran", (() => { const r = ctx.noticeRun(failedRun.manager, failedRun.primary, failedRun.installs, failedRun.updates); return [r.action, r.args]; })(), [installRun.action, installRun.args]);
+    const record = (run, code, pkg) => ({ key: "core/requirements-install", run: run, state: code === undefined ? "running" : "ended", code: code === undefined ? null : code, startedAt: run, endedAt: code === undefined ? null : run, window: { appId: "org.vgs.tui", title: "t" }, package: pkg === undefined ? null : pkg });
+    // installFailuresSettle: [name, kept, records, want], a restart during
+    // the run having left no `done` to settle it.
+    const attemptRows = [
+        ["a pending run whose record ended failed is kept failed", { "acme.needs": attempt }, [record("7-1", 1, failedOutcome)], { "acme.needs": failedRun }],
+        ["a pending run whose record ended with code 0 is forgotten", { "acme.needs": attempt }, [record("7-1", 0)], {}],
+        ["a pending run still running stays", { "acme.needs": attempt }, [record("7-1")], { "acme.needs": attempt }],
+        ["a pending run with no record yet stays", { "acme.needs": attempt }, [], { "acme.needs": attempt }],
+        ["a failure stays once a later run of its key removed its record", { "acme.needs": failedRun }, [record("8-1", 0)], { "acme.needs": failedRun }],
+        ["each plugin settles from its own run", { "acme.needs": attempt, "acme.other": Object.assign({}, attempt, { run: "8-1" }) }, [record("7-1", 0), record("8-1")], { "acme.other": Object.assign({}, attempt, { run: "8-1" }) }],
+    ];
+    for (const [name, kept, records, want] of attemptRows) check("installFailuresSettle: " + name, ctx.installFailuresSettle(kept, ctx.tuiRuns(records)), want);
+    const unsettled = { "acme.needs": failedRun };
+    check("installFailuresSettle: nothing to settle answers the same set", ctx.installFailuresSettle(unsettled, ctx.tuiRuns([record("7-1", 1)])) === unsettled, true);
+    check("installFailedOwners: a failed install alone refuses suggestions", ctx.installFailedOwners({ "acme.needs": failedRun, "acme.other": attempt }), ["acme.needs"]);
+    const readRows = [
+        ["a written failure reads back", { "acme.needs": failedRun }, { ok: true, failures: { "acme.needs": failedRun } }],
+        ["a written attempt reads back", { "acme.needs": attempt }, { ok: true, failures: { "acme.needs": attempt } }],
+        ["a failure of a launch that never started reads back", { "acme.needs": Object.assign({}, failedRun, { run: null, lines: [] }) }, { ok: true, failures: { "acme.needs": Object.assign({}, failedRun, { run: null, lines: [] }) } }],
+        ["the core keeps no failure", { core: failedRun }, { ok: false, error: "entry=core" }],
+        ["an owner that is no id", { "Acme Needs": failedRun }, { ok: false, error: "entry=\"Acme Needs\"" }],
+        ["a package that reads as an option", { "acme.needs": Object.assign({}, failedRun, { installs: ["--root=/"] }) }, { ok: false, error: "entry=acme.needs" }],
+        ["an unknown manager", { "acme.needs": Object.assign({}, failedRun, { manager: "brew" }) }, { ok: false, error: "entry=acme.needs" }],
+        ["a key that does not fit its packages", { "acme.needs": Object.assign({}, failedRun, { key: "core/requirements-update" }) }, { ok: false, error: "entry=acme.needs" }],
+        ["a key no notice runs", { "acme.needs": Object.assign({}, failedRun, { key: "core/pkg-install" }) }, { ok: false, error: "entry=acme.needs" }],
+        ["a malformed run", { "acme.needs": Object.assign({}, failedRun, { run: "../x" }) }, { ok: false, error: "entry=acme.needs" }],
+        ["an attempt with no run", { "acme.needs": Object.assign({}, attempt, { run: null }) }, { ok: false, error: "entry=acme.needs" }],
+        ["an unknown state", { "acme.needs": Object.assign({}, failedRun, { state: "done" }) }, { ok: false, error: "entry=acme.needs" }],
+        ["an attempt with lines", { "acme.needs": Object.assign({}, attempt, { lines: failedOutcome.lines }) }, { ok: false, error: "entry=acme.needs" }],
+        ["a line the judge would mask", { "acme.needs": Object.assign({}, failedRun, { lines: ["from https://user:pass@mirror.invalid/core"] }) }, { ok: false, error: "entry=acme.needs" }],
+        ["an extra field", { "acme.needs": Object.assign({}, failedRun, { argv: ["sh"] }) }, { ok: false, error: "entry=acme.needs" }],
+        ["no packages", { "acme.needs": Object.assign({}, failedRun, { installs: [] }) }, { ok: false, error: "entry=acme.needs" }],
+        ["a list", [failedRun], { ok: false, error: "shape" }],
+    ];
+    for (const [name, value, want] of readRows) check("installFailuresRead: " + name, ctx.installFailuresRead(JSON.stringify(value)), want);
+    check("installFailuresRead: text that is not JSON", ctx.installFailuresRead("{"), { ok: false, error: "json" });
+    const failureViewRows = [
+        ["a failure shows its packages and its kept last lines", failedRun, { action: "install", manager: "pacman", packages: ["one", "two"], lines: failedOutcome.lines, run: "7-1", key: "core/requirements-install" }],
+        ["a failure that kept no lines shows none", Object.assign({}, failedRun, { lines: [] }), { action: "install", manager: "pacman", packages: ["one", "two"], lines: [], run: "7-1", key: "core/requirements-install" }],
+        ["an attempt still pending shows no failure", attempt, null],
+        ["an update names its updates, then its installs", Object.assign({}, updateAttempt, { state: "failed" }), { action: "update", manager: "aur", packages: ["old-bin", "two-git"], lines: [], run: "7-2", key: "core/requirements-update" }],
+    ];
+    for (const [name, entry, want] of failureViewRows) check("installFailureView: " + name, ctx.installFailureView(entry), want);
 }
 
 suite(load(LOGIC), report);
@@ -644,6 +717,15 @@ const CONTROLS = [
     ["Close closes the welcome", "            return seen;\n        }\n", "            return keep;\n        }\n"],
     ["a Connect that wires closes the welcome", "(event.after.phase === \"wired\" || ", "("],
     ["only an answer closes the welcome on a consent change", "event.before.phase === \"asking\" && (", "("],
+    ["a launch that never started keeps no run", "run: unstarted ? null : entry.run,", "run: entry.run,"],
+    ["a failure keeps its outcome's lines", "lines: outcome !== null && outcome.kind === \"package-failed\" && outcome.lines !== undefined ? outcome.lines.slice() : [] });", "lines: [] });"],
+    ["a pending run settles from its ended record", "var result = entry.state === \"pending\" ? tuiRunDone(runs, entry.run) : null;", "var result = null;"],
+    ["a suggestion after a failed install is refused", "    if (trigger === \"suggested\" && failed.indexOf(id) !== -1)\n", "    if (false)\n"],
+    ["a kept failure's packages are judged", "&& names(e.installs) && names(e.updates) &&", "&&"],
+    ["a kept failure's key fits its packages", "&& e.key === NOTICE_RUN_KEYS[e.updates.length === 0 ? \"install\" : \"update\"]\n", "\n"],
+    ["a kept failure holds only its fields", "isPlainObject(e) && Object.keys(e).length === 8", "isPlainObject(e)"],
+    ["a kept failure's lines are judged", "(e.state === \"failed\" && PackageReview.failureLinesValid(e.lines))", "e.state === \"failed\""],
+    ["a pending attempt shows no failure", "    if (entry.state !== \"failed\") return null;\n", ""],
 ];
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "notice-logic-control-"));

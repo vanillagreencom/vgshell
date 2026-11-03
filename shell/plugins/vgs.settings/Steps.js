@@ -49,7 +49,7 @@ function startFailed(errors) { return startError(errors) !== ""; }
 // The chip of each reading, its word and its tone. The words are declared
 // here alone (docs/architecture/design-system.md § Settings pages).
 var STEP_CHIPS = { todo: { text: "To do", tone: "warning" }, done: { text: "Done", tone: "success" }, unavailable: { text: "Not available", tone: "neutral" },
-    optional: { text: "Optional", tone: "neutral" } };
+    optional: { text: "Optional", tone: "neutral" }, failed: { text: "Failed", tone: "danger" } };
 // The line an unreported step draws while its plugin is on and starting.
 var CHECKING_LINE = "Checking…";
 // What a Setup step draws of ENTRY for PLUGIN, { enabled, name, error,
@@ -93,6 +93,35 @@ function detailRequirements(requirements) { return requirements.filter(function 
 // tool, the one install action of Setup's Tools and Optional tools steps.
 var REVIEW_LABEL = "Review all missing or outdated tools";
 function reviewButton() { return { kind: "tools", key: "tools", name: "", label: REVIEW_LABEL, tone: "", icon: "", enabled: true, reason: "" }; }
+// The action that runs a failed install again as it ran, the Review
+// action's place while the install it started has failed.
+var RETRY_LABEL = "Try again";
+function retryButton() { return { kind: "retry", key: "retry", name: "", label: RETRY_LABEL, tone: "", icon: "", enabled: true, reason: "" }; }
+// NAMES as one list in plain words: "a", "a and b", "a, b and c".
+function namesText(names) {
+    return names.length < 2 ? names.join("") : names.slice(0, -1).join(", ") + " and " + names[names.length - 1];
+}
+// What failed, in plain words, of FAILURE, the `manager` capability's
+// installFailures entry: the package step and its packages, never its
+// command line (D061).
+var FAILURE_VERBS = { install: "Installing", update: "Updating" };
+function failureText(failure) {
+    return FAILURE_VERBS[failure.action] + " " + namesText(failure.packages) + " did not finish";
+}
+// What failed, as failureText says it, on a step that draws the install's
+// last lines while its run kept none.
+var FAILURE_UNREAD = ", and VGS could not read what the package manager printed";
+// VIEW, a Setup step's stepView, as it draws FAILURE, its plugin's failed
+// install, in place of its To do state: the Failed chip, then what failed,
+// its one line, and, while LINES, `output`, the install's last lines, the
+// package manager's own text, which the step draws apart from that line,
+// or that they could not be read.
+function failedView(view, failure, lines) {
+    var chip = STEP_CHIPS.failed;
+    var unread = lines && failure.lines.length === 0;
+    return Object.assign({}, view, { text: chip.text, tone: chip.tone, lines: [failureText(failure) + (unread ? FAILURE_UNREAD : "")],
+        output: lines ? failure.lines.slice() : [] });
+}
 // REQUIREMENTS by title, each that is missing or outdated marked so.
 function toolsText(requirements) {
     return requirements.map(function (row) { return row.title + (row.state === "outdated" ? " (outdated)" : row.state === "missing" ? " (missing)" : ""); }).join(", ");
@@ -131,8 +160,13 @@ function keyToolStep(requirements) {
 // PLUGIN, { enabled, failed }: its steps by stepRank, each in manifest
 // order with its key lists, and the Tools and Optional tools steps, each
 // before the first step that ranks after it, else last. REQUIREMENTS and PLUGIN are
-// omitted where neither applies.
-function setupSections(tuis, status, requirements, plugin) {
+// omitted where neither applies. While FAILURE, the plugin's failed
+// install (failureText), is given, each step that offers Review for a
+// missing or outdated tool whose package FAILURE's manager installs under a
+// name FAILURE holds (failedBy) offers Try again in its place and carries
+// `failure`: { lines }, `lines` true on the first such step alone, which
+// draws the install's last lines (failedView).
+function setupSections(tuis, status, requirements, plugin, failure) {
     var required = requirements === undefined ? [] : requirements;
     var rank = function (entry) { return stepRank(entry, plugin); };
     var ordered = status.filter(declaresStep).map(function (entry, index) { return { entry: entry, index: index }; })
@@ -156,7 +190,27 @@ function setupSections(tuis, status, requirements, plugin) {
         if (after !== -1) items.splice(after, 0, toolItem);
         else items.push(toolItem);
     });
+    if (failure !== undefined && failure !== null) {
+        var first = true;
+        items.forEach(function (item) {
+            if (item.button === null || item.button.kind !== "tools") return;
+            var rows = item.tools ? required.filter(function (row) { return row.optional === (item.entry.setup === "optional"); }) : required;
+            if (!failedBy(rows, failure)) return;
+            item.button = retryButton();
+            item.failure = { lines: first };
+            item.slot += ":failed";
+            first = false;
+        });
+    }
     return items.length === 0 ? [] : [{ title: "Setup", items: items, buttons: [] }];
+}
+// Whether FAILURE, a failed install, held one of ROWS, requirement rows:
+// a missing or outdated one whose package for FAILURE's manager is among
+// its packages, as PackageManagers.installGroups names it.
+function failedBy(rows, failure) {
+    return rows.some(function (row) {
+        return requirementApplies(row) && Object.prototype.hasOwnProperty.call(row.packages, failure.manager) && failure.packages.indexOf(row.packages[failure.manager]) !== -1;
+    });
 }
 // Whether a plugin, on while ENABLED, needs setup, the one reading of the
 // Plugins list's Setup needed and the Setup tab's mark: a required step of

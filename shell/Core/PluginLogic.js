@@ -2790,13 +2790,16 @@ function noticeHeld(manifest, missing, versions, commands) {
 // TRIGGER at NOW, in ms since the epoch: { answer, queue }. A plugin
 // holding a notice gets REQUEST's commands merged into it, after those it
 // holds, and answers "ok" whatever the trigger, since the user sees one
-// notice either way. Otherwise a suggestion while REST, plugin id -> the end
-// of its rest in ms, holds a later end for ID is refused as
+// notice either way. Otherwise a suggestion is refused while FAILED, the
+// owners whose last install failed (installFailedOwners), holds ID, as
+// `refused: requirements=<id> reason=install-failed`, until the next
+// attempt, and while REST, plugin id -> the end of its rest in ms, holds
+// a later end for ID, as
 // `refused: requirements=<id> reason=resting retry-ms=<ms>`; a queue
 // holding NOTICE_QUEUE_MAX notices refuses as
 // `refused: notices=full limit=<n>`; and any other request joins the end
 // of the queue.
-function noticeAdmit(queue, rest, id, request, trigger, now) {
+function noticeAdmit(queue, rest, failed, id, request, trigger, now) {
     if (NOTICE_TRIGGERS.indexOf(trigger) === -1)
         throw new Error("notices: trigger " + JSON.stringify(trigger) + " is not one of " + NOTICE_TRIGGERS.join(", "));
     var union = function (held, added) { return held.concat(added.filter(function (c) { return held.indexOf(c) === -1; })); };
@@ -2808,6 +2811,8 @@ function noticeAdmit(queue, rest, id, request, trigger, now) {
         merged[at] = { id: id, commands: union(queue[at].commands, request.commands), required: union(queue[at].required, request.required) };
         return { answer: "ok", queue: merged };
     }
+    if (trigger === "suggested" && failed.indexOf(id) !== -1)
+        return { answer: "refused: requirements=" + id + " reason=install-failed", queue: queue };
     if (trigger === "suggested" && hasOwn(rest, id) && rest[id] > now)
         return { answer: "refused: requirements=" + id + " reason=resting retry-ms=" + (rest[id] - now), queue: queue };
     if (queue.length >= NOTICE_QUEUE_MAX)
@@ -2864,10 +2869,7 @@ function noticeView(manifest, missing, versions, notice, found) {
     var run = null;
     if (pressed !== undefined) {
         var updates = updatesOf(pressed);
-        var installs = pressed.names.filter(function (name) { return updates.indexOf(name) === -1; });
-        run = updates.length === 0
-            ? { manager: pressed.manager, action: "install", args: PackageManagers.installArgs(pressed), installs: installs, updates: updates }
-            : { manager: pressed.manager, action: "update", args: PackageManagers.installArgs(Object.assign({}, pressed, { names: updates })).concat(installs.length === 0 ? [] : ["--install"].concat(installs)), installs: installs, updates: updates };
+        run = noticeRun(pressed.manager, pressed.primary === true, pressed.names.filter(function (name) { return updates.indexOf(name) === -1; }), updates);
     }
     var handled = run === null ? entries : entries.filter(function (e) { return e.manager === pressed.manager; });
     var owed = shown.filter(function (row) { return notice.required.indexOf(row.name) !== -1; });
@@ -2886,6 +2888,114 @@ function noticeView(manifest, missing, versions, notice, found) {
         run: run,
         byHand: plan.groups.filter(function (g) { return !g.installs; }).map(function (g) { return { manager: g.manager, names: g.names }; })
     };
+}
+
+// The step one press runs for MANAGER's packages, PRIMARY while it is the
+// detected primary manager: noticeView's `run` of the packages it UPDATES
+// and the others it INSTALLS, so a failed install runs again as it ran
+// (Notices.retryInstall).
+function noticeRun(manager, primary, installs, updates) {
+    var group = { manager: manager, primary: primary, installs: true };
+    return updates.length === 0
+        ? { manager: manager, action: "install", args: PackageManagers.installArgs(Object.assign({}, group, { names: installs })), installs: installs, updates: updates }
+        : { manager: manager, action: "update", args: PackageManagers.installArgs(Object.assign({}, group, { names: updates })).concat(installs.length === 0 ? [] : ["--install"].concat(installs)), installs: installs, updates: updates };
+}
+
+// The keys of the requirement notice's runs, by noticeRun's `action`.
+var NOTICE_RUN_KEYS = { install: "core/requirements-install", update: "core/requirements-update" };
+
+// What Notices keeps for a plugin from the press that started RAN,
+// noticeView's `run`, as RUN, the run's id, until the next attempt: the
+// attempt, `pending`, until its end, which installEnd settles,
+// { state, key, run, manager, primary, installs, updates, lines }. The
+// file holds it from the press, so an attempt whose run outlives the
+// shell, as a restart during an install leaves it, is settled from its
+// ended record by the next shell (installFailuresSettle).
+function installAttempt(ran, run) {
+    return { state: "pending", key: NOTICE_RUN_KEYS[ran.action], run: run, manager: ran.manager, primary: ran.args[0] !== "--manager",
+        installs: ran.installs.slice(), updates: ran.updates.slice(), lines: [] };
+}
+
+// ENTRY, installAttempt's, once its run ended with RESULT, tuiRunDone's
+// { code, reason, package }: null, nothing kept, for code 0, else the
+// failure the owner's Setup step shows, `failed`, with the last lines its
+// failed outcome carries (PackageReview.failureLines), [] when it carries
+// none, so the failure needs no record once the next run of its key
+// removes it. `run` is null for a launch that never started, which leaves
+// no record.
+function installEnd(entry, result) {
+    if (result.code === 0) return null;
+    var unstarted = result.code === null && (result.reason === "launcher-missing" || result.reason === "launcher-failed");
+    var outcome = result.package;
+    return Object.assign({}, entry, { state: "failed", run: unstarted ? null : entry.run,
+        lines: outcome !== null && outcome.kind === "package-failed" && outcome.lines !== undefined ? outcome.lines.slice() : [] });
+}
+
+// FAILURES, Notices' owner id -> installAttempt's or installEnd's entry,
+// with each pending attempt whose run RUNS, a tuiRuns result, holds ended
+// settled by installEnd: FAILURES itself while none is. A pending attempt
+// whose run has no record yet stays.
+function installFailuresSettle(failures, runs) {
+    var next = null;
+    Object.keys(failures).forEach(function (id) {
+        var entry = failures[id];
+        var result = entry.state === "pending" ? tuiRunDone(runs, entry.run) : null;
+        if (result === null) return;
+        if (next === null) next = Object.assign({}, failures);
+        var ended = installEnd(entry, result);
+        if (ended === null) delete next[id];
+        else next[id] = ended;
+    });
+    return next === null ? failures : next;
+}
+
+// The owners of FAILURES, Notices' kept attempts, whose last install
+// failed, which noticeAdmit refuses a suggestion for.
+function installFailedOwners(failures) {
+    return Object.keys(failures).filter(function (id) { return failures[id].state === "failed"; });
+}
+
+// The attempts Notices kept in its file, read back from TEXT: { ok: true,
+// failures }, owner id -> installAttempt's or installEnd's entry, or
+// { ok: false, error } naming the first defect. The file is the user's
+// own, but an entry is argv once Try again runs it, so every package is
+// judged as a notice's, and its lines as a failed outcome's.
+function installFailuresRead(text) {
+    var value;
+    try {
+        value = JSON.parse(text);
+    } catch (e) {
+        return { ok: false, error: "json" };
+    }
+    if (!isPlainObject(value)) return { ok: false, error: "shape" };
+    var names = function (list) { return Array.isArray(list) && list.every(function (name) { return PackageManagers.validName(name); }); };
+    var failures = {};
+    var ids = Object.keys(value);
+    for (var i = 0; i < ids.length; i++) {
+        var id = ids[i];
+        var e = value[id];
+        var valid = ID_PATTERN.test(id) && isPlainObject(e) && Object.keys(e).length === 8
+            && (e.state === "pending" || e.state === "failed")
+            && ((e.state === "failed" && e.run === null) || (typeof e.run === "string" && TUI_RUN_PATTERN.test(e.run)))
+            && typeof e.manager === "string" && PackageManagers.managerRow(e.manager) !== null && typeof e.primary === "boolean"
+            && names(e.installs) && names(e.updates) && e.installs.length + e.updates.length > 0
+            && e.key === NOTICE_RUN_KEYS[e.updates.length === 0 ? "install" : "update"]
+            && Array.isArray(e.lines) && (e.lines.length === 0 || (e.state === "failed" && PackageReview.failureLinesValid(e.lines)));
+        if (!valid) return { ok: false, error: "entry=" + tuiLabel(id) };
+        failures[id] = { state: e.state, key: e.key, run: e.run, manager: e.manager, primary: e.primary, installs: e.installs.slice(), updates: e.updates.slice(), lines: e.lines.slice() };
+    }
+    return { ok: true, failures: failures };
+}
+
+// What a plugin's failed install ENTRY, installEnd's, shows on its Setup
+// step: { action, manager, packages, lines, run, key }, `action`
+// noticeRun's, `packages` the updates then the installs, `lines` the
+// failed step's last lines, [] when its outcome carried none. Null for an
+// attempt still pending.
+function installFailureView(entry) {
+    if (entry.state !== "failed") return null;
+    return { action: noticeRun(entry.manager, entry.primary, entry.installs, entry.updates).action, manager: entry.manager,
+        packages: entry.updates.concat(entry.installs), lines: entry.lines.slice(), run: entry.run, key: entry.key };
 }
 
 // The title of OWNER's notice over VIEW, noticeView's answer: "<OWNER>

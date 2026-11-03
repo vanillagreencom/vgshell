@@ -185,6 +185,8 @@ Singleton {
             update: id => root.managerTui("update", id),
             remove: id => root.managerTui("remove", id),
             installRequirements: id => Notices.requested(id),
+            get installFailures() { return Notices.failureViews; },
+            retryInstall: id => Notices.retryInstall(id),
             add: () => root.managerCoreTui("plugin-add", []),
             reset: () => Notices.askReset(),
             rescan: () => Registry.rescan().answer,

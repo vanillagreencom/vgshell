@@ -89,6 +89,7 @@ Item {
         id: fakePanel
         property var shell: null
         property var plugins: []
+        property var installFailures: ({})
         property var capture: pageCapture
         property var keyWrites: []
         property bool refusesKeys: false

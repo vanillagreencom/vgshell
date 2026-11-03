@@ -49,7 +49,7 @@ exec "$@"'
 done
 managers="$tmp/managers"
 stub "$managers" pacman 'case "$1" in -Slq) printf "alpha\nbeta\ngamma\n" ;; -Qqe) printf "alpha\n" ;; esac
-[ "${STUB_FAIL:-}" != "$1" ] || exit 7'
+[ "${STUB_FAIL:-}" != "$1" ] || { [ -z "${STUB_SAY:-}" ] || printf "%s\n" "$STUB_SAY"; exit 7; }'
 stub "$managers" paru 'case "$1" in -Slqa) printf "aurpkg\n" ;; esac'
 stub "$managers" apt-get '[ "${STUB_FAIL:-}" != "$1" ] || exit 7'
 # mise records the directory its step runs in.
@@ -103,7 +103,7 @@ make_tree "$tree"
 # status alone. PKG_CWD, when set, is the directory it starts in. Output
 # lands in $tmp/out, the exit
 # status in $status. PKG_TTY=none runs it with no controlling terminal
-# instead, stderr in $tmp/err.
+# instead, stderr in $tmp/err. PKG_NODE, when set, runs in node's place.
 pkg() {
   local at="$1" dirs="$2" extra=() cmd prefix=()
   shift 2
@@ -123,9 +123,9 @@ pkg() {
     LC_ALL=C LOG="$log" ANSWERS="$answers" "${extra[@]}")
   status=0
   if [[ ${PKG_TTY:-} == none ]]; then
-    setsid -w "${env_words[@]}" "$node_bin" "$at/bin/vgshell-pkg" "$@" </dev/null >"$tmp/out" 2>"$tmp/err" || status=$?
+    setsid -w "${env_words[@]}" "${PKG_NODE:-$node_bin}" "$at/bin/vgshell-pkg" "$@" </dev/null >"$tmp/out" 2>"$tmp/err" || status=$?
   else
-    cmd="$(printf '%q ' "${env_words[@]}" "$node_bin" "$at/bin/vgshell-pkg" "$@")"
+    cmd="$(printf '%q ' "${env_words[@]}" "${PKG_NODE:-$node_bin}" "$at/bin/vgshell-pkg" "$@")"
     if [[ -n ${PKG_OS_RELEASE:-} ]]; then
       prefix=(unshare -rm sh -c 'mount --bind "$1" /etc/os-release && shift && exec "$@"' sh "$PKG_OS_RELEASE")
     fi
@@ -231,6 +231,28 @@ row_first_failure() {
   pkg "$1" "$sudo_path" STUB_FAIL=update -- run upgrade --manager apt
   [[ $status == 7 ]] && log_is "$(lines \
     "sudo [-k]" "sudo [/usr/bin/true]" "sudo [apt-get] [update]" "apt-get [update]" "sudo [-k]")"
+}
+# A failed install the presenter records: the owner keeps the failed
+# step's output and its outcome carries the last lines, the mirror's
+# password masked (PackageReview.failureLines). The presenter stand-in runs
+# node as its child with the outcome channel, as `vgshell-tui present`
+# does, and the row's PATH adds the tools the step's transcript and its
+# cut need.
+presenter="$tmp/presenter"
+printf '#!/bin/sh\nVGS_TUI_OUTCOME_PID=$$ "$NODE" "$@"\n' >"$presenter"; chmod +x "$presenter"
+transcript_tools="$tmp/transcript-tools"; mkdir -p "$transcript_tools"
+for tool in script stat tail timeout awk grep head; do
+  found="$(command -v "$tool")" || { echo "test-vgshell-pkg-run: status=not-measured missing=$tool"; exit 77; }
+  ln -s -- "$found" "$transcript_tools/$tool"
+done
+row_failed_lines() {
+  local want
+  rm -f -- "${tmp:?}/outcome"; : >"$tmp/outcome"; chmod 600 "$tmp/outcome"
+  PKG_NODE="$presenter" pkg "$1" "$sudo_path:$transcript_tools" NODE="$node_bin" STUB_FAIL=-S STUB_SAY="error: failed retrieving file from https://smoke:mirror-secret@mirror.invalid/core" \
+    VGS_TUI_OUTCOME="$tmp/outcome" VGS_TUI_RECORD_KEY=core/requirements-install VGS_TUI_RECORD_RUN=7-1 -- run install --manager pacman foo
+  want='{"kind":"package-failed","manager":"pacman","helper":null,"status":7,"lines":["error: failed retrieving file from https://\u2026@mirror.invalid/core"]}'
+  [[ $status == 7 && "$(cat -- "$tmp/outcome")" == "$("$node_bin" -e 'process.stdout.write(JSON.stringify(JSON.parse(process.argv[1])) + "\n")' "$want")" ]] ||
+    { printf 'outcome: [%s]\nwant: [%s]\n' "$(cat -- "$tmp/outcome")" "$want" >"$tmp/why"; return 1; }
 }
 row_doas() {
   pkg "$1" "$managers:$tmp/elevate-doas:$tmp/elevate-run0" -- run remove --manager pacman foo
@@ -382,7 +404,7 @@ ROWS
 rows=(no_terminal shell_process pacman_install apt_upgrade pacman_ignore aur_ignore ignore_unsupported upgrade_config first_failure doas run0 configured configured_absent
   configured_unknown no_elevator literal_name update update_installs aur_unelevated picker_install picker_remove picker_cancelled
   picker_nothing aur_picker picker_unsupported picker_without_fzf dnf_picker home_directory)
-rows+=(engine_archive)
+rows+=(engine_archive failed_lines)
 for r in "${rows[@]}"; do
   rm -f -- "$tmp/why"
   if "row_$r" "$tree"; then ok "$r"; else fail "$r: status=$status $(cat -- "$tmp/why" 2>/dev/null) out=[$(tr '\n' '|' <"$tmp/out")]"; fi
@@ -448,6 +470,7 @@ control file-options-unchecked bin/vgshell-pkg '        if (!checked.ok) refuse(
 control drops-ignore bin/vgshell-pkg 'return run(action, manager === null ? primaryId() : manager, names, ignored, installs, config, receipt);' 'return run(action, manager === null ? primaryId() : manager, names, [], installs, config, receipt);' pacman_ignore
 control drops-install bin/vgshell-pkg 'return run(action, manager === null ? primaryId() : manager, names, ignored, installs, config, receipt);' 'return run(action, manager === null ? primaryId() : manager, names, ignored, [], config, receipt);' update_installs
 control empty-install-tail bin/vgshell-pkg '            if (installs.length === 0) usage("option=--install value=missing");' '' update_installs
+control unkept-output bin/vgshell-pkg '&& pkgRetry().reporting() ? pkgRetry().evidenceDir("run-") : null;' '&& false ? null : null;' failed_lines
 control cancel-runs-nothing bin/vgshell-pkg '    if (r.status === 130) return { cancelled: true };' '' picker_cancelled
 
 if [[ $failures -gt 0 ]]; then echo "test-vgshell-pkg-run: failed=$failures"; exit 1; fi

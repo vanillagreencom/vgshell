@@ -12,7 +12,10 @@ import qs.Ui
 // the hint (LinkText) is its link, activated through `hintPageActivated`,
 // and one in the `info` dialog's text through `infoPageActivated`.
 // `lines` are further lines of the value, each in the value role, between
-// the control and the hint, such as what a setup step still needs. Form
+// the control and the hint, such as what a setup step still needs, and
+// `output`, a program's own text such as a failed install's last lines, one
+// block under them in the code role and the muted text tone, so it recedes
+// behind the plain lines and keeps the mono face machine text takes. Form
 // feedback is this plain sentence-case line; a chip, a fill or capitals
 // mark only a state the user must act on now. An
 // inline hint starts under the value column, `field.gap` under the value
@@ -57,6 +60,7 @@ Column {
     property string error: ""
     property string hintLink: ""
     property var lines: []
+    property var output: []
     property bool inline: Theme.field.inline
     property string disabledReason: ""
     property bool standsWithoutLabel: false
@@ -72,7 +76,7 @@ Column {
     // its children.
     readonly property real bodyWidth: width - leftPadding - rightPadding
     readonly property real valueX: leftPadding + controlRow.valueX
-    readonly property bool subText: lines.length > 0 || hintLine.text !== ""
+    readonly property bool subText: lines.length > 0 || output.length > 0 || hintLine.text !== ""
     // A row a key/value row under it is spaced from by ink; a column that
     // holds rows of one setting, such as a SettingField, declares it too.
     readonly property bool keyValueRow: controlRow.keyValueRow
@@ -180,7 +184,7 @@ Column {
         readonly property real textTop: root.inline ? controlRow.valueBottom + Theme.field.gap - controlRow.height : 0
         // The lines' block, then the hint `field.gap` under it; the last
         // of them ends the text, and the text or the row box the slot.
-        readonly property real linesHeight: root.lines.length > 0 ? subLines.implicitHeight + (hintLine.text !== "" ? Theme.field.gap : 0) : 0
+        readonly property real linesHeight: root.lines.length > 0 || root.output.length > 0 ? subLines.implicitHeight + (hintLine.text !== "" ? Theme.field.gap : 0) : 0
         readonly property real textBottom: textTop + linesHeight + (hintLine.text !== "" ? hintLine.implicitHeight : 0)
         // A following row can measure a disappearing hint before subText
         // clears: reproduced under Quickshell 0.3.1 in VGS-2077. Select the
@@ -238,6 +242,15 @@ Column {
                     width: subLines.width
                     wrapMode: Text.Wrap
                 }
+            }
+
+            Label {
+                visible: root.output.length > 0
+                role: "code"
+                text: root.output.join("\n")
+                color: Theme.color.textMuted
+                width: subLines.width
+                wrapMode: Text.WrapAtWordBoundaryOrAnywhere
             }
         }
 

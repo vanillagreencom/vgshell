@@ -28,7 +28,8 @@
 # credential without running a program as root.
 #
 # With --evidence, DIR is a private directory the package owner made for
-# one build. The run then keeps a transcript of its terminal, the run's own
+# one build, or one install or update the presenter records. The run then
+# keeps a transcript of its terminal, the run's own
 # or, under a script that already keeps one, that one (tui.sh's
 # vgs_tui_transcript), and when a step fails it writes the step's output,
 # cut between tui.sh's interval marks, to DIR/interval, and one line to

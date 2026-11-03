@@ -50,6 +50,7 @@ Item {
         id: manager
         property var shell: null
         property var plugins: []
+        property var installFailures: ({})
         property bool listCase: false
         property var current: root.row(true)
         function setEnabled(id, enabled) { current = root.row(enabled, listCase); return "ok"; }

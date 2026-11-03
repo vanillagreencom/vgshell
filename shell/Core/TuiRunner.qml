@@ -49,6 +49,11 @@ Scope {
     // lives: the shell's PATH need not hold it.
     readonly property string coreBin: Quickshell.shellDir + "/../bin"
 
+    // The runs the records describe, PluginLogic.tuiRuns' answer, for a
+    // core owner that reads what one of its runs left, such as the
+    // requirement notice's failed install.
+    readonly property var runs: recordStore.runs
+
     // Whether any run is live: launching or running, as the busy keys
     // read. Notices holds the restart notice while it is, so the notice
     // never comes up in the middle of a setup flow.
@@ -205,7 +210,23 @@ Scope {
     // receives { code, reason, package } as run's does, and belongs to the
     // shell's lifetime, since the core has no instance to drop it with.
     function openCore(name, args, done) {
-        return start(Logic.tuiCore(Logic.CORE_TUIS, coreBin, runner(), name, args), null, done);
+        return launchCore(name, args, done).answer;
+    }
+
+    // As openCore, answering { answer, run }, `run` the id of the run an
+    // `ok` started, whose ended record recordPath names, for a core owner
+    // that keeps the run past the shell's lifetime, as the requirement
+    // notice keeps its install's.
+    function launchCore(name, args, done) {
+        const launch = Logic.tuiCore(Logic.CORE_TUIS, coreBin, runner(), name, args);
+        const answer = start(launch, null, done);
+        return { answer: answer, run: answer === "ok" ? launch.run : null };
+    }
+
+    // The path of KEY's run RUN's ended record, which bin/vgshell-tui keeps
+    // until the next run of KEY ends (TuiRecords.recordPath).
+    function recordPath(key, run) {
+        return recordStore.recordPath(key, run, "ended");
     }
 
     // edit: the one route that opens a cited file or folder, a file

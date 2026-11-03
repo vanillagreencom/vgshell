@@ -61,7 +61,10 @@
 //       The steps run from $HOME, as check's queries do, through
 //       bin/lib/pkg-run.sh, whose header states the sudo session and how
 //       each step is shown; the exit status is the
-//       first failing step's, or 0. A run prints no Done or Failed:
+//       first failing step's, or 0. An install or update the presenter
+//       records keeps the failed step's output (pkg-run.sh --evidence), and
+//       its failed outcome carries that output's last lines
+//       (PackageReview.failureLines). A run prints no Done or Failed:
 //       `vgshell-tui present` owns the ending. Once the steps end, however
 //       they end, it runs `vgshell plugin rescan`, whose `shell=` line follows
 //       them, so a running shell reports the requirements the change
@@ -495,8 +498,20 @@ async function run(action, manager, names, ignored, installs, config, receipt) {
     // alone; a prepared Updates step keeps Updates' own failure report.
     const builds = command === "build" && receipt === undefined && ["install", "reinstall", "update"].includes(r.plan.action);
     if (!builds) {
-        const status = await runSteps(command, r.plan.steps);
-        return settle(action, status, status === 0 ? installed(manager, r.plan.binary) : pkgRetry().failed(manager, manager === "aur" ? r.plan.binary : null, status));
+        // An install or update the presenter records keeps its failed
+        // step's output for the outcome's last lines (pkg-retry.js failed),
+        // which the Setup step shows; a prepared Updates step keeps Updates'
+        // own failure report.
+        const dir = receipt === undefined && ["install", "update"].includes(action) && pkgRetry().reporting() ? pkgRetry().evidenceDir("run-") : null;
+        let ended;
+        try {
+            const status = await runSteps(command, r.plan.steps, dir === null ? {} : { evidence: dir });
+            ended = { status, outcome: status === 0 ? installed(manager, r.plan.binary)
+                : pkgRetry().failed(manager, manager === "aur" ? r.plan.binary : null, status, dir === null ? null : pkgRetry().stepInterval(dir, status).interval) };
+        } finally {
+            if (dir !== null) fs.rmSync(dir, { recursive: true, force: true });
+        }
+        return settle(action, ended.status, ended.outcome);
     }
     const dir = pkgRetry().evidenceDir("build-");
     let ended;

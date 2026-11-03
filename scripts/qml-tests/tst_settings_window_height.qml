@@ -113,6 +113,7 @@ Item {
     QtObject {
         id: fakeManager
         property var plugins: root.fewRows
+        property var installFailures: ({})
         // The page the window reported shown, each report in order.
         property var viewed: []
         function rescan() { return "ok"; }

@@ -79,7 +79,7 @@ Item {
         }
     })
     readonly property var requiredTools: ({
-        requirements: PluginLogic.normalRequirements([{ command: "required-a", purpose: "Basic work" }, { command: "required-b", purpose: "Basic work" }]),
+        requirements: PluginLogic.normalRequirements([{ command: "required-a", packages: { pacman: "required-a-pkg" }, purpose: "Basic work" }, { command: "required-b", purpose: "Basic work" }]),
         tui: {}, status: {}
     })
     // What one key of acme.explained explains in its own info and hint;
@@ -190,6 +190,9 @@ Item {
         property string actionReply: "ok"
         property string enableReply: "ok"
         property string installReply: "ok"
+        property var installFailures: ({})
+        property var retries: []
+        function retryInstall(id) { retries = retries.concat([id]); return "ok"; }
         function rescan() { return "ok"; }
         function setEnabled(id, enabled) { enables = enables.concat([[id, enabled]]); return enableReply; }
         function viewPage(id) {}
@@ -223,7 +226,7 @@ Item {
             for (let i = 0; i < found.length; i++) for (const child of found[i].children || []) found.push(child);
             return found;
         }
-        function init() { fakeManager.plugins = root.rows(); fakeManager.installs = []; fakeManager.updates = []; fakeManager.opens = []; fakeManager.enables = []; fakeManager.acts = []; fakeManager.chosen = []; fakeManager.actionReply = "ok"; fakeManager.enableReply = "ok"; fakeManager.installReply = "ok"; }
+        function init() { fakeManager.plugins = root.rows(); fakeManager.installs = []; fakeManager.updates = []; fakeManager.opens = []; fakeManager.enables = []; fakeManager.acts = []; fakeManager.chosen = []; fakeManager.actionReply = "ok"; fakeManager.enableReply = "ok"; fakeManager.installReply = "ok"; fakeManager.installFailures = {}; fakeManager.retries = []; }
         function opened() {
             const window = createTemporaryObject(windowComponent, root);
             verify(window !== null, "the window builds");
@@ -453,6 +456,32 @@ Item {
             compare(shown(window, Field).filter(field => field.label === "Tools").length, 1);
             compare(shown(window, Badge).map(chip => chip.text), ["Done"]);
             compare(shown(window, RowAction).length, 0);
+        }
+        // A failed install of the plugin's tools: its Tools step reads Failed
+        // with what failed in place of To do, the install's last lines apart
+        // under it, receding in the code role and the muted tone, and Try
+        // again runs the install again through the manager, never the
+        // notice.
+        function test_a_failed_install_reads_failed_and_tries_again() {
+            const failure = { action: "install", manager: "pacman", packages: ["required-a-pkg"], lines: ["error: failed retrieving file", "error: failed to commit transaction"], run: "1-1", key: "core/requirements-install", path: "/run/r.json" };
+            fakeManager.installFailures = { "acme.required": failure };
+            const window = opened(); window.openPlugin("acme.required", Qt.OtherFocusReason, "Setup");
+            const tools = shown(window, Field).filter(field => field.label === "Tools");
+            compare(tools.length, 1);
+            compare(shown(window, Badge).map(chip => [chip.text, chip.tone]), [[Steps.STEP_CHIPS.failed.text, "danger"]]);
+            const labels = descendants(tools[0]).filter(item => item instanceof Label && item.visible);
+            const output = labels.filter(label => label.text === failure.lines.join("\n"));
+            compare(output.map(label => [label.role, Qt.colorEqual(label.color, Theme.color.textMuted)]), [["code", true]]);
+            const sentence = labels.filter(label => label.role === "value" && failure.packages.every(name => label.text.indexOf(name) !== -1));
+            compare(sentence.length, 1);
+            verify(sentence[0].y < output[0].y, "the last lines stand under what failed");
+            const links = descendants(tools[0]).filter(item => item instanceof RowAction && item.visible);
+            compare(links.map(link => link.text), [Steps.RETRY_LABEL]);
+            tryVerify(() => links[0].height > 0 && pageOf(window).parent.x === -window.width, 2000, "the page has slid in");
+            mouseClick(links[0]);
+            compare([fakeManager.retries, fakeManager.installs], [["acme.required"], []]);
+            fakeManager.installFailures = {};
+            tryCompare(shown(window, Badge)[0], "text", Steps.STEP_CHIPS.todo.text);
         }
         function test_status_reply_stays_with_its_entry_data() {
             return [{ tag: "completed Setup step", id: "acme.done", key: "model", tab: "Setup" },

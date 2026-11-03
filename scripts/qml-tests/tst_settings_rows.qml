@@ -63,6 +63,7 @@ Item {
     QtObject {
         id: fakeManager
         property var plugins: root.rows()
+        property var installFailures: ({})
         property var acts: []
         property var enables: []
         property string actionReply: "ok"
