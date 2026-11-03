@@ -675,6 +675,43 @@ Item {
                     Label { role: "hint"; text: "These samples use no microphone input."; width: parent.width; wrapMode: Text.Wrap }
                 }
                 Section {
+                    title: "Backdrop fields"
+                    description: "One dark field behind a passive layer's content, over a bright ground"
+                    headerInset: 0
+                    Flow {
+                        width: parent.width
+                        spacing: Theme.space.sm
+                        Repeater {
+                            // An eased field over a disc and a line of text, with
+                            // the disc's halo, and a Gaussian disc alone.
+                            model: [{ name: "Eased, two boxes and a halo", falloff: "eased", halo: true },
+                                    { name: "Gaussian, one disc", falloff: "gaussian", halo: false }]
+                            Column {
+                                id: backdropSample
+                                required property var modelData
+                                readonly property real unit: Theme.space.xxxl
+                                spacing: Theme.space.xs
+                                Rectangle {
+                                    width: 6 * backdropSample.unit
+                                    height: 5 * backdropSample.unit
+                                    color: Theme.color.accent
+                                    RadialBackdrop {
+                                        anchors.fill: parent
+                                        readonly property real u: backdropSample.unit
+                                        boxes: [{ x: 2 * u, y: u, w: 2 * u, h: 2 * u, corner: u, peak: 0.6, fade: 1.5 * u, inset: 0.5 * u, ink: Theme.screensaver.background }]
+                                            .concat(backdropSample.modelData.halo ? [{ x: 1.5 * u, y: 3.5 * u, w: 3 * u, h: 0.5 * u, corner: 0.25 * u, peak: 0.8, fade: 1.5 * u, inset: 0.25 * u, ink: Theme.screensaver.background }] : [])
+                                        join: 0.1
+                                        blend: 0.15
+                                        falloff: backdropSample.modelData.falloff
+                                        halo: backdropSample.modelData.halo ? { strength: 0.4, width: 0.5 * u, ring: u, stops: [Theme.color.info, Theme.color.accent, Theme.color.warning, Theme.color.success] } : null
+                                    }
+                                }
+                                Label { role: "label"; text: backdropSample.modelData.name }
+                            }
+                        }
+                    }
+                }
+                Section {
                     title: "Dialogs"
                     rowSpacing: Theme.stack.group
                     description: "Confirmations, progress and disabled actions"

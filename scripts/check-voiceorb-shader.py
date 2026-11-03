@@ -30,13 +30,14 @@ PATTERNS = {
     "loop": r"\b(?:for|while|do)\b",
     "texture": r"\b(?:sampler\w*|texture\w*|texelFetch\w*)\b",
 }
-# Each shipped shader: its source and the rules it keeps. VoiceOrb is
-# analytic and needs no iteration. Voice's plasma is a short volumetric
+# Each shipped shader: its source and the rules it keeps. VoiceOrb and
+# RadialBackdrop are analytic and need no iteration. Voice's plasma is a short volumetric
 # raymarch and Jarvis's orb tests a bounded set of shells, faces and
 # lattice dots per pixel, so each may loop, every loop to a constant
 # bound. None samples a texture.
 SHADERS = {
     "voiceorb": (ROOT / "shell/Ui/feedback/shaders/voiceorb.frag", ("loop", "texture")),
+    "radial-backdrop": (ROOT / "shell/Ui/feedback/shaders/radialbackdrop.frag", ("loop", "texture")),
     "plasma": (ROOT / "shell/plugins/vgs.voice/shaders/plasma.frag", ("loop-bound", "texture")),
     "jarvis-orb": (ROOT / "shell/plugins/vgs.jarvis/shaders/particleorb.frag", ("loop-bound", "texture")),
 }

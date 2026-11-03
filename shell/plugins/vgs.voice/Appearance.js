@@ -9,14 +9,15 @@
 // transcribing, in the shader's order: glass rim, plasma edge, plasma middle
 // and plasma core. The active theme reaches this table through
 // `palette.accent`, which tints the bar mic while recording, `motion.scale`
-// and its `scheme.mode`, which applies LIGHT; the orb draws its own dark
-// backdrop, so LIGHT changes nothing.
+// and its `scheme.mode`, which applies LIGHT; the orb's dark backdrop is
+// the same in both modes, so LIGHT changes nothing.
 
 function color(value) { return { type: "color", value: value }; }
 function length(value) { return { type: "length", value: value }; }
 function duration(value) { return { type: "duration", value: value }; }
 function number(value, min, max) { return { type: "number", value: value, min: min, max: max }; }
 function share(value) { return number(value, 0, 1); }
+function choice(value, options) { return { type: "choice", value: value, options: options }; }
 
 var TOKENS = {
     palette: {
@@ -30,7 +31,12 @@ var TOKENS = {
         margin: length(25)
     },
     plasma: {
+        // The owner's canvas, which the backdrop fills.
         size: length(300),
+        // The plasma's own pass, centred in the canvas: the reach of its
+        // embers, 300 / 1.36 px, where the owner's shader scaled its
+        // coordinates by 1.36 to leave its backdrop a margin to fade into.
+        orb: length(220.59),
         // Time constants of the level's rise and fall towards each frame's
         // level, of that level's own fall between frames, and of the slower
         // energy the core's brightness follows.
@@ -52,6 +58,17 @@ var TOKENS = {
             mid: color("#3fc0e8"),
             hot: color("#d8f4ff")
         }
+    },
+    // The dark disc behind the plasma, as the owner's shader drew it: solid
+    // to 0.53 of its scaled coordinates, then exp(-(d / 0.15)²) at peak 0.9,
+    // which is 58.46 px and 16.54 px at the 300 px canvas. It draws through
+    // qs.Ui's RadialBackdrop, the same in both modes.
+    backdrop: {
+        corner: length(58.46),
+        fade: length(16.54),
+        peak: share(0.9),
+        ink: color("#000000"),
+        falloff: choice("gaussian", ["eased", "gaussian"])
     },
     // The level both orbs breathe between while the words are transcribed,
     // and one breath's period.

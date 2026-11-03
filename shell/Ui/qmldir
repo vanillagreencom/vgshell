@@ -38,6 +38,7 @@ SettingField 1.0 controls/SettingField.qml
 FormRow 1.0 controls/FormRow.qml
 Spinner 1.0 feedback/Spinner.qml
 VoiceOrb 1.0 feedback/VoiceOrb.qml
+RadialBackdrop 1.0 feedback/RadialBackdrop.qml
 ProgressBar 1.0 feedback/ProgressBar.qml
 LevelOsd 1.0 feedback/LevelOsd.qml
 LevelSlider 1.0 controls/LevelSlider.qml
