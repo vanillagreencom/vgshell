@@ -66,6 +66,16 @@
 //       they end, it runs `vgshell plugin rescan`, whose `shell=` line follows
 //       them, so a running shell reports the requirements the change
 //       brought or took away; the exit status stays the steps'.
+//       For a verified-file row, `run install|update` first fetches and
+//       checks each named file as the user (bin/lib/pkg-file.js), then runs
+//       the table's filePlan over the checked files; `run upgrade` does so
+//       for each installed package its check offers newer, and runs nothing
+//       when none is.
+//   vgshell-pkg file-check <manager>
+//       the update query of a verified-file row: `<name> <installed> ->
+//       <offered>` for each of its installed packages its repository's
+//       database offers newer, exit 0, 1 when none is, 2 when none of its
+//       packages is installed.
 //   vgshell-pkg review-settings
 //       open System Settings at Packages on a desktop; without a desktop,
 //       edit the shared review preference, agent and command in this terminal.
@@ -180,6 +190,7 @@ const RUNNER = path.join(__dirname, "lib", "pkg-run.sh");
 // The build failure, retry and outcome owner, loaded by the verbs that run
 // steps: the read-only verbs need neither it nor the review judge it loads.
 const pkgRetry = () => require(path.join(__dirname, "lib", "pkg-retry.js"));
+const pkgFile = () => require(path.join(__dirname, "lib", "pkg-file.js"));
 const SHIPPED_CONFIG = path.join(repo, "config", "shell.json");
 // A picker's list and fzf's answer: a system's whole repository fits.
 const LIST_BUFFER = 256 * 1024 * 1024;
@@ -191,7 +202,7 @@ const FRESH_MS = 10 * 60 * 1000;
 const QUERY_TIMEOUT = 30;
 
 function usage(first) {
-    process.stderr.write("vgshell: refused: " + first + "\nusage: vgshell pkg detect [--json] [--holders <command>...] | present <command>... | plan install|reinstall|update|remove|upgrade <manager> [names...] | run install|reinstall|update|remove|upgrade [--manager <id>] [names...] | run upgrade [--manager <id>] --ignore <name>... | run update [--manager <id>] <name>... --install <name>... | install|remove [--manager <id>] [names...] | check [--json] [--source <manager>] | ensure-helper | owner <path> | removable <package>\n");
+    process.stderr.write("vgshell: refused: " + first + "\nusage: vgshell pkg detect [--json] [--holders <command>...] | present <command>... | plan install|reinstall|update|remove|upgrade <manager> [names...] | run install|reinstall|update|remove|upgrade [--manager <id>] [names...] | run upgrade [--manager <id>] --ignore <name>... | run update [--manager <id>] <name>... --install <name>... | install|remove [--manager <id>] [names...] | check [--json] [--source <manager>] | file-check <manager> | ensure-helper | owner <path> | removable <package>\n");
     process.exit(2);
 }
 
@@ -258,7 +269,7 @@ function stopQueries(signal) {
 // `{ error }`, judged by the table's checkOutcome.
 function runCheck(check) {
     return new Promise(resolve => {
-        if (!onPath(check.argv[0])) {
+        if (!path.isAbsolute(check.argv[0]) && !onPath(check.argv[0])) {
             resolve({ error: "absent=" + check.argv[0] });
             return;
         }
@@ -314,11 +325,13 @@ async function checkSource(entry, stamp) {
     const found = table.checkFor(entry.id, entry.binary);
     if (found.skipped !== undefined) return row(null, [], null, "skipped=" + found.skipped);
     const check = found.check;
+    check.argv = check.argv.map(token => token === "{pkg}" ? __filename : token);
     const syncs = entry.id === "pacman" && !pacmanFresh(stamp);
     if (entry.id === "pacman" && !syncs) check.argv.push("-n");
     const outcome = await runCheck(check);
     const checkedAt = new Date().toISOString();
     if (outcome.error !== undefined) return row(null, [], checkedAt, outcome.error);
+    if (outcome.unused) return null;
     if (syncs) fs.writeFileSync(stamp, checkedAt + "\n");
     return row(outcome.packages.length, outcome.packages, checkedAt, null);
 }
@@ -460,6 +473,16 @@ async function run(action, manager, names, ignored, installs, config, receipt) {
         const found = table.presentManager(manager, onPath);
         if (!found.ok) refuse(found.error);
         r = { ok: true, plan: { elevate: true, steps: [[found.binary, ...found.row.engineArchive, file]] } };
+    } else if (table.managerRow(manager)?.files !== undefined && ["install", "update", "upgrade"].includes(action)) {
+        // The table refuses a bad name and an option the row does not take
+        // before anything is read or downloaded.
+        const checked = table.plan(manager, action, names.concat(installs || []), onPath, ignored, config);
+        if (!checked.ok) refuse(checked.error);
+        const wanted = action === "upgrade" ? (pkgFile().outdated(manager) || []).map(p => p.name) : names.concat(installs || []);
+        if (wanted.length === 0) return finish(action, 0, { kind: "package-skipped", manager });
+        const dir = pkgFile().scratch();
+        r = table.filePlan(manager, action === "install" ? "install" : "update", wanted.map(name => pkgFile().fetch(manager, name, dir)), onPath, ignored, config);
+        pkgFile().releaseSignals();
     } else r = installs !== undefined && installs.length > 0 ? table.planOwed(manager, installs, names, onPath, config) : table.plan(manager, action, names, onPath, ignored, config);
     if (!r.ok) refuse(r.error);
     let command = manager === "aur" ? "build" : "none";
@@ -893,7 +916,8 @@ main(async () => {
         holdCheckLock(dir);
         for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(signal, () => stopQueries(signal));
         const stamp = path.join(dir, "pkg-check.synced");
-        Promise.all(entries.map(entry => checkSource(entry, stamp))).then(rows => {
+        Promise.all(entries.map(entry => checkSource(entry, stamp))).then(all => {
+            const rows = all.filter(r => r !== null);
             if (json) {
                 process.stdout.write(JSON.stringify(rows) + "\n");
                 return;
@@ -905,6 +929,11 @@ main(async () => {
             }
             if (lines.length > 0) process.stdout.write(lines.join("\n") + "\n");
         });
+        break;
+    }
+    case "file-check": {
+        if (args.length !== 1 || table.managerRow(args[0])?.files === undefined) usage("file-check=manager");
+        process.exitCode = pkgFile().check(args[0]);
         break;
     }
     case "owner": {

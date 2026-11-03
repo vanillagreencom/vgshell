@@ -201,7 +201,12 @@ row_aur_ignore() {
 }
 row_ignore_unsupported() {
   pkg "$1" "$sudo_path" -- run upgrade --manager apt --ignore foo
-  [[ $status == 1 ]] && out_has "vgshell: refused: manager=apt option=ignore reason=unsupported" && log_is ""
+  [[ $status == 1 ]] && out_has "vgshell: refused: manager=apt option=ignore reason=unsupported" && log_is "" || return 1
+  # A verified-file run refuses before its pacman -Q, download or root step.
+  pkg "$1" "$sudo_path" -- run upgrade --manager verified-file --ignore gliff
+  [[ $status == 1 ]] && out_has "vgshell: refused: manager=verified-file option=ignore reason=unsupported" && log_is "" || return 1
+  pkg "$1" "$sudo_path" -- run upgrade --manager verified-file --config "$tmp/pacman.conf"
+  [[ $status == 1 ]] && out_has "vgshell: refused: manager=verified-file option=config reason=unsupported" && log_is ""
 }
 row_upgrade_config() {
   local manager
@@ -439,6 +444,7 @@ control fixed-colour bin/vgshell-pkg 'return value !== undefined && HEX_COLOUR.t
 control dnf-notice shell/Core/PackageManagers.js 'list: ["{bin}", "-q", "repoquery", "--available",' 'list: ["{bin}", "repoquery", "--available",' dnf_picker
 control fzf-looked-up-late bin/vgshell-pkg '        if (!onPath("fzf")) refuse("picker=fzf reason=absent");' '' picker_without_fzf
 control drops-config shell/Core/PackageManagers.js 'if (config !== undefined) argv.splice(1, 0, "--config", config);' ';' upgrade_config
+control file-options-unchecked bin/vgshell-pkg '        if (!checked.ok) refuse(checked.error);' '' ignore_unsupported
 control drops-ignore bin/vgshell-pkg 'return run(action, manager === null ? primaryId() : manager, names, ignored, installs, config, receipt);' 'return run(action, manager === null ? primaryId() : manager, names, [], installs, config, receipt);' pacman_ignore
 control drops-install bin/vgshell-pkg 'return run(action, manager === null ? primaryId() : manager, names, ignored, installs, config, receipt);' 'return run(action, manager === null ? primaryId() : manager, names, ignored, [], config, receipt);' update_installs
 control empty-install-tail bin/vgshell-pkg '            if (installs.length === 0) usage("option=--install value=missing");' '' update_installs

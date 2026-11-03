@@ -31,9 +31,9 @@ const path = require("node:path");
 const { load } = require("../bin/lib/qml-library.js");
 const { TABLE, FIXTURES } = require("./vgshell-pkg-shared.js");
 const ELEVATORS = ["sudo", "doas", "run0", "pkexec", "su"];
-const PLACEHOLDERS = ["{bin}", "{names}", "{names@latest}", "{name}", "{path}"];
+const PLACEHOLDERS = ["{bin}", "{names}", "{names@latest}", "{name}", "{path}", "{pkg}", "{fetched}", "{fetchedSig}", "{file}", "{sig}", "{key}", "{dir}", "{sigDir}", "{filename}", "{sigName}", "{older}"];
 const NAMED = ["install", "reinstall", "update", "remove"];
-const EXIT_MEANINGS = ["updates", "none", "rows"];
+const EXIT_MEANINGS = ["updates", "none", "rows", "unused"];
 
 // The table's own defects, one string each; empty for a sound table.
 function tableErrors(t) {
@@ -66,6 +66,7 @@ function tableErrors(t) {
             // a preview word that is no placeholder the table fills holds none.
             for (const token of spec.preview) if (!PLACEHOLDERS.includes(token) && /[{}]/.test(token)) errors.push(where + " picker " + action + ": brace in preview word " + token);
         }
+        if (row.files !== undefined) for (const step of row.files.steps.concat(row.files.prune)) templates.push(["files", step]);
         if (row.check !== null && (!Array.isArray(row.check) || row.check.length === 0)) errors.push(where + ": check is neither null nor a list of queries");
         else if (row.check !== null) row.check.forEach((c, i) => {
             const at = where + " check " + i;
@@ -107,11 +108,11 @@ const DEBIAN_14 = "PRETTY_NAME=\"Debian GNU/Linux forky/sid\"\nNAME=\"Debian GNU
 const pacman = { id: "pacman", binary: "pacman" };
 const DETECT_ROWS = [
     ["Arch with paru, flatpak and mise", "NAME=\"Arch Linux\"\nID=arch\n", ["pacman", "paru", "flatpak", "mise"],
-        { primary: pacman, overlays: [{ id: "aur", binary: "paru" }, { id: "flatpak", binary: "flatpak" }], sources: [{ id: "mise", binary: "mise" }] }],
+        { primary: pacman, overlays: [{ id: "aur", binary: "paru" }, { id: "verified-file", binary: "pacman" }, { id: "flatpak", binary: "flatpak" }], sources: [{ id: "mise", binary: "mise" }] }],
     ["an Arch derivative through ID_LIKE, with yay", "ID=cachyos\nID_LIKE=arch\n", ["pacman", "yay"],
-        { primary: pacman, overlays: [{ id: "aur", binary: "yay" }], sources: [] }],
+        { primary: pacman, overlays: [{ id: "aur", binary: "yay" }, { id: "verified-file", binary: "pacman" }], sources: [] }],
     ["paru is preferred to yay", "ID=endeavouros\nID_LIKE=arch\n", ["pacman", "yay", "paru"],
-        { primary: pacman, overlays: [{ id: "aur", binary: "paru" }], sources: [] }],
+        { primary: pacman, overlays: [{ id: "aur", binary: "paru" }, { id: "verified-file", binary: "pacman" }], sources: [] }],
     ["Debian 14", DEBIAN_14, ["apt-get", "flatpak"],
         { primary: { id: "apt", binary: "apt-get" }, overlays: [{ id: "flatpak", binary: "flatpak" }], sources: [] }],
     ["Debian 13 has no primary", "ID=debian\nVERSION_ID=\"13\"\nVERSION_CODENAME=trixie\n", ["apt-get", "flatpak"],
@@ -128,9 +129,9 @@ const DETECT_ROWS = [
     ["no os-release keeps overlays and sources", "", ["pacman", "paru", "flatpak", "mise"],
         { primary: null, overlays: [{ id: "flatpak", binary: "flatpak" }], sources: [{ id: "mise", binary: "mise" }] }],
     ["an unknown family has no primary", "ID=opensuse-tumbleweed\nID_LIKE=\"opensuse suse\"\n", ["zypper"], { primary: null, overlays: [], sources: [] }],
-    ["a single-quoted ID", "ID='arch'\n", ["pacman"], { primary: pacman, overlays: [], sources: [] }],
-    ["the last assignment wins; a comment assigns nothing", "# ID=fedora\nID=debian\nID=arch\n", ["pacman", "apt-get"], { primary: pacman, overlays: [], sources: [] }],
-    ["a CRLF file", "ID=arch\r\nNAME=x\r\n", ["pacman"], { primary: pacman, overlays: [], sources: [] }]
+    ["a single-quoted ID", "ID='arch'\n", ["pacman"], { primary: pacman, overlays: [{ id: "verified-file", binary: "pacman" }], sources: [] }],
+    ["the last assignment wins; a comment assigns nothing", "# ID=fedora\nID=debian\nID=arch\n", ["pacman", "apt-get"], { primary: pacman, overlays: [{ id: "verified-file", binary: "pacman" }], sources: [] }],
+    ["a CRLF file", "ID=arch\r\nNAME=x\r\n", ["pacman"], { primary: pacman, overlays: [{ id: "verified-file", binary: "pacman" }], sources: [] }]
 ];
 
 // os-release identifier rows: name, text, the identifiers in order.
@@ -182,6 +183,10 @@ const PLAN_ROWS = [
     ["nix update is unsupported", "nix", "update", ["gum"], ["nix"], "manager=nix action=update reason=unsupported"],
     ["nix remove is unsupported", "nix", "remove", ["gum"], ["nix"], "manager=nix action=remove reason=unsupported"],
     ["nix upgrade is unsupported", "nix", "upgrade", [], ["nix"], "manager=nix action=upgrade reason=unsupported"],
+    ["a verified file installs with -U", "verified-file", "install", ["/c/gliff-1-1-x86_64.pkg.tar.zst"], ["pacman"], { binary: "pacman", elevate: true, steps: [["pacman", "-U", "--needed", "--", "/c/gliff-1-1-x86_64.pkg.tar.zst"]] }],
+    ["a verified file updates with -U", "verified-file", "update", ["/c/gliff-1-1-x86_64.pkg.tar.zst"], ["pacman"], { binary: "pacman", elevate: true, steps: [["pacman", "-U", "--needed", "--", "/c/gliff-1-1-x86_64.pkg.tar.zst"]] }],
+    ["a verified-file upgrade names -U for its plan", "verified-file", "upgrade", [], ["pacman"], { binary: "pacman", elevate: true, steps: [["pacman", "-U", "--needed", "--"]] }],
+    ...["reinstall", "remove"].map(action => ["verified-file " + action + " is unsupported", "verified-file", action, ["gliff"], ["pacman"], "manager=verified-file action=" + action + " reason=unsupported"]),
     ["an unknown manager", "zypper", "install", ["gum"], ["zypper"], "manager=zypper reason=unknown"],
     ["a manager whose binary is absent", "dnf", "install", ["gum"], [], "manager=dnf reason=absent binaries=dnf5,dnf"],
     ["a name that starts with a dash", "pacman", "install", ["-Sy"], ["pacman"], "name=\"-Sy\" reason=grammar"],
@@ -346,6 +351,7 @@ const CHECK_ROWS = [
     ["dnf 4 answers in columns", "dnf", "dnf", q(["dnf", "-q", "check-update"], { "0": "none", "100": "updates" }, "dnf", 120)],
     ["nix has no query", "nix", "nix", { skipped: "no-check" }],
     ["flatpak lists its updates", "flatpak", "flatpak", q(["flatpak", "remote-ls", "--updates", "--columns=application,branch"], ROWS, "flatpak", 120)],
+    ["a verified file's check is vgshell-pkg's", "verified-file", "pacman", q(["{pkg}", "file-check", "verified-file"], { "0": "updates", "1": "none", "2": "unused" }, "arrow", 120)],
     ["mise waives the release-age cooldown", "mise", "mise", q(["env", "MISE_MINIMUM_RELEASE_AGE=0", "mise", "outdated", "--json"], ROWS, "mise", 120)]
 ];
 
@@ -523,7 +529,88 @@ function verifyTable(t) {
     }
     for (const row of t.MANAGERS) if (!checked.has(row.id)) failures.push("check: no row for " + row.id);
 
+    // pacman 7.1.0 asks to import the key of a `.sig` beside a -U file
+    // into the system keyring (lib/libalpm/be_package.c:729-771).
+    const files = t.filePlan("verified-file", "install", [{ name: "g", fetched: "/u/g.pkg.tar.zst", fetchedSig: "/u/g.pkg.tar.zst.sig", filename: "g.pkg.tar.zst", key: "/k.gpg" }], () => true);
+    const target = files.ok ? files.plan.steps.find(step => step.includes("-U")).slice(-1)[0] : null;
+    if (target === null || files.plan.steps.some(step => step.some(arg => arg.endsWith(".sig") && path.dirname(arg) === path.dirname(target))))
+        failures.push("filePlan: a signature sits beside the -U file: " + JSON.stringify(files));
+
     failures.push(...verifyOutcomes(t));
+    return failures;
+}
+
+// The verified-file source as the user meets it, from the database
+// (built here) and files under scripts/fixtures/pkg/verified-file/, with
+// stub curl, pacman and pacman-conf and the real bsdtar, vercmp, gpgv and
+// shipped key. The fixture package is signed by a throwaway key, not the
+// pinned one.
+const PINNED = "40DFB630FF42BCFFB047046CF0134EE680CAC571";
+function verifyFileSource(tmp) {
+    const failures = [], { repo } = require("./vgshell-pkg-shared.js");
+    const fix = path.join(tmp, "fix"), stubs = path.join(tmp, "stubs"), runtime = path.join(tmp, "runtime");
+    for (const dir of [fix, stubs, runtime]) fs.mkdirSync(dir, { mode: 0o700 });
+    const stub = (name, body) => fs.writeFileSync(path.join(stubs, name), "#!/bin/sh\n" + body + "\n", { mode: 0o755 });
+    stub("curl", "[ -z \"$SLOW\" ] || { : >\"$SLOW\"; exec sleep 30; }\nfor a; do [ \"$p\" = --output ] && o=$a; p=$a; done; cp -- \"$FIX/${p##*/}\" \"$o\" || exit 22");
+    stub("pacman", "[ \"$1\" = -Q ] || exit 99; [ -n \"$INSTALLED\" ] || exit 1; echo \"gliff $INSTALLED\"");
+    stub("pacman-conf", "case $1 in Architecture) echo x86_64 ;; LocalFileSigLevel) [ -n \"$LOCAL_UNSET\" ] || printf 'PackageOptional\\nPackageTrustedOnly\\n' ;; SigLevel) printf 'PackageRequired\\nPackageTrustedOnly\\n' ;; *) exit 1 ;; esac");
+    const pkg = "gliff-9.9-1-x86_64.pkg.tar.zst";
+    for (const file of [pkg, pkg + ".sig"]) fs.copyFileSync(path.join(FIXTURES, "verified-file", file), path.join(fix, file));
+    const sha = require("node:crypto").createHash("sha256").update(fs.readFileSync(path.join(fix, pkg))).digest("hex");
+    // WORLD: the installed gliff, the database's one entry (LISTED, gliff
+    // unless named) and the stubs' switches in EXTRA.
+    const world = (installed, version, filename, extra = {}, listed = "gliff") => {
+        const entry = path.join(tmp, "desc", "gliff-" + version);
+        fs.mkdirSync(entry, { recursive: true });
+        fs.writeFileSync(path.join(entry, "desc"), `%FILENAME%\n${filename}\n\n%NAME%\n${listed}\n\n%VERSION%\n${version}\n\n%SHA256SUM%\n${sha}\n\n`);
+        require("node:child_process").execFileSync("bsdtar", ["-cf", path.join(fix, "omarchy.db"), "-C", path.join(tmp, "desc"), "gliff-" + version]);
+        fs.rmSync(path.join(tmp, "desc"), { recursive: true });
+        Object.assign(process.env, { PATH: stubs + path.delimiter + PATH, FIX: fix, INSTALLED: installed, XDG_RUNTIME_DIR: runtime, LOCAL_UNSET: "", SLOW: "" }, extra);
+    };
+    const PATH = process.env.PATH;
+    const fetchKey = () => { try { require("../bin/lib/pkg-file.js").fetch("verified-file", "gliff", fs.mkdtempSync(path.join(tmp, "f-"))); return "fetched"; } catch (e) { return e.first.split(" ")[0]; } };
+    world("", "9.9-1", pkg);
+    if (fetchKey() !== "signature=invalid") failures.push("a file the pinned key did not sign is fetched: " + fetchKey());
+    world("0.4.1-1", "0.4.0-1", "gliff-0.4.0-1-x86_64.pkg.tar.zst");
+    if (fetchKey() !== "version=older") failures.push("an older version is fetched: " + fetchKey());
+    // pacman.conf without LocalFileSigLevel: libalpm takes SigLevel's Required.
+    world("", "9.9-1", pkg, { LOCAL_UNSET: "1" });
+    if (fetchKey() !== "local-file-siglevel=required") failures.push("an inherited required signature level is not refused: " + fetchKey());
+    world("0.4.1-1", "0.4.2-1", "gliff-0.4.2-1-x86_64.pkg.tar.zst");
+    const check = () => JSON.parse(require("node:child_process").execFileSync(path.join(repo, "bin", "vgshell-pkg"), ["check", "--json", "--source", "verified-file"], { encoding: "utf8" }));
+    const shown = check();
+    if (!same(shown.map(r => [r.source, r.error, triples(r.packages)]), [["verified-file", null, [["gliff", "0.4.1-1", "0.4.2-1"]]]])) failures.push("a newer version is not an update: " + JSON.stringify(shown));
+    world("", "0.4.2-1", "gliff-0.4.2-1-x86_64.pkg.tar.zst");
+    if (!same(check(), [])) failures.push("a source with nothing installed lists a row");
+    world("0.4.1-1", "0.4.2-1", "other-0.4.2-1-x86_64.pkg.tar.zst", {}, "other");
+    const dropped = check();
+    if (dropped.length !== 1 || dropped[0].count !== null || !String(dropped[0].error).includes("database=unlisted")) failures.push("an installed package the database dropped reads as current: " + JSON.stringify(dropped));
+    // A TERM to the check's process group during its download, as runCheck's
+    // timeout sends, leaves no private folder; the curl stub's marker is the
+    // barrier, and bash's job control gives the check its own group.
+    world("0.4.1-1", "0.4.2-1", "gliff-0.4.2-1-x86_64.pkg.tar.zst", { SLOW: path.join(tmp, "curl-started") });
+    const stopped = require("node:child_process").execFileSync("bash", ["-c", "set -m; \"$1\" file-check verified-file >/dev/null 2>&1 & pid=$!; for i in $(seq 200); do [ -e \"$SLOW\" ] && break; sleep 0.05; done; kill -TERM -- -\"$pid\"; s=0; wait \"$pid\" || s=$?; echo $s", "bash", path.join(repo, "bin", "vgshell-pkg")], { encoding: "utf8", timeout: 30000 }).trim();
+    const left = fs.readdirSync(path.join(runtime, "vgshell")).filter(name => name.startsWith("pkgfile-"));
+    if (stopped !== "143" || left.length > 0 || !fs.existsSync(process.env.SLOW)) failures.push("a stopped check: exit " + stopped + ", folders left " + JSON.stringify(left));
+    process.env.PATH = PATH;
+    // The prune step, run over two scratch folders standing in for the
+    // cache: the older gliff and its signature go; the new one, its
+    // signature and another package whose name extends gliff's stay.
+    const t = load(TABLE), files = t.managerRow("verified-file").files, cache = { [files.dir]: path.join(tmp, "pkgfile"), [files.sigDir]: path.join(tmp, "pkgsig") };
+    const plan = t.filePlan("verified-file", "update", [{ name: "gliff", fetched: "/u/f", fetchedSig: "/u/f.sig", filename: "gliff-0.5-1-x86_64.pkg.tar.zst", key: "/k" }], () => true).plan;
+    const keep = ["pkgfile/gliff-0.5-1-x86_64.pkg.tar.zst", "pkgfile/gliff-git-1-1-x86_64.pkg.tar.zst", "pkgsig/gliff-0.5-1-x86_64.pkg.tar.zst.sig"];
+    for (const file of [...keep, "pkgfile/gliff-0.4-1-x86_64.pkg.tar.zst", "pkgsig/gliff-0.4-1-x86_64.pkg.tar.zst.sig"]) {
+        fs.mkdirSync(path.join(tmp, path.dirname(file)), { recursive: true });
+        fs.writeFileSync(path.join(tmp, file), "");
+    }
+    const prune = plan.steps[plan.steps.length - 1].map(arg => cache[arg] || arg);
+    require("node:child_process").execFileSync(prune[0], prune.slice(1));
+    const kept = Object.values(cache).flatMap(dir => fs.readdirSync(dir).map(file => path.basename(dir) + "/" + file)).sort();
+    if (!same(kept, keep)) failures.push("prune: the cache keeps " + JSON.stringify(kept));
+    const keyring = path.join(repo, files.repositories[0].key);
+    const keys = require("node:child_process").execFileSync("gpg", ["--homedir", fs.mkdtempSync(path.join(tmp, "gpg-")), "--show-keys", "--with-colons", keyring], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    const primaries = keys.split("\n").filter((line, i, all) => line.startsWith("fpr:") && all[i - 1].startsWith("pub:")).map(line => line.split(":")[9]);
+    if (!same(primaries, [PINNED]) || t.managerRow("verified-file").files.repositories[0].fingerprint !== PINNED) failures.push("key: the shipped key is not the pinned " + PINNED + ": " + primaries);
     return failures;
 }
 
@@ -577,6 +664,7 @@ const CONTROLS = [
     ["table", "an overlay's install omits its manager", TABLE, "return (group.primary ? [] : [\"--manager\", group.manager]).concat(group.names);", "return group.names;"],
     ["table", "apt engine loses its argv boundary", TABLE, 'engineArchive: ["install", "--"]', 'engineArchive: ["install"]'],
     ["table", "nix is offered an install", TABLE, "installs: managerRow(order[i].id).install !== null", "installs: true"],
+    ["table", "a signature sits beside the file pacman installs", TABLE, 'sigDir: "/var/cache/vgshell/pkgsig"', 'sigDir: "/var/cache/vgshell/pkgfile"'],
     ["table", "a mise update keeps the installed version", TABLE, "else if (step[j] === \"{names@latest}\") argv.push.apply(argv, names.map(function (name) { return name + \"@latest\"; }));", "else if (step[j] === \"{names@latest}\") argv.push.apply(argv, names);"],
     ["rule:update steps", "a manager that installs has no update", TABLE, "update: [[\"{bin}\", \"upgrade\", \"{names}\"]],", "update: null,"],
     ["table", "a removable name may start with a dash", TABLE, "if (query !== \"owner\" && !validName(value))", "if (query === \"installed\" && !validName(value))"],
@@ -617,6 +705,7 @@ function main() {
     const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "vgshell-pkg-table-")));
     try {
         report("table", verifyTable(load(TABLE)));
+        report("file source", verifyFileSource(tmp));
         CONTROLS.forEach((control, index) => runControl(tmp, control, index));
         if (failed) process.exitCode = 1;
         else console.log("test-vgshell-pkg-table: ok detect=" + DETECT_ROWS.length + " ids=" + ID_ROWS.length + " plans=" + PLAN_ROWS.length + " ignores=" + IGNORE_ROWS.length + " queries=" + QUERY_ROWS.length + " answers=" + ANSWER_ROWS.length + " pickers=" + PICKER_ROWS.length + " elevators=" + ELEVATOR_ROWS.length + " picks=" + PACKAGE_FOR_ROWS.length + " groups=" + INSTALL_GROUP_ROWS.length + " parses=" + PARSE_ROWS.length + " checks=" + CHECK_ROWS.length + " outcomes=" + OUTCOME_ROWS.length + " controls=" + CONTROLS.length);

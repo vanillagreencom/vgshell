@@ -161,7 +161,7 @@ process.stdout.write(process.env.REVIEW_PAGE_REPLY);process.exit(Number(process.
     const holderPath = [holderBin, path.join(miseRoot, "bin"), holders, tools].join(path.delimiter);
     const holderWant = {
         primary: { id: "pacman", binary: "pacman" },
-        overlays: [{ id: "aur", binary: "paru" }],
+        overlays: [{ id: "aur", binary: "paru" }, { id: "verified-file", binary: "pacman" }],
         sources: [{ id: "mise", binary: "mise" }],
         holders: {
             "held-mise": { path: path.join(miseRoot, "bin", "held-mise"), owners: { pacman: null, aur: null, mise: "npm:held-mise" } },
@@ -176,7 +176,7 @@ process.stdout.write(process.env.REVIEW_PAGE_REPLY);process.exit(Number(process.
     writeScript(path.join(unread, "broken-owner"), "echo broken-owner");
     const unreadWant = { primary: { id: "dnf", binary: "dnf5" }, overlays: [], sources: [], holders: { "broken-owner": { path: path.join(unread, "broken-owner"), owners: { dnf: null } } } };
     expectCommand("detect --json --holders keeps going when an owner query cannot start", bound(fedora, unread + path.delimiter + tools, ["detect", "--json", "--holders", "broken-owner"]), 0, JSON.stringify(unreadWant) + "\n", "holder=unread command=broken-owner manager=dnf cause=ENOENT\n");
-    expectCommand("detect --json without holders stays byte-identical", bound(arch, holderPath, ["detect", "--json"]), 0, "{\"primary\":{\"id\":\"pacman\",\"binary\":\"pacman\"},\"overlays\":[{\"id\":\"aur\",\"binary\":\"paru\"}],\"sources\":[{\"id\":\"mise\",\"binary\":\"mise\"}]}\n", "");
+    expectCommand("detect --json without holders stays byte-identical", bound(arch, holderPath, ["detect", "--json"]), 0, "{\"primary\":{\"id\":\"pacman\",\"binary\":\"pacman\"},\"overlays\":[{\"id\":\"aur\",\"binary\":\"paru\"},{\"id\":\"verified-file\",\"binary\":\"pacman\"}],\"sources\":[{\"id\":\"mise\",\"binary\":\"mise\"}]}\n", "");
     expectCommand("detect --holders refuses a malformed command", bound(arch, holderPath, ["detect", "--json", "--holders", "/bin/sh"]), 2, "", "vgshell: refused: command=\"/bin/sh\"\n");
     // The owner stub answers as pacman does for one owned file; any other
     // call exits 99.

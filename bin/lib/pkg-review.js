@@ -618,6 +618,9 @@ function consume(receipt, request, customArgv) {
     } finally { lock.release(); }
 }
 async function admit(action, manager, names, ignored = [], installs = [], config, receipt) {
+    // A verified-file package's origin evidence is its signature against the
+    // pinned key, which bin/lib/pkg-file.js checks before any root step, so
+    // it takes no review, as an official repository's package takes none.
     if (!["pacman", "aur"].includes(manager) || action === "remove") return { names, ignored, installs, config };
     const request = { version: 1, mode: action === "upgrade" ? "upgrade" : "named", action, groups: [{ manager, names, installs, ignored }], sources: action === "upgrade" ? [manager] : [], rebuild: [], config: config || null, customAurArgv: null };
     if (receipt) return consume(receipt, request);

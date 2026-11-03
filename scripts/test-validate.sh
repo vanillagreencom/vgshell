@@ -1099,6 +1099,19 @@ PYPKGEDGE
     '!node scripts/test-vgshell-pkg-cli.js' '!validate: selection=full'
 done
 
+# The table suite runs the verified-file source through bin/lib/pkg-file.js
+# and checks the shipped key, so a change confined to either selects it.
+for input in bin/lib/pkg-file.js config/keys/40DFB630FF42BCFFB047046CF0134EE680CAC571.gpg; do
+  d="$tmp/plan-package-table-${input##*/}"; fresh "$d"
+  mkdir -p "$d/${input%/*}"
+  printf 'changed\n' >>"$d/$input"
+  test_area=cli
+  test_args=(--changed HEAD --list)
+  row "the package manager table suite is selected for $input" "$d" 0 "" \
+    "node scripts/test-vgshell-pkg-table.js" '!validate: selection=full'
+done
+test_area=offline; test_args=()
+
 # Updates readers load the shipped page-reference module in their core tree.
 d="$tmp/plan-updates-page-reference"; fresh "$d"
 mkdir -p "$d/shell/Commons"

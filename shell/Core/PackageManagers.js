@@ -31,7 +31,8 @@
 //   check     the unprivileged update queries, the first whose binary is
 //             null or the row's binary answering: its argv, the meaning of
 //             each exit status ("updates" or "rows": the parser's rows are
-//             the updates; "none": there are none), the parser's name in
+//             the updates; "none": there are none; "unused": the system
+//             takes no package from the source, which then lists no row),
 //             PARSERS and the seconds a run may take. An unlisted status is
 //             a failure. null when no read-only query exists.
 //   install, reinstall, update, remove, upgrade
@@ -65,7 +66,7 @@
 //             one package's details and takes "{name}". Both only read.
 // In a template "{bin}" is the row's binary, "{names}" the package names,
 // "{names@latest}" each of them followed by `@latest`, "{name}" one package
-// name and "{path}" an absolute file path. A
+// name, "{path}" an absolute file path and "{pkg}" bin/vgshell-pkg. A
 // pacman-family sync that refreshes the databases always upgrades too:
 // `-Syu`, never `-Sy` alone.
 var MANAGERS = [
@@ -110,6 +111,53 @@ var MANAGERS = [
         removable: null,
         // pacman's remove picker lists the AUR's packages too.
         picker: { install: { list: ["{bin}", "-Slqa"], preview: ["{bin}", "-Siia", "{name}"] }, remove: null }
+    },
+    // A verified file: one package of a named repository that pacman.conf
+    // does not list, so its key never enters the system keyring, where it
+    // would vouch for every package the key signs. bin/lib/pkg-file.js
+    // fetches the file and its signature as the user and checks them
+    // against the repository's key, which VGS ships; filePlan puts the
+    // `files.steps` root checks before the -U steps and `files.prune`
+    // after them. The check prints `arrow` lines and exits 2 while no
+    // listed package is installed. `vgshell pkg run upgrade` takes the
+    // packages the check offers newer and runs the update steps over them,
+    // so the upgrade template only names the step for `vgshell pkg plan`.
+    {
+        id: "verified-file", role: "overlay", family: [], release: null, requires: "pacman", binaries: ["pacman"], elevate: true,
+        check: [{ binary: null, argv: ["{pkg}", "file-check", "verified-file"], exits: { "0": "updates", "1": "none", "2": "unused" }, parser: "arrow", timeout: 120 }],
+        install: [["{bin}", "-U", "--needed", "--", "{names}"]],
+        reinstall: null,
+        update: [["{bin}", "-U", "--needed", "--", "{names}"]],
+        remove: null, upgrade: [["{bin}", "-U", "--needed", "--"]], ignore: null, owner: null, installed: null, removable: null,
+        picker: { install: null, remove: null },
+        // Root-owned copies the user cannot swap after the check, mode 0600
+        // so a fetched file swapped for a link copies no secret readable to
+        // all. The signature goes to its own folder: pacman 7.1.0 loads a
+        // `.sig` beside a -U file and asks to import its key into the
+        // system keyring (lib/libalpm/be_package.c:729-771); without one,
+        // `LocalFileSigLevel = Optional` installs it unsigned.
+        files: {
+            dir: "/var/cache/vgshell/pkgfile", sigDir: "/var/cache/vgshell/pkgsig",
+            steps: [
+                ["install", "-D", "-m", "0600", "-o", "root", "-g", "root", "--", "{fetched}", "{file}"],
+                ["install", "-D", "-m", "0600", "-o", "root", "-g", "root", "--", "{fetchedSig}", "{sig}"],
+                ["gpgv", "--keyring", "{key}", "--", "{sig}", "{file}"]
+            ],
+            // Once -U succeeded, the package's other cached files and their
+            // signatures go. "{older}" matches `<name>-<pkgver>-<pkgrel>-
+            // <arch>.pkg.tar.<ext>[.sig]`, none of which holds a hyphen, so
+            // it never matches another package whose name extends this one.
+            prune: [["find", "{dir}", "{sigDir}", "-maxdepth", "1", "-type", "f", "-regextype", "posix-extended", "-regex", "{older}",
+                "!", "-name", "{filename}", "!", "-name", "{sigName}", "-delete"]],
+            // Each repository: its database's URL with "{arch}" for pacman's
+            // Architecture, the key file in the install tree, the key's
+            // primary fingerprint a signature must name, and the packages
+            // VGS takes from it.
+            repositories: [
+                { name: "omarchy-edge", url: "https://pkgs.omarchy.org/edge/{arch}/omarchy.db", key: "config/keys/40DFB630FF42BCFFB047046CF0134EE680CAC571.gpg",
+                    fingerprint: "40DFB630FF42BCFFB047046CF0134EE680CAC571", packages: ["gliff"] }
+            ]
+        }
     },
     // apt lists what the package lists held at the last `apt update`, which
     // needs root, so the check never refreshes them. Debian 14 is the one
@@ -454,6 +502,29 @@ function planOwed(id, missing, outdated, onPath, config) {
     return update;
 }
 
+// The steps ACTION, install or update, takes for verified-file row ID over
+// FILES, each `{ name, fetched, fetchedSig, filename, key }`
+// bin/lib/pkg-file.js checked as the user: each file's `files.steps`, then
+// plan's steps over the root-owned copies, then each file's `files.prune`,
+// as plan answers; IGNORED and CONFIG are plan's.
+function filePlan(id, action, files, onPath, ignored, config) {
+    var spec = managerRow(id).files;
+    var copies = files.map(function (f) { return spec.dir + "/" + f.filename; });
+    var r = plan(id, action, copies, onPath, ignored, config);
+    if (!r.ok) return r;
+    var before = [], after = [];
+    files.forEach(function (f, i) {
+        var fill = { "{fetched}": f.fetched, "{fetchedSig}": f.fetchedSig, "{file}": copies[i], "{sig}": spec.sigDir + "/" + f.filename + ".sig", "{key}": f.key,
+            "{dir}": spec.dir, "{sigDir}": spec.sigDir, "{filename}": f.filename, "{sigName}": f.filename + ".sig",
+            "{older}": ".*/" + f.name.replace(/[.+*?^$()|[\]{}\\]/g, "\\$&") + "-[^-/]+-[^-/]+-[^-/]+\\.pkg\\.tar\\.[a-z0-9]+(\\.sig)?" };
+        var filled = function (step) { return step.map(function (token) { return Object.prototype.hasOwnProperty.call(fill, token) ? fill[token] : token; }); };
+        before = before.concat(spec.steps.map(filled));
+        after = after.concat(spec.prune.map(filled));
+    });
+    r.plan.steps = before.concat(r.plan.steps, after);
+    return r;
+}
+
 // The words each AUR helper takes to build without package tests, put
 // before the `--` that ends a step's options. paru(8) has its own
 // --nocheck; yay(8) --mflags hands makepkg flags on, and makepkg(8)
@@ -702,7 +773,8 @@ function reviewCheckFor(id, binary, config) {
     return { check: check, complete: complete, origin: found.origin || null };
 }
 
-// What CHECK's run printed means: `{ packages }` or `{ error }`. STATUS is
+// What CHECK's run printed means: `{ packages }`, `{ unused: true }` for a
+// source the system uses for no package, or `{ error }`. STATUS is
 // the exit status; STDOUT and STDERR are the query's two output streams.
 // A nonzero status with diagnostics cannot mean a successful empty query.
 function checkOutcome(check, status, stdout, stderr) {
@@ -711,6 +783,7 @@ function checkOutcome(check, status, stdout, stderr) {
     if (meaning === undefined || (status !== 0 && diagnostic !== ""))
         return { error: "exit=" + status + (diagnostic === "" ? "" : " stderr=" + diagnostic) };
     if (meaning === "none") return { packages: [] };
+    if (meaning === "unused") return { unused: true };
     var parsed = PARSERS[check.parser](stdout);
     if (!parsed.ok) return { error: parsed.error };
     return { packages: parsed.packages };

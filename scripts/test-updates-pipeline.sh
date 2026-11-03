@@ -150,9 +150,11 @@ case "$1 $2" in
   "pkg ensure-helper") [ ! -e "$FIX/fail-ensure-helper" ] || exit 1 ;;
   "plugin settings") cat "$FIX/settings.json" ;;
   "pkg detect") [ ! -e "$FIX/fail-detect" ] || exit 5; cat "$FIX/detect.json" ;;
+  "pkg file-check") [ ! -e "$FIX/unused-verified-file" ] || exit 2; exit 1 ;;
   "pkg plan")
     case "$4" in
       pacman) echo "{\"manager\":\"pacman\",\"binary\":\"pacman\",\"action\":\"upgrade\",\"elevate\":true,\"steps\":[[\"pacman\",\"-Syu\"]],\"elevator\":{\"ok\":true,\"command\":\"$(cat "$FIX/elevator")\"}}" ;;
+      verified-file) echo "{\"manager\":\"verified-file\",\"binary\":\"pacman\",\"action\":\"upgrade\",\"elevate\":true,\"steps\":[[\"pacman\",\"-U\",\"--needed\",\"--\"]],\"elevator\":{\"ok\":true,\"command\":\"$(cat "$FIX/elevator")\"}}" ;;
       flatpak) echo "{\"manager\":\"flatpak\",\"binary\":\"flatpak\",\"action\":\"upgrade\",\"elevate\":false,\"steps\":[[\"flatpak\",\"update\"]],\"elevator\":null}" ;;
       mise) echo "{\"manager\":\"mise\",\"binary\":\"mise\",\"action\":\"upgrade\",\"elevate\":false,\"steps\":[[\"env\",\"MISE_MINIMUM_RELEASE_AGE=0\",\"mise\",\"upgrade\"]],\"elevator\":null}" ;;
       aur) echo "{\"manager\":\"aur\",\"binary\":\"paru\",\"action\":\"upgrade\",\"elevate\":false,\"steps\":[[\"paru\",\"-Sua\"]],\"elevator\":null}" ;;
@@ -1165,6 +1167,20 @@ row_source() {
   pipeline update-source.sh
   assert "a missing source is refused" test "$status:$(head -n 1 "$tmp/out" | tr -d '\r')" == "2:No update source was selected. Open Updates and choose a source."
 }
+# A verified-file update the check shows runs in Update all and alone.
+row_verified_file() {
+  reset_fix
+  printf '{"primary":{"id":"pacman","binary":"pacman"},"overlays":[{"id":"verified-file","binary":"pacman"}],"sources":[]}\n' >"$fix/detect.json"
+  pipeline update.sh -y
+  assert "Update all runs the verified-file upgrade" has_call "vgshell pkg run upgrade --manager verified-file"
+  pipeline update-source.sh verified-file
+  assert "the verified-file source updates alone" test "$status:$(grep -c '^vgshell pkg run' "$tmp/seq")" == "0:1"
+  assert "its one step is the verified-file upgrade" has_call "vgshell pkg run upgrade --manager verified-file"
+  touch "$fix/unused-verified-file"
+  pipeline update.sh -y
+  assert "Update all leaves out a verified-file source with nothing installed" no_call "vgshell pkg plan upgrade verified-file"
+  assert "and runs no verified-file upgrade" no_call "vgshell pkg run upgrade --manager verified-file"
+}
 # log_tui KEYS [ARG...]: tui/log.sh as `pipeline` runs a script, on a
 # pseudo-terminal whose input stays open. With KEYS `yes` a key is typed
 # every 0.2 s, since the closing prompt drops keys queued within 0.1 s of
@@ -1387,7 +1403,7 @@ SH
 }
 row_facts_plain; row_pipeline_plain; row_record_whole
 row_full; row_trusted; row_snapshot; row_failure; row_failed_end; row_cause; row_system_failed; row_order; row_answer; row_cause_output; row_stopped; row_interrupted; row_reboot; row_reboot_core; row_reboot_unread; row_orphans; row_yes
-row_declined; row_busy; row_aur_command; row_aur_failure; row_aur_rebuild_stopped; row_doas; row_vgs_only; row_vgs_helper; row_vgs_git; row_vgs_step; row_rebuild_failed; row_source; row_recheck_failure; row_recheck_replaced_tree; row_recheck_cli; row_reboot_deferred; row_helper_configs; row_log
+row_declined; row_busy; row_aur_command; row_aur_failure; row_aur_rebuild_stopped; row_doas; row_vgs_only; row_vgs_helper; row_vgs_git; row_vgs_step; row_rebuild_failed; row_source; row_verified_file; row_recheck_failure; row_recheck_replaced_tree; row_recheck_cli; row_reboot_deferred; row_helper_configs; row_log
 
 # Controls: each runs one row against a plugin copy whose FILE, relative
 # to the plugin and tui/pipeline.sh unless named, drops one rule, quietly,
@@ -1480,6 +1496,9 @@ control unasked-start 'vgs_tui_confirm "Start the update?" || status=$?' 'true |
 control log-elsewhere 'printf '"'"'%s\n'"'"' "$(updates_state_dir)/update.log"' 'printf '"'"'%s\n'"'"' "$(updates_state_dir)/other.log"' row_log
 control log-absent-opens '[[ -f $log ]] || _updates_refuse 1' '[[ -n $log ]] || _updates_refuse 1' row_log tui/log.sh
 control log-closes-unread "trap 'status=\$?; [[ \$status == 0 ]] || vgs_tui_close_prompt \"\$status\"' EXIT" ':' row_log tui/log.sh
+control verified-file-left-out 'for arg in verified-file flatpak mise; do' 'for arg in flatpak mise; do' row_verified_file
+control verified-file-unused-kept '        [[ $status != 2 ]] || continue' '        :' row_verified_file
+control verified-file-unknown '      verified-file|flatpak|mise) _updates_in' '      flatpak|mise) _updates_in' row_verified_file
 control unknown-source-unchecked '_updates_refuse 2 "source=$only reason=unknown"' \
   ': 2 "source=$only reason=unknown"' row_source
 

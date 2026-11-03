@@ -16,6 +16,7 @@ f share/vgshell/bin/lib/owned-group.py
 f share/vgshell/bin/lib/owned-group.sh
 f share/vgshell/bin/lib/page-rows.js
 f share/vgshell/bin/lib/pkg-config.js
+f share/vgshell/bin/lib/pkg-file.js
 f share/vgshell/bin/lib/pkg-outcome.js
 f share/vgshell/bin/lib/pkg-retry.js
 f share/vgshell/bin/lib/pkg-review-settings.sh
@@ -52,6 +53,7 @@ f share/vgshell/bin/vgshell-sudo-grant
 f share/vgshell/bin/vgshell-system
 f share/vgshell/bin/vgshell-theme-judge
 f share/vgshell/bin/vgshell-tui
+f share/vgshell/config/keys/40DFB630FF42BCFFB047046CF0134EE680CAC571.gpg
 f share/vgshell/config/requirements.json
 f share/vgshell/config/runtime-libraries.json
 f share/vgshell/config/shell.json
