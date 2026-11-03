@@ -1,18 +1,16 @@
 import QtQuick
 
-// Stay awake holds and one plain idle watch for
-// scripts/smoke/rows/stay-awake.sh, which reads them through the core's
-// lending record. IPC: `hold <seconds>` takes one more hold and answers
-// `ok` or the core's refusal; `release` runs the newest hold's disposer,
-// one the timer ended among them; `ends` counts the end calls the core
-// made; `watch <seconds>` replaces the watch.
+// Stay awake holds for scripts/smoke/rows/stay-awake.sh, which reads them
+// through the core's lending record. IPC: `hold <seconds>` takes one more
+// hold and answers `ok` or the core's refusal; `release` ends the newest
+// hold, one the timer ended among them; `ends` counts the end calls the
+// core made.
 Item {
     id: root
     property var shell: null
     property bool registered: false
     property var holds: []
     property int ends: 0
-    property var watchDisposer: null
 
     onShellChanged: {
         if (shell === null || registered) return;
@@ -30,16 +28,11 @@ Item {
         });
         shell.ipc.handle("release", () => {
             if (root.holds.length === 0) return "none";
-            const dispose = root.holds[root.holds.length - 1];
+            const hold = root.holds[root.holds.length - 1];
             root.holds = root.holds.slice(0, -1);
-            dispose();
+            hold.end();
             return "ok";
         });
         shell.ipc.handle("ends", () => String(root.ends));
-        shell.ipc.handle("watch", arg => {
-            if (root.watchDisposer !== null) root.watchDisposer();
-            root.watchDisposer = root.shell.idle.watch(Number(arg), () => {});
-            return "ok";
-        });
     }
 }

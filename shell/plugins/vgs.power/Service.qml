@@ -94,16 +94,16 @@ Item {
     readonly property bool upowerReady: UPower.displayDevice !== null && UPower.displayDevice.ready === true
     readonly property var battery: Logic.batteryView(UPower.displayDevice, UPower.onBattery)
     // Stay awake: the core's hold through `idle` (shell.idle.stayAwake),
-    // whose disposer this instance alone keeps, and the wall-clock time it
-    // ends, 0 for none; nothing stores either, so a restart ends it. The
-    // duration last started is the one setting it writes,
-    // `stayAwakeMinutes`; it writes no idle or sleep setting.
-    property var stayAwakeDisposer: null
-    property real stayAwakeEndsAt: 0
+    // { endsAt, end }, which this instance alone keeps; the core owns its
+    // end time and its timer, and the status value publishes that time.
+    // Nothing stores the hold, so a restart ends it. The duration last
+    // started is the one setting it writes, `stayAwakeMinutes`; it writes
+    // no idle or sleep setting.
+    property var stayAwakeHold: null
     readonly property int stayAwakeMinutes: Logic.stayAwakeMinutes(shell === null ? undefined : shell.settings.stayAwakeMinutes)
-    readonly property bool batteryCritical: shell !== null && Logic.stayAwakeBatteryEnds(battery, shell.settings.criticalThreshold)
-    readonly property bool stayAwakeOn: stayAwakeDisposer !== null
-    readonly property var view: ({ battery: battery, profile: profile, stayAwake: { active: stayAwakeOn, endsAt: stayAwakeEndsAt, minutes: stayAwakeMinutes } })
+    readonly property bool batteryCritical: shell !== null && battery.present === true && Logic.batteryCritical(battery.level, battery.state === "discharging", shell.settings.criticalThreshold)
+    readonly property bool stayAwakeOn: stayAwakeHold !== null
+    readonly property var view: ({ battery: battery, profile: profile, stayAwake: { active: stayAwakeOn, endsAt: stayAwakeOn ? stayAwakeHold.endsAt : 0, minutes: stayAwakeMinutes } })
     readonly property string viewKey: JSON.stringify(view)
     readonly property string noticeKey: JSON.stringify({
         battery: battery,
@@ -216,20 +216,17 @@ Item {
             const saved = shell.configure.set("stayAwakeMinutes", minutes);
             if (saved !== "ok") console.warn("power: configure " + saved);
         }
-        const dispose = shell.idle.stayAwake(minutes * 60, () => {
-            root.stayAwakeDisposer = null;
-            root.stayAwakeEndsAt = 0;
+        const hold = shell.idle.stayAwake(minutes * 60, () => {
+            root.stayAwakeHold = null;
         });
-        stayAwakeEndsAt = minutes === 0 ? 0 : Date.now() + minutes * 60000;
-        stayAwakeDisposer = dispose;
+        stayAwakeHold = hold;
         return "ok";
     }
 
     function endStayAwake() {
-        const dispose = stayAwakeDisposer;
-        stayAwakeDisposer = null;
-        stayAwakeEndsAt = 0;
-        if (dispose !== null) dispose();
+        const hold = stayAwakeHold;
+        stayAwakeHold = null;
+        if (hold !== null) hold.end();
     }
 
     // As vgs.lock's watchIdle: dispose before replacing. The core owns

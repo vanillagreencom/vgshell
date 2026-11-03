@@ -21,6 +21,9 @@ BarWidget {
         return Logic.widgetView(power, setting("barProfile", false), Date.now());
     }
     readonly property string cup: "coffee"
+    // The cup draws no text, so the item it leads names the state in its
+    // accessible name.
+    readonly property string awakeName: "Stay awake on"
 
     visible: view.shown
     implicitWidth: view.shown ? row.implicitWidth : 0
@@ -40,7 +43,7 @@ BarWidget {
         BarItem {
             id: batteryItem
             visible: widget.view.batteryShown
-            label: "Battery"
+            label: widget.view.cupHost === "battery" ? "Battery, " + widget.awakeName : "Battery"
             iconName: widget.view.batteryIcon
             leadingIconName: widget.view.cupHost === "battery" ? widget.cup : ""
             text: widget.view.levelText
@@ -53,7 +56,7 @@ BarWidget {
         BarItem {
             id: profileItem
             visible: widget.view.profileShown
-            label: "Power profile"
+            label: widget.view.cupHost === "profile" ? "Power profile, " + widget.awakeName : "Power profile"
             iconName: widget.view.profileIcon
             leadingIconName: widget.view.cupHost === "profile" ? widget.cup : ""
             tone: widget.bar ? widget.bar.foreground : Theme.bar.foreground

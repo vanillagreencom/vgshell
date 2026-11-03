@@ -2268,6 +2268,20 @@ function suite(ctx, configLogic, check) {
         ["no end handler", 3600, null, "refused: stay-awake-end=not-a-function"]
     ];
     for (const [name, seconds, onEnd, want] of stayAwakeRows) check("stayAwakeRefusal: " + name, ctx.stayAwakeRefusal(seconds, onEnd), want);
+    // A hold's wait before its next check, from wall-clock readings: a
+    // timer stopped by a suspend checks within a minute of the wake, and a
+    // hold whose end passed while the machine slept ends at that check.
+    // [name, ends at, now, wait in ms, 0 for an ended hold].
+    const holdEnd = Date.UTC(2026, 10, 3, 16, 0, 0);
+    const stayAwakeWaitRows = [
+        ["four hours left waits one minute", holdEnd, holdEnd - 4 * 3600000, 60000],
+        ["a minute left waits the minute", holdEnd, holdEnd - 60000, 60000],
+        ["seconds left wait the rest", holdEnd, holdEnd - 2500, 2500],
+        ["its end ends it", holdEnd, holdEnd, 0],
+        ["a wake an hour past its end ends it", holdEnd, holdEnd + 3600000, 0],
+        ["a wake before its end waits one minute", holdEnd, holdEnd - 3 * 3600000, 60000]
+    ];
+    for (const [name, endsAt, now, want] of stayAwakeWaitRows) check("stayAwakeWait: " + name, ctx.stayAwakeWait(endsAt, now), want);
 
     const refusalRows = [
         ["a string fits a string entry", "label", "y", ""],
@@ -3258,6 +3272,8 @@ const CONTROLS = [
     ["a Stay awake hold takes a day at most", "seconds > IDLE_WATCH_MAX_SECONDS || !Number", "!Number"],
     ["a Stay awake hold takes whole seconds", " || !Number.isInteger(seconds))", ")"],
     ["a Stay awake hold needs an end handler", "if (typeof onEnd !== \"function\") return", "if (false) return"],
+    ["a Stay awake hold checks its end at least every step", "Math.min(endsAt - now, STAY_AWAKE_STEP_MS)", "(endsAt - now)"],
+    ["a Stay awake hold ends from the wall clock", "Math.max(0, Math.min(endsAt - now, STAY_AWAKE_STEP_MS))", "STAY_AWAKE_STEP_MS"],
     ["only the stage owner holds a stage watch", "if (row === null || row.plugin !== owner)", "if (row === null)"],
     ["an idle lock request carries an object ticket", "if (request.cause === \"idle\" && (request.ticket === null || typeof request.ticket !== \"object\"))", "if (false)"],
     ["a locked session takes no new cover", "if (request.locked) return refuse(\"locked\");", ""],

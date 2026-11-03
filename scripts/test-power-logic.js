@@ -264,16 +264,22 @@ function verify(logic) {
     }
     same(logic.STAY_AWAKE_DURATIONS.map(d => d.minutes), [0, 30, 60, 120, 240], "Stay awake offers its durations in order");
     same(logic.stayAwakeView(null), { active: false, endsAt: 0, minutes: 60 }, "stayAwakeView: no status value");
-    // The battery end: [present, state, level, critical, ends].
-    for (const [present, state, level, critical, ends] of [
-        [true, "discharging", 10, 10, true],
-        [true, "discharging", 9, 10, true],
-        [true, "discharging", 11, 10, false],
-        [true, "charging", 5, 10, false],
-        [true, "pending-charge", 5, 10, false],
-        [false, "absent", 0, 10, false],
-        [true, "discharging", 0, 0, true]
-    ]) assert.equal(logic.stayAwakeBatteryEnds({ present: present, state: state, level: level }, critical), ends, `stayAwakeBatteryEnds: present=${present} state=${state} level=${level} critical=${critical}`);
+    // The critical reading, which sends the critical notice and ends Stay
+    // awake: [level, discharging, critical threshold, critical].
+    for (const [level, discharging, critical, want] of [
+        [10, true, 10, true],
+        [9, true, 10, true],
+        [11, true, 10, false],
+        [10.4, true, 10, true],
+        [10.6, true, 10, false],
+        [5, false, 10, false],
+        [0, true, 0, true],
+        [1, true, 0, false]
+    ]) {
+        const label = `level=${level} discharging=${discharging} critical=${critical}`;
+        assert.equal(logic.batteryCritical(level, discharging, critical), want, "batteryCritical: " + label);
+        assert.equal(logic.notices(logic.latchInitial(), level, discharging, 0, critical).notices.some(n => n.threshold === "critical"), want, "notices critical: " + label);
+    }
 
     let latch = logic.latchInitial();
     let result = logic.notices(latch, 19, true, 20, 10);
@@ -562,7 +568,7 @@ const CONTROLS = [
     ["the choices are the daemon's Profiles alone", "var list = /'Profiles': <\\[(.*?)\\]>/.exec(source);", "var list = [source, source];"],
     ["an active profile outside the choices is unavailable", "if (active === null || choices.indexOf(active[1]) === -1)", "if (active === null)"],
     ["critical at start latches low", "        next.critical = true;\n        next.low = true;\n    } else if (n <= low) {", "        next.critical = true;\n        next.low = false;\n    } else if (n <= low) {"],
-    ["a level bounce does not rearm low", "    if (discharging !== true) return { notices: out, latch: latchInitial() };\n    if (n <= critical) {", "    if (discharging !== true) return { notices: out, latch: latchInitial() };\n    if (n > low) next.low = false;\n    if (n <= critical) {"],
+    ["a level bounce does not rearm low", "    if (discharging !== true) return { notices: out, latch: latchInitial() };\n    if (batteryCritical(level, discharging, criticalThreshold)) {", "    if (discharging !== true) return { notices: out, latch: latchInitial() };\n    if (n > low) next.low = false;\n    if (batteryCritical(level, discharging, criticalThreshold)) {"],
     ["the critical notice is danger", "tone: critical ? \"danger\" : \"warning\",", "tone: \"warning\","],
     ["each notice state has its own title", "title: critical ? \"Battery critical\" : \"Battery low\",", "title: \"Battery low\","],
     ["a bar pick with no battery remembers nothing", "if (batteryPresent !== true) return \"\";", "if (false) return \"\";"],
@@ -582,8 +588,9 @@ const CONTROLS = [
     ["the cup leads the battery item", "batteryShown ? \"battery\" : profileShown ? \"profile\" : \"alone\"", "profileShown ? \"profile\" : batteryShown ? \"battery\" : \"alone\""],
     ["the cup stands alone where no item shows", "shown: batteryShown || profileShown || awake.active,", "shown: batteryShown || profileShown,"],
     ["a duration outside the list is refused", "        if (STAY_AWAKE_DURATIONS[i].minutes === minutes) return minutes;\n    return -1;", "        if (STAY_AWAKE_DURATIONS[i].minutes === minutes) return minutes;\n    return minutes;"],
-    ["only a discharging battery ends Stay awake", "battery.state === \"discharging\"\n        &&", "true\n        &&"],
-    ["the critical level itself ends Stay awake", "<= Math.max(0, Math.round(Number(criticalThreshold)))", "< Math.max(0, Math.round(Number(criticalThreshold)))"]
+    ["only a discharging battery is critical", "    return discharging === true\n        &&", "    return true\n        &&"],
+    ["the critical level itself is critical", "<= Math.max(0, Math.round(Number(criticalThreshold)))", "< Math.max(0, Math.round(Number(criticalThreshold)))"],
+    ["the critical reading rounds the level", "&& Math.max(0, Math.round(Number(level))) <=", "&& Number(level) <="]
 ];
 
 const source = fs.readFileSync(file, "utf8");

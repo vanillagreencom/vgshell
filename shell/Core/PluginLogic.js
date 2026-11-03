@@ -6234,6 +6234,16 @@ function stayAwakeRefusal(seconds, onEnd) {
     return "";
 }
 
+// How long a Stay awake hold that ends at wall-clock ENDSAT waits at NOW
+// before its next check, in milliseconds: 0 once its end has come, else
+// the time left, at most STAY_AWAKE_STEP_MS. A timer that stopped during
+// a suspend thus checks again within one step of the wake, and a hold
+// whose end passed while the machine slept ends then.
+var STAY_AWAKE_STEP_MS = 60000;
+function stayAwakeWait(endsAt, now) {
+    return Math.max(0, Math.min(endsAt - now, STAY_AWAKE_STEP_MS));
+}
+
 // The first defect of where STATUS's entries draw on a plugin page, or ""
 // (docs/architecture/design-system.md § Settings pages). `setup` makes a
 // displayed state or presence a step of Setup: `true` a required step,

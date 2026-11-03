@@ -1,30 +1,30 @@
 # Stay awake (VGS-2257): `shell.idle.stayAwake` holds the core's idle
 # pause through its `stayAwake` source, the one pause every idle watch
-# obeys (D116), for a whole number of seconds or until its disposer runs.
-# The fixture acme.stayawake takes holds and one plain idle watch through
-# capability `idle`, read through the lending record's `idlePause`. The
-# row reads:
+# obeys (D116), for a whole number of seconds or until it is ended. The
+# fixture acme.stayawake takes holds through capability `idle`, read
+# through the lending record's `idlePause`; that every watch obeys the
+# pause is scripts/smoke/rows/idle-inhibit.sh's. The row reads:
 # - the provider refuses a hold past a day with the core's refusal;
-# - a hold until released pauses the idle source and holds a 1 s watch
-#   past its time;
-# - of two holds, the second one's disposer keeps the pause, and the
-#   first's ends it, after which the watch goes idle;
+# - a hold until released pauses the idle source;
+# - of two holds, ending the second keeps the pause, and ending the first
+#   ends it;
 # - a 2 s hold ends by its timer and calls its end once, and a hold
 #   released before its timer calls no end;
 # - disabling the holder ends its hold, and the holder built again holds
 #   none, since nothing stores a hold.
-# vgs.power's own hold, its End, the critical battery end and the
+# The wall-clock end a timer judges after a wake is
+# scripts/test-plugin-logic.js's stayAwakeWait rows. vgs.power's own
+# hold, its timer end, its End, the critical battery end and the
 # unchanged settings file are scripts/smoke/rows/power.sh's.
 # Controls, each a copy of the tree started in place of it with one edit
 # to shell/Core/IdleRegistry.qml: a hold that sets no pause source, a
-# timer that never starts, a disposer that ends nothing and a hold the
+# timer that never starts, an end that ends nothing and a hold the
 # instance's lifetime does not hold. Each control runs the row's own check
 # and passes only on that check's failure. The row restores the user file
 # and removes its fixture.
-# A held watch is read 3 s after it was created, three times its 1 s
-# time, and a released hold's end 3 s after its 2 s timer would have
-# fired, since no event marks a thing that did not happen. Every other
-# reading polls through expect_poll; no latency budget is claimed.
+# A released hold's end is read 3 s after its 2 s timer would have fired,
+# since no event marks a thing that did not happen. Every other reading
+# polls through expect_poll; no latency budget is claimed.
 # inputs: scripts/smoke/fixtures/plugins/acme.stayawake/* shell/Core/IdleRegistry.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/Lifetime.js shell/Core/Plugins.qml
 set -euo pipefail
 sa_config="$home/.config/vgshell/shell.json"
@@ -39,9 +39,6 @@ cp -R "$repo/scripts/smoke/fixtures/plugins/acme.stayawake/." "$sa_fixture/"
 # The pause's sources and the plugin id of each Stay awake hold, from the
 # lending record.
 sa_pause() { ipc shell lent | py_reply 'import json,sys; p=json.load(sys.stdin).get("idlePause"); print("absent" if p is None else json.dumps([p.get("sources"), p.get("stayAwake")]))'; }
-# The fixture's plain 1 s watch: `true` or `false` while it is idle or
-# not, `none` with no such watch.
-sa_watch() { ipc shell lent | py_reply 'import json,sys; w=[x for x in json.load(sys.stdin)["idle"] if x["id"] == "acme.stayawake" and x["timeout"] == 1]; print(json.dumps(w[0]["idle"]) if len(w) == 1 else "none")'; }
 # IPC invoke takes one argument, empty for a handler that reads none.
 sa_invoke() { ipc acme.stayawake invoke "$1" "${2:-}"; }
 sa_built() {
@@ -55,8 +52,8 @@ sa_hold_check() {
   expect_poll "a hold pauses the idle source" "$sa_held" sa_pause
 }
 sa_release_check() {
-  expect "the fixture runs its hold's disposer" ok sa_invoke release
-  expect_poll "the disposer ends the hold" "$sa_free" sa_pause
+  expect "the fixture ends its hold" ok sa_invoke release
+  expect_poll "the end ends the hold" "$sa_free" sa_pause
 }
 sa_timer_check() {
   expect "the fixture takes a 2 s hold" ok sa_invoke hold 2
@@ -111,15 +108,10 @@ expect "the provider refuses a hold past a day" "refused: stay-awake=86401 want=
 expect "a refused hold pauses nothing" "$sa_free" sa_pause
 
 sa_hold_check
-expect "the fixture takes a 1 s watch during the hold" ok sa_invoke watch 1
-sleep 3
-expect "a hold keeps a 1 s watch from going idle past its time" false sa_watch
 expect "the fixture takes a second hold" ok sa_invoke hold 0
-expect "the second hold's disposer is run" ok sa_invoke release
+expect "the second hold is ended" ok sa_invoke release
 expect "the first hold keeps the pause" "$sa_held" sa_pause
 sa_release_check
-expect_poll "the watch counts again and goes idle" true sa_watch
-expect "the disposer again ends nothing more" none sa_invoke release
 
 sa_timer_check
 expect_poll "the timer calls the hold's end once" 1 sa_invoke ends
@@ -134,16 +126,15 @@ sa_disable_check
 expect "enabling the holder again is allowed" ok ipc shell setPluginEnabled acme.stayawake true
 expect_poll "the holder is built again" True record_exists acme.stayawake
 expect "the holder built again holds nothing" "$sa_free" sa_pause
-expect "the holder built again counts no end" 0 sa_invoke ends
 
 sa_control stay-awake-unpaused '        setPause("stayAwake", true);' '' \
   "a hold that sets no pause source pauses nothing" "a hold pauses the idle source" sa_hold_check
 stop_shell || :
-sa_control stay-awake-untimed '            timer.start();' '' \
+sa_control stay-awake-untimed $'            timer.start();\n        }\n        const next' $'        }\n        const next' \
   "a timer that never starts keeps the hold" "the timer ends the hold" sa_timer_check
 stop_shell || :
-sa_control stay-awake-kept $'        setPause("stayAwake", true);\n        return release;' $'        setPause("stayAwake", true);\n        return () => {};' \
-  "a disposer that ends nothing keeps the hold" "the disposer ends the hold" sa_held_release_check
+sa_control stay-awake-kept '        return Object.freeze({ endsAt: endsAt, end: release });' '        return Object.freeze({ endsAt: endsAt, end: () => {} });' \
+  "an end that ends nothing keeps the hold" "the end ends the hold" sa_held_release_check
 stop_shell || :
 sa_control stay-awake-unowned '        const release = ctx.onDispose(end);' '        const release = end;' \
   "a hold the lifetime does not hold outlives its holder" "disabling the holder ends its hold" sa_held_disable_check

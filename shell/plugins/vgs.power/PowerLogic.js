@@ -2,11 +2,12 @@
 
 // Pure decisions for vgs.power: whether the display device is a laptop
 // battery, the battery and profile view published as plugin status, icon
-// bands, time text, profile mapping, low-battery latches, the profile
+// bands, time text, profile mapping, low-battery latches and the critical
+// reading they share with Stay awake's end, the profile
 // to apply when the power source changes, the setting a bar pick
 // remembers, Wake on LAN's value, connection list and write rule, the
 // power menu's availability reads, offers and confirmation hold, and Stay
-// awake's durations, time left and battery end.
+// awake's durations and time left.
 // QML owns UPower, the gdbus and nmcli runs that reach the power profiles
 // daemon and NetworkManager, settings writes, IPC and notices.
 
@@ -225,11 +226,12 @@ function stayAwakeLeft(awake, nowMs) {
     return durationText(minutes * 60, "left");
 }
 
-// Whether BATTERY ends Stay awake: discharging at or below the critical
-// threshold, the reading that sends the critical notice (notices).
-function stayAwakeBatteryEnds(battery, criticalThreshold) {
-    return !!(battery && battery.present === true && battery.state === "discharging"
-        && Math.round(Number(battery.level)) <= Math.max(0, Math.round(Number(criticalThreshold))));
+// Whether a battery at LEVEL percent that is DISCHARGING is at or below
+// the critical threshold: the reading that sends the critical notice
+// (notices) and ends Stay awake.
+function batteryCritical(level, discharging, criticalThreshold) {
+    return discharging === true
+        && Math.max(0, Math.round(Number(level))) <= Math.max(0, Math.round(Number(criticalThreshold)));
 }
 
 function latchInitial() {
@@ -241,10 +243,9 @@ function notices(previous, level, discharging, lowThreshold, criticalThreshold) 
     var next = { low: latch.low === true, critical: latch.critical === true };
     var out = [];
     var low = Math.max(0, Math.round(Number(lowThreshold)));
-    var critical = Math.max(0, Math.round(Number(criticalThreshold)));
     var n = Math.max(0, Math.round(Number(level)));
     if (discharging !== true) return { notices: out, latch: latchInitial() };
-    if (n <= critical) {
+    if (batteryCritical(level, discharging, criticalThreshold)) {
         if (!next.critical) out.push({ threshold: "critical", urgency: "critical", level: n });
         next.critical = true;
         next.low = true;

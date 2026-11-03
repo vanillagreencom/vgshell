@@ -125,12 +125,15 @@
 # Stay awake (power_stay_awake): real clicks on Start and End in the flyout
 # and in Power's section hold and end vgs.power's pause, read in the
 # lending record; the cup leads the battery item, or the profile item with
-# no battery, only while it holds; the duration last started is offered
-# first; a discharging battery at the critical level ends it and refuses a
-# start; a disable ends it and the plugin built again holds none; the user
-# file reads byte-identical after each end. Its controls,
-# acme.power-noend, acme.power-nocritical and acme.power-writes, are
-# power_stay_awake_controls'.
+# no battery, and that item's name says Stay awake is on, only while it
+# holds; the duration last started is offered first; a discharging battery
+# at the critical level ends it and refuses a start; a disable ends it and
+# the plugin built again holds none; the user file reads byte-identical
+# after each end. power_stay_awake_controls runs acme.power-short, a copy
+# whose hold lasts 10 s, through the core timer's end: status, cup and
+# lending record clear. Its controls, acme.power-noend,
+# acme.power-nocritical and acme.power-writes, are
+# power_stay_awake_controls' too.
 # inputs: shell/plugins/vgs.power/* shell/plugins/vgs.lock/* shell/Core/SessionLock.qml shell/Commons/SessionLockState.js shell/Hosts/LockHost.qml shell/Core/Compositor.qml shell/Core/Dispatch.js bin/lib/qml-library.js shell/Core/HyprlandLayer.js shell/Core/MonitorLogic.js shell/Core/HyprlandState.js shell/Core/HyprlandState.qml shell/Core/HyprctlReader.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/plugins/vgs.system/* shell/Hosts/PaneHost.qml shell/Core/IdleRegistry.qml shell/Ui/controls/BarItem.qml shell/Ui/controls/Button.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/Field.qml shell/Ui/controls/Select.qml shell/Ui/controls/SegmentedControl.qml shell/Ui/controls/Switch.qml shell/Ui/controls/InfoButton.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/ValueSourceRow.qml shell/Ui/layout/Section.qml shell/Ui/layout/SectionHeader.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Commons/SettingValues.js shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/Notifier.qml shell/Hosts/NoticeHost.qml shell/Hosts/SummonHost.qml bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/power-fakes.sh bin/vgshell-system config/system/udev/69-vgs-disk-sleep.rules scripts/smoke/rows/system-steps.sh scripts/smoke/fixtures/devices/network.py shell/Core/SystemSteps.qml config/system/udev/* scripts/smoke/fixtures/devices/* bin/lib/dbus_wire.py
 set -euo pipefail
 source "$repo/scripts/smoke/power-fakes.sh"
@@ -149,6 +152,7 @@ power_once_dir="$home/.config/vgshell/plugins/acme.power-once"
 power_quiet_dir="$home/.config/vgshell/plugins/acme.power-quiet"
 power_noend_dir="$home/.config/vgshell/plugins/acme.power-noend"
 power_nocritical_dir="$home/.config/vgshell/plugins/acme.power-nocritical"
+power_short_dir="$home/.config/vgshell/plugins/acme.power-short"
 power_writes_dir="$home/.config/vgshell/plugins/acme.power-writes"
 power_order_dir="$home/.config/vgshell/plugins/acme.power-order"
 power_wol_dir="$home/.config/vgshell/plugins/acme.power-wol"
@@ -849,7 +853,7 @@ power_stay_awake() {
   expect_poll "Start in the flyout holds the pause" '["vgs.power"]' power_stay_holds
   expect_poll "the service publishes Stay awake on for an hour" '[true, true, 60]' power_stay_status
   expect_poll "the flyout reads an hour left" True power_label_has "1 h left"
-  expect_poll "with a battery the cup leads the battery item" '[["Battery", "coffee"]]' power_cups
+  expect_poll "with a battery the cup leads the battery item and its name" '[["Battery, Stay awake on", "coffee"]]' power_cups
   expect "a start of the duration offered first leaves the user file unchanged" unchanged power_stay_file
   click_item panel vgs.power Button End || fail "the click on the flyout's End failed"
   expect_poll "End in the flyout ends the pause" '[]' power_stay_holds
@@ -893,7 +897,7 @@ power_stay_awake() {
   power_no_battery
   expect_poll "with no battery for Stay awake the widget draws the profile item" 1 power_item_count
   expect "Stay awake with no battery is taken" ok ipc vgs.power invoke stay-awake 0
-  expect_poll "with no battery the cup leads the profile item" '[["Power profile", "coffee"]]' power_cups
+  expect_poll "with no battery the cup leads the profile item and its name" '[["Power profile, Stay awake on", "coffee"]]' power_cups
   expect "disabling vgs.power while it holds Stay awake is allowed" ok ipc shell setPluginEnabled vgs.power false
   expect_poll "disabling vgs.power ends its hold" '[]' power_stay_holds
   expect "enabling vgs.power after its hold is allowed" ok ipc shell setPluginEnabled vgs.power true
@@ -903,15 +907,17 @@ power_stay_awake() {
   expect_poll "the service reads the battery again after Stay awake" 64 power_level
 }
 
-# Stay awake controls, each a fixture copy of vgs.power with one edit,
-# enabled while vgs.power is disabled: a service whose End runs no
+# Stay awake fixtures, each a copy of vgs.power with one edit, enabled
+# while vgs.power is disabled. Controls: a service whose End runs no
 # disposer and one whose critical battery reading ends nothing each log
 # the step they skip and keep the pause; one that writes its display-off
 # time at a start changes the user file the byte-identical check reads.
+# acme.power-short, whose hold lasts 10 s for any duration, reads the core
+# timer's end through vgs.power's onEnd: status, cup and lending record.
 power_stay_awake_controls() {
   power_install_fixture acme.power-noend "$power_noend_dir" Service.qml \
-    '        if (dispose !== null) dispose();' \
-    '        if (dispose !== null) console.warn("power: control kept the hold at End");'
+    '        if (hold !== null) hold.end();' \
+    '        if (hold !== null) console.warn("power: control kept the hold at End");'
   expected_errors+=('power: control kept the hold at End$')
   rescan "rescan after adding the noend fixture answers ok"
   expect "enabling the noend fixture is allowed" ok ipc shell setPluginEnabled acme.power-noend true
@@ -943,6 +949,28 @@ power_stay_awake_controls() {
   expect "disabling the nocritical fixture is allowed" ok ipc shell setPluginEnabled acme.power-nocritical false
   expect_poll "disabling the nocritical fixture ends its hold" '[]' power_stay_holds
   power_move_away "$power_nocritical_dir"
+
+  power_install_fixture acme.power-short "$power_short_dir" Service.qml \
+    '        const hold = shell.idle.stayAwake(minutes * 60, () => {' \
+    '        const hold = shell.idle.stayAwake(minutes === 0 ? 0 : 10, () => {'
+  rescan "rescan after adding the short fixture answers ok"
+  expect "enabling the short fixture is allowed" ok ipc shell setPluginEnabled acme.power-short true
+  expect "placing the short fixture is allowed" ok ipc shell setPluginPlaced acme.power-short true
+  power_id=acme.power-short
+  expect_poll "the short fixture reads the battery" 64 power_level
+  power_stay_keep
+  expect "the short fixture takes a 10 s Stay awake" ok ipc acme.power-short invoke stay-awake 60
+  expect "the short fixture holds the pause" '["acme.power-short"]' power_stay_holds
+  expect_poll "the short fixture publishes Stay awake on" '[true, true, 60]' power_stay_status
+  expect_poll "the short fixture's cup leads the battery item" '[["Battery, Stay awake on", "coffee"]]' power_cups
+  expect_poll "the core's timer ends the short fixture's hold" '[]' power_stay_holds
+  expect_poll "after the timer end the short fixture publishes Stay awake off" '[false, false, 60]' power_stay_status
+  expect_poll "after the timer end the short fixture's cup hides" '[]' power_cups
+  expect "after the timer end the user file is byte-identical" unchanged power_stay_file
+  unset power_id
+  expect "unplacing the short fixture is allowed" ok ipc shell setPluginPlaced acme.power-short false
+  expect "disabling the short fixture is allowed" ok ipc shell setPluginEnabled acme.power-short false
+  power_move_away "$power_short_dir"
 
   power_install_fixture acme.power-writes "$power_writes_dir" Service.qml \
     '        if (minutes !== stayAwakeMinutes) {' \

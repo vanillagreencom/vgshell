@@ -21,8 +21,8 @@ import "PluginLogic.js" as Logic
 // org.freedesktop.ScreenSaver inhibit is, which bin/vgshell-idle-inhibit
 // answers while a stage can fire, and `stayAwake`, live while a plugin's
 // Stay awake hold is (VGS-2257). Each hold belongs to its instance
-// lifetime: its timer, its disposer, a disable or a rebuild ends it, and
-// nothing stores it, so a restart ends it too.
+// lifetime: its wall-clock end, its `end()`, a disable or a rebuild ends
+// it, and nothing stores it, so a restart ends it too.
 Scope {
     id: root
     // `<plugin id>#<serial>` -> the watch's IdleMonitor, replaced whole on
@@ -165,14 +165,25 @@ Scope {
     }
 
     // Stay awake: hold the `stayAwake` pause source for `seconds`, or until
-    // released with 0. `onEnd()` runs once when the timer ends the hold,
-    // never after the disposer or the instance's end did. Returns the
+    // released with 0. Its end is one wall-clock time, `endsAt`, which the
+    // holder shows; `onEnd()` runs once when that time ends the hold, never
+    // after the disposer or the instance's end did. Returns the hold,
+    // { endsAt, end }: `endsAt` 0 for a hold with no end, and `end` the
     // disposer, which ends the hold and is safe to call again.
+    // A QML Timer is synchronized with the animation timer
+    // (https://doc.qt.io/qt-6/qml-qtqml-timer.html), which counts on Qt's
+    // monotonic clock (https://doc.qt.io/qt-6/qelapsedtimer.html,
+    // MonotonicClock), and Linux's CLOCK_MONOTONIC leaves out the time the
+    // system sleeps (clock_gettime(2)). One timer for the whole hold would
+    // end it late by every suspend, so the timer waits at most a step
+    // (Logic.stayAwakeWait) and judges the end from the wall clock each
+    // time it fires.
     function stayAwake(ctx, seconds, onEnd) {
         const refusal = Logic.stayAwakeRefusal(seconds, onEnd);
         if (refusal !== "") throw new Error(refusal);
         const key = ctx.id + "#" + (++serial);
-        const timer = seconds === 0 ? null : holdTimer.createObject(root, { interval: seconds * 1000 });
+        const endsAt = seconds === 0 ? 0 : Date.now() + seconds * 1000;
+        const timer = seconds === 0 ? null : holdTimer.createObject(root, { interval: Logic.stayAwakeWait(endsAt, Date.now()) });
         let ended = false;
         const end = () => {
             if (ended) return;
@@ -190,6 +201,12 @@ Scope {
         if (timer !== null) {
             timer.triggered.connect(() => {
                 if (ended) return;
+                const wait = Logic.stayAwakeWait(endsAt, Date.now());
+                if (wait > 0) {
+                    timer.interval = wait;
+                    timer.start();
+                    return;
+                }
                 release();
                 onEnd();
             });
@@ -199,7 +216,7 @@ Scope {
         next[key] = true;
         stayAwakeHolds = next;
         setPause("stayAwake", true);
-        return release;
+        return Object.freeze({ endsAt: endsAt, end: release });
     }
 
     function setPause(source, holds) {
@@ -225,8 +242,8 @@ Scope {
         });
     }
 
-    // One Stay awake hold's end, owned by IdleRegistry.stayAwake and
-    // destroyed with its hold.
+    // One Stay awake hold's next check of its end, owned by
+    // IdleRegistry.stayAwake and destroyed with its hold.
     Component {
         id: holdTimer
         Timer { repeat: false }

@@ -1,2 +1,2 @@
-{ "schemaVersion": 1, "id": "acme.stayawake", "name": "Stay awake holder", "version": "0.1.0", "author": "acme", "description": "smoke fixture holding Stay awake holds and one plain idle watch",
+{ "schemaVersion": 1, "id": "acme.stayawake", "name": "Stay awake holder", "version": "0.1.0", "author": "acme", "description": "smoke fixture holding Stay awake holds",
   "kinds": ["service"], "entryPoints": { "service": "Service.qml" }, "capabilities": ["idle", "ipc"] }
