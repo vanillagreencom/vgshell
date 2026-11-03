@@ -1596,6 +1596,9 @@ rest_pointer || fail "tailscale: moving the pointer off the flyout failed"
 expect "the flyout opens over the stopped daemon" ok ipc shell summon panel vgs.tailscale '{"source":"smoke"}'
 expect_poll "the service-off flyout's state line names the service" '["The Tailscale service is off."]' tailscale_label tailscale-state
 expect "the service-off flyout's switch is shown and off" '[true, false, true]' tailscale_header_switch
+# Opening a view refreshes the service, which offers no setup step, and so
+# draws no unlock mark, until that access check ends (Service.checkingSetup).
+expect_poll "the service-off flyout's access check ends" false tailscale_value checkingSetup
 expect "the service-off switch draws its unlock mark named for Enable" drawn tailscale_mark panel Enable
 expect "the service-off flyout says what Enable does" '["The Tailscale service is off. Enable turns it on."]' tailscale_label tailscale-setup-hint
 expect "the service-off flyout offers Enable" '["Enable"]' tailscale_drawn panel RowAction tailscale-setup
