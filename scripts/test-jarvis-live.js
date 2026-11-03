@@ -2705,7 +2705,7 @@ world(async () => {
             ["daemon-gemini-audit-before-send", 'const result = audit.before(releaseEvent(c, identity, item.labels, "send", "pending"), start);',
                 `if (item.content.startsWith('{"clientContent"')) return start();\n        const result = audit.before(releaseEvent(c, identity, item.labels, "send", "pending"), start);`, "action", GEMINI],
             ["daemon-commentary", "c.live.commentary(turn.delegation, item);", "void item;", "action"],
-            ["daemon-router-tools", "tools: router.offer()", "tools: []", "action"],
+            ["daemon-router-tools", "c.brain.start({ instructions: c.guidance.instructions, tools });", "c.brain.start({ instructions: c.guidance.instructions, tools: [] });", "action"],
             ["daemon-router-approval", "router.route(call, { gen: turn.gen, op: turn.op });", "void call;", "action"],
             ["daemon-speakable", "const sentences = text.push(event.text);", "const sentences = [event.text];", "action"],
             ["daemon-recipient-provider", 'provider: resolved.provider, account: resolved.id, origin: Net.endpoint(provider.base).origin',

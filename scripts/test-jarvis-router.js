@@ -169,7 +169,9 @@ esac
         const w = make(implementation);
         const mail = fleetHome();
         let chosen = mail.folder;
-        w.router.register("guidance", Help.create(undefined, null, () => chosen, mail.environment));
+        // Whether this computer forwards to a main Jarvis (Satellite.js).
+        let forwarding = false;
+        w.router.register("guidance", Help.create(undefined, null, () => chosen, mail.environment, () => forwarding));
         const offered = () => w.router.offer().some(row => row.id === "fleet.request");
         let at = 0;
         // The call, then the user's Confirm key once the draw guard has passed.
@@ -200,6 +202,18 @@ esac
         assert.equal(offered(), false, "no mailbox yet: no Jarvis session has read this folder's mail");
         mail.mailbox();
         assert.equal(offered(), true, "the home's mail tool and the Jarvis session's mailbox offer the row");
+        // A satellite whose forward is available hands a request to the main
+        // instead: no row, and one held from before goes nowhere.
+        forwarding = true;
+        assert.equal(offered(), false, "a satellite that forwards offers no fleet.request");
+        forwarding = false;
+        ask("Held before the forward.");
+        forwarding = true;
+        assert.deepEqual(await confirmed(), ["failed", "fleet-request:satellite"], "a request held while the forward became available");
+        assert.deepEqual(mail.calls(), [], "it never reaches the mailbox");
+        forwarding = false;
+        turn();
+        assert.equal(offered(), true, "a satellite whose forward is unavailable keeps fleet.request");
         const [outcome, content] = await hand("Rebase the lanes.\nThen report.");
         assert.equal(outcome, "completed");
         assert.deepEqual(mail.rows(), ["row-1"]);
@@ -922,9 +936,8 @@ esac
                 { gen: w.runner.state.turn.gen, op: w.runner.state.turn.op }).reason, "input-target");
         }],
         // A forward to the main Jarvis is held for the owner at the most
-        // trusting level, and its executor receives the start's own audit
-        // row and how the owner confirmed it. A Talk turn and a typed turn
-        // hand it the same shape: no VGS path knows who spoke.
+        // trusting level, its executor receives the start's own audit row
+        // and how the owner confirmed it, and a turn forwards one.
         ["fleet-forward", (implementation, _folder, session = Session) => {
             const w = make(implementation, session, { profile: "trusted" });
             const confirmations = [];
@@ -934,20 +947,13 @@ esac
                     done({ outcome: "completed", content: "Completed: forwarded." });
                 } });
             assert.ok(w.router.offer().some(row => row.id === "fleet.forward"));
-            let at = 0;
-            const forward = (text, label) => {
-                assert.equal(w.call("fleet.forward", { text }).kind, "held", "a forward waits for the owner at every level");
-                w.show(); w.time(at += 700); w.confirm();
-                const row = w.rows().filter(entry => entry.tool === "fleet.forward" && entry.outcome === "pending").at(-1);
-                assert.equal(row.confirmed, "physical", label);
-                assert.deepEqual({ ...confirmations.at(-1) }, { ref: "vgs-audit:" + row.time + "#" + row.gen + ":" + row.op,
-                    at: row.time, method: "physical" }, label + ": the forward cites its own start row and names no caller");
-            };
-            forward("Rebase the lanes.", "a Talk turn");
-            w.dispatch({ type: "stop" });
-            w.dispatch({ type: "say", text: "typed request" });
-            forward("Rebase the lanes again.", "a typed turn");
-            assert.equal(confirmations.length, 2);
+            assert.equal(w.call("fleet.forward", { text: "Rebase the lanes." }).kind, "held", "a forward waits for the owner at every level");
+            w.show(); w.time(700); w.confirm();
+            const row = w.rows().filter(entry => entry.tool === "fleet.forward" && entry.outcome === "pending").at(-1);
+            assert.equal(row.confirmed, "physical");
+            assert.deepEqual(confirmations.map(value => ({ ...value })), [{ ref: "vgs-audit:" + row.time + "#" + row.gen + ":" + row.op,
+                at: row.time, method: "physical" }], "the forward cites its own start row and how the owner confirmed it");
+            assert.deepEqual(w.call("fleet.forward", { text: "And another." }), { kind: "refuse", reason: "turn-limit" }, "a second forward in one turn");
         }]
     ];
     try {
@@ -1050,7 +1056,10 @@ esac
             ["request-bound", "ComputerHelp.js", "deadline: MAIL_MS, group: true", "deadline: 60000, group: true", "ComputerHelp.js", "fleet-request-bound"],
             ["request-once", "Tools.js", "command: null, once: true, schema: { text: text } }", "command: null, schema: { text: text } }", "ToolRouter.js", "fleet-request"],
             ["request-confirmed", "Tools.js", 'effect: "exec", executor: "guidance"', 'effect: "reversible", executor: "guidance"', "ToolRouter.js", "fleet-request"],
-            ["forward-confirmed", "Tools.js", 'effect: "external", executor: "satellite"', 'effect: "exec", executor: "satellite"', "ToolRouter.js", "fleet-forward"]
+            ["forward-confirmed", "Tools.js", 'effect: "external", executor: "satellite"', 'effect: "exec", executor: "satellite"', "ToolRouter.js", "fleet-forward"],
+            ["forward-once", "Tools.js", 'executor: "satellite", command: null, once: true,', 'executor: "satellite", command: null,', "ToolRouter.js", "fleet-forward"],
+            ["request-satellite-offer", "ComputerHelp.js", "            if (forwarding()) return false;\n", "", "ComputerHelp.js", "fleet-request"],
+            ["request-satellite-start", "ComputerHelp.js", '        if (forwarding()) return failed("satellite");\n', "", "ComputerHelp.js", "fleet-request"]
         ]) {
             await mutant(path.join(backend, source), name, needle, replacement,
                 consumer === "ToolRouter.js" ? byName(row) : help => byName(row)(Router, null, help), consumer);

@@ -918,7 +918,7 @@ satellite = "node scripts/test-jarvis-satellite.js"
 satellite_inputs = ["shell/plugins/vgs.jarvis/backend/Satellite.js", "shell/plugins/vgs.jarvis/backend/Child.js",
     "shell/plugins/vgs.jarvis/backend/Home.js", "shell/plugins/vgs.jarvis/backend/Redact.js",
     "shell/plugins/vgs.jarvis/backend/Tools.js", "shell/plugins/vgs.jarvis/backend/Core.js",
-    "shell/plugins/vgs.jarvis/backend/ComputerHelp.js", "shell/plugins/vgs.jarvis/backend/skills/computer/*",
+    "shell/plugins/vgs.jarvis/backend/SessionCommand.js",
     "shell/plugins/vgs.jarvis/JarvisProtocol.js", "shell/plugins/vgs.jarvis/Session.js",
     "shell/plugins/vgs.jarvis/AccountProviders.js", "shell/plugins/vgs.jarvis/manifest.json",
     "scripts/fixtures/jarvis/satellite-package.py", "scripts/fixtures/jarvis/policy.js", "scripts/fixtures/jarvis/core.js",

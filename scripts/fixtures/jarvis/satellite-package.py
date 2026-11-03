@@ -9,13 +9,15 @@ and `main-host --home HOME --set DEST:HOME`, the setter KEN-4874 asks the
 package for, which prints {"v":1,"main":VALUE}. Keep that verb here until
 KEN-4874 lands; if it lands under another name, follow it.
 
-Beside itself it appends one JSON line a call to calls.log: the argv and,
-for a forward, the record it read. It answers from satellite.json beside
-itself, all keys optional:
+Beside itself it appends one JSON line a call to calls.log: the argv, the
+environment and, for a forward, the record it read. It answers from
+satellite.json beside itself, all keys optional:
   "package": "current", or "old" for a package older than the satellite
              contract, which refuses each satellite verb as its argparse
              does; plain `status`, the session reader's, answers a session
              that never started;
+  "setter":  "absent" for the installed package before KEN-4874, which
+             refuses main-host alone;
   "main":    the stored setting, "" for the main, which main-host writes;
   "reachable": the last probe's answer, true, false or null;
   "forward": {"exit": 0} delivered, {"exit": 75, "cause": KEY} queued,
@@ -47,7 +49,7 @@ def refuse(line):
     sys.exit(2)
 
 
-call = {"argv": argv}
+call = {"argv": argv, "env": dict(os.environ)}
 verb = argv[0] if argv else ""
 if verb == "forward" and option("--record") is not None:
     with open(option("--record")) as source:
@@ -65,6 +67,8 @@ if verb == "status" and "--main" not in argv:
                       "home": option("--home"), "harness": None, "account": None}))
     sys.exit(0)
 if state.get("package") == "old":
+    refuse("jarvis-session: arguments=invalid")
+if verb == "main-host" and state.get("setter") == "absent":
     refuse("jarvis-session: arguments=invalid")
 if verb == "main-host" and option("--set") is not None:
     state["main"] = option("--set")

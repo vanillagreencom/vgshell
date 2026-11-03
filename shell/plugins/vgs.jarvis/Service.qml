@@ -566,15 +566,21 @@ Item {
         } catch (error) { broken(error.message); }
     }
 
-    // The daemon hands both settings, as they read after the choice, to the
-    // chosen home's Jarvis package. A daemon not ready takes none: its next
-    // reading shows a package that has not taken the setting.
+    // The user's choice of Main Jarvis host or of the Home folder, which
+    // the daemon hands, as the settings read, to the ready home's Jarvis
+    // package. One choice made while the daemon is not ready waits for it.
+    // The new settings' hello goes first: the core hands the plugin the
+    // written settings, and onShellChanged sends them, before it calls the
+    // choice handler (Capabilities.managerChoose) or configure.set answers.
+    property bool mainHostPending: false
     function mainHostChosen() {
-        if (lifetime.kind !== "ready" || cause !== "" || !child.running) {
-            console.warn("jarvis: main-host=not-sent cause=daemon-not-ready");
-            return;
-        }
-        send({ type: "intent", intent: "main-host", mainHost: shell.settings.mainHost, home: shell.settings.home });
+        mainHostPending = true;
+        deliverMainHost();
+    }
+    function deliverMainHost() {
+        if (!mainHostPending || lifetime.kind !== "ready" || cause !== "" || !child.running) return;
+        mainHostPending = false;
+        send({ type: "intent", intent: "main-host" });
     }
 
     // The local voice's release for a setup-local run, which its window asks
@@ -1127,7 +1133,7 @@ Item {
             console.warn("jarvis: home-setting " + reply);
             notice({ title: "Jarvis home not changed", message: "The Home folder setting could not be saved.",
                 tone: "danger", icon: "folder" });
-        }
+        } else mainHostChosen();
         return reply;
     }
 
@@ -1326,6 +1332,7 @@ Item {
                 sendTuiState();
                 Qt.callLater(() => sendIndicator(indicatorPresented));
                 refreshShell();
+                deliverMainHost();
             }
         } catch (error) { broken(error.message); }
     }

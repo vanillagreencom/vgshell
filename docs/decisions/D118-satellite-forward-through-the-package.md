@@ -1,4 +1,4 @@
-# D116: A satellite forwards a request through the home's Jarvis package
+# D118: A satellite forwards a request through the home's Jarvis package
 
 [← Decision Index](INDEX.md)
 

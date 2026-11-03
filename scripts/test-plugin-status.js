@@ -268,7 +268,7 @@ function continuationChecks(logic, check, sourceChanges = {}) {
                 ["level", { level: { capture: 0, playback: 0 } }, ["request"]],
                 ["transcript", { role: "user", text: "Fixture", stage: "final", rev: 1 }, ["request"]],
                 ["state", { seq: 1, state: protocol.Session.initial(), phase: "down", brain: "Fixture" }, ["mute", "request"]],
-                ["status", { daemon: "ready", causes: [], cautions: [] }, ["tui-state", "refresh-shell", "request"]]
+                ["status", { daemon: "ready", causes: [], cautions: [] }, ["tui-state", "refresh-shell", "main-host", "request"]]
             ]) {
                 world = make({});
                 world.shell.shortcut = { keys: null };
@@ -281,6 +281,7 @@ function continuationChecks(logic, check, sourceChanges = {}) {
                     voiceProvider: world.shell.settings.voiceProvider, accountReader: { voiceKeys: undefined, modelAccess: { kind: "checking" } }, audioHealth: { kind: "reading" },
                     fleetRuntime: { refresh: () => events.push("fleet") }, serve: () => events.push("request"),
                     deliverMute: () => events.push("mute"), sendTuiState: () => events.push("tui-state"), refreshShell: () => events.push("refresh-shell"),
+                    deliverMainHost: () => events.push("main-host"),
                     helloDeadline: { stop: () => {} }, indicatorPresented: false, sendIndicator: () => {},
                     lockObservation: () => false, broken: value => broken.push(value), console: { warn: () => {} }, Qt: { callLater: fn => queue.push(fn) } },
                 sources.Service, ["receive", "deviceOffers", "homeOffers", "publishHomes", "publishInput", "publishPersonality", "publishStartText",

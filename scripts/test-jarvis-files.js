@@ -1045,7 +1045,7 @@ world(async () => {
     // Each control drops the home on one line of its way to the help tool.
     for (const [control, edit] of [
         ["help-home-daemon", ["jarvisd.js", 'home: () => homeFolder.state.kind === "ready" ? homeFolder.state.path : null });', "home: () => null });"]],
-        ["help-home-browser", ["Browser.js", "        } }, home, environment, main);\n", "        } }, undefined, environment, main);\n"]]]) {
+        ["help-home-browser", ["Browser.js", "        } }, home, environment, forwarding);\n", "        } }, undefined, environment, forwarding);\n"]]]) {
         const dropped = await daemon(control, [edit]);
         assert.throws(() => skillRead(dropped["home-skill"]), assert.AssertionError, control + " control turns red");
         controls++;

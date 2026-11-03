@@ -112,18 +112,18 @@ const fallback = { v: 1, type: "model-fallback", gen: 0, revision: hello.revisio
 for (const used of ["", fallback.used]) assert.equal(JSON.stringify(Protocol.accept(changed(fallback, { used }), "daemon")), JSON.stringify({ ...fallback, used }));
 // The daemon's reading of the main Jarvis, each shape the Now line draws.
 const mainReach = { v: 1, type: "main-reach", gen: 0, revision: hello.revision, reach: { kind: "satellite", host: "cachy", reachable: null, cause: "" } };
-for (const reach of [{ kind: "main" }, { kind: "unavailable", cause: "home" }, { kind: "unavailable", cause: "package" }, mainReach.reach,
-    { kind: "satellite", host: "cachy", reachable: false, cause: "main-unreachable" }, { kind: "satellite", host: "", reachable: null, cause: "setting-invalid" }])
+for (const reach of [{ kind: "main" }, mainReach.reach, { kind: "satellite", host: "cachy", reachable: false, cause: "main-unreachable" },
+    { kind: "satellite", host: "not a host", reachable: null, cause: "setting-invalid" },
+    ...["no-home", "package", "vgs-package", "home-link", "home-kind", "home-unreadable", "setting-untaken"].map(cause => ({ kind: "unavailable", host: "cachy", cause }))])
     assert.equal(JSON.stringify(Protocol.accept(changed(mainReach, { reach }), "daemon").reach), JSON.stringify(reach));
-const mainHostIntent = { ...intent, intent: "main-host", mainHost: "cachy", home: "~/Jarvis" };
-assert.equal(Protocol.accept(JSON.stringify(mainHostIntent), "shell").mainHost, "cachy");
+// The choice's hand-off is a bare signal: the daemon reads both settings itself.
+assert.equal(Protocol.accept(JSON.stringify({ ...intent, intent: "main-host" }), "shell").intent, "main-host");
 const cases = [
     ["main-reach-direction", JSON.stringify(mainReach), "shell", "direction-main-reach"],
     ["main-reach-kind", changed(mainReach, { reach: { kind: "other" } }), "daemon", "main-reach"],
-    ["main-reach-host", changed(mainReach, { reach: { ...mainReach.reach, host: "" } }), "daemon", "main-reach"],
-    ["main-reach-invalid-host", changed(mainReach, { reach: { ...mainReach.reach, cause: "setting-invalid" } }), "daemon", "main-reach"],
-    ["main-reach-cause", changed(mainReach, { reach: { kind: "unavailable", cause: "other" } }), "daemon", "main-reach"],
-    ["main-host-intent", changed(mainHostIntent, { mainHost: "a\nb" }), "shell", "main-host-intent"],
+    ["main-reach-host", changed(mainReach, { reach: { ...mainReach.reach, host: "a\nb" } }), "daemon", "main-reach"],
+    ["main-reach-unavailable-host", changed(mainReach, { reach: { kind: "unavailable", cause: "package" } }), "daemon", "main-reach"],
+    ["main-reach-cause", changed(mainReach, { reach: { kind: "unavailable", host: "cachy", cause: "other" } }), "daemon", "main-reach"],
     ["main-host-setting", changed(hello, { settings: { ...hello.settings, mainHost: 1 } }), "shell", "main-host-setting"],
     ["model-fallback-direction", JSON.stringify(fallback), "shell", "direction-model-fallback"],
     ...[{ saved: "" }, { used: null }, { saved: 1 }].map(fields =>
@@ -698,7 +698,7 @@ try {
         ["key-type", 'fail("key-" + shortcut);', ';', "key-type"],
         ["intent-direction", 'if (direction !== "shell") fail("direction-intent");',
             'if (false) fail("direction-intent");', "intent-direction"],
-        ["intent-name", 'if (["talk-down", "talk-up", "mute", "voice-mute", "stop", "voice-check", "owner-asks-refresh"].indexOf(message.intent) === -1) fail("intent");',
+        ["intent-name", 'if (["talk-down", "talk-up", "mute", "voice-mute", "stop", "voice-check", "owner-asks-refresh", "main-host"].indexOf(message.intent) === -1) fail("intent");',
             'if (false) fail("intent");', "intent-name"],
         ["preview-voice-required", '} else if (message.intent === "preview") {',
             '} else if (message.intent === "preview" && message.voice !== undefined) {', "preview-without-voice"],
@@ -781,7 +781,7 @@ try {
         ["cautions-order", "if (at <= last) return false;", "if (at < 0) return false;", "status-cautions-order"],
         ["cautions-twice", "if (at <= last) return false;", "if (at < last || at < 0) return false;", "status-cautions-twice"],
         ["cautions-known", "if (at <= last) return false;", "if (at < last) return false;", "status-cautions-cause"],
-        ["home-type", 'typeof value === "string" && /^[^\\x00-\\x1f\\x7f]{0,4096}$/', "/^[^\\x00-\\x1f\\x7f]{0,4096}$/", "home-type"],
+        ["home-type", 'typeof message.settings.home !== "string"', "false", "home-type"],
         ["home-control", "/^[^\\x00-\\x1f\\x7f]{0,4096}$/", "/^[^]{0,4096}$/", "home-control"],
         ["home-size", "/^[^\\x00-\\x1f\\x7f]{0,4096}$/", "/^[^\\x00-\\x1f\\x7f]*$/", "home-size"],
         ["type", 'fail("type");', 'break;', "type"],

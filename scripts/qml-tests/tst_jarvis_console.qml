@@ -445,29 +445,34 @@ Item {
         }
 
         // The main Jarvis's reading draws one line on Now alone, in the
-        // warning colour only while the main did not answer or the package
-        // cannot read the setting; before the first reading none shows.
+        // warning colour while the route cannot forward or the main did not
+        // answer, linking where an unavailable route is fixed; before the
+        // first reading none shows.
         function test_main_reach_line_data() {
+            const unavailable = cause => ({ kind: "unavailable", host: "cachy", cause: cause });
             return [
-                { tag: "unread", reach: undefined, shown: false, warning: false },
-                { tag: "main", reach: { kind: "main" }, shown: true, warning: false },
-                { tag: "reachable", reach: { kind: "satellite", host: "cachy", reachable: true, cause: "" }, shown: true, warning: false },
-                { tag: "uncontacted", reach: { kind: "satellite", host: "cachy", reachable: null, cause: "" }, shown: true, warning: false },
-                { tag: "unanswered", reach: { kind: "satellite", host: "cachy", reachable: false, cause: "main-unreachable" }, shown: true, warning: true },
-                { tag: "setting", reach: { kind: "satellite", host: "", reachable: null, cause: "setting-invalid" }, shown: true, warning: true },
-                { tag: "package", reach: { kind: "unavailable", cause: "package" }, shown: true, warning: false },
-                { tag: "home", reach: { kind: "unavailable", cause: "home" }, shown: true, warning: false }
+                { tag: "unread", reach: undefined, shown: false, warning: false, link: "" },
+                { tag: "main", reach: { kind: "main" }, shown: true, warning: false, link: "" },
+                { tag: "reachable", reach: { kind: "satellite", host: "cachy", reachable: true, cause: "" }, shown: true, warning: false, link: "" },
+                { tag: "uncontacted", reach: { kind: "satellite", host: "cachy", reachable: null, cause: "" }, shown: true, warning: false, link: "" },
+                { tag: "unanswered", reach: { kind: "satellite", host: "cachy", reachable: false, cause: "main-unreachable" }, shown: true, warning: true, link: "" },
+                { tag: "setting", reach: { kind: "satellite", host: "cachy", reachable: null, cause: "setting-invalid" }, shown: true, warning: true, link: "page:vgs.jarvis/Settings/mainHost" },
+                { tag: "untaken", reach: unavailable("setting-untaken"), shown: true, warning: true, link: "page:vgs.jarvis/Settings/mainHost" },
+                { tag: "package", reach: unavailable("package"), shown: true, warning: true, link: "page:vgs.jarvis/Setup/sessionStart" },
+                { tag: "vgs-package", reach: unavailable("vgs-package"), shown: true, warning: true, link: "page:vgs.jarvis/Settings/home" },
+                { tag: "home-link", reach: unavailable("home-link"), shown: true, warning: true, link: "page:vgs.jarvis/Settings/home" },
+                { tag: "no-home", reach: unavailable("no-home"), shown: true, warning: true, link: "page:vgs.jarvis/Settings/home" }
             ];
         }
         function test_main_reach_line(data) {
             const values = root.values({});
             if (data.reach !== undefined) values.mainReach = data.reach;
-            const shell = root.shellWith(values);
-            shell.settings.mainHost = "cachy";
-            jarvisConsole.shell = shell;
+            jarvisConsole.shell = root.shellWith(values);
             const line = () => collect(jarvisConsole, n => n.objectName === "mainReachLine", [])[0];
             compare(line().visible, data.shown);
             if (data.shown) compare(Qt.colorEqual(line().color, data.warning ? Theme.color.warning : Theme.color.textMuted), true);
+            const links = (line().text.match(/\]\(([^)]*)\)/g) || []).map(link => link.slice(2, -1));
+            compare(JSON.stringify(links), JSON.stringify(data.link === "" ? [] : [data.link]), "the line links where its route is fixed");
             jarvisConsole.tab = 2;
             compare(line().visible, false, "the line is Now's alone");
         }

@@ -41,13 +41,14 @@ const REFUSAL = /^lane-mail: ([a-z][a-z0-9-]{0,59})=/;
 // variable reaches it.
 const MAIL_ENVIRONMENT = ["PATH", "HOME"];
 /**
- * create(root, browser, home, environment, main) builds the guidance executor.
- * home() answers the home folder's path, or null while none is usable;
- * environment is the daemon's, MAIL_ENVIRONMENT picks from it; main()
- * answers whether this machine runs the main Jarvis, whose session alone
- * takes a fleet request (a satellite forwards instead, Satellite.js).
+ * create(root, browser, home, environment, forwarding) builds the guidance
+ * executor. home() answers the home folder's path, or null while none is
+ * usable; environment is the daemon's, MAIL_ENVIRONMENT picks from it;
+ * forwarding() answers whether this computer forwards to a main Jarvis
+ * (Satellite.js), whose fleet.forward then takes a request in place of
+ * fleet.request.
  */
-function create(root = ROOT, browser = null, home = () => null, environment = {}, main = () => true) {
+function create(root = ROOT, browser = null, home = () => null, environment = {}, forwarding = () => false) {
     const shipped = Tools.HELP_TOPICS.filter(topic => {
         try { return fs.lstatSync(path.join(root, topic + ".md")).isFile(); }
         catch (error) { if (error.code === "ENOENT") return false; throw error; }
@@ -85,9 +86,9 @@ function create(root = ROOT, browser = null, home = () => null, environment = {}
     // append is failed; one that may have appended and did not read back is
     // unknown.
     async function request(text) {
-        // A request held while the user named another main goes nowhere:
+        // A request held while the forward became available goes nowhere:
         // the satellite's route is fleet.forward.
-        if (!main()) return failed("satellite");
+        if (forwarding()) return failed("satellite");
         const folder = home();
         if (folder === null) return failed("home-unchosen");
         const tool = Home.mailTool(folder);
@@ -132,7 +133,7 @@ function create(root = ROOT, browser = null, home = () => null, environment = {}
         // the user installs the tool from Setup, and the Jarvis session
         // makes its mailbox when it first reads this folder's mail.
         fleet() {
-            if (!main()) return false;
+            if (forwarding()) return false;
             const folder = home();
             return folder !== null && Home.mailTool(folder) !== null && Home.mailbox(folder);
         },

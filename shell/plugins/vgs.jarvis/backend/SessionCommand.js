@@ -51,4 +51,19 @@ function environment(from) {
     return kept;
 }
 
-module.exports = { place, environment };
+// What a content-bearing call of the command reads: the user's home and
+// session paths and the locale, never an inherited provider credential.
+const CALL_ENVIRONMENT = ["PATH", "HOME", "LANG", "LC_ALL", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_RUNTIME_DIR", "XDG_SESSION_ID"];
+
+/**
+ * The session environment FROM gives (environment) narrowed to
+ * CALL_ENVIRONMENT and the EXTRA names a call needs besides.
+ */
+function callEnvironment(from, extra = []) {
+    const kept = environment(from);
+    const picked = {};
+    for (const name of [...CALL_ENVIRONMENT, ...extra]) if (kept[name] !== undefined) picked[name] = kept[name];
+    return picked;
+}
+
+module.exports = { place, environment, callEnvironment };

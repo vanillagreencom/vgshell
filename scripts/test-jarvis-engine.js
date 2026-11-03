@@ -156,6 +156,13 @@ function rig(kit, server, options = {}) {
             executions.push(call);
             done(options.fleet);
         } });
+    // The fleet route the case changes between turns: the main's session
+    // takes fleet.request, a satellite's package fleet.forward.
+    if (options.route) {
+        const inert = { commands: [], timeoutMs: 30000, cancellable: false, start(call, done) { done({ outcome: "completed", content: "fixture" }); } };
+        router.register("guidance", { ...inert, fleet: () => options.route.main });
+        router.register("satellite", { ...inert, available: () => !options.route.main });
+    }
     // The action approval case uses an inert executor, with no process.
     if (options.actionApproval) router.register("sandbox", { commands: ["bwrap"], timeoutMs: 30000,
         cancellable: false, start(call, done) {
@@ -1829,6 +1836,24 @@ async function cases(kit, server, only = null, mutation = false) {
         assert.deepEqual(said, spoken, "the transcript shows what was spoken");
         assert.deepEqual(w.faults, []);
     }, { fleet: result });
+
+    // The brain's tools follow the fleet route: a satellite reading that
+    // changes between two turns hands the next turn the other fleet tool.
+    const route = { main: true };
+    await run("fleet-route", async w => {
+        const fleetTools = body => body.tools.map(tool => tool.function.name).filter(name => name.startsWith("fleet_"));
+        const first = await say(w, utterance("What time is it?"));
+        assert.deepEqual(fleetTools(await requested(w, first + 1, "the first turn")), ["fleet_request"], "the main offers its session's mailbox");
+        server.replies.push(text("Noon."));
+        await until(() => w.s().turn.kind === "none", "the first turn completes");
+        await playOut(w);
+        route.main = false;
+        const second = await say(w, utterance("Ask my fleet."));
+        assert.deepEqual(fleetTools(await requested(w, second + 1, "the second turn")), ["fleet_forward"], "a satellite offers the forward");
+        server.replies.push(text(""));
+        await until(() => w.s().turn.kind === "none", "the second turn completes");
+        assert.deepEqual(w.faults, []);
+    }, { route });
 
     // The same request from a harness program, answered through the tool
     // bridge while the brain's reply streams: Jarvis's fixed line, said once,
@@ -3686,7 +3711,7 @@ async function groupPlants(root, server) {
         ["voice-idle-across-playback", 'if (s.playback.kind !== "idle") idleAt = null;',
             'if (false) idleAt = null;', "voice-after-playback"],
         ["release-refusal-record", 'refusal: e.reason });', 'refusal: undefined });', "release-refusal"],
-        ["router-offers", "tools: router.offer()", "tools: []", "turn-loop"],
+        ["router-offers", "c.brain.start({ instructions: c.guidance.instructions, tools });", "c.brain.start({ instructions: c.guidance.instructions, tools: [] });", "turn-loop"],
         ["heard-omitted", "if (c.heard !== null) items.push(heardItem(c.heard));", "", "barge-in"],
         ["heard-once", "            c.heard = null;\n", "", "barge-in"],
         ["full-reply-heard", 'heard(c, turn, report === null || flushedLine ? "" : withoutLinePrefix(turn, report.heardText));',
@@ -3700,10 +3725,11 @@ async function groupPlants(root, server) {
             'return { value: Policy.item(chunk, ["desktop"]), done: false };', "turn-loop"],
         ["result-identity", 'if (turn !== null && turn.op === value.op && turn.phase === "routing" && turn.routing?.id === id) {',
             "if (turn !== null) {", "stale-outcome"],
-        ["interrupted-answers", "if (routing && c.brain !== null) c.brain.record(", "if (false) c.brain.record(", "stale-outcome"],
+        ["interrupted-answers", "if (routing && cancelled !== null && c.brain === cancelled) cancelled.record(", "if (false) cancelled.record(", "stale-outcome"],
         ["not-started", 'return router.interrupted(call, "not-started");', 'return router.interrupted(call, "running");', "stale-outcome"],
         ["late-result", "c.results.push(lateItem(late.call, value.outcome, item));", "void lateItem;", "stale-outcome"],
         ["fleet-line-absent", '"fleet.request": { completed: "Asking Jarvis\'s session." },', "", "fleet-request-completed-silent"],
+        ["fleet-route-kept", "fleetRoute(router.offer()) !== c.fleet", "false", "fleet-route"],
         ["fleet-line-repeated", "        if (turn.fixed?.has(normalizedLine(sentence))) return;\n", "", "fleet-request-completed-echo"],
         ["fast-match", "? null : Tools.match(e.text);", "? null : null;", "fast-path"],
         ["fast-account", "c.results.push(fastAccount(turn.fast.e.text, call, outcome, item));", "", "fast-path"],

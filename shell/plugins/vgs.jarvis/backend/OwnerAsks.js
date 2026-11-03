@@ -68,12 +68,7 @@ function create({ Protocol, environment, publish, answer, log, clock = CLOCK, ru
         }
         if (location.kind === "blocked") return { kind: "unavailable" };
         let result;
-        // This content-bearing local package call needs the user's home
-        // and session paths, never an inherited provider credential.
-        const sessionEnvironment = SessionCommand.environment(environment);
-        const childEnvironment = {};
-        for (const name of ["PATH", "HOME", "LANG", "LC_ALL", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_RUNTIME_DIR", "XDG_SESSION_ID"])
-            if (sessionEnvironment[name] !== undefined) childEnvironment[name] = sessionEnvironment[name];
+        const childEnvironment = SessionCommand.callEnvironment(environment);
         try {
             result = await run("setpriv", ["--pdeathsig", "KILL", "--", location.command,
                 "owner-asks", verb, "--home", location.folder, ...args], {

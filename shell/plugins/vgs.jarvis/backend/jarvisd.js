@@ -532,13 +532,11 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                     continue;
                 }
                 // The user's choice of Main Jarvis host or of the Home
-                // folder: the home the message names takes the setting.
+                // folder: the ready home takes the setting as the last
+                // hello carried it, which the service sent first.
                 if (message.type === "intent" && message.intent === "main-host") {
                     intentIdentity(message);
-                    let folder = null;
-                    try { folder = Home.resolve(message.home, process.env.HOME); }
-                    catch (error) { if (!/^jarvis: home=/.test(error.message)) throw error; }
-                    void satellite.choose(message.mainHost, folder);
+                    void satellite.choose();
                     continue;
                 }
                 if (message.type === "intent" && message.intent === "task-open") {
@@ -724,16 +722,13 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                         if (record.commands.length > 0)
                             write({ v: 1, type: "input-ready", gen: runner.state.gen, revision: context.revision, commands: record.commands });
                     });
-                    browser = Browser.install({ router, environment: process.env, main: () => context.settings.mainHost === "",
+                    browser = Browser.install({ router, environment: process.env, forwarding: () => satellite !== null && satellite.forwarding(),
                         home: () => homeFolder.state.kind === "ready" ? homeFolder.state.path : null });
                     satellite = Satellite.create({ environment: process.env,
                         home: () => homeFolder.state.kind === "ready" ? homeFolder.state.path : null,
                         mainHost: () => context.settings.mainHost, log: line => process.stderr.write(line + "\n"),
                         publish: reach => {
-                            if (ending) return;
-                            // A host the package names past the wire's line bound is no reading.
-                            if (!Protocol.mainReach(reach)) reach = { kind: "unavailable", cause: "package" };
-                            write({ v: 1, type: "main-reach", gen: runner.state.gen, revision: context.revision, reach });
+                            if (!ending) write({ v: 1, type: "main-reach", gen: runner.state.gen, revision: context.revision, reach });
                         } });
                     router.register("satellite", satellite.executor);
                     files = Files.install({ router, denied, clock });

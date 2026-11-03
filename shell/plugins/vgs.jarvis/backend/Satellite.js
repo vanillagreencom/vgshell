@@ -1,15 +1,15 @@
 // The one owner of the Jarvis package's satellite contract: the
 // fleet.forward executor, the hand-off of Main Jarvis host to the package's
 // main-host setting, and the read of the main's reachability. Every call is
-// the home's session command by argv (Home.sessionCommand); the package owns
-// the SSH connection, the outbox, retries and the answer.
+// the home's session command by argv (SessionCommand.place); the package
+// owns the SSH connection, the outbox, retries and the answer.
 "use strict";
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const Child = require("./Child.js");
-const Home = require("./Home.js");
 const Redact = require("./Redact.js");
+const SessionCommand = require("./SessionCommand.js");
 
 // Above the package's 45 s budget for one forward run (forward.py
 // DRAIN_SECONDS), so the package records why before this bound ends it.
@@ -21,16 +21,25 @@ const OUTPUT_BYTES = 16 * 1024;
 // The package's watch loop drains the outbox every FORWARD_EVERY_SECS (60,
 // watch.py), so the reading changes no more often.
 const READ_EVERY_MS = 60000;
-// What the package reads beside its argv: its tools, the home, the state
-// directory its outbox is under (the watch loop's own), the agent the SSH
-// call signs with, and the locale.
-const ENVIRONMENT = ["PATH", "HOME", "XDG_STATE_HOME", "SSH_AUTH_SOCK", "LANG"];
+// Beside a session call's own variables (SessionCommand.callEnvironment):
+// the agent the forward's SSH call signs with.
+const SSH_ENVIRONMENT = ["SSH_AUTH_SOCK"];
 // A refused forward's first stderr line (session.py, forward.py main): no
 // entry was queued and nothing was sent.
 const REFUSED = /^jarvis-session: forward=refused cause=([a-z0-9-]{1,60})/;
 // The package's argparse refusal of a verb or flag it lacks (session.py
-// Arguments.error): an installed package older than the satellite contract.
+// Arguments.error): an installed package older than the call.
 const ARGUMENTS = /^jarvis-session: arguments=invalid/;
+// The causes a queued forward holds that no retry clears (forward.py
+// TERMINAL): the main, or its mailbox, will not take the request.
+const TERMINAL = ["mailbox-missing", "send-failed", "setting-invalid", "receipts-missed", "answer-unseen"];
+// The lines the main reads as a request's caller and its provenance: a
+// first line `voice-request: caller=...` (the package's agent-reach.md
+// § Main and satellites) and the `forwarded-request:` line forward.py
+// appends. Text holding either line could claim the owner.
+const CLAIM = /^(voice-request|forwarded-request):/;
+// Python's str.splitlines boundaries, where a line the main reads can start.
+const LINES = /\r\n|[\n\r\v\f\x1c-\x1e\x85\u2028\u2029]/;
 const CLOCK = { set: (fn, ms) => setTimeout(fn, ms), clear: timer => clearTimeout(timer) };
 
 /**
@@ -51,20 +60,28 @@ function settingOf(value, folder) {
     return value === "" || value.includes(":/") ? value : value + ":" + folder;
 }
 
+/** Whether TEXT holds a line, trimmed and case-folded, that opens as CLAIM does. */
+function claims(text) {
+    return text.split(LINES).some(line => CLAIM.test(line.trim().toLowerCase()));
+}
+
 /**
- * The reading `status --main` answers, as the Now line shows it, for
- * VALUE, the Main Jarvis host setting: {kind:"satellite", host, reachable,
- * cause} while the package names the main the setting names, else
- * {kind:"unavailable", cause:"package"}. A package that answered role
- * main, or another main, has not taken the setting.
+ * The reading `status --main` ANSWER gives for VALUE, the Main Jarvis host
+ * setting, each with the host VALUE names: {kind:"satellite", host,
+ * reachable, cause} while the package names that main; else
+ * {kind:"unavailable", host, cause}, "setting-untaken" for a package that
+ * answered role main or another main, "package" for any other answer.
  */
 function reading(answer, value) {
-    if (answer === null || typeof answer !== "object" || answer.v !== 1) return { kind: "unavailable", cause: "package" };
+    const host = hostOf(value);
+    if (answer === null || typeof answer !== "object" || answer.v !== 1) return { kind: "unavailable", host, cause: "package" };
     if (answer.role === "satellite" && answer.cause === "setting-invalid")
-        return { kind: "satellite", host: "", reachable: null, cause: "setting-invalid" };
-    if (answer.role !== "satellite" || answer.main !== hostOf(value) || ![true, false, null].includes(answer.reachable))
-        return { kind: "unavailable", cause: "package" };
-    return { kind: "satellite", host: answer.main, reachable: answer.reachable,
+        return { kind: "satellite", host, reachable: null, cause: "setting-invalid" };
+    if (answer.role === "main" || answer.role === "satellite" && answer.main !== host)
+        return { kind: "unavailable", host, cause: "setting-untaken" };
+    if (answer.role !== "satellite" || ![true, false, null].includes(answer.reachable))
+        return { kind: "unavailable", host, cause: "package" };
+    return { kind: "satellite", host, reachable: answer.reachable,
         cause: answer.reachable === false ? "main-unreachable" : "" };
 }
 
@@ -74,44 +91,47 @@ function reading(answer, value) {
  * host setting; environment is the daemon's; publish(reach) receives each
  * reading.
  */
-function create({ home, mainHost, environment, publish, log, clock = CLOCK, run = Child.run }) {
+function create({ home, mainHost, environment, publish, log, clock = CLOCK, run = Child.run, place = SessionCommand.place }) {
     let last = null;
     let controller = null;
     let timer = null;
     let inFlight = Promise.resolve();
     let setting = Promise.resolve();
+    // While a choice runs its setter, no read starts: the choice reads after.
+    let choosing = false;
     let closed = false;
 
-    function childEnvironment() {
-        const env = { LANG: "C.UTF-8" };
-        for (const name of ENVIRONMENT) if (environment[name] !== undefined) env[name] = environment[name];
-        return env;
+    // The ready home's session command, {folder, command}, or {kind:
+    // "blocked", block} (SessionCommand.place).
+    function locate() {
+        const folder = home();
+        if (folder === null) return { kind: "blocked", block: "no-home" };
+        try { return place(folder, environment.HOME); }
+        catch (error) {
+            log("jarvis: satellite=place cause=" + (error.code || "unexpected"));
+            return { kind: "blocked", block: "home-unreadable" };
+        }
     }
 
-    // The home's session command, or null for a home without it.
-    function command(folder) {
-        const found = Home.sessionCommand(folder);
-        return found.kind === "found" ? found.path : null;
-    }
-
-    function session(file, folder, args, deadline, signal) {
-        return run("setpriv", ["--pdeathsig", "KILL", "--", file, ...args, "--home", folder],
-            { env: childEnvironment(), cwd: folder, limit: OUTPUT_BYTES, deadline, group: true, signal });
+    function session(location, args, deadline, signal) {
+        return run("setpriv", ["--pdeathsig", "KILL", "--", location.command, ...args, "--home", location.folder],
+            { env: SessionCommand.callEnvironment(environment, SSH_ENVIRONMENT), cwd: location.folder,
+                limit: OUTPUT_BYTES, deadline, group: true, signal });
     }
 
     async function read(signal) {
         const value = mainHost();
         if (value === "") return { kind: "main" };
-        const folder = home();
-        if (folder === null) return { kind: "unavailable", cause: "home" };
-        const file = command(folder);
-        if (file === null) return { kind: "unavailable", cause: "package" };
-        const result = await session(file, folder, ["status", "--main"], LOCAL_MS, signal);
+        const location = locate();
+        if (location.kind === "blocked") return { kind: "unavailable", host: hostOf(value), cause: location.block };
+        const result = await session(location, ["status", "--main"], LOCAL_MS, signal);
         if (result.kind === "stopped" && result.reason === "cancelled") return null;
         if (result.kind !== "exited" || result.code !== 0) {
-            const old = result.kind === "exited" && ARGUMENTS.test(result.stderr);
-            if (!old) log("jarvis: satellite=status cause=" + (result.kind === "exited" ? "exit-" + result.code : result.reason));
-            return { kind: "unavailable", cause: "package" };
+            // A package older than the satellite contract says so on every
+            // read; the reading names it.
+            if (!(result.kind === "exited" && ARGUMENTS.test(result.stderr)))
+                log("jarvis: satellite=status cause=" + (result.kind === "exited" ? "exit-" + result.code : result.reason));
+            return { kind: "unavailable", host: hostOf(value), cause: "package" };
         }
         let answer = null;
         try { answer = JSON.parse(result.stdout.trim()); }
@@ -125,14 +145,19 @@ function create({ home, mainHost, environment, publish, log, clock = CLOCK, run 
         publish(reach);
     }
 
+    function stopRead() {
+        if (timer !== null) clock.clear(timer);
+        timer = null;
+        if (controller !== null) controller.abort();
+        controller = null;
+    }
+
     // Read again now, ending a read under way, then every READ_EVERY_MS
     // while the setting names a main. Each hello that changes the setting or
     // the home, each choice and each forward reads again.
     function refresh() {
-        if (closed) return;
-        if (timer !== null) clock.clear(timer);
-        timer = null;
-        if (controller !== null) controller.abort();
+        if (closed || choosing) return;
+        stopRead();
         const own = controller = new AbortController();
         inFlight = read(own.signal).then(reach => {
             if (closed || own !== controller) return;
@@ -143,37 +168,53 @@ function create({ home, mainHost, environment, publish, log, clock = CLOCK, run 
             if (closed || own !== controller) return;
             controller = null;
             log("jarvis: satellite=status cause=" + (error.code || "unexpected"));
-            show({ kind: "unavailable", cause: "package" });
+            show({ kind: "unavailable", host: hostOf(mainHost()), cause: "package" });
         });
     }
 
-    // Hand the user's choice of VALUE to the package's main-host setting of
-    // the home FOLDER, one choice at a time in the order chosen, then read.
-    function choose(value, folder) {
+    // Hand Main Jarvis host, as the setting reads now, to the package of the
+    // ready home, one choice at a time in the order chosen, then read once.
+    function choose() {
         setting = setting.then(async () => {
             if (closed) return;
-            const file = folder === null ? null : command(folder);
-            if (file !== null) {
-                const result = await session(file, folder, ["main-host", "--set=" + settingOf(value, folder)], LOCAL_MS);
+            choosing = true;
+            try {
+                stopRead();
+                const location = locate();
+                if (location.kind === "blocked") {
+                    // A home without the package holds no setting to clear,
+                    // so only a named main is a hand-off lost.
+                    if (mainHost() !== "") log("jarvis: satellite=main-host cause=" + location.block);
+                    return;
+                }
+                const result = await session(location, ["main-host", "--set=" + settingOf(mainHost(), location.folder)], LOCAL_MS);
                 if (result.kind !== "exited" || result.code !== 0)
                     log("jarvis: satellite=main-host cause=" + (result.kind !== "exited" ? result.reason
-                        : ARGUMENTS.test(result.stderr) ? "package-old" : "exit-" + result.code));
+                        : ARGUMENTS.test(result.stderr) ? "setter-absent" : "exit-" + result.code));
+            } finally {
+                choosing = false;
+                refresh();
             }
-            refresh();
         }).catch(error => log("jarvis: satellite=main-host cause=" + (error.code || "unexpected")));
         return setting;
     }
 
     const failed = cause => ({ outcome: "failed", content: "fleet-forward:" + cause });
 
+    // The cause the package names for a queued forward, or "".
+    function queuedCause(stdout) {
+        let cause = "";
+        try { cause = JSON.parse(stdout.trim()).cause; } catch { return ""; }
+        return typeof cause === "string" && /^[a-z0-9-]{1,60}$/.test(cause) ? cause : "";
+    }
+
+    // CONFIRMED is the router's {ref, at, method} for the start the owner
+    // confirmed (ToolRouter register).
     async function forward(call, confirmed) {
-        // external: the router holds it for the user's confirmation.
-        if (confirmed === undefined || !["voice", "physical"].includes(confirmed.method)) return failed("unconfirmed");
         if (Redact.secret(call.args.text)) return failed("secret");
-        const folder = home();
-        if (folder === null) return failed("home-unchosen");
-        const file = command(folder);
-        if (file === null) return failed("package-absent");
+        if (claims(call.args.text)) return failed("caller-claim");
+        const location = locate();
+        if (location.kind === "blocked") return failed(location.block);
         // The request as the user made it, spoken or typed: no VGS path knows
         // who spoke, so the record names no caller.
         const record = { v: 1, request: { ref: confirmed.ref, at: confirmed.at, text: call.args.text },
@@ -183,7 +224,7 @@ function create({ home, mainHost, environment, publish, log, clock = CLOCK, run 
         try {
             const recordFile = path.join(scratch, "record.json");
             fs.writeFileSync(recordFile, JSON.stringify(record), { mode: 0o600, flag: "wx" });
-            result = await session(file, folder, ["forward", "--record", recordFile], FORWARD_MS);
+            result = await session(location, ["forward", "--record", recordFile], FORWARD_MS);
         } finally { fs.rmSync(scratch, { recursive: true, force: true }); }
         if (result.kind === "error") return failed("spawn");
         if (result.kind !== "exited")
@@ -191,10 +232,14 @@ function create({ home, mainHost, environment, publish, log, clock = CLOCK, run 
         if (result.code === 0)
             return { outcome: "completed", content: "Completed: the request reached your main Jarvis. Its answer comes in your Slack channel." };
         if (result.code === 75) {
-            let cause = "";
-            try { cause = JSON.parse(result.stdout.trim()).cause ?? ""; } catch { cause = ""; }
-            return { outcome: "completed", content: "Completed: the request waits in this computer's outbox for your main Jarvis"
-                + (cause === "" ? "" : " (" + cause + ")") + ". The Jarvis package sends it again every minute." };
+            // The package retries a queued forward from its Jarvis session's
+            // watch loop, which may not be running, and never retries one
+            // whose cause is terminal.
+            const cause = queuedCause(result.stdout);
+            if (TERMINAL.includes(cause))
+                return { outcome: "failed", content: "Failed: your main Jarvis refused the request (" + cause + "), so it was not delivered and will not be sent again." };
+            return { outcome: "completed", content: "Completed: the request is queued in this computer's outbox for your main Jarvis"
+                + (cause === "" ? "" : " (" + cause + ")") + ". The Jarvis package sends it when its Jarvis session runs." };
         }
         const first = result.stderr.split("\n")[0];
         if (result.code === 2 && ARGUMENTS.test(first)) return failed("package-old");
@@ -203,21 +248,21 @@ function create({ home, mainHost, environment, publish, log, clock = CLOCK, run 
         return { outcome: "unknown", content: "Unknown: the Jarvis package ended with exit " + result.code + ", so the request may be in this computer's outbox or not." };
     }
 
+    // A satellite whose package reads the main this setting names.
+    const forwarding = () => mainHost() !== "" && last !== null && last.kind === "satellite" && last.cause !== "setting-invalid";
+
     return {
         executor: { commands: [], timeoutMs: FORWARD_MS + 1000, cancellable: false,
-            // Read at offer, route and start: a satellite whose package
-            // reads the main this setting names.
-            available: () => mainHost() !== "" && last !== null && last.kind === "satellite" && last.cause !== "setting-invalid",
+            // Read at offer, route and start.
+            available: forwarding,
             start(call, done, authorize, origin, confirmed) {
                 forward(call, confirmed).then(answer => { done(answer); refresh(); },
                     error => done(failed(error.code || "unexpected")));
             } },
-        refresh, choose,
+        forwarding, refresh, choose,
         close() {
             closed = true;
-            if (timer !== null) clock.clear(timer);
-            timer = null;
-            if (controller !== null) controller.abort();
+            stopRead();
             return Promise.allSettled([inFlight, setting]);
         }
     };

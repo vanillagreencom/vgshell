@@ -328,16 +328,25 @@ FocusScope {
     }
 
     // The Now line for REACH, the daemon's reading of the main Jarvis
-    // (Satellite.js), or "" before the first; MAINHOST is the Main Jarvis
-    // host setting, whose computer a package that has not taken it names.
-    function reachText(reach, mainHost) {
+    // (Satellite.js), or "" before the first. Each reading but this
+    // computer's names the host Main Jarvis host names. An unavailable
+    // route links where it is fixed, as the session row's blocks do
+    // (SetupGate.SESSION_BLOCKS): a missing package to its Repair, the rest
+    // to the setting or the Home folder.
+    function reachText(reach) {
         if (reach === undefined || reach === null) return "";
         if (reach.kind === "main") return "This computer runs your main Jarvis.";
-        if (reach.kind === "unavailable" && reach.cause === "home")
-            return "Jarvis cannot forward requests: choose a [Home folder](page:vgs.jarvis/Settings/home).";
+        if (reach.kind === "unavailable" && reach.cause === "no-home")
+            return "Jarvis cannot forward requests until you choose a [Home folder](page:vgs.jarvis/Settings/home).";
+        const blocked = "Jarvis cannot forward to " + reach.host + ": ";
+        if (reach.cause === "setting-untaken")
+            return blocked + "the Jarvis package in your home folder does not take [Main Jarvis host](page:vgs.jarvis/Settings/mainHost) yet.";
+        if (reach.cause === "package")
+            return blocked + "the Jarvis package in your home folder is missing or out of date. [Repair it in Setup](page:vgs.jarvis/Setup/sessionStart).";
+        if (reach.cause === "vgs-package")
+            return blocked + "VGS made this Home folder without the Jarvis package. [Choose a Kendex Jarvis home](page:vgs.jarvis/Settings/home).";
         if (reach.kind === "unavailable")
-            return "The Jarvis package in your " + Gate.homeReference("home folder",
-                { kind: values.homePath ? "ready" : "empty", path: values.homePath }, "") + " cannot forward to " + mainHost.split(":")[0] + ".";
+            return blocked + "the Jarvis package in your [Home folder](page:vgs.jarvis/Settings/home) cannot be opened.";
         if (reach.cause === "setting-invalid")
             return "Jarvis cannot reach your main Jarvis: [Main Jarvis host](page:vgs.jarvis/Settings/mainHost) is not a computer name.";
         if (reach.reachable === true) return "Your main Jarvis on " + reach.host + " is reachable.";
@@ -516,9 +525,11 @@ FocusScope {
                 visible: root.tab === 0 && text !== ""
                 width: parent.width
                 role: "hint"
-                text: root.reachText(root.values.mainReach, root.shell === null ? "" : root.shell.settings.mainHost)
-                color: root.values.mainReach && root.values.mainReach.kind === "satellite"
-                    && root.values.mainReach.cause !== "" ? Theme.color.warning : Theme.color.textMuted
+                text: root.reachText(root.values.mainReach)
+                // A route that cannot forward, or a main that did not answer,
+                // is the user's to fix: the warning tone (design-system.md).
+                color: root.values.mainReach && (root.values.mainReach.kind === "unavailable"
+                    || root.values.mainReach.kind === "satellite" && root.values.mainReach.cause !== "") ? Theme.color.warning : Theme.color.textMuted
                 wrapMode: Text.Wrap
                 onPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
             }
