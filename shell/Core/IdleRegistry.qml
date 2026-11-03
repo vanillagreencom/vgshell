@@ -17,9 +17,12 @@ import "PluginLogic.js" as Logic
 //
 // The pause holds every watch while any of its sources holds (D116): each
 // monitor is disabled, which reads as input, and counts again from the
-// pause's end. The one source today is `screensaver`, live while an
-// application's org.freedesktop.ScreenSaver inhibit is, which
-// bin/vgshell-idle-inhibit answers while a stage can fire.
+// pause's end. Its sources are `screensaver`, live while an application's
+// org.freedesktop.ScreenSaver inhibit is, which bin/vgshell-idle-inhibit
+// answers while a stage can fire, and `stayAwake`, live while a plugin's
+// Stay awake hold is (VGS-2257). Each hold belongs to its instance
+// lifetime: its wall-clock end, its `end()`, a disable or a rebuild ends
+// it, and nothing stores it, so a restart ends it too.
 Scope {
     id: root
     // `<plugin id>#<serial>` -> the watch's IdleMonitor, replaced whole on
@@ -40,6 +43,9 @@ Scope {
     // Source -> true while it holds the pause, replaced whole on every change.
     property var pauseSources: ({})
     readonly property bool paused: Object.keys(pauseSources).length > 0
+    // `<plugin id>#<serial>` -> true for each live Stay awake hold,
+    // replaced whole on every change; any hold holds the `stayAwake` source.
+    property var stayAwakeHolds: ({})
     // The helper's hold on org.freedesktop.ScreenSaver: `taken` while it
     // answers, `owned` once another connection held the name, else `stopped`.
     property string bus: "stopped"
@@ -56,6 +62,7 @@ Scope {
         return Object.freeze({
             watch: (seconds, onChange) => root.watch(ctx, seconds, onChange),
             watchStage: (stage, onChange) => root.watchStage(ctx, stage, onChange),
+            stayAwake: (seconds, onEnd) => root.stayAwake(ctx, seconds, onEnd),
             get stages() { return root.stageRecord.stages; }
         });
     }
@@ -157,6 +164,61 @@ Scope {
         };
     }
 
+    // Stay awake: hold the `stayAwake` pause source for `seconds`, or until
+    // released with 0. Its end is one wall-clock time, `endsAt`, which the
+    // holder shows; `onEnd()` runs once when that time ends the hold, never
+    // after the disposer or the instance's end did. Returns the hold,
+    // { endsAt, end }: `endsAt` 0 for a hold with no end, and `end` the
+    // disposer, which ends the hold and is safe to call again.
+    // A QML Timer is synchronized with the animation timer
+    // (https://doc.qt.io/qt-6/qml-qtqml-timer.html), which counts on Qt's
+    // monotonic clock (https://doc.qt.io/qt-6/qelapsedtimer.html,
+    // MonotonicClock), and Linux's CLOCK_MONOTONIC leaves out the time the
+    // system sleeps (clock_gettime(2)). One timer for the whole hold would
+    // end it late by every suspend, so the timer waits at most a step
+    // (Logic.stayAwakeWait) and judges the end from the wall clock each
+    // time it fires.
+    function stayAwake(ctx, seconds, onEnd) {
+        const refusal = Logic.stayAwakeRefusal(seconds, onEnd);
+        if (refusal !== "") throw new Error(refusal);
+        const key = ctx.id + "#" + (++serial);
+        const endsAt = seconds === 0 ? 0 : Date.now() + seconds * 1000;
+        const timer = seconds === 0 ? null : holdTimer.createObject(root, { interval: Logic.stayAwakeWait(endsAt, Date.now()) });
+        let ended = false;
+        const end = () => {
+            if (ended) return;
+            ended = true;
+            if (timer !== null) {
+                timer.stop();
+                timer.destroy();
+            }
+            const rest = Object.assign({}, root.stayAwakeHolds);
+            delete rest[key];
+            root.stayAwakeHolds = rest;
+            root.setPause("stayAwake", Object.keys(rest).length > 0);
+        };
+        const release = ctx.onDispose(end);
+        if (timer !== null) {
+            timer.triggered.connect(() => {
+                if (ended) return;
+                const wait = Logic.stayAwakeWait(endsAt, Date.now());
+                if (wait > 0) {
+                    timer.interval = wait;
+                    timer.start();
+                    return;
+                }
+                release();
+                onEnd();
+            });
+            timer.start();
+        }
+        const next = Object.assign({}, stayAwakeHolds);
+        next[key] = true;
+        stayAwakeHolds = next;
+        setPause("stayAwake", true);
+        return Object.freeze({ endsAt: endsAt, end: release });
+    }
+
     function setPause(source, holds) {
         if (Logic.hasOwn(pauseSources, source) === holds) return;
         const next = Object.assign({}, pauseSources);
@@ -165,9 +227,10 @@ Scope {
         pauseSources = next;
     }
 
-    // The pause for the lending record: its live sources and the bus hold.
+    // The pause for the lending record: its live sources, the plugin id of
+    // each Stay awake hold and the bus hold.
     function pauseRecord() {
-        return { sources: Object.keys(pauseSources).sort(), bus: bus };
+        return { sources: Object.keys(pauseSources).sort(), stayAwake: Object.keys(stayAwakeHolds).map(key => key.split("#")[0]).sort(), bus: bus };
     }
 
     // The watches for the lending record: plugin id, timeout, state, the
@@ -177,6 +240,13 @@ Scope {
             const monitor = watches[key];
             return { id: key.split("#")[0], timeout: monitor.timeout, idle: monitor.isIdle, stage: monitor.stage, generation: monitor.generation };
         });
+    }
+
+    // One Stay awake hold's next check of its end, owned by
+    // IdleRegistry.stayAwake and destroyed with its hold.
+    Component {
+        id: holdTimer
+        Timer { repeat: false }
     }
 
     Component {

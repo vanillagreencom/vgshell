@@ -40,6 +40,11 @@ import "PowerLogic.js" as Logic
 // shortcut that toggles the overlay, and runs each action the overlay
 // asks for through `vgshell power <verb>`, the shared power route, keeping
 // the request when the overlay closes.
+//
+// It holds Stay awake, the core's idle pause lent through `idle`, which
+// the flyout and Power's section start and end through the `stay-awake`
+// IPC handler, and it ends the hold when a discharging battery reaches
+// the critical threshold.
 Item {
     id: root
 
@@ -88,7 +93,17 @@ Item {
     })))
     readonly property bool upowerReady: UPower.displayDevice !== null && UPower.displayDevice.ready === true
     readonly property var battery: Logic.batteryView(UPower.displayDevice, UPower.onBattery)
-    readonly property var view: ({ battery: battery, profile: profile })
+    // Stay awake: the core's hold through `idle` (shell.idle.stayAwake),
+    // { endsAt, end }, which this instance alone keeps; the core owns its
+    // end time and its timer, and the status value publishes that time.
+    // Nothing stores the hold, so a restart ends it. The duration last
+    // started is the one setting it writes, `stayAwakeMinutes`; it writes
+    // no idle or sleep setting.
+    property var stayAwakeHold: null
+    readonly property int stayAwakeMinutes: Logic.stayAwakeMinutes(shell === null ? undefined : shell.settings.stayAwakeMinutes)
+    readonly property bool batteryCritical: shell !== null && Logic.batteryCritical(battery.level, Logic.batteryDischarging(battery), shell.settings.criticalThreshold)
+    readonly property bool stayAwakeOn: stayAwakeHold !== null
+    readonly property var view: ({ battery: battery, profile: profile, stayAwake: { active: stayAwakeOn, endsAt: stayAwakeOn ? stayAwakeHold.endsAt : 0, minutes: stayAwakeMinutes } })
     readonly property string viewKey: JSON.stringify(view)
     readonly property string noticeKey: JSON.stringify({
         battery: battery,
@@ -137,6 +152,7 @@ Item {
         wakeState = Logic.wakeInitial(shell.settings.wakeOnLanChosen);
         registered = true;
         shell.ipc.handle("profile", arg => root.profileRequest(arg));
+        shell.ipc.handle("stay-awake", arg => root.stayAwakeRequest(String(arg)));
         // The step resolves hdparm in safe system directories; the scan
         // can miss an installed command outside the session's PATH.
         shell.ipc.handle("disk-sleep", () => root.diskSleepNeedsInstall()
@@ -178,6 +194,40 @@ Item {
     onLockedChanged: watchLockedDisplayOff()
     onSleepAfterSecondsChanged: watchSleep()
     onSleepActionChanged: publishSleepActions()
+    onBatteryCriticalChanged: {
+        if (batteryCritical) endStayAwake();
+    }
+
+    // The flyout's and Power's section's one request: `end`, or a
+    // duration's minutes from Logic.STAY_AWAKE_DURATIONS, 0 for until
+    // ended. A start replaces a running hold and remembers its duration.
+    // A discharging battery at the critical level starts none, and
+    // reaching that level ends one (batteryCritical).
+    function stayAwakeRequest(arg) {
+        if (arg === "end") {
+            endStayAwake();
+            return "ok";
+        }
+        const minutes = Logic.stayAwakeDuration(arg);
+        if (minutes === -1) return "refused: stay-awake=" + JSON.stringify(arg) + " want=end|" + Logic.STAY_AWAKE_DURATIONS.map(d => d.minutes).join("|");
+        if (batteryCritical) return "refused: stay-awake=battery-critical";
+        endStayAwake();
+        if (minutes !== stayAwakeMinutes) {
+            const saved = shell.configure.set("stayAwakeMinutes", minutes);
+            if (saved !== "ok") console.warn("power: configure " + saved);
+        }
+        const hold = shell.idle.stayAwake(minutes * 60, () => {
+            root.stayAwakeHold = null;
+        });
+        stayAwakeHold = hold;
+        return "ok";
+    }
+
+    function endStayAwake() {
+        const hold = stayAwakeHold;
+        stayAwakeHold = null;
+        if (hold !== null) hold.end();
+    }
 
     // As vgs.lock's watchIdle: dispose before replacing. The core owns
     // each watch through this instance's lifetime. Hyprland starts its
@@ -323,9 +373,11 @@ Item {
     }
 
     // `battery` is the presence the Settings page shows the battery fields
-    // by (their shownWhen), and `profiles` the one it shows the two
-    // per-source profile fields by: a battery to switch on and a profiles
-    // service to switch, since the service is optional. `profileRule` is
+    // by (their shownWhen), and `profiles` the one it shows the
+    // per-source profile fields and barProfile by: a battery to switch on
+    // and a profiles service to switch, since the service is optional,
+    // and with no battery the bar shows the profile whatever barProfile
+    // says. `profileRule` is
     // the Details line that says how the profile is set on this machine.
     // The status capability keeps a value it already holds, so a repeat
     // write changes nothing.
@@ -480,8 +532,7 @@ Item {
 
     function checkNotices() {
         if (shell === null || !battery.present) return;
-        const discharging = battery.state === "discharging";
-        const result = Logic.notices(noticeLatch, battery.level, discharging, shell.settings.lowThreshold, shell.settings.criticalThreshold);
+        const result = Logic.notices(noticeLatch, battery.level, Logic.batteryDischarging(battery), shell.settings.lowThreshold, shell.settings.criticalThreshold);
         noticeLatch = result.latch;
         for (const notice of result.notices) sendNotice(notice);
     }

@@ -719,6 +719,7 @@ f share/vgshell/shell/plugins/vgs.power/Pane.qml
 f share/vgshell/shell/plugins/vgs.power/Panel.qml
 f share/vgshell/shell/plugins/vgs.power/PowerLogic.js
 f share/vgshell/shell/plugins/vgs.power/Service.qml
+f share/vgshell/shell/plugins/vgs.power/StayAwake.qml
 f share/vgshell/shell/plugins/vgs.power/Widget.qml
 f share/vgshell/shell/plugins/vgs.power/manifest.json
 f share/vgshell/shell/plugins/vgs.printers/Pane.qml

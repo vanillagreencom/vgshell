@@ -10,7 +10,10 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // side, is an optional icon `bar.item.icon` wide at full opacity or a
 // spinner in its place, or a short `caption` word there instead, an
 // optional `text`, and an optional second reading, `detail`, drawn in the
-// `bar` role in `tone`, the same way in every widget. A value at
+// `bar` role in `tone`, the same way in every widget. A state the widget
+// holds, such as Stay awake, draws as `leadingIconName`, one more glyph
+// before the icon or caption in the item's foreground, never a level
+// colour, and it takes room in the row. A value at
 // `textLevel` or `detailLevel` "warning" or "danger" draws in that state
 // colour, and the icon or caption draws in the most severe level of the
 // values shown and the count, so it turns red exactly when a value beside
@@ -118,6 +121,11 @@ T.AbstractButton {
     InputWidth { target: root }
 
     property string iconName: ""
+    // A glyph of its own before the icon or caption, for a state the
+    // widget holds, such as Stay awake: `bar.item.icon` wide, in the
+    // item's foreground whatever level its values draw in, `iconGap` from
+    // what follows. It takes room in the row; "" draws none.
+    property string leadingIconName: ""
     // The detail line's icon in the stacked layout.
     property string detailIconName: ""
     // The second reading, beside the text or under it when stacked.
@@ -205,6 +213,21 @@ T.AbstractButton {
             anchors.verticalCenter: parent.verticalCenter
             spacing: root.spacing
 
+            // Built only while named, so an item without one holds no
+            // second Icon for a reader of its icon to find. The Loader
+            // takes the Icon's size
+            // (https://doc.qt.io/qt-6/qml-qtquick-loader.html#loader-sizing-behavior).
+            Loader {
+                objectName: "bar-item-leading"
+                active: root.leadingIconName !== ""
+                visible: active
+                anchors.verticalCenter: parent.verticalCenter
+                sourceComponent: Icon {
+                    name: root.leadingIconName
+                    size: Theme.bar.item.icon
+                    color: root.foreground
+                }
+            }
             Label {
                 role: "bar"
                 visible: root.caption !== "" && !root.spinning && !root.lineCaptions
