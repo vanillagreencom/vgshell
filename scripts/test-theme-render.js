@@ -4936,9 +4936,12 @@ function verifyTerminalApps(documents) {
         } else if (row.app === "television") {
             assert.ok(Object.hasOwn(doc, "selection_fg"));
             assert.ok(Object.hasOwn(doc, "action_picker_mode_bg"));
+            // television 0.15.9 paints `background` on every border, header,
+            // input line and count, so the terminal page shows only without it.
+            assert.ok(!Object.hasOwn(doc, "background"), JSON.stringify({ kind: "television-background", package: row.name }));
             for (const [name, value] of Object.entries(doc)) {
                 if (name.endsWith("_fg")) {
-                    const fill = name === "selection_fg" ? doc.selection_bg : name.endsWith("_mode_fg") ? doc[name.replace(/_fg$/, "_bg")] : doc.background;
+                    const fill = name === "selection_fg" ? doc.selection_bg : name.endsWith("_mode_fg") ? doc[name.replace(/_fg$/, "_bg")] : page;
                     pair(name, value, fill, name === "border_fg" ? 3 : 4.5);
                 }
             }
@@ -4956,7 +4959,8 @@ for (const app of TERMINAL_APPS) {
     const file = app === "bat" ? "bat.tmTheme" : app === "yazi" ? "yazi.toml" : "television.toml";
     assert.throws(() => verifyTerminalApps(terminalAppDocuments((text, name, template) => name === app && template === file ? text.replace(needle, "#@{color.background}") : text)), error => error.code === "ERR_ASSERTION" && error.message.includes('"kind":"terminal-app-contrast"'));
 }
-console.log(`test-theme-render: terminal-apps packages=${selectionPackages.length} pairs=${terminalPairs.length} controls=missing-target,unreadable-text`);
+assert.throws(() => verifyTerminalApps(terminalAppDocuments((text, name) => name === "television" ? "background = \"#@{color.background}\"\n" + text : text)), error => error.code === "ERR_ASSERTION" && error.message.includes('"kind":"television-background"'));
+console.log(`test-theme-render: terminal-apps packages=${selectionPackages.length} pairs=${terminalPairs.length} controls=missing-target,unreadable-text,television-background`);
 
 const source = fs.readFileSync(rendererFile, "utf8");
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "theme-render-control-"));
