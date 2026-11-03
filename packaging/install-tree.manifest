@@ -284,6 +284,7 @@ f share/vgshell/shell/Ui/foundation/DescenderInk.qml
 f share/vgshell/shell/Ui/foundation/Divider.qml
 f share/vgshell/shell/Ui/foundation/FocusRing.qml
 f share/vgshell/shell/Ui/foundation/GlassSurface.qml
+f share/vgshell/shell/Ui/foundation/HintGround.js
 f share/vgshell/shell/Ui/foundation/Icon.qml
 f share/vgshell/shell/Ui/foundation/IconBounds.js
 f share/vgshell/shell/Ui/foundation/ImagePool.qml

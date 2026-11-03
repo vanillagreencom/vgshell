@@ -52,6 +52,10 @@ var REFERENCE_PATTERN = /^\{([A-Za-z0-9.]*)\}$/;
 var FUNCTIONS = {
     mix: { args: ["color", "color", "number"], result: "color" },
     contrastMix: { args: ["color", "color", "color", "number"], result: "color" },
+    // contrastMix, but COLOR itself where no mix meets RATIO: a margin over
+    // the drawn floor that a mid-tone background cannot reach costs the
+    // margin, never the theme. The readability floor still judges it.
+    reachMix: { args: ["color", "color", "color", "number"], result: "color" },
     alpha: { args: ["color", "number"], result: "color" },
     contrast: { args: ["color"], result: "color" },
     readable: { args: ["color", "color", "color"], result: "color" },
@@ -304,7 +308,15 @@ function keyHintInk(values, context, part) {
         }
         return holds(candidate) ? candidate : null;
     }).filter(function (candidate) { return candidate !== null; });
-    if (candidates.length === 0) throw new Error("theme: key hint contrast unreachable on supplied surface");
+    // Where no ink meets the margin on every ground, take the endpoint
+    // whose weakest ground reads best: the highest contrast reachable, as
+    // reachMix does for the default ink.
+    if (candidates.length === 0) {
+        var weakest = function (color) { return Math.min.apply(null, fills.map(function (fill) { return contrastRatio(color, fill); })); };
+        var black = parseColor("#000000");
+        var white = parseColor("#ffffff");
+        return weakest(black) >= weakest(white) ? black : white;
+    }
     var distance = function (color) { return Math.pow(color.r - ink.r, 2) + Math.pow(color.g - ink.g, 2) + Math.pow(color.b - ink.b, 2); };
     candidates.sort(function (a, b) { return distance(a) - distance(b); });
     return candidates[0];
@@ -805,12 +817,14 @@ function resolve(tokens, overrides) {
         }
         switch (tree.name) {
         case "contrastMix":
+        case "reachMix":
             if (args[3] < 1 || args[3] > 21)
-                return fail("range", token, "function=contrastMix ratio=" + args[3]);
+                return fail("range", token, "function=" + tree.name + " ratio=" + args[3]);
             if (args[0].a < 1 || args[1].a < 1 || args[2].a < 1)
-                return fail("contrast-translucent", token, "function=contrastMix");
+                return fail("contrast-translucent", token, "function=" + tree.name);
             var solved = contrastMix(args[0], args[1], args[2], args[3]);
-            return solved === null ? fail("contrast-unreachable", token, "function=contrastMix ratio=" + args[3]) : solved;
+            if (solved !== null) return solved;
+            return tree.name === "reachMix" ? args[0] : fail("contrast-unreachable", token, "function=contrastMix ratio=" + args[3]);
         case "mix":
             if (args[2] < 0 || args[2] > 1)
                 return fail("range", token, "function=mix amount=" + args[2]);

@@ -141,7 +141,7 @@ var TEXT = {
     // Start at the approved faded hint ink; `kbd.wordMargin` keeps its
     // drawn contrast above the judge's text floor.
     keyHint: merge(role("sans", 0.8, 400, 0, 1, false, "textFaint"), {
-        color: color("contrastMix(contrast({color.surfaceRaised}), mix({color.surfaceRaised}, readable({color.textFaint}, {color.surfaceRaised}, contrast({color.surfaceRaised})), 0.88), {color.surfaceRaised}, {kbd.wordMargin})")
+        color: color("reachMix(contrast({color.surfaceRaised}), mix({color.surfaceRaised}, readable({color.textFaint}, {color.surfaceRaised}, contrast({color.surfaceRaised})), 0.88), {color.surfaceRaised}, {kbd.wordMargin})")
     }),
     code: role("mono", 0.87, 500, 0, 1.5, false, "text"),
     bar: role("caps", 0.8, 500, 0.08, 1, true, "text")
@@ -769,8 +769,8 @@ var TOKENS = {
         paddingX: length("{space.sm}"),
         background: color("alpha(contrast({palette.background}), 0.08)"),
         borderColor: color("{color.borderStrong}"),
-        foreground: color("contrastMix(contrast(mix({color.surfaceRaised}, contrast({palette.background}), 0.08)), readable({color.textFaint}, {color.surfaceRaised}, contrast({color.surfaceRaised})), mix({color.surfaceRaised}, contrast({palette.background}), 0.08), {kbd.capMargin})"),
-        valueForeground: color("contrastMix(contrast(mix({color.surfaceRaised}, contrast({palette.background}), 0.08)), readable({color.text}, {color.surfaceRaised}, contrast({color.surfaceRaised})), mix({color.surfaceRaised}, contrast({palette.background}), 0.08), {kbd.valueMargin})"),
+        foreground: color("reachMix(contrast(mix({color.surfaceRaised}, contrast({palette.background}), 0.08)), readable({color.textFaint}, {color.surfaceRaised}, contrast({color.surfaceRaised})), mix({color.surfaceRaised}, contrast({palette.background}), 0.08), {kbd.capMargin})"),
+        valueForeground: color("reachMix(contrast(mix({color.surfaceRaised}, contrast({palette.background}), 0.08)), readable({color.text}, {color.surfaceRaised}, contrast({color.surfaceRaised})), mix({color.surfaceRaised}, contrast({palette.background}), 0.08), {kbd.valueMargin})"),
         wordMargin: number(5.2, 4.5, 21),
         capMargin: number(5.1, 4.5, 21),
         valueMargin: number(4.65, 4.5, 21),

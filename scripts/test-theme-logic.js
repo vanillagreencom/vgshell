@@ -440,6 +440,10 @@ const ACCEPTED = [
     { tokens: { palette: { accent: "contrastMix(#000,#f00,#fff,3)" } }, want: [["palette.accent", "#ff0000ff"]] },
     { tokens: { palette: { accent: "contrastMix(#000,#fff,#fff,21)" } }, want: [["palette.accent", "#000000ff"]] },
     { tokens: { palette: { accent: "contrastMix(#000,#fff,#fff,1)" } }, want: [["palette.accent", "#ffffffff"]] },
+    // reachMix solves as contrastMix, and keeps its first colour where no
+    // mix meets the ratio.
+    { tokens: { palette: { accent: "reachMix(#000,#fff,#fff,4.5)" } }, want: [["palette.accent", "#767676ff"]] },
+    { tokens: { palette: { accent: "reachMix(#888,#999,#fff,4.5)" } }, want: [["palette.accent", "#888888ff"]] },
     { tokens: { color: { surface: "mix(#000, mix(#000, mix(#000, mix(#000, mix(#000, mix(#000, #fff, 1), 1), 1), 1), 1), 1)" } }, want: [["color.surface", "#ffffffff"]] }
 ];
 
@@ -504,6 +508,7 @@ const REFUSED = [
     { tokens: { palette: { accent: "contrastMix(#000,#fff,#fff,22)" } }, reason: "range", token: "palette.accent" },
     { tokens: { palette: { accent: "contrastMix(#000,#fff,#fff,0.5)" } }, reason: "range", token: "palette.accent" },
     { tokens: { palette: { accent: "contrastMix(#888,#999,#fff,4.5)" } }, reason: "contrast-unreachable", token: "palette.accent" },
+    { tokens: { palette: { accent: "reachMix(#000,#fff,#fff,22)" } }, reason: "range", token: "palette.accent" },
     ...[0, 1, 2].map(index => ({
         tokens: { palette: { accent: `contrastMix(${["#000000ff", "#ffffffff", "#ffffffff"].map((color, at) => at === index ? color.slice(0, 7) + "80" : color).join(",")},4.5)` } },
         reason: "contrast-translucent", token: "palette.accent"
@@ -1821,6 +1826,35 @@ function verifyCapMargin(table = TOKENS) {
     }
 }
 verifyCapMargin();
+// A hint ink never refuses a theme main accepts: raised surfaces from real
+// palettes whose mid-tone, under the cap's 8% tint, no black or white ink
+// reaches the hint margins on (gruvbox bg4, material blue-grey, dracula
+// comment, catppuccin frappe surface2; VGS-2180 re-review, 2026-11-03).
+function verifyMidToneThemes(judge) {
+    const vgs = JSON.parse(fs.readFileSync(path.join(repo, "themes/vgs/theme.json"), "utf8"));
+    for (const raised of ["#546e7a", "#7c6f64", "#6272a4", "#626880"]) {
+        const source = JSON.parse(JSON.stringify(vgs));
+        source.tokens.scheme = { ...source.tokens.scheme, mode: "dark" };
+        source.tokens.color = { ...source.tokens.color, surfaceRaised: raised };
+        const result = judge.accept(TOKENS, JSON.stringify(source));
+        assert.equal(result.ok, true, raised + ": " + (result.ok ? "" : judge.refusalLine(result)));
+    }
+}
+verifyMidToneThemes(load(judgeFile));
+// Where no ink meets a part's margin on every ground, the hint takes the
+// endpoint whose weakest ground reads best: a field's selection mark in
+// these themes reaches no hint margin.
+function verifyUnreachedHintGround(judge) {
+    for (const [name, part] of [["catalog/eldritch", "key"], ["catalog/kurayami", "key"], ["catalog/lunar", "word"], ["catalog/lunar", "key"]]) {
+        const values = JUDGED_THEMES.find(theme => theme.name === name).values;
+        const plate = judge.overlay(judge.parseColor(values.color.selection), judge.parseColor(values.textField.background));
+        const ground = part === "key" ? judge.overlay(judge.parseColor(values.kbd.background), plate) : plate;
+        const ink = judge.keyHintInk(values, { fill: judge.parseColor(values.textField.background), plate: judge.parseColor(values.color.selection), sheen: judge.parseColor("#00000000") }, part);
+        const best = Math.max(...["#000000", "#ffffff"].map(endpoint => judge.contrastRatio(judge.parseColor(endpoint), ground)));
+        assert.equal(judge.contrastRatio(ink, ground), best, `${name}: an unreached ${part} margin takes the highest contrast`);
+    }
+}
+verifyUnreachedHintGround(load(judgeFile));
 const TOKEN_CONTROLS = [
     ["shared hint solid margin", 'wordMargin: number(5.2, 4.5, 21)', 'wordMargin: number(4.95, 4.5, 21)', table => verifyHintMargin(load(judgeFile), table)],
     ["shared key-name margin", 'capMargin: number(5.1, 4.5, 21)', 'capMargin: number(4.65, 4.5, 21)', verifyCapMargin],
@@ -2063,6 +2097,8 @@ function launcherDetailShortfalls(judge, launcher) {
 // Each control removes one rule's behaviour from a copy of the judge and
 // keeps the text around it. The suite must fail on every copy.
 const CONTROLS = [
+    ["a hint ink refuses a mid-tone theme", 'return tree.name === "reachMix" ? args[0] : fail(', 'return false ? args[0] : fail(', verifyMidToneThemes],
+    ["an unreached hint margin takes the weaker endpoint", "return weakest(black) >= weakest(white) ? black : white;", "return weakest(black) >= weakest(white) ? white : black;", verifyUnreachedHintGround],
     ["shared hint ignores its composed surface", "if (context === null) return ink;", "return ink;", judge => assert.deepEqual(launcherDetailShortfalls(judge, LAUNCHER), [], "shared hint inks keep the reached fill floor")],
     ["a hint ignores the glass its surface publishes", "if (context === null) return ink;", "return ink;", judge => assert.deepEqual(glassHintShortfalls(judge), [], "a hint keeps the floor on opaque glass")],
     ["a selected row's keys ignore the list plate", "if (context === null) return ink;", "return ink;", judge => assert.deepEqual(plateHintShortfalls(judge), [], "a selected row's keys keep the floor on the list plate")],
