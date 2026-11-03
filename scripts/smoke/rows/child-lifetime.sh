@@ -7,7 +7,7 @@
 # before cleanup. The observer polls at 20 ms with a 10 s completion bound;
 # this is a cleanup guarantee, not a latency measurement. Run the same row
 # against the pre-fix engine to prove its survivor assertion fails.
-# inputs: scripts/smoke/fixtures/child-lifetime.py scripts/smoke/fixtures/devices/* shell/plugins/vgs.sound/* shell/plugins/vgs.lock/* shell/Core/Registry.qml shell/Core/Capabilities.qml bin/vgshell bin/vgshell-scan packaging/arch/vgshell-quickshell/* scripts/smoke/rows/device-fakes.sh
+# inputs: scripts/smoke/fixtures/child-lifetime.py scripts/smoke/fixtures/devices/* shell/plugins/vgs.sound/* shell/plugins/vgs.lock/* shell/Core/Registry.qml shell/Core/Capabilities.qml bin/vgshell bin/vgshell-scan packaging/arch/vgshell-quickshell/* scripts/smoke/rows/device-fakes.sh bin/lib/dbus_wire.py
 set -euo pipefail
 devices_ready child-lifetime || return 0
 

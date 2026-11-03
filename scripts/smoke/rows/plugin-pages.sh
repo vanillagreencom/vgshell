@@ -11,7 +11,7 @@
 # home holding a fixed set of 64 generated plugins, so its document size
 # does not follow the shipped set: its reply fails the oversize check
 # once. The row removes the set and rescans before it ends.
-# inputs: shell/shell.qml shell/Core/IpcPages.qml shell/Core/Registry.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/PackageManagers.js shell/Core/Plugins.qml shell/Core/Capabilities.qml shell/Core/Config.qml bin/vgshell bin/vgshell-scan bin/vgshell-pkg bin/vgshell-plugin-judge bin/lib/ipc-reply.sh scripts/smoke/fixtures/plugins/acme.bare/*
+# inputs: shell/shell.qml shell/Core/IpcPages.qml shell/Core/Registry.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/PackageManagers.js shell/Core/Plugins.qml shell/Core/Capabilities.qml shell/Core/Config.qml bin/vgshell bin/vgshell-scan bin/vgshell-pkg bin/vgshell-plugin-judge bin/lib/ipc-reply.sh scripts/smoke/fixtures/plugins/acme.bare/* bin/lib/dbus_wire.py
 set -euo pipefail
 pages_shipped="$(find "$repo/shell/plugins" -mindepth 2 -maxdepth 2 -name manifest.json | wc -l)"
 pages_count=$((pages_shipped + 1))

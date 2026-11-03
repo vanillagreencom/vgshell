@@ -90,9 +90,15 @@ import json
 import os
 import socket
 import stat
-import struct
 import sys
 import time
+
+# bin/lib/dbus_wire.py sits beside this script in every install. No
+# __pycache__ is written: the installer ships every file under bin/ of an
+# unpacked source tree, and a run there would add one.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "lib"))
+sys.dont_write_bytecode = True
+import dbus_wire  # noqa: E402
 
 NM_VPN_DIRECTORIES = ("/usr/lib/NetworkManager/VPN", "/etc/NetworkManager/VPN")
 
@@ -204,218 +210,12 @@ def publish_source(root, revision, files):
     return file_url(os.path.abspath(destination))
 
 
-def percent_unescape(value):
-    out = bytearray()
-    i = 0
-    data = value.encode("ascii", "surrogateescape")
-    while i < len(data):
-        if data[i:i + 1] == b"%" and i + 2 < len(data):
-            try:
-                out.append(int(data[i + 1:i + 3], 16))
-                i += 3
-                continue
-            except ValueError:
-                pass
-        out.append(data[i])
-        i += 1
-    return bytes(out)
-
-
-def bus_address(bus):
-    if bus == "system":
-        address = os.environ.get("DBUS_SYSTEM_BUS_ADDRESS") or "unix:path=/run/dbus/system_bus_socket"
-    else:
-        runtime = os.environ.get("XDG_RUNTIME_DIR", "")
-        address = os.environ.get("DBUS_SESSION_BUS_ADDRESS") or ("unix:path=" + os.path.join(runtime, "bus"))
-    for entry in address.split(";"):
-        if not entry.startswith("unix:"):
-            continue
-        fields = {}
-        for part in entry[5:].split(","):
-            if "=" not in part:
-                continue
-            key, value = part.split("=", 1)
-            fields[key] = value
-        if "path" in fields:
-            return percent_unescape(fields["path"]).decode(sys.getfilesystemencoding(), sys.getfilesystemencodeerrors())
-        if "abstract" in fields:
-            return "\0" + percent_unescape(fields["abstract"]).decode("latin1")
-    raise OSError("no supported unix address")
-
-
-def remaining(deadline):
-    return max(0.05, deadline - time.monotonic())
-
-
-def read_exact(sock, count, deadline):
-    data = bytearray()
-    while len(data) < count:
-        sock.settimeout(remaining(deadline))
-        chunk = sock.recv(count - len(data))
-        if not chunk:
-            raise OSError("connection closed")
-        data.extend(chunk)
-    return bytes(data)
-
-
-def read_auth_line(sock, deadline):
-    data = bytearray()
-    while not data.endswith(b"\r\n"):
-        sock.settimeout(remaining(deadline))
-        chunk = sock.recv(1)
-        if not chunk:
-            raise OSError("auth closed")
-        data.extend(chunk)
-        if len(data) > 4096:
-            raise OSError("auth line too long")
-    return bytes(data[:-2])
-
-
-def align(offset, boundary):
-    return (boundary - offset % boundary) % boundary
-
-
-def pack_string(value):
-    data = value.encode("utf-8")
-    return struct.pack("<I", len(data)) + data + b"\0"
-
-
-def pack_signature(value):
-    data = value.encode("ascii")
-    return bytes([len(data)]) + data + b"\0"
-
-
-def append_field(out, code, signature, value):
-    out.extend(b"\0" * align(len(out), 8))
-    out.append(code)
-    out.extend(pack_signature(signature))
-    out.extend(b"\0" * align(len(out), 4))
-    if signature in ("s", "o"):
-        out.extend(pack_string(value))
-    elif signature == "g":
-        out.extend(pack_signature(value))
-    elif signature == "u":
-        out.extend(struct.pack("<I", value))
-    else:
-        raise ValueError("unsupported header field signature " + signature)
-
-
-def method_call(serial, member, signature="", body=b""):
-    fields = bytearray()
-    append_field(fields, 1, "o", "/org/freedesktop/DBus")
-    append_field(fields, 2, "s", "org.freedesktop.DBus")
-    append_field(fields, 3, "s", member)
-    append_field(fields, 6, "s", "org.freedesktop.DBus")
-    if signature != "":
-        append_field(fields, 8, "g", signature)
-    header = bytearray(b"l\x01\x00\x01")
-    header.extend(struct.pack("<I", len(body)))
-    header.extend(struct.pack("<I", serial))
-    header.extend(struct.pack("<I", len(fields)))
-    header.extend(fields)
-    header.extend(b"\0" * align(len(header), 8))
-    header.extend(body)
-    return bytes(header)
-
-
-def parse_header_fields(data):
-    fields = {}
-    offset = 0
-    while offset < len(data):
-        offset += align(offset, 8)
-        if offset >= len(data):
-            break
-        code = data[offset]
-        offset += 1
-        sig_len = data[offset]
-        offset += 1
-        signature = data[offset:offset + sig_len].decode("ascii")
-        offset += sig_len + 1
-        if signature in ("s", "o"):
-            offset += align(offset, 4)
-            size = struct.unpack_from("<I", data, offset)[0]
-            offset += 4
-            fields[code] = data[offset:offset + size].decode("utf-8")
-            offset += size + 1
-        elif signature == "u":
-            offset += align(offset, 4)
-            fields[code] = struct.unpack_from("<I", data, offset)[0]
-            offset += 4
-        elif signature == "g":
-            sig_len = data[offset]
-            offset += 1
-            fields[code] = data[offset:offset + sig_len].decode("ascii")
-            offset += sig_len + 1
-        else:
-            break
-    return fields
-
-
-def read_message(sock, deadline):
-    fixed = read_exact(sock, 16, deadline)
-    if fixed[0:1] != b"l":
-        raise OSError("big-endian reply unsupported")
-    msg_type = fixed[1]
-    body_len, serial, fields_len = struct.unpack_from("<III", fixed, 4)
-    rest_len = fields_len + align(16 + fields_len, 8)
-    rest = read_exact(sock, rest_len + body_len, deadline)
-    fields = parse_header_fields(rest[:fields_len])
-    body = rest[rest_len:]
-    return msg_type, serial, fields, body
-
-
-def parse_string_array(body):
-    if len(body) < 4:
-        raise OSError("short array reply")
-    size = struct.unpack_from("<I", body, 0)[0]
-    offset = 4 + align(4, 4)
-    end = offset + size
-    names = []
-    while offset < end:
-        if offset + 4 > len(body):
-            raise OSError("short string length")
-        length = struct.unpack_from("<I", body, offset)[0]
-        offset += 4
-        if offset + length + 1 > len(body):
-            raise OSError("short string")
-        names.append(body[offset:offset + length].decode("utf-8"))
-        offset += length + 1
-        offset += align(offset, 4)
-    return names
-
-
-def dbus_call(sock, serial, member, deadline, signature="", body=b""):
-    sock.sendall(method_call(serial, member, signature, body))
-    while True:
-        msg_type, _serial, fields, body = read_message(sock, deadline)
-        if fields.get(5) != serial:
-            continue
-        if msg_type == 3:
-            raise OSError("method error " + fields.get(4, "unknown"))
-        if msg_type != 2:
-            raise OSError("unexpected reply type " + str(msg_type))
-        return body
-
-
 def dbus_names(bus):
     deadline = time.monotonic() + 2.0
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock = dbus_wire.connect(bus, deadline)
     try:
-        sock.settimeout(remaining(deadline))
-        sock.connect(bus_address(bus))
-        # EXTERNAL with no identity: the bus takes the uid it reads from the
-        # socket itself, which stays right across user namespaces.
-        sock.sendall(b"\0AUTH EXTERNAL\r\n")
-        line = read_auth_line(sock, deadline)
-        if line == b"DATA":
-            sock.sendall(b"DATA\r\n")
-            line = read_auth_line(sock, deadline)
-        if not line.startswith(b"OK "):
-            raise OSError("auth " + line.decode("ascii", "replace"))
-        sock.sendall(b"BEGIN\r\n")
-        dbus_call(sock, 1, "Hello", deadline)
-        owned = set(parse_string_array(dbus_call(sock, 2, "ListNames", deadline)))
-        activatable = set(parse_string_array(dbus_call(sock, 3, "ListActivatableNames", deadline)))
+        owned = set(dbus_wire.parse_string_array(dbus_wire.call(sock, 2, "ListNames", deadline)))
+        activatable = set(dbus_wire.parse_string_array(dbus_wire.call(sock, 3, "ListActivatableNames", deadline)))
         return owned | activatable
     finally:
         sock.close()

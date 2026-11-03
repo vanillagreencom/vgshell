@@ -4,7 +4,7 @@
 # rescans asked for back to back both complete; and an unchanged plugin's
 # files stay readable after the sources of others were replaced. Every
 # fixture write is a rename, so the scan never reads half a file.
-# inputs: scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/Plugins.qml shell/Core/Registry.qml bin/vgshell-scan scripts/smoke/rows/plugins.sh
+# inputs: scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/Plugins.qml shell/Core/Registry.qml bin/vgshell-scan scripts/smoke/rows/plugins.sh bin/lib/dbus_wire.py
 set -euo pipefail
 leak_plugin_setup acme.probe true || { fail "sources: fixture precondition failed"; return 1; }
 expect_poll "the shared fixture is built before its dependent reads" True record_exists acme.probe

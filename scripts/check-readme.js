@@ -182,8 +182,11 @@ const runtimeAutostart = (() => {
 // { dir, text }: dir relative to the root, text the manifest's bytes.
 const plugins = (() => {
     const base = path.join(root, "shell", "plugins");
+    // The scan names no bus it could reach: this check reads manifest bytes
+    // and never a probe answer, and without these the default system socket
+    // is the host's. No socket can sit under /dev/null.
     const scan = childProcess.spawnSync(path.join(codeRoot, "bin", "vgshell-scan"), ["--require-base", base],
-        { encoding: "utf8", env: { PATH: process.env.PATH, LC_ALL: "C" } });
+        { encoding: "utf8", env: { PATH: process.env.PATH, LC_ALL: "C", DBUS_SESSION_BUS_ADDRESS: "unix:path=/dev/null/no-bus", DBUS_SYSTEM_BUS_ADDRESS: "unix:path=/dev/null/no-bus" } });
     if (scan.error || scan.status !== 0) unreadable("shell/plugins", "vgshell-scan " + (scan.error ? scan.error.code : "exited " + scan.status) + " " + (scan.stderr || ""));
     const listedPlugins = [];
     for (const listed of JSON.parse(scan.stdout)) {

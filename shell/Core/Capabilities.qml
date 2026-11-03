@@ -640,6 +640,7 @@ Singleton {
             holders: holders,
             shortcuts: Object.keys(shortcuts.shortcuts).sort(),
             idle: idleWatches.record(),
+            idlePause: idleWatches.pauseRecord(),
             ipcTargets: Object.keys(commands.ipcTargets).sort(),
             subscribers: notifications.subscribers.map(s => s.id),
             notificationServer: notifications.server !== null,

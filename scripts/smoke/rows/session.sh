@@ -130,6 +130,16 @@ else
 fi
 hypr_lua_restore session-inhibitor
 expect "the nested inhibitor rule is removed" ok hypr reload config-only
+# Hyprland 0.57.0 rechecks its idle inhibitors at a window's unmap while
+# that window still counts (src/desktop/view/window/Window.cpp:1747), so
+# the closed window's idle_inhibit rule keeps every inhibitor-obeying idle
+# notification from firing until the next map. A plain window mapped and
+# closed here leaves later rows a compositor with no inhibitor.
+if open_toplevel "$sandbox/session-uninhibit.log" smoke.session-uninhibit uninhibit; then
+  close_toplevel "$toplevel_pid" "a plain window clears the closed window's inhibitor"
+else
+  fail "the window that clears the closed window's inhibitor maps"
+fi
 # Hold the real off snapshot until a real nested key has woken the outputs.
 # The publication counter detects even a transient stale true. A queue-owned
 # group read behind the gate acknowledges that the held reply was consumed.

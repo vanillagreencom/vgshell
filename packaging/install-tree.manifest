@@ -6,6 +6,7 @@ f share/vgshell/bin/lib/anchored.js
 f share/vgshell/bin/lib/aur-helper.sh
 f share/vgshell/bin/lib/check-manifests.js
 f share/vgshell/bin/lib/codex-account.js
+f share/vgshell/bin/lib/dbus_wire.py
 f share/vgshell/bin/lib/engine.js
 f share/vgshell/bin/lib/first-start.sh
 f share/vgshell/bin/lib/hyprland-instance.sh
@@ -43,6 +44,7 @@ f share/vgshell/bin/vgshell-browser-policy
 f share/vgshell/bin/vgshell-dictation
 f share/vgshell/bin/vgshell-display-guard
 f share/vgshell/bin/vgshell-hypr-judge
+f share/vgshell/bin/vgshell-idle-inhibit
 f share/vgshell/bin/vgshell-lock
 f share/vgshell/bin/vgshell-pkg
 f share/vgshell/bin/vgshell-plugin-judge

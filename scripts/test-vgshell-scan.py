@@ -38,7 +38,6 @@ import pathlib
 import select
 import signal
 import shutil
-import socket
 import subprocess
 import sys
 import tempfile
@@ -320,9 +319,11 @@ def nm_vpn_rows(script=SCAN, quiet=False):
         with tempfile.TemporaryDirectory() as tmp:
             requirement = {"nmVpn": {"service": service, "label": "OpenVPN plugin"}, "purpose": "p"}
             plant(tmp, {"plugins/a/manifest.json": json.dumps({"id": "acme.a", "requirements": [requirement]}), **files})
-            target = pathlib.Path(tmp, "vgshell-scan")
-            target.write_text(source.replace(needle, "NM_VPN_DIRECTORIES = " + repr((os.path.join(tmp, "lib"), os.path.join(tmp, "etc")))))
-            entry = one_entry(scan(os.path.join(tmp, "plugins"), script=str(target)))
+            # The copy sits in a bin/ of its own: its lib/ link would take
+            # the fixture's lib/ directory.
+            os.mkdir(os.path.join(tmp, "bin"))
+            target = scanner_copy(os.path.join(tmp, "bin"), source.replace(needle, "NM_VPN_DIRECTORIES = " + repr((os.path.join(tmp, "lib"), os.path.join(tmp, "etc")))))
+            entry = one_entry(scan(os.path.join(tmp, "plugins"), script=target))
             good = entry is not None and entry["missing"] == ([] if present else [service])
             results.append(good if quiet else report("nmVpn: " + name, good, str(entry)))
     return results
@@ -401,23 +402,13 @@ def start_dbus_daemon(tmp):
 
 
 def connect_scanner_bus(module, address):
+    """A connection on ADDRESS through the wire module the scanner MODULE
+    loads, bin/lib/dbus_wire.py, and the session address it replaced."""
     old = os.environ.get("DBUS_SESSION_BUS_ADDRESS")
     os.environ["DBUS_SESSION_BUS_ADDRESS"] = address
-    deadline = time.monotonic() + 2
-    uid_hex = str(os.getuid()).encode("ascii").hex().encode("ascii")
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
-        sock.settimeout(2)
-        sock.connect(module.bus_address("session"))
-        sock.sendall(b"\0AUTH EXTERNAL " + uid_hex + b"\r\n")
-        line = module.read_auth_line(sock, deadline)
-        if not line.startswith(b"OK "):
-            raise RuntimeError("auth " + repr(line))
-        sock.sendall(b"BEGIN\r\n")
-        module.dbus_call(sock, 1, "Hello", deadline)
-        return sock, old
+        return module.dbus_wire.connect("session", time.monotonic() + 2), old
     except Exception:
-        sock.close()
         if old is None:
             os.environ.pop("DBUS_SESSION_BUS_ADDRESS", None)
         else:
@@ -426,10 +417,8 @@ def connect_scanner_bus(module, address):
 
 
 def request_name(module, sock, name):
-    body = bytearray(module.pack_string(name))
-    body.extend(b"\0" * module.align(len(body), 4))
-    body.extend((0).to_bytes(4, "little"))
-    module.dbus_call(sock, 2, "RequestName", time.monotonic() + 2, "su", bytes(body))
+    wire = module.dbus_wire
+    wire.call(sock, 2, "RequestName", time.monotonic() + 2, "su", wire.pack_body("su", [name, 0]))
 
 
 def dbus_rows(script=SCAN, quiet=False):

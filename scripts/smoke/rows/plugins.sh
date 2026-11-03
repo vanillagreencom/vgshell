@@ -20,7 +20,7 @@
 # change and a shell stop call it never. Its control is a copy of the tree
 # whose core calls it for every destroyed instance: the rebuild then leaves
 # the fixture's mark.
-# inputs: shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.tick/* shell/plugins/vgs.bar/* shell/shell.qml shell/Core/Plugins.qml shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Hosts/ServiceHost.qml shell/Hosts/PluginSlot.qml bin/vgshell bin/vgshell-scan bin/vgshell-plugin-judge
+# inputs: shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.tick/* shell/plugins/vgs.bar/* shell/shell.qml shell/Core/Plugins.qml shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Hosts/ServiceHost.qml shell/Hosts/PluginSlot.qml bin/vgshell bin/vgshell-scan bin/vgshell-plugin-judge bin/lib/dbus_wire.py
 set -euo pipefail
 fixture="$sandbox/src/acme.probe"
 mkdir -p "$fixture"
@@ -179,9 +179,12 @@ fi
 # $scan_started and then waits for $scan_gate, up to 60 s: before it scans
 # when MODE is `before`, so the held scan reads the files the gate opens
 # on, and after it scans when MODE is `after`, so it hands over what it
-# read before the gate opened. The real scanner is kept in $scan_real.
+# read before the gate opened. The real scanner is kept in $scan_real,
+# beside a link to the bin/lib it imports.
 scan_bin="$repo/bin/vgshell-scan"
-scan_real="$sandbox/vgshell-scan.plugins-kept"
+scan_real="$sandbox/plugins-scan-kept/vgshell-scan"
+mkdir -p -- "$sandbox/plugins-scan-kept"
+ln -sfn -- "$repo/bin/lib" "$sandbox/plugins-scan-kept/lib"
 scan_gate="${sandbox:?}/plugins-scan-gate"
 scan_started="${sandbox:?}/plugins-scan-started"
 scan_asked="${sandbox:?}/plugins-scan-asked"

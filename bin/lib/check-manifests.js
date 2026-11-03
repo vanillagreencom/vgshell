@@ -79,7 +79,11 @@ function manifests() {
             }
         });
     }
-    const scan = spawnSync(path.join(repo, "bin", "vgshell-scan"), ["--require-base", base], { encoding: "utf8", env: { PATH: process.env.PATH, LC_ALL: "C" } });
+    // The scan names no bus it could reach: this check reads manifest bytes
+    // and never a probe answer, and without these the default system socket
+    // is the host's. No socket can sit under /dev/null.
+    const scan = spawnSync(path.join(repo, "bin", "vgshell-scan"), ["--require-base", base],
+        { encoding: "utf8", env: { PATH: process.env.PATH, LC_ALL: "C", DBUS_SESSION_BUS_ADDRESS: "unix:path=/dev/null/no-bus", DBUS_SYSTEM_BUS_ADDRESS: "unix:path=/dev/null/no-bus" } });
     if (scan.status !== 0) return unreadable(base, "vgshell-scan exited " + scan.status);
     const entries = JSON.parse(scan.stdout);
     for (const entry of entries)

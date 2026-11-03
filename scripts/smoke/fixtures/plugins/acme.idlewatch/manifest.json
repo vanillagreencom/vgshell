@@ -1,0 +1,2 @@
+{ "schemaVersion": 1, "id": "acme.idlewatch", "name": "Idle watch", "version": "0.1.0", "author": "acme", "description": "smoke fixture holding one plain idle watch",
+  "kinds": ["service"], "entryPoints": { "service": "Service.qml" }, "capabilities": ["idle", "ipc"] }

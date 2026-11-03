@@ -142,6 +142,10 @@ settings-unsaved
 # controls, so it runs with the tail rows that do the same; it reads
 # capabilities.sh's helpers and no state another row leaves.
 dictation
+# It installs its own fixture and restarts the shell for its stand-in owner
+# and its controls, so it runs with the tail rows that do the same; it
+# reads no state another row leaves.
+idle-inhibit
 # This row restarts the shell for its controls, so it runs with the tail rows that do the same.
 panes
 # After panes, which removes its fixture holder: vgs.system holds `panes`

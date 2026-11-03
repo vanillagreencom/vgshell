@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell
+import Quickshell.Io
 import Quickshell.Wayland
 import "PluginLogic.js" as Logic
 
@@ -13,6 +14,12 @@ import "PluginLogic.js" as Logic
 // that this watch saw the seat go idle; the lock and cover routes check it
 // with ticketFor. Input, the watch's disposal (a disable, a rebuild or a new
 // watch for the stage) and a change of the stage's owner or time revoke it.
+//
+// The pause holds every watch while any of its sources holds (D116): each
+// monitor is disabled, which reads as input, and counts again from the
+// pause's end. The one source today is `screensaver`, live while an
+// application's org.freedesktop.ScreenSaver inhibit is, which
+// bin/vgshell-idle-inhibit answers while a stage can fire.
 Scope {
     id: root
     // `<plugin id>#<serial>` -> the watch's IdleMonitor, replaced whole on
@@ -29,6 +36,18 @@ Scope {
     // its `stages` are lent below, and Registry reports its `problems`
     // beside the Hyprland layer's.
     readonly property var stageRecord: Logic.idleStages(Registry.manifests, Registry.enabledIds, Config.effective)
+
+    // Source -> true while it holds the pause, replaced whole on every change.
+    property var pauseSources: ({})
+    readonly property bool paused: Object.keys(pauseSources).length > 0
+    // The helper's hold on org.freedesktop.ScreenSaver: `taken` while it
+    // answers, `owned` once another connection held the name, else `stopped`.
+    property string bus: "stopped"
+    // An enabled plugin owns a stage that can fire. The helper follows this,
+    // not the watches, so a stage owner replacing its watch drops no inhibit
+    // (D012: the bus role exists while a plugin holds one).
+    readonly property bool stageCanFire: stageRecord.stages.some(row => row.seconds > 0)
+    onStageCanFireChanged: answerer.follow()
 
     // `stages` is the core's read-only idle stage record (D056, D109): a
     // frozen list, replaced whole when a manifest or the configuration
@@ -138,6 +157,19 @@ Scope {
         };
     }
 
+    function setPause(source, holds) {
+        if (Logic.hasOwn(pauseSources, source) === holds) return;
+        const next = Object.assign({}, pauseSources);
+        if (holds) next[source] = true;
+        else delete next[source];
+        pauseSources = next;
+    }
+
+    // The pause for the lending record: its live sources and the bus hold.
+    function pauseRecord() {
+        return { sources: Object.keys(pauseSources).sort(), bus: bus };
+    }
+
     // The watches for the lending record: plugin id, timeout, state, the
     // stage a stage watch serves ("" for a plain watch) and its generation.
     function record() {
@@ -154,7 +186,77 @@ Scope {
             property string stage: ""
             property int generation: 0
             respectInhibitors: true
+            // A disabled monitor holds no ext-idle-notify notification and
+            // reads isIdle false, so an idle one reports input; enabled
+            // again it creates a notification that counts from then
+            // (Quickshell 2b4501a, src/wayland/idle_notify/monitor.cpp;
+            // scripts/smoke/rows/idle-inhibit.sh reads both).
+            enabled: !root.paused
             onIsIdleChanged: handler(isIdle)
+        }
+    }
+
+    // The org.freedesktop.ScreenSaver answerer. It runs while a stage can
+    // fire. After it ends on its own it starts again only when the stage
+    // record goes from no stage that can fire to one: its cookies ended with
+    // it, and the idle path fails open until then.
+    // A child that fails to start emits only runningChanged, so each end is
+    // read there.
+    Process {
+        id: answerer
+        property bool asked: false
+        property bool owned: false
+        property var completion: null
+        command: [Quickshell.shellDir + "/../bin/vgshell-idle-inhibit"]
+        stdout: SplitParser { onRead: line => answerer.said(line) }
+        stderr: StdioCollector { id: answererErrors }
+        Component.onCompleted: follow()
+        onExited: (code, status) => { completion = { code: code, status: status }; }
+        onRunningChanged: {
+            if (running) return;
+            root.setPause("screensaver", false);
+            const end = completion;
+            completion = null;
+            if (!asked && !owned) {
+                const first = answererErrors.text.split("\n").find(line => line.trim() !== "");
+                console.warn("idle: org.freedesktop.ScreenSaver answerer ended code=" + (end === null || end.status !== 0 ? "none" : end.code) + " stderr=" + JSON.stringify(first === undefined ? "" : first.trim().slice(0, 200)));
+            }
+            if (!owned) root.bus = "stopped";
+            asked = false;
+        }
+
+        function follow() {
+            if (root.stageCanFire) {
+                if (running) return;
+                owned = false;
+                running = true;
+            } else if (running) {
+                asked = true;
+                running = false;
+            } else {
+                root.bus = "stopped";
+            }
+        }
+
+        function said(line) {
+            switch (line) {
+            case "name=taken":
+                root.bus = "taken";
+                return;
+            case "name=owned":
+                owned = true;
+                root.bus = "owned";
+                console.info("idle: org.freedesktop.ScreenSaver is held by another owner; VGS does not answer it");
+                return;
+            case "live":
+                root.setPause("screensaver", true);
+                return;
+            case "idle":
+                root.setPause("screensaver", false);
+                return;
+            default:
+                console.warn("idle: org.freedesktop.ScreenSaver answerer said unknown=" + JSON.stringify(line.slice(0, 80)));
+            }
         }
     }
 }

@@ -1,0 +1,168 @@
+#!/usr/bin/env python3
+"""Answer org.freedesktop.ScreenSaver inhibits on the session bus for the
+shell's idle path (docs/architecture/power.md, D116).
+
+  vgshell-idle-inhibit
+
+The core's IdleRegistry runs it as a managed Process while an idle stage can
+fire, and reads its stdout. It connects to DBUS_SESSION_BUS_ADDRESS (else
+$XDG_RUNTIME_DIR/bus) and asks for the name with DO_NOT_QUEUE and no
+replacement flag, so it never displaces an owner and is never displaced.
+
+Stdout carries fixed tokens, one a line, never caller text:
+  name=owned   another connection owns the name; the helper exits 0
+  name=taken   the helper owns the name and answers it
+  live         the first inhibit of a run began
+  idle         the last inhibit of that run ended
+
+It answers on /org/freedesktop/ScreenSaver and /ScreenSaver, interface
+org.freedesktop.ScreenSaver, as hypridle does: Inhibit(s app, s reason) -> u
+cookie, from 1337 up; UnInhibit(u cookie), which changes nothing for an
+unknown cookie or another caller's; GetActive() -> b false. Every other
+member is UnknownMethod. A cookie lives until its caller's UnInhibit or the
+caller leaves the bus. At most LIVE_CEILING cookies live at once; past it
+Inhibit answers LimitsExceeded.
+
+A lost bus, a malformed message or a write past WRITE_SECONDS ends the
+helper non-zero with one stderr line `vgshell-idle-inhibit: bus=failed
+cause=<cause>`, so the shell's idle stages count again: it fails open.
+"""
+import os
+import select
+import struct
+import sys
+import time
+
+# bin/lib/dbus_wire.py sits beside this script in every install. No
+# __pycache__ is written: the installer ships every file under bin/ of an
+# unpacked source tree, and a run there would add one.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "lib"))
+sys.dont_write_bytecode = True
+import dbus_wire as wire  # noqa: E402
+
+NAME = "org.freedesktop.ScreenSaver"
+PATHS = ("/org/freedesktop/ScreenSaver", "/ScreenSaver")
+# RequestName flag DO_NOT_QUEUE; replies PRIMARY_OWNER and EXISTS.
+DO_NOT_QUEUE = 4
+PRIMARY_OWNER = 1
+FIRST_COOKIE = 1337
+# Each live cookie is one entry another application asked for
+# (docs/architecture/runtime.md § Memory). A browser holds one or two per
+# playing tab: Firefox 159 asked twice for one video in the nested trace.
+LIVE_CEILING = 256
+# Connecting and the name request together, and each write after.
+SETUP_SECONDS = 5.0
+WRITE_SECONDS = 2.0
+# The rest of a message once its first byte is readable.
+READ_SECONDS = 2.0
+NAME_OWNER_CHANGED = "type='signal',sender='org.freedesktop.DBus',interface='org.freedesktop.DBus',member='NameOwnerChanged'"
+
+
+def say(token):
+    print(token, flush=True)
+
+
+class Answerer:
+    def __init__(self, sock):
+        self.sock = sock
+        self.serial = 3
+        self.next_cookie = FIRST_COOKIE
+        # cookie -> the caller's unique bus name.
+        self.cookies = {}
+
+    def send(self, data):
+        wire.send(self.sock, data, time.monotonic() + WRITE_SECONDS)
+
+    def next_serial(self):
+        self.serial += 1
+        return self.serial
+
+    def reply(self, serial, flags, sender, signature="", values=()):
+        if not flags & wire.NO_REPLY_EXPECTED:
+            self.send(wire.method_return(self.next_serial(), serial, sender, signature, wire.pack_body(signature, values)))
+
+    def refuse(self, serial, flags, sender, name, text):
+        if not flags & wire.NO_REPLY_EXPECTED:
+            self.send(wire.error(self.next_serial(), serial, sender, name, text))
+
+    def drop(self, cookies):
+        live = bool(self.cookies)
+        for cookie in cookies:
+            del self.cookies[cookie]
+        if live and not self.cookies:
+            say("idle")
+
+    def call(self, serial, flags, fields, body):
+        sender = fields.get(wire.SENDER, "")
+        member = fields.get(wire.MEMBER)
+        signature = fields.get(wire.SIGNATURE, "")
+        if fields.get(wire.PATH) not in PATHS or fields.get(wire.INTERFACE) not in (NAME, None):
+            self.refuse(serial, flags, sender, "org.freedesktop.DBus.Error.UnknownMethod", "no such method")
+        elif member == "Inhibit" and signature == "ss":
+            if len(self.cookies) >= LIVE_CEILING:
+                self.refuse(serial, flags, sender, "org.freedesktop.DBus.Error.LimitsExceeded", "too many live inhibits")
+                return
+            cookie = self.next_cookie
+            self.next_cookie += 1
+            self.cookies[cookie] = sender
+            if len(self.cookies) == 1:
+                say("live")
+            self.reply(serial, flags, sender, "u", (cookie,))
+        elif member == "UnInhibit" and signature == "u":
+            cookie = wire.parse_uint(body)
+            if self.cookies.get(cookie) == sender:
+                self.drop([cookie])
+            self.reply(serial, flags, sender)
+        elif member == "GetActive" and signature == "":
+            self.reply(serial, flags, sender, "b", (False,))
+        elif member in ("Inhibit", "UnInhibit", "GetActive"):
+            self.refuse(serial, flags, sender, "org.freedesktop.DBus.Error.InvalidArgs", "wrong arguments")
+        else:
+            self.refuse(serial, flags, sender, "org.freedesktop.DBus.Error.UnknownMethod", "no such method")
+
+    def signal(self, fields, body):
+        if fields.get(wire.SENDER) != wire.BUS_NAME or fields.get(wire.INTERFACE) != wire.BUS_NAME:
+            return
+        member = fields.get(wire.MEMBER)
+        if member == "NameOwnerChanged" and fields.get(wire.SIGNATURE) == "sss":
+            name, _old, new = wire.parse_strings(body, 3)
+            # A unique name never comes back, so its leaving ends every
+            # cookie it holds; the bus delivers its calls before this.
+            if new == "" and name.startswith(":"):
+                self.drop([cookie for cookie, caller in self.cookies.items() if caller == name])
+        elif member == "NameLost" and fields.get(wire.SIGNATURE) == "s" and wire.parse_strings(body, 1)[0] == NAME:
+            # No replacement flag was given, so no other connection can take
+            # the name; a loss is a bus that broke its own rules.
+            raise OSError("name lost")
+
+    def serve(self):
+        while True:
+            select.select([self.sock], [], [])
+            msg_type, flags, serial, fields, body = wire.read_message(self.sock, time.monotonic() + READ_SECONDS)
+            if msg_type == wire.METHOD_CALL:
+                self.call(serial, flags, fields, body)
+            elif msg_type == wire.SIGNAL:
+                self.signal(fields, body)
+
+
+def main():
+    deadline = time.monotonic() + SETUP_SECONDS
+    sock = wire.connect("session", deadline)
+    # The match is in place before the name is, so no caller can reach the
+    # helper before its leaving can.
+    wire.call(sock, 2, "AddMatch", deadline, "s", wire.pack_body("s", [NAME_OWNER_CHANGED]))
+    answer = wire.parse_uint(wire.call(sock, 3, "RequestName", deadline, "su", wire.pack_body("su", [NAME, DO_NOT_QUEUE])))
+    if answer != PRIMARY_OWNER:
+        say("name=owned")
+        return 0
+    say("name=taken")
+    Answerer(sock).serve()
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    # A malformed message raises one of these from the wire module.
+    except (OSError, ValueError, IndexError, struct.error) as exc:
+        print(f"vgshell-idle-inhibit: bus=failed cause={exc}", file=sys.stderr, flush=True)
+        sys.exit(1)

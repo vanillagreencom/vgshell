@@ -347,7 +347,7 @@ for (const [name, old, replacement, setup, reason] of [
 ]) {
     const tree = fresh("control-" + name);
     setup(tree);
-    for (const rel of ["scripts/check-readme.js", "bin/lib/qml-library.js", "bin/vgshell-scan"]) {
+    for (const rel of ["scripts/check-readme.js", "bin/lib/qml-library.js", "bin/vgshell-scan", "bin/lib/dbus_wire.py"]) {
         fs.mkdirSync(path.dirname(path.join(tree, rel)), { recursive: true });
         fs.copyFileSync(path.join(repo, rel), path.join(tree, rel));
     }

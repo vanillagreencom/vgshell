@@ -31,7 +31,7 @@ fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
 
 # --- the tree ---------------------------------------------------------------
 tree="$tmp/tree"
-files=(README.md VERSION bin/vgshell bin/vgshell-scan bin/lib/qml-library.js install.sh docs/architecture/runtime.md shell/Core/PackageManagers.js
+files=(README.md VERSION bin/vgshell bin/vgshell-scan bin/lib/dbus_wire.py bin/lib/qml-library.js install.sh docs/architecture/runtime.md shell/Core/PackageManagers.js
   packaging/arch/vgshell/PKGBUILD packaging/arch/vgshell-git/PKGBUILD
   packaging/fedora/copr-project packaging/fedora/vgshell.spec packaging/fedora/vgshell-git.spec
   scripts/readme-install.sh scripts/check-readme.js)

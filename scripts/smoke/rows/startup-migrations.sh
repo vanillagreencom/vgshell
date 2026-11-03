@@ -6,7 +6,7 @@
 # The timeout case injects a short timer into a disposable core copy. It
 # checks deadline wiring, not a latency budget. Polling uses expect_poll's
 # existing harness bound and interval; this row adds no performance ceiling.
-# inputs: shell/Core/Plugins.qml shell/Core/Registry.qml shell/Core/PluginLogic.js shell/Core/Config.qml shell/Core/ConfigLogic.js shell/Hosts/ServiceHost.qml bin/vgshell-scan scripts/smoke/fixtures/plugins/acme.migrate/* scripts/smoke/fixtures/migrations/* scripts/smoke/rows/start-order.sh
+# inputs: shell/Core/Plugins.qml shell/Core/Registry.qml shell/Core/PluginLogic.js shell/Core/Config.qml shell/Core/ConfigLogic.js shell/Hosts/ServiceHost.qml bin/vgshell-scan scripts/smoke/fixtures/plugins/acme.migrate/* scripts/smoke/fixtures/migrations/* scripts/smoke/rows/start-order.sh bin/lib/dbus_wire.py
 set -euo pipefail
 
 migrations_config="$home/.config/vgshell/shell.json"

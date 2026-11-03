@@ -30,6 +30,7 @@ A lock descriptor the shell inherits is held by every child the shell starts, so
 - Do keep the next sentence byte for byte; `scripts/check-readme.js` reads it and holds the README's install text to it. Autostart is `hl.on("hyprland.start", function () hl.exec_cmd("vgshell start") end)` in `hyprland.lua`.
 - Never ship a systemd unit for the shell. Review holds it.
 - Do start voxtype's daemon only from `shell/Core/Dictation.qml`, through `bin/vgshell-dictation`, while a plugin holds capability `dictation`; the engine owns the helper's lifetime, the helper gives its direct child SIGKILL as its parent-death signal, and no plugin or user unit starts a daemon ([D106](../decisions/D106-dictation-core-lent-over-voxtype.md)). `scripts/smoke/rows/dictation.sh` pins it.
+- Do start `bin/vgshell-idle-inhibit` only from `shell/Core/IdleRegistry.qml`, while an enabled plugin owns an idle stage that can fire; the engine owns its lifetime, it starts no child, and after it ends the core starts it again only when the stage record goes from no stage that can fire to one ([D116](../decisions/D116-screensaver-inhibits-answered-by-a-core-helper.md)). `scripts/smoke/rows/idle-inhibit.sh` pins it.
 
 ### Memory
 

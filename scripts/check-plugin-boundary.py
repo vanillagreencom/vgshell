@@ -56,8 +56,12 @@ import sys
 sys.dont_write_bytecode = True
 from qml_source import SCAN, Unreadable, blank_comments, source_lines, source_texts
 
-# The scan runs under this environment and nothing inherited beyond it.
-SCAN_ENV = {"PATH": os.environ.get("PATH", ""), "LC_ALL": "C"}
+# The scan runs under this environment and nothing inherited beyond it. It
+# names no bus the scan could reach: this check reads manifest bytes and never
+# a probe answer, and without these the default system socket is the host's.
+# No socket can sit under /dev/null.
+SCAN_ENV = {"PATH": os.environ.get("PATH", ""), "LC_ALL": "C",
+            "DBUS_SESSION_BUS_ADDRESS": "unix:path=/dev/null/no-bus", "DBUS_SYSTEM_BUS_ADDRESS": "unix:path=/dev/null/no-bus"}
 
 ALLOWED_PREFIXES = ("QtQuick", "QtQml", "Qt.labs.", "Quickshell", "qs.Commons", "qs.Ui")
 REFUSED_MODULES = ("Quickshell.Wayland", "QtQuick.Window")

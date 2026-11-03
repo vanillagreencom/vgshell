@@ -6,11 +6,12 @@ Read before touching the idle path, a stage of dim, screensaver, display off, lo
 
 The idle path is a set of stages. Each stage has one owner, and each owner holds its own watch on the core's idle source, `shell/Core/IdleRegistry.qml`, lent through capability `idle` ([D062](../decisions/D062-native-lock-and-polkit-plugins.md)). A watch counts from the later of the last input the seat saw and the watch's own creation, since Hyprland starts a notification's timer when the shell creates it. No owner reads another owner's setting, so any order of values has a defined result. `vgs.power` is the one energy plugin. The choice is [D109](../decisions/D109-idle-path-one-owner-per-stage.md).
 
-Today the code holds the idle source, the dim, the screensaver, the lock, the lock before sleep, display off, sleep after idle, session Sleep and Hibernate actions, disk sleep, wake sources and Wake on LAN. Every other row below is designed: the named child item adds its code and its pin, and until then no code holds it.
+Today the code holds the idle source, its pause, the dim, the screensaver, the lock, the lock before sleep, display off, sleep after idle, session Sleep and Hibernate actions, disk sleep, wake sources and Wake on LAN. Every other row below is designed: the named child item adds its code and its pin, and until then no code holds it.
 
 | Stage | Owner | What it does | State |
 |---|---|---|---|
 | Idle source | core `IdleRegistry` | one `IdleMonitor` per watch, inhibitors obeyed | holds |
+| Pause | core `IdleRegistry` | disables every watch while an `org.freedesktop.ScreenSaver` inhibit is live, which each stage owner reads as input; each watch counts again from the pause's end | holds |
 | Stage record | core | the stages in order with each one's time, read-only | VGS-1902 |
 | Dim | `vgs.displays` | lowers each panel's brightness, puts it back on input | holds |
 | Screensaver | `vgs.screensaver` | shows the Cover on each screen, on a layer surface, or held inside the lock when an idle lock finds it running; never over another lock and never while the panels are off | holds |
@@ -82,15 +83,16 @@ The power button and the lid must act while the shell is down: a laptop closed i
 - Do end a cover held in the lock only on the first real input, a move of more than four pixels, a press, a scroll or a key, which the core's barrier takes so it reaches neither the lock screen nor PAM, or on display off, a failure the owner reports, its owner going, its last cover instance going, an unlock or a superseding lock. The lock stays. A cover that has no built instance, because its build failed or was refused, starts no presentation, so the lock screen shows at once. `scripts/smoke/rows/secure-cover.sh` pins each.
 - Do keep the Cover and the lock surface on layer surfaces, so showing them does not restart another watch. `scripts/smoke/rows/screensaver.sh` checks the lock's deadline while the Cover runs.
 - Do stop the Cover and its effect while `shell.session.displaysOff` is true, and start none while it is. The core's cover presentation owns it. `scripts/smoke/rows/screensaver.sh` and `scripts/smoke/rows/secure-cover.sh` pin it.
-- Never create an idle inhibitor or an idle pause in a plugin. A stay-awake pause, if one is added, is core-owned and lent through capability `idle` with a disposer. Review holds it.
-- Do honour Wayland idle inhibitors, through Hyprland, and Hyprland's own `idle_inhibit` window rules, which the user writes. VGS ships no such rule. VGS does not honour `org.freedesktop.ScreenSaver` inhibits, because Quickshell 0.3.1 cannot own a D-Bus object ([D085](../decisions/D085-bluetooth-agent-core-lent-over-bluetoothctl.md)), and does not read logind idle inhibitors. Review holds it.
+- Never create an idle inhibitor or an idle pause in a plugin. The pause is core-owned: its one source today is the core's `org.freedesktop.ScreenSaver` answer below, and a stay-awake source, if one is added, joins the same pause and is lent through capability `idle` with a disposer. Review holds it.
+- Do honour Wayland idle inhibitors, through Hyprland, and Hyprland's own `idle_inhibit` window rules, which the user writes. VGS ships no such rule. Review holds it.
+- Do answer `org.freedesktop.ScreenSaver` only through the core's helper, `bin/vgshell-idle-inhibit`, which `IdleRegistry` runs while an enabled plugin owns a stage that can fire, and pause every watch while one of its inhibits is live ([D116](../decisions/D116-screensaver-inhibits-answered-by-a-core-helper.md)). The helper leaves the name to an owner it finds, and the core logs that once. A shell or helper restart drops every live inhibit, so the idle path fails open until the application asks again. VGS does not answer `org.freedesktop.PowerManagement` or the portal's `Inhibit`, and does not read logind idle inhibitors. `scripts/smoke/rows/idle-inhibit.sh` pins the hold, both releases and the owner left in place.
 
 ### Display off and resume
 
 - Do change panel power only through `shell.compositor.displayPower`, one request with no output named. Designed: VGS-1903 adds it with its rows in `scripts/test-dispatch.js` and its readback in `scripts/smoke/rows/compositor-dispatchers.sh`.
 - Never turn off one connector of a physical monitor. Designed: the dispatcher takes no output argument, pinned by `scripts/test-dispatch.js` in VGS-1903.
 - Do send DPMS on only from `vgs.power` at a wake from sleep; input wakes the panels through Hyprland's options. Designed: VGS-1903 writes the options, pinned by `scripts/test-hyprland-layer.js`, and VGS-1906 pins the wake in `scripts/smoke/rows/power.sh`.
-- Do turn the panels off while locked a fixed short time after the lock or the last input, whichever is later, and never while the display-off setting is Never. `vgs.power/Service.qml` owns both watches; `scripts/smoke/rows/power.sh` pins their timers and release.
+- Do turn the panels off while locked a fixed short time after the lock or the last input, whichever is later, and never while the display-off setting is Never. A live inhibit holds the locked watch too, as hypridle's does. `vgs.power/Service.qml` owns both watches; `scripts/smoke/rows/power.sh` pins their timers and release.
 
 ### Sleep
 
@@ -125,7 +127,7 @@ The power button and the lid must act while the shell is down: a laptop closed i
 ## Revisit when
 
 - Hyprland compares the inhibitor state before it resets idle notifications, or the owner asks VGS to act on the window-event restart.
-- Quickshell can own a D-Bus object, so VGS can honour `org.freedesktop.ScreenSaver` inhibits.
+- Quickshell can export a D-Bus object, so the core answers `org.freedesktop.ScreenSaver` itself and the helper goes.
 - A stage must draw a window, which would restart every watch, or must know another stage's state beyond the stage record.
 - A panel stays dark, or goes dark again over an unlocked session, after a wake from sleep; or an Apple panel stays lit under DPMS off.
 - A device connected or disconnected during sleep wakes the machine often enough that the owner asks to stop it.

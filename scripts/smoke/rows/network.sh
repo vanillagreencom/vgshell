@@ -12,7 +12,7 @@
 # control, in another copy, parents the Scrim back to the body, so it
 # leaves the dropdown's header and footer undimmed and a click on the
 # Wi-Fi switch turns Wi-Fi off.
-# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.network/* shell/Commons/Nmcli.js shell/Commons/qmldir shell/plugins/vgs.system/* shell/Core/* shell/Hosts/* shell/Ui/* shell/Commons/* shell/shell.qml config/shell.json bin/vgshell-scan bin/vgshell-plugin-judge bin/lib/check-manifests.js bin/lib/qml-library.js scripts/smoke/fixtures/devices/* scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/overlay-capture.sh
+# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.network/* shell/Commons/Nmcli.js shell/Commons/qmldir shell/plugins/vgs.system/* shell/Core/* shell/Hosts/* shell/Ui/* shell/Commons/* shell/shell.qml config/shell.json bin/vgshell-scan bin/vgshell-plugin-judge bin/lib/check-manifests.js bin/lib/qml-library.js scripts/smoke/fixtures/devices/* scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/overlay-capture.sh bin/lib/dbus_wire.py
 set -euo pipefail
 expected_errors+=('NetworkBody[.]qml.*(Unable to assign [[]undefined[]] to QString|TypeError: Cannot read property .width. of null)' 'plugins: hidden by a higher-precedence plugin with the same id: vgs[.]network')
 devices_ready network || return 0

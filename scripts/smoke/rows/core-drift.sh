@@ -12,7 +12,7 @@
 # the notice belongs to the sandbox shell. The relaunched shell then builds
 # both panels from the changed core. Cleanup removes the fixtures and type
 # and starts the sandbox tree again.
-# inputs: scripts/smoke/fixtures/plugins/acme.drift/* bin/vgshell-scan bin/vgshell shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Core/TuiRunner.qml shell/Hosts/PluginSlot.qml shell/Hosts/SummonHost.qml shell/Ui/qmldir scripts/smoke/rows/hyprland-consent.sh
+# inputs: scripts/smoke/fixtures/plugins/acme.drift/* bin/vgshell-scan bin/vgshell shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Core/TuiRunner.qml shell/Hosts/PluginSlot.qml shell/Hosts/SummonHost.qml shell/Ui/qmldir scripts/smoke/rows/hyprland-consent.sh bin/lib/dbus_wire.py
 set -euo pipefail
 expected_errors+=('NoticeHost[.]qml.*Unable to assign [[]undefined[]] to QString')
 drift="$home/.config/vgshell/plugins/acme.drift"
