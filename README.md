@@ -1,5 +1,7 @@
 # VG Shell (VGS)
 
+> It's like Omarchy, but can go on whatever distro you want. And for me, I like it better. A lot of inspiration was drawn from various quickshell projects, and Omarchy. I think the design, out of the box functionality, and architecture is pretty good-but you tell me. Actively developed, feel free to contribute. Give it a try!
+
 A desktop shell for Hyprland, built on Quickshell. It draws the bar, panels and windows on each screen, and every part of it is a plugin you can turn on or off.
 
 ![VGS: the bar and the theme browser on the desktop](docs/images/plugins/vgs.themes-browser.webp)
