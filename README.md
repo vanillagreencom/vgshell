@@ -17,6 +17,8 @@ A desktop shell for Hyprland, built on Quickshell. It draws the bar, panels and 
 
 VGS installs on Arch Linux, Fedora 44, Debian 14 (forky) and NixOS.
 
+Debian 14 and NixOS need Hyprland 0.57.0, which they do not ship yet; until they do, the installer refuses on them.
+
 Arch Linux:
 
 ```bash

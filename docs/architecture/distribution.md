@@ -23,7 +23,7 @@ A package manager or Nix owns the tree it installed, and its next update would o
 - Do keep a package manager row, in `install.sh` and `shell/Core/PackageManagers.js`, only for a distribution with a working install path; a distribution without one is named nowhere.
 - Do install through `packaging/install-system.sh` with `DESTDIR` and `PREFIX`; ordinary package staging writes only under `DESTDIR` from a read-only source. The curl self-update exception is under Quickshell engine. `scripts/test-install-tree.sh` pins ordinary staging.
 - Do commit `packaging/install-tree.manifest` after adding a shipped file, through `scripts/check-install-tree.sh --write`; every package build and the read-only-prefix smoke row run the check.
-- Do raise a `preflight_floor` in `bin/vgshell` and every recipe together, and state no runtime floor in the README; `vgshell run` checks the floor, and `scripts/check-packaging.js` refuses a recipe that differs.
+- Do raise a `preflight_floor` in `bin/vgshell` and every recipe together, and state a runtime floor in the README only for a supported distribution that does not ship it yet, changing that note with the floor; `vgshell run` checks the floor, and `scripts/check-packaging.js` refuses a recipe that differs.
 - Do print `bin/lib/post-install.txt` from a scriptlet on a first install only; a scriptlet holds no text of its own. `scripts/check-packaging.js` pins it.
 - Never add a required plugin command without a package on every channel or a row in `packaging/channel-gaps.json`. `scripts/check-packaging.js` pins it.
 - Do mark a required command `"install": "on-request"` only when its package must stay an optional dependency of every recipe; its plugin's Tools step on Setup opens the existing all-tools notice to install it. `scripts/check-packaging.js` pins it.
@@ -47,8 +47,8 @@ VGS carries the Hyprland request-socket lifetime fix, the log-filter mutex fix, 
 | New curl installations on Arch | `vgshell-quickshell` | The installer's existing package presenter installs the named AUR engine. |
 | New curl installations on Fedora | `vgshell-quickshell` | The installer's engine step enables the VGS repository and installs the engine through the existing package presenter. Publication belongs to the overseer. |
 | Existing curl installations on Arch and Fedora | `vgshell-quickshell` | The next self-update replaces the stock engine before it changes the active VGS tree. |
-| Curl installer apt row | Signed `vgshell-quickshell` amd64 asset | The existing GitHub release supplies the Debian forky engine. Apt installs the verified local package and replaces either stock engine. |
-| Curl installer on NixOS | The VGS flake's exported Quickshell | Pinned flake inputs realize the same override as the VGS closure. An immutable root outside staging keeps the wrapped executable available. |
+| Curl installer apt row | Signed `vgshell-quickshell` amd64 asset | The existing GitHub release supplies the Debian forky engine. Apt installs the verified local package and replaces either stock engine. Debian forky needs Hyprland 0.57.0, which it does not ship yet; until it does, the installer refuses at the Hyprland floor. |
+| Curl installer on NixOS | The VGS flake's exported Quickshell | Pinned flake inputs realize the same override as the VGS closure. An immutable root outside staging keeps the wrapped executable available. NixOS needs Hyprland 0.57.0, which it does not ship yet; until it does, the installer refuses at the Hyprland floor. |
 
 Every supported channel requires the delivered VGS engine. The runner judges the VGS release from its existing version reading before taking the shell lock; meeting the upstream version floor alone does not prove that the local fixes are present. `scripts/test-vgshell.sh` pins stock-engine refusal. The engine owns managed child lifetime under [runtime.md](runtime.md#process).
 
