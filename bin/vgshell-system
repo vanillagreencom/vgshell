@@ -33,6 +33,8 @@
 #   service-cups         `systemctl enable --now cups.service`; the probe reads
 #                        ready while cups.service or cups.socket is active,
 #                        since the socket starts the service on demand
+#   service-sshd         `systemctl enable --now sshd.service`, ssh.service where
+#                        that unit is installed, as Debian names it
 #   tailscale-operator   `tailscale set --operator=<the caller's own login name>`; a
 #                        login name outside `[a-z_][a-z0-9_-]*$?` reads this step
 #                        unknown, reason user-unsupported
@@ -258,7 +260,7 @@ disk_rule_source="$install_root/config/system/udev/69-vgs-disk-sleep.rules"
 disk_rule_dest="$rules_dir/69-vgs-disk-sleep.rules"
 
 # The closed table, in the order status prints it.
-steps=(apple-displays disk-sleep i2c-dev service-bluetooth service-tailscaled service-cups tailscale-operator tailscale-account-add greeter bandwhich-capture reboot-notice voxtype-engine vgs-quickshell-repository wake-sources)
+steps=(apple-displays disk-sleep i2c-dev service-bluetooth service-tailscaled service-cups service-sshd tailscale-operator tailscale-account-add greeter bandwhich-capture reboot-notice voxtype-engine vgs-quickshell-repository wake-sources)
 declare -A step_description=(
   [apply:apple-displays]='Give this desktop access to Apple display controls. This lets VGS change their brightness.'
   [undo:apple-displays]='Remove the Apple display access rule that VGS added. This removes the brightness access from that rule.'
@@ -274,6 +276,8 @@ declare -A step_description=(
   [undo:service-tailscaled]='Undo the Tailscale service changes that VGS made. This restores when the service starts.'
   [apply:service-cups]='Start the print service and enable it when the computer starts. This lets VGS manage your printers and print jobs.'
   [undo:service-cups]='Undo the print service changes that VGS made. This restores when the service starts.'
+  [apply:service-sshd]='Start the SSH server and enable it when the computer starts. This lets other computers sign in to this one over SSH.'
+  [undo:service-sshd]='Undo the SSH server changes that VGS made. This restores when the service starts.'
   [apply:tailscale-operator]='Tailscale lets only the administrator change it. This lets VGS connect and disconnect for you without a password.'
   [undo:tailscale-operator]='Restore the Tailscale access setting that VGS changed. Your account will need its previous permission to connect and disconnect.'
   [apply:tailscale-account-add]='Add a Tailscale account and let your login control it. If sign-in fails or you cancel here, VGS restores the previous account and connection setting.'
@@ -327,6 +331,11 @@ unit_of() { # STEP
     service-bluetooth) unit=bluetooth.service ;;
     service-tailscaled) unit=tailscaled.service ;;
     service-cups) unit=cups.service ;;
+    service-sshd)
+      # Debian's openssh-server names the unit ssh.service; sshd.service
+      # there is an alias that exists only while the unit is enabled.
+      unit=sshd.service
+      [[ $(systemctl show --property=LoadState --value ssh.service 2>/dev/null) != loaded ]] || unit=ssh.service ;;
     *) refuse 1 "internal=unit-of step=$1" "only a service step names a unit" ;;
   esac
 }
@@ -522,6 +531,17 @@ probe_cups() {
   probe_service cups.service
   [[ $probe_state == needed ]] || return 0
   if systemctl is-active --quiet cups.socket; then set_probe ready socket-active; fi
+}
+
+# A refusal of the SSH server step says in words what blocks it.
+probe_sshd() {
+  unit_of service-sshd
+  probe_service "$unit"
+  case "$probe_state" in
+    absent) probe_hint=("The SSH server is not installed on this computer.") ;;
+    denied) probe_hint=("The SSH server is masked, which keeps it from starting, and VGS never unmasks it.") ;;
+    unknown) probe_hint=("VGS could not read whether the SSH server runs, so it changed nothing.") ;;
+  esac
 }
 
 # Sets operator to the operator tailscaled names; 1 when it cannot be read.
@@ -927,6 +947,7 @@ probe() { # STEP
     i2c-dev) probe_i2c_dev ;;
     service-bluetooth|service-tailscaled) unit_of "$1"; probe_service "$unit" ;;
     service-cups) probe_cups ;;
+    service-sshd) probe_sshd ;;
     tailscale-operator) probe_tailscale_operator ;;
     tailscale-account-add)
       if ! command -v tailscale >/dev/null; then set_probe absent tailscale-missing
@@ -984,6 +1005,7 @@ nixos_snippet() { # STEP
     service-bluetooth) printf 'hardware.bluetooth.enable = true;\n' ;;
     service-tailscaled) printf 'services.tailscale.enable = true;\n' ;;
     service-cups) printf 'services.printing.enable = true;\n' ;;
+    service-sshd) printf 'services.openssh.enable = true;\n' ;;
     tailscale-operator) printf 'services.tailscale.extraSetFlags = [ "--operator=%s" ];\n' "$user" ;;
     bandwhich-capture)
       printf 'security.wrappers.bandwhich = {\n  source = "${pkgs.bandwhich}/bin/bandwhich";\n  owner = "root";\n  group = "root";\n  capabilities = "%s+ep";\n};\n' "$capture_caps"
@@ -1454,7 +1476,7 @@ plan() { # VERB STEP
     apple-displays|wake-sources) "$1_udev_rule" "$2" ;;
     disk-sleep) "$1_disk_sleep" ;;
     i2c-dev) "$1_i2c_dev" ;;
-    service-bluetooth|service-tailscaled|service-cups) "$1_service" "$2" ;;
+    service-bluetooth|service-tailscaled|service-cups|service-sshd) "$1_service" "$2" ;;
     greeter) "$1_greeter" ;;
     bandwhich-capture) "$1_bandwhich_capture" ;;
     reboot-notice) "$1_reboot_notice" ;;

@@ -130,7 +130,8 @@ if [ "\$1" = trigger ]; then
 fi
 exit 0
 EOF
-# systemctl answers from $tmp/units/<unit>.{active,enabled,masked,missing};
+# systemctl answers from $tmp/units/<unit>.{active,enabled,masked,missing},
+# and enable --now leaves a unit with <unit>.no-start inactive;
 # display-manager.service is an alias of the unit $tmp/units/display-manager
 # names, else of an enabled greetd.service, else of no unit; the default
 # target is the one $tmp/units/default-target names, else graphical.target.
@@ -146,7 +147,7 @@ case "\$1 \$2" in
   "show --property=Id")
     [ "\$4" = display-manager.service ] || exit 64
     if [ -e "\$u/display-manager" ]; then cat "\$u/display-manager"; elif [ -e "\$u/greetd.service.enabled" ]; then echo greetd.service; else echo display-manager.service; fi ;;
-  "enable --now") touch "\$u/\$3.enabled" "\$u/\$3.active" ;;
+  "enable --now") touch "\$u/\$3.enabled"; [ -e "\$u/\$3.no-start" ] || touch "\$u/\$3.active" ;;
   "enable "*) touch "\$u/\$2.enabled" ;;
   "disable "*) rm -f "\$u/\$2.enabled" ;;
   "stop "*) rm -f "\$u/\$2.active" ;;
@@ -340,7 +341,8 @@ boot_a=11111111-2222-3333-4444-555555555555
 boot_b=99999999-8888-7777-6666-555555555555
 # A tree with one Apple display whose hidraw node is closed to the user,
 # one other HID device, one display-class i2c adapter beside one that is
-# not, no i2c-dev module, bluetooth installed and stopped, no tailscaled,
+# not, no i2c-dev module, bluetooth and sshd.service installed and stopped,
+# no Debian ssh.service, no tailscaled,
 # no operator, greetd installed and disabled with no display manager
 # enabled, and every record cleared.
 fresh() {
@@ -357,7 +359,7 @@ fresh() {
   ln -s ../../../devices/pci0000:00/0000:00:01.0/drm/card1/card1-DP-1/i2c-5 "$root/sys/bus/i2c/devices/i2c-5"
   ln -s ../../../devices/platform/i2c-0 "$root/sys/bus/i2c/devices/i2c-0"
   printf '%s\n' "$boot_a" >"$root/proc/sys/kernel/random/boot_id"
-  touch "$tmp/units/tailscaled.service.missing"
+  touch "$tmp/units/tailscaled.service.missing" "$tmp/units/ssh.service.missing"
   : >"$tmp/operator"
   rm -f -- "${tmp:?}"/{profiles,login-mode,browser-opened,browser-fail,browser-uid,browser-address,login-ended,unsupported-login-json}
   rm -f -- "$tmp"/{sudo.log,udevadm.log,systemctl.log,modprobe.log,tailscale.log,gum.log,gum-hook,foreign,sudo-exit,udev-fail,other-rule,i2c-rule,tailscaled-down,before-tree,after-tree,no-greeter,getent-fail,owners,greeter-name}
@@ -478,7 +480,7 @@ last_out_is() { test "$(tail -n 1 "$tmp/out")" == "$1"; }
 sudo_calls() { cat -- "$tmp/sudo.log" 2>/dev/null; }
 no_sudo() { test ! -e "$tmp/sudo.log"; }
 state_json() { # STATE-REASON per step, table order
-  printf '{"steps":{"apple-displays":{"state":"%s","reason":"%s"},"disk-sleep":{"state":"absent","reason":"no-disk"},"i2c-dev":{"state":"%s","reason":"%s"},"service-bluetooth":{"state":"%s","reason":"%s"},"service-tailscaled":{"state":"%s","reason":"%s"},"service-cups":{"state":"%s","reason":"%s"},"tailscale-operator":{"state":"%s","reason":"%s"},"tailscale-account-add":{"state":"needed","reason":"account-add"},"greeter":{"state":"%s","reason":"%s"},"bandwhich-capture":{"state":"absent","reason":"bandwhich-missing"},"reboot-notice":{"state":"absent","reason":"hook-missing"},"voxtype-engine":{"state":"absent","reason":"command-missing"},"vgs-quickshell-repository":{"state":"absent","reason":"command-missing"},"wake-sources":{"state":"absent","reason":"no-device"}}}' "$@"
+  printf '{"steps":{"apple-displays":{"state":"%s","reason":"%s"},"disk-sleep":{"state":"absent","reason":"no-disk"},"i2c-dev":{"state":"%s","reason":"%s"},"service-bluetooth":{"state":"%s","reason":"%s"},"service-tailscaled":{"state":"%s","reason":"%s"},"service-cups":{"state":"%s","reason":"%s"},"service-sshd":{"state":"%s","reason":"%s"},"tailscale-operator":{"state":"%s","reason":"%s"},"tailscale-account-add":{"state":"needed","reason":"account-add"},"greeter":{"state":"%s","reason":"%s"},"bandwhich-capture":{"state":"absent","reason":"bandwhich-missing"},"reboot-notice":{"state":"absent","reason":"hook-missing"},"voxtype-engine":{"state":"absent","reason":"command-missing"},"vgs-quickshell-repository":{"state":"absent","reason":"command-missing"},"wake-sources":{"state":"absent","reason":"no-device"}}}' "$@"
 }
 step_state() { # STEP: the state status --json reads for it
   "${row_env[@]}" "$vgs/bin/vgshell" system status --json </dev/null 2>/dev/null |
@@ -739,7 +741,7 @@ check "a refused invocation asks nothing" test ! -e "$tmp/gum.log"
 
 # status: each probe reads real access, in table order.
 run "status reads every step" 0 "" status --json
-check "status names each step's state and reason" out_is "$(state_json needed hidraw-denied needed module-not-loaded needed inactive absent unit-missing needed inactive needed operator-unset needed not-set-up)"
+check "status names each step's state and reason" out_is "$(state_json needed hidraw-denied needed module-not-loaded needed inactive absent unit-missing needed inactive needed inactive needed operator-unset needed not-set-up)"
 # The manifest judge names steps from PluginLogic.SYSTEM_STEPS; the
 # script's own table must be that list, in that order.
 table_keys() { python3 -c 'import json,sys; print(" ".join(json.load(open(sys.argv[1]))["steps"]))' "$tmp/out"; }
@@ -1083,6 +1085,21 @@ check "service-cups enables cups.service now" grep -qxF -- "-- $(p systemctl) en
 fresh; touch "$tmp/units/cups.socket.active"
 run "apply over an active cups.socket runs nothing" 0 "" apply service-cups
 check "printing that the socket serves reads ready and runs no sudo" no_sudo
+fresh
+run_tty "apply service-sshd succeeds" 0 apply service-sshd
+check "service-sshd enables sshd.service now" grep -qxF -- "-- $(p systemctl) enable --now sshd.service" "$tmp/sudo.log"
+fresh; rm -f -- "${tmp:?}/units/ssh.service.missing"
+run_tty "apply service-sshd where Debian's ssh.service is installed" 0 apply service-sshd
+check "service-sshd enables Debian's ssh.service now" grep -qxF -- "-- $(p systemctl) enable --now ssh.service" "$tmp/sudo.log"
+fresh; touch "$tmp/units/sshd.service.active"
+run "apply over a running sshd runs nothing" 0 "" apply service-sshd
+check "a running sshd runs no sudo" no_sudo
+fresh; touch "$tmp/units/sshd.service.no-start"
+run_tty "an sshd that does not start fails the step" 1 apply service-sshd
+check "the refusal names sshd still stopped" out_has "vgs-system: refused: state=needed reason=inactive step=service-sshd"
+fresh; touch "$tmp/units/sshd.service.missing"
+run "apply refuses a missing sshd" 1 "vgs-system: refused: state=absent reason=unit-missing step=service-sshd" apply service-sshd
+check "the sshd refusal adds a line for the user" test -n "$(sed -n 2p "$tmp/err")"
 
 tailscale_rows
 
@@ -1569,7 +1586,7 @@ check "root is refused" caller_root
 # written and no sudo runs.
 fresh
 run_nixos "nixos status" 0 "" "$nixos_path:$caller:/usr/bin:/bin" status --json
-check "nixos reads each needed step and the missing tailscaled.service as nixos" out_is "$(state_json nixos hidraw-denied nixos module-not-loaded nixos inactive nixos unit-missing nixos inactive nixos operator-unset nixos not-set-up)"
+check "nixos reads each needed step and the missing tailscaled.service as nixos" out_is "$(state_json nixos hidraw-denied nixos module-not-loaded nixos inactive nixos unit-missing nixos inactive nixos inactive nixos operator-unset nixos not-set-up)"
 check "nixos status writes nothing" untouched
 run_nixos "nixos apply prints the configuration" 0 "" "$nixos_path:$caller:/usr/bin:/bin" apply apple-displays
 check "nixos apply reports the skip first" test "$(head -n 1 "$tmp/out")" == "ok system=apple-displays skipped=nixos-config"
@@ -1613,6 +1630,7 @@ done <<'ROWS'
 service-bluetooth|bluetooth.service|hardware.bluetooth.enable = true;
 service-tailscaled|tailscaled.service|services.tailscale.enable = true;
 service-cups|cups.service|services.printing.enable = true;
+service-sshd|sshd.service|services.openssh.enable = true;
 ROWS
 fresh
 run_nixos "nixos undo" 0 "" "$nixos_path:$caller:/usr/bin:/bin" undo service-bluetooth
@@ -1622,7 +1640,7 @@ check "nixos rows run no sudo" no_sudo
 run_nixos "a failed detection fails apply" 1 "vgs-system: refused: system=undetected exit=127" "$nixos_path:$no_node_path" apply apple-displays
 check "a failed detection writes nothing" untouched
 run_nixos "a failed detection reads needed steps unknown" 0 "" "$nixos_path:$no_node_path" status --json
-check "an undetected system never reads needed as ready" out_is "$(state_json unknown system-undetected unknown system-undetected unknown system-undetected absent unit-missing unknown system-undetected unknown system-undetected unknown system-undetected)"
+check "an undetected system never reads needed as ready" out_is "$(state_json unknown system-undetected unknown system-undetected unknown system-undetected absent unit-missing unknown system-undetected unknown system-undetected unknown system-undetected unknown system-undetected)"
 check "an undetected system runs no sudo" no_sudo
 
 # Must-fail controls, each a copy of the helper missing one rule.
@@ -1675,6 +1693,9 @@ control nixos-unit-blind '  [[ $probe_state == needed ]] || [[ $1 == service-* &
 touch "$tmp/units/bluetooth.service.missing"
 run_nixos "the nixos-unit-blind mutant's status" 0 "" "$nixos_path:$caller:/usr/bin:/bin" status --json
 check "the nixos-unit-blind mutant reads a missing bluetooth.service absent" test "$(nixos_step_state service-bluetooth)" == "absent unit-missing"
+control verify-blind '  [[ $probe_state == ready ]] ||' '  true ||'
+touch "$tmp/units/sshd.service.no-start"
+run_tty "the verify-blind mutant reports success while sshd does not run" 0 apply service-sshd
 control disable-blind '  [[ -z ${record[enabled]+set} ]] || cmd "$systemctl" disable "$unit"' '  cmd "$systemctl" disable "$unit"'
 touch "$tmp/units/bluetooth.service.enabled"
 run_tty "the disable-blind mutant applies" 0 apply service-bluetooth
