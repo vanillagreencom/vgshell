@@ -163,6 +163,8 @@ Jarvis cuts a patch release (`X.Y.Z`, `Z > 0`) or a minor release for the owner 
    git push origin vX.Y.Z
    ```
 
+   The tag must be on `main`'s history: `bin/vgshell --version` in a checkout prints the newest release tag reachable from it. If you cut the release from an older commit, merge the release branch into `main` with `git merge -s ours --no-ff origin/release/vX.Y.Z` and push it. This merge keeps `main`'s tree unchanged. `git diff HEAD^1 HEAD` prints nothing, and `git merge-base --is-ancestor vX.Y.Z HEAD` exits 0. The release lane pushes this merge before its finish notice.
+
 4. Make the release. The last lines name the archive's sha256.
 
    ```bash
