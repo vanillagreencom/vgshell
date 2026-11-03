@@ -1,6 +1,7 @@
 import QtQuick
 import qs.Commons
 import qs.Ui
+import "../foundation/HintGround.js" as HintGround
 
 // A key cap: one key name inside a muted chip `kbd.height` tall, never
 // narrower than it is tall. A hint's key name draws in the keyName role
@@ -13,9 +14,9 @@ Rectangle {
     property string text: ""
     // The cap shows a field's value, not a key hint.
     property bool value: false
-    // The key name's ink: its part's default, unless the caps around it
-    // hand the ink they resolved once for their surface.
-    property color ink: Theme.keyHintInk(null, root.value ? "value" : "key")
+    // The key name's ink on the ground its surface publishes, unless the
+    // caps around it hand the ink they resolved once for their chord.
+    property color ink: Theme.keyHintInk(Theme.hintContext(null, () => HintGround.groundUnder(root, Window.window)), root.value ? "value" : "key")
     readonly property real sidePadding: Theme.controlPadding(Theme.kbd.paddingX, Theme.kbd.radius, Theme.kbd.height, label.lineBox)
 
     implicitWidth: Math.max(Theme.kbd.height, Math.round(label.opticalWidth + 2 * sidePadding))

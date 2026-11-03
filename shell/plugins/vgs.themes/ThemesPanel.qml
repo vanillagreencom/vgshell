@@ -281,20 +281,8 @@ Item {
     implicitHeight: layout.implicitHeight
 
     Surface {
-        id: panelSurface
         anchors.fill: parent
     }
-
-    // The ground a selected row's Alt+D keys are judged on: drawn glass
-    // made opaque (Theme.glassSolid), as the theme judge reads every list
-    // row's text on its plate over glass (ThemeLogic GLASS_PLATE_PAIRS),
-    // else the surface's own fill. Over clear glass both wallpaper
-    // extremes are no ground the keys can meet in every theme: the row's
-    // own title reads about 3.2:1 on the plate over a white wallpaper in
-    // dracula, everforest and catppuccin-frappe (ThemeLogic.contrastRatio,
-    // VGS-2180, 2026-11-02), so keys judged harder than their row would be
-    // inconsistent.
-    readonly property color rowHintGround: panelSurface.drawn ? Theme.glassSolid(panelSurface.fill) : panelSurface.effectiveFill
 
     // One inset box: the title, the wallpaper, the installed packages and
     // the catalog in the scrolling body, and Add from URL in a footer that
@@ -493,7 +481,6 @@ Item {
                     source: modelData.mode + ", " + root.wallpaperText(modelData)
                     packageState: "catalog"
                     swatch: root.catalogSwatch(modelData)
-                    hintGround: root.rowHintGround
                     installed: modelData.installed
                     displayed: modelData.installed && modelData.name === Theme.name
                     definitionUpdate: modelData.definitionUpdate

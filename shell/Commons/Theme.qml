@@ -180,6 +180,29 @@ Singleton {
         };
         return toColor(ThemeLogic.formatColor(ThemeLogic.keyHintInk(source.values, colors, part)));
     }
+    // The ground a shared hint's ink is solved on: GIVEN when it names its
+    // fill, else GIVEN's plate and sheen, or none, over the fill GROUND
+    // answers, the one the surface under the hint publishes (qs.Ui
+    // HintGround.js); null with neither. GROUND is called only then, so a
+    // caller that names its fill walks no item tree. Glass, a drawn
+    // surface's or an application window's, reads as the theme judge reads
+    // list text on glass (ThemeLogic GLASS_PLATE_PAIRS): made opaque. Over
+    // clear glass on a white wallpaper no key ink meets every theme: a
+    // selected row's own title reads about 3.2:1 there in dracula,
+    // everforest and catppuccin-frappe (ThemeLogic.contrastRatio, VGS-2180,
+    // 2026-11-02), so a hint judged harder than the text beside it would be
+    // inconsistent.
+    function hintContext(given, ground) {
+        if (given !== null && given.fill !== undefined) return given;
+        const found = ground();
+        if (found === null) return null;
+        const fill = Qt.color(found);
+        return {
+            fill: fill.a < 1 ? glassSolid(fill) : fill,
+            plate: given === null || given.plate === undefined ? "transparent" : given.plate,
+            sheen: given === null || given.sheen === undefined ? "transparent" : given.sheen
+        };
+    }
     // Each part's ink on a resting surface, resolved once per theme, so a
     // hint without a context reads it instead of solving it per cap.
     readonly property var keyHintDefaults: {

@@ -21,6 +21,8 @@ Item {
     Tabs { id: tabs; model: ["Installed", "Available"]; y: 60 }
     Tabs { id: markedTabs; model: ["Themes", "Wallpapers"]; y: 624; hoverMark: true }
     Tabs { id: handedTabs; model: ["Themes", "Wallpapers"]; y: 580; foreground: "#204060"; hover: "#406080"; active: "#6080a0"; indicatorColor: "#a0c0e0" }
+    // The surface the hint row stands on, whose ground its ink is solved on.
+    Surface { y: 86; width: 300; height: 28 }
     KeyHints { id: hints; y: 90; hints: [{ key: "Left/Right", text: "Move" }, { key: "Ctrl+Tab", text: "Tabs" }] }
     ListItem { id: row; text: "Plugin updates"; secondary: "1 update available"; iconName: "package"; width: 300; y: 100 }
     ListItem { id: bare; text: "Plugin updates"; secondary: "1 update available"; iconName: "package"; y: 300 }
@@ -279,15 +281,15 @@ Item {
 
         function test_hint_word_draws_plain_in_the_key_hint_role_data() {
             return [
-                { tag: "dark", mode: "dark", faint: "#8090a0" },
-                { tag: "light", mode: "light", faint: "#405060" }
+                { tag: "dark", mode: "dark", palette: {}, faint: "#8090a0" },
+                { tag: "light", mode: "light", palette: { background: "#fffcf0", foreground: "#100f0f" }, faint: "#405060" }
             ];
         }
 
         // A hint word is a keyHint-role label on the surface under it: no
         // backing, no layer and no colour of its own.
         function test_hint_word_draws_plain_in_the_key_hint_role(row) {
-            compare(UnitTheme.override({ scheme: { mode: row.mode }, text: { keyHint: { color: row.faint } } }), "ok");
+            compare(UnitTheme.override({ scheme: { mode: row.mode }, palette: row.palette, text: { keyHint: { color: row.faint } } }), "ok");
             const label = hints.children[0].children[1];
             compare(label.role, "keyHint");
             tryCompare(label, "color", Qt.color(row.faint));

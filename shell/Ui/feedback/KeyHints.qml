@@ -1,6 +1,7 @@
 import QtQuick
 import qs.Commons
 import qs.Ui
+import "../foundation/HintGround.js" as HintGround
 
 // A single shortcut hint row; a surface draws at most one, and leaves
 // obvious keys out. Each `hints` entry is `{ key, text }` or
@@ -10,10 +11,13 @@ Row {
     id: root
 
     property var hints: []
-    // Only the fill under this hint; typography and styling stay shared.
+    // What lies under this hint that its surface does not draw, such as a
+    // list's plate, with `fill` where the hint stands on a fill of its own;
+    // typography and styling stay shared. The surface publishes the rest.
     property var backgroundContext: null
-    // Resolved once for every word of the row.
-    readonly property color wordInk: Theme.keyHintInk(backgroundContext, "word")
+    // Resolved once for the row and handed to every chord.
+    readonly property var ground: Theme.hintContext(backgroundContext, () => HintGround.groundUnder(root, Window.window))
+    readonly property color wordInk: Theme.keyHintInk(ground, "word")
     // Row's padding is part of its implicit height, so every action footer
     // gets the same gap without a spacer in its dialog or card.
     // https://doc.qt.io/qt-6/qml-qtquick-row.html#topPadding-prop
@@ -45,7 +49,7 @@ Row {
                 visible: pair.keys.length > 0 && !(pair.keys.length === 1 && pair.keys[0] === "")
                 Repeater {
                     model: pair.keys
-                    KeyCaps { shortcut: String(modelData); backgroundContext: root.backgroundContext }
+                    KeyCaps { shortcut: String(modelData); backgroundContext: root.ground }
                 }
             }
 

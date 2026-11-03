@@ -516,16 +516,17 @@ FocusScope {
                                     Row {
                                         id: chipRow
                                         spacing: comboCaps.visible && prompt.visible ? Theme.space.sm : 0
-                                        // The caps are the field's value. The
-                                        // translucent cap fill shows the
-                                        // selection mark under it, so the
-                                        // ink is solved on that ground.
+                                        // The caps are the field's value. They
+                                        // stand on the box's own fill, which no
+                                        // surface publishes, and the selection
+                                        // mark shows through their translucent
+                                        // fill, so both are handed.
                                         KeyCaps {
                                             id: comboCaps
                                             anchors.verticalCenter: parent.verticalCenter
                                             shortcut: group.modelData.combo
                                             value: true
-                                            backgroundContext: selectionMark.visible ? ({ fill: Theme.textField.background, plate: Theme.color.selection, sheen: "transparent" }) : null
+                                            backgroundContext: ({ fill: Theme.textField.background, plate: selectionMark.visible ? Theme.color.selection : "transparent", sheen: "transparent" })
                                         }
                                         Label {
                                             id: prompt

@@ -23,6 +23,8 @@ Item {
     Badge { id: badgeIcon; text: "Verified"; tone: "success"; iconName: "check"; y: 100 }
     Badge { id: badgeMd; text: "Verified"; tone: "success"; size: "md"; y: 130 }
     Badge { id: badgeVerbatim; text: "voxtype-bin"; verbatim: true; x: 150; y: 70 }
+    // The surface the caps stand on, whose ground their ink is solved on.
+    Surface { y: 150; width: 200; height: 50 }
     Kbd { id: kbd; text: "Ctrl"; y: 160 }
     Kbd { id: key; text: "K"; y: 190; x: 100 }
     Component {

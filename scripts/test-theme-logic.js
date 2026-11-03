@@ -1927,11 +1927,32 @@ function selectionHintShortfalls(judge) {
 // A selected Themes row's Alt+D keys: the list plate over the panel as the
 // judge reads list text on glass (GLASS_PLATE_PAIRS, glass made opaque and
 // lifted, rounded as drawn) and over the panel without glass.
+// The ground a surface with glass publishes to its hints: the glass made
+// opaque and lifted, rounded as drawn (Theme.glassSolid), as the judge
+// reads list text on glass (GLASS_PLATE_PAIRS).
+function opaqueGlass(judge, values) {
+    const glass = judge.acceptAppearance(GLASS.TOKENS, GLASS.LIGHT, values);
+    assert.equal(glass.ok, true, glass.ok ? "" : judge.refusalLine(glass));
+    return judge.parseColor(judge.formatColor(judge.liftedOpaque(judge.parseColor(glass.values.glass.fill), glass.values.glass.solidLift)));
+}
+// A hint row, its caps and a field's value caps straight on that glass,
+// as the Jarvis confirmation, its console, the power menu and the
+// clipboard draw them with glass on.
+function glassHintReadings(judge, hintInk = (values, context, part) => judge.keyHintInk(values, context, part)) {
+    return JUDGED_THEMES.flatMap(({ name, values }) => {
+        const fill = opaqueGlass(judge, values);
+        const context = { fill, plate: judge.parseColor("#00000000"), sheen: judge.parseColor("#00000000") };
+        const capFill = judge.overlay(judge.parseColor(values.kbd.background), fill);
+        return [["word", fill, values.text.keyHint.weight], ["key", capFill, values.text.keyName.weight], ["value", capFill, values.text.kbd.weight]]
+            .map(([part, ground, weight]) => [name, part, judge.drawnTextRatio(hintInk(values, context, part), ground, weight)]);
+    });
+}
+function glassHintShortfalls(judge) {
+    return glassHintReadings(judge).filter(([, , ratio]) => ratio < 4.5);
+}
 function plateHintReadings(judge, hintInk = (values, context) => judge.keyHintInk(values, context, "key")) {
     return JUDGED_THEMES.flatMap(({ name, values }) => {
-        const glass = judge.acceptAppearance(GLASS.TOKENS, GLASS.LIGHT, values);
-        assert.equal(glass.ok, true, glass.ok ? "" : judge.refusalLine(glass));
-        const solid = judge.parseColor(judge.formatColor(judge.liftedOpaque(judge.parseColor(glass.values.glass.fill), glass.values.glass.solidLift)));
+        const solid = opaqueGlass(judge, values);
         const plate = judge.parseColor(values.listItem.selected);
         return [["glass", solid], ["standard", judge.parseColor(values.surface.level.base.background)]].map(([ground, fill]) => {
             const ink = hintInk(values, { fill, plate, sheen: judge.parseColor("#00000000") });
@@ -1966,6 +1987,10 @@ function launcherDetailShortfalls(judge, launcher) {
     const oldValueInk = selectionHintReadings(judge, values => judge.parseColor(values.kbd.valueForeground));
     assert.ok(oldValueInk.some(([, ratio]) => ratio < 4.5), "control: body ink alone fails a field's selection mark in some theme");
     assert.deepEqual(plateHintShortfalls(judge), [], "a selected row's keys read at 4.5:1 on the list plate in every theme");
+    assert.deepEqual(glassHintShortfalls(judge), [], "a hint's words and keys read at 4.5:1 on opaque glass in every theme");
+    const unpublished = glassHintReadings(judge, (values, context, part) => judge.keyHintInk(values, null, part));
+    for (const part of ["word", "key"])
+        assert.ok(unpublished.some(([theme, ink, ratio]) => theme === "vgs" && ink === part && ratio < 4.5), `control: without the surface's ground the default ${part} ink fails glass in vgs`);
     const oldKeyInk = plateHintReadings(judge, values => judge.parseColor(values.kbd.foreground));
     for (const name of ["vgs", "catalog/flexoki-light"])
         assert.ok(oldKeyInk.some(([theme, , ratio]) => theme === name && ratio < 4.5), `control: the default key ink fails the list plate in ${name}`);
@@ -2020,6 +2045,7 @@ function launcherDetailShortfalls(judge, launcher) {
 // keeps the text around it. The suite must fail on every copy.
 const CONTROLS = [
     ["shared hint ignores its composed surface", "if (context === null) return ink;", "return ink;", judge => assert.deepEqual(launcherDetailShortfalls(judge, LAUNCHER), [], "shared hint inks keep the reached fill floor")],
+    ["a hint ignores the glass its surface publishes", "if (context === null) return ink;", "return ink;", judge => assert.deepEqual(glassHintShortfalls(judge), [], "a hint keeps the floor on opaque glass")],
     ["a selected row's keys ignore the list plate", "if (context === null) return ink;", "return ink;", judge => assert.deepEqual(plateHintShortfalls(judge), [], "a selected row's keys keep the floor on the list plate")],
     ["a field's bound key ignores its selection mark", "if (context === null) return ink;", "return ink;", judge => assert.deepEqual(selectionHintShortfalls(judge), [], "a bound key keeps the floor on its selection mark")],
     ["a surface-solved hint word keeps the old margin", "var margin = valueAt(values, spec.margin);", "var margin = spec.cap ? valueAt(values, spec.margin) : 4.95;", judge => verifyHintMargin(judge)],
