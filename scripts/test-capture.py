@@ -296,14 +296,16 @@ console.log(JSON.stringify([replies, written, setFromRequest(JSON.stringify({ ke
     assert written(service.replace(before, "")) != wanted, "control did not fail: delay-unchecked"
 
 
-def plant(root, config):
-    """Put stand-ins first on PATH; each reads the same fixture world."""
+def plant(root, config, log=None):
+    """Put stand-ins first on PATH; each reads the same fixture world. With
+    LOG, the hyprctl stand-in appends its call and exit records there."""
     root.mkdir(parents=True, exist_ok=True)
     (root / "bin").mkdir(exist_ok=True)
     (root / "config.json").write_text(json.dumps(config))
+    logged = "" if log is None else f"os.environ['VGS_CAPTURE_LOG'] = {str(log)!r}\n"
     for tool in TOOLS:
         path = root / "bin" / tool
-        path.write_text(f"#!{sys.executable}\nimport os, runpy\nos.environ['VGS_CAPTURE_FIXTURE'] = {str(root)!r}\nos.environ['VGS_CAPTURE_TOOL'] = {tool!r}\nrunpy.run_path({str(FIXTURE)!r}, run_name='__main__')\n")
+        path.write_text(f"#!{sys.executable}\nimport os, runpy\nos.environ['VGS_CAPTURE_FIXTURE'] = {str(root)!r}\nos.environ['VGS_CAPTURE_TOOL'] = {tool!r}\n{logged}runpy.run_path({str(FIXTURE)!r}, run_name='__main__')\n")
         path.chmod(0o755)
 
 
@@ -1897,6 +1899,37 @@ def crop_holds(source):
             return False
     return True
 
+def hyprctl_records(base):
+    """The hyprctl stand-in's log holds a call record for every call and,
+    for a call it ends without the real hyprctl, an exit record with the
+    status it exits with and its refusal or exception."""
+    real = base / "hyprctl-real"
+    real.write_text("#!/bin/sh\necho ok\n")
+    real.chmod(0o755)
+    passing = {"hyprctl": str(real), "display": "wayland-fixture", "runtime": str(base)}
+    on_socket = {"WAYLAND_DISPLAY": passing["display"], "XDG_RUNTIME_DIR": passing["runtime"]}
+    for name, config, socket, cause in [
+        ("hyprctl-passes", passing, on_socket, None),
+        ("hyprctl-no-real", {}, on_socket, "reason"),
+        ("hyprctl-non-nested", passing, {}, "reason"),
+        ("hyprctl-unreadable-config", None, on_socket, "JSONDecodeError"),
+    ]:
+        root, log = base / name, base / (name + ".jsonl")
+        plant(root, config or {}, log)
+        if config is None:
+            (root / "config.json").write_text("{")
+        argv = ["reload", "config-only"]
+        done = subprocess.run([str(root / "bin/hyprctl"), *argv], env={**environment(root, {}), **socket}, capture_output=True, text=True, timeout=10)
+        records = [json.loads(line) for line in log.read_text().splitlines()]
+        assert [(r["event"], r["argv"]) for r in records[:1]] == [("call", argv)], name
+        if cause is None:
+            assert done.returncode == 0 and done.stdout == "ok\n" and len(records) == 1, name
+            continue
+        assert done.returncode != 0 and len(records) == 2 and records[1]["event"] == "exit", name
+        assert records[1]["status"] == done.returncode and records[1]["pid"] == records[0]["pid"], name
+        assert records[1].get("reason") if cause == "reason" else records[1].get("exception") == cause, name
+
+
 def main():
     release_deadline()
     config = {}
@@ -1917,6 +1950,7 @@ def main():
             root = base / name
             plant(root, {**config, **extra})
             return root
+        hyprctl_records(base)
         root = world("reported-sequence")
         assert capture_sequence(root, output=output), "reported capture sequence delivers each result within one second"
         before = '            path, child = self.deliver(request, args)\n        if path is None:'

@@ -10,7 +10,12 @@ seconds. With no real `hyprctl` in the config, as no shell draws a freeze,
 service's freeze as freezeLayer says: `mapped` (the default) at alpha 1,
 `unmapped` at alpha 0, as Hyprland lists a layer it has not mapped, or
 `absent`. Every hyprctl call goes to the real `hyprctl` the config names
-when it names one, unlogged, so the shell keeps its own.
+when it names one, kept out of calls.jsonl, so the shell keeps its own.
+With VGS_CAPTURE_LOG set, hyprctl appends one JSON line there per call,
+`call` with its argv, and one `exit` line for a call it ends without the
+real hyprctl: its status and either the refusal's `reason` or the
+`exception` and its `traceback`. The shell keeps no stderr of the hyprctl
+it runs, so a failed reload's cause is only there.
 slurp reads stdin to EOF when it is not a terminal, as the real slurp does.
 The recorder logs its start and output name, then writes `finalized`, or
 copies the fixture's `video`, only after SIGINT, never on a hard stop.
@@ -35,6 +40,7 @@ import struct
 import subprocess
 import sys
 import time
+import traceback
 import zlib
 
 # A grey 4x4 JPEG from ImageMagick, which an image reader decodes.
@@ -44,15 +50,19 @@ THUMBNAIL = bytes.fromhex(
     "000000ffc40014100100000000000000000000000000000000ffda0008010100003f003fffd9")
 root = Path(os.environ["VGS_CAPTURE_FIXTURE"])
 tool = os.environ["VGS_CAPTURE_TOOL"]
-config = json.loads((root / "config.json").read_text())
 
 
-def nested():
+def read_config():
+    return json.loads((root / "config.json").read_text())
+
+
+def nested(config):
     if os.environ.get("WAYLAND_DISPLAY") != config["display"] or os.environ.get("XDG_RUNTIME_DIR") != config["runtime"]:
         sys.exit("capture-fixture: refused non-nested socket")
 
 
-if tool == "hyprctl":
+def hyprctl():
+    config = read_config()
     if sys.argv[1:] == ["-j", "layers"] and "hyprctl" not in config:
         freeze = config.get("freezeLayer", "mapped")
         overlay = [] if freeze == "absent" else [{"namespace": "vgs:freeze", "alpha": int(freeze == "mapped")}]
@@ -60,8 +70,38 @@ if tool == "hyprctl":
         sys.exit(0)
     if "hyprctl" not in config:
         sys.exit("capture-fixture: no real hyprctl")
-    nested()
+    nested(config)
     os.execv(config["hyprctl"], [config["hyprctl"], *sys.argv[1:]])
+
+
+def hyprctl_record(event, **fields):
+    # A failed write raises, so the call fails where the row sees it rather
+    # than running unrecorded.
+    now = time.time()
+    stamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)) + f".{int(now * 1000) % 1000:03d}"
+    with open(os.environ["VGS_CAPTURE_LOG"], "a") as log:
+        log.write(json.dumps({"time": stamp, "pid": os.getpid(), "event": event, "argv": sys.argv[1:], **fields}) + "\n")
+
+
+if tool == "hyprctl":
+    if "VGS_CAPTURE_LOG" not in os.environ:
+        hyprctl()
+    hyprctl_record("call")
+    try:
+        hyprctl()
+    except SystemExit as stop:
+        # Python's own exit status for each SystemExit code.
+        if stop.code is None or stop.code == 0:
+            raise
+        if isinstance(stop.code, int):
+            hyprctl_record("exit", status=stop.code)
+        else:
+            hyprctl_record("exit", status=1, reason=str(stop.code))
+        raise
+    except BaseException as error:
+        hyprctl_record("exit", status=1, exception=type(error).__name__, traceback=traceback.format_exc())
+        raise
+config = read_config()
 with (root / "calls.jsonl").open("a") as log:
     log.write(json.dumps({"tool": tool, "args": sys.argv[1:]}) + "\n")
 (root / f"{tool}-pid-{os.getpid()}").touch()
@@ -71,7 +111,7 @@ if config.get("fail") == tool:
     sys.exit(1)
 real = config.get("real", {}).get(tool)
 if real:
-    nested()
+    nested(config)
     os.execv(real, [real, *sys.argv[1:]])
 match tool:
     case "slurp":

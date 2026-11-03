@@ -15,7 +15,10 @@
 # run taken before the freeze, so a layer the layers fixture shows once the
 # selector maps, its orb animating, stays out of the box saved round it; a
 # helper copy that grims the live screen after the selection, as the helper
-# did before VGS-2232, saves the orb.
+# did before VGS-2232, saves the orb. The shell's hyprctl is the real one
+# again before the end-of-row plugin disables, so no reload they owe runs
+# on the capture stand-in; a control disables capture with the stand-in
+# still in place.
 # inputs: shell/shell.qml shell/Core/ScreenFreeze.qml shell/Hosts/FreezeHost.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.bar/*.qml shell/plugins/vgs.capture/* shell/plugins/vgs.notifications/* shell/plugins/vgs.sysmon/* shell/plugins/vgs.launcher/* shell/Core/HyprlandLayer.* scripts/smoke/rows/hyprland-consent.sh shell/Core/NotificationHub.qml shell/Core/Layers.qml shell/Core/Capabilities.qml shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/IpcRegistry.qml shell/Core/Lifetime.js shell/Core/MonitorLogic.js shell/Core/MonitorState.qml shell/Core/Notices.qml shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Plugins.qml shell/Core/PluginStatus.qml shell/Core/Registry.qml shell/Core/ServiceGate.qml shell/Core/ShortcutRegistry.qml shell/Core/Notifier.qml shell/Core/TuiRecords.qml shell/Core/TuiRunner.qml bin/vgshell-tui shell/Hosts/BarHost.qml shell/Hosts/NoticeHost.qml shell/Hosts/OverlaySurface.qml shell/Hosts/PluginSlot.qml shell/Hosts/ServiceHost.qml shell/Hosts/Summon* shell/Ui/* shell/Commons/* bin/vgshell-scan bin/lib/check-manifests.js bin/lib/qml-library.js scripts/test-capture.py scripts/smoke/fixtures/capture/* scripts/smoke/rows/layers.sh scripts/smoke/fixtures/plugins/acme.layers/* shell/Hosts/LayerHost.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/ListField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml
 # Expected rectangles come from Hyprland. Disposable copies remove each
 # screenshot choice and the owned tool deadline, and
@@ -35,13 +38,16 @@ mkdir -p "$capture_state/saved-shims"
 for capture_tool in grim slurp tesseract wl-copy gpu-screen-recorder ffmpeg pw-dump; do
   if [[ -e $shim/$capture_tool ]]; then mv -- "$shim/$capture_tool" "$capture_state/saved-shims/$capture_tool"; fi
 done
-python3 - "$source_repo/scripts/test-capture.py" "$capture_state" "$shim" "$capture_real_grim" "$nested_socket" "$rt_dir" <<'PY'
+# Kept past the world only when the stand-in ended a call itself, as the
+# row's end prints it.
+capture_hyprctl_log="$smoke_log_dir/capture-hyprctl-${sandbox##*/}.jsonl"
+python3 - "$source_repo/scripts/test-capture.py" "$capture_state" "$shim" "$capture_real_grim" "$nested_socket" "$rt_dir" "$capture_hyprctl_log" <<'PY'
 import importlib.util, json, os, sys
-source, state, shim, grim, display, runtime = sys.argv[1:]
+source, state, shim, grim, display, runtime, log = sys.argv[1:]
 spec = importlib.util.spec_from_file_location("capture_test", source)
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
-module.plant(module.Path(state), {"real": {"grim": grim}, "hyprctl": os.path.join(shim, "hyprctl.real"), "display": display, "runtime": runtime, "clipboardHold": True})
+module.plant(module.Path(state), {"real": {"grim": grim}, "hyprctl": os.path.join(shim, "hyprctl.real"), "display": display, "runtime": runtime, "clipboardHold": True}, log)
 for tool in module.TOOLS:
     # The shell runs hyprctl all the row: shim_hyprctl swaps it whole.
     os.symlink(os.path.join(state, "bin", tool), os.path.join(shim, "hyprctl.capture" if tool == "hyprctl" else tool))
@@ -2180,7 +2186,32 @@ PY_CHECK
 }
 capture_held "held post-process" 'refused: capture=busy'
 capture_stopped_service="$repo/shell/plugins/vgs.capture/Service.qml"
+# capture_layer_reload BOUND MARK: once the Hyprland layer binds capture
+# (BOUND true) or binds it no more (false) and the writer has settled, so
+# the reload that change owes has run, `stand-in` when the hyprctl stand-in
+# recorded a reload past line MARK of its log, else `real`; `settling`
+# before that, `unreadable` with no layer file or log to read.
+capture_layer_reload() {
+  ipc smoke hyprlandReadiness | py_reply 'import json,sys
+d = json.load(sys.stdin)
+layer, log, bound, mark = sys.argv[1], sys.argv[2], sys.argv[3] == "true", int(sys.argv[4])
+try:
+    text = open(layer).read()
+    calls = [json.loads(line) for line in open(log).read().splitlines()[mark:]]
+except (OSError, ValueError):
+    print("unreadable")
+    sys.exit()
+settled = [d.get(k) for k in ("available", "admitted", "currentPlan", "writerPhase", "resolvingKeys")] == [True, True, True, "idle", False]
+if not settled or ("\"vgs.capture:" in text) != bound:
+    print("settling")
+else:
+    print("stand-in" if any(c["event"] == "call" and c["argv"][:1] == ["reload"] for c in calls) else "real")' "$hypr_layer" "$capture_hyprctl_log" "$1" "$2"
+}
+# The stand-in is still the shell's hyprctl here, so this disable's reload
+# is the control for the end-of-row check that reads `real`.
+capture_hyprctl_mark="$(wc -l <"$capture_hyprctl_log")"
 expect "capture stops before the stopped-event control" ok ipc shell setPluginEnabled vgs.capture false
+expect_poll "control: a capture disable on the stand-in reads stand-in" stand-in capture_layer_reload false "$capture_hyprctl_mark"
 expect_poll "the stopped-event control releases the original service" False record_exists vgs.capture
 python3 - "$capture_stopped_service" "$sandbox" "$capture_state/stopped-service-original.qml" <<'PY'
 from pathlib import Path
@@ -2410,6 +2441,10 @@ done
 cp -- "$capture_state/helper-original.py" "$capture_helper"
 expect "the capture notifications leave" 0 capture_wait_cards
 expect "the capture notifications leave the history" ok ipc vgs.notifications invoke clear-history ''
+# Real hyprctl is back before the end-of-row disables, so no reload they
+# owe runs on the stand-in.
+shim_hyprctl real
+capture_hyprctl_mark="$(wc -l <"$capture_hyprctl_log")"
 expect "notifications are disabled after the row" ok ipc shell setPluginEnabled vgs.notifications false
 expect_poll "the notifications service is released after the row" False record_exists vgs.notifications
 expect "capture is disabled after the row" ok ipc shell setPluginEnabled vgs.capture false
@@ -2417,12 +2452,24 @@ expect_poll "disabled capture releases its service" False record_exists vgs.capt
 expect_poll "disabling capture ends a held selection's selector and freeze" 0 capture_left
 expect_poll "disabled capture releases its status" null capture_status
 expect_poll "disabling capture releases all owned clipboard providers" True capture_released
+expect_poll "the end-of-row reload reaches real hyprctl" real capture_layer_reload false "$capture_hyprctl_mark"
 for capture_tool in grim slurp tesseract wl-copy gpu-screen-recorder ffmpeg pw-dump; do
   rm -f -- "${shim:?}/$capture_tool"
   if [[ -e $capture_state/saved-shims/$capture_tool ]]; then mv -- "$capture_state/saved-shims/$capture_tool" "$shim/$capture_tool"; fi
 done
-shim_hyprctl real
 rm -f -- "${shim:?}/hyprctl.capture"
+# The shell keeps no stderr of the hyprctl it runs, so each call the
+# stand-in ended itself prints here, before the shell-log failure it
+# causes; a log that holds none goes.
+capture_hyprctl_exits() { python3 - "$capture_hyprctl_log" <<'PY'
+import json, sys
+exits = [r for r in map(json.loads, open(sys.argv[1]).read().splitlines()) if r["event"] == "exit"]
+for record in exits:
+    print("  capture-hyprctl " + json.dumps(record))
+sys.exit(1 if exits else 0)
+PY
+}
+if capture_hyprctl_exits; then rm -f -- "$capture_hyprctl_log"; fi
 cp -- "$capture_saved" "$home/.config/vgshell/shell.json.next" && mv -T -- "$home/.config/vgshell/shell.json.next" "$home/.config/vgshell/shell.json"
 rescan "the capture fixture cleanup is rescanned"
 expect_poll "the notifications service is as the row found it" "$capture_notes_found" record_exists vgs.notifications
