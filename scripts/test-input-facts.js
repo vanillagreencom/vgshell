@@ -49,6 +49,16 @@ function stateChecks(state) {
     same(state.resolvedKeys(JSON.stringify(reply), 1), reply, "a complete resolver reply survives narrowing");
     const dual = { ok: true, keys: [key()], translation: [key({ keysym: "y" })] };
     same(state.resolvedKeys(JSON.stringify(dual), 1), dual, "native and translation maps remain separate in the API reply");
+    // us,ru with Russian active, as scripts/test-xkb-keys.py pins the helper's answer.
+    const j = key({ keycode: 44, keysym: "j", codepoint: 106 });
+    const russian = { ok: true, keysRefused: "keysym-unresolved", translation: [j, j] };
+    same(state.resolvedKeys(JSON.stringify(russian), 2, true), russian, "a refused native map leaves the translation answer standing");
+    same(state.pluginKeys(russian), { ok: false, error: "refused: keymap=keysym-unresolved" }, "plugins receive the native refusal");
+    same(state.pluginKeys(dual), dual, "a resolved native map reaches plugins unchanged");
+    const pair = ["SUPER+J", "SUPER+code:44"];
+    const sections = [{ id: "acme.talk", binds: pair.map(key => ({ shortcut: "talk", key })) }];
+    const plan = state.Layer.resolveBinds(sections, state.Layer.bindIdentities(pair, state.resolvedKeys(JSON.stringify(russian), 2, true)).identities);
+    same(state.Layer.boundDescriptions(plan), ["acme.talk:talk"], "the layer binds the merged pair once with Russian active");
     const responses = [
         ["malformed JSON", "ok", 1, "refused: keymap=unresolved"],
         ["resolver refusal", JSON.stringify({ ok: false, keys: [key()] }), 1, "refused: keymap=unresolved"],
@@ -67,7 +77,11 @@ function stateChecks(state) {
         ["translation is incomplete", JSON.stringify({ ok: true, keys: [key()], translation: [] }), 1, "refused: keymap=translation"],
         ["translation independently judges modifiers", JSON.stringify({ ok: true, keys: [key()], translation: [key({ modifiers: ["META"] })] }), 1, "refused: keymap=reply"],
         ["translation independently judges code", JSON.stringify({ ok: true, keys: [key()], translation: [key({ keycode: 7 })] }), 1, "refused: keymap=reply"],
-        ["translation independently judges symbol", JSON.stringify({ ok: true, keys: [key()], translation: [key({ keysym: "" })] }), 1, "refused: keymap=reply"]
+        ["translation independently judges symbol", JSON.stringify({ ok: true, keys: [key()], translation: [key({ keysym: "" })] }), 1, "refused: keymap=reply"],
+        ["native keys beside their refusal", JSON.stringify({ ok: true, keys: [key()], keysRefused: "keysym-unresolved", translation: [key()] }), 1, "refused: keymap=unresolved"],
+        ["unnamed native refusal", JSON.stringify({ ok: true, keysRefused: "", translation: [key()] }), 1, "refused: keymap=unresolved"],
+        ["native refusal without translation", JSON.stringify({ ok: true, keysRefused: "keysym-unresolved" }), 1, "refused: keymap=unresolved"],
+        ["refused native still judges translation", JSON.stringify({ ok: true, keysRefused: "keysym-unresolved", translation: [] }), 1, "refused: keymap=translation"]
     ];
     for (const [name, text, count, error] of responses)
         same(answer(() => state.resolvedKeys(text, count), name), { ok: false, error }, name);
@@ -325,6 +339,8 @@ const controls = [
     [compositorFile, executableOwnerChecks, "immediate cache invalidation", "inputExecutables = [];", "inputExecutables = inputExecutables;"],
     [compositorFile, executableOwnerChecks, "stale executable reply", 'request.epoch !== root.inputExecutableEpoch || failure !== ""', 'failure !== ""'],
     [stateFile, stateChecks, "required translation map", "requireTranslation && ", "false && "],
+    [stateFile, stateChecks, "native keys or their refusal", '? has("keys") || ', "? "],
+    [stateFile, stateChecks, "native refusal reaches plugins", "value.ok && value.keysRefused !== undefined", "false"],
     [stateFile, stateChecks, "read keyboard devices", "devices === null || ", ""],
     [stateFile, stateChecks, "key request list", "!Array.isArray(keys) || ", ""],
     [stateFile, stateChecks, "nonempty request", " || keys.length === 0", ""],

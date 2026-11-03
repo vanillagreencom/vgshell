@@ -66,7 +66,9 @@ function verifyProvider(library, pluginsSource, capabilitiesSource, hyprlandSour
         let observations = 0;
         const read = (input, done) => { observations++; pending = done; };
         const factory = vm.runInNewContext("ctx => {" + body + "\n}", {
-            Dispatch: { PLUGIN_DISPATCHERS: [] }, Compositor: { observeInput: read, readWindows: done => read(null, done) }, root: { resolveKeys: read }
+            Dispatch: { PLUGIN_DISPATCHERS: [] }, Compositor: { observeInput: read, readWindows: done => read(null, done) }, root: { resolveKeys: read },
+            // The answer's shape is scripts/test-input-facts.js's; this row holds only its delivery.
+            State: { pluginKeys: value => value }
         });
         ctx.onDispose(() => {}); // The capability hold, owned by providersFor.
         const provider = factory(ctx);
@@ -111,7 +113,7 @@ try {
         [capabilitiesFile, "if (ctx.active) Compositor.readWindows(", "if (true) Compositor.readWindows(", "disposed window requests are dropped"],
         [capabilitiesFile, "if (ctx.active) done(state);", "if (true) done(state);", "disposed window replies are dropped"],
         [hyprlandFile, "if (!ctx.active) return;", "if (false) return;", "disposed key requests are dropped"],
-        [hyprlandFile, "if (ctx.active) done(value);", "if (true) done(value);", "disposed key replies are dropped"],
+        [hyprlandFile, "if (ctx.active) done(State.pluginKeys(value));", "if (true) done(State.pluginKeys(value));", "disposed key replies are dropped"],
         [capabilitiesFile, "compositor: ctx => {", "compositor: ctx => { ctx.onDispose(() => {});", "duplicate compositor cleanup callback"],
         [hyprlandFile, "function provider(ctx) {", "function provider(ctx) { ctx.onDispose(() => {});", "duplicate key cleanup callback"]
     ];

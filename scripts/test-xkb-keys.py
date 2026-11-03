@@ -186,8 +186,15 @@ class Mapping(unittest.TestCase):
         for second, error in rows:
             with self.subTest(second=second):
                 self.refused({**request(["A"]), "translation": second}, error)
-        self.refused({**request(["NOT_A_KEYSYM"]), "translation": request(["A"])},
-                     "keysym-unresolved")
+
+    def test_dual_native_refusal_keeps_translation(self):
+        # us,ru with Russian active: no ru key carries j, yet Hyprland binds
+        # through group 0, where SUPER+J and SUPER+code:44 are one key.
+        value = request(["SUPER+J", "SUPER+code:44"], layout="us,ru", activeLayoutIndex=1)
+        value["translation"] = request(["SUPER+J", "SUPER+code:44"], layout="us,ru", activeLayoutIndex=0)
+        j = {"modifiers": ["SUPER"], "keycode": 44, "keysym": "j", "codepoint": 106}
+        self.assertEqual(self.run_helper(value), {"ok": True, "keysRefused": "keysym-unresolved",
+                                                  "translation": [j, j]})
 
     def test_json(self):
         for text in ("", "{", '{"keyboard":{},"keyboard":{},"keys":[]}'):
@@ -343,12 +350,16 @@ class Controls(unittest.TestCase):
         ("JSON duplicates", "if len(value) != len(pairs):", "if False:", "test_json"),
         ("dual outer fields", 'set(value) != {"keyboard", "keys", "translation"}',
          "False", "test_dual_outer_shape"),
-        ("translation map", 'translated = resolve(value["translation"])', "translated = native",
+        ("translation map", 'translated = resolve(value["translation"])["keys"]',
+         'translated = resolve({"keyboard": value["keyboard"], "keys": value["keys"]})["keys"]',
          "test_dual_active_and_translation_layouts"),
-        ("translation failure", 'translated = resolve(value["translation"])', "translated = native",
+        ("translation failure", 'translated = resolve(value["translation"])["keys"]',
+         'translated = resolve({"keyboard": value["keyboard"], "keys": value["keys"]})["keys"]',
          "test_dual_refuses_bad_second_request_without_partial_success"),
-        ("native map", 'native = resolve({"keyboard": value["keyboard"], "keys": value["keys"]})',
-         'native = resolve(value["translation"])', "test_dual_active_and_translation_layouts"),
+        ("native map", 'native = {"keys": resolve({"keyboard": value["keyboard"], "keys": value["keys"]})["keys"]}',
+         'native = {"keys": resolve(value["translation"])["keys"]}', "test_dual_active_and_translation_layouts"),
+        ("native refusal stays beside translation", "except Refusal as refusal:", "except RuntimeError as refusal:",
+         "test_dual_native_refusal_keeps_translation"),
         ("system includes", "context = lib.xkb_context_new(3)", "context = lib.xkb_context_new(2)",
          "test_environment_cannot_supply_names_or_includes"),
         ("XKB numbering", "code = int(text)", "code = int(text) + 8", "test_codes_use_xkb_numbering"),

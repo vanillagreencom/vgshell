@@ -5,8 +5,9 @@ stdin: {keyboard: {layout, variant, options, activeLayoutIndex}, keys: [str]}.
 stdout: {ok: true, keys: [{modifiers: [str], keycode: int, keysym: str, codepoint: int}]}
 or {ok: false, error: str}; failure exits 1. A dual request adds
 translation: {keyboard, keys}; its success also includes translation: [row].
-Both requests must resolve before the helper writes a success response.
-Codes use the XKB convention
+Only the translation map, the one Hyprland binds through, must resolve for a
+dual success: a refused native map replaces keys with keysRefused: str, its
+error. Neither map is ever partial. Codes use the XKB convention
 that Hyprland uses for code: binds. A symbol names its canonical keysym;
 a code names the symbol at the active layout's base level. No input is sent.
 The caller owns key normalization in ConfigLogic.hyprlandKey.
@@ -218,14 +219,22 @@ def unique_object(pairs):
 
 
 def resolve_request(value):
-    """Resolve the native and optional translation maps as one response."""
+    """Resolve the native and optional translation maps as one response.
+
+    A layout switch moves only the native group, so a native refusal (no key
+    carries a letter on the active layout) must not hide the translation map
+    that decides which binds are the same key.
+    """
     if not isinstance(value, dict) or "translation" not in value:
         return resolve(value)
     if set(value) != {"keyboard", "keys", "translation"}:
         raise Refusal("input-shape")
-    native = resolve({"keyboard": value["keyboard"], "keys": value["keys"]})
-    translated = resolve(value["translation"])
-    return {"ok": True, "keys": native["keys"], "translation": translated["keys"]}
+    translated = resolve(value["translation"])["keys"]
+    try:
+        native = {"keys": resolve({"keyboard": value["keyboard"], "keys": value["keys"]})["keys"]}
+    except Refusal as refusal:
+        native = {"keysRefused": str(refusal)}
+    return {"ok": True, **native, "translation": translated}
 
 
 def main():

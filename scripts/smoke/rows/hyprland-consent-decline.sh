@@ -46,6 +46,7 @@ if stop_shell && start_shell "$repo" "$sandbox/hypr-consent-decline.log"; then
 fi
 expect_poll "the restarted shell asks before wiring an unchanged layer" '{"title": "Let VGS manage its Hyprland settings?", "failure": ""}' hypr_consent_record
 expect "a later start with the welcome seen draws no welcome" '{"actions": null, "keys": null, "lineCount": null, "link": null, "state": "seen"}' welcome_shape
+expect_poll "the Hyprland consent notice holds the keyboard" true ipc smoke noticeFocused
 type_keys -k Escape || fail "sending Escape to the Hyprland consent notice failed"
 expect_poll "Not now reaches the declined consent state" declined hypr_consent_phase
 expect_poll "Not now closes the Hyprland consent notice" null hypr_consent_record
@@ -136,6 +137,9 @@ if stop_shell && start_shell "$repo" "$sandbox/hypr-consent-final.log"; then
   ok "the real shell restarts after the decline control"
 fi
 expect_poll "the real shell asks again after the marker is removed" '{"title": "Let VGS manage its Hyprland settings?", "failure": ""}' hypr_consent_record
+# The record is published before the notice's surface maps; a key sent
+# between the two reaches no surface.
+expect_poll "the final Hyprland consent notice holds the keyboard" true ipc smoke noticeFocused
 type_keys -k Return || fail "sending Return to the final Hyprland consent notice failed"
 expect_poll "the final Connect reaches the wired consent state" wired hypr_consent_phase
 expect_poll "the final Connect closes the Hyprland consent notice" null hypr_consent_record

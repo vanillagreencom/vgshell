@@ -869,6 +869,8 @@ function requestedBindKeys(sections, foreign, userRows) {
 
 // Unsupported maps retain the existing string decision. A failed read,
 // timeout or malformed reply cannot establish that policy or publish keys.
+// Identities come from the translation map Hyprland binds through alone, so
+// a native map the active layout refuses (`keysRefused`) changes no merge.
 function bindIdentities(keys, answer) {
     if (!answer.ok) {
         if (/^refused: keymap=(custom-file|native-rules|native-model|rules|model|keysym-unresolved|keysym-ambiguous|keycode-unresolved)$/.test(answer.error))

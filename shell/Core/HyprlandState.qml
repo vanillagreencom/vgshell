@@ -100,7 +100,7 @@ Scope {
             get foreignBinds() { return root.foreignKeys === null ? null : Logic.frozenJson(root.foreignKeys); },
             resolveKeys: (keys, done) => {
                 if (!ctx.active) return;
-                root.resolveKeys(keys, value => { if (ctx.active) done(value); });
+                root.resolveKeys(keys, value => { if (ctx.active) done(State.pluginKeys(value)); });
             },
             switchKeyboardLayout: target => Compositor.switchLayout(target)
         });

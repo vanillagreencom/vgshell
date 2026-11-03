@@ -74,17 +74,22 @@ function keyFacts(text, keys) {
         keys: native.request.keys, translation: translation } };
 }
 
+// bin/lib/xkb-keys.py's answer to COUNT keys. A dual answer carries the
+// native map as exactly one of `keys` or `keysRefused`, the helper's refusal
+// key: only the translation map decides whether the answer stands.
 function resolvedKeys(text, count, requireTranslation) {
     var read = parsed(text);
     if (read.ok && read.value && read.value.ok === false && typeof read.value.error === "string")
         return { ok: false, error: "refused: keymap=" + read.value.error };
-    if (!read.ok || !read.value || read.value.ok !== true || !Array.isArray(read.value.keys)
-            || read.value.keys.length !== count)
+    var has = function (field) { return Object.prototype.hasOwnProperty.call(read.value, field); };
+    if (!read.ok || !read.value || read.value.ok !== true || (has("keysRefused")
+            ? has("keys") || !has("translation") || typeof read.value.keysRefused !== "string" || read.value.keysRefused === ""
+            : !Array.isArray(read.value.keys) || read.value.keys.length !== count))
         return { ok: false, error: "refused: keymap=unresolved" };
-    if (requireTranslation && !Object.prototype.hasOwnProperty.call(read.value, "translation"))
+    if (requireTranslation && !has("translation"))
         return { ok: false, error: "refused: keymap=translation" };
-    var lists = [read.value.keys];
-    if (Object.prototype.hasOwnProperty.call(read.value, "translation")) {
+    var lists = has("keys") ? [read.value.keys] : [];
+    if (has("translation")) {
         if (!Array.isArray(read.value.translation) || read.value.translation.length !== count)
             return { ok: false, error: "refused: keymap=translation" };
         lists.push(read.value.translation);
@@ -99,6 +104,13 @@ function resolvedKeys(text, count, requireTranslation) {
         }
     }
     return read.value;
+}
+
+// The `resolveKeys` answer a plugin receives for VALUE, resolvedKeys'
+// result. The plugin API promises native identities, so a refused native map
+// refuses there as the helper named it; only the layer reads `keysRefused`.
+function pluginKeys(value) {
+    return value.ok && value.keysRefused !== undefined ? { ok: false, error: "refused: keymap=" + value.keysRefused } : value;
 }
 
 // hyprctl names no device class, so a pointer is a touchpad when its name
