@@ -5,7 +5,7 @@
 # requirement data and the preflight floor.
 
 Name:           vgshell
-Version:        0.1.3
+Version:        0.1.4
 Release:        1%{?dist}
 Summary:        Desktop shell for Hyprland on Quickshell
 License:        MIT AND OFL-1.1 AND ISC AND Apache-2.0 AND CC-BY-SA-4.0
@@ -131,6 +131,8 @@ if [ "$1" -eq 1 ]; then
 fi
 
 %changelog
+* Tue Nov 03 2026 VanillaGreen <brad@vanillagreen.com> - 0.1.4-1
+- Release Hyprland 0.57 support, package review, Jarvis, capture, automation and engine fixes since 0.1.3.
 * Fri Oct 23 2026 VanillaGreen <brad@vanillagreen.com> - 0.1.3-1
 - Release Power, VPN, Settings, Jarvis, notification and patched-engine fixes since 0.1.2.
 * Thu Oct 22 2026 VanillaGreen <brad@vanillagreen.com> - 0.1.2-2

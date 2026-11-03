@@ -2,6 +2,60 @@
 
 ## Unreleased
 
+## 0.1.4 (2026-11-03)
+
+- VGS requires Hyprland 0.57. On 0.57, Capture finds windows to select, Jarvis reads the screen and the desktop, a press on another monitor closes the launcher, and a scratchpad opens on the monitor its Screen setting names. The launcher keeps the keyboard while it is open.
+
+- Jarvis Talk is Super with the physical J key, and privacy Mute adds Shift, because Hyprland 0.57 no longer matches the Right Alt shortcuts. Saved Talk and Mute bindings on the old Right Alt defaults move to the new keys automatically.
+
+- Power has a power menu on a key you choose in its Settings. It lists Log out, Suspend, Hibernate, Reboot, Shut down and Switch user. Holding Space, Enter or the pointer on a row for 2 seconds fills it and runs that action; releasing early or pressing Escape runs nothing. The card is as wide as its rows.
+
+- Log out in the launcher's System menu ends the graphical session and returns to the login screen. Every System menu action and the power menu take the same path, and a refused action shows its failure.
+
+- Power shows whether the compositor configuration lets a key press and pointer movement wake the displays before you rely on display off, and says when that configuration cannot be read.
+
+- The screensaver draws on pure black on every theme, with theme colours kept readable against it. When idle locking starts, the running screensaver stays over the lock; the first movement, click or key reveals Lock without typing into its password field.
+
+- Lock has a Temporary unlock setting, off by default. While it is on, an application running as you, such as Jarvis, can unlock the desktop without a password for up to 60 seconds and lock it again without restarting VGS. The Details tab shows whether temporary access is off, allowed or active, and turning the setting off locks the desktop at once.
+
+- While a screen recording runs, the bar shows a recording icon that stops the recording on click, even when the capture widget is not in the bar. A finished recording's notification offers Show, which opens its folder in your file browser.
+
+- Area screenshots reach the clipboard as soon as each capture finishes, and no capture helper keeps running afterwards. On a rotated monitor, area selection shows each monitor upright and unstretched, and the saved and copied image is the region you picked.
+
+- Automations that need the internet wait for a connection instead of failing offline. A new automation has Needs internet on. After a wake or a login the network gets a grace period, a waiting automation runs once when the connection returns, and a run stopped only by a missing network or name lookup is recorded as skipped, not failed.
+
+- A failed automation's notification shows the output line that names the cause, not the output's last line, and offers Open log to read the run in your editor. Automation notifications show the Automations icon with a small success or failure badge on its corner.
+
+- Updating VGS no longer restarts PipeWire, so a call keeps its microphone and speakers. Muted notification sounds stay muted when their sound rule lifts and returns.
+
+- Every route that installs from pacman or the AUR offers the same agent review before it asks for your password or builds, including first installs, requirement installs and plugin setup, with Updates absent or turned off. System Settings has a Packages page under General for updates and agent review, and the Updates window and the launcher open it instead of a terminal editor.
+
+- VGS's own packages never ask for review, and a saved Install without review installs without asking. An AUR build that fails only in the package's own tests, on paru 2.1 or 2.2, offers one Retry without tests and explains the trade. An update step whose package origin cannot be read stops instead of running on an incomplete review.
+
+- Tailscale accounts sit in their own card, with icon buttons to add an account and sign out. Add account adds the account or returns to the previous one, a signed-out account offers Sign in, and the login operator step stays done across account changes. After Allow on a fresh install, the card shows the saved accounts at once.
+
+- Each Tailscale device row has a Copy icon. A device that accepts ssh also has Connect in terminal, which opens your terminal on an ssh session to that device, in a window of a shared tailnet tmux session when tmux is installed.
+
+- AI Usage cards show the 5-hour bar only for an account that has a 5-hour window, and show API credits and Cloud credits wherever the provider reports them, in regular and compact cards.
+
+- The Jarvis Console has Now, Needs you and History views. Needs you lists what waits on you, with Reply, Done and Later. History groups conversations by session and day with search, and lists tasks and problems as plain sentences with their cause.
+
+- When the saved Jarvis model is refused, Jarvis answers with the preferred or default model, shows one notice naming both, and keeps your saved setting. Jarvis voice recognition uses the words in your dictation replacements, so names such as your machines' are heard correctly. A voice conversation writes one audit row when it starts and one when it ends.
+
+- A saved background draws after an update and restart, including one saved from another theme, and every background change reaches the running shell. A missing or unreadable saved image falls back to the theme's image instead of a black desktop.
+
+- The tmux bar uses the attached terminal's own palette, locally and over ssh.
+
+- Only one list row shows a hover at a time, including when the pointer moves into expanded content or a nested list. Long flyout lists, such as the network list, open at the top. A menu reopened from the keyboard after you chose an entry highlights an entry again, so Return works at once.
+
+- Key hints under dialog and card buttons are smaller and muted, with no outline, a translucent fill and space between them and the buttons. Floating setup terminals leave exactly one blank row between steps.
+
+- Themes reads its theme list, backgrounds and catalog only while a theme browser is open, instead of every minute, and keeps noticing theme folder changes with many themes installed. Jarvis's audio supervisor no longer wakes 20 times a second while idle.
+
+- VGS requires the VGS Quickshell engine release in which every child process the shell starts, including version checks, ends with the shell. The per-child guards that 0.1.3 kept are removed.
+
+- The Nix install runs on NixOS only. On another system the flake and the NixOS curl install stop before the shell starts and name the package or curl install for that system.
+
 ## 0.1.3 (2026-10-23)
 
 - Power has a section in System Settings with the idle timeline, battery alerts and power profiles. Each idle step shows its time and opens the setting that controls it. Battery-only fields stay hidden on desktops, and a missing power profiles service offers installation.
