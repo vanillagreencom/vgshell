@@ -3,8 +3,9 @@
 // The one reader of a reference in text a user reads: a page reference,
 // `[words](page:<plugin id>)`, `[words](page:<plugin id>/<tab>)` or
 // `[words](page:<plugin id>/<tab>/<key>)`, TAB one of Settings, Setup and
-// Details and KEY a Settings field key or the key of a status row Setup or
-// Details draws, or a file reference, `[words](file:<encoded path>)`.
+// Details and KEY a Settings field key, `Keys` for the Settings tab's Keys
+// section, or the key of a status row Setup or Details draws, or a file
+// reference, `[words](file:<encoded path>)`.
 // LinkText draws the words as a link that opens the page or the file, and a
 // surface that cannot draw a link, such as a notice another server shows,
 // gives the words alone. The third page form opens the tab at that row,

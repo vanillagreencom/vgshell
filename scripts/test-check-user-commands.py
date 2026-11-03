@@ -159,6 +159,8 @@ ROWS = [
     ("a field target naming no field of its plugin", {"manifest.json": manifest(description='"Open [w](page:acme.setup/Settings/nosuch)."')}, "page-reference-field", "manifest.json:description"),
     ("a field target in QML naming no field", {"Service.qml": qml('    Label { text: "[Home](page:acme.setup/Settings/nosuch)" }')}, "page-reference-field", "Service.qml:3"),
     ("an existing field target", {"manifest.json": manifest(schema='{ "a": { "type": "boolean", "label": "A" } }', description='"Open [w](page:acme.setup/Settings/a)."')}, None, None),
+    ("a Keys target on a page that draws its Keys section", {"manifest.json": manifest(hyprland='{ "binds": [{ "shortcut": "go", "key": "SUPER+G" }] }', description='"Open [w](page:acme.setup/Settings/Keys)."')}, None, None),
+    ("a Keys target on a page with no key", {"manifest.json": manifest(description='"Open [w](page:acme.setup/Settings/Keys)."')}, "page-reference-field", "manifest.json:description"),
     ("a Setup target naming a Details row", {"manifest.json": manifest(description='"Open [w](page:acme.setup/Setup/nosuch)."')}, "page-reference-field", "manifest.json:description"),
     ("a Setup target naming its required step", {"manifest.json": manifest(status=STEPS, description='"Open [w](page:acme.setup/Setup/ready)."')}, None, None),
     ("a Setup target naming its optional step", {"manifest.json": manifest(status=STEPS, description='"Open [w](page:acme.setup/Setup/extra)."')}, None, None),

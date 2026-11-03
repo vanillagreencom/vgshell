@@ -149,8 +149,11 @@ Item {
             shell.shortcut.register("console", "Open Jarvis console", () => summonConsole());
             shell.shortcut.register("home", "Switch Jarvis home", item => switchHome(item));
             // The bar widget's click and `vgshell ipc call vgs.jarvis invoke
-            // mute` reach the Mute key's intent.
+            // mute` reach the Mute key's intent; the bar widget's menu
+            // reaches the Voice mute and Stop keys' intents the same way
+            // (WidgetView.menuEntries).
             shell.ipc.handle("mute", () => { intent("mute"); return "ok"; });
+            shell.ipc.handle("voice-mute", () => { intent("voice-mute"); return "ok"; });
             // The local voice setup's release (tui/setup-local.sh, localSetup).
             shell.ipc.handle("local-setup", step => localSetup(step));
             // The bar widget's click opens the console, as the Console key does.

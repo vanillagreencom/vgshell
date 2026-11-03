@@ -9,7 +9,8 @@ import "../../shell/plugins/vgs.jarvis/Session.js" as Session
 // The Jarvis bar widget: the icon and tone it draws for the status values a
 // stand-in `shell` hands it, that a click, Space, Return and keypad Enter
 // each make exactly one `console` call through `shell.ipc`, and that the
-// right-click menu's Mute row makes one `mute` call. The bar
+// right-click menu holds the Jarvis menu, each entry making one call of its
+// intent's handler or opening its page. The bar
 // layer takes no keyboard focus in the live shell, so this test is where
 // the keys are proven. WidgetView.js's own table is
 // scripts/test-jarvis-widget.js; this test reads what the widget draws.
@@ -47,6 +48,7 @@ Item {
             UnitTheme.reset();
             root.calls = [];
             root.reply = "ok";
+            widget.frame = null;
             widget.shell = root.shellWith(root.ready({}));
         }
 
@@ -104,29 +106,41 @@ Item {
             compare(JSON.stringify(root.calls), '[["console",""]]');
         }
 
-        // The right-click menu's Mute row mutes, with Jarvis's J for Unmute:
-        // the microphone is the Voice widget's.
-        function test_the_menu_mutes_once() {
-            compare(widget.frameActions.length, 1, "Mute without the offer");
-            compare(widget.frameActions[0].label, "Mute Jarvis");
-            widget.frameActions[0].action();
-            compare(JSON.stringify(root.calls), '[["mute",""]]');
-            widget.shell = root.shellWith(root.ready({ mute: { kind: "on" } }));
-            compare(widget.frameActions[0].label, "Unmute Jarvis");
-            verify(widget.frameActions.every(row => row.icon !== "mic"), "no menu row draws the microphone");
+        // The right-click menu holds the Jarvis menu the overlay opens too:
+        // each entry calls its intent's handler once, or opens Jarvis's
+        // Keys section, and each toggle names its next action.
+        function test_the_menu_holds_the_jarvis_menu_data() {
+            return [
+                { tag: "Mute microphone", index: 0, calls: '[["mute",""]]', pages: "[]" },
+                { tag: "Mute Jarvis's voice", index: 1, calls: '[["voice-mute",""]]', pages: "[]" },
+                { tag: "Stop Jarvis", index: 2, calls: '[["stop",""]]', pages: "[]" },
+                { tag: "Key hints", index: 3, calls: "[]", pages: '[["vgs.jarvis","Settings/Keys"]]' }
+            ];
+        }
+        function test_the_menu_holds_the_jarvis_menu(data) {
+            let pages = [];
+            widget.frame = { hide: () => "ok", openPage: (page, tab) => { pages = pages.concat([[page, tab]]); return "ok"; } };
+            compare(JSON.stringify(widget.frameActions.map(row => row.label)), JSON.stringify(["Mute microphone", "Mute Jarvis's voice", "Stop Jarvis", "Key hints"]));
+            widget.frameActions[data.index].action();
+            compare(JSON.stringify(root.calls), data.calls);
+            compare(JSON.stringify(pages), data.pages);
+            widget.frame = null;
+            widget.shell = root.shellWith(root.ready({ mute: { kind: "on" }, voiceMute: { kind: "on" } }));
+            compare(widget.frameActions[0].label, "Turn on microphone");
+            compare(widget.frameActions[1].label, "Unmute Jarvis's voice");
         }
 
         // While the Resume offer stands, a click asks for the resume once and
         // the right-click menu offers Do not resume; without it, neither.
         function test_a_click_on_the_offer_resumes_once() {
-            compare(widget.frameActions.length, 1, "no Do not resume without the offer");
+            verify(widget.frameActions.every(row => row.label !== "Do not resume"), "no Do not resume without the offer");
             widget.shell = root.shellWith(Object.assign(root.ready({}),
                 { jarvisSession: { model: null, since: null, offer: { unlock: "1password" }, steps: [], checkedAt: null } }));
             mouseClick(button());
             compare(JSON.stringify(root.calls), '[["resume-session",""]]');
-            compare(widget.frameActions.length, 2);
-            compare(widget.frameActions[1].label, "Do not resume");
-            widget.frameActions[1].action();
+            const dismiss = widget.frameActions.filter(row => row.label === "Do not resume");
+            compare(dismiss.length, 1);
+            dismiss[0].action();
             compare(JSON.stringify(root.calls), '[["resume-session",""],["dismiss-resume",""]]');
         }
 
@@ -143,7 +157,7 @@ Item {
         // expected-log: jarvis widget: mute unknown: mute -- the widget reports a reply other than ok
         function test_a_refused_reply_is_reported() {
             root.reply = "unknown: mute";
-            compare(widget.toggleMute(), "unknown: mute");
+            compare(widget.offer("mute"), "unknown: mute");
         }
 
         function test_an_unknown_tone_throws() {

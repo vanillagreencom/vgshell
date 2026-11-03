@@ -195,17 +195,19 @@ page_link_text='[Bare page](page:acme.bare/Details) holds the rest'
 page_info_text='The cue is set on the [Sounds page](page:vgs.sounds).'
 page_step_text='[Check step](page:acme.status/Setup/check) is a Setup step'
 page_fact_text='[Note row](page:acme.status/Details/note) is a Details row'
+page_keys_text='[Jarvis keys](page:vgs.jarvis/Settings/Keys) are its shortcuts'
 page_link_add() {
   mkdir -- "$page_link_fixture" || return 1
   cp -- "$repo/scripts/smoke/fixtures/plugins/acme.bare/Service.qml" "$page_link_fixture/Service.qml" || return 1
-  python3 - "$repo/scripts/smoke/fixtures/plugins/acme.bare/manifest.json" "$page_link_fixture/manifest.json" "$page_link_text" "$page_info_text" "$page_step_text" "$page_fact_text" <<'PYLINK'
+  python3 - "$repo/scripts/smoke/fixtures/plugins/acme.bare/manifest.json" "$page_link_fixture/manifest.json" "$page_link_text" "$page_info_text" "$page_step_text" "$page_fact_text" "$page_keys_text" <<'PYLINK'
 import json,sys
 from pathlib import Path
 manifest=json.loads(Path(sys.argv[1]).read_text())
-manifest.update(id="acme.page-link",name="Page link fixture",requirements=[],settings={"on":False,"step":False,"fact":False},
+manifest.update(id="acme.page-link",name="Page link fixture",requirements=[],settings={"on":False,"step":False,"fact":False,"keys":False},
     schema={"on":{"type":"boolean","label":"On","description":sys.argv[3],"info":sys.argv[4]},
         "step":{"type":"boolean","label":"Step","description":sys.argv[5]},
-        "fact":{"type":"boolean","label":"Fact","description":sys.argv[6]}})
+        "fact":{"type":"boolean","label":"Fact","description":sys.argv[6]},
+        "keys":{"type":"boolean","label":"Shortcuts","description":sys.argv[7]}})
 with Path(sys.argv[2]).open("x") as file:
     json.dump(manifest,file)
 PYLINK
@@ -237,6 +239,15 @@ expect_poll "a Details row reference opens its plugin's page" '"acme.status"' se
 expect_poll "a Details row reference opens Details" Details settings_tab_text
 expect_poll "the page shows the Details row the reference names" '"note"' reveal_key
 expect_poll "the plate marks the Details row" 1 reveal_mark
+# Settings/Keys opens the Settings tab at the Keys section, as the Jarvis
+# menu's Key hints entry does.
+expect "the window opens the page link fixture for its Keys reference" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.page-link
+expect_poll "the page link fixture's page shows for the Keys reference" '"acme.page-link"' settings_page
+link_click "$page_keys_text" || fail "the click on the Keys reference failed"
+expect_poll "a Keys reference opens its plugin's page" '"vgs.jarvis"' settings_page
+expect_poll "a Keys reference opens Settings" Settings settings_tab_text
+expect_poll "the page shows the Keys section the reference names" '"Keys"' reveal_key
+expect_poll "the plate marks the Keys section" 1 reveal_mark
 expect "the page opens again with no row named" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.status
 expect_poll "an open without a row shows none" '""' reveal_key
 expect_poll "the plate fades once no row is shown" 0 reveal_mark

@@ -13,8 +13,9 @@
 // `scheme.mode`, which applies LIGHT. Every ink here is chosen for a dark
 // field in both modes, the field the overlay's backdrop is to supply; no
 // backdrop draws yet, so the overlay stands straight on the desktop. LIGHT
-// is empty. Text takes its family and size from
-// its qs.Ui Label role; this table hands it its colour alone.
+// is empty: the text reads the same in both modes. Text takes its family
+// and size from its qs.Ui Label role; this table hands it its colour and
+// its shadow.
 //
 // Each state is one set of the orb shader's inputs (shaders/particleorb.frag).
 // Palette stops run top, upper, lower, bottom over the orb's height; `core`
@@ -101,17 +102,31 @@ var TOKENS = {
         // The gap between the orb's ring and the line under it.
         below: length(26),
         gap: length(8),
-        // From the approval prompt's answers to its key hints.
-        hints: length(12)
+        // The square over the orb's centre that takes the pointer while
+        // the overlay is active (D026): the right click that opens the
+        // menu and the hover that shows the icon row. The orb's whole
+        // canvas would take clicks meant for the window under its faint
+        // edge.
+        hit: length(150),
+        // How far right of and above the orb's centre the icon row's input
+        // rectangle starts, inside the hit square, so the pointer moving
+        // from the orb to an icon never leaves the input region.
+        bridge: length(40),
+        // The item at a right click that the menu opens from: one pixel
+        // keeps its rectangle non-empty, as qs.Ui's Menu anchors to it.
+        anchor: length(1)
     },
     orb: {
-        size: length(300),
+        // The canvas, 15% under the first build's 300 px (owner, revision
+        // 5); the icon row, the hit square and the shader instrument's
+        // scene follow it.
+        size: length(255),
         // Cells per cube edge, full and reduced (the reduced look draws no
         // inner rim strand and the rim's front faces alone).
         cells: number(40, 8, 64),
         reducedCells: number(34, 8, 64),
-        // A dot's radius as a share of the canvas half-width: 0.72 px at
-        // the 300 px canvas.
+        // A dot's radius as a share of the canvas half-width: 0.61 px at
+        // the 255 px canvas.
         dot: number(0.0048, 0, 0.05),
         frequency: number(2.4, 0, 8),
         warp: share(0.22),
@@ -167,23 +182,39 @@ var TOKENS = {
         muting: state({ saturation: 0, brightness: 0.8, sparks: 0.01 })
     },
     // The icon row's glyphs: at rest, under the pointer or pressed, and the
-    // focus ring. A toggle that is on draws the accent.
+    // focus ring. A toggle that is on draws the accent. The row shows only
+    // while the pointer is over the orb in an active state: it fades in
+    // and out over `fade`, and stays `hold` milliseconds after the pointer
+    // leaves the orb, the row or the way between them, so a path that
+    // cuts the corner between the two keeps it. The hold is a wait, not
+    // motion, so the motion scale leaves it.
     icon: {
         rest: color("#a3a7b3"),
         active: color("#f4f5f8"),
-        ring: color("#f4f5f8")
+        ring: color("#f4f5f8"),
+        fade: duration(400),
+        easing: easing("inOutQuad"),
+        hold: number(250, 0, 1000)
     },
-    // Each line's ink. The look hands a Label its colour alone.
+    // Each line's ink, the same in both modes. The look hands a Label its
+    // colour alone.
     ink: {
-        state: color("#c4c7d0"),
+        state: color("#e6e8ee"),
         title: color("#f4f5f8"),
         action: color("#b9bcc6"),
         link: color("#9cc3ff"),
         words: color("#f4f5f8"),
-        question: color("#f4f5f8"),
-        path: color("#a9adb8"),
-        payload: color("#d3d5dc"),
-        hint: color("#9a9eaa")
+        question: color("#ffffff"),
+        path: color("#e6e8ee"),
+        payload: color("#f4f5f8"),
+        hint: color("#e6e8ee")
+    },
+    // Every text item's shadow, as a 0 0 9px CSS text shadow at 15% black:
+    // it lifts the light ink off a light wallpaper (owner, revision 5).
+    shadow: {
+        color: color("#000000"),
+        opacity: share(0.15),
+        blur: length(9)
     },
     // The approval prompt's answers in the soft form, the owner's preferred
     // one; this group and Bubble.qml's Answer are the one place the form is
@@ -196,15 +227,15 @@ var TOKENS = {
         paddingX: length(13),
         radius: length(13),
         gap: length(6),
-        fill: color("alpha(#ffffff, 0.10)"),
-        hoverFill: color("alpha(#ffffff, 0.15)"),
+        fill: color("alpha(#ffffff, 0.075)"),
+        hoverFill: color("alpha(#ffffff, 0.1125)"),
         pressedFill: color("alpha(#ffffff, 0.06)"),
         // Neither fill nor border: Cancel's rest and hover, every border.
         clear: color("alpha(#ffffff, 0)"),
-        ink: color("#e6e8ee"),
-        hoverInk: color("#9ea3af"),
-        bareInk: color("#b7bbc6"),
-        bareHoverInk: color("#e6e8ee"),
+        ink: color("#ffffff"),
+        hoverInk: color("#d3d5dc"),
+        bareInk: color("#f4f5f8"),
+        bareHoverInk: color("#ffffff"),
         // One sweep of the band and the pause after it, repeated while the
         // pointer rests on Confirm, and the band's half-width as a share of
         // the label.

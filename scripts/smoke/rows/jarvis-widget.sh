@@ -146,7 +146,7 @@ jarvis_widget_mute_while_listening() { # ASSERTION
   jarvis_widget_gate close
   expect_poll "mute completes once capture closes" on jarvis_key_state mute
   rm -- "$jarvis_widget_gates/hold-close"
-  jarvis_widget_menu_choose "Unmute Jarvis"
+  jarvis_widget_menu_choose "Turn on microphone"
   expect_poll "the menu's Unmute row unmutes after the conversation" off jarvis_key_state mute
   jarvis_key_mode hold
 }
@@ -273,14 +273,14 @@ jarvis_widget_click
 jarvis_widget_click_opens
 expect "a click on the widget leaves mute off" off jarvis_key_state mute
 jarvis_widget_console_close
-jarvis_widget_menu_choose "Mute Jarvis" '["Hide","Mute Jarvis","Readme","Settings"]'
+jarvis_widget_menu_choose "Mute microphone" "[\"Hide\",\"Mute microphone\",\"Mute Jarvis's voice\",\"Stop Jarvis\",\"Key hints\",\"Readme\",\"Settings\"]"
 jarvis_widget_menu_mutes
 expect "the menu's Mute row reached the service's mute" on jarvis_key_state mute
 jarvis_key_mute
 expect_poll "the physical Mute key unmutes what the menu muted" "$jarvis_widget_ready" jarvis_widget
 jarvis_key_mute
 expect_poll "the physical Mute key mutes again" "$jarvis_widget_muted" jarvis_widget
-jarvis_widget_menu_choose "Unmute Jarvis"
+jarvis_widget_menu_choose "Turn on microphone"
 expect_poll "the menu's Unmute row unmutes Jarvis" "$jarvis_widget_ready" jarvis_widget
 expect "unmute alone keeps capture closed" closed jarvis_key_state capture
 jarvis_widget_mute_while_listening jarvis_widget_closing
@@ -320,7 +320,7 @@ jarvis_widget_restore Widget.qml
 jarvis_widget_plant Service.qml 'intent("mute"); return "ok";' 'return "ok";'
 jarvis_enable
 expect_poll "the handler control draws the ready widget" "$jarvis_widget_ready" jarvis_widget
-jarvis_widget_menu_choose "Mute Jarvis"
+jarvis_widget_menu_choose "Mute microphone"
 expect "a handler that sends no intent fails the menu's Mute assertion" 1 jarvis_widget_menu_control
 jarvis_widget_restore Service.qml
 
@@ -340,7 +340,7 @@ expect "the permanent-problem widget service enables" ok ipc shell setPluginEnab
 expect_poll "the real service reports its permanent cause" permanent jarvis_permanent
 expect_poll "the widget reads the permanent problem" '["circle-alert", "danger"]' jarvis_widget_look
 read_count jarvis_widget_refused "jarvis-widget: refusals before mute" jarvis_key_refusals 'Jarvis needs Node 22 or later'
-jarvis_widget_menu_choose "Mute Jarvis"
+jarvis_widget_menu_choose "Mute microphone"
 expect_poll "the menu's Mute row in the problem state reports the refusal" "$((jarvis_widget_refused + 1))" jarvis_key_refusals 'Jarvis needs Node 22 or later'
 expect "the permanent-problem service disables" ok ipc shell setPluginEnabled vgs.jarvis false
 notes_off "the problem-state refusal"

@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 import Quickshell
 import qs.Commons
 import qs.Ui
@@ -10,8 +11,22 @@ import "WidgetView.js" as View
 // orb in the look of the Session's phase, its icon row at the orb's top
 // right, the state line or the fault under it, the held request in place
 // of that line, and Jarvis's words above the orb while its voice is muted.
-// It draws in the plugin's own look (Appearance.js) on no card; a passive
-// layer takes clicks only on `inputItems` (D026).
+// It draws in the plugin's own look (Appearance.js) on no card, each line
+// of text over the look's shadow; a passive layer takes clicks only on
+// `inputItems` (D026).
+//
+// While the overlay is active (listening, thinking, acting, speaking, a
+// held request or a fault) the orb takes the pointer on the look's hit
+// square over its centre, and each line of text and answer while it
+// shows. The icon row shows only while the pointer rests there, fading
+// over the look's `icon.fade`; the bridge, one rectangle from inside the
+// hit square to the row's far corner, and the look's `icon.hold` keep it
+// shown on the way to an icon. A right click on any of them opens the
+// Jarvis menu (WidgetView.menuEntries) at the click; the overlay stays
+// shown while it is open. In the still states (waiting for the word,
+// getting ready, muted, stopping) the overlay takes no pointer and shows
+// no icon row: the bar widget's right-click menu is the way to the same
+// entries.
 Item {
     id: root
     property var screen: null
@@ -20,8 +35,10 @@ Item {
     readonly property var host: QsWindow.window
     readonly property var state: service === null ? null : service.sessionState
     readonly property string phase: state === null ? "down" : Session.phaseOf(state)
-    readonly property bool shown: service !== null && service.bubbleWanted && screen !== null
-        && screen.name === service.focusedOutput
+    // The menu holds the overlay shown: qs.Ui's Menu closes when the item
+    // it opened from hides.
+    readonly property bool shown: service !== null && screen !== null
+        && (menuOpened || service.bubbleWanted && screen.name === service.focusedOutput)
     readonly property bool presented: shown && visible && host !== null && host.presented === true
         && overlay.width > 0 && overlay.height > 0 && overlay.x >= 0 && overlay.y >= 0
         && overlay.width <= width && overlay.height + look.layout.margin <= height
@@ -104,8 +121,41 @@ Item {
     // The ring of the orb at rest, which the icon row and the line under
     // the orb stand against.
     readonly property real ring: look.state.armed.radius * look.orb.size / 2
-    readonly property var inputItems: [mic, voice, stop].concat(hold === null ? [] : [cancel, confirm])
-        .concat(faultAction.visible && faultAction.linked ? [faultAction] : [])
+    readonly property string orbPhase: micMuted ? "muting" : phase
+    readonly property bool active: ["listening", "thinking", "acting", "speaking", "confirming", "error"].indexOf(orbPhase) !== -1
+    // The pointer rests on the orb, the bridge or an icon; the icons stay
+    // `icon.hold` after it leaves all three.
+    readonly property bool pointerOver: orbHover.hovered || bridgeHover.hovered || mic.hovered || voice.hovered || stop.hovered
+    onPointerOverChanged: if (pointerOver) iconHold.stop(); else iconHold.restart()
+    readonly property bool iconsWanted: active && (pointerOver || iconHold.running)
+    property real iconOpacity: iconsWanted ? 1 : 0
+    Behavior on iconOpacity { NumberAnimation { duration: root.look.icon.fade; easing.type: root.look.icon.easing } }
+    readonly property bool iconsShown: iconOpacity > 0
+    readonly property var menuEntries: View.menuEntries(micMuted, voiceMuted)
+    readonly property bool menuOpened: menuUi.item !== null && menuUi.item.opened
+    // The open menu's entries, which scripts/smoke/rows/jarvis-bubble.sh
+    // reads, [] while it is closed.
+    readonly property var menuTexts: menuUi.item === null ? [] : menuUi.item.texts
+    readonly property var textItems: [words, stateLine, faultAction, question, fullPath, payload, physicalHint]
+    readonly property var inputItems: (active ? [orbHit] : [])
+        .concat(active && iconsShown ? [bridge] : [])
+        .concat(active ? textItems.filter(item => root.drawn(item)) : [])
+        .concat(hold === null ? [] : [cancel, confirm])
+        // A fault behind the muted microphone's still look keeps its link.
+        .concat(!active && faultAction.visible && faultAction.linked ? [faultAction] : [])
+    // Whether ITEM and every item over it up to the overlay show.
+    function drawn(item) {
+        for (let at = item; at !== null && at !== overlay; at = at.parent)
+            if (!at.visible) return false;
+        return true;
+    }
+    // A Jarvis menu entry: its intent, as its key sends it, or the page it
+    // opens.
+    function runEntry(entry) {
+        if (service === null) return;
+        if (entry.intent !== undefined) service.intent(entry.intent);
+        else if (service.shell !== null) service.shell.surfaces.openPage(entry.page, entry.tab);
+    }
     readonly property var stateWords: ({
         armed: "Say Hey Jarvis", idle: "Getting ready", listening: "Listening", thinking: "Thinking",
         acting: "Working", speaking: "Speaking", confirming: "Waiting for you", error: "", down: "Stopping"
@@ -132,6 +182,22 @@ Item {
         onClicked: if (service !== null) service.intent(intentName)
     }
 
+    // The look's text shadow, which every line of text draws over: a
+    // 0-offset blur of the line's own layer, which Qt draws again only when
+    // the line changes, so a still line redraws no blur. shadowBlur 1 is
+    // the full blur blurMax allows
+    // (doc.qt.io/qt-6/qml-qtquick-effects-multieffect.html).
+    component Shadow: MultiEffect {
+        required property var look
+        shadowEnabled: true
+        shadowColor: look.shadow.color
+        shadowOpacity: look.shadow.opacity
+        blurMax: look.shadow.blur
+        shadowBlur: 1
+        shadowHorizontalOffset: 0
+        shadowVerticalOffset: 0
+    }
+
     // One answer of the approval prompt in the look's form (Appearance.js
     // `answer`): Confirm or Yes on its fill with the shimmer, Cancel or No
     // as bare words. It is a qs.Ui Button handed the look's values, since a
@@ -154,6 +220,7 @@ Item {
         hoverTextColor: bare ? look.answer.bareHoverInk : look.answer.hoverInk
         ringColor: look.icon.ring
         shimmer: bare ? null : look.answer.shimmer
+        shadow: look.shadow
     }
 
     visible: shown
@@ -201,16 +268,46 @@ Item {
             y: words.height
             width: root.look.orb.size
             height: root.look.orb.size
-            phase: root.micMuted ? "muting" : root.phase
+            phase: root.orbPhase
             capture: root.levels.capture || 0
             playback: root.levels.playback || 0
             active: root.shown
         }
 
+        // The orb's input square while the overlay is active.
+        Item {
+            id: orbHit
+            objectName: "orbHit"
+            visible: root.active
+            width: root.look.layout.hit
+            height: root.look.layout.hit
+            x: overlay.centre - width / 2
+            y: overlay.orbCentre - height / 2
+            HoverHandler { id: orbHover }
+        }
+
+        // The icon row's input while it shows: from inside the hit square,
+        // `layout.bridge` right of and above the orb's centre, to the row's
+        // far corner, so it holds the row and meets the square.
+        Item {
+            id: bridge
+            objectName: "iconBridge"
+            visible: root.active && root.iconsShown
+            x: overlay.centre + root.look.layout.bridge
+            y: icons.y
+            width: icons.x + icons.width - x
+            height: overlay.orbCentre - root.look.layout.bridge - y
+            HoverHandler { id: bridgeHover }
+        }
+
+        Timer { id: iconHold; interval: root.look.icon.hold }
+
         Row {
             id: icons
             x: overlay.centre + root.ring
             y: overlay.orbCentre - root.ring - height / 2
+            opacity: root.iconOpacity
+            visible: root.iconsShown
             RowButton {
                 id: mic
                 look: root.look
@@ -218,7 +315,7 @@ Item {
                 keys: root.shortcutKeys
                 intentName: "mute"
                 iconName: root.micMuted ? "mic-off" : "mic"
-                label: root.micMuted ? "Turn on microphone" : "Mute microphone"
+                label: root.menuEntries[0].label
                 checked: root.micMuted
             }
             RowButton {
@@ -228,7 +325,7 @@ Item {
                 keys: root.shortcutKeys
                 intentName: "voice-mute"
                 iconName: root.voiceMuted ? "volume-x" : "volume-2"
-                label: root.voiceMuted ? "Unmute Jarvis's voice" : "Mute Jarvis's voice"
+                label: root.menuEntries[1].label
                 checked: root.voiceMuted
             }
             RowButton {
@@ -238,7 +335,7 @@ Item {
                 keys: root.shortcutKeys
                 intentName: "stop"
                 iconName: "square"
-                label: "Stop Jarvis"
+                label: root.menuEntries[2].label
             }
         }
 
@@ -250,7 +347,10 @@ Item {
             visible: root.hold === null
             spacing: root.look.layout.gap
             Label {
+                id: stateLine
                 width: parent.width
+                layer.enabled: true
+                layer.effect: Shadow { look: root.look }
                 role: root.fault !== null ? "bodyStrong" : "label"
                 color: root.fault !== null ? root.look.ink.title : root.look.ink.state
                 text: root.stateText
@@ -263,6 +363,8 @@ Item {
                 id: faultAction
                 width: parent.width
                 visible: root.fault !== null
+                layer.enabled: true
+                layer.effect: Shadow { look: root.look }
                 role: "body"
                 color: root.look.ink.action
                 linkColor: root.look.ink.link
@@ -290,6 +392,8 @@ Item {
             Label {
                 id: question
                 width: parent.width
+                layer.enabled: true
+                layer.effect: Shadow { look: root.look }
                 role: "bodyStrong"
                 color: root.look.ink.question
                 text: approvalText.prompt === null ? "" : approvalText.prompt.question
@@ -300,6 +404,8 @@ Item {
             Label {
                 id: fullPath
                 width: parent.width
+                layer.enabled: true
+                layer.effect: Shadow { look: root.look }
                 visible: text !== ""
                 role: "hint"
                 color: root.look.ink.path
@@ -311,6 +417,8 @@ Item {
             Label {
                 id: payload
                 width: parent.width
+                layer.enabled: true
+                layer.effect: Shadow { look: root.look }
                 visible: text !== ""
                 role: "body"
                 color: root.look.ink.payload
@@ -320,7 +428,10 @@ Item {
                 wrapMode: Text.Wrap
             }
             Label {
+                id: physicalHint
                 width: parent.width
+                layer.enabled: true
+                layer.effect: Shadow { look: root.look }
                 visible: root.hold !== null && root.hold.physical
                 role: "hint"
                 color: root.look.ink.hint
@@ -347,20 +458,63 @@ Item {
                     onClicked: if (root.service !== null) root.service.confirmApproval(root.displayedHold, "button")
                 }
             }
-            // The key hints stand `layout.hints` under the answers: the
-            // column's gap and the rest of that distance above the row.
-            Item {
-                width: parent.width
-                height: answerHints.height + root.look.layout.hints - root.look.layout.gap
-                visible: answerHints.hints.length > 0
-                KeyHints {
-                    id: answerHints
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    anchors.bottom: parent.bottom
-                    hints: root.shortcutKeys === null ? [] : [
-                        {key: root.shortcutKeys.stop || "", text: root.hold !== null && root.hold.purpose === "release" ? "No" : "Cancel"},
-                        {key: root.shortcutKeys.confirm || "", text: root.hold !== null && root.hold.purpose === "release" ? "Yes" : "Confirm"}
-                    ]
+        }
+
+        // TapHandler's default DragThreshold policy takes a passive grab
+        // (Qt Quick TapHandler gesturePolicy reference), and the answers and
+        // icons take the left button alone, so a right click anywhere the
+        // layer takes the pointer reaches this handler.
+        // pointer-cursor-exempt: a right click on the orb or its text, which show no control
+        // keyboard-path: each entry has its own key (Mute, Voice mute, Stop) or is the Keys section itself; the bar widget's menu holds the same entries
+        TapHandler {
+            acceptedButtons: Qt.RightButton
+            enabled: root.active
+            onTapped: eventPoint => {
+                menuUi.active = true;
+                menuUi.item.openAt(eventPoint.position.x, eventPoint.position.y);
+            }
+        }
+
+        // The menu is built on the first right click and released once
+        // closed, so an overlay at rest holds none.
+        Loader {
+            id: menuUi
+
+            function release() {
+                if (item !== null && !item.opened) active = false;
+            }
+
+            active: false
+            sourceComponent: Item {
+                id: menuAnchor
+
+                readonly property bool opened: orbMenu.opened
+                readonly property var texts: orbMenu.opened ? orbMenu.items().map(entry => entry.text) : []
+
+                // The menu opens at this item's bottom-left corner, the
+                // click.
+                function openAt(clickX, clickY) {
+                    x = clickX;
+                    y = clickY;
+                    orbMenu.open("pointer");
+                }
+
+                width: root.look.layout.anchor
+                height: root.look.layout.anchor
+                onOpenedChanged: if (!opened) Qt.callLater(menuUi.release)
+
+                Menu {
+                    id: orbMenu
+
+                    Repeater {
+                        model: root.menuEntries
+                        MenuItem {
+                            required property var modelData
+                            text: modelData.label
+                            iconName: modelData.icon
+                            onTriggered: root.runEntry(modelData)
+                        }
+                    }
                 }
             }
         }

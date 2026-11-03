@@ -340,7 +340,7 @@ function voicePending(values) {
 }
 
 function keySetting(name) {
-    return "Set " + name + " key in [Settings > Jarvis > Keys](page:vgs.jarvis/Keys).";
+    return "Set " + name + " key in [Settings > Jarvis > Keys](page:vgs.jarvis/Settings/Keys).";
 }
 
 
@@ -349,7 +349,7 @@ function stopAction(keys) {
 }
 
 function confirmAction(keys) {
-    return keys.confirm === null ? "Confirm on screen, or set [Confirm key in Settings > Jarvis](page:vgs.jarvis/Keys)."
+    return keys.confirm === null ? "Confirm on screen, or set [Confirm key in Settings > Jarvis](page:vgs.jarvis/Settings/Keys)."
         : "Confirm on screen, or press " + keys.confirm + ".";
 }
 
@@ -361,9 +361,29 @@ function clickLine(keys) {
 }
 
 // The muted state's line: the Mute key unmutes, as the right-click menu's
-// Unmute does.
+// Turn on microphone does (menuEntries).
 function unmuteLine(keys) {
-    return keys.mute === null ? "Unmute Jarvis from its right-click menu." : "Press " + keys.mute + " to unmute.";
+    return keys.mute === null ? "Turn on the microphone from its right-click menu." : "Press " + keys.mute + " to unmute.";
+}
+
+// The Jarvis menu, which the overlay's right-click menu and the bar
+// widget's right-click menu both draw, in this order: each { label, icon }
+// and either `intent`, the intent the entry's key sends, which the bar
+// widget reaches through the service's IPC handler of the same name, or
+// `page` and `tab`, the Settings page reference it opens: Key hints opens
+// the Keys section of Jarvis's Settings tab. MIC_MUTED and VOICE_MUTED,
+// the microphone's and the voice's mute, name each toggle's next action.
+// Stop ends what Jarvis is doing, a held request included, as the Stop
+// key does. The overlay's icon row takes its labels from here too. Turn on
+// microphone draws Jarvis's own J: the microphone glyph is the Voice
+// widget's.
+function menuEntries(micMuted, voiceMuted) {
+    return [
+        { label: micMuted ? "Turn on microphone" : "Mute microphone", icon: micMuted ? "vgs-letter-j" : "mic-off", intent: "mute" },
+        { label: voiceMuted ? "Unmute Jarvis's voice" : "Mute Jarvis's voice", icon: voiceMuted ? "volume-2" : "volume-x", intent: "voice-mute" },
+        { label: "Stop Jarvis", icon: "square", intent: "stop" },
+        { label: "Key hints", icon: "keyboard", page: "vgs.jarvis", tab: "Settings/Keys" }
+    ];
 }
 
 // A tooltip line is a sentence: one taken from a status hint, which ends
@@ -434,7 +454,7 @@ function checkedLine(checkedAt) {
 // What the Mute key does while a click resumes.
 function keyLine(muteOn, keys) {
     var action = muteOn ? "unmute" : "mute";
-    return keys.mute === null ? "Set [Mute key in Settings > Jarvis](page:vgs.jarvis/Keys) to " + action + "."
+    return keys.mute === null ? "Set [Mute key in Settings > Jarvis](page:vgs.jarvis/Settings/Keys) to " + action + "."
         : "Press " + keys.mute + " to " + action + ".";
 }
 

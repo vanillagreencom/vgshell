@@ -11,9 +11,11 @@ import "AccountProviders.js" as Providers
 // Space (which the button turns into a click), Return and keypad Enter
 // call the service's `console` IPC handler, which opens the console; while
 // the Resume offer stands (WidgetView `click`) they call `resume-session`
-// instead. The right-click menu adds Mute Jarvis or Unmute Jarvis, the
-// intent the Mute key sends, and Do not resume while the offer stands. It
-// is one BarItem.
+// instead. The right-click menu adds the Jarvis menu the overlay's right
+// click opens too (WidgetView.menuEntries): the microphone's and the
+// voice's mute, Stop and Key hints, each intent sent through the service's
+// IPC handler of its name, and Do not resume while the offer stands. It is
+// one BarItem.
 BarWidget {
     id: root
 
@@ -28,11 +30,13 @@ BarWidget {
     readonly property bool hasAsks: ownerAsks !== null && ownerAsks.kind === "ready" && ownerAsks.activeCount > 0
     implicitWidth: item.implicitWidth
     implicitHeight: barSize
-    // Whether Jarvis is muted or turning muted, as the service last read it.
-    readonly property bool muted: shell !== null && shell.status.values.detail !== undefined && shell.status.values.detail !== null
-        && View.muted(shell.status.values.detail.state.mute)
-    // Unmute draws Jarvis's own J: the microphone is the Voice widget's.
-    frameActions: [{ label: root.muted ? "Unmute Jarvis" : "Mute Jarvis", icon: root.muted ? "vgs-letter-j" : "mic-off", action: () => root.toggleMute() }]
+    readonly property var detail: shell === null || shell.status.values.detail === undefined ? null : shell.status.values.detail
+    // Whether Jarvis is muted or turning muted, and whether its voice is
+    // muted, as the service last read them.
+    readonly property bool muted: detail !== null && View.muted(detail.state.mute)
+    readonly property bool voiceMuted: detail !== null && detail.state.voiceMute.kind === "on"
+    frameActions: View.menuEntries(root.muted, root.voiceMuted).map(entry => ({ label: entry.label, icon: entry.icon,
+        action: entry.intent !== undefined ? () => root.offer(entry.intent) : () => root.frame.openPage(entry.page, entry.tab) }))
         .concat(view.click === "resume" ? [{ label: "Do not resume", icon: "x", action: () => root.offer("dismiss-resume") }] : [])
 
     function toneColor(tone) {
@@ -46,13 +50,6 @@ BarWidget {
         }
     }
 
-    // Toggle privacy mute through the service; answers the handler's reply.
-    function toggleMute() {
-        const reply = shell.ipc.call("mute", "");
-        if (reply !== "ok") console.warn("jarvis widget: mute " + reply);
-        return reply;
-    }
-
     // Open the console through the service; answers the handler's reply.
     function openConsole() {
         const reply = shell.ipc.call("console", "");
@@ -60,8 +57,9 @@ BarWidget {
         return reply;
     }
 
-    // NAME, the service's resume-session or dismiss-resume handler, while
-    // the Resume offer stands; answers the handler's reply.
+    // NAME, the service's handler of a Jarvis menu entry's intent, or its
+    // resume-session or dismiss-resume handler while the Resume offer
+    // stands; answers the handler's reply.
     function offer(name) {
         const reply = shell.ipc.call(name, "");
         if (reply !== "ok") console.warn("jarvis widget: " + name + " " + reply);

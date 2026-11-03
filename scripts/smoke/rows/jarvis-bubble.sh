@@ -5,8 +5,10 @@
 # Presentation and state poll once per IPC round trip; no latency budget is
 # claimed. The stillness reading counts the layer window's swapped frames
 # over 3 s of real time after the look settles, its own control the
-# speaking look in the same window, which must swap frames.
-# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* bin/lib/qml-library.js shell/plugins/vgs.bar/* shell/Ui/controls/Button.qml shell/Ui/controls/IconButton.qml shell/Ui/feedback/LinkText.qml shell/Core/Layers.qml shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml scripts/smoke/toplevel/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/diagnostics.sh
+# speaking look in the same window, which must swap frames. The icon row
+# shows only while the pointer rests on the active orb, so a click on an
+# icon hovers the orb first.
+# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* bin/lib/qml-library.js shell/plugins/vgs.bar/* shell/Ui/controls/Button.qml shell/Ui/controls/IconButton.qml shell/Ui/feedback/LinkText.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Core/Layers.qml shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml scripts/smoke/toplevel/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/diagnostics.sh
 set -euo pipefail
 jarvis_bubble_snapshots="$(mktemp -d "$sandbox/jarvis-bubble-snapshots.XXXXXX")"
 jarvis_bubble_row_config="$jarvis_bubble_snapshots/shell.json"
@@ -352,8 +354,30 @@ jarvis_bubble_pass() { # X Y
   expect_poll "a decorative point delivers release to the client below" "$((up + 1))" other_events '^button 272 released$'
   rest_pointer || fail "the pointer returns to rest after a decorative click"
 }
+# The active orb's centre, where the pointer shows the icon row and a
+# right click opens the Jarvis menu: "X Y", or a failed reading.
+jarvis_bubble_orb_centre() {
+  local box
+  box="$(jarvis_bubble_required_box ParticleOrb active true)" || return 1
+  python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(round(x+w/2), round(y+h/2))' "$box"
+}
+# The open Jarvis menu's entries, [] while it is closed.
+jarvis_bubble_menu() {
+  ipc smoke layerItems vgs.jarvis Bubble menuTexts | py_reply '
+import json,sys
+rows=[v["menuTexts"] for _,_,v in json.load(sys.stdin) if v["menuTexts"]]
+print(json.dumps(rows[0] if len(rows)==1 else [] if not rows else "menus=%d" % len(rows)))
+'
+}
 jarvis_bubble_click() { # LABEL
   local point x y
+  if ! point="$(jarvis_bubble_orb_centre)"; then
+    fail "the orb under the $1 button is readable"
+    return 0
+  fi
+  read -r x y <<<"$point"
+  hover "$x" "$y" || { fail "the pointer reaches the orb under the $1 button"; return 0; }
+  expect_poll "the pointer on the orb shows the $1 button" 1 jarvis_bubble_buttons "$1"
   if ! point="$(point_item vgs:layer vgs.jarvis RowButton label "$1")"; then
     fail "the labelled $1 button reports hover before click"
     printf 'jarvis-bubble: pointer-not-ready=%s\n' "$1"
@@ -554,26 +578,40 @@ geometry expect_poll "the bubble follows the free area without a bar" bottom-cen
 expect "the bar returns without restarting Jarvis" ok ipc shell setPluginEnabled vgs.bar true
 expect_poll "the bubble follows the restored reserved space" presented jarvis_bubble_state
 
-if ! orb_box="$(jarvis_bubble_required_box ParticleOrb active true)" ||
-   ! mute_box="$(jarvis_bubble_required_box RowButton label 'Mute microphone')" ||
-   ! stop_box="$(jarvis_bubble_required_box RowButton label 'Stop Jarvis')"; then
-  fail "the bubble's decorative targets are unreadable: orb=$orb_box mute=${mute_box-unread} stop=${stop_box-unread}"
+expect "the icon row hides while the pointer is away from the orb" 0 jarvis_bubble_buttons "Stop Jarvis"
+if ! orb_box="$(jarvis_bubble_required_box ParticleOrb active true)"; then
+  fail "the bubble's orb is unreadable: $orb_box"
   jarvis_bubble_abandon
   return 0
 fi
 read -r orb_x orb_y orb_w orb_h < <(python3 -c 'import json,sys; print(*json.loads(sys.argv[1]))' "$orb_box")
-read -r mute_x mute_y mute_w mute_h < <(python3 -c 'import json,sys; print(*json.loads(sys.argv[1]))' "$mute_box")
-# The orb's centre, its canvas left of the ring, and its canvas just above
-# the icon row: none is an input item.
-jarvis_bubble_pass "$((orb_x + orb_w / 2))" "$((orb_y + orb_h / 2))"
+# The listening orb takes the pointer on its centre alone: its canvas left
+# of the ring is decorative.
 jarvis_bubble_pass "$((orb_x + orb_w / 20))" "$((orb_y + orb_h / 2))"
+hover "$((orb_x + orb_w / 2))" "$((orb_y + orb_h / 2))" || fail "the pointer reaches the listening orb's centre"
+expect_poll "the pointer on the listening orb shows the icon row" 1 jarvis_bubble_buttons "Stop Jarvis"
+if ! mute_box="$(jarvis_bubble_required_box RowButton label 'Mute microphone')"; then
+  fail "the shown icon row is unreadable: $mute_box"
+  jarvis_bubble_abandon
+  return 0
+fi
+read -r mute_x mute_y mute_w mute_h < <(python3 -c 'import json,sys; print(*json.loads(sys.argv[1]))' "$mute_box")
+# The canvas just above the shown icon row is decorative too.
 if ((mute_y - 6 > orb_y)); then
   jarvis_bubble_pass "$((mute_x + mute_w / 2))" "$((mute_y - 6))"
 else
   fail "the orb's canvas reaches above the icon row: orb=$orb_box mute=$mute_box"
 fi
-expect "decorative clicks cannot mute" off jarvis_key_state mute
-expect "decorative clicks keep capture live" open jarvis_key_state capture
+expect_poll "the icon row hides once the pointer leaves the orb" 0 jarvis_bubble_buttons "Stop Jarvis"
+# A right click on the listening orb's centre opens the Jarvis menu at the
+# click, with the overlay's four entries; Escape closes it.
+right_click "$((orb_x + orb_w / 2))" "$((orb_y + orb_h / 2))" || fail "the right click on the listening orb is not delivered"
+expect_poll "a right click on the listening orb opens the Jarvis menu" "[\"Mute microphone\", \"Mute Jarvis's voice\", \"Stop Jarvis\", \"Key hints\"]" jarvis_bubble_menu
+type_keys -k Escape || fail "Escape on the Jarvis menu failed"
+expect_poll "Escape closes the Jarvis menu" "[]" jarvis_bubble_menu
+rest_pointer || fail "the pointer returns to rest after the Jarvis menu"
+expect "decorative clicks and the menu cannot mute" off jarvis_key_state mute
+expect "decorative clicks and the menu keep capture live" open jarvis_key_state capture
 jarvis_bubble_click "Stop Jarvis"
 jarvis_key_talk_up
 jarvis_key_stop_assertion
@@ -701,7 +739,13 @@ if ! words_box="$(jarvis_bubble_required_box Words visible true)"; then
   return 0
 fi
 read -r words_x words_y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(round(x+w/2),round(y+h/2))' "$words_box")
-jarvis_bubble_pass "$words_x" "$words_y"
+# Jarvis's words take the pointer while they show in an active state: a
+# right click on them opens the Jarvis menu.
+hover "$words_x" "$words_y" && right_click "$words_x" "$words_y" || fail "the right click on Jarvis's words is not delivered"
+expect_poll "a right click on Jarvis's words opens the Jarvis menu" "[\"Mute microphone\", \"Unmute Jarvis's voice\", \"Stop Jarvis\", \"Key hints\"]" jarvis_bubble_menu
+type_keys -k Escape || fail "Escape on the Jarvis menu over the words failed"
+expect_poll "Escape closes the Jarvis menu over the words" "[]" jarvis_bubble_menu
+rest_pointer || fail "the pointer returns to rest after the words' menu"
 # Stillness. The reply speaks behind the played gate: its look has a clock
 # of its own, so the layer window swaps frames, the control for the
 # readings below in the same window. Each look a phase with no deadline
@@ -720,6 +764,15 @@ expect_poll "waiting draws the armed look" armed jarvis_bubble_look
 expect "the waiting bubble shows no words" none jarvis_bubble_shown
 expect "observe the Jarvis layer's own window" ok ipc smoke watchLayerFrames vgs.jarvis
 expect "the waiting orb swaps no frame over 3 s" quiet jarvis_bubble_still
+# Waiting for the word, the overlay takes no pointer on the orb and shows
+# no icon row.
+if waiting_box="$(jarvis_bubble_required_box ParticleOrb active true)"; then
+  read -r waiting_x waiting_y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(round(x+w/2), round(y+h/2))' "$waiting_box")
+  jarvis_bubble_pass "$waiting_x" "$waiting_y"
+  expect "the waiting overlay shows no icon row under the pointer" 0 jarvis_bubble_buttons "Stop Jarvis"
+else
+  fail "the waiting orb is unreadable: $waiting_box"
+fi
 jarvis_key_mode hold
 expect_poll "Hold mode ends the wait" 0 layer_count vgs:layer
 jarvis_bubble_begin

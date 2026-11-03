@@ -356,7 +356,8 @@ FocusScope {
     // Show the page as it opens: on TAB, a tab's text, or on Settings when
     // the page has no such tab, the back button focused. A `<tab>/<key>` tab
     // (PageReference.place) also brings that row into view, a Settings
-    // field's or a Setup or Details status row's, and marks it.
+    // field's or a Setup or Details status row's, and marks it;
+    // `Settings/Keys` brings the Keys section into view.
     function open(reason, tab) {
         const place = PageReference.place(tab);
         tabs.currentIndex = Math.max(0, tabs.model.indexOf(place.tab));
@@ -401,8 +402,10 @@ FocusScope {
         }
     }
     // Whether the tab TAB draws a row for KEY: a Settings field or list
-    // the page places, a Setup step, or a Details status row.
+    // the page places, the Keys section, a Setup step, or a Details status
+    // row. No schema key starts with a capital, so `Keys` names no field.
     function revealDrawn(tab, key) {
+        if (tab === "Settings" && key === "Keys") return row.binds.length > 0 ? "" : "undrawn";
         if (tab === "Settings") {
             const field = fieldRow(key);
             return field === null ? "unknown" : field.list || placed(field) ? "" : "undrawn";
@@ -808,6 +811,8 @@ FocusScope {
                     }
 
                     Section {
+                        // The row a `Settings/Keys` reference shows.
+                        readonly property string fieldKey: "Keys"
                         width: parent.width
                         visible: page.row !== null && page.row.binds.length > 0
                         title: "Keys"

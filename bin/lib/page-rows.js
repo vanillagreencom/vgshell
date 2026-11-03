@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // The rows each tab of a plugin's Settings page draws, which a page
 // reference `page:<plugin id>/<tab>/<key>` can open, as the page's own
-// judges place them: Settings its schema fields, Setup the status entries
+// judges place them: Settings its schema fields and `Keys`, its Keys
+// section, while the manifest declares a bind, Setup the status entries
 // Steps.declaresStep takes as steps, and Details those Steps.detailEntries
 // draws, of PluginLogic.statusRows over the manifest with nothing
 // published. scripts/check-user-commands.py reads it, so a placement rule
@@ -39,7 +40,8 @@ function rows(file) {
     if (!isObject(raw)) return { Settings: [], Setup: [], Details: [] };
     const status = logic.statusRows({ status: isObject(raw.status) ? raw.status : {}, secrets: raw.secrets }, {});
     return {
-        Settings: isObject(raw.schema) ? Object.keys(raw.schema) : [],
+        Settings: (isObject(raw.schema) ? Object.keys(raw.schema) : [])
+            .concat(isObject(raw.hyprland) && Array.isArray(raw.hyprland.binds) && raw.hyprland.binds.length > 0 ? ["Keys"] : []),
         Setup: status.filter(steps.declaresStep).map(entry => entry.key),
         Details: steps.detailEntries(status).map(entry => entry.key)
     };

@@ -36,7 +36,9 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // width a side. The sweep stops the moment the pointer leaves, and the
 // button draws no further frame of it. The look's durations scale with
 // motion, so at motion scale 0 no sweep runs and no band draws. Keyboard
-// focus draws the ring and no shimmer.
+// focus draws the ring and no shimmer. `shadow`, the look's
+// `{ color, opacity, blur }`, draws a shadow with no offset under the
+// content, the shimmer included, as the surface's other text draws it.
 T.Button {
     id: root
 
@@ -66,6 +68,7 @@ T.Button {
     property color hoverTextColor: textColor
     property color ringColor: Theme.focusRing.color
     property var shimmer: null
+    property var shadow: null
     // A band crosses the label only while a sweep runs, under the pointer.
     // The sweep lives
     // in the content, which a button built on this one may replace.
@@ -104,6 +107,20 @@ T.Button {
         readonly property bool shimmering: sweep.running
         spacing: root.spacing
         opacity: lockState.fade
+        // The shadow blurs the content's layer, which Qt draws again only
+        // when the content changes: a still label redraws no blur
+        // (tst_jarvis_prompt.qml). shadowBlur 1 is the full blur blurMax
+        // allows (doc.qt.io/qt-6/qml-qtquick-effects-multieffect.html).
+        layer.enabled: root.shadow !== null
+        layer.effect: MultiEffect {
+            shadowEnabled: true
+            shadowColor: root.shadow === null ? "transparent" : root.shadow.color
+            shadowOpacity: root.shadow === null ? 0 : root.shadow.opacity
+            blurMax: root.shadow === null ? 0 : root.shadow.blur
+            shadowBlur: 1
+            shadowHorizontalOffset: 0
+            shadowVerticalOffset: 0
+        }
         // Each pass carries the band from wholly before the label to wholly
         // past it, then pauses, until the pointer leaves: hover is the
         // user's input, so it may draw frames while it lasts. At motion scale 0 the

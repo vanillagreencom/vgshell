@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 import qs.Ui
 
 // Jarvis's words while its voice is muted, above the orb: the newest line
@@ -8,7 +9,9 @@ import qs.Ui
 // `words.lift` while the line leaving the top fades out. Each is a Qt
 // animation that ends once the words catch up, never a ticking driver, and
 // at motion scale 0 every duration is 0, so the text appears whole. It
-// draws only, in the look its bubble hands it.
+// draws only, in the look its bubble hands it, each line over the look's
+// text shadow: a 0-offset blur of the line's layer, which Qt draws again
+// only while that line changes, so a lift or a still line redraws no blur.
 //
 // A caption that grows, as a duplex voice's does chunk by chunk, keeps the
 // words drawn: it extends them when every drawn word but the last is the
@@ -160,6 +163,18 @@ Item {
             height: root.lineBox
             y: (root.window - 1 - index) * root.lineBox + root.lift
             visible: line !== null && (index < root.window || root.lift > 0)
+            layer.enabled: true
+            // shadowBlur 1 is the full blur blurMax allows
+            // (doc.qt.io/qt-6/qml-qtquick-effects-multieffect.html).
+            layer.effect: MultiEffect {
+                shadowEnabled: true
+                shadowColor: root.look.shadow.color
+                shadowOpacity: root.look.shadow.opacity
+                blurMax: root.look.shadow.blur
+                shadowBlur: 1
+                shadowHorizontalOffset: 0
+                shadowVerticalOffset: 0
+            }
             opacity: index === 0 ? root.look.words.newest
                 : index === root.window ? root.look.words.oldest * root.lift / Math.max(1, root.lineBox)
                 : index === root.window - 1 ? root.look.words.oldest : root.look.words.middle

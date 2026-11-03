@@ -60,9 +60,9 @@ Jarvis comes with VGS. Open Plugin settings from the launcher and choose Jarvis.
 2. On Settings, choose a Voice provider. On Setup, use Set up local voice for Local or Add a key for a cloud voice. Choose the cloud Voice key on Settings. Run Check microphone when Setup offers it.
 3. When the required Setup steps read Done, tap Talk, Super with J, and speak.
 
-While Jarvis works with you, an orb at the bottom of the screen shows what it does: it waits, listens, thinks, speaks or needs your answer. The buttons beside the orb mute the microphone, mute Jarvis's voice and stop Jarvis. While its voice is muted, Jarvis shows its reply above the orb.
+While Jarvis works with you, an orb at the bottom of the screen shows what it does: it waits, listens, thinks, speaks or needs your answer. Move the pointer over the orb to show its buttons, which mute the microphone, mute Jarvis's voice and stop Jarvis. Right-click the orb or its text for the same actions and Key hints, which opens Jarvis's shortcuts. While its voice is muted, Jarvis shows its reply above the orb.
 
-The Jarvis J in the bar shows what to do next. Click it to open the Console, or use its right-click menu to mute or unmute. A saved session's Resume offer takes that click until you resume or dismiss it. Change Jarvis's shortcuts in the Keys section on its Settings tab. The Enabled switch turns Jarvis off and stops its session.
+The Jarvis J in the bar shows what to do next. Click it to open the Console, or use its right-click menu for the orb's actions. A saved session's Resume offer takes that click until you resume or dismiss it. Change Jarvis's shortcuts in the Keys section on its Settings tab, which Key hints opens. The Enabled switch turns Jarvis off and stops its session.
 
 The Settings tab holds these choices. Each setting's information button explains it; the Details tab shows readings.
 
