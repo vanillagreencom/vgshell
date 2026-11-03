@@ -75,12 +75,12 @@ sa_held_disable_check() { sa_hold_check; sa_disable_check; }
 # and nothing else.
 sa_controls=0
 sa_must_fail() { # LABEL CHECK CMD...
-  local label="$1" check="$2" log others
+  local label="$1" check="$2" log others="" found
   sa_controls=$((sa_controls + 1))
   log="$sandbox/stay-awake-control-$sa_controls.log"
   shift 2
   ( "$@" ) >"$log" 2>&1 || true
-  others="$(grep -F -- '  FAIL  ' "$log" | grep -v -F -- "  FAIL  $check: " || true)"
+  if found="$(grep -F -- '  FAIL  ' "$log" | grep -v -F -- "  FAIL  $check: ")"; then others="$found"; fi
   if [[ -n $others ]]; then
     fail "control: $label: another check failed: ${others//$'\n'/ | }"
   elif grep -q -F -- "  FAIL  $check: " "$log"; then
