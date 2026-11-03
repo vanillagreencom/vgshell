@@ -81,8 +81,10 @@ source "$repo/scripts/smoke/harness.sh"
 cp -- "$source_repo/scripts/shader/Scene.qml" "$repo/shell/ShaderScene.qml"
 # Each shader's costly copy adds a 256-step dependent loop before its
 # output, each step made of that shader's own work: VoiceOrb's trigonometry,
-# two of the plasma's four-octave noises, and two of the particle orb's
-# value noises. On host cachy on 2026-10-05
+# two of the plasma's four-octave noises, and three of the particle orb's
+# value noises: at the orb's 255 px canvas two read 0.1573 ms at scale 1
+# against the 0.1572 ms ceiling twice its scale-2 reading sets (run
+# 1793675342-2/run-3, cachy, 2026-11-03). On host cachy on 2026-10-05
 # the trigonometric loop added 0.026 ms of GPU cost to the plasma's
 # 0.127 ms at scale 1, under the plasma's 0.548 ms ceiling (run
 # shader-cost-1791193446-3856419), and one noise a step read 0.642 ms
@@ -103,7 +105,7 @@ costly = {
                "fragColor = vec4(outc, clamp(a, 0.0, 1.0)) * qt_Opacity * (0.99 + 0.01 * sin(cost));"),
     "jarvis-orb": ("shell/plugins/vgs.jarvis/shaders/particleorb.frag",
                    "fragColor = vec4(min(col, vec3(a)), a) * qt_Opacity;", "r + uFlow",
-                   "vnoise(vec3(uv * 3.0, cost + float(i) * 0.37)) + vnoise(vec3(uv.yx * 2.0, cost - float(i) * 0.21))",
+                   "vnoise(vec3(uv * 3.0, cost + float(i) * 0.37)) + vnoise(vec3(uv.yx * 2.0, cost - float(i) * 0.21)) + vnoise(vec3(uv * 5.0, cost * 0.5 + float(i) * 0.13))",
                    "fragColor = vec4(min(col, vec3(a)), a) * qt_Opacity * (0.99 + 0.01 * sin(cost));"),
 }
 # The reduced look is the same pass with its uReduce switch on, which the
