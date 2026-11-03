@@ -137,9 +137,12 @@ FocusScope {
         const groups = page.sections.map(section => section.group);
         return row.fieldRows.filter(field => field.list && (field.section === "" || groups.indexOf(field.section) === -1)).map(field => field.key);
     }
+    // The plugin's failed requirement install, which its Setup steps that
+    // offer Review show with Try again, or null (Steps.setupSections).
+    readonly property var installFailure: row === null || panel === null || !Object.prototype.hasOwnProperty.call(panel.installFailures, row.id) ? null : panel.installFailures[row.id]
     // The Setup tab's status sections in drawn order, with their rows,
     // keys and setup actions.
-    readonly property var setupSections: row === null ? [] : Steps.setupSections(row.tuis, row.status, row.requirements, pluginOf(row))
+    readonly property var setupSections: row === null ? [] : Steps.setupSections(row.tuis, row.status, row.requirements, pluginOf(row), installFailure)
     // Required declarations keep their tab after completion.
     readonly property bool hasSetup: row !== null && Steps.setupTab(setupSections, row.requirements)
     readonly property bool setupNeeded: row !== null && Steps.setupNeeds(row.status, row.requirements, row.enabled, Steps.startFailed(row.errors)).open
@@ -193,6 +196,7 @@ FocusScope {
         switch (button.kind) {
         case "enable": return panel.setEnabled(row.id, true);
         case "tools": return panel.installRequirements(row.id);
+        case "retry": return panel.retryInstall(row.id);
         case "tui": return panel.openTui(row.id, button.name);
         case "status": return panel.act(row.id, entry.key);
         case "row": return panel.act(row.id, entry.key, button.row, button.name);
@@ -208,7 +212,7 @@ FocusScope {
         if (row === null || panel === null) return "";
         if (button === null) return entry === null ? "" : panel.replyOf(row.id, entry.key);
         if (button.kind === "tui") return panel.replyOf(row.id, panel.tuiKey(button.name));
-        if (button.kind === "enable" || button.kind === "tools") return panel.replyOf(row.id, panel.actionKey(button.kind));
+        if (button.kind === "enable" || button.kind === "tools" || button.kind === "retry") return panel.replyOf(row.id, panel.actionKey(button.kind));
         if (button.kind === "row") return entry === null ? "" : panel.replyOf(row.id, entry.key, button.row);
         return button.kind === "status" && entry !== null ? panel.replyOf(row.id, entry.key) : "";
     }
@@ -222,9 +226,16 @@ FocusScope {
         property bool setup: false
         property var action: null
         property var asideAction: null
+        // The step's `failure` while its plugin's install failed
+        // (Steps.setupSections), drawn in place of its To do state.
+        property var failure: null
         // A step whose entry left the row draws as no entry (statusView),
         // and its delegate is hidden.
-        readonly property var view: setup && entry !== null ? Steps.stepView(entry, ms => Timestamp.text(ms, Time.now.getTime()), page.plugin) : Steps.statusView(entry, ms => Timestamp.text(ms, Time.now.getTime()))
+        readonly property var view: {
+            const time = ms => Timestamp.text(ms, Time.now.getTime());
+            const shown = setup && entry !== null ? Steps.stepView(entry, time, page.plugin) : Steps.statusView(entry, time);
+            return failure === null || page.installFailure === null ? shown : Steps.failedView(shown, page.installFailure, failure.lines);
+        }
         width: parent.width
         label: view.label
         info: view.info
@@ -946,8 +957,10 @@ FocusScope {
                                             entry: tools ? requiredEntry.modelData.entry : page.statusEntry(requiredEntry.modelData.key)
                                             setup: true
                                             action: page.row === null ? null : tools ? requiredEntry.modelData.button
-                                                : entry === null ? null : Steps.stepAction(entry, page.row.requirements, page.plugin)
+                                                : entry === null ? null : failure !== null && page.plugin.enabled ? requiredEntry.modelData.button
+                                                : Steps.stepAction(entry, page.row.requirements, page.plugin)
                                             asideAction: entry === null || tools || !page.plugin.enabled ? null : Steps.asideButton(entry)
+                                            failure: requiredEntry.modelData.failure === undefined ? null : requiredEntry.modelData.failure
                                         }
                                     }
                                 }

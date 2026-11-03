@@ -552,6 +552,47 @@ function suite(ctx, check) {
     }
     check("welcomeStep: a second read is refused", throws(() => ctx.welcomeStep("seen", { type: "read", seen: false })), "welcomeStep");
     check("welcomeStep: Close on a seen welcome is refused", throws(() => ctx.welcomeStep("seen", { type: "answer", answer: "close" })), "welcomeStep");
+
+    // A failed install: what Notices keeps of the press's run, read back
+    // from its file, and what the owner's Setup step shows from the run's
+    // ended record (installFailureView).
+    const installRun = ctx.noticeRun("pacman", true, ["one", "two"], []);
+    const updateRun = ctx.noticeRun("aur", false, ["two-git"], ["old-bin"]);
+    check("noticeRun: the primary's install names its packages alone", [installRun.action, installRun.args], ["install", ["one", "two"]]);
+    check("noticeRun: an update of another manager names it, then the installs", [updateRun.action, updateRun.args], ["update", ["--manager", "aur", "old-bin", "--install", "two-git"]]);
+    const failedRun = ctx.installFailure(installRun, { code: 1, reason: null }, "7-1");
+    check("installFailure: a run that ended keeps its key, run and packages", failedRun, { key: "core/requirements-install", run: "7-1", manager: "pacman", primary: true, installs: ["one", "two"], updates: [] });
+    check("installFailure: an update keeps the update key and its manager's place", [ctx.installFailure(updateRun, { code: 2, reason: null }, "7-2").key, ctx.installFailure(updateRun, { code: 2, reason: null }, "7-2").primary], ["core/requirements-update", false]);
+    check("installFailure: a launch that never started keeps no run", ctx.installFailure(installRun, { code: null, reason: "launcher-failed" }, "7-3").run, null);
+    check("installFailure: a run the reaper ended keeps its run", ctx.installFailure(installRun, { code: null, reason: "vanished" }, "7-4").run, "7-4");
+    check("noticeRun: a kept failure runs again as it ran", (() => { const r = ctx.noticeRun(failedRun.manager, failedRun.primary, failedRun.installs, failedRun.updates); return [r.action, r.args]; })(), [installRun.action, installRun.args]);
+    const readRows = [
+        ["a written file reads back", { "acme.needs": failedRun }, { ok: true, failures: { "acme.needs": failedRun } }],
+        ["the core's own failure reads back", { core: failedRun }, { ok: true, failures: { core: failedRun } }],
+        ["an owner that is no id", { "Acme Needs": failedRun }, { ok: false, error: "entry=\"Acme Needs\"" }],
+        ["a package that reads as an option", { "acme.needs": Object.assign({}, failedRun, { installs: ["--root=/"] }) }, { ok: false, error: "entry=acme.needs" }],
+        ["an unknown manager", { "acme.needs": Object.assign({}, failedRun, { manager: "brew" }) }, { ok: false, error: "entry=acme.needs" }],
+        ["a key that does not fit its packages", { "acme.needs": Object.assign({}, failedRun, { key: "core/requirements-update" }) }, { ok: false, error: "entry=acme.needs" }],
+        ["a key no notice runs", { "acme.needs": Object.assign({}, failedRun, { key: "core/pkg-install" }) }, { ok: false, error: "entry=acme.needs" }],
+        ["a malformed run", { "acme.needs": Object.assign({}, failedRun, { run: "../x" }) }, { ok: false, error: "entry=acme.needs" }],
+        ["an extra field", { "acme.needs": Object.assign({}, failedRun, { argv: ["sh"] }) }, { ok: false, error: "entry=acme.needs" }],
+        ["no packages", { "acme.needs": Object.assign({}, failedRun, { installs: [] }) }, { ok: false, error: "entry=acme.needs" }],
+        ["a list", [failedRun], { ok: false, error: "shape" }],
+    ];
+    for (const [name, value, want] of readRows) check("installFailuresRead: " + name, ctx.installFailuresRead(JSON.stringify(value)), want);
+    check("installFailuresRead: text that is not JSON", ctx.installFailuresRead("{"), { ok: false, error: "json" });
+    const record = (run, code, pkg) => ({ key: "core/requirements-install", run: run, state: code === undefined ? "running" : "ended", code: code === undefined ? null : code, startedAt: run, endedAt: code === undefined ? null : run, window: { appId: "org.vgs.tui", title: "t" }, package: pkg === undefined ? null : pkg });
+    const failedOutcome = { kind: "package-failed", manager: "pacman", helper: null, status: 1, lines: ["error: failed retrieving file", "error: failed to commit transaction"] };
+    const failureViewRows = [
+        ["a failed run shows its packages and its record's last lines", failedRun, [record("7-1", 1, failedOutcome)], { action: "install", packages: ["one", "two"], lines: failedOutcome.lines, run: "7-1", key: "core/requirements-install" }],
+        ["a failed run whose record holds no lines shows none", failedRun, [record("7-1", 2)], { action: "install", packages: ["one", "two"], lines: [], run: "7-1", key: "core/requirements-install" }],
+        ["a run that ended with code 0 shows no failure", failedRun, [record("7-1", 0)], null],
+        ["a run whose record a later run removed shows no failure", failedRun, [record("8-1", 1, failedOutcome)], null],
+        ["a run still running shows no failure", failedRun, [record("7-1")], null],
+        ["a launch that never started shows its packages with no lines", Object.assign({}, failedRun, { run: null }), [], { action: "install", packages: ["one", "two"], lines: [], run: null, key: "core/requirements-install" }],
+        ["an update names its updates, then its installs", ctx.installFailure(updateRun, { code: 1, reason: null }, "7-2"), [Object.assign(record("7-2", 1), { key: "core/requirements-update" })], { action: "update", packages: ["old-bin", "two-git"], lines: [], run: "7-2", key: "core/requirements-update" }],
+    ];
+    for (const [name, entry, records, want] of failureViewRows) check("installFailureView: " + name, ctx.installFailureView(entry, ctx.tuiRuns(records)), want);
 }
 
 suite(load(LOGIC), report);
@@ -644,6 +685,12 @@ const CONTROLS = [
     ["Close closes the welcome", "            return seen;\n        }\n", "            return keep;\n        }\n"],
     ["a Connect that wires closes the welcome", "(event.after.phase === \"wired\" || ", "("],
     ["only an answer closes the welcome on a consent change", "event.before.phase === \"asking\" && (", "("],
+    ["a launch that never started keeps no run", "run: unstarted ? null : run,", "run: run,"],
+    ["a kept failure's packages are judged", "&& names(e.installs) && names(e.updates) &&", "&&"],
+    ["a kept failure's key fits its packages", "&& e.key === NOTICE_RUN_KEYS[e.updates.length === 0 ? \"install\" : \"update\"];", ";"],
+    ["a kept failure holds only its fields", "isPlainObject(e) && Object.keys(e).length === 6", "isPlainObject(e)"],
+    ["a run that ended with code 0 is no failure", "record.state !== \"ended\" || record.code === 0) return null;", "record.state !== \"ended\") return null;"],
+    ["a failure whose record went shows none", "    var record = hasOwn(runs.runs, entry.run) ? runs.runs[entry.run] : null;\n    if (record === null || ", "    var record = hasOwn(runs.runs, entry.run) ? runs.runs[entry.run] : { state: \"ended\", code: 1, package: null };\n    if ("],
 ];
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "notice-logic-control-"));

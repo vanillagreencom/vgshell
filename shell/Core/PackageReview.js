@@ -306,14 +306,55 @@ function classifyInstallFailure(evidence) {
     return { kind: "check-only", base: base, version: version, target: matched[0] };
 }
 
+// The most lines, and the most characters of one line, a failed step's
+// tail keeps (failureLines): what a Setup step draws under the failure.
+// 5 lines of 160 characters, at most 4 UTF-8 bytes each, keep a failed
+// outcome inside PACKAGE_OUTCOME_MAX with its other fields.
+var FAILURE_LINES_MAX = 5;
+var FAILURE_LINE_MAX = 160;
+// The shapes of a secret a package manager's output can carry: the user
+// and password of a mirror or proxy address, and the common token
+// prefixes. A pattern cannot recognize an arbitrary password, so the cut a
+// line comes from holds only the step's own output, never what was typed
+// at its prompts, which no terminal echoes (docs/architecture/secrets.md).
+var FAILURE_SECRETS = [
+    { pattern: /([a-z][a-z0-9+.-]*:\/\/)[^\s\/@]+@/gi, mask: "$1\u2026@" },
+    { pattern: /\b(?:sk-(?:ant-)?[A-Za-z0-9_-]{16,}|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{20,}|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)\b/g, mask: "\u2026" }
+];
+
+// TEXT, a failed step's output cut from its terminal (bin/lib/tui.sh
+// vgs_tui_interval_cut), as the lines a failure shows: transcriptLines'
+// lines with their trailing blanks trimmed, each secret shape masked, the
+// last FAILURE_LINES_MAX that are not blank, each cut to
+// FAILURE_LINE_MAX characters with an ellipsis. Masking and cutting a
+// line it answered changes nothing, which failureLinesValid reads.
+function failureLines(text) {
+    var lines = transcriptLines(text).map(function (line) {
+        var masked = FAILURE_SECRETS.reduce(function (shown, secret) { return shown.replace(secret.pattern, secret.mask); }, line.replace(/\s+$/, ""));
+        var chars = Array.from(masked);
+        return chars.length > FAILURE_LINE_MAX ? chars.slice(0, FAILURE_LINE_MAX - 1).join("") + "\u2026" : masked;
+    }).filter(function (line) { return line.trim() !== ""; });
+    return lines.slice(-FAILURE_LINES_MAX);
+}
+
+// Whether LINES is a tail failureLines answered: 1 to FAILURE_LINES_MAX
+// strings, each a line it keeps as it is.
+function failureLinesValid(lines) {
+    return Array.isArray(lines) && lines.length > 0 && lines.length <= FAILURE_LINES_MAX && lines.every(function (line) {
+        return typeof line === "string" && line.indexOf("\n") === -1 && sameJson(failureLines(line), [line]);
+    });
+}
+
 // The package owner's typed outcome kinds, each with the fields it carries
 // beside kind and manager. package-check-failed carries retry, null when no
 // retry remains for the run or { originRun, state }: available while the
 // owner holds the one retry for originRun, consumed once it ran.
+// package-failed carries `lines`, failureLines' tail of the failed step's
+// output, only when its cut was read.
 var PACKAGE_OUTCOMES = {
     "package-installed": ["helper", "package", "testsSkipped"],
     "package-skipped": [],
-    "package-failed": ["helper", "status"],
+    "package-failed": ["helper", "status", "lines"],
     "package-cancelled": ["status"],
     "package-check-failed": ["helper", "package", "status", "retry"]
 };
@@ -366,6 +407,10 @@ function packageOutcome(value, run, code) {
             retry = { originRun: retry.originRun, state: retry.state };
         }
         out.retry = retry;
+    }
+    if (hasOwn(value, "lines")) {
+        if (!failureLinesValid(value.lines)) return fail("lines");
+        out.lines = value.lines.slice();
     }
     return { ok: true, outcome: out };
 }

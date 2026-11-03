@@ -120,7 +120,7 @@
 #   { "kind": "package-installed", "manager", "helper" [, "package",
 #     "testsSkipped": true] }
 #   { "kind": "package-skipped", "manager" }
-#   { "kind": "package-failed", "manager", "helper", "status" }
+#   { "kind": "package-failed", "manager", "helper", "status" [, "lines"] }
 #   { "kind": "package-cancelled", "manager", "status" }
 #   { "kind": "package-check-failed", "manager", "helper", "package",
 #     "status", "retry": null | { "originRun", "state": "available" |

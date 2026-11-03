@@ -20,6 +20,7 @@ An argument sits in every process list, an IPC reply in the shell's log, a statu
 - Never read a token in a probe; `secret-tool search` without `--unlock`, stdout to `/dev/null`. `scripts/test-notifications-token-status.sh` pins it, and a `secret-tool` failure names the account only.
 - Do check both clipboard secret marks before reading any data, and refuse a run with no `CLIPBOARD_STATE`. `scripts/test-clipboard.py` and `scripts/smoke/rows/clipboard.sh` pin it.
 - Never put copied data in a log line or an IPC refusal; print its length alone. Gap: no check reads the logs or refusals for copied data.
+- Never carry a mirror's or a proxy's password, or a token, in a failed install's last lines; `PackageReview.failureLines` masks each shape it knows, and the lines come from the step's own output, which never echoes a password typed at its prompt. `scripts/fixtures/pkg-review/failure-test.js` pins the masks, and `scripts/smoke/rows/notices.sh` reads a planted password absent from every status the shell lends. Gap: no pattern recognizes an arbitrary password in the output.
 - Never log a Bluetooth code, passkey, PIN or answer; log an unknown prompt with every digit run as `#`. `scripts/test-bluetooth-agent.js` pins it.
 - Never run a real PAM, polkit, sudo or keyring step in a test; the one exception is the stored key the Jarvis self-test reads, under [validation.md § Jarvis self-test](validation.md#jarvis-self-test). `scripts/smoke/rows/auth-sentinel.sh` pins it.
 

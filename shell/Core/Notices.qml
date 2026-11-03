@@ -29,7 +29,11 @@ import "PluginLogic.js" as Logic
 // `core/requirements-update`, which also installs the same manager's missing
 // packages; once its run ends, one rescan follows, and
 // a notice whose required commands that scan and its version read find, at
-// their floor, is closed, while one the run left as it was says so. A notice a
+// their floor, is closed, while one a run that ended with code 0 left as it
+// was says so. A run that failed closes its notice as Not now does, so the
+// notice never comes back by itself, and its owner's Setup step shows the
+// failure from the run's own record, with Try again (retryInstall), until
+// the next install attempt for that owner (installFailures). A notice a
 // plugin's own script request raised in place of itself (TuiRunner's run,
 // runFor and open) lists that script's own lacking commands and starts it
 // once it closes so, so one press of Set up ends set up (D061).
@@ -56,11 +60,32 @@ Singleton {
     // The id of the notice whose install or update runs, from the press
     // until the version read of the scan after its TUI ended, or "".
     property string installingId: ""
-    // Why the shown notice's last run left it open, or null: { kind:
-    // "failed", reason } for a run that did not start or did not end with
-    // code 0, or what a run that ended with code 0 left as it was,
-    // PluginLogic.noticeUnchanged's answer, of kind `unchanged`.
+    // Why the shown notice's last press left it open, or null: { kind:
+    // "failed", reason } for a run the press could not start, or what a run
+    // that ended with code 0 left as it was, PluginLogic.noticeUnchanged's
+    // answer, of kind `unchanged`.
     property var failure: null
+    // Owner id -> the requirement install that last failed for it,
+    // PluginLogic.installFailure's entry, from its end until the next
+    // install attempt for that owner, kept in failuresPath, beside the run
+    // records, so a shell restart keeps it. Replaced whole.
+    property var installFailures: ({})
+    readonly property string failuresPath: Quickshell.env("XDG_RUNTIME_DIR") + "/vgshell/install-failures.json"
+    // Owner id -> what its Setup step draws of its failed install,
+    // PluginLogic.installFailureView with the run's record path, for each
+    // failure whose run still has its ended record: the `manager`
+    // capability's installFailures.
+    readonly property var failureViews: {
+        const runs = Capabilities.tuis.runs;
+        const out = {};
+        for (const id of Object.keys(installFailures)) {
+            const shown = Logic.installFailureView(installFailures[id], runs);
+            if (shown === null) continue;
+            shown.path = shown.run === null ? null : Capabilities.tuis.recordPath(shown.key, shown.run);
+            out[id] = shown;
+        }
+        return out;
+    }
     // Plugin id -> the request for its own script, TuiRunner's held
     // { name, args, ctx, done }, made while a command it needs was missing:
     // started once that plugin's notice closes with the commands found,
@@ -434,28 +459,65 @@ Singleton {
         const shown = view;
         if (shown === null || shown.run === null || installing) return "refused: install=none";
         const id = shown.id;
-        const ran = shown.run;
         failure = null;
-        const answer = Capabilities.tuis.openCore("requirements-" + ran.action, ran.args, result => root.installEnded(id, ran, result));
-        if (answer === "ok") installingId = id;
-        else {
+        const answer = runInstall(id, shown.run);
+        if (answer !== "ok") {
             failure = { kind: "failed", reason: answer };
             console.error("notices: install=" + id + " " + answer);
         }
         return answer;
     }
 
-    // The run of RAN, the PluginLogic.noticeView `run` accept pressed, for ID's notice ended with
-    // RESULT. A run that did not end with code 0 says why at once. One
+    // The `manager` capability's retryInstall, the Setup step's Try again:
+    // owner ID's failed install run again as it ran (PluginLogic.noticeRun),
+    // with no notice in front, since the user pressed its Install before and
+    // the terminal shows the step before it runs. Answers the TUI's answer,
+    // or a refusal while no failure is kept for ID or another install runs.
+    function retryInstall(id) {
+        if (!Logic.hasOwn(failureViews, id)) return "refused: install=" + id + " reason=no-failure";
+        if (installingId !== "") return "refused: install=" + id + " reason=busy";
+        const entry = installFailures[id];
+        return runInstall(id, Logic.noticeRun(entry.manager, entry.primary, entry.installs, entry.updates));
+    }
+
+    // RAN, a noticeView `run`, for owner ID through its core TUI: the next
+    // install attempt for ID, which forgets the failure kept for it.
+    function runInstall(id, ran) {
+        const answer = Capabilities.tuis.openCore("requirements-" + ran.action, ran.args, (result, run) => root.installEnded(id, ran, result, run));
+        if (answer !== "ok") return answer;
+        installingId = id;
+        keepFailure(id, null);
+        return answer;
+    }
+
+    // Owner ID's kept failure set to ENTRY, or forgotten when ENTRY is null,
+    // and the file written.
+    function keepFailure(id, entry) {
+        if (entry === null && !Logic.hasOwn(installFailures, id)) return;
+        const next = Object.assign({}, installFailures);
+        if (entry === null) delete next[id];
+        else next[id] = entry;
+        installFailures = next;
+        failuresFile.setText(JSON.stringify(next) + "\n");
+    }
+
+    // RUN, the run of RAN, the PluginLogic.noticeView `run` a press ran
+    // for ID, ended with RESULT. A run that did not end with code 0 is kept
+    // for ID's Setup step (PluginLogic.installFailure) and closes ID's
+    // notice as Not now does, so the notice never comes back by itself. One
     // rescan follows, and its version read settles the notice, since only
     // that read says whether an update reached the floor; a run that ended
     // with code 0 and left packages of its own step owed is judged then
     // (PluginLogic.noticeUnchanged), so the notice that comes back names
     // each of them.
-    function installEnded(id, ran, result) {
+    function installEnded(id, ran, result, run) {
         const ended = result.code === 0;
-        if (!ended && root.current !== null && root.current.id === id)
-            failure = { kind: "failed", reason: result.code === null ? result.reason : "exited " + result.code };
+        if (!ended) {
+            console.info("notices: install=" + id + " failed run=" + run + " " + (result.code === null ? "reason=" + result.reason : "exit=" + result.code));
+            keepFailure(id, Logic.installFailure(ran, result, run));
+            const notice = queue.find(n => n.id === id);
+            if (notice !== undefined) close(notice);
+        }
         detect();
         afterVersions(() => {
             if (root.installingId !== id) return;
@@ -539,13 +601,19 @@ Singleton {
             return;
         }
         if (installing) return;
+        close(notice);
+    }
+
+    // NOTICE off the queue: the offers its owner suggests with no press
+    // rest, and the request it holds for a script is dropped.
+    function close(notice) {
         const now = Date.now();
         const next = {};
         for (const id of Object.keys(rest)) if (rest[id] > now) next[id] = rest[id];
         next[notice.id] = now + Logic.NOTICE_OFFER_REST_MS;
         rest = next;
         if (Logic.hasOwn(resumes, notice.id)) hold(notice.id, null);
-        queue = queue.slice(1);
+        queue = queue.filter(n => n !== notice);
     }
 
     // The consent slot's action of ROLE answers, when the slot draws one.
@@ -594,6 +662,7 @@ Singleton {
                 link: consent !== null && consent.welcome ? consent.link : null
             },
             waiting: queue.slice(1).map(n => n.id),
+            failures: failureViews,
             resumes: resumeNames,
             resting: Object.keys(rest).filter(id => rest[id] > now).sort(),
             screen: screen === null ? null : screen.name,
@@ -601,6 +670,32 @@ Singleton {
             detection: detection,
             detecting: detector.running
         };
+    }
+
+    // The failures a shell before this one kept, read once at start; one
+    // kept since then wins. A file the judge refuses keeps none, and the
+    // log names why. FileView preloads its path in the background once set,
+    // reports a missing file through loadFailed as FileNotFound, and
+    // setText writes atomically by default (atomicWrites), so a reader never
+    // finds half a file.
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/FileView
+    FileView {
+        id: failuresFile
+        path: root.failuresPath
+        printErrors: false
+        watchChanges: false
+        onLoaded: {
+            const read = Logic.installFailuresRead(text());
+            if (!read.ok) {
+                console.error("notices: install-failures=unreadable path=" + root.failuresPath + " " + read.error);
+                return;
+            }
+            root.installFailures = Object.assign(read.failures, root.installFailures);
+        }
+        onLoadFailed: error => {
+            if (error !== FileViewError.FileNotFound) console.error("notices: install-failures=unreadable path=" + root.failuresPath + " error=" + error);
+        }
+        onSaveFailed: error => console.error("notices: install-failures=unwritten path=" + root.failuresPath + " error=" + error)
     }
 
     // The reset marker, read once at start: the folder it names while that

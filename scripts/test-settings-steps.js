@@ -523,6 +523,21 @@ function verify(logic, producer) {
     const listed = keysOf(keyEntry("reported", [keyItem("A", { hint: "Its own" }), keyItem("B")], "Each key unlocks the feature"), on);
     same([listed.note, listed.items.map(item => [item.key, item.hint])], ["", [["secret acme:A", "Its own"], ["secret acme:B", "Each key unlocks the feature"]]], "Settings: each key reads its own hint, else its list's");
     same(logic.itemsKeyed([{ secret: "provider:key", label: "Provider" }, { secret: "", label: "Local" }, { secret: "", label: "Local" }]).map(item => item.key), ["secret provider:key", "label Local", "label Local 2"], "stored key rows keep stable identities");
+    // A failed install (the manager's installFailures entry): every step
+    // that offers Review offers Try again in its place, and the first of
+    // them alone draws the install's last lines (Steps.failedView).
+    const failure = { action: "install", packages: ["pkg-a", "pkg-b"], lines: ["error: failed retrieving file", "error: failed to commit transaction"], run: "1-1", key: "core/requirements-install", path: "/run/r.json" };
+    const failedSteps = plugin => items(logic.setupSections(screens, rows(Object.assign({}, allDone, { home: toolBlocked })), requirements(["required-a", "optional-tool"]), plugin, failure))
+        .filter(item => !item.keys).map(item => [item.key, item.button === null ? null : item.button.kind, item.failure === undefined ? null : item.failure.lines]);
+    same(failedSteps(on), [["home", "retry", true], ["required-tools", "retry", false], ["optional-tools", "retry", false], ["model", null, null], ["account", null, null], ["connection", null, null]],
+        "a failed install: each Review becomes Try again, and the first step alone draws the lines");
+    same(items(logic.setupSections(screens, rows(Object.assign({}, allDone, { home: toolBlocked })), requirements(["required-a"]), on, null)).filter(item => item.failure !== undefined), [],
+        "no failure: no step reads failed");
+    const failedHome = logic.failedView(logic.stepView(rows(Object.assign({}, allDone, { home: toolBlocked })).find(entry => entry.key === "home"), String, on), failure, true);
+    same([failedHome.text, failedHome.tone, failedHome.lines.slice(1)], [logic.STEP_CHIPS.failed.text, "danger", failure.lines], "a failed step reads Failed in the danger tone, what failed, then the last lines");
+    same(failure.packages.every(name => failedHome.lines[0].includes(name)) && !/pkg run|pacman/.test(failedHome.lines[0]), true, "what failed names its packages and no command");
+    same(logic.failedView(failedHome, failure, false).lines.length, 1, "a later failed step names what failed alone");
+    same(logic.failedView(failedHome, Object.assign({}, failure, { lines: [] }), true).lines.slice(1), [logic.FAILURE_UNREAD], "a failure with no lines says they could not be read");
 }
 
 // Mask comments and strings before counting braces, so explanatory text
@@ -544,6 +559,9 @@ function verifyPage(source) { assert.doesNotMatch(setupBody(source), /\bButton\s
 verify(load(file), load(producerFile));
 verifyPage(fs.readFileSync(pageFile, "utf8"));
 const controls = [
+    ["a failed install keeps Review", "item.button = retryButton();", "", "a failed install: each Review becomes Try again"],
+    ["every failed step draws the lines", "first = false;", "", "a failed install: each Review becomes Try again"],
+    ["a failure with no lines draws none", "failure.lines.length > 0 ? failure.lines : [FAILURE_UNREAD]", "failure.lines", "a failure with no lines says they could not be read"],
     ["optional-on-Setup", 'return entry.placement === "setup"; }', 'return entry.placement === "setup" || entry.placement === "settings"; }', "optional entries never draw on Setup"],
     ["an optional step reads To do", 'return entry.setup === "optional" ? "optional" : "todo";', 'return "todo";', "tools steps an optional tool missing"],
     ["an optional step the user cannot act on reads Optional", 'if (!stepOpen(entry)) return "unavailable";', 'if (!stepOpen(entry) && entry.setup !== "optional") return "unavailable";', "optional step not available: the chip"],

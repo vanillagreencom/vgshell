@@ -2,7 +2,8 @@
 // The package owner's build failure decisions: classifyInstallFailure over
 // the recorded makepkg and paru transcripts (scripts/fixtures/pkg/
 // check-failure/PROVENANCE.md) and variations derived from them, the
-// retry argv PackageManagers builds, and the packageOutcome judge. Each
+// retry argv PackageManagers builds, the packageOutcome judge and the last
+// lines failureLines keeps of a failed step. Each
 // control loads a copy of one judge with one rule removed, and a row that
 // holds the rule must fail.
 "use strict";
@@ -156,11 +157,35 @@ for (const [label, value, run, code, error] of [
     ["check failed without its package", outcome("package-check-failed", { helper: "paru", status: 1, retry: null }), "r1", 1, "package"],
     ["an unknown kind", outcome("package-maybe"), "r1", 0, "kind"],
     ["an extra field", outcome("package-skipped", { argv: ["paru"] }), "r1", 0, "field=argv"],
-    ["an unknown manager", { kind: "package-skipped", manager: "brew" }, "r1", 0, "manager"]
+    ["an unknown manager", { kind: "package-skipped", manager: "brew" }, "r1", 0, "manager"],
+    ["failed with its step's last lines", outcome("package-failed", { helper: null, status: 1, lines: ["error: failed to commit transaction"] }), "r1", 1, null],
+    ["failed with no lines in its tail", outcome("package-failed", { helper: null, status: 1, lines: [] }), "r1", 1, "lines"],
+    ["failed with a line holding a mirror's password", outcome("package-failed", { helper: null, status: 1, lines: ["from https://bob:hunter2@mirror.invalid/core"] }), "r1", 1, "lines"],
+    ["failed with a line holding an escape", outcome("package-failed", { helper: null, status: 1, lines: ["\u001b[1merror\u001b[0m"] }), "r1", 1, "lines"],
+    ["failed with more lines than a tail keeps", outcome("package-failed", { helper: null, status: 1, lines: ["1", "2", "3", "4", "5", "6"] }), "r1", 1, "lines"],
+    ["installed with lines", outcome("package-installed", { helper: "paru", lines: ["done"] }), "r1", 0, "field=lines"]
 ]) {
     const judged = plain(review.packageOutcome(value, run, code));
     if (error === null) assert.deepEqual(judged, { ok: true, outcome: value }, label);
     else assert.deepEqual(judged, { ok: false, error }, label);
+}
+
+// The failed step's last lines a failure shows: the tail of its cut as a
+// reader saw it, blanks dropped, each secret shape masked and each long
+// line cut, which the outcome judge then keeps as it is.
+const ELLIPSIS = "\u2026";
+for (const [label, text, want] of [
+    ["no output", "", []],
+    ["escapes and a redrawn progress line", "\u001b[1m:: Retrieving packages...\u001b[0m\r\n cups  10%\r cups 100%\rerror: failed retrieving file 'cups.pkg'\n",
+        [":: Retrieving packages...", "error: failed retrieving file 'cups.pkg'"]],
+    ["a mirror's user and password", "error: failed retrieving file from https://bob:hunter2@mirror.invalid/core\n", ["error: failed retrieving file from https://" + ELLIPSIS + "@mirror.invalid/core"]],
+    ["a token", "proxy refused ghp_" + "a".repeat(30) + " here\n", ["proxy refused " + ELLIPSIS + " here"]],
+    ["the last lines alone, blank lines dropped", "1\n2\n\n3\n4\n5\n6\n   \n", ["2", "3", "4", "5", "6"]],
+    ["a long line cut", "x".repeat(200) + "\n", ["x".repeat(159) + ELLIPSIS]]
+]) {
+    const lines = plain(review.failureLines(text));
+    assert.deepEqual(lines, want, label);
+    if (lines.length > 0) assert.deepEqual(plain(review.packageOutcome(outcome("package-failed", { helper: null, status: 1, lines }), "r1", 1)).ok, true, label + ": the judge keeps the tail");
 }
 
 // Controls: a copy of shell/Core with one rule removed fails this file.
@@ -174,6 +199,8 @@ if (at < 0) {
             ["summary", "PackageReview.js", "return ordinary(\"summary=mismatch\");", ";"],
             ["locale", "PackageReview.js", 'if (!englishMessages(e.env)) return unread("locale=unsupported");', ""],
             ["retry-run", "PackageReview.js", 'if (retry.state === "available" && retry.originRun !== run) return fail("retry-run");', ""],
+            ["mirror-mask", "PackageReview.js", String.raw`    { pattern: /([a-z][a-z0-9+.-]*:\/\/)[^\s\/@]+@/gi, mask: "$1\u2026@" },` + "\n", ""],
+            ["kept-lines", "PackageReview.js", "sameJson(failureLines(line), [line])", "true"],
             ["skip-words", "PackageManagers.js", 'var SKIP_TESTS = { paru: ["--nocheck"], yay: ["--mflags", "--nocheck"] };', 'var SKIP_TESTS = { paru: ["--nocheck"], yay: ["--nocheck"] };']
         ]) {
             const copy = path.join(scratch, name);

@@ -2832,10 +2832,7 @@ function noticeView(manifest, missing, versions, notice, found) {
     var run = null;
     if (pressed !== undefined) {
         var updates = updatesOf(pressed);
-        var installs = pressed.names.filter(function (name) { return updates.indexOf(name) === -1; });
-        run = updates.length === 0
-            ? { manager: pressed.manager, action: "install", args: PackageManagers.installArgs(pressed), installs: installs, updates: updates }
-            : { manager: pressed.manager, action: "update", args: PackageManagers.installArgs(Object.assign({}, pressed, { names: updates })).concat(installs.length === 0 ? [] : ["--install"].concat(installs)), installs: installs, updates: updates };
+        run = noticeRun(pressed.manager, pressed.primary === true, pressed.names.filter(function (name) { return updates.indexOf(name) === -1; }), updates);
     }
     var handled = run === null ? entries : entries.filter(function (e) { return e.manager === pressed.manager; });
     var owed = shown.filter(function (row) { return notice.required.indexOf(row.name) !== -1; });
@@ -2854,6 +2851,77 @@ function noticeView(manifest, missing, versions, notice, found) {
         run: run,
         byHand: plan.groups.filter(function (g) { return !g.installs; }).map(function (g) { return { manager: g.manager, names: g.names }; })
     };
+}
+
+// The step one press runs for MANAGER's packages, PRIMARY while it is the
+// detected primary manager: noticeView's `run` of the packages it UPDATES
+// and the others it INSTALLS, so a failed install runs again as it ran
+// (Notices.retryInstall).
+function noticeRun(manager, primary, installs, updates) {
+    var group = { manager: manager, primary: primary, installs: true };
+    return updates.length === 0
+        ? { manager: manager, action: "install", args: PackageManagers.installArgs(Object.assign({}, group, { names: installs })), installs: installs, updates: updates }
+        : { manager: manager, action: "update", args: PackageManagers.installArgs(Object.assign({}, group, { names: updates })).concat(installs.length === 0 ? [] : ["--install"].concat(installs)), installs: installs, updates: updates };
+}
+
+// The keys of the requirement notice's runs, by noticeRun's `action`.
+var NOTICE_RUN_KEYS = { install: "core/requirements-install", update: "core/requirements-update" };
+
+// What Notices keeps of RAN, noticeView's `run` a press ran, once it failed
+// with RESULT, its `done`'s { code, reason }, in RUN, the run's id: the
+// failure the owner's Setup step shows until the next attempt,
+// { key, run, manager, primary, installs, updates }. `run` is null for a
+// launch that never started, which leaves no record.
+function installFailure(ran, result, run) {
+    var unstarted = result.code === null && (result.reason === "launcher-missing" || result.reason === "launcher-failed");
+    return { key: NOTICE_RUN_KEYS[ran.action], run: unstarted ? null : run, manager: ran.manager, primary: ran.args[0] !== "--manager",
+        installs: ran.installs.slice(), updates: ran.updates.slice() };
+}
+
+// The failures Notices kept in its file, read back from TEXT: { ok: true,
+// failures }, owner id -> installFailure's entry, or { ok: false, error }
+// naming the first defect. The file is the user's own, but an entry is
+// argv once Try again runs it, so every package is judged as a notice's.
+function installFailuresRead(text) {
+    var value;
+    try {
+        value = JSON.parse(text);
+    } catch (e) {
+        return { ok: false, error: "json" };
+    }
+    if (!isPlainObject(value)) return { ok: false, error: "shape" };
+    var names = function (list) { return Array.isArray(list) && list.every(function (name) { return PackageManagers.validName(name); }); };
+    var failures = {};
+    var ids = Object.keys(value);
+    for (var i = 0; i < ids.length; i++) {
+        var id = ids[i];
+        var e = value[id];
+        var valid = (id === CORE_OWNER || ID_PATTERN.test(id)) && isPlainObject(e) && Object.keys(e).length === 6
+            && (e.run === null || (typeof e.run === "string" && TUI_RUN_PATTERN.test(e.run)))
+            && typeof e.manager === "string" && PackageManagers.managerRow(e.manager) !== null && typeof e.primary === "boolean"
+            && names(e.installs) && names(e.updates) && e.installs.length + e.updates.length > 0
+            && e.key === NOTICE_RUN_KEYS[e.updates.length === 0 ? "install" : "update"];
+        if (!valid) return { ok: false, error: "entry=" + tuiLabel(id) };
+        failures[id] = { key: e.key, run: e.run, manager: e.manager, primary: e.primary, installs: e.installs.slice(), updates: e.updates.slice() };
+    }
+    return { ok: true, failures: failures };
+}
+
+// What owner's failed install ENTRY, installFailure's, shows on its Setup
+// step, with RUNS, a tuiRuns result: { action, packages, lines, run, key },
+// `action` noticeRun's, `packages` the updates then the installs, and
+// `lines` the failed step's last lines the run's ended record carries
+// (PackageReview.failureLines), [] when it carries none. Null once the
+// run has no ended record, as after the next run of its key removed it,
+// and for a record that ended with code 0.
+function installFailureView(entry, runs) {
+    var ran = noticeRun(entry.manager, entry.primary, entry.installs, entry.updates);
+    var shown = { action: ran.action, packages: entry.updates.concat(entry.installs), lines: [], run: entry.run, key: entry.key };
+    if (entry.run === null) return shown;
+    var record = hasOwn(runs.runs, entry.run) ? runs.runs[entry.run] : null;
+    if (record === null || record.state !== "ended" || record.code === 0) return null;
+    if (record.package !== null && record.package.kind === "package-failed" && record.package.lines !== undefined) shown.lines = record.package.lines.slice();
+    return shown;
 }
 
 // The title of OWNER's notice over VIEW, noticeView's answer: "<OWNER>

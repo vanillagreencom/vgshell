@@ -70,10 +70,11 @@ function versionOf(command) {
     return m === null ? null : m[1];
 }
 
-// The evidence pkg-run.sh --evidence left in DIR for a run of BUILDER over
-// TARGETS that exited STATUS, as classifyInstallFailure reads it, and the
-// cut key its result line names, or null without one.
-function evidence(dir, builder, targets, status) {
+// The failed step's output pkg-run.sh --evidence left in DIR for a run that
+// exited STATUS: { interval, cut }, `interval` null when its result line
+// names another status or is absent, else { complete, text }, and `cut`
+// the key that line names, or null without one.
+function stepInterval(dir, status) {
     let interval = null;
     let result = null;
     try {
@@ -94,11 +95,19 @@ function evidence(dir, builder, targets, status) {
             }
         }
     }
+    return { interval, cut: result === null ? null : result[2] };
+}
+
+// The evidence pkg-run.sh --evidence left in DIR for a run of BUILDER over
+// TARGETS that exited STATUS, as classifyInstallFailure reads it, and the
+// cut key its result line names, or null without one.
+function evidence(dir, builder, targets, status) {
+    const { interval, cut } = stepInterval(dir, status);
     const env = {};
     for (const name of ["LC_ALL", "LC_MESSAGES", "LANG", "LANGUAGE"]) if (process.env[name] !== undefined) env[name] = process.env[name];
     const versions = { makepkg: versionOf("makepkg") };
     if (builder !== "makepkg") versions[builder] = versionOf(builder);
-    return { evidence: { builder, versions, env, status, signal: null, interval, targets }, cut: result === null ? null : result[2] };
+    return { evidence: { builder, versions, env, status, signal: null, interval, targets }, cut };
 }
 
 // The identity a held retry keeps for TARGET: the review owner's gathered
@@ -245,7 +254,7 @@ async function afterFailure({ dir, manager, builder, targets, status, retry }) {
     const verdict = judge.classifyInstallFailure(read.evidence);
     if (verdict.kind === "unread")
         process.stderr.write("vgshell: build-failure=unclassified reason=" + verdict.reason + (read.cut === null || read.cut === "ok" ? "" : " cut=" + read.cut) + "\n");
-    if (verdict.kind !== "check-only") return { status, outcome: failed(manager, builder, status) };
+    if (verdict.kind !== "check-only") return { status, outcome: failed(manager, builder, status, read.evidence.interval) };
     const answer = await review.ui("retry", verdict.target);
     if (answer.cancelled) return { status: answer.status, outcome: { kind: "package-cancelled", manager, status: answer.status } };
     if (answer.value === "Stop") {
@@ -260,8 +269,14 @@ async function afterFailure({ dir, manager, builder, targets, status, retry }) {
             : { kind: "package-check-failed", manager, helper: builder, package: verdict.target, status: again, retry: consumed() } };
 }
 
-function failed(manager, helper, status) {
-    return status >= 128 ? { kind: "package-cancelled", manager, status } : { kind: "package-failed", manager, helper, status };
+// The outcome of a run of MANAGER that failed with STATUS, HELPER the AUR
+// helper or null: cancelled for a signal's status, else failed, with the
+// failed step's last lines (PackageReview.failureLines) when INTERVAL, a
+// stepInterval or evidence interval, holds its complete output.
+function failed(manager, helper, status, interval) {
+    if (status >= 128) return { kind: "package-cancelled", manager, status };
+    const lines = interval !== undefined && interval !== null && interval.complete ? judge.failureLines(interval.text) : [];
+    return lines.length === 0 ? { kind: "package-failed", manager, helper, status } : { kind: "package-failed", manager, helper, status, lines };
 }
 
 // A retry this run consumed, named for the run that offered it.
@@ -269,6 +284,10 @@ function consumed(originRun) {
     const run = originRun !== undefined ? originRun : channel === null ? null : channel.run;
     return run === null ? null : { originRun: run, state: "consumed" };
 }
+
+// Whether this process is the presenter's own command, whose outcome
+// report reaches a run's ended record.
+function reporting() { return channel !== null; }
 
 // Hands OUTCOME to the presenter, when this process is its command; the
 // run then exits STATUS. A write that fails is reported and changes
@@ -279,4 +298,4 @@ function report(outcome, status) {
     if (failure !== null) process.stderr.write("vgshell: package-outcome=unwritten reason=" + failure + "\n");
 }
 
-module.exports = { afterFailure, claim, consumed, evidenceDir, failed, hold, report, retireHeld, retrySteps };
+module.exports = { afterFailure, claim, consumed, evidenceDir, failed, hold, report, reporting, retireHeld, retrySteps, stepInterval };

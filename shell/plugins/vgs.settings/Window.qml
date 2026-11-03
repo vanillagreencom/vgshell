@@ -67,6 +67,9 @@ FocusScope {
 
     property var shell: null
     readonly property var plugins: shell === null ? [] : shell.manager.plugins
+    // Plugin id -> its failed requirement install, which its Setup steps
+    // show with Try again (retryInstall).
+    readonly property var installFailures: shell === null ? ({}) : shell.manager.installFailures
     readonly property string title: shell === null ? "" : shell.manifest.name
     readonly property var screen: shell === null ? null : shell.screens.current
     // The key capture a Keys row's field asks to press a combo.
@@ -432,6 +435,9 @@ FocusScope {
     function updatePlugin(id) { return keep(id, shell.manager.update(id)); }
     function removePlugin(id) { return keep(id, shell.manager.remove(id)); }
     function installRequirements(id) { return keep(stepKey(id, actionKey("tools")), shell.manager.installRequirements(id)); }
+    // Run plugin `id`'s failed requirement install again, the Setup step's
+    // Try again; its reply is kept under its own step key.
+    function retryInstall(id) { return keep(stepKey(id, actionKey("retry")), shell.manager.retryInstall(id)); }
 
     // Run the action of plugin `id`'s status entry `key` through the
     // manager, or with `row` its row action `rowAction` on the row of that
@@ -464,8 +470,9 @@ FocusScope {
     }
 
     // The step key of a page action that is neither a screen nor a status
-    // entry's: "enable", Turn on and the Enabled switch, or "tools", the
-    // requirement notice. The colon keeps it apart from a status key.
+    // entry's: "enable", Turn on and the Enabled switch, "tools", the
+    // requirement notice, or "retry", a failed install's Try again. The
+    // colon keeps it apart from a status key.
     function actionKey(kind) {
         return "action:" + kind;
     }
@@ -473,7 +480,7 @@ FocusScope {
     // Every refusal the page head shows once: the plugin's own, kept under
     // its id, then Turn on's and the notice's.
     function headReplies(id) {
-        return [replyOf(id), replyOf(id, actionKey("enable")), replyOf(id, actionKey("tools"))].filter(reply => reply !== "");
+        return [replyOf(id), replyOf(id, actionKey("enable")), replyOf(id, actionKey("tools")), replyOf(id, actionKey("retry"))].filter(reply => reply !== "");
     }
 
     // Open plugin `id`'s setup screen `name`, a TUI its manifest lists,

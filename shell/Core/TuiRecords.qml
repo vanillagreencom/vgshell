@@ -142,6 +142,12 @@ Scope {
         for (const row of wanted) startWait(row.key, row.run);
     }
 
+    // The path bin/vgshell-tui writes KEY's run RUN's record in STATE,
+    // `running` or `ended`, under: the key with its `/` as `@`.
+    function recordPath(key, run, state) {
+        return recordDir + "/" + key.replace("/", "@") + "@" + run + "." + state + ".json";
+    }
+
     function waitId(key, run) {
         return key + "|" + run;
     }
@@ -194,7 +200,7 @@ Scope {
         // Keep this read through missed listing updates until an accepted end.
         // The listing shares the same reader if it catches up.
         for (const row of launchedRuns)
-            listed[recordDir + "/" + row.key.replace("/", "@") + "@" + row.run + ".running.json"] = true;
+            listed[recordPath(row.key, row.run, "running")] = true;
         const next = {};
         for (const path of Object.keys(readers)) {
             if (Object.prototype.hasOwnProperty.call(listed, path)) {

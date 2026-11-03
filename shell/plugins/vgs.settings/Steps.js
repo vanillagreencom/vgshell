@@ -49,7 +49,7 @@ function startFailed(errors) { return startError(errors) !== ""; }
 // The chip of each reading, its word and its tone. The words are declared
 // here alone (docs/architecture/design-system.md § Settings pages).
 var STEP_CHIPS = { todo: { text: "To do", tone: "warning" }, done: { text: "Done", tone: "success" }, unavailable: { text: "Not available", tone: "neutral" },
-    optional: { text: "Optional", tone: "neutral" } };
+    optional: { text: "Optional", tone: "neutral" }, failed: { text: "Failed", tone: "danger" } };
 // The line an unreported step draws while its plugin is on and starting.
 var CHECKING_LINE = "Checking…";
 // What a Setup step draws of ENTRY for PLUGIN, { enabled, name, error,
@@ -93,6 +93,32 @@ function detailRequirements(requirements) { return requirements.filter(function 
 // tool, the one install action of Setup's Tools and Optional tools steps.
 var REVIEW_LABEL = "Review all missing or outdated tools";
 function reviewButton() { return { kind: "tools", key: "tools", name: "", label: REVIEW_LABEL, tone: "", icon: "", enabled: true, reason: "" }; }
+// The action that runs a failed install again as it ran, the Review
+// action's place while the install it started has failed.
+var RETRY_LABEL = "Try again";
+function retryButton() { return { kind: "retry", key: "retry", name: "", label: RETRY_LABEL, tone: "", icon: "", enabled: true, reason: "" }; }
+// NAMES as one list in plain words: "a", "a and b", "a, b and c".
+function namesText(names) {
+    return names.length < 2 ? names.join("") : names.slice(0, -1).join(", ") + " and " + names[names.length - 1];
+}
+// What failed, in plain words, of FAILURE, the `manager` capability's
+// installFailures entry: the package step and its packages, never its
+// command line (D061).
+var FAILURE_VERBS = { install: "Installing", update: "Updating" };
+function failureText(failure) {
+    return FAILURE_VERBS[failure.action] + " " + namesText(failure.packages) + " did not finish";
+}
+// The line a failure draws while its run's record holds no output lines.
+var FAILURE_UNREAD = "VGS could not read what the package manager printed";
+// VIEW, a Setup step's stepView, as it draws FAILURE, its plugin's failed
+// install, in place of its To do state: the Failed chip, then what failed
+// and, while LINES, the install's last lines, or that they could not be
+// read.
+function failedView(view, failure, lines) {
+    var chip = STEP_CHIPS.failed;
+    var shown = [failureText(failure)].concat(!lines ? [] : failure.lines.length > 0 ? failure.lines : [FAILURE_UNREAD]);
+    return Object.assign({}, view, { text: chip.text, tone: chip.tone, lines: shown });
+}
 // REQUIREMENTS by title, each that is missing or outdated marked so.
 function toolsText(requirements) {
     return requirements.map(function (row) { return row.title + (row.state === "outdated" ? " (outdated)" : row.state === "missing" ? " (missing)" : ""); }).join(", ");
@@ -131,8 +157,12 @@ function keyToolStep(requirements) {
 // PLUGIN, { enabled, failed }: its steps by stepRank, each in manifest
 // order with its key lists, and the Tools and Optional tools steps, each
 // before the first step that ranks after it, else last. REQUIREMENTS and PLUGIN are
-// omitted where neither applies.
-function setupSections(tuis, status, requirements, plugin) {
+// omitted where neither applies. While FAILURE, the plugin's failed
+// install (failureText), is given, every step that offers Review offers
+// Try again in its place and carries `failure`: { lines }, `lines` true on
+// the first such step alone, which draws the install's last lines
+// (failedView).
+function setupSections(tuis, status, requirements, plugin, failure) {
     var required = requirements === undefined ? [] : requirements;
     var rank = function (entry) { return stepRank(entry, plugin); };
     var ordered = status.filter(declaresStep).map(function (entry, index) { return { entry: entry, index: index }; })
@@ -156,6 +186,16 @@ function setupSections(tuis, status, requirements, plugin) {
         if (after !== -1) items.splice(after, 0, toolItem);
         else items.push(toolItem);
     });
+    if (failure !== undefined && failure !== null) {
+        var first = true;
+        items.forEach(function (item) {
+            if (item.button === null || item.button.kind !== "tools") return;
+            item.button = retryButton();
+            item.failure = { lines: first };
+            item.slot += ":failed";
+            first = false;
+        });
+    }
     return items.length === 0 ? [] : [{ title: "Setup", items: items, buttons: [] }];
 }
 // Whether a plugin, on while ENABLED, needs setup, the one reading of the
