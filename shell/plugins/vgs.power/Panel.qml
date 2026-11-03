@@ -4,10 +4,11 @@ import qs.Ui
 import "PowerLogic.js" as Logic
 
 // The Power flyout under the bar widget. It shows the service's published
-// battery view and one full-width TileGroup that lists the profiles the
-// daemon offers, with the active one marked.
+// battery view, Stay awake's control and one full-width TileGroup that
+// lists the profiles the daemon offers, with the active one marked.
 // A user choice goes to the service through IPC, which owns the profile
-// write and the remembered profile for this power source.
+// write, the remembered profile for this power source and the Stay awake
+// hold.
 FocusScope {
     id: root
 
@@ -23,6 +24,7 @@ FocusScope {
 
     function open(payloadJson) {
         problem = "";
+        stayAwake.problem = "";
         Qt.callLater(() => {
             if (profileControl.visible) profileControl.forceActiveFocus(Qt.OtherFocusReason);
         });
@@ -74,6 +76,24 @@ FocusScope {
                     from: 0
                     to: 100
                     value: root.battery.level
+                }
+            }
+
+            // The label sits above the control so the list and Start fit
+            // the flyout's width.
+            Field {
+                id: stayAwakeField
+                width: parent.width
+                inline: false
+                label: "Stay awake"
+                hint: stayAwake.hint
+                error: stayAwake.problem
+
+                StayAwake {
+                    id: stayAwake
+                    width: stayAwakeField.width
+                    fill: true
+                    shell: root.shell
                 }
             }
 

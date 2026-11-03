@@ -134,7 +134,8 @@
     "batteryProfile": "balanced",
     "barProfile": false,
     "wakeOnLan": false,
-    "wakeOnLanChosen": false
+    "wakeOnLanChosen": false,
+    "stayAwakeMinutes": 60
   },
   "schema": {
     "displayOffSeconds": {

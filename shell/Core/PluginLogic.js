@@ -6224,6 +6224,16 @@ function idleWatchRefusal(seconds, onChange) {
     return "";
 }
 
+// The first defect of a Stay awake hold `shell.idle.stayAwake(seconds,
+// onEnd)` asks for, or "": SECONDS is a whole number from 0, a hold until
+// its disposer runs, to a day, and ONEND a function.
+function stayAwakeRefusal(seconds, onEnd) {
+    if (typeof seconds !== "number" || seconds < 0 || seconds > IDLE_WATCH_MAX_SECONDS || !Number.isInteger(seconds))
+        return "refused: stay-awake=" + JSON.stringify(seconds) + " want=0.." + IDLE_WATCH_MAX_SECONDS;
+    if (typeof onEnd !== "function") return "refused: stay-awake-end=not-a-function";
+    return "";
+}
+
 // The first defect of where STATUS's entries draw on a plugin page, or ""
 // (docs/architecture/design-system.md § Settings pages). `setup` makes a
 // displayed state or presence a step of Setup: `true` a required step,

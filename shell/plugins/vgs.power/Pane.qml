@@ -6,7 +6,8 @@ import qs.Ui
 // x 0, its height its implicitHeight; the holder draws its title, inset and
 // scrolling. It takes no payload keys.
 //
-// From the top: the idle timeline, one row per stage of the core's record
+// From the top: Stay awake's control (StayAwake.qml), the one the flyout
+// draws; the idle timeline, one row per stage of the core's record
 // (`shell.idle.stages`, D109) in its order, each with its time and a page
 // reference to the field that sets it, built from the record's `plugin` and
 // `setting`, and the record's `before` verdict as the row's warning; then
@@ -160,10 +161,29 @@ FocusScope {
         spacing: Theme.stack.group
 
         Section {
+            id: stayAwakeSection
+            width: content.width
+            title: "Stay awake"
+
+            Field {
+                width: stayAwakeSection.width
+                inline: true
+                label: stayAwake.awake.active ? "Time left" : "Duration"
+                hint: stayAwake.hint
+                error: stayAwake.problem
+
+                StayAwake {
+                    id: stayAwake
+                    shell: root.shell
+                }
+            }
+        }
+
+        Section {
             id: timeline
             width: content.width
             title: "Idle timeline"
-            description: "Each time counts from your last input. Select a time to change it."
+            description: stayAwake.awake.active ? "Paused while Stay awake is on. Each time counts from your last input." : "Each time counts from your last input. Select a time to change it."
 
             Repeater {
                 model: root.stages

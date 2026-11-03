@@ -2258,6 +2258,16 @@ function suite(ctx, configLogic, check) {
         ["no handler", 300, null, "refused: idle-handler=not-a-function"]
     ];
     for (const [name, seconds, onChange, want] of idleRows) check("idleWatchRefusal: " + name, ctx.idleWatchRefusal(seconds, onChange), want);
+    const stayAwakeRows = [
+        ["until released", 0, handler, ""],
+        ["a day", 86400, handler, ""],
+        ["below zero", -1, handler, "refused: stay-awake=-1 want=0..86400"],
+        ["past a day", 86401, handler, "refused: stay-awake=86401 want=0..86400"],
+        ["a fraction", 0.5, handler, "refused: stay-awake=0.5 want=0..86400"],
+        ["a string", "3600", handler, "refused: stay-awake=\"3600\" want=0..86400"],
+        ["no end handler", 3600, null, "refused: stay-awake-end=not-a-function"]
+    ];
+    for (const [name, seconds, onEnd, want] of stayAwakeRows) check("stayAwakeRefusal: " + name, ctx.stayAwakeRefusal(seconds, onEnd), want);
 
     const refusalRows = [
         ["a string fits a string entry", "label", "y", ""],
@@ -3244,6 +3254,10 @@ const CONTROLS = [
     ["an idle watch takes a day at most", " || seconds > IDLE_WATCH_MAX_SECONDS)", ")"],
     ["an idle watch takes whole seconds", "!Number.isInteger(seconds) || ", ""],
     ["an idle watch needs a handler", "IDLE_WATCH_MAX_SECONDS;\n    if (typeof onChange !== \"function\") return \"refused: idle-handler=not-a-function\";", "IDLE_WATCH_MAX_SECONDS;"],
+    ["a Stay awake hold takes no time below zero", "seconds < 0 || seconds > IDLE_WATCH_MAX_SECONDS || ", "seconds > IDLE_WATCH_MAX_SECONDS || "],
+    ["a Stay awake hold takes a day at most", "seconds > IDLE_WATCH_MAX_SECONDS || !Number", "!Number"],
+    ["a Stay awake hold takes whole seconds", " || !Number.isInteger(seconds))", ")"],
+    ["a Stay awake hold needs an end handler", "if (typeof onEnd !== \"function\") return", "if (false) return"],
     ["only the stage owner holds a stage watch", "if (row === null || row.plugin !== owner)", "if (row === null)"],
     ["an idle lock request carries an object ticket", "if (request.cause === \"idle\" && (request.ticket === null || typeof request.ticket !== \"object\"))", "if (false)"],
     ["a locked session takes no new cover", "if (request.locked) return refuse(\"locked\");", ""],

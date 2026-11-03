@@ -4,8 +4,9 @@
 // battery, the battery and profile view published as plugin status, icon
 // bands, time text, profile mapping, low-battery latches, the profile
 // to apply when the power source changes, the setting a bar pick
-// remembers, Wake on LAN's value, connection list and write rule, and the
-// power menu's availability reads, offers and confirmation hold.
+// remembers, Wake on LAN's value, connection list and write rule, the
+// power menu's availability reads, offers and confirmation hold, and Stay
+// awake's durations, time left and battery end.
 // QML owns UPower, the gdbus and nmcli runs that reach the power profiles
 // daemon and NetworkManager, settings writes, IPC and notices.
 
@@ -150,22 +151,85 @@ function durationText(seconds, suffix) {
 
 // The bar shows the profile item where there is no battery, and beside the
 // battery only while the `barProfile` setting is on; the flyout still
-// shows and changes the profile either way.
-function widgetView(power, barProfile) {
+// shows and changes the profile either way. While Stay awake is on, the
+// cup glyph leads the first item shown, or stands alone where neither
+// shows, and the tooltip's detail line reads its time left at NOWMS.
+function widgetView(power, barProfile, nowMs) {
     var battery = power && power.battery ? power.battery : { present: false };
     var profile = power && power.profile ? power.profile : { available: false, active: PROFILE.balanced };
+    var awake = stayAwakeView(power);
     var parts = [];
     if (battery.present === true) parts.push(String(battery.level) + "% " + stateLabel(battery));
     if (profile.available === true) parts.push(profileLabel(profile.active));
+    var batteryShown = battery.present === true;
+    var profileShown = profile.available === true && (battery.present !== true || barProfile === true);
+    var cupHost = !awake.active ? "" : batteryShown ? "battery" : profileShown ? "profile" : "alone";
     return {
-        shown: battery.present === true || profile.available === true,
-        batteryShown: battery.present === true,
-        profileShown: profile.available === true && (battery.present !== true || barProfile === true),
+        shown: batteryShown || profileShown || awake.active,
+        batteryShown: batteryShown,
+        profileShown: profileShown,
         batteryIcon: batteryIcon(Number(battery.level || 0), battery.charging === true),
         profileIcon: profileIcon(profile.active),
+        cupHost: cupHost,
         levelText: String(Number(battery.level || 0)) + "%",
-        tooltip: parts.join(" · ")
+        tooltip: parts.length > 0 ? parts.join(" · ") : "Stay awake",
+        tooltipDetails: awake.active ? ["Stay awake: " + stayAwakeLeft(awake, nowMs)] : []
     };
+}
+
+// Stay awake's durations, in the order the flyout and Power's section
+// list them; 0 holds until the user ends it.
+var STAY_AWAKE_DURATIONS = [
+    { label: "Until I turn it off", minutes: 0 },
+    { label: "30 minutes", minutes: 30 },
+    { label: "1 hour", minutes: 60 },
+    { label: "2 hours", minutes: 120 },
+    { label: "4 hours", minutes: 240 }
+];
+var STAY_AWAKE_DEFAULT_MINUTES = 60;
+
+// The duration VALUE names, a stored `stayAwakeMinutes` or an IPC
+// argument, or -1 for any value no duration holds.
+function stayAwakeDuration(value) {
+    var minutes = typeof value === "string" && /^[0-9]+$/.test(value) ? Number(value) : value;
+    for (var i = 0; i < STAY_AWAKE_DURATIONS.length; i++)
+        if (STAY_AWAKE_DURATIONS[i].minutes === minutes) return minutes;
+    return -1;
+}
+
+// The duration the control offers first: the one last started, else 1
+// hour.
+function stayAwakeMinutes(stored) {
+    var minutes = stayAwakeDuration(stored);
+    return minutes === -1 ? STAY_AWAKE_DEFAULT_MINUTES : minutes;
+}
+
+// The Stay awake part of the status value POWER: { active, endsAt,
+// minutes }, endsAt 0 for a hold with no end.
+function stayAwakeView(power) {
+    var value = power && power.stayAwake ? power.stayAwake : {};
+    return {
+        active: value.active === true,
+        endsAt: value.active === true ? Math.max(0, Number(value.endsAt || 0)) : 0,
+        minutes: stayAwakeMinutes(value.minutes)
+    };
+}
+
+// Stay awake's one time-left text, which the flyout, Power's section and
+// the bar's tooltip all show: "Until you end it" for a hold with no end,
+// else the minutes left at NOWMS rounded up, so it never reads less than
+// is left and reads "1 min left" in the last minute.
+function stayAwakeLeft(awake, nowMs) {
+    if (awake.endsAt === 0) return "Until you end it";
+    var minutes = Math.max(1, Math.ceil((awake.endsAt - Number(nowMs)) / 60000));
+    return durationText(minutes * 60, "left");
+}
+
+// Whether BATTERY ends Stay awake: discharging at or below the critical
+// threshold, the reading that sends the critical notice (notices).
+function stayAwakeBatteryEnds(battery, criticalThreshold) {
+    return !!(battery && battery.present === true && battery.state === "discharging"
+        && Math.round(Number(battery.level)) <= Math.max(0, Math.round(Number(criticalThreshold))));
 }
 
 function latchInitial() {

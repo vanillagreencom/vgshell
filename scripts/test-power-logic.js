@@ -194,8 +194,10 @@ function verify(logic) {
         profileShown: false,
         batteryIcon: "battery-medium",
         profileIcon: "gauge",
+        cupHost: "",
         levelText: "51%",
-        tooltip: "51% On battery · Balanced"
+        tooltip: "51% On battery · Balanced",
+        tooltipDetails: []
     }, "widgetView: laptop");
     same(logic.widgetView({ battery: { present: false }, profile: { available: true, active: "performance" } }, false), {
         shown: true,
@@ -203,8 +205,10 @@ function verify(logic) {
         profileShown: true,
         batteryIcon: "battery-warning",
         profileIcon: "zap",
+        cupHost: "",
         levelText: "0%",
-        tooltip: "Performance"
+        tooltip: "Performance",
+        tooltipDetails: []
     }, "widgetView: desktop with profile");
     same(logic.widgetView({ battery: { present: false }, profile: { available: false, active: "balanced" } }, false).shown, false, "widgetView: nothing to draw");
     // The bar's items for each battery, profile service and barProfile:
@@ -221,6 +225,55 @@ function verify(logic) {
         const view = logic.widgetView({ battery: battery ? laptop.battery : { present: false }, profile: { available: profiles, active: "balanced" } }, barProfile);
         same([view.batteryShown, view.profileShown], want, `widgetView items: battery=${battery} profiles=${profiles} barProfile=${barProfile}`);
     }
+
+    // Stay awake. The time-left text is what the flyout, Power's section
+    // and the bar's tooltip show the user. The status value's part, as the
+    // service publishes it:
+    // [label, stayAwake, at ms, cup host with battery and profiles, with
+    // profiles alone, with neither, time left].
+    const now = Date.UTC(2026, 10, 3, 14, 0, 0);
+    const minute = 60000;
+    for (const [label, awake, at, hosts, left] of [
+        ["off", { active: false, endsAt: 0, minutes: 60 }, now, ["", "", ""], null],
+        ["until ended", { active: true, endsAt: 0, minutes: 0 }, now, ["battery", "profile", "alone"], "Until you end it"],
+        ["2 h 1 min", { active: true, endsAt: now + 121 * minute, minutes: 240 }, now, ["battery", "profile", "alone"], "2 h 1 min left"],
+        ["a part minute rounds up", { active: true, endsAt: now + 30 * minute, minutes: 30 }, now + 59000, ["battery", "profile", "alone"], "30 min left"],
+        ["exactly an hour", { active: true, endsAt: now + 60 * minute, minutes: 60 }, now, ["battery", "profile", "alone"], "1 h left"],
+        ["the last seconds", { active: true, endsAt: now + 1000, minutes: 30 }, now, ["battery", "profile", "alone"], "1 min left"],
+        ["past its end", { active: true, endsAt: now - 1000, minutes: 30 }, now, ["battery", "profile", "alone"], "1 min left"]
+    ]) {
+        const views = [
+            { battery: laptop.battery, profile: laptop.profile, stayAwake: awake },
+            { battery: { present: false }, profile: laptop.profile, stayAwake: awake },
+            { battery: { present: false }, profile: { available: false, active: "balanced" }, stayAwake: awake }
+        ].map(power => logic.widgetView(power, false, at));
+        same(views.map(view => view.cupHost), hosts, "widgetView cup: " + label);
+        same(views.map(view => view.shown), [true, true, awake.active], "widgetView shown: " + label);
+        same(views[0].tooltipDetails, left === null ? [] : ["Stay awake: " + left], "widgetView tooltip: " + label);
+        if (left !== null) assert.equal(logic.stayAwakeLeft(logic.stayAwakeView({ stayAwake: awake }), at), left, "stayAwakeLeft: " + label);
+    }
+    same(logic.widgetView({ battery: laptop.battery, profile: laptop.profile, stayAwake: { active: true, endsAt: 0, minutes: 0 } }, true, now).cupHost, "battery", "widgetView cup: barProfile keeps the cup on the battery");
+    // The duration each stored value or IPC argument names, and the one
+    // the control offers first.
+    for (const [value, duration, first] of [
+        [0, 0, 0], [30, 30, 30], [60, 60, 60], [120, 120, 120], [240, 240, 240],
+        ["0", 0, 0], ["240", 240, 240], ["end", -1, 60], [45, -1, 60], [-30, -1, 60], ["", -1, 60], [undefined, -1, 60], [null, -1, 60], ["60.0", -1, 60]
+    ]) {
+        assert.equal(logic.stayAwakeDuration(value), duration, `stayAwakeDuration: ${JSON.stringify(value)}`);
+        assert.equal(logic.stayAwakeMinutes(value), first, `stayAwakeMinutes: ${JSON.stringify(value)}`);
+    }
+    same(logic.STAY_AWAKE_DURATIONS.map(d => d.minutes), [0, 30, 60, 120, 240], "Stay awake offers its durations in order");
+    same(logic.stayAwakeView(null), { active: false, endsAt: 0, minutes: 60 }, "stayAwakeView: no status value");
+    // The battery end: [present, state, level, critical, ends].
+    for (const [present, state, level, critical, ends] of [
+        [true, "discharging", 10, 10, true],
+        [true, "discharging", 9, 10, true],
+        [true, "discharging", 11, 10, false],
+        [true, "charging", 5, 10, false],
+        [true, "pending-charge", 5, 10, false],
+        [false, "absent", 0, 10, false],
+        [true, "discharging", 0, 0, true]
+    ]) assert.equal(logic.stayAwakeBatteryEnds({ present: present, state: state, level: level }, critical), ends, `stayAwakeBatteryEnds: present=${present} state=${state} level=${level} critical=${critical}`);
 
     let latch = logic.latchInitial();
     let result = logic.notices(latch, 19, true, 20, 10);
@@ -522,9 +575,15 @@ const CONTROLS = [
     ["a restart restores the chosen marker", "chosen: chosen === true", "chosen: false"],
     ["a wired list keeps the wired rows alone", "fields.length === 2 && fields[0] !== \"\" && fields[1] === \"802-3-ethernet\"", "fields.length === 2 && fields[0] !== \"\""],
     ["first ready source reading does not apply", "if (state.ready !== true) return { state: { ready: true, onBattery: onBattery === true }, apply: false };", "if (state.ready !== true) return { state: { ready: true, onBattery: onBattery === true }, apply: true };"],
-    ["a battery hides the bar's profile item", "profileShown: profile.available === true && (battery.present !== true || barProfile === true),", "profileShown: profile.available === true,"],
-    ["barProfile shows the bar's profile item beside a battery", "profileShown: profile.available === true && (battery.present !== true || barProfile === true),", "profileShown: profile.available === true && battery.present !== true,"],
-    ["no battery shows the bar's profile item whatever barProfile says", "profileShown: profile.available === true && (battery.present !== true || barProfile === true),", "profileShown: profile.available === true && barProfile === true,"]
+    ["a battery hides the bar's profile item", "var profileShown = profile.available === true && (battery.present !== true || barProfile === true);", "var profileShown = profile.available === true;"],
+    ["barProfile shows the bar's profile item beside a battery", "var profileShown = profile.available === true && (battery.present !== true || barProfile === true);", "var profileShown = profile.available === true && battery.present !== true;"],
+    ["no battery shows the bar's profile item whatever barProfile says", "var profileShown = profile.available === true && (battery.present !== true || barProfile === true);", "var profileShown = profile.available === true && barProfile === true;"],
+    ["Stay awake's time left rounds up", "Math.max(1, Math.ceil((awake.endsAt - Number(nowMs)) / 60000))", "Math.max(1, Math.round((awake.endsAt - Number(nowMs)) / 60000))"],
+    ["the cup leads the battery item", "batteryShown ? \"battery\" : profileShown ? \"profile\" : \"alone\"", "profileShown ? \"profile\" : batteryShown ? \"battery\" : \"alone\""],
+    ["the cup stands alone where no item shows", "shown: batteryShown || profileShown || awake.active,", "shown: batteryShown || profileShown,"],
+    ["a duration outside the list is refused", "        if (STAY_AWAKE_DURATIONS[i].minutes === minutes) return minutes;\n    return -1;", "        if (STAY_AWAKE_DURATIONS[i].minutes === minutes) return minutes;\n    return minutes;"],
+    ["only a discharging battery ends Stay awake", "battery.state === \"discharging\"\n        &&", "true\n        &&"],
+    ["the critical level itself ends Stay awake", "<= Math.max(0, Math.round(Number(criticalThreshold)))", "< Math.max(0, Math.round(Number(criticalThreshold)))"]
 ];
 
 const source = fs.readFileSync(file, "utf8");
