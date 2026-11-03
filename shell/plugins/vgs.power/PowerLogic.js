@@ -148,7 +148,10 @@ function durationText(seconds, suffix) {
     return text + " " + suffix;
 }
 
-function widgetView(power) {
+// The bar shows the profile item where there is no battery, and beside the
+// battery only while the `barProfile` setting is on; the flyout still
+// shows and changes the profile either way.
+function widgetView(power, barProfile) {
     var battery = power && power.battery ? power.battery : { present: false };
     var profile = power && power.profile ? power.profile : { available: false, active: PROFILE.balanced };
     var parts = [];
@@ -157,7 +160,7 @@ function widgetView(power) {
     return {
         shown: battery.present === true || profile.available === true,
         batteryShown: battery.present === true,
-        profileShown: profile.available === true,
+        profileShown: profile.available === true && (battery.present !== true || barProfile === true),
         batteryIcon: batteryIcon(Number(battery.level || 0), battery.charging === true),
         profileIcon: profileIcon(profile.active),
         levelText: String(Number(battery.level || 0)) + "%",

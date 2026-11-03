@@ -323,9 +323,11 @@ Item {
     }
 
     // `battery` is the presence the Settings page shows the battery fields
-    // by (their shownWhen), and `profiles` the one it shows the two
-    // per-source profile fields by: a battery to switch on and a profiles
-    // service to switch, since the service is optional. `profileRule` is
+    // by (their shownWhen), and `profiles` the one it shows the
+    // per-source profile fields and barProfile by: a battery to switch on
+    // and a profiles service to switch, since the service is optional,
+    // and with no battery the bar shows the profile whatever barProfile
+    // says. `profileRule` is
     // the Details line that says how the profile is set on this machine.
     // The status capability keeps a value it already holds, so a repeat
     // write changes nothing.

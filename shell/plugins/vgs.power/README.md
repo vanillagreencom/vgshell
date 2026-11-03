@@ -1,6 +1,6 @@
 # Power
 
-Power shows the battery level and the power profile in the bar, and switches the profile. Its section in System Settings, under Hardware, shows what the computer does when you stop using it. It is for laptops and desktops.
+Power shows the battery level in the bar, or the power profile on a computer with no battery, and switches the profile. Its section in System Settings, under Hardware, shows what the computer does when you stop using it. It is for laptops and desktops.
 
 ![The Power flyout with battery level and profile choices](../../../docs/images/plugins/vgs.power-panel.webp)
 
@@ -38,6 +38,7 @@ The battery rows show only on a computer with a battery. The profiles need the p
 | Critical battery alert | The battery level that sends an urgent alert. |
 | When charging | The profile to use after you connect power. |
 | On battery | The profile to use after you disconnect power. |
+| Show profile in bar | Whether the bar shows the power profile beside the battery level. |
 | Wake on LAN | Whether another device on the wired network can wake the computer from sleep. |
 
 Power changes your wired connections only after you set Wake on LAN. When you turn the Power plugin off, the wired connections keep the last value, so turn Wake on LAN off first.

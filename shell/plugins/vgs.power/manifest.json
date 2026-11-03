@@ -132,6 +132,7 @@
     "criticalThreshold": 10,
     "chargerProfile": "performance",
     "batteryProfile": "balanced",
+    "barProfile": false,
     "wakeOnLan": false,
     "wakeOnLanChosen": false
   },
@@ -245,6 +246,12 @@
         { "value": "balanced", "label": "Balanced" },
         { "value": "performance", "label": "Performance" }
       ],
+      "group": "Power profiles",
+      "shownWhen": "profiles"
+    },
+    "barProfile": {
+      "type": "boolean",
+      "label": "Show profile in bar",
       "group": "Power profiles",
       "shownWhen": "profiles"
     },

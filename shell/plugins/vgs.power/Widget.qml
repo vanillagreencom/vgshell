@@ -4,13 +4,15 @@ import qs.Ui
 import "PowerLogic.js" as Logic
 
 // The Power item in the bar: battery level where a laptop battery exists,
-// and the active power-profile icon on laptops and desktops. It reads only
-// the service's status value, and it opens or closes the flyout on a click.
+// and the active power-profile icon where none does, or beside the battery
+// while the `barProfile` setting is on (Logic.widgetView). It reads only
+// the service's status value and its settings, and it opens or closes the
+// flyout on a click.
 BarWidget {
     id: widget
 
     readonly property var power: shell === null || shell.status.values.power === undefined ? null : shell.status.values.power
-    readonly property var view: Logic.widgetView(power)
+    readonly property var view: Logic.widgetView(power, setting("barProfile", false))
 
     visible: view.shown
     implicitWidth: view.shown ? row.implicitWidth : 0

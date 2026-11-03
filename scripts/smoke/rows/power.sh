@@ -34,8 +34,8 @@
 # name, the requirement reads present. The first real
 # enable sees a discharging battery and a power-saver profile without
 # applying the remembered battery profile; the widget draws the 51 % text
-# and a non-charging icon; with a charging display battery,
-# it draws the charging icon; one discharge sends one low and one critical
+# and a non-charging icon and, with the battery, no profile icon; with a
+# charging display battery, it draws the charging icon; one discharge sends one low and one critical
 # alert through `notify`, each with its icon and tone, no repeats below the same
 # thresholds; the panel draws the battery level, state and time left in
 # one Field, lists the profiles the daemon offers as icon tiles with the
@@ -51,12 +51,15 @@
 # service, and no install offer for it; a click on an On battery segment
 # and Down and Return in Low battery alert's list store the value picked
 # and the control marks it; a
-# plug change applies the remembered charger profile; removing the display
+# plug change applies the remembered charger profile; with a battery a
+# click on barProfile's Settings switch shows the
+# widget's profile item beside the battery with no restart, and a second
+# click hides it; removing the display
 # battery hides the widget's battery part again; Power's Settings tab draws
-# its four battery fields with a battery, none with no battery and all
-# four again once the display battery is back; with a battery and no
+# its four battery fields and barProfile's field with a battery,
+# none of them with no battery and all four again once the display battery is back; with a battery and no
 # profiles service the section and the Settings tab draw the two alert
-# fields alone; once a scan misses the service the section offers its
+# fields alone, and no barProfile field; once a scan misses the service the section offers its
 # install, whose press raises the requirement notice for it; all four show
 # once a profiles service starts; with no
 # battery a bar pick
@@ -295,6 +298,8 @@ power_label_has() { ipc smoke itemTexts panel vgs.power Label | py_reply 'import
 power_level() { power_status | py_reply 'import json,sys; print(json.load(sys.stdin)["battery"]["level"])'; }
 power_profile_available() { power_status | py_reply 'import json,sys; print(json.load(sys.stdin)["profile"]["available"])'; }
 power_icons() { ipc smoke itemValues "$(bar_key)" "${power_id:-vgs.power}" BarItem iconName,text,visible | py_reply 'import json,sys; print(json.dumps([r["iconName"] for r in json.load(sys.stdin) if r["visible"]]))'; }
+# power_item_count: how many of the widget's bar items show.
+power_item_count() { ipc smoke itemValues "$(bar_key)" "${power_id:-vgs.power}" BarItem visible | py_reply 'import json,sys; print(sum(1 for r in json.load(sys.stdin) if r["visible"]))'; }
 power_texts() { ipc smoke itemTexts "$(bar_key)" "${power_id:-vgs.power}" BarItem | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)))'; }
 power_setting() { python3 - "$home/.config/vgshell/shell.json" "$1" <<'PY_SET'
 import json, sys
@@ -349,16 +354,20 @@ for c in json.load(sys.stdin)[int(sys.argv[1]):]:
 print(json.dumps(dict(sorted(out.items()))))' "$1"; }
 # power_wol_written FROM: the connections written since nmcli call FROM.
 power_wol_written() { power_wol_writes "$1" | py_reply 'import json,sys; print(json.dumps(sorted(json.load(sys.stdin))))'; }
-# power_wol_page: whether Power's Settings tab draws the Wake on LAN field,
-# anchored on the tab's own Show in bar row as power_battery_fields is.
-power_wol_page() { ipc smoke itemTexts window vgs.settings Field | py_reply 'import json,re,sys
+# power_page_field KEY: whether Power's Settings tab draws the field of
+# schema KEY, by its manifest label, anchored on the tab's own Show in bar
+# row as power_battery_fields is.
+power_page_field() { ipc smoke itemTexts window vgs.settings Field | py_reply 'import json,re,sys
 anchor = re.search(r"showInBar: \"([^\"]+)\"", open(sys.argv[1]).read()).group(1).lower()
+label = json.load(open(sys.argv[2]))["schema"][sys.argv[3]]["label"].lower()
 drawn = {t.lower() for row in json.load(sys.stdin) for t in row}
-print(("shown" if "wake on lan" in drawn else "hidden") if anchor in drawn else "page-absent")' "$repo/shell/Commons/SettingValues.js"; }
+print(("shown" if label in drawn else "hidden") if anchor in drawn else "page-absent")' "$repo/shell/Commons/SettingValues.js" "$repo/shell/plugins/vgs.power/manifest.json" "$1"; }
 power_wol_click() { power_pane_pick "Wake on LAN" Switch ""; }
-power_wol_settings_click() {
+# power_page_switch_click KEY: a click on the switch of schema KEY's field
+# on Power's Settings tab, found by its manifest label.
+power_page_switch_click() {
   local label
-  label="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["schema"]["wakeOnLan"]["label"])' "$repo/shell/plugins/vgs.power/manifest.json")" || return 1
+  label="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["schema"][sys.argv[2]]["label"])' "$repo/shell/plugins/vgs.power/manifest.json" "$1")" || return 1
   power_revealed "$(ipc smoke revealScopedText window vgs.settings Field "$label" Switch "")" || return 1
   click_scoped_in "window:Plugins" window vgs.settings Field "$label" Switch ""
 }
@@ -380,8 +389,8 @@ power_wake_on_lan() {
   expect_poll "with a wired device the service publishes ethernet present" '"present"' power_wol_presence
   expect_poll "with a wired device the section draws Wake on LAN off" off power_wol_field
   expect "Settings opens on Power's Settings tab with a wired device" ok ipc shell summon window vgs.settings '{"plugin":"vgs.power","tab":"Settings"}'
-  expect_poll "with a wired device Settings draws Wake on LAN" shown power_wol_page
-  power_wol_settings_click || fail "the click on Wake on LAN's Settings switch failed"
+  expect_poll "with a wired device Settings draws Wake on LAN" shown power_page_field wakeOnLan
+  power_page_switch_click wakeOnLan || fail "the click on Wake on LAN's Settings switch failed"
   expect_poll "a click on Wake on LAN's switch stores it on" true power_setting wakeOnLan
   expect_poll "the refused write shows under the Settings switch" error power_wol_error vgs.settings
   expect "System Settings opens on the refused Wake on LAN write" ok ipc shell summon window vgs.system '{"pane":"vgs.power"}'
@@ -400,11 +409,11 @@ power_wake_on_lan() {
     '{"wol-wired-a": ["none"], "wol-wired-b": ["none"]}' power_wol_writes "$base"
   expect_poll "the section draws Wake on LAN off again" off power_wol_field
   expect "Settings opens on Power's Settings tab after the successful write" ok ipc shell summon window vgs.settings '{"plugin":"vgs.power","tab":"Settings"}'
-  expect_poll "with a wired device Settings draws Wake on LAN" shown power_wol_page
+  expect_poll "with a wired device Settings draws Wake on LAN" shown power_page_field wakeOnLan
   expect_poll "a pass the stand-in takes clears the Settings error" clear power_wol_error vgs.settings
   power_wol_net unmanage >/dev/null || fail "power: the mock marks its wired devices unmanaged"
   expect_poll "with only unmanaged wired devices the service publishes ethernet absent" '"absent"' power_wol_presence
-  expect_poll "with only unmanaged wired devices Settings draws no Wake on LAN" hidden power_wol_page
+  expect_poll "with only unmanaged wired devices Settings draws no Wake on LAN" hidden power_page_field wakeOnLan
   expect_poll "with only unmanaged wired devices the section draws no Wake on LAN" hidden power_wol_field
   expect "the Settings window hides after Wake on LAN" ok ipc shell hide window vgs.settings
   expect "System Settings hides after Wake on LAN" ok ipc shell hide window vgs.system
@@ -858,10 +867,10 @@ EOF_STAND
   expect "the service's watch and reads name the system bus and no address" '["--system"]' power_service_buses
   expect "the first enable does not apply the remembered battery profile" power-saver power_profile_get
   expect_poll "the widget draws the 51 percent battery text" '[["51%"], []]' power_texts
-  expect_poll "the widget draws the medium battery and power saver icons" '["battery-medium", "leaf"]' power_icons
+  expect_poll "with a battery and barProfile off the widget draws the medium battery icon alone" '["battery-medium"]' power_icons
   power_charging 52.0 2400
   expect_poll "the service reads the charging level" 52 power_level
-  expect_poll "the widget draws the charging icon" '["battery-charging", "zap"]' power_icons
+  expect_poll "the widget draws the charging icon" '["battery-charging"]' power_icons
 
   : >"$power_notify_calls"
   power_discharging 19.0 3000
@@ -1028,11 +1037,20 @@ EOF_STAND
 
   expect "Settings opens on Power's Settings tab" ok ipc shell summon window vgs.settings '{"plugin":"vgs.power","tab":"Settings"}'
   expect_poll "with a battery Settings draws Power's four battery fields" "$power_battery_keys" power_battery_fields
+  expect_poll "with a battery Settings draws barProfile's field" shown power_page_field barProfile
+  expect "with barProfile off the widget shows the battery item alone" 1 power_item_count
+  power_page_switch_click barProfile || fail "the click on barProfile's Settings switch failed"
+  expect_poll "a click on barProfile's switch stores it on" true power_setting barProfile
+  expect_poll "with barProfile on the widget shows the profile item beside the battery, with no restart" 2 power_item_count
+  power_page_switch_click barProfile || fail "the second click on barProfile's Settings switch failed"
+  expect_poll "a second click stores barProfile off" false power_setting barProfile
+  expect_poll "with barProfile off again the widget hides the profile item" 1 power_item_count
   power_no_battery
   expect_poll "removing the display battery hides the widget battery text" '[[], []]' power_texts
   expect_poll "removing the display battery leaves the profile icon" '["zap"]' power_icons
   expect_poll "with no battery the service publishes the battery absent" '"absent"' power_battery_presence
   expect_poll "with no battery Settings draws none of Power's battery fields" '[]' power_battery_fields
+  expect_poll "with no battery Settings draws no barProfile field" hidden power_page_field barProfile
   expect "with no battery a bar pick is taken" power-saver ipc vgs.power invoke profile power-saver
   expect_poll "with no battery the daemon holds the bar pick" power-saver power_profile_get
   power_discharging 64.0 7200
@@ -1088,7 +1106,7 @@ EOF_STAND
   power_id=acme.power-nocharge
   power_charging 52.0 2400
   expect_poll "control: the nocharge fixture service publishes charging" True power_status_charging
-  expect_poll "control: the nocharge widget ignores charging" '["battery-medium", "zap"]' power_icons
+  expect_poll "control: the nocharge widget ignores charging" '["battery-medium"]' power_icons
   unset power_id
   expect "unplacing the nocharge fixture is allowed" ok ipc shell setPluginPlaced acme.power-nocharge false
   expect "disabling the nocharge fixture is allowed" ok ipc shell setPluginEnabled acme.power-nocharge false
@@ -1170,6 +1188,7 @@ import Quickshell.Io
   expect_poll "with no profiles service the section draws the alert fields and no profile field" "$power_alert_keys" power_pane_fields
   expect "Settings opens on Power's Settings tab with no profiles service" ok ipc shell summon window vgs.settings '{"plugin":"vgs.power","tab":"Settings"}'
   expect_poll "with no profiles service Settings draws the alert fields and no profile field" "$power_alert_keys" power_battery_fields
+  expect_poll "with no profiles service Settings draws no barProfile field" hidden power_page_field barProfile
   expect "the Settings window hides after the profile fields" ok ipc shell hide window vgs.settings
   rescan "rescan after the profile mock stops answers ok"
   expect_poll "with the profiles service missing the section offers its install" yes power_install_shown

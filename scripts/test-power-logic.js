@@ -187,17 +187,17 @@ function verify(logic) {
     assert.equal(logic.timeText({ present: true, charging: false, state: "pending-charge", secondsToFull: 2400 }), "", "timeText: pending charge has no time to full");
     assert.equal(logic.timeText({ present: true, charging: true, state: "charging", secondsToFull: 0 }), "", "timeText: unknown time");
 
-    const widget = logic.widgetView({ battery: { present: true, level: 51, charging: false, state: "discharging" }, profile: { available: true, active: "balanced" } });
-    same(widget, {
+    const laptop = { battery: { present: true, level: 51, charging: false, state: "discharging" }, profile: { available: true, active: "balanced" } };
+    same(logic.widgetView(laptop, false), {
         shown: true,
         batteryShown: true,
-        profileShown: true,
+        profileShown: false,
         batteryIcon: "battery-medium",
         profileIcon: "gauge",
         levelText: "51%",
         tooltip: "51% On battery · Balanced"
     }, "widgetView: laptop");
-    same(logic.widgetView({ battery: { present: false }, profile: { available: true, active: "performance" } }), {
+    same(logic.widgetView({ battery: { present: false }, profile: { available: true, active: "performance" } }, false), {
         shown: true,
         batteryShown: false,
         profileShown: true,
@@ -206,7 +206,21 @@ function verify(logic) {
         levelText: "0%",
         tooltip: "Performance"
     }, "widgetView: desktop with profile");
-    same(logic.widgetView({ battery: { present: false }, profile: { available: false, active: "balanced" } }).shown, false, "widgetView: nothing to draw");
+    same(logic.widgetView({ battery: { present: false }, profile: { available: false, active: "balanced" } }, false).shown, false, "widgetView: nothing to draw");
+    // The bar's items for each battery, profile service and barProfile:
+    // a battery hides the profile item unless barProfile is on, and with
+    // no battery barProfile changes nothing.
+    for (const [battery, profiles, barProfile, want] of [
+        [true, true, true, [true, true]],
+        [true, true, undefined, [true, false]],
+        [true, false, true, [true, false]],
+        [false, true, false, [false, true]],
+        [false, true, true, [false, true]],
+        [false, false, true, [false, false]]
+    ]) {
+        const view = logic.widgetView({ battery: battery ? laptop.battery : { present: false }, profile: { available: profiles, active: "balanced" } }, barProfile);
+        same([view.batteryShown, view.profileShown], want, `widgetView items: battery=${battery} profiles=${profiles} barProfile=${barProfile}`);
+    }
 
     let latch = logic.latchInitial();
     let result = logic.notices(latch, 19, true, 20, 10);
@@ -507,7 +521,10 @@ const CONTROLS = [
     ["a device change waits for a chosen value", "(previous.chosen && moved)", "moved"],
     ["a restart restores the chosen marker", "chosen: chosen === true", "chosen: false"],
     ["a wired list keeps the wired rows alone", "fields.length === 2 && fields[0] !== \"\" && fields[1] === \"802-3-ethernet\"", "fields.length === 2 && fields[0] !== \"\""],
-    ["first ready source reading does not apply", "if (state.ready !== true) return { state: { ready: true, onBattery: onBattery === true }, apply: false };", "if (state.ready !== true) return { state: { ready: true, onBattery: onBattery === true }, apply: true };"]
+    ["first ready source reading does not apply", "if (state.ready !== true) return { state: { ready: true, onBattery: onBattery === true }, apply: false };", "if (state.ready !== true) return { state: { ready: true, onBattery: onBattery === true }, apply: true };"],
+    ["a battery hides the bar's profile item", "profileShown: profile.available === true && (battery.present !== true || barProfile === true),", "profileShown: profile.available === true,"],
+    ["barProfile shows the bar's profile item beside a battery", "profileShown: profile.available === true && (battery.present !== true || barProfile === true),", "profileShown: profile.available === true && battery.present !== true,"],
+    ["no battery shows the bar's profile item whatever barProfile says", "profileShown: profile.available === true && (battery.present !== true || barProfile === true),", "profileShown: profile.available === true && barProfile === true,"]
 ];
 
 const source = fs.readFileSync(file, "utf8");
