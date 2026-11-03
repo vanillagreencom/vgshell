@@ -5,7 +5,7 @@
 // Route suites keep their own downstream success/failure/postcheck fixtures.
 "use strict";
 const fs=require("node:fs"),os=require("node:os"),path=require("node:path"),cp=require("node:child_process"),assert=require("node:assert/strict");
-const {create}=require("./world.js");
+const {create,freshSystem}=require("./world.js");
 let args=process.argv.slice(2),owner=null,proof=null,route="package-route",surface="all";
 while(args[0]?.startsWith("--")){
  const key=args.shift(),value=args.shift();
@@ -14,10 +14,9 @@ while(args[0]?.startsWith("--")){
 assert.ok(["all","success","failures"].includes(surface));
 const root=fs.mkdtempSync(path.join(os.tmpdir(),"package-route-"));
 try{
- // A fresh system: VGS's own packages install their engine and its AUR
- // dependency, so a route that installs only a VGS package still reaches
- // the common offer, for cpptrace.
- const fresh=dir=>fs.writeFileSync(path.join(dir,"unsatisfied"),"vgshell-quickshell\ncpptrace\n");
+ // A fresh system, so a route that installs only a VGS package still
+ // reaches the common offer, for its AUR dependency cpptrace.
+ const fresh=freshSystem;
  const w=create(root,{choices:["Install without review"]});fresh(root);
  let calls=[];
  if(surface!=="failures"){

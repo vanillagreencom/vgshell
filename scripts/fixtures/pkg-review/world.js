@@ -17,4 +17,13 @@ function create(root,{choices=["Install without review"],settings={agent:"claude
  const env={PATH:path.join(root,"tools"),HOME:path.join(root,"home"),XDG_RUNTIME_DIR:path.join(root,"run"),XDG_CONFIG_HOME:path.join(root,"config"),XDG_STATE_HOME:path.join(root,"state"),TMPDIR:path.join(root,"tmp"),LC_ALL:"C",TERM:"xterm-256color",REVIEW_WORLD:root,VGS_TEST_RUN:"1"};
  return {root,config,include,env,owner:path.join(repo,"bin/vgshell-pkg"),calls:()=>fs.readFileSync(path.join(root,"calls.jsonl"),"utf8").trim().split("\n").filter(Boolean).map(l=>JSON.parse(l))};
 }
-module.exports={create};
+// A fresh system: each VGS package's pending recipe, as the helper's -Si
+// lists it, needs the engine, and the engine needs cpptrace from the AUR;
+// neither is installed.
+function freshSystem(root){
+ fs.writeFileSync(path.join(root,"unsatisfied"),"vgshell-quickshell\ncpptrace\n");
+ const app={"Depends On":["vgshell-quickshell>=0.3.2","hyprland>=0.57.0","bash"]};
+ fs.writeFileSync(path.join(root,"aur-info.json"),JSON.stringify({"vgshell":app,"vgshell-git":{...app,"Make Deps":["git"]},
+  "vgshell-quickshell":{"Depends On":["cpptrace","qt6-base>=6.7"],"Make Deps":["cmake"]}}));
+}
+module.exports={create,freshSystem};

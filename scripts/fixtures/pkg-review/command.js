@@ -42,7 +42,7 @@ function build(){
 const configAt=args.indexOf("--config");if(configAt>=0)args.splice(configAt,2);
 if(name==="pacman-conf"){
  if(fs.existsSync(path.join(root,"query-failed")))process.exit(7);
- if(args.includes("--repo-list"))console.log("core\ncustom"+(fs.existsSync(path.join(root,"repo-aur"))?"\naur":""));
+ if(args.includes("--repo-list"))console.log("core\ncustom"+(fs.existsSync(path.join(root,"repo-aur"))?"\naur":"")+(fs.existsSync(path.join(root,"repo-cachyos"))?"\ncachyos-extra":""));
  else if(args.includes("Server")&&!fs.existsSync(path.join(root,"server-empty")))console.log("https://user:secret@packages.example.org/$repo/$arch");
  else if(args.includes("SigLevel"))console.log("Required DatabaseOptional");
  else if(args.includes("DBPath"))console.log(path.join(root,"db"));
@@ -59,7 +59,18 @@ if(name==="pacman"||name==="paru"||name==="yay"){
   if(out.length)console.log(out.join("\n"));process.exit(out.length?127:0);
  }
  if(args.includes("-Sl")){console.log("core official 1\n"+(fs.existsSync(path.join(root,"origin-changed"))?"core":"custom")+" widget 2\ncustom aurpkg 2"+(fs.existsSync(path.join(root,"sync-extra"))?"\n"+fs.readFileSync(path.join(root,"sync-extra"),"utf8").trim():""));process.exit(0);}
- if(args.includes("-Si")){if(fs.existsSync(path.join(root,"info-failed")))process.exit(1);console.log("Repository : aur\nName : "+(fs.existsSync(path.join(root,"provider-ambiguous"))?"provider":args.at(-1)));process.exit(0);}
+ // -Si as paru prints an AUR package (src/info.rs print_aur_info): each
+ // list two-space joined, None when empty; aur-info.json names the pending
+ // recipe's lists by package.
+ if(args.includes("-Si")){
+  if(fs.existsSync(path.join(root,"info-failed")))process.exit(1);
+  const pkg=args.at(-1),file=path.join(root,"aur-info.json"),info=fs.existsSync(file)?JSON.parse(fs.readFileSync(file))[pkg]||{}:{};
+  const field=(key,value)=>key.padEnd(16)+": "+value;
+  console.log([field("Repository","aur"),field("Name",fs.existsSync(path.join(root,"provider-ambiguous"))?"provider":pkg),field("Version","2-1"),
+   ...(fs.existsSync(path.join(root,"info-fields-missing"))?[]:["Depends On","Make Deps","Check Deps"].map(key=>field(key,(info[key]||[]).join("  ")||"None"))),
+   field("Maintainer","fixture")].join("\n"));
+  process.exit(0);
+ }
  if(args.includes("-Qoq")){console.log("vgshell-git");process.exit(0);}
  if(args.includes("-Qtdq"))process.exit(1);
  if(args.includes("-Q")){console.log(args.includes("--")?args.at(-1)+" 1-1":"widget 1-1\nvgshell-git 1-1");process.exit(0);}
