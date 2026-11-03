@@ -120,6 +120,33 @@ else:
     print("t " + str(started_ns // 1000))
 '''
 
+# Answers as pw-dump does with no argument: one JSON list of every object.
+# world.json `nodes` lists each node's props; `pw_fail` fails the read.
+PW_DUMP = r'''#!/usr/bin/env python3
+import json, os, pathlib, sys
+root = pathlib.Path(os.environ["HOME"])
+world_path = root / "world.json"
+world = json.loads(world_path.read_text()) if world_path.exists() else {}
+assert sys.argv[1:] == []
+with (root / "pw-dump.jsonl").open("a") as log:
+    log.write(json.dumps({"leaked": "CALLER_SECRET" in os.environ,
+                          "runtime": os.environ.get("PIPEWIRE_RUNTIME_DIR")}) + "\n")
+if world.get("pw_fail"):
+    sys.exit(1)
+objects = [{"id": 0, "type": "PipeWire:Interface:Core", "info": {"props": {"core.name": "pipewire-0"}}}]
+objects += [{"id": 40 + index, "type": "PipeWire:Interface:Node", "info": {"props": props}}
+            for index, props in enumerate(world.get("nodes", []))]
+print(json.dumps(objects, indent=2))
+'''
+# xdph's stream: its media.name is xdph's, its node.name the application's.
+SHARE_NODE = {"media.class": "Video/Source", "media.name": "xdph-streaming-846930886",
+              "node.name": "xdg-desktop-portal-hyprland"}
+# Another video source, whose node.name alone carries xdph's prefix.
+CAMERA_NODE = {"media.class": "Video/Source", "media.name": "Integrated Camera",
+               "node.name": "xdph-streaming-lookalike"}
+# cachy's xdph.conf before setup, as the overseer read it.
+OWNER_XDPH = "screencopy {\n    allow_token_by_default = true\n}\n"
+
 
 class PickerTests(unittest.TestCase):
     @classmethod
@@ -155,9 +182,12 @@ class PickerTests(unittest.TestCase):
         (self.tools / "systemctl").chmod(0o755)
         (self.tools / "busctl").write_text(BUSCTL)
         (self.tools / "busctl").chmod(0o755)
+        (self.tools / "pw-dump").write_text(PW_DUMP)
+        (self.tools / "pw-dump").chmod(0o755)
         self.environment = {
             "HOME": str(self.home), "PATH": str(self.tools) + ":" + os.defpath,
             "XDG_CONFIG_HOME": str(self.home / "config"), "XDG_RUNTIME_DIR": str(self.runtime),
+            "PIPEWIRE_RUNTIME_DIR": str(self.runtime),
             "LANG": "C.UTF-8", "VGS_TEST_RUN": "1", "CALLER_SECRET": "must-not-reach-child",
             "XDPH_WINDOW_SHARING_LIST": WINDOW_LIST,
         }
@@ -403,6 +433,59 @@ class PickerTests(unittest.TestCase):
         self.assertEqual(config.stat().st_mtime_ns, original.st_mtime_ns)
         self.assertEqual(self.restarts(), [{"args": ["--user", "restart", "xdg-desktop-portal-hyprland.service"], "leaked": False}])
 
+    def configure_during_share(self, executable=PICKER):
+        # The owner's file, a running xdph share and an unrelated camera.
+        config = self.home / "config/hypr/xdph.conf"
+        config.parent.mkdir(parents=True, exist_ok=True)
+        config.write_text(OWNER_XDPH)
+        self.world(nodes=[CAMERA_NODE, SHARE_NODE])
+        return self.run_picker("--configure", executable=executable)
+
+    def test_configure_writes_the_picker_but_waits_while_a_share_runs(self):
+        config = self.home / "config/hypr/xdph.conf"
+        result = self.configure_during_share()
+        self.assertEqual(result.returncode, 76, result.stderr)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("cause=share-running", result.stderr)
+        self.assertEqual(self.restarts(), [])
+        written = config.read_text()
+        self.assertEqual(written, OWNER_XDPH + "screencopy {\n    custom_picker_binary = " + str(PICKER) + "\n}\n")
+        self.assertEqual(json.loads(self.run_picker("--probe").stdout), {"state": "needed"})
+        # The share ends; the camera's lookalike node.name holds nothing.
+        self.world(nodes=[CAMERA_NODE])
+        result = self.run_picker("--configure")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.restarts(), [{"args": ["--user", "restart", "xdg-desktop-portal-hyprland.service"], "leaked": False}])
+        self.assertEqual(config.read_text(), written)
+        self.assertEqual(json.loads(self.run_picker("--probe").stdout), {"state": "ready"})
+        dumps = [json.loads(line) for line in (self.home / "pw-dump.jsonl").read_text().splitlines()]
+        self.assertEqual(dumps, [{"leaked": False, "runtime": str(self.runtime)}] * 2)
+
+    def test_configure_without_a_share_reading_keeps_the_portal_running(self):
+        config = self.home / "config/hypr/xdph.conf"
+        config.parent.mkdir(parents=True)
+        config.write_text(OWNER_XDPH)
+        self.world(pw_fail=True)
+        result = self.run_picker("--configure")
+        self.assertEqual(result.returncode, 75, result.stderr)
+        self.assertIn("cause=share-probe=failed", result.stderr)
+        self.assertEqual(self.restarts(), [])
+        self.assertTrue(config.read_text().startswith(OWNER_XDPH))
+        self.assertIn(str(PICKER), config.read_text())
+
+    def test_share_wait_must_fail_control(self):
+        # Without the share reading, the same reading of a running share
+        # restarts the portal, which ends that share.
+        copy = self.home / "vgshell-share-picker"
+        source = PICKER.read_text()
+        guard = "if share_running(stopped):"
+        self.assertEqual(source.count(guard), 1)
+        copy.write_text(source.replace(guard, "if False:"))
+        copy.chmod(0o755)
+        result = self.configure_during_share(executable=copy)
+        self.assertNotEqual(result.returncode, 76)
+        self.assertEqual(len(self.restarts()), 1)
+
     def test_configure_adds_only_picker_and_supports_qualified_assignment(self):
         for before in ("", "# Existing\nscreencopy {\n allow_token_by_default = 0\n}\n",
                        "screencopy:custom_picker_binary = /old/picker # Keep\n"):
@@ -621,7 +704,7 @@ class PickerTests(unittest.TestCase):
                 plant()
                 result = self.run_picker("--configure")
                 self.assertEqual(result.returncode, 73)
-                # setup-sharing.sh shows stdout, the refusal and its step, as it is.
+                # The capture service shows stdout, the refusal and its step, as it is.
                 self.assertEqual(len(result.stdout.splitlines()), 2)
                 self.assertEqual(result.stdout.count(str(directory)), 1)
                 self.assertNotIn("share-picker:", result.stdout)

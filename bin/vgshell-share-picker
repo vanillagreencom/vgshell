@@ -25,10 +25,20 @@ PICKER_TIMEOUT = 120.0
 IPC_TIMEOUT = 3.0
 PORTAL_RESTART_TIMEOUT = 30.0
 POLL_INTERVAL = 0.1
+# Exit status of a configure that wrote the picker but left the portal
+# running, because a screen share runs and a restart would stop it. VGS's
+# own value, beside sysexits' 73 and 75 below.
+SHARE_RUNNING_EXIT = 76
+# xdph names each screen-share stream's PipeWire media
+# `getRandName("xdph-streaming-")` (xdph v1.4.1 src/portals/Screencopy.cpp,
+# pw_stream_new), and pw_stream_new stores that name as `media.name`
+# (PipeWire 1.4.0 src/pipewire/stream.c); `node.name` is the application's.
+SHARE_STREAM_PREFIX = "xdph-streaming-"
 CHILD_ENV = (
     "PATH", "HOME", "XDG_CONFIG_HOME", "XDG_RUNTIME_DIR", "XDG_DATA_HOME",
     "XDG_CACHE_HOME", "XDG_STATE_HOME", "WAYLAND_DISPLAY", "DBUS_SESSION_BUS_ADDRESS",
-    "HYPRLAND_INSTANCE_SIGNATURE", "LANG", "LC_ALL", "VGS_TEST_RUN",
+    "HYPRLAND_INSTANCE_SIGNATURE", "PIPEWIRE_RUNTIME_DIR", "PIPEWIRE_REMOTE",
+    "LANG", "LC_ALL", "VGS_TEST_RUN",
 )
 
 
@@ -40,9 +50,13 @@ class ActivationNeeded(PickerError):
     pass
 
 
+class ShareRunning(PickerError):
+    pass
+
+
 class FolderRefused(PickerError):
-    # Setup shows the sentence and the step as they are; the keyed cause
-    # goes to its log.
+    # The capture service shows the sentence and the step as they are; the
+    # keyed cause goes to the shell's log.
     def __init__(self, cause, sentence, step):
         super().__init__(sentence)
         self.cause, self.step = cause, step
@@ -239,7 +253,7 @@ def rewrite_config(text, executable):
 def open_folder(part, parent, configured, walked):
     def refuse(cause, sentence):
         return FolderRefused("config-folder=" + cause + " path=" + walked, sentence,
-                             "Replace it with a folder you own, then set up screen sharing again in Capture settings.")
+                             "Replace it with a folder you own. VGS tries again when you open Capture's Settings page.")
     where = ("your Hyprland config folder, " + configured if walked == configured
              else walked + ", above your Hyprland config folder " + configured)
     linked = False
@@ -407,6 +421,26 @@ def replace_config(directory, text, expected, mode):
             os.unlink(temporary, dir_fd=directory)
 
 
+def share_running(stopped):
+    # pw-dump lists every PipeWire object once and exits; reading it
+    # starts no stream and changes no node.
+    reply = run_child(["pw-dump"], stopped, IPC_TIMEOUT, "share-probe")
+    try:
+        objects = json.loads(reply)
+    except json.JSONDecodeError as error:
+        raise PickerError("share-probe=invalid-reply") from error
+    if not isinstance(objects, list):
+        raise PickerError("share-probe=invalid-reply")
+    for item in objects:
+        info = item.get("info") if isinstance(item, dict) else None
+        props = info.get("props") if isinstance(info, dict) else None
+        name = props.get("media.name") if isinstance(props, dict) else None
+        if (isinstance(name, str) and name.startswith(SHARE_STREAM_PREFIX)
+                and item.get("type") == "PipeWire:Interface:Node"):
+            return True
+    return False
+
+
 def configure(stopped=None):
     stopped = stopped or threading.Event()
     directory = config_directory()
@@ -414,22 +448,34 @@ def configure(stopped=None):
         original, text = read_config(directory)
         rewritten = rewrite_config(text, str(Path(__file__).resolve()))
         if rewritten == text:
-            if portal_state(original, stopped) == "ready":
-                return
+            try:
+                if portal_state(original, stopped) == "ready":
+                    return
+            except (OSError, PickerError):
+                # Unread here, the restart below answers it: a backend that
+                # cannot start with this file reads Needed after it.
+                pass
             installed = original
         else:
             mode = stat.S_IMODE(original.st_mode) if original else 0o600
             installed = replace_config(directory, rewritten, original, mode)
         same_config(directory, installed)
         try:
-            # This is the explicit Settings action. systemctl restart starts a
-            # failed backend; try-restart is a no-op when it is not running:
+            # xdph reads the file only when it starts, so the write alone
+            # changes no running share; a restart stops every one. The
+            # capture service runs this with no share of its own pending,
+            # and a share another stream holds waits here: the service asks
+            # again later. systemctl restart starts a failed backend:
             # https://www.freedesktop.org/software/systemd/man/systemctl.html
+            if share_running(stopped):
+                raise ShareRunning("activation=waiting cause=share-running")
             run_child(["systemctl", "--user", "restart", "xdg-desktop-portal-hyprland.service"],
                       stopped, PORTAL_RESTART_TIMEOUT, "portal-restart")
             same_config(directory, installed)
             if portal_state(installed, stopped) != "ready":
                 raise PickerError("portal-restart=not-active-for-config")
+        except ShareRunning:
+            raise
         except (OSError, PickerError) as error:
             # Keep the configured picker for the next backend start. Probe
             # reports Needed until a backend start accepts this file.
@@ -463,11 +509,15 @@ def main():
                 raise PickerError("picker=interrupted")
             sys.stdout.write(selection)
         return 0
+    except ShareRunning as error:
+        print("share-picker: waiting: " + str(error), file=sys.stderr)
+        return SHARE_RUNNING_EXIT
     except ActivationNeeded as error:
         print("share-picker: refused: " + str(error), file=sys.stderr)
         return 75
     except FolderRefused as error:
-        # Setup shows stdout's sentence and step. 73 is sysexits' EX_CANTCREAT.
+        # The capture service shows stdout's sentence and step. 73 is
+        # sysexits' EX_CANTCREAT.
         print(str(error) + "\n" + error.step)
         print("share-picker: refused: " + error.cause, file=sys.stderr)
         return 73
