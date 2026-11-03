@@ -173,10 +173,9 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
      * The guidance executor's optional topics() lists the help topics it can
      * read now, each one the help row's own rule admits, and its optional
      * fleet() must return literal true at offer for the fleet.request row.
-     * A row marked caller receives a fifth argument, {ref, at, method,
-     * spoken, gen}: its start's audit reference and time, the confirmation
-     * ("none", "voice" or "physical"), whether the turn's request came by
-     * the Talk route, and the conversation's generation.
+     * A row marked confirmation receives a fifth argument, {ref, at,
+     * method}: its start's audit reference and time, and how the user
+     * confirmed it ("none", "voice" or "physical").
      */
     function register(id, executor) {
         if (closed || registry.has(id) || !Object.values(Tools.TABLE).some(row => row.executor === id)
@@ -240,9 +239,6 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
             return refuse(value, "stale-turn");
         // pending reserves a proposal queued by a synchronous runner callback.
         if (!session.canPropose(s) || pending !== null) return refuse(value, "busy");
-        // The Talk route's request, as Session holds it, for a forward's
-        // voice-request line; a typed or relayed turn is not spoken.
-        value.spoken = s.turn.spoken === true;
         const row = typeof request.tool === "string" && Object.hasOwn(Tools.TABLE, request.tool) ? Tools.TABLE[request.tool] : null;
         if ((request.kind === "approval") !== (row !== null && row.proposer === "harness"))
             return refuse(value, "unknown-tool");
@@ -351,11 +347,11 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
                     ? Object.freeze({ labels: Policy.labels([...conversationLabels]),
                         tainted: Policy.TAINT_SOURCES.some(label => conversationLabels.has(label)) })
                     : undefined;
-                // A caller row cites this start's own audit row, as
+                // A confirmation row cites this start's own audit row, as
                 // vgs-audit:<time>#<gen>:<op>, and how the user confirmed it.
-                const caller = Tools.TABLE[value.call.id].caller === true
+                const confirmation = Tools.TABLE[value.call.id].confirmation === true
                     ? Object.freeze({ ref: "vgs-audit:" + recorded.time + "#" + value.turn.gen + ":" + value.turn.op,
-                        at: recorded.time, method: value.confirmed, spoken: value.spoken, gen: value.turn.gen })
+                        at: recorded.time, method: value.confirmed })
                     : undefined;
                 value.executor.start(value.call, answer => {
                     if (closed) return;
@@ -370,7 +366,7 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
                     const answer = authorize(value, e, decide(value, input));
                     if (answer.kind === "refuse") value.refusal = answer.reason;
                     return answer;
-                }, origin, caller);
+                }, origin, confirmation);
             } catch (error) {
                 value.answer = { outcome: "failed", content: "executor-failed" };
                 done("failed");

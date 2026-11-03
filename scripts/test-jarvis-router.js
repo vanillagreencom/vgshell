@@ -923,34 +923,31 @@ esac
         }],
         // A forward to the main Jarvis is held for the owner at the most
         // trusting level, and its executor receives the start's own audit
-        // row and whether the Talk route collected the request: a Talk turn
-        // is spoken, a typed one never is.
+        // row and how the owner confirmed it. A Talk turn and a typed turn
+        // hand it the same shape: no VGS path knows who spoke.
         ["fleet-forward", (implementation, _folder, session = Session) => {
             const w = make(implementation, session, { profile: "trusted" });
-            const callers = [];
+            const confirmations = [];
             w.router.register("satellite", { commands: [], timeoutMs: 1000, cancellable: false, available: () => true,
-                start: (call, done, authorize, origin, caller) => {
-                    callers.push(caller);
+                start: (call, done, authorize, origin, confirmation) => {
+                    confirmations.push(confirmation);
                     done({ outcome: "completed", content: "Completed: forwarded." });
                 } });
             assert.ok(w.router.offer().some(row => row.id === "fleet.forward"));
             let at = 0;
-            const forward = text => {
+            const forward = (text, label) => {
                 assert.equal(w.call("fleet.forward", { text }).kind, "held", "a forward waits for the owner at every level");
                 w.show(); w.time(at += 700); w.confirm();
                 const row = w.rows().filter(entry => entry.tool === "fleet.forward" && entry.outcome === "pending").at(-1);
-                return { caller: callers.at(-1), row, turn: w.runner.state.turn };
+                assert.equal(row.confirmed, "physical", label);
+                assert.deepEqual({ ...confirmations.at(-1) }, { ref: "vgs-audit:" + row.time + "#" + row.gen + ":" + row.op,
+                    at: row.time, method: "physical" }, label + ": the forward cites its own start row and names no caller");
             };
-            const spoken = forward("Rebase the lanes.");
-            assert.equal(callers.length, 1);
-            assert.deepEqual({ ...spoken.caller }, { ref: "vgs-audit:" + spoken.row.time + "#" + spoken.row.gen + ":" + spoken.row.op,
-                at: spoken.row.time, method: "physical", spoken: true, gen: spoken.row.gen }, "a Talk turn's forward cites its own start row");
-            assert.equal(spoken.row.confirmed, "physical");
+            forward("Rebase the lanes.", "a Talk turn");
             w.dispatch({ type: "stop" });
             w.dispatch({ type: "say", text: "typed request" });
-            const typed = forward("Rebase the lanes again.");
-            assert.equal(callers.length, 2);
-            assert.equal(typed.caller.spoken, false, "a typed request is never spoken");
+            forward("Rebase the lanes again.", "a typed turn");
+            assert.equal(confirmations.length, 2);
         }]
     ];
     try {
@@ -999,7 +996,6 @@ esac
             ["result-size", "bytes.length <= RESULT_BYTES", "true", "result-size"],
             ["home-whole", 'labels.includes("home") || bytes.length <= RESULT_BYTES', "bytes.length <= RESULT_BYTES", "home-help"],
             ["fleet-offer", '(id !== "fleet.request" || fleet === undefined || fleet() === true)', "true", "fleet-request"],
-            ["forward-spoken", "value.spoken = s.turn.spoken === true;", "value.spoken = true;", "fleet-forward"],
             ["forward-own-row", '"#" + value.turn.gen + ":" + value.turn.op', '"#" + value.turn.gen + ":0"', "fleet-forward"],
             ["once-limit", 'if (row.once === true && spent.has(turn.gen + ":" + turn.op + ":" + value.call.id)) return refuse(value, "turn-limit");', "", "fleet-request"],
             ["once-failed", ' && e.outcome !== "failed")', ")", "fleet-request"],
@@ -1080,11 +1076,6 @@ esac
             's.turn.deadline = e.at;']], session => assert.throws(
                 () => byName("thinking-confirm-approval")(Router, session), assert.AssertionError));
         controls++; console.log("control=approval-thinking-deadline detected");
-        // A typed request that Session marks spoken would open its forward
-        // with the owner's voice-request line.
-        qmlCopy(sessionFile, [["think(s, effects, { text: text }, at, voiceRequest === true);", "think(s, effects, { text: text }, at, true);"]],
-            session => assert.throws(() => byName("fleet-forward")(Router, null, session), assert.AssertionError));
-        controls++; console.log("control=say-spoken detected");
         qmlCopy(sessionFile, [['if (!canPropose(s)) break;', 'if (false) break;', 2]], session =>
             mutant(routerFile, "serial", "!session.canPropose(s) || pending !== null", "false",
                 implementation => byName("serial")(implementation, session)));

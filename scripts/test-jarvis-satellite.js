@@ -87,37 +87,35 @@ world(async () => {
             await until(() => published.length === 3, "an unanswered main reads again");
             assert.deepEqual(published[2], { kind: "satellite", host: "cachy", reachable: false, cause: "main-unreachable" });
 
-            const forward = (text, caller) => new Promise(resolve =>
-                s.executor.start({ id: "fleet.forward", args: { text } }, resolve, () => ({ kind: "allow" }), undefined, caller));
-            const caller = { ref: "vgs-audit:2026-11-03T08:10:36.642Z#7:3", at: "2026-11-03T08:10:36.642Z", method: "voice", spoken: true, gen: 7 };
+            const forward = (text, confirmed) => new Promise(resolve =>
+                s.executor.start({ id: "fleet.forward", args: { text } }, resolve, () => ({ kind: "allow" }), undefined, confirmed));
+            const confirmed = { ref: "vgs-audit:2026-11-03T08:10:36.642Z#7:3", at: "2026-11-03T08:10:36.642Z", method: "voice" };
             const forwards = () => h.calls().filter(call => call.argv[0] === "forward");
-            assert.equal((await forward("Rebase the lanes.", caller)).outcome, "completed");
-            const spoken = forwards().at(-1);
-            assert.deepEqual(spoken.record, { v: 1,
-                request: { ref: caller.ref, at: caller.at,
-                    text: "voice-request: caller=owner operation=" + caller.ref + " conversation=jarvis-7 provenance=vgs-talk\nRebase the lanes." },
-                confirmation: { ref: caller.ref, at: caller.at, method: "voice" } }, "a Talk request opens with the owner's voice-request line");
-            assert.equal(fs.existsSync(spoken.argv[spoken.argv.indexOf("--record") + 1]), false, "the record is removed after the run");
+            // Spoken or typed, confirmed by voice or on screen: the package
+            // receives the request's text alone, since no VGS path knows who
+            // spoke, so no forward claims a caller.
+            for (const method of ["voice", "physical"]) {
+                assert.equal((await forward("Rebase the lanes.", { ...confirmed, method })).outcome, "completed", method);
+                const sent = forwards().at(-1);
+                assert.deepEqual(sent.record, { v: 1, request: { ref: confirmed.ref, at: confirmed.at, text: "Rebase the lanes." },
+                    confirmation: { ref: confirmed.ref, at: confirmed.at, method } }, method + ": the record carries the request unchanged");
+                assert.equal(fs.existsSync(sent.argv[sent.argv.indexOf("--record") + 1]), false, "the record is removed after the run");
+            }
             const checked = path.join(process.env.JARVIS_TEST_ROOT, "record.json");
-            fs.writeFileSync(checked, JSON.stringify(spoken.record));
+            fs.writeFileSync(checked, JSON.stringify(forwards().at(-1).record));
             const judged = cp.spawnSync("python3", ["-c", "import sys; sys.path.insert(0, sys.argv[1]); import forward; forward.checked_record(sys.argv[2])",
                 packageLib, checked], { encoding: "utf8", env: { PATH: process.env.PATH, LANG: "C.UTF-8" } });
             assert.equal(judged.status, 0, "the package's record judge takes the record: " + judged.stderr);
-
-            assert.equal((await forward("Rebase the lanes.", { ...caller, method: "physical", spoken: false })).outcome, "completed");
-            assert.equal(forwards().at(-1).record.request.text, "Rebase the lanes.", "a typed request carries no voice-request line");
-            assert.equal(JSON.stringify(forwards().at(-1).record).includes("caller=owner"), false);
-
             const before = forwards().length;
-            assert.deepEqual(await forward("Rebase.", { ...caller, method: "none" }), { outcome: "failed", content: "fleet-forward:unconfirmed" });
-            assert.deepEqual(await forward("Use sk-ant-abcdefghijklmnopqrstuv now.", caller), { outcome: "failed", content: "fleet-forward:secret" });
+            assert.deepEqual(await forward("Rebase.", { ...confirmed, method: "none" }), { outcome: "failed", content: "fleet-forward:unconfirmed" });
+            assert.deepEqual(await forward("Use sk-ant-abcdefghijklmnopqrstuv now.", confirmed), { outcome: "failed", content: "fleet-forward:secret" });
             assert.equal(forwards().length, before, "an unconfirmed or secret request never reaches the package");
 
             h.state({ main: "cachy:" + h.folder, forward: { exit: 75, cause: "main-unreachable" } });
-            const queued = await forward("Queued.", caller);
+            const queued = await forward("Queued.", confirmed);
             assert.deepEqual([queued.outcome, queued.content.includes("main-unreachable")], ["completed", true], "a queued forward names its cause");
             h.state({ main: "cachy:" + h.folder, forward: { exit: 2, cause: "request-conflict" } });
-            assert.deepEqual(await forward("Refused.", caller), { outcome: "failed", content: "fleet-forward:request-conflict" });
+            assert.deepEqual(await forward("Refused.", confirmed), { outcome: "failed", content: "fleet-forward:request-conflict" });
 
             value = "not a host";
             await s.choose(value, h.folder);
@@ -132,7 +130,7 @@ world(async () => {
             assert.deepEqual(published.at(-1), { kind: "unavailable", cause: "package" });
             assert.ok(logs.includes("jarvis: satellite=main-host cause=package-old"), logs.join("\n"));
             assert.equal(s.executor.available(), false);
-            assert.deepEqual(await forward("Old.", caller), { outcome: "failed", content: "fleet-forward:package-old" });
+            assert.deepEqual(await forward("Old.", confirmed), { outcome: "failed", content: "fleet-forward:package-old" });
 
             folder = null;
             s.refresh();
@@ -149,8 +147,7 @@ world(async () => {
     console.log("case=fleet-request-satellite passed");
 
     for (const [name, needle, replacement, check] of [
-        ["typed-voice-line", "    if (caller.spoken !== true) return text;\n", "", live],
-        ["unconfirmed", 'if (caller === undefined || !["voice", "physical"].includes(caller.method)) return failed("unconfirmed");', "", live],
+        ["unconfirmed", 'if (confirmed === undefined || !["voice", "physical"].includes(confirmed.method)) return failed("unconfirmed");', "", live],
         ["secret", 'if (Redact.secret(call.args.text)) return failed("secret");', "", live],
         ["host-mismatch", ' || answer.main !== hostOf(value)', "", readings],
         ["main-unread", 'if (value === "") return { kind: "main" };', "", live]

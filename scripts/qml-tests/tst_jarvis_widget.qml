@@ -86,7 +86,7 @@ Item {
                 [{ daemon: { tone: "info", text: "Starting" }, detail: null }, "loader", Theme.color.info, "Jarvis is starting\nWait for Jarvis to start.\n" + click],
                 [root.ready({}), "vgs-letter-j", Theme.bar.foreground, "Ready to talk\nTap or hold Super+J, then speak.\n" + click],
                 [root.ready({ capture: { kind: "open", gen: 1, op: 2, mode: "hold" } }), "audio-lines", Theme.color.accent, "Jarvis is listening\nSpeak now.\n" + click],
-                [root.ready({ turn: { kind: "thinking", gen: 1, op: 3, deadline: 70, spoken: false } }), "brain", Theme.color.info, "Jarvis is thinking\nPress Super+Alt+Period to stop.\n" + click],
+                [root.ready({ turn: { kind: "thinking", gen: 1, op: 3, deadline: 70 } }), "brain", Theme.color.info, "Jarvis is thinking\nPress Super+Alt+Period to stop.\n" + click],
                 [root.ready({ playback: { kind: "playing", gen: 1, op: 5, source: 4, interruptible: true, admission: { kind: "started" }, deadline: null } }), "volume-2", Theme.color.accent, "Jarvis is speaking\nPress Super+Alt+Period to stop.\n" + click],
                 [root.ready({ mute: { kind: "on" } }), "mic-off", Theme.color.textMuted, "Jarvis is muted\nPress Super+Shift+J to unmute.\n" + click],
                 [{ daemon: { tone: "danger", text: "Jarvis needs Node 22 or later", hint: "Update Node to version 22 or later, then turn Jarvis off and on again in Settings > Jarvis", lines: ["jarvis: node=21.0.0 need=22"] }, detail: null }, "circle-alert", Theme.color.danger, "Jarvis needs Node 22 or later\nUpdate Node to version 22 or later, then turn Jarvis off and on again in Settings > Jarvis.\n" + click]

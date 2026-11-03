@@ -54,7 +54,7 @@ const down = reason => ({ gate: { kind: "down", reason } });
 const OPEN = { capture: { kind: "open", gen: 1, op: 2, mode: "hold" } };
 const CLOSING = { capture: { kind: "closing", gen: 1, op: 3 } };
 const FOLLOW_UP = { capture: { kind: "open", gen: 1, op: 2, mode: "follow-up" } };
-const THINKING = { turn: { kind: "thinking", gen: 1, op: 4, deadline: 70, spoken: false } };
+const THINKING = { turn: { kind: "thinking", gen: 1, op: 4, deadline: 70 } };
 const MUTED = { mute: { kind: "on" } };
 const READY = { tone: "info", text: "Jarvis is ready; microphone is off" };
 const DEVICES = { tone: "ok", text: "Device list ready" };

@@ -69,18 +69,6 @@ function reading(answer, value) {
 }
 
 /**
- * The text a forward sends: the request, behind one voice-request line when
- * the Talk route collected it (Session's spoken turn). The caller is the
- * owner: the Talk key on this session is the user's own, as the Needs you
- * page answers asks as the owner. A typed request carries no line.
- */
-function forwardText(text, caller) {
-    if (caller.spoken !== true) return text;
-    return "voice-request: caller=owner operation=" + caller.ref + " conversation=jarvis-" + caller.gen
-        + " provenance=vgs-talk\n" + text;
-}
-
-/**
  * create({home, mainHost, environment, publish, log}) builds the owner.
  * home() answers the ready home folder or null; mainHost() the Main Jarvis
  * host setting; environment is the daemon's; publish(reach) receives each
@@ -178,16 +166,18 @@ function create({ home, mainHost, environment, publish, log, clock = CLOCK, run 
 
     const failed = cause => ({ outcome: "failed", content: "fleet-forward:" + cause });
 
-    async function forward(call, caller) {
+    async function forward(call, confirmed) {
         // external: the router holds it for the user's confirmation.
-        if (caller === undefined || !["voice", "physical"].includes(caller.method)) return failed("unconfirmed");
+        if (confirmed === undefined || !["voice", "physical"].includes(confirmed.method)) return failed("unconfirmed");
         if (Redact.secret(call.args.text)) return failed("secret");
         const folder = home();
         if (folder === null) return failed("home-unchosen");
         const file = command(folder);
         if (file === null) return failed("package-absent");
-        const record = { v: 1, request: { ref: caller.ref, at: caller.at, text: forwardText(call.args.text, caller) },
-            confirmation: { ref: caller.ref, at: caller.at, method: caller.method } };
+        // The request as the user made it, spoken or typed: no VGS path knows
+        // who spoke, so the record names no caller.
+        const record = { v: 1, request: { ref: confirmed.ref, at: confirmed.at, text: call.args.text },
+            confirmation: { ref: confirmed.ref, at: confirmed.at, method: confirmed.method } };
         const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "vgs-jarvis-forward-"));
         let result;
         try {
@@ -218,8 +208,8 @@ function create({ home, mainHost, environment, publish, log, clock = CLOCK, run 
             // Read at offer, route and start: a satellite whose package
             // reads the main this setting names.
             available: () => mainHost() !== "" && last !== null && last.kind === "satellite" && last.cause !== "setting-invalid",
-            start(call, done, authorize, origin, caller) {
-                forward(call, caller).then(answer => { done(answer); refresh(); },
+            start(call, done, authorize, origin, confirmed) {
+                forward(call, confirmed).then(answer => { done(answer); refresh(); },
                     error => done(failed(error.code || "unexpected")));
             } },
         refresh, choose,
@@ -233,4 +223,4 @@ function create({ home, mainHost, environment, publish, log, clock = CLOCK, run 
     };
 }
 
-module.exports = { create, reading, settingOf, forwardText, READ_EVERY_MS };
+module.exports = { create, reading, settingOf, READ_EVERY_MS };

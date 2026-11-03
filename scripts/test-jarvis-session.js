@@ -1578,7 +1578,7 @@ const table = [
         assert.equal(kinds(step(logic, s, callback("tool", brain, 53, { tool: "late", timeoutMs: 20, cancellable: true }))).includes("tool-start"), false);
         // A legal overlapping collecting region does not reactivate an
         // interrupted conversation until its own final transcript arrives.
-        s.turn = { kind: "thinking", gen: s.gen, op: s.nextOp++, deadline: 100, spoken: false };
+        s.turn = { kind: "thinking", gen: s.gen, op: s.nextOp++, deadline: 100 };
         assert.equal(kinds(step(logic, s, callback("tool", s.turn, 53, { tool: "late", timeoutMs: 20, cancellable: true }))).includes("tool-start"), false);
     }],
     ["tool-deadline", logic => {

@@ -218,7 +218,7 @@ async function stalledDeadline(Implementation = Audio) {
     });
     // Seed the same already-admitted playback used by the other port tests.
     // The real brain-done transition arms Session's production deadline.
-    runner.state = { ...w.audio.state, turn: { kind: "thinking", gen: 1, op: 3, deadline: 60000, spoken: false } };
+    runner.state = { ...w.audio.state, turn: { kind: "thinking", gen: 1, op: 3, deadline: 60000 } };
     runner.dispatch({ type: "brain-done", gen: 1, op: 3 });
     const running = w.audio.playbackPort.start({ gen: 1, op: 2, source: 3 },
         () => runner.dispatch({ type: "played", gen: 1, op: 2 }),

@@ -23,7 +23,7 @@ Speech receives what the brain already got, so a per-destination check leaks acr
 - Never put a URL, header or secret in a transport error. `scripts/test-jarvis-net.js` asserts their absence.
 - Do run the release judge before sanitised text leaves the machine, and report an overflow by stopping that output; never fall back to raw brain text. `scripts/test-jarvis-release.js` and `scripts/test-jarvis-speakable.js` pin both.
 - Do release each harness turn against the set before the handoff; a harness vendor owns its own sockets. `scripts/test-jarvis-claude.js` pins it.
-- Do release a forwarded request only through the owner's confirm of its `fleet.forward` call, whose approval quotes the request's text; the package receives that text, behind one `voice-request:` line for a Talk-started request. Hand it to the package's `jarvis-session forward`, which owns its SSH connection as a harness vendor owns its sockets, and refuse a text a secret pattern matches. The daemon opens no socket for it. `scripts/test-jarvis-router.js` and `scripts/test-jarvis-satellite.js` pin the confirm and the record, and `scripts/test-jarvis-net.js` still observes no daemon socket.
+- Do release a forwarded request only through the owner's confirm of its `fleet.forward` call, whose approval quotes the request's text; the package receives that text alone, spoken or typed. Hand it to the package's `jarvis-session forward`, which owns its SSH connection as a harness vendor owns its sockets, and refuse a text a secret pattern matches. The daemon opens no socket for it. `scripts/test-jarvis-router.js` and `scripts/test-jarvis-satellite.js` pin the confirm and the record, and `scripts/test-jarvis-net.js` still observes no daemon socket.
 
 ## The canonical example
 

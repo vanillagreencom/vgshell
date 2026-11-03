@@ -267,20 +267,16 @@ function commitUserText(s, effects, text, at, rev, voiceRequest) {
     if (s.input.kind === "held" || s.settings.mode === "always") s.input = { kind: "released" };
     closeCapture(s, effects);
     userTranscript(s, effects, text, rev);
-    think(s, effects, { text: text }, at, voiceRequest === true);
+    think(s, effects, { text: text }, at);
 }
 
 // One thinking turn of the conversation's brain owner. A relay turn holds the
-// owner too, so a later user turn keeps the conversation's history. spoken
-// is true only for a request the Talk route collected, words heard after
-// Talk or a cloud voice's delegation; a typed request, a relay and a
-// preview are not spoken (the router reads it for a forward's
-// voice-request line).
-function think(s, effects, values, at, spoken) {
+// owner too, so a later user turn keeps the conversation's history.
+function think(s, effects, values, at) {
     var brain = effect(s, effects, "brain-send", values);
     if (s.brain.kind === "closed") s.brain = { kind: "acquired", gen: brain.gen, op: brain.op };
     brain.owner = s.brain.op;
-    s.turn = { kind: "thinking", gen: brain.gen, op: brain.op, deadline: at + RESPONSE_TIMEOUT_MS, spoken: spoken === true };
+    s.turn = { kind: "thinking", gen: brain.gen, op: brain.op, deadline: at + RESPONSE_TIMEOUT_MS };
 }
 
 function canPlayback(s) {
@@ -740,7 +736,7 @@ function reduce(state, e) {
                 s.input = { kind: "released" };
                 closeCapture(s, effects);
             }
-            think(s, effects, { text: e.text, delegation: e.id }, e.at, true);
+            think(s, effects, { text: e.text, delegation: e.id }, e.at);
         } else {
             if (!live(s, e, "turn", ["collecting"])) { stale(s); break; }
             commitUserText(s, effects, e.text, e.at, e.op, true);
@@ -1008,7 +1004,7 @@ function reduce(state, e) {
 var REGIONS = {
     gate: { down: "reason", up: "" }, mute: { off: "", muting: "", on: "" }, voiceMute: { off: "", on: "" },
     capture: { closed: "", opening: "gen op mode", open: "gen op mode", closing: "gen op" },
-    turn: { none: "", collecting: "gen op partial deadline", thinking: "gen op deadline spoken", cancelling: "gen op deadline" },
+    turn: { none: "", collecting: "gen op partial deadline", thinking: "gen op deadline", cancelling: "gen op deadline" },
     brain: { closed: "", acquired: "gen op" },
     playback: { idle: "", playing: "gen op source interruptible admission deadline",
         feedback: "gen op source cue admission deadline reply", flushing: "gen op reply" },
@@ -1051,7 +1047,7 @@ function validate(s) {
                 if (!(f === "shownAt" && r[f] === null) && (!Number.isFinite(r[f]) || r[f] < 0)) return false;
             } else if (f === "timeoutMs") {
                 if (!Number.isFinite(r[f]) || r[f] <= 0) return false;
-            } else if (["interruptible", "physical", "cancellable", "spoken"].indexOf(f) !== -1) {
+            } else if (["interruptible", "physical", "cancellable"].indexOf(f) !== -1) {
                 if (typeof r[f] !== "boolean") return false;
             } else if (f === "cancellation") {
                 if (!exact(r[f], ["kind"]) || ["available", "unavailable", "requested"].indexOf(r[f].kind) === -1) return false;
