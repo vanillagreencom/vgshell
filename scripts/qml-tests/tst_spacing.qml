@@ -12,8 +12,9 @@ import qs.Unit
 // ListItem owns its larger icon gap and Badge its smaller chip gap. A theme that moves the shared token
 // moves every component that follows it. A group space, `stack.group`,
 // comes before a group: a button row after text, the row after a row's
-// lines, hint or error line, and a section's first row after its
-// description. A row's hint starts `field.gap` under its value whatever
+// lines, hint or error line. A section's first row stands 12 under its
+// title and 16 under its description, net of the spacing of the Column
+// the heading stands in. A row's hint starts `field.gap` under its value whatever
 // its label column draws, a label of two lines or an info mark, and a
 // label taller than the value and the hint still ends the row.
 Item {
@@ -50,6 +51,15 @@ Item {
         y: 680
         width: 300
         Rectangle { width: 10; height: 10 }
+    }
+    Column {
+        id: spacedColumn
+        x: 320
+        y: 760
+        width: 300
+        spacing: Theme.stack.group
+        SectionHeader { id: spacedHeader; text: "Spaced"; description: "A short description" }
+        Rectangle { id: spacedRow; width: 10; height: 10 }
     }
     Disclosure {
         id: disclosure
@@ -252,11 +262,15 @@ Item {
             const header = describedSection.children[0];
             const first = describedSection.children[1].children[0];
             const description = header.children[1];
-            compare(first.mapToItem(describedSection, 0, 0).y - description.mapToItem(describedSection, 0, description.height).y, Theme.stack.group, "a section's first row is a group space below its description");
+            compare(first.mapToItem(describedSection, 0, 0).y - description.mapToItem(describedSection, 0, description.height).y, Theme.space.xl, "a section's first row stands its description gap below its description");
             compare(first.mapToItem(describedSection, 0, 0).y - header.mapToItem(describedSection, 0, header.height).y, 0);
             compare(section.children[1].children[0].mapToItem(section, 0, 0).y - section.children[0].mapToItem(section, 0, section.children[0].height).y, 0);
             const title = section.children[0].children[0];
-            compare(section.children[1].children[0].mapToItem(section, 0, 0).y - title.mapToItem(section, 0, title.height).y, Theme.space.md, "a section without a description keeps its heading's space");
+            compare(section.children[1].children[0].mapToItem(section, 0, 0).y - title.mapToItem(section, 0, title.height).y, Theme.space.lg, "a section without a description keeps its heading's space");
+            // A bare heading in a Column takes the Column's spacing out of
+            // its own, so the first row still stands the heading's gap.
+            const spaced = spacedHeader.children[1];
+            compare(spacedRow.mapToItem(spacedColumn, 0, 0).y - spaced.mapToItem(spacedColumn, 0, spaced.height).y, Theme.space.xl, "a heading's first row stands its description gap under it, the Column's spacing within it");
             const inset = Theme.listItem.paddingX + Theme.icon.size.md + Theme.listItem.iconGap;
             compare(disclosed.parent.x, inset);
             compare(disclosed.width, disclosure.width - inset - Theme.listItem.paddingX);

@@ -212,7 +212,11 @@ Item {
         // than the column's spacing and the message's starts its box above
         // its own top, and its message's link and actions then start above
         // the box's height from that top: the keys still go to the slider.
+        // A row space of 16 sets the lower box past `field.gap` above its
+        // top; at the default 20 it starts 2 above it (scripts/qml-unit.sh,
+        // 2026-11-02).
         function test_an_action_on_a_row_under_another_hands_the_keys_to_its_control() {
+            compare(UnitTheme.override({ stack: { page: 16 } }), "ok");
             const configured = lent({}, [{ path: "general.border_size", value: 3 }, { path: "general.gaps_in", value: 6 }], []);
             upper.hyprland = configured;
             lower.hyprland = configured;

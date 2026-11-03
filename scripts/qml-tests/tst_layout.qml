@@ -56,6 +56,30 @@ Item {
         spacing: Theme.stack.group
         Section { id: firstSection; title: "First"; width: parent.width; Field { label: "One"; inline: true; width: parent.width; Label { role: "item"; text: "Ready" } } }
     }
+    // A section first in a padded Column of its own, under a drawn row of
+    // the Column above, as Bluetooth's My Devices stands, then a section
+    // that sets its own space, as a navigation list's group does.
+    Column {
+        id: nestedColumn
+        x: 320
+        y: 380
+        width: 300
+        spacing: Theme.stack.group
+        Rectangle { id: beforeNested; width: parent.width; height: Theme.row.height; color: "transparent" }
+        Column {
+            width: parent.width
+            topPadding: Theme.stack.row
+            spacing: Theme.stack.group
+            Section { id: nestedSection; title: "Nested"; width: parent.width; Field { label: "One"; inline: true; width: parent.width; Label { role: "item"; text: "Ready" } } }
+        }
+        // A row of a list with a cursor, the plate on no row: it answers
+        // its box, so the space under the list stays put as the plate moves.
+        ListItem { id: cursorRow; width: parent.width; text: "Shown"; secondary: "Not the selected row"; cursor: navPlate; enters: false }
+        Section { id: underCursorRow; title: "Under"; spaceAbove: Theme.navList.headingSpace; width: parent.width; Field { label: "One"; inline: true; width: parent.width; Label { role: "item"; text: "Ready" } } }
+        Rectangle { id: beforeOwn; width: parent.width; height: Theme.row.height; color: "transparent" }
+        Section { id: ownSpaceSection; title: "Own"; spaceAbove: Theme.navList.headingSpace; width: parent.width; Field { label: "One"; inline: true; width: parent.width; Label { role: "item"; text: "Ready" } } }
+    }
+    ListCursor { id: navPlate }
     FontMetrics { id: eyebrowMetrics; font: section.children[0].children[0].children[0].font }
     Surface { id: surface; level: "raised"; width: 100; height: 40; y: 220 }
     Divider { id: divider; width: 100; y: 270 }
@@ -383,21 +407,30 @@ Item {
             compare(String(divider.color), String(Qt.color(Theme.divider.color)));
         }
 
-        // How far the heading's capitals start under the drawn row above
-        // it, a box that draws to its edge.
-        function headingSpace() {
-            const eyebrow = section.children[0].children[0].children[0];
-            return eyebrow.mapToItem(sectionColumn, 0, eyebrow.baselineOffset).y - eyebrowMetrics.capitalHeight - beforeSection.height;
+        // How far the capitals of SECTION's heading start under the drawn
+        // row ABOVE, a box that draws to its edge.
+        function headingSpace(target, above) {
+            const eyebrow = target.children[0].children[0].children[0];
+            return eyebrow.mapToItem(root, 0, eyebrow.baselineOffset).y - eyebrowMetrics.capitalHeight - above.mapToItem(root, 0, above.height).y;
         }
 
         function test_section_spacing_and_inset() {
             const headerItem = section.children[0];
             const rows = section.children[1];
-            fuzzyCompare(headingSpace(), Theme.stack.heading, 1);
-            compare(firstSection.topPadding, 0);
+            fuzzyCompare(headingSpace(section, beforeSection), Theme.stack.heading, 1);
+            compare(firstSection.children[0].topPadding, 0);
             compare(rows.spacing, Theme.stack.row);
             compare(headerItem.leftPadding, Theme.row.paddingX);
             compare(headerItem.children[0].x, Theme.row.paddingX);
+        }
+
+        // A heading first in its own Column climbs to the row above that
+        // Column, counting the spacing and padding it crosses; a section
+        // that sets its own space takes it in place of the page's.
+        function test_section_spacing_across_columns() {
+            fuzzyCompare(headingSpace(nestedSection, beforeNested), Theme.stack.heading, 1);
+            fuzzyCompare(headingSpace(ownSpaceSection, beforeOwn), Theme.navList.headingSpace, 1);
+            fuzzyCompare(headingSpace(underCursorRow, cursorRow), Theme.navList.headingSpace, 1);
         }
 
         // expected-log: Surface: no level named "floating" -- the test names an unknown level on purpose
@@ -412,11 +445,11 @@ Item {
         }
 
         function test_theme_change_moves_the_layout() {
-            compare(UnitTheme.override({ tabs: { height: 44 }, row: { height: 50 }, stack: { row: 9, heading: 40 }, divider: { thickness: 3 }, surface: { radius: 9 } }), "ok");
+            compare(UnitTheme.override({ tabs: { height: 44 }, row: { height: 50 }, stack: { row: 9, heading: 48 }, divider: { thickness: 3 }, surface: { radius: 9 } }), "ok");
             compare(tabs.height, 44);
             verify(row.height >= 50);
             // The column places its rows again on its next polish.
-            tryVerify(() => Math.abs(headingSpace() - 40) <= 1, 1000, "the heading moves with the token");
+            tryVerify(() => Math.abs(headingSpace(section, beforeSection) - 48) <= 1, 1000, "the heading moves with the token");
             compare(section.children[1].spacing, 9);
             compare(divider.height, 3);
             compare(surface.children[1].radius, 9);

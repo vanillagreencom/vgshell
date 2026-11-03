@@ -40,6 +40,18 @@ import qs.Ui
 // and click.
 // `hoverEnabled` stays on, since a control hands its value to each child
 // control that sets none, which would take a trailing RowAction's hover.
+// `contentInkAbove()` and `contentInkBelow()` are how far inside its top
+// and bottom edges the row's content, its icon, lines and trailing items,
+// starts and ends its drawn ink (Theme.inkAbove, Theme.inkBelow), without
+// the plate or fill a selection draws. `inkAbove()` and `inkBelow()` read
+// that content for a row that draws no box at rest, one with no cursor and
+// not `highlighted`, so a heading under a column of such rows measures from
+// the last row's text. A row of a list with a cursor answers its box, since
+// the plate may rest on any row and the space around the list must not
+// move with it; a list whose plate shows only while it is engaged answers
+// for its rows itself (DeviceList). The content's children are placed by
+// anchors and its own `x`, not by a positioner, so their `y` is final when
+// read.
 // keyboard-path: a composite list owns keys and writes highlighted; a plain row is not a tab stop
 T.ItemDelegate {
     id: root
@@ -56,6 +68,22 @@ T.ItemDelegate {
     readonly property real textStart: leftPadding + (iconName !== "" ? Theme.icon.size.md + Theme.listItem.iconGap : 0)
 
     signal pointed()
+
+    readonly property bool drawsNoBox: cursor === null && !highlighted
+    function contentInkAbove() {
+        let top = contentItem.height;
+        for (const child of contentItem.children)
+            if (child.visible && child.width > 0 && child.height > 0) top = Math.min(top, child.y + Theme.inkAbove(child));
+        return contentItem.y + top;
+    }
+    function contentInkBelow() {
+        let bottom = 0;
+        for (const child of contentItem.children)
+            if (child.visible && child.width > 0 && child.height > 0) bottom = Math.max(bottom, child.y + child.height - Theme.inkBelow(child));
+        return height - contentItem.y - bottom;
+    }
+    function inkAbove() { return drawsNoBox ? contentInkAbove() : 0; }
+    function inkBelow() { return drawsNoBox ? contentInkBelow() : 0; }
 
     implicitWidth: leftPadding + rightPadding + (iconName !== "" ? Theme.icon.size.md + Theme.listItem.iconGap : 0) + Math.max(title.implicitWidth, secondaryLabel.implicitWidth) + (trailingRow.width > 0 ? trailingRow.width + Theme.listItem.gap : 0)
     implicitHeight: Math.max(secondary !== "" ? Theme.listItem.twoLineHeight : Theme.listItem.height, implicitContentHeight + topPadding + bottomPadding)

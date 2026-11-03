@@ -355,6 +355,15 @@ PY
     expect_poll "the $rule control owns pairing" "[\"$id\"]" bt_agent_holders
     local bt_id="$id"
     expect_poll "the $rule control reads On before opening" on bt_view
+    # The opening control's mutant opens the section before Nearby fills,
+    # so it tells only while that section stands under the window cap: at
+    # four paired devices it opened at 537 of 559 at a row space of 16 and
+    # at the cap at 20 (scripts/validate qml on main and on VGS-2226,
+    # 2026-11-02). Two forgotten devices take two rows out of it.
+    if [[ $rule == opening ]]; then
+      expect "the speaker leaves My Devices for the opening control" removed bluez remove-device "$bt_speaker"
+      expect "the pad leaves My Devices for the opening control" removed bluez remove-device "$bt_pad"
+    fi
     expect "32 radios join for $rule control" nearby=32 bluez add-nearby 32
     if [[ $rule == scroll || $rule == opening ]]; then
       host=window

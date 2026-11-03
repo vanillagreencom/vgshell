@@ -203,6 +203,8 @@ FocusScope {
                         width: body.width
                         title: modelData.name
                         rowSpacing: 0
+                        spaceAbove: Theme.navList.headingSpace
+                        spaceBelow: Theme.navList.headingGap
                         headerInset: rows.count > 0 && rows.itemAt(0) !== null ? rows.itemAt(0).leftPadding : 0
 
                         Repeater {

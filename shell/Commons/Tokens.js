@@ -427,17 +427,18 @@ var TOKENS = {
     // each logical group of content or actions and nowhere else, such as a
     // button row after text or the row after a row's sub-text, `page`
     // between the blocks of a window's page, which a reader holds longer
-    // than a flyout, `section` before a section, and `inline` between
+    // than a flyout, and between two key/value rows ink to ink, `section`
+    // before a section and under a tab strip, and `inline` between
     // controls side by side in one group, such as a row of buttons.
-    // `heading` is the space a `Section` leaves above its heading, from the
-    // lowest drawn pixel above it to the heading's capital top, so the eye
-    // reads the same space under a switch, a select or a help line.
+    // `heading` is the space a `SectionHeader` leaves above itself, from
+    // the lowest drawn pixel above it to its capital top, so the eye reads
+    // the same space under a switch, a select or a help line.
     stack: {
         row: length("{space.xs}"),
         group: length("{space.lg}"),
-        page: length("{space.xl}"),
+        page: step(5),
         section: length("{space.xxl}"),
-        heading: length("{space.xxxl}"),
+        heading: step(10),
         titleSpace: bodyLines(1),
         inline: length("{space.md}")
     },
@@ -881,9 +882,23 @@ var TOKENS = {
         }
     },
 
+    // A section heading's space to its first row: `paddingBottom` under a
+    // title alone, `descriptionGap` under a description, each counting the
+    // spacing of the Column the heading stands in; `gap` between the title
+    // and the description.
     sectionHeader: {
-        paddingBottom: length("{space.md}"),
+        paddingBottom: length("{space.lg}"),
+        descriptionGap: length("{space.xl}"),
         gap: length("{row.lineGap}")
+    },
+
+    // A navigation list's group headings, such as the System window's
+    // sidebar: `headingSpace` above each heading from the rows above, and
+    // `headingGap` under its title, apart from a page's `stack.heading` and
+    // `sectionHeader`, so the page rhythm moves without moving the list.
+    navList: {
+        headingSpace: length("{space.xxxl}"),
+        headingGap: length("{space.md}")
     },
 
     popover: {

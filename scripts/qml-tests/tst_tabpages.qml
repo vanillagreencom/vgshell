@@ -79,7 +79,7 @@ Item {
             compare(first.width, 300);
             compare(second.width, 300);
             verify(first.height !== second.height, "the pages are one height, so the height reading holds for either");
-            compare(pages.height, pages.tabs.height + Theme.stack.page + first.height);
+            compare(pages.height, pages.tabs.height + Theme.stack.section + first.height);
         }
 
         function test_a_click_on_a_tab_shows_its_page() {
@@ -88,10 +88,10 @@ Item {
             compare(pages.currentPage, second);
             verify(second.visible, "the chosen page is hidden");
             verify(!first.visible, "the page left behind still shows");
-            compare(pages.height, pages.tabs.height + Theme.stack.page + second.height);
+            compare(pages.height, pages.tabs.height + Theme.stack.section + second.height);
             pages.spacing = 4;
             compare(pages.height, pages.tabs.height + 4 + second.height);
-            pages.spacing = Qt.binding(() => Theme.stack.page);
+            pages.spacing = Qt.binding(() => Theme.stack.section);
         }
 
         function test_left_and_right_on_the_strip_change_the_page() {

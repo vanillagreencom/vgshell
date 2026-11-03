@@ -124,6 +124,19 @@ FocusScope {
     function keyAt(index) { return index >= 0 && index < rows.length ? String(rows[index].key) : ""; }
     function indexOfKey(key) { return rows.findIndex(row => String(row.key) === key); }
 
+    // How far above its bottom edge the list's drawn ink ends: the last
+    // row's content (ListItem.contentInkBelow). Its rows hold a cursor, so
+    // each answers its box, but this list shows the plate and a row's fill
+    // only while it is engaged, so a heading under it measures its space
+    // from the last row's text (SectionHeader).
+    function inkBelow() {
+        for (let i = repeater.count - 1; i >= 0; i--) {
+            const row = repeater.itemAt(i);
+            if (row !== null && row.visible && row.height > 0) return column.bottomPadding + row.contentInkBelow();
+        }
+        return 0;
+    }
+
     // The row item at INDEX, or null.
     function rowAt(index) { return repeater.itemAt(index); }
 

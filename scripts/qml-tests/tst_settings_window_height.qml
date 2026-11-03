@@ -295,7 +295,7 @@ Item {
                 "the tab rule and content rows share their left edge");
             compare(track.width, firstRow.width, "the tab rule and content rows span the same width");
             const restGap = firstRow.mapToItem(scroll.contentItem, 0, 0).y - scroll.contentPadding - p.tabs.tabs.height;
-            compare(restGap, Theme.stack.page, "the first row follows the tab strip by the page spacing token");
+            compare(restGap, Theme.stack.section, "the first row follows the tab strip by the section spacing token");
 
             compare(surface.color, Qt.color(Theme.surface.level.raised.background), "the cover matches the application window's raised background");
             compare(surface.mapToItem(scroll, 0, 0).y, scroll.focusInset + scroll.clipPadding,
@@ -437,8 +437,8 @@ Item {
                     }
                 }
                 solidPixels(atEnd, surface, Qt.rect(0, 0, surface.width, strip.mapToItem(surface, 0, 0).y), Theme.surface.level.raised.background);
-                compare(firstRow.mapToItem(scroll.contentItem, 0, 0).y - scroll.contentPadding - p.tabs.tabs.height, Theme.stack.page,
-                    "the first row keeps its page spacing while content scrolls");
+                compare(firstRow.mapToItem(scroll.contentItem, 0, 0).y - scroll.contentPadding - p.tabs.tabs.height, Theme.stack.section,
+                    "the first row keeps its section spacing while content scrolls");
                 const button = descendants(strip).find(item => item.text === names[i] && item.checked !== undefined);
                 verify(button !== undefined, "the pinned " + names[i] + " tab can be found");
                 // Read the painted fill, not just TabButton.down: the page's

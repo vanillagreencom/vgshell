@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """One planted violation per rule of check-design-tokens.py, one clean row per
 tree, one row per exemption, the notice mode for a plugin directory, and the
-refusals: a token table node cannot load, a Theme.qml without members, and a
-tree with no source file.
+refusals: a token table node cannot load, a Theme.qml without members, a
+tree with no source file, and a plugin tree without the Settings page host
+or a pane.
 Each row builds a throwaway repository holding the shipped token table, judge,
 Theme.qml and library loader, plants one file, or an icon button row's file
 beside an IconButton.qml, runs the check on it and asserts the rule key and
@@ -26,14 +27,26 @@ SHIPPED = ("shell/Commons/Tokens.js", "shell/Commons/ThemeLogic.js", "shell/Comm
 # (the three under shell/Commons, and the manifest judge under shell/Core with
 # every file it imports), and the planted file.
 TREES = ("shell/Ui", "shell/Hosts", "shell/plugins/acme.widget", ".agents/skills/vgs-plugin/templates", "shell/Core", "scripts/smoke/fixtures/plugins/acme.probe")
-# The source files a fixture holds before a row plants any: each shipped
-# `.qml` or `.js` file under shell/, since no tree walks bin/, and one clean
-# file per tree. Counted from the two lists above, so a file added to
-# SHIPPED moves every row's count at once.
-FIXTURE_FILES = sum(1 for f in SHIPPED if f.startswith("shell/") and f.endswith((".qml", ".js"))) + len(TREES)
 # Each clean file hands GlassSurface the popover's look, so `popover` is a
 # surface's group in every fixture.
 CLEAN = "import QtQuick\nimport qs.Commons\nItem {\n    color: Theme.color.surface\n    radius: Theme.radius.md\n    width: 2 * Theme.space.md\n    standard: Theme.popover\n}\n"
+# The settings surfaces every fixture holds, since the plugin tree needs the
+# Settings page host and one pane: a pane plugin and the host's plugin, each
+# clean and handing GlassSurface no look, so the trees' files alone do.
+SURFACE = CLEAN.replace("    standard: Theme.popover\n", "")
+PANE = "shell/plugins/acme.pane/Pane.qml"
+HOST = "shell/plugins/vgs.settings/PluginPage.qml"
+SETTINGS_FILES = {
+    "shell/plugins/acme.pane/manifest.json": '{"schemaVersion": 1, "id": "acme.pane", "name": "P", "version": "1", "author": "a", "description": "d", "kinds": ["pane"], "entryPoints": {"pane": "Pane.qml"}, "pane": {"group": "G", "order": 1}}',
+    PANE: SURFACE,
+    "shell/plugins/vgs.settings/manifest.json": '{"schemaVersion": 1, "id": "vgs.settings", "name": "S", "version": "1", "author": "a", "description": "d", "kinds": ["service"], "entryPoints": {"service": "PluginPage.qml"}}',
+    HOST: SURFACE,
+}
+# The source files a fixture holds before a row plants any: each shipped
+# `.qml` or `.js` file under shell/, since no tree walks bin/, one clean
+# file per tree and the settings surfaces. Counted from the lists above, so
+# a file added to SHIPPED moves every row's count at once.
+FIXTURE_FILES = sum(1 for f in SHIPPED if f.startswith("shell/") and f.endswith((".qml", ".js"))) + len(TREES) + sum(1 for f in SETTINGS_FILES if f.endswith(".qml"))
 WIDGET_MANIFEST = '{"schemaVersion": 1, "id": "acme.widget", "name": "Widget", "version": "1", "author": "a", "description": "d", "kinds": ["service"], "entryPoints": {"service": "Clean.qml"}}'
 UI = "shell/Ui/Thing.qml"
 
@@ -176,6 +189,37 @@ PAIR_ROWS = [
 ]
 
 
+# Settings surface rows: name, {path: text} over the fixture, expected rule
+# keys. The pane and the host are surfaces, and so is a type of the pane's
+# plugin the pane composes; a type it does not compose is not.
+SETTINGS_ROWS = [
+    ("a pane's own type that reads a space step", {PANE: "Item { Rows {} }\n", "shell/plugins/acme.pane/Rows.qml": "Column { spacing: Theme.space.lg }\n"}, {"settings-gap"}),
+    ("a pane gap from token arithmetic", {PANE: "Column { topPadding: Theme.stack.group + Theme.row.lineGap }\n"}, {"settings-gap"}),
+    ("a pane gap from a literal in arithmetic", {PANE: "Column { bottomPadding: 2 * gap }\n"}, {"settings-gap"}),
+    ("a pane gap chosen between tokens", {PANE: "Column { spacing: wide ? Theme.stack.page : Theme.stack.row }\n"}, {"settings-gap"}),
+    ("a pane gap literal is a literal and a settings gap", {PANE: "Column { spacing: 12 }\n"}, {"literal-metric", "settings-gap"}),
+    ("a host margin from a space step", {HOST: "Item { Rectangle { anchors.margins: Theme.space.xs } }\n"}, {"settings-gap"}),
+    ("gaps from the shared rhythm are not a finding", {PANE: "Column {\n    spacing: Theme.stack.page\n    topPadding: Theme.field.gap\n    anchors.margins: 0\n    bottomPadding: Theme.subTextRoom(sub, Positioner.index, Positioner.isLastItem, parent)\n    rightPadding: -actions.overhang\n    property real rowSpacing: line.spacing\n    implicitWidth: wide ? Theme.dialog.margin : 0\n}\n"}, set()),
+    ("a type the pane does not compose is not a settings surface", {"shell/plugins/acme.pane/Other.qml": "Column { spacing: Theme.space.lg }\n"}, set()),
+]
+
+
+def run_settings_row(name, files, want):
+    with tempfile.TemporaryDirectory() as tmp:
+        root = build_repo(tmp)
+        for relative, text in files.items():
+            with open(os.path.join(root, relative), "w", encoding="utf-8") as fh:
+                fh.write(text)
+        proc = run_check(root)
+        keys = keys_of(proc)
+        if not want:
+            added = sum(1 for f in files if f not in SETTINGS_FILES)
+            good = proc.returncode == 0 and not keys and proc.stdout.splitlines()[-1:] == [f"check-design-tokens: ok files={FIXTURE_FILES + added}"]
+        else:
+            good = proc.returncode == 1 and keys == want
+        return report(name, good, proc)
+
+
 def run_pair_row(name, files, want):
     with tempfile.TemporaryDirectory() as tmp:
         root = build_repo(tmp)
@@ -221,6 +265,10 @@ def build_repo(tmp, planted=None, theme=None, tokens=None, glass=None):
             fh.write(CLEAN)
     with open(os.path.join(root, "shell/plugins/acme.widget/manifest.json"), "w", encoding="utf-8") as fh:
         fh.write(WIDGET_MANIFEST)
+    for relative, text in SETTINGS_FILES.items():
+        os.makedirs(os.path.dirname(os.path.join(root, relative)), exist_ok=True)
+        with open(os.path.join(root, relative), "w", encoding="utf-8") as fh:
+            fh.write(text)
     if planted is not None:
         path, text = planted
         os.makedirs(os.path.dirname(os.path.join(root, path)), exist_ok=True)
@@ -264,7 +312,14 @@ def run_row(name, path, text, want):
 
 
 def main():
-    results = [run_row(*row) for row in ROWS] + [run_pair_row(*row) for row in PAIR_ROWS] + [run_look_row(*row) for row in LOOK_ROWS]
+    results = [run_row(*row) for row in ROWS] + [run_pair_row(*row) for row in PAIR_ROWS] + [run_look_row(*row) for row in LOOK_ROWS] + [run_settings_row(*row) for row in SETTINGS_ROWS]
+    for name, gone, cause in (("a plugin tree without the Settings page host exits 2", HOST, f"{HOST}: the Settings page host is missing"),
+                              ("a plugin tree where no plugin names a pane exits 2", "shell/plugins/acme.pane/manifest.json", "shell/plugins: no plugin names a pane")):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = build_repo(tmp)
+            os.remove(os.path.join(root, gone))
+            proc = run_check(root)
+            results.append(report(name, proc.returncode == 2 and proc.stdout.startswith(f"check-design-tokens: unreadable: {root}/{cause}"), proc))
     with tempfile.TemporaryDirectory() as tmp:
         proc = run_check(build_repo(tmp, ("shell/plugins/acme.widget/Look.qml", "Rectangle { property var c: look.nope; radius: Math.min(look.card.radius, height / 2) }\n")))
         results.append(report("a plugin without an appearance takes no look rule and no look radius", proc.returncode == 1 and keys_of(proc) == {"literal-radius"}, proc))

@@ -80,11 +80,12 @@ T.Control {
                 width: modelData.width * root.fit.scale
                 height: modelData.height * root.fit.scale
 
-                // Inset so two displays that touch draw two outlines with a
-                // gap between them, not one doubled line.
+                // Inset by the gap that parts a segmented control's
+                // segments, so two displays that touch draw two outlines
+                // apart, as two segments do, not one doubled line.
                 Rectangle {
                     anchors.fill: parent
-                    anchors.margins: Theme.space.xxs
+                    anchors.margins: Theme.segmented.gap
                     radius: Theme.radius.sm
                     color: tile.current ? Theme.color.accentSubtle : Theme.color.surfaceRaised
                     border.width: tile.current ? Theme.border.thick : Theme.border.thin

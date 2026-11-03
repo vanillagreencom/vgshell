@@ -18,7 +18,10 @@ import qs.Unit
 // that ends a live row and is marked the same way is left out of the row's
 // measure, as a hidden group is. A bare FormRow measures the space above it
 // by the same search (FormRow `rowAbove`, `inkTop`), so under a marked
-// setting or a marked bare row it too stands under no row.
+// setting or a marked bare row it too stands under no row. A section
+// heading under a marked column takes no space, where reading the marked
+// column's children logged `Theme.qml:259: TypeError: Value is undefined
+// and could not be converted to an object`.
 Item {
     id: root
     width: 600
@@ -67,6 +70,24 @@ Item {
     }
 
     Column { id: host; width: 400 }
+    Column { id: headerHost; x: 420; width: 300; spacing: Theme.stack.group }
+
+    // A column of the page that QML destroys, then a heading under it.
+    Component { id: blockAbove; Column { Rectangle { width: 100; height: 20 } } }
+    Component { id: heading; SectionHeader { text: "Below"; width: parent === null ? 0 : parent.width } }
+    // Moves the heading token as it leaves, while the column above, made
+    // after it under the same owner, is already marked.
+    Component {
+        id: headingTeller
+        QtObject {
+            property Item below: null
+            Component.onDestruction: {
+                UnitTheme.override({ stack: { heading: Theme.stack.heading + 7 } });
+                root.headingSeen = below.topPadding;
+            }
+        }
+    }
+    property var headingSeen: null
 
     TestCase {
         name: "field_row_above_teardown"
@@ -121,7 +142,12 @@ Item {
             return [{ tag: "setting", above: setting }, { tag: "bare row", above: bareRow }];
         }
 
+        // At the default row space, 20, a bare row's ink space under a
+        // switch row equals its box space, so its `inkTop` reads 0 under a
+        // live row too and the case could not tell it from none
+        // (scripts/qml-unit.sh, 2026-11-02); at 16 it reads apart.
         function test_c_a_marked_row_above_a_bare_row_is_no_row(data) {
+            compare(UnitTheme.override({ stack: { page: 16 } }), "ok");
             const doomed = owner.createObject(root);
             setting.createObject(doomed, { edits: edits });
             const row = data.above.createObject(doomed, data.above === setting ? { edits: null } : {});
@@ -137,6 +163,24 @@ Item {
             compare(edits.seen.top, 0, "a bare row under a marked row stands under no row");
             tryCompare(below, "rowAbove", null, 2000);
             compare(below.shift, 0);
+        }
+
+        function test_d_a_heading_under_a_marked_column_takes_no_space() {
+            root.headingSeen = null;
+            const doomed = owner.createObject(root);
+            const teller = headingTeller.createObject(doomed);
+            const above = blockAbove.createObject(doomed);
+            above.parent = headerHost;
+            above.width = headerHost.width;
+            const below = createTemporaryObject(heading, headerHost);
+            teller.below = below;
+            tryVerify(() => below.placement !== null && below.placement.above === above, 2000, "the column is the heading's item above");
+            verify(below.topPadding > 0, "the heading stands its space under a live column");
+            doomed.destroy();
+            tryVerify(() => root.headingSeen !== null, 2000, "the leaving teller moves the heading token");
+            compare(root.headingSeen, 0, "a heading under a marked column takes no space");
+            tryCompare(below, "placement", null, 2000);
+            compare(below.topPadding, 0);
         }
     }
 }

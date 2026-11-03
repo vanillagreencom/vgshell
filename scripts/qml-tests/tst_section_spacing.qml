@@ -15,7 +15,8 @@ import "../../shell/plugins/vgs.settings"
 // a link: one inside running text, whose underline, not its glyphs, ends
 // the ink, and one that is the whole hint, whose glyphs end it, since its
 // underline draws on hover alone; and exactly under a row action's text
-// or danger mark, not its box. The settings of no group draw no
+// or danger mark, not its box, and under the last row of a device list
+// or of a plain column of rows, not its box. The settings of no group draw no
 // heading: they follow the
 // Enabled switch at the space rows of one list leave. A
 // section spaced by its box, as before `stack.heading`, is the control the
@@ -82,7 +83,8 @@ Item {
         Field { label: "Shown"; inline: true; width: parent.width; Switch { size: "sm"; checked: true } }
         Section {
             title: "Planted"
-            topPadding: Theme.stack.section - Theme.stack.page
+            spaceAbove: 0
+            topPadding: Theme.stack.heading - Theme.stack.page
             Field { label: "One"; inline: true; width: parent.width; Label { role: "item"; text: "Ready" } }
         }
     }
@@ -199,6 +201,38 @@ Item {
             }
             Section {
                 title: "Text"
+                Field { label: "One"; inline: true; width: parent.width; Label { role: "item"; text: "Ready" } }
+            }
+        }
+    }
+
+    // A section ending in a device list, as Bluetooth's My Devices does,
+    // or with `plain`, in a column of rows with no cursor, as the Mouse
+    // page's devices are, then the next section.
+    Component {
+        id: devicesThenSection
+        Column {
+            id: devicesPage
+            property bool plain: false
+            width: 400
+            spacing: 0
+            Section {
+                title: "My Devices"
+                DeviceList {
+                    visible: !devicesPage.plain
+                    width: parent.width
+                    rows: [{ key: "mouse", text: "Mouse", secondary: "Connected", iconName: "mouse" }]
+                    actionOf: row => ({ text: "Disconnect" })
+                }
+                Column {
+                    visible: devicesPage.plain
+                    width: parent.width
+                    spacing: Theme.stack.row
+                    DeviceRow { width: parent.width; clickable: false; text: "Mouse"; secondary: "Connected"; iconName: "mouse"; badge: "USB" }
+                }
+            }
+            Section {
+                title: "Nearby"
                 Field { label: "One"; inline: true; width: parent.width; Label { role: "item"; text: "Ready" } }
             }
         }
@@ -472,6 +506,26 @@ Item {
             const gap = gapAbove(grabImage(root), headings(page)[1]);
             if (data.holder === "boxed") verify(gap !== Theme.stack.heading, "the reading tells an action's box from its ink: " + gap);
             else compare(gap, Theme.stack.heading, "the heading sits " + gap + " px under the action, not " + Theme.stack.heading);
+        }
+
+        // A device list draws no plate at rest, and a row with no cursor
+        // draws no box, so the heading under either stands by its last
+        // row's text, not the row's box.
+        function test_heading_space_after_a_device_list_data() {
+            return [{ tag: "device list", plain: false }, { tag: "column of rows", plain: true }];
+        }
+
+        function test_heading_space_after_a_device_list(data) {
+            const page = createTemporaryObject(devicesThenSection, root, { plain: data.plain });
+            verify(page !== null);
+            tryVerify(() => headings(page).length === 2, 2000, "the page heads two groups");
+            // The row draws once its entrance ends (ListEntrance).
+            const row = descendants(page).find(child => child instanceof DeviceRow && child.visible);
+            verify(row !== undefined, "the list draws its row");
+            tryCompare(row, "opacity", 1, 2000);
+            verify(renderedFrame(page));
+            const gap = gapAbove(grabImage(root), headings(page)[1]);
+            verify(Math.abs(gap - Theme.stack.heading) <= root.tolerance, "the heading sits " + gap + " px under the device list, not " + Theme.stack.heading);
         }
 
         // The control: a section spaced by its box under a switch row.

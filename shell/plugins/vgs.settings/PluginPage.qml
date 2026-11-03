@@ -977,7 +977,7 @@ FocusScope {
 
                     Flow {
                         width: parent.width
-                        spacing: Theme.space.xs
+                        spacing: Theme.stack.row
                         visible: page.row !== null && page.row.capabilities.length > 0
                         Repeater {
                             model: page.row === null ? [] : page.row.capabilities

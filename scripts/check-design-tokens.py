@@ -80,6 +80,27 @@ fixed geometry is what a placement row measures:
                      RowAction
 A value that is more than one literal, such as `2 * inset`, is layout and
 passes. Comments are blanked and strings kept, through scripts/qml_source.py.
+Rhythm rule, on the settings surfaces: the file each plugin's manifest names
+as its `pane` entry point, read through PluginLogic.validateManifest, the
+plugin Settings page host shell/plugins/vgs.settings/PluginPage.qml, and
+every type of the plugin's own, a QML file beside one of these, that one of
+them composes, transitively:
+  settings-gap       a gap binding, a spacing, a padding or a margin, that
+                     reads a `Theme.space` step, holds a non-zero literal or
+                     reads a token inside arithmetic or a choice. A gap is 0,
+                     one token path outside `Theme.space`, such as
+                     `Theme.stack.page` or `Theme.field.gap`, or one Theme
+                     function call, such as `Theme.subTextRoom(...)`, so a
+                     page takes every gap from the shared rhythm
+                     (docs/architecture/design-system.md § Settings pages).
+                     A value of other properties alone, such as
+                     `line.spacing` or a measured `-actions.overhang`, hands
+                     on what its own binding sets and passes; a literal set
+                     on a property under another name is review's. A value
+                     spread over lines is read on its first line. The scan
+                     needs the host and, in the repository, one pane, or it
+                     is unreadable; a third-party plugin directory's pane
+                     is judged as a notice
 Appearance rules, on a plugin whose manifest declares `appearance` (each
 directory under shell/plugins, or each directory given): the plugin draws
 with its own table, `look`, instead of Theme, so
@@ -160,13 +181,14 @@ APPEARANCE = (
     "const plugins = load(process.argv[2]); const judge = load(process.argv[3]);"
     "const shell = judge.defaults(load(process.argv[4]).TOKENS).values;"
     "const dir = process.argv[5];"
-    "const out = { error: null, appearance: null, refusals: [], paths: [], small: [] };"
+    "const out = { error: null, appearance: null, pane: null, refusals: [], paths: [], small: [] };"
     # keyName draws only inside the shared hint's cap (Kbd.qml), never in a
     # plugin-owned look, so it sets no floor for one.
     "const floor = Math.min.apply(null, Object.keys(shell.text).filter(role => role !== 'keyName').map(role => shell.text[role].size));"
     "let raw; try { raw = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8')); } catch (e) { out.error = e.message; }"
     "const judged = out.error === null ? plugins.validateManifest(raw, dir) : null;"
     "if (judged !== null && !judged.ok) out.error = 'manifest: ' + judged.error;"
+    "if (judged !== null && judged.ok && judged.manifest.entryPoints.pane !== undefined) out.pane = judged.manifest.entryPoints.pane;"
     "if (judged !== null && judged.ok && judged.manifest.appearance !== undefined) {"
     "  out.appearance = judged.manifest.appearance;"
     "  let look = null; try { look = load(path.join(dir, out.appearance)); } catch (e) { out.refusals.push('unloadable: ' + e.message); }"
@@ -227,6 +249,14 @@ IS_PROPERTY_PATH = re.compile(r"^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*$")
 OWN_UNDERLINE = re.compile(r"(?<![\w.])font\s*\.\s*underline\s*:|\bfont\s*\.\s*underline\s*=(?!=)|\bfont\s*\{[^}]*\bunderline\s*:|\bQt\.font\s*\([^)]*\bunderline\s*:|<u[\s>]|text-decoration\s*:\s*underline", re.IGNORECASE)
 QT_ANCHOR = re.compile(r"<a\s[^>]*href|(?<![\w.])onLink(?:Activated|Hovered)\s*:|\bfunction\s+onLink(?:Activated|Hovered)\b|\blink(?:Activated|Hovered)\s*\.\s*connect\b", re.IGNORECASE)
 IS_LITERAL = re.compile(r"^(?:" + LITERAL + r")$")
+# The plugin Settings page host, under the plugins tree.
+SETTINGS_PAGE_HOST = os.path.join("vgs.settings", "PluginPage.qml")
+# A gap binding at the start of a statement, a property declaration's
+# included, so the colon of a `? :` choice is never read as one.
+GAP_BINDING = re.compile(r"(?:^|[;{])\s*(?:(?:readonly|required|default)\s+)*(?:property\s+[\w<>.]+\s+)?((?:[A-Za-z_]\w*\.)*(?:spacing|rowSpacing|columnSpacing|\w*[pP]adding|\w*[mM]argins?))\s*:\s*([^;{}]*)")
+GAP_TOKEN = re.compile(r"^Theme\.(?!space\.)[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+$")
+THEME_CALL = re.compile(r"^Theme\.[a-z]\w*\(")
+NUMBER_TOKEN = re.compile(r"(?<![\w.])\d+(?:\.\d+)?")
 QUOTED = re.compile(r"^[\"']([^\"']*)[\"']$")
 
 
@@ -270,6 +300,60 @@ def literal_findings(line, tokens=("Theme.",)):
     for m in QT_ANCHOR.finditer(line):
         out.append(("link-unshared", m.group(0)))
     return out
+
+
+def one_call(value):
+    """True when `value` is one call whose parenthesis closes at its end."""
+    depth = 0
+    for i, ch in enumerate(value):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return i == len(value) - 1
+    return False
+
+
+def gap_finding(value):
+    """Whether a settings surface's gap value leaves the shared rhythm."""
+    if value == "0" or GAP_TOKEN.match(value):
+        return False
+    if "Theme.space." in value:
+        return True
+    if THEME_CALL.match(value) and one_call(value):
+        return False
+    return "Theme." in value or any(float(n) != 0 for n in NUMBER_TOKEN.findall(value))
+
+
+def settings_surfaces(root, looks, host):
+    """Every settings surface under the plugin tree `root`: each plugin's
+    pane, the page host when `host` is set, and each type of the plugin's
+    own they compose."""
+    todo = [look.pane for look in looks.values() if look.plugin and look.pane is not None]
+    if host is not None:
+        if not os.path.isfile(host):
+            raise Unreadable(host, "the Settings page host is missing; the settings surface scan is broken")
+        if not todo:
+            raise Unreadable(root, "no plugin names a pane; the settings surface scan is broken")
+        todo.append(host)
+    surfaces = set()
+    while todo:
+        path = todo.pop()
+        if path in surfaces:
+            continue
+        try:
+            with open(path, encoding="utf-8") as fh:
+                text = fh.read()
+        except OSError as exc:
+            raise Unreadable(path, exc.strerror) from exc
+        surfaces.add(path)
+        for block in blocks(blank_comments(text, literals=False)):
+            if block.type is not None and "." not in block.type:
+                own = os.path.join(os.path.dirname(path), block.type + ".qml")
+                if os.path.isfile(own):
+                    todo.append(own)
+    return surfaces
 
 
 def standard_groups(repo):
@@ -318,10 +402,12 @@ class Look:
             if not os.path.exists(manifest):
                 self.plugin = require_manifest
                 self.file = None
+                self.pane = None
                 return
             raise Unreadable(manifest, answer["error"])
         self.plugin = True
         self.file = None if answer["appearance"] is None else os.path.join(plugin, answer["appearance"])
+        self.pane = None if answer["pane"] is None else os.path.join(plugin, answer["pane"])
         self.refusals = answer["refusals"]
         self.small = answer["small"]
         self.paths = set(answer["paths"])
@@ -431,9 +517,10 @@ def icon_button_backgrounds(path, text, shared):
     return lines
 
 
-def check_tree(root, table, literal, looks, surfaces, findings, notices, shared_icon_button):
+def check_tree(root, table, literal, looks, surfaces, settings, findings, notices, shared_icon_button):
     """Check every source file under `root`; answer the file count.
-    `shared_icon_button` is qs.Ui's IconButton.qml."""
+    `settings` are the settings surfaces among them; `shared_icon_button` is
+    qs.Ui's IconButton.qml."""
     files = set()
     for path, text in source_texts(root):
         if manifestless_plugin_dir(looks, path) is not None:
@@ -474,6 +561,10 @@ def check_tree(root, table, literal, looks, surfaces, findings, notices, shared_
                 (findings if literal == "finding" else notices).append(f"glass-bypass {path}:{number} Theme.{m.group(1)}.background")
         for rule, detail in literal_findings(line, ("Theme.",) if look is None else ("Theme.", "look.")):
             (findings if literal == "finding" else notices).append(f"{rule} {path}:{number} {detail}")
+        if path in settings:
+            for m in GAP_BINDING.finditer(line):
+                if gap_finding(m.group(2).strip()):
+                    (findings if literal == "finding" else notices).append(f"settings-gap {path}:{number} {m.group(1)}: {m.group(2).strip()}")
     if not files:
         raise Unreadable(root, "no source file found")
     return len(files)
@@ -506,7 +597,9 @@ def main(argv):
         for refusal in table.glass_refusals:
             findings.append(f"appearance-refused {table.glass_file}:1 {refusal}")
         for root, literal, plugins in trees:
-            files += check_tree(root, table, literal, plugin_looks(repo, root, plugins), surfaces, findings, notices, os.path.join(shell, "Ui", "controls", ICON_BUTTON + ".qml"))
+            looks = plugin_looks(repo, root, plugins)
+            settings = set() if plugins is None else settings_surfaces(root, looks, os.path.join(root, SETTINGS_PAGE_HOST) if plugins == "children" else None)
+            files += check_tree(root, table, literal, looks, surfaces, settings, findings, notices, os.path.join(shell, "Ui", "controls", ICON_BUTTON + ".qml"))
     except Unreadable as exc:
         print(f"check-design-tokens: unreadable: {exc.path}: {exc.strerror}")
         return 2

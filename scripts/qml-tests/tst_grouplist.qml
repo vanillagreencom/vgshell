@@ -59,6 +59,24 @@ Item {
         }
     }
 
+    // A rows section's list, as RowsList draws it: rows with no cursor that
+    // take no click, so each draws its text and no box.
+    Rectangle {
+        id: rowsFrame
+        x: 420
+        y: 1860
+        width: 400
+        height: rowsList.height
+        color: Theme.color.surface
+        GroupList {
+            id: rowsList
+            width: rowsFrame.width
+            ListItem { width: rowsList.width; clickable: false; iconName: "package"; text: "Weather"; secondary: "Updated today" }
+            ListItem { width: rowsList.width; clickable: false; iconName: "package"; text: "Clock"; secondary: "Up to date" }
+            ListItem { width: rowsList.width; clickable: false; iconName: "package"; text: "Mail"; secondary: "Up to date" }
+        }
+    }
+
     // The groups of a Setup tab on a solid surface, so the image shows
     // where each group's pixels start and end: Requirements rows whose
     // hints end with and without a descender, the Install row's filled
@@ -373,6 +391,13 @@ Item {
         function test_each_hairline_is_centred_between_the_drawn_groups() {
             checkDivided(inkList);
             compare(offCentre(inkFrame, inkList, 8), [], "every hairline is centred between the drawn groups");
+        }
+
+        // Rows that draw no box are read by their text, above and below, so
+        // the hairline between two stays centred between what they draw.
+        function test_a_hairline_is_centred_between_rows_of_text() {
+            checkDivided(rowsList);
+            compare(offCentre(rowsFrame, rowsList, 2), [], "every hairline is centred between the drawn rows");
         }
 
         // The hairlines of OWNER, drawn on FRAME, that sit off the middle
