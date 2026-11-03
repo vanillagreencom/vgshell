@@ -108,6 +108,19 @@ process.stdout.write(process.env.REVIEW_PAGE_REPLY);process.exit(Number(process.
     expectCommand("present names the missing command and exits 1", run(scripts.pkg, ["present", "gum", "fzf"]), 1, "{\"present\":[\"gum\"],\"missing\":[\"fzf\"]}\n", "");
     expectCommand("present exits 0 when every command is found", run(scripts.pkg, ["present", "gum", "yay"]), 0, "{\"present\":[\"gum\",\"yay\"],\"missing\":[]}\n", "");
     expectCommand("present refuses a path", run(scripts.pkg, ["present", "/bin/sh"]), 2, "", "vgshell: refused: command=\"/bin/sh\"\n");
+    // The rpm stub answers as rpm did in a clean Fedora 44 image with the
+    // package nodejs22 installed, which provides nodejs (podman fedora:44,
+    // 2026-11-03): -q matches package names, --whatprovides the
+    // names a package provides, its own name included, and a miss prints
+    // its line on stdout and exits 1.
+    const rpm = stubPath(tmp, "rpm", {
+        rpm: "provides=\nformat=\nwhile [ $# -gt 0 ]; do\n  case \"$1\" in\n    -q) ;;\n    --whatprovides) provides=1 ;;\n    --queryformat) shift; format=\"$1\" ;;\n    --) shift; break ;;\n    *) exit 99 ;;\n  esac\n  shift\ndone\n" +
+            "[ -n \"$format\" ] && [ $# -gt 0 ] || exit 99\nstatus=0\nfor name; do\n  case \"$provides:$name\" in\n" +
+            "    1:nodejs|1:nodejs22|:nodejs22) echo 22.23.1 ;;\n    1:*) echo \"no package provides $name\"; status=1 ;;\n    *) echo \"package $name is not installed\"; status=1 ;;\n  esac\ndone\nexit $status"
+    }, tools);
+    const withRpm = args => childProcess.spawnSync(scripts.pkg, args, { encoding: "utf8", env: Object.assign({}, env, { PATH: rpm }) });
+    expectCommand("settled counts a name an installed package provides", withRpm(["settled", "--manager", "dnf", "nodejs"]), 0, "{\"settled\":true,\"missing\":[],\"unknown\":[]}\n", "");
+    expectCommand("settled names a name no installed package provides missing", withRpm(["settled", "--manager", "dnf", "nodejs", "vgs-absent"]), 0, "{\"settled\":false,\"missing\":[\"vgs-absent\"],\"unknown\":[]}\n", "");
     expectCommand("plan prints the aur helper's argv", run(scripts.pkg, ["plan", "install", "aur", "gum-bin"]), 0,
         "{\"manager\":\"aur\",\"binary\":\"yay\",\"action\":\"install\",\"elevate\":false,\"steps\":[[\"yay\",\"-S\",\"--needed\",\"--\",\"gum-bin\"]],\"elevator\":null}\n", "");
     expectCommand("plan install without names is a bad invocation", run(scripts.pkg, ["plan", "install", "pacman"]), 2, "", "vgshell: refused: names=missing\n");

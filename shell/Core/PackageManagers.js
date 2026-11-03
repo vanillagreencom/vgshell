@@ -49,9 +49,11 @@
 //             line the query prints; or { argv, roots: true } for a manager
 //             that prints installed roots, which ownerAnswer matches to the
 //             command path without I/O of its own
-//   installed the query naming a package's installed version, or null when
-//             VGS asks none of the manager: { argv, read }, argv a template
-//             taking "{name}" and read the pattern whose first group is the
+//   installed the query naming the installed version of the package a name
+//             answers to, as the row's comment states where the manager
+//             resolves more than package names, or null when VGS asks none
+//             of the manager: { argv, read }, argv a template taking
+//             "{name}" and read the pattern whose first group is the
 //             upstream version, with no epoch and no packaging revision, in
 //             the first line the query prints
 //   removable the dry run of removing one package, or null when VGS asks
@@ -199,7 +201,13 @@ var MANAGERS = [
         upgrade: [["{bin}", "upgrade"]],
         ignore: null,
         owner: { argv: ["rpm", "-qf", "--queryformat", "%{NAME}\n", "{path}"], read: /^(\S+)$/ },
-        installed: { argv: ["rpm", "-q", "--queryformat", "%{VERSION}\n", "--", "{name}"], read: /^(\S+)$/ },
+        // dnf installs a name through the packages that provide it, and
+        // every package provides its own name, so the installed query asks
+        // by provide too. In Fedora 44 with nodejs22 installed, plain
+        // `rpm -q` over nodejs exits 1, while this query prints 22.23.1 and
+        // exits 0; over a name nothing provides it exits 1 (podman
+        // fedora:44, 2026-11-03).
+        installed: { argv: ["rpm", "-q", "--whatprovides", "--queryformat", "%{VERSION}\n", "--", "{name}"], read: /^(\S+)$/ },
         removable: null,
         // The format's `\n` is dnf's own escape: dnf5 prints only what the
         // format asks for, and dnf 4 adds a newline of its own, which leaves

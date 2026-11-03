@@ -384,7 +384,7 @@ const QUERY_ROWS = [
     ["apt owner through dpkg", "apt", "owner", "/usr/share/vgshell/VERSION", ["apt-get"], ["dpkg", "-S", "/usr/share/vgshell/VERSION"]],
     ["apt installed through dpkg-query", "apt", "installed", "vgshell", ["apt-get"], ["dpkg-query", "-W", "--showformat=${Version}\n", "--", "vgshell"]],
     ["dnf owner through rpm names the package alone", "dnf", "owner", "/usr/share/vgshell/VERSION", ["dnf5"], ["rpm", "-qf", "--queryformat", "%{NAME}\n", "/usr/share/vgshell/VERSION"]],
-    ["dnf installed through rpm", "dnf", "installed", "vgshell", ["dnf5"], ["rpm", "-q", "--queryformat", "%{VERSION}\n", "--", "vgshell"]],
+    ["dnf installed through rpm by provide", "dnf", "installed", "nodejs", ["dnf5"], ["rpm", "-q", "--whatprovides", "--queryformat", "%{VERSION}\n", "--", "nodejs"]],
     ["aur owner through pacman", "aur", "owner", "/usr/share/vgshell/VERSION", ["paru"], ["pacman", "-Qoq", "/usr/share/vgshell/VERSION"]],
     ["mise owner lists every installed tool", "mise", "owner", "/home/method/.local/bin/tool", ["mise"], ["mise", "ls", "--installed", "--json"]],
     ["pacman removable is a dry run of the removal", "pacman", "removable", "vgshell-git", ["pacman"], ["pacman", "-Rs", "--print", "--", "vgshell-git"]],
