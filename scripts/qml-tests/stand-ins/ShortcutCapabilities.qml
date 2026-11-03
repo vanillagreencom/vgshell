@@ -29,6 +29,8 @@ QtObject {
         property var appearanceWritten: []
         property var optionConflicts: []
         property var layerBinds: []
+        property var permissionState: null
+        property var userPermissions: null
     }
     readonly property QtObject monitors: QtObject {
         property string ownerId: ""

@@ -370,11 +370,11 @@ var SECRET_REASONS = ["undeclared", "disabled", "unlisted", "not-offered", "valu
 
 // What a manifest's `hyprland` key may hold: binds of the plugin's own
 // shortcuts, blur rules for the core's layer namespaces, the theme
-// appearance switches, the input options its settings set and one monitor
-// rule setting. Data only;
+// appearance switches, the input options its settings set, one monitor
+// rule setting and the programs Hyprland refuses screen capture. Data only;
 // the core renders it (HyprlandLayer.js), so no plugin text reaches the
 // compositor's Lua.
-var HYPRLAND_KEYS = ["binds", "layerRules", "appearance", "options", "pads", "monitors"];
+var HYPRLAND_KEYS = ["binds", "layerRules", "appearance", "options", "pads", "monitors", "permissions"];
 var HYPRLAND_BIND_KEYS = ["shortcut", "key", "hold", "tap", "info"];
 var HYPRLAND_RULE_KEYS = ["namespace", "blur", "ignoreAlpha"];
 // A layer rule matches one core host's namespace, anchored: `^vgs:<name>$`.
@@ -2232,7 +2232,8 @@ function keyRowValue(value) {
 // writes them from the manifest, and a plugin names `hyprland` only to read
 // Hyprland's values back. Monitors need the `monitors` capability and name a
 // plugin settings key without a schema row, so the Settings page does not
-// draw it.
+// draw it. Permissions need capability `hyprland`, through which the
+// plugin reads their state (hyprlandPermissionsError).
 // Neither a shortcut, a key nor a namespace appears twice.
 function hyprlandError(hyprland, capabilities, schema) {
     if (!isPlainObject(hyprland))
@@ -2251,8 +2252,8 @@ function hyprlandError(hyprland, capabilities, schema) {
         return "hyprland.binds must be a list";
     if (!Array.isArray(rules))
         return "hyprland.layerRules must be a list";
-    if (binds.length === 0 && rules.length === 0 && appearance === undefined && options === undefined && hyprland.pads === undefined && monitors === undefined)
-        return "hyprland declares no binds, layer rules, appearance, options, pads or monitors";
+    if (binds.length === 0 && rules.length === 0 && appearance === undefined && options === undefined && hyprland.pads === undefined && monitors === undefined && hyprland.permissions === undefined)
+        return "hyprland declares no binds, layer rules, appearance, options, pads, monitors or permissions";
     if (binds.length > 0 && capabilities.indexOf("shortcut") === -1)
         return "hyprland.binds needs capability shortcut";
     var shortcuts = [];
@@ -2341,6 +2342,9 @@ function hyprlandError(hyprland, capabilities, schema) {
     var padsBad = Pads.manifestError(hyprland.pads, capabilities, schema);
     if (padsBad !== "")
         return padsBad;
+    var permissionsBad = hyprland.permissions === undefined ? "" : hyprlandPermissionsError(hyprland.permissions, capabilities, schema);
+    if (permissionsBad !== "")
+        return permissionsBad;
     if (options !== undefined)
         return hyprlandOptionsError(options, schema);
     if (monitors !== undefined && capabilities.indexOf("monitors") === -1)
@@ -2349,6 +2353,34 @@ function hyprlandError(hyprland, capabilities, schema) {
         if (typeof monitors !== "string" || !STATUS_KEY_PATTERN.test(monitors))
             return "hyprland.monitors must name a settings key";
     }
+    return "";
+}
+
+// The first defect of a manifest's `hyprland.permissions`, or "": `deny`, a
+// non-empty list of distinct program file names HyprlandLayer.PERMISSION_BINARY
+// admits, whose screen capture and virtual keyboard Hyprland refuses, and
+// `enforceWhen`, { setting, is }: a boolean schema entry and the value at
+// which Hyprland enforces the refusal. The plugin holds capability
+// `hyprland`, whose `permissions` tells it whether the refusal is in force.
+function hyprlandPermissionsError(permissions, capabilities, schema) {
+    if (!isPlainObject(permissions) || Object.keys(permissions).sort().join() !== "deny,enforceWhen")
+        return "hyprland.permissions must be { deny, enforceWhen }";
+    if (capabilities.indexOf("hyprland") === -1)
+        return "hyprland.permissions needs capability hyprland";
+    var deny = permissions.deny;
+    if (!Array.isArray(deny) || deny.length === 0)
+        return "hyprland.permissions.deny must be a non-empty list";
+    for (var i = 0; i < deny.length; i++) {
+        if (typeof deny[i] !== "string" || !HyprlandLayer.PERMISSION_BINARY.test(deny[i]))
+            return "hyprland.permissions.deny." + i + " must be a program file name of " + HyprlandLayer.PERMISSION_BINARY.source;
+        if (deny.indexOf(deny[i]) !== i)
+            return "hyprland.permissions.deny." + i + " repeats " + deny[i];
+    }
+    var when = permissions.enforceWhen;
+    if (!isPlainObject(when) || Object.keys(when).sort().join() !== "is,setting" || typeof when.is !== "boolean")
+        return "hyprland.permissions.enforceWhen must be { setting, is } with a boolean is";
+    if (!hasOwn(schema, when.setting) || schema[when.setting].type !== "boolean")
+        return "hyprland.permissions.enforceWhen.setting must name a boolean schema entry";
     return "";
 }
 
@@ -4957,7 +4989,8 @@ function validateManifest(raw, sourceDir) {
             appearance: clone(raw.hyprland.appearance || {}),
             options: clone(raw.hyprland.options || {}),
             pads: raw.hyprland.pads,
-            monitors: raw.hyprland.monitors
+            monitors: raw.hyprland.monitors,
+            permissions: clone(raw.hyprland.permissions)
         };
     }
     manifest.__sourceDir = sourceDir;
@@ -5066,7 +5099,9 @@ var ENTRY_RESERVED_KEYS = ["id", "keys"];
 // is never written: { kind: "set", setting, path, value } for a value that
 // fits the setting's schema entry, { kind: "unfit", setting, path, error }
 // with settingError's reason for one that does not. Pads.expand gives
-// `pads`, `padRefusals` and the last binds.
+// `pads`, `padRefusals` and the last binds. `permissions` is null, or the
+// declared `deny` list and `enforce`, whether the `enforceWhen` setting
+// holds its value now.
 // `unknownKeys` lists, sorted, each name the row's `keys` gives that no bind
 // declares. A manifest without `hyprland` asks nothing: empty lists, no
 // appearance, and its row's names all unknown. CONFIG passed ConfigLogic.configError, so
@@ -5118,6 +5153,8 @@ function hyprlandSection(config, manifest) {
         var monitorBad = MonitorLogic.rulesError(monitorValue, null);
         monitors = monitorBad === "" ? { kind: "set", setting: declared.monitors, value: monitorValue } : { kind: "unfit", setting: declared.monitors, error: monitorBad };
     }
+    var permissions = declared.permissions === undefined ? null
+        : { deny: declared.permissions.deny.slice(), enforce: settings[declared.permissions.enforceWhen.setting] === declared.permissions.enforceWhen.is };
     return {
         id: manifest.id,
         version: manifest.version,
@@ -5126,6 +5163,7 @@ function hyprlandSection(config, manifest) {
         appearance: appearance,
         options: options,
         monitors: monitors,
+        permissions: permissions,
         pads: pads.pads,
         padRefusals: pads.refusals,
         unknownKeys: Object.keys(keys).filter(function (name) { return names.indexOf(name) === -1 && !Pads.isPadShortcut(declared, name, ConfigLogic.NAME_PATTERN); }).sort()

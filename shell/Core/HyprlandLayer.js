@@ -167,6 +167,208 @@ var OPTION_STRING = /^[A-Za-z0-9_.,:()+-]*$/;
 // lower case with spaces and commas as dashes, and keeps every other byte.
 var DEVICE_NAME = /^[\x20\x21\x23-\x5b\x5d-\x7e]+$/;
 
+// The program file names a manifest's `hyprland.permissions.deny` may list.
+// Hyprland matches a permission rule's `binary` as an RE2 full match
+// against the canonical path of the client's /proc/<pid>/exe, and a
+// keyboard rule against the device name, which names a virtual keyboard
+// `hl-virtual-keyboard-<file name>` while `misc:name_vk_after_proc` keeps
+// its default, true (Hyprland v0.57.0 helpers/MiscFunctions.cpp
+// binaryNameForWlClient, managers/permissions/DynamicPermissionManager.cpp
+// clientPermissionMode and clientPermissionModeWithString,
+// protocols/VirtualKeyboard.cpp). Of these characters only the dot needs
+// escaping in the pattern.
+var PERMISSION_BINARY = /^[a-z0-9._-]+$/;
+// The permission block's first line: the Hyprland instance since which the
+// file has held these rules, `unwired` for rules written while hyprland.lua
+// does not load the layer, a digest of every rule line, and, for a block
+// withheld, the instance that withheld it. Hyprland adds a `hl.permission`
+// rule only at its first launch (LuaBindingsConfigRules.cpp hlPermission,
+// isFirstLaunch, v0.57.0) and reads none back, so the rules are loaded only
+// when Hyprland launched with a wired hyprland.lua and a file holding these
+// same rules: an instance earlier than the running one, whose block no
+// earlier instance withheld.
+var PERMISSION_MARKER = /^-- Permission rules since (\S+) rules ([0-9a-f]{8})(?: withheld in (\S+))?$/m;
+// The catch-all allows after the denies: with enforcement on, a client no
+// rule matches gets ASK for these types, and the first matching rule wins
+// (clientPermissionMode). A keyboard with no rule is allowed. Hyprland
+// consults the rules only for a client whose /proc/<pid>/exe it can resolve
+// (binaryNameForWlClient, std::filesystem::canonical), so a client whose
+// executable a package upgrade replaced while it runs is asked all the same.
+var PERMISSION_ALLOWS = ["screencopy", "cursorpos", "input-capture", "plugin"];
+// The user's own calls the permission recorder keeps: `table` on `hl` holds
+// `rules`, each `hl.permission` call outside the layer, and `options`, each
+// PERMISSION_OPTIONS path an `hl.config` call outside the layer sets, and
+// `verb` answers them as one line, `key`, `=` and a JSON object
+// { rules: [{ file, line }], options: [{ file, line, path, value }] }, which
+// HyprlandState.js asks for and judges.
+var USER_PERMISSIONS = { table: "__vgs_permissions", verb: "report", key: "vgs-user-permissions" };
+// The options whose value decides what the rules do: the user's own
+// enforcement, and the virtual keyboard name the keyboard deny matches,
+// `hl-virtual-keyboard-<file name>` only while `misc:name_vk_after_proc` is
+// true, its default (protocols/VirtualKeyboard.cpp).
+var PERMISSION_OPTIONS = ["ecosystem.enforce_permissions", "misc.name_vk_after_proc"];
+
+// The marker line of TEXT, the layer on disk, or "" for none.
+function permissionMarker(text) {
+    var found = typeof text === "string" ? PERMISSION_MARKER.exec(text) : null;
+    return found === null ? "" : found[0];
+}
+
+// The sections that declare `permissions`, by id: the first owns the block.
+function permissionOwners(sections) {
+    return sections.filter(function (section) { return section.permissions !== null && section.permissions !== undefined; })
+        .sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; });
+}
+
+// The consent PHASE (initialState's `consent.phase`) as permissionLines
+// reads it: `wired` once hyprland.lua loads the layer, `unknown` before the
+// probe answers, else `unwired`: an unwired, absent or unprobed hyprland.lua
+// loads nothing, and asking, declining or a probe failure proves no wiring.
+function permissionConsent(phase) {
+    return phase === "wired" ? "wired" : phase === "pending" ? "unknown" : "unwired";
+}
+
+// FNV-1a over TEXT's UTF-16 code units, as eight hex digits: the marker's
+// digest, which tells one block's rules from another's.
+function permissionDigest(text) {
+    var hash = 0x811c9dc5;
+    for (var i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 16777619) >>> 0;
+    return ("0000000" + hash.toString(16)).slice(-8);
+}
+
+// The recorder of the user's own permission rules and PERMISSION_OPTIONS
+// (USER_PERMISSIONS). It wraps `hl.permission` and `hl.config` after the
+// layer's own calls and before any line of the user's, and calls Hyprland's
+// own function from the call site's chunk, as the user binds' recorder does
+// (userBindLines), so Hyprland names an error at the user's line. A call the
+// layer makes is not recorded. A comment never runs, so a rule or option
+// the user commented out is not recorded.
+function permissionRecorderLines() {
+    var u = USER_PERMISSIONS;
+    return [
+        "-- User permissions: the permission rules and options the user's configuration sets, which decide whether VGS writes its own.",
+        "do",
+        "    local record = { rules = {}, options = {} }",
+        "    hl." + u.table + " = record",
+        "    local caller = hl." + USER_BINDS.table + ".caller",
+        "    local function json(value)",
+        "        if type(value) ~= \"string\" then return tostring(value) end",
+        "        return \"\\\"\" .. string.gsub(value, \"[%c\\\"\\\\]\", function(c) return string.format(\"\\\\u%04x\", string.byte(c)) end) .. \"\\\"\"",
+        "    end",
+        "    local function wrap(name, note)",
+        "        local original = hl[name]",
+        "        hl[name] = function(...)",
+        "            local found, call, info = pcall(caller)",
+        "            if not found or call == nil then return original(...) end",
+        "            pcall(note, string.sub(info.source, 2), info.currentline, ...)",
+        "            return call(original, ...)",
+        "        end",
+        "    end",
+        "    wrap(\"permission\", function(file, line) record.rules[#record.rules + 1] = { file = file, line = line } end)",
+        "    wrap(\"config\", function(file, line, tree)",
+        "        if type(tree) ~= \"table\" then return end",
+        "        for _, path in ipairs({ " + PERMISSION_OPTIONS.map(function (path) { return "\"" + path + "\""; }).join(", ") + " }) do",
+        "            local group, key = string.match(path, \"^(%w+)%.([%w_]+)$\")",
+        "            if type(tree[group]) == \"table\" and tree[group][key] ~= nil then",
+        "                record.options[#record.options + 1] = { file = file, line = line, path = path, value = tree[group][key] }",
+        "            end",
+        "        end",
+        "    end)",
+        "    function record." + u.verb + "()",
+        "        local rules, options = {}, {}",
+        "        for _, row in ipairs(record.rules) do rules[#rules + 1] = \"{\\\"file\\\":\" .. json(row.file) .. \",\\\"line\\\":\" .. row.line .. \"}\" end",
+        "        for _, row in ipairs(record.options) do",
+        "            options[#options + 1] = \"{\\\"file\\\":\" .. json(row.file) .. \",\\\"line\\\":\" .. row.line .. \",\\\"path\\\":\" .. json(row.path) .. \",\\\"value\\\":\" .. json(row.value) .. \"}\"",
+        "        end",
+        "        return \"" + u.key + "={\\\"rules\\\":[\" .. table.concat(rules, \",\") .. \"],\\\"options\\\":[\" .. table.concat(options, \",\") .. \"]}\"",
+        "    end",
+        "end"
+    ];
+}
+
+// Why the user's own configuration, as HyprlandState.userPermissions read
+// it (USER), keeps VGS's rules out, or "": the layer's rules load first and
+// the first matching rule wins, so they would shadow the user's own rules;
+// a user's enforcement setting would be replaced; and with
+// `misc:name_vk_after_proc` false the keyboard deny matches nothing.
+function permissionConflict(user) {
+    var at = function (rows) { return rows.map(function (row) { return row.file + ":" + row.line; }).join(", "); };
+    if (user.rules.length > 0) return "your Hyprland configuration sets permission rules at " + at(user.rules);
+    var enforce = user.options.filter(function (row) { return row.path === "ecosystem.enforce_permissions"; });
+    if (enforce.length > 0) return "your Hyprland configuration sets ecosystem:enforce_permissions at " + at(enforce);
+    var named = user.options.filter(function (row) { return row.path === "misc.name_vk_after_proc" && row.value !== true; });
+    if (named.length > 0) return "your Hyprland configuration sets misc:name_vk_after_proc to false at " + at(named);
+    return "";
+}
+
+// The permission block of the first section by id that declares
+// `permissions`, as `placed` lines at the layer's top level, which Hyprland
+// reads as the layer loads, and `applied` lines for the `config.reloaded`
+// callback. Enforcement (`ecosystem:enforce_permissions`, off by default and
+// read on every check) turns on only while the section's `enforce` holds and
+// the rules are loaded: before then every capture client would be asked.
+// PERMISSIONS is { instance, the Hyprland instance signature, marker, the
+// permissionMarker of the layer on disk, consent, `wired`, `unwired` or
+// `unknown` while the probe has not answered, and user,
+// HyprlandState.userPermissions' reply: { ok: true, present: false } while
+// Hyprland holds no recorder, { ok: true, present: true, rules, options }
+// or { ok: false, error } }. The recorder is written whenever a section
+// declares permissions; the rules only once a present record shows no
+// permissionConflict. `state` is null with no declaring section, else
+// { id, state, error }: `unwired` while hyprland.lua does not load the
+// layer, `reading` while Hyprland holds no recorder, `withheld` with the
+// conflict or the failed read as `error`, `withheld-loaded` where Hyprland
+// still holds the rules it launched with, `pending-restart` until Hyprland
+// launches with them, then `enforced` or `allowed`.
+function permissionLines(sections, permissions) {
+    var owners = permissionOwners(sections);
+    if (owners.length === 0) return { placed: [], applied: [], state: null, conflicts: [] };
+    var owner = owners[0];
+    var conflicts = owners.slice(1).map(function (section) { return { id: section.id, heldBy: owner.id }; });
+    if (permissions === null || permissions === undefined || permissions.user === null || permissions.user === undefined)
+        throw new Error("HyprlandLayer: permissions of " + owner.id + " rendered before Hyprland's permission record was read");
+    var rules = [];
+    owner.permissions.deny.forEach(function (name) {
+        var file = name.replace(/\./g, "\\\\.");
+        rules.push("hl.permission({ binary = \".*/" + file + "\", type = \"screencopy\", mode = \"deny\" })",
+            "hl.permission({ binary = \".*/" + file + "\", type = \"cursorpos\", mode = \"deny\" })",
+            "hl.permission({ binary = \"hl-virtual-keyboard-" + file + "\", type = \"keyboard\", mode = \"deny\" })");
+    });
+    PERMISSION_ALLOWS.forEach(function (type) { rules.push("hl.permission({ binary = \".*\", type = \"" + type + "\", mode = \"allow\" })"); });
+    var digest = permissionDigest(rules.join("\n"));
+    var instance = /^[\x21-\x7e]+$/.test(permissions.instance) ? permissions.instance : "";
+    var prior = PERMISSION_MARKER.exec(permissions.marker);
+    var launched = instance !== "" && prior !== null && prior[2] === digest
+        && prior[1] !== "unwired" && prior[1] !== instance && (prior[3] === undefined || prior[3] === instance);
+    var since = permissions.consent === "unwired" ? "unwired" : launched ? prior[1] : instance || "unknown";
+    var user = permissions.user;
+    var state = permissions.consent === "unwired" ? "unwired" : !user.ok ? "withheld" : !user.present ? "reading"
+        : permissionConflict(user) !== "" ? "withheld" : "";
+    var error = !user.ok ? "Hyprland's record of your permission rules is unread: " + user.error : user.present ? permissionConflict(user) : "";
+    var recorder = [""].concat(permissionRecorderLines());
+    if (state !== "") {
+        if (state === "withheld" && launched) {
+            state = "withheld-loaded";
+            error += "; the rules VGS loaded when Hyprland started stay in force until you sign in again";
+        }
+        return {
+            placed: ["-- Permission rules since " + since + " rules " + digest + " withheld in " + (instance || "unknown"),
+                "-- permission rules of " + owner.id + " withheld: " + state].concat(recorder),
+            applied: [],
+            state: { id: owner.id, state: state, error: state === "withheld" || state === "withheld-loaded" ? error : "" },
+            conflicts: conflicts
+        };
+    }
+    var enforced = launched && owner.permissions.enforce;
+    return {
+        placed: ["-- Permission rules since " + since + " rules " + digest,
+            "-- " + owner.id + " " + commentText(owner.version) + ": permission rules from its manifest, which Hyprland reads only when it starts."].concat(rules, recorder),
+        applied: enforced ? ["-- " + owner.id + ": Hyprland enforces its permission rules.", "hl.config({ ecosystem = { enforce_permissions = true } })"] : [],
+        state: { id: owner.id, state: !launched ? "pending-restart" : enforced ? "enforced" : "allowed", error: "" },
+        conflicts: conflicts
+    };
+}
+
 // The values the layer applies once the whole configuration has loaded:
 // `table` on `hl` holds `start`, each written option's value as the layer
 // loads, before any line of the user's, and `user`, the value the user's
@@ -1063,6 +1265,8 @@ function sessionLockLines() {
 // Lua 5.5 keeps the calling frame for a tail call to a C function, so a
 // call from the wrapper would name this file. It records the file and line
 // of each such default-submap bind, which names its mask, key and keycode.
+// `caller` stays on the table, so the permission recorder
+// (permissionRecorderLines) finds a user call site the same way.
 // A call site with no file, such as a chunk `load` built, is not recorded.
 // `report` reads each recorded line's text from its file as it stands.
 function userBindLines() {
@@ -1097,6 +1301,7 @@ function userBindLines() {
         "                level = level + 1",
         "            end",
         "        end",
+        "        binds.caller = caller",
         "        hl.bind = function(...)",
         "            local found, call, info = pcall(caller)",
         "            if not found or call == nil then return binds.bind(...) end",
@@ -1589,8 +1794,12 @@ function appliedLines(values, paths) {
 // defines, { id, heldBy }, `appearance`, each applied group's option
 // written, { id: "", setting, the Appearance member, path, value }, and
 // `binds`, the description of every bind
-// written in the default submap.
-function render(sections, theme, themeName, highestScale, touchpads, touchpadFailure, monitorOwnerId, bindPlan) {
+// written in the default submap. PERMISSIONS is permissionLines' input:
+// its block follows the session lock's restore, its enforcement line joins
+// the applied values, and the result's `permissions` and
+// `permissionConflicts`, each later declaring section as { id, heldBy },
+// are its state and conflicts.
+function render(sections, theme, themeName, highestScale, touchpads, touchpadFailure, monitorOwnerId, bindPlan, permissions) {
     var plan = bindPlan === undefined ? resolveBinds(sections)
         : bindPlan === null ? resolveBinds(sections, null, "core") : bindPlan;
     var switches = groupSwitches(sections);
@@ -1615,6 +1824,9 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
     lines = lines.concat([""], freezeLines());
     if (tapTrackerWanted(plan)) lines = lines.concat([""], tapTrackerLines());
     lines = lines.concat([""], userBindLines(), [""], overlayCaptureLines(plan), [""], keyPassthroughLines(), [""], sessionLockLines());
+    var permitted = permissionLines(sections, permissions);
+    if (permitted.placed.length > 0) lines = lines.concat([""], permitted.placed);
+    applied = applied.concat(permitted.applied);
     var written = Object.create(null);
     var options = { written: [], conflicts: [], refusals: [] };
     var optionsHeld = Object.create(null);
@@ -1694,6 +1906,8 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
         optionConflicts: options.conflicts,
         optionRefusals: options.refusals,
         appearance: appearance,
+        permissions: permitted.state,
+        permissionConflicts: permitted.conflicts,
         binds: boundDescriptions(plan)
     };
 }

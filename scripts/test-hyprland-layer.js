@@ -9,8 +9,13 @@
 //
 // The controls at the end edit a copy of one file, one rule at a time, and
 // the suite must fail on every copy. Exit 1 when a row or a control fails.
+//
+// The permission recorder runs under `lua` with a stub `hl`: Hyprland
+// 0.57.0 on host cachy links Lua 5.5, the `lua` on PATH there. A missing
+// interpreter fails the suite.
 "use strict";
 const assert = require("assert");
+const childProcess = require("child_process");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -25,6 +30,7 @@ const lines = out => out.text.split("\n");
 const logicFile = path.join(__dirname, "..", "shell", "Core", "PluginLogic.js");
 const configFile = path.join(__dirname, "..", "shell", "Core", "ConfigLogic.js");
 const layerFile = path.join(__dirname, "..", "shell", "Core", "HyprlandLayer.js");
+const stateFile = path.join(__dirname, "..", "shell", "Core", "HyprlandState.js");
 const sessionFile = path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "Session.js");
 const shellFile = path.join(__dirname, "..", "shell", "shell.qml");
 
@@ -239,6 +245,7 @@ const USER_BINDS_SECTION = [
     "                level = level + 1",
     "            end",
     "        end",
+    "        binds.caller = caller",
     "        hl.bind = function(...)",
     "            local found, call, info = pcall(caller)",
     "            if not found or call == nil then return binds.bind(...) end",
@@ -491,7 +498,7 @@ const MANIFESTS = [
     ["hyprland with an unknown key", { hyprland: { binds: [toggle], windowRules: [] } }, "hyprland has unknown key \"windowRules\""],
     ["binds not a list", { hyprland: { binds: toggle } }, "hyprland.binds must be a list"],
     ["layerRules not a list", { hyprland: { layerRules: overlayRule } }, "hyprland.layerRules must be a list"],
-    ["no binds, rules, appearance, options, pads or monitors", { hyprland: { binds: [], layerRules: [] } }, "hyprland declares no binds, layer rules, appearance, options, pads or monitors"],
+    ["no binds, rules, appearance, options, pads, monitors or permissions", { hyprland: { binds: [], layerRules: [] } }, "hyprland declares no binds, layer rules, appearance, options, pads, monitors or permissions"],
     ["appearance unknown group", { capabilities: ["theme"], settings: { noGaps: true }, schema: { noGaps: { type: "boolean", label: "No gaps" } }, hyprland: { appearance: { gaps: "noGaps" } } }, "hyprland.appearance.gaps must be one of noGaps"],
     // The theme's groups follow the user's Appearance values, which no
     // manifest switch decides.
@@ -927,12 +934,13 @@ function verify(logic, configLogic, layer, shellText) {
         appearance: {},
         options: [],
         monitors: null,
+        permissions: null,
         pads: null,
         padRefusals: [],
         unknownKeys: ["early", "later"]
     }, "hyprlandSection takes the row's keys over the manifest's and names the unknown ones");
     same(logic.hyprlandSection({}, declared).binds, declared.hyprland.binds, "hyprlandSection keeps the manifest's keys without a row");
-    same(logic.hyprlandSection(config, manifestOf(logic, {})), { id: "acme.keys", version: "1.0.0", binds: [], layerRules: [], appearance: {}, options: [], monitors: null, pads: null, padRefusals: [], unknownKeys: ["early", "inbox", "later", "toggle"] }, "a manifest asking nothing leaves every row name unknown");
+    same(logic.hyprlandSection(config, manifestOf(logic, {})), { id: "acme.keys", version: "1.0.0", binds: [], layerRules: [], appearance: {}, options: [], monitors: null, permissions: null, pads: null, padRefusals: [], unknownKeys: ["early", "inbox", "later", "toggle"] }, "a manifest asking nothing leaves every row name unknown");
     const gapsManifest = manifestOf(logic, { capabilities: ["theme"], settings: { noGaps: false }, schema: { noGaps: { type: "boolean", label: "No gaps" } }, hyprland: { appearance: { noGaps: "noGaps" } } });
     same(logic.hyprlandSection({ plugins: [{ id: "acme.keys", noGaps: true }] }, gapsManifest).appearance, { noGaps: { setting: "noGaps", enabled: true } }, "hyprlandSection resolves the gaps switch from the plugins row");
     same(logic.hyprlandSection({}, gapsManifest).appearance, { noGaps: { setting: "noGaps", enabled: false } }, "the gaps switch defaults to the manifest's off");
@@ -1607,8 +1615,163 @@ const SEQUENCES = [
         ["probe", "reload", "none", "read", "mkdir", "write", "reload"], { phase: "reloading" }]
 ];
 
+// A plugin that denies gliff-server the screen while its `hosting` setting
+// is false, rendered in Hyprland instance T.
+const PERMISSION_RULES = [
+    "hl.permission({ binary = \".*/gliff-server\", type = \"screencopy\", mode = \"deny\" })",
+    "hl.permission({ binary = \".*/gliff-server\", type = \"cursorpos\", mode = \"deny\" })",
+    "hl.permission({ binary = \"hl-virtual-keyboard-gliff-server\", type = \"keyboard\", mode = \"deny\" })",
+    "hl.permission({ binary = \".*\", type = \"screencopy\", mode = \"allow\" })",
+    "hl.permission({ binary = \".*\", type = \"cursorpos\", mode = \"allow\" })",
+    "hl.permission({ binary = \".*\", type = \"input-capture\", mode = \"allow\" })",
+    "hl.permission({ binary = \".*\", type = \"plugin\", mode = \"allow\" })"
+];
+const ENFORCE = "        hl.config({ ecosystem = { enforce_permissions = true } })";
+const RECORDER = "-- User permissions: the permission rules and options the user's configuration sets, which decide whether VGS writes its own.";
+function verifyPermissions(layer) {
+    const logic = load(logicFile);
+    const declare = (id, deny) => manifestOf(logic, { id, capabilities: ["hyprland"], settings: { hosting: true }, schema: { hosting: { type: "boolean", label: "Hosting" } },
+        hyprland: { permissions: { deny, enforceWhen: { setting: "hosting", is: false } } } });
+    const manifest = declare("acme.keys", ["gliff-server"]);
+    // The record of a configuration that sets no rule and no watched option:
+    // what Hyprland's own example hyprland.lua gives, whose PERMISSIONS
+    // section is commented out and never runs.
+    const none = { ok: true, present: true, rules: [], options: [] };
+    const site = { file: "/home/u/.config/hypr/hyprland.lua", line: 76 };
+    const draw = (hosting, marker, user, instance = "T", consent = "wired") => layer.render([logic.hyprlandSection({ plugins: [{ id: "acme.keys", hosting }] }, manifest)],
+        theme, "vgs", 1, null, "", "", undefined, { instance, marker, consent, user });
+    const rules = out => lines(out).filter(line => line.startsWith("hl.permission("));
+    const callback = out => lines(out).indexOf("    hl.on(\"config.reloaded\", function()");
+    const marker = out => layer.permissionMarker(out.text);
+    const view = out => [out.permissions.state, rules(out).length > 0, out.text.includes("enforce_permissions = true")];
+    // Every capture app starts asking: enforcement before Hyprland loaded the
+    // allows. Hyprland reads the rules only when it starts, so neither the
+    // first write nor a rewrite in the same instance enforces.
+    const first = draw(false, "", none);
+    same(rules(first), PERMISSION_RULES, "permissions: the denies come before the catch-all allows");
+    same(first.permissions, { id: "acme.keys", state: "pending-restart", error: "" }, "permissions: first written");
+    assert.ok(!first.text.includes("enforce_permissions = true"), "permissions: no enforcement before the rules load");
+    assert.ok(lines(first).indexOf(RECORDER) > lines(first).indexOf(PERMISSION_RULES[6]), "permissions: the recorder follows the layer's own rules");
+    same(view(draw(false, marker(first), none)), ["pending-restart", true, false], "permissions: a rewrite in the same instance enforces nothing");
+    // A block whose rule lines differ from the ones rendered now, a changed
+    // allow or a changed deny list, waits for the next start.
+    const otherRules = layer.permissionDigest(PERMISSION_RULES.slice(0, 6).join("\n"));
+    same(view(draw(false, "-- Permission rules since S rules " + otherRules, none)), ["pending-restart", true, false], "permissions: changed rule lines wait for the next start");
+    // Hosting off still captures: in a later instance whose layer held the
+    // block, hosting off enforces, inside the config.reloaded callback.
+    const prior = marker(draw(true, "", none, "S"));
+    const later = draw(false, prior, none);
+    assert.ok(lines(later).indexOf(ENFORCE) > callback(later) && callback(later) > 0, "permissions: hosting off enforces once the rules are loaded");
+    same([later.permissions.state, marker(later)], ["enforced", prior], "permissions: a later write keeps the instance the rules loaded in");
+    same(view(draw(true, prior, none)), ["allowed", true, false], "permissions: hosting on enforces nothing");
+    same(view(draw(false, prior, none, "T", "unknown")), ["enforced", true, true], "permissions: before the probe answers, the launch state stands");
+    // A hyprland.lua that does not load the layer, or one wired in this
+    // instance: Hyprland launched without the rules, so nothing enforces.
+    const unwired = draw(false, prior, none, "T", "unwired");
+    same(view(unwired), ["unwired", false, false], "permissions: an unwired layer writes and enforces no rule");
+    same(view(draw(false, marker(unwired), none)), ["pending-restart", true, false], "permissions: a layer wired in this instance waits for the next start");
+    same(view(draw(false, marker(draw(false, marker(unwired), none)), none, "U")), ["enforced", true, true], "permissions: the next start enforces");
+    // Until Hyprland holds the recorder the block waits, without a problem.
+    same(draw(false, prior, { ok: true, present: false }).permissions, { id: "acme.keys", state: "reading", error: "" }, "permissions: no record yet");
+    // The user's own permission rules are overridden: the layer's rules load
+    // first, so a user's rule, enforcement setting or renamed virtual
+    // keyboard, or an unread record, withholds the whole block.
+    const withheld = [
+        ["a rule", { rules: [site], options: [] }, "your Hyprland configuration sets permission rules at /home/u/.config/hypr/hyprland.lua:76"],
+        ["enforcement", { rules: [], options: [Object.assign({}, site, { path: "ecosystem.enforce_permissions", value: false })] }, "your Hyprland configuration sets ecosystem:enforce_permissions at /home/u/.config/hypr/hyprland.lua:76"],
+        ["a virtual keyboard named without its program", { rules: [], options: [Object.assign({}, site, { path: "misc.name_vk_after_proc", value: false })] }, "your Hyprland configuration sets misc:name_vk_after_proc to false at /home/u/.config/hypr/hyprland.lua:76"]
+    ];
+    for (const [label, record, error] of withheld) {
+        const out = draw(false, "", Object.assign({ ok: true, present: true }, record));
+        same([out.permissions, rules(out), out.text.includes("enforce_permissions = true")], [{ id: "acme.keys", state: "withheld", error }, [], false], "permissions: the user's configuration sets " + label);
+    }
+    same(view(draw(false, prior, { ok: true, present: true, rules: [], options: [Object.assign({}, site, { path: "misc.name_vk_after_proc", value: true })] })), ["enforced", true, true],
+        "permissions: a virtual keyboard named after its program keeps the block");
+    same(view(draw(false, "", { ok: false, error: "refused: user-permissions=unread" })), ["withheld", false, false], "permissions: an unread record");
+    // Rules Hyprland launched with stay loaded while the block is withheld:
+    // the state says so until the next start.
+    const loadedThenSet = draw(false, prior, { ok: true, present: true, rules: [site], options: [] });
+    same([loadedThenSet.permissions.state, rules(loadedThenSet)], ["withheld-loaded", []], "permissions: user rules found while VGS's rules are loaded");
+    assert.ok(loadedThenSet.permissions.error.startsWith(withheld[0][2] + "; "), "permissions: the problem names the user's rule");
+    same(draw(false, marker(loadedThenSet), { ok: true, present: true, rules: [site], options: [] }).permissions.state, "withheld-loaded", "permissions: a rewrite in the same instance keeps the loaded state");
+    same(view(draw(false, marker(loadedThenSet), none)), ["enforced", true, true], "permissions: rules removed in the same instance are still loaded");
+    same(draw(false, marker(loadedThenSet), { ok: true, present: true, rules: [site], options: [] }, "U").permissions.state, "withheld", "permissions: the next start launched without VGS's rules");
+    same(view(draw(false, marker(loadedThenSet), none, "U")), ["pending-restart", true, false], "permissions: a block withheld at launch waits for the next start");
+    // The first plugin by id owns the block; a later one is a conflict.
+    const later2 = layer.render([logic.hyprlandSection({}, declare("acme.later", ["other-server"])), logic.hyprlandSection({}, manifest)], theme, "vgs", 1, null, "", "", undefined,
+        { instance: "T", marker: "", consent: "wired", user: none });
+    same([rules(later2), later2.permissions.id, later2.permissionConflicts], [PERMISSION_RULES, "acme.keys", [{ id: "acme.later", heldBy: "acme.keys" }]], "permissions: the first plugin by id owns the block");
+    same(layer.render([], theme, "vgs", 1).permissions, null, "permissions: no declaring plugin writes no block");
+    verifyPermissionRecorder(layer, rules(first));
+}
+
+// The layer's recorder of the user's permission rules and options, run
+// under `lua` as Hyprland runs the layer: the layer chunk under the layer's
+// path, holding the applied callback's enforcement (appliedLines registers
+// it before the recorders), the binds' and permission recorders and the
+// layer's own rules, then the user's chunk under hyprland.lua's path, then
+// the reload. HyprlandState.userPermissions judges the recorder's report.
+// Each stub `hl` function prints its call, so a row also shows that every
+// call still reaches Hyprland's own function.
+const RECORDER_STUB = `
+calls = {}
+local handlers = {}
+hl = {
+    bind = function() calls[#calls + 1] = "bind"; return { submap = "", modmask = 64, key = "F7", keycode = 0 } end,
+    permission = function(rule) calls[#calls + 1] = "permission " .. tostring(rule.binary) end,
+    config = function(tree)
+        local groups = {}
+        for group in pairs(tree) do groups[#groups + 1] = group end
+        table.sort(groups)
+        for _, group in ipairs(groups) do calls[#calls + 1] = "config " .. group end
+    end,
+    on = function(name, fn) handlers[name] = handlers[name] or {}; table.insert(handlers[name], fn) end
+}
+assert(load(LAYER, "@/state/hypr/vgs.lua", "t"))()
+assert(load(USER, "@/h/.config/hypr/hyprland.lua", "t"))()
+for _, fn in ipairs(handlers["config.reloaded"] or {}) do fn() end
+for _, call in ipairs(calls) do print(call) end
+local found, report = pcall(hl.__vgs_permissions.report)
+print(found and report or "report failed: " .. tostring(report))
+`;
+function luaRecorder(layer, ownRules, userLines) {
+    const layerText = ["hl.on(\"config.reloaded\", function()", ENFORCE, "end)"].concat(layer.userBindLines(), layer.permissionRecorderLines(), ownRules).join("\n");
+    const userText = userLines.join("\n");
+    if ((layerText + userText).includes("]==]")) throw new Error("recorder text holds the long-string end");
+    const program = "LAYER = [==[\n" + layerText + "\n]==]\nUSER = [==[\n" + userText + "\n]==]\n" + RECORDER_STUB;
+    const run = childProcess.spawnSync("lua", ["-"], { input: program, encoding: "utf8", timeout: 10000 });
+    if (run.error) throw new Error("lua=" + (run.error.code === "ENOENT" ? "absent" : run.error.message));
+    if (run.status !== 0) return { status: run.status, stderr: run.stderr.trim() };
+    const out = run.stdout.split("\n").filter(line => line !== "");
+    return { calls: out.slice(0, -1), record: load(stateFile).userPermissions(out[out.length - 1]) };
+}
+
+function verifyPermissionRecorder(layer, ownRules) {
+    const at = line => ({ file: "/h/.config/hypr/hyprland.lua", line });
+    const own = ownRules.map(rule => "permission " + /binary = "([^"]*)"/.exec(rule)[1]);
+    // rows: [name, the user's lines, want calls after the layer's own, want record]
+    const rows = [
+        ["the layer's own rules and enforcement record nothing", ["hl.config({ general = { gaps_in = 5 } })"],
+            ["config general", "config ecosystem"], { ok: true, present: true, rules: [], options: [] }],
+        ["a user rule is recorded at its line", ["hl.config({ general = { gaps_in = 5 } })", "hl.permission({ binary = \"/usr/bin/grim\", type = \"screencopy\", mode = \"allow\" })"],
+            ["config general", "permission /usr/bin/grim", "config ecosystem"], { ok: true, present: true, rules: [at(2)], options: [] }],
+        ["both watched options are recorded with their values", ["hl.config({ ecosystem = { enforce_permissions = true }, misc = { name_vk_after_proc = false } })"],
+            ["config ecosystem", "config misc", "config ecosystem"],
+            { ok: true, present: true, rules: [], options: [Object.assign(at(1), { path: "ecosystem.enforce_permissions", value: true }), Object.assign(at(1), { path: "misc.name_vk_after_proc", value: false })] }],
+        // The PERMISSIONS section of Hyprland 0.57.0's example/hyprland.lua.
+        ["a commented rule records nothing", ["-- hl.config({ ecosystem = {", "--   enforce_permissions = true,", "-- } })",
+            "-- hl.permission(\"/usr/(bin|local/bin)/grim\", \"screencopy\", \"allow\")"],
+            ["config ecosystem"], { ok: true, present: true, rules: [], options: [] }]
+    ];
+    for (const [name, userLines, wantCalls, want] of rows) {
+        const run = luaRecorder(layer, ownRules, userLines);
+        same(run.calls === undefined ? run : [run.calls, run.record], [own.concat(wantCalls), want], "permission recorder: " + name);
+    }
+}
+
 const shellText = fs.readFileSync(shellFile, "utf8");
 verify(load(logicFile), load(configFile), load(layerFile), shellText);
+verifyPermissions(load(layerFile));
 verifySameActionAliases(load(layerFile));
 verifyDifferentActionAliases(load(layerFile));
 verifyRefusedAliasMap(load(layerFile));
@@ -1753,7 +1916,7 @@ function verifyAppearanceLayer(layer) {
             shadow: { color: toColor(result.values.hyprland.shadow.color) },
             glow: Object.assign({}, glow, { color: toColor(glow.color), colorEnd: toColor(glow.colorEnd), inactive: toColor(glow.inactive) })
         });
-        const gaps = { id: "vgs.themes", version: "0.1.0", binds: [], layerRules: [], appearance: { noGaps: { setting: "noWindowGaps", enabled: false } }, options: [], monitors: null, pads: null, padRefusals: [], unknownKeys: [] };
+        const gaps = { id: "vgs.themes", version: "0.1.0", binds: [], layerRules: [], appearance: { noGaps: { setting: "noWindowGaps", enabled: false } }, options: [], monitors: null, permissions: null, pads: null, padRefusals: [], unknownKeys: [] };
         return layer.render([gaps], vm.runInNewContext(binding, { Theme: published, terminalCell: TERMINAL_CELL }), "vgs", scale === undefined ? 1.5 : scale, null, "", "");
     };
     const block = out => {
@@ -1866,7 +2029,7 @@ const CONTROLS = [
     [logicFile, "hyprland keys", "if (HYPRLAND_KEYS.indexOf(keys[u]) === -1)", "if (false)"],
     [logicFile, "binds list", "if (!Array.isArray(binds))", "if (false)"],
     [logicFile, "rules list", "if (!Array.isArray(rules))", "if (false)"],
-    [logicFile, "declares something", "if (binds.length === 0 && rules.length === 0 && appearance === undefined && options === undefined && hyprland.pads === undefined && monitors === undefined)", "if (false)"],
+    [logicFile, "declares something", "if (binds.length === 0 && rules.length === 0 && appearance === undefined && options === undefined && hyprland.pads === undefined && monitors === undefined && hyprland.permissions === undefined)", "if (false)"],
     [logicFile, "binds need shortcut", "if (binds.length > 0 && capabilities.indexOf(\"shortcut\") === -1)", "if (false)"],
     [logicFile, "bind object", "if (!isPlainObject(bind))", "if (false)"],
     [logicFile, "bind keys", "if (HYPRLAND_BIND_KEYS.indexOf(bindKeys[k]) === -1)", "if (false)"],
@@ -2147,7 +2310,23 @@ const CONTROLS = [
     [layerFile, "the sweep reads the pads' workspaces", "string.match(window.workspace.name, \\\"^\" + PADS.workspace", "string.match(window.workspace.name, \\\"^special:\" + PADS.workspace"],
     [layerFile, "a skipped plugin's pads are reported", "padConflicts.push({ id: section.id, heldBy: padsOwner });", ""],
     [layerFile, "a refusal names its key", "error(\\\"vgs-pad=no-window name=\\\" .. name)", "error(\\\"vgs-pad: holds no window \\\" .. name)"],
-    [layerFile, "an unreadable file is reported", "event.notFound ? state.failure : \"read=failed \" + event.detail, text", "state.failure, text"]
+    [layerFile, "an unreadable file is reported", "event.notFound ? state.failure : \"read=failed \" + event.detail, text", "state.failure, text"],
+    [layerFile, "the rules act only from the next Hyprland start", " && prior[1] !== instance && (prior[3]", " && (prior[3]", verifyPermissions],
+    [layerFile, "enforcement follows the declared setting", "var enforced = launched && owner.permissions.enforce;", "var enforced = launched;", verifyPermissions],
+    [layerFile, "a later write keeps the instance the rules loaded in", ": launched ? prior[1] : instance || \"unknown\";", ": instance || \"unknown\";", verifyPermissions],
+    [layerFile, "an unwired layer writes no rule", "var state = permissions.consent === \"unwired\" ? \"unwired\" : ", "var state = ", verifyPermissions],
+    [layerFile, "rules written while unwired count from no instance", "var since = permissions.consent === \"unwired\" ? \"unwired\" : ", "var since = ", verifyPermissions],
+    [layerFile, "changed rule lines wait for the next start", "prior[2] === digest", "true", verifyPermissions],
+    [layerFile, "a block withheld before this instance was not launched with", "(prior[3] === undefined || prior[3] === instance)", "true", verifyPermissions],
+    [layerFile, "the user's own permission rule withholds the block", "if (user.rules.length > 0) return", "if (false) return", verifyPermissions],
+    [layerFile, "the user's own enforcement withholds the block", "if (enforce.length > 0) return", "if (false) return", verifyPermissions],
+    [layerFile, "a virtual keyboard named without its program withholds the block", "row.path === \"misc.name_vk_after_proc\" && row.value !== true; });", "false; });", verifyPermissions],
+    [layerFile, "loaded rules withheld say so", "if (state === \"withheld\" && launched) {", "if (false) {", verifyPermissions],
+    [layerFile, "no record yet writes no rule", "!user.present ? \"reading\"", "!user.present ? \"\"", verifyPermissions],
+    [layerFile, "a later declaring plugin is a conflict", "var conflicts = owners.slice(1).map(", "var conflicts = [].map(", verifyPermissions],
+    [layerFile, "the recorder keeps the user's rules", "record.rules[#record.rules + 1] = { file = file, line = line } ", "", verifyPermissions],
+    [layerFile, "the recorder keeps the user's watched options", "record.options[#record.options + 1] = { file = file, line = line, path = path, value = tree[group][key] }", "", verifyPermissions],
+    [layerFile, "the recorder skips the layer's own calls", "if not found or call == nil then return original(...) end", "if not found then return original(...) end", verifyPermissions]
 ];
 
 // A copy sits at its file's own place in a temporary tree, beside the icon

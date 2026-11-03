@@ -104,8 +104,8 @@ for (const [setting, value, touchpads, failure, heldBy, reason, cause] of HYPRLA
     const held = heldBy === null ? {} : { [manifest.hyprland.options[setting]]: heldBy };
     layer.optionLines(section, held, touchpads, failure, out);
     const errors = vm.runInNewContext("(() => {" + problemBlocks[0][1] + "})()", {
-        Logic: producer, Registry: { manifests: {} }, sections: [section], monitorDocument: null, bindSnapshot: null,
-        machine: { failure: "" }, rendered: { conflicts: [], appearanceConflicts: [], padConflicts: [], optionConflicts: out.conflicts, optionRefusals: out.refusals }
+        Logic: producer, Registry: { manifests: {} }, sections: [section], monitorDocument: null, bindSnapshot: null, permissionsWanted: false,
+        machine: { failure: "" }, rendered: { conflicts: [], appearanceConflicts: [], padConflicts: [], optionConflicts: out.conflicts, optionRefusals: out.refusals, permissions: null, permissionConflicts: [] }
     });
     if (reason === null) {
         same(errors, []);
@@ -115,6 +115,29 @@ for (const [setting, value, touchpads, failure, heldBy, reason, cause] of HYPRLA
         assert.equal(errors[0].error, `hyprland: ${manifest.hyprland.options[setting]} for ${manifest.id}:${setting} skipped: ${reason}`);
         CASES.push([errors[0].error, cause]);
     }
+}
+// The permission block's problems, as HyprlandLayer.permissionLines states
+// them: a withheld block and a loaded one withheld each name their cause
+// under the declaring plugin, a later declaring plugin is a conflict, and a
+// block in force is no problem, and a layer held for Hyprland's record says
+// so. rows: [name, permissions, conflicts, want, waiting]
+const PERMISSION_PROBLEMS = [
+    ["withheld", { id: "acme.remote", state: "withheld", error: "fixture cause" }, [],
+        [{ id: "acme.remote", dir: "acme.remote", error: "hyprland: permission rules of acme.remote withheld: fixture cause" }]],
+    ["withheld while loaded", { id: "acme.remote", state: "withheld-loaded", error: "fixture cause; loaded" }, [],
+        [{ id: "acme.remote", dir: "acme.remote", error: "hyprland: permission rules of acme.remote withheld: fixture cause; loaded" }]],
+    ["a later declaring plugin", { id: "acme.remote", state: "enforced", error: "" }, [{ id: "acme.later", heldBy: "acme.remote" }],
+        [{ id: "acme.later", dir: "acme.later", error: "hyprland: permission rules of acme.later skipped: already declared by acme.remote" }]],
+    ["in force", { id: "acme.remote", state: "enforced", error: "" }, [], []],
+    ["waiting for Hyprland's record", null, [], [{ id: "", dir: "/state/hypr/vgs.lua", error: "hyprland: the layer waits for Hyprland's record of your permission rules" }], true]
+];
+for (const [name, permissions, permissionConflicts, want, waiting] of PERMISSION_PROBLEMS) {
+    const errors = vm.runInNewContext("(() => {" + problemBlocks[0][1] + "})()", {
+        Logic: producer, Registry: { manifests: {} }, sections: [], monitorDocument: null, bindSnapshot: null, machine: { failure: "" },
+        permissionsWanted: waiting === true, permissionsReady: waiting !== true, path: "/state/hypr/vgs.lua",
+        rendered: { conflicts: [], appearanceConflicts: [], padConflicts: [], optionConflicts: [], optionRefusals: [], permissions, permissionConflicts }
+    });
+    same(errors, want, "permission problems: " + name);
 }
 const UNKNOWN = [
     "hyprland: input.repeat_rate for acme.hyprland:repeatRate skipped: future failure",

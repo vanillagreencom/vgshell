@@ -164,7 +164,7 @@ EXEMPT = (
     ("sounds", "*", "default"), ("sounds", "*", "held"),
     ("hyprland", "binds", "*", "shortcut"), ("hyprland", "binds", "*", "key"), ("hyprland", "binds", "*", "hold"), ("hyprland", "binds", "*", "tap"), ("hyprland", "appearance"),
     ("hyprland", "layerRules", "*", "namespace"), ("hyprland", "layerRules", "*", "blur"), ("hyprland", "layerRules", "*", "ignoreAlpha"),
-    ("hyprland", "options"), ("hyprland", "pads"), ("hyprland", "monitors"),
+    ("hyprland", "options"), ("hyprland", "pads"), ("hyprland", "monitors"), ("hyprland", "permissions"),
 )
 
 # A clause's rest runs to its sentence's end: a `.`, `!`, `?` or `;` that

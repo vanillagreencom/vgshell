@@ -1046,6 +1046,33 @@ function suite(ctx, configLogic, check) {
     check("hyprland.monitors setting must exist", ctx.validateManifest(Object.assign({}, svc, { capabilities: ["monitors"], settings: {}, hyprland: { monitors: "outputs" } }), "/p").error, "hyprland.monitors names no settings key \"outputs\"");
     check("hyprland.monitors has no schema row", ctx.validateManifest(Object.assign({}, svc, { capabilities: ["monitors"], settings: { outputs: false }, schema: { outputs: { type: "boolean", label: "Outputs" } }, hyprland: { monitors: "outputs" } }), "/p").error, "hyprland.monitors must not name a schema entry");
     check("hyprland.monitors default is judged", ctx.validateManifest(Object.assign({}, svc, { capabilities: ["monitors"], settings: { outputs: { "DP-1\"": { disabled: false } } }, hyprland: { monitors: "outputs" } }), "/p").error, "hyprland.monitors default.DP-1\" identifier refused");
+    // hyprland.permissions rows over a service with a boolean `hosting` and a
+    // number `size`, holding capability `hyprland` unless the row names
+    // others: [name, permissions, want error, "" for accepted, capabilities].
+    // A program name reaches a Lua string and an RE2 pattern unescaped.
+    const permitted = (permissions, capabilities = ["hyprland"]) => ctx.validateManifest(Object.assign({}, svc, { capabilities, settings: { hosting: true, size: 0 },
+        schema: { hosting: { type: "boolean", label: "Hosting" }, size: { type: "number", label: "Size" } }, hyprland: { permissions } }), "/p");
+    const hostingOff = { setting: "hosting", is: false };
+    for (const [name, permissions, want, capabilities] of [
+        ["a denied program and its setting", { deny: ["gliff-server", "a.b_c"], enforceWhen: hostingOff }, ""],
+        ["a plugin that cannot read whether the refusal is in force", { deny: ["gliff-server"], enforceWhen: hostingOff }, "hyprland.permissions needs capability hyprland", []],
+        ["an unknown key", { deny: ["gliff-server"], enforceWhen: hostingOff, lua: "x" }, "hyprland.permissions must be { deny, enforceWhen }"],
+        ["no program", { deny: [], enforceWhen: hostingOff }, "hyprland.permissions.deny must be a non-empty list"],
+        ["a program name that leaves the Lua string", { deny: ["gliff\"server"], enforceWhen: hostingOff }, "hyprland.permissions.deny.0 must be a program file name"],
+        ["a program path", { deny: ["/usr/bin/gliff-server"], enforceWhen: hostingOff }, "hyprland.permissions.deny.0 must be a program file name"],
+        ["a pattern for every program", { deny: [".*"], enforceWhen: hostingOff }, "hyprland.permissions.deny.0 must be a program file name"],
+        ["a program twice", { deny: ["gliff-server", "gliff-server"], enforceWhen: hostingOff }, "hyprland.permissions.deny.1 repeats gliff-server"],
+        ["a value that is no boolean", { deny: ["gliff-server"], enforceWhen: { setting: "hosting", is: "off" } }, "hyprland.permissions.enforceWhen must be { setting, is } with a boolean is"],
+        ["a setting that is no boolean", { deny: ["gliff-server"], enforceWhen: { setting: "size", is: false } }, "hyprland.permissions.enforceWhen.setting must name a boolean schema entry"],
+        ["a setting with no schema entry", { deny: ["gliff-server"], enforceWhen: { setting: "ghost", is: false } }, "hyprland.permissions.enforceWhen.setting must name a boolean schema entry"]
+    ]) {
+        const r = permitted(permissions, capabilities);
+        check("hyprland.permissions: " + name, r.ok ? "" : r.error.slice(0, want.length || undefined), want);
+    }
+    const permitManifest = permitted({ deny: ["gliff-server"], enforceWhen: hostingOff }).manifest;
+    check("hyprlandSection: permissions enforce while the setting holds its value",
+        [true, false].map(hosting => ctx.hyprlandSection({ plugins: [{ id: svc.id, hosting }] }, permitManifest).permissions),
+        [{ deny: ["gliff-server"], enforce: false }, { deny: ["gliff-server"], enforce: true }]);
     check("hyprland is a known capability", ctx.validateManifest(Object.assign({}, svc, { capabilities: ["hyprland"] }), "/p").ok, true);
     check("monitors is a known capability", ctx.validateManifest(Object.assign({}, svc, { capabilities: ["monitors"] }), "/p").ok, true);
     check("appearance is a known capability", ctx.validateManifest(Object.assign({}, svc, { capabilities: ["appearance"] }), "/p").ok, true);
@@ -3002,7 +3029,7 @@ const CONTROLS = [
     ["an appearance unset removes the member", "if (value === undefined) delete appearance[key];", "if (false) delete appearance[key];"],
     ["an empty appearance is removed", "if (Object.keys(appearance).length > 0) out.appearance = appearance;\n    else delete out.appearance;", "out.appearance = appearance;"],
     ["the appearance key is seeded from the effective one", ": isPlainObject(effective) && isPlainObject(effective.appearance) ? clone(effective.appearance) : {};", ": {};"],
-    ["hyprland monitors is a key", 'var HYPRLAND_KEYS = ["binds", "layerRules", "appearance", "options", "pads", "monitors"];', 'var HYPRLAND_KEYS = ["binds", "layerRules", "appearance", "options", "pads"];'],
+    ["hyprland monitors is a key", 'var HYPRLAND_KEYS = ["binds", "layerRules", "appearance", "options", "pads", "monitors", "permissions"];', 'var HYPRLAND_KEYS = ["binds", "layerRules", "appearance", "options", "pads", "permissions"];'],
     ["optionsFrom needs a string", "if (entry.type !== \"string\")\n                return at + \".optionsFrom needs type string\";", "if (false)\n                return at + \".optionsFrom needs type string\";"],
     ["hyprland monitors need the capability", "if (monitors !== undefined && capabilities.indexOf(\"monitors\") === -1)\n        return \"hyprland.monitors needs capability monitors\";", "if (false)\n        return \"hyprland.monitors needs capability monitors\";"],
     ["hyprland monitors setting must exist", "if (!hasOwn(settings, raw.hyprland.monitors))\n                return { ok: false, error: \"hyprland.monitors names no settings key \" + JSON.stringify(raw.hyprland.monitors) };", "if (false)\n                return { ok: false, error: \"hyprland.monitors names no settings key \" + JSON.stringify(raw.hyprland.monitors) };"],
@@ -3059,7 +3086,7 @@ const CONTROLS = [
     ["secrets is a manifest key", "\"tui\", \"menu\", \"secrets\", ", "\"tui\", \"menu\", "],
     ["secrets is a capability", "\"doctor\", \"secrets\", ", "\"doctor\", "],
     ["hyprland is a capability", "\"secrets\", \"hyprland\", ", "\"secrets\", "],
-    ["options is a hyprland key", 'var HYPRLAND_KEYS = ["binds", "layerRules", "appearance", "options", "pads", "monitors"];', 'var HYPRLAND_KEYS = ["binds", "layerRules", "appearance", "pads", "monitors"];'],
+    ["options is a hyprland key", 'var HYPRLAND_KEYS = ["binds", "layerRules", "appearance", "options", "pads", "monitors", "permissions"];', 'var HYPRLAND_KEYS = ["binds", "layerRules", "appearance", "pads", "monitors", "permissions"];'],
     ["options alone declare something", "appearance === undefined && options === undefined && hyprland.pads === undefined && monitors === undefined", "appearance === undefined && hyprland.pads === undefined && monitors === undefined"],
     ["options are judged", "return hyprlandOptionsError(options, schema);", "return \"\";"],
     ["options are a non-empty object", "if (!isPlainObject(options) || Object.keys(options).length === 0)", "if (false)"],
@@ -3082,6 +3109,13 @@ const CONTROLS = [
     ["an enum stores its option values", "return entry.options.map(function (option) { return option.value; });", "return entry.options.map(function (option) { return option.label; });"],
     ["a free string option takes a string or an enum", "return entry.type === \"string\" || entry.type === \"enum\" ? \"\" : \"needs a string", "return true ? \"\" : \"needs a string"],
     ["a manifest carries its options", "options: clone(raw.hyprland.options || {})", "options: {}"],
+    ["a manifest carries its permissions", "permissions: clone(raw.hyprland.permissions)", "permissions: undefined"],
+    ["permissions are judged", "var permissionsBad = hyprland.permissions === undefined ? \"\" : hyprlandPermissionsError(hyprland.permissions, capabilities, schema);", "var permissionsBad = \"\";"],
+    ["permissions need capability hyprland", "if (capabilities.indexOf(\"hyprland\") === -1)\n        return \"hyprland.permissions needs", "if (false)\n        return \"hyprland.permissions needs"],
+    ["a denied program is a file name", "if (typeof deny[i] !== \"string\" || !HyprlandLayer.PERMISSION_BINARY.test(deny[i]))", "if (typeof deny[i] !== \"string\")"],
+    ["a denied program is listed once", "if (deny.indexOf(deny[i]) !== i)", "if (false)"],
+    ["enforcement keys on a boolean setting", "if (!hasOwn(schema, when.setting) || schema[when.setting].type !== \"boolean\")", "if (false)"],
+    ["enforcement follows the setting's value", "enforce: settings[declared.permissions.enforceWhen.setting] === declared.permissions.enforceWhen.is", "enforce: true"],
     ["dictation actions need the capability", 'if (capabilities.indexOf("dictation") === -1)', 'if (false)'],
     ["dictation actions take setup alone", 'if (action.dictation !== "setup")', 'if (false)'],
     ["dictation actions route to core", 'if (action.dictation !== undefined)\n        return { ok: true, kind: "core", name: "dictation-setup" };', 'if (action.dictation !== undefined)\n        return { ok: true, kind: "tui", name: "setup" };'],
@@ -3344,7 +3378,7 @@ const CONTROLS = [
     ["a required step never hides", "if (entry.setup === true && statusStateHidden(value)) return false;", "if (statusStateHidden(value)) return false;"],
     ["a placeholder needs optionsFrom", "if (entry.optionsFrom === undefined)\n                return at + \".placeholder needs optionsFrom\";", "if (false)\n                return at + \".placeholder needs optionsFrom\";"],
     ["a placeholder is a bounded printable line", "if (!isPrintableLine(entry.placeholder, STATUS_LABEL_MAX))", "if (false)"],
-    ["pads are a hyprland key", 'var HYPRLAND_KEYS = ["binds", "layerRules", "appearance", "options", "pads", "monitors"];', 'var HYPRLAND_KEYS = ["binds", "layerRules", "appearance", "options", "monitors"];'],
+    ["pads are a hyprland key", 'var HYPRLAND_KEYS = ["binds", "layerRules", "appearance", "options", "pads", "monitors", "permissions"];', 'var HYPRLAND_KEYS = ["binds", "layerRules", "appearance", "options", "monitors", "permissions"];'],
     ["pads are judged", "var padsBad = Pads.manifestError(hyprland.pads, capabilities, schema);", "var padsBad = \"\";"],
     ["a manifest carries its pads", "            pads: raw.hyprland.pads,\n", "            pads: undefined,\n"],
     ["pads are expanded", "var pads = Pads.expand(declared.pads, manifest.schema, settings, keys, ConfigLogic.hyprlandKey, settingError);", "var pads = Pads.expand(undefined, manifest.schema, settings, keys, ConfigLogic.hyprlandKey, settingError);"],

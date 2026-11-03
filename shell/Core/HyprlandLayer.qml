@@ -75,6 +75,18 @@ Scope {
     readonly property bool inputsReady: coreInputsReady
         && (!touchpadsNeeded || Capabilities.hyprland.touchpads !== null || Capabilities.hyprland.devicesFailure !== "")
     readonly property bool admissionReady: inputsReady && bindPlan !== null
+    // While a plugin declares permissions, the whole layer renders only once
+    // the layer on disk and Hyprland's permission record are read: the
+    // block's first line, kept from the file on disk, tells whether Hyprland
+    // launched with the block, and the record whether the user's own
+    // configuration keeps it out (Layer.permissionLines). The layer itself
+    // holds capability `hyprland` (Component.onCompleted), so the record's
+    // read always runs; a failed read answers and renders the block withheld.
+    readonly property bool permissionsWanted: Layer.permissionOwners(sections).length > 0
+    readonly property bool permissionsReady: !permissionsWanted
+        || (machine.onDisk !== undefined && Capabilities.hyprland.userPermissions !== null)
+    readonly property string permissionMarker: Layer.permissionMarker(machine.onDisk)
+    readonly property string permissionConsent: Layer.permissionConsent(machine.consent.phase)
     readonly property real highestMonitorScale: {
         let highest = 1;
         for (const screen of Quickshell.screens) {
@@ -103,7 +115,8 @@ Scope {
         windowTopShare: Theme.size.window.topShare
     })
     // Layer.render's arguments, or null before its inputs are read.
-    readonly property var renderInputs: coreInputsReady ? [sections, themeAppearance, Theme.name, highestMonitorScale, Capabilities.hyprland.touchpads, Capabilities.hyprland.devicesFailure, Registry.monitorRuleOwnerId, admissionReady ? bindPlan : null] : null
+    readonly property var renderInputs: coreInputsReady && permissionsReady ? [sections, themeAppearance, Theme.name, highestMonitorScale, Capabilities.hyprland.touchpads, Capabilities.hyprland.devicesFailure, Registry.monitorRuleOwnerId, admissionReady ? bindPlan : null,
+        { instance: hyprlandSignature, marker: permissionMarker, consent: permissionConsent, user: Capabilities.hyprland.userPermissions }] : null
     // Assigned by renderLayer alone.
     property var rendered: null
     readonly property var publishedBindPlan: rendered === null ? null : rendered.plan
@@ -147,12 +160,19 @@ Scope {
         if (rendered !== null)
             for (const c of (rendered.monitorRefusals || []))
                 out.push({ id: c.id, dir: dirOf(c.id), error: "hyprland: monitors for " + c.id + ":" + c.setting + " skipped: " + c.error });
+        if (rendered !== null && rendered.permissions !== null && rendered.permissions.error !== "")
+            out.push({ id: rendered.permissions.id, dir: dirOf(rendered.permissions.id), error: "hyprland: permission rules of " + rendered.permissions.id + " withheld: " + rendered.permissions.error });
+        if (rendered !== null)
+            for (const c of rendered.permissionConflicts)
+                out.push({ id: c.id, dir: dirOf(c.id), error: "hyprland: permission rules of " + c.id + " skipped: already declared by " + c.heldBy });
         for (const section of sections)
             for (const refusal of section.padRefusals)
                 out.push({ id: section.id, dir: dirOf(section.id), error: "hyprland: pad " + (refusal.name === "" ? "list" : refusal.name) + " of " + section.id + " skipped: " + refusal.error });
         for (const section of sections)
             for (const name of section.unknownKeys)
                 out.push({ id: section.id, dir: dirOf(section.id), error: "hyprland: shell.json keys." + name + " names no bind of " + section.id });
+        if (permissionsWanted && !permissionsReady)
+            out.push({ id: "", dir: path, error: "hyprland: the layer waits for Hyprland's record of your permission rules" });
         if (machine.failure !== "")
             out.push({ id: "", dir: path, error: "hyprland: " + machine.failure });
         return out;
@@ -198,6 +218,7 @@ Scope {
     Binding { target: Capabilities.hyprland; property: "appearanceWritten"; value: root.rendered === null ? [] : root.rendered.appearance }
     Binding { target: Capabilities.hyprland; property: "optionConflicts"; value: root.rendered === null ? [] : root.rendered.optionConflicts }
     Binding { target: Capabilities.hyprland; property: "layerBinds"; value: root.rendered === null ? [] : root.rendered.binds }
+    Binding { target: Capabilities.hyprland; property: "permissionState"; value: root.rendered === null ? null : root.rendered.permissions }
     Binding { target: Capabilities.monitors; property: "ownerId"; value: Registry.monitorRuleOwnerId }
     Binding { target: Notices; property: "consent"; value: Logic.consentSlotView(root.machine.consent, root.welcome, Config.shipped, root.sections, root.publishedBindPlan) }
     Binding { target: Notices; property: "consentState"; value: root.machine.consent }

@@ -10,7 +10,8 @@ import "PluginLogic.js" as Logic
 // devices, its value of each option a manifest may map a setting to, the
 // options the layer wrote that read back otherwise, the values the user's
 // configuration gave them, the keys something other than the
-// layer binds and where the user's configuration binds each. It also runs
+// layer binds and where the user's configuration binds each, and the
+// permission rules and options the user's configuration sets. It also runs
 // the edit that takes such a bind line out of the user's file or puts it
 // back, then reloads Hyprland. HyprlandState.js judges every
 // reply; this runs the reads while `active` and holds the last answers.
@@ -32,6 +33,14 @@ Scope {
     property var appearanceWritten: []
     property var optionConflicts: []
     property var layerBinds: []
+    // The layer's permission state, HyprlandLayer.permissionLines' `state`,
+    // which HyprlandLayer.qml binds; the declaring plugin reads its `state`.
+    property var permissionState: null
+    // State.userPermissions' reply: the permission rules and options the
+    // user's configuration set as Hyprland last loaded it, which the layer
+    // records (HyprlandLayer.USER_PERMISSIONS); null until the first read
+    // answers. Read on activation and after each reload.
+    property var userPermissions: null
 
     // devicesState's devices, null until read while active.
     property var devices: null
@@ -73,6 +82,7 @@ Scope {
             readOptions();
             readUserValues();
             readBinds();
+            readPermissions();
             return;
         }
         const token = keyResolution === null ? null : keyResolution.token;
@@ -87,6 +97,7 @@ Scope {
         foreignKeys = null;
         bindsFailure = "";
         userBindRows = null;
+        userPermissions = null;
     }
 
     // The capability for one instance; it holds nothing to release.
@@ -98,6 +109,7 @@ Scope {
             get displayWake() { return root.displayWake; },
             get devices() { return root.devices === null ? null : Logic.frozenJson(root.devices); },
             get foreignBinds() { return root.foreignKeys === null ? null : Logic.frozenJson(root.foreignKeys); },
+            get permissions() { return root.permissionState !== null && root.permissionState.id === ctx.id ? root.permissionState.state : null; },
             resolveKeys: (keys, done) => {
                 if (!ctx.active) return;
                 root.resolveKeys(keys, value => { if (ctx.active) done(State.pluginKeys(value)); });
@@ -194,6 +206,11 @@ Scope {
         userBindsReader.read(State.USER_BINDS_REQUEST, null);
     }
 
+    function readPermissions() {
+        if (!active) return;
+        userPermissionsReader.read(State.USER_PERMISSIONS_REQUEST, null);
+    }
+
     // The user's binds of KEY, as hyprlandKey writes it: [{ file, line,
     // text, removable, place, config }], `place` the file as a notice names
     // it and `config` its path under the configuration directory, which
@@ -257,6 +274,7 @@ Scope {
                 root.readOptions();
                 root.readUserValues();
                 root.readBinds();
+                root.readPermissions();
             } else if (event.name === "activelayout") {
                 root.readDevices();
             }
@@ -382,6 +400,19 @@ Scope {
             } else if (!root.same(read.binds, root.userBindRows)) {
                 root.userBindRows = read.binds;
             }
+        }
+    }
+
+    // The layer's record of the user's permission rules is an error's text,
+    // as the user values are.
+    HyprctlReader {
+        id: userPermissionsReader
+        label: "user-permissions"
+        onReadDone: (request, text, failure) => {
+            if (!root.active) return;
+            const read = State.userPermissions(text);
+            if (!read.ok) console.error("hyprland: " + read.error + (failure === "" ? "" : " " + failure));
+            if (!root.same(read, root.userPermissions)) root.userPermissions = read;
         }
     }
 

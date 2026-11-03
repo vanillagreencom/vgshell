@@ -30,6 +30,9 @@ Item {
     readonly property var idleTrial: ({ phase: "idle", token: "", deadline: 0, failure: "" })
 
     HyprlandLayer { id: layer }
+    // The `hyprland` capability's provider, which hands a plugin its
+    // permission state; the stand-in Capabilities carries the layer's.
+    HyprlandState { id: permissionReader }
     ShortcutRegistry { id: shortcuts }
     property var edges: []
 
@@ -269,6 +272,27 @@ Item {
             Registry.hyprlandSections = [];
             tryVerify(() => layer.machine.phase === "preparing");
             finishWrite();
+        }
+
+        // A plugin that declares permissions reads `pending-restart` through
+        // the `hyprland` capability until Hyprland launches with its rules;
+        // another plugin reads null.
+        function test_permission_state_reaches_the_declaring_plugin() {
+            Capabilities.hyprland.userPermissions = { ok: true, present: true, rules: [], options: [] };
+            Registry.hyprlandSections = [{ id: "acme.remote", version: "1.0.0", binds: [], options: [], layerRules: [], appearance: {},
+                monitors: null, padRefusals: [], unknownKeys: [], permissions: { deny: ["gliff-server"], enforce: true } }];
+            tryVerify(() => layer.machine.phase === "preparing", 1000, "the declared block starts a write");
+            verify(Capabilities.hyprland.permissionState !== null, "the layer hands the capability its permission state");
+            permissionReader.permissionState = Capabilities.hyprland.permissionState;
+            compare(permissionReader.provider({ id: "acme.remote", active: true, manifest: {} }).permissions, "pending-restart");
+            compare(permissionReader.provider({ id: "acme.other", active: true, manifest: {} }).permissions, null);
+            finishWrite();
+            Registry.hyprlandSections = [];
+            tryVerify(() => layer.machine.phase === "preparing");
+            finishWrite();
+            compare(Capabilities.hyprland.permissionState, null);
+            permissionReader.permissionState = null;
+            Capabilities.hyprland.userPermissions = null;
         }
 
         function test_foreign_inputs_publish_only_current_global_identities() {

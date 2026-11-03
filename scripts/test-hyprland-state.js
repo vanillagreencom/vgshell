@@ -217,6 +217,32 @@ function suite(lib, check) {
         const got = lib.userBinds(text, "/h/.config/hypr");
         check("user binds: " + name, got.ok ? got : { ok: false, error: got.error.slice(0, want.ok ? 0 : want.error.length) }, want);
     }
+
+    // The layer's record of the user's own permission rules and options.
+    // The recorder runs only the configuration Hyprland executes, so the
+    // commented PERMISSIONS section of Hyprland's example hyprland.lua
+    // records nothing and reads as the empty record.
+    check("user permissions request: one eval that raises the layer's answer, or absent without the recorder", lib.USER_PERMISSIONS_REQUEST,
+        ["hyprctl", "eval", "error(hl.__vgs_permissions == nil and \"vgs-user-permissions=\\\"absent\\\"\" or hl.__vgs_permissions.report(), 0)"]);
+    const permitted = value => "error: vgs-user-permissions=" + JSON.stringify(value) + "\n";
+    const site = { file: "/h/.config/hypr/hyprland.lua", line: 76 };
+    // rows: [name, reply, want]
+    const userPermissionRows = [
+        ["Hyprland holds no recorder", permitted("absent"), { ok: true, present: false }],
+        ["no rule and no option", permitted({ rules: [], options: [] }), { ok: true, present: true, rules: [], options: [] }],
+        ["a rule and an option, as made", permitted({ rules: [site], options: [Object.assign({}, site, { path: "ecosystem.enforce_permissions", value: true })] }),
+            { ok: true, present: true, rules: [site], options: [Object.assign({}, site, { path: "ecosystem.enforce_permissions", value: true })] }],
+        ["another error", "error: attempt to call a nil value", { ok: false, error: "refused: user-permissions=unread reply=" }],
+        ["no JSON", "error: vgs-user-permissions={", { ok: false, error: "refused: user-permissions=unparsed " }],
+        ["no rules list", permitted({ options: [] }), { ok: false, error: "refused: user-permissions=shape want=rules,options" }],
+        ["a rule at line 0", permitted({ rules: [{ file: site.file, line: 0 }], options: [] }), { ok: false, error: "refused: user-permissions=shape rule=0" }],
+        ["an option the layer does not watch", permitted({ rules: [], options: [Object.assign({ path: "misc.vrr", value: 1 }, site)] }), { ok: false, error: "refused: user-permissions=shape option=0" }],
+        ["an option with no value", permitted({ rules: [], options: [Object.assign({ path: "misc.name_vk_after_proc" }, site)] }), { ok: false, error: "refused: user-permissions=shape option=0" }]
+    ];
+    for (const [name, text, want] of userPermissionRows) {
+        const got = lib.userPermissions(text);
+        check("user permissions: " + name, got.ok ? got : { ok: false, error: got.error.slice(0, want.ok ? 0 : want.error.length) }, want);
+    }
     const symbolicRows = lib.userBinds(recorded([record("/h/.config/hypr/binds.lua", 12,
         'hl.bind("SUPER + J", f)', 64, "J", 0)]), "/h/.config/hypr").binds;
     const aliasFacts = { "SUPER+code:44": "SUPER+code:44", "SUPER+J": "SUPER+code:44" };
@@ -392,6 +418,11 @@ const CONTROLS = [
     ["a bind file is Lua", '&& /\\.lua$/.test(file) && ', "&& "],
     ["a bind file names no climbing segment", ' && !/\\/\\.\\.?(\\/|$)/.test(file);', ";"],
     ["a user bind outside the hypr directory is not removable", " && bindFileEditable(row.file, hyprDir) });", " });"],
+    ["a session without the recorder reads absent", 'hl." + Layer.USER_PERMISSIONS.table + " == nil and \\"" + Layer.USER_PERMISSIONS.key + "=\\\\\\"absent\\\\\\"\\" or ', ""],
+    ["the user permissions are read by their key", 'if (line === undefined) return { ok: false, error: "refused: user-permissions=unread', 'if (false) return { ok: false, error: "refused: user-permissions=unread'],
+    ["an absent record holds nothing", 'if (read.value === "absent") return { ok: true, present: false };', ""],
+    ["a user permission rule's line is a positive whole number", "Number.isInteger(row.line) && row.line > 0; };", "true; };"],
+    ["a user permission option is a watched one", " || Layer.PERMISSION_OPTIONS.indexOf(value.options[o].path) === -1", ""],
     ["the lines keep their breaks", "return text.match(/[^\\n]*\\n|[^\\n]+$/g) || [];", "return text.split(\"\\n\");"],
     ["effective wake never substitutes generated true defaults", 'return value === true ? "enabled" : value === false ? "disabled" : "unreadable";', 'return value === true ? "enabled" : value === false ? "enabled" : "enabled";', wakeSuite]
 ];

@@ -375,6 +375,41 @@ function userBinds(text, hyprDir) {
     return { ok: true, binds: out };
 }
 
+// The one `hyprctl eval` argv that asks the layer for the user's own
+// permission rules and options (HyprlandLayer.USER_PERMISSIONS), raised as
+// USER_VALUES_REQUEST raises its answer; `absent` where Hyprland holds no
+// recorder: a session whose hyprland.lua does not load the layer, or a
+// layer loaded before a plugin declared permissions.
+var USER_PERMISSIONS_REQUEST = ["hyprctl", "eval", "error(hl." + Layer.USER_PERMISSIONS.table + " == nil and \"" + Layer.USER_PERMISSIONS.key + "=\\\"absent\\\"\" or hl." + Layer.USER_PERMISSIONS.table + "." + Layer.USER_PERMISSIONS.verb + "(), 0)"];
+
+// The reply to USER_PERMISSIONS_REQUEST: { ok: true, present: false },
+// { ok: true, present: true, rules: [{ file, line }], options: [{ file,
+// line, path, value }] } with each path one of
+// HyprlandLayer.PERMISSION_OPTIONS, or { ok: false, error } with a keyed
+// line.
+function userPermissions(text) {
+    var marker = Layer.USER_PERMISSIONS.key + "=";
+    var line = String(text || "").split("\n").filter(function (l) { return l.indexOf(marker) !== -1; })[0];
+    if (line === undefined) return { ok: false, error: "refused: user-permissions=unread reply=" + JSON.stringify(String(text || "").slice(0, 120)) };
+    var read = parsed(line.slice(line.indexOf(marker) + marker.length));
+    if (!read.ok) return { ok: false, error: "refused: user-permissions=unparsed " + read.error };
+    if (read.value === "absent") return { ok: true, present: false };
+    var value = read.value;
+    if (value === null || typeof value !== "object" || !Array.isArray(value.rules) || !Array.isArray(value.options))
+        return { ok: false, error: "refused: user-permissions=shape want=rules,options" };
+    var site = function (row) { return row !== null && typeof row === "object" && typeof row.file === "string" && Number.isInteger(row.line) && row.line > 0; };
+    for (var r = 0; r < value.rules.length; r++)
+        if (!site(value.rules[r])) return { ok: false, error: "refused: user-permissions=shape rule=" + r };
+    for (var o = 0; o < value.options.length; o++)
+        if (!site(value.options[o]) || Layer.PERMISSION_OPTIONS.indexOf(value.options[o].path) === -1 || !("value" in value.options[o]))
+            return { ok: false, error: "refused: user-permissions=shape option=" + o };
+    return {
+        ok: true, present: true,
+        rules: value.rules.map(function (row) { return { file: row.file, line: row.line }; }),
+        options: value.options.map(function (row) { return { file: row.file, line: row.line, path: row.path, value: row.value }; })
+    };
+}
+
 function matchingUserBinds(rows, key, identities) {
     return rows === null ? [] : rows.filter(function (row) { return Layer.sameKey(row.key, key, identities); });
 }
