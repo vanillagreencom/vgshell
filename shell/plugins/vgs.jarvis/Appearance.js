@@ -31,6 +31,7 @@ function number(value, min, max) { return { type: "number", value: value, min: m
 function share(value) { return number(value, 0, 1); }
 function gain(value) { return number(value, 0, 4); }
 function choice(value, options) { return { type: "choice", value: value, options: options }; }
+function easing(value) { return { type: "easing", value: value }; }
 
 // The reference palette: the owner's orb (tmp/vgs-2210 ref-colour.png).
 var REFERENCE = { top: "#478cfa", upper: "#8052eb", lower: "#f24285", bottom: "#ff6b29", core: "#125c80", hot: "#ffd18c" };
@@ -99,7 +100,9 @@ var TOKENS = {
         prompt: length(400),
         // The gap between the orb's ring and the line under it.
         below: length(26),
-        gap: length(8)
+        gap: length(8),
+        // From the approval prompt's answers to its key hints.
+        hints: length(12)
     },
     orb: {
         size: length(300),
@@ -181,6 +184,36 @@ var TOKENS = {
         path: color("#a9adb8"),
         payload: color("#d3d5dc"),
         hint: color("#9a9eaa")
+    },
+    // The approval prompt's answers in the soft form, the owner's preferred
+    // one; this group and Bubble.qml's Answer are the one place the form is
+    // chosen. Confirm (Yes) stands on a faint white fill that rises under
+    // the pointer, where its label dims a step and the shimmer crosses it;
+    // Cancel (No) is bare words, a dimmer ink that brightens under the
+    // pointer. A press drops either to the faintest fill.
+    answer: {
+        height: length(26),
+        paddingX: length(13),
+        radius: length(13),
+        gap: length(6),
+        fill: color("alpha(#ffffff, 0.10)"),
+        hoverFill: color("alpha(#ffffff, 0.15)"),
+        pressedFill: color("alpha(#ffffff, 0.06)"),
+        // Neither fill nor border: Cancel's rest and hover, every border.
+        clear: color("alpha(#ffffff, 0)"),
+        ink: color("#e6e8ee"),
+        hoverInk: color("#9ea3af"),
+        bareInk: color("#b7bbc6"),
+        bareHoverInk: color("#e6e8ee"),
+        // One sweep of the band and the pause after it, the passes a
+        // hover runs, and the band's half-width as a share of the label.
+        shimmer: {
+            sweep: duration(1600),
+            pause: duration(600),
+            passes: number(3, 1, 10),
+            band: share(0.16),
+            easing: easing("inOutCubic")
+        }
     },
     // Jarvis's words while its voice is muted: one more word each step
     // until the caption is caught up, the newest fading in, a full line

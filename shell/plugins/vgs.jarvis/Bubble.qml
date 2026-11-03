@@ -132,6 +132,30 @@ Item {
         onClicked: if (service !== null) service.intent(intentName)
     }
 
+    // One answer of the approval prompt in the look's form (Appearance.js
+    // `answer`): Confirm or Yes on its fill with the shimmer, Cancel or No
+    // as bare words. It is a qs.Ui Button handed the look's values, since a
+    // surface draws no private control for what a component draws
+    // (design-system.md § Components). The variant names the answer for
+    // scripts/smoke/rows/jarvis-bubble.sh and sets the label's weight.
+    component Answer: Button {
+        required property var look
+        property bool bare: false
+        size: "sm"
+        variant: bare ? "ghost" : "secondary"
+        controlHeight: look.answer.height
+        paddingX: look.answer.paddingX
+        radius: look.answer.radius
+        restFill: bare ? look.answer.clear : look.answer.fill
+        hoverFill: bare ? look.answer.clear : look.answer.hoverFill
+        pressedFill: look.answer.pressedFill
+        borderColor: look.answer.clear
+        textColor: bare ? look.answer.bareInk : look.answer.ink
+        hoverTextColor: bare ? look.answer.bareHoverInk : look.answer.hoverInk
+        ringColor: look.icon.ring
+        shimmer: bare ? null : look.answer.shimmer
+    }
+
     visible: shown
     Component.onCompleted: if (service !== null) service.attachBubble(root)
     Component.onDestruction: if (service !== null) service.detachBubble(root)
@@ -227,7 +251,7 @@ Item {
             spacing: root.look.layout.gap
             Label {
                 width: parent.width
-                role: "label"
+                role: root.fault !== null ? "bodyStrong" : "label"
                 color: root.fault !== null ? root.look.ink.title : root.look.ink.state
                 text: root.stateText
                 horizontalAlignment: Text.AlignHCenter
@@ -266,7 +290,7 @@ Item {
             Label {
                 id: question
                 width: parent.width
-                role: "body"
+                role: "bodyStrong"
                 color: root.look.ink.question
                 text: approvalText.prompt === null ? "" : approvalText.prompt.question
                 textFormat: Text.PlainText
@@ -307,30 +331,37 @@ Item {
             Row {
                 id: answerButtons
                 anchors.horizontalCenter: parent.horizontalCenter
-                spacing: root.look.layout.gap
+                spacing: root.look.answer.gap
                 // keyboard-path: the effective Confirm and Stop shortcuts.
-                Button {
+                Answer {
                     id: cancel
-                    size: "sm"
-                    variant: "secondary"
+                    look: root.look
+                    bare: true
                     text: root.hold !== null && root.hold.purpose === "release" ? "No" : "Cancel"
                     onClicked: if (root.service !== null) root.service.cancelApproval(root.displayedHold)
                 }
-                Button {
+                Answer {
                     id: confirm
-                    size: "sm"
+                    look: root.look
                     text: root.hold !== null && root.hold.purpose === "release" ? "Yes" : "Confirm"
                     onClicked: if (root.service !== null) root.service.confirmApproval(root.displayedHold, "button")
                 }
             }
-            KeyHints {
-                id: answerHints
-                afterActions: true
-                anchors.horizontalCenter: parent.horizontalCenter
-                hints: root.shortcutKeys === null ? [] : [
-                    {key: root.shortcutKeys.stop || "", text: root.hold !== null && root.hold.purpose === "release" ? "No" : "Cancel"},
-                    {key: root.shortcutKeys.confirm || "", text: root.hold !== null && root.hold.purpose === "release" ? "Yes" : "Confirm"}
-                ]
+            // The key hints stand `layout.hints` under the answers: the
+            // column's gap and the rest of that distance above the row.
+            Item {
+                width: parent.width
+                height: answerHints.height + root.look.layout.hints - root.look.layout.gap
+                visible: answerHints.hints.length > 0
+                KeyHints {
+                    id: answerHints
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.bottom: parent.bottom
+                    hints: root.shortcutKeys === null ? [] : [
+                        {key: root.shortcutKeys.stop || "", text: root.hold !== null && root.hold.purpose === "release" ? "No" : "Cancel"},
+                        {key: root.shortcutKeys.confirm || "", text: root.hold !== null && root.hold.purpose === "release" ? "Yes" : "Confirm"}
+                    ]
+                }
             }
         }
     }

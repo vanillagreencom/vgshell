@@ -419,6 +419,146 @@
           }
         }
       ]
+    },
+    "jarvis-orb-reduced": {
+      "machine": "cachy",
+      "date": "2026-11-03T00:13:19.328326+00:00",
+      "backend": "Vulkan",
+      "device": "NVIDIA GeForce RTX 5090",
+      "warmup": 120,
+      "samples": 600,
+      "percentile": 90,
+      "method": "nearest-rank p90 of each stream; GPU timestamp frame time on minus off, paired by sample; QSG_NO_VSYNC=1",
+      "ceilings": {
+        "cpu_sync_ms": 1,
+        "cpu_render_ms": 1,
+        "gpu_cost_ms": 0.09740000000000001,
+        "presentation_ms": 34
+      },
+      "readings": {
+        "1": {
+          "cpu_sync_ms": 0.0,
+          "cpu_render_ms": 0.0,
+          "gpu_cost_ms": 0.0254,
+          "presentation_ms": 17
+        },
+        "2": {
+          "cpu_sync_ms": 0.0,
+          "cpu_render_ms": 0.0,
+          "gpu_cost_ms": 0.04870000000000001,
+          "presentation_ms": 17
+        }
+      },
+      "calibration_runs": [
+        {
+          "run": "1793664577-2/run-1/jarvis-orb-reduced",
+          "cpu_some_pct": 1.1,
+          "on_cpu_some_pct": {
+            "1": 0.7,
+            "2": 1.1
+          },
+          "readings": {
+            "1": {
+              "cpu_sync_ms": 0.0,
+              "cpu_render_ms": 0.0,
+              "gpu_cost_ms": 0.0254,
+              "presentation_ms": 17
+            },
+            "2": {
+              "cpu_sync_ms": 0.0,
+              "cpu_render_ms": 0.0,
+              "gpu_cost_ms": 0.048,
+              "presentation_ms": 17
+            }
+          },
+          "costly_control": {
+            "1": {
+              "cpu_sync_ms": 0.0,
+              "cpu_render_ms": 0.0,
+              "gpu_cost_ms": 0.1871,
+              "presentation_ms": 17
+            },
+            "2": {
+              "cpu_sync_ms": 0.0,
+              "cpu_render_ms": 0.0,
+              "gpu_cost_ms": 0.3904,
+              "presentation_ms": 17
+            }
+          }
+        },
+        {
+          "run": "1793664577-2/run-2/jarvis-orb-reduced",
+          "cpu_some_pct": 1.5,
+          "on_cpu_some_pct": {
+            "1": 0.9,
+            "2": 0.8
+          },
+          "readings": {
+            "1": {
+              "cpu_sync_ms": 0.0,
+              "cpu_render_ms": 0.0,
+              "gpu_cost_ms": 0.0248,
+              "presentation_ms": 17
+            },
+            "2": {
+              "cpu_sync_ms": 0.0,
+              "cpu_render_ms": 0.0,
+              "gpu_cost_ms": 0.0474,
+              "presentation_ms": 17
+            }
+          },
+          "costly_control": {
+            "1": {
+              "cpu_sync_ms": 0.0,
+              "cpu_render_ms": 0.0,
+              "gpu_cost_ms": 0.1863,
+              "presentation_ms": 17
+            },
+            "2": {
+              "cpu_sync_ms": 0.0,
+              "cpu_render_ms": 0.0,
+              "gpu_cost_ms": 0.4097,
+              "presentation_ms": 17
+            }
+          }
+        },
+        {
+          "run": "1793664577-2/run-3/jarvis-orb-reduced",
+          "cpu_some_pct": 5.6,
+          "on_cpu_some_pct": {
+            "1": 0.8,
+            "2": 0.9
+          },
+          "readings": {
+            "1": {
+              "cpu_sync_ms": 0.0,
+              "cpu_render_ms": 0.0,
+              "gpu_cost_ms": 0.0254,
+              "presentation_ms": 17
+            },
+            "2": {
+              "cpu_sync_ms": 0.0,
+              "cpu_render_ms": 0.0,
+              "gpu_cost_ms": 0.04870000000000001,
+              "presentation_ms": 17
+            }
+          },
+          "costly_control": {
+            "1": {
+              "cpu_sync_ms": 0.0,
+              "cpu_render_ms": 0.0,
+              "gpu_cost_ms": 0.18680000000000002,
+              "presentation_ms": 17
+            },
+            "2": {
+              "cpu_sync_ms": 0.0,
+              "cpu_render_ms": 0.0,
+              "gpu_cost_ms": 0.4068,
+              "presentation_ms": 17
+            }
+          }
+        }
+      ]
     }
   }
 }

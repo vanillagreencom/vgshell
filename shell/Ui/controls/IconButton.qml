@@ -16,10 +16,10 @@ import qs.Ui
 // joins, so an icon drawn translucent shows each overlap brighter. A
 // surface that owns its look hands the glyph's colours, `restColor`,
 // `activeColor` (hover, focus or press) and `onColor` (checked), and the
-// focus ring's `ringColor`; each defaults to the shared token above. A
-// disabled button fades once on the whole control; one a `disabledReason`
-// locks (Button) fades its fill and icon, and shows the reason in place
-// of its action tooltip, so one tooltip shows. The icon is
+// focus ring's `ringColor` (Button's); each defaults to the shared token
+// above. A disabled button fades once on the whole control; one a
+// `disabledReason` locks (Button) fades its fill and icon, and shows the
+// reason in place of its action tooltip, so one tooltip shows. The icon is
 // the size's own, `button.size.<size>.icon`, centred on whole pixels.
 // `glyphStart` and `glyphEnd` are the distances from the box's edges to
 // the glyph's painted ink: a header that puts a glyph, not a box, on its
@@ -36,9 +36,10 @@ Button {
     property color restColor: Theme.color.textMuted
     property color activeColor: tokens.foreground
     property color onColor: Theme.button.checked.foreground
-    property color ringColor: Theme.focusRing.color
-    readonly property real glyphStart: leftPadding + contentItem.painted[0]
-    readonly property real glyphEnd: rightPadding + contentItem.size - contentItem.painted[2]
+    // Read through the glyph's id, not `contentItem`, which holds Button's
+    // own content until this one replaces it (tst_button.qml, Qt 6.12.0).
+    readonly property real glyphStart: leftPadding + glyph.painted[0]
+    readonly property real glyphEnd: rightPadding + glyph.size - glyph.painted[2]
 
     variant: "ghost"
     leftPadding: Math.floor((controlHeight - sizeTokens.icon) / 2)
@@ -60,6 +61,7 @@ Button {
     Component.onCompleted: if (label === "") console.error("IconButton: label is required, icon=" + JSON.stringify(iconName))
 
     contentItem: Icon {
+        id: glyph
         name: root.iconName
         size: root.sizeTokens.icon
         opacity: (root.down ? Theme.opacity.disabled : 1) * root.lock.fade

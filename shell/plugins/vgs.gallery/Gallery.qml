@@ -130,6 +130,32 @@ Item {
                         ToggleButton { text: "Pinned"; checked: true }
                         Button { text: "Disabled"; enabled: false }
                     }
+                    // A surface's own form: bare words, and a soft fill whose
+                    // label shimmers under the pointer.
+                    Row {
+                        spacing: Theme.stack.inline
+                        Button {
+                            text: "Bare"
+                            variant: "ghost"
+                            size: "sm"
+                            radius: Theme.radius.full
+                            hoverFill: Theme.button.variant.ghost.background
+                            textColor: Theme.color.textMuted
+                            hoverTextColor: Theme.color.text
+                            ringColor: Theme.color.warning
+                        }
+                        Button {
+                            text: "Soft fill"
+                            variant: "ghost"
+                            size: "sm"
+                            radius: Theme.radius.full
+                            restFill: Theme.color.surfaceRaised
+                            hoverFill: Theme.color.surfaceHover
+                            hoverTextColor: Theme.color.textMuted
+                            ringColor: Theme.color.warning
+                            shimmer: ({ sweep: Theme.motion.duration.slow, pause: Theme.motion.duration.normal, passes: 3, band: 0.16, easing: Theme.motion.easing.standard })
+                        }
+                    }
                 }
                 // The bar's items: workspace pills, the first focused; an
                 // icon alone; the corner count at 1 and above 9 (9+) and at

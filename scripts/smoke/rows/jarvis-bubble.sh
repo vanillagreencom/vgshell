@@ -6,7 +6,7 @@
 # claimed. The stillness reading counts the layer window's swapped frames
 # over 3 s of real time after the look settles, its own control the
 # speaking look in the same window, which must swap frames.
-# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* bin/lib/qml-library.js shell/plugins/vgs.bar/* shell/Ui/controls/IconButton.qml shell/Ui/feedback/LinkText.qml shell/Core/Layers.qml shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml scripts/smoke/toplevel/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/diagnostics.sh
+# inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* bin/lib/qml-library.js shell/plugins/vgs.bar/* shell/Ui/controls/Button.qml shell/Ui/controls/IconButton.qml shell/Ui/feedback/LinkText.qml shell/Core/Layers.qml shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml scripts/smoke/toplevel/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/diagnostics.sh
 set -euo pipefail
 jarvis_bubble_snapshots="$(mktemp -d "$sandbox/jarvis-bubble-snapshots.XXXXXX")"
 jarvis_bubble_row_config="$jarvis_bubble_snapshots/shell.json"
@@ -388,7 +388,7 @@ print("drawn" if a["kind"]=="held" and a["shownAt"] is not None else "pending")
 jarvis_bubble_request() {
   local state buttons clips fields
   state="$(ipc smoke jarvisProcess)" &&
-    buttons="$(ipc smoke layerItems vgs.jarvis Button variant,visible)" &&
+    buttons="$(ipc smoke layerItems vgs.jarvis Answer variant,visible)" &&
     clips="$(ipc smoke layerItems vgs.jarvis Words visible,shown)" &&
     fields="$(ipc smoke layerItems vgs.jarvis Label role,visible)" || return 1
   "$node_bin" - "$state" "$buttons" "$clips" "$fields" "$jarvis_key_gates/effects.jsonl" "$repo/shell/plugins/vgs.jarvis/backend/ToolRouter.js" <<'JS'
@@ -418,13 +418,13 @@ try {
         assert.equal(held.physical, false);
     }
     const buttons = JSON.parse(rawButtons).filter(([, , value]) => value.visible).sort((a, b) => a[1][0] - b[1][0]);
-    assert.deepEqual(buttons.map(([, , value]) => value.variant), ["secondary", "primary"]);
+    assert.deepEqual(buttons.map(([, , value]) => value.variant), ["ghost", "secondary"]);
     const [left, right] = buttons.map(([, box]) => box);
     assert.ok(left[2] > 0 && right[2] > 0 && left[0] + left[2] < right[0]);
     assert.equal(left[1], right[1]);
     const labels = JSON.parse(rawFields);
     const fields = labels.filter(([, , value]) => value.visible);
-    const questions = fields.filter(([, box, value]) => value.role === "body" && box[1] < left[1]);
+    const questions = fields.filter(([, box, value]) => value.role === "bodyStrong" && box[1] < left[1]);
     assert.equal(questions.length, 1);
     assert.ok(questions[0][1][2] > 0 && questions[0][1][3] > 0);
     if (held.purpose === "action") {
@@ -451,7 +451,7 @@ jarvis_bubble_confirm_key() {
 }
 jarvis_bubble_answer_button() { # BUTTON
   local point x y
-  point="$(point_item vgs:layer vgs.jarvis Button variant "$([[ $1 == Cancel || $1 == No ]] && echo secondary || echo primary)")" || return 1
+  point="$(point_item vgs:layer vgs.jarvis Answer variant "$([[ $1 == Cancel || $1 == No ]] && echo ghost || echo secondary)")" || return 1
   read -r x y <<<"$point" || return 1
   click "$x" "$y" || return 1
   jarvis_key_state approval
@@ -864,7 +864,7 @@ needle,replacement={
     "approval-caption": ('|| root.hold !== null || phase === "armed" ? ""', '|| phase === "armed" ? ""'),
     "approval-kind": ('id: "files.delete", args:', 'id: "files.read", args:'),
     "approval-path": ('path: "/home/fixture/draft.txt"', 'path: "/home/fixture/other.txt"'),
-    "approval-role": ('variant: "secondary"', 'variant: "primary"'),
+    "approval-role": ('variant: bare ? "ghost" : "secondary"', 'variant: bare ? "secondary" : "ghost"'),
     "approval-order": ('id: answerButtons', 'id: answerButtons\n                    layoutDirection: Qt.RightToLeft')
 }[sys.argv[2]]
 s=p.read_text(); assert s.count(needle)==1

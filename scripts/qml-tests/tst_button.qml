@@ -32,6 +32,29 @@ Item {
     IconButton { id: dangerIcon; iconName: "x"; label: "Close"; variant: "danger"; x: 200; y: 400 }
     IconButton { id: besideIcon; iconName: "settings"; label: "Settings"; tooltipSide: "right"; x: 200; y: 160 }
     IconButton { id: lookIcon; iconName: "mic"; label: "Look"; x: 200; y: 230; restColor: "#a3a7b3"; activeColor: "#f4f5f8"; onColor: "#33cc66"; ringColor: "#4fd1c5" }
+    Button {
+        id: lookButton
+        text: "Look"
+        x: 100; y: 440
+        variant: "secondary"
+        controlHeight: 26
+        paddingX: 13
+        radius: 13
+        restFill: "#1a2b3c"
+        hoverFill: "#2b3c4d"
+        pressedFill: "#3c4d5e"
+        borderColor: "#4d5e6f"
+        textColor: "#e6e8ee"
+        hoverTextColor: "#9ea3af"
+        ringColor: "#4fd1c5"
+    }
+    Button {
+        id: shimmerButton
+        text: "Shimmer"
+        x: 100; y: 480
+        variant: "secondary"
+        shimmer: ({ sweep: Theme.motion.duration.slow, pause: Theme.motion.duration.fast, passes: 2, band: 0.16, easing: Easing.InOutCubic })
+    }
     SignalSpy { id: clicks; target: primary; signalName: "clicked" }
 
     TestCase {
@@ -274,6 +297,76 @@ Item {
             glyph(Theme.color.warning, "warning tone");
             bare("warning tone");
             checkedIcon.tone = "";
+        }
+
+        // A surface that owns its look hands the button its height, side
+        // padding, corner, fills, border, label inks and ring colour; the
+        // variant's and size's tokens draw none of them.
+        function test_button_takes_a_looks_form() {
+            const label = lookButton.contentItem.children.find(child => child.role === "button");
+            const ring = lookButton.background.children.find(child => child.ringColor !== undefined);
+            const same = (actual, want, what) => compare(String(actual), String(Qt.color(want)), what);
+            for (const [want, token] of [["#1a2b3c", lookButton.tokens.background], ["#2b3c4d", lookButton.tokens.hover],
+                                         ["#3c4d5e", lookButton.tokens.pressed], ["#4d5e6f", lookButton.tokens.border],
+                                         ["#e6e8ee", lookButton.tokens.foreground], ["#9ea3af", lookButton.tokens.foreground],
+                                         ["#4fd1c5", Theme.focusRing.color]])
+                verify(String(Qt.color(want)) !== String(Qt.color(token)), "the look colour " + want + " differs from the token it replaces");
+            for (const [want, token] of [[26, Theme.size.control.sm], [26, Theme.size.control.md], [13, Theme.button.radius], [13, lookButton.sizeTokens.paddingX]])
+                verify(want !== token, "the look metric " + want + " differs from the token it replaces");
+            mouseMove(root, root.width - 1, root.height - 1);
+            tryCompare(lookButton, "hovered", false);
+            compare(lookButton.height, 26);
+            compare(lookButton.background.radius, 13);
+            compare(lookButton.leftPadding, 13);
+            compare(lookButton.rightPadding, 13);
+            tryVerify(() => String(lookButton.background.color) === String(Qt.color("#1a2b3c")), 1000, "rest fill " + lookButton.background.color);
+            same(lookButton.background.border.color, "#4d5e6f", "border");
+            same(label.color, "#e6e8ee", "rest ink");
+            mouseMove(lookButton, lookButton.width / 2, lookButton.height / 2);
+            tryCompare(lookButton, "hovered", true);
+            tryVerify(() => String(lookButton.background.color) === String(Qt.color("#2b3c4d")), 1000, "hover fill " + lookButton.background.color);
+            same(label.color, "#9ea3af", "hover ink");
+            mousePress(lookButton, lookButton.width / 2, lookButton.height / 2);
+            tryVerify(() => String(lookButton.background.color) === String(Qt.color("#3c4d5e")), 1000, "pressed fill " + lookButton.background.color);
+            mouseRelease(lookButton, lookButton.width / 2, lookButton.height / 2);
+            mouseMove(root, root.width - 1, root.height - 1);
+            lookButton.focus = false;
+            lookButton.forceActiveFocus(Qt.TabFocusReason);
+            tryCompare(lookButton, "visualFocus", true);
+            verify(ring.visible, "keyboard focus draws the ring");
+            compare(String(ring.drawnColor), String(Qt.color("#4fd1c5")));
+            same(label.color, "#e6e8ee", "keyboard focus keeps the rest ink");
+            lookButton.focus = false;
+        }
+
+        // The shimmer's band crosses the label only while the pointer is on
+        // the button, for the look's passes, and draws through the label
+        // again in the rest ink while it runs.
+        function test_shimmer_sweeps_only_under_the_pointer() {
+            mouseMove(root, root.width - 1, root.height - 1);
+            tryCompare(shimmerButton, "hovered", false);
+            const label = shimmerButton.contentItem.children.find(child => child.role === "button");
+            const shine = label.children.find(child => child.role === "button");
+            const band = label.children.find(child => child.role === undefined).children[0];
+            compare(shimmerButton.shimmering, false);
+            compare(shine.visible, false);
+            mouseMove(shimmerButton, shimmerButton.width / 2, shimmerButton.height / 2);
+            tryCompare(shimmerButton, "shimmering", true);
+            verify(shine.visible, "the band draws while the sweep runs");
+            compare(String(shine.color), String(Qt.color(shimmerButton.textColor)));
+            const start = band.x;
+            tryVerify(() => band.x !== start, 1000, "the band moves across the label");
+            // Two passes of a sweep and a pause, then the label stands still
+            // though the pointer stays.
+            tryCompare(shimmerButton, "shimmering", false, 4 * (Theme.motion.duration.slow + Theme.motion.duration.fast) + 1000);
+            verify(shimmerButton.hovered, "the pointer still rests on the button");
+            compare(shine.visible, false);
+            mouseMove(root, root.width - 1, root.height - 1);
+            tryCompare(shimmerButton, "hovered", false);
+            mouseMove(shimmerButton, shimmerButton.width / 2, shimmerButton.height / 2);
+            tryCompare(shimmerButton, "shimmering", true);
+            mouseMove(root, root.width - 1, root.height - 1);
+            tryCompare(shimmerButton, "shimmering", false);
         }
 
         // A surface that owns its look hands the glyph its rest, active and

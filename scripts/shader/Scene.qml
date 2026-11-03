@@ -13,9 +13,11 @@ import "plugins/vgs.jarvis/Appearance.js" as JarvisLook
 // One layer, no shell or plugin services, drawing the shader
 // VGS_SHADER_NAME names: VoiceOrb, Voice's plasma orb fed a steady level
 // as the bridge's frames would feed it, or Jarvis's particle orb speaking
-// at playback level 1: speaking is the one look whose level widens the
-// orb's radius (Appearance.js `driveRadius`), and the shader returns at
-// once past 1.3 radii, so it gives the most pixels the shader's full work.
+// at playback level 1, in its full look (jarvis-orb) or its reduced look
+// for an integrated GPU (jarvis-orb-reduced): speaking is the one look
+// whose level widens the orb's radius (Appearance.js `driveRadius`), and
+// the shader returns at once past 1.3 radii, so it gives the most pixels
+// the shader's full work.
 // The off scene keeps the same
 // animation and background; only the shader stops drawing. The scene
 // selects the shader's own effect by its pack, so a visual that holds a
@@ -29,7 +31,8 @@ ShellRoot {
     readonly property string shader: Quickshell.env("VGS_SHADER_NAME")
     readonly property bool complete: frames >= 730
 
-    readonly property var packs: ({ voiceorb: "voiceorb.frag.qsb", plasma: "plasma.frag.qsb", "jarvis-orb": "particleorb.frag.qsb" })
+    readonly property var packs: ({ voiceorb: "voiceorb.frag.qsb", plasma: "plasma.frag.qsb", "jarvis-orb": "particleorb.frag.qsb",
+                                    "jarvis-orb-reduced": "particleorb.frag.qsb" })
 
     function plant(item) {
         const effect = item.children.find(child => child instanceof ShaderEffect && String(child.fragmentShader).endsWith("/" + root.packs[root.shader]));
@@ -50,7 +53,8 @@ ShellRoot {
         Loader {
             id: visual
             anchors.fill: parent
-            sourceComponent: root.shader === "plasma" ? plasma : root.shader === "jarvis-orb" ? particle : orb
+            sourceComponent: root.shader === "plasma" ? plasma
+                : root.shader === "jarvis-orb" || root.shader === "jarvis-orb-reduced" ? particle : orb
             onLoaded: root.plant(item)
         }
         // QQuickWindow.update requests rendering even without scene changes:
@@ -99,6 +103,7 @@ ShellRoot {
             look: Theme.appearance(JarvisLook.TOKENS, JarvisLook.LIGHT)
             phase: "speaking"
             playback: 1
+            reduced: root.shader === "jarvis-orb-reduced"
         }
     }
     IpcHandler {

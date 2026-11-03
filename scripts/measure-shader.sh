@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Measure each passive shader layer on a real GPU in the nested sandbox:
-# VoiceOrb, Voice's plasma orb and Jarvis's particle orb.
+# VoiceOrb, Voice's plasma orb and Jarvis's particle orb in its full and
+# reduced looks.
 # Usage: scripts/measure-shader.sh [--shader NAME] [--calibrate FILE [--runs N]] [--keep]
 # Default: check every shader against its record in
 # scripts/shader/ceilings.json and prove its 256-step control. --shader
-# measures one, voiceorb, plasma or jarvis-orb.
+# measures one, voiceorb, plasma, jarvis-orb or jarvis-orb-reduced.
 # Calibration measures N passes, 1 by default, in one sandbox and derives
 # each shader's ceilings as twice its highest reading over every pass and
 # scale, floored at each stream's instrument resolution, written in FILE with
@@ -28,7 +29,7 @@ repo="$(cd -- "$(dirname -- "$self")/.." && pwd -P)" || exit 1
 choice=(--check "$repo/scripts/shader/ceilings.json")
 keep=false
 runs=""
-shaders=(voiceorb plasma jarvis-orb)
+shaders=(voiceorb plasma jarvis-orb jarvis-orb-reduced)
 argv=("$@")
 while (($#)); do
   case "$1" in
@@ -39,7 +40,7 @@ while (($#)); do
       [[ $# -ge 2 && $2 =~ ^[1-9][0-9]*$ ]] || { printf 'shader-cost: refused argument=--runs value=%s\n' "${2:-}"; exit 2; }
       runs="$2"; shift 2 ;;
     --shader)
-      [[ $# -ge 2 && ( $2 == voiceorb || $2 == plasma || $2 == jarvis-orb ) ]] || { printf 'shader-cost: refused argument=--shader value=%s\n' "${2:-}"; exit 2; }
+      [[ $# -ge 2 && ( $2 == voiceorb || $2 == plasma || $2 == jarvis-orb || $2 == jarvis-orb-reduced ) ]] || { printf 'shader-cost: refused argument=--shader value=%s\n' "${2:-}"; exit 2; }
       shaders=("$2"); shift 2 ;;
     --keep) keep=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$self"; exit 0 ;;
@@ -91,7 +92,7 @@ for shader in "${shaders[@]}"; do
 from pathlib import Path
 import sys
 shader, repo, output = sys.argv[1], Path(sys.argv[2]), Path(sys.argv[3])
-source, needle, seed, step, scaled = {
+costly = {
     "voiceorb": ("shell/Ui/feedback/shaders/voiceorb.frag",
                  "fragColor = ink * max(ring, arcs) * qt_Opacity;", "angle + phase",
                  "sin(cost * 1.31 + float(i)) + cos(cost * 0.73 + radius) + atan(cost, 0.71)",
@@ -104,7 +105,11 @@ source, needle, seed, step, scaled = {
                    "fragColor = vec4(min(col, vec3(a)), a) * qt_Opacity;", "r + uFlow",
                    "vnoise(vec3(uv * 3.0, cost + float(i) * 0.37)) + vnoise(vec3(uv.yx * 2.0, cost - float(i) * 0.21))",
                    "fragColor = vec4(min(col, vec3(a)), a) * qt_Opacity * (0.99 + 0.01 * sin(cost));"),
-}[shader]
+}
+# The reduced look is the same pass with its uReduce switch on, which the
+# scene sets; its costly copy is the full look's.
+costly["jarvis-orb-reduced"] = costly["jarvis-orb"]
+source, needle, seed, step, scaled = costly[shader]
 text = (repo / source).read_text()
 assert text.count(needle) == 1, "costly shader: output must match once"
 changed = text.replace(needle, f"""
