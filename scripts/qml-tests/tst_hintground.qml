@@ -4,22 +4,25 @@ import qs.Commons
 import qs.Ui
 import qs.Unit
 
-// A shared key hint reads its ground from the surface it draws on: a
-// Surface that holds it or lies under it publishes its fill, glass made
-// opaque, and a hint with no surface under it takes its window's colour.
-// The caller hands only what that surface does not draw.
+// A shared key hint reads its ground from the surface that holds it: a
+// Surface, a GlassSurface or a Dialog publishes its fill, glass made
+// opaque, to its descendants, and a hint inside none takes its window's
+// colour. A hint over a surface it is not inside takes its ground from its
+// caller. The read follows only the hint's ancestors, so moving or adding
+// a sibling row re-evaluates no row's ground.
 Item {
     id: root
     width: 640
-    height: 400
+    height: 560
 
     Surface {
+        id: holder
         width: 300
         height: 60
         KeyHints { id: inside; y: 10; hints: [{ key: "Ctrl+K", text: "Open" }] }
     }
 
-    Surface { y: 80; width: 300; height: 60 }
+    Surface { id: beneath; y: 80; width: 300; height: 60 }
     KeyHints { id: over; y: 90; hints: [{ key: "Ctrl+K", text: "Open" }] }
 
     Surface {
@@ -30,8 +33,34 @@ Item {
         KeyCaps { id: chord; shortcut: "CTRL+S"; x: 60; y: 10 }
     }
 
-    Surface { id: hidden; y: 240; width: 300; height: 60; visible: false }
-    KeyHints { id: bare; y: 250; hints: [{ key: "Ctrl+K", text: "Open" }] }
+    Dialog {
+        id: dialog
+        x: 320
+        width: 300
+        title: "Keys"
+        KeyCaps { id: dialogChord; shortcut: "CTRL+S" }
+    }
+
+    // Rows of hints beside an earlier sibling surface, inside a list's
+    // surface: the cost pin moves that sibling and adds a row.
+    Surface {
+        id: list
+        y: 240
+        width: 300
+        height: 300
+        Column {
+            Surface { id: sibling; width: 300; height: 20 }
+            Repeater {
+                id: listRows
+                model: ListModel { id: rowModel; ListElement { n: 0 } ListElement { n: 1 } ListElement { n: 2 } }
+                KeyHints {
+                    property int groundChanges: 0
+                    hints: [{ key: "Ctrl+K", text: "Open" }]
+                    onGroundChanged: groundChanges++
+                }
+            }
+        }
+    }
 
     TestCase {
         name: "hintGround"
@@ -41,7 +70,7 @@ Item {
 
         function initTestCase() { windowColor = root.Window.window.color; }
         function init() { UnitTheme.reset(); Theme.appearanceInput = ""; root.Window.window.color = windowColor; }
-        function cleanup() { Theme.appearanceInput = ""; root.Window.window.color = windowColor; }
+        function cleanup() { Theme.appearanceInput = ""; root.Window.window.color = windowColor; while (rowModel.count > 3) rowModel.remove(3); sibling.height = 20; }
         function opaqueGlass() { return Qt.color(Theme.glassSolid(Qt.color(Theme.glass.glass.fill))); }
 
         function composed(fill, base) {
@@ -50,45 +79,66 @@ Item {
         }
         function word(hints) { return hints.children[0].children[1]; }
         function capsOf(hints) { return hints.children[0].children[0].children.find(item => item.shortcut !== undefined); }
+        function keys(chord) { return chord.children.filter(item => item.ink !== undefined); }
         function keyName(cap) { return cap.children[0]; }
 
-        // With glass on, every hint reads on the glass made opaque, where
-        // the default inks fall short, whether the surface holds the hint
-        // or lies under it, and a lone cap or chord does too.
+        // With glass on, a hint inside a surface, a lone cap, a chord and a
+        // dialog's content read on the glass made opaque, where the default
+        // inks fall short.
         function test_hints_read_on_their_surfaces_glass() {
             Theme.appearanceInput = JSON.stringify({ glass: "on" });
             const glass = opaqueGlass();
             const capGround = composed(Theme.kbd.background, glass);
             verify(Theme.contrastRatio(Qt.color(Theme.kbd.foreground), capGround) < 4.5, "the default key ink fails opaque glass");
-            for (const hints of [inside, over]) {
-                verify(Qt.colorEqual(hints.ground.fill, glass), "the row takes its surface's opaque glass");
-                verify(Theme.contrastRatio(word(hints).color, glass) >= 4.5, "a word reads " + Theme.contrastRatio(word(hints).color, glass));
-                for (const cap of capsOf(hints).children.filter(item => item.ink !== undefined))
-                    verify(Theme.contrastRatio(keyName(cap).color, capGround) >= 4.5, "a key reads " + Theme.contrastRatio(keyName(cap).color, capGround));
-            }
-            verify(Theme.contrastRatio(keyName(lone).color, capGround) >= 4.5, "a lone cap reads " + Theme.contrastRatio(keyName(lone).color, capGround));
-            for (const cap of chord.children.filter(item => item.ink !== undefined))
-                verify(Theme.contrastRatio(keyName(cap).color, capGround) >= 4.5, "a chord's key reads " + Theme.contrastRatio(keyName(cap).color, capGround));
+            verify(Qt.colorEqual(inside.ground.fill, glass), "the row takes its surface's opaque glass");
+            verify(Theme.contrastRatio(word(inside).color, glass) >= 4.5, "a word reads " + Theme.contrastRatio(word(inside).color, glass));
+            for (const cap of keys(capsOf(inside)).concat(keys(chord), [lone], keys(dialogChord)))
+                verify(Theme.contrastRatio(keyName(cap).color, capGround) >= 4.5, "a key reads " + Theme.contrastRatio(keyName(cap).color, capGround));
+            verify(Qt.colorEqual(dialogChord.ground.fill, dialog.hintGround), "a dialog's content takes the dialog card's ground");
         }
 
         // With glass off the surfaces publish resting fills, where the
         // default muted inks already hold, so the look is unchanged.
         function test_resting_surfaces_keep_the_muted_defaults() {
-            for (const hints of [inside, over]) {
-                compare(word(hints).color, Qt.color(Theme.text.keyHint.color));
-                for (const cap of capsOf(hints).children.filter(item => item.ink !== undefined))
-                    compare(keyName(cap).color, Qt.color(Theme.kbd.foreground));
-            }
-            compare(keyName(lone).color, Qt.color(Theme.kbd.foreground));
+            compare(word(inside).color, Qt.color(Theme.text.keyHint.color));
+            for (const cap of keys(capsOf(inside)).concat([lone]))
+                compare(keyName(cap).color, Qt.color(Theme.kbd.foreground));
         }
 
-        // A hint no surface lies under takes its window's colour, never a
-        // hidden surface's, and a window's glass reads made opaque.
-        function test_a_hint_without_a_surface_takes_its_window() {
-            verify(!Qt.colorEqual(hidden.effectiveFill, windowColor), "the hidden fill " + hidden.effectiveFill + " differs from the window colour " + windowColor);
-            verify(bare.ground !== null && Qt.colorEqual(bare.ground.fill, windowColor), "the row takes the window's colour");
+        // Drawn glass, in a window that paints nothing, publishes its fill
+        // made opaque, never the clear fill.
+        function test_drawn_glass_publishes_its_glass_made_opaque() {
+            Theme.appearanceInput = JSON.stringify({ glass: "on" });
+            root.Window.window.color = "transparent";
+            tryVerify(() => holder.drawn, 1000, "the surface draws its glass");
+            verify(Qt.colorEqual(holder.hintGround, Theme.glassSolid(holder.fill)), "the published ground is the glass made opaque");
+        }
+
+        // A hint over a surface it is not inside reads no sibling: it takes
+        // its window's colour unless its caller hands that surface's ground.
+        function test_a_hint_over_a_surface_takes_its_callers_ground() {
+            verify(!Qt.colorEqual(beneath.hintGround, windowColor), "the surface's ground differs from the window's");
+            verify(over.ground !== null && Qt.colorEqual(over.ground.fill, windowColor), "the row takes the window's colour");
+            over.backgroundContext = { fill: beneath.hintGround };
+            verify(Qt.colorEqual(over.ground.fill, beneath.hintGround), "the caller's ground is taken");
+            over.backgroundContext = null;
             root.Window.window.color = Theme.glass.glass.fill;
-            verify(Qt.colorEqual(bare.ground.fill, opaqueGlass()), "a window's glass reads opaque");
+            verify(Qt.colorEqual(over.ground.fill, opaqueGlass()), "a window's glass reads opaque");
+        }
+
+        // The rows' grounds follow their ancestors alone: resizing an
+        // earlier sibling surface, which moves every row, and adding a row
+        // re-evaluate none of them.
+        function test_moving_a_sibling_reevaluates_no_rows_ground() {
+            const rows = [0, 1, 2].map(index => listRows.itemAt(index));
+            for (const row of rows) {
+                verify(row.ground !== null, "each row takes the list's ground");
+                row.groundChanges = 0;
+            }
+            sibling.height = 40;
+            rowModel.append({ n: 3 });
+            tryVerify(() => listRows.count === 4, 1000);
+            compare(rows.map(row => row.groundChanges), [0, 0, 0], "no row's ground re-evaluated");
         }
     }
 }

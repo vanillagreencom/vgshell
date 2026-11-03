@@ -281,6 +281,7 @@ Item {
     implicitHeight: layout.implicitHeight
 
     Surface {
+        id: panelSurface
         anchors.fill: parent
     }
 
@@ -481,6 +482,8 @@ Item {
                     source: modelData.mode + ", " + root.wallpaperText(modelData)
                     packageState: "catalog"
                     swatch: root.catalogSwatch(modelData)
+                    // The rows lie over the panel's surface, not inside it.
+                    hintGround: panelSurface.hintGround
                     installed: modelData.installed
                     displayed: modelData.installed && modelData.name === Theme.name
                     definitionUpdate: modelData.definitionUpdate

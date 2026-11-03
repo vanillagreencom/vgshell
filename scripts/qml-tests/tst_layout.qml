@@ -21,9 +21,13 @@ Item {
     Tabs { id: tabs; model: ["Installed", "Available"]; y: 60 }
     Tabs { id: markedTabs; model: ["Themes", "Wallpapers"]; y: 624; hoverMark: true }
     Tabs { id: handedTabs; model: ["Themes", "Wallpapers"]; y: 580; foreground: "#204060"; hover: "#406080"; active: "#6080a0"; indicatorColor: "#a0c0e0" }
-    // The surface the hint row stands on, whose ground its ink is solved on.
-    Surface { y: 86; width: 300; height: 28 }
-    KeyHints { id: hints; y: 90; hints: [{ key: "Left/Right", text: "Move" }, { key: "Ctrl+Tab", text: "Tabs" }] }
+    // The surface that holds the hint row, whose ground its ink is solved on.
+    Surface {
+        y: 86
+        width: 300
+        height: 28
+        KeyHints { id: hints; y: 4; hints: [{ key: "Left/Right", text: "Move" }, { key: "Ctrl+Tab", text: "Tabs" }] }
+    }
     ListItem { id: row; text: "Plugin updates"; secondary: "1 update available"; iconName: "package"; width: 300; y: 100 }
     ListItem { id: bare; text: "Plugin updates"; secondary: "1 update available"; iconName: "package"; y: 300 }
     ListItem { id: still; text: "Started"; clickable: false; width: 300; y: 668; trailing: [ RowAction { id: stillAction; text: "Remove" } ] }

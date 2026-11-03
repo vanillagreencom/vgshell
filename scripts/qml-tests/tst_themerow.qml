@@ -13,7 +13,7 @@ Item {
     height: 600
 
     // The panel's surface under the rows, as ThemesPanel draws it.
-    Surface { width: Theme.size.panel.lg; height: 400 }
+    Surface { id: panel; width: Theme.size.panel.lg; height: 400 }
     Column {
         id: rows
         width: Theme.size.panel.lg
@@ -28,6 +28,7 @@ Item {
             rowKey: "own"
             currentKey: "own"
             listActiveFocus: true
+            hintGround: panel.hintGround
             swatch: ({background: Theme.color.background, foreground: Theme.color.text,
                       accent: Theme.color.accent, success: Theme.color.success,
                       warning: Theme.color.warning, danger: Theme.color.danger, info: Theme.color.info})

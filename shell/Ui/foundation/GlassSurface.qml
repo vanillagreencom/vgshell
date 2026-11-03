@@ -52,6 +52,11 @@ Item {
     property color fill: Theme.glass.glass.fill
     // The body fill before a translucent window meets its backdrop.
     readonly property color effectiveFill: drawn ? fill : solid ? Theme.glassSolid(fill) : standard.background
+    // The ground a shared key hint inside this surface reads on, published
+    // to its descendants (HintGround.js): drawn glass made opaque, as the
+    // theme judge reads list text on glass (Theme.hintContext), else the
+    // body fill.
+    readonly property color hintGround: drawn ? Theme.glassSolid(fill) : effectiveFill
     // The look without glass of a surface that hands none.
     readonly property var raised: ({ background: Theme.surface.level.raised.background, border: Theme.surface.level.raised.border, radius: Theme.surface.radius })
     property var standard: raised

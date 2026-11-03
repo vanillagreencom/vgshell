@@ -182,23 +182,27 @@ Singleton {
     }
     // The ground a shared hint's ink is solved on: GIVEN when it names its
     // fill, else GIVEN's plate and sheen, or none, over the fill GROUND
-    // answers, the one the surface under the hint publishes (qs.Ui
+    // answers, the one the surface holding the hint publishes (qs.Ui
     // HintGround.js); null with neither. GROUND is called only then, so a
-    // caller that names its fill walks no item tree. Glass, a drawn
-    // surface's or an application window's, reads as the theme judge reads
-    // list text on glass (ThemeLogic GLASS_PLATE_PAIRS): made opaque. Over
+    // caller that names its fill reads no ancestor. Glass, a drawn
+    // surface's (GlassSurface.hintGround) or an application window's, reads
+    // as the theme judge reads list text on glass (ThemeLogic
+    // GLASS_PLATE_PAIRS): made opaque. Over
     // clear glass on a white wallpaper no key ink meets every theme: a
     // selected row's own title reads about 3.2:1 there in dracula,
     // everforest and catppuccin-frappe (ThemeLogic.contrastRatio, VGS-2180,
     // 2026-11-02), so a hint judged harder than the text beside it would be
     // inconsistent.
     function hintContext(given, ground) {
-        if (given !== null && given.fill !== undefined) return given;
-        const found = ground();
-        if (found === null) return null;
-        const fill = Qt.color(found);
+        let fill = given === null ? undefined : given.fill;
+        if (fill === undefined) {
+            const found = ground();
+            if (found === null) return null;
+            const color = Qt.color(found);
+            fill = color.a < 1 ? glassSolid(color) : color;
+        }
         return {
-            fill: fill.a < 1 ? glassSolid(fill) : fill,
+            fill: fill,
             plate: given === null || given.plate === undefined ? "transparent" : given.plate,
             sheen: given === null || given.sheen === undefined ? "transparent" : given.sheen
         };
