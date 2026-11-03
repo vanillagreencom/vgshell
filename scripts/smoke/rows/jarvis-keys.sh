@@ -453,7 +453,7 @@ for planted in '{"kind":"retry","pendingMute":["waiting","waiting"]}' '{"kind":"
 done
 jarvis_shortcut_assertion
 expect_poll "the service reads the effective default key map" \
-  '{"talk":"SUPER+code:44","mute":"SUPER+SHIFT+code:44","stop":"SUPER+ALT+PERIOD","confirm":"SUPER+ALT+Y","console":"SUPER+ALT+C"}' \
+  '{"talk":"SUPER+code:44","mute":"SUPER+SHIFT+code:44","voice-mute":"SUPER+ALT+code:44","stop":"SUPER+ALT+PERIOD","confirm":"SUPER+ALT+Y","console":"SUPER+ALT+C"}' \
   ipc smoke readInstance service vgs.jarvis effectiveKeys
 : >"$jarvis_gate"
 jarvis_key_muted

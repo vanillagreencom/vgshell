@@ -256,6 +256,29 @@ Item {
             service.bubbleWanted = true;
         }
 
+        // A fault's action draws its page reference as its words, with no
+        // Markdown left in the drawn text, and a click on those words opens
+        // the page it names (VGS-2258: main drew the raw reference).
+        function test_a_faults_page_reference_draws_as_a_link() {
+            put(root.session({ fault: { kind: "error", reason: "brain=exit" } }));
+            const lines = all(bubble, []).filter(item => item.visible && item.text !== undefined
+                && String(item.text).indexOf("Turn Jarvis off and on again") === 0);
+            const within = (item, outer) => { for (let at = item.parent; at !== null; at = at.parent) if (at === outer) return true; return false; };
+            // The item that draws the line, not the text a link draws inside it.
+            const action = lines.filter(item => !lines.some(outer => within(item, outer)));
+            verify(action.length === 1, "one line draws the fault's action");
+            const drawn = action[0].drawn !== undefined ? action[0].drawn : String(action[0].text);
+            verify(drawn.indexOf("Settings > Jarvis") !== -1, "the reference draws its words: " + drawn);
+            for (const mark of ["[", "](", "page:"])
+                verify(drawn.indexOf(mark) === -1, "no Markdown " + mark + " in the drawn text: " + drawn);
+            verify(action[0].linkBox !== undefined, "the action draws through a link");
+            const box = action[0].linkBox;
+            mouseClick(action[0], box.x + box.width / 2, box.y + box.height / 2);
+            compare(JSON.stringify(root.pages), '["vgs.jarvis/Settings"]');
+            // The click focused the link; the next state takes the link away.
+            root.forceActiveFocus();
+        }
+
         // Waiting for the word, a right click on the orb opens nothing: the
         // bar widget's menu holds the entries then.
         function test_a_still_overlay_opens_no_menu() {

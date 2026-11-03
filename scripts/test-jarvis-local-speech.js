@@ -419,7 +419,7 @@ async function longReply(folder) {
     try {
         let bytes = 0, descriptions = 0;
         for await (const packet of speech.speak((async function* () { yield { content: "Fixture sentence.", labels: [] }; })(), "ljspeech")) {
-            bytes += audio.playbackPacket(playback, packet).length;
+            bytes += audio.playbackPacket(playback, packet).pcm.length;
             if (packet.sentence) descriptions++;
         }
         assert.equal(bytes, 24000 * 31 * 2);
