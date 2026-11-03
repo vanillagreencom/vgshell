@@ -37,10 +37,12 @@ import shlex
 import shutil
 import signal
 import stat
+import struct
 import subprocess
 import sys
 import tempfile
 import time
+import zlib
 from datetime import datetime
 
 
@@ -80,9 +82,11 @@ SELECTION_MODES = {
 }
 # slurp's own Escape answer, which is a cancel and not a failure.
 SELECTION_CANCELLED = b"selection cancelled"
-# Captures of the selection, scaled down, compared until two agree.
-SETTLE_SCALE = "0.125"
-SETTLE_TRIES = 40
+# zlib's level for a cropped selection's PNG. grim writes level 6 with
+# libpng's row filters; this writes no filter, so level 6 here takes 39 ms
+# for a 2000x1200 crop of a photo and 216 ms for a whole 5120x2880 one
+# (python3 zlib on host cachy, 2026-11-02, the VGS-2232 round notes).
+PNG_LEVEL = 6
 
 # Nix substitutes these constants in its existing install phase.
 NOTICE_GIO_LIBRARY = "libgio-2.0.so.0"
@@ -242,21 +246,26 @@ class Capture:
         return self.read_control(timeout) in ("", "cancel")
 
     @contextmanager
-    def selection(self, request=None):
-        """Yield the selected (geometry, groups) over a frozen screen, or None.
+    def selection(self, request=None, still=None):
+        """Yield (picked, frame): the selected (geometry, groups) over a
+        frozen screen, or None, and STILL's answer, or None without it.
 
-        The freeze lasts until the block ends, so a capture inside it reads
-        the frame the user selected on. The request's action names the mode
-        of SELECTION_MODES; without a request slurp offers no boxes. A
-        cancel while the freeze is awaited yields None.
+        The request's action names the mode of SELECTION_MODES; without a
+        request slurp offers no boxes. STILL, a function that takes the
+        frame the selection is cropped from, runs once the selector's
+        targets are known and before the freeze is asked, while the
+        freeze's own frame is about to be taken. The freeze lasts until the
+        block ends. A cancel while the freeze is awaited yields None.
         """
+        args, boxes, mode = self.targets(request)
+        frame = still() if still is not None else None
         ended = False
         try:
-            picked = self.choose(request) if self.frozen() else None
+            picked = self.choose(request, args, boxes, mode) if self.frozen() else None
             if request is not None:
                 emit("selection-ended")
                 ended = True
-            yield picked
+            yield picked, frame
         finally:
             # The service also ends the hold at this worker's terminal event
             # and exit, so a crash here leaves no freeze.
@@ -264,8 +273,8 @@ class Capture:
             if request is not None and not ended:
                 emit("selection-ended")
 
-    def choose(self, request):
-        """The selected (geometry, groups) over the frozen screen, or None."""
+    def targets(self, request):
+        """slurp's arguments, the boxes it offers and the selection mode."""
         boxes = None
         args = list(SELECT)
         mode = None
@@ -286,6 +295,10 @@ class Capture:
                 args += ["-o"]
             if mode in ("window", "display") and not boxes:
                 raise CaptureFailure("no-targets", "No capture targets are available")
+        return args, boxes, mode
+
+    def choose(self, request, args, boxes, mode):
+        """The selected (geometry, groups) over the frozen screen, or None."""
         picked = self.pick(args, boxes)
         if picked is not None and request is not None:
             x, y, width, height = map(int, picked[1])
@@ -295,8 +308,6 @@ class Capture:
                 if target is None:
                     raise RuntimeError("No capture target contains the selected point")
                 picked = rectangle_geometry(target), tuple(str(target[k]) for k in ("x", "y", "width", "height"))
-        if picked is not None:
-            self.settle(picked[0], CAPTURE_TIMEOUT if request is not None else None)
         return picked
 
     def frozen(self):
@@ -365,19 +376,22 @@ class Capture:
             raise RuntimeError("slurp returned invalid geometry")
         return geometry, match.groups()
 
-    def settle(self, geometry, timeout=None):
-        # The compositor fades slurp's layer out after it exits. Over the
-        # still freeze that fade is the only change, so two equal captures
-        # mean it ended. A layer drawn above the freeze can keep changing;
-        # the capture then proceeds after the last try.
-        previous = None
-        for _ in range(SETTLE_TRIES):
-            if self.cancelled():
-                raise CaptureCancelled()
-            frame = self.run(["grim", "-s", SETTLE_SCALE, "-t", "ppm", "-g", geometry, "-"], timeout=timeout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            if frame == previous:
-                return
-            previous = frame
+    def still(self, outputs, cursor=False):
+        """The whole layout as it stands before the freeze is asked: one grim
+        run per output scale, so the freeze's own frame, taken while its
+        surface draws nothing, and this one show the same screen. A
+        selection is cropped from it, so nothing mapped or changed after
+        the press reaches the image, and no capture runs once the selector
+        exits. OUTPUTS are output_rectangles; CURSOR draws the pointer where
+        it stood at the press."""
+        if not outputs:
+            raise CaptureFailure("no-targets", "No enabled displays are available")
+        greatest = max(o["scale"] for o in outputs)
+        frames = {}
+        for scale in sorted({o["scale"] for o in outputs}):
+            args = ["grim"] + (["-c"] if cursor else []) + ([] if scale == greatest else ["-s", repr(scale)]) + ["-t", "ppm", "-"]
+            frames[scale] = read_ppm(self.run(args, timeout=CAPTURE_TIMEOUT, stdout=subprocess.PIPE, stderr=subprocess.PIPE))
+        return Still(outputs, frames)
 
     def screenshot(self, request):
         request = {**request, "outputs": output_rectangles(request["outputs"])}
@@ -388,11 +402,13 @@ class Capture:
         if processing not in ("save-copy", "copy", "save"):
             raise CaptureFailure("invalid-processing", "Invalid screenshot processing choice")
         if request["action"] in ("screenshot-area", "screenshot-window", "screenshot-display"):
-            with self.selection(request=request) as picked:
+            # A delayed capture reads the screen as the countdown leaves it.
+            still = None if delay else lambda: self.still(request["outputs"], cursor=request.get("cursor", False))
+            with self.selection(request=request, still=still) as (picked, frame):
                 if picked is not None:
                     args = ["grim", "-g", picked[0]]
                     if not delay:
-                        path, child = self.deliver(request, args)
+                        path, child = self.deliver(request, image=png(*frame.crop(picked[0])))
             if picked is None:
                 emit("cancelled")
                 return
@@ -441,16 +457,18 @@ class Capture:
                     return True
         raise CaptureFailure("timeout", "The screenshot countdown did not close")
 
-    def deliver(self, request, args):
-        args = args + (["-c"] if request.get("cursor", False) else [])
+    def deliver(self, request, args=None, image=None):
+        """Save, copy or both one PNG: grim's run of ARGS, or IMAGE's bytes."""
+        if args is not None:
+            args = args + (["-c"] if request.get("cursor", False) else [])
         processing = request.get("processing", "save-copy")
         if processing == "copy":
             with tempfile.TemporaryDirectory(prefix="vgs-screenshot-") as scratch:
-                path = self.grab(request, args, Path(scratch))
+                path = self.grab(request, args, image, Path(scratch))
                 with path.open("rb") as image:
                     child = self.copy(image, "image/png")
             return None, child
-        path = self.grab(request, args)
+        path = self.grab(request, args, image)
         child = None
         if processing != "save":
             try:
@@ -460,12 +478,15 @@ class Capture:
                 raise RuntimeError(f"Screenshot saved to {path}; clipboard failed: {error}") from error
         return path, child
 
-    def grab(self, request, args, folder=None):
+    def grab(self, request, args, image, folder=None):
         if folder is None:
             folder = capture_folder(request["folder"], "PICTURES", "Screenshots")
         path = new_file(folder, "screenshot", ".png")
         try:
-            self.run(args + [str(path)], timeout=CAPTURE_TIMEOUT, stderr=subprocess.PIPE)
+            if image is None:
+                self.run(args + [str(path)], timeout=CAPTURE_TIMEOUT, stderr=subprocess.PIPE)
+            else:
+                path.write_bytes(image)
             if path.stat().st_size == 0:
                 raise RuntimeError("grim wrote no image")
             if self.cancelled():
@@ -479,9 +500,9 @@ class Capture:
         languages = request.get("ocrLanguages", "eng")
         if not isinstance(languages, str) or not LANGUAGES.fullmatch(languages):
             raise CaptureFailure("invalid-languages", "Invalid text recognition languages")
-        with self.selection() as picked:
+        with self.selection(still=lambda: self.still(output_rectangles(request.get("outputs", [])))) as (picked, frame):
             if picked is not None:
-                image = self.run(["grim", "-g", picked[0], "-"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                image = png(*frame.crop(picked[0]))
         if picked is None:
             emit("cancelled")
             return
@@ -555,7 +576,7 @@ class Capture:
         elif request["action"] == "record-output":
             target = request["output"]
         else:
-            with self.selection(request=request) as picked:
+            with self.selection(request=request) as (picked, _):
                 pass
             if picked is None:
                 emit("cancelled")
@@ -846,14 +867,119 @@ def remove_stale_processing(folder):
 
 
 def output_rectangles(outputs):
+    """Each output's logical rectangle, and `scale`, the one grim gives it:
+    its turned mode width over its logical width (grim 1.5.0 main.c
+    xdg_output_handle_done). The logical size rounds: Hyprland 0.57.0
+    prints a snapped scale as a float a hair off its ratio, such as
+    1.3333334 for 2560/1920 (src/ipc/s1/Commands.cpp), which truncation
+    would take to 1919."""
     rectangles = []
     for output in outputs:
-        width = int(output["width"] / output["scale"])
-        height = int(output["height"] / output["scale"])
+        width = round(output["width"] / output["scale"])
+        height = round(output["height"] / output["scale"])
+        mode = output["width"]
         if output["transform"] in (1, 3, 5, 7):
             width, height = height, width
-        rectangles.append({"name": output["name"], "x": output["x"], "y": output["y"], "width": width, "height": height})
+            mode = output["height"]
+        rectangles.append({"name": output["name"], "x": output["x"], "y": output["y"], "width": width, "height": height, "scale": mode / width})
     return rectangles
+
+
+def read_ppm(data):
+    """grim's `-t ppm` image as (width, height, RGB bytes)."""
+    match = re.match(rb"P6\s+(\d+)\s+(\d+)\s+255\s", data)
+    if match is None:
+        raise RuntimeError("grim wrote no PPM image")
+    width, height = int(match.group(1)), int(match.group(2))
+    pixels = data[match.end():]
+    if len(pixels) != width * height * 3:
+        raise RuntimeError("grim wrote a short PPM image")
+    return width, height, pixels
+
+
+class Still:
+    """The layout's frames by scale, from Capture.still, and their crops."""
+
+    def __init__(self, outputs, frames):
+        self.outputs = outputs
+        self.frames = frames
+        self.left = min(o["x"] for o in outputs)
+        self.top = min(o["y"] for o in outputs)
+        self.right = max(o["x"] + o["width"] for o in outputs)
+        self.bottom = max(o["y"] + o["height"] for o in outputs)
+
+    def crop(self, geometry):
+        """GEOMETRY's box as (width, height, RGB rows, alpha rows or None),
+        the image `grim -g GEOMETRY` writes. grim 1.5.0 renders a box that
+        meets an output at the greatest scale of the outputs it meets
+        (main.c), sized (int)(width * scale) by (int)(height * scale), each
+        output placed at its offset from the box times the scale (render.c
+        render); its whole-layout frame at that scale holds the same pixels
+        at the box's offset from the layout, rounded half up, as a nested
+        run matched a box at scale 1.5 (the VGS-2232 round notes). Where no
+        output lies, inside the layout or past its edge, the image is
+        transparent, so grim writes RGBA (write_png.c)."""
+        match = re.fullmatch(r"(-?\d+),(-?\d+) (\d+)x(\d+)", geometry)
+        if match is None:
+            raise RuntimeError("Invalid selection geometry")
+        x, y, w, h = map(int, match.groups())
+        met = [o for o in self.outputs if o["x"] < x + w and x < o["x"] + o["width"] and o["y"] < y + h and y < o["y"] + o["height"]]
+        if not met:
+            raise RuntimeError("The selection lies on no display")
+        scale = max(o["scale"] for o in met)
+        width, height, pixels = self.frames[scale]
+        edge = lambda value: math.floor(value * scale + 0.5)
+        ox, oy = edge(x - self.left), edge(y - self.top)
+        cw, ch = int(w * scale), int(h * scale)
+        # The frame's size truncates and the offset rounds, so at a
+        # fractional scale a box that ends at the layout's edge can round a
+        # pixel past it: such a box keeps to the frame.
+        if self.left <= x and x + w <= self.right:
+            ox = min(ox, width - cw)
+        if self.top <= y and y + h <= self.bottom:
+            oy = min(oy, height - ch)
+        # The part of the box inside the frame, the rest transparent.
+        x0, x1 = max(0, ox), min(width, ox + cw)
+        stride, blank = width * 3, bytes(cw * 3)
+        rows = []
+        for r in range(ch):
+            fy = oy + r
+            if 0 <= fy < height and x0 < x1:
+                rows.append(bytes((x0 - ox) * 3) + pixels[fy * stride + x0 * 3:fy * stride + x1 * 3] + bytes((ox + cw - x1) * 3))
+            else:
+                rows.append(blank)
+        # Each output's pixel rectangle in the crop, then each row's covered
+        # spans: a row no output fully covers holds transparent pixels.
+        boxes = [(edge(o["x"] - x), edge(o["y"] - y), edge(o["x"] + o["width"] - x), edge(o["y"] + o["height"] - y)) for o in met]
+        alphas, opaque, cache = [], True, {}
+        for r in range(ch):
+            spans = tuple(sorted((max(0, x0), min(cw, x1)) for x0, y0, x1, y1 in boxes if y0 <= r < y1 and x0 < cw and x1 > 0))
+            if spans not in cache:
+                row = bytearray(cw)
+                for x0, x1 in spans:
+                    row[x0:x1] = b"\xff" * (x1 - x0)
+                cache[spans] = bytes(row)
+            alphas.append(cache[spans])
+            opaque = opaque and cache[spans].count(0) == 0
+        return cw, ch, rows, None if opaque else alphas
+
+
+def png(width, height, rows, alphas=None):
+    """A PNG of RGB ROWS, with ALPHAS as RGBA, each row unfiltered."""
+    if alphas is not None:
+        joined = []
+        for row, alpha in zip(rows, alphas):
+            rgba = bytearray(width * 4)
+            for channel in range(3):
+                rgba[channel::4] = row[channel::3]
+            rgba[3::4] = alpha
+            joined.append(bytes(rgba))
+        rows = joined
+    def chunk(kind, body):
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
+    header = struct.pack(">IIBBBBB", width, height, 8, 2 if alphas is None else 6, 0, 0, 0)
+    raw = b"".join(b"\x00" + row for row in rows)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(raw, PNG_LEVEL)) + chunk(b"IEND", b"")
 
 
 def rectangle_geometry(rectangle):

@@ -18,7 +18,8 @@ ffmpeg copies its input, or writes a small JPEG for a one-frame thumbnail;
 ffmpegHold holds it half way until `ffmpeg-release` exists, and
 ffmpegOutlivesTerm keeps that held ffmpeg past its first SIGTERM; a second
 ends it, as a tool still finishing when its owner signals again. grimHeldCall N
-holds the Nth grim run until `grim-release` exists. slurpAnswersTerm holds
+holds the Nth grim run until `grim-release` exists. grim `-t ppm` writes
+a 2560x1440 layout of known pixels. slurpAnswersTerm holds
 slurp, then answers the terminate a cancel sends with its box, a stderr
 line and exit 0, as a slurp that answered just before the signal does.
 pw-dump prints the fixture's
@@ -105,6 +106,21 @@ match tool:
             (root / "grim-ready").write_text(str(os.getpid()))
             while not (root / "grim-release").exists():
                 time.sleep(0.01)
+        if "-t" in sys.argv and sys.argv[sys.argv.index("-t") + 1] == "ppm":
+            # The layout as PPM, 2560x1440, larger than any test's layout or
+            # the nested output a row selects on, its pixel at x,y being
+            # (x, y, x + 2y), each mod 256, so a crop of it holds known pixels.
+            red = bytes(x % 256 for x in range(2560))
+            blue = bytes(x % 256 for x in range(2560 + 256))
+            out = [b"P6\n2560 1440\n255\n"]
+            for y in range(1440):
+                row = bytearray(2560 * 3)
+                row[0::3] = red
+                row[1::3] = bytes([y % 256]) * 2560
+                row[2::3] = blue[2 * y % 256:2 * y % 256 + 2560]
+                out.append(bytes(row))
+            sys.stdout.buffer.write(b"".join(out))
+            sys.exit(0)
         # A whole grey 320x240 PNG, which an image reader decodes, then the
         # frame token, which a PNG reader ignores past IEND.
         def chunk(kind, body):
