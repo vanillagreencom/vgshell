@@ -5,7 +5,7 @@
 // Route suites keep their own downstream success/failure/postcheck fixtures.
 "use strict";
 const fs=require("node:fs"),os=require("node:os"),path=require("node:path"),cp=require("node:child_process"),assert=require("node:assert/strict");
-const {create,freshSystem}=require("./world.js");
+const {create}=require("./world.js");
 let args=process.argv.slice(2),owner=null,proof=null,route="package-route",surface="all";
 while(args[0]?.startsWith("--")){
  const key=args.shift(),value=args.shift();
@@ -14,10 +14,7 @@ while(args[0]?.startsWith("--")){
 assert.ok(["all","success","failures"].includes(surface));
 const root=fs.mkdtempSync(path.join(os.tmpdir(),"package-route-"));
 try{
- // A fresh system, so a route that installs only a VGS package still
- // reaches the common offer, for its AUR dependency cpptrace.
- const fresh=freshSystem;
- const w=create(root,{choices:["Install without review"]});fresh(root);
+ const w=create(root,{choices:["Install without review"]});
  let calls=[];
  if(surface!=="failures"){
   const command=[process.execPath,owner||w.owner,...args].map(s=>"'"+s.replaceAll("'","'\\''")+"'").join(" ");
@@ -41,7 +38,7 @@ try{
  if(surface!=="success"&&["run","install"].includes(args[0])&&["install","reinstall","update"].includes(action))for(const [kind,first] of [["check-only",{transcript:"paru-check-only",status:1,base:target}],["ordinary",{transcript:"paru-build-fail",status:1,base:target}]]){
   const f=fs.mkdtempSync(path.join(os.tmpdir(),"package-route-failure-"));
   try{
-   const fw=create(f,{choices:["Install without review","Stop"]});fresh(f);
+   const fw=create(f,{choices:["Install without review","Stop"]});
    fs.writeFileSync(path.join(f,"build.json"),JSON.stringify({first,pacman:1}));
    const failed=cp.spawnSync("/usr/bin/script",["-qec",[process.execPath,owner||fw.owner,...args].map(s=>"'"+s.replaceAll("'","'\\''")+"'").join(" "),"/dev/null"],{env:{...fw.env,SHELL:"/usr/bin/bash"},encoding:"utf8",timeout:30000});
    const asked=fw.calls().filter(c=>c.kind==="offer"&&c.offered.includes("Retry without tests"));

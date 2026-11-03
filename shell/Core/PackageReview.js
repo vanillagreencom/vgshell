@@ -31,42 +31,6 @@ function srcinfoFields(text) {
     return out;
 }
 
-// The dependency entries an AUR helper's `-Si` INFO lists for the one
-// package it describes: its Depends On, Make Deps and Check Deps fields, the
-// pending recipe the helper builds. paru prints them in src/info.rs
-// print_aur_info and yay in print.go printInfo, under the C locale as
-// `Key<padding>: value  value`, `None` for an empty list, and a value that
-// wraps continues on an indented line. null when a field is missing or
-// appears twice.
-var HELPER_DEPENDENCY_FIELDS = ["Depends On", "Make Deps", "Check Deps"];
-function helperDependencies(info) {
-    var fields = {}, last = null, out = [];
-    var lines = String(info).replace(/\u001b\[[0-9;]*m/g, "").split("\n");
-    for (var i = 0; i < lines.length; i++) {
-        var line = lines[i].replace(/\r$/, "");
-        var field = /^(\S[^:]*?)\s*:(.*)$/.exec(line);
-        if (field !== null) {
-            last = field[1];
-            if (hasOwn(fields, last)) fields[last] = null;
-            else fields[last] = field[2];
-        } else if (/^\s+\S/.test(line) && last !== null && fields[last] !== null) fields[last] += " " + line;
-        else last = null;
-    }
-    for (i = 0; i < HELPER_DEPENDENCY_FIELDS.length; i++) {
-        var value = fields[HELPER_DEPENDENCY_FIELDS[i]];
-        if (typeof value !== "string") return null;
-        var words = value.split(/\s+/).filter(function (word) { return word !== ""; });
-        if (words.length === 1 && words[0] === "None") continue;
-        out = out.concat(words);
-    }
-    return out;
-}
-
-// The package a dependency ENTRY such as `qt6-base>=6.7` names.
-function dependencyName(entry) {
-    return String(entry).split(/[<>=]/)[0];
-}
-
 // Who publishes the target NAME, given VIA_AUR, whether the owner resolved
 // it through the AUR helper itself (never a repository's name, since any
 // pacman repository may be named `aur`), and PUBLISHED, the pkgname lines of
@@ -124,7 +88,7 @@ function reviewPlan(settings, found) {
 
 // Consent to install without review is a submitted offer or a saved
 // "Install without review", the explicit false: `ask` is false for that
-// alone, and the owner then asks nothing. Otherwise presence selects the
+// alone, and the owner then shows no offer. Otherwise presence selects the
 // initial row; an availability probe cannot change saved policy.
 function initialChoice(settings, found) {
     var s = isPlainObject(settings) ? settings : {};

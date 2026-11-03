@@ -2,7 +2,7 @@
 // Production admission and authority, in an isolated stand-in PATH on a PTY.
 "use strict";
 const assert=require("node:assert/strict"),fs=require("node:fs"),os=require("node:os"),path=require("node:path"),cp=require("node:child_process");
-const {create,freshSystem}=require("./world.js");
+const {create}=require("./world.js");
 const only=process.argv.includes("--cancel-control");
 const surfaceAt=process.argv.indexOf("--surface"),surface=surfaceAt<0?"all":process.argv[surfaceAt+1];
 const select=name=>surface==="all"||surface===name;
@@ -120,80 +120,57 @@ try{
   }
  }
  // A package VGS publishes, named by its recipes' pkgname lines, is not
- // reviewed when the owner resolved it through the AUR. The dependencies the
- // helper's -Si lists for its pending recipe that the system lacks are
- // reviewed in its place: an official one, from the first repository in
- // pacman's order, is skipped; another repository's is reviewed; an AUR one
- // is fetched with its own dependencies note; a VGS one is exempt in turn.
- // Skipping one skips every package that needs it. The same name from any
- // pacman repository, one named aur included, is reviewed; recipes, -Si
- // fields or a dependency check the owner cannot read are unavailable
- // evidence. Each row, under saved Review with an agent: [label, owner
- // arguments, world files (fresh: freshSystem first), the owner's tree,
- // whether the offer shows, lines the agent's packages.txt holds, patterns
- // no line of it matches, the AUR recipes fetched, whether the requested
- // packages install, the choices made].
- const REVIEWED=["Review","Use Claude Code","Yes"],SKIPPED=[...REVIEWED,"Skip"];
- const info=(lists)=>JSON.stringify(lists);
- if(!only&&select("publisher"))for(const [label,args,files,tree,offered,listed,unlisted,fetched,installs,choices] of [
-  ["vgs-installed",["run","reinstall","--manager","aur","vgshell-git"],{fresh:true,unsatisfied:""},"checkout",false,[],[],[],true,REVIEWED],
-  ["vgs-fresh",["run","install","--manager","aur","vgshell-git"],{fresh:true},"checkout",true,
-   ["aur cpptrace ? ?","unknown dependencies=unresolved name=cpptrace"],[/vgshell/],["cpptrace"],true,REVIEWED],
-  // The AUR's vgshell 0.1.3 needs hyprpicker, which the shipped recipe lacks.
-  ["pending-drift",["run","reinstall","--manager","aur","vgshell"],{fresh:true,unsatisfied:"hyprpicker","aur-info.json":info({"vgshell":{"Depends On":["hyprpicker","hyprland>=0.56","vgshell-quickshell"]}})},"checkout",true,
-   ["aur hyprpicker ? ?","unknown dependencies=unresolved name=hyprpicker"],[/vgshell/],["hyprpicker"],true,REVIEWED],
-  ["two-packages-skipped",["run","install","--manager","aur","vgshell-git","vgshell-quickshell"],{fresh:true,"install-risk":""},"checkout",true,
-   ["aur cpptrace ? ?"],[/vgshell/],["cpptrace"],false,SKIPPED],
-  ["dependency-skipped",["run","install","--manager","aur","vgshell-git"],{fresh:true,"install-risk":""},"checkout",true,
-   ["aur cpptrace ? ?"],[/vgshell/],["cpptrace"],false,SKIPPED],
-  ["dependency-repositories",["run","install","--manager","aur","vgshell-quickshell"],{fresh:true,unsatisfied:"cpptrace\nwayland","sync-extra":"custom cpptrace 2\ncore wayland 2",
-   "aur-info.json":info({"vgshell-quickshell":{"Depends On":["cpptrace","wayland"]}})},"checkout",true,["repo custom cpptrace ? ?"],[/wayland/,/vgshell/,/^aur /],[],true,REVIEWED],
-  ["dependency-official-twice",["run","install","--manager","aur","vgshell-quickshell"],{"repo-cachyos":"",unsatisfied:"cmake","sync-extra":"core cmake 2\ncachyos-extra cmake 2",
-   "aur-info.json":info({"vgshell-quickshell":{"Make Deps":["cmake"]}})},"checkout",false,[],[],[],true,REVIEWED],
-  ["mixed",["run","reinstall","--manager","aur","vgshell-git","foreign"],{},"checkout",true,["aur foreign ? ?"],[/vgshell/],["foreign"],true,REVIEWED],
-  ["repository-same-name",["run","install","--manager","pacman","vgshell-git"],{"sync-extra":"custom vgshell-git 2"},"checkout",true,["repo custom vgshell-git ? ?"],[],[],true,REVIEWED],
-  ["repository-named-aur",["run","install","--manager","pacman","vgshell-git"],{"repo-aur":"","sync-extra":"aur vgshell-git 2"},"checkout",true,
+ // listed for review when the owner resolved it through the AUR helper. Its
+ // dependencies note stays, since its build may add packages no one has
+ // reviewed, so a request with nothing else to review offers Review, asks no
+ // agent and goes to the unavailable-evidence question, No selected. The
+ // same name from any pacman repository, one named aur included, is
+ // reviewed; recipes the owner cannot read are unavailable evidence. Each
+ // row, under saved Review with an agent: [label, owner arguments, world
+ // files, the owner's tree, lines the agent's packages.txt holds (none: no
+ // agent runs), patterns no line of it matches, the AUR recipes fetched,
+ // whether the requested package installs, the choices made].
+ const REVIEWED=["Review","Use Claude Code","Yes"];
+ if(!only&&select("publisher"))for(const [label,args,files,tree,listed,unlisted,fetched,installs,choices] of [
+  ["mixed",["run","reinstall","--manager","aur","vgshell-git","foreign"],{},"checkout",["aur foreign ? ?","unknown dependencies=unresolved name=vgshell-git"],[/^aur vgshell/],["foreign"],true,REVIEWED],
+  ["vgs-only",["run","reinstall","--manager","aur","vgshell-git"],{},"checkout",[],[],[],false,["Review","No"]],
+  ["repository-same-name",["run","install","--manager","pacman","vgshell-git"],{"sync-extra":"custom vgshell-git 2"},"checkout",["repo custom vgshell-git ? ?"],[],[],true,REVIEWED],
+  ["repository-named-aur",["run","install","--manager","pacman","vgshell-git"],{"repo-aur":"","sync-extra":"aur vgshell-git 2"},"checkout",
    ["repo aur vgshell-git ? ?","siglevel aur Required DatabaseOptional"],[/^aur /],[],true,REVIEWED],
-  ["helper-fields-unreadable",["run","reinstall","--manager","aur","vgshell-git"],{fresh:true,"info-fields-missing":""},"checkout",true,
-   ["unknown dependencies=unresolved name=vgshell-git"],[/^aur /],[],true,REVIEWED],
-  ["dependencies-unreadable",["run","reinstall","--manager","aur","vgshell-git"],{fresh:true,"deptest-failed":""},"checkout",true,
-   ["unknown vgs-dependencies=unreadable name=vgshell-git cause=1"],[/^aur /],[],true,REVIEWED],
-  ["recipes-unreadable",["run","reinstall","--manager","aur","vgshell-git"],{},"no-recipes",true,
+  ["recipes-unreadable",["run","reinstall","--manager","aur","vgshell-git"],{},"no-recipes",
    ["aur vgshell-git ? ?","unknown vgs-packages=unreadable cause=ENOENT","unknown dependencies=unresolved name=vgshell-git"],[],["vgshell-git"],true,REVIEWED]
  ]){
   const w=create(path.join(scratch,"publisher-"+label),{settings:{enabled:true,agent:"claude",command:""},choices});
-  if(files.fresh)freshSystem(w.root);
-  for(const [name,text] of Object.entries(files))if(name!=="fresh")fs.writeFileSync(path.join(w.root,name),text);
+  for(const [name,text] of Object.entries(files))fs.writeFileSync(path.join(w.root,name),text);
   if(tree==="no-recipes")w.tree=ownerTree("publisher-tree-"+label,[],{recipes:false});
   const requested=args.slice(4),r=tty(w,[...args.slice(0,4),"--config",w.config,...requested]),calls=w.calls();
   assert.equal(r.status,0,label+": "+r.stdout+r.stderr);
-  assert.equal(calls.some(c=>c.kind==="offer"&&c.offered.includes("Review")),offered,label+": "+(offered?"the offer is shown":"no offer"));
+  assert.ok(calls.some(c=>c.kind==="offer"&&c.offered.includes("Review")),label+": the offer is shown");
   const agent=calls.find(c=>c.kind==="agent"),packages=agent?.packages||[];
-  assert.equal(agent!==undefined,offered,label+": the agent runs only after the offer");
+  assert.equal(agent!==undefined,listed.length>0,label+": "+(listed.length?"the agent reviews":"no agent runs"));
+  if(!listed.length){
+   assert.ok(!calls.some(c=>c.kind==="offer"&&c.offered.includes("Customize")),label+": no agent is chosen");
+   const unavailable=calls.find(c=>c.kind==="offer"&&c.offered.includes("Yes"));
+   assert.equal(unavailable?.selected,"No",label+": the unavailable question, No selected");
+  }
   for(const line of listed)assert.ok(packages.includes(line),label+": listed "+line+" in "+JSON.stringify(packages));
   for(const pattern of unlisted)assert.ok(!packages.some(line=>pattern.test(line)),label+": unlisted "+pattern+" in "+JSON.stringify(packages));
   assert.deepEqual(calls.filter(c=>c.kind==="query"&&c.args.includes("-G")).flatMap(c=>c.args.slice(c.args.indexOf("--")+1)),fetched,label+": fetched");
   const built=calls.filter(c=>c.kind==="mutation").flatMap(c=>c.args);
-  if(installs)assert.ok(built.includes(requested.at(-1)),label+": installs "+JSON.stringify(calls));
-  else assert.ok(!requested.some(name=>built.includes(name)),label+": nothing requested installs "+JSON.stringify(calls));
+  assert.equal(built.includes(requested.at(-1)),installs,label+": "+(installs?"installs":"nothing installs")+" "+JSON.stringify(calls));
   console.log("package-publisher-proof: "+JSON.stringify({label,packages}));
  }
  // Each rule above and the saved choice fails its row when its code is
- // undone: the exemption, the dependency review, the pending recipe as its
- // source (the installed recipe in its place), every dependency edge for a
- // skip, pacman's repository order for a dependency, the AUR fact kept apart
- // from a repository's name, and the saved Install without review.
+ // undone: the exemption, Review with nothing reviewable, the AUR fact kept
+ // apart from a repository's name, and the saved Install without review.
  if(!only&&(select("control")||surface==="publisher-control")){
   const owner="bin/lib/pkg-review.js";
-  control("publisher-exemption","publisher",[[owner,'} else if (publisher === "vgs") {','} else if (false) {']],/vgs-installed: no offer/);
-  control("publisher-dependencies","publisher",[[owner,"targets.push({ target: dependency,","void ({ target: dependency,"]],/vgs-fresh: the offer is shown/);
-  control("publisher-installed-recipe","publisher",[[owner,"const entries = judge.helperDependencies(info);",
-   'const entries = judge.srcinfoFields(fs.readFileSync(path.join(repo, "packaging/arch", name, ".SRCINFO"), "utf8")).filter(f => /depends$/.test(f.key)).map(f => f.value);']],/pending-drift: the offer is shown/);
-  control("publisher-first-edge","publisher",[[owner,"if (!dependents.includes(name)) dependents.push(name);\n                            if (!queued.has(dependency)) {","if (!queued.has(dependency)) { dependents.push(name);"]],/two-packages-skipped: nothing requested installs/);
-  control("publisher-repository-order","publisher",[[owner,"else if (matches.length > 1 && target.neededBy !== undefined)","else if (false)"]],/dependency-official-twice: no offer/);
-  control("publisher-repository-aur","publisher",[[owner,"judge.publisher(name, viaAur, recipes.names)",'judge.publisher(name, origin === "aur", recipes.names)']],/repository-named-aur: listed repo aur vgshell-git/);
+  control("publisher-exemption","publisher",[[owner,'} else if (publisher === "vgs") {','} else if (false) {']],/mixed: unlisted/);
+  control("publisher-nothing-reviewable","publisher",[[owner,"const reviewable = state.packages.length > 0;","const reviewable = true;"]],/vgs-only: /);
+  control("publisher-repository-aur","publisher",[[owner,"judge.publisher(name, viaAur, recipes.names)",'judge.publisher(name, origin === "aur", recipes.names)']],/repository-named-aur: the offer is shown/);
   control("saved-decline","choices",[[owner,"if (!judge.initialChoice(settings, foundAgents(settings)).ask) {","if (false) {"]],/saved-off:/);
  }
+
 
  // A review run through Customize, with one edit view opened and left, keeps
  // the caller's screen: no kind, the inline editor included, clears it.
@@ -261,8 +238,9 @@ try{
   ["agent-dependency","foreign",["Review","Use Claude Code","No"],false,true],
   ["fetch-failed","foreign",["Review","Use Claude Code","No"],false,false],
   ["server-empty","widget",["Review","Use Claude Code","No"],false,true],
-  ["query-failed","widget",["Review","Use Claude Code","No"],false,true],
-  ["provider-ambiguous","foreign",["Review","Use Claude Code","No"],false,true],
+  // With no package listed, Review asks no agent: the unavailable question follows.
+  ["query-failed","widget",["Review","No"],false,false],
+  ["provider-ambiguous","foreign",["Review","No"],false,false],
   ["agent-concern","widget",["Review","Use Claude Code","Skip"],false,true]
  ]){
   const w=create(path.join(scratch,"evidence-"+marker),{choices});fs.writeFileSync(path.join(w.root,marker),"");

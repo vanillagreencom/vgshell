@@ -89,20 +89,6 @@ function verify(logic) {
     ["widget",true,null,"unread"],
     ["vgshell-git",false,null,"third-party"]
   ])assert.equal(logic.publisher(name,viaAur,recipes),want,"publisher: "+name+(viaAur?" through the AUR":" from a repository"));
-  // [name, a helper's -Si text, the dependency entries or null]: paru's
-  // form (src/info.rs), yay's (print.go, 32-column keys, a wrapped value),
-  // None for an empty list, colour, and a missing or repeated field.
-  const paru=(depends,make,check)=>["Repository      : aur","Name            : vgshell","Version         : 0.1.3-1","Description     : A desktop shell","URL             : https://example.org/x:y",
-    "Depends On      : "+depends,"Make Deps       : "+make,"Check Deps      : "+check,"Optional Deps   : None","Maintainer      : someone",""].join("\n");
-  for(const [name,info,want] of [
-    ["paru",paru("hyprpicker  hyprland>=0.56  vgshell-quickshell","git","None"),["hyprpicker","hyprland>=0.56","vgshell-quickshell","git"]],
-    ["paru with no dependencies",paru("None","None","None"),[]],
-    ["yay, wrapped","Repository                      : aur\nName                            : vgshell\nDepends On                      : a  b\n                                c>=1:2.0\nOptional Deps                   : None\nMake Deps                       : None\nCheck Deps                      : d\n",["a","b","c>=1:2.0","d"]],
-    ["colour","\u001b[1mDepends On      : \u001b[0ma\n\u001b[1mMake Deps       : \u001b[0mNone\n\u001b[1mCheck Deps      : \u001b[0mNone\n",["a"]],
-    ["a missing field",paru("a","b","c").replace(/^Check Deps.*\n/m,""),null],
-    ["a repeated field",paru("a","b","c")+"\n"+paru("a","b","c"),null],
-    ["no output","",null]
-  ])same(logic.helperDependencies(info),want,"helper dependencies: "+name);  for(const [entry,name] of [["cpptrace","cpptrace"],["qt6-base>=6.7","qt6-base"],["foo<2","foo"],["bar=1:2-3","bar"]])assert.equal(logic.dependencyName(entry),name);
   // A split recipe's .SRCINFO, as makepkg --printsrcinfo writes it.
   same(logic.srcinfoFields("pkgbase = vgshell\n\tpkgver = 1.0\n\n# a comment\npkgname = vgshell\npkgname = vgshell-extra\n\tinstall = vgshell.install\n"),
     [{key:"pkgbase",value:"vgshell"},{key:"pkgver",value:"1.0"},{key:"pkgname",value:"vgshell"},{key:"pkgname",value:"vgshell-extra"},{key:"install",value:"vgshell.install"}]);

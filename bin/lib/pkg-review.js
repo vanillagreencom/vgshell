@@ -224,9 +224,8 @@ function pending(group, config, binary) {
 }
 // The package names VGS publishes: the pkgname lines of its Arch recipes'
 // .SRCINFO files, which install-system.sh ships into the runtime tree, so a
-// checkout and an installed tree read the same path. Only the names: the
-// installed recipe's dependencies are not the pending recipe's.
-// { names: null, cause } when a recipe cannot be read or none names a package.
+// checkout and an installed tree read the same path. { names: null, cause }
+// when a recipe cannot be read or none names a package.
 function publishedPackages() {
     const dir = path.join(repo, "packaging/arch"), names = [];
     try {
@@ -236,18 +235,8 @@ function publishedPackages() {
     } catch (e) { return { names: null, cause: e.code || "read" }; }
     return names.length ? { names, cause: null } : { names: null, cause: "empty" };
 }
-// The entries of DEPENDENCIES the system under CONFIG does not satisfy.
-// pacman -T judges versions and providers; it prints each missing entry
-// and exits 127 when one is missing, 0 when none is (pacman 7.1.0, a run
-// of `pacman -T -- bash 'absent>=1'`, 2026-11-02).
-function unsatisfied(dependencies, config) {
-    if (!dependencies.length) return [];
-    const r = query(["pacman", "--config", config, "-T", "--", ...dependencies]);
-    if (r.error || ![0, 127].includes(r.status)) throw new Error("cause=" + (r.error?.code || r.status));
-    return r.stdout.split("\n").filter(Boolean);
-}
 function gather(request) {
-    const state = { steps: [], packages: [], unknown: [], lines: [], recipes: [], published: [], dependents: {} };
+    const state = { steps: [], packages: [], unknown: [], lines: [], recipes: [], published: [] };
     const recipes = publishedPackages();
     let repositoryData = null;
     function repositories(config) {
@@ -285,60 +274,41 @@ function gather(request) {
             } else targets = [...group.names, ...group.installs].map(n => ({ target: n, old: null, next: null }));
             step.binding = binding;
             const repos = request.mode === "bootstrap" ? { rows: [], order: [] } : repositories(config);
-            const queued = new Set(targets.map(t => t.target));
             for (const target of targets) {
                 const qualified = /^([^/]+)\/([^/]+)$/.exec(target.target);
                 const [qualifier, name] = qualified === null ? [null, target.target] : [qualified[1], qualified[2]];
                 const matches = repos.rows.filter(row => row.name === name && (qualifier === null || qualifier === row.repository));
                 // viaAur is set only where the owner itself resolved the AUR:
                 // a pacman repository may be named `aur`.
-                let origin, viaAur = false, info = null;
+                let origin, viaAur = false;
                 if (request.mode === "bootstrap") { origin = "aur"; viaAur = true; }
                 else if (target.origin === "aur" && matches.length > 0) { state.unknown.push("origin=aur-repository-collision name=" + name); origin = "unknown"; }
                 else if (matches.length === 1) origin = matches[0].repository;
-                // pacman installs a dependency from the first repository in
-                // its order that lists it; a name the user asked for stays ambiguous.
-                else if (matches.length > 1 && target.neededBy !== undefined) origin = repos.order.find(repository => matches.some(row => row.repository === repository));
                 else if (matches.length > 1) { state.unknown.push("origin=ambiguous name=" + name); origin = "unknown"; }
                 else if (group.manager === "aur" || request.mode === "bootstrap") {
-                    info = output([found.binary, "--config", config, "-Si", "--", name]);
+                    const info = output([found.binary, "--config", config, "-Si", "--", name]);
                     const identity = /^Name\s*:\s*(\S+)\s*$/m.exec(info);
                     if (!/^Repository\s*:\s*aur\s*$/m.test(info) || identity === null || identity[1] !== name) throw new Error("origin=unresolved name=" + name);
                     origin = "aur"; viaAur = true;
+                    // Helpers can add providers/dependencies at build time. This
+                    // review covers its listed request, never that future choice,
+                    // a VGS package's included.
+                    state.unknown.push("dependencies=unresolved name=" + name);
                 } else { state.unknown.push("origin=unresolved name=" + name); origin = "unknown"; }
-                // A dependency the official repositories supply binds nothing:
-                // an earlier step of the transaction may install it.
-                if (target.neededBy === undefined || !judge.officialRepository(origin))
-                    binding.origins.push({ target: target.target, origin, candidates: matches.map(row => ({ repository: row.repository, version: row.version })) });
+                binding.origins.push({ target: target.target, origin, candidates: matches.map(row => ({ repository: row.repository, version: row.version })) });
                 if (judge.officialRepository(origin)) continue;
                 const publisher = judge.publisher(name, viaAur, recipes.names);
                 if (publisher === "unread") {
                     const cause = "vgs-packages=unreadable cause=" + recipes.cause;
                     if (!state.unknown.includes(cause)) state.unknown.push(cause);
                 } else if (publisher === "vgs") {
-                    // A package VGS publishes is not third-party code. The
-                    // dependencies the helper's -Si lists for the pending
-                    // recipe, the one it builds, that the system lacks are
-                    // reviewed in its place: each is queued as a target of
-                    // this step and resolved like any other, and a VGS one
-                    // recurses. Every edge is kept for a skip's closure.
+                    // A package VGS publishes is not third-party code. Its
+                    // dependencies note above stays: what its build adds is
+                    // not known before the build.
                     if (!state.published.includes(name)) state.published.push(name);
-                    const entries = judge.helperDependencies(info);
-                    if (entries === null) state.unknown.push("dependencies=unresolved name=" + name);
-                    else try {
-                        for (const entry of unsatisfied(entries, config)) {
-                            const dependency = judge.dependencyName(entry);
-                            const dependents = Object.hasOwn(state.dependents, dependency) ? state.dependents[dependency] : (state.dependents[dependency] = []);
-                            if (!dependents.includes(name)) dependents.push(name);
-                            if (!queued.has(dependency)) { queued.add(dependency); targets.push({ target: dependency, old: null, next: null, neededBy: name }); }
-                        }
-                    } catch (e) { state.unknown.push("vgs-dependencies=unreadable name=" + name + " " + e.message); }
                     continue;
                 }
-                // Helpers can add providers/dependencies at build time. This
-                // review covers its listed request, never that future choice.
-                if (viaAur && request.mode !== "bootstrap") state.unknown.push("dependencies=unresolved name=" + name);
-                const pkg = { name, origin, aur: viaAur, old: target.old, next: target.next, manager: group.manager, binary: found.binary, config, neededBy: target.neededBy };
+                const pkg = { name, origin, aur: viaAur, old: target.old, next: target.next, manager: group.manager, binary: found.binary, config };
                 if (!state.packages.some(p => p.name === name && p.origin === origin && p.aur === viaAur)) state.packages.push(pkg);
                 state.lines.push(viaAur ? `aur ${name} ${target.old || "?"} ${target.next || "?"}` : `repo ${origin} ${name} ${target.old || "?"} ${target.next || "?"}`);
                 if (!viaAur && origin !== "unknown") {
@@ -462,10 +432,12 @@ async function reviewRequest(request, storage) {
     if (state.packages.length || state.unknown.length) {
         const known = state.packages.map(p => p.name);
         const requested = request.groups.flatMap(g => g.names.concat(g.installs)).concat(request.rebuild);
-        const thirdParty = requested.filter(n => !known.includes(n.split("/").pop()) && !state.published.includes(n.split("/").pop()));
-        // A dependency of a VGS package is listed with the package that needs it.
-        const listed = state.packages.map(p => p.neededBy === undefined ? p.name : p.name + " (needed by " + p.neededBy + ")").concat(thirdParty);
-        const packageList = "Packages: " + ([...new Set(listed)].join(", ") || "origin or pending list unavailable");
+        const listed = known.concat(requested.filter(n => !known.includes(n.split("/").pop())), state.published);
+        const packageList = "Packages: " + ([...new Set(listed)].join(", ") || "origin or pending list unavailable")
+            + (state.published.length ? "\nNot reviewed: " + state.published.join(", ") + ", published by VGS. The build may add packages that cannot be reviewed in advance." : "");
+        // With no package to review, Review asks no agent: the
+        // unavailable-evidence question follows at once.
+        const reviewable = state.packages.length > 0;
         let choice = null;
         if (!judge.initialChoice(settings, foundAgents(settings)).ask) {
             const shown = await ui("saved-decline", packageList);
@@ -474,9 +446,9 @@ async function reviewRequest(request, storage) {
         }
         while (choice === null) {
             const found = foundAgents(settings), initial = judge.initialChoice(settings, found);
-            choice = await ui("offer", initial.action === "review" ? "Review" : "Install without review", packageList);
+            choice = await ui("offer", initial.action === "review" ? "Review" : "Install without review", packageList, reviewable ? "reviewable" : "unreviewable");
             if (choice.cancelled) return { ...result, decision: "cancelled", coverage: "unknown", status: choice.status };
-            if (choice.value !== "Review") break;
+            if (choice.value !== "Review" || !reviewable) break;
             // The offer above names the packages until the editor's views
             // stand between it and the agent choice.
             let edited = false;
@@ -502,6 +474,7 @@ async function reviewRequest(request, storage) {
             const dir = path.join(storage, "evidence");
             fs.mkdirSync(dir, { mode: 0o700 }); fs.mkdirSync(path.join(dir, "build"), { mode: 0o700 }); fs.mkdirSync(path.join(dir, "install"), { mode: 0o700 });
             try {
+                if (!reviewable) throw new Error("review=nothing-reviewable");
                 if (!["agent", "command"].includes(plan.state)) throw new Error("agent=" + plan.state);
                 for (const pkg of state.packages.filter(p => p.aur)) {
                     const fetch = request.mode === "bootstrap" ? ["git", "clone", "--", "https://aur.archlinux.org/paru.git", "paru"] : [pkg.binary, "--config", pkg.config, "-G", "--", pkg.name];
@@ -540,11 +513,6 @@ async function reviewRequest(request, storage) {
                 if (answer.value === "Skip") result.skipped.push(name);
                 else if (answer.value !== "Install anyway") refuse("review=choice-invalid");
             }
-            // The helper installs a dependency with every package that needs
-            // it, so a skip also skips each package whose closure holds it.
-            for (let i = 0; i < result.skipped.length; i++)
-                for (const dependent of Object.hasOwn(state.dependents, result.skipped[i]) ? state.dependents[result.skipped[i]] : [])
-                    if (!result.skipped.includes(dependent)) result.skipped.push(dependent);
         } else refuse("review=choice-invalid");
     }
     if (request.customAurArgv !== null && customMode(request.customAurArgv) === "unknown") {

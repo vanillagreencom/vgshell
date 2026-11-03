@@ -63,10 +63,12 @@ case "$kind" in
     # shellcheck source=SCRIPTDIR/pkg-review-settings.sh
     source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/pkg-review-settings.sh"
     vgs_pkg_review_settings "$1" inline ;;
-  offer)
+  # REVIEWABLE, unreviewable when no listed package has evidence an agent
+  # can read, as for a package VGS publishes.
+  offer) # SELECTED PACKAGES REVIEWABLE
     vgs_tui_step 'Review third-party packages' >&2
     vgs_tui_text "${2:-Package source information is unavailable.}" >&2
-    vgs_tui_text 'An AI agent can check these packages before installation.' >&2
+    [[ ${3:-} == unreviewable ]] || vgs_tui_text 'An AI agent can check these packages before installation.' >&2
     vgs_pkg_review_choose 'Review before installation?' --selected "$1" -- Review 'Install without review' ;;
   # A saved "Install without review" answers the offer, so nothing is asked.
   saved-decline) # PACKAGES
