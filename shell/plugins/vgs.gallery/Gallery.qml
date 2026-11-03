@@ -153,7 +153,7 @@ Item {
                             hoverFill: Theme.color.surfaceHover
                             hoverTextColor: Theme.color.textMuted
                             ringColor: Theme.color.warning
-                            shimmer: ({ sweep: Theme.motion.duration.slow, pause: Theme.motion.duration.normal, passes: 3, band: 0.16, easing: Theme.motion.easing.standard })
+                            shimmer: ({ sweep: Theme.motion.duration.slow, pause: Theme.motion.duration.normal, band: 0.16, easing: Theme.motion.easing.standard })
                         }
                     }
                 }

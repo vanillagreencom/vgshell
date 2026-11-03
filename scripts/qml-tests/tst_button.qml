@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Window
 import QtTest
 import Quickshell
 import qs.Commons
@@ -53,9 +54,13 @@ Item {
         text: "Shimmer"
         x: 100; y: 480
         variant: "secondary"
-        shimmer: ({ sweep: Theme.motion.duration.slow, pause: Theme.motion.duration.fast, passes: 2, band: 0.16, easing: Easing.InOutCubic })
+        shimmer: ({ sweep: Theme.motion.duration.slow, pause: Theme.motion.duration.fast, band: 0.16, easing: Easing.InOutCubic })
     }
     SignalSpy { id: clicks; target: primary; signalName: "clicked" }
+    Component {
+        id: frameSpy
+        SignalSpy { signalName: "frameSwapped" }
+    }
 
     TestCase {
         name: "button"
@@ -339,8 +344,8 @@ Item {
             lookButton.focus = false;
         }
 
-        // The shimmer's band crosses the label only while the pointer is on
-        // the button, for the look's passes, and draws through the label
+        // The shimmer's band crosses the label for as long as the pointer
+        // rests on the button, and only then, drawing through the label
         // again in the rest ink while it runs.
         function test_shimmer_sweeps_only_under_the_pointer() {
             mouseMove(root, root.width - 1, root.height - 1);
@@ -356,17 +361,45 @@ Item {
             compare(String(shine.color), String(Qt.color(shimmerButton.textColor)));
             const start = band.x;
             tryVerify(() => band.x !== start, 1000, "the band moves across the label");
-            // Two passes of a sweep and a pause, then the label stands still
-            // though the pointer stays.
-            tryCompare(shimmerButton, "shimmering", false, 4 * (Theme.motion.duration.slow + Theme.motion.duration.fast) + 1000);
-            verify(shimmerButton.hovered, "the pointer still rests on the button");
-            compare(shine.visible, false);
+            // Three sweeps and their pauses later the band still crosses.
+            wait(3 * (Theme.motion.duration.slow + Theme.motion.duration.fast));
+            verify(shimmerButton.shimmering, "the sweep runs on while the pointer rests");
+            verify(shine.visible, "the band still draws");
             mouseMove(root, root.width - 1, root.height - 1);
-            tryCompare(shimmerButton, "hovered", false);
+            tryCompare(shimmerButton, "shimmering", false);
+            compare(shine.visible, false);
             mouseMove(shimmerButton, shimmerButton.width / 2, shimmerButton.height / 2);
             tryCompare(shimmerButton, "shimmering", true);
             mouseMove(root, root.width - 1, root.height - 1);
             tryCompare(shimmerButton, "shimmering", false);
+        }
+
+        // The pointer leaving mid-sweep stops the shimmer at once: once the
+        // hover's own colour change has eased out, the window draws no
+        // frame. The same count while the pointer rests is the control
+        // that the window's frames are counted at all.
+        function test_shimmer_draws_no_frame_after_hover_ends() {
+            mouseMove(root, root.width - 1, root.height - 1);
+            tryCompare(shimmerButton, "hovered", false);
+            const label = shimmerButton.contentItem.children.find(child => child.role === "button");
+            const band = label.children.find(child => child.role === undefined).children[0];
+            const window = shimmerButton.Window.window;
+            verify(window !== null, "the button draws in a window");
+            const frames = createTemporaryObject(frameSpy, root, { target: window });
+            wait(Theme.motion.duration.fast + 200);
+            mouseMove(shimmerButton, shimmerButton.width / 2, shimmerButton.height / 2);
+            tryCompare(shimmerButton, "shimmering", true);
+            tryVerify(() => band.x > 0, Theme.motion.duration.slow, "the band is mid-sweep");
+            frames.clear();
+            wait(Theme.motion.duration.slow);
+            verify(frames.count > 0, "the window draws the sweep while the pointer rests: " + frames.count);
+            mouseMove(root, root.width - 1, root.height - 1);
+            compare(shimmerButton.hovered, false);
+            compare(shimmerButton.shimmering, false);
+            wait(Theme.motion.duration.fast + 200);
+            frames.clear();
+            wait(Theme.motion.duration.slow + Theme.motion.duration.fast);
+            compare(frames.count, 0);
         }
 
         // A surface that owns its look hands the glyph its rest, active and

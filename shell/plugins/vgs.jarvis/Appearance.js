@@ -205,12 +205,12 @@ var TOKENS = {
         hoverInk: color("#9ea3af"),
         bareInk: color("#b7bbc6"),
         bareHoverInk: color("#e6e8ee"),
-        // One sweep of the band and the pause after it, the passes a
-        // hover runs, and the band's half-width as a share of the label.
+        // One sweep of the band and the pause after it, repeated while the
+        // pointer rests on Confirm, and the band's half-width as a share of
+        // the label.
         shimmer: {
             sweep: duration(1600),
             pause: duration(600),
-            passes: number(3, 1, 10),
             band: share(0.16),
             easing: easing("inOutCubic")
         }

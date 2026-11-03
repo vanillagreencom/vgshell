@@ -29,14 +29,14 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // `controlHeight`, `paddingX` and `radius`; `restFill`, `hoverFill` and
 // `pressedFill`; `borderColor`; the label's `textColor` at rest and its
 // `hoverTextColor` under the pointer or pressed; and the focus ring's
-// `ringColor`. `shimmer`, the look's `{ sweep, pause, passes, band,
-// easing }`, sweeps a soft band of `textColor` across the label, which
-// rests in `hoverTextColor`, while the pointer is on the button: `passes`
-// sweeps of `sweep` each with a `pause` after it, a `band` of the
-// label's width a side, then the label stands in `hoverTextColor` until
-// the pointer comes back. The look's durations scale with motion, so at
-// motion scale 0 no sweep runs and no band draws. Keyboard focus draws the
-// ring and no shimmer.
+// `ringColor`. `shimmer`, the look's `{ sweep, pause, band, easing }`,
+// sweeps a soft band of `textColor` across the label, which rests in
+// `hoverTextColor`, for as long as the pointer rests on the button: one
+// sweep of `sweep` and a `pause`, again and again, a `band` of the label's
+// width a side. The sweep stops the moment the pointer leaves, and the
+// button draws no further frame of it. The look's durations scale with
+// motion, so at motion scale 0 no sweep runs and no band draws. Keyboard
+// focus draws the ring and no shimmer.
 T.Button {
     id: root
 
@@ -105,16 +105,15 @@ T.Button {
         spacing: root.spacing
         opacity: lockState.fade
         // Each pass carries the band from wholly before the label to wholly
-        // past it, then pauses. An animation whose `running` follows a binding
-        // stops at its last loop and starts again when the binding turns true
-        // once more, so the next hover sweeps anew. At motion scale 0 the
+        // past it, then pauses, until the pointer leaves: hover is the
+        // user's input, so it may draw frames while it lasts. At motion scale 0 the
         // look's durations are 0, and Qt ends an animation of no duration
         // as it starts, never reporting it running (tst_jarvis_prompt.qml,
         // Qt 6.12.0), so no band draws.
         SequentialAnimation {
             id: sweep
             running: root.shimmer !== null && root.hovered
-            loops: root.shimmer === null ? 1 : root.shimmer.passes
+            loops: Animation.Infinite
             NumberAnimation {
                 target: band
                 property: "x"
@@ -146,8 +145,12 @@ T.Button {
             // texture-backed mask's alpha, and a threshold of 0.5 with a
             // spread of 1 passes the band's ramp through softly
             // (doc.qt.io/qt-6/qml-qtquick-effects-multieffect.html), as
-            // ScrollArea's fade does. Neither layer exists while no sweep
-            // runs, so a still button draws the plain label alone.
+            // ScrollArea's fade does. The band moves in an item that stays
+            // visible while the sweep runs, hidden from drawing by the
+            // texture's `hideSource`: a move inside an invisible item
+            // schedules no frame, so a hidden layer's band stood still
+            // (tst_button.qml, Qt 6.12.0). No layer or texture exists while
+            // no sweep runs, so a still button draws the plain label alone.
             Label {
                 width: parent.width
                 visible: sweep.running
@@ -159,7 +162,7 @@ T.Button {
                 layer.enabled: sweep.running
                 layer.effect: MultiEffect {
                     maskEnabled: true
-                    maskSource: bandMask
+                    maskSource: bandTexture
                     maskThresholdMin: 0.5
                     maskSpreadAtMin: 1
                 }
@@ -168,8 +171,7 @@ T.Button {
                 id: bandMask
                 width: parent.width
                 height: parent.height
-                visible: false
-                layer.enabled: sweep.running
+                visible: bandTexture.live
                 Rectangle {
                     id: band
                     width: root.shimmer === null ? 0 : 2 * root.shimmer.band * bandMask.width
@@ -182,6 +184,15 @@ T.Button {
                         GradientStop { position: 1; color: root.maskColor(0) }
                     }
                 }
+            }
+            ShaderEffectSource {
+                id: bandTexture
+                width: bandMask.width
+                height: bandMask.height
+                visible: false
+                sourceItem: sweep.running ? bandMask : null
+                hideSource: true
+                live: sweep.running
             }
         }
     }
