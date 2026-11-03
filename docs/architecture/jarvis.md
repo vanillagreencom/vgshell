@@ -53,6 +53,23 @@ A model can pick an action from untrusted file, page or screen content, so no ex
 - Do keep one actionable next step in a widget tooltip, with at most one link (`WidgetView.oneLink`). A home folder fault leads to its Setup row and the files to repair. An optional session's failure links its repair step without making Jarvis not ready (`SetupGate.sessionSummary`). `scripts/test-jarvis-widget.js` pins it. The widget's presentation and targets live in `WidgetView.js`; the [plugin help](../../shell/plugins/vgs.jarvis/README.md#setup) shows how to open the Console and change its keys.
 - Never enable a console action that cannot work. Explain why an action is unavailable; Send takes its reason from `Session.sayRefusal`. Offer speech-only guidance instead of typed input under a duplex voice. `scripts/smoke/rows/jarvis-console.sh` pins it.
 
+### Overlay motion
+
+- Do move Jarvis's orb in every state, each at its own base rate with its own character, and let input add to that rate; only the rate changes from state to state, never still against moving (owner, overseer directive 1793742833). The base rates are `Appearance.js` `state` and the table below states them. The driver, `ParticleOrb.qml`'s one `FrameAnimation`, runs while the orb shows in a shown window and `motion.scale` is above 0, in every state and at every level, and stops at motion scale 0. Input is the capture level while listening and the playback level while speaking, through one curve, `(1 - e^(-k x)) / (1 - e^(-k))` with `k` = `orb.response`, 3: continuous and rising, 0 at 0 and 1 at 1, so quiet speech (level 0.1) moves the orb 27% of the way and a loud voice (0.5) 82%; `c` in the table is the curve's output. `scripts/qml-tests/tst_jarvis_orb.qml` pins the table, the driver in every state and the curve, and `scripts/smoke/rows/jarvis-bubble.sh` reads the layer swap frames in every state it reaches and none at motion scale 0. The armed orb's cost a frame is the `jarvis-orb-armed` record in `scripts/shader/ceilings.json`.
+
+| State | Base flow (units/s) | One turn | Character | Input |
+|---|---|---|---|---|
+| armed (waiting for the word) | 0.05 | 36 s | the reference palette, brightness 0.9 | none |
+| idle (getting ready) | 0.04 | 40 s | lattice gathered, presence 0.55, brightness 0.72 | none |
+| Muting | 0.03 | 40 s | the reference in white | none |
+| Stopping | 0.03 | 40 s | grey, thin, radius 0.62 | none |
+| listening | 0.08 | 32 s | cyan to magenta, band 0.16 | capture: flow ×(1 + c) + 0.7 c, displacement +0.12 c, scatter +0.8 c, brightness +0.35 c |
+| thinking | 0.12 | 7 s | violet and teal, calm band 0.13 | none |
+| acting | 0.2 | 4.5 s | thinking's, amber sparks | none |
+| speaking | 0.3 | 30 s | the reference palette | playback: flow ×(1 + c), displacement +0.12 c, scatter +0.6 c, brightness +0.3 c, radius +3% c |
+| confirming | 0.1 | 28 s | amber, brightness throb ±0.22 every 1.4 s | none |
+| error | 0.04 | 40 s | red, broken lattice: presence 0.72, scatter 1.8 | none |
+
 ### Capture and records
 
 - Do let the console read tasks and audit failures only from the bounded lists the daemon publishes; only the audit owner reads its store.

@@ -645,7 +645,7 @@ with open(pathlib.Path(__file__).with_name("readings-args"), "a") as calls:
             self.assertNotEqual(sources[-1], text)
         with tempfile.TemporaryDirectory() as scratch:
             for chosen in ((), ("plasma",)):
-                shaders = chosen or ("voiceorb", "plasma", "jarvis-orb", "jarvis-orb-reduced")
+                shaders = chosen or ("voiceorb", "plasma", "jarvis-orb", "jarvis-orb-reduced", "jarvis-orb-armed")
                 want = [f"held {scale} {mode} run-{run}/{shader}/scale-{scale}-{mode}"
                         for run in range(1, passes + 1) for scale in (1, 2) for shader in shaders
                         for mode in ("off", "on", "costly")]
@@ -702,7 +702,7 @@ sys.exit(0 if shader.startswith("jarvis-orb") else int(pathlib.Path(os.environ["
                     root = Path(scratch) / f"run-{orb}-{plasma}"
                     result = self.runner_copy(root, harness, text, [], scene, readings)
                     self.assertEqual(result.returncode, status, result.stdout + result.stderr)
-                    self.assertEqual((root / "scripts/shader/judged").read_text().split(), ["voiceorb", "plasma", "jarvis-orb", "jarvis-orb-reduced"])
+                    self.assertEqual((root / "scripts/shader/judged").read_text().split(), ["voiceorb", "plasma", "jarvis-orb", "jarvis-orb-reduced", "jarvis-orb-armed"])
             root = Path(scratch) / "mutant-1-77"
             self.assertEqual(self.runner_copy(root, harness, last, [], scene, readings).returncode, 77)
 
@@ -732,7 +732,7 @@ first_name() { echo 'shader-test: stop-after-compile' >&2; return 1; }
                         self.assertEqual(args[:2], ["--test-owner-option", "--test option with spaces"])
                     calls = [json.loads(line) for line in (root / "home/compiler-calls").read_text().splitlines()]
                     self.assertEqual([call[-3:-1] for call in calls], [
-                        ["-o", f"{root}/shell/costly-{shader}.frag.qsb"] for shader in ("voiceorb", "plasma", "jarvis-orb", "jarvis-orb-reduced")])
+                        ["-o", f"{root}/shell/costly-{shader}.frag.qsb"] for shader in ("voiceorb", "plasma", "jarvis-orb", "jarvis-orb-reduced", "jarvis-orb-armed")])
 
     def test_costly_copy_of_each_shader(self):
         # Each costly source is its own shader with the 256-step loop added
@@ -746,7 +746,8 @@ first_name() { echo 'shader-test: stop-after-compile' >&2; return 1; }
         rows = (("voiceorb", "shell/Ui/feedback/shaders/voiceorb.frag", "cost = angle + phase;"),
                 ("plasma", "shell/plugins/vgs.voice/shaders/plasma.frag", "cost = ang + uTime;"),
                 ("jarvis-orb", "shell/plugins/vgs.jarvis/shaders/particleorb.frag", "cost = r + uFlow;"),
-                ("jarvis-orb-reduced", "shell/plugins/vgs.jarvis/shaders/particleorb.frag", "cost = r + uFlow;"))
+                ("jarvis-orb-reduced", "shell/plugins/vgs.jarvis/shaders/particleorb.frag", "cost = r + uFlow;"),
+                ("jarvis-orb-armed", "shell/plugins/vgs.jarvis/shaders/particleorb.frag", "cost = r + uFlow;"))
         with tempfile.TemporaryDirectory() as scratch:
             root = Path(scratch)
             result = self.runner_copy(root, harness, RUNNER.read_text())

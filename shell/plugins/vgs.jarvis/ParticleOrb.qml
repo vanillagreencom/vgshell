@@ -9,11 +9,11 @@ import Quickshell
 // A phase change eases every drawn value to the next look over the look's
 // transition, with Qt animations that end on their own. The driver, which
 // advances the noise field, the turn, the throb and the spark clock, runs
-// only while the orb is active and visible in a shown window, the motion
-// scale is above 0, and the look has its own clock or its driving level is
-// above the look's floor. So the looks with no clock (armed, idle, error,
-// down, muting) stand still once their transition ends, and listening
-// stands still in a silent room. A stopped driver draws the last frame
+// while the orb is active and visible in a shown window and the motion
+// scale is above 0, in every look: each moves at its own base rate, and
+// the driving level, through the look's one input curve, adds to it
+// (Appearance.js, the motion model). At motion scale 0 the driver stops
+// and the orb draws its last frame in every look
 // (docs/architecture/design-system.md § Motion).
 Item {
     id: root
@@ -31,16 +31,19 @@ Item {
     // The window the orb draws in, read as vgs.voice's Plasma reads it: a
     // plugin may not import QtQuick.Window (scripts/check-plugin-boundary.py).
     readonly property var host: QsWindow.window
-    readonly property real target: tone.drive === "capture" ? clamp(capture)
-        : tone.drive === "playback" ? clamp(playback) : 0
+    // The driving level through the input curve.
+    readonly property real target: response(tone.drive === "capture" ? capture
+        : tone.drive === "playback" ? playback : 0)
     // The eased level while the driver runs, the target while it stands.
     readonly property real driven: driver.running ? clock.level : target
-    readonly property bool timed: tone.flow > 0 || tone.quarterTurn > 0 || tone.throb > 0
-    // Motion scale 0 stills every look: the clocks' rates divide by it.
-    readonly property bool moves: look.motion.scale > 0
-        && (timed || target > look.orb.floor || clock.level > look.orb.floor)
 
-    function clamp(level) { return Math.max(0, Math.min(1, level)); }
+    // The look's input curve, (1 - e^(-k x)) / (1 - e^(-k)): 0 at 0, 1 at 1,
+    // continuous and rising.
+    function response(level) {
+        const x = Math.max(0, Math.min(1, level));
+        const k = look.orb.response;
+        return (1 - Math.exp(-k * x)) / (1 - Math.exp(-k));
+    }
 
     implicitWidth: look.orb.size
     implicitHeight: look.orb.size
@@ -149,7 +152,8 @@ Item {
 
     FrameAnimation {
         id: driver
-        running: root.active && root.visible && root.moves
+        // Motion scale 0 stills every look: the clocks' rates divide by it.
+        running: root.active && root.visible && root.look.motion.scale > 0
                  && root.host !== null && root.host.visible
         onTriggered: {
             // A frame after a stall moves the orb by at most 50 ms.

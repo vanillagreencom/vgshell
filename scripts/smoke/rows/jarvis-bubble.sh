@@ -3,9 +3,11 @@
 # runs through the real chained engine and its words are the engine's own
 # captions. No real audio, provider, authentication or network runs.
 # Presentation and state poll once per IPC round trip; no latency budget is
-# claimed. The stillness reading counts the layer window's swapped frames
-# over 3 s of real time after the look settles, its own control the
-# speaking look in the same window, which must swap frames. The icon row
+# claimed. The motion reading counts the layer window's swapped frames
+# over 3 s of real time after the look settles: every state swaps frames
+# (the motion model), and at motion scale 0, which stills every state, the
+# same reading over the fault's look swaps none, so a reader that counts
+# nothing fails the moving states and a still state fails them. The icon row
 # shows only while the pointer rests on the active orb, so a click on an
 # icon hovers the orb first.
 # inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* bin/lib/qml-library.js shell/plugins/vgs.bar/* shell/Ui/controls/Button.qml shell/Ui/controls/IconButton.qml shell/Ui/feedback/LinkText.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Core/Layers.qml shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml scripts/smoke/toplevel/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/diagnostics.sh
@@ -236,7 +238,8 @@ JS
 }
 # `quiet` when the Jarvis layer window the probe watches swaps no frame
 # over 3 s, read after the look's transition and two frames at 60 Hz;
-# `swapped` otherwise.
+# `swapped` otherwise. Every state moves, so a state reads `swapped`; at
+# motion scale 0 every state reads `quiet`.
 jarvis_bubble_still() {
   local transition before after
   transition="$(jarvis_bubble_look_value orb.transition)" || return 1
@@ -648,9 +651,9 @@ jarvis_key_gate hold-close
 jarvis_bubble_click "Mute microphone"
 expect_poll "the Mute button waits for capture to close" muting jarvis_key_state mute
 expect_poll "a closing microphone draws the muting look" muting jarvis_bubble_look
-rest_pointer || fail "the pointer leaves the Mute button before the stillness reading"
+rest_pointer || fail "the pointer leaves the Mute button before the motion reading"
 expect "observe the Jarvis layer's own window" ok ipc smoke watchLayerFrames vgs.jarvis
-expect "the muting orb swaps no frame over 3 s" quiet jarvis_bubble_still
+expect "the muting orb swaps frames over 3 s" swapped jarvis_bubble_still
 jarvis_key_gate close
 rm -- "${jarvis_key_gates:?}/hold-close"
 expect_poll "the labelled Mute button turns privacy mute on" on jarvis_key_state mute
@@ -746,15 +749,13 @@ expect_poll "a right click on Jarvis's words opens the Jarvis menu" "[\"Mute mic
 type_keys -k Escape || fail "Escape on the Jarvis menu over the words failed"
 expect_poll "Escape closes the Jarvis menu over the words" "[]" jarvis_bubble_menu
 rest_pointer || fail "the pointer returns to rest after the words' menu"
-# Stillness. The reply speaks behind the played gate: its look has a clock
-# of its own, so the layer window swaps frames, the control for the
-# readings below in the same window. Each look a phase with no deadline
-# draws then stands still once its transition ends; muting's reading is
-# taken while the Mute button's capture close is held.
+# Motion. Every state moves at its own rate; muting's reading is taken
+# while the Mute button's capture close is held, and the fault's look is
+# read again at motion scale 0, where it must stand still.
 expect_poll "the reply speaks behind the played gate" speaking jarvis_key_state phase
 expect_poll "speaking draws its own look" speaking jarvis_bubble_look
 expect "observe the Jarvis layer's own window" ok ipc smoke watchLayerFrames vgs.jarvis
-expect "control: speaking swaps frames in the window the stillness readings use" swapped jarvis_bubble_still
+expect "speaking swaps frames over 3 s" swapped jarvis_bubble_still
 jarvis_key_stop
 jarvis_key_stop_assertion
 jarvis_key_mode always
@@ -763,7 +764,7 @@ expect_poll "the waiting bubble has presented on its own host" presented jarvis_
 expect_poll "waiting draws the armed look" armed jarvis_bubble_look
 expect "the waiting bubble shows no words" none jarvis_bubble_shown
 expect "observe the Jarvis layer's own window" ok ipc smoke watchLayerFrames vgs.jarvis
-expect "the waiting orb swaps no frame over 3 s" quiet jarvis_bubble_still
+expect "the waiting orb swaps frames over 3 s" swapped jarvis_bubble_still
 # Waiting for the word, the overlay takes no pointer on the orb and shows
 # no icon row.
 if waiting_box="$(jarvis_bubble_required_box ParticleOrb active true)"; then
@@ -780,7 +781,28 @@ jarvis_key_gate device-lost
 expect_poll "device loss shows the fault" retrying jarvis_key_state fault
 expect_poll "the fault draws the error look" error jarvis_bubble_look
 expect "observe the Jarvis layer's own window" ok ipc smoke watchLayerFrames vgs.jarvis
-expect "the fault's orb swaps no frame over 3 s" quiet jarvis_bubble_still
+expect "the fault's orb swaps frames over 3 s" swapped jarvis_bubble_still
+# Motion scale 0 stills every state: the same reading over the same look
+# swaps nothing, the planted still state the readings above must tell
+# from a moving one.
+jarvis_bubble_motion="$(ipc smoke themeValue motion.scale)" || fail "the theme's motion scale is unreadable before the motion-off reading"
+jarvis_bubble_had_theme=false
+if [[ -f ${home:?}/.config/vgshell/theme.json ]]; then
+  cp -- "${home:?}/.config/vgshell/theme.json" "$sandbox/jarvis-bubble-theme.json"
+  jarvis_bubble_had_theme=true
+fi
+printf '%s\n' '{"schemaVersion":1,"name":"jarvis-bubble-motion-off","tokens":{"motion":{"scale":0}}}' >"${home:?}/.config/vgshell/theme.json.tmp"
+mv -T -- "${home:?}/.config/vgshell/theme.json.tmp" "${home:?}/.config/vgshell/theme.json"
+expect_poll "the theme stills motion for the motion-off reading" 0 ipc smoke themeValue motion.scale
+expect "observe the Jarvis layer's own window" ok ipc smoke watchLayerFrames vgs.jarvis
+expect "control: at motion scale 0 the fault's orb swaps no frame over 3 s" quiet jarvis_bubble_still
+if [[ $jarvis_bubble_had_theme == true ]]; then
+  cp -- "$sandbox/jarvis-bubble-theme.json" "${home:?}/.config/vgshell/theme.json.tmp"
+  mv -T -- "${home:?}/.config/vgshell/theme.json.tmp" "${home:?}/.config/vgshell/theme.json"
+else
+  rm -f -- "${home:?}/.config/vgshell/theme.json"
+fi
+expect_poll "the theme's motion returns after the motion-off reading" "$jarvis_bubble_motion" ipc smoke themeValue motion.scale
 jarvis_key_stop
 jarvis_key_stop_assertion
 jarvis_key_gate device-back

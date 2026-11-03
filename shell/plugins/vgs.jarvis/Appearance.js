@@ -19,11 +19,16 @@
 //
 // Each state is one set of the orb shader's inputs (shaders/particleorb.frag).
 // Palette stops run top, upper, lower, bottom over the orb's height; `core`
-// tints the interior's centre and `hot` is the spark colour. A state's own
-// clock is its flow rate, its quarter turn and its throb period; a phase the
-// Session bounds with no deadline has none, so it stands still once its
-// transition ends. `drive` names the level that moves the orb, and the
-// `drive*` numbers are what that level adds at level 1.
+// tints the interior's centre and `hot` is the spark colour.
+//
+// The motion model (owner: "no state should be completely still. its only
+// the rate of movement that should change"): every state moves at its own
+// base rate, its flow (the noise field's rate) and its quarter turn (the
+// swirl), with its own character: scatter, displacement, brightness and
+// presence, and confirming's throb. Input adds to the base: `drive` names
+// the level that does, the capture level while listening and the playback
+// level while speaking, passed through one curve, `orb.response`, and the
+// `drive*` numbers and `levelFlow` are what the curve's 1 adds.
 
 function color(value) { return { type: "color", value: value }; }
 function length(value) { return { type: "length", value: value }; }
@@ -42,7 +47,7 @@ function state(over) {
     var base = {
         palette: REFERENCE, radius: 0.69, amp: 0.18, scatter: 1.0, sparks: 0.012,
         interior: 0.58, rim: 1.2, saturation: 1.3, presence: 1.0, brightness: 1.0, fold: 1.0,
-        flow: 0, levelFlow: 0, quarterTurn: 0, throb: 0, throbDepth: 0,
+        flow: 0.05, levelFlow: 0, quarterTurn: 9000, throb: 0, throbDepth: 0,
         drive: "none", driveAmp: 0, driveScatter: 0, driveBright: 0, driveRadius: 0
     };
     for (var key in over) base[key] = over[key];
@@ -67,10 +72,11 @@ function state(over) {
         presence: share(base.presence),
         brightness: gain(base.brightness),
         fold: share(base.fold),
-        // The noise field's rate in units a second, and what level 1 adds.
+        // The noise field's base rate in units a second, and what the
+        // input curve's 1 adds.
         flow: gain(base.flow),
         levelFlow: gain(base.levelFlow),
-        // A quarter turn about the vertical axis; 0 does not turn.
+        // A quarter turn about the vertical axis, the swirl's base rate.
         quarterTurn: duration(base.quarterTurn),
         // The brightness throb's period and depth; period 0 does not throb.
         throb: duration(base.throb),
@@ -132,23 +138,31 @@ var TOKENS = {
         warp: share(0.22),
         // The fixed tilt about the horizontal axis, in radians.
         tilt: number(0.32, -1.6, 1.6),
-        // A driving level at or below this moves nothing.
-        floor: share(0.02),
+        // The input curve: a level x from 0 to 1 drives the orb by
+        // (1 - e^(-k x)) / (1 - e^(-k)) with k this steepness, an
+        // exponential ease-out that is 0 at 0 and 1 at 1, continuous and
+        // rising, with no step or threshold. At k 3 quiet speech, level
+        // 0.1, moves the orb 27% of the way and a loud voice, level 0.5,
+        // 82%. Capture and playback share it.
+        response: number(3, 0.1, 10),
         // One state's change to the next, and the level's rise and fall.
         transition: duration(400),
         attack: duration(70),
         release: duration(250)
     },
+    // The table each state's line in docs/architecture/jarvis.md § Motion
+    // model states; tst_jarvis_orb.qml holds the base rates to it.
     state: {
-        // Waiting for the wake word, possibly all day: still.
+        // Waiting for the wake word, possibly all day: a slow drift and one
+        // turn in 36 s.
         armed: state({ brightness: 0.9 }),
-        // Up with capture closed and no deadline: the lattice gathers.
-        idle: state({ presence: 0.55, brightness: 0.72 }),
-        // The microphone's level raises the band and moves the field; a
-        // silent room moves nothing.
+        // Up with capture closed: the lattice gathers and drifts slower.
+        idle: state({ presence: 0.55, brightness: 0.72, flow: 0.04, quarterTurn: 10000 }),
+        // The silent room drifts a little faster than waiting; the
+        // microphone's level raises the band and speeds the field.
         listening: state({
             palette: { top: "#40d4ff", upper: "#4a7dff", lower: "#8a4dff", bottom: "#e0409a", core: "#0f5f86", hot: "#c8f4ff" },
-            amp: 0.16, levelFlow: 0.7, drive: "capture", driveAmp: 0.12, driveScatter: 0.8, driveBright: 0.35
+            amp: 0.16, flow: 0.08, quarterTurn: 8000, levelFlow: 0.7, drive: "capture", driveAmp: 0.12, driveScatter: 0.8, driveBright: 0.35
         }),
         thinking: state({
             palette: { top: "#9a8cff", upper: "#5a46e8", lower: "#2ab7c8", bottom: "#3f58d8", core: "#162a6a", hot: "#d9f3ff" },
@@ -168,18 +182,18 @@ var TOKENS = {
         // Waiting on the user's answer: amber, throbbing.
         confirming: state({
             palette: { top: "#ffe08a", upper: "#ffa53d", lower: "#ff6a2b", bottom: "#e8344a", core: "#4a2a08", hot: "#fff2c8" },
-            amp: 0.14, scatter: 0.8, flow: 0.1, throb: 1400, throbDepth: 0.22, sparks: 0.02
+            amp: 0.14, scatter: 0.8, flow: 0.1, quarterTurn: 7000, throb: 1400, throbDepth: 0.22, sparks: 0.02
         }),
         // A fault stays until the next Talk press: the lattice stands
-        // broken and still.
+        // broken and drifts slowly.
         error: state({
             palette: { top: "#ff8a80", upper: "#f0444a", lower: "#c41a35", bottom: "#7d0e2a", core: "#3a0a14", hot: "#ffd0c8" },
-            amp: 0.24, scatter: 1.8, presence: 0.72, sparks: 0, saturation: 1.2
+            amp: 0.24, scatter: 1.8, presence: 0.72, sparks: 0, saturation: 1.2, flow: 0.04, quarterTurn: 10000
         }),
-        // Stopping: grey, thin and smaller, then still.
-        down: state({ saturation: 0.12, presence: 0.4, brightness: 0.55, radius: 0.62, sparks: 0 }),
-        // The microphone is off: the reference in white, still.
-        muting: state({ saturation: 0, brightness: 0.8, sparks: 0.01 })
+        // Stopping: grey, thin and smaller, at the slowest rate.
+        down: state({ saturation: 0.12, presence: 0.4, brightness: 0.55, radius: 0.62, sparks: 0, flow: 0.03, quarterTurn: 10000 }),
+        // The microphone is off: the reference in white, at the slowest rate.
+        muting: state({ saturation: 0, brightness: 0.8, sparks: 0.01, flow: 0.03, quarterTurn: 10000 })
     },
     // The icon row's glyphs: at rest, under the pointer or pressed, and the
     // focus ring. A toggle that is on draws the accent. The row shows only

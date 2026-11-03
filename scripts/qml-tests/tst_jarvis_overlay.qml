@@ -103,7 +103,7 @@ Item {
             tryCompare(bubble, "iconOpacity", 0, 2000);
         }
 
-        // The idle and the other still states take no pointer on the orb;
+        // The idle and the other waiting states take no pointer on the orb;
         // every active state takes it on the hit square over the orb's
         // centre.
         function test_only_an_active_overlay_takes_the_orb_data() {

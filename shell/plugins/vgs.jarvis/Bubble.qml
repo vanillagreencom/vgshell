@@ -23,7 +23,7 @@ import "WidgetView.js" as View
 // hit square to the row's far corner, and the look's `icon.hold` keep it
 // shown on the way to an icon. A right click on any of them opens the
 // Jarvis menu (WidgetView.menuEntries) at the click; the overlay stays
-// shown while it is open. In the still states (waiting for the word,
+// shown while it is open. In the waiting states (waiting for the word,
 // getting ready, muted, stopping) the overlay takes no pointer and shows
 // no icon row: the bar widget's right-click menu is the way to the same
 // entries.
@@ -141,7 +141,7 @@ Item {
         .concat(active && iconsShown ? [bridge] : [])
         .concat(active ? textItems.filter(item => root.drawn(item)) : [])
         .concat(hold === null ? [] : [cancel, confirm])
-        // A fault behind the muted microphone's still look keeps its link.
+        // A fault behind the muted microphone's look keeps its link.
         .concat(!active && faultAction.visible && faultAction.linked ? [faultAction] : [])
     // Whether ITEM and every item over it up to the overlay show.
     function drawn(item) {
@@ -259,8 +259,8 @@ Item {
         }
 
         // Waiting for the wake word is the resting look: the room's sound is
-        // not speech to Jarvis, and a wait can last all day, so it draws no
-        // level and stands still (ParticleOrb's driver).
+        // not speech to Jarvis, so it draws no level and drifts at its slow
+        // base rate (Appearance.js, the motion model).
         ParticleOrb {
             id: orb
             look: root.look

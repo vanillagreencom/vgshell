@@ -17,7 +17,9 @@ import "plugins/vgs.jarvis/Appearance.js" as JarvisLook
 // for an integrated GPU (jarvis-orb-reduced): speaking is the one look
 // whose level widens the orb's radius (Appearance.js `driveRadius`), and
 // the shader returns at once past 1.3 radii, so it gives the most pixels
-// the shader's full work.
+// the shader's full work. jarvis-orb-armed is the full orb waiting for the
+// wake word at level 0, its base rate alone: the look that can stay up all
+// day, which the motion model now moves every frame.
 // The off scene keeps the same
 // animation and background; only the shader stops drawing. The scene
 // selects the shader's own effect by its pack, so a visual that holds a
@@ -32,7 +34,7 @@ ShellRoot {
     readonly property bool complete: frames >= 730
 
     readonly property var packs: ({ voiceorb: "voiceorb.frag.qsb", plasma: "plasma.frag.qsb", "jarvis-orb": "particleorb.frag.qsb",
-                                    "jarvis-orb-reduced": "particleorb.frag.qsb" })
+                                    "jarvis-orb-reduced": "particleorb.frag.qsb", "jarvis-orb-armed": "particleorb.frag.qsb" })
 
     function plant(item) {
         const effect = item.children.find(child => child instanceof ShaderEffect && String(child.fragmentShader).endsWith("/" + root.packs[root.shader]));
@@ -54,7 +56,7 @@ ShellRoot {
             id: visual
             anchors.fill: parent
             sourceComponent: root.shader === "plasma" ? plasma
-                : root.shader === "jarvis-orb" || root.shader === "jarvis-orb-reduced" ? particle : orb
+                : root.shader.startsWith("jarvis-orb") ? particle : orb
             onLoaded: root.plant(item)
         }
         // QQuickWindow.update requests rendering even without scene changes:
@@ -101,8 +103,8 @@ ShellRoot {
         Jarvis.ParticleOrb {
             active: !root.complete
             look: Theme.appearance(JarvisLook.TOKENS, JarvisLook.LIGHT)
-            phase: "speaking"
-            playback: 1
+            phase: root.shader === "jarvis-orb-armed" ? "armed" : "speaking"
+            playback: root.shader === "jarvis-orb-armed" ? 0 : 1
             reduced: root.shader === "jarvis-orb-reduced"
         }
     }
