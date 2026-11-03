@@ -6601,10 +6601,12 @@ power_shot_pages() { # MODE SUFFIX
 # "Sleep after" is the field the middle frame reveals: it sits near the
 # middle of the scroll of a section tall enough to need that frame.
 power_shot_pane_pages() { # NAME
-  local name="$1" from=0 reach
+  local name="$1" from=0 reach first=(FormRow Dim)
   # The System window has separate navigation and content scroll areas.
   # Revealing a content field selects the latter without a new probe API.
-  ipc smoke revealText window vgs.system FormRow Dim >/dev/null || { fail "Power's section did not reveal its first field"; return; }
+  # The section's first field is Stay awake's where the tree ships it.
+  if [[ -f $tree/shell/plugins/vgs.power/StayAwake.qml ]]; then first=(Field Duration); fi
+  ipc smoke revealText window vgs.system "${first[@]}" >/dev/null || { fail "Power's section did not reveal its first field"; return; }
   expect_poll "Power's section is at its top" True power_shot_pane_coverage top 0
   take "$name"
   reach="$(power_shot_pane_coverage reach 0)" || reach=""
@@ -6620,7 +6622,7 @@ power_shot_pane_pages() { # NAME
   ipc smoke revealText window vgs.system Field "Wake sources" >/dev/null || { fail "Power's section did not reveal its wake field"; return; }
   expect_poll "Power's end shot reaches the section's end and overlaps the shot before" True power_shot_pane_coverage end "$from"
   take "$name-end"
-  ipc smoke revealText window vgs.system FormRow Dim >/dev/null || fail "Power's section did not return to its top"
+  ipc smoke revealText window vgs.system "${first[@]}" >/dev/null || fail "Power's section did not return to its top"
 }
 
 # Whether the section's scroll is at its top; whether a frame at its end

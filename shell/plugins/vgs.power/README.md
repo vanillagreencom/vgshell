@@ -4,7 +4,7 @@ Power shows the battery level in the bar, or the power profile on a computer wit
 
 ![The Power flyout with battery level, Stay awake and profile choices](../../../docs/images/plugins/vgs.power-panel.webp)
 
-![System Settings → Power: Stay awake, the idle timeline with each step's time, then the battery alert and power profile fields](../../../docs/images/plugins/vgs.power-pane.webp)
+![System Settings → Power: the idle timeline with each step's time, then the battery alert and power profile fields](../../../docs/images/plugins/vgs.power-pane.webp)
 
 ## Features
 
