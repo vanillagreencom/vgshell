@@ -196,7 +196,6 @@ share_owner_only() { python3 -c 'import os,pathlib,sys; p=pathlib.Path(sys.argv[
 share_calls() { device_calls systemctl | py_reply 'import json,sys; before=len(json.loads(sys.argv[1])); want=sys.argv[2:]; print(sum(c==want for c in json.load(sys.stdin)[before:]))' "$share_restarts_before" "$@"; }
 share_restarts() { share_calls "${share_restart_argv[@]}"; }
 share_restarted() { [[ $(share_restarts) -ge 1 ]] && echo True || echo False; }
-share_released() { [[ $(share_calls "${share_release_argv[@]}") -ge 1 ]] && echo True || echo False; }
 share_dismiss_tools_notice() {
   if [[ $(notice_shown) != null ]]; then
     expect_poll "the optional capture tools notice has the keyboard" true ipc smoke noticeFocused
@@ -225,11 +224,13 @@ settings_setup
 expect "Setup lists no sharing step" '[]' share_setup_keys
 expect "Settings hides after its sharing status assertions" ok ipc shell hide window vgs.settings
 # Turning Capture off gives xdph its own picker back, since no capture
-# service would answer the VGS one, and turning it on claims it again.
-expect "control: before Capture turns off, nothing released the picker" False share_released
+# service would answer the VGS one, and turning it on claims it again. The
+# planted busctl reads a portal started now, so the release finds no older
+# backend to restart; scripts/test-share-picker.py holds the restart and
+# its wait on a share.
+expect "control: before Capture turns off, the file names the VGS picker" False share_owner_only
 expect "Capture turns off after its setup" ok ipc shell setPluginEnabled vgs.capture false
 expect_poll "turning Capture off removes the VGS picker and keeps the owner's lines" True share_owner_only
-expect_poll "the release restarts a running portal" True share_released
 expect "Capture turns on again for sharing" ok ipc shell setPluginEnabled vgs.capture true
 expect_poll "capture's service is built again" True record_exists vgs.capture
 share_dismiss_tools_notice

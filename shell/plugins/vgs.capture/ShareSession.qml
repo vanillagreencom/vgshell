@@ -62,7 +62,9 @@ Item {
     // The user's Off: xdph goes back to its own picker, since no capture
     // service answers the VGS one. Detached, as the service ends now
     // (turnedOff, .agents/skills/vgs-plugin/references/api.md § Kinds); a
-    // reload, a rescan or a shell exit keeps the picker.
+    // reload, a rescan or a shell exit keeps the picker. The release owns
+    // its outcome from here: it waits out a share and tells the user itself
+    // when the portal cannot let the picker go (bin/vgshell-share-picker).
     function turnedOff() {
         if (shell === null) return;
         const reply = shell.run.detached([pickerPath, "--release"]);

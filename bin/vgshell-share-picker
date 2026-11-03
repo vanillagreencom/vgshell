@@ -34,6 +34,11 @@ SHARE_RUNNING_EXIT = 76
 # pw_stream_new), and pw_stream_new stores that name as `media.name`
 # (PipeWire 1.4.0 src/pipewire/stream.c); `node.name` is the application's.
 SHARE_STREAM_PREFIX = "xdph-streaming-"
+# A release that waits out a share reads it again each RELEASE_POLL
+# seconds, the capture service's own retry interval, and gives up after
+# RELEASE_ATTEMPTS failed readings or restarts in a row, about five minutes.
+RELEASE_POLL = 60.0
+RELEASE_ATTEMPTS = 5
 CHILD_ENV = (
     "PATH", "HOME", "XDG_CONFIG_HOME", "XDG_RUNTIME_DIR", "XDG_DATA_HOME",
     "XDG_CACHE_HOME", "XDG_STATE_HOME", "WAYLAND_DISPLAY", "DBUS_SESSION_BUS_ADDRESS",
@@ -380,12 +385,8 @@ def read_config(directory):
     return original, text
 
 
-def portal_state(config, stopped):
-    # xdph reads its config once, in CPortalManager's constructor. systemd's
-    # ExecMainStartTimestamp is a uint64 CLOCK_REALTIME microsecond value:
-    # https://www.freedesktop.org/software/systemd/man/org.freedesktop.systemd1.html
-    # A backend older than the file cannot have accepted that write, even
-    # when a refused restart leaves it inactive.
+def portal_active(stopped):
+    # The backend unit's ActiveState, refused unless the unit is loaded.
     reply = run_child(
         ["systemctl", "--user", "show",
          "--property=LoadState", "--property=ActiveState",
@@ -401,10 +402,12 @@ def portal_state(config, stopped):
     if properties.get("LoadState") != "loaded":
         raise PickerError("portal-probe=unit-not-loaded")
     active = properties.get("ActiveState")
-    if active in ("failed", "activating", "deactivating", "reloading"):
-        return "needed"
-    if active not in ("active", "inactive"):
+    if active not in ("active", "inactive", "failed", "activating", "deactivating", "reloading"):
         raise PickerError("portal-probe=invalid-active-state")
+    return active
+
+
+def portal_started_ns(stopped):
     # The object is systemd's escaped form of the fixed backend unit name.
     # Query the service manager, so a probe never activates the portal backend.
     timestamp = run_child(
@@ -416,8 +419,18 @@ def portal_state(config, stopped):
     match = re.fullmatch(r"t ([0-9]+)\n?", timestamp)
     if not match:
         raise PickerError("portal-probe=invalid-start-time")
-    started_ns = int(match[1]) * 1000
-    return "ready" if started_ns >= config.st_mtime_ns else "needed"
+    return int(match[1]) * 1000
+
+
+def portal_state(config, stopped):
+    # xdph reads its config once, in CPortalManager's constructor. systemd's
+    # ExecMainStartTimestamp is a uint64 CLOCK_REALTIME microsecond value:
+    # https://www.freedesktop.org/software/systemd/man/org.freedesktop.systemd1.html
+    # A backend older than the file cannot have accepted that write, even
+    # when a refused restart leaves it inactive.
+    if portal_active(stopped) not in ("active", "inactive"):
+        return "needed"
+    return "ready" if portal_started_ns(stopped) >= config.st_mtime_ns else "needed"
 
 
 def probe(stopped):
@@ -531,37 +544,114 @@ def configure(stopped=None):
         os.close(directory)
 
 
-def release(stopped=None):
-    # The capture service runs this, detached, when the user turns Capture
-    # off: with no capture service a request the VGS picker takes fails, so
-    # xdph goes back to its own picker. Only the picker's lines go.
-    stopped = stopped or threading.Event()
+def release_file():
+    # The released file's stat, or None when no file holds a VGS picker.
     try:
         directory = config_directory(create=False)
     except FileNotFoundError:
-        return
+        return None
     try:
         original, text = read_config(directory)
         released = text if original is None else release_config(text)
         if released == text:
-            return
+            return None
         installed = replace_config(directory, released, original, stat.S_IMODE(original.st_mode))
         same_config(directory, installed)
-        try:
-            # As configure: a restart stops every share, so one that runs
-            # leaves the file for the next backend start. try-restart starts
-            # no backend that is not running; one that starts reads the file.
-            # https://www.freedesktop.org/software/systemd/man/systemctl.html
-            if share_running(stopped):
-                raise ShareRunning("release=waiting cause=share-running")
-            run_child(["systemctl", "--user", "try-restart", "xdg-desktop-portal-hyprland.service"],
-                      stopped, PORTAL_RESTART_TIMEOUT, "portal-restart")
-        except ShareRunning:
-            raise
-        except (OSError, PickerError) as error:
-            raise ActivationNeeded("release=needed cause=" + str(error)) from error
+        return installed
     finally:
         os.close(directory)
+
+
+def file_claims_picker():
+    # Whether xdph.conf names a VGS picker: Capture is on again, and its
+    # setup owns the backend from here.
+    try:
+        directory = config_directory(create=False)
+    except FileNotFoundError:
+        return False
+    try:
+        original, text = read_config(directory)
+        return original is not None and release_config(text) != text
+    finally:
+        os.close(directory)
+
+
+def portal_holds_older(config, stopped):
+    # Whether a running backend started before CONFIG's write, so it still
+    # holds the picker it read then. One that is not running, or a unit that
+    # is not installed, holds nothing, and a next start reads the file.
+    try:
+        active = portal_active(stopped)
+    except PickerError as error:
+        if str(error) == "portal-probe=unit-not-loaded":
+            return False
+        raise
+    if active in ("inactive", "failed"):
+        return False
+    return portal_started_ns(stopped) < config.st_mtime_ns
+
+
+def tell(body):
+    # One notification, through the session's notification server, for an
+    # outcome the user meets later and no shell part is left to show. Its
+    # failure leaves the cause on stderr alone. gdbus parses each argument
+    # as GVariant text, whose string literal JSON's escapes satisfy:
+    # https://docs.gtk.org/glib/gvariant-text-format.html
+    try:
+        run_child(["gdbus", "call", "--session", "--dest", "org.freedesktop.Notifications",
+                   "--object-path", "/org/freedesktop/Notifications",
+                   "--method", "org.freedesktop.Notifications.Notify",
+                   json.dumps("Capture"), "0", json.dumps("camera"), json.dumps("Screen sharing"),
+                   json.dumps(body), "[]", "{}", "-1"], threading.Event(), IPC_TIMEOUT, "notify")
+    except (OSError, PickerError) as error:
+        print("share-picker: refused: " + str(error), file=sys.stderr)
+
+
+def release(stopped=None):
+    # The capture service starts this, detached, when the user turns
+    # Capture off: with no capture service a request the VGS picker takes
+    # fails, so xdph goes back to its own picker. Only the picker's lines go.
+    # This process alone owns that until the running backend no longer
+    # holds the picker: it waits out a share, since a restart stops every
+    # one, checking each RELEASE_POLL seconds, and ends once Capture claims
+    # the picker again. A reading or restart that fails RELEASE_ATTEMPTS
+    # times in a row tells the user and ends.
+    stopped = stopped or threading.Event()
+    try:
+        written = release_file()
+    except (OSError, UnicodeError, PickerError, ValueError):
+        tell("Capture is off, but VGS could not change your screen sharing settings, so sharing your screen fails. "
+             "Turn Capture on to share your screen.")
+        raise
+    if written is None:
+        return
+    failures, restarted = 0, False
+    while not stopped.is_set():
+        try:
+            if file_claims_picker() or not portal_holds_older(written, stopped):
+                return
+            if restarted:
+                raise PickerError("release=restart-not-taken")
+            elif share_running(stopped):
+                failures = 0
+            else:
+                # try-restart starts no backend that is not running:
+                # https://www.freedesktop.org/software/systemd/man/systemctl.html
+                run_child(["systemctl", "--user", "try-restart", "xdg-desktop-portal-hyprland.service"],
+                          stopped, PORTAL_RESTART_TIMEOUT, "portal-restart")
+                restarted = True
+                continue
+        except (OSError, UnicodeError, PickerError, ValueError) as error:
+            if stopped.is_set():
+                break
+            failures, restarted = failures + 1, False
+            print("share-picker: release=retrying cause=" + str(error), file=sys.stderr)
+            if failures >= RELEASE_ATTEMPTS:
+                tell("Capture is off, but screen sharing could not restart without it, so sharing your screen fails "
+                     "until you log in again. Turn Capture on to share your screen now.")
+                raise ActivationNeeded("release=needed cause=" + str(error)) from error
+        stopped.wait(RELEASE_POLL)
+    raise PickerError("release=interrupted")
 
 
 def main():

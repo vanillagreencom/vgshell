@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- When an app asks to share your screen, VGS's own picker opens, with no setup step. VGS sets it up when Capture starts, keeps every other line of your screen sharing settings, and waits while an app shares your screen, since setup restarts screen sharing. Turning Capture off gives screen sharing its own picker back. The picker's preview stays in place while its list scrolls, and the row you select scrolls into view under it.
+- When an app asks to share your screen, VGS's own picker opens, with no setup step. VGS sets it up when Capture starts, keeps every other line of your screen sharing settings, and waits while an app shares your screen, since setup restarts screen sharing. Turning Capture off gives screen sharing its own picker back once no app shares your screen, and a notification says so when it cannot. The picker's preview stays in place while its list scrolls, and the row you select scrolls into view under it.
 
 ## 0.1.4 (2026-11-03)
 
