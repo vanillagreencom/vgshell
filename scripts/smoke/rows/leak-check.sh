@@ -42,6 +42,9 @@
 # the stop's 10 s TERM threshold. A layer whose owner process is gone, kept by a
 # holder of its connection, reads unreadable at once under its own key, and
 # the holder diagnostic names that holder.
+# A stopped bar planted only in read_bar_settled's batch reply, polled
+# every 0.2 s for 5 s, fails that reading once, and its owner line names
+# the bar's address, PID and stop.
 # smoke_row puts the pointer at rest before every row it runs outside
 # another row: a planted row run so, with the pointer moved away first,
 # reads the pointer at rest when it starts.
@@ -337,6 +340,42 @@ expected=json.loads(sys.argv[1])[2]; stop=sys.argv[2]
 reports=[json.loads(line.split("layer-owner ",1)[1]) for line in sys.stdin if "layer-owner {" in line]
 print(str(any(l["pid"]==expected["pid"] and l["address"]==expected["address"] and l["stop"]==stop and l["liveness"]["status"] in ("gone","ended") for r in reports for l in r["layers"])).lower())' "$lc_stopped_layer" "$lc_stop_key" <"$sandbox/leak-plant-stopped-layer.log"
   control_output "$sandbox/leak-plant-stopped-layer.log"
+
+  # The same stopped bar planted only in read_bar_settled's batch reply:
+  # its failure names that bar's owner from the failing poll's own reply,
+  # and the unplanted read before it prints no owner line.
+  lc_bar_screen="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])[0])' "$lc_stopped_layer" </dev/null)"
+  cat >"$lc_plants/leak-plant-bar-settled.sh" <<'SH'
+read_bar_settled "the unplanted bar set settles"
+lc_native_hypr="$(declare -f hypr)"
+eval "lc_native_$lc_native_hypr"
+hypr() {
+  if [[ $* == "--batch j/monitors; j/layers" ]]; then
+    lc_native_hypr "$@" | py_reply 'import json,sys
+text=sys.stdin.read(); decoder, at, parts = json.JSONDecoder(), 0, []
+while len(parts) < 2:
+    while text[at].isspace(): at += 1
+    part, at = decoder.raw_decode(text, at); parts.append(part)
+screen,level,layer=json.loads(sys.argv[1])
+parts[1][screen]["levels"][level].append(layer)
+print(json.dumps(parts[0])); print(json.dumps(parts[1]))' "$lc_stopped_layer"
+  else
+    lc_native_hypr "$@"
+  fi
+}
+read_bar_settled "the planted bar set settles"
+SH
+  expect "control: a planted second bar fails the bar-settled reading once" 1 lc_planted leak-plant-bar-settled
+  expect "control: the bar-settled failure line keeps its reading" 1 grep -c -x -F -e "  FAIL  the planted bar set settles: got unsettled $lc_bar_screen.bars=2" -- "$sandbox/leak-plant-bar-settled.log"
+  expect "control: one owner line follows the failure, and the settled read prints none" true python3 -c 'import sys
+s=sys.stdin.read().splitlines(); failure=[i for i,l in enumerate(s) if l.startswith("  FAIL  the planted bar set settles: ")]
+owners=[i for i,l in enumerate(s) if "layer-owner " in l]
+print(str(len(failure)==1 and len(owners)==1 and owners[0]>failure[0] and any(l=="  ok    the unplanted bar set settles" for l in s)).lower())' <"$sandbox/leak-plant-bar-settled.log"
+  expect "control: the bar-settled owner line names the planted address, screen, PID and acknowledged stop" true py_reply 'import json,sys
+screen,_,expected=json.loads(sys.argv[1]); stop=sys.argv[2]
+reports=[json.loads(line.split("layer-owner ",1)[1]) for line in sys.stdin if "layer-owner {" in line]
+print(str(any(l["pid"]==expected["pid"] and l["address"]==expected["address"] and l["screen"]==screen and l["stop"]==stop and l["liveness"]["status"] in ("gone","ended") for r in reports for l in r["layers"])).lower())' "$lc_stopped_layer" "$lc_stop_key" <"$sandbox/leak-plant-bar-settled.log"
+  control_output "$sandbox/leak-plant-bar-settled.log"
 
   # The same namespace still satisfies legacy settlement. Its diagnostic
   # hostOwner must depend on PID, and must never alter that verdict.

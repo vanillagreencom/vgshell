@@ -2700,27 +2700,37 @@ monitor_size() { hypr -j monitors | py_reply 'import json,sys; m=json.load(sys.s
 # holding one bar for each Hyprland monitor and no other, Hyprland mapping
 # one live vgs:bar layer on each monitor, and the first monitor reserving
 # space. A removed monitor's bar that still stands is a second bar on a
-# remaining monitor, which then reserves the bar's height twice.
-bar_settled() {
+# remaining monitor, which then reserves the bar's height twice. LAYERS
+# takes the batch's own layers reply.
+bar_settled() { # LAYERS
   local screens
   screens="$(bar_screens)" || return
-  hypr --batch 'j/monitors; j/layers' | bar_settled_judge "$screens"
+  hypr --batch 'j/monitors; j/layers' | bar_settled_judge "$screens" "$1"
 }
 # The screen names the core's build records hold a bar for.
 bar_screens() { ipc shell built | py_reply 'import json,sys; print(" ".join(k[4:] for k in json.load(sys.stdin) if k.startswith("bar:")))'; }
-# bar_settled_judge SCREENS: bar_settled's verdict over SCREENS, the screen
-# names the core built a bar for, and the monitors and layers replies of
-# one hyprctl batch on stdin.
-bar_settled_judge() { # SCREENS
+# bar_settled_judge SCREENS [LAYERS]: bar_settled's verdict over SCREENS,
+# the screen names the core built a bar for, and the monitors and layers
+# replies of one hyprctl batch on stdin. Given LAYERS, it also writes the
+# layers reply's own text there.
+bar_settled_judge() { # SCREENS [LAYERS]
   py_reply '
 import json, sys
 text = sys.stdin.read()
 decoder, at, parts = json.JSONDecoder(), 0, []
 while len(parts) < 2:
     while text[at].isspace(): at += 1
+    start = at
     part, at = decoder.raw_decode(text, at)
     parts.append(part)
 monitors, layers = parts
+if len(sys.argv) > 2:
+    # Diagnostic only: an unwritten copy reads as no layers, never a verdict.
+    try:
+        with open(sys.argv[2], "w") as kept:
+            kept.write(text[start:at] + "\n")
+    except OSError:
+        pass
 built, names = sorted(sys.argv[1].split()), sorted(m["name"] for m in monitors)
 out = []
 if built != names:
@@ -2732,18 +2742,22 @@ for name in sorted(set(names) | set(layers)):
 m = monitors[0]
 if m["reserved"][1] <= 0:
     out.append("reserved=%d" % m["reserved"][1])
-print("unsettled " + " ".join(out) if out else "%d %d %d" % (round(m["width"] / m["scale"]), round(m["height"] / m["scale"]), m["reserved"][1]))' "$1"
+print("unsettled " + " ".join(out) if out else "%d %d %d" % (round(m["width"] / m["scale"]), round(m["height"] / m["scale"]), m["reserved"][1]))' "$@"
 }
 # read_bar_settled LABEL: mon_w, mon_h and bar_reserved from bar_settled,
 # polled as expect_poll polls, for a row that reads the bar's reserved
 # height after a row that changed the monitors or the bar. A reading that
-# does not settle fails LABEL with the last reading and keeps the three.
+# does not settle fails LABEL with the last reading and keeps the three,
+# then prints the owner of each layer that last poll's own layers reply
+# holds, through the leak check's diagnostic on a reading directory laid
+# out as leak_read lays one out.
 read_bar_settled() { # LABEL
-  local got="" err="$sandbox/reader-$BASHPID.stderr" settled
+  local got="" err="$sandbox/reader-$BASHPID.stderr" layers="$sandbox/reader-$BASHPID.layers" settled reading
   smoke_poll_tries 200
   for _ in $(seq 1 "$smoke_poll_n"); do
     settled=false
-    if got="$(bar_settled 2>"$err")" && [[ $got =~ ^[0-9]+\ [0-9]+\ [0-9]+$ ]]; then settled=true; fi
+    rm -f -- "$layers"
+    if got="$(bar_settled "$layers" 2>"$err")" && [[ $got =~ ^[0-9]+\ [0-9]+\ [0-9]+$ ]]; then settled=true; fi
     reader_stderr "$1" "$err" || return 0
     if [[ $settled == true ]]; then
       read -r mon_w mon_h bar_reserved <<<"$got"
@@ -2753,6 +2767,14 @@ read_bar_settled() { # LABEL
     sleep 0.2
   done
   fail "$1: got $got"
+  if ! reading="$(mktemp -d "$sandbox/bar-settled.XXXXXX")"; then
+    printf 'qml-smoke: evidence=bar-settled-reading-failed label=%s\n' "$1" >&2
+    return 0
+  fi
+  printf 'unavailable:no-probe\n' >"$reading/layers.probe"
+  printf '%s\n' "${shell_qs_pid:-}" >"$reading/layers.pid"
+  mv -- "$layers" "$reading/layers.raw" 2>/dev/null || printf 'unavailable:no-layers\n' >"$reading/layers.raw"
+  leak_layer_diagnostics "$reading"
 }
 # The first monitor's mode as WxH, its logical width, and its name.
 first_mode() { hypr -j monitors | python3 -c 'import json,sys; m=json.load(sys.stdin)[0]; print("%dx%d" % (m["width"], m["height"]))'; }
