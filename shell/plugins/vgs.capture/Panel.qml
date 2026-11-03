@@ -289,12 +289,18 @@ Item {
                     }
                 }
 
-                LinkText {
+                Column {
                     width: parent.width
-                    role: "hint"
-                    wrapMode: Text.Wrap
-                    onPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
-                    text: "More options are in [Settings](page:vgs.capture/Settings)."
+                    // One blank body line above the closing line, this
+                    // column's row gap included.
+                    topPadding: Theme.stack.titleSpace - parent.spacing
+                    LinkText {
+                        width: parent.width
+                        role: "hint"
+                        wrapMode: Text.Wrap
+                        onPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
+                        text: "More options are in [Settings](page:vgs.capture/Settings)."
+                    }
                 }
             }
         }

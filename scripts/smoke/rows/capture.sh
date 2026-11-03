@@ -1825,7 +1825,7 @@ capture_setting constantFrameRate false
 capture_setting recordCursor true
 capture_setting audioSources '[{"name": "source-1", "source": "device:fixture-speaker.monitor"}]'
 capture_setting webcam true
-capture_chosen="$(capture_words -w "$capture_output|v4l2:/dev/video7;x=74%;y=69%;width=22%;height=22%;camera_fps=30" -f 30 -k hevc -q ultra -fm vfr -cursor yes -a default_output -a device:fixture-speaker.monitor -ac aac)"
+capture_chosen="$(capture_words -w "$capture_output|v4l2:/dev/video7;halign=end;valign=end;x=-48;y=-48;width=22%;height=22%;camera_fps=30" -f 30 -k hevc -q ultra -fm vfr -cursor yes -a default_output -a device:fixture-speaker.monitor -ac aac)"
 capture_record record-output "record settings"
 expect "every recording setting reaches the recorder" "$capture_chosen" capture_argv
 capture_mutate options
@@ -2115,8 +2115,10 @@ if plugged:
     doc["nodes"] = [
         {"id": 40, "type": "PipeWire:Interface:Node", "info": {"props": {"media.class": "Audio/Source", "node.name": "fixture-mic", "node.description": "Fixture microphone"}}},
         {"id": 41, "type": "PipeWire:Interface:Node", "info": {"props": {"media.class": "Audio/Sink", "node.name": "fixture-speaker", "node.description": "Fixture speaker"}}},
-        {"id": 42, "type": "PipeWire:Interface:Node", "info": {"props": {"media.class": "Video/Source", "node.name": "fixture-camera", "node.description": "Fixture camera", "api.v4l2.path": "/dev/video7"}}},
-        {"id": 44, "type": "PipeWire:Interface:Node", "info": {"props": {"media.class": "Video/Source", "node.name": "plugged-camera", "node.description": "Plugged camera", "api.v4l2.path": "/dev/video8"}}},
+        {"id": 42, "type": "PipeWire:Interface:Node", "info": {"props": {"media.class": "Video/Source", "node.name": "fixture-camera", "node.description": "Fixture camera", "api.v4l2.path": "/dev/video7"},
+         "params": {"EnumFormat": [{"mediaType": "video", "mediaSubtype": "raw", "format": "YUY2"}]}}},
+        {"id": 44, "type": "PipeWire:Interface:Node", "info": {"props": {"media.class": "Video/Source", "node.name": "plugged-camera", "node.description": "Plugged camera", "api.v4l2.path": "/dev/video8"},
+         "params": {"EnumFormat": [{"mediaType": "video", "mediaSubtype": "raw", "format": "YUY2"}]}}},
     ]
 with open(path + ".next", "w") as output:
     json.dump(doc, output)

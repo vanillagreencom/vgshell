@@ -193,7 +193,8 @@ match tool:
         print(json.dumps(config.get("nodes", [
             {"id": 40, "type": "PipeWire:Interface:Node", "info": {"props": {"media.class": "Audio/Source", "node.name": "fixture-mic", "node.description": "Fixture microphone"}}},
             {"id": 41, "type": "PipeWire:Interface:Node", "info": {"props": {"media.class": "Audio/Sink", "node.name": "fixture-speaker", "node.description": "Fixture speaker"}}},
-            {"id": 42, "type": "PipeWire:Interface:Node", "info": {"props": {"media.class": "Video/Source", "node.name": "fixture-camera", "node.description": "Fixture camera", "api.v4l2.path": "/dev/video7"}}},
+            {"id": 42, "type": "PipeWire:Interface:Node", "info": {"props": {"media.class": "Video/Source", "node.name": "fixture-camera", "node.description": "Fixture camera", "api.v4l2.path": "/dev/video7"},
+                                                                   "params": {"EnumFormat": [{"mediaType": "video", "mediaSubtype": "raw", "format": "YUY2"}]}}},
             {"id": 43, "type": "PipeWire:Interface:Link", "info": {}},
         ])))
     case "ffmpeg":

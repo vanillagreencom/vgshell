@@ -103,8 +103,12 @@ OCR_FAILURES = (
 # Tesseract's -l: language codes joined by +, such as eng+deu or chi_sim.
 LANGUAGES = re.compile(r"[A-Za-z_]+(\+[A-Za-z_]+)*")
 AUDIO = {"desktop": "default_output", "microphone": "default_input", "both": "default_output|default_input"}
-# gpu-screen-recorder's camera overlay, placed as v1 placed it.
-WEBCAM = ";x=74%;y=69%;width=22%;height=22%;camera_fps=30"
+# gpu-screen-recorder's camera overlay: the camera, kept to its aspect ratio
+# inside 22% of the video's width and height, stands in the bottom-right
+# corner, and x and y move it in from that corner by the same 48 pixels on
+# both sides. An end-aligned source's x and y are offsets from that corner
+# (gpu-screen-recorder 6.1.6 src/utils.c gsr_capture_get_target_position).
+WEBCAM = ";halign=end;valign=end;x=-48;y=-48;width=22%;height=22%;camera_fps=30"
 # gpu-screen-recorder 6.1.6 opens a file with up to 84 ms of silence, then a
 # hard step into the input and a discontinuity by 116 ms, and ends it wherever
 # the stop cut the input: VGS-2241's decoded PCM of its recordings from a
@@ -773,8 +777,11 @@ class Capture:
             elif kind == "Audio/Sink" and name:
                 # The recorder reads a sink's sound through its monitor source.
                 audio.append(("Monitor of " + str(label), "device:" + name + ".monitor"))
-            elif kind == "Video/Source" and props.get("api.v4l2.path"):
+            elif kind == "Video/Source" and props.get("api.v4l2.path") and recordable(node):
                 cameras.append((label or props["api.v4l2.path"], props["api.v4l2.path"]))
+        # Two cameras of one model share a description; their paths tell them apart.
+        labels = [label for label, _ in cameras]
+        cameras = [(f"{label} ({path})" if labels.count(label) > 1 else label, path) for label, path in cameras]
         return {"audioSources": choices(audio), "cameras": choices(cameras)}
 
     def languages(self):
@@ -804,6 +811,23 @@ class Capture:
 def emit(event, **fields):
     """Publish one event to the owning service, without captured text."""
     print(json.dumps({"event": event, **fields}), flush=True)
+
+
+def recordable(node):
+    """Whether a PipeWire camera node offers a format the recorder records.
+
+    gpu-screen-recorder 6.1.6 records a camera only as YUYV or MJPEG
+    (src/capture/v4l2.c gsr_capture_v4l2_get_supported_pixfmts). PipeWire
+    1.6.10's V4L2 node offers those as EnumFormat params of subtype raw with
+    format YUY2 and of subtype mjpg (spa/plugins/v4l2/v4l2-utils.c
+    format_info), which pw-dump prints by those short names
+    (src/tools/pw-dump.c put_pod_value). An infrared node offers GRAY8 alone.
+    A node whose formats pw-dump did not report is not offered, as nothing
+    shows the recorder can read it.
+    """
+    formats = ((node.get("info") or {}).get("params") or {}).get("EnumFormat") or []
+    return any(isinstance(item, dict) and (item.get("mediaSubtype") == "mjpg" or (item.get("mediaSubtype") == "raw" and item.get("format") == "YUY2"))
+               for item in formats)
 
 
 def choices(pairs):

@@ -922,7 +922,7 @@ TUI = HELPER.parent.parent / "tui/install-languages.sh"
 # The action and grim run a held cancel arrives in: a screenshot file's own
 # run. A selection's one run comes before the freeze, which reads a cancel.
 HELD_CANCELS = {"written-cancel": ("screenshot", 1)}
-WEBCAM = ";x=74%;y=69%;width=22%;height=22%;camera_fps=30"
+WEBCAM = ";halign=end;valign=end;x=-48;y=-48;width=22%;height=22%;camera_fps=30"
 OUTPUTS = [{"x": -160, "y": -40, "width": 160, "height": 240, "name": "LEFT", "scale": 1, "transform": 0},
            {"x": 0, "y": 20, "width": 320, "height": 180, "name": "NESTED", "scale": 1, "transform": 0}]
 WINDOW = {"x": 10, "y": 20, "width": 80, "height": 60, "address": "0x1"}
@@ -1022,6 +1022,36 @@ def probe_holds(root, helper, languages, missing):
                                  "cameras": [{"label": "Fixture camera", "value": "/dev/video7"}]}
             and event["languages"] == {"missing": missing}
             and tool_calls(root, "pw-dump") == [[]] and tool_calls(root, "tesseract") == [["--list-langs"]])
+
+
+CAMERA_MJPG = {"mediaType": "video", "mediaSubtype": "mjpg"}
+CAMERA_YUYV = {"mediaType": "video", "mediaSubtype": "raw", "format": "YUY2"}
+CAMERA_GREY = {"mediaType": "video", "mediaSubtype": "raw", "format": "GRAY8"}
+
+
+def camera_node(node_id, path, formats, name="ASUS FHD webcam (V4L2)"):
+    info = {"props": {"media.class": "Video/Source", "node.description": name, "api.v4l2.path": path}}
+    if formats is not None:
+        info["params"] = {"EnumFormat": formats}
+    return {"id": node_id, "type": "PipeWire:Interface:Node", "info": info}
+
+
+def camera_cases():
+    """Function 16: one row per camera the recorder can read; px13's USB
+    camera is a colour node and a GREY-only infrared node of one name."""
+    return [
+        ("camera-px13", [camera_node(50, "/dev/video0", [CAMERA_MJPG, CAMERA_YUYV]), camera_node(52, "/dev/video2", [CAMERA_GREY])],
+         [{"label": "ASUS FHD webcam (V4L2)", "value": "/dev/video0"}]),
+        ("camera-same-model", [camera_node(50, "/dev/video0", [CAMERA_MJPG]), camera_node(54, "/dev/video4", [CAMERA_YUYV])],
+         [{"label": "ASUS FHD webcam (V4L2) (/dev/video0)", "value": "/dev/video0"},
+          {"label": "ASUS FHD webcam (V4L2) (/dev/video4)", "value": "/dev/video4"}]),
+        ("camera-formats-unread", [camera_node(50, "/dev/video0", None)], []),
+    ]
+
+
+def cameras_offered(root, helper):
+    code, messages, err = worker(root, {"action": "probe", "ocrLanguages": "eng"}, helper, timeout=5)
+    return messages[0]["devices"]["cameras"] if code == 0 and [m["event"] for m in messages] == ["probe"] else None
 
 
 def portal_cancel_holds(root, helper):
@@ -1634,6 +1664,7 @@ def recording_functions(base, source):
         ("record-no-output-match", "record-display", 'target = next((r["name"] for r in request["outputs"] if (r["x"], r["y"], r["width"], r["height"]) == (x, y, width, height)), None)', 'target = None'),
         ("record-window-boxes", "record-window", 'boxes = windows\n', 'boxes = outputs\n'),
         ("record-no-camera", "record-webcam", 'target += "|v4l2:" + camera + WEBCAM', 'pass'),
+        ("webcam-old-place", "record-webcam", 'WEBCAM = ";halign=end;valign=end;x=-48;y=-48;width=22%;height=22%;camera_fps=30"', 'WEBCAM = ";x=74%;y=69%;width=22%;height=22%;camera_fps=30"'),
     ]:
         assert not mode_holds(case, mutated(name, before, after)), "control did not fail: " + name
     for name, extra, wanted in options_cases():
@@ -1657,6 +1688,15 @@ def recording_functions(base, source):
     assert probe_holds(world("probe", languages=["eng", "osd"]), HELPER, "deu+eng", ["deu"]), "probe"
     assert probe_holds(world("probe-ready", languages=["eng", "deu", "osd"]), HELPER, "deu+eng", []), "probe ready"
     assert not probe_holds(world("probe-control", languages=["eng", "osd"]), mutated("no-missing-check", 'report = {"missing": [code for code in dict.fromkeys(languages.split("+")) if code not in installed]}', 'report = {"missing": []}'), "deu+eng", ["deu"]), "control did not fail: no-missing-check"
+    cameras = {case[0]: case for case in camera_cases()}
+    for name, nodes, wanted in cameras.values():
+        assert cameras_offered(world(name, nodes=nodes), HELPER) == wanted, name
+    for name, case, before, after in [
+        ("camera-any-format", "camera-px13", ' and recordable(node):', ':'),
+        ("camera-labels-shared", "camera-same-model", 'f"{label} ({path})" if labels.count(label) > 1 else label', 'label'),
+    ]:
+        _, nodes, wanted = cameras[case]
+        assert cameras_offered(world(name, nodes=nodes), mutated(name, before, after)) != wanted, "control did not fail: " + name
     root = world("camera-absent")
     absent = {**request(root, "record"), "webcam": True, "webcamDevice": "/dev/video9"}
     assert refused_before_recorder(root, HELPER, absent, "camera-unavailable"), "absent camera"
@@ -1759,8 +1799,8 @@ def recording_functions(base, source):
     control = base / "tui-apt-underscore.sh"
     control.write_text(script.replace(before, 'tesseract-ocr-$code'))
     assert not language_tui_holds(base, control, "-apt-control"), "control did not fail: tui-apt-underscore"
-    return ("record-no-snap,record-no-output-match,record-window-boxes,record-no-camera,no-recorder-options,fixed-pointer,fractional-rate-accepted,"
-            "no-audio-sources,no-missing-check,absent-camera,picker-ignores-cancel,raw-replaced,kept-processing-output,stopped-after-processing,"
+    return ("record-no-snap,record-no-output-match,record-window-boxes,record-no-camera,webcam-old-place,no-recorder-options,fixed-pointer,fractional-rate-accepted,"
+            "no-audio-sources,no-missing-check,camera-any-format,camera-labels-shared,absent-camera,picker-ignores-cancel,raw-replaced,kept-processing-output,stopped-after-processing,"
             "no-uri-copy,recorder-log-to-stderr,no-log-tail,invalid-languages-accepted,no-interword-spaces,english-only,tui-installs-installed,tui-apt-underscore,"
             "unlocked-processing-output,reaping-handler,untimed-processing-wait,unprefixed-processing-output,live-output-refused,unowned-tool,processed-in-place,"
             "terminated-output-kept,stale-output-unremovable,shared-log,portal-cancel-failure,notice-processing-ignored,notice-detail-dropped,notice-reason-renamed,"
