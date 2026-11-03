@@ -2,7 +2,7 @@
 # A blocked failure lets the row change source and rescan while running and
 # queued snapshots stay retained. The remaining queue covers launch failure,
 # timeout, former-id adoption, exclusions and continued unrelated service
-# builds. The original startup owners are the must-fail control.
+# builds. The original startup-migration owner is the must-fail control.
 # The timeout case injects a short timer into a disposable core copy. It
 # checks deadline wiring, not a latency budget. Polling uses expect_poll's
 # existing harness bound and interval; this row adds no performance ceiling.
@@ -66,14 +66,16 @@ PY
 
 if stop_shell && copy_tree startup-migrations-original; then
   # copy_tree's sandbox is outside the checkout. Read the exact original
-  # owners, rather than a copied model or a deletion of the new hook.
+  # migration owner, rather than a copied model or a deletion of the new
+  # hook, against the current core. The current Registry's one call into
+  # the new owner, which the original Plugins lacks, is the only edit.
   case "$sandbox/tree-startup-migrations-original/" in
     "$source_repo/"*) fail "startup migration control must live outside the worktree" ;;
     *)
       git -C "$source_repo" show 0b9b185809ea8bfa13a2f892c4caabaec239698f:shell/Core/Plugins.qml >"$sandbox/tree-startup-migrations-original/shell/Core/Plugins.qml"
-      git -C "$source_repo" show 0b9b185809ea8bfa13a2f892c4caabaec239698f:shell/Core/Registry.qml >"$sandbox/tree-startup-migrations-original/shell/Core/Registry.qml"
       migrations_setup "$sandbox/tree-startup-migrations-original"
-      if start_shell "$sandbox/tree-startup-migrations-original" "$sandbox/startup-migrations-original.log"; then
+      if edit_tree startup-migrations-original shell/Core/Registry.qml $'\n        Plugins.startMigrations();' '' \
+        && start_shell "$sandbox/tree-startup-migrations-original" "$sandbox/startup-migrations-original.log"; then
         expect_poll "control: the original core builds the unrelated enabled service" True record_exists acme.migrate-e-enabled
         expect "control: the original startup leaves the planted old units" 2 migrations_old_units
         if migrations_acceptance >"$sandbox/startup-migrations-control.log" 2>&1; then
@@ -83,13 +85,7 @@ if stop_shell && copy_tree startup-migrations-original; then
           control_output "$sandbox/startup-migrations-control.log"
         fi
         expect "control: the original startup runs no hook" '{}' migrations_attempts
-        # The original Registry calls PluginLogic.withheldFields without the
-        # settings it takes since VGS-1953, so each field gated on a setting,
-        # Jarvis's on voiceProvider, throws in this copy alone.
-        migrations_expected=("${expected_errors[@]}")
-        expected_errors+=("@Core/PluginLogic\\.js\\[[0-9]+:-1\\]: TypeError: Cannot read property 'voiceProvider' of undefined$")
         check_unexpected_log "original startup log" "$instance_log"
-        expected_errors=("${migrations_expected[@]}")
       fi
       ;;
   esac
