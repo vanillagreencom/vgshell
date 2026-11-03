@@ -10,8 +10,8 @@
   "capabilities": ["shortcut", "ipc"],
   "hyprland": {
     "binds": [
-      { "shortcut": "talk", "key": "SUPER+code:108", "hold": true },
-      { "shortcut": "other", "key": "CTRL+code:108", "hold": true },
+      { "shortcut": "talk", "key": "SUPER+code:44", "hold": true },
+      { "shortcut": "other", "key": "CTRL+code:44", "hold": true },
       { "shortcut": "tap", "key": "code:108", "tap": true }
     ]
   }
