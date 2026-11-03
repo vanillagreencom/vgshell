@@ -823,15 +823,15 @@ function slackWorkspaceIcon(teams, workspace) {
 // Two copies of one message, one from the sender's own client and one from
 // its web client in a browser, arrive within DUPLICATE_WINDOW milliseconds
 // of each other; two copies from one client, such as two running instances
-// of the desktop app signed into one account, within SAME_CLIENT_WINDOW.
-// The last DUPLICATES_MAX messages a rule read within DUPLICATE_WINDOW are
-// remembered to find them.
+// of the desktop app signed into the same workspaces, within
+// SAME_CLIENT_WINDOW. The last DUPLICATES_MAX messages a rule read within
+// DUPLICATE_WINDOW are remembered to find them.
 var DUPLICATE_WINDOW = 10000;
-// About five times the largest gap between two Slack desktop instances'
-// copies (206 ms over 45 pairs, read from cachy's stored notification
-// history on 2026-11-03 for VGS-2283), and well under the time a person
-// takes to send one text twice in one conversation, which stays two
-// messages.
+// About three times the largest gap between two Slack desktop instances'
+// copies: 41 pairs 65-322 ms apart in cachy's stored notification history
+// of 100 entries, read with python3 on 2026-11-03 at 15:15 PT for VGS-2283.
+// Well under the time a person takes to send one text twice in one
+// conversation, which stays two messages.
 var SAME_CLIENT_WINDOW = 1000;
 var DUPLICATES_MAX = 32;
 
