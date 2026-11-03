@@ -169,7 +169,9 @@ share_owner_xdph=$'screencopy {\n    allow_token_by_default = true\n}\n'
 mkdir -p -- "${share_xdph%/*}"
 printf '%s' "$share_owner_xdph" >"$share_xdph"
 share_restart_argv=(--user restart xdg-desktop-portal-hyprland.service)
+share_release_argv=(--user try-restart xdg-desktop-portal-hyprland.service)
 device_reply systemctl 0 "" "${share_restart_argv[@]}"
+device_reply systemctl 0 "" "${share_release_argv[@]}"
 device_reply systemctl 0 $'LoadState=loaded\nActiveState=active' --user show --property=LoadState --property=ActiveState xdg-desktop-portal-hyprland.service
 share_busctl_planted=absent
 if [[ ! -e $shim/busctl ]]; then
@@ -187,19 +189,27 @@ text=pathlib.Path(path).read_text() if os.path.exists(path) else ""
 print(text==owner+"screencopy {\n    custom_picker_binary = "+os.path.realpath(picker)+"\n}\n")
 PY
 }
-# The portal restarts the stand-in systemctl recorded since the row began.
-share_restarts() { device_calls systemctl | py_reply 'import json,sys; before=len(json.loads(sys.argv[1])); want=sys.argv[2:]; print(sum(c==want for c in json.load(sys.stdin)[before:]))' "$share_restarts_before" "${share_restart_argv[@]}"; }
+# True once the file holds the owner's lines alone again.
+share_owner_only() { python3 -c 'import os,pathlib,sys; p=pathlib.Path(sys.argv[1]); print(p.exists() and p.read_text()==sys.argv[2])' "$share_xdph" "$share_owner_xdph"; }
+# share_calls ARGV...: the calls of ARGV the stand-in systemctl recorded
+# since the row began.
+share_calls() { device_calls systemctl | py_reply 'import json,sys; before=len(json.loads(sys.argv[1])); want=sys.argv[2:]; print(sum(c==want for c in json.load(sys.stdin)[before:]))' "$share_restarts_before" "$@"; }
+share_restarts() { share_calls "${share_restart_argv[@]}"; }
 share_restarted() { [[ $(share_restarts) -ge 1 ]] && echo True || echo False; }
+share_released() { [[ $(share_calls "${share_release_argv[@]}") -ge 1 ]] && echo True || echo False; }
+share_dismiss_tools_notice() {
+  if [[ $(notice_shown) != null ]]; then
+    expect_poll "the optional capture tools notice has the keyboard" true ipc smoke noticeFocused
+    type_keys -k Escape || fail "share-picker: declining unrelated tool setup failed"
+    expect_poll "the unrelated tools notice closes before sharing" null notice_shown
+  fi
+}
 share_sharing_status() { ipc smoke statusValues vgs.capture | py_reply 'import json,sys; v=json.load(sys.stdin).get("sharing"); print(json.dumps([v.get("tone"),v.get("text")]) if isinstance(v,dict) else "unpublished")'; }
 expect "control: before Capture runs, the file holds only the owner's lines" False share_configured
 expect "control: before Capture runs, nothing restarted the portal" 0 share_restarts
 expect "capture enables for sharing" ok ipc shell setPluginEnabled vgs.capture true
 expect_poll "capture's service is built" True record_exists vgs.capture
-if [[ $(notice_shown) != null ]]; then
-  expect_poll "the optional capture tools notice has the keyboard" true ipc smoke noticeFocused
-  type_keys -k Escape || fail "share-picker: declining unrelated tool setup failed"
-  expect_poll "the unrelated tools notice closes before sharing" null notice_shown
-fi
+share_dismiss_tools_notice
 expect_poll "enabling Capture sets the VGS picker and keeps the owner's line" True share_configured
 expect_poll "the setup restarts the portal once no share runs" True share_restarted
 expect_poll "the sharing picker reads Ready" '["ok", "Ready"]' share_sharing_status
@@ -214,6 +224,16 @@ share_setup_keys() { ipc smoke setupRows window vgs.settings | py_reply 'import 
 settings_setup
 expect "Setup lists no sharing step" '[]' share_setup_keys
 expect "Settings hides after its sharing status assertions" ok ipc shell hide window vgs.settings
+# Turning Capture off gives xdph its own picker back, since no capture
+# service would answer the VGS one, and turning it on claims it again.
+expect "control: before Capture turns off, nothing released the picker" False share_released
+expect "Capture turns off after its setup" ok ipc shell setPluginEnabled vgs.capture false
+expect_poll "turning Capture off removes the VGS picker and keeps the owner's lines" True share_owner_only
+expect_poll "the release restarts a running portal" True share_released
+expect "Capture turns on again for sharing" ok ipc shell setPluginEnabled vgs.capture true
+expect_poll "capture's service is built again" True record_exists vgs.capture
+share_dismiss_tools_notice
+expect_poll "turning Capture on sets the VGS picker again" True share_configured
 expect "ordinary Capture Open summons its controls" ok ipc shell summon window vgs.capture '{}'
 expect_poll "ordinary Capture Open selects the capture controls" false share_read sharing
 expect_poll "ordinary Capture Open exposes the screenshot action" true ipc smoke readMatchingDescendant window vgs.capture Button text "Take screenshot" enabled

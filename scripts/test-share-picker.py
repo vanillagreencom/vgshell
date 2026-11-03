@@ -473,18 +473,88 @@ class PickerTests(unittest.TestCase):
         self.assertTrue(config.read_text().startswith(OWNER_XDPH))
         self.assertIn(str(PICKER), config.read_text())
 
+    def unguarded_copy(self, cause):
+        # The picker with one share reading, the one that raises CAUSE,
+        # replaced by a reading that never sees a share.
+        copy = self.home / "vgshell-share-picker"
+        source = PICKER.read_text()
+        guard = 'if share_running(stopped):\n                raise ShareRunning("' + cause
+        self.assertEqual(source.count(guard), 1)
+        copy.write_text(source.replace(guard, 'if False:\n                raise ShareRunning("' + cause))
+        copy.chmod(0o755)
+        return copy
+
     def test_share_wait_must_fail_control(self):
         # Without the share reading, the same reading of a running share
         # restarts the portal, which ends that share.
-        copy = self.home / "vgshell-share-picker"
-        source = PICKER.read_text()
-        guard = "if share_running(stopped):"
-        self.assertEqual(source.count(guard), 1)
-        copy.write_text(source.replace(guard, "if False:"))
-        copy.chmod(0o755)
-        result = self.configure_during_share(executable=copy)
+        result = self.configure_during_share(executable=self.unguarded_copy("activation=waiting"))
         self.assertNotEqual(result.returncode, 76)
         self.assertEqual(len(self.restarts()), 1)
+
+    def release_during_share(self, executable=PICKER):
+        # The owner's file set up by the same executable, then released
+        # while an xdph share runs.
+        config = self.home / "config/hypr/xdph.conf"
+        config.parent.mkdir(parents=True, exist_ok=True)
+        config.write_text(OWNER_XDPH)
+        self.world(nodes=[CAMERA_NODE])
+        self.assertEqual(self.run_picker("--configure", executable=executable).returncode, 0)
+        self.world(nodes=[CAMERA_NODE, SHARE_NODE])
+        return self.run_picker("--release", executable=executable)
+
+    def try_restarts(self):
+        return [row for row in self.systemctl_calls() if "try-restart" in row["args"]]
+
+    def test_release_returns_the_owner_file_and_waits_while_a_share_runs(self):
+        config = self.home / "config/hypr/xdph.conf"
+        result = self.release_during_share()
+        self.assertEqual(result.returncode, 76, result.stderr)
+        self.assertIn("release=waiting cause=share-running", result.stderr)
+        self.assertEqual(config.read_text(), OWNER_XDPH)
+        self.assertEqual(self.try_restarts(), [])
+        # With no share, a release restarts a running portal once, and a
+        # file that holds no VGS picker is left as it is.
+        self.world(nodes=[CAMERA_NODE])
+        self.assertEqual(self.run_picker("--configure").returncode, 0)
+        self.assertIn(str(PICKER), config.read_text())
+        result = self.run_picker("--release")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(config.read_text(), OWNER_XDPH)
+        self.assertEqual(self.try_restarts(), [{"args": ["--user", "try-restart", "xdg-desktop-portal-hyprland.service"], "leaked": False}])
+        written = config.stat()
+        result = self.run_picker("--release")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(config.stat().st_mtime_ns, written.st_mtime_ns)
+        self.assertEqual(len(self.try_restarts()), 1)
+        self.assertEqual(json.loads(self.run_picker("--probe").stdout), {"state": "needed"})
+
+    def test_release_without_a_config_writes_nothing(self):
+        result = self.run_picker("--release")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.home / "config").exists())
+        self.assertEqual(self.systemctl_calls(), [])
+
+    def test_release_removes_every_vgs_picker_and_only_those(self):
+        before = ("# Owner\nscreencopy { # Capture\n allow_token_by_default = 1 # Keep\n"
+                  " custom_picker_binary = /old/tree/bin/vgshell-share-picker # Replaced\n}\n"
+                  "screencopy:custom_picker_binary = /usr/bin/other-picker\n"
+                  "general {\n custom_picker_binary = /x/bin/vgshell-share-picker\n}\n"
+                  "screencopy {\n\n    custom_picker_binary = /moved/bin/vgshell-share-picker\n}\n")
+        after = ("# Owner\nscreencopy { # Capture\n allow_token_by_default = 1 # Keep\n}\n"
+                 "screencopy:custom_picker_binary = /usr/bin/other-picker\n"
+                 "general {\n custom_picker_binary = /x/bin/vgshell-share-picker\n}\n")
+        self.assertEqual(picker.release_config(before), after)
+        self.assertEqual(picker.release_config(after), after)
+        appended = picker.rewrite_config(OWNER_XDPH, str(PICKER))
+        self.assertEqual(picker.release_config(appended), OWNER_XDPH)
+        self.assertEqual(picker.release_config(picker.rewrite_config("", str(PICKER))), "")
+
+    def test_release_share_wait_must_fail_control(self):
+        # Without the share reading, the same release during a share
+        # restarts the portal, which ends that share.
+        result = self.release_during_share(executable=self.unguarded_copy("release=waiting"))
+        self.assertNotEqual(result.returncode, 76)
+        self.assertEqual(len(self.try_restarts()), 1)
 
     def test_configure_adds_only_picker_and_supports_qualified_assignment(self):
         for before in ("", "# Existing\nscreencopy {\n allow_token_by_default = 0\n}\n",

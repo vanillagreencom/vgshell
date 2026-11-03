@@ -62,7 +62,7 @@
     { "shortcut": "text", "key": "SUPER+CTRL+PRINT", "info": "Lets you drag over an area, reads the text in it and copies that text." }
   ] },
   "status": {
-    "sharing": {"type": "state", "label": "Sharing picker", "group": "Screen sharing", "info": "When an app asks to share your screen, the picker lets you choose what it can see. VGS sets it up for you, once no app shares your screen."},
+    "sharing": {"type": "state", "label": "Sharing picker", "group": "Screen sharing", "info": "When an app asks to share your screen, the picker lets you choose what it can see. VGS sets it up for you, once no app shares your screen, and turning Capture off gives screen sharing its own picker back."},
     "capture": {"type": "data", "label": "Capture state"},
     "recording": {"type": "state", "label": "Recording"},
     "audioSources": {"type": "choices", "label": "Audio sources"},

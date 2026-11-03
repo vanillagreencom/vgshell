@@ -250,6 +250,53 @@ def rewrite_config(text, executable):
     return result
 
 
+def is_picker_assignment(key, value):
+    # A VGS tree's picker, whichever tree's path it names: a disable releases
+    # one an earlier or moved tree wrote too.
+    return key == "screencopy:custom_picker_binary" and Path(value.strip()).name == "vgshell-share-picker"
+
+
+def release_config(text):
+    # Removes each picker assignment a VGS tree wrote, and a category that
+    # removal leaves holding blank lines alone, as configure appends one.
+    # Every other byte stays.
+    categories, lines = [], []
+    for line in text.splitlines(keepends=True):
+        newline = "\r\n" if line.endswith("\r\n") else "\n" if line.endswith("\n") else ""
+        body = line[:-len(newline)] if newline else line
+        code, comment = uncomment(body)
+        stripped = code.strip()
+        if not stripped:
+            if categories and comment.strip():
+                categories[-1]["kept"] = True
+        elif stripped == "}":
+            if not categories:
+                raise PickerError("release=unbalanced-category")
+            category = categories.pop()
+            if category["emptied"] and not category["kept"] and not comment.strip():
+                del lines[category["start"]:]
+                continue
+            if categories:
+                categories[-1]["kept"] = True
+        elif re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*\s*\{", stripped):
+            categories.append({"name": stripped[:-1].strip(), "start": len(lines),
+                               "kept": bool(comment.strip()), "emptied": False})
+        else:
+            assignment = re.fullmatch(r"(\s*)([A-Za-z_$][A-Za-z0-9_$:]*)(\s*=\s*)(.*)", code)
+            if not assignment:
+                raise PickerError("release=invalid-syntax")
+            if is_picker_assignment(":".join([*(c["name"] for c in categories), assignment[2]]), assignment[4]):
+                if categories:
+                    categories[-1]["emptied"] = True
+                continue
+            if categories:
+                categories[-1]["kept"] = True
+        lines.append(line)
+    if categories:
+        raise PickerError("release=unbalanced-category")
+    return "".join(lines)
+
+
 def open_folder(part, parent, configured, walked):
     def refuse(cause, sentence):
         return FolderRefused("config-folder=" + cause + " path=" + walked, sentence,
@@ -484,11 +531,45 @@ def configure(stopped=None):
         os.close(directory)
 
 
+def release(stopped=None):
+    # The capture service runs this, detached, when the user turns Capture
+    # off: with no capture service a request the VGS picker takes fails, so
+    # xdph goes back to its own picker. Only the picker's lines go.
+    stopped = stopped or threading.Event()
+    try:
+        directory = config_directory(create=False)
+    except FileNotFoundError:
+        return
+    try:
+        original, text = read_config(directory)
+        released = text if original is None else release_config(text)
+        if released == text:
+            return
+        installed = replace_config(directory, released, original, stat.S_IMODE(original.st_mode))
+        same_config(directory, installed)
+        try:
+            # As configure: a restart stops every share, so one that runs
+            # leaves the file for the next backend start. try-restart starts
+            # no backend that is not running; one that starts reads the file.
+            # https://www.freedesktop.org/software/systemd/man/systemctl.html
+            if share_running(stopped):
+                raise ShareRunning("release=waiting cause=share-running")
+            run_child(["systemctl", "--user", "try-restart", "xdg-desktop-portal-hyprland.service"],
+                      stopped, PORTAL_RESTART_TIMEOUT, "portal-restart")
+        except ShareRunning:
+            raise
+        except (OSError, PickerError) as error:
+            raise ActivationNeeded("release=needed cause=" + str(error)) from error
+    finally:
+        os.close(directory)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--allow-token", action="store_true")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--configure", action="store_true")
+    mode.add_argument("--release", action="store_true")
     mode.add_argument("--probe", action="store_true")
     args = parser.parse_args()
     stopped = threading.Event()
@@ -503,6 +584,8 @@ def main():
             print(json.dumps(result, separators=(",", ":")))
         elif args.configure:
             configure(stopped)
+        elif args.release:
+            release(stopped)
         else:
             selection = pick(args.allow_token, stopped)
             if stopped.is_set():

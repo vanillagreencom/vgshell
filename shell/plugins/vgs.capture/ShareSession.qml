@@ -59,6 +59,16 @@ Item {
 
     function publish(value) { root.shell.status.set("sharing", value); }
 
+    // The user's Off: xdph goes back to its own picker, since no capture
+    // service answers the VGS one. Detached, as the service ends now
+    // (turnedOff, .agents/skills/vgs-plugin/references/api.md § Kinds); a
+    // reload, a rescan or a shell exit keeps the picker.
+    function turnedOff() {
+        if (shell === null) return;
+        const reply = shell.run.detached([pickerPath, "--release"]);
+        if (reply !== "ok") console.error("capture: share-release " + reply);
+    }
+
     function begin(arg) {
         if (session !== null) return "refused: share=busy";
         const request = JSON.parse(arg);
