@@ -7,6 +7,7 @@ refusal has a defect planted in a helper copy and a named test that must fail.
 The expected physical codes and canonical names are explicit fixture values.
 """
 
+from collections import Counter
 import importlib.util
 import json
 from pathlib import Path
@@ -300,6 +301,25 @@ class Mapping(unittest.TestCase):
             context_unref.assert_called_once()
             keymap_unref.assert_called_once()
 
+    def test_first_failing_key_decides(self):
+        rows = ((["CYRILLIC_YA", "ESCAPE"], "keysym-unresolved"),
+                (["ESCAPE", "CYRILLIC_YA"], "keysym-ambiguous"),
+                (["code:97", "ESCAPE"], "keycode-unresolved"),
+                (["NOT_A_KEYSYM", "code:97"], "keysym-unresolved"))
+        for keys, error in rows:
+            with self.subTest(keys=keys):
+                self.refused(request(keys, options="caps:escape"), error)
+
+    def test_keymap_read_once_per_request(self):
+        # The resolver runs under a 2 s deadline, so a request's keymap reads
+        # must not multiply with its key count.
+        keys = [chr(letter) for letter in range(ord("A"), ord("Z") + 1)]
+        with mock.patch.object(helper, "symbols", wraps=helper.symbols) as read:
+            self.assertEqual(len(helper.resolve(request(keys))["keys"]), len(keys))
+        reads = Counter((call.args[2], call.args[4]) for call in read.call_args_list)
+        self.assertTrue(reads)
+        self.assertEqual(max(reads.values()), 1)
+
 
 class Controls(unittest.TestCase):
     """Keep each rule's matched text and remove its behavior in a copy."""
@@ -368,6 +388,9 @@ class Controls(unittest.TestCase):
          "test_us_symbols_aliases_and_modifiers"),
         ("level scan", "for level in range(levels):", "for level in range(min(levels, 1)):",
          "test_us_symbols_aliases_and_modifiers"),
+        ("one keymap scan per request", "if index is None:", "if True:", "test_keymap_read_once_per_request"),
+        ("request order decides the refusal", "for modifiers, name in keys:",
+         "for modifiers, name in reversed(keys):", "test_first_failing_key_decides"),
         ("keymap cleanup", "lib.xkb_keymap_unref(keymap)", "None", "test_resources_released_after_refusal"),
         ("context cleanup", "lib.xkb_context_unref(context)", "None", "test_resources_released_after_refusal"),
     )

@@ -144,9 +144,32 @@ def symbol_name(lib, symbol):
     return buffer.value.decode("ascii")
 
 
+def symbol_index(lib, keymap, layout, minimum, maximum):
+    """Read every code and level of the layout once, whatever the key count.
+
+    Returns each symbol's codes and the symbols that share a level with
+    another symbol.
+    """
+    codes, shared = {}, set()
+    for candidate in range(minimum, maximum + 1):
+        levels = lib.xkb_keymap_num_levels_for_key(keymap, candidate, layout)
+        for level in range(levels):
+            found = symbols(lib, keymap, candidate, layout, level)
+            if len(found) != 1:
+                shared.update(found)
+            for symbol in found:
+                codes.setdefault(symbol, set()).add(candidate)
+    return codes, shared
+
+
 def map_keys(lib, keymap, layout, keys):
-    """Resolve one physical code per key; refuse absent or ambiguous symbols."""
+    """Resolve one physical code per key; refuse absent or ambiguous symbols.
+
+    Keys are judged in request order, so the first failing key decides the
+    refusal.
+    """
     minimum, maximum = lib.xkb_keymap_min_keycode(keymap), lib.xkb_keymap_max_keycode(keymap)
+    index = None
     result = []
     for modifiers, name in keys:
         if name.startswith("code:"):
@@ -164,15 +187,12 @@ def map_keys(lib, keymap, layout, keys):
             symbol = lib.xkb_keysym_from_name(name.encode("ascii"), 1)
             if symbol == 0:
                 raise Refusal("keysym-unresolved")
-            matches = set()
-            for candidate in range(minimum, maximum + 1):
-                levels = lib.xkb_keymap_num_levels_for_key(keymap, candidate, layout)
-                for level in range(levels):
-                    found = symbols(lib, keymap, candidate, layout, level)
-                    if symbol in found:
-                        if len(found) != 1:
-                            raise Refusal("keysym-ambiguous")
-                        matches.add(candidate)
+            if index is None:
+                index = symbol_index(lib, keymap, layout, minimum, maximum)
+            codes, shared = index
+            if symbol in shared:
+                raise Refusal("keysym-ambiguous")
+            matches = codes.get(symbol, set())
             if not matches:
                 raise Refusal("keysym-unresolved")
             if len(matches) != 1:
