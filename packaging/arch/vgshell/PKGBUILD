@@ -113,7 +113,7 @@ optdepends=(
   'microsoft-edge-stable-bin: opens a calendar day in a Microsoft Edge profile'
 )
 source=("vgshell-$pkgver.tar.gz::$url/releases/download/v$pkgver/vgshell-$pkgver.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('8adc9bd3b7ad549bcd05c2b920b23eca817baef525f8e4ea6ea411180b95981e')
 install=vgshell.install
 
 package() {
