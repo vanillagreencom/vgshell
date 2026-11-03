@@ -8,15 +8,21 @@
 # no podman, an AUR probe that fails or answers no result list, a COPR
 # probe that fails or answers neither 200 nor 404, a COPR package with no
 # succeeded build, a release probe that fails, a curl download that fails
-# with no output, each fence in its own container, and dnf answered `y`.
+# with no output, each fence in its own container, dnf answered `y`, a
+# raw-mode question after a step that reads nothing kept at its default by
+# Enter, a line read answered, and curl run with SIGPIPE and SIGXFSZ at
+# their defaults.
 # Under STUB_PODMAN_WORKS the stub podman runs each `exec` on the host in a
 # scratch home, where every command the README names is a stub, and records
 # each container it starts and each command it runs. COPR answers 404 unless
 # STUB_COPR_PUBLISHED is set, so the rows that plant no COPR state skip the
 # Fedora fence. The controls: a runner copy that reads a failed release or
 # COPR probe as an answer must fail its probe row, one without pipefail must
-# fail the download row, and one that answers dnf with the default must
-# fail the `y` row.
+# fail the download row, one that answers dnf with the default must fail
+# the `y` row, a feeder that types while nothing reads or types LF must fail
+# the raw-mode row, one that answers only the raw terminal must fail the
+# line row, and one that passes on Python's ignored signals must fail the
+# signal row.
 set -euo pipefail
 
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
@@ -167,13 +173,30 @@ fi
 if [[ -n ${STUB_REQUIRE_TTY:-} ]]; then
   printf '%s\n' 'if ! { : 2>/dev/null <>/dev/tty; }; then echo "install.sh: refused: floor=xdg-terminal-exec have=none need=present" >&2; exit 78; fi'
 fi
-# A gum question reads its terminal raw, where only CR confirms the choice;
-# it skips other keys, such as what arrived before the terminal went raw.
-# timeout(1) leaves the fetched script in a background process group, so
-# the reader takes the terminal's foreground first, as a job-control shell
-# does, and reads in python: bash's read -n turns ICRNL back on.
+# A gum question reads its terminal raw, where CR confirms the choice and
+# ctrl+j is Down. gum turns raw without dropping keys that already wait, so
+# a backlog typed while nothing read would move the choice off the default.
+# Here a step reads nothing for three of the old feeder's one-second
+# periods, then a two-option question keeps its default only when Enter is
+# its first key. timeout(1) can leave the fetched script in a background
+# process group, so the reader takes the terminal's foreground first, as a
+# job-control shell does, and reads in python: bash's read -n turns ICRNL
+# back on.
 if [[ -n ${STUB_REQUIRE_ENTER:-} ]]; then
-  printf '%s\n' 'trap "" TTOU; python3 -c "import os, select, termios, tty; fd = os.open(os.ctermid(), os.O_RDWR); os.tcsetpgrp(fd, os.getpgrp()); old = termios.tcgetattr(fd); tty.setraw(fd); got = next((True for _ in range(10) if select.select([fd], [], [], 5)[0] and os.read(fd, 1) == bytes([13])), False); termios.tcsetattr(fd, termios.TCSADRAIN, old); raise SystemExit(0 if got else 75)" || { echo "gum: no choice confirmed" >&2; exit 75; }'
+  printf '%s\n' 'sleep 3; trap "" TTOU; python3 -c "import os, select, termios, tty; fd = os.open(os.ctermid(), os.O_RDWR); os.tcsetpgrp(fd, os.getpgrp()); old = termios.tcgetattr(fd); tty.setraw(fd, termios.TCSANOW); key = os.read(fd, 1) if select.select([fd], [], [], 5)[0] else None; termios.tcsetattr(fd, termios.TCSADRAIN, old); raise SystemExit(0 if key == bytes([13]) else 75)" || { echo "gum: default not kept" >&2; exit 75; }'
+fi
+# pacman's question() and paru's prompts read a line, with fgets or
+# read_line, until the newline the terminal's ICRNL makes of CR. The read
+# runs in the terminal's foreground group, bounded so a row that is never
+# answered fails rather than waits for command_seconds.
+if [[ -n ${STUB_REQUIRE_LINE:-} ]]; then
+  printf '%s\n' 'timeout --foreground 5 bash -c '"'"'IFS= read -r line </dev/tty && [[ -z $line ]]'"'"' || { echo "pacman: no answer" >&2; exit 76; }'
+fi
+# A shell started from a terminal leaves SIGPIPE and SIGXFSZ at their
+# defaults, so a pipeline's producer ends when its reader does. grep reads
+# its own mask, which the fetched script's children share.
+if [[ -n ${STUB_REQUIRE_SIGNALS:-} ]]; then
+  printf '%s\n' 'mask="$(grep "^SigIgn:" /proc/self/status)" && (( (16#${mask##*[[:space:]]} & 16#1001000) == 0 )) || { echo "signals: SIGPIPE or SIGXFSZ ignored" >&2; exit 74; }'
 fi
 exit "${STUB_FETCH_EXIT:-0}"
 EOF
@@ -412,7 +435,9 @@ private_store_refusal >"$tmp/owner-control.log" 2>&1
 cp -p -- "$tmp/readme-install-owner.orig" "$tree/scripts/readme-install.sh"
 if ((failures == owner_before + 1)); then failures=$owner_before; ok "control: old cleanup publication order fails its ownership assertion"; else fail "control: old cleanup publication order passed its ownership assertion"; fi
 row "curl receives a controlling terminal" 77 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_REQUIRE_TTY=1 --
-row "curl confirms a raw-mode question with Enter" 77 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_REQUIRE_ENTER=1 --
+row "curl keeps a raw-mode question's default after a step that reads nothing" 0 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_REQUIRE_ENTER=1 -- --channel curl
+row "curl answers a line read" 0 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_REQUIRE_LINE=1 -- --channel curl
+row "curl runs with SIGPIPE and SIGXFSZ at their defaults" 0 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_REQUIRE_SIGNALS=1 -- --channel curl
 row "curl receives a noninteractive recipe pager" 77 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_REQUIRE_PAGER=1 --
 row "checkout versions use the canonical version and describe report" 77 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_DESCRIBE="$version.r14.g797b0cb" --
 if grep -qxF "readme-install: version line=$curl_line channel=curl value=vgshell $version.r14.g797b0cb" <<<"$row_output"; then ok "the checkout display is logged without alteration"; else fail "the checkout display was not logged"; fi
@@ -504,14 +529,23 @@ control "a runner that reads a failed COPR probe as an answer" \
 control "a runner that answers dnf with its default" "fedora) wrapper='yes y |" "fedora) wrapper='yes \"\" |" \
   "dnf answer" 0 "readme-install: ok line=${aur_first%%:*} channel=aur exit=0 seconds=*" "${published[@]}" STUB_REQUIRE_YES=1 --
 # shellcheck disable=SC2016
-control "a runner without pipefail" 'printf -v argv "%q " timeout "$1" bash -o pipefail -c "$2"' 'printf -v argv "%q " timeout "$1" bash -c "$2"' \
+control "a runner without pipefail" '"bash", "-o", "pipefail", "-c", command' '"bash", "-c", command' \
   "download" 1 "$download_first" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_FETCH_EXIT=22 --
 
-# shellcheck disable=SC2016
-control "curl without a controlling terminal" 'script -qE never -ec "$argv" /dev/null' 'bash -c "$argv"' \
+control "curl without a controlling terminal" 'fcntl.ioctl(slave, termios.TIOCSCTTY, 0)' 'pass' \
   "terminal" 77 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_REQUIRE_TTY=1 --
-control "a feeder that sends LF" 'while printf "\\r"; do sleep 1' 'while printf "\\n"; do sleep 1' \
-  "enter" 77 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_REQUIRE_ENTER=1 --
+enter_row=("enter" 0 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_REQUIRE_ENTER=1 -- --channel curl)
+control "a feeder that sends LF" 'os.write(master, b"\r")' 'os.write(master, b"\n")' "${enter_row[@]}"
+# main's feeder before VGS-2277: a CR every second, read or not.
+IFS= read -r blind_feeder <<'EOF' || :
+    arch|debian|nixos) wrapper='printf -v argv "%q " timeout "$1" bash -o pipefail -c "$2"; exec 3< <(while printf "\\r"; do sleep 1; done 2>/dev/null); feeder=$!; script -qE never -ec "$argv" /dev/null <&3 3<&-; status=$?; kill "$feeder"; exit "$status"' ;;
+EOF
+# shellcheck disable=SC2016
+control "a feeder that types while nothing reads" '    arch|debian|nixos) printf -v wrapper '"'"'exec python3 -c %q "$1" "$2"'"'"' "$answer_feeder" ;;' "$blind_feeder" "${enter_row[@]}"
+control "a feeder that answers only the raw terminal" 'if raw or lflag & termios.ICANON and line_reader():' 'if raw:' \
+  "line" 0 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_REQUIRE_LINE=1 -- --channel curl
+control "a feeder that passes on Python's ignored signals" 'signal.signal(number, signal.SIG_DFL)' 'pass' \
+  "signals" 0 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_REQUIRE_SIGNALS=1 -- --channel curl
 # shellcheck disable=SC2016
 control "an interactive recipe pager" 'env PARU_PAGER=cat ' 'env ' \
   "pager" 77 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_CURL_OUT="$empty_aur" STUB_REQUIRE_PAGER=1 --

@@ -32,11 +32,24 @@
 # A probe that fails is not measured either, never read as unpublished.
 #
 # Each bash fence of the section runs top to bottom in one fresh container,
-# in the home directory. In the arch, debian and nixos images script(1)
-# supplies a terminal and a CR, the byte Enter sends, arrives on it each
-# second, so each prompt takes its default answer: the wrapper below says
-# why CR and not LF. The Nix image gets an empty line on stdin for every
-# prompt, and the Fedora image `y`. A command runs under pipefail, so a
+# in the home directory. Commands of the aur, curl, checkout, curl-debian
+# and curl-nixos channels run in a pseudo-terminal the answer feeder below
+# owns, and each prompt there takes its default answer from Enter, a CR:
+#   - A prompt on that terminal gets its CR once it waits and never
+#     earlier. A gum question reads the terminal raw, where a CR typed ahead
+#     would arrive as LF, ctrl+j, Down, and move its choice. paru's prompts,
+#     when paru runs on that terminal, read a line, which the CR ends as
+#     the newline the terminal makes of it.
+#   - sudo, which runs pacman and apt-get, and pkg-run.sh's transcript,
+#     which runs paru in the curl channel, relay that terminal raw into one
+#     of their own. A relay gets one CR each second for as long as it runs.
+#     Behind it each CR waits as an empty line that answers a later line
+#     read there with its default; pacman's question() drops what waits
+#     and reads the next CR. A gum question behind a relay would read that
+#     backlog as Down, so none may run there.
+# The nix and fedora channels' commands get no terminal, so their prompts
+# read stdin: an empty line for each nix prompt, and `y` for each fedora
+# one. A command runs under pipefail, so a
 # `curl ... | bash` whose download fails fails, though bash exits 0 on the
 # empty script. Each fence is one alternative the README offers, in the
 # image of its channel:
@@ -47,7 +60,8 @@
 #     checkout or aur command is measured. The commands run as `user`, with HOME and the
 #     XDG_RUNTIME_DIR a login session sets, as a user's terminal has them:
 #     `vgshell run` keeps its instance lock and runtime files in that
-#     directory. script(1) supplies the controlling terminal for prompts.
+#     directory. The answer feeder's pseudo-terminal is the controlling
+#     terminal for prompts.
 #   - Nix commands in the same nonroot NixOS identity fixture as NixOS curl.
 #     The fixture proves installation and version only, never NixOS graphics.
 #   - fedora commands in a registry.fedoraproject.org/fedora:44 image
@@ -546,6 +560,131 @@ export_tree() { # VERSION_COMMAND
   exported[$block]=true
 }
 
+# The arch, debian and nixos images' terminal and answers: python3 -c
+# "$answer_feeder" SECONDS COMMAND runs `timeout SECONDS bash -o pipefail -c
+# COMMAND` as the session leader of a pseudo-terminal it owns, echo off,
+# copies the terminal's output to stdout and exits with the command's
+# status. It types CR, the byte Enter sends, only while a reader waits, at
+# most once a second and only while nothing it typed is still unread:
+#   - a reader of the raw terminal, with ICANON and ICRNL off: a gum
+#     question, which waits in epoll rather than in read(2), so the mode
+#     alone shows it. sudo, while it runs pacman or apt-get in a
+#     pseudo-terminal of its own, and script(1), while pkg-run.sh keeps a
+#     transcript of paru's run, set the same mode and read each byte at
+#     once, so a relay gets one CR each second for as long as it runs. In
+#     the relay's own terminal, in line mode, each CR waits as an empty
+#     line that answers the next line read there with its default, such as
+#     apt-get's [Y/n] or paru's prompts; pacman's question() drops what
+#     waits (pacman src/pacman/util.c, tcflush) and reads the next CR. What
+#     nobody reads is dropped when the relay ends. A gum question behind a
+#     relay would read that backlog as ctrl+j, Down, so none may run there.
+#     tui.sh's cursor probe turns ICANON off but leaves ICRNL on, and gets
+#     nothing.
+#   - a line read, such as paru's [Y/n] and `Enter a number` when paru runs
+#     on the terminal itself: with ICANON on, a process under the command
+#     is blocked in read(2) on the terminal, which /proc/PID/syscall shows.
+#     ICRNL ends the line with the newline it makes of the CR.
+# A byte typed while nothing reads waits in the terminal, and a CR that
+# waits there under ICRNL becomes LF. gum switches to raw without dropping
+# what waits and reads that LF as ctrl+j, Down, which moves its choice off
+# the default. Measured with a trace of this feeder in the prepared Arch
+# image for VGS-2277 on 2026-11-03: in the aur channel paru blocked in
+# read(2) on /dev/tty for each of its four prompts; in the curl channel gum
+# waited in futex and epoll calls, and the terminal was raw for as long as
+# sudo ran pacman and the transcript ran paru; nothing typed ever stayed
+# unread on this terminal.
+# Owning the terminal makes the feeder the ancestor of every process that
+# reads it, which kernel.yama.ptrace_scope=1 needs before it lets an
+# unprivileged process read another's /proc/PID/syscall.
+IFS= read -r -d '' answer_feeder <<'PY' || :
+import fcntl, os, select, signal, struct, sys, termios, time
+
+seconds, command = sys.argv[1:]
+# read(2) is call 0 in the first field of /proc/PID/syscall on x86_64 only.
+if os.uname().machine != "x86_64":
+    sys.exit(f"readme-install: refused: feeder=machine machine={os.uname().machine}")
+master, slave = os.openpty()
+attrs = termios.tcgetattr(slave)
+attrs[3] &= ~termios.ECHO
+termios.tcsetattr(slave, termios.TCSANOW, attrs)
+child = os.fork()
+if child == 0:
+    try:
+        # Python ignores SIGPIPE and SIGXFSZ for itself, and an ignored
+        # signal stays ignored across exec; the command gets the defaults a
+        # shell would give it.
+        for number in (signal.SIGPIPE, signal.SIGXFSZ):
+            signal.signal(number, signal.SIG_DFL)
+        os.setsid()
+        fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
+        for fd in (0, 1, 2):
+            os.dup2(slave, fd)
+        os.execvp("timeout", ["timeout", seconds, "bash", "-o", "pipefail", "-c", command])
+    except OSError as error:
+        os.write(2, f"readme-install: feeder=start-failed error={error}\n".encode())
+    os._exit(127)
+terminal = os.fstat(slave).st_rdev
+
+def unread():
+    return struct.unpack("i", fcntl.ioctl(slave, termios.TIOCINQ, bytes(4)))[0]
+
+def line_reader():
+    pending = [str(child)]
+    while pending:
+        pid = pending.pop()
+        try:
+            tasks = os.listdir(f"/proc/{pid}/task")
+        except OSError:
+            continue
+        for task in tasks:
+            try:
+                with open(f"/proc/{pid}/task/{task}/children") as f:
+                    pending += f.read().split()
+                with open(f"/proc/{pid}/task/{task}/syscall") as f:
+                    call = f.read().split()
+                if call[0] != "0":
+                    continue
+                device = os.stat(f"/proc/{pid}/fd/{int(call[1], 16)}").st_rdev
+                # /dev/tty is the reader's controlling terminal, tty_nr in
+                # proc(5)'s /proc/PID/stat.
+                if device == os.makedev(5, 0):
+                    with open(f"/proc/{pid}/stat") as f:
+                        number = int(f.read().rsplit(")", 1)[1].split()[4])
+                    device = os.makedev(number >> 8 & 0xfff, number & 0xff | number >> 12 & 0xfff00)
+                if device == terminal:
+                    return True
+            except (OSError, IndexError, ValueError):
+                continue
+    return False
+
+def copy(wait):
+    while select.select([master], [], [], wait)[0]:
+        sys.stdout.buffer.write(os.read(master, 65536))
+        sys.stdout.buffer.flush()
+        wait = 0
+
+typed = checked = 0.0
+while True:
+    copy(0.2)
+    now = time.monotonic()
+    if now - checked < 0.2:
+        continue
+    checked = now
+    done, status = os.waitpid(child, os.WNOHANG)
+    if done:
+        break
+    if now - typed < 1 or unread():
+        continue
+    iflag, _, _, lflag = termios.tcgetattr(slave)[:4]
+    raw = not lflag & termios.ICANON and not iflag & termios.ICRNL
+    if raw or lflag & termios.ICANON and line_reader():
+        os.write(master, b"\r")
+        typed = now
+copy(0)
+code = os.waitstatus_to_exitcode(status)
+sys.exit(code if code >= 0 else 128 - code)
+PY
+
 for row in "${rows[@]}"; do
   IFS=$'\t' read -r block line channel needs vgshell helper command <<<"$row"
   if [[ ${published[$needs]} != yes ]]; then
@@ -567,13 +706,7 @@ for row in "${rows[@]}"; do
   started=$SECONDS
   status=0
   case "${block_image[$block]}" in
-    # The answer feeder is the wrapper's own child, ended once script
-    # returns: as a pipeline's head it held the wrapper up to its next
-    # write, and as script's own child it kept script from exiting. It sends
-    # CR, the byte Enter sends: gum reads its terminal raw and takes LF as
-    # ctrl+j, which never confirms a choice, and a cooked-mode reader such as
-    # pacman or sudo still gets a newline through the pty's ICRNL.
-    arch|debian|nixos) wrapper='printf -v argv "%q " timeout "$1" bash -o pipefail -c "$2"; exec 3< <(while printf "\\r"; do sleep 1; done 2>/dev/null); feeder=$!; script -qE never -ec "$argv" /dev/null <&3 3<&-; status=$?; kill "$feeder"; exit "$status"' ;;
+    arch|debian|nixos) printf -v wrapper 'exec python3 -c %q "$1" "$2"' "$answer_feeder" ;;
     fedora) wrapper='yes y | timeout "$1" bash -o pipefail -c "$2"' ;;
     *) wrapper='yes "" | timeout "$1" bash -o pipefail -c "$2"' ;;
   esac
