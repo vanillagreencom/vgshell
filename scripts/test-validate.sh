@@ -81,7 +81,8 @@ parallel_cases() { # WORKER PREFIX SPEC...
 # one under each root an install ships, bin/, shell/ and config/, each at a
 # path the tree holds, so a fixture that copies the tree in replaces it;
 # refs/remotes/origin/trunk points at it; HEAD is a feature branch on top.
-# It holds the input line reader too, which the script sources.
+# It holds the input line reader too, which the script sources, and the
+# readers the smoke row selection's load reading imports.
 # The repository is built once and each fixture is its own copy of it.
 fresh() {
   local dir="$1"
@@ -108,6 +109,13 @@ template() {
   cp -R -- "$repo/.agents/skills/commit-guards/scripts" "$dir/.agents/skills/commit-guards/"
   printf '# kendex-guard-dialect: legacy-glob\n.agents/*\tcopies of checkers, whose citations name their own repository\n' >"$dir/tools/md-excludes"
   printf 'docs/architecture/validation.md\tborrowed citation target, whose links name the full repository\n' >>"$dir/tools/md-excludes"
+  # The smoke row selection's load reading and the readers it imports,
+  # borrowed with their citations.
+  mkdir -p "$dir/bin/lib"
+  cp -- "$repo/scripts/qml_controls.py" "$repo/scripts/qml_source.py" "$dir/scripts/"
+  cp -- "$repo/bin/vgshell-scan" "$dir/bin/vgshell-scan"
+  cp -- "$repo/bin/lib/dbus_wire.py" "$dir/bin/lib/dbus_wire.py"
+  printf '%s\tborrowed reader, whose citations name the full repository\n' bin/vgshell-scan bin/lib/dbus_wire.py 'scripts/qml_*.py' >>"$dir/tools/md-excludes"
   printf '[env]\nWORKTREE_DEFAULT_BRANCH = "trunk"\n' >"$dir/kendex.settings.toml"
   # The copied extensionless scripts need the repository's source discovery setting.
   grep '^COMMIT_GUARDS_MD_REFS_SOURCE_PATHS[[:space:]]*=' "$repo/kendex.settings.toml" >>"$dir/kendex.settings.toml"
@@ -389,8 +397,10 @@ for spec in "${monitor_cases[@]}"; do
     "${base_env[@]}" git -C "$d" add -- "$file"
     "${base_env[@]}" git -C "$d" commit -q -m planted
   fi
-  files=3
-  [[ $file == scripts/* ]] || files=4
+  # The template's three roots hold five files: one under each, and the
+  # reader and its library under bin/.
+  files=5
+  [[ $file == scripts/* ]] || files=6
   if [[ $want == 1 ]]; then
     row "an hl.monitor $name under $file is refused" "$d" 1 "" \
       "validate: refused: monitor-rule-writer=1" "$file:1:$text"
@@ -1479,7 +1489,13 @@ if [[ $out == "$full_plan" ]]; then ok "a deleted unmapped source selects full";
 # twice leaves a heredoc open. Variants: no-harness-line
 # carries no harness line, no-list has an empty row list, no-core one
 # that does not list auth-sentinel and slow a per-row seconds file that
-# names launcher at ten minutes. Expected row sets are
+# names launcher at ten minutes; loads adds the real updates and
+# agent-warden rows, their real input lines and the real shell files those
+# match, with Badge.qml, BarItem.qml and the qs.Ui qmldir;
+# chain makes the launcher row's Panel.qml import the real qs.Ui qmldir,
+# naming its singleton ImagePool and internal DismissScope, and name Mid
+# of shell/Lib, which names Leaf; unreadable-load adds a shell file that
+# is not UTF-8, and failed-load a reader that raises at import. Expected row sets are
 # written here, not derived from the selector. A control runs a copy of
 # validate with one rule removed, committed so the plan judges the planted
 # change alone, and wants the exact plan that rule's loss gives. No fixture
@@ -1527,6 +1543,69 @@ smoke_fixture() { # DIR [VARIANT]
   if [[ $variant == slow ]]; then
     printf '%s\n' '# Measured seconds.' 'launcher 600' >"$dir/scripts/smoke/rows.secs"
   fi
+  if [[ $variant == unreadable-load ]]; then
+    printf '\377\n' >"$dir/shell/Core/Unreadable.qml"
+  fi
+  if [[ $variant == failed-load ]]; then
+    printf 'raise RuntimeError("planted")\n' >>"$dir/scripts/qml_source.py"
+  fi
+  if [[ $variant == chain ]]; then
+    mkdir -p "$dir/shell/Ui/foundation" "$dir/shell/Ui/overlay" "$dir/shell/Lib"
+    cp -- "$repo/shell/Ui/qmldir" "$dir/shell/Ui/qmldir"
+    printf 'clean\n' >"$dir/shell/Ui/foundation/ImagePool.qml"
+    printf 'clean\n' >"$dir/shell/Ui/overlay/DismissScope.qml"
+    printf 'Leaf {}\n' >"$dir/shell/Lib/Mid.qml"
+    printf 'clean\n' >"$dir/shell/Lib/Leaf.qml"
+    printf '%s\n' 'import qs.Ui' 'import qs.Lib' 'Mid { DismissScope {} }' 'ImagePool.size' >"$dir/shell/plugins/acme.launcher/Panel.qml"
+  fi
+  if [[ $variant == loads ]]; then
+    python3 - "$repo" "$dir" <<'PYLOADS'
+import fnmatch, os, pathlib, re, sys
+repo, target = map(pathlib.Path, sys.argv[1:3])
+# The real updates and agent-warden rows' input lines, with the real text of
+# each shell file they match and of the shared component's path through
+# BarItem, so the reading follows the real loads; other files are neutral.
+
+
+def matches(pattern):
+    """The files under the checkout PATTERN matches as validate matches a
+    path, * across a /."""
+    wild = [pattern.index(c) for c in '*?[' if c in pattern]
+    if not wild:
+        return [pattern] if (repo / pattern).is_file() else []
+    found = []
+    for folder, _dirs, names in os.walk(repo / pattern[:min(wild)].rsplit('/', 1)[0]):
+        for name in names:
+            relative = os.path.relpath(os.path.join(folder, name), repo)
+            if fnmatch.fnmatchcase(relative, pattern):
+                found.append(relative)
+    return found
+
+
+for row in ('updates', 'agent-warden'):
+    lines = re.findall(r'^# inputs: (.+)$', (repo / f'scripts/smoke/rows/{row}.sh').read_text(), re.M)
+    assert len(lines) == 1
+    for pattern in lines[0].split():
+        files = matches(pattern)
+        assert files, pattern
+        for relative in files:
+            original, path = repo / relative, target / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if relative.startswith('shell/'):
+                path.write_bytes(original.read_bytes())
+            elif not path.exists():
+                path.write_text('# neutral input\n')
+    (target / f'scripts/smoke/rows/{row}.sh').write_text('# inputs: ' + lines[0] + '\n')
+for relative in ('shell/Ui/qmldir', 'shell/Ui/controls/BarItem.qml', 'shell/Ui/feedback/Badge.qml'):
+    path = target / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes((repo / relative).read_bytes())
+row_list = target / 'scripts/smoke/rows.list'
+text = row_list.read_text()
+assert text.count('start-order\n') == 1
+row_list.write_text(text.replace('start-order\n', 'updates\nagent-warden\nstart-order\n'))
+PYLOADS
+  fi
   if [[ $variant == tailscale-values || $variant == tailscale-values-control ]]; then
     python3 - "$repo" "$dir" "$variant" <<'PYTAILSCALEINPUT'
 import glob, pathlib, re, sys
@@ -1549,13 +1628,6 @@ for pattern in inputs.split():
             if not path.exists():
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text('# neutral input\n')
-# The Settings plugin's files, so a change to any of them is a change to a
-# tracked file the fixture's selection reads.
-for original in (repo / 'shell/plugins/vgs.settings').iterdir():
-    path = target / original.relative_to(repo)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if not path.exists():
-        path.write_text('# neutral input\n')
 if variant == 'tailscale-values-control':
     edge = 'shell/Commons/SettingValues.js '
     assert inputs.count(edge) == 1
@@ -1578,15 +1650,28 @@ smoke_launcher="scripts/qml-smoke.sh --rows $smoke_core,launcher,$smoke_always,$
 smoke_notify="scripts/qml-smoke.sh --rows $smoke_core,notifications,notifications-keys,$smoke_always,$smoke_tail"
 smoke_none="scripts/qml-smoke.sh --rows $smoke_core,$smoke_always,$smoke_tail"
 smoke_tailscale="scripts/qml-smoke.sh --rows $smoke_core,$smoke_always,device-fakes,tailscale,$smoke_tail"
-# name|changed paths|scope|wanted plan|mutant|fixture variant
+smoke_badge="scripts/qml-smoke.sh --rows $smoke_core,$smoke_always,updates,agent-warden,$smoke_tail"
+# name|changed paths, a removed one led by -|scope|wanted plan|mutant|fixture variant
 smoke_cases=(
   "the shared byte counter selects its Tailscale runtime consumer|shell/Commons/SettingValues.js|changed|scripts/qml-smoke.sh --rows $smoke_core,$smoke_always,device-fakes,tailscale,$smoke_tail||tailscale-values"
   "control: losing the Tailscale byte counter input skips its runtime consumer|shell/Commons/SettingValues.js|changed|$smoke_none||tailscale-values-control"
   "a change to a Settings file the Tailscale row draws selects it, the status line among them|shell/plugins/vgs.settings/StatusLine.qml|changed|$smoke_tailscale||tailscale-values"
   "a change to the Settings field selects the Tailscale row, which draws a field|shell/Ui/controls/SettingField.qml|changed|$smoke_tailscale||tailscale-values"
-  "a change to the Settings key field leaves the Tailscale row out, which has no Keys row|shell/plugins/vgs.settings/KeyField.qml|changed|$smoke_none||tailscale-values"
-  "a change to the Settings rows list leaves the Tailscale row out, which draws none|shell/plugins/vgs.settings/RowsList.qml|changed|$smoke_none||tailscale-values"
-  "a change to the Settings list field leaves the Tailscale row out, which has no list|shell/plugins/vgs.settings/ListField.qml|changed|$smoke_none||tailscale-values"
+  "a shared component selects the real rows that draw it through another file|shell/Ui/feedback/Badge.qml|changed|$smoke_badge||loads"
+  "control: without the load reading the rows that draw a shared component drop out|shell/Ui/feedback/Badge.qml|changed|$smoke_none|loads|loads"
+  "a qmldir change selects the real rows whose files import its directory|shell/Ui/qmldir|changed|$smoke_badge||loads"
+  "control: without the qmldir edge a qmldir change drops the rows that import it|shell/Ui/qmldir|changed|$smoke_none|qmldir-edge|loads"
+  "a file a row's file loads only through another selects the row|shell/Lib/Leaf.qml|changed|$smoke_launcher||chain"
+  "control: without the walk past a loader the row that loads it through another drops out|shell/Lib/Leaf.qml|changed|$smoke_none|chain|chain"
+  "a qmldir singleton a row's file names selects the row|shell/Ui/foundation/ImagePool.qml|changed|$smoke_launcher||chain"
+  "control: without the qmldir's singletons the row that names one drops out|shell/Ui/foundation/ImagePool.qml|changed|$smoke_none|qmldir-every|chain"
+  "a qmldir internal type a row's file names selects the row|shell/Ui/overlay/DismissScope.qml|changed|$smoke_launcher||chain"
+  "control: without the qmldir's internal types the row that names one drops out|shell/Ui/overlay/DismissScope.qml|changed|$smoke_none|qmldir-every|chain"
+  "a removed file a row's file loaded runs every row|-shell/Lib/Leaf.qml|changed|scripts/qml-smoke.sh||chain"
+  "control: a removed file a row's file loaded no longer runs every row|-shell/Lib/Leaf.qml|changed|$smoke_none|absent|chain"
+  "a load reading that fails runs every row|shell/plugins/acme.launcher/Panel.qml|changed|scripts/qml-smoke.sh||failed-load"
+  "control: a load reading that fails no longer runs every row|shell/plugins/acme.launcher/Panel.qml|changed|$smoke_launcher|failed-load|failed-load"
+  "control: a shell file the load reading cannot read no longer runs every row|shell/plugins/acme.launcher/Panel.qml|changed|$smoke_launcher|unreadable-load|unreadable-load"
   "one plugin selects the core rows, its own and the rows that always run|shell/plugins/acme.launcher/Panel.qml|changed|$smoke_launcher||rows"
   "control: a row with no input line no longer runs|shell/plugins/acme.launcher/Panel.qml|changed|scripts/qml-smoke.sh --rows $smoke_core,launcher,stale,twice,blank,lost,$smoke_tail|missing|rows"
   "control: a row whose glob matches nothing no longer runs|shell/plugins/acme.launcher/Panel.qml|changed|scripts/qml-smoke.sh --rows $smoke_core,launcher,bare,twice,blank,lost,$smoke_tail|matches-nothing|rows"
@@ -1637,6 +1722,13 @@ declare -A smoke_mutant_old=(
   [unknown]=$'      export VGS_VALIDATE_CHANGED="$paths_file"\n      smoke_scoped=true\n    fi'
   [full]=$'smoke_scoped=false\naffected=()'
   [own-file]='for glob in "$file" "${smoke_globs[@]}"; do'
+  [loads]='    smoke_load_reach "$2"'
+  [qmldir-edge]='loads |= consulted'
+  [chain]='queue+=("$loader")'
+  [qmldir-every]='every=True)'
+  [absent]=$'    printf -v smoke_reach \'untraced reason=qml-load-target-absent path=%q\' "$2"'
+  [failed-load]=$'    smoke_read_fault=qml-loads-failed; return 0\n  fi'
+  [unreadable-load]=$'unreadable) printf -v smoke_read_fault \'qml-loads-unreadable path=%q\' "$loader${loaded:+ $loaded}"; return 0 ;;'
 )
 declare -A smoke_mutant_new=(
   [missing]=$'missing; add to the leading comment block of %s: # inputs: GLOB [GLOB...]\\n\' "$key" "$file" >&2; return 0'
@@ -1656,6 +1748,13 @@ declare -A smoke_mutant_new=(
   [unknown]=$'      export VGS_VALIDATE_CHANGED="$paths_file"\n    fi\n    smoke_scoped=true'
   [full]=$'smoke_scoped=true\naffected=()'
   [own-file]='for glob in "${smoke_globs[@]}"; do'
+  [loads]='    :'
+  [qmldir-edge]='pass'
+  [chain]=':'
+  [qmldir-every]='every=False)'
+  [absent]='    :'
+  [failed-load]=$'    return 0\n  fi'
+  [unreadable-load]='unreadable) return 0 ;;'
 )
 for spec in "${smoke_cases[@]}"; do
   IFS='|' read -r name files scope wanted mutant variant <<<"$spec"
@@ -1672,7 +1771,9 @@ PY
     "${base_env[@]}" git -C "$d" commit -q -am control
   fi
   # A comment, so the changed stand-in runner still lists its rows.
-  for file in $files; do printf '# changed\n' >>"$d/$file"; done
+  for file in $files; do
+    if [[ $file == -* ]]; then rm -- "${d:?}/${file#-}"; else printf '# changed\n' >>"$d/$file"; fi
+  done
   scope_args=(--changed HEAD)
   [[ $scope == changed ]] || scope_args=(--full)
   status=0
@@ -1691,6 +1792,16 @@ d="$tmp/smoke-rows-slow"; smoke_fixture "$d" slow
 printf '# changed\n' >>"$d/shell/plugins/acme.launcher/Panel.qml"
 row "a reached row with a long median stays selected" "$d" 0 "" \
   "$smoke_launcher" "validate: smoke-rows=some selected=11 total=14"
+# A shell file the load reading cannot read, or a reading that fails, runs
+# every row and says why in one line; the table above holds the controls.
+d="$tmp/smoke-rows-unreadable-load-line"; smoke_fixture "$d" unreadable-load
+printf '# changed\n' >>"$d/shell/plugins/acme.launcher/Panel.qml"
+row "a shell file the load reading cannot read runs every row and names itself" "$d" 0 "" \
+  "scripts/qml-smoke.sh" "validate: smoke-rows=all reason=qml-loads-unreadable path=shell/Core/Unreadable.qml" '!validate: smoke-rows=some'
+d="$tmp/smoke-rows-failed-load-line"; smoke_fixture "$d" failed-load
+printf '# changed\n' >>"$d/shell/plugins/acme.launcher/Panel.qml"
+row "a load reading that fails runs every row and says so" "$d" 0 "" \
+  "scripts/qml-smoke.sh" "validate: smoke-rows=all reason=qml-loads-failed" '!validate: smoke-rows=some'
 # A fix round after a rebase: the lane validated its launcher change at
 # $lane, main then changed acme.notify, the lane rebased onto it and edits
 # launcher again. --changed $lane selects the lane's own paths only; a base

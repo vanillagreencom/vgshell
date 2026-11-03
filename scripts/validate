@@ -583,7 +583,7 @@ rows=(
   "repo|no private key in the tree|private_keys_check|"
   "repo|markdown references and source citations|md_refs_check|"
   "tools|document byte ceilings|doc_limits_check|*.md docs/* tools/doc-limits-excludes kendex.settings.toml .kendex/settings.toml .kendex-generated.json .agents/skills/doc-limits/scripts/* .agents/skills/commit-guards/scripts/lib/generated-paths.sh .agents/skills/commit-guards/scripts/lib/messages.sh"
-  "tools|validate self-check controls|scripts/test-validate.sh|scripts/validate scripts/smoke/gpu-fence.sh docs/architecture/validation.md scripts/smoke/rows/tailscale.sh scripts/smoke/rows/vpn.sh packaging/install-tree.manifest scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/rows.list scripts/smoke/rows/bar.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/session.sh scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/auth-sentinel.sh scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/jarvis-bubble.sh scripts/test-qml-unit.sh .agents/skills/orch/scripts/lib/kendex-env.sh .agents/skills/doc-limits/scripts/* bin/lib/check-manifests.js scripts/test-check-manifests.js bin/lib/qml-library.js shell/* bin/vgshell-scan scripts/smoke/fixtures/* bin/lib/dbus_wire.py"
+  "tools|validate self-check controls|scripts/test-validate.sh|scripts/validate scripts/qml_controls.py scripts/qml_source.py scripts/smoke/gpu-fence.sh docs/architecture/validation.md scripts/smoke/rows/tailscale.sh scripts/smoke/rows/vpn.sh scripts/smoke/rows/updates.sh scripts/smoke/rows/agent-warden.sh packaging/install-tree.manifest scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/rows.list scripts/smoke/rows/bar.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/rows/plugins.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/session.sh scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh scripts/smoke/rows/auth-sentinel.sh scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/jarvis-bubble.sh scripts/test-qml-unit.sh .agents/skills/orch/scripts/lib/kendex-env.sh .agents/skills/doc-limits/scripts/* bin/lib/check-manifests.js scripts/test-check-manifests.js bin/lib/qml-library.js shell/* bin/vgshell-scan scripts/smoke/fixtures/* bin/lib/dbus_wire.py"
   "tools|theme package judge controls|node scripts/test-vgshell-theme-judge.js|scripts/test-vgshell-theme-judge.js bin/vgshell-theme-judge bin/lib/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js shell/Commons/Glass.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Core/PackageReview.js shell/Ui/icons/Lucide.js shell/Ui/icons/Own.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js shell/Commons/PageReference.js themes/* config/shell.json"
   "unit|Keyboard UI contracts|scripts/test-keyboard-ui.sh|shell/plugins/vgs.keyboard/* scripts/fixtures/keyboard-ui/* scripts/qml-tests/stand-ins/* scripts/qml-unit.sh shell/Ui/* shell/Commons/* shell/Core/* shell/assets/* scripts/smoke/gpu-fence.sh shell/shell.qml"
   "unit|qml unit tests|scripts/qml-unit.sh|shell/Ui/* shell/Commons/* shell/Core/Config.qml shell/Core/TuiRecords.qml shell/Core/ThemeRunner.qml shell/Core/SessionLock.qml shell/Core/ShortcutRegistry.qml shell/Core/KeyCapture.qml shell/Core/HyprlandLayer.qml shell/Core/HyprlandState.qml shell/Core/HyprlandState.js shell/Core/HyprctlReader.qml shell/Core/Dispatch.js shell/Core/PluginLogic.js shell/Commons/PageReference.js shell/Core/ConfigLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Core/PackageReview.js shell/Core/HyprlandLayer.js shell/assets/* scripts/qml-tests/* shell/plugins/vgs.tailscale/* shell/plugins/vgs.google-drive/Service.qml shell/plugins/vgs.google-drive/RunnerClient.qml shell/plugins/vgs.google-drive/GoogleDriveLogic.js shell/plugins/vgs.google-drive/Panel.qml shell/plugins/vgs.sysmon/* shell/plugins/vgs.traffic/* shell/plugins/vgs.notifications/* shell/plugins/vgs.themes/* shell/plugins/vgs.launcher/* shell/plugins/vgs.settings/* shell/plugins/vgs.displays/* shell/plugins/vgs.automations/* shell/plugins/vgs.jarvis/Widget.qml shell/plugins/vgs.jarvis/Console.qml shell/plugins/vgs.jarvis/WidgetView.js shell/plugins/vgs.jarvis/Session.js shell/plugins/vgs.jarvis/Service.qml shell/plugins/vgs.jarvis/Conversation.js shell/plugins/vgs.jarvis/Bubble.qml shell/plugins/vgs.jarvis/LocalTier.qml shell/plugins/vgs.jarvis/CloneRuntime.qml shell/plugins/vgs.jarvis/BrowserRuntime.qml shell/plugins/vgs.jarvis/FleetRuntime.qml shell/plugins/vgs.jarvis/SessionStart.qml shell/plugins/vgs.jarvis/Keys.qml shell/plugins/vgs.jarvis/LocalRuntime.qml shell/plugins/vgs.jarvis/SetupGate.js shell/plugins/vgs.jarvis/Accounts.qml shell/plugins/vgs.jarvis/AccountProviders.js shell/plugins/vgs.jarvis/AccountStatus.js shell/plugins/vgs.jarvis/JarvisProtocol.js shell/plugins/vgs.agent-warden/Widget.qml shell/plugins/vgs.agent-warden/ViewLogic.js shell/plugins/vgs.agent-warden/WardenLogic.js shell/plugins/vgs.ai-usage/Widget.qml shell/plugins/vgs.ai-usage/UsageView.js shell/plugins/vgs.sudo/Widget.qml shell/plugins/vgs.sudo/SudoView.js themes/vgs/theme.json themes/catalog/flexoki-light/theme.json scripts/smoke/gpu-fence.sh shell/plugins/vgs.vpn/* shell/plugins/vgs.screensaver/ScreensaverLogic.js shell/plugins/vgs.screensaver/logo.txt shell/shell.qml"
@@ -948,9 +948,12 @@ index_match() { # NAME PATH
 # share: the rows; each row's input globs, smoke_row_lines, and, for a row
 # whose reach can be traced, smoke_row_globs; the rows each row reads; the
 # harness inputs; the tracked files; the pattern index smoke_index of each
-# row's file and globs; smoke_read_fault; and smoke_path_reach's answers.
+# row's file and globs; the files that load each file, smoke_loaded_by,
+# and the rows each loader's path matches, smoke_load_hit; smoke_read_fault;
+# and smoke_path_reach's answers.
 smoke_names=() smoke_harness_inputs=() smoke_tracked=() smoke_index_globs=() smoke_read_fault=unread
 declare -A smoke_row_lines=() smoke_row_globs=() smoke_row_reads=() smoke_path_hit=()
+declare -A smoke_loaded_by=() smoke_load_hit=()
 declare -A smoke_index_literal=() smoke_index_glob_members=()
 
 # The reader of a row's input line and the core rows, smoke_core, both of
@@ -1370,6 +1373,100 @@ PY
   done <<<"$facts"
 }
 
+# smoke_loads_read: read into smoke_loaded_by, PATH -> the files that load
+# it, space-led, the static loads of every .qml and .js file under shell/
+# and scripts/smoke/, the row fixtures among them: a type the file names
+# as a word of its comment-free text that its own directory holds as a
+# .qml file or exports through its qmldir, or that a directory it imports
+# does, as `qs.<Dir>` for shell/<Dir> or by a relative path; each qmldir
+# that resolution consults, of its own directory and each it imports; and
+# a file it imports by a relative path, with `import` or `.import`. A word
+# in a string counts too: a match too wide adds a row and never skips one.
+# It reads the files on disk, so a removed file has no loaders here, and
+# smoke_path_reach does not trace one. A load chosen by a value computed at
+# run time, such as a Loader source built in code, is not read; the row's
+# input line names it. A file the
+# reading cannot read sets smoke_read_fault to `qml-loads-unreadable
+# path=<path>`, and a reading that fails sets it to `qml-loads-failed`.
+smoke_loads_read() {
+  local out fact loader loaded
+  # -B: the reading writes no bytecode into the tree it reads.
+  if ! out="$(python3 -I -B - <<'PY'
+import os, re, sys
+
+sys.path.insert(0, "scripts")
+from qml_controls import qmldir_exports
+from qml_source import Unreadable, blank_comments, source_texts
+
+# A file imports its own directory's types, each .qml file whose name
+# starts with an uppercase letter, and `import qs[.<Dir>...]` names a
+# directory under the shell root, shell/: Implicit imports and Manual
+# imports, https://quickshell.org/docs/v0.3.1/guide/qml-language.
+IMPORT = re.compile(r'^[ \t]*\.?import[ \t]+(?:"([^"\n]*)"|(qs(?:\.\w+)*)\b)', re.M)
+WORD = re.compile(r"[A-Za-z_]\w*")
+
+try:
+    code = {}
+    for root in ("shell", "scripts/smoke"):
+        for path, text in source_texts(root):
+            code[os.path.normpath(path)] = blank_comments(text)
+    files = {}
+    for path in code:
+        folder, name = os.path.split(path)
+        if name.endswith(".qml") and name[:1].isupper():
+            files.setdefault(folder, {}).setdefault(name[:-4], set()).add(path)
+    tables = {}
+
+    # The types a file that sees FOLDER may name, and the qmldir their
+    # resolution consults: a changed or removed export changes what the
+    # file loads, so the file loads the qmldir too.
+    def named(folder):
+        if folder not in tables:
+            table = {name: set(paths) for name, paths in files.get(folder, {}).items()}
+            consulted = set()
+            qmldir = os.path.join(folder, "qmldir")
+            if os.path.isfile(qmldir):
+                consulted.add(qmldir)
+                for name, path in qmldir_exports("", folder, every=True):
+                    table.setdefault(name, set()).add(os.path.normpath(path))
+            tables[folder] = table, consulted
+        return tables[folder]
+
+    for path, text in code.items():
+        here = os.path.dirname(path)
+        seen, loads = [named(here)], set()
+        for relative, module in IMPORT.findall(text):
+            target = os.path.join("shell", *module.split(".")[1:]) if module else os.path.normpath(os.path.join(here, relative))
+            if os.path.isdir(target):
+                seen.append(named(target))
+            elif not module:
+                loads.add(target)
+        words = set(WORD.findall(text))
+        for table, consulted in seen:
+            loads |= consulted
+            for name in words.intersection(table):
+                loads |= table[name]
+        loads.discard(path)
+        for target in sorted(loads):
+            print("load", path, target)
+except Unreadable as exc:
+    print("unreadable", exc.path)
+except OSError as exc:
+    print("unreadable", exc.filename)
+PY
+)"; then
+    smoke_read_fault=qml-loads-failed; return 0
+  fi
+  while read -r fact loader loaded; do
+    case "$fact" in
+      '') ;;
+      load) smoke_loaded_by[$loaded]+=" $loader" ;;
+      unreadable) printf -v smoke_read_fault 'qml-loads-unreadable path=%q' "$loader${loaded:+ $loaded}"; return 0 ;;
+      *) smoke_read_fault=qml-loads-failed; return 0 ;;
+    esac
+  done <<<"$out"
+}
+
 # smoke_rows_read: read what every nested smoke row's reach rests on into
 # the smoke_* globals above. `scripts/qml-smoke.sh --list-rows` names the
 # rows. Each row's file, scripts/smoke/rows/<row>.sh, carries an input line
@@ -1385,7 +1482,8 @@ PY
 # which holds the core rows and reads the rows a row brings, harness.sh
 # and the paths its line matches; a harness glob that matches nothing only
 # reports. smoke_read_fault names a row list, core row, tracked-file list
-# or harness line this cannot read, after which no reach is traced. The
+# or harness line this cannot read, after which no reach is traced, or a
+# shell file smoke_loads_read cannot read. The
 # self-check lines smoke_input_read prints never change the exit status.
 smoke_rows_read() {
   local listed row file needed glob smoke_glob_unmatched smoke_inputs_line smoke_inputs_fault
@@ -1393,6 +1491,7 @@ smoke_rows_read() {
   local -A hits=()
   smoke_names=() smoke_harness_inputs=() smoke_tracked=() smoke_read_fault=""
   smoke_row_lines=() smoke_row_globs=() smoke_row_reads=() smoke_path_hit=()
+  smoke_loaded_by=() smoke_load_hit=()
   smoke_index_literal=() smoke_index_glob_members=() smoke_index_globs=()
   if ! listed="$(scripts/qml-smoke.sh --list-rows)" || [[ -z $listed ]]; then
     smoke_read_fault=row-list-unreadable; return 0
@@ -1422,19 +1521,24 @@ smoke_rows_read() {
     done
     for glob in "$file" "${smoke_globs[@]}"; do index_add smoke_index "$glob" "$row"; done
   done
+  [[ -n $smoke_read_fault ]] || smoke_loads_read
 }
 
 # smoke_path_reach BASE PATH: set smoke_reach to what a change to PATH
 # against BASE reaches among the rows smoke_rows_read last read: `harness`
 # for a harness input, which every row reads; `untraced reason=<reason>`
 # when its reach cannot be read; or else the rows, space-led, whose file or
-# input glob matches PATH. scripts/smoke/rows.list, which holds the row
-# order, is no harness input: a change to it reaches the rows its added
-# lines name, read from the diff against BASE, so a moved row runs and a
-# comment reaches nothing, and each row whose line names the file of a row
+# input glob matches PATH or a file that loads PATH, directly or through
+# other files, as smoke_loads_read read them. scripts/smoke/rows.list,
+# which holds the row order, is no harness input: a change to it reaches
+# the rows its added lines name, read from the diff against BASE, so a
+# moved row runs and a comment reaches nothing, and each row whose line
+# names the file of a row
 # its removed lines unlist, since that row reads state the unlisted row no
 # longer leaves. A list git does not track, a diff this cannot read or an
-# added line no listed row holds cannot be traced. Selection and the smoke
+# added line no listed row holds cannot be traced, nor can a .qml, .js or
+# qmldir file under shell/ or scripts/smoke/ that the tree no longer holds,
+# whose former loaders the load reading cannot see. Selection and the smoke
 # rows' records read this one answer, cached per BASE and PATH.
 smoke_path_reach() { # BASE PATH
   local key="$1 $2" glob diff line sign hunk=false row needed
@@ -1472,11 +1576,44 @@ smoke_path_reach() { # BASE PATH
       fi
     fi
   fi
+  if [[ -z $smoke_reach && ( $2 == shell/* || $2 == scripts/smoke/* ) && ( $2 == *.qml || $2 == *.js || ${2##*/} == qmldir ) && ! -f $2 ]]; then
+    printf -v smoke_reach 'untraced reason=qml-load-target-absent path=%q' "$2"
+  fi
   if [[ $smoke_reach != harness && $smoke_reach != untraced* ]]; then
     index_match smoke_index "$2"
     smoke_reach+="$index_hits"
+    smoke_load_reach "$2"
   fi
   smoke_path_hit[$key]="$smoke_reach"
+}
+
+# smoke_load_reach PATH: add to smoke_reach each row, once, whose file or
+# input glob matches a file that loads PATH, directly or through other
+# files, as smoke_loads_read last read them; smoke_load_hit caches each
+# loader's matching rows.
+smoke_load_reach() { # PATH
+  local at=0 loader row
+  local -a queue=("$1") loaders
+  local -A seen=([$1]=1) added=()
+  for row in $smoke_reach; do added[$row]=1; done
+  while ((at < ${#queue[@]})); do
+    read -r -a loaders <<<"${smoke_loaded_by[${queue[at]}]-}"
+    at=$((at + 1))
+    for loader in "${loaders[@]}"; do
+      [[ -z ${seen[$loader]-} ]] || continue
+      seen[$loader]=1
+      queue+=("$loader")
+      if [[ -z ${smoke_load_hit[$loader]+set} ]]; then
+        index_match smoke_index "$loader"
+        smoke_load_hit[$loader]="$index_hits"
+      fi
+      for row in ${smoke_load_hit[$loader]}; do
+        [[ -z ${added[$row]-} ]] || continue
+        added[$row]=1
+        smoke_reach+=" $row"
+      done
+    done
+  done
 }
 
 # The nested smoke rows a diff-scoped run passes to scripts/qml-smoke.sh as
@@ -1484,9 +1621,10 @@ smoke_path_reach() { # BASE PATH
 # runs when a changed path reaches it (smoke_path_reach against the change
 # base), when it is a core row, when its reach cannot be traced, or when a
 # running row reads it. A change to a harness input runs every row, as
-# does one whose reach, or a row list, core row, tracked-file list or
-# harness line, cannot be read. No time figure removes a reached row:
-# docs/architecture/validation.md § Selection.
+# does one whose reach, or a row list, core row, tracked-file list,
+# harness line or shell file the load reading reads, cannot be read. No
+# time figure removes a reached row: docs/architecture/validation.md §
+# Selection.
 smoke_rows_selected() { # CHANGED_PATH...
   local row path every=""
   local -A want=()

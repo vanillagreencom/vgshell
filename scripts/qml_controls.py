@@ -106,16 +106,25 @@ def takes_click(block, alias):
     return alias is not None and block.type.startswith(alias + ".") and kind in TEMPLATE_CONTROLS
 
 
-def qmldir_exports(repo):
-    qml_dir = os.path.join(repo, "shell", "Ui", "qmldir")
-    with open(qml_dir, "r", encoding="utf-8") as handle:
+def qmldir_exports(repo, directory=os.path.join("shell", "Ui"), every=False):
+    """Yield (name, path) for each versioned type the qmldir in `directory`
+    exports, `name 1.0 file`. With `every`, its `singleton` and `internal`
+    entries too, which a file of the module or an importer names in the
+    same way. A qmldir that cannot be read raises OSError."""
+    with open(os.path.join(repo, directory, "qmldir"), "r", encoding="utf-8") as handle:
         for raw in handle:
-            line = raw.strip()
-            if not line or line.startswith(("#", ".", "module ")) or line.startswith(("internal ", "singleton ")):
+            parts = raw.split()
+            if not parts or parts[0].startswith(("#", ".")) or parts[0] == "module":
                 continue
-            parts = line.split()
-            if len(parts) >= 3 and parts[1][0].isdigit():
-                yield parts[0], os.path.join(repo, "shell", "Ui", parts[2])
+            kind = parts[0] if parts[0] in ("internal", "singleton") else ""
+            if kind:
+                if not every:
+                    continue
+                parts = parts[1:]
+            if kind == "internal" and len(parts) >= 2:
+                yield parts[0], os.path.join(repo, directory, parts[1])
+            elif kind != "internal" and len(parts) >= 3 and parts[1][0].isdigit():
+                yield parts[0], os.path.join(repo, directory, parts[2])
 
 
 def qs_ui_controls(repo):
