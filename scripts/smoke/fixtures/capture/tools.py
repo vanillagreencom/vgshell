@@ -19,7 +19,8 @@ it runs, so a failed reload's cause is only there.
 slurp reads stdin to EOF when it is not a terminal, as the real slurp does.
 The recorder logs its start and output name, then writes `finalized`, or
 copies the fixture's `video`, only after SIGINT, never on a hard stop.
-ffmpeg copies its input, or writes a small JPEG for a one-frame thumbnail;
+ffmpeg copies its input, or writes a small JPEG for a one-frame thumbnail,
+or, writing to `-`, prints a loudnorm measurement of -40 LUFS;
 ffmpegHold holds it half way until `ffmpeg-release` exists, and
 ffmpegOutlivesTerm keeps that held ffmpeg past its first SIGTERM; a second
 ends it, as a tool still finishing when its owner signals again. grimHeldCall N
@@ -197,6 +198,11 @@ match tool:
         ])))
     case "ffmpeg":
         source, target = Path(sys.argv[sys.argv.index("-i") + 1]), Path(sys.argv[-1])
+        if sys.argv[-1] == "-":
+            # A loudnorm measurement pass, which prints its JSON last.
+            print('[Parsed_loudnorm_1 @ 0x0] \n{\n\t"input_i" : "-40.00",\n\t"input_tp" : "-25.00",\n\t"input_lra" : "3.00",\n\t'
+                  '"input_thresh" : "-50.00",\n\t"target_offset" : "0.00"\n}', file=sys.stderr)
+            sys.exit(0)
         if "-frames:v" in sys.argv:
             target.write_bytes(THUMBNAIL)
             sys.exit(0)

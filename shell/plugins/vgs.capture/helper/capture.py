@@ -105,6 +105,23 @@ LANGUAGES = re.compile(r"[A-Za-z_]+(\+[A-Za-z_]+)*")
 AUDIO = {"desktop": "default_output", "microphone": "default_input", "both": "default_output|default_input"}
 # gpu-screen-recorder's camera overlay, placed as v1 placed it.
 WEBCAM = ";x=74%;y=69%;width=22%;height=22%;camera_fps=30"
+# gpu-screen-recorder 6.1.6 opens a file with up to 84 ms of silence, then a
+# hard step into the input and a discontinuity by 116 ms, and ends it wherever
+# the stop cut the input: VGS-2241's decoded PCM of its recordings from a
+# PipeWire 1.6.10 test source. A microphone's open transient comes at
+# 130-200 ms (Omarchy's capture script). So the audio is muted for 400 ms and
+# fades in over 50 ms, and its last 50 ms cross-fade into silence, which
+# needs no duration and keeps the length. afade gives every sample before its
+# start the silence gain, 0; a volume=0 timeline switch acts per decoded
+# frame and left a 12 ms step where the fade began (VGS-2241).
+AUDIO_START = "afade=t=in:st=0.4:d=0.05"
+AUDIO_END = "[a];anullsrc=r=48000:d=0.05[z];[a][z]acrossfade=d=0.05"
+# loudnorm has no gain limit: it raised a quiet room alone by 51 dB
+# (VGS-2241). So its target is at most this far over the measured loudness;
+# speech short of -14 LUFS by up to this much still reaches it. loudnorm
+# keeps one linear gain where the measured peak and range allow, else levels
+# dynamically toward that target.
+LOUDNESS_GAIN = 15
 # The hidden post-process output beside a recording; a later recording start
 # removes one no live worker holds.
 PROCESSING_PREFIX = ".screencast-processing-"
@@ -642,8 +659,8 @@ class Capture:
                 raise RuntimeError(f"Recording failed (exit {self.recorder.returncode})" + log_tail(log))
             emit("stopped", path=str(path))
             processing = "off"
-            if request["postProcess"]:
-                processing = "done" if self.postprocess(path, bool(audio), log) else "failed"
+            if request["postProcess"] or audio:
+                processing = "done" if self.postprocess(path, audio.count("-a"), request["postProcess"], log) else "failed"
             thumbnail = self.thumbnail(path, state, log)
             detail = log_tail(log).strip() if processing == "failed" else ""
         try:
@@ -663,8 +680,10 @@ class Capture:
             self.recorder.kill()
             self.recorder.wait()
 
-    def postprocess(self, path, audio, log):
-        """Trim the first 0.1 s and normalize loudness; True once PATH holds it.
+    def postprocess(self, path, tracks, clean, log):
+        """Quiet both ends of each of the TRACKS audio tracks and, when CLEAN,
+        trim the first 0.1 s and level each track; True once PATH holds it.
+        The video is copied.
 
         The output replaces PATH by one rename on the same filesystem only
         after ffmpeg succeeds, so any other end keeps the recording whole.
@@ -674,10 +693,18 @@ class Capture:
         try:
             # The lock marks this output live for remove_stale_processing.
             fcntl.flock(fd, fcntl.LOCK_EX)
-            args = ["ffmpeg", "-hide_banner", "-loglevel", "warning", "-y", "-ss", "0.1", "-i", str(path), "-map", "0:v:0"]
-            if audio:
+            trim = ["-ss", "0.1"] if clean else []
+            args = ["ffmpeg", "-hide_banner", "-loglevel", "warning", "-y", *trim, "-i", str(path), "-map", "0:v:0"]
+            if tracks:
+                args += ["-map", "0:a?", "-c:v", "copy"]
+                for track in range(tracks):
+                    # Each gpu-screen-recorder -a is its own track.
+                    levels = self.loudness(path, track, log) if clean else ""
+                    if levels is None:
+                        return False
+                    args += [f"-filter:a:{track}", AUDIO_START + levels + AUDIO_END]
                 # loudnorm resamples to 192 kHz; AAC takes at most 96 kHz.
-                args += ["-map", "0:a?", "-c:v", "copy", "-af", "loudnorm=I=-14:TP=-1.5:LRA=11", "-ar", "48000", "-c:a", "aac", "-b:a", "192k"]
+                args += ["-ar", "48000", "-c:a", "aac", "-b:a", "192k"]
             else:
                 args += ["-c:v", "copy", "-an"]
             child = self.spawn(args + [str(temp)], stdout=log, stderr=log)
@@ -690,6 +717,33 @@ class Capture:
         finally:
             temp.unlink(missing_ok=True)
             os.close(fd)
+
+    def loudness(self, path, track, log):
+        """loudnorm for TRACK, aimed at -14 LUFS but at most LOUDNESS_GAIN dB
+        over the track's loudness, which a first pass measures after the trim
+        and the quiet start; None when that pass fails."""
+        child = self.spawn(["ffmpeg", "-hide_banner", "-nostats", "-ss", "0.1", "-i", str(path), "-map", f"0:a:{track}",
+                            "-af", AUDIO_START + ",loudnorm=I=-14:TP=-1.5:LRA=11:print_format=json", "-f", "null", "-"],
+                           stdout=log, stderr=subprocess.PIPE)
+        _, err = self.wait(child)
+        text = err.decode(errors="replace")
+        try:
+            if child.returncode:
+                raise ValueError(child.returncode)
+            # loudnorm prints its measurement as the last JSON object.
+            found = json.loads(text[text.rindex("{"):text.rindex("}") + 1])
+            # Silence measures -inf; each option takes -99 to 99.
+            i, tp, lra, thresh = (min(99.0, max(-99.0, float(found[key]))) for key in ("input_i", "input_tp", "input_lra", "input_thresh"))
+        except (ValueError, KeyError, TypeError):
+            # Only a failure's output goes to the log, whose end its notice shows.
+            log.write(err)
+            log.flush()
+            return None
+        # loudnorm's I floor, -70 LUFS, lets a track under -85 LUFS, near
+        # digital silence, rise past the cap.
+        target = max(-70.0, min(-14.0, i + LOUDNESS_GAIN))
+        return (f",loudnorm=I={target:.2f}:TP=-1.5:LRA=11:measured_I={i:.2f}:measured_TP={tp:.2f}"
+                f":measured_LRA={lra:.2f}:measured_thresh={thresh:.2f}:linear=true")
 
     def thumbnail(self, path, state, log):
         """One frame of the recording as a JPEG, or "" when none was made."""

@@ -7,6 +7,7 @@ No inherited desktop, bus or device environment reaches an offline child.
 """
 import json
 import ctypes
+import math
 import runpy
 import os
 from pathlib import Path
@@ -1034,7 +1035,8 @@ def portal_cancel_holds(root, helper):
 
 def saved_holds(root, helper, audio="desktop", post=True):
     """Functions 18, 19 and 20: stopped before post-processing, then saved with
-    the trimmed file, its thumbnail and its URI on the clipboard."""
+    the processed file, its thumbnail and its URI on the clipboard. Recorded
+    audio always gets its quiet ends; Clean up adds the trim and loudness."""
     payload = request(root, "record-output")
     payload.update(audio=audio, postProcess=post)
     code, messages, argv, err = recorded(root, payload, helper)
@@ -1045,14 +1047,23 @@ def saved_holds(root, helper, audio="desktop", post=True):
     path = Path(saved["path"])
     state = root / "state/plugins/vgs.capture"
     ffmpeg = tool_calls(root, "ffmpeg")
-    processing = [args for args in ffmpeg if "-frames:v" not in args]
+    measured = [args for args in ffmpeg if args[-1] == "-"]
+    processing = [args for args in ffmpeg if "-frames:v" not in args and args[-1] != "-"]
     thumbnail = [args for args in ffmpeg if "-frames:v" in args]
-    trim = ["-ss", "0.1", "-i", str(path), "-map", "0:v:0"]
-    if post:
+    trim = ["-ss", "0.1"] if post else []
+    start = "afade=t=in:st=0.4:d=0.05"
+    measure = ["-hide_banner", "-nostats", "-ss", "0.1", "-i", str(path), "-map", "0:a:0", "-af", start + ",loudnorm=I=-14:TP=-1.5:LRA=11:print_format=json", "-f", "null", "-"]
+    if measured != ([measure] if post and audio != "none" else []):
+        return False
+    if post or audio != "none":
         temp = Path(processing[0][-1]) if len(processing) == 1 else None
-        audio_args = ["-map", "0:a?", "-c:v", "copy", "-af", "loudnorm=I=-14:TP=-1.5:LRA=11", "-ar", "48000", "-c:a", "aac", "-b:a", "192k"] if audio != "none" else ["-c:v", "copy", "-an"]
-        if (temp is None or processing[0][processing[0].index("-ss"):-1] != trim + audio_args or temp.parent != path.parent
-                or not temp.name.startswith(".screencast-processing-") or temp.exists() or saved["processing"] != "done"):
+        # The stand-in measures -40 LUFS, so the 15 dB cap sets -25.
+        levels = (",loudnorm=I=-25.00:TP=-1.5:LRA=11:measured_I=-40.00:measured_TP=-25.00:measured_LRA=3.00:measured_thresh=-50.00:linear=true"
+                  if post else "")
+        edges = start + levels + "[a];anullsrc=r=48000:d=0.05[z];[a][z]acrossfade=d=0.05"
+        audio_args = ["-map", "0:a?", "-c:v", "copy", "-filter:a:0", edges, "-ar", "48000", "-c:a", "aac", "-b:a", "192k"] if audio != "none" else ["-c:v", "copy", "-an"]
+        if (temp is None or processing[0][:-1] != ["-hide_banner", "-loglevel", "warning", "-y", *trim, "-i", str(path), "-map", "0:v:0", *audio_args]
+                or temp.parent != path.parent or not temp.name.startswith(".screencast-processing-") or temp.exists() or saved["processing"] != "done"):
             return False
     elif processing or saved["processing"] != "off":
         return False
@@ -1470,39 +1481,65 @@ def media(ffprobe, path):
 
 def real_processing(base, source):
     """Function 18 with the real ffmpeg on a 2 s fixture video this check makes:
-    the saved file is 0.1 s shorter, its audio AAC, its thumbnail a JPEG.
+    the saved file is 0.1 s shorter, its audio AAC with quiet ends, its
+    thumbnail a JPEG; without Clean up, only the audio's ends change.
     Answers the cause when ffmpeg or its lavfi source is absent, else None."""
     ffmpeg, ffprobe = shutil.which("ffmpeg"), shutil.which("ffprobe")
     if ffmpeg is None or ffprobe is None:
         return "ffmpeg-unavailable"
-    fixture = base / "real-fixture.mp4"
-    made = subprocess.run([ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc=duration=2:size=160x120:rate=30",
-                           "-f", "lavfi", "-i", "sine=frequency=440:duration=2", "-c:v", "mpeg4", "-g", "1", "-c:a", "aac", "-shortest", str(fixture)],
-                          stdin=subprocess.DEVNULL, capture_output=True, env={"PATH": os.defpath, "LC_ALL": "C"}, timeout=60)
-    if made.returncode != 0:
-        return "lavfi-unavailable"
-    def run(name, helper, audio):
+    fixture, quiet = base / "real-fixture.mp4", base / "real-quiet.mp4"
+    for path, level in ((fixture, 0), (quiet, -45)):
+        made = subprocess.run([ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc=duration=2:size=160x120:rate=30",
+                               "-f", "lavfi", "-i", "sine=frequency=440.125:duration=2", "-af", f"volume={level}dB", "-c:v", "mpeg4", "-g", "1", "-c:a", "aac",
+                               "-shortest", str(path)], stdin=subprocess.DEVNULL, capture_output=True, env={"PATH": os.defpath, "LC_ALL": "C"}, timeout=60)
+        if made.returncode != 0:
+            return "lavfi-unavailable"
+    def run(name, helper, audio, post=True, video=fixture):
         root = base / name
-        plant(root, {"video": str(fixture)})
+        plant(root, {"video": str(video)})
         (root / "bin/ffmpeg").unlink()
         (root / "bin/ffmpeg").symlink_to(ffmpeg)
         payload = request(root, "record-output")
-        payload["audio"] = audio
+        payload.update(audio=audio, postProcess=post)
         code, messages, argv, err = recorded(root, payload, helper)
         assert code == 0 and messages[-1]["event"] == "saved", (name, messages, err)
         thumbnail = Path(messages[-1]["thumbnail"]).read_bytes() if messages[-1]["thumbnail"] else b""
-        return messages[-1]["processing"], *media(ffprobe, messages[-1]["path"]), thumbnail[:3] == b"\xff\xd8\xff"
-    def trimmed(result, streams):
-        processing, duration, codecs, thumbnail = result
-        return processing == "done" and 1.8 <= duration <= 1.95 and codecs == streams and thumbnail
+        return messages[-1]["processing"], *media(ffprobe, messages[-1]["path"]), thumbnail[:3] == b"\xff\xd8\xff", messages[-1]["path"]
+    def trimmed(result, streams, seconds=(1.8, 1.95)):
+        processing, duration, codecs, thumbnail, _ = result
+        return processing == "done" and seconds[0] <= duration <= seconds[1] and codecs == streams and thumbnail
+    def levels(path):
+        pcm = subprocess.run([ffmpeg, "-v", "error", "-i", str(path), "-map", "0:a:0", "-ac", "1", "-ar", "48000", "-f", "s16le", "-"],
+                             stdin=subprocess.DEVNULL, capture_output=True, env={"PATH": os.defpath, "LC_ALL": "C"}, timeout=20).stdout
+        return [abs(s) for s in struct.unpack(f"<{len(pcm) // 2}h", pcm[:len(pcm) // 2 * 2])]
+    def quiet_ends(result):
+        """The saved audio is silent through 0.35 s and its last 1 ms is under
+        a tenth of its peak: no start pop and no cut at the stop."""
+        found = levels(result[-1])
+        return len(found) > 48000 and max(found[:16800]) <= 32 and max(found[-48:]) * 10 < max(found)
+    def capped(result):
+        """Clean up raises the -63 dBFS tone by at most its 15 dB cap, not to
+        -14 LUFS. loudnorm levels a tone, whose loudness range is 0, in its
+        dynamic mode, which measured +12 dB here (VGS-2241)."""
+        gain = math.log10(sum(v * v for v in levels(result[-1])[33600:81600]) / sum(v * v for v in levels(quiet)[38400:86400])) * 10
+        return 10 <= gain <= 16
     assert media(ffprobe, fixture)[0] >= 1.99, "fixture video length"
-    assert trimmed(run("real-audio", HELPER, "desktop"), [("audio", "aac"), ("video", "mpeg4")]), "real ffmpeg trim and loudness"
+    cleaned = run("real-audio", HELPER, "desktop")
+    assert trimmed(cleaned, [("audio", "aac"), ("video", "mpeg4")]) and quiet_ends(cleaned), "real ffmpeg trim, loudness and quiet ends"
+    assert capped(run("real-quiet", HELPER, "desktop", video=quiet)), "real ffmpeg loudness gain cap"
+    raw = run("real-unprocessed", HELPER, "desktop", post=False)
+    assert trimmed(raw, [("audio", "aac"), ("video", "mpeg4")], (1.95, 2.05)) and quiet_ends(raw), "real ffmpeg quiet ends without clean-up"
     assert trimmed(run("real-silent", HELPER, "none"), [("video", "mpeg4")]), "real ffmpeg drops audio"
-    before = '"-ss", "0.1", '
-    assert source.count(before) == 1, "trim control match"
-    helper = base / "no-trim.py"
-    helper.write_text(source.replace(before, ""))
-    assert not trimmed(run("real-no-trim", helper, "desktop"), [("audio", "aac"), ("video", "mpeg4")]), "control did not fail: no-trim"
+    for name, before, after, check, post in [
+        ("no-trim", 'trim = ["-ss", "0.1"] if clean else []', 'trim = []', lambda r: trimmed(r, [("audio", "aac"), ("video", "mpeg4")]), True),
+        ("loud-start", 'AUDIO_START + levels + AUDIO_END', '"anull" + levels + AUDIO_END', quiet_ends, False),
+        ("loud-end", 'AUDIO_START + levels + AUDIO_END', 'AUDIO_START + levels', quiet_ends, False),
+        ("uncapped-loudness", 'levels = self.loudness(path, track, log) if clean else ""', 'levels = ",loudnorm=I=-14:TP=-1.5:LRA=11" if clean else ""', capped, True),
+    ]:
+        assert source.count(before) == 1, name
+        helper = base / (name + ".py")
+        helper.write_text(source.replace(before, after))
+        assert not check(run("real-" + name, helper, "desktop", post, quiet if check is capped else fixture)), "control did not fail: " + name
     return None
 
 
@@ -1627,7 +1664,8 @@ def recording_functions(base, source):
     assert not refused_before_recorder(root, mutated("absent-camera", 'if camera not in cameras:', 'if False:'), {**absent, "recordFolder": str(root / "videos"), "stateDir": str(root / "state")}, "camera-unavailable"), "control did not fail: absent-camera"
     assert portal_cancel_holds(world("portal-cancel", picker=True), HELPER), "portal cancel"
     assert not portal_cancel_holds(world("portal-cancel-control", picker=True), mutated("picker-ignores-cancel", 'if line in ("", "cancel") or path.stat().st_size == 0:', 'if False:')), "control did not fail: picker-ignores-cancel"
-    for name, audio, post in [("saved", "desktop", True), ("saved-silent", "none", True), ("saved-unprocessed", "desktop", False)]:
+    for name, audio, post in [("saved", "desktop", True), ("saved-silent", "none", True), ("saved-unprocessed", "desktop", False),
+                              ("saved-unprocessed-silent", "none", False)]:
         assert saved_holds(world(name), HELPER, audio, post), name
     assert processing_failure_holds(world("processing-failure", ffmpegFail=True), HELPER), "processing failure keeps the recording"
     for signum in (signal.SIGKILL, signal.SIGTERM):
@@ -1686,6 +1724,8 @@ def recording_functions(base, source):
         ("shared-log", '    path.unlink(missing_ok=True)\n    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_APPEND | os.O_NOFOLLOW, 0o600)', '    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND | os.O_NOFOLLOW, 0o600)', lambda helper: own_log_holds(world("shared-log", ffmpegHold=True, ffmpegFail=True), helper)),
         ("portal-cancel-failure", 'if target.startswith("portal") and self.recorder.returncode == PORTAL_CANCELLED:', 'if False:', lambda helper: portal_exit_holds(world("portal-exit-control", portalCancel=True), helper)),
         ("no-uri-copy", 'child = self.copy(io.BytesIO((path.as_uri() + "\\r\\n").encode()), "text/uri-list")', 'child = self.spawn([sys.executable, "-c", "pass"])', lambda helper: saved_holds(world("no-uri-copy"), helper)),
+        ("old-clean-up-audio", 'levels = self.loudness(path, track, log) if clean else ""', 'levels = ",loudnorm=I=-14:TP=-1.5:LRA=11" if clean else ""', lambda helper: saved_holds(world("old-clean-up-audio"), helper)),
+        ("raw-audio-kept", 'if request["postProcess"] or audio:', 'if request["postProcess"]:', lambda helper: saved_holds(world("raw-audio-kept"), helper, "desktop", False)),
         ("recorder-log-to-stderr", 'self.recorder = self.spawn(args, stdin=subprocess.DEVNULL, stdout=log, stderr=log)', 'self.recorder = self.spawn(args, stdin=subprocess.DEVNULL, stdout=log, stderr=sys.stderr)', lambda helper: saved_holds(world("log-to-stderr"), helper)),
         ("no-log-tail", 'return "\\n" + tail if tail else ""', 'return ""', lambda helper: failure_log_holds(world("no-log-tail", crash=True), helper, "fixture recorder crash: no encoder")),
     ]:
