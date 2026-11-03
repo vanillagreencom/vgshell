@@ -117,10 +117,12 @@ world(() => {
     function checkPrivacy(logic) {
         const root = state();
         withWriter(logic, { state: root }, writer => {
-            assert.deepEqual(writer.record(event), { kind: "recorded" });
-            assert.deepEqual(writer.record({ ...event, tool: "memory.propose",
+            const written = writer.record(event);
+            assert.equal(written.kind, "recorded");
+            assert.equal(written.time, records(root)[0].time, "the result names the row it wrote by its time");
+            assert.equal(writer.record({ ...event, tool: "memory.propose",
                 args: { id: "facts/private.md", text: "planted-memory-note-text" },
-                effect: "reversible" }), { kind: "recorded" });
+                effect: "reversible" }).kind, "recorded");
             const content = fs.readFileSync(path.join(root, "audit", "2026-09-30.jsonl"), "utf8");
             assert.equal(content.includes("planted-arbitrary-credential"), false, "planted key absent on disk");
             assert.equal(content.includes("planted-memory-note-text"), false, "memory note text absent on disk");
@@ -347,7 +349,7 @@ world(() => {
     function checkCapture(logic) {
         const root = state();
         withWriter(logic, { state: root }, writer => {
-            assert.deepEqual(writer.record(vision), { kind: "recorded" });
+            assert.equal(writer.record(vision).kind, "recorded");
             assert.deepEqual(records(root)[0].capture, capture);
             for (const [name, value] of [
                 ["extra key", { ...vision, capture: { ...capture, image: "iVBORw0KGgo" } }],

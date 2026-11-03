@@ -30,7 +30,7 @@ function releaseHeld(clock, state, send) {
 const daemon = path.join(tree, "shell/plugins/vgs.jarvis/backend/jarvisd.js");
 const source = fs.readFileSync(daemon, "utf8");
 const hello = { v: 1, type: "hello", gen: 0, settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "",
-    cloudVision: "ask", privateWindows: "bitwarden" }, directories: {
+    cloudVision: "ask", privateWindows: "bitwarden", mainHost: "" }, directories: {
     state: "/private/state", data: "/private/data", runtime: "/private/runtime"
 }, revision: "a".repeat(64), locked: false,
 keys: { talk: "SUPER+code:44", mute: "SUPER+SHIFT+code:44", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C", "voice-mute": "SUPER+ALT+code:44" } };
@@ -127,6 +127,9 @@ async function inside() {
                 Protocol.accept(JSON.stringify(frame), "daemon");
                 assert.notEqual(frame.snapshot.kind, "ready", "this legacy Home has no asks source; startup must never fabricate an empty inbox");
             }
+            // An empty Main Jarvis host reads as this computer, with no package read.
+            for (const frame of frames.filter(frame => frame.type === "main-reach"))
+                assert.deepEqual(frame.reach, { kind: "main" });
             if (observations !== null) assert.deepEqual(publicFrames, observations, "startup publishes both bounded lists");
             for (const frame of publicFrames) {
                 assert.deepEqual(Object.keys(frame).sort(), ["gen", "revision", "rows", "type", "v"]);
@@ -138,7 +141,7 @@ async function inside() {
                     : ["cause", "decision", "effect", "outcome", "refusal", "time", "tool"]);
             }
             assert.deepEqual(frames.filter(frame => frame.type !== "shell-status"
-                && frame.type !== "task-list" && frame.type !== "audit-failures" && frame.type !== "owner-asks"
+                && frame.type !== "task-list" && frame.type !== "audit-failures" && frame.type !== "owner-asks" && frame.type !== "main-reach"
                 && (keepMemory || frame.type !== "memory") && (keepMemoryInbox || frame.type !== "memory-inbox")
                 && (keepHomes || frame.type !== "homes")
                 && (keepShown || !shownTypes.includes(frame.type))), expected);

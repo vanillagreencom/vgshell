@@ -327,6 +327,24 @@ FocusScope {
         return state === "problem" || state === "off" ? Theme.color.warning : Theme.color.textMuted;
     }
 
+    // The Now line for REACH, the daemon's reading of the main Jarvis
+    // (Satellite.js), or "" before the first; MAINHOST is the Main Jarvis
+    // host setting, whose computer a package that has not taken it names.
+    function reachText(reach, mainHost) {
+        if (reach === undefined || reach === null) return "";
+        if (reach.kind === "main") return "This computer runs your main Jarvis.";
+        if (reach.kind === "unavailable" && reach.cause === "home")
+            return "Jarvis cannot forward requests: choose a [Home folder](page:vgs.jarvis/Settings/home).";
+        if (reach.kind === "unavailable")
+            return "The Jarvis package in your " + Gate.homeReference("home folder",
+                { kind: values.homePath ? "ready" : "empty", path: values.homePath }, "") + " cannot forward to " + mainHost.split(":")[0] + ".";
+        if (reach.cause === "setting-invalid")
+            return "Jarvis cannot reach your main Jarvis: [Main Jarvis host](page:vgs.jarvis/Settings/mainHost) is not a computer name.";
+        if (reach.reachable === true) return "Your main Jarvis on " + reach.host + " is reachable.";
+        if (reach.reachable === false) return "Your main Jarvis on " + reach.host + " did not answer. Forwarded requests wait here.";
+        return "Jarvis has not sent a request to your main Jarvis on " + reach.host + " yet.";
+    }
+
     function rows() {
         const result = conversation.slice();
         if (livePartial.trim() !== "") result.push({ gen: state.gen, role: "user", text: livePartial, stage: "partial" });
@@ -490,6 +508,19 @@ FocusScope {
                 currentIndex: root.tab
                 KeyNavigation.tab: root.tab === 0 ? root.composerFocus : root.tab === 1 ? asksBody : historySearch
                 onCurrentIndexChanged: root.tab = currentIndex
+            }
+            // The main Jarvis's reachability, in the fixed header so a long
+            // conversation never scrolls it away.
+            LinkText {
+                objectName: "mainReachLine"
+                visible: root.tab === 0 && text !== ""
+                width: parent.width
+                role: "hint"
+                text: root.reachText(root.values.mainReach, root.shell === null ? "" : root.shell.settings.mainHost)
+                color: root.values.mainReach && root.values.mainReach.kind === "satellite"
+                    && root.values.mainReach.cause !== "" ? Theme.color.warning : Theme.color.textMuted
+                wrapMode: Text.Wrap
+                onPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
             }
             Row {
                 visible: root.tab === 2

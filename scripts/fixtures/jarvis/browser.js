@@ -61,7 +61,7 @@ async function daemonLease(ending, removeClose = false) {
         fs.writeFileSync(file, mutant);
     }
     const hello = { v: 1, type: "hello", gen: 0,
-        settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", privateWindows: "" },
+        settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", privateWindows: "", mainHost: "" },
         directories: {
             state: path.join(process.env.JARVIS_TEST_ROOT, "state/vgshell/jarvis"),
             data: path.join(process.env.JARVIS_TEST_ROOT, "data/vgshell/jarvis"),
@@ -104,7 +104,9 @@ async function daemonLease(ending, removeClose = false) {
                 Protocol.accept(JSON.stringify(frame), "daemon");
                 assert.equal(frame.snapshot.kind, "unavailable", "no Home must not fabricate an empty inbox");
             }
-            assert.deepEqual(frames.filter(frame => !["homes", "voices", "personality", "start-text", "owner-asks"].includes(frame.type)), [
+            for (const frame of frames.filter(frame => frame.type === "main-reach"))
+                assert.deepEqual(frame.reach, { kind: "main" }, "an empty Main Jarvis host is this computer");
+            assert.deepEqual(frames.filter(frame => !["homes", "voices", "personality", "start-text", "owner-asks", "main-reach"].includes(frame.type)), [
                 { v: 1, type: "audit-failures", gen: 0, revision: hello.revision, rows: [] },
                 { v: 1, type: "shell-status", gen: 0, revision: hello.revision, availability: { kind: "checking" } },
                 { v: 1, type: "status", gen: 0, revision: hello.revision, daemon: "ready",
@@ -147,7 +149,7 @@ async function daemonStartup(browserFile) {
         fs.copyFileSync(path.join(plugin, file), path.join(folder, file));
     fs.copyFileSync(browserFile, path.join(folder, "backend/Browser.js"));
     const hello = { v: 1, type: "hello", gen: 0,
-        settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", privateWindows: "" },
+        settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", privateWindows: "", mainHost: "" },
         directories: {
             state: path.join(process.env.JARVIS_TEST_ROOT, "state/vgshell/jarvis"),
             data: path.join(process.env.JARVIS_TEST_ROOT, "data/vgshell/jarvis"),

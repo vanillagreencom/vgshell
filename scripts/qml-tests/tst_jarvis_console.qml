@@ -443,5 +443,33 @@ Item {
             link.pageActivated("vgs.jarvis/Settings", "voiceAccount");
             compare(JSON.stringify(root.opened), '[["vgs.jarvis/Settings","voiceAccount"]]');
         }
+
+        // The main Jarvis's reading draws one line on Now alone, in the
+        // warning colour only while the main did not answer or the package
+        // cannot read the setting; before the first reading none shows.
+        function test_main_reach_line_data() {
+            return [
+                { tag: "unread", reach: undefined, shown: false, warning: false },
+                { tag: "main", reach: { kind: "main" }, shown: true, warning: false },
+                { tag: "reachable", reach: { kind: "satellite", host: "cachy", reachable: true, cause: "" }, shown: true, warning: false },
+                { tag: "uncontacted", reach: { kind: "satellite", host: "cachy", reachable: null, cause: "" }, shown: true, warning: false },
+                { tag: "unanswered", reach: { kind: "satellite", host: "cachy", reachable: false, cause: "main-unreachable" }, shown: true, warning: true },
+                { tag: "setting", reach: { kind: "satellite", host: "", reachable: null, cause: "setting-invalid" }, shown: true, warning: true },
+                { tag: "package", reach: { kind: "unavailable", cause: "package" }, shown: true, warning: false },
+                { tag: "home", reach: { kind: "unavailable", cause: "home" }, shown: true, warning: false }
+            ];
+        }
+        function test_main_reach_line(data) {
+            const values = root.values({});
+            if (data.reach !== undefined) values.mainReach = data.reach;
+            const shell = root.shellWith(values);
+            shell.settings.mainHost = "cachy";
+            jarvisConsole.shell = shell;
+            const line = () => collect(jarvisConsole, n => n.objectName === "mainReachLine", [])[0];
+            compare(line().visible, data.shown);
+            if (data.shown) compare(Qt.colorEqual(line().color, data.warning ? Theme.color.warning : Theme.color.textMuted), true);
+            jarvisConsole.tab = 2;
+            compare(line().visible, false, "the line is Now's alone");
+        }
     }
 }

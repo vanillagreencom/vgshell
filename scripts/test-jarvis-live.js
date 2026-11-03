@@ -1673,7 +1673,7 @@ world(async () => {
         try {
             send({ type: "hello", settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain, model: "fixture-model", effort: "",
                 fallbacks: only === "failover" ? [{ name: "backup", brain, model: "fixture-model" }] : [], taskTerminal: "auto",
-                cloudVision: "ask", privateWindows: "", voiceProvider: P.setting, voiceAccount: live, voice: only === "preview" ? P.previewVoice : "", clonedVoice: false, dictation: "" }, directories, locked: false,
+                cloudVision: "ask", privateWindows: "", mainHost: "", voiceProvider: P.setting, voiceAccount: live, voice: only === "preview" ? P.previewVoice : "", clonedVoice: false, dictation: "" }, directories, locked: false,
                 keys: { talk: "SUPER+code:44", mute: "SUPER+SHIFT+code:44", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C", "voice-mute": "SUPER+ALT+code:44" } });
             if (only === "wrong-key") {
                 const looked = lookups(), connected = main.conns.length;

@@ -969,7 +969,7 @@ world(async () => {
             .map(([id, target]) => [id, "files.read", { path: target }]).concat([["home-skill", "help", { topic: "own/alpha" }]]);
         try {
             child.stdin.write(JSON.stringify({ v: 1, type: "hello", gen: 0, revision: "a".repeat(64), locked: false,
-                settings: { home: homeSetting, sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", privateWindows: "" },
+                settings: { home: homeSetting, sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", privateWindows: "", mainHost: "" },
                 directories: { state, data: path.join(process.env.JARVIS_TEST_ROOT, name + "-data"),
                     runtime: path.join(process.env.JARVIS_TEST_ROOT, name + "-run") },
                 keys: { talk: "SUPER+code:44", mute: "SUPER+SHIFT+code:44", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C", "voice-mute": "SUPER+ALT+code:44" } }) + "\n");
@@ -1045,7 +1045,7 @@ world(async () => {
     // Each control drops the home on one line of its way to the help tool.
     for (const [control, edit] of [
         ["help-home-daemon", ["jarvisd.js", 'home: () => homeFolder.state.kind === "ready" ? homeFolder.state.path : null });', "home: () => null });"]],
-        ["help-home-browser", ["Browser.js", "        } }, home, environment);\n", "        } }, undefined, environment);\n"]]]) {
+        ["help-home-browser", ["Browser.js", "        } }, home, environment, main);\n", "        } }, undefined, environment, main);\n"]]]) {
         const dropped = await daemon(control, [edit]);
         assert.throws(() => skillRead(dropped["home-skill"]), assert.AssertionError, control + " control turns red");
         controls++;

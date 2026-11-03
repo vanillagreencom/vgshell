@@ -235,7 +235,8 @@ function create({ state, auditDays = 30, now = Date.now, changed = () => {} }) {
             if (lifetime !== "open") fail("writer-closed");
             const stamp = clock();
             persist(build(stamp.time), stamp);
-            return { kind: "recorded" };
+            // The row's time names it: a forward cites the row by it.
+            return { kind: "recorded", time: stamp.time };
         } catch (error) {
             // Filesystem messages can contain private paths. Only keyed causes
             // leave this boundary; no caller argument or error body is logged.
@@ -258,12 +259,13 @@ function create({ state, auditDays = 30, now = Date.now, changed = () => {} }) {
          * Persist a pending authorized action/release before invoking start.
          * This is the audit gate only, not a policy or approval judge.
          * start may return a promise; executor results never enter this store.
+         * start receives the recorded row's result, {kind:"recorded", time}.
          */
         before(event, start) {
             if (!event || event.outcome !== "pending" || typeof start !== "function") fail("start-shape");
             const audit = record(event);
             if (audit.kind === "refuse") return audit;
-            return { kind: "started", audit, value: start() };
+            return { kind: "started", audit, value: start(audit) };
         },
         /** Privacy shutdown cannot depend on a writable audit store. */
         cleanup(kind, start) {

@@ -755,7 +755,7 @@ async function loadingTalk(server, ending = "ready", edits = []) {
     child.stdin.on("error", e => { if (e.code !== "EPIPE") throw e; });
     const send = fields => child.stdin.write(JSON.stringify({ v: 1, gen: s()?.gen ?? 0, revision: "a".repeat(64), ...fields }) + "\n");
     const hello = (locked = false) => send({ type: "hello", locked,
-        settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: ending === "brain" || ending.startsWith("check-") ? "" : "fixture-account", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", privateWindows: "bitwarden" },
+        settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: ending === "brain" || ending.startsWith("check-") ? "" : "fixture-account", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", privateWindows: "bitwarden", mainHost: "" },
         keys: { talk: null, mute: null, stop: null, confirm: null, console: null, "voice-mute": null }, directories: { state, data: root, runtime: process.env.XDG_RUNTIME_DIR } });
     const intent = name => send({ type: "intent", intent: name });
     const before = server.requests.length;
@@ -958,7 +958,7 @@ async function alwaysTalk(server, ending = "ready", edits = []) {
     const send = fields => child.stdin.write(JSON.stringify({ v: 1, gen: s()?.gen ?? 0, revision: "a".repeat(64), ...fields }) + "\n");
     const hello = () => send({ type: "hello", locked: false,
         settings: { home: "", sounds: false, mode: "always", microphone: "", speaker: "", brain: "fixture-account", model: "", effort: "", fallbacks: [], taskTerminal: "auto",
-            voiceProvider: ending === "refused" ? "realtime" : "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", privateWindows: "bitwarden" },
+            voiceProvider: ending === "refused" ? "realtime" : "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", privateWindows: "bitwarden", mainHost: "" },
         keys: { talk: null, mute: null, stop: null, confirm: null, console: null, "voice-mute": null }, directories: { state, data: root, runtime: process.env.XDG_RUNTIME_DIR } });
     hello();
     const before = server.requests.length;
@@ -3703,7 +3703,7 @@ async function groupPlants(root, server) {
         ["interrupted-answers", "if (routing && c.brain !== null) c.brain.record(", "if (false) c.brain.record(", "stale-outcome"],
         ["not-started", 'return router.interrupted(call, "not-started");', 'return router.interrupted(call, "running");', "stale-outcome"],
         ["late-result", "c.results.push(lateItem(late.call, value.outcome, item));", "void lateItem;", "stale-outcome"],
-        ["fleet-line-absent", '{ "fleet.request": { completed: "Asking Jarvis\'s session." } }', "{}", "fleet-request-completed-silent"],
+        ["fleet-line-absent", '"fleet.request": { completed: "Asking Jarvis\'s session." },', "", "fleet-request-completed-silent"],
         ["fleet-line-repeated", "        if (turn.fixed?.has(normalizedLine(sentence))) return;\n", "", "fleet-request-completed-echo"],
         ["fast-match", "? null : Tools.match(e.text);", "? null : null;", "fast-path"],
         ["fast-account", "c.results.push(fastAccount(turn.fast.e.text, call, outcome, item));", "", "fast-path"],

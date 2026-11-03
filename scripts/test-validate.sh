@@ -913,6 +913,22 @@ if area in ["cli", "offline", "all"] and asks not in lines and asks_input:
 power = "node scripts/test-jarvis-power-wait.js"
 if area in ["cli", "offline", "all"] and power not in lines and session_input:
     lines.insert(lines.index(asks if asks in lines else session) + 1, power)
+# The satellite suite's row follows the router row; its inputs are its row's.
+satellite = "node scripts/test-jarvis-satellite.js"
+satellite_inputs = ["shell/plugins/vgs.jarvis/backend/Satellite.js", "shell/plugins/vgs.jarvis/backend/Child.js",
+    "shell/plugins/vgs.jarvis/backend/Home.js", "shell/plugins/vgs.jarvis/backend/Redact.js",
+    "shell/plugins/vgs.jarvis/backend/Tools.js", "shell/plugins/vgs.jarvis/backend/Core.js",
+    "shell/plugins/vgs.jarvis/backend/ComputerHelp.js", "shell/plugins/vgs.jarvis/backend/skills/computer/*",
+    "shell/plugins/vgs.jarvis/JarvisProtocol.js", "shell/plugins/vgs.jarvis/Session.js",
+    "shell/plugins/vgs.jarvis/AccountProviders.js", "shell/plugins/vgs.jarvis/manifest.json",
+    "scripts/fixtures/jarvis/satellite-package.py", "scripts/fixtures/jarvis/policy.js", "scripts/fixtures/jarvis/core.js",
+    "scripts/fixtures/jarvis/bounded.js", "scripts/lib/jarvis-env.sh", "bin/lib/qml-library.js", "bin/lib/anchored.js",
+    "bin/lib/account-folders.js", "shell/Commons/AccountDirectories.js", ".agents/skills/jarvis/scripts/lib/*"]
+if area in ["cli", "offline", "all"] and satellite not in lines and any(fnmatch.fnmatchcase(file, pattern) for pattern in satellite_inputs):
+    router = "node scripts/test-jarvis-router.js"
+    if router not in lines:
+        raise AssertionError("no router row before the satellite row in expected plan: " + file)
+    lines.insert(lines.index(router) + 1, satellite)
 # The fatal-row suite starts a real disposable runtime and is the last QML
 # row, so product inputs also select it, without widening non-QML areas.
 fatal_smoke_input = (file.startswith(("shell/", "bin/", "config/", "themes/", "packaging/", "scripts/smoke/", "scripts/fixtures/jarvis/"))
