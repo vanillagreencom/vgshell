@@ -1,4 +1,3 @@
-background = "#@{color.background}"
 border_fg = "#@{color.borderControl}"
 text_fg = "#@{color.text}"
 dimmed_text_fg = "#@{color.textMuted}"
