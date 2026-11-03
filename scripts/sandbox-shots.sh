@@ -23,7 +23,7 @@
 # SCENE is gallery, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, tailscale, tailscale-starting, tailscale-locked, tailscale-flyout, vpn, vpn-locked, remote-desktop, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, automation-failure, googledrive, tooltips, screensaver-lock, capture, capture-notifications,
-# info-dialog, keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, package-review-terminal, packages, jarvis-console, jarvis-history, jarvis-setup, elevenlabs-voices, jarvis-fleet, outdated, jarvis-causes, jarvis-restart, plugin-messages, page-links, tooltip-link, traffic, ai-usage, ai-usage-states, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice, displays-override or theme-previews. settings takes the
+# info-dialog, keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, package-review-terminal, packages, jarvis-console, jarvis-history, jarvis-setup, elevenlabs-voices, jarvis-fleet, outdated, jarvis-causes, jarvis-restart, plugin-messages, page-links, tooltip-link, traffic, ai-usage, ai-usage-states, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice, displays-override, agent-debug or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, or with --pages
@@ -116,6 +116,11 @@
 # package-review-terminal captures the real terminal review editor in kitty,
 # with a read-only owner fixture and the real gum target rendered to scratch.
 # No install, update, review agent or theme apply runs.
+# agent-debug, taken only when named, is each moment of Agent Debug the
+# approved VGS-2260 sheets draw: its Settings, Setup and Details tabs, a
+# failed setup task's toast and a crash toast, the Inbox, and its Diagnose
+# and Unmute terminals, over a stand-in journal, a stand-in agent and no
+# crash, journal read or install.
 # packages captures General > Packages in System Settings at its update
 # options, then at Agent review and the optional review command.
 # voice-keys is the Keys
@@ -439,7 +444,7 @@ while [[ $# -gt 0 ]]; do
     --title-inventory) title_inventory=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    link-icons|sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|capture-notifications|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|package-review-terminal|packages|voice-keys|jarvis-console|jarvis-history|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|jarvis-restart|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|tailscale-flyout|tailscale-section|vpn|vpn-locked|remote-desktop|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|automation-failure|googledrive|tooltips|screensaver|screensaver-lock|theme-previews|setup-tab|updates|clone-voice|displays-override) scenes+=("$1"); shift ;;
+    link-icons|sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|capture-notifications|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|package-review-terminal|packages|voice-keys|jarvis-console|jarvis-history|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|jarvis-restart|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|tailscale-flyout|tailscale-section|vpn|vpn-locked|remote-desktop|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|automation-failure|googledrive|tooltips|screensaver|screensaver-lock|theme-previews|setup-tab|updates|clone-voice|displays-override|agent-debug) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -600,6 +605,7 @@ scene_ships() {
     voice-elsewhere) ships_plugin vgs.voice vgs.settings && tree_has shell/plugins/vgs.voice/manifest.json '"dictation"' ;;
     dictation-setup) ships_plugin vgs.settings && { [[ -x $tree/bin/vgshell-dictation ]] || { [[ -n $rev ]] && ships_plugin vgs.voice; }; } ;;
     package-review-terminal) [[ -f $tree/bin/lib/pkg-review-settings.sh ]] ;;
+    agent-debug) [[ $manager_scene == settings ]] && ships_plugin vgs.agent-debug vgs.notifications ;;
     packages) ships_plugin vgs.system vgs.packages ;;
     plugin-messages) ships_plugin vgs.clipboard vgs.lock vgs.notifications ;;
     page-links) [[ $manager_scene == settings ]] && tree_has shell/Ui/feedback/LinkText.qml '(page:' ;;
@@ -710,6 +716,11 @@ fi
 # host claude or codex.
 if [[ " ${scenes[*]} " == *" ai-usage "* || " ${scenes[*]} " == *" ai-usage-states "* ]]; then
   shell_hidden_commands+=(claude codex)
+fi
+# Agent Debug offers only the agents the scene stands in, claude and codex,
+# whatever agents the host runs.
+if [[ " ${scenes[*]} " == *" agent-debug "* ]]; then
+  shell_hidden_commands+=(claude codex copilot pi opencode)
 fi
 if [[ " ${scenes[*]} " == *" traffic "* ]]; then
   shell_hidden_commands+=(bandwhich)
@@ -10448,14 +10459,13 @@ LINKKEYS
   link_icons_review_shots "$mode"
 }
 
-# The first shot is the bare desktop; every later shot must differ from the
-# one before it, which is what proves grim reads the frame being drawn now.
-scene_package-review-terminal() { # MODE
-  local mode="$1" world="$sandbox/package-review-terminal-$1" kitty_bin gum_bin address
-  kitty_bin="$(command -v kitty)" && gum_bin="$(command -v gum)" || { fail "package-review-terminal: kitty or gum is missing"; return; }
-  mkdir -p -- "$world/state/vgshell/theme" "$world/bin"
-  # Render the shipped target without applying a theme or running reloads.
-  node - "$repo" "$theme_file" "$world" "$fixture_targets/gum" <<'REVIEWSTYLE' || { fail "the review terminal colours could not be rendered"; return; }
+# terminal_world_style WORLD: the capture theme's gum target rendered under
+# WORLD/state/vgshell/theme and a WORLD/kitty.conf in the theme's colours,
+# with no theme apply or reload; WORLD/bin, the terminal's own commands,
+# made empty. Shared by the scenes that shoot a real TUI in kitty.
+terminal_world_style() { # WORLD
+  mkdir -p -- "$1/state/vgshell/theme" "$1/bin"
+  node - "$repo" "$theme_file" "$1" "$fixture_targets/gum" <<'TERMINALSTYLE'
 const fs=require('node:fs'),path=require('node:path');
 const [repo,theme,world,dir]=process.argv.slice(2),load=require(path.join(repo,'bin/lib/qml-library.js')).load;
 const logic=load(path.join(repo,'shell/Commons/ThemeLogic.js')),tokens=load(path.join(repo,'shell/Commons/Tokens.js')).TOKENS;
@@ -10472,7 +10482,54 @@ if(!result.ok)throw new Error(render.refusalLine('gum',result));
 for(const file of result.files)fs.writeFileSync(path.join(world,'state/vgshell/theme',file.destination),file.bytes);
 const color=key=>'#'+pkg.values.color[key].slice(1,7);
 fs.writeFileSync(path.join(world,'kitty.conf'),`background ${color('background')}\nforeground ${color('text')}\nconfirm_os_window_close 0\nshell_integration disabled\nenable_audio_bell no\n`);
-REVIEWSTYLE
+TERMINALSTYLE
+}
+# terminal_world_gum WORLD VERB: WORLD/bin/gum, the real gum that first
+# makes WORLD/drawn when it is asked VERB, the question the shot waits for.
+terminal_world_gum() { # WORLD VERB
+  local gum_bin
+  gum_bin="$(command -v gum)" || { fail "terminal_world_gum: gum is missing"; return 1; }
+  {
+    printf '#!/usr/bin/env bash\nset -euo pipefail\n'
+    printf 'marker=%q gum=%q verb=%q\n' "$1/drawn" "$gum_bin" "$2"
+    printf '[[ ${1:-} != "$verb" ]] || : >"$marker"\nexec "$gum" "$@"\n'
+  } >"$1/bin/gum" && chmod 755 "$1/bin/gum"
+}
+# terminal_shot WORLD NAME APP_ID TITLE ARGV...: kitty in WORLD's colours,
+# with WORLD/bin first on its PATH, of class APP_ID and title TITLE,
+# running ARGV, shot as NAME once WORLD/drawn exists and the window maps,
+# then closed. A stand-in in WORLD/bin makes WORLD/drawn through
+# $TERMINAL_SHOT_READY or the gum terminal_world_gum writes.
+terminal_shot() { # WORLD NAME APP_ID TITLE ARGV...
+  local world="$1" name="$2" app_id="$3" title="$4" kitty_bin address
+  shift 4
+  kitty_bin="$(command -v kitty)" || { fail "$name: kitty is missing"; return 1; }
+  rm -f -- "${world:?}/drawn"
+  spawn_display "$world/$name.log" "${shell_env[@]}" PATH="$world/bin:$shell_start_path" TERM=xterm-256color XDG_STATE_HOME="$world/state" TERMINAL_SHOT_READY="$world/drawn" -- \
+    "$kitty_bin" --config "$world/kitty.conf" --class "$app_id" --title "$title" "$@" || return 1
+  terminal_shot_ready() {
+    [[ -e $world/drawn ]] || { echo waiting; return; }
+    hypr -j clients | py_reply 'import json,sys; print("ready" if any(c["class"]==sys.argv[1] and c["mapped"] for c in json.load(sys.stdin)) else "waiting")' "$app_id"
+  }
+  expect_poll "the $title terminal draws its question" ready terminal_shot_ready
+  # The marker is made just before the last write reaches the terminal,
+  # and nothing reads kitty's cells back, so the shot waits a second for
+  # kitty to draw that write.
+  sleep 1
+  park_pointer
+  take_posed "$name"
+  address="$(hypr -j clients | py_reply 'import json,sys; rows=[c for c in json.load(sys.stdin) if c["class"]==sys.argv[1] and c["mapped"]]; print(rows[0]["address"] if len(rows)==1 else "none")' "$app_id")" || return 1
+  [[ $address == 0x* ]] || { fail "the $title terminal window is unreadable"; return 1; }
+  expect "the $title terminal closes" ok hypr dispatch "hl.dsp.window.close({ window = \"address:$address\" })"
+  rm -f -- "${world:?}/drawn"
+  expect_poll "the $title terminal is gone" waiting terminal_shot_ready
+}
+
+# The first shot is the bare desktop; every later shot must differ from the
+# one before it, which is what proves grim reads the frame being drawn now.
+scene_package-review-terminal() { # MODE
+  local mode="$1" world="$sandbox/package-review-terminal-$1"
+  terminal_world_style "$world" || { fail "the review terminal colours could not be rendered"; return; }
   cat >"$world/owner" <<'REVIEWOWNER'
 #!/usr/bin/env bash
 case "${1:-}" in
@@ -10481,27 +10538,232 @@ case "${1:-}" in
   *) exit 70 ;;
 esac
 REVIEWOWNER
-  {
-    printf '#!/usr/bin/env bash\nset -euo pipefail\n'
-    printf 'marker=%q gum=%q\n' "$world/asking" "$gum_bin"
-    printf '[[ ${1:-} != choose ]] || : >"$marker"\nexec "$gum" "$@"\n'
-  } >"$world/bin/gum"
-  chmod 755 "$world/owner" "$world/bin/gum"
-  spawn_display "$world/terminal.log" "${shell_env[@]}" PATH="$world/bin:$shell_start_path" TERM=xterm-256color XDG_STATE_HOME="$world/state" -- \
-    "$kitty_bin" --config "$world/kitty.conf" --class org.vgs.tui.tall --title 'Package review choices' \
+  chmod 755 "$world/owner"
+  terminal_world_gum "$world" choose || return
+  terminal_shot "$world" "package-review-terminal-$mode-header" org.vgs.tui.tall 'Package review choices' \
     "$repo/bin/vgshell-tui" present --presentation plain -- "$repo/bin/lib/pkg-review.sh" settings "$world/owner" || return
-  review_terminal_ready() {
-    [[ -e $world/asking ]] || { echo waiting; return; }
-    hypr -j clients | py_reply 'import json,sys; print("ready" if any(c["class"]=="org.vgs.tui.tall" and c["mapped"] for c in json.load(sys.stdin)) else "waiting")'
-  }
-  expect_poll "the real package review editor waits for a choice" ready review_terminal_ready
-  park_pointer
-  take_posed "package-review-terminal-$mode-header"
   printf '%s\t%s\t%s\n' "$mode" "$capture_source" 'real editor in kitty; read-only owner fixture; no desktop entrypoint or package operation' >>"$SHOT_DIR/package-review-terminal-states.tsv"
-  address="$(hypr -j clients | py_reply 'import json,sys; rows=[c for c in json.load(sys.stdin) if c["class"]=="org.vgs.tui.tall" and c["mapped"]]; print(rows[0]["address"] if len(rows)==1 else "none")')" || return
-  [[ $address == 0x* ]] || { fail "the review terminal window is unreadable"; return; }
-  expect "the review terminal closes without saving" ok hypr dispatch "hl.dsp.window.close({ window = \"address:$address\" })"
-  expect_poll "the review terminal is gone" waiting review_terminal_ready
+}
+
+# Agent Debug, vgs.agent-debug, the real plugin on the branch, each moment
+# the approved VGS-2260 sheets draw: its Settings tab with no agent, with
+# the Agent select open, with Claude Code, with two muted programs and the
+# pointer on an Unmute, and off; its Setup tab, then with gum missing; its
+# Details tab watching and stopped, with the Crash watch info; a crash
+# toast at rest and on hover, a failed setup task's toast above it at rest
+# and with the pointer on it, and the Inbox with both; and its crash
+# Diagnose, task Diagnose and Unmute terminals in kitty.
+# A stand-in journalctl in the shell's own PATH directory follows an empty
+# journal the scene writes one crash line to, which the service tells
+# through the sandbox's notification server. The failed task is a copy of
+# the acme.needs fixture whose three missing commands map to the sheet's
+# printer packages: a stand-in bin/vgshell-pkg answers detection with
+# pacman, and the stand-in terminal ends the install with code 1, so no
+# package step runs. claude and codex on the shell's PATH are empty
+# stand-ins the scan finds, and the Diagnose terminal's claude is a
+# stand-in that prints the prompt the script hands it. No real agent,
+# crash, journal read or install runs.
+agent_debug_status() { ipc smoke statusValues vgs.agent-debug | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps(v.get(sys.argv[1])))' "$1"; }
+agent_debug_watch() { agent_debug_status watch | py_reply 'import json,sys; v=json.load(sys.stdin); print(v["text"] if v else "unpublished")'; }
+agent_debug_muted_count() { agent_debug_status muted | py_reply 'import json,sys; print(len(json.load(sys.stdin) or []))'; }
+agent_debug_select_open() { ipc smoke itemValues "$settings_kind" vgs.settings Select listOpen | py_reply 'import json,sys; print(any(v.get("listOpen") is True for v in json.load(sys.stdin)))'; }
+agent_debug_dialog() { ipc smoke popupItemGeometry window vgs.settings Dialog "$1" Button Close | py_reply 'import sys; print("shown" if sys.stdin.read().strip().startswith("[") else "absent")'; }
+# The ended record of acme.needs' failed install, as the core lends it, or
+# `absent`.
+agent_debug_record() { ipc shell lent | py_reply 'import json,sys; f=json.load(sys.stdin)["notices"]["failures"].get("acme.needs"); print(f["path"] if f and f["path"] else "absent")'; }
+# agent_debug_dialog_close TITLE: a click on the info dialog's Close
+# button, the dialog's own control (InfoButton's Dialog).
+agent_debug_dialog_close() {
+  local rect x y
+  rect="$(ipc smoke popupItemGeometry window vgs.settings Dialog "$1" Button Close)" && [[ $rect == \[* ]] || return 1
+  read -r x y < <(at_centre "$settings_surface" "$rect") || return 1
+  hover "$((x + 1))" "$y" || return 1
+  click "$x" "$y"
+}
+# agent_debug_unset_agent: the `agent` setting taken out of the plugin's
+# row in the user file, since the Settings window is closed by then, so the
+# next mode starts with no agent.
+agent_debug_unset_agent() {
+  python3 - "$home/.config/vgshell/shell.json" <<'ADUNSET'
+import json, os, sys
+path = sys.argv[1]
+data = json.load(open(path))
+for row in data.get("plugins", []):
+    if isinstance(row, dict) and row.get("id") == "vgs.agent-debug":
+        row.pop("agent", None)
+json.dump(data, open(path + ".tmp", "w"), indent=2)
+os.replace(path + ".tmp", path)
+ADUNSET
+}
+# agent_debug_toast_shots NAME TITLE: the toasts as they show, shot as NAME,
+# then with the pointer on the card titled TITLE, shot as NAME-hover.
+agent_debug_toast_shots() { # NAME TITLE
+  local at
+  take "$1"
+  at="$(card_centre "$2")" || at=""
+  if [[ -n $at ]]; then
+    # shellcheck disable=SC2086
+    hover $at || fail "the hover over the $2 toast failed"
+    expect_poll "the $2 toast reports the pointer" True card_hovered "$2"
+    take_posed "$1-hover"
+  else
+    fail "the $2 toast has no card"
+  fi
+  park_pointer
+}
+scene_agent-debug() { # MODE
+  local mode="$1" world="$sandbox/agent-debug-$1" follower field x y needs="$home/.config/vgshell/plugins/acme.needs" pkg_real record
+  terminal_world_style "$world" || { fail "the Agent Debug terminal colours could not be rendered"; return; }
+  : >"$world/journal.jsonl"
+  : >"$world/journalctl.calls"
+  cat >"$shim/journalctl" <<EOF
+#!/usr/bin/env bash
+: >"$world/journal.jsonl"
+printf '%s\n' "\$\$" >>"$world/journalctl.calls"
+exec tail -n +1 -F -- "$world/journal.jsonl"
+EOF
+  for agent in claude codex; do printf '#!/bin/sh\nexit 0\n' >"$shim/$agent"; done
+  # The Diagnose terminal's agent: its name as a header, then the prompt,
+  # its last argument, and the shot marker.
+  cat >"$world/bin/claude" <<'EOF'
+#!/usr/bin/env bash
+printf '\033[H\033[2J\033[1mClaude Code\033[0m\n\n'
+first=1
+while IFS= read -r line; do
+  if (( first )); then printf '> %s\n' "$line"; first=0; else printf '  %s\n' "$line"; fi
+done <<<"${!#}"
+: >"$TERMINAL_SHOT_READY"
+read -r -s -n 1 _ || true
+EOF
+  chmod 755 "$shim/journalctl" "$shim/claude" "$shim/codex" "$world/bin/claude"
+  terminal_world_gum "$world" confirm || return
+  # The failed task: acme.needs under its own id, its three missing
+  # commands mapped to the sheet's packages.
+  install_plugin_copy acme.needs acme.needs "Acme Sync"
+  python3 - "$needs/manifest.json" <<'ADNEEDS'
+import json, sys
+path = sys.argv[1]
+doc = json.load(open(path))
+doc["requirements"] = [{"command": "vgs-smoke-" + name, "packages": {"pacman": name}, "purpose": "A command the fixture runs"}
+                       for name in ("cups", "cups-pk-helper", "system-config-printer")]
+json.dump(doc, open(path, "w"))
+ADNEEDS
+  pkg_real="$world/vgshell-pkg.real"
+  cp -- "$repo/bin/vgshell-pkg" "$pkg_real"
+  pkg_stub '{"primary":{"id":"pacman","binary":"pacman"},"overlays":[],"sources":[]}'
+  terminal_stand_in
+  terminal_fails_install
+  tree_rescan "the Agent Debug stand-ins and acme.needs are scanned"
+  expect "Settings enables for the Agent Debug shots" ok ipc shell setPluginEnabled vgs.settings true
+  # Off and on again, so each mode's service starts with no crash in its
+  # one-a-minute window.
+  expect "Agent Debug turns off before its shots" ok ipc shell setPluginEnabled vgs.agent-debug false
+  expect_poll "Agent Debug is gone before its shots" False record_exists vgs.agent-debug
+  expect "Agent Debug is on for its shots" ok ipc shell setPluginEnabled vgs.agent-debug true
+  expect_poll "Agent Debug is built" True record_exists vgs.agent-debug
+  notes_on "the Agent Debug shots"
+  expect "the Settings window opens for Agent Debug" ok ipc shell summon "$settings_kind" vgs.settings '{}'
+  expect_poll "the Settings window maps for Agent Debug" 1 settings_count
+  expect_poll "Crash watch reads Off with no agent" Off agent_debug_watch
+  plugin_page_shots "$mode" vgs.agent-debug "agent-debug-$mode-settings-unset" settings
+  # The Agent select open on the found agents.
+  if field="$(ipc smoke invokeInstance "$settings_kind" vgs.settings fieldGeometry '{"id":"vgs.agent-debug","key":"agent"}')" && [[ $field == \[* ]] \
+    && read -r x y < <(at_centre "$settings_surface" "$(python3 -c 'import json,sys; r=json.loads(sys.argv[1]); h=json.loads(sys.argv[2]); print(json.dumps([r[0] + r[2] - 40, r[1], 40, h]))' "$field" "$(ipc smoke themeValue row.height)")") \
+    && hover "$((x - 1))" "$y" && click "$x" "$y"; then
+    expect_poll "the Agent select opens its list" True agent_debug_select_open
+    take_posed "agent-debug-$mode-settings-select-open"
+    type_keys -k Escape || fail "sending Escape to the Agent select failed"
+    expect_poll "the Agent select closes its list" False agent_debug_select_open
+  else
+    fail "the Agent field is unreadable: ${field:-}"
+  fi
+  park_pointer
+  expect "Claude Code is chosen" ok ipc smoke invokeInstance "$settings_kind" vgs.settings applySetting '{"id":"vgs.agent-debug","key":"agent","value":"claude"}'
+  expect_poll "Crash watch reads Watching" Watching agent_debug_watch
+  plugin_page_shots "$mode" vgs.agent-debug "agent-debug-$mode-settings-claude" settings
+  expect "firefox is muted" ok ipc vgs.agent-debug invoke mute firefox
+  expect "Web Content is muted" ok ipc vgs.agent-debug invoke mute "Web Content"
+  expect_poll "two muted programs are published" 2 agent_debug_muted_count
+  plugin_page_shots "$mode" vgs.agent-debug "agent-debug-$mode-settings-muted" settings
+  link_hover_shot "agent-debug-$mode-settings-muted-unmute-hover" Unmute
+  plugin_page_shots "$mode" vgs.agent-debug "agent-debug-$mode-setup" setup
+  # Setup with gum missing: the sandbox shell's gum is the device stand-in
+  # in $shim (scripts/smoke/devices.sh), and the stand-in registry keeps the
+  # host's gum off its PATH, so moving the stand-in aside for one scan makes
+  # gum missing; it goes back before the terminals.
+  if [[ -f $shim/gum ]]; then
+    mv -- "$shim/gum" "$world/gum.aside"
+    tree_rescan "gum leaves the shell's PATH for the Tools step"
+    plugin_page_shots "$mode" vgs.agent-debug "agent-debug-$mode-setup-gum-missing" setup
+    mv -- "$world/gum.aside" "$shim/gum"
+    tree_rescan "gum is back on the shell's PATH"
+  else
+    fail "the shell's PATH holds no gum stand-in to take away"
+  fi
+  plugin_page_shots "$mode" vgs.agent-debug "agent-debug-$mode-details-watching" details
+  # The follower's end: Crash watch reads Stopped.
+  follower="$(tail -n 1 -- "$world/journalctl.calls")"
+  if [[ $follower =~ ^[0-9]+$ ]] && tr '\0' ' ' <"/proc/$follower/cmdline" 2>/dev/null | grep -q -F -- "$world/journal.jsonl"; then
+    kill "$follower"
+    expect_poll "Crash watch reads Stopped" Stopped agent_debug_watch
+  else
+    fail "the follower's tail is unreadable: ${follower:-none}"
+  fi
+  plugin_page_shots "$mode" vgs.agent-debug "agent-debug-$mode-details-stopped" details
+  if settings_press --type InfoButton "About Crash watch" Field "Crash watch"; then
+    expect_poll "the Crash watch info opens" shown agent_debug_dialog "Crash watch"
+    park_pointer
+    take_posed "agent-debug-$mode-details-stopped-info"
+    agent_debug_dialog_close "Crash watch" || fail "the click on the Crash watch info's Close failed"
+    expect_poll "the Crash watch info closes" absent agent_debug_dialog "Crash watch"
+  else
+    fail "the Crash watch info button could not be pressed"
+  fi
+  # The page of a plugin that is off, as the core draws it.
+  expect "Agent Debug turns off for its off page" ok ipc shell setPluginEnabled vgs.agent-debug false
+  expect_poll "Agent Debug is gone for its off page" False record_exists vgs.agent-debug
+  plugin_page_shots "$mode" vgs.agent-debug "agent-debug-$mode-settings-off" settings
+  expect "Agent Debug turns on again" ok ipc shell setPluginEnabled vgs.agent-debug true
+  expect_poll "Crash watch reads Watching again" Watching agent_debug_watch
+  settings_close
+  expect "the history is empty before the toasts" ok notes clear-history
+  expect "toasts are not silenced" off notes silence off
+  # A crash of a program that is not muted, whose critical toast stays,
+  # then the failed setup task's toast above it, then both in the Inbox.
+  printf '%s\n' '{"COREDUMP_COMM":"code","COREDUMP_PID":"48213","COREDUMP_EXE":"/usr/lib/code/code","COREDUMP_SIGNAL_NAME":"SIGSEGV","COREDUMP_TIMESTAMP":"1793742000123456"}' >>"$world/journal.jsonl"
+  expect_poll "the crash toast is on screen" 1 on_screen
+  agent_debug_toast_shots "agent-debug-$mode-crash-toast" "code crashed"
+  expect "enabling acme.needs raises its notice" ok ipc shell setPluginEnabled acme.needs true
+  expect_poll "the acme.needs notice holds the keyboard" true ipc smoke noticeFocused
+  type_keys -k Return || fail "sending Return to the acme.needs notice failed"
+  expect_poll "the failed install's toast is on screen above the crash's" 2 on_screen
+  agent_debug_toast_shots "agent-debug-$mode-task-toast" "Could not install tools"
+  expect "the Inbox opens on both notifications" ok notes inbox
+  expect_poll "the panel is the Inbox" '"inbox"' ipc smoke readInstance service vgs.notifications panelMode
+  take "agent-debug-$mode-inbox"
+  expect "the Inbox closes" ok notes close
+  notes_clear "the Agent Debug toasts"
+  expect "the Agent Debug history clears" ok notes clear-history
+  record="$(agent_debug_record)" || record=absent
+  [[ $record != absent ]] || fail "the failed install's ended record is not lent"
+  terminal_shot "$world" "agent-debug-$mode-diagnose" org.vgs.tui.wide "VGS · Diagnose" \
+    "$repo/bin/vgshell-tui" present --presentation plain --plugin vgs.agent-debug --dir "$repo/shell/plugins/vgs.agent-debug" -- \
+    tui/diagnose.sh claude crash code 48213 SIGSEGV "$(date -d @1793742000 +%Y-%m-%dT%H:%M:%S%:z)" /usr/lib/code/code
+  terminal_shot "$world" "agent-debug-$mode-diagnose-task" org.vgs.tui.wide "VGS · Diagnose" \
+    "$repo/bin/vgshell-tui" present --presentation plain --plugin vgs.agent-debug --dir "$repo/shell/plugins/vgs.agent-debug" -- \
+    tui/diagnose.sh claude task acme.needs install pacman "cups, cups-pk-helper, system-config-printer" "$(date +%Y-%m-%dT%H:%M:%S%:z)" "$record"
+  terminal_shot "$world" "agent-debug-$mode-unmute" org.vgs.tui "VGS · Unmute a program" \
+    "$repo/bin/vgshell-tui" present --presentation full --plugin vgs.agent-debug --dir "$repo/shell/plugins/vgs.agent-debug" -- \
+    tui/unmute.sh firefox
+  expect "acme.needs turns off after the shots" ok ipc shell setPluginEnabled acme.needs false
+  terminal_stand_in
+  cp -- "$pkg_real" "$repo/bin/vgshell-pkg.next" && mv -T -- "$repo/bin/vgshell-pkg.next" "$repo/bin/vgshell-pkg"
+  expect "firefox is unmuted" ok ipc vgs.agent-debug invoke unmute firefox
+  expect "Web Content is unmuted" ok ipc vgs.agent-debug invoke unmute "Web Content"
+  agent_debug_unset_agent
+  expect_poll "Crash watch reads Off again" Off agent_debug_watch
+  rm -f -- "${shim:?}/journalctl" "${shim:?}/claude" "${shim:?}/codex"
+  tree_rescan "the Agent Debug stand-ins leave the scan"
 }
 
 scene_packages() { # MODE

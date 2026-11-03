@@ -1,4 +1,5 @@
 image	scene	shot	crop
+vgs.agent-debug-settings.webp	agent-debug	agent-debug-dark-settings-muted	content
 vgs.agent-warden-panel.webp	panels	panels-dark-warden-problem	content
 vgs.automations-window.webp	automations	automations-dark-list	content
 vgs.bar-bar.webp	bar	bar-dark	bar

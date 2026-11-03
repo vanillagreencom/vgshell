@@ -59,7 +59,9 @@ command:
 A string literal is a quoted one or a template literal, whose `${...}`
 parts read as the argument $ARG.
 The text read is every Markdown file and every manifest.json of each plugin
-directory under the root's plugins/, the user-facing strings of each
+directory under the root's plugins/, save an agent skill, a plugin's
+skills/<name>/SKILL.md, which an AI agent reads and runs commands from and
+no VGS surface draws, the user-facing strings of each
 manifest (FIELDS, each key the judge admits named there or in EXEMPT), and
 every string literal of every `.qml` and `.js` file
 under the root, comments blanked through scripts/qml_source.py, and the
@@ -553,6 +555,14 @@ def manifest_strings(doc):
     return [(where, value) for pattern in FIELDS for where, value in resolve(doc, pattern) if isinstance(value, str)]
 
 
+# Whether PATH is an agent skill of PLUGIN, its skills/<name>/SKILL.md: an
+# agent reads it, so it names the commands the agent runs, and no VGS
+# surface draws it.
+def agent_skill(plugin, path):
+    parts = os.path.relpath(path, plugin).split(os.sep)
+    return len(parts) == 3 and parts[0] == "skills" and parts[2] == "SKILL.md"
+
+
 def main(argv):
     core = True
     if len(argv) == 3 and argv[1] == "--plugin":
@@ -575,7 +585,7 @@ def main(argv):
                 unreadable(path, "not JSON: " + str(exc))
         for current, subdirs, files in os.walk(d, onerror=lambda e: unreadable(e.filename, e.strerror)):
             subdirs.sort()
-            markdown.extend(os.path.join(current, f) for f in sorted(files) if f.endswith(".md"))
+            markdown.extend(os.path.join(current, f) for f in sorted(files) if f.endswith(".md") and not agent_skill(d, os.path.join(current, f)))
     plugin_base = os.path.join(root, "plugins") if core else os.path.dirname(root)
     targets = {os.path.basename(d) for d in plugin_dirs(plugin_base)}
     heads = command_heads(root, manifests)

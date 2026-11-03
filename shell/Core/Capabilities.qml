@@ -311,9 +311,12 @@ Singleton {
             get outdated() { return Notices.outdatedOf(ctx.id); },
             get revision() { return Registry.requirementsRevision; }
         }),
+        // `installFailures` is the manager's reading of the same name,
+        // lent here so a reader of failed installs holds no manager power.
         doctor: ctx => ({
             offer: (owner, commands) => Notices.chosen(owner, commands),
-            get missing() { return Registry.enabledOwnerMissing(); }
+            get missing() { return Registry.enabledOwnerMissing(); },
+            get installFailures() { return Notices.failureViews; }
         })
     })
 

@@ -52,6 +52,9 @@ tui
 # vgs.sudo and gives it back disabled, its tree's sudo the sentinel again.
 sudo
 notices
+# After notices, through the same stand-in terminal and the acme.needs
+# fixture's requirement notice; it enables its plugin and disables it again.
+agent-debug
 overlays
 gallery
 launcher

@@ -992,7 +992,8 @@ nested_xwayland_check
 # the first presence places nothing. rows/manager.sh shows the widget and
 # rows/settings.sh hides it again.
 # vgs.agent-warden starts disabled for the same reason; rows/agent-warden.sh
-# enables it and disables it again. vgs.devtools starts disabled too: its
+# enables it and disables it again, as rows/agent-debug.sh does
+# vgs.agent-debug. vgs.devtools starts disabled too: its
 # service's IPC target and status record would sit in the capability rows'
 # lending records, and its queries would run the host's mise;
 # rows/devtools.sh enables it over stub commands. vgs.automations starts
@@ -1251,7 +1252,7 @@ case "$plugin_set" in
     mkdir -p "$tick"
     cp -R "$repo/scripts/smoke/fixtures/plugins/acme.tick/." "$tick/"
     user_config_write cat <<'JSON'
-{ "version": 2, "bar": { "id": "vgs.bar", "layout": { "left": [{ "id": "vgs.bar/left-workspaces" }], "center": [{ "id": "vgs.bar/center-clock" }, { "id": "acme.tick" }], "right": [] } }, "plugins": [{ "id": "vgs.settings" }, { "id": "acme.tick", "format": "ddd d MMM  HH:mm" }], "disabledPlugins": ["vgs.launcher", "vgs.notifications", "vgs.updates", "vgs.agent-warden", "vgs.devtools", "vgs.automations", "vgs.google-drive", "vgs.polkit", "vgs.lock", "vgs.jarvis", "vgs.system", "vgs.sound", "vgs.bluetooth", "vgs.power", "vgs.network", "vgs.vpn", "vgs.displays", "vgs.mouse", "vgs.keyboard", "vgs.capture", "vgs.greeter", "vgs.keyhints", "vgs.scratchpads", "vgs.screensaver", "vgs.ai-usage", "vgs.traffic", "vgs.tray", "vgs.voice", "vgs.webapps", "vgs.clipboard", "vgs.sysmon", "vgs.sudo", "vgs.printers", "vgs.themes", "vgs.remote-desktop"] }
+{ "version": 2, "bar": { "id": "vgs.bar", "layout": { "left": [{ "id": "vgs.bar/left-workspaces" }], "center": [{ "id": "vgs.bar/center-clock" }, { "id": "acme.tick" }], "right": [] } }, "plugins": [{ "id": "vgs.settings" }, { "id": "acme.tick", "format": "ddd d MMM  HH:mm" }], "disabledPlugins": ["vgs.launcher", "vgs.notifications", "vgs.updates", "vgs.agent-warden", "vgs.agent-debug", "vgs.devtools", "vgs.automations", "vgs.google-drive", "vgs.polkit", "vgs.lock", "vgs.jarvis", "vgs.system", "vgs.sound", "vgs.bluetooth", "vgs.power", "vgs.network", "vgs.vpn", "vgs.displays", "vgs.mouse", "vgs.keyboard", "vgs.capture", "vgs.greeter", "vgs.keyhints", "vgs.scratchpads", "vgs.screensaver", "vgs.ai-usage", "vgs.traffic", "vgs.tray", "vgs.voice", "vgs.webapps", "vgs.clipboard", "vgs.sysmon", "vgs.sudo", "vgs.printers", "vgs.themes", "vgs.remote-desktop"] }
 JSON
     ;;
   default) default_set_prepare '[]' ;;
@@ -3458,6 +3459,38 @@ EOF
     fail "terminal_stand_in: the stand-in could not be put in place"
     return 1
   fi
+}
+# terminal_fails_install [FLAG]: the stand-in terminal_stand_in wrote ends
+# core/requirements-install with code 1, while FLAG exists when one is
+# named. terminal_stand_in writes it back.
+terminal_fails_install() { # [FLAG]
+  python3 - "$tui_terminal" "${1:-}" <<'PY_FAILS'
+import pathlib, shlex, sys
+path, flag = pathlib.Path(sys.argv[1]), sys.argv[2]
+text = path.read_text()
+needle = 'if [[ $window == yes ]]; then\n'
+assert text.count(needle) == 2
+when = '$key == core/requirements-install' + (' && -e ' + shlex.quote(flag) if flag else '')
+path.write_text(text.replace(needle, 'if [[ ' + when + ' ]]; then run=("${kept[@]}" -- false); fi\n' + needle, 1))
+PY_FAILS
+}
+# pkg_stub DETECT_JSON [HOLDER]: bin/vgshell-pkg in the checkout answers
+# `detect --json` with DETECT_JSON, or fails detection for "", and refuses
+# every other command; HOLDER aur|none owns vgs-smoke-old. The caller keeps
+# the real one and puts it back.
+pkg_stub() { # DETECT_JSON, or "" for a detection that fails; HOLDER aur|none
+  local body holder="${2:-none}" aur_owner=null
+  if [[ $holder == aur ]]; then
+    aur_owner='"vgs-smoke-old-aur"'
+  fi
+  if [[ -n $1 ]]; then
+    body="if (process.argv[2] === \"detect\" && process.argv[3] === \"--json\") { const doc = $1; const at = process.argv.indexOf(\"--holders\"); if (at !== -1) { doc.holders = {}; for (const command of process.argv.slice(at + 1)) doc.holders[command] = command === \"vgs-smoke-old\" ? { path: \"$shim/vgs-smoke-old\", owners: { pacman: null, aur: $aur_owner } } : { path: null, owners: {} }; } process.stdout.write(JSON.stringify(doc) + \"\\n\"); process.exit(0); }"
+  else
+    body=""
+  fi
+  printf '#!/usr/bin/env node\n%s\nprocess.stderr.write("vgshell: refused: stub=vgshell-pkg\\n");\nprocess.exit(70);\n' "$body" >"$sandbox/vgshell-pkg.stub"
+  chmod 755 "$sandbox/vgshell-pkg.stub"
+  cp -- "$sandbox/vgshell-pkg.stub" "$repo/bin/vgshell-pkg.next" && mv -T -- "$repo/bin/vgshell-pkg.next" "$repo/bin/vgshell-pkg"
 }
 # tui_refusal_shipped ID SCRIPT: true when SCRIPT, a refusal line's script,
 # is a TUI script under the shipped plugin ID's tui/ in the checkout. The

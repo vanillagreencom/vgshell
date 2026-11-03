@@ -572,6 +572,7 @@ settings_catalog_rows=$'node scripts/test-check-devtools-catalog.js\n'
 settings_reply_row='node scripts/test-settings-reply.js'
 settings_steps_row='node scripts/test-settings-steps.js'
 settings_warden_row=$'node scripts/test-agent-warden-logic.js\n'
+settings_debug_row=$'node scripts/test-agent-debug.js\n'
 settings_devtools_row=$'\nnode scripts/test-devtools-view.js'
 cases=(
   "notifications-app-sounds|shell/plugins/vgs.notifications/AppSounds.qml|logic|node scripts/test-notifications-logic.js"
@@ -607,11 +608,11 @@ cases=(
   "settings-reply-shots|scripts/sandbox-shots.sh|logic|$settings_reply_row"
   "settings-reply-fixture|scripts/smoke/fixtures/plugins/acme.hyprland/manifest.json|logic|$settings_reply_row"
   "settings-reply-layer-binding|shell/Core/HyprlandLayer.qml|logic|"$'node scripts/test-hyprland-layer.js\n'"$settings_reply_row"
-  "settings-reply-producer|shell/Core/PluginLogic.js|logic|$settings_core_prefix$settings_theme_rows$settings_plugin_rows"$'node scripts/test-jarvis-setup-gate.js\n'"$settings_warden_row$settings_reply_row"$'\n'"$settings_steps_row$settings_devtools_row"$'\nnode scripts/test-voice-logic.js'
-  "settings-reply-layer|shell/Core/HyprlandLayer.js|logic|$settings_core_prefix"$'node scripts/test-dispatch.js\n'"$settings_theme_rows$settings_plugin_rows"$'node scripts/test-jarvis-setup-gate.js\n'"$settings_warden_row$settings_reply_row"$'\n'"$settings_steps_row$settings_devtools_row"
-  "settings-reply-values|shell/Commons/SettingValues.js|logic|$settings_core_prefix"$'node scripts/test-setting-values.js\n'"$settings_theme_rows$settings_plugin_rows"$'node scripts/test-jarvis-setup-gate.js\n'"$settings_warden_row$settings_reply_row"$'\n'"$settings_steps_row$settings_devtools_row"
-  "settings-reply-packages|shell/Core/PackageManagers.js|logic|$settings_core_prefix$settings_theme_rows$settings_package_rows"$'node scripts/test-jarvis-setup-gate.js\n'"$settings_catalog_rows$settings_warden_row$settings_reply_row"$'\n'"$settings_steps_row$settings_devtools_row"
-  "settings-reply-icons|shell/Ui/icons/Lucide.js|logic|$settings_core_prefix"$'node scripts/test-icon-bounds.js\n'"$settings_theme_rows"$'node scripts/test-lucide-data.js\n'"$settings_plugin_rows"$'node scripts/test-jarvis-widget.js\nnode scripts/test-jarvis-setup-gate.js\n'"$settings_catalog_rows$settings_warden_row"$'node scripts/test-agent-warden-view.js\n'"$settings_reply_row"$'\n'"$settings_steps_row$settings_devtools_row"
+  "settings-reply-producer|shell/Core/PluginLogic.js|logic|$settings_core_prefix$settings_theme_rows$settings_plugin_rows"$'node scripts/test-jarvis-setup-gate.js\n'"$settings_warden_row$settings_debug_row$settings_reply_row"$'\n'"$settings_steps_row$settings_devtools_row"$'\nnode scripts/test-voice-logic.js'
+  "settings-reply-layer|shell/Core/HyprlandLayer.js|logic|$settings_core_prefix"$'node scripts/test-dispatch.js\n'"$settings_theme_rows$settings_plugin_rows"$'node scripts/test-jarvis-setup-gate.js\n'"$settings_warden_row$settings_debug_row$settings_reply_row"$'\n'"$settings_steps_row$settings_devtools_row"
+  "settings-reply-values|shell/Commons/SettingValues.js|logic|$settings_core_prefix"$'node scripts/test-setting-values.js\n'"$settings_theme_rows$settings_plugin_rows"$'node scripts/test-jarvis-setup-gate.js\n'"$settings_warden_row$settings_debug_row$settings_reply_row"$'\n'"$settings_steps_row$settings_devtools_row"
+  "settings-reply-packages|shell/Core/PackageManagers.js|logic|$settings_core_prefix$settings_theme_rows$settings_package_rows"$'node scripts/test-jarvis-setup-gate.js\n'"$settings_catalog_rows$settings_warden_row$settings_debug_row$settings_reply_row"$'\n'"$settings_steps_row$settings_devtools_row"
+  "settings-reply-icons|shell/Ui/icons/Lucide.js|logic|$settings_core_prefix"$'node scripts/test-icon-bounds.js\n'"$settings_theme_rows"$'node scripts/test-lucide-data.js\n'"$settings_plugin_rows"$'node scripts/test-jarvis-widget.js\nnode scripts/test-jarvis-setup-gate.js\n'"$settings_catalog_rows$settings_warden_row$settings_debug_row"$'node scripts/test-agent-warden-view.js\n'"$settings_reply_row"$'\n'"$settings_steps_row$settings_devtools_row"
   "catalog-judge|themes/catalog/index.json|tools|catalog_wallpaper_names"$'\nnode scripts/test-vgshell-theme-judge.js'
   "catalog-contrast|themes/catalog/index.json|logic|"$'node scripts/test-hyprland-layer.js\nnode scripts/test-theme-logic.js\n'"$settings_theme_rows"$'node scripts/test-check-theme-contrast.js\nnode scripts/test-theme-render.js'
   "orb-source|shell/Ui/feedback/shaders/voiceorb.frag|all|$orb_shader_plan"

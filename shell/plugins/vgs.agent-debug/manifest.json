@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "id": "vgs.agent-debug",
+  "name": "Agent Debug",
+  "version": "0.1.0",
+  "author": "VanillaGreen",
+  "description": "Offers Diagnose when a program crashes or a VGS setup task fails. Diagnose opens the agent you choose with the facts of the failure.",
+  "license": "MIT",
+  "icon": "bug",
+  "kinds": ["service"],
+  "entryPoints": { "service": "Service.qml" },
+  "capabilities": ["configure", "doctor", "ipc", "requirements", "status", "tui"],
+  "requirements": [
+    {"command": "notify-send", "packages": {"pacman": "libnotify", "apt": "libnotify-bin", "dnf": "libnotify", "nix": "libnotify"}, "optional": false, "purpose": "Shows the notification with Diagnose"},
+    {"command": "id", "packages": {"pacman": "coreutils", "apt": "coreutils", "dnf": "coreutils", "nix": "coreutils"}, "optional": false, "purpose": "Finds the crashes of your own programs"},
+    {"command": "gum", "packages": {"pacman": "gum", "apt": "gum", "dnf": "gum", "nix": "gum"}, "optional": false, "purpose": "Asks whether to unmute a program"},
+    {"command": "claude", "packages": {"aur": "claude-code", "mise": "claude", "nix": "claude-code"}, "optional": true, "purpose": "Diagnoses a failure with Claude Code"},
+    {"command": "codex", "packages": {"pacman": "openai-codex", "mise": "codex", "nix": "codex"}, "optional": true, "purpose": "Diagnoses a failure with Codex"},
+    {"command": "copilot", "packages": {}, "optional": true, "purpose": "Diagnoses a failure with Copilot"},
+    {"command": "pi", "packages": {"mise": "pi"}, "optional": true, "purpose": "Diagnoses a failure with Pi"},
+    {"command": "opencode", "packages": {}, "optional": true, "purpose": "Diagnoses a failure with OpenCode"},
+    {"command": "journalctl", "packages": {"pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd"}, "optional": true, "purpose": "Notices program crashes"}
+  ],
+  "settings": { "agent": "", "muted": [] },
+  "schema": {
+    "agent": {
+      "type": "string",
+      "label": "Agent",
+      "optionsFrom": "agents",
+      "placeholder": "Choose an agent",
+      "description": "Agent Debug notifies you only after you choose an agent",
+      "info": "Diagnose opens this agent with the facts of the failure: what failed, when, and where its record is. The agent reads the rest on this computer and asks you before it runs a command.\nAgent Debug tells you about each program at most once a minute, so a program that crashes again and again does not fill your screen."
+    }
+  },
+  "tui": {
+    "diagnose": { "script": "tui/diagnose.sh", "title": "Diagnose", "size": "wide", "presentation": "plain", "requires": [] },
+    "unmute": { "script": "tui/unmute.sh", "title": "Unmute a program", "requires": ["gum"] }
+  },
+  "status": {
+    "agents": {"type": "choices", "label": "Agents", "hidden": true},
+    "muted": {"type": "rows", "label": "Muted programs", "settings": true, "icon": "bell-off", "hint": "You get no crash notifications for these programs", "rowActions": {"unmute": {"label": "Unmute", "tui": "unmute"}}},
+    "watch": {"type": "state", "label": "Crash watch"}
+  }
+}

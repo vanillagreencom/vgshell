@@ -349,6 +349,12 @@ f share/vgshell/shell/assets/sounds/chime.wav
 f share/vgshell/shell/assets/sounds/ping.wav
 f share/vgshell/shell/assets/sounds/pop.wav
 f share/vgshell/shell/greeter.qml
+f share/vgshell/shell/plugins/vgs.agent-debug/Debug.js
+f share/vgshell/shell/plugins/vgs.agent-debug/Service.qml
+f share/vgshell/shell/plugins/vgs.agent-debug/manifest.json
+f share/vgshell/shell/plugins/vgs.agent-debug/skills/vgs-diagnose/SKILL.md
+f share/vgshell/shell/plugins/vgs.agent-debug/tui/diagnose.sh
+f share/vgshell/shell/plugins/vgs.agent-debug/tui/unmute.sh
 f share/vgshell/shell/plugins/vgs.agent-warden/Notices.js
 f share/vgshell/shell/plugins/vgs.agent-warden/Panel.qml
 f share/vgshell/shell/plugins/vgs.agent-warden/Service.qml

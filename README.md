@@ -67,6 +67,7 @@ VGS starts with Hyprland and draws the bar, panels and windows on each screen. E
 
 | Plugin | What it does |
 |---|---|
+| [Agent Debug](shell/plugins/vgs.agent-debug/README.md) | Offers Diagnose when a program crashes or a VGS setup task fails. Diagnose opens the agent you choose with the facts of the failure. |
 | [Agent Warden](shell/plugins/vgs.agent-warden/README.md) | Keep your AI agents within their memory and process limits. |
 | [AI Usage](shell/plugins/vgs.ai-usage/README.md) | Show how much of your Claude Code, Codex and Copilot plan limits you have used. |
 | [Automations](shell/plugins/vgs.automations/README.md) | Run your commands on a schedule. |

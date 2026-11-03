@@ -96,20 +96,6 @@ fi
 '''
 p.write_text(text.replace(needle,addition+needle,1))
 PY_NOTICE
-pkg_stub() { # DETECT_JSON, or "" for a detection that fails; HOLDER aur|none
-  local body holder="${2:-none}" aur_owner=null
-  if [[ $holder == aur ]]; then
-    aur_owner='"vgs-smoke-old-aur"'
-  fi
-  if [[ -n $1 ]]; then
-    body="if (process.argv[2] === \"detect\" && process.argv[3] === \"--json\") { const doc = $1; const at = process.argv.indexOf(\"--holders\"); if (at !== -1) { doc.holders = {}; for (const command of process.argv.slice(at + 1)) doc.holders[command] = command === \"vgs-smoke-old\" ? { path: \"$shim/vgs-smoke-old\", owners: { pacman: null, aur: $aur_owner } } : { path: null, owners: {} }; } process.stdout.write(JSON.stringify(doc) + \"\\n\"); process.exit(0); }"
-  else
-    body=""
-  fi
-  printf '#!/usr/bin/env node\n%s\nprocess.stderr.write("vgshell: refused: stub=vgshell-pkg\\n");\nprocess.exit(70);\n' "$body" >"$sandbox/vgshell-pkg.stub"
-  chmod 755 "$sandbox/vgshell-pkg.stub"
-  cp -- "$sandbox/vgshell-pkg.stub" "$repo/bin/vgshell-pkg.next" && mv -T -- "$repo/bin/vgshell-pkg.next" "$repo/bin/vgshell-pkg"
-}
 pkg_stub '{"primary":{"id":"pacman","binary":"pacman"},"overlays":[{"id":"aur","binary":"paru"}],"sources":[]}'
 
 # Whether plugin ID's own offers rest, in the notices core's lending record.

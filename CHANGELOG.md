@@ -4,6 +4,8 @@
 
 - When an app asks to share your screen, VGS's own picker opens, with no setup step. VGS sets it up when Capture starts, keeps every other line of your screen sharing settings, and waits while an app shares your screen, since setup restarts screen sharing. Turning Capture off gives screen sharing its own picker back once no app shares your screen, and a notification says so when it cannot. The picker's preview stays in place while its list scrolls, and the row you select scrolls into view under it.
 
+- Agent Debug is a new plugin. When one of your programs crashes or a VGS setup task fails, it shows a notification with Diagnose, which opens the agent you choose, Claude Code, Codex, Copilot, Pi or OpenCode, in a floating terminal with the facts of the failure and a read-only diagnose skill. It notifies at most once a minute per program or task, only after you choose an agent, and a crash notification offers Mute, which the Settings tab's Muted programs list undoes.
+
 ## 0.1.4 (2026-11-03)
 
 - VGS requires Hyprland 0.57. On 0.57, Capture finds windows to select, Jarvis reads the screen and the desktop, a press on another monitor closes the launcher, and a scratchpad opens on the monitor its Screen setting names. The launcher keeps the keyboard while it is open.
