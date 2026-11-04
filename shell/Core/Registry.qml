@@ -122,7 +122,7 @@ Singleton {
     // { id, dir, error } for every problem the Hyprland layer reports: a
     // bind a conflict skipped, a `keys` name no bind declares (each with the
     // plugin's id) and a failed step (id ""). HyprlandLayer.qml hands them
-    // over; listJson and managerRows read them here.
+    // over; listJson and managerListing read them here.
     property var hyprlandProblems: []
     property bool scanned: false
     property bool rescanPending: false
@@ -538,31 +538,30 @@ Singleton {
         return manifest.__sourceDir.indexOf(bundledDir + "/") === 0 ? "bundled" : "installed";
     }
 
-    // Every discovered plugin as the plugin manager shows it: listing
+    // Every discovered plugin as the plugin manager lists it, short of what
+    // its published status decides: listing
     // metadata, its icon, capabilities and source, whether it is enabled,
     // whether its widget is placed (PluginLogic.isPlaced), its settings
     // schema and the rows its page draws of it, judged once with the
     // manifest (PluginLogic.fieldRows), the settings every instance of it
     // receives (its plugins[]
-    // row's, PluginLogic.settingsFor), its Keys rows, its Status rows
-    // (PluginLogic.statusRows over its manifest and the values it
-    // published), the label of its `secrets`, "" without, the guide its
+    // row's, PluginLogic.settingsFor), its Keys rows, the label of its
+    // `secrets`, "" without, the guide its
     // Setup tab opens with (PluginLogic.setupGuideRow), its setup
     // screens (PluginLogic.listedTuis), its Open surface
     // (PluginLogic.openKind), the id of the enabled panes holder that
     // shows its page, "" for a plugin without kind `pane` or while no
-    // holder is enabled (PluginLogic.panesHolderId), its setting
-    // choices (PluginLogic.settingChoices over those same values), the
-    // fields its page withholds (PluginLogic.withheldFields over them and
-    // its settings), the
-    // fields' errors (PluginLogic.fieldProblems over them), its
+    // holder is enabled (PluginLogic.panesHolderId), its
     // requirements with their state and its errors: why an enabled plugin is
     // not built while another plugin holds a capability it needs or the
     // monitor rules (buildRefusal), each failed build of one of its kinds,
     // once per cause, then each problem the Hyprland layer reports for it,
     // then each of its launcher rows another plugin listed first, then each
-    // of its idle stages skipped.
-    readonly property var managerRows: {
+    // of its idle stages skipped. It reads no plugin status, since this
+    // binding re-runs on every change of an input whether or not anything
+    // reads it, and status writes come every few seconds: managerRows
+    // joins the status on read.
+    readonly property var managerListing: {
         const config = Config.effective;
         const descriptions = Capabilities.shortcutDescriptions;
         const failures = Plugins.failedBuilds;
@@ -587,7 +586,6 @@ Singleton {
             for (const problem of idleProblems)
                 if (problem.plugin === id) errors.push(problem.error);
             const settings = Logic.settingsFor(config, m);
-            const values = PluginStatus.valuesOf(id);
             return {
                 id: id,
                 name: m.name,
@@ -608,11 +606,7 @@ Singleton {
                 schema: m.schema,
                 fieldRows: m.fieldRows,
                 settings: settings,
-                settingChoices: Logic.settingChoices(m, values, settings),
-                withheldFields: Logic.withheldFields(m, values, settings),
-                fieldProblems: Logic.fieldProblems(m, values),
                 binds: Logic.bindRows(config, m, descriptions),
-                status: Logic.statusRows(m, values),
                 secretLabel: m.secrets === undefined ? "" : m.secrets.label,
                 tuis: Logic.listedTuis(m),
                 opens: Logic.openKind(m),
@@ -620,6 +614,28 @@ Singleton {
                 requirements: requirementsOf(id),
                 errors: errors
             };
+        });
+    }
+
+    // Every discovered plugin as the plugin manager shows it: its
+    // managerListing row joined with what its published status decides,
+    // computed for this read: its Status rows (PluginLogic.statusRows over
+    // its manifest and the values it published), its setting choices
+    // (PluginLogic.settingChoices over those same values), the fields its
+    // page withholds (PluginLogic.withheldFields over them and its
+    // settings) and the fields' errors (PluginLogic.fieldProblems over
+    // them). A binding that calls this re-runs on a status write of any
+    // plugin, so a view binds it once, and only while it is shown.
+    function managerRows() {
+        return managerListing.map(row => {
+            const m = manifests[row.id];
+            const values = PluginStatus.valuesOf(row.id);
+            return Object.assign({}, row, {
+                settingChoices: Logic.settingChoices(m, values, row.settings),
+                withheldFields: Logic.withheldFields(m, values, row.settings),
+                fieldProblems: Logic.fieldProblems(m, values),
+                status: Logic.statusRows(m, values)
+            });
         });
     }
 

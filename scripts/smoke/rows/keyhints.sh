@@ -294,7 +294,7 @@ app_window_rows "$kh_title" vgs.keyhints
 # no bind for their field. With the launcher disabled its rows hold a bind
 # hyprctl lacks, and a user bind on the Themes key draws no hint.
 if copy_tree keyhints-unfiltered \
-  && edit_tree keyhints-unfiltered shell/plugins/vgs.keyhints/Window.qml 'shell.manager.plugins.filter(p => p.enabled)' 'shell.manager.plugins.filter(p => true)' \
+  && edit_tree keyhints-unfiltered shell/plugins/vgs.keyhints/Window.qml 'plugins.filter(p => p.enabled)' 'plugins.filter(p => true)' \
   && edit_tree keyhints-unfiltered shell/plugins/vgs.keyhints/Window.qml 'rowSpacing: Theme.stack.group' 'rowSpacing: Theme.stack.row' \
   && edit_tree keyhints-unfiltered shell/Ui/controls/BindField.qml '        pluginId: root.pluginId' '        pluginId: ""'; then
   hypr_lua_save keyhints-control

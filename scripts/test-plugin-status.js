@@ -87,12 +87,13 @@ function statusWorld(logic, enabled, replaced = false, plugin = JARVIS) {
     const manifest = Object.assign({}, judged.manifest, { __revision: "a".repeat(64) });
     const instance = { id: manifest.id, manifest };
     const Registry = { isEnabled: () => enabled, manifests: { [manifest.id]: Object.assign({}, manifest, { __revision: replaced ? "b".repeat(64) : manifest.__revision }) } };
-    const set = STATUS_SOURCE.match(/^    function set\(ctx, key, value\) \{\n[\s\S]*?^    \}/m);
     const factory = CAPABILITIES_SOURCE.match(/^        status: (ctx => \(\{\n[\s\S]*?^        \}\)),/m);
-    if (!set || !factory) throw new Error("production status operations not found");
-    const state = { Logic: logic, Registry, records: {}, serial: 0, empty: Object.freeze({}) };
-    const provider = { set: vm.runInNewContext("(" + set[0] + ")", state),
-        valuesOf: vm.runInNewContext("(" + qmlMethod(STATUS_SOURCE, "valuesOf") + ")", state) };
+    if (!factory) throw new Error("production status operations not found");
+    // The holder Component stands in as a plain object that takes the record.
+    const state = { Logic: logic, Registry, holders: {}, serial: 0, empty: Object.freeze({}), root: null,
+        holderComponent: { createObject: () => ({ record: null }) } };
+    vm.runInNewContext(["set", "recordOf", "store", "valuesOf"].map(name => qmlMethod(STATUS_SOURCE, name)).join("\n"), state);
+    const provider = { set: state.set, valuesOf: state.valuesOf };
     const status = vm.runInNewContext("(" + factory[1] + ")", { Logic: logic, PluginStatus: provider, Registry })(instance);
     const writes = [];
     const forwarded = status.set;
@@ -307,7 +308,7 @@ function browserWrite(logic, enabled, replaced = false, driverValue = { tone: "o
         if (caught.name !== "Error") throw caught;
         error = caught.message;
     }
-    return { error, replies: world.writes.map(write => write.reply), records: world.state.records };
+    return { error, replies: world.writes.map(write => write.reply), records: world.state.holders };
 }
 
 function consumerChecks(logic, check) {
@@ -346,7 +347,7 @@ function consumerChecks(logic, check) {
         }
         check("LocalRuntime: " + name, [world.writes.map(write => write.reply), refreshes, error], [wantedReplies, refreshed, failure]);
         if (name === "invalid reading publishes its failure")
-            check("LocalRuntime: the accepted fallback marks the check unreadable", world.state.records[world.shell.manifest.id].values.localRuntime.tone, "warning");
+            check("LocalRuntime: the accepted fallback marks the check unreadable", world.state.holders[world.shell.manifest.id].record.values.localRuntime.tone, "warning");
     }
 }
 

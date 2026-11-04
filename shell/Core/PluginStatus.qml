@@ -13,12 +13,19 @@ import "PluginLogic.js" as Logic
 Singleton {
     id: root
 
-    // Plugin id -> { revision, serial, values, bytes }: the source revision
-    // that wrote the record, the serial of its last write, the published
-    // values and their size. `values` never leaves this file: valuesOf
-    // hands out copies. Replaced whole on every change,
-    // so a binding on a plugin's values re-evaluates once per value change.
-    property var records: ({})
+    // Plugin id -> the holder of its record, an object whose `record` is
+    // { revision, serial, values, bytes }: the source revision that wrote
+    // it, the serial of its last write, the published values and their
+    // size. `values` never leaves this file: valuesOf hands out copies.
+    // A write replaces one holder's `record`, so it re-runs only the
+    // bindings that read that plugin's status; this map is replaced only
+    // when a record is added or dropped. A binding records the holder's
+    // property it reads through this map, as tst_plugin_status.qml runs it.
+    // A map replaced on every write would re-run every status reader of
+    // every plugin on each write: on px13 (VGS-2239 profile 2, qmlprofiler)
+    // 37 of 40 animation gaps of 25 ms or more held such a write.
+    // PluginStatus creates each holder and destroys it when its record drops.
+    property var holders: ({})
     // Rises by one on every accepted value change, across plugins, so no
     // two changes share a serial and a dropped record's serial never returns.
     property int serial: 0
@@ -152,7 +159,8 @@ Singleton {
         // rebuilt instance can write before the registry's change signal
         // prunes it, since the new slot keys rebuild inside the manifest
         // map's assignment.
-        const current = Logic.hasOwn(records, ctx.id) && records[ctx.id].revision === revision ? records[ctx.id] : null;
+        const held = recordOf(ctx.id);
+        const current = held !== null && held.revision === revision ? held : null;
         const result = Logic.statusWrite(ctx.manifest, current === null ? {} : current.values, key, value);
         if (!result.ok) return result.error;
         // TUI record reads and requirement scans can repeat a service's
@@ -160,37 +168,73 @@ Singleton {
         const hadKey = current !== null && Logic.hasOwn(current.values, key);
         const hasKey = Logic.hasOwn(result.values, key);
         if (current !== null && hadKey === hasKey && (!hasKey || JSON.stringify(current.values[key]) === JSON.stringify(result.values[key]))) return "ok";
-        serial += 1;
-        const next = Object.assign({}, records);
-        next[ctx.id] = Object.freeze({ revision: revision, serial: serial, values: result.values, bytes: result.bytes });
-        records = next;
+        store(ctx.id, revision, result);
         return "ok";
+    }
+
+    // Plugin `id`'s record, or null while it has none. A binding that calls
+    // this re-evaluates when that plugin's record is written, added or
+    // dropped, and when another plugin's record is added or dropped.
+    function recordOf(id) {
+        return Logic.hasOwn(holders, id) ? holders[id].record : null;
+    }
+
+    // Hold WRITTEN, statusWrite's accepted { values, bytes }, as plugin
+    // `id`'s record from source REVISION, under the next serial.
+    function store(id, revision, written) {
+        const next = serial + 1;
+        const record = Object.freeze({ revision: revision, serial: next, values: written.values, bytes: written.bytes });
+        if (Logic.hasOwn(holders, id)) {
+            holders[id].record = record;
+        } else {
+            // createObject's initial properties reach a `var` property as a
+            // map with its keys sorted (tst_plugin_status.qml runs it); an
+            // assignment keeps the record as written.
+            const holder = holderComponent.createObject(root);
+            holder.record = record;
+            const added = Object.assign({}, holders);
+            added[id] = holder;
+            holders = added;
+        }
+        serial = next;
+    }
+
+    // Drop the records of the plugin ids IDS that have one.
+    function drop(ids) {
+        const kept = Object.assign({}, holders);
+        const gone = [];
+        for (const id of ids) {
+            if (!Logic.hasOwn(kept, id)) continue;
+            gone.push(kept[id]);
+            delete kept[id];
+        }
+        if (gone.length === 0) return;
+        holders = kept;
+        // destroy() is deferred to the event loop, so every binding the
+        // map change re-ran has already read the new map.
+        for (const holder of gone) holder.destroy();
     }
 
     // The values plugin `id` published, or an empty frozen object: a
     // deep-frozen copy made for this read, since the engine lets a frozen
     // array be written in place, so a reader that changes
     // an array changes only its own copy. A binding that calls this
-    // re-evaluates on every value change.
+    // re-evaluates as recordOf's does.
     function valuesOf(id) {
-        return Logic.hasOwn(records, id) ? Logic.frozenJson(records[id].values) : empty;
+        const record = recordOf(id);
+        return record === null ? empty : Logic.frozenJson(record.values);
     }
 
     // The serial of plugin `id`'s last write, 0 while it has none.
     function revisionOf(id) {
-        return Logic.hasOwn(records, id) ? records[id].serial : 0;
+        const record = recordOf(id);
+        return record === null ? 0 : record.serial;
     }
 
     // Drop every record whose plugin is gone, disabled, or at another source
     // revision than the one that wrote it.
     function prune() {
-        const kept = {};
-        let dropped = false;
-        for (const id of Object.keys(records)) {
-            if (Registry.isEnabled(id) && Registry.manifests[id].__revision === records[id].revision) kept[id] = records[id];
-            else dropped = true;
-        }
-        if (dropped) records = kept;
+        drop(Object.keys(holders).filter(id => !Registry.isEnabled(id) || Registry.manifests[id].__revision !== holders[id].record.revision));
     }
 
     Connections {
@@ -206,8 +250,17 @@ Singleton {
     // the serial of its last write and its size in bytes.
     function record() {
         const out = {};
-        for (const id of Object.keys(records).sort())
-            out[id] = { keys: Object.keys(records[id].values).sort(), revision: records[id].serial, bytes: records[id].bytes };
+        for (const id of Object.keys(holders).sort()) {
+            const held = holders[id].record;
+            out[id] = { keys: Object.keys(held.values).sort(), revision: held.serial, bytes: held.bytes };
+        }
         return out;
+    }
+
+    Component {
+        id: holderComponent
+        QtObject {
+            property var record
+        }
     }
 }

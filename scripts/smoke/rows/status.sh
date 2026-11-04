@@ -9,11 +9,14 @@
 # provider the core retired does not bring it back, and the rebuilt service
 # publishes again from nothing; a new source revision drops the record too.
 # Repeating an accepted value or an absent-key clear keeps the revision.
+# A write leaves the manager listing every plugin shares, and the
+# manager's rows show it; a disposable core copy whose listing reads the
+# status again fails that check.
 # A disposable core copy without that skip fails the same revision check.
 # The row ends with the fixture disabled and its screen removed, so the
 # later rows' bars and lending records hold nothing of it. rows/settings.sh
 # enables it again to read its Status rows.
-# inputs: scripts/smoke/fixtures/plugins/acme.status/* shell/Core/PluginStatus.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/plugins.sh
+# inputs: scripts/smoke/fixtures/plugins/acme.status/* shell/Core/PluginStatus.qml shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/plugins.sh
 set -euo pipefail
 leak_plugin_setup acme.probe true || { fail "status: fixture precondition failed"; return 1; }
 expect_poll "the shared fixture is built before its dependent reads" True record_exists acme.probe
@@ -92,6 +95,15 @@ expect "unchanged accepted values keep their revision" 0 status_unchanged_assert
 expect "every widget reads the data the service published" '[1,2]' read_status "$(bar_key)" detailItems
 expect "the lending record lists the published keys" '[["check", "detail", "lastCheck", "pending", "token"]]' lent_status keys
 
+# A write re-runs only its own plugin's status readers: the listing every
+# plugin shares reads no status, and the manager's rows join it on read.
+status_listing_assertion() {
+  (failures=0 behaviour_failures=0
+   expect "a status write leaves the manager listing, and the manager's row shows the value" '["ok",0,'"$1"']' ipc smoke statusWriteReach service acme.status pending "$1" >"$sandbox/status-listing-assertion.log"
+   echo "$failures")
+}
+expect "a status write leaves the manager listing, and the manager's row shows the value" 0 status_listing_assertion 5
+
 # Refusals: each is one keyed line and leaves the values and the revision.
 before_values="$(agreed statusValues)" || fail "the values are unreadable before the refusals"
 before_revision="$(agreed statusRevision)" || fail "the revision is unreadable before the refusals"
@@ -165,8 +177,8 @@ if copy_tree status-repeated-write && edit_tree status-repeated-write shell/Core
 fi
 
 if copy_tree status-live-values && edit_tree status-live-values shell/Core/PluginStatus.qml \
-    'return Logic.hasOwn(records, id) ? Logic.frozenJson(records[id].values) : empty;' \
-    'return Logic.hasOwn(records, id) ? records[id].values : empty;'; then
+    'return record === null ? empty : Logic.frozenJson(record.values);' \
+    'return record === null ? empty : record.values;'; then
   stop_shell || :
   if start_shell "$sandbox/tree-status-live-values" "$sandbox/status-live-values-qs.log"; then
     expect "control: enabling the status fixture with live values is allowed" ok ipc shell setPluginEnabled acme.status true
@@ -180,8 +192,8 @@ if copy_tree status-live-values && edit_tree status-live-values shell/Core/Plugi
 fi
 
 if copy_tree status-kept-disabled && edit_tree status-kept-disabled shell/Core/PluginStatus.qml \
-    'if (Registry.isEnabled(id) && Registry.manifests[id].__revision === records[id].revision) kept[id] = records[id];' \
-    'if (Logic.hasOwn(Registry.manifests, id)) kept[id] = records[id];'; then
+    '!Registry.isEnabled(id) || Registry.manifests[id].__revision !== holders[id].record.revision' \
+    '!Logic.hasOwn(Registry.manifests, id)'; then
   stop_shell || :
   if start_shell "$sandbox/tree-status-kept-disabled" "$sandbox/status-kept-disabled-qs.log"; then
     expect "control: enabling the status fixture with kept disabled records is allowed" ok ipc shell setPluginEnabled acme.status true
@@ -190,6 +202,19 @@ if copy_tree status-kept-disabled && edit_tree status-kept-disabled shell/Core/P
     expect "control: disabling the kept-disabled fixture is allowed" ok ipc shell setPluginEnabled acme.status false
     expect_poll "control: the kept-disabled service is torn down" False record_exists acme.status
     expect "control: a disabled plugin keeps its status record when prune ignores enablement" '[["pending", "token"]]' lent_status keys
+  fi
+  status_control_restore
+fi
+
+if copy_tree status-listing-reads && edit_tree status-listing-reads shell/Core/Registry.qml \
+    'const settings = Logic.settingsFor(config, m);' \
+    'const settings = Logic.settingsFor(config, m); void PluginStatus.valuesOf(id);'; then
+  stop_shell || :
+  if start_shell "$sandbox/tree-status-listing-reads" "$sandbox/status-listing-reads-qs.log"; then
+    expect "control: enabling the status fixture under a listing that reads status is allowed" ok ipc shell setPluginEnabled acme.status true
+    expect_poll "control: the listing-reads service is built" True record_exists acme.status
+    expect "control: a listing that reads the status fails the listing assertion" 1 status_listing_assertion 6
+    expect "control: disabling the listing-reads fixture is allowed" ok ipc shell setPluginEnabled acme.status false
   fi
   status_control_restore
 fi

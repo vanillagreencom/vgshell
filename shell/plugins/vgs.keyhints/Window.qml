@@ -35,13 +35,17 @@ FocusScope {
     readonly property var screen: shell === null ? null : shell.screens.current
     // The key capture each row's field asks to press a combo.
     readonly property var capture: shell === null ? null : shell.shortcut.capture
+    // Every plugin as the manager shows it, read once: each read of
+    // shell.manager.plugins joins every plugin's status again, and `groups`
+    // re-runs on every keystroke of the query.
+    readonly property var plugins: shell === null ? [] : shell.manager.plugins
     // One { id, name, binds } per enabled plugin with a bind the query
     // matches, in the manager's order, holding the binds it matches.
     readonly property var groups: {
         if (shell === null) return [];
         const wanted = query.trim().toLowerCase();
         const holds = texts => wanted === "" || texts.some(t => String(t).toLowerCase().indexOf(wanted) !== -1);
-        return shell.manager.plugins.filter(p => p.enabled).map(p => ({
+        return plugins.filter(p => p.enabled).map(p => ({
             id: p.id,
             name: p.name,
             binds: p.binds.filter(b => holds([p.name, b.description, b.shortcut].concat(Array.from(b.keys))))
