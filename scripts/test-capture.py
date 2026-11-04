@@ -206,7 +206,7 @@ def delay_choice():
     """
     plugin = HELPER.parent.parent
     manifest = json.loads((plugin / "manifest.json").read_text())
-    panel = (plugin / "Panel.qml").read_text()
+    options = (plugin / "Options.qml").read_text()
     service = (plugin / "Service.qml").read_text()
 
     def run(program, payload):
@@ -245,14 +245,14 @@ console.log(JSON.stringify(sent));
         body = body[body.index(start) + len(start):]
         return run(choose, {"save": service_function(source, "save"), "handler": body[:body.index(end) + len(end)]})
     wanted = [["setting", {"key": "delay", "value": 7}]]
-    assert chosen(panel) == wanted, "the Delay row saves the chosen delay"
+    assert chosen(options) == wanted, "the Delay row saves the chosen delay"
     for name, before, after in [
         ("delay-unsaved", 'root.save("delay", root.delayChoices[index].value);', 'if (false) root.save("delay", root.delayChoices[index].value);'),
         ("delay-saved-elsewhere", 'root.save("delay", root.delayChoices[index].value);', 'root.save("cursor", root.delayChoices[index].value);'),
         ("save-unsent", "    function save(key, value) {\n", '    function save(key, value) {\n        return "ok";\n'),
     ]:
-        assert panel.count(before) == 1, name
-        assert chosen(panel.replace(before, after)) != wanted, "control did not fail: " + name
+        assert options.count(before) == 1, name
+        assert chosen(options.replace(before, after)) != wanted, "control did not fail: " + name
 
     # `launch` with a stored delay that is not the default, and a time limit
     # a row written before this manifest may still hold: its reply and the

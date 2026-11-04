@@ -78,7 +78,7 @@ Item {
             shell.shortcut.register(name, descriptions[name], () => root.invoke(name));
         }
         shell.ipc.handle("setting", arg => root.setFromRequest(arg));
-        // The panel asks again each time it opens, which also refreshes the
+        // The options ask again each time they open, which also refreshes the
         // audio sources and cameras the Settings page offers.
         shell.ipc.handle("probe", () => { root.probe(); return "ok"; });
         publish();
@@ -121,7 +121,8 @@ Item {
             : { tone: "ok", text: "Ready" });
     }
 
-    // Widgets and panels use this state rather than probing tools or processes.
+    // Widgets and the options window use this state rather than probing
+    // tools or processes.
     function publish() {
         if (shell === null) return;
         const available = {};
@@ -152,7 +153,10 @@ Item {
     }
 
     function invoke(name) {
-        if (name === "toggle") return shell.surfaces.toggle("panel", "{}");
+        // The options and the share picker are the one window. While an app
+        // waits on the picker, the toggle leaves it alone: a hide or the
+        // options' payload would cancel the app's request.
+        if (name === "toggle") return shareSession.pending ? "refused: capture=sharing" : shell.surfaces.toggle("window", "{}");
         if (isRecord(name) && tools[name] !== undefined && phase === "recording") {
             phase = "stopping";
             activeJob.write("stop\n");

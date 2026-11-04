@@ -411,7 +411,7 @@ f share/vgshell/shell/plugins/vgs.bluetooth/Prompt.qml
 f share/vgshell/shell/plugins/vgs.bluetooth/Service.qml
 f share/vgshell/shell/plugins/vgs.bluetooth/Widget.qml
 f share/vgshell/shell/plugins/vgs.bluetooth/manifest.json
-f share/vgshell/shell/plugins/vgs.capture/Panel.qml
+f share/vgshell/shell/plugins/vgs.capture/Options.qml
 f share/vgshell/shell/plugins/vgs.capture/Service.qml
 f share/vgshell/shell/plugins/vgs.capture/ShareSession.qml
 f share/vgshell/shell/plugins/vgs.capture/Widget.qml

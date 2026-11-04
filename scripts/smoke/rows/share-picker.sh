@@ -439,6 +439,65 @@ share_launch after-replacement
 expect "the next request has a new identifier" True share_new_request "$share_replacement_id" fixture
 share_click Button Cancel
 expect_poll "the next request can cancel independently" True share_cancelled after-replacement
+# The options and the picker are one window. The toggle leaves an app's
+# pending request alone, where its hide or the options' payload would
+# cancel it, and a request made while the options are open maps the picker
+# at its own width, not the options' (AppWindow keeps a shown window's
+# first size).
+share_window_width() { surface_box window:Capture | py_reply 'import json,sys; s=sys.stdin.read().strip(); print(round(json.loads(s)[2]) if s.startswith("[") else s)'; }
+share_picker_width="$(ipc smoke themeValue size.window.width)"
+share_toggle_check() { # NAME
+  local id
+  expect "$1: the toggle opens the Capture options" ok ipc vgs.capture invoke toggle ''
+  expect_poll "$1: the options window maps" 1 window_count Capture
+  share_launch "$1"
+  id="$(share_request_id)"
+  expect_poll "$1: the request maps the picker" True share_mapped
+  expect_poll "$1: the picker maps at its own width" "$share_picker_width" share_window_width
+  expect "$1: the toggle refuses while the app waits" 'refused: capture=sharing' ipc vgs.capture invoke toggle ''
+  expect "$1: the toggle leaves the picker shown" true share_read sharing
+  expect "$1: the toggle leaves the app's request pending" pending share_result "$id"
+  ipc vgs.capture invoke share-cancel "{\"id\":\"$id\"}" >/dev/null || true
+  expect_poll "$1: the request ends without a selection" True share_cancelled "$1"
+}
+share_toggle_check toggle
+# share_capture_copy LABEL: Capture rebuilt from the world's sources, with
+# the optional tools notice its enable may raise declined. Turning it off
+# gives xdph its own picker back, so the rebuild waits for the VGS picker
+# to be set again.
+share_capture_copy() {
+  expect "capture stops for the $1" ok ipc shell setPluginEnabled vgs.capture false
+  expect_poll "the $1 releases capture's service" False record_exists vgs.capture
+  rescan "the $1 enters the registry"
+  expect "capture enables for the $1" ok ipc shell setPluginEnabled vgs.capture true
+  expect_poll "the $1 builds capture's service" True record_exists vgs.capture
+  share_dismiss_tools_notice
+  expect_poll "the $1 sets the VGS picker again" True share_configured
+}
+cp -- "$repo/shell/plugins/vgs.capture/Service.qml" "$share_world/service.saved"
+cp -- "$repo/shell/plugins/vgs.capture/ShareSession.qml" "$share_world/session.saved"
+python3 - "$repo/shell/plugins/vgs.capture/Service.qml" "$repo/shell/plugins/vgs.capture/ShareSession.qml" <<'PY'
+import pathlib,sys
+for name,old,new in ((sys.argv[1],'return shareSession.pending ? "refused: capture=sharing" : shell.surfaces.toggle(','return shell.surfaces.toggle('),
+                     (sys.argv[2],'        shell.surfaces.hide("window");\n        const reply = shell.surfaces.summon(','        const reply = shell.surfaces.summon(')):
+    p=pathlib.Path(name); assert not p.is_symlink(); s=p.read_text()
+    assert s.count(old)==1, old
+    p.write_text(s.replace(old,new,1))
+PY
+share_capture_copy "toggle control copy"
+# The copy routes the toggle with no pending check and summons the picker
+# into the open options window: the width, the refusal, the shown picker
+# and the pending request each fail.
+share_toggle_control() {
+  (failures=0 behaviour_failures=0
+   share_toggle_check toggle-control >"$share_world/toggle-control.log"
+   echo "$failures")
+}
+expect "control: a toggle that ignores the picker and a picker in the options' window fail the toggle checks" 4 share_toggle_control
+sed 's/^/  CONTROL  /' "$share_world/toggle-control.log"
+cp -- "$share_world/service.saved" "$repo/shell/plugins/vgs.capture/Service.qml"
+cp -- "$share_world/session.saved" "$repo/shell/plugins/vgs.capture/ShareSession.qml"
+share_capture_copy "restored toggle sources"
 share_launch keyboard
 share_current_id="$(share_request_id)"
 expect_poll "the held picker has a live preview" true share_read previewReady
@@ -655,7 +714,7 @@ share_preview_in_body "$sandbox/tree-share-area-height-control/shell/plugins/vgs
 python3 - "$sandbox/tree-share-area-height-control/shell/plugins/vgs.capture/Window.qml" <<'PY'
 import pathlib,sys
 p=pathlib.Path(sys.argv[1]); assert not p.is_symlink(); s=p.read_text()
-old='implicitHeight: sharing ? sharingHeight : Theme.size.panel.maxHeight'
+old='implicitHeight: sharing ? sharingHeight : captureControls.item === null ? 0 : captureControls.item.implicitHeight'
 assert s.count(old)==1
 s=s.replace(old,'implicitHeight: Theme.size.panel.maxHeight',1)
 old='height: root.previewHeight'

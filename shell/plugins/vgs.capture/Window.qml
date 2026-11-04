@@ -57,15 +57,22 @@ FocusScope {
     readonly property real areaRoom: compactArea ? compactAreaHeight : areaHeight
     readonly property real previewHeight: Math.max(Theme.size.preview.minHeight, Math.min(fullPreviewHeight, windowCap - choicesHeight - areaRoom))
     readonly property real sharingHeight: choicesHeight + previewHeight + areaRoom
-    implicitWidth: Theme.size.window.width
-    implicitHeight: sharing ? sharingHeight : Theme.size.panel.maxHeight
+    // Off a share request the window holds the Capture options at their
+    // own size; a share request maps a window of its own (ShareSession).
+    implicitWidth: sharing || captureControls.item === null ? Theme.size.window.width : captureControls.item.implicitWidth
+    implicitHeight: sharing ? sharingHeight : captureControls.item === null ? 0 : captureControls.item.implicitHeight
     focus: true
 
     function open(payloadJson) {
         const next = JSON.parse(payloadJson);
         if (sharing && request.id !== next.id) close();
         request = next.id === undefined ? { id: "", windows: [], remember: false } : next;
-        if (!sharing) return;
+        // The host opens the window once its `shell` is set, so the
+        // options ask for fresh devices here, not as their Loader loads.
+        if (!sharing) {
+            captureControls.item.open(payloadJson);
+            return;
+        }
         remember = request.remember;
         switchTab(0);
     }
@@ -105,13 +112,12 @@ FocusScope {
         region = next;
     }
 
-    // Settings Open uses the same Capture controls as the bar's panel.
+    // The toggle, the bar widget and Settings Open show the Capture options.
     Loader {
         id: captureControls
         anchors.fill: parent
         active: !root.sharing
-        sourceComponent: Component { Panel { shell: root.shell; surfaceKind: "window" } }
-        onLoaded: item.open("{}")
+        sourceComponent: Component { Options { shell: root.shell } }
     }
 
     Pane {

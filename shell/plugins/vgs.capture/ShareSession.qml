@@ -17,6 +17,8 @@ Item {
     property bool setUpAfterProbe: false
     property bool probeAgain: false
     property bool setUpAgain: false
+    // An app waits on the picker's answer.
+    readonly property bool pending: session !== null && session.phase === "pending"
     readonly property var missing: shell === null ? [] : shell.requirements.missing
     readonly property var toolsMissing: ["systemctl", "busctl"].filter(tool => missing.indexOf(tool) >= 0)
     readonly property bool pageViewed: shell !== null && shell.status.viewed
@@ -35,7 +37,7 @@ Item {
         shell.ipc.handle("share-begin", arg => root.begin(arg));
         shell.ipc.handle("share-result", arg => root.result(JSON.parse(arg).id));
         shell.ipc.handle("share-cancel", arg => root.cancel(JSON.parse(arg).id));
-        shell.ipc.handle("share-close", arg => root.session !== null && root.session.phase === "pending" ? root.cancel(JSON.parse(arg).id, false) : "ok");
+        shell.ipc.handle("share-close", arg => root.pending ? root.cancel(JSON.parse(arg).id, false) : "ok");
         shell.ipc.handle("share-choice", arg => root.choose(arg));
         check(true);
     }
@@ -80,6 +82,10 @@ Item {
         check(false);
         session = { phase: "pending", request: request };
         deadline.restart();
+        // The window keeps the size it mapped at (AppWindow), so the
+        // picker never takes over the open Capture options' window: it
+        // goes, and the picker maps a window of its own size.
+        shell.surfaces.hide("window");
         const reply = shell.surfaces.summon("window", JSON.stringify(request));
         if (reply !== "ok") { deadline.stop(); session = null; return reply; }
         return "ok";
