@@ -39,6 +39,36 @@ function peak(pcm) {
     return most;
 }
 
+// What a monitor knows before a store names a default, and after the store
+// is removed or replaced. UNSETTLED lists the groups a delta may have removed.
+function noDefaults(id) {
+    return { id, microphones: null, speakers: null, unsettled: [] };
+}
+
+function defaultStore(node) {
+    return node.type === "PipeWire:Interface:Metadata" && Boolean(node.props) && node.props["metadata.name"] === "default";
+}
+
+// The defaults NODE, a default store, names: WirePlumber publishes the active
+// ones on subject 0. pw-dump emits decoded JSON values.
+// https://github.com/PipeWire/wireplumber/blob/master/src/scripts/default-nodes/apply-default-node.lua
+function storeDefaults(node) {
+    if (!Array.isArray(node.metadata) || node.metadata.length > 4096) throw new Error("discovery-default");
+    const named = {};
+    for (const entry of node.metadata) {
+        if (entry.subject !== 0) continue;
+        const group = entry.key === "default.audio.source" ? "microphones"
+            : entry.key === "default.audio.sink" ? "speakers" : null;
+        if (group === null) continue;
+        const value = entry.value && entry.value.name;
+        if (entry.type !== "Spa:String:JSON" || typeof value !== "string"
+                || !/^[^\x00-\x1f\x7f]{1,200}$/.test(value))
+            throw new Error("discovery-default");
+        named[group] = value;
+    }
+    return named;
+}
+
 class Audio {
     constructor({ session, environment, clock, offers, level, fault, captureSink, playbackSource }) {
         this.session = session;
@@ -58,7 +88,7 @@ class Audio {
         this.devices = { microphones: [], speakers: [] };
         this.discovery = { kind: "idle", retries: 0 };
         this.nodes = new Map();
-        this.defaults = { id: null, microphones: null, speakers: null };
+        this.defaults = noDefaults(null);
         this.capture = null;
         this.playback = null;
         this.feed = null;
@@ -181,7 +211,7 @@ class Audio {
         });
         this.devices = { microphones: [], speakers: [] };
         this.nodes.clear();
-        this.defaults = { id: null, microphones: null, speakers: null };
+        this.defaults = noDefaults(null);
         this.offers(this.devices);
         this.failCapture("discovery-failed", error.message);
         this.fault(error.message);
@@ -238,37 +268,27 @@ class Audio {
         if (!Array.isArray(snapshot) || snapshot.length > 4096) throw new Error("discovery-shape");
         if (mode === "full") {
             this.nodes.clear();
-            this.defaults = { id: null, microphones: null, speakers: null };
+            this.defaults = noDefaults(null);
         }
         for (const node of snapshot) {
             if (!Number.isSafeInteger(node.id)) throw new Error("discovery-id");
             if (node.info === null) {
                 this.nodes.delete(node.id);
-                if (node.id === this.defaults.id)
-                    this.defaults = { id: null, microphones: null, speakers: null };
+                if (node.id === this.defaults.id) this.defaults = noDefaults(null);
             }
-            // WirePlumber publishes the active defaults on subject 0 of the
-            // default metadata store. pw-dump emits decoded JSON values and
-            // only changed entries: retain the other default across deltas.
-            // https://github.com/PipeWire/wireplumber/blob/master/src/scripts/default-nodes/apply-default-node.lua
+            // A store new to the monitor arrives whole. A later delta holds
+            // only the entries that changed, and a removed entry is freed
+            // unprinted (pw-dump.c metadata_property and metadata_dump), so
+            // a delta, even `metadata: []`, may hide the removal of any
+            // default it does not name. WirePlumber removes one when no node
+            // is available, which can leave its node listed (rescan.lua,
+            // apply-default-node.lua). settled() reads the store before use.
             // https://github.com/PipeWire/pipewire/blob/master/src/tools/pw-dump.c
-            else if (node.type === "PipeWire:Interface:Metadata"
-                    && node.props && node.props["metadata.name"] === "default") {
-                if (!Array.isArray(node.metadata) || node.metadata.length > 4096)
-                    throw new Error("discovery-default");
-                if (node.id !== this.defaults.id || node.metadata.length === 0)
-                    this.defaults = { id: node.id, microphones: null, speakers: null };
-                for (const entry of node.metadata) {
-                    if (entry.subject !== 0) continue;
-                    const group = entry.key === "default.audio.source" ? "microphones"
-                        : entry.key === "default.audio.sink" ? "speakers" : null;
-                    if (group === null) continue;
-                    const value = entry.value && entry.value.name;
-                    if (entry.type !== "Spa:String:JSON" || typeof value !== "string"
-                            || !/^[^\x00-\x1f\x7f]{1,200}$/.test(value))
-                        throw new Error("discovery-default");
-                    this.defaults[group] = value;
-                }
+            else if (defaultStore(node)) {
+                const named = storeDefaults(node);
+                const prior = node.id === this.defaults.id ? this.defaults : noDefaults(node.id);
+                this.defaults = { ...prior, ...named, unsettled: prior === this.defaults
+                    ? ["microphones", "speakers"].filter(group => !(group in named)) : [] };
             }
             else if (node.type === "PipeWire:Interface:Node") {
                 const prior = this.nodes.get(node.id);
@@ -302,10 +322,17 @@ class Audio {
         this.offers(devices);
         if (this.capture !== null && this.capture.target !== null
                 && !devices.microphones.some(item => item.value === this.capture.target))
-            this.failCapture("device-lost", "");
+            this.failCapture(this.lost("microphones", this.capture), "");
         if (this.playback !== null && this.playback.target !== null
                 && !devices.speakers.some(item => item.value === this.playback.target))
-            this.failPlayback("device-lost");
+            this.failPlayback(this.lost("speakers", this.playback));
+    }
+
+    // GROUP's device under SETTING: the setting's, else the default, as
+    // { target, from } with target null while no store names a default.
+    choice(group, setting, settings, engine) {
+        const configured = group === "microphones" && engine === "dictation" ? "" : settings[setting] || "";
+        return configured === "" ? { target: this.defaults[group], from: "default" } : { target: configured, from: "setting" };
     }
 
     // The device of GROUP that ENGINE (a Session engine kind) uses under
@@ -315,14 +342,40 @@ class Audio {
     // hear that source too. The daemon's snapshot carries the microphone,
     // so Session keeps a microphone check's result with the source it heard.
     device(group, setting, settings, engine) {
-        const configured = group === "microphones" && engine === "dictation" ? "" : settings[setting] || "";
-        return configured === "" ? this.defaults[group] : configured;
+        return this.choice(group, setting, settings, engine).target;
     }
 
-    selected(group, setting) {
-        const value = this.device(group, setting, this.state.settings, this.state.engine.kind);
-        if (!this.devices[group].some(item => item.value === value)) throw new Error("device-lost");
-        return value;
+    // The default of GROUP, read from the store when a delta may have
+    // removed it. The read answers this use. It replaces the held defaults
+    // only when no store delta came during it, which may be newer.
+    async settled(group) {
+        const before = this.defaults;
+        if (!before.unsettled.includes(group)) return before[group];
+        const stores = (await this.dump(["PipeWire:Interface:Metadata"])).filter(defaultStore);
+        const store = stores.find(node => node.id === before.id) || stores[0];
+        const read = store === undefined ? noDefaults(null) : { ...noDefaults(store.id), ...storeDefaults(store) };
+        if (this.defaults !== before) return this.defaults.unsettled.includes(group) ? read[group] : this.defaults[group];
+        if (read.id === before.id) {
+            this.defaults = read;
+            // The daemon's check source follows the default microphone.
+            if (read.microphones !== before.microphones) this.offers(this.devices);
+        }
+        return read[group];
+    }
+
+    async selected(group, setting) {
+        const choice = this.choice(group, setting, this.state.settings, this.state.engine.kind);
+        if (choice.from === "default") choice.target = await this.settled(group);
+        if (!this.devices[group].some(item => item.value === choice.target)) throw new Error(this.lost(group, choice));
+        return choice;
+    }
+
+    // A device-lost reason: what was missing, where it came from, and what
+    // the last read of GROUP held, bounded. JSON keeps a name control-free.
+    lost(group, { target, from }) {
+        const names = this.devices[group].slice(0, 3).map(item => item.value.slice(0, 60));
+        return "device-lost target=" + JSON.stringify(target === null ? null : target.slice(0, 200)) + " from=" + from
+            + " " + group + "=" + this.devices[group].length + JSON.stringify(names);
     }
 
     async openCapture(e, done, failed) {
@@ -330,12 +383,15 @@ class Audio {
         try {
             await this.release;
             if (!this.allowed("capture")) throw new Error("capture-refused");
-            capture = { kind: "opening", owner: null, e, failed, target: null };
+            capture = { kind: "opening", owner: null, e, failed, target: null, from: null };
             this.capture = capture;
             await this.discover();
             if (!this.allowed("capture") || this.capture !== capture) return;
-            const target = this.selected("microphones", "microphone");
+            const choice = await this.selected("microphones", "microphone");
+            if (!this.allowed("capture") || this.capture !== capture) return;
+            const target = choice.target;
             capture.target = target;
+            capture.from = choice.from;
             if (this.captureSink === null) throw new Error("speech-unavailable");
             const feed = this.captureSink(e);
             this.feed = feed;
@@ -381,7 +437,7 @@ class Audio {
             if (capture !== null && this.capture !== capture) return;
             if (capture !== null) capture.kind = "failed";
             await this.teardown("capture-failed", ["capture"]);
-            failed(error.message === "device-lost" ? "device-lost" : "audio-start: " + error.message);
+            failed(error.message.startsWith("device-lost ") ? error.message : "audio-start: " + error.message);
         }
     }
 
@@ -395,7 +451,7 @@ class Audio {
             await this.refreshDevices();
             if (!this.session.live(this.state, capture.e, "capture", ["opening", "open"])) return;
             capture.failed(this.devices.microphones.some(item => item.value === capture.target)
-                ? "capture-exit-" + (owner.exit.signal || owner.exit.code) : "device-lost");
+                ? "capture-exit-" + (owner.exit.signal || owner.exit.code) : this.lost("microphones", capture));
         } catch (error) {
             this.nodes.clear();
             this.devices = { microphones: [], speakers: [] };
@@ -407,7 +463,13 @@ class Audio {
     }
 
     async refreshDevices() {
-        const owner = await this.spawn("discovery", "pw-dump");
+        this.snapshot(await this.dump([]), "full");
+    }
+
+    // One pw-dump read of the objects ARGS match, a one-shot child of the
+    // discovery owner.
+    async dump(args) {
+        const owner = await this.spawn("discovery", "pw-dump", args);
         const chunks = [];
         let bytes = 0, overflow = false;
         owner.child.stdout.on("data", data => {
@@ -421,7 +483,11 @@ class Audio {
         if (overflow) throw new Error("discovery-overflow");
         if (owner.stopping) throw new Error("discovery-ended");
         if (owner.exit.code !== 0) throw new Error("discovery-exit: " + owner.diagnostic.trim());
-        this.snapshot(JSON.parse(Buffer.concat(chunks).toString("utf8")), "full");
+        // pw-dump prints nothing when no object matches (pw-dump.c dump_objects).
+        const text = Buffer.concat(chunks).toString("utf8");
+        const read = text.trim() === "" ? [] : JSON.parse(text);
+        if (!Array.isArray(read) || read.length > 4096) throw new Error("discovery-shape");
+        return read;
     }
 
     failCapture(reason, diagnostic) {
@@ -567,7 +633,7 @@ class Audio {
         if (this.playback !== null) { failed("playback-busy"); return; }
         // Install the operation before the first await. An immediate flush must
         // retire startup too, even before there is a source or audio child.
-        const playback = { kind: "starting", e, failed, target: null, wake: null,
+        const playback = { kind: "starting", e, failed, target: null, from: null, wake: null,
             written: 0, received: 0, frontier: null, text: "", words: [], sentenceEnd: 0 };
         this.playback = playback;
         try {
@@ -580,8 +646,11 @@ class Audio {
             if (this.playback !== playback) return;
             if (!this.allowed("playback")) throw new Error("playback-refused");
             if (this.playbackSource === null) throw new Error("playback-source-unavailable");
-            const target = this.selected("speakers", "speaker");
+            const choice = await this.selected("speakers", "speaker");
+            if (this.playback !== playback) return;
+            const target = choice.target;
             playback.target = target;
+            playback.from = choice.from;
             const source = this.playbackSource(e.source);
             if (source === null) throw new Error("playback-source-unavailable");
             if (!(source instanceof Readable)) throw new Error("playback-source");

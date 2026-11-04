@@ -31,6 +31,8 @@ const KeyNavLogic = load(path.join(__dirname, "..", "shell", "Ui", "foundation",
 const MANIFEST_KEYS = Object.fromEntries(JSON.parse(fs.readFileSync(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "manifest.json"), "utf8"))
     .hyprland.binds.map(bind => [bind.shortcut, bind.key]));
 const copy = value => JSON.parse(JSON.stringify(value));
+// Audio's device loss names what was missing and what its read held.
+const LOST = 'device-lost target="fixture.mic" from=default microphones=0[]';
 const KEYS = { talk: "Super+J", mute: "Super+Shift+J", stop: "Super+Alt+Period", confirm: "Super+Alt+Y", console: "Super+Alt+C" };
 const UNBOUND = { talk: null, mute: null, stop: null, confirm: null, console: null };
 // The Voice widget's icon, which no Jarvis look takes.
@@ -146,7 +148,7 @@ const CASES = [
         ["problem", "circle-alert", "danger", tip(HELLO_EXPECTED.title, [HELLO_EXPECTED.action, CLICK])]],
     ["Session error", up({ fault: { kind: "error", reason: "thinking-timeout", retry: 0 } }),
         ["problem", "circle-alert", "danger", WITH(fault("slow"), [CLICK])]],
-    ["Session retrying a lost device", up({ fault: { kind: "retrying", reason: "device-lost", retry: 1 } }),
+    ["Session retrying a lost device", up({ fault: { kind: "retrying", reason: LOST, retry: 1 } }),
         ["problem", "circle-alert", "danger", WITH(retrying, [CLICK])]],
     ["audio fault", up({}, { audio: OVERFLOW }), ["problem", "circle-alert", "danger", WITH(audioText, [CLICK])]],
     ["audio fault before the first state", { daemon: { tone: "info", text: "Jarvis is starting" }, detail: null, audio: OVERFLOW },
@@ -154,7 +156,8 @@ const CASES = [
     ["problem over mute", up(MUTED, { audio: OVERFLOW }), ["problem", "circle-alert", "danger", WITH(audioText, [CLICK])]],
     ["Session error while muted", up({ ...MUTED, fault: { kind: "error", reason: "thinking-timeout", retry: 0 } }),
         ["problem", "circle-alert", "danger", WITH(fault("slow"), [CLICK])]],
-    ...[["a lost device", "device-lost", "device"], ["a brain stream error", "brain=stream-error", "brain"],
+    ...[["a lost device", LOST, "device"],
+        ["a brain stream error", "brain=stream-error", "brain"],
         ["a harness exit", "brain=harness-exit", "brain"], ["a network refusal", "net=timeout", "brain"],
         ["local speech ready timeout", "speech=local-ready-timeout", "localVoice"], ["local speech not ready", "speech=local-not-ready", "voice"],
         ["another speech fault", "speech=live-key-required", "voice"],
@@ -174,7 +177,7 @@ const CASES = [
     ...[["a dictation recording Voice holds", "speech=dictation-busy", "dictationBusy"],
         ["a dictation start the core refuses", "speech=dictation-daemon-failed", "dictation"],
         ["a dictation stop that failed", "speech=dictation-failed", "dictation"],
-        ["a lost device for the local voice", "device-lost", "defaultDevice"],
+        ["a lost device for the local voice", LOST, "defaultDevice"],
         ["the sidecar's own fault", "speech=local-not-ready", "voice"]].map(([label, reason, kind]) =>
         [label, up({ engine: { kind: "dictation" }, fault: { kind: "error", reason, retry: 0 } }),
             ["problem", "circle-alert", "danger", WITH(fault(kind), [CLICK])]]),

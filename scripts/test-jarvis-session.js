@@ -26,6 +26,8 @@ const holdUp = (down = 10, after = 0) => event("talk-up", down + Session.TAP_MS 
 const callback = (type, owner, at = 20, extra = {}) => event(type, at, {
     gen: owner.gen, op: owner.op, ...(owner.kind === "held" ? { id: owner.id, digest: owner.digest } : {}), ...extra });
 const step = (logic, s, e) => copy(logic.reduce(s, e));
+// Audio's device loss names what was missing and what its read held.
+const LOST = 'device-lost target="fixture.mic" from=default microphones=0[]';
 const ready = logic => step(logic, step(logic, logic.initial(), snapshot()).state,
     event("indicator", 1, { shown: true })).state;
 function listening(logic, toggle = false) {
@@ -819,7 +821,7 @@ const table = [
     ["device-choice-recovery", logic => {
         let s = listening(logic);
         for (let attempt = 0; attempt <= 3; attempt++) {
-            s = step(logic, s, callback("capture-failed", s.capture, 50 + attempt, { reason: "device-lost" })).state;
+            s = step(logic, s, callback("capture-failed", s.capture, 50 + attempt, { reason: LOST })).state;
             s = step(logic, s, callback("capture-closed", s.capture, 60 + attempt)).state;
         }
         assert.equal(s.capture.kind, "closed");
@@ -835,7 +837,7 @@ const table = [
     ["device-retries", logic => {
         let s = listening(logic);
         for (let attempt = 0; attempt <= 3; attempt++) {
-            s = step(logic, s, callback("capture-failed", s.capture, 50 + attempt, { reason: "device-lost" })).state;
+            s = step(logic, s, callback("capture-failed", s.capture, 50 + attempt, { reason: LOST })).state;
             assert.equal(s.capture.kind, "closing");
             assert.equal(s.fault.kind, attempt < 3 ? "retrying" : "error");
             assert.equal(s.fault.retry, Math.min(attempt + 1, 3));
@@ -864,7 +866,7 @@ const table = [
                 const label = [mode, attempts, draining ? "draining" : "closed", name].join(": ");
                 let s = mode === "always" ? alwaysListening(logic) : listening(logic, mode === "toggle");
                 for (let attempt = 0; attempt < attempts; attempt++) {
-                    s = step(logic, s, callback("capture-failed", s.capture, 20 + attempt * 2, { reason: "device-lost" })).state;
+                    s = step(logic, s, callback("capture-failed", s.capture, 20 + attempt * 2, { reason: LOST })).state;
                     if (attempt < attempts - 1) s = step(logic, s, callback("capture-closed", s.capture, 21 + attempt * 2)).state;
                 }
                 assert.equal(s.fault.kind, attempts === 1 ? "retrying" : "error");
@@ -885,7 +887,7 @@ const table = [
                 // Finish mute after an in-flight close, then restore its off state.
                 if (s.mute.kind === "on") s = step(logic, s, event("unmute", 45)).state;
                 for (const e of [event("indicator", 46, { shown: false }), snapshot({ at: 47, settings: { mode } }),
-                    callback("capture-failed", failedCapture, 48, { reason: "device-lost" })])
+                    callback("capture-failed", failedCapture, 48, { reason: LOST })])
                     s = step(logic, s, e).state;
                 assert.deepEqual([s.fault.kind, s.conversation.kind, s.capture.kind, logic.indicatorWanted(s), s.mute.kind],
                     ["none", "ended", "closed", false, "off"], label + ": Stop dismisses the fault and prevents another retry");
@@ -904,8 +906,9 @@ const table = [
     }],
     ["playback-fault", logic => {
         const before = speaking(logic);
-        const s = step(logic, before, callback("playback-failed", before.playback, 50, { reason: "device-lost" })).state;
-        assert.equal(s.fault.reason, "device-lost");
+        const lost = 'device-lost target="fixture.speaker" from=default speakers=0[]';
+        const s = step(logic, before, callback("playback-failed", before.playback, 50, { reason: lost })).state;
+        assert.equal(s.fault.reason, lost);
         assert.equal(s.playback.kind, "flushing");
         assert.equal(s.conversation.kind, "ended");
     }],
@@ -2475,10 +2478,11 @@ try {
         ["recover-fault", 's.fault = { kind: "none" };\n}', '}', "fault-recovery"],
         ["recover-error-only", 'if (s.fault.kind !== "error" || s.gate', 'if (false || s.gate', "fault-recovery"],
         ["recover-end", 'end(s, effects, at, "recover", false);', 'void at;', "fault-recovery"],
-        ["device-retry-limit", 'e.reason === "device-lost" && retry < 3',
-            'e.reason === "device-lost" && retry < 4', "device-retries"],
-        ["device-choice-recovery", 'if (devicesChanged && s.fault.kind === "error" && s.fault.reason === "device-lost")',
-            'if (false && devicesChanged && s.fault.kind === "error" && s.fault.reason === "device-lost")', "device-choice-recovery"],
+        ["device-retry-limit", 'deviceLost(e.reason) && retry < 3',
+            'deviceLost(e.reason) && retry < 4', "device-retries"],
+        ["device-retry-reason", 'deviceLost(e.reason) && retry < 3', 'e.reason === "device-lost" && retry < 3', "device-retries"],
+        ["device-choice-recovery", 'if (devicesChanged && s.fault.kind === "error" && deviceLost(s.fault.reason))',
+            'if (false && devicesChanged && s.fault.kind === "error" && deviceLost(s.fault.reason))', "device-choice-recovery"],
         ["capture-fault", 'reason: e.reason, retry: retry };',
             'reason: "wrong-cause", retry: retry };', "capture-fault"],
         ["playback-fault", 'end(s, effects, e.at, "playback-failed", false);',

@@ -84,7 +84,8 @@ function keyRefusedText(voice) {
 // and a cloud voice that never answered the captured audio (Realtime.js and
 // GeminiLive.js: live=input-silent, live=unheard).
 // A model its app refused carries the model's name (ClaudeCode:
-// brain=harness-model-refused model=claude-fable-5-1).
+// brain=harness-model-refused model=claude-fable-5-1), and a lost device
+// what was missing and what Audio's read held (device-lost target=...).
 var MODEL_REFUSED = /^brain=harness-model-refused model=(.*)$/;
 function modelFallbackNotice(choice, field) {
     return { title: "Jarvis used another model", tone: "info", icon: "vgs-letter-j",
@@ -96,7 +97,7 @@ var FAULT_KINDS = [
     [/^live=input-silent$/, "inputSilent"],
     [/^live=unheard$/, "unheard"],
     [/^live=key-refused$/, "keyRefused"],
-    [/^device-lost$/, "device"],
+    [/^device-lost /, "device"],
     [/^(home=|guidance=home-)/, "home"],
     [MODEL_REFUSED, "model"],
     [/^(brain|net)=/, "brain"],

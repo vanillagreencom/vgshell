@@ -42,6 +42,9 @@ if name == "pw-dump":
         ]
         if (home / "extra-properties").exists():
             snapshot[1]["info"]["props"]["fixture.metadata"] = "a" * 100000
+        # WirePlumber removed the default source: no source node available.
+        if (home / "no-default-source").exists():
+            del snapshot[0]["metadata"][0]
         print(json.dumps(snapshot))
     if "--monitor" in sys.argv:
         sys.stdout.flush()

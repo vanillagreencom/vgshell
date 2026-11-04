@@ -812,7 +812,7 @@ async function loadingTalk(server, ending = "ready", edits = []) {
         if (ending === "device") {
             await until(() => s().fault.kind !== "none" && s().capture.kind === "closed",
                 "loading capture refuses a missing device and settles its capture");
-            assert.equal(s().fault.reason, "device-lost");
+            assert.match(s().fault.reason, /^device-lost target=null from=default /);
             assert.equal(s().capture.kind, "closed");
             assert.equal(server.requests.length, before);
             tryPassed = true;

@@ -71,7 +71,7 @@ Item {
         function test_a_fault_action_draws_its_page_reference_as_a_link_data() {
             return [
                 { tag: "stopped", engine: "chained", reason: "jarvis-test=unknown", words: "Settings > Jarvis", page: "vgs.jarvis", tab: "Settings" },
-                { tag: "default device", engine: "dictation", reason: "device-lost", words: "System > Sound", page: "vgs.sound", tab: "" }
+                { tag: "default device", engine: "dictation", reason: "device-lost target=null from=default microphones=0[]", words: "System > Sound", page: "vgs.sound", tab: "" }
             ];
         }
         function test_a_fault_action_draws_its_page_reference_as_a_link(data) {

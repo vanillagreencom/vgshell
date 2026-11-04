@@ -358,6 +358,12 @@ function start(s, effects, mode, at) {
     reconcile(s, effects, at);
 }
 
+// A device loss's reason, whose key Audio follows with what was missing
+// and what its read held.
+function deviceLost(reason) {
+    return reason.indexOf("device-lost ") === 0;
+}
+
 // A callback must match its owner, not merely the newest allocated number.
 // Draining operations remain live only for their cleanup/outcome event.
 function live(s, e, region, kinds) {
@@ -527,7 +533,7 @@ function reduce(state, e) {
             s.check = { kind: "again" };
         }
         s.checkSource = source;
-        if (devicesChanged && s.fault.kind === "error" && s.fault.reason === "device-lost")
+        if (devicesChanged && s.fault.kind === "error" && deviceLost(s.fault.reason))
             s.fault = { kind: "none" };
         if (settingsChanged || devicesChanged && ["waiting", "recording", "finishing"].indexOf(s.check.kind) !== -1) {
             var before = s.gen;
@@ -670,7 +676,7 @@ function reduce(state, e) {
     case "capture-failed": {
         if (!live(s, e, "capture", ["opening", "open"])) { stale(s); break; }
         var retry = s.fault.kind === "retrying" ? s.fault.retry : 0;
-        s.fault = e.reason === "device-lost" && retry < 3
+        s.fault = deviceLost(e.reason) && retry < 3
             ? { kind: "retrying", reason: e.reason, retry: retry + 1 }
             : { kind: "error", reason: e.reason, retry: retry };
         closeCapture(s, effects);

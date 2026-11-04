@@ -32,10 +32,15 @@ function setup(Implementation = Audio, sink = null, source = null, clock = null)
     ports.brain.send = () => {}; // No speech/brain implementation enters this audio fixture.
     // Session's clock, which release() moves past a tap.
     let skew = 0;
+    // Each fault the runner publishes, once per change: Service.qml logs one
+    // `jarvis: fault=` line for each.
+    const published = [];
     const runner = new SessionRunner(Session, ports, {
         now: () => performance.now() + skew, set: (fn, ms) => setTimeout(fn, ms), clear: timer => clearTimeout(timer)
     }, s => {
         audio.observe(s);
+        if (s.fault.kind !== "none" && JSON.stringify(s.fault) !== JSON.stringify(published.at(-1)))
+            published.push({ ...s.fault });
         if (s.gate.kind === "down") void audio.teardown("gate", ["capture", "playback"]);
     });
     const dispatch = (type, values = {}) => runner.dispatch({ type, ...values });
@@ -45,7 +50,7 @@ function setup(Implementation = Audio, sink = null, source = null, clock = null)
     // A Talk release that ends a hold: past Session's tap bound, so it
     // closes the capture.
     const release = () => { skew += Session.TAP_MS; dispatch("talk-up"); };
-    return { audio, runner, dispatch, release, levels, offers, faults, frames: () => frames, tick: ms => { at += ms; } };
+    return { audio, runner, dispatch, release, levels, offers, faults, published, frames: () => frames, tick: ms => { at += ms; } };
 }
 
 async function capture(w) {
@@ -120,33 +125,85 @@ async function inside() {
             w.audio.snapshot([...nodes, metadata(groups.map(row => entry(row.key, "z.default." + row.setting)))]);
             for (const row of groups) {
                 assert.equal(w.audio.devices[row.group][0].value, "a.first." + row.setting);
-                assert.equal(w.audio.selected(row.group, row.setting), "z.default." + row.setting);
+                assert.equal((await w.audio.selected(row.group, row.setting)).target, "z.default." + row.setting);
                 assert.equal(w.runner.state.settings[row.setting], "");
             }
             // Configured defaults and other metadata stores are not the active desktop choice.
-            w.audio.snapshot([metadata([entry("default.configured.audio.source", "a.first.microphone")]),
+            w.audio.snapshot([...nodes, metadata([...groups.map(row => entry(row.key, "z.default." + row.setting)),
+                entry("default.configured.audio.source", "a.first.microphone")]),
                 { ...metadata([entry("default.audio.source", "a.first.microphone")]), id: 5,
-                    props: { "metadata.name": "other" } }]);
-            assert.equal(w.audio.selected("microphones", "microphone"), "z.default.microphone");
+                    props: { "metadata.name": "other" } }], "full");
+            assert.equal((await w.audio.selected("microphones", "microphone")).target, "z.default.microphone");
             w.audio.snapshot([metadata([entry("default.audio.source", "a.first.microphone")])]);
-            assert.equal(w.audio.selected("microphones", "microphone"), "a.first.microphone");
-            assert.equal(w.audio.selected("speakers", "speaker"), "z.default.speaker");
+            assert.equal((await w.audio.selected("microphones", "microphone")).target, "a.first.microphone");
             w.dispatch("snapshot", { locked: false, engine: "chained", configured: true,
                 settings: { microphone: "z.default.microphone", speaker: "a.first.speaker" } });
             for (const row of groups)
-                assert.equal(w.audio.selected(row.group, row.setting), w.runner.state.settings[row.setting]);
+                assert.deepEqual(await w.audio.selected(row.group, row.setting),
+                    { target: w.runner.state.settings[row.setting], from: "setting" });
             w.dispatch("snapshot", { locked: false, engine: "chained", configured: true,
                 settings: { microphone: "", speaker: "" } });
             w.audio.snapshot([{ id: 4, info: null }]);
             for (const row of groups)
-                assert.throws(() => w.audio.selected(row.group, row.setting), { message: "device-lost" });
+                await assert.rejects(w.audio.selected(row.group, row.setting), { message: /^device-lost target=null from=default / });
             w.audio.snapshot([metadata(groups.map(row => entry(row.key, "z.default." + row.setting)))]);
             w.audio.snapshot(nodes, "full");
             for (const row of groups)
-                assert.throws(() => w.audio.selected(row.group, row.setting), { message: "device-lost" });
+                await assert.rejects(w.audio.selected(row.group, row.setting), { message: /^device-lost / });
         } finally { w.runner.close(); await w.audio.close("test-end"); }
     }
     await desktopDefaults();
+    const store = entries => [{ id: 4, type: "PipeWire:Interface:Metadata",
+        props: { "metadata.name": "default" }, metadata: entries }];
+    const microphone = w => w.audio.selected("microphones", "microphone").then(choice => choice.target, error => error.message);
+    // The cachy loss, recorded in the nested sandbox: a stream's target entry,
+    // the stream's removal, then the store's empty delta. pw-dump prints that
+    // removal of the entry as `metadata: []`; the default stays named.
+    async function emptyDelta(Implementation = Audio) {
+        const w = setup(Implementation);
+        try {
+            await capture(w);
+            w.audio.snapshot(store([{ subject: 62, key: "target.object", type: null, value: "\"fixture.mic\"" }]));
+            w.audio.snapshot([{ id: 62, info: null }]);
+            w.audio.snapshot(store([]));
+            assert.equal(w.runner.state.capture.kind, "open", "an open capture stays open");
+            assert.equal(await microphone(w), "fixture.mic");
+            w.release();
+            await until(() => w.runner.state.capture.kind === "closed", "the capture closes");
+            w.audio.snapshot(store([]));
+            await capture(w);
+            assert.equal(w.runner.state.fault.kind, "none");
+        } finally { w.runner.close(); await w.audio.close("test-end"); }
+    }
+    await emptyDelta();
+    // A delta that hid the default's own removal, a new default, and a
+    // store delta during the read, which is newer than the read may be.
+    async function defaultRemoval(Implementation = Audio) {
+        const w = setup(Implementation);
+        const usb = { id: 93, type: "PipeWire:Interface:Node",
+            info: { props: { "media.class": "Audio/Source", "node.name": "fixture.usb" } } };
+        const named = name => store([{ subject: 0, key: "default.audio.source", type: "Spa:String:JSON", value: { name } }]);
+        try {
+            await w.audio.discover();
+            fs.writeFileSync(path.join(process.env.HOME, "no-default-source"), "");
+            w.audio.snapshot(store([]));
+            await assert.rejects(w.audio.selected("microphones", "microphone"),
+                { message: 'device-lost target=null from=default microphones=1["fixture.mic"]' });
+            w.audio.snapshot([usb, ...named("fixture.usb")]);
+            assert.equal(await microphone(w), "fixture.usb", "Jarvis follows the default the store names");
+            fs.rmSync(path.join(process.env.HOME, "no-default-source"));
+            w.audio.snapshot(store([]));
+            const read = microphone(w);
+            w.audio.snapshot(named("fixture.usb"));
+            assert.deepEqual([await read, w.audio.defaults.microphones], ["fixture.usb", "fixture.usb"],
+                "a read naming fixture.mic never replaces a newer delta");
+        } finally {
+            w.runner.close();
+            await w.audio.close("test-end");
+            fs.rmSync(path.join(process.env.HOME, "no-default-source"), { force: true });
+        }
+    }
+    await defaultRemoval();
     await armedLevels(Audio);
     for (const type of ["mute", "locked", "unknown", "indicator", "provider", "lease"])
         await trigger(Audio, type);
@@ -179,7 +236,8 @@ async function inside() {
         });
     } finally { w.runner.close(); await w.audio.close("test-end"); }
 
-    for (const [name, setting] of [["no-devices", ""], ["unavailable-id", "missing.mic"]]) {
+    for (const [name, setting, reason] of [["no-devices", "", "device-lost target=null from=default microphones=0[]"],
+        ["unavailable-id", "missing.mic", 'device-lost target="missing.mic" from=setting microphones=1["fixture.mic"]']]) {
         const w = setup();
         if (name === "no-devices") fs.writeFileSync(path.join(process.env.HOME, name), "");
         w.dispatch("snapshot", { locked: false, engine: "chained", configured: true,
@@ -188,7 +246,7 @@ async function inside() {
         await until(() => w.runner.state.fault.kind === "error" && w.runner.state.capture.kind === "closed",
             "three device retries end");
         assert.equal(w.runner.state.fault.retry, 3);
-        assert.equal(w.runner.state.fault.reason, "device-lost");
+        assert.equal(w.runner.state.fault.reason, reason, "the fault names the target and what the read held");
         assert.equal(w.runner.state.settings.microphone, setting, "never rewrite unavailable configured id");
         w.runner.close();
         await w.audio.close("test-end");
@@ -249,7 +307,11 @@ async function inside() {
         earlyLoss.dispatch("talk-down");
         await until(() => earlyLoss.runner.state.fault.kind === "error" && earlyLoss.runner.state.capture.kind === "closed",
             "a stream exit before monitor removal still gets three device retries");
-        assert.equal(earlyLoss.runner.state.fault.reason, "device-lost");
+        // The stream exit names the target it held; the retries' selections
+        // find no default after the full read.
+        assert.deepEqual(earlyLoss.published[0],
+            { kind: "retrying", reason: 'device-lost target="fixture.mic" from=default microphones=0[]', retry: 1 });
+        assert.equal(earlyLoss.runner.state.fault.reason, "device-lost target=null from=default microphones=0[]");
         assert.equal(earlyLoss.runner.state.fault.retry, 3);
     } finally {
         earlyLoss.runner.close();
@@ -334,6 +396,8 @@ async function inside() {
             // finish so the same admission check reaches the resume boundary.
             if (operation === "indicator") source.end();
             await until(() => w.runner.state.playback.kind === "idle", operation + " playback ends");
+            if (operation === "device")
+                assert.equal(w.runner.state.fault.reason, 'device-lost target="fixture.speaker" from=default speakers=0[]');
             assert.equal(source.destroyed, true, "playback release ends the provider source");
             if (resumes) {
                 await until(() => w.runner.state.capture.kind === "open", operation + " resumes permitted demand");
@@ -507,8 +571,10 @@ async function inside() {
         fs.writeFileSync(path.join(process.env.HOME, "remove-device"), "");
         await until(() => lost.runner.state.fault.kind === "error" && lost.runner.state.capture.kind === "closed",
             "discovery removal closes capture and bounds retries");
+        // The monitor's removal writes the first fault, the retries the rest.
+        assert.deepEqual(lost.published.map(fault => fault.reason),
+            Array(4).fill('device-lost target="fixture.mic" from=default microphones=0[]'));
         assert.equal(lost.runner.state.fault.retry, 3);
-        assert.equal(lost.runner.state.fault.reason, "device-lost");
         assert.deepEqual(lost.offers.at(-1).microphones, []);
         assert.equal(unlocked(), true);
     } finally { lost.runner.close(); await lost.audio.close("test-end"); }
@@ -524,8 +590,13 @@ async function inside() {
         await assert.rejects(() => check(require(path.join(folder, "Audio.js")).Audio), assert.AssertionError);
         controls++;
     }
-    await control("desktop-default", 'configured === "" ? this.defaults[group] : configured',
-        'configured === "" ? (this.devices[group][0] && this.devices[group][0].value) : configured', desktopDefaults);
+    await control("desktop-default", 'if (!before.unsettled.includes(group)) return before[group];',
+        'if (!before.unsettled.includes(group)) return this.devices[group][0] && this.devices[group][0].value;', desktopDefaults);
+    // The base rule: an empty delta read as a cleared store.
+    await control("empty-delta", "const prior = node.id === this.defaults.id ? this.defaults : noDefaults(node.id);",
+        "const prior = node.id === this.defaults.id && node.metadata.length !== 0 ? this.defaults : noDefaults(node.id);", emptyDelta);
+    await control("unsettled-default", '["microphones", "speakers"].filter(group => !(group in named))', "[]", defaultRemoval);
+    await control("read-order", "if (this.defaults !== before) return", "if (false) return", defaultRemoval);
     await control("first-playback-discovery", 'await this.discover();\n            if (this.playback !== playback) return;',
         'if (this.playback !== playback) return;', firstPlayback);
     await control("early-muted", "return this.release;", "return Promise.resolve();", async impl => {

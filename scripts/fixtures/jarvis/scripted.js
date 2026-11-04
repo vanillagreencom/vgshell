@@ -39,7 +39,7 @@ function ports(root, engine, state) {
             fs.writeFileSync(path.join(root, "device-gone"), "");
             const failed = capture;
             capture = null;
-            failed("device-lost");
+            failed('device-lost target="fixture.mic" from=default microphones=0[]');
         }
         for (const [gate, done] of waiting) {
             const file = path.join(root, gate);
