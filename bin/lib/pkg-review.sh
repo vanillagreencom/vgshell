@@ -86,7 +86,10 @@ case "$kind" in
   unavailable)
     vgs_tui_step 'Review result' >&2
     vgs_tui_warn 'The package review is unavailable or incomplete.' >&2
+    vgs_tui_text "Review could not finish: $1" >&2
     vgs_pkg_review_choose 'Continue without a review?' --selected No -- No Yes ;;
+  limit)
+    vgs_tui_text 'AUR builds may add dependencies that cannot be reviewed before the build.' >&2 ;;
   concern)
     vgs_tui_step 'Review result' >&2
     vgs_tui_warn "$1" >&2

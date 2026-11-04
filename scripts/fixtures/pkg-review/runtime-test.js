@@ -6,7 +6,8 @@ const {create}=require("./world.js");
 const only=process.argv.includes("--cancel-control");
 const surfaceAt=process.argv.indexOf("--surface"),surface=surfaceAt<0?"all":process.argv[surfaceAt+1];
 const select=name=>surface==="all"||surface===name;
-assert.ok(["all","direct","routes","choices","authority","availability","evidence","updates","bootstrap","settings","protocol","origin","workspace","control","origin-control","customize","customize-control","retry","retry-held","retry-held-control","publisher","publisher-control"].includes(surface));
+const caseAt=process.argv.indexOf("--case"),caseName=caseAt<0?null:process.argv[caseAt+1];
+assert.ok(["all","direct","routes","choices","authority","aur-authority","review-result","review-result-control","aur-authority-control","availability","evidence","updates","bootstrap","settings","protocol","origin","workspace","control","origin-control","customize","customize-control","retry","retry-held","retry-held-control","publisher","publisher-control"].includes(surface));
 if(only)assert.ok(["all","direct"].includes(surface));
 const overrideAt=process.argv.indexOf("--owner"),ownerOverride=overrideAt<0?null:process.argv[overrideAt+1];
 const scratch=fs.mkdtempSync(path.join(os.tmpdir(),"package-review-runtime-"));
@@ -36,8 +37,8 @@ function ownerTree(name,edits=[],{recipes=true}={}){
 }
 // A must-fail control: SURFACE run against the owner with EDITS must fail
 // at the row FAILS names.
-function control(name,surface,edits,fails){
- const r=cp.spawnSync(process.execPath,[__filename,"--surface",surface,"--owner",ownerTree(name,edits)],{env:{PATH:"/usr/bin:/bin",TMPDIR:scratch},encoding:"utf8",timeout:120000});
+function control(name,surface,edits,fails,caseName){
+ const r=cp.spawnSync(process.execPath,[__filename,"--surface",surface,...(caseName?["--case",caseName]:[]),"--owner",ownerTree(name,edits)],{env:{PATH:"/usr/bin:/bin",TMPDIR:scratch},encoding:"utf8",timeout:120000});
  assert.equal(r.status,1,name+": "+r.stdout+r.stderr);assert.match(r.stderr,fails,name+": "+r.stdout+r.stderr);
  console.log("package-control-proof: "+JSON.stringify({name,status:r.status}));
  return r;
@@ -209,13 +210,76 @@ try{
   const r=cp.spawnSync("/usr/bin/script",["-qec",command,"/dev/null"],{env:{...w.env,SHELL:"/usr/bin/bash"},encoding:"utf8",timeout:30000});
   assert.equal(r.status,0,r.stdout+r.stderr);
   const result=JSON.parse(fs.readFileSync(path.join(w.root,"authority-result.json"))),calls=w.calls();
-  const allowed=change==="none"||change==="config-link"||(change==="outer"&&manager==="pacman");
+  const allowed=change==="none"||change==="config-link"||(change==="outer"&&manager==="pacman")||(manager==="aur"&&["config","include","config-link-changed","binary"].includes(change));
   assert.equal(result.code===0,allowed,r.stdout);
   if(change==="origin-read-failed"||change==="custom-origin-read-failed")assert.match(r.stdout,/review=authority-binding-(?:unreadable|changed)/);
   assert.equal(calls.filter(c=>c.kind==="mutation").length-result.before,allowed?(change==="none"&&manager==="pacman"?3:1):0,change+":"+JSON.stringify(calls));
   assert.equal(calls.filter(c=>c.kind==="offer"&&c.offered.includes("Review")).length,1);
   if(change==="outer"&&manager==="pacman")assert.ok(!calls.some(c=>c.kind==="credential"&&c.args[0]==="-k"));
   console.log("package-authority-proof: "+JSON.stringify({manager,change,result,mutations:calls.filter(c=>c.kind==="mutation")}));
+ }
+ // Updates consumes the system and then AUR step of the same receipt. Only
+ // the reviewed content may invalidate the AUR step after the system step.
+ const aurAuthority=[
+  ["include",true,null],["binary",true,null],["config",true,null],["candidate",true,null],
+  ["recognized-binary",true,null],["recognized-include",true,null],
+  ["pending",false,"pending"],["pending-old",false,"pending"],["pending-name",false,"pending"],
+  ["origin",false,"origins"],["aur-recipe",false,"recipes"],["custom-binary",false,null],["custom-include",false,null]
+ ];
+ if(!only&&select("aur-authority"))for(const [change,allowed,field] of aurAuthority){
+  if(caseName!==null&&caseName!==change)continue;
+  const w=create(path.join(scratch,"aur-authority-"+change),{choices:change.startsWith("custom-")?["Install without review","Yes"]:["Review","Use Claude Code","Yes"]});
+  const argv=[process.execPath,path.join(__dirname,"authority.js"),w.root,"after-system-"+change,"aur",ownerOverride||w.owner];
+  const r=cp.spawnSync("/usr/bin/script",["-qec",argv.map(q).join(" "),"/dev/null"],{env:{...w.env,SHELL:"/usr/bin/bash"},encoding:"utf8",timeout:30000});
+  assert.equal(r.status,0,change+": "+r.stdout+r.stderr);
+  const result=JSON.parse(fs.readFileSync(path.join(w.root,"authority-result.json"))),calls=w.calls(),mutations=calls.filter(c=>c.kind==="mutation");
+  assert.equal(result.before,1,change+": system step consumed");
+  assert.equal(result.code===0,allowed,change+": AUR admission "+r.stdout);
+  assert.equal(mutations.length,allowed?2:1,change+": mutation count");
+  if(field!==null)assert.match(r.stdout,new RegExp("review=authority-binding-changed field="+field+"\\b"),change+": binding field");
+  console.log("package-aur-authority-proof: "+JSON.stringify({change,allowed,field,system:mutations[0].name,aur:mutations[1]?.name||null}));
+ }
+ // A valid AUR verdict's dependency limit is displayed to the terminal
+ // reader but grants no failed-read consent. Every failed read still asks.
+ const reviewResults=[
+  ["clean",null,true,null],["missing","agent-no-verdict",false,"verdict=missing"],
+  ["unsafe","agent-unsafe",false,"verdict=unsafe"],["unreadable","agent-unreadable",false,"verdict=unreadable"],
+  ["malformed","agent-malformed",false,"verdict=malformed"],["failed","agent-failed",false,"agent=failed"],
+  ["fetch","fetch-failed",false,"fetch=failed"],["read","info-failed",false,"query=paru"],
+  ["unavailable",null,false,"agent=missing"]
+ ];
+ if(!only&&select("review-result"))for(const [label,marker,installs,cause] of reviewResults){
+  if(caseName!==null&&caseName!==label)continue;
+  const w=create(path.join(scratch,"review-result-"+label),{agents:label!=="unavailable",choices:["unavailable","read"].includes(label)?["Review","No"]:["Review","Use Claude Code","No"]});
+  if(marker)fs.writeFileSync(path.join(w.root,marker),"");
+  fs.writeFileSync(path.join(w.root,"aur-pending"),"");
+  const r=tty(w,["run","upgrade","--manager","aur","--config",w.config]),calls=w.calls();
+  assert.equal(r.status,0,label+": "+r.stdout+r.stderr);
+  const unavailable=calls.filter(c=>c.kind==="offer"&&c.offered.includes("Yes"));
+  assert.equal(unavailable.length,installs?0:1,label+": unavailable question");
+  if(!installs){assert.equal(unavailable[0].selected,"No",label);assert.ok(r.stdout.includes(cause),label+": named cause "+r.stdout);}
+  else assert.match(r.stdout,/AUR builds may add dependencies that cannot be reviewed before the build\./,"clean: dependency limit");
+  assert.equal(calls.some(c=>c.kind==="mutation"),installs,label+": mutation");
+  if(!installs)assert.ok(!calls.some(c=>c.kind==="credential"),label);
+  console.log("package-review-result-proof: "+JSON.stringify({label,questions:unavailable.length,installs,cause}));
+ }
+ if(!only&&(select("control")||surface==="review-result-control")){
+  const owner="bin/lib/pkg-review.js";
+  control("review-clean-limit","review-result",[[owner,"verdict === null || !verdict.ok || failures.length","verdict === null || !verdict.ok || state.unknown.length"]],/clean: /,"clean");
+  for(const [label] of reviewResults.filter(row=>row[3]!==null))
+   control("review-failure-"+label,"review-result",[[owner,"verdict === null || !verdict.ok || failures.length","false"]],new RegExp(label+": unavailable question"),label);
+ }
+ if(!only&&(select("control")||surface==="aur-authority-control")){
+  const owner="bin/lib/pkg-review.js";
+  for(const [change,allowed,field] of aurAuthority){
+   const edits=allowed?[[owner,'bindingChange(step, current.steps[0], group.manager === "aur")','bindingChange(step, current.steps[0], false)']]
+    :field==="recipes"?[[owner,'record.state.recipes.length && !same(recipesIdentity','false && record.state.recipes.length && !same(recipesIdentity']]
+    :field!==null?[[owner,'if (!same(project(current.binding), project(step.binding))) return field;',`if (field !== ${JSON.stringify(field)} && !same(project(current.binding), project(step.binding))) return field;`]]
+    :[[owner,'const field = bindingChange(step, current.steps[0]);','const field = (bindingChange(step, current.steps[0]), null);'],
+     change==="custom-binary"?[owner,'const binary = customArgv[0];\n            if (!record.state.customBinding || !same(identity(fs.realpathSync(commandFile(binary) || binary)), record.state.customBinding)) refuse("review=authority-custom-changed");','const binary = customArgv[0];\n            if (false) refuse("review=authority-custom-changed");']
+      :[owner,'if (record.state.customConfig !== null && !same(configIdentity(record.request.config), record.state.customConfig)) refuse("review=authority-config-changed");','if (false) refuse("review=authority-config-changed");']];
+   control("aur-binding-"+change,"aur-authority",edits,new RegExp(change+": (?:AUR admission|binding field)"),change);
+  }
  }
  if(!only&&select("availability")){
   const w=create(path.join(scratch,"configured-unavailable"),{agents:false,settings:{agent:"codex",command:""},choices:["Review","No"]});
@@ -230,7 +294,7 @@ try{
   assert.equal(JSON.parse(fs.readFileSync(path.join(f.root,"config/vgshell/shell.json"))).packages.review.agent,"codex");
  }
  if(!only&&select("evidence"))for(const [marker,target,choices,mutation,agent] of [
-  ["install-risk","foreign",["Review","Use Claude Code","Yes","Skip"],false,true],
+  ["install-risk","foreign",["Review","Use Claude Code","Skip"],false,true],
   ["install-link","foreign",["Review","Use Claude Code","Yes","Skip"],false,false],
   ["srcinfo-link","foreign",["Review","Use Claude Code","Yes","Skip"],false,false],
   ["agent-no-verdict","widget",["Review","Use Claude Code","No"],false,true],
@@ -472,7 +536,7 @@ try{
  // package before the retry's binding reads it.
  if(!only&&(select("control")||surface==="retry-held-control"))
   control("retry-published-recipe","retry-held",[["bin/lib/pkg-review.js","const pkg = { name, origin,",'if (publisher === "vgs") continue;\n                const pkg = { name, origin,']],/vgs-recipe: a changed recipe builds nothing/);
- for(const entry of fs.readdirSync(scratch)){const dir=path.join(scratch,entry,"run/vgshell/package-review");if(fs.existsSync(dir)&&!entry.startsWith("authority-"))assert.ok(!fs.readdirSync(dir).some(n=>/^(review|bootstrap|transaction|build|helper|recipe)-/.test(n)),entry);}
+ for(const entry of fs.readdirSync(scratch)){const dir=path.join(scratch,entry,"run/vgshell/package-review");if(fs.existsSync(dir)&&!entry.startsWith("authority-")&&!entry.startsWith("aur-authority-"))assert.ok(!fs.readdirSync(dir).some(n=>/^(review|bootstrap|transaction|build|helper|recipe)-/.test(n)),entry);}
  if(!only&&(select("control")||surface==="origin-control")){
   const control=cp.spawnSync(process.execPath,[__filename,"--surface","origin","--owner",ownerTree("origin-mutant",[["bin/lib/pkg-review.js",'target.origin === "aur" && matches.length > 0','target.origin === "never-aur" && matches.length > 0']])],{env:{PATH:"/usr/bin:/bin",TMPDIR:scratch},encoding:"utf8",timeout:60000});
   assert.equal(control.status,1,control.stdout+control.stderr);

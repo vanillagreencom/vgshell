@@ -49,9 +49,12 @@ if(name==="pacman-conf"){
  else if(args.includes("HookDir"))console.log(path.join(root,"hooks"));
  process.exit(0);
 }
-if(name==="checkupdates"||args.includes("-Qua")||args.includes("-Qu")){console.log("widget 1 -> "+(fs.existsSync(path.join(root,"pending-changed"))?"3":"2"));process.exit(0);}
+if(name==="checkupdates"||args.includes("-Qua")||args.includes("-Qu")){
+ const target=args.includes("-Qua")&&fs.existsSync(path.join(root,"aur-pending"))?"foreign":"widget";
+ console.log((fs.existsSync(path.join(root,"pending-name-changed"))?"another":target)+" "+(fs.existsSync(path.join(root,"pending-old-changed"))?"0":"1")+" -> "+(fs.existsSync(path.join(root,"pending-changed"))?"3":"2"));process.exit(0);
+}
 if(name==="pacman"||name==="paru"||name==="yay"){
- if(args.includes("-Sl")){console.log("core official 1\n"+(fs.existsSync(path.join(root,"origin-changed"))?"core":"custom")+" widget 2\ncustom aurpkg 2"+(fs.existsSync(path.join(root,"sync-extra"))?"\n"+fs.readFileSync(path.join(root,"sync-extra"),"utf8").trim():""));process.exit(0);}
+ if(args.includes("-Sl")){console.log("core official 1\n"+(fs.existsSync(path.join(root,"origin-changed"))?"core":"custom")+" widget "+(fs.existsSync(path.join(root,"candidate-changed"))?"3":"2")+"\ncustom aurpkg 2"+(fs.existsSync(path.join(root,"sync-extra"))?"\n"+fs.readFileSync(path.join(root,"sync-extra"),"utf8").trim():""));process.exit(0);}
  if(args.includes("-Si")){if(fs.existsSync(path.join(root,"info-failed")))process.exit(1);console.log("Repository : aur\nName : "+(fs.existsSync(path.join(root,"provider-ambiguous"))?"provider":args.at(-1)));process.exit(0);}
  if(args.includes("-Qoq")){console.log("vgshell-git");process.exit(0);}
  if(args.includes("-Qtdq"))process.exit(1);
@@ -96,6 +99,8 @@ if(name==="claude"||name==="codex"){
  if(!fs.existsSync(path.join(root,"agent-no-verdict"))){
   const flagged=fs.existsSync(path.join(root,"agent-concern"));
   fs.writeFileSync(path.join(match[1],"verdict"),fs.existsSync(path.join(root,"agent-dependency"))?"verdict flagged\nflag dependency Further verification required.\n":fs.existsSync(path.join(root,"agent-malformed"))?"verdict clean\nflag widget conflict\n":flagged?"verdict flagged\nflag widget A source requires further verification.\n":"verdict clean\n",{mode:0o600});
+  if(fs.existsSync(path.join(root,"agent-unsafe")))fs.chmodSync(path.join(match[1],"verdict"),0o644);
+  if(fs.existsSync(path.join(root,"agent-unreadable")))fs.chmodSync(path.join(match[1],"verdict"),0o000);
   console.log(flagged?"Review complete: one concern requires your choice.":"Review complete: no concern in the listed packages.");
  }
  process.exit(0);

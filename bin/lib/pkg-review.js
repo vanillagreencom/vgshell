@@ -19,6 +19,11 @@ const home = () => process.env.HOME || os.homedir();
 const hash = value => crypto.createHash("sha256").update(value).digest("hex");
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const object = v => v !== null && typeof v === "object" && !Array.isArray(v);
+// gather emits this fixed limit for AUR builds, whose added dependencies
+// cannot be known before the build. Every other note is failed evidence.
+function evidenceFailures(notes) {
+    return notes.filter(note => !note.startsWith("dependencies=unresolved name="));
+}
 function privateFile(file, bounded = true) {
     const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
     try {
@@ -494,14 +499,25 @@ async function reviewRequest(request, storage) {
                 if (shownAgent.cancelled) return { ...result, decision: "cancelled", coverage: "unknown", status: shownAgent.status };
                 const run = await interactive(plan.command.concat(prompt), { cwd: agentHome() });
                 if (run.signal) return { ...result, decision: "cancelled", coverage: "unknown", status: 128 + os.constants.signals[run.signal] };
-                if (run.error || run.status !== 0) throw new Error("agent=failed");
-                verdict = judge.parseVerdict(privateFile(path.join(dir, "verdict")), known);
-                if (!verdict.ok) throw new Error("verdict=invalid");
+                if (run.error || run.status !== 0) throw new Error("The review agent failed: agent=failed status=" + run.status + " cause=" + (run.error || "exit"));
+                let text;
+                try { text = privateFile(path.join(dir, "verdict")); }
+                catch (e) {
+                    const cause = e.code === "ENOENT" ? "missing" : e instanceof files.Refusal || e.code === "ELOOP" ? "unsafe" : "unreadable";
+                    throw new Error("The agent's verdict is " + cause + ": verdict=" + cause + " cause=" + (e.code || e.message));
+                }
+                verdict = judge.parseVerdict(text, known);
+                if (!verdict.ok) throw new Error("The agent's verdict is malformed: verdict=malformed");
                 result.reviewed = known;
             } catch (e) { state.unknown.push(e.message); }
-            if (verdict === null || !verdict.ok || state.unknown.length) {
+            const failures = evidenceFailures(state.unknown);
+            if (verdict?.ok && failures.length < state.unknown.length) {
+                const shown = await ui("limit");
+                if (shown.cancelled) return { ...result, decision: "cancelled", status: shown.status };
+            }
+            if (verdict === null || !verdict.ok || failures.length) {
                 result.coverage = "unknown";
-                const answer = await ui("unavailable");
+                const answer = await ui("unavailable", failures.join("\n"));
                 if (answer.cancelled) return { ...result, decision: "cancelled", status: answer.status };
                 if (answer.value === "No") return { ...result, decision: "stop" };
                 if (answer.value !== "Yes") refuse("review=choice-invalid");
@@ -519,7 +535,7 @@ async function reviewRequest(request, storage) {
     if (request.customAurArgv !== null && customMode(request.customAurArgv) === "unknown") {
         if (result.skipped.length) return { ...result, decision: "stop", coverage: "unknown" };
         if (result.coverage === "declined") {
-            const answer = await ui("unavailable");
+            const answer = await ui("unavailable", "custom-command=unknown");
             if (answer.cancelled) return { ...result, decision: "cancelled", coverage: "unknown", status: answer.status };
             if (answer.value === "No") return { ...result, decision: "stop", coverage: "unknown" };
             if (answer.value !== "Yes") refuse("review=choice-invalid");
@@ -541,6 +557,18 @@ function processIdentity(pid) {
 }
 function transaction(dir) {
     return { dir, identity: ownedDirectory(dir) };
+}
+function bindingChange(step, current, contentOnly = false) {
+    if (current.binding === null) return "unreadable";
+    if (!same(current.binary, step.binary)) return "binary";
+    // The preceding system step may replace the AUR helper, Includes and
+    // sync metadata. The AUR review binds package content, not those bytes.
+    const fields = contentOnly ? ["pending", "origins"] : ["binary", "config", "pending", "origins"];
+    for (const field of fields) {
+        const project = binding => contentOnly && field === "origins" ? binding.origins.map(({ target, origin }) => ({ target, origin })) : binding[field];
+        if (!same(project(current.binding), project(step.binding))) return field;
+    }
+    return null;
 }
 async function prepare(requestPath, resultPath) {
     const dir = path.dirname(requestPath);
@@ -588,17 +616,19 @@ function consume(receipt, request, customArgv) {
             if (group) {
                 const current = gather({ ...record.request, groups: [group], rebuild: [] });
                 const step = record.state.steps.find(s => s.manager === "aur" && s.action === "upgrade");
-                if (!step || step.binding === null || !same(current.steps[0].binding, step.binding)) refuse("review=authority-binding-changed");
+                if (!step || step.binding === null) refuse("review=authority-binding-unreadable");
+                const field = bindingChange(step, current.steps[0]);
+                if (field !== null) refuse("review=authority-binding-changed field=" + field);
             }
             record.customConsumed = true;
             fs.writeFileSync(file, JSON.stringify(record), { mode: 0o600 });
             return { kind: "custom", coverage: "unknown" };
         }
-        if (record.request.customAurArgv !== null) {
+        const group = request.groups[0];
+        if (record.request.customAurArgv !== null && group.manager !== "aur") {
             const binary = record.request.customAurArgv[0];
             if (!record.state.customBinding || !same(identity(fs.realpathSync(commandFile(binary) || binary)), record.state.customBinding)) refuse("review=authority-custom-changed");
         }
-        const group = request.groups[0];
         if (group.manager === "aur" && request.action === "upgrade" && record.request.customAurArgv !== null && customMode(record.request.customAurArgv) === "unknown") refuse("review=authority-custom-only");
         const index = record.state.steps.findIndex(s => s.manager === group.manager && s.action === request.action && same(s.names, group.names) && same(s.installs, group.installs) && same(s.ignored, group.ignored) && s.config === request.config);
         if (index < 0 || record.consumed.includes(index)) refuse("review=authority-stale-or-consumed");
@@ -606,8 +636,9 @@ function consume(receipt, request, customArgv) {
         if (step.binding === null) refuse("review=authority-binding-unreadable");
         const original = record.request.groups.find(g => g.manager === step.manager);
         const current = gather({ ...request, groups: [{ ...group, ignored: step.inputIgnored }], rebuild: [] });
-        if (!same(current.steps[0].binding, step.binding) || !same(current.steps[0].binary, step.binary)) refuse("review=authority-binding-changed");
-        if (record.state.recipes.length && !same(recipesIdentity(path.join(path.dirname(file), "evidence/build")), record.state.recipes)) refuse("review=authority-recipe-changed");
+        const field = bindingChange(step, current.steps[0], group.manager === "aur");
+        if (field !== null) refuse("review=authority-binding-changed field=" + field);
+        if (record.state.recipes.length && !same(recipesIdentity(path.join(path.dirname(file), "evidence/build")), record.state.recipes)) refuse("review=authority-binding-changed field=recipes");
         if (!original && request.action === "upgrade") refuse("review=authority-step-missing");
         record.consumed.push(index);
         fs.writeFileSync(file, JSON.stringify(record), { mode: 0o600 });
@@ -643,4 +674,4 @@ async function bootstrap() {
         return result.decision === "proceed" && !result.skipped.includes("paru") ? 0 : result.status || 1;
     } finally { fs.rmSync(storage, { recursive: true, force: true }); }
 }
-module.exports = { available, bootstrap, customMode, consumeCustom: (receipt, argv) => consume(receipt, null, argv), judge, requestError, settingsRead, settingsWrite, createTransaction, prepare, admit, gather, configIdentity, recipesIdentity, agentHome, ownedDirectory, privateFile, ui };
+module.exports = { available, bootstrap, customMode, consumeCustom: (receipt, argv) => consume(receipt, null, argv), judge, requestError, settingsRead, settingsWrite, createTransaction, prepare, admit, gather, configIdentity, recipesIdentity, agentHome, ownedDirectory, privateFile, ui, evidenceFailures };

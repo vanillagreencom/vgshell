@@ -118,9 +118,7 @@ function evidence(dir, builder, targets, status) {
 function binding(manager, action, target, config) {
     const state = review.gather({ version: 1, mode: "named", action, groups: [{ manager, names: [target], installs: [], ignored: [] }],
         sources: [], rebuild: [], config: config === undefined ? null : config, customAurArgv: null });
-    // gather notes every AUR target's build-time dependencies as unresolved,
-    // a limit of any review, not a read that failed.
-    const unread = state.unknown.filter(key => !key.startsWith("dependencies=unresolved "));
+    const unread = review.evidenceFailures(state.unknown);
     if (unread.length > 0) return { unreadable: unread[0] };
     const recipes = [];
     for (const pkg of state.packages.filter(p => p.aur)) {
