@@ -39,7 +39,8 @@ Item {
     readonly property bool approvalPresented: presented && displayedHold !== null && hold !== null
         && displayedHold.id === hold.id && displayedHold.digest === hold.digest && displayedHold.gen === hold.gen
         && approvalText.text === hold.text && approvalText.height >= approvalText.implicitHeight
-    readonly property var inputItems: hold === null ? [mute, stop] : [mute, stop, confirm, cancel]
+    readonly property var inputItems: (hold === null ? [mute, stop] : [mute, stop, confirm, cancel])
+        .concat(faultAction.visible && faultAction.linked ? [faultAction] : [])
     onHoldChanged: {
         if (hold === null || displayedHold === null || hold.id !== displayedHold.id
                 || hold.gen !== displayedHold.gen || hold.digest !== displayedHold.digest) displayedHold = null;
@@ -92,9 +93,9 @@ Item {
     // The user's words while they arrive, then Jarvis's for this conversation.
     // The status keeps an ended conversation's caption until the next one.
     // Waiting for the word shows no words: a reply left on screen could
-    // stand there until the next request, however long that is.
-    readonly property string words: state === null || root.hold !== null || phase === "armed" ? ""
-        : fault !== null ? fault.action
+    // stand there until the next request, however long that is. A fault
+    // shows its action (faultAction) in their place.
+    readonly property string words: state === null || root.hold !== null || phase === "armed" || fault !== null ? ""
         : state.turn.kind === "collecting" ? state.turn.partial
         : caption !== null && caption.gen === state.gen ? caption.text : ""
 
@@ -166,6 +167,19 @@ Item {
                             text: root.words
                             textFormat: Text.PlainText
                             wrapMode: Text.Wrap
+                        }
+                    }
+                    // The fault's action, its page reference drawn as a link
+                    // that opens the page (design-system.md § Copy).
+                    LinkText {
+                        id: faultAction
+                        Layout.fillWidth: true
+                        visible: root.fault !== null
+                        role: "body"
+                        text: root.fault === null ? "" : root.fault.action
+                        wrapMode: Text.Wrap
+                        onPageActivated: (page, tab) => {
+                            if (root.service !== null && root.service.shell !== null) root.service.shell.surfaces.openPage(page, tab);
                         }
                     }
                 }
