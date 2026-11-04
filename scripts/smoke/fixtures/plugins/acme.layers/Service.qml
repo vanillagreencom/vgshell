@@ -13,6 +13,9 @@ import qs.Ui
 //   invoke bad         shows something that is no component; the refusal
 //   invoke bare        shows a component without `screen`, which the host
 //                      does not build; unbare releases it
+//   invoke probe <0|1> starts or stops the GUI probe: `probe` reads
+//                      [first tick, last tick, [[before, after]...]], each
+//                      gap of 4 ms or more between two ticks
 Item {
     id: root
 
@@ -22,6 +25,8 @@ Item {
     property bool full: false
     property bool voice: false
     property bool shown: true
+    property bool probing: false
+    property var probe: [0, 0, []]
     property int padOffset: 0
     property int pads: 2
     property int presses: 0
@@ -101,6 +106,23 @@ Item {
 
     Component { id: bare; Item {} }
 
+    // The GUI probe: a call that queues itself again runs once each turn
+    // of the GUI thread's event loop (Qt 6.12 qqmldelayedcallqueue.cpp: a
+    // call added while the queue runs is invoked on a later turn), so a turn
+    // that runs long shows as a gap between two calls, its length to the
+    // millisecond. A QML Timer or a frame signal ticks with the animation
+    // driver, once a refresh, too coarse to read a turn shorter than a
+    // frame (qqmltimer.cpp runs a QPauseAnimationJob). Only gaps of 4 ms or
+    // more are kept, so a reading stays a few entries long.
+    function tick() {
+        if (!root.probing) return;
+        const now = Date.now();
+        const last = root.probe[1];
+        const gaps = last > 0 && now - last >= 4 ? root.probe[2].concat([[last, now]]) : root.probe[2];
+        root.probe = [root.probe[0] || now, now, gaps];
+        Qt.callLater(root.tick);
+    }
+
     onShellChanged: {
         if (shell === null || registered) return;
         registered = true;
@@ -138,6 +160,13 @@ Item {
         });
         shell.ipc.handle("full", arg => { root.full = arg === "1"; return "ok"; });
         shell.ipc.handle("voice", arg => { root.voice = arg === "1"; return "ok"; });
+        shell.ipc.handle("probe", arg => {
+            if (arg !== "0" && arg !== "1") return "refused: probe";
+            if (arg === "1") root.probe = [0, 0, []];
+            root.probing = arg === "1";
+            if (root.probing) Qt.callLater(root.tick);
+            return "ok";
+        });
         shell.ipc.handle("shown", arg => { root.shown = arg === "1"; return "ok"; });
         shell.ipc.handle("offset", arg => {
             if (arg !== "0" && arg !== "80") return "refused: offset";

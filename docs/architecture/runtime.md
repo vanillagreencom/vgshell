@@ -32,6 +32,7 @@ An inherited lock can outlive the shell through its children. A resource without
 ### Memory
 
 - Give every runtime object an owner that destroys it. Parenting to a singleton grants a session lifetime. `scripts/smoke/leaks.sh` checks row residue; review holds other ownership.
+- Keep the screen freeze's written frames owned by the hold. `shell/Core/ScreenFreeze.qml` alone creates `$XDG_RUNTIME_DIR/vgshell/freeze/<serial>` for a hold that requests the still, clears a crashed shell's files on its first such hold, and removes the directory when the hold ends. `shell/Hosts/FreezeHost.qml` writes there only while that hold lasts ([D118](../decisions/D118-screen-freeze-writes-its-held-frame.md)). `scripts/smoke/rows/screen-freeze.sh` checks removal after thaw and disable.
 - Bound caches keyed by other applications' data. Dispatch or destroy every Wayland object the shell creates. Review holds these rules; `scripts/sample-shell-memory.sh` observes a long session but does not prove object ownership.
 - State no growth rate below the sampler's duration floor and append no sample to another session's log. `scripts/test-sample-shell-memory.sh` checks both limits.
 - Keep the sampler read-only: it never signals, restarts or drives the shell. A C++ attribution needs a profiled start; `scripts/attribute-heap-profile.py` owns that method.
