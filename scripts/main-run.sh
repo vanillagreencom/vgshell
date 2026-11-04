@@ -224,15 +224,19 @@ def read(command, data=None):
 try:
     linear = os.path.join(checkout, ".agents/skills/linear/scripts/linear.sh")
     source = "issues"
-    issues = json.loads(read([linear, "issues", "list", "--all-projects", "--include-archived", "--max"]))
+    issues = json.loads(read([linear, "issues", "list", "--select", "owed",
+                              "--all-projects", "--include-archived", "--max"]))
     if not isinstance(issues, list):
         raise ValueError("issues-not-list")
     opened = {}
     for issue in issues:
-        if not all(isinstance(issue[key], str) for key in ("id", "state", "description")):
+        description = issue["description"]
+        if description is None:
+            description = ""
+        if not all(isinstance(issue[key], str) for key in ("id", "state")) or not isinstance(description, str):
             raise ValueError("issue-fields")
         if issue["state"] not in ("Done", "Canceled"):
-            opened[issue["id"]] = issue["description"]
+            opened[issue["id"]] = description
     source = "comments"
     comments = json.loads(read([linear, "comments", "bulk-list", "--stdin"],
                               "\n".join(opened) + "\n")) if opened else {}
@@ -261,7 +265,11 @@ try:
                         for p in re.findall(r"`([^`\n]+)`", text) if "tmp/" in p)
         patterns.update(p.rstrip("/") for p in re.findall(r"`([^`\n]+)`", text)
                         if "tmp/" not in p and not re.search(r"[\s/]", p))
-    patterns = [p.split("/") for p in patterns if p and not p.startswith("../")]
+    # A writer root in prose names no artifact; a path below it does.
+    output_roots = {record.split("/")[0], "main-run", "qml-smoke", "display-record", "sandbox-shots",
+                    "readme-shots", "theme-previews", "shader-cost", "selftest-records",
+                    "arch-packages-cache", "readme-install-cache"}
+    patterns = [p.split("/") for p in patterns if p and not p.startswith("../") and p not in output_roots]
     groups = {identifier.lower().replace("-", "") for identifier in opened}
 except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError) as error:
     print(f"main-run: expiry=skipped cause=kept-set-unreadable source={source} error={type(error).__name__}", file=sys.stderr)

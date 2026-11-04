@@ -43,7 +43,7 @@ A lock descriptor the shell inherits is held by every child the shell starts, so
 ### Temporary artifacts
 
 - Do keep a lane's scratch under its own worktree, which ends with the worktree. Never make ad hoc scratch directories in the base checkout's `tmp/`; that directory belongs to the main batch and fleet owners. Review holds this ownership rule.
-- Do expire unused VGS artifacts through `scripts/main-run.sh`, beside its existing batch pruning. Preserve paths named by open items and their comments, open owner asks, and live fleet files. Read the complete kept set before deleting anything; an unread kept set deletes nothing. `scripts/test-main-run.sh` holds expiry and retention.
+- Do expire unused VGS artifacts through `scripts/main-run.sh`, beside its existing batch pruning. Preserve artifact paths named by open items and their comments, open owner asks, and live fleet files. A bare writer output root or `tmp/` alone retains nothing; a named path below an output root retains that artifact subtree. Read the complete kept set before deleting anything; an unread kept set deletes nothing. `scripts/test-main-run.sh` holds expiry and retention.
 - Never delete package-owned state through VGS expiry. Its package owns its retention.
 
 ### Performance
