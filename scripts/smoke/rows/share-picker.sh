@@ -597,16 +597,16 @@ python3 "$share_fixture/sheets.py" "$share_evidence" || fail "share-picker: pict
 share_settings_evidence="$(mktemp -d "$smoke_log_dir/tmp/share-picker-settings.XXXXXX")"
 SHOT_DIR="$(shot_dir_under "$smoke_log_dir" "$share_settings_evidence")"
 share_portal_show=(--user show --property=LoadState --property=ActiveState xdg-desktop-portal-hyprland.service)
-# The Screen sharing group closes the Details page, under the fold of a
-# 933 px output: True once the page is scrolled to its end.
-share_settings_end() { ipc smoke scrollTo window vgs.settings 100000 | py_reply 'import json,sys; s=sys.stdin.read().strip(); v=json.loads(s) if s.startswith("[") else None; print(v is not None and abs(v[0]-max(0,v[1]-v[2]))<1)'; }
+# The Screen sharing group sits under the fold of a 933 px output: True
+# once its Sharing picker line is scrolled a third of the way down the page.
+share_settings_reveal() { [[ $(ipc smoke revealText window vgs.settings StatusLine "Sharing picker") =~ ^([0-9.]+|unscrolled)$ ]] && echo True || echo False; }
 share_sharing_shot() { # MODE NAME TONE TEXT
   expect "Settings opens Capture's page for its $2 picture" ok ipc shell summon window vgs.settings '{"plugin":"vgs.capture"}'
   expect_poll "Settings shows Capture's page for its $2 picture" '"vgs.capture"' ipc smoke readInstance window vgs.settings page
   expect_poll "the sharing picker reads $4" "[\"$3\", \"$4\"]" share_sharing_status
   settings_details
   expect_poll "Details reads the sharing picker $4" "\"$4\"" ipc smoke readMatchingDescendant window vgs.settings StatusLine label "Sharing picker" text
-  expect_poll "Details scrolls to its Screen sharing group for the $2 picture" True share_settings_end
+  expect_poll "Details scrolls its Sharing picker line into view for the $2 picture" True share_settings_reveal
   rest_pointer || fail "share-picker: parking the $2 Settings pointer failed"
   shot "settings-$2-$1" || fail "share-picker: Settings $2 $1 failed"
   expect "Settings hides after its $2 picture" ok ipc shell hide window vgs.settings
