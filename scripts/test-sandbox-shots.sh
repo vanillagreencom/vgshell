@@ -1552,11 +1552,11 @@ done
 # the scene loop and verdict over stand-ins, with no compositor. A state
 # read that fails inside the shots is recorded, the scene's teardown still
 # runs and the later scene is still taken; a failed step that records
-# nothing still ends the run nonzero.
+# nothing names its scene, mode, command, source and status once before exit.
 tailscale_stop_case() { # SCRIPT FAULT STATUS TEARDOWN
-  local script="$1" fault="$2" expected="$3" teardown="$4" dir status=0
+  local script="$1" fault="$2" expected="$3" teardown="$4" dir command source status=0
   dir="$(mktemp -d "$tmp/tailscale-stop.XXXXXX")" || return 1
-  mkdir -p -- "$dir/shots" "$dir/sandbox" "$dir/shim" "$dir/root/usr/bin"
+  mkdir -p -- "$dir/shots" "$dir/sandbox" "$dir/shim" "$dir/root/usr/bin" "$dir/bin"
   : >"$dir/shim/tailscale"
   : >"$dir/auth.log"
   python3 - "$script" "$dir/runner.sh" <<'PY'
@@ -1567,11 +1567,19 @@ bodies = [re.findall(r'^' + re.escape(n) + r'\(\) \{.*?^\}', text, re.M | re.S) 
 assert all(len(b) == 1 for b in bodies), 'tailscale-stop-extraction'
 tail = text.index('\npark_pointer\ntake "00-desktop"\n')
 open(sys.argv[2], 'w').write('\n'.join([b[0] for b in bodies] + [text[tail:]]))
+# The Launcher heredoc is a shipped multiline BASH_COMMAND producer.
+start = text.index('  python3 - "$theme_file" <<' + "'PYLAUNCHER'")
+end = text.index('\nPYLAUNCHER', start) + len('\nPYLAUNCHER')
+open(sys.argv[2].replace('runner.sh', 'multiline.sh'), 'w').write(text[start + 2:end] + '\n')
 PY
-  env -i PATH="$PATH" "$BASH" -c '
+  if [[ $fault == multiline ]]; then
+    printf '#!%s\nexit 1\n' "$BASH" >"$dir/bin/python3"
+    chmod +x "$dir/bin/python3"
+  fi
+  env -i PATH="$dir/bin:$PATH" "$BASH" -c '
     set -euo pipefail
     case_dir="$1" fault="$2" repo="$3"
-    SHOT_DIR="$case_dir/shots" auth_log="$case_dir/auth.log" sandbox="$case_dir/sandbox" shim="$case_dir/shim" devices_system_root="$case_dir/root"
+    theme_file="$case_dir/theme.json" SHOT_DIR="$case_dir/shots" auth_log="$case_dir/auth.log" sandbox="$case_dir/sandbox" shim="$case_dir/shim" devices_system_root="$case_dir/root"
     failures=0 unmeasured=0 not_measured_rows=() mode_list=(dark) scenes=(tailscale-section capture) enable_ids=() disable_ids=()
     ok() { :; }
     fail() { failures=$((failures + 1)); printf "FAIL %s\n" "$*"; }
@@ -1579,7 +1587,7 @@ PY
     take_posed() { take "$1"; }
     ipc() { if [[ $fault == read && $2 == statusValues ]]; then return 1; fi; echo 1; }
     # The first scroll fails, inside the shots; the later one in the scene body does not.
-    tailscale_section_top() { [[ $fault != unrecorded || -e $case_dir/top-failed ]] || { : >"$case_dir/top-failed"; return 1; }; }
+    tailscale_section_top() { if [[ $fault == multiline ]]; then source "$case_dir/multiline.sh"; fi; [[ $fault != unrecorded || -e $case_dir/top-failed ]] || { : >"$case_dir/top-failed"; return 1; }; }
     tailscale_shot_finish() { : >"$case_dir/teardown"; }
     scene_capture() { take "capture-$1-panel"; }
     expect() { :; }; expect_poll() { :; }
@@ -1592,16 +1600,31 @@ PY
     source "$case_dir/runner.sh"
   ' _ "$dir" "$fault" "$repo" >"$dir/out" 2>"$dir/err" || status=$?
   [[ $status -eq $expected ]] || return 1
+  if [[ $fault == unrecorded || $fault == multiline ]]; then
+    command='return 1' source="$dir/runner.sh"
+    if [[ $fault == multiline ]]; then
+      command="$(cat "$dir/multiline.sh")"$'\n' source="$dir/multiline.sh"
+    fi
+    printf -v command '%q' "$command"
+    # VGS-2263 defines this diagnostic as the result of an unrecorded abort.
+    [[ ! -s $dir/out ]] || return 1
+    [[ $(wc -l <"$dir/err") -eq 1 ]] || return 1
+    [[ $(cat "$dir/err") =~ ^sandbox-shots:\ aborted\ scene=tailscale-section\ mode=dark\ command="$command"\ source="$source":[1-9][0-9]*\ status=1$ ]] || return 1
+  else
+    [[ ! -s $dir/err ]] || return 1
+  fi
   [[ $teardown == no ]] || [[ -e $dir/teardown && -e $dir/shots/capture-dark-panel.png ]]
 }
-tailscale_stop_cases() { # SCRIPT
+tailscale_stop_cases() { # SCRIPT [FAULT]
   local fault expected teardown
   while read -r fault expected teardown; do
+    [[ -z ${2:-} || $fault == $2 ]] || continue
     tailscale_stop_case "$1" "$fault" "$expected" "$teardown" || return 1
   done <<'TAILSCALE_STOP_CASES'
 clean 0 yes
 read 1 yes
 unrecorded 1 no
+multiline 1 no
 TAILSCALE_STOP_CASES
 }
 if tailscale_stop_cases "$repo/scripts/sandbox-shots.sh"; then
@@ -1610,14 +1633,16 @@ else
   fail "Tailscale section stop contract"
 fi
 tailscale_stop_controls=(
-  'shots called in an || list hide a failure nothing recorded' '  tailscale_section_shots "$mode" "$dir"' '  tailscale_section_shots "$mode" "$dir" || true'
-  'an unread state that ends the shots skips the teardown' '|| { fail "shot tailscale-section-$1-$2 not taken: its state is unreadable"; return; }' '|| return 1'
+  'multiline' 'a raw multiline command cannot split the abort diagnostic' 'command=%q source=%s:%s status=%s' 'command=%s source=%s:%s status=%s'
+  'unrecorded' 'an unrecorded abort without its diagnostic is rejected' 'printf "sandbox-shots: aborted scene=%s' ': "sandbox-shots: aborted scene=%s'
+  'unrecorded' 'shots called in an || list hide a failure nothing recorded' '  tailscale_section_shots "$mode" "$dir"' '  tailscale_section_shots "$mode" "$dir" || true'
+  'read' 'an unread state that ends the shots skips the teardown' '|| { fail "shot tailscale-section-$1-$2 not taken: its state is unreadable"; return; }' '|| return 1'
 )
-for (( i = 0; i < ${#tailscale_stop_controls[@]}; i += 3 )); do
-  label="${tailscale_stop_controls[i]}"
+for (( i = 0; i < ${#tailscale_stop_controls[@]}; i += 4 )); do
+  label="${tailscale_stop_controls[i + 1]}"
   tailscale_stop_mutant="$tmp/tailscale-stop-mutant.sh"
-  mutate "$repo/scripts/sandbox-shots.sh" "${tailscale_stop_controls[i + 1]}" "${tailscale_stop_controls[i + 2]}" "$tailscale_stop_mutant" || { fail "control: $label could not be planted"; continue; }
-  if tailscale_stop_cases "$tailscale_stop_mutant"; then fail "control: $label stayed green"; else ok "control: $label"; fi
+  mutate "$repo/scripts/sandbox-shots.sh" "${tailscale_stop_controls[i + 2]}" "${tailscale_stop_controls[i + 3]}" "$tailscale_stop_mutant" || { fail "control: $label could not be planted"; continue; }
+  if tailscale_stop_cases "$tailscale_stop_mutant" "${tailscale_stop_controls[i]}"; then fail "control: $label stayed green"; else ok "control: $label"; fi
 done
 
 # Run the System scene's geometry wait against a compositor fixture. A

@@ -10795,6 +10795,13 @@ scene_packages() { # MODE
 
 park_pointer
 take "00-desktop"
+
+# An inherited trap can see the same subshell failure again in its parent.
+# The sandbox marker preserves the first command and source for this run.
+# Shell quoting keeps a heredoc in one physical diagnostic line.
+set -E
+trap 'sandbox_shots_status=$?; if [[ $- == *e* ]]; then if [[ ! -e $sandbox/shots-aborted ]]; then : >"$sandbox/shots-aborted"; printf "sandbox-shots: aborted scene=%s mode=%s command=%q source=%s:%s status=%s\n" "${scene:-setup}" "${mode:-setup}" "$BASH_COMMAND" "${BASH_SOURCE[0]}" "$LINENO" "$sandbox_shots_status" >&2; fi; exit "$sandbox_shots_status"; fi' ERR
+
 for mode in "${mode_list[@]}"; do
   if [[ ${#enable_ids[@]} -gt 0 || ${#disable_ids[@]} -gt 0 ]]; then capture_plugin_states "$mode"; fi
   for scene in "${scenes[@]}"; do
