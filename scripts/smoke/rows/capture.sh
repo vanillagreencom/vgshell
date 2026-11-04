@@ -2216,8 +2216,20 @@ capture_offered='[[{"label": "Fixture microphone", "value": "device:fixture-mic"
 expect_poll "the options window offers the fixture's audio sources and camera" "$capture_offered" capture_choices
 capture_setting ocrLanguages '"deu+eng"'
 expect_poll "a missing chosen language offers Install languages" '["warning", true]' capture_languages
+# A probe landing after the old installed-list write withdraws the offer.
 capture_config languages '["eng", "deu", "osd"]'
+expect "control: the installed-list write is followed by a language probe" ok ipc vgs.capture invoke probe ''
+expect_poll "control: the later probe withdraws Install languages" '["success", false]' capture_languages
+settings_page_open vgs.capture
+expected_errors+=('settings: vgs\.capture/languages refused: action=languages reason=not-offered')
+expect "control: invoking the withdrawn language offer reads not-offered" 'refused: action=languages reason=not-offered' ipc smoke invokeInstance window vgs.settings act '{"id":"vgs.capture","key":"languages"}'
+settings_page_close vgs.capture
+expect_poll "Capture regains keyboard focus after the language control" Button capture_focus_type
+capture_config languages '["eng", "osd"]'
+expect "the missing-language fixture is probed again" ok ipc vgs.capture invoke probe ''
+expect_poll "the restored missing language offers Install languages" '["warning", true]' capture_languages
 forget_record
+hold_runs
 capture_back
 capture_back
 expect_poll "Shift+Tab reaches the mode switch for Install languages" SegmentedControl capture_focus_type
@@ -2229,6 +2241,10 @@ type_keys -k Tab -k Tab -k Tab || fail "capture: sending Tab to the options wind
 expect_poll "Tab reaches Install languages past Copy text and the language select" RowAction capture_focus_type
 type_keys -k Return || fail "capture: sending Return to Install languages failed"
 expect_poll "the terminal is handed the language TUI" "$(words vgs.capture/install-languages tui/install-languages.sh)" recorded_tail
+# Keep every pending probe's missing-language answer until the action runs;
+# the held TUI ends only after its installed-language fixture is updated.
+capture_config languages '["eng", "deu", "osd"]'
+release_runs
 expect_poll "the ended TUI run reads the languages again" '["success", false]' capture_languages
 capture_setting ocrLanguages '"fra+eng"'
 expect_poll "another missing language offers Install languages again" '["warning", true]' capture_languages
