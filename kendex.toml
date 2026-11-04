@@ -1201,3 +1201,6 @@ pane = true
 
 [agent-additional-instructions]
 all = "Problems with a kendex-owned skill go through `kendex report`; check ownership in the file first."
+
+[model-bindings.copilot]
+standard = "gpt-6.1-sol"
