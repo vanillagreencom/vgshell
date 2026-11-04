@@ -120,6 +120,53 @@ else:
     print("t " + str(started_ns // 1000))
 '''
 
+# Answers as pw-dump does with no argument: one JSON list of every object.
+# world.json `nodes` lists each node's props; `pw_fail` fails the read.
+PW_DUMP = r'''#!/usr/bin/env python3
+import json, os, pathlib, sys
+root = pathlib.Path(os.environ["HOME"])
+world_path = root / "world.json"
+world = json.loads(world_path.read_text()) if world_path.exists() else {}
+assert sys.argv[1:] == []
+with (root / "pw-dump.jsonl").open("a") as log:
+    log.write(json.dumps({"leaked": "CALLER_SECRET" in os.environ,
+                          "runtime": os.environ.get("PIPEWIRE_RUNTIME_DIR")}) + "\n")
+if world.get("pw_fail"):
+    sys.exit(1)
+nodes = world.get("nodes", [])
+# `share_reads`: the first N reads list the running xdph share, later ones
+# do not, as a share that ends.
+if "share_reads" in world:
+    count_path = root / "pw-dump-count"
+    count = int(count_path.read_text()) if count_path.exists() else 0
+    count_path.write_text(str(count + 1))
+    if count < world["share_reads"]:
+        nodes = nodes + [world["share_node"]]
+objects = [{"id": 0, "type": "PipeWire:Interface:Core", "info": {"props": {"core.name": "pipewire-0"}}}]
+objects += [{"id": 40 + index, "type": "PipeWire:Interface:Node", "info": {"props": props}}
+            for index, props in enumerate(nodes)]
+print(json.dumps(objects, indent=2))
+'''
+
+# Records each notification gdbus would send; `gdbus_fail` fails it.
+GDBUS = r'''#!/usr/bin/env python3
+import json, os, pathlib, sys
+root = pathlib.Path(os.environ["HOME"])
+world_path = root / "world.json"
+world = json.loads(world_path.read_text()) if world_path.exists() else {}
+with (root / "gdbus.jsonl").open("a") as log:
+    log.write(json.dumps({"args": sys.argv[1:], "leaked": "CALLER_SECRET" in os.environ}) + "\n")
+sys.exit(1 if world.get("gdbus_fail") else 0)
+'''
+# xdph's stream: its media.name is xdph's, its node.name the application's.
+SHARE_NODE = {"media.class": "Video/Source", "media.name": "xdph-streaming-846930886",
+              "node.name": "xdg-desktop-portal-hyprland"}
+# Another video source, whose node.name alone carries xdph's prefix.
+CAMERA_NODE = {"media.class": "Video/Source", "media.name": "Integrated Camera",
+               "node.name": "xdph-streaming-lookalike"}
+# cachy's xdph.conf before setup, as the overseer read it.
+OWNER_XDPH = "screencopy {\n    allow_token_by_default = true\n}\n"
+
 
 class PickerTests(unittest.TestCase):
     @classmethod
@@ -155,9 +202,14 @@ class PickerTests(unittest.TestCase):
         (self.tools / "systemctl").chmod(0o755)
         (self.tools / "busctl").write_text(BUSCTL)
         (self.tools / "busctl").chmod(0o755)
+        (self.tools / "pw-dump").write_text(PW_DUMP)
+        (self.tools / "pw-dump").chmod(0o755)
+        (self.tools / "gdbus").write_text(GDBUS)
+        (self.tools / "gdbus").chmod(0o755)
         self.environment = {
             "HOME": str(self.home), "PATH": str(self.tools) + ":" + os.defpath,
             "XDG_CONFIG_HOME": str(self.home / "config"), "XDG_RUNTIME_DIR": str(self.runtime),
+            "PIPEWIRE_RUNTIME_DIR": str(self.runtime),
             "LANG": "C.UTF-8", "VGS_TEST_RUN": "1", "CALLER_SECRET": "must-not-reach-child",
             "XDPH_WINDOW_SHARING_LIST": WINDOW_LIST,
         }
@@ -403,6 +455,202 @@ class PickerTests(unittest.TestCase):
         self.assertEqual(config.stat().st_mtime_ns, original.st_mtime_ns)
         self.assertEqual(self.restarts(), [{"args": ["--user", "restart", "xdg-desktop-portal-hyprland.service"], "leaked": False}])
 
+    def configure_during_share(self, executable=PICKER):
+        # The owner's file, a running xdph share and an unrelated camera.
+        config = self.home / "config/hypr/xdph.conf"
+        config.parent.mkdir(parents=True, exist_ok=True)
+        config.write_text(OWNER_XDPH)
+        self.world(nodes=[CAMERA_NODE, SHARE_NODE])
+        return self.run_picker("--configure", executable=executable)
+
+    def test_configure_writes_the_picker_but_waits_while_a_share_runs(self):
+        config = self.home / "config/hypr/xdph.conf"
+        result = self.configure_during_share()
+        self.assertEqual(result.returncode, 76, result.stderr)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("cause=share-running", result.stderr)
+        self.assertEqual(self.restarts(), [])
+        written = config.read_text()
+        self.assertEqual(written, OWNER_XDPH + "screencopy {\n    custom_picker_binary = " + str(PICKER) + "\n}\n")
+        self.assertEqual(json.loads(self.run_picker("--probe").stdout), {"state": "needed"})
+        # The share ends; the camera's lookalike node.name holds nothing.
+        self.world(nodes=[CAMERA_NODE])
+        result = self.run_picker("--configure")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.restarts(), [{"args": ["--user", "restart", "xdg-desktop-portal-hyprland.service"], "leaked": False}])
+        self.assertEqual(config.read_text(), written)
+        self.assertEqual(json.loads(self.run_picker("--probe").stdout), {"state": "ready"})
+        dumps = [json.loads(line) for line in (self.home / "pw-dump.jsonl").read_text().splitlines()]
+        self.assertEqual(dumps, [{"leaked": False, "runtime": str(self.runtime)}] * 2)
+
+    def test_configure_without_a_share_reading_keeps_the_portal_running(self):
+        config = self.home / "config/hypr/xdph.conf"
+        config.parent.mkdir(parents=True)
+        config.write_text(OWNER_XDPH)
+        self.world(pw_fail=True)
+        result = self.run_picker("--configure")
+        self.assertEqual(result.returncode, 75, result.stderr)
+        self.assertIn("cause=share-probe=failed", result.stderr)
+        self.assertEqual(self.restarts(), [])
+        self.assertTrue(config.read_text().startswith(OWNER_XDPH))
+        self.assertIn(str(PICKER), config.read_text())
+
+    def unguarded_copy(self, cause):
+        # The picker with one share reading, the one that raises CAUSE,
+        # replaced by a reading that never sees a share.
+        copy = self.home / "vgshell-share-picker"
+        source = PICKER.read_text()
+        guard = 'if share_running(stopped):\n                raise ShareRunning("' + cause
+        self.assertEqual(source.count(guard), 1)
+        copy.write_text(source.replace(guard, 'if False:\n                raise ShareRunning("' + cause))
+        copy.chmod(0o755)
+        return copy
+
+    def test_share_wait_must_fail_control(self):
+        # Without the share reading, the same reading of a running share
+        # restarts the portal, which ends that share.
+        result = self.configure_during_share(executable=self.unguarded_copy("activation=waiting"))
+        self.assertNotEqual(result.returncode, 76)
+        self.assertEqual(len(self.restarts()), 1)
+
+    def fast_copy(self, *mutations):
+        # The picker with a release that reads again every 50 ms, and each
+        # (old, new) mutation, every old text found once.
+        copy = self.home / "vgshell-share-picker"
+        source = PICKER.read_text()
+        for old, new in (("RELEASE_POLL = 60.0", "RELEASE_POLL = 0.05"), *mutations):
+            self.assertEqual(source.count(old), 1)
+            source = source.replace(old, new)
+        copy.write_text(source)
+        copy.chmod(0o755)
+        return copy
+
+    def set_up_then_share(self, executable, **world):
+        # The owner's file set up by EXECUTABLE with a running portal, then
+        # the world WORLD names: a share that lasts `share_reads` readings.
+        config = self.home / "config/hypr/xdph.conf"
+        config.parent.mkdir(parents=True, exist_ok=True)
+        config.write_text(OWNER_XDPH)
+        self.world(nodes=[CAMERA_NODE], backend_state="active")
+        self.assertEqual(self.run_picker("--configure", executable=executable).returncode, 0)
+        self.assertIn(str(executable.resolve()), config.read_text())
+        self.world(nodes=[CAMERA_NODE], share_node=SHARE_NODE, backend_state="active", **world)
+        for name in ("pw-dump.jsonl", "pw-dump-count", "systemctl.jsonl", "gdbus.jsonl"):
+            (self.home / name).unlink(missing_ok=True)
+        return config
+
+    def try_restarts(self):
+        return [row for row in self.systemctl_calls() if "try-restart" in row["args"]]
+
+    def notices(self):
+        path = self.home / "gdbus.jsonl"
+        return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+
+    def pw_dumps(self):
+        path = self.home / "pw-dump.jsonl"
+        return len(path.read_text().splitlines()) if path.exists() else 0
+
+    def test_release_waits_out_a_share_then_restarts_the_portal_once(self):
+        copy = self.fast_copy()
+        config = self.set_up_then_share(copy, share_reads=3)
+        result = self.run_picker("--release", executable=copy)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(config.read_text(), OWNER_XDPH)
+        # Three readings find the share, the fourth none, then one restart.
+        self.assertEqual(self.pw_dumps(), 4)
+        self.assertEqual(self.try_restarts(), [{"args": ["--user", "try-restart", "xdg-desktop-portal-hyprland.service"], "leaked": False}])
+        self.assertEqual(self.notices(), [])
+        # A file that holds no VGS picker is left as it is.
+        written = config.stat()
+        result = self.run_picker("--release", executable=copy)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(config.stat().st_mtime_ns, written.st_mtime_ns)
+        self.assertEqual(len(self.try_restarts()), 1)
+        self.assertEqual(json.loads(self.run_picker("--probe").stdout), {"state": "needed"})
+
+    def test_release_ends_when_capture_claims_the_picker_again(self):
+        copy = self.fast_copy()
+        config = self.set_up_then_share(copy, share_reads=1000000)
+        child = subprocess.Popen([str(copy), "--release"], env=self.environment, stdin=subprocess.DEVNULL,
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            deadline = time.monotonic() + 5
+            while self.pw_dumps() < 1:
+                self.assertIsNone(child.poll(), "the release ended before it waited on the share")
+                self.assertLess(time.monotonic(), deadline, "the release never read the share")
+                time.sleep(0.01)
+            self.assertEqual(config.read_text(), OWNER_XDPH)
+            config.write_text(picker.rewrite_config(OWNER_XDPH, str(copy)))
+            stdout, stderr = child.communicate(timeout=5)
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.communicate()
+        self.assertEqual(child.returncode, 0, stderr)
+        self.assertEqual(self.try_restarts(), [])
+        self.assertIn("vgshell-share-picker", config.read_text())
+
+    def test_release_tells_the_user_when_the_portal_cannot_let_the_picker_go(self):
+        copy = self.fast_copy()
+        for world, restarts in (({"restart_fail": True, "restart_denied": True, "share_reads": 0}, 5),
+                                ({"pw_fail": True}, 0)):
+            with self.subTest(world=world):
+                self.set_up_then_share(copy, **world)
+                result = self.run_picker("--release", executable=copy)
+                self.assertEqual(result.returncode, 75, result.stderr)
+                self.assertEqual(result.stderr.count("release=retrying"), 5)
+                self.assertEqual(len(self.try_restarts()), restarts)
+                notices = self.notices()
+                self.assertEqual(len(notices), 1)
+                self.assertFalse(notices[0]["leaked"])
+                self.assertEqual(notices[0]["args"][:9], ["call", "--session", "--dest", "org.freedesktop.Notifications",
+                                                          "--object-path", "/org/freedesktop/Notifications",
+                                                          "--method", "org.freedesktop.Notifications.Notify", '"Capture"'])
+                self.assertIn("until you log in again", json.loads(notices[0]["args"][12]))
+
+    def test_release_tells_the_user_when_the_file_cannot_change(self):
+        config = self.home / "config/hypr/xdph.conf"
+        config.parent.mkdir(parents=True)
+        config.write_text("screencopy {\n    custom_picker_binary = " + str(PICKER) + "\n")
+        result = self.run_picker("--release")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("release=unbalanced-category", result.stderr)
+        self.assertEqual(len(self.notices()), 1)
+        self.assertIn("Turn Capture on to share your screen", json.loads(self.notices()[0]["args"][12]))
+        self.assertEqual(self.try_restarts(), [])
+
+    def test_release_without_a_config_writes_nothing(self):
+        result = self.run_picker("--release")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.home / "config").exists())
+        self.assertEqual(self.systemctl_calls(), [])
+        self.assertEqual(self.notices(), [])
+
+    def test_release_removes_every_vgs_picker_and_only_those(self):
+        before = ("# Owner\nscreencopy { # Capture\n allow_token_by_default = 1 # Keep\n"
+                  " custom_picker_binary = /old/tree/bin/vgshell-share-picker # Replaced\n}\n"
+                  "screencopy:custom_picker_binary = /usr/bin/other-picker\n"
+                  "general {\n custom_picker_binary = /x/bin/vgshell-share-picker\n}\n"
+                  "screencopy {\n\n    custom_picker_binary = /moved/bin/vgshell-share-picker\n}\n")
+        after = ("# Owner\nscreencopy { # Capture\n allow_token_by_default = 1 # Keep\n}\n"
+                 "screencopy:custom_picker_binary = /usr/bin/other-picker\n"
+                 "general {\n custom_picker_binary = /x/bin/vgshell-share-picker\n}\n")
+        self.assertEqual(picker.release_config(before), after)
+        self.assertEqual(picker.release_config(after), after)
+        appended = picker.rewrite_config(OWNER_XDPH, str(PICKER))
+        self.assertEqual(picker.release_config(appended), OWNER_XDPH)
+        self.assertEqual(picker.release_config(picker.rewrite_config("", str(PICKER))), "")
+
+    def test_release_share_wait_must_fail_control(self):
+        # Without the share reading, the same release during a share
+        # restarts the portal at once, which ends that share.
+        copy = self.fast_copy(("elif share_running(stopped):", "elif False:"))
+        self.set_up_then_share(copy, share_reads=1000000)
+        result = self.run_picker("--release", executable=copy)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.pw_dumps(), 0)
+        self.assertEqual(len(self.try_restarts()), 1)
+
     def test_configure_adds_only_picker_and_supports_qualified_assignment(self):
         for before in ("", "# Existing\nscreencopy {\n allow_token_by_default = 0\n}\n",
                        "screencopy:custom_picker_binary = /old/picker # Keep\n"):
@@ -621,7 +869,7 @@ class PickerTests(unittest.TestCase):
                 plant()
                 result = self.run_picker("--configure")
                 self.assertEqual(result.returncode, 73)
-                # setup-sharing.sh shows stdout, the refusal and its step, as it is.
+                # The capture service shows stdout, the refusal and its step, as it is.
                 self.assertEqual(len(result.stdout.splitlines()), 2)
                 self.assertEqual(result.stdout.count(str(directory)), 1)
                 self.assertNotIn("share-picker:", result.stdout)

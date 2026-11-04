@@ -11,7 +11,7 @@ import qs.Commons
 Item {
     id: root
     property var shell: null
-    ShareSession { shell: root.shell }
+    ShareSession { id: shareSession; shell: root.shell }
     property bool registered: false
     property string phase: "idle"
     property string action: ""
@@ -86,6 +86,9 @@ Item {
     }
 
     function isRecord(name) { return name.indexOf("record") === 0; }
+
+    // The core calls it once when the user turns Capture off.
+    function turnedOff() { shareSession.turnedOff(); }
 
     // The worker answers one probe line; a request during a run reruns it.
     function probe() {

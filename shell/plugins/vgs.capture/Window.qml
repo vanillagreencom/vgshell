@@ -33,14 +33,24 @@ FocusScope {
     // `listItem.twoLineHeight` a row, or the open list's own height when
     // that is more, and Area's controls. Past the cap Area compacts, then the
     // preview gives up height down to `size.preview.minHeight`; only then
-    // the body scrolls.
+    // the body scrolls. The hint and the preview sit in the pane's header,
+    // which stays in place, so the body that scrolls holds only the list and
+    // Area's controls, and the preview stays in view beside any row.
     // https://quickshell.org/docs/v0.3.1/guide/size-position/
     readonly property real windowCap: OverlayState.windowRoom(shell === null ? null : shell.screens.current).height
-    // The pane's height outside its body, as Pane.bodyRoom subtracts it.
-    readonly property real bodyChrome: 2 * pane.contentInset + pane.headerHeight + pane.bodyGap + Math.max(pane.gap, pane.stickyGap) + pane.footerHeight
+    // The gap Pane keeps between its header slot and its body, and between
+    // its body and its footer (Pane.bodyGap, Pane.footerGap).
+    readonly property real stickyGap: Math.max(pane.gap, pane.stickyGap)
+    // The pane's height outside the preview, the list and Area's controls:
+    // its insets, the title, the header's tabs with `stack.section` under
+    // them and its hint with a group gap under it, the sticky gaps around
+    // the body, and the footer, as Pane.headerHeight and Pane.bodyRoom add
+    // them up. It reads no Pane height the preview feeds, so no binding
+    // loops.
+    readonly property real bodyChrome: 2 * pane.contentInset + pane.titleBlockHeight + Theme.stack.titleSpace + tabs.implicitHeight + Theme.stack.section + hintRoom + Theme.stack.group + 2 * stickyGap + pane.footerHeight
     readonly property real hintRoom: Math.max(hint.implicitHeight, otherHint.implicitHeight)
     readonly property real sourcesRoom: Math.max(sources.height, Math.max(screens.length, request.windows.length) * Theme.listItem.twoLineHeight)
-    readonly property real choicesHeight: bodyChrome + hintRoom + sourcesRoom + 3 * Theme.stack.group
+    readonly property real choicesHeight: bodyChrome + sourcesRoom + Theme.stack.group
     readonly property real fullPreviewHeight: Math.min(Theme.size.panel.sm, pane.contentWidth * 9 / 16)
     readonly property real fullHeight: choicesHeight + fullPreviewHeight + areaHeight
     readonly property bool compactArea: fullHeight > windowCap
@@ -61,10 +71,19 @@ FocusScope {
     }
     function close() { if (shell !== null && sharing) shell.ipc.call("share-close", JSON.stringify({ id: request.id })); }
     function select(index) {
-        if (selected === index && region.width > 0) return;
-        selected = index;
-        const screen = screens[index];
-        if (tab !== 1 && screen !== undefined) region = { x: 0, y: 0, width: screen.width, height: screen.height };
+        if (selected !== index || region.width <= 0) {
+            selected = index;
+            const screen = screens[index];
+            if (tab !== 1 && screen !== undefined) region = { x: 0, y: 0, width: screen.width, height: screen.height };
+        }
+        revealSelected();
+    }
+    // Scrolls the body so the selected row shows under the fixed preview. A
+    // click first moves the focus into the list, which scrolls a list taller
+    // than the body to its top (ScrollArea.revealFocus), so this runs after.
+    function revealSelected() {
+        const row = sourceRows.itemAt(selected);
+        if (row !== null) pane.scrollArea.reveal(row);
     }
     // setCurrentIndex preserves Qt's binding for programmatic requests;
     // page keys update root.tab through currentIndexChanged.
@@ -102,96 +121,113 @@ FocusScope {
         container: "window"
         title: "Share your screen"
         bodySpacing: Theme.stack.group
-        header: Tabs {
-            id: tabs
+        // The header stays in place while the body scrolls: the tabs, the
+        // hint and the preview of the selected source.
+        header: Column {
             width: pane.contentWidth
-            model: ["Screens", "Windows", "Area"]
-            currentIndex: root.tab
-            onCurrentIndexChanged: if (currentIndex !== root.tab) root.switchTab(currentIndex)
+            Tabs {
+                id: tabs
+                width: pane.contentWidth
+                model: ["Screens", "Windows", "Area"]
+                currentIndex: root.tab
+                onCurrentIndexChanged: if (currentIndex !== root.tab) root.switchTab(currentIndex)
+            }
+            // A tab page starts `stack.section` under its tab strip
+            // (design-system.md § Layout), as the hint did when the body
+            // held it; the sticky header then holds the list that gap less
+            // a group gap lower, the room its divider needs.
+            Column {
+                width: pane.contentWidth
+                topPadding: Theme.stack.section
+                spacing: Theme.stack.group
+                Label {
+                    id: hint
+                    width: parent.width
+                    role: "hint"
+                    wrapMode: Text.Wrap
+                    text: root.hints[root.tab === 2 ? 1 : 0]
+                }
+                // Measures the hint the open tab does not show. A hidden Text
+                // still lays out its wrapped lines, and Column skips it (Qt
+                // 6.12.0 offscreen run, 2026-10-19).
+                Label {
+                    id: otherHint
+                    visible: false
+                    width: parent.width
+                    role: "hint"
+                    wrapMode: Text.Wrap
+                    text: root.hints[root.tab === 2 ? 0 : 1]
+                }
+                // One live stream shows the selected source. The capability lends
+                // its component so plugins create no Wayland capture objects.
+                Rectangle {
+                    id: imageBox
+                    width: parent.width
+                    height: root.previewHeight
+                    color: Theme.color.background
+                    radius: Theme.surface.radius
+                    clip: true
+                    Loader {
+                        id: preview
+                        anchors.fill: parent
+                        sourceComponent: !root.sharing || root.shell === null || root.current === null ? null : root.shell.screencopy.preview
+                        onLoaded: {
+                            item.output = Qt.binding(() => root.output);
+                            item.address = Qt.binding(() => root.address);
+                        }
+                    }
+                    Label {
+                        anchors.centerIn: parent
+                        role: "hint"
+                        visible: !root.previewReady
+                        text: root.current === null ? "No sources available" : "Waiting for preview"
+                    }
+                    Rectangle {
+                        visible: root.tab === 2 && root.current !== null
+                        x: root.current === null ? 0 : root.previewRect.x + root.region.x / root.current.width * root.previewRect.width
+                        y: root.current === null ? 0 : root.previewRect.y + root.region.y / root.current.height * root.previewRect.height
+                        width: root.current === null ? 0 : root.region.width / root.current.width * root.previewRect.width
+                        height: root.current === null ? 0 : root.region.height / root.current.height * root.previewRect.height
+                        color: "transparent"
+                        border.width: Theme.border.thick
+                        border.color: Theme.color.accent
+                    }
+                    // keyboard-path: the four sliders below adjust the same area
+                    MouseArea {
+                        x: root.previewRect.x
+                        y: root.previewRect.y
+                        width: root.previewRect.width
+                        height: root.previewRect.height
+                        enabled: root.tab === 2 && root.current !== null
+                        property real startX: 0
+                        property real startY: 0
+                        PointerCursor {}
+                        onPressed: mouse => { startX = mouse.x; startY = mouse.y; }
+                        onPositionChanged: mouse => {
+                            if (!pressed) return;
+                            const a = Math.max(0, Math.min(width, mouse.x));
+                            const b = Math.max(0, Math.min(height, mouse.y));
+                            const x = Math.floor(Math.min(startX, a) / width * root.current.width);
+                            const y = Math.floor(Math.min(startY, b) / height * root.current.height);
+                            root.region = { x: x, y: y, width: Math.max(1, Math.floor(Math.abs(a - startX) / width * root.current.width)), height: Math.max(1, Math.floor(Math.abs(b - startY) / height * root.current.height)) };
+                        }
+                    }
+                }
+            }
         }
 
         Column {
             width: pane.contentWidth
             spacing: Theme.stack.group
-            Label {
-                id: hint
-                width: parent.width
-                role: "hint"
-                wrapMode: Text.Wrap
-                text: root.hints[root.tab === 2 ? 1 : 0]
-            }
-            // Measures the hint the open tab does not show. A hidden Text
-            // still lays out its wrapped lines, and Column skips it (Qt
-            // 6.12.0 offscreen run, 2026-10-19).
-            Label {
-                id: otherHint
-                visible: false
-                width: parent.width
-                role: "hint"
-                wrapMode: Text.Wrap
-                text: root.hints[root.tab === 2 ? 0 : 1]
-            }
-            // One live stream shows the selected source. The capability lends
-            // its component so plugins create no Wayland capture objects.
-            Rectangle {
-                id: imageBox
-                width: parent.width
-                height: root.previewHeight
-                color: Theme.color.background
-                radius: Theme.surface.radius
-                clip: true
-                Loader {
-                    id: preview
-                    anchors.fill: parent
-                    sourceComponent: !root.sharing || root.shell === null || root.current === null ? null : root.shell.screencopy.preview
-                    onLoaded: {
-                        item.output = Qt.binding(() => root.output);
-                        item.address = Qt.binding(() => root.address);
-                    }
-                }
-                Label {
-                    anchors.centerIn: parent
-                    role: "hint"
-                    visible: !root.previewReady
-                    text: root.current === null ? "No sources available" : "Waiting for preview"
-                }
-                Rectangle {
-                    visible: root.tab === 2 && root.current !== null
-                    x: root.current === null ? 0 : root.previewRect.x + root.region.x / root.current.width * root.previewRect.width
-                    y: root.current === null ? 0 : root.previewRect.y + root.region.y / root.current.height * root.previewRect.height
-                    width: root.current === null ? 0 : root.region.width / root.current.width * root.previewRect.width
-                    height: root.current === null ? 0 : root.region.height / root.current.height * root.previewRect.height
-                    color: "transparent"
-                    border.width: Theme.border.thick
-                    border.color: Theme.color.accent
-                }
-                // keyboard-path: the four sliders below adjust the same area
-                MouseArea {
-                    x: root.previewRect.x
-                    y: root.previewRect.y
-                    width: root.previewRect.width
-                    height: root.previewRect.height
-                    enabled: root.tab === 2 && root.current !== null
-                    property real startX: 0
-                    property real startY: 0
-                    PointerCursor {}
-                    onPressed: mouse => { startX = mouse.x; startY = mouse.y; }
-                    onPositionChanged: mouse => {
-                        if (!pressed) return;
-                        const a = Math.max(0, Math.min(width, mouse.x));
-                        const b = Math.max(0, Math.min(height, mouse.y));
-                        const x = Math.floor(Math.min(startX, a) / width * root.current.width);
-                        const y = Math.floor(Math.min(startY, b) / height * root.current.height);
-                        root.region = { x: x, y: y, width: Math.max(1, Math.floor(Math.abs(a - startX) / width * root.current.width)), height: Math.max(1, Math.floor(Math.abs(b - startY) / height * root.current.height)) };
-                    }
-                }
-            }
             // focus-indicator: the list's FocusRing surrounds its one Tab stop
             FocusScope {
                 id: sources
                 width: parent.width
                 height: sourceColumn.implicitHeight
                 activeFocusOnTab: true
+                // revealFocus starts a list taller than the body at its top
+                // when it takes the focus; the selected row comes back after.
+                onActiveFocusChanged: if (activeFocus) Qt.callLater(root.revealSelected)
                 Keys.onPressed: event => { event.accepted = sourceKeys.handle(event); }
                 KeyNav {
                     id: sourceKeys
@@ -206,6 +242,7 @@ FocusScope {
                     id: sourceColumn
                     width: parent.width
                     Repeater {
+                        id: sourceRows
                         model: root.rows
                         // keyboard-path: sourceKeys moves and activates the list's selection
                         ListItem {

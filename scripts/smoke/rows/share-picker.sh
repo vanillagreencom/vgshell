@@ -38,7 +38,8 @@ share_tabs_width_check() { expect "the page tabs fill the content width equally"
 # unscrolled with every control in view and a preview no shorter than
 # `size.preview.minHeight`. `scrolls`: in a window at the cap, the Area
 # compacted to two columns of sliders and the preview at that minimum, the
-# body scrolls with every control inside the scrolled content.
+# body scrolls with every slider inside the scrolled content. Either way
+# the hint and the preview stay above the body, in the fixed header.
 share_area_fits() {
   local rows scroll aspect current window monitor border top_share cap_share gutter preview_min
   rows="$(ipc smoke descendantGeometry window vgs.capture)" || return
@@ -81,7 +82,8 @@ print(len(actions)==2 and len(sliders)==4 and len(selection)==1
       and inside(frame,room) and window[1]+window[3]<=pinned+cap+1
       and actions[0]['parent']==actions[1]['parent'] and inside(rows[actions[0]['parent']]['box'],rows[0]['box'])
       and all(inside(r['box'],rows[0]['box']) for r in actions)
-      and all(inside(r['box'],reach) for r in [image,hint,*sliders])
+      and all(inside(r['box'],rows[0]['box']) and r['box'][1]+r['box'][3]<=vy+1 for r in [image,hint])
+      and all(inside(r['box'],reach) for r in sliders)
       and inside(selection[0]['box'],image['box'])
       and aspect['width']>0 and aspect['height']>0
       and abs(aspect['width']/aspect['height']-current['width']/current['height'])<0.01
@@ -156,26 +158,83 @@ share_replacement_released() {
   if [[ $(share_result "$1") == cancelled && $(share_cancelled "$2") == True ]]; then echo True; else echo False; fi
 }
 share_replacement_check() { expect "ordinary Open releases the matching picker without a selection" True share_replacement_released "$1" "$2"; }
+# Capture sets the VGS picker with no step from the user. The world's
+# xdph.conf starts as the owner's, one line VGS must keep. systemctl is the
+# devices stand-in, answering a restart and an active portal, and busctl,
+# planted for the row, a portal started now; the world's PipeWire carries
+# no share, so nothing holds the restart. Later shells of the row then
+# read the picker Ready and restart nothing.
+share_xdph="$home/.config/hypr/xdph.conf"
+share_owner_xdph=$'screencopy {\n    allow_token_by_default = true\n}\n'
+mkdir -p -- "${share_xdph%/*}"
+printf '%s' "$share_owner_xdph" >"$share_xdph"
+share_restart_argv=(--user restart xdg-desktop-portal-hyprland.service)
+share_release_argv=(--user try-restart xdg-desktop-portal-hyprland.service)
+device_reply systemctl 0 "" "${share_restart_argv[@]}"
+device_reply systemctl 0 "" "${share_release_argv[@]}"
+device_reply systemctl 0 $'LoadState=loaded\nActiveState=active' --user show --property=LoadState --property=ActiveState xdg-desktop-portal-hyprland.service
+share_busctl_planted=absent
+if [[ ! -e $shim/busctl ]]; then
+  printf '#!/usr/bin/env bash\nexec %q -c %q\n' "$(command -v python3)" 'import time; print("t %d" % (time.time_ns() // 1000))' >"$shim/busctl"
+  chmod 755 -- "$shim/busctl"
+  share_busctl_planted=planted
+fi
+share_restarts_before="$(device_calls systemctl)"
+# True once the file holds the owner's lines and then the picker's block.
+share_configured() {
+  python3 - "$share_xdph" "$share_owner_xdph" "$repo/bin/vgshell-share-picker" <<'PY'
+import os,pathlib,sys
+path,owner,picker=sys.argv[1:]
+text=pathlib.Path(path).read_text() if os.path.exists(path) else ""
+print(text==owner+"screencopy {\n    custom_picker_binary = "+os.path.realpath(picker)+"\n}\n")
+PY
+}
+# True once the file holds the owner's lines alone again.
+share_owner_only() { python3 -c 'import os,pathlib,sys; p=pathlib.Path(sys.argv[1]); print(p.exists() and p.read_text()==sys.argv[2])' "$share_xdph" "$share_owner_xdph"; }
+# share_calls ARGV...: the calls of ARGV the stand-in systemctl recorded
+# since the row began.
+share_calls() { device_calls systemctl | py_reply 'import json,sys; before=len(json.loads(sys.argv[1])); want=sys.argv[2:]; print(sum(c==want for c in json.load(sys.stdin)[before:]))' "$share_restarts_before" "$@"; }
+share_restarts() { share_calls "${share_restart_argv[@]}"; }
+share_restarted() { [[ $(share_restarts) -ge 1 ]] && echo True || echo False; }
+share_dismiss_tools_notice() {
+  if [[ $(notice_shown) != null ]]; then
+    expect_poll "the optional capture tools notice has the keyboard" true ipc smoke noticeFocused
+    type_keys -k Escape || fail "share-picker: declining unrelated tool setup failed"
+    expect_poll "the unrelated tools notice closes before sharing" null notice_shown
+  fi
+}
+share_sharing_status() { ipc smoke statusValues vgs.capture | py_reply 'import json,sys; v=json.load(sys.stdin).get("sharing"); print(json.dumps([v.get("tone"),v.get("text")]) if isinstance(v,dict) else "unpublished")'; }
+expect "control: before Capture runs, the file holds only the owner's lines" False share_configured
+expect "control: before Capture runs, nothing restarted the portal" 0 share_restarts
 expect "capture enables for sharing" ok ipc shell setPluginEnabled vgs.capture true
 expect_poll "capture's service is built" True record_exists vgs.capture
-if [[ $(notice_shown) != null ]]; then
-  expect_poll "the optional capture tools notice has the keyboard" true ipc smoke noticeFocused
-  type_keys -k Escape || fail "share-picker: declining unrelated tool setup failed"
-  expect_poll "the unrelated tools notice closes before sharing" null notice_shown
-fi
-share_unconfigured() { [[ ! -e $home/.config/hypr/xdph.conf ]] && echo absent || echo present; }
-expect "enabling Capture leaves portal setup for the user's action" absent share_unconfigured
-expect "Settings enables for the sharing setup path" ok ipc shell setPluginEnabled vgs.settings true
-expect_poll "Settings is built for the setup path" True record_exists vgs.settings
+share_dismiss_tools_notice
+expect_poll "enabling Capture sets the VGS picker and keeps the owner's line" True share_configured
+expect_poll "the setup restarts the portal once no share runs" True share_restarted
+expect_poll "the sharing picker reads Ready" '["ok", "Ready"]' share_sharing_status
+expect "Settings enables for the sharing status" ok ipc shell setPluginEnabled vgs.settings true
+expect_poll "Settings is built for the sharing status" True record_exists vgs.settings
 expect "Settings opens Capture's page" ok ipc shell summon window vgs.settings '{"plugin":"vgs.capture"}'
 expect_poll "Settings shows Capture's page" '"vgs.capture"' ipc smoke readInstance window vgs.settings page
-expect_poll "Settings offers the sharing setup action" true ipc smoke readMatchingDescendant window vgs.settings RowAction text "Set up screen sharing" enabled
-# The sharing step is optional: before setup it reads Optional, in the
-# neutral tone, never the To do a required step reads.
-share_setup_chips() { ipc smoke setupRows window vgs.settings | py_reply 'import json,sys; rows=[r for r in json.load(sys.stdin) if r["key"]=="sharing"]; print(json.dumps(rows[0]["chips"]) if len(rows)==1 else "rows=%d" % len(rows))'; }
+settings_details
+expect_poll "Details reads the sharing picker Ready" '"Ready"' ipc smoke readMatchingDescendant window vgs.settings StatusLine label "Sharing picker" text
+expect "Settings offers no setup action for a step VGS takes itself" absent ipc smoke readMatchingDescendant window vgs.settings RowAction text "Set up screen sharing" enabled
+share_setup_keys() { ipc smoke setupRows window vgs.settings | py_reply 'import json,sys; print(json.dumps([r["key"] for r in json.load(sys.stdin) if r["key"]=="sharing"]))'; }
 settings_setup
-expect_poll "the sharing step reads Optional before setup" '[["Optional", "neutral"]]' share_setup_chips
-expect "Settings hides after its setup route assertion" ok ipc shell hide window vgs.settings
+expect "Setup lists no sharing step" '[]' share_setup_keys
+expect "Settings hides after its sharing status assertions" ok ipc shell hide window vgs.settings
+# Turning Capture off gives xdph its own picker back, since no capture
+# service would answer the VGS one, and turning it on claims it again. The
+# planted busctl reads a portal started now, so the release finds no older
+# backend to restart; scripts/test-share-picker.py holds the restart and
+# its wait on a share.
+expect "control: before Capture turns off, the file names the VGS picker" False share_owner_only
+expect "Capture turns off after its setup" ok ipc shell setPluginEnabled vgs.capture false
+expect_poll "turning Capture off removes the VGS picker and keeps the owner's lines" True share_owner_only
+expect "Capture turns on again for sharing" ok ipc shell setPluginEnabled vgs.capture true
+expect_poll "capture's service is built again" True record_exists vgs.capture
+share_dismiss_tools_notice
+expect_poll "turning Capture on sets the VGS picker again" True share_configured
 expect "ordinary Capture Open summons its controls" ok ipc shell summon window vgs.capture '{}'
 expect_poll "ordinary Capture Open selects the capture controls" false share_read sharing
 expect_poll "ordinary Capture Open exposes the screenshot action" true ipc smoke readMatchingDescendant window vgs.capture Button text "Take screenshot" enabled
@@ -226,7 +285,7 @@ share_dismiss_notice() {
 share_control_start() { stop_shell || :; start_shell "$sandbox/tree-$1" "$share_world/$1-shell.log"; expect_poll "the $1 Capture service builds" True record_exists vgs.capture; share_dismiss_notice; }
 share_control_restore() { stop_shell || :; start_shell "$repo" "$share_world/$1-restored.log"; expect_poll "the restored Capture service builds" True record_exists vgs.capture; share_dismiss_notice; }
 copy_tree share-tabs-width-control
-edit_tree share-tabs-width-control shell/plugins/vgs.capture/Window.qml $'width: pane.contentWidth\n            model: ["Screens", "Windows", "Area"]' $'width: Math.min(pane.contentWidth, Theme.control.maxWidth)\n            model: ["Screens", "Windows", "Area"]'
+edit_tree share-tabs-width-control shell/plugins/vgs.capture/Window.qml $'width: pane.contentWidth\n                model: ["Screens", "Windows", "Area"]' $'width: Math.min(pane.contentWidth, Theme.control.maxWidth)\n                model: ["Screens", "Windows", "Area"]'
 share_control_start share-tabs-width-control
 share_launch control-tabs-width
 expect_poll "the capped-tabs control maps" True share_mapped
@@ -530,9 +589,69 @@ for share_mode in dark light; do
 done
 unset SHOT_CHROME_READER SHOT_CHROME_REQUIRE
 python3 "$share_fixture/sheets.py" "$share_evidence" || fail "share-picker: picture labels failed"
+# Capture's Settings page reads the sharing picker under Details, with no
+# Setup step: pictured Ready and in the hinted state a portal that stays
+# failed after its restart reads, dark and light. Opening the page sets up
+# again (ShareSession.pageViewed), so the planted portal state decides
+# which the page shows.
+share_settings_evidence="$(mktemp -d "$smoke_log_dir/tmp/share-picker-settings.XXXXXX")"
+SHOT_DIR="$(shot_dir_under "$smoke_log_dir" "$share_settings_evidence")"
+share_portal_show=(--user show --property=LoadState --property=ActiveState xdg-desktop-portal-hyprland.service)
+# The Screen sharing group sits under the fold of a 933 px output: True
+# once its Sharing picker line is scrolled a third of the way down the page.
+share_settings_reveal() { [[ $(ipc smoke revealText window vgs.settings StatusLine "Sharing picker") =~ ^([0-9.]+|unscrolled)$ ]] && echo True || echo False; }
+share_sharing_shot() { # MODE NAME TONE TEXT
+  expect "Settings opens Capture's page for its $2 picture" ok ipc shell summon window vgs.settings '{"plugin":"vgs.capture"}'
+  expect_poll "Settings shows Capture's page for its $2 picture" '"vgs.capture"' ipc smoke readInstance window vgs.settings page
+  expect_poll "the sharing picker reads $4" "[\"$3\", \"$4\"]" share_sharing_status
+  settings_details
+  expect_poll "Details reads the sharing picker $4" "\"$4\"" ipc smoke readMatchingDescendant window vgs.settings StatusLine label "Sharing picker" text
+  expect_poll "Details scrolls its Sharing picker line into view for the $2 picture" True share_settings_reveal
+  rest_pointer || fail "share-picker: parking the $2 Settings pointer failed"
+  shot "settings-$2-$1" || fail "share-picker: Settings $2 $1 failed"
+  expect "Settings hides after its $2 picture" ok ipc shell hide window vgs.settings
+  expect_poll "the Settings window is gone after its $2 picture" 0 window_count Plugins
+}
+for share_mode in dark light; do
+  if [[ $share_mode == dark ]]; then
+    printf '{"schemaVersion":1,"name":"vgs","tokens":{}}\n' >"$share_theme.next"; share_theme_name=vgs
+  else
+    cp -- "$repo/themes/catalog/flexoki-light/theme.json" "$share_theme.next"; share_theme_name=flexoki-light
+  fi
+  mv -T -- "$share_theme.next" "$share_theme"
+  expect_poll "the $share_mode Settings theme publishes" "$share_theme_name" ipc smoke themeName
+  device_reply systemctl 0 $'LoadState=loaded\nActiveState=failed' "${share_portal_show[@]}"
+  share_sharing_shot "$share_mode" relogin warning "Ready after you log in again"
+  device_reply systemctl 0 $'LoadState=loaded\nActiveState=active' "${share_portal_show[@]}"
+  share_sharing_shot "$share_mode" ready ok Ready
+done
+# share_preview_in_body FILE: in a disposable tree's Window.qml, the hint
+# and the preview moved from the pane's fixed header back into the body
+# that scrolls, as before the header held them.
+share_preview_in_body() {
+  python3 - "$1" <<'PY'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1]); assert not p.is_symlink(); s=p.read_text()
+head='            Column {\n                width: pane.contentWidth\n                topPadding: Theme.stack.section\n'
+body='        Column {\n            width: pane.contentWidth\n            spacing: Theme.stack.group\n'
+assert s.count(head)==1 and s.count(body)==1
+start=s.index(head); end=s.index('\n        }\n\n'+body, start)
+block=s[start:end].replace('topPadding: Theme.stack.section','topPadding: 0',1)
+s=s[:start]+s[end:]
+at=s.index(body)+len(body)
+s=s[:at]+block+'\n'+s[at:]
+# The body's height, as before: the pane's gap under the tabs and a
+# group gap under the hint and under the preview.
+old='Theme.stack.section + hintRoom + Theme.stack.group + 2 * stickyGap'
+assert s.count(old)==1
+s=s.replace(old,'hintRoom + 2 * Theme.stack.group + 2 * stickyGap',1)
+assert s!=p.read_text(); p.write_text(s)
+PY
+}
 # Reconstruct the pre-fix layout in a disposable tree. The same geometry
 # assertion must reject its fixed-height request before the fit evidence.
 copy_tree share-area-height-control
+share_preview_in_body "$sandbox/tree-share-area-height-control/shell/plugins/vgs.capture/Window.qml"
 python3 - "$sandbox/tree-share-area-height-control/shell/plugins/vgs.capture/Window.qml" <<'PY'
 import pathlib,sys
 p=pathlib.Path(sys.argv[1]); assert not p.is_symlink(); s=p.read_text()
@@ -664,8 +783,8 @@ done
 # fail on its Windows tab.
 copy_tree share-sources-room-control
 edit_tree share-sources-room-control shell/plugins/vgs.capture/Window.qml \
-  'readonly property real choicesHeight: bodyChrome + hintRoom + sourcesRoom + 3 * Theme.stack.group' \
-  'readonly property real choicesHeight: bodyChrome + hint.implicitHeight + sources.height + 3 * Theme.stack.group'
+  'readonly property real choicesHeight: bodyChrome + sourcesRoom + Theme.stack.group' \
+  'readonly property real choicesHeight: bodyChrome - hintRoom + hint.implicitHeight + sources.height + Theme.stack.group'
 share_short_list="$share_window_list"
 for share_listed in 1 2 3 4 5 6; do share_window_list+="$((80 + share_listed))[HC>]smoke.share-listed[HT>]Listed window ${share_listed}[HE>]${share_listed}[HA>]"; done
 share_mode_size=1440x2160
@@ -704,6 +823,83 @@ for share_version in before after; do
 done
 share_window_list="$share_short_list"
 release_mode "Tall output restores" "$share_output" "$share_original_mode"
+# Eleven windows on a 1440x900 output, the owner's px13 case: the list is
+# longer than the body, and selecting the last Windows row scrolls the body
+# to that row while the preview stays in the fixed header above it. The
+# control moves the hint and the preview back into the scrolling body, as
+# before, and the same reading must fail.
+# share_sticky_view [row]: True when the preview and the hint show in full
+# in the window, the selected row is the last and shows in full in the
+# body's viewport, and the body is scrolled; with `row`, the row part
+# alone. A box inside the scroll area shows only inside its viewport; one
+# outside it shows inside the window.
+share_sticky_view() {
+  local rows scroll selected count
+  rows="$(ipc smoke descendantGeometry window vgs.capture)" || return
+  scroll="$(ipc smoke itemValues window vgs.capture ScrollArea contentY,contentHeight,height)" || return
+  selected="$(share_read selected)" || return
+  count="$(share_read rows | py_reply 'import json,sys; print(len(json.load(sys.stdin)))')" || return
+  py_dumps "$rows" "$scroll" "$selected" "$count" "\"${1:-all}\"" <<'PY'
+import json,sys
+rows,scroll,selected,count,part=map(json.loads,sys.argv[1:])
+def inside(a,b):
+    x,y,w,h=a; X,Y,W,H=b
+    return w>0 and h>0 and x>=X-1 and y>=Y-1 and x+w<=X+W+1 and y+h<=Y+H+1
+area=next(i for i,r in enumerate(rows) if r['type']=='ScrollArea' and r['visible'])
+def scrolled(i):
+    while i>=0:
+        if i==area: return True
+        i=rows[i]['parent']
+    return False
+def shown(i): return inside(rows[i]['box'], rows[area]['box'] if scrolled(i) else rows[0]['box'])
+preview=next(i for i,r in enumerate(rows) if r['type']=='ScreencopyPreview')
+image=rows[rows[preview]['parent']]['parent']
+hint=next(i for i,r in enumerate(rows) if r['type']=='Label' and r.get('role')=='hint' and r['visible'] and (r.get('text') or '').startswith('Choose'))
+items=[i for i,r in enumerate(rows) if r['type']=='ListItem' and r['visible']]
+row=count>=11 and selected==count-1 and len(items)==count and len(scroll)==1 and scroll[0]['contentY']>0 and shown(items[-1])
+print(row if part=='row' else row and shown(image) and shown(hint))
+PY
+}
+share_last_row_shown() { share_sticky_view row; }
+copy_tree share-sticky-control
+share_preview_in_body "$sandbox/tree-share-sticky-control/shell/plugins/vgs.capture/Window.qml"
+# The listed stand-ins come first, so the last row is the live other
+# target and its preview draws in the capture.
+share_window_list=""
+for share_listed in 1 2 3 4 5 6 7 8 9; do share_window_list+="$((90 + share_listed))[HC>]smoke.share-listed[HT>]Listed window ${share_listed}[HE>]${share_listed}[HA>]"; done
+share_window_list+="$share_short_list"
+hold_mode "Laptop output" "$share_output" 1440x900
+for share_version in before after; do
+  if [[ $share_version == before ]]; then share_control_start share-sticky-control; else share_control_restore share-sticky-control; fi
+  for share_mode in dark light; do
+    share_evidence_theme "$share_mode"
+    rest_pointer || fail "share-picker: parking the laptop pointer before its launch failed"
+    share_launch "sticky-$share_version-$share_mode"
+    expect_poll "the laptop output's picker maps" 1 window_count Capture
+    share_arg switchTab 1
+    share_sticky_count="$(share_read rows | py_reply 'import json,sys; print(len(json.load(sys.stdin)))')"
+    share_arg select "$((share_sticky_count - 1))"
+    expect_poll "the laptop output's last window row is selected" "$((share_sticky_count - 1))" share_read selected
+    expect_poll "the body scrolls to the selected last row" True share_last_row_shown
+    expect_poll "the last row's live preview draws" true share_read previewReady
+    if [[ $share_version == before ]]; then
+      share_sticky_control() { (failures=0 behaviour_failures=0; expect "the preview and the last selected row show together" True share_sticky_view >"$share_world/sticky-control-$share_mode.log"; echo "$failures"); }
+      expect "control: a preview in the scrolling body fails the same reading" 1 share_sticky_control
+      sed 's/^/  CONTROL  /' "$share_world/sticky-control-$share_mode.log"
+    else
+      expect "$share_mode: the preview and the last selected row show together" True share_sticky_view
+    fi
+    ipc smoke descendantGeometry window vgs.capture >"$share_area_evidence/sticky-$share_version-$share_mode-geometry.json"
+    ipc smoke itemValues window vgs.capture ScrollArea contentY,contentHeight,height >"$share_area_evidence/sticky-$share_version-$share_mode-scroll.json"
+    rest_pointer || fail "share-picker: parking laptop evidence pointer failed"
+    shot "sticky-$share_version-$share_mode" || fail "share-picker: laptop evidence failed"
+    share_keyboard "sticky-$share_version-$share_mode"
+    type_keys -k Escape || fail "share-picker: closing laptop evidence failed"
+    expect_poll "the laptop output's caller cancels" True share_cancelled "sticky-$share_version-$share_mode"
+  done
+done
+share_window_list="$share_short_list"
+release_mode "Laptop output restores" "$share_output" "$share_original_mode"
 cc -Wall -Wextra -Werror "$share_fixture/consume.c" -o "$share_world/consume" $(pkg-config --cflags --libs libpipewire-0.3) || { fail "share-picker: consumer build failed"; return 0; }
 mkdir -p -- "$home/.config/xdg-desktop-portal"
 printf '[preferred]\ndefault=hyprland\n' >"$home/.config/xdg-desktop-portal/portals.conf"
@@ -879,3 +1075,5 @@ expect_poll "the picture theme restores its original name" "$share_theme_initial
 expect_poll "the picture theme restores Hyprland's border" "$share_border_initial" share_border
 cp -- "$share_world/shell.saved" "$home/.config/vgshell/shell.json.next"
 mv -T -- "$home/.config/vgshell/shell.json.next" "$home/.config/vgshell/shell.json"
+if [[ $share_busctl_planted == planted ]]; then rm -f -- "${shim:?}/busctl"; fi
+device_reply_clear systemctl

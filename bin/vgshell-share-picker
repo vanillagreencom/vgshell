@@ -25,10 +25,25 @@ PICKER_TIMEOUT = 120.0
 IPC_TIMEOUT = 3.0
 PORTAL_RESTART_TIMEOUT = 30.0
 POLL_INTERVAL = 0.1
+# Exit status of a configure that wrote the picker but left the portal
+# running, because a screen share runs and a restart would stop it. VGS's
+# own value, beside sysexits' 73 and 75 below.
+SHARE_RUNNING_EXIT = 76
+# xdph names each screen-share stream's PipeWire media
+# `getRandName("xdph-streaming-")` (xdph v1.4.1 src/portals/Screencopy.cpp,
+# pw_stream_new), and pw_stream_new stores that name as `media.name`
+# (PipeWire 1.4.0 src/pipewire/stream.c); `node.name` is the application's.
+SHARE_STREAM_PREFIX = "xdph-streaming-"
+# A release that waits out a share reads it again each RELEASE_POLL
+# seconds, the capture service's own retry interval, and gives up after
+# RELEASE_ATTEMPTS failed readings or restarts in a row, about five minutes.
+RELEASE_POLL = 60.0
+RELEASE_ATTEMPTS = 5
 CHILD_ENV = (
     "PATH", "HOME", "XDG_CONFIG_HOME", "XDG_RUNTIME_DIR", "XDG_DATA_HOME",
     "XDG_CACHE_HOME", "XDG_STATE_HOME", "WAYLAND_DISPLAY", "DBUS_SESSION_BUS_ADDRESS",
-    "HYPRLAND_INSTANCE_SIGNATURE", "LANG", "LC_ALL", "VGS_TEST_RUN",
+    "HYPRLAND_INSTANCE_SIGNATURE", "PIPEWIRE_RUNTIME_DIR", "PIPEWIRE_REMOTE",
+    "LANG", "LC_ALL", "VGS_TEST_RUN",
 )
 
 
@@ -40,9 +55,13 @@ class ActivationNeeded(PickerError):
     pass
 
 
+class ShareRunning(PickerError):
+    pass
+
+
 class FolderRefused(PickerError):
-    # Setup shows the sentence and the step as they are; the keyed cause
-    # goes to its log.
+    # The capture service shows the sentence and the step as they are; the
+    # keyed cause goes to the shell's log.
     def __init__(self, cause, sentence, step):
         super().__init__(sentence)
         self.cause, self.step = cause, step
@@ -236,10 +255,57 @@ def rewrite_config(text, executable):
     return result
 
 
+def is_picker_assignment(key, value):
+    # A VGS tree's picker, whichever tree's path it names: a disable releases
+    # one an earlier or moved tree wrote too.
+    return key == "screencopy:custom_picker_binary" and Path(value.strip()).name == "vgshell-share-picker"
+
+
+def release_config(text):
+    # Removes each picker assignment a VGS tree wrote, and a category that
+    # removal leaves holding blank lines alone, as configure appends one.
+    # Every other byte stays.
+    categories, lines = [], []
+    for line in text.splitlines(keepends=True):
+        newline = "\r\n" if line.endswith("\r\n") else "\n" if line.endswith("\n") else ""
+        body = line[:-len(newline)] if newline else line
+        code, comment = uncomment(body)
+        stripped = code.strip()
+        if not stripped:
+            if categories and comment.strip():
+                categories[-1]["kept"] = True
+        elif stripped == "}":
+            if not categories:
+                raise PickerError("release=unbalanced-category")
+            category = categories.pop()
+            if category["emptied"] and not category["kept"] and not comment.strip():
+                del lines[category["start"]:]
+                continue
+            if categories:
+                categories[-1]["kept"] = True
+        elif re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*\s*\{", stripped):
+            categories.append({"name": stripped[:-1].strip(), "start": len(lines),
+                               "kept": bool(comment.strip()), "emptied": False})
+        else:
+            assignment = re.fullmatch(r"(\s*)([A-Za-z_$][A-Za-z0-9_$:]*)(\s*=\s*)(.*)", code)
+            if not assignment:
+                raise PickerError("release=invalid-syntax")
+            if is_picker_assignment(":".join([*(c["name"] for c in categories), assignment[2]]), assignment[4]):
+                if categories:
+                    categories[-1]["emptied"] = True
+                continue
+            if categories:
+                categories[-1]["kept"] = True
+        lines.append(line)
+    if categories:
+        raise PickerError("release=unbalanced-category")
+    return "".join(lines)
+
+
 def open_folder(part, parent, configured, walked):
     def refuse(cause, sentence):
         return FolderRefused("config-folder=" + cause + " path=" + walked, sentence,
-                             "Replace it with a folder you own, then set up screen sharing again in Capture settings.")
+                             "Replace it with a folder you own. VGS tries again when you open Capture's Settings page.")
     where = ("your Hyprland config folder, " + configured if walked == configured
              else walked + ", above your Hyprland config folder " + configured)
     linked = False
@@ -319,12 +385,8 @@ def read_config(directory):
     return original, text
 
 
-def portal_state(config, stopped):
-    # xdph reads its config once, in CPortalManager's constructor. systemd's
-    # ExecMainStartTimestamp is a uint64 CLOCK_REALTIME microsecond value:
-    # https://www.freedesktop.org/software/systemd/man/org.freedesktop.systemd1.html
-    # A backend older than the file cannot have accepted that write, even
-    # when a refused restart leaves it inactive.
+def portal_active(stopped):
+    # The backend unit's ActiveState, refused unless the unit is loaded.
     reply = run_child(
         ["systemctl", "--user", "show",
          "--property=LoadState", "--property=ActiveState",
@@ -340,10 +402,12 @@ def portal_state(config, stopped):
     if properties.get("LoadState") != "loaded":
         raise PickerError("portal-probe=unit-not-loaded")
     active = properties.get("ActiveState")
-    if active in ("failed", "activating", "deactivating", "reloading"):
-        return "needed"
-    if active not in ("active", "inactive"):
+    if active not in ("active", "inactive", "failed", "activating", "deactivating", "reloading"):
         raise PickerError("portal-probe=invalid-active-state")
+    return active
+
+
+def portal_started_ns(stopped):
     # The object is systemd's escaped form of the fixed backend unit name.
     # Query the service manager, so a probe never activates the portal backend.
     timestamp = run_child(
@@ -355,8 +419,18 @@ def portal_state(config, stopped):
     match = re.fullmatch(r"t ([0-9]+)\n?", timestamp)
     if not match:
         raise PickerError("portal-probe=invalid-start-time")
-    started_ns = int(match[1]) * 1000
-    return "ready" if started_ns >= config.st_mtime_ns else "needed"
+    return int(match[1]) * 1000
+
+
+def portal_state(config, stopped):
+    # xdph reads its config once, in CPortalManager's constructor. systemd's
+    # ExecMainStartTimestamp is a uint64 CLOCK_REALTIME microsecond value:
+    # https://www.freedesktop.org/software/systemd/man/org.freedesktop.systemd1.html
+    # A backend older than the file cannot have accepted that write, even
+    # when a refused restart leaves it inactive.
+    if portal_active(stopped) not in ("active", "inactive"):
+        return "needed"
+    return "ready" if portal_started_ns(stopped) >= config.st_mtime_ns else "needed"
 
 
 def probe(stopped):
@@ -407,6 +481,26 @@ def replace_config(directory, text, expected, mode):
             os.unlink(temporary, dir_fd=directory)
 
 
+def share_running(stopped):
+    # pw-dump lists every PipeWire object once and exits; reading it
+    # starts no stream and changes no node.
+    reply = run_child(["pw-dump"], stopped, IPC_TIMEOUT, "share-probe")
+    try:
+        objects = json.loads(reply)
+    except json.JSONDecodeError as error:
+        raise PickerError("share-probe=invalid-reply") from error
+    if not isinstance(objects, list):
+        raise PickerError("share-probe=invalid-reply")
+    for item in objects:
+        info = item.get("info") if isinstance(item, dict) else None
+        props = info.get("props") if isinstance(info, dict) else None
+        name = props.get("media.name") if isinstance(props, dict) else None
+        if (isinstance(name, str) and name.startswith(SHARE_STREAM_PREFIX)
+                and item.get("type") == "PipeWire:Interface:Node"):
+            return True
+    return False
+
+
 def configure(stopped=None):
     stopped = stopped or threading.Event()
     directory = config_directory()
@@ -414,22 +508,34 @@ def configure(stopped=None):
         original, text = read_config(directory)
         rewritten = rewrite_config(text, str(Path(__file__).resolve()))
         if rewritten == text:
-            if portal_state(original, stopped) == "ready":
-                return
+            try:
+                if portal_state(original, stopped) == "ready":
+                    return
+            except (OSError, PickerError):
+                # Unread here, the restart below answers it: a backend that
+                # cannot start with this file reads Needed after it.
+                pass
             installed = original
         else:
             mode = stat.S_IMODE(original.st_mode) if original else 0o600
             installed = replace_config(directory, rewritten, original, mode)
         same_config(directory, installed)
         try:
-            # This is the explicit Settings action. systemctl restart starts a
-            # failed backend; try-restart is a no-op when it is not running:
+            # xdph reads the file only when it starts, so the write alone
+            # changes no running share; a restart stops every one. The
+            # capture service runs this with no share of its own pending,
+            # and a share another stream holds waits here: the service asks
+            # again later. systemctl restart starts a failed backend:
             # https://www.freedesktop.org/software/systemd/man/systemctl.html
+            if share_running(stopped):
+                raise ShareRunning("activation=waiting cause=share-running")
             run_child(["systemctl", "--user", "restart", "xdg-desktop-portal-hyprland.service"],
                       stopped, PORTAL_RESTART_TIMEOUT, "portal-restart")
             same_config(directory, installed)
             if portal_state(installed, stopped) != "ready":
                 raise PickerError("portal-restart=not-active-for-config")
+        except ShareRunning:
+            raise
         except (OSError, PickerError) as error:
             # Keep the configured picker for the next backend start. Probe
             # reports Needed until a backend start accepts this file.
@@ -438,11 +544,122 @@ def configure(stopped=None):
         os.close(directory)
 
 
+def release_file():
+    # The released file's stat, or None when no file holds a VGS picker.
+    try:
+        directory = config_directory(create=False)
+    except FileNotFoundError:
+        return None
+    try:
+        original, text = read_config(directory)
+        released = text if original is None else release_config(text)
+        if released == text:
+            return None
+        installed = replace_config(directory, released, original, stat.S_IMODE(original.st_mode))
+        same_config(directory, installed)
+        return installed
+    finally:
+        os.close(directory)
+
+
+def file_claims_picker():
+    # Whether xdph.conf names a VGS picker: Capture is on again, and its
+    # setup owns the backend from here.
+    try:
+        directory = config_directory(create=False)
+    except FileNotFoundError:
+        return False
+    try:
+        original, text = read_config(directory)
+        return original is not None and release_config(text) != text
+    finally:
+        os.close(directory)
+
+
+def portal_holds_older(config, stopped):
+    # Whether a running backend started before CONFIG's write, so it still
+    # holds the picker it read then. One that is not running, or a unit that
+    # is not installed, holds nothing, and a next start reads the file.
+    try:
+        active = portal_active(stopped)
+    except PickerError as error:
+        if str(error) == "portal-probe=unit-not-loaded":
+            return False
+        raise
+    if active in ("inactive", "failed"):
+        return False
+    return portal_started_ns(stopped) < config.st_mtime_ns
+
+
+def tell(body):
+    # One notification, through the session's notification server, for an
+    # outcome the user meets later and no shell part is left to show. Its
+    # failure leaves the cause on stderr alone. gdbus parses each argument
+    # as GVariant text, whose string literal JSON's escapes satisfy:
+    # https://docs.gtk.org/glib/gvariant-text-format.html
+    try:
+        run_child(["gdbus", "call", "--session", "--dest", "org.freedesktop.Notifications",
+                   "--object-path", "/org/freedesktop/Notifications",
+                   "--method", "org.freedesktop.Notifications.Notify",
+                   json.dumps("Capture"), "0", json.dumps("camera"), json.dumps("Screen sharing"),
+                   json.dumps(body), "[]", "{}", "-1"], threading.Event(), IPC_TIMEOUT, "notify")
+    except (OSError, PickerError) as error:
+        print("share-picker: refused: " + str(error), file=sys.stderr)
+
+
+def release(stopped=None):
+    # The capture service starts this, detached, when the user turns
+    # Capture off: with no capture service a request the VGS picker takes
+    # fails, so xdph goes back to its own picker. Only the picker's lines go.
+    # This process alone owns that until the running backend no longer
+    # holds the picker: it waits out a share, since a restart stops every
+    # one, checking each RELEASE_POLL seconds, and ends once Capture claims
+    # the picker again. A reading or restart that fails RELEASE_ATTEMPTS
+    # times in a row tells the user and ends.
+    stopped = stopped or threading.Event()
+    try:
+        written = release_file()
+    except (OSError, UnicodeError, PickerError, ValueError):
+        tell("Capture is off, but VGS could not change your screen sharing settings, so sharing your screen fails. "
+             "Turn Capture on to share your screen.")
+        raise
+    if written is None:
+        return
+    failures, restarted = 0, False
+    while not stopped.is_set():
+        try:
+            if file_claims_picker() or not portal_holds_older(written, stopped):
+                return
+            if restarted:
+                raise PickerError("release=restart-not-taken")
+            elif share_running(stopped):
+                failures = 0
+            else:
+                # try-restart starts no backend that is not running:
+                # https://www.freedesktop.org/software/systemd/man/systemctl.html
+                run_child(["systemctl", "--user", "try-restart", "xdg-desktop-portal-hyprland.service"],
+                          stopped, PORTAL_RESTART_TIMEOUT, "portal-restart")
+                restarted = True
+                continue
+        except (OSError, UnicodeError, PickerError, ValueError) as error:
+            if stopped.is_set():
+                break
+            failures, restarted = failures + 1, False
+            print("share-picker: release=retrying cause=" + str(error), file=sys.stderr)
+            if failures >= RELEASE_ATTEMPTS:
+                tell("Capture is off, but screen sharing could not restart without it, so sharing your screen fails "
+                     "until you log in again. Turn Capture on to share your screen now.")
+                raise ActivationNeeded("release=needed cause=" + str(error)) from error
+        stopped.wait(RELEASE_POLL)
+    raise PickerError("release=interrupted")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--allow-token", action="store_true")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--configure", action="store_true")
+    mode.add_argument("--release", action="store_true")
     mode.add_argument("--probe", action="store_true")
     args = parser.parse_args()
     stopped = threading.Event()
@@ -457,17 +674,23 @@ def main():
             print(json.dumps(result, separators=(",", ":")))
         elif args.configure:
             configure(stopped)
+        elif args.release:
+            release(stopped)
         else:
             selection = pick(args.allow_token, stopped)
             if stopped.is_set():
                 raise PickerError("picker=interrupted")
             sys.stdout.write(selection)
         return 0
+    except ShareRunning as error:
+        print("share-picker: waiting: " + str(error), file=sys.stderr)
+        return SHARE_RUNNING_EXIT
     except ActivationNeeded as error:
         print("share-picker: refused: " + str(error), file=sys.stderr)
         return 75
     except FolderRefused as error:
-        # Setup shows stdout's sentence and step. 73 is sysexits' EX_CANTCREAT.
+        # The capture service shows stdout's sentence and step. 73 is
+        # sysexits' EX_CANTCREAT.
         print(str(error) + "\n" + error.step)
         print("share-picker: refused: " + error.cause, file=sys.stderr)
         return 73

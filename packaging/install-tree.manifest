@@ -413,7 +413,6 @@ f share/vgshell/shell/plugins/vgs.capture/Window.qml
 f share/vgshell/shell/plugins/vgs.capture/helper/capture.py
 f share/vgshell/shell/plugins/vgs.capture/manifest.json
 f share/vgshell/shell/plugins/vgs.capture/tui/install-languages.sh
-f share/vgshell/shell/plugins/vgs.capture/tui/setup-sharing.sh
 f share/vgshell/shell/plugins/vgs.clipboard/ClipboardHistory.js
 f share/vgshell/shell/plugins/vgs.clipboard/Overlay.qml
 f share/vgshell/shell/plugins/vgs.clipboard/Service.qml
