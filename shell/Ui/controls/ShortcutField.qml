@@ -59,7 +59,8 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // alternative, and `conflict` its `hint`, so every field that shows a
 // bind's keys shows the same line.
 // `hintLink`, when set, names the substring of that conflict line that
-// opens a cited file through `hintLinkActivated`. The
+// opens a cited file through `hintLinkActivated`. A cited path shows only
+// its file name and line; its full citation is the link's tooltip. The
 // `hintActions` are controls for the hint, such as the ways out of a
 // conflict it names, RowActions: they draw on a line of their own under
 // it, `rowAction.gap` apart, wrapping within the field's width, and take
@@ -603,24 +604,35 @@ FocusScope {
             }
         }
 
-        LinkText {
-            role: "hint"
+        Column {
             width: parent.width
-            wrapMode: Text.Wrap
-            color: root.hintIsNotice ? Theme.color.danger : Theme.color.warning
-            text: root.hint
-            link: root.hintIsNotice ? "" : root.hintLink
-            visible: text !== ""
-            onActivated: root.hintLinkActivated()
-        }
+            spacing: Theme.stack.group
 
-        // Always visible, since a hidden parent would hide the controls it
-        // waits on; a Column lays out no item of zero height, so an empty
-        // line takes no room.
-        Flow {
-            id: hintActionRow
-            width: parent.width
-            spacing: Theme.rowAction.gap
+            LinkText {
+                id: hintText
+                readonly property string citation: root.hintIsNotice ? "" : root.hintLink
+                readonly property string fileLine: citation.slice(citation.lastIndexOf("/") + 1)
+                role: "hint"
+                width: parent.width
+                // WordWrap keeps an overlong word whole rather than
+                // splitting it: https://doc.qt.io/qt-6/qml-qtquick-text.html#wrapMode-prop
+                wrapMode: Text.WordWrap
+                color: root.hintIsNotice ? Theme.color.danger : Theme.color.warning
+                text: citation === "" ? root.hint : root.hint.split(citation).join(fileLine)
+                link: fileLine
+                visible: text !== ""
+                onActivated: root.hintLinkActivated()
+                Tooltip {
+                    text: hintText.linked ? hintText.citation : ""
+                    side: "right"
+                }
+            }
+
+            // The shared action layout takes no room while none shows.
+            RowActions {
+                id: hintActionRow
+                width: parent.width
+            }
         }
     }
 }

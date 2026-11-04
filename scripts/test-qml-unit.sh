@@ -345,7 +345,7 @@ mutations=(
   "an empty hint action line hides what it waits on|controls/ShortcutField.qml|id: hintActionRow|id: hintActionRow; visible: visibleChildren.length > 0|tst_bindfield.qml"
   "a bind row hides its hint link|controls/BindField.qml|        hintLink: root.hintLink|        hintLink: \"\"|tst_bindfield.qml"
   "a bind row reports no hint link|controls/BindField.qml|onHintLinkActivated: root.hintLinkActivated()|onHintLinkActivated: {}|tst_bindfield.qml"
-  "the shortcut field draws no hint link|controls/ShortcutField.qml|link: root.hintIsNotice ? \"\" : root.hintLink|link: \"\"|tst_bindfield.qml"
+  "the shortcut field draws no hint link|controls/ShortcutField.qml|link: fileLine|link: \"\"|tst_bindfield.qml"
   "hint actions draw in the tool row|controls/ShortcutField.qml|property alias hintActions: hintActionRow.data|property alias hintActions: actionRow.data|tst_bindfield.qml"
   "the shortcut field commits nothing|controls/ShortcutField.qml|committed(read.key, at);|committed(\"\", at);|tst_shortcutfield.qml"
   "a commit keeps the capture|controls/ShortcutField.qml|stop(\"commit\");|{}|tst_shortcutfield.qml"
