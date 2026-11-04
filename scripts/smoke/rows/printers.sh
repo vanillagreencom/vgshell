@@ -47,7 +47,7 @@
 # pr_stays's: 10 reads 0.2 s apart. The row leaves vgs.printers and
 # vgs.system enabled or disabled as it found them, the world empty and no
 # planted systemctl answer.
-# inputs: shell/plugins/vgs.printers/* shell/plugins/vgs.lock/bin/sleep-watch shell/plugins/vgs.system/* scripts/smoke/fixtures/devices/* scripts/smoke/devices.sh shell/Ui/layout/DeviceList.qml shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system scripts/smoke/rows/device-fakes.sh
+# inputs: shell/plugins/vgs.printers/* shell/plugins/vgs.lock/bin/sleep-watch shell/plugins/vgs.system/* scripts/smoke/fixtures/devices/* scripts/smoke/devices.sh shell/Ui/layout/DeviceList.qml shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system scripts/smoke/rows/device-fakes.sh themes/catalog/flexoki-light/theme.json
 set -euo pipefail
 expected_errors+=('printers: address refused: address=(scheme|installed)' 'printers: remove "Office" problem=refused ' 'printers: view release unknown: view' 'plugins: hidden by a higher-precedence plugin with the same id: vgs[.]printers')
 
@@ -56,6 +56,18 @@ pr_copy="$home/.config/vgshell/plugins/vgs.printers"
 
 pr_view() { ipc smoke statusValues vgs.printers | py_reply 'import json,sys; v=json.load(sys.stdin).get("printers"); print("unpublished" if v is None else json.dumps(v[sys.argv[1]], sort_keys=True))' "$1"; }
 pr_pane() { ipc smoke readInstance window vgs.printers "$1"; }
+# The address and its label share a row centre, with Add still in the field.
+pr_address_inline() {
+  ipc smoke descendantGeometry window vgs.printers | py_reply 'import json,sys
+rows=json.load(sys.stdin)
+labels=[r for r in rows if r["type"] == "Label" and r["visible"] and r.get("role") == "label" and r.get("text") == "Printer address"]
+fields=[r for r in rows if r["type"] == "TextField" and r["visible"] and r.get("name") == "printers-address"]
+if len(labels) != 1 or len(fields) != 1: print(False)
+else:
+    lx,ly,lw,lh=labels[0]["box"]; fx,fy,fw,fh=fields[0]["box"]
+    print(abs((ly+lh/2)-(fy+fh/2)) < 1 and lx+lw <= fx)'
+}
+pr_add_visible() { ipc smoke readMatchingDescendant window vgs.printers IconButton label "Add printer" visible; }
 # The pane's printers as [name, state, jobs, default], and the drawn list
 # as [name, badged].
 pr_printers() { pr_pane printers | py_reply 'import json,sys; print(json.dumps([[p["name"], p["state"], p["jobs"], p["isDefault"]] for p in json.load(sys.stdin)]))'; }
@@ -159,6 +171,34 @@ pr_open() { # LABEL
   expect_poll "$1's watcher reports ready" '"ready"' pr_view watch
   expect_poll "$1 reads the scheduler running" '"read"' pr_view cups
 }
+pr_capture_no_printer_screenshots() {
+  local theme="$home/.config/vgshell/theme.json" saved="$sandbox/printers-theme.saved"
+  local initial_name initial_state output mode expected
+  initial_name="$(ipc smoke themeName)"
+  initial_state="$(ipc smoke themeValue fileState)"
+  [[ ! -f $theme ]] || cp -- "$theme" "$saved"
+  output="$(hypr -j monitors | py_reply 'import json,sys; print(next(m["name"] for m in json.load(sys.stdin) if m["width"]>0 and m["height"]>0))')"
+  SHOT_DIR="$(shot_dir_under "$smoke_log_dir" "$smoke_log_dir/tmp/printers-no-printer")"
+  SHOT_SOCKET="$(shot_socket "$rt_dir" "$nested_socket")"
+  SHOT_RUNTIME_DIR="$rt_dir"; SHOT_OUTPUT="$output"
+  for mode in dark light; do
+    if [[ $mode == dark ]]; then
+      printf '{"schemaVersion":1,"name":"vgs","tokens":{}}\n' >"$theme.next"
+      expected=vgs
+    else
+      cp -- "$repo/themes/catalog/flexoki-light/theme.json" "$theme.next"
+      expected=flexoki-light
+    fi
+    mv -T -- "$theme.next" "$theme"
+    expect_poll "the no-printer $mode picture theme publishes" "$expected" ipc smoke themeName
+    rest_pointer || fail "printers: parking the pointer for the $mode picture failed"
+    shot "no-printer-$mode" || fail "printers: the no-printer $mode picture failed"
+  done
+  if [[ -f $saved ]]; then cp -- "$saved" "$theme.next"; mv -T -- "$theme.next" "$theme"; else rm -f -- "$theme"; fi
+  expect_poll "the picture theme restores its original state" "$initial_state" ipc smoke themeValue fileState
+  expect_poll "the picture theme restores its original name" "$initial_name" ipc smoke themeName
+  unset SHOT_DIR SHOT_SOCKET SHOT_RUNTIME_DIR SHOT_OUTPUT
+}
 
 pr_main() {
   devices_ready printers || return 0
@@ -181,6 +221,9 @@ pr_main() {
   pr_open "vgs.printers"
   expect "opening the section made one subscription with the dbus:// recipient" '[["subscribe.test", "dbus://"]]' pr_ipptool_since "$ipp_before"
   expect "the open section's watcher runs as two processes beside one dbus-monitor" '{"monitor": 1, "watch": 2}' pr_watchers
+  expect "Printer address aligns with its label" True pr_address_inline
+  expect "the inline printer address keeps Add" true pr_add_visible
+  pr_capture_no_printer_screenshots
   subscription="$(pr_last_subscription)" || { fail "printers: the world's subscriptions are unreadable"; return 0; }
   expect "CUPS holds the watcher's subscription" live pr_subscription "$subscription"
 

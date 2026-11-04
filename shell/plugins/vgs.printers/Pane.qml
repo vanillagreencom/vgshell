@@ -290,6 +290,7 @@ FocusScope {
 
             Field {
                 width: parent.width
+                inline: true
                 label: "Printer address"
                 hint: "A network printer's name or IP address."
                 error: root.addressProblem
