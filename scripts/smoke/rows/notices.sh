@@ -52,7 +52,11 @@
 # alone with Close. The enable trigger's control is
 # scripts/smoke/rows/notices-control.sh, the suite's last row: a shell copy
 # without the trigger raises no notice.
-# inputs: scripts/smoke/fixtures/plugins/acme.needs/* scripts/smoke/fixtures/failing-install.js bin/lib/pkg-retry.js bin/lib/pkg-outcome.js shell/Core/TuiRunner.qml shell/Core/TuiRecords.qml shell/plugins/vgs.settings/* shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/foundation/Scrim.qml shell/Ui/feedback/Badge.qml shell/Ui/foundation/Divider.qml shell/Ui/layout/GroupList.qml shell/Ui/controls/Field.qml shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/fixtures/plugins/acme.layers/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/rows/layers.sh scripts/smoke/rows/manager.sh scripts/smoke/rows/settings.sh bin/vgshell-tui bin/vgshell-scan shell/Core/Registry.qml shell/Core/Capabilities.qml scripts/fixtures/pkg-review/* bin/lib/pkg-review.js bin/lib/pkg-review.sh bin/lib/pkg-review-settings.sh bin/lib/pkg-config.js bin/lib/judge-files.js shell/Core/PackageReview.js config/shell.json bin/lib/dbus_wire.py
+# A classified package-test failure returned by the real presenter keeps
+# its notice and offers one origin-only retry. A consumed return offers
+# the ordinary batch action; a successful retry settles only its target
+# and leaves the other package for an ordinary install.
+# inputs: scripts/smoke/fixtures/plugins/acme.needs/* scripts/smoke/fixtures/failing-install.js scripts/smoke/fixtures/package-check-install.js scripts/fixtures/pkg/check-failure/paru-check-only.out bin/lib/qml-library.js bin/lib/pkg-retry.js bin/lib/pkg-outcome.js shell/Core/TuiRunner.qml shell/Core/TuiRecords.qml shell/plugins/vgs.settings/* shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/foundation/Scrim.qml shell/Ui/feedback/Badge.qml shell/Ui/foundation/Divider.qml shell/Ui/layout/GroupList.qml shell/Ui/controls/Field.qml shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/fixtures/plugins/acme.layers/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/rows/layers.sh scripts/smoke/rows/manager.sh scripts/smoke/rows/settings.sh bin/vgshell-tui bin/vgshell-scan shell/Core/Registry.qml shell/Core/Capabilities.qml scripts/fixtures/pkg-review/* bin/lib/pkg-review.js bin/lib/pkg-review.sh bin/lib/pkg-review-settings.sh bin/lib/pkg-config.js bin/lib/judge-files.js shell/Core/PackageReview.js config/shell.json bin/lib/dbus_wire.py
 set -euo pipefail
 leak_plugin_setup acme.layers false || { fail "notices: fixture precondition failed"; return 1; }
 needs_src="$sandbox/src/acme.needs"
@@ -75,16 +79,20 @@ ln -s "$repo/bin/lib" "$notice_review_tree/bin/lib"
 for entry in shell config; do ln -s "$repo/$entry" "$notice_review_tree/$entry"; done
 cp -- "$tui_terminal" "$sandbox/notice-terminal-before"
 install_fails="$sandbox/install-fails"
-python3 - "$tui_terminal" "$repo/scripts/fixtures/pkg-review/route-owner.js" "$notice_review_tree/bin/vgshell-pkg" "$sandbox/notice-review.jsonl" "$repo/scripts/smoke/fixtures/failing-install.js" "$install_fails" <<'PY_NOTICE'
+notice_check_mode="$sandbox/notice-check-mode"
+notice_check_proof="$sandbox/notice-check.jsonl"
+python3 - "$tui_terminal" "$repo/scripts/fixtures/pkg-review/route-owner.js" "$notice_review_tree/bin/vgshell-pkg" "$sandbox/notice-review.jsonl" "$repo/scripts/smoke/fixtures/failing-install.js" "$install_fails" "$repo/scripts/smoke/fixtures/package-check-install.js" "$notice_check_mode" "$notice_check_proof" "$shim/vgs-smoke-old" <<'PY_NOTICE'
 import pathlib, sys, shlex
 p=pathlib.Path(sys.argv[1]); text=p.read_text()
 needle='if [[ $window == yes ]]; then\n'
 assert text.count(needle)==2
 node_args=' '.join(shlex.quote(s) for s in ['/usr/bin/node',sys.argv[2],'--surface','success','--owner',sys.argv[3],'--proof',sys.argv[4]])
 fail_args=' '.join(shlex.quote(s) for s in ['/usr/bin/node',sys.argv[5]])
-addition='''if [[ $key == core/requirements-install || $key == core/requirements-update ]]; then
+check_args=' '.join(shlex.quote(s) for s in ['/usr/bin/node',sys.argv[7],sys.argv[8],sys.argv[9],sys.argv[10]])
+addition='''if [[ $key == core/requirements-install || $key == core/requirements-update || $key == core/requirements-retry ]]; then
   bridge=('''+node_args+''' --route "$key" "${@:4}")
   if [[ -e '''+shlex.quote(sys.argv[6])+''' ]]; then bridge=('''+fail_args+''' "${@:4}"); fi
+  if [[ -e '''+shlex.quote(sys.argv[8])+''' ]]; then bridge=('''+check_args+''' "${@:2}"); fi
   if [[ -e $hold ]]; then
     run[${#run[@]}-3]+='; shift; exec "$@"'
     run+=("${bridge[@]}")
@@ -676,6 +684,79 @@ expect "the kept mixed notice says the optional package is optional and the step
 expect "control: the kept mixed notice does not call the optional package still missing" false line_holds "vgs-smoke-extra-git is still missing"
 expect_poll "the kept mixed notice maps its surface again" 1 layer_count vgs:notice
 expect_poll "the kept mixed notice holds the keyboard" true ipc smoke noticeFocused
+
+# A returned check-only result stays on this notice. The safe fixture
+# feeds the owner's classifier and the real presenter's private channel;
+# the notice consumes that typed result and hands back only its origin.
+notice_package_state() { ipc shell lent | py_reply 'import json,pathlib,sys
+d=json.load(sys.stdin)
+e=d["tui"]["runs"].get(sys.argv[1],{}).get("ended")
+if d["notices"]["shown"] is None:
+    print("null"); sys.exit()
+if e is None:
+    print("record=absent"); sys.exit()
+try:
+    record=json.loads((pathlib.Path(sys.argv[2]) / (sys.argv[1].replace("/","@")+"@"+e["run"]+".ended.json")).read_text())
+except FileNotFoundError:
+    print("record=absent"); sys.exit()
+except OSError as error:
+    print("record=unreadable errno="+str(error.errno)); sys.exit()
+except json.JSONDecodeError:
+    print("record=invalid-json"); sys.exit()
+p=record.get("package") if isinstance(record,dict) else None
+if p is None or p.get("kind") != "package-check-failed":
+    print("null")
+elif p.get("retry") is None:
+    print("retry=none")
+else:
+    print(json.dumps([p["manager"],p["package"],p["retry"]["state"]]))' "${1:-core/requirements-update}" "$rt_dir/vgshell/tui"; }
+notice_check_origin() { python3 -c 'import json,sys; print(json.loads(open(sys.argv[1]).readline())["run"])' "$notice_check_proof"; }
+retry_words() {
+  words --app-id=org.vgs.tui "--title=VGS · Retry requirements without tests" -- "$tui_self" present --presentation full \
+    --record core/requirements-retry --run RUN --record-dir "$rt_dir/vgshell/tui" --app-id org.vgs.tui --window-title "VGS · Retry requirements without tests" -- "$core_vgshell" pkg retry "$1"
+}
+printf '%s\n' available >"$notice_check_mode"
+forget_record
+type_keys -k Return || fail "sending Return for the package-check fixture failed"
+expect_poll "the package-check attempt uses the ordinary mixed update argv" "$(update_words --manager aur vgs-smoke-old-aur --install vgs-smoke-extra-git)" recorded
+expect_run_end "the package-check attempt returns" core/requirements-update
+expect_poll "the check-only result settles on its still-owed notice" '["aur", "vgs-smoke-old-aur", "available"]' notice_package_state
+expect_poll "the returned check-only notice holds the keyboard" true ipc smoke noticeFocused
+expect "the available retry is the notice's single primary action" '["Retry without tests", "Not now"]' drawn actions
+notice_origin="$(notice_check_origin)" || fail "the check-only origin is unreadable"
+hold_runs
+forget_record
+type_keys -k Return || fail "sending Return for Retry without tests failed"
+expect_poll "Retry without tests passes only its origin run to the core retry" "$(retry_words "$notice_origin")" recorded
+expect_poll "the retry hides the notice while its terminal runs" 0 layer_count vgs:notice
+expect "the retry key stays busy until its terminal ends" busy key_idle core/requirements-retry
+type_keys -k Return || fail "sending the duplicate Return while the notice is hidden failed"
+expect "a duplicate press leaves the same admitted terminal argv" "$(retry_words "$notice_origin")" recorded
+release_runs
+expect_run_end "the exhausted retry returns" core/requirements-retry
+expect_poll "the returned retry retains its consumed outcome" '["aur", "vgs-smoke-old-aur", "consumed"]' notice_package_state core/requirements-retry
+expect_poll "the consumed notice holds the keyboard" true ipc smoke noticeFocused
+expect "an exhausted retry offers the ordinary mixed action" '["Install and update", "Not now"]' drawn actions
+forget_record
+type_keys -k Return || fail "sending Return for the ordinary attempt after exhaustion failed"
+expect_poll "the next press starts the ordinary tests-enabled batch" "$(update_words --manager aur vgs-smoke-old-aur --install vgs-smoke-extra-git)" recorded
+expect_run_end "the next ordinary attempt returns" core/requirements-update
+expect_poll "the next ordinary attempt supplies a fresh available retry" '["aur", "vgs-smoke-old-aur", "available"]' notice_package_state
+notice_origin="$(python3 -c 'import json,sys; rows=[json.loads(s) for s in open(sys.argv[1])]; print(rows[-1]["run"])' "$notice_check_proof")" || fail "the fresh origin is unreadable"
+printf '%s\n' success >"$notice_check_mode"
+expect_poll "the fresh retry notice holds the keyboard" true ipc smoke noticeFocused
+forget_record
+type_keys -k Return || fail "sending Return for the successful retry failed"
+expect_poll "the successful single-target retry still passes only origin" "$(retry_words "$notice_origin")" recorded
+expect_run_end "the successful single-target retry returns" core/requirements-retry
+expect_poll "the successful target reaches its required version" '["present"]' floor_state
+expect_poll "the batch remainder returns as an ordinary install" '["Install", "Not now"]' drawn actions
+expect "the remainder names only the package the retry did not install" '[["vgs-smoke-extra-git", 1]]' group_shape
+expect "the successful retry leaves no check-only failure on the remainder" null notice_package_state core/requirements-retry
+expect "each retry starts once despite the duplicate press" true python3 -c 'import json,sys; r=[json.loads(s) for s in open(sys.argv[1])]; retry=[s for s in r if s["argv"][2]=="retry"]; print(str(len(retry)==2 and all(len(s["argv"])==4 for s in retry) and len({s["run"] for s in retry})==2).lower())' "$notice_check_proof"
+python3 -c 'import sys; print("".join("package-check-proof: " + line for line in open(sys.argv[1])), end="")' "$notice_check_proof"
+rm -f -- "$notice_check_mode"
+expect_poll "the ordinary remainder holds the keyboard" true ipc smoke noticeFocused
 type_keys -k Escape || fail "sending Escape to the mixed notice failed"
 expect_poll "Escape closes the mixed notice" null notice_shown
 expect "disabling acme.floor is allowed" ok ipc shell setPluginEnabled acme.floor false

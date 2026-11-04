@@ -30,7 +30,10 @@ import "PluginLogic.js" as Logic
 // packages; once its run ends, one rescan follows, and
 // a notice whose required commands that scan and its version read find, at
 // their floor, is closed, while one a run that ended with code 0 left as it
-// was says so. A plugin's run that failed closes its notice as Not now
+// was says so. A matching classified package-test failure keeps its notice
+// with the package owner's one retry; its current record and owed target
+// are rechecked after the scan, version read and manager detection. Every
+// other plugin run that failed closes its notice as Not now
 // does, and no suggestion raises it again, so the notice never comes back
 // by itself; the plugin's Setup step shows the failure its run's ended
 // record carried, with Try again (retryInstall), until the next install
@@ -68,6 +71,13 @@ Singleton {
     // with code 0 left as it was, PluginLogic.noticeUnchanged's answer, of
     // kind `unchanged`.
     property var failure: null
+    // A completion belongs to this notice's current showing only. The
+    // view rechecks its record and owed packages through reactive bindings.
+    // https://quickshell.org/docs/v0.3.1/guide/introduction
+    property var packageCompletion: null
+    // The version-settled install waits for the detector's current answer,
+    // too; an old manager mapping cannot lend a retry to a changed one.
+    property var installSettlement: null
     // Plugin id -> its last requirement install attempt, from the press
     // (PluginLogic.installAttempt) through a failed end (installEnd) to the
     // next attempt, kept in failuresPath, beside the run records, so a
@@ -175,7 +185,8 @@ Singleton {
         const versions = Registry.commandVersions;
         const found = managers;
         if (notice === null || detection === "pending" || !Logic.hasOwn(owners, notice.id)) return null;
-        const shown = Logic.noticeView(owners[notice.id], Logic.hasOwn(missing, notice.id) ? missing[notice.id] : [], versions, notice, found);
+        const base = Logic.noticeView(owners[notice.id], Logic.hasOwn(missing, notice.id) ? missing[notice.id] : [], versions, notice, found);
+        const shown = Logic.noticeCompletionView(base, packageCompletion, Capabilities.tuis.runs, Registry.scanError === "" && detection === "answered" && !detector.running);
         shown.id = notice.id;
         shown.name = owners[notice.id].name;
         shown.title = Logic.noticeTitle(shown.name, shown);
@@ -189,6 +200,7 @@ Singleton {
 
     onShownIdChanged: {
         failure = null;
+        packageCompletion = null;
         settleScreen(true);
     }
 
@@ -467,10 +479,10 @@ Singleton {
     // live run.
     function accept() {
         const shown = view;
-        if (shown === null || shown.run === null || installing) return "refused: install=none";
+        if (shown === null || shown.action === null || installing) return "refused: install=none";
         const id = shown.id;
         failure = null;
-        const answer = runInstall(id, shown.run);
+        const answer = runInstall(id, shown.action);
         if (answer !== "ok") {
             failure = { kind: "failed", reason: answer };
             console.error("notices: install=" + id + " " + answer);
@@ -498,6 +510,7 @@ Singleton {
         if (installingId !== "") return "refused: install=" + id + " reason=busy";
         const launched = Capabilities.tuis.launchCore("requirements-" + ran.action, ran.args, result => root.installEnded(id, ran, result, launched.run));
         if (launched.answer !== "ok") return launched.answer;
+        packageCompletion = null;
         installingId = id;
         if (id !== Logic.CORE_OWNER) keepFailure(id, Logic.installAttempt(ran, launched.run));
         return launched.answer;
@@ -529,7 +542,8 @@ Singleton {
     // for ID, ended with RESULT. A plugin's attempt for RUN settles
     // (PluginLogic.installEnd), unless its record settled it first, and a
     // run that did not end with code 0 closes the plugin's notice as Not
-    // now does, so the notice never comes back by itself; the core's
+    // now does unless its exact classified package-test failure still
+    // belongs to an owed target; the core's
     // notice says at once that it did not end with code 0. One
     // rescan follows, and its version read settles the notice, since only
     // that read says whether an update reached the floor; a run that ended
@@ -545,16 +559,26 @@ Singleton {
         } else {
             const attempt = Logic.hasOwn(installFailures, id) ? installFailures[id] : null;
             if (attempt !== null && attempt.state === "pending" && attempt.run === run) keepFailure(id, Logic.installEnd(attempt, result));
-            const notice = ended ? undefined : queue.find(n => n.id === id);
-            if (notice !== undefined) close(notice);
         }
         detect();
-        afterVersions(() => {
+        const settleEnd = () => {
             if (root.installingId !== id) return;
             root.installingId = "";
+            const notice = root.queue.find(n => n.id === id);
+            const owner = Registry.requirementOwners[id];
+            const held = { ran: ran, run: run, result: result };
+            const shown = notice === undefined || owner === undefined ? null : Logic.noticeView(owner, root.missingOf(id), Registry.commandVersions, notice, root.managers);
+            const classified = shown === null ? null : Logic.noticePackageFailure(shown, held, Capabilities.tuis.runs, Registry.scanError === "" && root.detection === "answered");
+            if (!ended && id !== Logic.CORE_OWNER && classified === null && notice !== undefined) root.close(notice);
             root.settle();
-            if (ended && root.current !== null && root.current.id === id)
+            if (root.current === null || root.current.id !== id) return;
+            root.packageCompletion = classified === null ? null : held;
+            if (ended)
                 root.failure = Logic.noticeUnchanged(Registry.requirementOwners[id], root.missingOf(id), Registry.commandVersions, root.current, root.managers, ran);
+        };
+        afterVersions(() => {
+            if (detector.running) root.installSettlement = settleEnd;
+            else settleEnd();
         });
     }
 
@@ -787,6 +811,9 @@ Singleton {
                 return;
             }
             root.detection = answer.ok ? "answered" : "failed";
+            const settlement = root.installSettlement;
+            root.installSettlement = null;
+            if (settlement !== null) settlement();
         }
     }
 }
