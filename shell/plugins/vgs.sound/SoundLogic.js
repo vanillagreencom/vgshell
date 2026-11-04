@@ -47,6 +47,41 @@ function inputIcon(available, muted) {
     return available && !muted ? "mic" : "mic-off";
 }
 
+// Owner-approved normalized peak limits, shared by the pane and flyout.
+// The logarithmic display floor keeps the quiet zone visible; these are
+// signal peaks, independent of the volume the user sets.
+var INPUT_LEVEL_FLOOR = 0.001;
+var INPUT_LEVEL_LOW = 0.03162277660168379;
+var INPUT_LEVEL_HIGH = 0.5011872336272722;
+
+function inputLevelPosition(peak) {
+    return Math.max(0, Math.min(1, Math.log(Math.max(INPUT_LEVEL_FLOOR, peak) / INPUT_LEVEL_FLOOR)
+        / Math.log(1 / INPUT_LEVEL_FLOOR)));
+}
+
+// Yellow at the quiet end, green at the low boundary and red from the
+// high boundary. Normalizing stops to the filled span keeps the gradient
+// fixed on the full track as the peak changes, rather than stretching it.
+// COLORS holds the Theme inputMeter colours as { r, g, b } values.
+function inputLevel(peak, colors) {
+    var position = inputLevelPosition(peak);
+    var low = inputLevelPosition(INPUT_LEVEL_LOW);
+    var high = inputLevelPosition(INPUT_LEVEL_HIGH);
+    var from = position <= low ? colors.low : colors.good;
+    var to = position <= low ? colors.good : colors.high;
+    var amount = position <= low ? position / low : Math.min(1, (position - low) / (high - low));
+    var color = {
+        r: from.r + (to.r - from.r) * amount,
+        g: from.g + (to.g - from.g) * amount,
+        b: from.b + (to.b - from.b) * amount,
+        a: 1
+    };
+    return { position: position, color: color,
+        lowStop: position > 0 ? Math.min(1, low / position) : 1,
+        highStop: position > 0 ? Math.min(1, high / position) : 1,
+        middleColor: position < low ? color : colors.good };
+}
+
 // The volume one step of STEP percent in DIRECTION, 1 up or -1 down, leads
 // to from VOLUME: whole percentages, never below 0, and never above 100% by
 // a step up. A level some other program set above 100% stays where it is

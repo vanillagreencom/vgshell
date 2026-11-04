@@ -35,6 +35,23 @@ Item {
         id: scaledWindow
         Window { width: 640; height: 240; color: "black" }
     }
+    Component {
+        id: gradientProgress
+        ProgressBar {
+            id: gradientBar
+            width: 200
+            value: 1
+            readonly property color middle: Theme.inputMeter.good
+            trackColor: Theme.inputMeter.track
+            fillGradient: Gradient {
+                orientation: Gradient.Horizontal
+                GradientStop { position: 0; color: Theme.inputMeter.low }
+                // Sound sends the shared converter a derived RGBA record.
+                GradientStop { position: 0.5; color: Theme.toColor({ r: gradientBar.middle.r, g: gradientBar.middle.g, b: gradientBar.middle.b, a: 1 }) }
+                GradientStop { position: 1; color: Theme.inputMeter.high }
+            }
+        }
+    }
 
     UnitCase {
         name: "feedback"
@@ -96,6 +113,18 @@ Item {
             mirroredBar.value = 0;
             fuzzyCompare(fill(mirroredBar).width, 0, 1);
             mirroredBar.value = 0.25;
+        }
+
+        function test_progress_draws_its_gradient() {
+            const bar = gradientProgress.createObject(root);
+            compare(bar.background.color, Qt.color(Theme.inputMeter.track));
+            renderedFrame(bar);
+            const image = grabImage(bar);
+            const green = Qt.color(Theme.inputMeter.good);
+            fuzzyCompare(image.red(100, 2) / 255, green.r, 0.02);
+            fuzzyCompare(image.green(100, 2) / 255, green.g, 0.02);
+            fuzzyCompare(image.blue(100, 2) / 255, green.b, 0.02);
+            bar.destroy();
         }
 
         // expected-log: ProgressBar: no tone named "loud"; drawing accent -- the test names an unknown tone on purpose

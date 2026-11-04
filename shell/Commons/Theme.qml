@@ -102,6 +102,7 @@ Singleton {
     readonly property var field: published.field
     readonly property var spinner: published.spinner
     readonly property var progress: published.progress
+    readonly property var inputMeter: published.inputMeter
     readonly property var voiceOrb: published.voiceOrb
     readonly property var badge: published.badge
     readonly property var kbd: published.kbd
@@ -294,7 +295,10 @@ Singleton {
         return shown.length === 0 ? 0 : item.topPadding + inkAbove(shown[0]);
     }
 
+    // The shared formatter also accepts a token-derived RGBA record, such
+    // as Sound's interpolated live peak. Drawing callers never author RGB.
     function toColor(text) {
+        text = typeof text === "string" ? text : ThemeLogic.formatColor(text);
         return "#" + text.slice(7, 9) + text.slice(1, 7);
     }
 

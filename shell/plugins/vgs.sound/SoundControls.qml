@@ -7,7 +7,7 @@ import "SoundLogic.js" as Logic
 
 // The controls the flyout and the pane share, one key/value row each:
 // Output and Input, each a device Select and a LevelSlider, with the
-// input's level meter under them while `meter` holds, then one LevelSlider
+// input's level meter above its gain while `meter` holds, then one LevelSlider
 // per app that plays, and the playing-apps line from the `streams` status,
 // which offers pactl while it is missing. A device choice goes to the
 // service through the plugin's own IPC, which makes the device the default
@@ -20,8 +20,12 @@ Column {
     property var shell: null
     property Audio audio: null
     // Whether the input's level meter draws and listens to PipeWire; the
-    // pane holds it while it is open.
+    // pane and flyout hold it only while open.
     property bool meter: false
+    readonly property color inputLow: Theme.inputMeter.low
+    readonly property color inputGood: Theme.inputMeter.good
+    readonly property color inputHigh: Theme.inputMeter.high
+    readonly property var inputLevel: Logic.inputLevel(meter ? peak.peak : 0, { low: inputLow, good: inputGood, high: inputHigh })
     // Whether the playing-apps line draws while pactl is there.
     property bool streamsLine: true
     readonly property real step: shell === null ? 0 : Number(shell.settings.volumeStep) / 100
@@ -138,6 +142,29 @@ Column {
         }
         FormRow {
             width: parent.width
+            label: "Level"
+            visible: root.meter
+            ProgressBar {
+                width: parent.width
+                value: root.inputLevel.position
+                trackColor: Theme.inputMeter.track
+                Accessible.name: "Input level"
+                fillGradient: Gradient {
+                    orientation: Gradient.Horizontal
+                    GradientStop { position: 0; color: root.inputLow }
+                    GradientStop {
+                        position: root.inputLevel.lowStop
+                        color: Theme.toColor(root.inputLevel.middleColor)
+                    }
+                    GradientStop {
+                        position: root.inputLevel.highStop
+                        color: Theme.toColor(root.inputLevel.color)
+                    }
+                }
+            }
+        }
+        FormRow {
+            width: parent.width
             label: "Volume"
             LevelSlider {
                 width: parent.width
@@ -149,15 +176,6 @@ Column {
                 enabled: root.audio.hasInput
                 onMoved: value => root.audio.setNodeVolume(root.audio.source, value)
                 onButtonClicked: root.audio.setNodeMuted(root.audio.source, !root.audio.inputMuted)
-            }
-        }
-        FormRow {
-            width: parent.width
-            label: "Level"
-            visible: root.meter
-            ProgressBar {
-                width: parent.width
-                value: peak.peak
             }
         }
     }
@@ -231,6 +249,9 @@ Column {
 
     PwNodePeakMonitor {
         id: peak
+        // Quickshell 0.3.1: enabled controls active capture; the monitor
+        // binds its node only while enabled, and reports normalized peaks.
+        // https://quickshell.org/docs/v0.3.1/types/Quickshell.Services.Pipewire/PwNodePeakMonitor
         node: root.audio === null ? null : root.audio.source
         enabled: root.meter && root.audio !== null && root.audio.hasInput
     }

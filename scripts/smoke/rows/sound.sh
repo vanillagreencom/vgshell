@@ -35,6 +35,8 @@
 # - shared input route facts, exact active-route filtering, pending and
 #   failed reads, stale choices, both views, an excluded default,
 #   asynchronous publication and subscriber release;
+# - one live peak capture per open pane or flyout, released on close,
+#   and a received peak driving the shared meter;
 # - PipeWire stopped giving the unavailable state in the widget, the pane
 #   and the service, and the widget reading the speakers once it starts,
 #   both after a lost connection and in a shell that started while
@@ -356,6 +358,25 @@ expect "enabling Sound is allowed" ok ipc shell setPluginEnabled vgs.sound true
 snd_page_open
 snd_page_check
 snd_page_close
+
+# Count real source-to-reader links, not just the QML enabled flag.
+snd_input_readers() { devices_audio | py_reply 'import json,sys; d=json.load(sys.stdin); print(len([link for link in d["links"] if link[0] == d["defaults"]["source"]]))'; }
+snd_peak_draws() { ipc smoke readDescendant "$1" vgs.sound SoundControls inputLevel | py_reply 'import json,sys; d=json.load(sys.stdin); print(str(isinstance(d,dict) and d.get("position",0)>0).lower())'; }
+expect_poll "closed Sound views hold no peak capture" 0 snd_input_readers
+expect "the flyout opens its input meter" ok ipc shell summon panel vgs.sound '{}'
+expect_poll "the flyout holds one real peak capture" 1 snd_input_readers
+expect_poll "the flyout draws a received input peak" true snd_peak_draws panel
+expect "the flyout closes its input meter" ok ipc shell hide panel vgs.sound
+expect_poll "closing the flyout releases its peak capture" 0 snd_input_readers
+expect "System opens its input meter" ok ipc shell summon window vgs.system '{"pane":"vgs.sound"}'
+expect_poll "the pane holds one real peak capture" 1 snd_input_readers
+expect_poll "the pane draws a received input peak" true snd_peak_draws window
+expect "System closes its input meter" ok ipc shell hide window vgs.system
+expect_poll "closing the pane releases its peak capture" 0 snd_input_readers
+expect "the flyout reopens its input meter" ok ipc shell summon panel vgs.sound '{}'
+expect_poll "reopening the flyout restores one capture" 1 snd_input_readers
+expect "the reopened flyout closes" ok ipc shell hide panel vgs.sound
+expect_poll "the reopened flyout releases its capture" 0 snd_input_readers
 
 # Shared facts reach the pane, flyout and selection action.
 expect_poll "the subscriber starts" alive snd_subscriber_alive

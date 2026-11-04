@@ -700,6 +700,15 @@ var TOKENS = {
         duration: duration(1200)
     },
 
+    // A fixed dark track keeps the complete fixed signal gradient legible
+    // in both light and dark themes, including its mixed colours.
+    inputMeter: {
+        track: color("#202020"),
+        low: color("#ffd600"),
+        good: color("#00e676"),
+        high: color("#ff3b30")
+    },
+
     voiceOrb: {
         size: length(96),
         radius: share(0.28),

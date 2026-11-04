@@ -27,6 +27,10 @@ const DEFAULTS = [
     ["control.maxWidth", 480],
     ["field.minWidth", 128],
     ["scheme.mode", "dark"],
+    ["inputMeter.track", "#202020ff"],
+    ["inputMeter.low", "#ffd600ff"],
+    ["inputMeter.good", "#00e676ff"],
+    ["inputMeter.high", "#ff3b30ff"],
     ["palette.accent", "#ff5a36ff"],
     // mix(#000000, #d7d7d9, 0.05): 215 * 0.05 = 10.75, 217 * 0.05 = 10.85
     ["color.surface", "#0b0b0bff"],
@@ -740,6 +744,21 @@ function verifyReadabilityNotice(judge) {
     assert.ok(!/color\.|badge\.|segmented\.|carousel\.|vgshell/.test(crowded), "no internal key or command reaches the notice");
 }
 
+function verifyInputMeter(judge) {
+    const expected = Object.fromEntries(DEFAULTS.filter(([key]) => key.startsWith("inputMeter.")).map(([key, value]) => [key.slice("inputMeter.".length), value]));
+    for (const [mode, background, foreground] of [["dark", "#000000", "#eeeeee"], ["light", "#fffcf0", "#100f0f"]]) {
+        const result = judge.accept(TOKENS, document({ scheme: { mode }, palette: { background, foreground, warning: "#ffffff", success: "#ff00ff", danger: "#00ffff" } }));
+        assert.equal(result.ok, true);
+        assert.deepEqual(plain(result.values.inputMeter), expected, "input colours ignore " + mode + " palette");
+    }
+    for (const key of ["track", "low", "good", "high"]) {
+        const result = judge.accept(TOKENS, document({ inputMeter: { [key]: "#ffffff" } }));
+        assert.equal(result.ok, false, "the input colour cannot be overridden: " + key);
+        assert.equal(result.reason, "fixed-color");
+        assert.equal(result.token, "inputMeter." + key);
+    }
+}
+
 function verifyScreensaver(judge) {
     for (const text of ["#d7d7d9", "#100f0f", "#ffffff33"]) {
         const result = judge.accept(TOKENS, document({ color: { text } }));
@@ -769,6 +788,7 @@ function verifyScreensaver(judge) {
 
 function verify(judge) {
     verifyScreensaver(judge);
+    verifyInputMeter(judge);
     const interior = judge.contrastMix(judge.parseColor("#ff0000"), judge.parseColor("#00ff00"), judge.parseColor("#ffffff"), 4.1);
     assert.notEqual(interior, null, "opposing channels can meet the floor when both endpoints fail");
     assert.ok(judge.contrastRatio(interior, judge.parseColor("#ffffff")) >= 4.1);
@@ -2118,6 +2138,7 @@ function launcherDetailShortfalls(judge, launcher) {
 // Each control removes one rule's behaviour from a copy of the judge and
 // keeps the text around it. The suite must fail on every copy.
 const CONTROLS = [
+    ["input colours stay fixed across themes", 'token.indexOf("inputMeter.") === 0 && hasOwn(overrides, token)', "false", verifyInputMeter],
     ["a hint ink refuses a mid-tone theme", 'return tree.name === "reachMix" ? args[0] : fail(', 'return false ? args[0] : fail(', verifyMidToneThemes],
     ["an unreached hint margin takes the weaker endpoint", "return weakest(black) >= weakest(white) ? black : white;", "return weakest(black) >= weakest(white) ? white : black;", verifyUnreachedHintGround],
     ["shared hint ignores its composed surface", "if (context === null) return ink;", "return ink;", judge => assert.deepEqual(launcherDetailShortfalls(judge, LAUNCHER), [], "shared hint inks keep the reached fill floor")],

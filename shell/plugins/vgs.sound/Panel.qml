@@ -15,9 +15,10 @@ Item {
     // again when the plugin's settings change.
     property var shell: null
     property Item initialFocus: controls.firstFocus
+    property bool opened: false
 
-    function open(payloadJson) {}
-    function close() {}
+    function open(payloadJson) { opened = true; }
+    function close() { opened = false; }
 
     // Open System on the Sound pane and close the flyout; answers the
     // panes holder's reply.
@@ -57,6 +58,7 @@ Item {
             width: layout.contentWidth
             shell: root.shell
             audio: audio
+            meter: root.opened
             streamsLine: false
         }
 

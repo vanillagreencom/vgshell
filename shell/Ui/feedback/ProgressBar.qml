@@ -13,6 +13,9 @@ T.ProgressBar {
     id: root
 
     property string tone: "accent"
+    property color trackColor: Theme.progress.track
+    // Stops are relative to the filled span, which changes with value.
+    property Gradient fillGradient: null
 
     function toneColor(name) {
         if (name === "accent") return Theme.progress.fill;
@@ -27,7 +30,7 @@ T.ProgressBar {
 
     background: Rectangle {
         radius: Theme.progress.radius
-        color: Theme.progress.track
+        color: root.trackColor
     }
 
     contentItem: Item {
@@ -40,6 +43,7 @@ T.ProgressBar {
             height: parent.height
             radius: Theme.progress.radius
             color: root.toneColor(root.tone)
+            gradient: root.fillGradient
             SequentialAnimation on x {
                 running: root.indeterminate && Theme.progress.duration > 0
                 loops: Animation.Infinite
