@@ -532,11 +532,12 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                     continue;
                 }
                 // The user's choice of Main Jarvis host or of the Home
-                // folder: the ready home takes the setting as the last
-                // hello carried it, which the service sent first.
+                // folder, named by the setting chosen: the ready home takes
+                // the setting as the last hello carried it, which the
+                // service sent first.
                 if (message.type === "intent" && message.intent === "main-host") {
                     intentIdentity(message);
-                    void satellite.choose();
+                    void satellite.choose(message.chosen);
                     continue;
                 }
                 if (message.type === "intent" && message.intent === "task-open") {

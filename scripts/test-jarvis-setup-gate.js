@@ -812,20 +812,21 @@ function verifyHomeSwitch(serviceSource) {
     ]) {
         let saved = previous;
         const writes = [], notices = [], warnings = [];
-        let handed = 0;
+        const handed = [];
         const shell = {
             configure: { set(key, value) { writes.push([key, value]); if (reply === "ok") saved = value; return reply; } },
             notify: { send(options) { notices.push(JSON.parse(JSON.stringify(options))); return "ok"; } }
         };
         const result = vm.runInNewContext(notice[0] + "\n" + switchHome[0] + "\nswitchHome(" + JSON.stringify(item) + ");",
             { shell, homeMessage: { homes: [{ id, value: selected }] }, console: { warn: text => warnings.push(text) },
-                mainHostChosen: () => { handed++; } });
+                mainHostChosen: key => { handed.push(key); } });
         const listed = item === id, refused = listed && reply !== "ok";
         assert.equal(result, listed ? reply : "refused: home=" + item + " reason=unlisted", name + ": the write result is retained");
         assert.deepEqual(writes, listed ? [["home", selected]] : [], name + ": only a listed home writes");
         assert.equal(saved, listed && !refused ? selected : previous, name + ": refused writes keep the home");
-        // A saved switch hands Main Jarvis host to the new home, as a choice on the page does.
-        assert.equal(handed, listed && !refused ? 1 : 0, name + ": only a saved switch hands the setting on");
+        // A saved switch hands Main Jarvis host to the new home as a Home
+        // choice on the page does, which hands no empty field (Satellite.choose).
+        assert.deepEqual(handed, listed && !refused ? ["home"] : [], name + ": only a saved switch hands the setting on, as a Home choice");
         assert.equal(notices.length, refused ? 1 : 0, name + ": only a refused write sends a notice");
         assert.deepEqual(warnings, refused ? ["jarvis: home-setting " + reply] : [], name + ": the refusal stays in the log");
         if (refused) {

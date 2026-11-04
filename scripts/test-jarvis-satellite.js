@@ -24,6 +24,7 @@ world(async () => {
         fs.chmodSync(path.join(scripts, "jarvis-session"), 0o755);
         return { folder,
             state: value => fs.writeFileSync(path.join(scripts, "satellite.json"), JSON.stringify(value)),
+            stored: () => JSON.parse(fs.readFileSync(path.join(scripts, "satellite.json"), "utf8")).main,
             remove: () => fs.rmSync(path.join(scripts, "jarvis-session")),
             calls: () => fs.existsSync(path.join(scripts, "calls.log"))
                 ? fs.readFileSync(path.join(scripts, "calls.log"), "utf8").trim().split("\n").map(line => JSON.parse(line)) : [] };
@@ -45,9 +46,10 @@ world(async () => {
             ["unanswered", { ...satellite, reachable: false, cause: "main-unreachable" }, { kind: "satellite", host: "cachy", reachable: false, cause: "main-unreachable" }],
             ["not yet contacted", { ...satellite, reachable: null }, { kind: "satellite", host: "cachy", reachable: null, cause: "" }],
             ["unparsed setting", { ...satellite, main: null, reachable: null, cause: "setting-invalid" }, { kind: "satellite", host: "cachy", reachable: null, cause: "setting-invalid" }],
-            ["setting not taken", { v: 1, role: "main" }, { kind: "unavailable", host: "cachy", cause: "setting-untaken" }],
-            ["another main", { ...satellite, main: "other" }, { kind: "unavailable", host: "cachy", cause: "setting-untaken" }],
-            ["no answer", null, { kind: "unavailable", host: "cachy", cause: "package" }]
+            ["package without the setter", { v: 1, role: "main" }, { kind: "unavailable", host: "cachy", cause: "package-old" }],
+            ["another main", { ...satellite, main: "other" }, { kind: "unavailable", host: "cachy", cause: "package-old" }],
+            ["session answer", { v: 1, state: "stopped", reason: "never-started" }, { kind: "unavailable", host: "cachy", cause: "package-unread" }],
+            ["no answer", null, { kind: "unavailable", host: "cachy", cause: "package-unread" }]
         ]) {
             assert.deepEqual(Satellite.reading(answer, "cachy"), reach, label);
             assert.equal(Protocol.mainReach(reach), true, label + ": the wire takes it");
@@ -78,10 +80,24 @@ world(async () => {
             assert.deepEqual(h.calls(), [], "this computer reads nothing from the package");
             assert.deepEqual(timers, [], "and keeps no timer");
 
+            // A main set by hand in the package's private env file (its
+            // README's route), which VGS never reads: a Home choice with
+            // the field empty hands nothing, and only a choice of the field
+            // clears it.
+            h.state({ main: "cachy:/srv/jarvis" });
+            await s.choose("home");
+            assert.deepEqual(h.calls(), [], "a Home choice with the field empty calls no setter");
+            assert.equal(h.stored(), "cachy:/srv/jarvis", "the package keeps the main set by hand");
+            await s.choose("mainHost");
+            assert.deepEqual(h.calls().map(call => call.argv), [["main-host", "--set=", "--home", h.folder]],
+                "choosing This computer clears the package's main");
+            assert.equal(h.stored(), "", "the package is the main");
+            const handed = h.calls().length;
+
             value = "cachy";
-            await s.choose();
+            await s.choose("mainHost");
             await until(() => published.length === 2, "a choice reads the main again");
-            assert.deepEqual(h.calls().map(call => call.argv), [
+            assert.deepEqual(h.calls().slice(handed).map(call => call.argv), [
                 ["main-host", "--set=cachy:" + h.folder, "--home", h.folder],
                 ["status", "--main", "--home", h.folder]], "the choice goes to the package's setting, then the read");
             assert.deepEqual(published[1], { kind: "satellite", host: "cachy", reachable: null, cause: "" });
@@ -145,41 +161,45 @@ world(async () => {
             const premise = cp.spawnSync("python3", ["-c", "import sys; sys.path.insert(0, sys.argv[1]); import watch; print(watch.role({'JARVIS_MAIN_HOST': sys.argv[2]}).kind)",
                 packageLib, Satellite.settingOf(value, h.folder)], { encoding: "utf8", env: { PATH: process.env.PATH, LANG: "C.UTF-8" } });
             assert.equal(premise.stdout.trim(), "invalid", "the package's role rule refuses the value: " + premise.stderr);
-            await s.choose();
+            await s.choose("mainHost");
             await until(() => published.at(-1).cause === "setting-invalid", "the package judges the setting");
             assert.deepEqual(published.at(-1), { kind: "satellite", host: "not a host", reachable: null, cause: "setting-invalid" });
             assert.ok(logs.includes("jarvis: satellite=main-host cause=setting-invalid"), logs.join("\n"));
             assert.equal(s.executor.available(), false, "an unparsed setting offers no forward");
 
-            // A setter that cannot store the setting leaves the package to repair.
+            // A setter that cannot store the setting is a package that did
+            // not answer as expected, which VGS cannot repair.
             h.state({ main: "cachy:" + h.folder, setter: "unwritable" });
             value = "jarvis";
-            await s.choose();
+            await s.choose("mainHost");
             await until(() => published.at(-1).host === "jarvis", "a refused store reads again");
-            assert.deepEqual(published.at(-1), { kind: "unavailable", host: "jarvis", cause: "package" });
+            assert.deepEqual(published.at(-1), { kind: "unavailable", host: "jarvis", cause: "package-unread" });
             assert.ok(logs.includes("jarvis: satellite=main-host cause=private-file-unwritable"), logs.join("\n"));
 
             // The installed package before its setter: the choice is logged
-            // as refused, and the reading names the setting it did not take.
+            // as refused, and the reading names the package as older.
             h.state({ setter: "absent" });
             value = "cachy";
-            await s.choose();
-            await until(() => published.at(-1).cause === "setting-untaken", "a package without the setter reads as not taking it");
-            assert.deepEqual(published.at(-1), { kind: "unavailable", host: "cachy", cause: "setting-untaken" });
+            await s.choose("mainHost");
+            await until(() => published.at(-1).host === "cachy", "a package without the setter reads again");
+            assert.deepEqual(published.at(-1), { kind: "unavailable", host: "cachy", cause: "package-old" });
             assert.ok(logs.includes("jarvis: satellite=main-host cause=setter-absent"), logs.join("\n"));
             assert.equal(s.executor.available(), false);
 
+            // A package before the satellite contract refuses its verbs.
             h.state({ package: "old" });
-            await s.choose();
-            await until(() => published.at(-1).cause === "package", "an older package reads again");
-            assert.deepEqual(published.at(-1), { kind: "unavailable", host: "cachy", cause: "package" });
+            value = "jarvis";
+            await s.choose("mainHost");
+            await until(() => published.at(-1).host === "jarvis", "an older package reads again");
+            assert.deepEqual(published.at(-1), { kind: "unavailable", host: "jarvis", cause: "package-old" });
             assert.deepEqual(await forward("Old."), { outcome: "failed", content: "fleet-forward:package-old" });
 
             // The home's session command as SessionCommand.place finds it:
-            // a home VGS laid out ships none.
+            // a home VGS laid out ships none, so a Home choice naming a
+            // main hands it nowhere.
             h.remove();
             const calls = h.calls().length;
-            await s.choose();
+            await s.choose("home");
             await until(() => published.at(-1).cause === "vgs-package", "a home without the package names its block");
             assert.ok(logs.includes("jarvis: satellite=main-host cause=vgs-package"), "the skipped hand-off is logged by its block");
             assert.deepEqual(await forward("Nowhere."), { outcome: "failed", content: "fleet-forward:vgs-package" });
@@ -201,6 +221,7 @@ world(async () => {
         ["caller-claim", satelliteFile, 'if (claims(call.args.text)) return failed("caller-claim");', "", live],
         ["secret", satelliteFile, 'if (Redact.secret(call.args.text)) return failed("secret");', "", live],
         ["setter-refusal", satelliteFile, "                rejected = { setting: chosen, cause };\n", "", live],
+        ["home-choice-hands-empty", satelliteFile, '                if (field === "home" && mainHost() === "") return;\n', "", live],
         ["ssh-agent", satelliteFile, "SessionCommand.callEnvironment(environment, SSH_ENVIRONMENT)", "SessionCommand.callEnvironment(environment)", live],
         ["environment-pick", sessionFile, "for (const name of [...CALL_ENVIRONMENT, ...extra]) if (kept[name] !== undefined) picked[name] = kept[name];",
             "Object.assign(picked, kept);", live],

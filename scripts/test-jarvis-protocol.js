@@ -114,10 +114,11 @@ for (const used of ["", fallback.used]) assert.equal(JSON.stringify(Protocol.acc
 const mainReach = { v: 1, type: "main-reach", gen: 0, revision: hello.revision, reach: { kind: "satellite", host: "cachy", reachable: null, cause: "" } };
 for (const reach of [{ kind: "main" }, mainReach.reach, { kind: "satellite", host: "cachy", reachable: false, cause: "main-unreachable" },
     { kind: "satellite", host: "not a host", reachable: null, cause: "setting-invalid" },
-    ...["no-home", "package", "vgs-package", "home-link", "home-kind", "home-unreadable", "setting-untaken"].map(cause => ({ kind: "unavailable", host: "cachy", cause }))])
+    ...["no-home", "package", "vgs-package", "home-link", "home-kind", "home-unreadable", "package-old", "package-unread"].map(cause => ({ kind: "unavailable", host: "cachy", cause }))])
     assert.equal(JSON.stringify(Protocol.accept(changed(mainReach, { reach }), "daemon").reach), JSON.stringify(reach));
-// The choice's hand-off is a bare signal: the daemon reads both settings itself.
-assert.equal(Protocol.accept(JSON.stringify({ ...intent, intent: "main-host" }), "shell").intent, "main-host");
+// The choice's hand-off names the setting chosen; the daemon reads both settings itself.
+for (const chosen of ["mainHost", "home"])
+    assert.equal(Protocol.accept(JSON.stringify({ ...intent, intent: "main-host", chosen }), "shell").chosen, chosen);
 const cases = [
     ["main-reach-direction", JSON.stringify(mainReach), "shell", "direction-main-reach"],
     ["main-reach-kind", changed(mainReach, { reach: { kind: "other" } }), "daemon", "main-reach"],
@@ -282,6 +283,8 @@ const cases = [
     ["intent-shape", changed(intent, { extra: true }), "shell", "shape-intent"],
     ["voice-mute-shape", changed(intent, { intent: "voice-mute", muted: true }), "shell", "shape-intent"],
     ["intent-name", changed(intent, { intent: "approve" }), "shell", "intent"],
+    ["main-host-unnamed", changed(intent, { intent: "main-host" }), "shell", "shape-main-host-intent"],
+    ["main-host-other", changed(intent, { intent: "main-host", chosen: "voice" }), "shell", "main-host-intent"],
     ["preview-without-voice", changed(intent, { intent: "preview" }), "shell", "shape-preview"],
     ["preview-empty-voice", changed(intent, { intent: "preview", voice: "" }), "shell", "preview-voice"],
     ["say-shape", changed(say, { extra: true }), "shell", "shape-say"],
@@ -698,8 +701,10 @@ try {
         ["key-type", 'fail("key-" + shortcut);', ';', "key-type"],
         ["intent-direction", 'if (direction !== "shell") fail("direction-intent");',
             'if (false) fail("direction-intent");', "intent-direction"],
-        ["intent-name", 'if (["talk-down", "talk-up", "mute", "voice-mute", "stop", "voice-check", "owner-asks-refresh", "main-host"].indexOf(message.intent) === -1) fail("intent");',
+        ["intent-name", 'if (["talk-down", "talk-up", "mute", "voice-mute", "stop", "voice-check", "owner-asks-refresh"].indexOf(message.intent) === -1) fail("intent");',
             'if (false) fail("intent");', "intent-name"],
+        ["main-host-chosen", 'if (["mainHost", "home"].indexOf(message.chosen) === -1) fail("main-host-intent");',
+            'if (false) fail("main-host-intent");', "main-host-other"],
         ["preview-voice-required", '} else if (message.intent === "preview") {',
             '} else if (message.intent === "preview" && message.voice !== undefined) {', "preview-without-voice"],
         ["preview-voice-text", 'if (!printable(message.voice, 1, 128)) fail("preview-voice");', "", "preview-empty-voice"],

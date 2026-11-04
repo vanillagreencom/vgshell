@@ -4,7 +4,8 @@
 # scripts/fixtures/jarvis/satellite-package.py (the setter is KEN-4874's),
 # and the console's Now line reads the package's status --main answer: the
 # main reachable, the main that did not answer, this computer, a package
-# older than the satellite contract and one without the setter. The
+# older than the satellite contract and one without the setter. A Home
+# choice while Main Jarvis host is This computer hands nothing. The
 # launcher's Switch Jarvis home hands the setting to the home it switches
 # to, and a choice made while the daemon's answers are held reaches the
 # package once it is ready. The control drops the choice's hand-off in a
@@ -110,7 +111,7 @@ PYSEEN
 }
 
 satellite_prepare
-expect_poll "a Home choice hands the setting to that Home" "" satellite_set
+expect_poll "a Home choice with This computer hands nothing to that Home" none satellite_set
 expect "the console opens" ok ipc vgs.jarvis invoke console ''
 expect_poll "an empty Main Jarvis host is this computer" "This computer runs your main Jarvis." satellite_line
 satellite_state '{"reachable": true}'
@@ -125,10 +126,10 @@ expect_poll "choosing This computer clears the package's setting" "" satellite_s
 expect_poll "the Now line reads this computer as the main" "This computer runs your main Jarvis." satellite_line
 satellite_state '{"package": "old"}'
 satellite_choose mainHost cachy
-expect_poll "an older package cannot forward" "Jarvis cannot forward to cachy: the Jarvis package in your home folder is missing or out of date. [Repair it in Setup](page:vgs.jarvis/Setup/sessionStart)." satellite_line
+expect_poll "an older package cannot forward" "Jarvis cannot forward to cachy: the Jarvis package in your home folder is older than the version that forwards requests. A newer Jarvis package is necessary." satellite_line
 satellite_state '{"setter": "absent"}'
 satellite_choose mainHost jarvis
-expect_poll "a package without the setter has not taken it" "Jarvis cannot forward to jarvis: the Jarvis package in your home folder does not take [Main Jarvis host](page:vgs.jarvis/Settings/mainHost) yet." satellite_line
+expect_poll "a package without the setter is older" "Jarvis cannot forward to jarvis: the Jarvis package in your home folder is older than the version that forwards requests. A newer Jarvis package is necessary." satellite_line
 
 # The launcher's Switch Jarvis home hands the setting to the home it
 # switches to, as a choice on the page does.
@@ -173,9 +174,9 @@ python3 - "$satellite_service" <<'PYCONTROL'
 from pathlib import Path
 import sys
 p=Path(sys.argv[1]); source=p.read_text()
-old='send({ type: "intent", intent: "main-host" });'
+old='send({ type: "intent", intent: "main-host", chosen: chosen });'
 assert source.count(old)==1
-changed=source.replace(old,'void ({ type: "intent", intent: "main-host" });')
+changed=source.replace(old,'void ({ type: "intent", intent: "main-host", chosen: chosen });')
 assert changed!=source
 p.write_text(changed)
 PYCONTROL

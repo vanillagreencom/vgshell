@@ -462,10 +462,10 @@ function mainHostSetting(value) {
 }
 
 // What stops a forward before the main is read (Satellite.js): a block of
-// the home's session command (SessionCommand.place), a package that did not
-// answer or could not store the Main Jarvis host setting, or one without
-// the setter, which has not taken it.
-var MAIN_REACH_UNAVAILABLE = ["no-home", "package", "vgs-package", "home-link", "home-kind", "home-unreadable", "setting-untaken"];
+// the home's session command (SessionCommand.place), a package older than
+// the satellite contract, which lacks its verbs, or one that did not answer
+// as expected.
+var MAIN_REACH_UNAVAILABLE = ["no-home", "package", "vgs-package", "home-link", "home-kind", "home-unreadable", "package-old", "package-unread"];
 
 // The `main-reach` message's reading of the main Jarvis (Satellite.js),
 // each but this computer's with the host the Main Jarvis host setting names:
@@ -611,9 +611,14 @@ function accept(line, direction) {
             // button; the engine plays it only if its voice offers it.
             keys(message, fields.concat(["voice"]), "preview");
             if (!printable(message.voice, 1, 128)) fail("preview-voice");
+        } else if (message.intent === "main-host") {
+            // The setting the user chose, which decides whether an empty
+            // Main Jarvis host is handed on (Satellite.choose).
+            keys(message, fields.concat(["chosen"]), "main-host-intent");
+            if (["mainHost", "home"].indexOf(message.chosen) === -1) fail("main-host-intent");
         } else {
             keys(message, fields, "intent");
-            if (["talk-down", "talk-up", "mute", "voice-mute", "stop", "voice-check", "owner-asks-refresh", "main-host"].indexOf(message.intent) === -1) fail("intent");
+            if (["talk-down", "talk-up", "mute", "voice-mute", "stop", "voice-check", "owner-asks-refresh"].indexOf(message.intent) === -1) fail("intent");
         }
         break;
     case "shown":

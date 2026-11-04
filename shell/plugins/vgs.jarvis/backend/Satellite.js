@@ -73,29 +73,30 @@ function claims(text) {
  * The reading for VALUE, the Main Jarvis host setting, when its setter
  * refused it with CAUSE (session.py main_host): a value the package's role
  * rule judges no host reads as an unparsed setting; a setting it could not
- * read or store, or a setter that did not answer, as a package to repair.
+ * read or store, or a setter that did not answer, as a package that did
+ * not answer as expected.
  */
 function refused(cause, value) {
     return cause === "setting-invalid" ? { kind: "satellite", host: hostOf(value), reachable: null, cause }
-        : { kind: "unavailable", host: hostOf(value), cause: "package" };
+        : { kind: "unavailable", host: hostOf(value), cause: "package-unread" };
 }
 
 /**
  * The reading `status --main` ANSWER gives for VALUE, the Main Jarvis host
  * setting, each with the host VALUE names: {kind:"satellite", host,
  * reachable, cause} while the package names that main; else
- * {kind:"unavailable", host, cause}, "setting-untaken" for a package that
- * answered role main or another main, which a setter that is absent leaves,
- * "package" for any other answer.
+ * {kind:"unavailable", host, cause}, "package-old" for a package that
+ * answered role main or another main, which a package without the setter
+ * leaves, "package-unread" for any other answer.
  */
 function reading(answer, value) {
     const host = hostOf(value);
-    if (answer === null || typeof answer !== "object" || answer.v !== 1) return { kind: "unavailable", host, cause: "package" };
+    if (answer === null || typeof answer !== "object" || answer.v !== 1) return { kind: "unavailable", host, cause: "package-unread" };
     if (answer.role === "satellite" && answer.cause === "setting-invalid") return refused("setting-invalid", value);
     if (answer.role === "main" || answer.role === "satellite" && answer.main !== host)
-        return { kind: "unavailable", host, cause: "setting-untaken" };
+        return { kind: "unavailable", host, cause: "package-old" };
     if (answer.role !== "satellite" || ![true, false, null].includes(answer.reachable))
-        return { kind: "unavailable", host, cause: "package" };
+        return { kind: "unavailable", host, cause: "package-unread" };
     return { kind: "satellite", host, reachable: answer.reachable,
         cause: answer.reachable === false ? "main-unreachable" : "" };
 }
@@ -147,11 +148,12 @@ function create({ home, mainHost, environment, publish, log, clock = CLOCK, run 
         const result = await session(location, ["status", "--main"], LOCAL_MS, signal);
         if (result.kind === "stopped" && result.reason === "cancelled") return null;
         if (result.kind !== "exited" || result.code !== 0) {
-            // A package older than the satellite contract says so on every
-            // read; the reading names it.
-            if (!(result.kind === "exited" && ARGUMENTS.test(result.stderr)))
-                log("jarvis: satellite=status cause=" + (result.kind === "exited" ? "exit-" + result.code : result.reason));
-            return { kind: "unavailable", host: hostOf(value), cause: "package" };
+            // A package older than the satellite contract refuses the verb
+            // on every read, which the reading names; any other failure of
+            // a session program that is there is logged.
+            if (result.kind === "exited" && ARGUMENTS.test(result.stderr)) return { kind: "unavailable", host: hostOf(value), cause: "package-old" };
+            log("jarvis: satellite=status cause=" + (result.kind === "exited" ? "exit-" + result.code : result.reason));
+            return { kind: "unavailable", host: hostOf(value), cause: "package-unread" };
         }
         let answer = null;
         try { answer = JSON.parse(result.stdout.trim()); }
@@ -188,18 +190,24 @@ function create({ home, mainHost, environment, publish, log, clock = CLOCK, run 
             if (closed || own !== controller) return;
             controller = null;
             log("jarvis: satellite=status cause=" + (error.code || "unexpected"));
-            show({ kind: "unavailable", host: hostOf(mainHost()), cause: "package" });
+            show({ kind: "unavailable", host: hostOf(mainHost()), cause: "package-unread" });
         });
     }
 
     // Hand Main Jarvis host, as the setting reads now, to the package of the
     // ready home, one choice at a time in the order chosen, then read once.
-    function choose() {
+    // FIELD is the setting the user chose, "mainHost" or "home". Only a
+    // choice of Main Jarvis host clears the package's main: a Home choice
+    // while the field is empty hands nothing, since that home's package
+    // may name a main set by hand in its private env file (the package's
+    // README), which VGS never reads.
+    function choose(field) {
         setting = setting.then(async () => {
             if (closed) return;
             choosing = true;
             try {
                 stopRead();
+                if (field === "home" && mainHost() === "") return;
                 rejected = null;
                 const location = locate();
                 if (location.kind === "blocked") {
@@ -212,7 +220,8 @@ function create({ home, mainHost, environment, publish, log, clock = CLOCK, run 
                 const result = await session(location, ["main-host", "--set=" + chosen], LOCAL_MS);
                 if (result.kind === "exited" && result.code === 0) return;
                 // A setter that is absent stores nothing and says so; the
-                // status read then names the setting it has not taken.
+                // status read then names the package as older than the
+                // contract.
                 if (result.kind === "exited" && ARGUMENTS.test(result.stderr)) {
                     log("jarvis: satellite=main-host cause=setter-absent");
                     return;

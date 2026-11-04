@@ -446,8 +446,8 @@ Item {
 
         // The main Jarvis's reading draws one line on Now alone, in the
         // warning colour while the route cannot forward or the main did not
-        // answer, linking where an unavailable route is fixed; before the
-        // first reading none shows.
+        // answer, linking where an unavailable route is fixed and nowhere
+        // for a package VGS cannot fix; before the first reading none shows.
         function test_main_reach_line_data() {
             const unavailable = cause => ({ kind: "unavailable", host: "cachy", cause: cause });
             return [
@@ -457,7 +457,8 @@ Item {
                 { tag: "uncontacted", reach: { kind: "satellite", host: "cachy", reachable: null, cause: "" }, shown: true, warning: false, link: "" },
                 { tag: "unanswered", reach: { kind: "satellite", host: "cachy", reachable: false, cause: "main-unreachable" }, shown: true, warning: true, link: "" },
                 { tag: "setting", reach: { kind: "satellite", host: "cachy", reachable: null, cause: "setting-invalid" }, shown: true, warning: true, link: "page:vgs.jarvis/Settings/mainHost" },
-                { tag: "untaken", reach: unavailable("setting-untaken"), shown: true, warning: true, link: "page:vgs.jarvis/Settings/mainHost" },
+                { tag: "old", reach: unavailable("package-old"), shown: true, warning: true, link: "" },
+                { tag: "unanswering", reach: unavailable("package-unread"), shown: true, warning: true, link: "" },
                 { tag: "package", reach: unavailable("package"), shown: true, warning: true, link: "page:vgs.jarvis/Setup/sessionStart" },
                 { tag: "vgs-package", reach: unavailable("vgs-package"), shown: true, warning: true, link: "page:vgs.jarvis/Settings/home" },
                 { tag: "home-link", reach: unavailable("home-link"), shown: true, warning: true, link: "page:vgs.jarvis/Settings/home" },
