@@ -305,12 +305,21 @@ Item {
     // waits on its stdin for `frozen`, written once every output shows its
     // frame, or `freeze-refused <reply>` when the core refuses the hold. The
     // hold ends at the worker's `thaw`, at the job's end and with this
-    // instance, so no freeze outlives its selection.
-    function freeze(job) {
+    // instance, so no freeze outlives its selection. A worker that asks for
+    // the still also gets `still <frames JSON>` once the core wrote the held
+    // frame, or `still-failed <reason>`, and crops its image from those
+    // frames; CURSOR puts the pointer in them.
+    function freeze(job, still, cursor) {
         if (activeJob !== job) return;
         thaw(freezeJob);
         freezeJob = job;
-        const reply = shell.screencopy.freeze(answer => { if (root.freezeJob === job && answer === "ok") job.write("frozen\n"); });
+        const done = answer => { if (root.freezeJob === job && answer === "ok") job.write("frozen\n"); };
+        const frames = answer => {
+            if (root.freezeJob !== job) return;
+            if (typeof answer === "string") job.write("still-failed " + (answer.startsWith("failed: still=") ? answer.slice(14) : answer) + "\n");
+            else job.write("still " + JSON.stringify(answer) + "\n");
+        };
+        const reply = still ? shell.screencopy.freeze(done, { still: frames, cursor: cursor }) : shell.screencopy.freeze(done);
         if (reply === "ok") return;
         freezeJob = null;
         job.write("freeze-refused " + reply + "\n");
@@ -335,7 +344,7 @@ Item {
             restoreFocus(job);
             break;
         case "freeze":
-            freeze(job);
+            freeze(job, event.still === true, event.cursor === true);
             break;
         case "thaw":
             thaw(job);

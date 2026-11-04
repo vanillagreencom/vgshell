@@ -7,6 +7,7 @@ No inherited desktop, bus or device environment reaches an offline child.
 """
 import json
 import ctypes
+import fcntl
 import math
 import runpy
 import os
@@ -19,6 +20,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import termios
 import time
 from unittest.mock import patch
 import zlib
@@ -26,9 +28,82 @@ import zlib
 REPO = Path(__file__).resolve().parent.parent
 HELPER = REPO / "shell/plugins/vgs.capture/helper/capture.py"
 FIXTURE = REPO / "scripts/smoke/fixtures/capture/tools.py"
+BANDS = REPO / "shell/Core/FreezeBands.js"
+LIBRARY = REPO / "bin/lib/qml-library.js"
 TOOLS = ("grim", "slurp", "hyprctl", "tesseract", "wl-copy", "gpu-screen-recorder", "ffmpeg", "pw-dump")
 # The actions whose worker asks the service for the screen freeze.
 FREEZING = ("screenshot-area", "screenshot-window", "screenshot-display", "record", "record-window", "record-display", "text")
+# The actions whose worker crops its image from the freeze's held frame.
+STILLS = ("screenshot-area", "screenshot-window", "screenshot-display", "text")
+PLANS = {}
+
+
+def band_plans(asks):
+    """FreezeBands.frame(width, height, own, at) for each ask, from the
+    core's own file under node, so each frame here is cut into the bands
+    the core writes."""
+    missing = [ask for ask in dict.fromkeys(asks) if ask not in PLANS]
+    if missing:
+        script = "const {load} = require(process.argv[1]); const bands = load(process.argv[2]); console.log(JSON.stringify(JSON.parse(process.argv[3]).map(ask => bands.frame(...ask))));"
+        done = subprocess.run(["node", "-e", script, str(LIBRARY), str(BANDS), json.dumps(missing)], capture_output=True, text=True, timeout=30, check=True)
+        PLANS.update(zip(missing, json.loads(done.stdout)))
+    return [PLANS[ask] for ask in asks]
+
+
+def write_frame(folder, name, ratio, plan, row):
+    """One frame as the core writes it: PLAN's bands as PPM files under
+    FOLDER, ROW(y) giving device row y's RGB bytes. Its still answer entry."""
+    bands, top = [], 0
+    for index, band in enumerate(plan["bands"]):
+        path = folder / f"{name}-{ratio}-{index}.ppm"
+        path.write_bytes(b"P6\n%d %d\n255\n" % (plan["width"], band["height"]) + b"".join(row(y) for y in range(top, top + band["height"])))
+        bands.append({"path": str(path), "rows": band["height"]})
+        top += band["height"]
+    return {"ratio": ratio, "width": plan["width"], "height": plan["height"], "bands": bands}
+
+
+def layout_row(x, y, width):
+    """WIDTH pixels of the fixture layout's row Y from column X: the pixel
+    at x,y is (x, y, x + 2y), each mod 256."""
+    return bytes(v for i in range(x, x + width) for v in (i % 256, y % 256, (i + 2 * y) % 256))
+
+
+def core_screens(outputs):
+    """Each output as the core sees its screen: (name, x, y, logical width,
+    logical height, ratio in 120ths), from Hyprland's readings."""
+    screens = []
+    for output in outputs:
+        width, height = round(output["width"] / output["scale"]), round(output["height"] / output["scale"])
+        mode = output["width"]
+        if output["transform"] % 2:
+            width, height, mode = height, width, output["height"]
+        screens.append((output["name"], output["x"], output["y"], width, height, round(mode / width * 120)))
+    return screens
+
+
+def still_line(root, outputs, drop=None):
+    """The service's `still` line for OUTPUTS, Hyprland's readings as the
+    service sends them, with the band files the core would write under
+    ROOT/frames: each output's frame at its own ratio and at every greater
+    one in the layout, its pixels the fixture layout's at that ratio, so a
+    crop of it holds the pixels fixture_crop names. DROP names an output
+    the answer leaves out."""
+    rects = core_screens(outputs)
+    left, top = min(r[1] for r in rects), min(r[2] for r in rects)
+    ratios = sorted({r[5] for r in rects})
+    plans = iter(band_plans([(w, h, own, at) for _, _, _, w, h, own in rects for at in ratios if at >= own]))
+    folder = root / "frames"
+    folder.mkdir(parents=True, exist_ok=True)
+    screens = []
+    for name, x, y, width, height, own in rects:
+        frames = []
+        for at in [ratio for ratio in ratios if ratio >= own]:
+            plan = next(plans)
+            ox, oy = (math.floor(v * at / 120 + 0.5) for v in (x - left, y - top))
+            frames.append(write_frame(folder, name, at, plan, lambda row, ox=ox, oy=oy, width=plan["width"]: layout_row(ox, oy + row, width)))
+        if name != drop:
+            screens.append({"name": name, "x": x, "y": y, "width": width, "height": height, "frames": frames})
+    return b"still " + json.dumps({"screens": screens}).encode() + b"\n"
 
 
 def release_deadline_holds(helper):
@@ -418,13 +493,16 @@ def events(output):
     return [json.loads(line) for line in output.splitlines()]
 
 
-def answer_freeze(control, payload):
+def answer_freeze(control, payload, root):
     """Write the service's `frozen` into the worker's control pipe CONTROL
-    ahead of its ask, as a service whose freeze shows at once answers; the
-    hyprctl stand-in lists that freeze mapped. freeze_cases answers each ask
-    itself."""
+    ahead of its ask, as a service whose freeze shows at once answers, and
+    for an action that crops from the held frame the `still` line of its
+    outputs, whose band files go under ROOT; the hyprctl stand-in lists that
+    freeze mapped. freeze_cases answers each ask itself."""
     if payload.get("action") in FREEZING:
         os.write(control, b"frozen\n")
+    if payload.get("action") in STILLS and payload.get("outputs"):
+        os.write(control, still_line(root, payload["outputs"]))
 
 
 def thawed(messages):
@@ -472,7 +550,7 @@ def worker(root, payload, helper=HELPER, recording=False, line=None, timeout=10,
     proc = subprocess.Popen([sys.executable, str(helper), json.dumps(payload)], env=environment(root, config), stdin=control, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     os.close(control)
     try:
-        answer_freeze(writer, payload)
+        answer_freeze(writer, payload, root)
         if line is not None:
             wait_for(root / ready, proc)
             os.write(writer, line.encode())
@@ -541,34 +619,32 @@ def png_rows(data):
     return width, height, step, rows
 
 
-def fixture_crop(geometry, outputs):
-    """The fixture grim's layout pixels in GEOMETRY as a PNG reader returns
-    them: the layout's pixel at x,y is (x, y, x + 2y), each mod 256, from
-    the top-left corner of OUTPUTS (scripts/smoke/fixtures/capture/tools.py)."""
+def fixture_crop(geometry, outputs, scale=1):
+    """The fixture layout's pixels in GEOMETRY at SCALE as a PNG reader
+    returns them: the layout's pixel at x,y is (x, y, x + 2y), each mod
+    256, from the top-left corner of OUTPUTS (layout_row)."""
     x, y, w, h = map(int, re.fullmatch(r"(-?\d+),(-?\d+) (\d+)x(\d+)", geometry).groups())
-    left, top = x - min(o["x"] for o in outputs), y - min(o["y"] for o in outputs)
-    return w, h, 3, [bytes(v for i in range(w) for v in ((left + i) % 256, (top + j) % 256, (left + i + 2 * (top + j)) % 256)) for j in range(h)]
+    left, top = (x - min(o["x"] for o in outputs)) * scale, (y - min(o["y"] for o in outputs)) * scale
+    return int(w * scale), int(h * scale), 3, [layout_row(left, top + j, int(w * scale)) for j in range(int(h * scale))]
 
 
 def area_holds(root, payload, helper):
-    """An area capture saves the selected box cropped from the one grim run
-    taken before the selector, and captures nothing after the selection,
-    while the service's pipe stays open."""
+    """An area capture saves the selected box cropped from the held frame
+    the core wrote, and runs no grim before or after the selection, while
+    the service's pipe stays open."""
     code, output, err = worker(root, payload, helper, timeout=5)
-    rows = calls(root)
-    tools = [row["tool"] for row in rows]
-    grims = [row["args"] for row in rows if row["tool"] == "grim"]
-    fixture = "real" not in json.loads((root / "config.json").read_text())
-    return (code == 0 and output[-1]["event"] == "saved" and grims == [["-t", "ppm", "-"]] and "slurp" in tools and tools.index("grim") < tools.index("slurp")
+    tools = [row["tool"] for row in calls(root)]
+    return (code == 0 and output[-1]["event"] == "saved" and "grim" not in tools and "slurp" in tools
+            and output[0] == {"event": "freeze", "still": True, "cursor": False}
             and Path(output[-1]["path"]).is_file() and not alive(root, "slurp") and thawed(output)
-            and (not fixture or png_rows(Path(output[-1]["path"]).read_bytes()) == fixture_crop("10,20 80x60", payload["outputs"])))
+            and png_rows(Path(output[-1]["path"]).read_bytes()) == fixture_crop("10,20 80x60", payload["outputs"]))
 
 
 def freeze_released_holds(root, payload, config, helper):
     """The capture PID becomes the clipboard provider after releasing its freeze."""
     proc = subprocess.Popen([sys.executable, str(helper), json.dumps(payload)], env=environment(root, config), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
-        answer_freeze(proc.stdin.fileno(), payload)
+        answer_freeze(proc.stdin.fileno(), payload, root)
         names = []
         while not names or names[-1] not in ("saved", "copied", "cancelled", "error"):
             line = proc.stdout.readline()
@@ -626,7 +702,7 @@ def killed_owner_holds(root, payload, config, helper=HELPER):
     proc = subprocess.Popen([sys.executable, str(helper), json.dumps(payload)], env=environment(root, config), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     pid = None
     try:
-        answer_freeze(proc.stdin.fileno(), payload)
+        answer_freeze(proc.stdin.fileno(), payload, root)
         deadline = time.monotonic() + 5
         while not list(root.glob(ready + "*")) and proc.poll() is None and time.monotonic() < deadline:
             time.sleep(0.01)
@@ -681,18 +757,22 @@ def choice_holds(root, helper, payload, geometry=None, boxes=None, cursor=False,
     if code != 0 or not messages:
         return False
     grims = [row["args"] for row in calls(root) if row["tool"] == "grim"]
-    if not grims:
-        return False
-    args = grims[-1]
     if selection and payload["action"] != "screenshot-all":
-        # One grim run before the selector, then a crop of it.
+        # No grim at all: a crop of the held frame the core wrote, which
+        # carries the pointer when the freeze asked for it.
         image = Path(messages[-1]["path"]).read_bytes() if messages[-1].get("path") else (root / "clipboard").read_bytes() if (root / "clipboard").exists() else b""
-        if len(grims) != 1 or not image.startswith(b"\x89PNG") or (geometry is not None and png_rows(image) != fixture_crop(geometry, payload["outputs"])):
+        if grims or not image.startswith(b"\x89PNG") or (geometry is not None and png_rows(image) != fixture_crop(geometry, payload["outputs"])):
             return False
-    elif geometry is not None and args[:2] != ["-g", geometry]:
-        return False
-    if ("-c" in args) != cursor:
-        return False
+        if messages[0] != {"event": "freeze", "still": True, "cursor": cursor}:
+            return False
+    else:
+        if not grims:
+            return False
+        args = grims[-1]
+        if geometry is not None and args[:2] != ["-g", geometry]:
+            return False
+        if ("-c" in args) != cursor:
+            return False
     if selection and [message["event"] for message in messages] != ["freeze", "selection-ended", "thaw", "copied" if processing == "copy" else "saved"]:
         return False
     if boxes is not None:
@@ -716,7 +796,7 @@ def delay_holds(root, payload, helper, cancel=False, acknowledge=True, cancel_af
     proc = subprocess.Popen([sys.executable, str(helper), json.dumps(payload)], env=environment(root, config),
                             stdin=control, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     os.close(control)
-    answer_freeze(writer, payload)
+    answer_freeze(writer, payload, root)
     observed = []
     valid = True
     started = time.monotonic()
@@ -767,7 +847,7 @@ def held_grim_cancel_holds(root, payload, helper):
     proc = subprocess.Popen([sys.executable, str(helper), json.dumps(payload)], env=environment(root, config), stdin=control, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     os.close(control)
     try:
-        answer_freeze(writer, payload)
+        answer_freeze(writer, payload, root)
         wait_for(root / "grim-ready", proc)
         os.write(writer, b"cancel\n")
         (root / "grim-release").touch()
@@ -835,27 +915,24 @@ def screenshot_choices(base, source):
             {"x": 0, "y": 20, "width": 320, "height": 180, "scale": 1, "transform": 0, "name": "NESTED"},
         ]
         assert choice_holds(root, HELPER, payload, geometry=expected, selection=False), name
-    # A selection on a scaled output: one grim run per output scale before
-    # the selector, `-s` only below the greatest, and an image at the box's
-    # size times the scale of the outputs it meets. The fixture grim writes
-    # one frame whatever `-s` says, so the rows read grim's arguments and
-    # the image's size.
+    # A selection on a scaled output: no grim run, and an image at the
+    # box's size times the greatest scale of the outputs it meets, each
+    # output's part from its frame at that scale.
     def scaled_rows_hold(helper):
         left = {"x": -320, "y": 0, "width": 640, "height": 480, "scale": 2, "transform": 0, "name": "LEFT"}
         nested = {"x": 0, "y": 0, "width": 320, "height": 240, "scale": 1, "transform": 0, "name": "NESTED"}
-        mixed = [["-s", "1.0", "-t", "ppm", "-"], ["-t", "ppm", "-"]]
-        for name, outputs, geometry, runs, size in [
-            ("mixed-scaled", [left, nested], "-300,20 80x60", mixed, (160, 120)),
-            ("mixed-plain", [left, nested], "10,20 80x60", mixed, (80, 60)),
-            ("scaled", [dict(left, x=0)], "10,20 80x60", [["-t", "ppm", "-"]], (160, 120)),
+        for name, outputs, geometry, scale in [
+            ("mixed-scaled", [left, nested], "-300,20 80x60", 2),
+            ("mixed-plain", [left, nested], "10,20 80x60", 1),
+            ("mixed-spanning", [left, nested], "-20,20 40x30", 2),
+            ("scaled", [dict(left, x=0)], "10,20 80x60", 2),
         ]:
             root = world(name + "-" + Path(helper).stem, geometry=geometry)
             payload = request(root, "screenshot-area")
             payload["outputs"] = outputs
             code, messages, err = worker(root, payload, helper)
             data = Path(messages[-1]["path"]).read_bytes() if code == 0 and messages and messages[-1].get("path") else b""
-            grims = sorted(row["args"] for row in calls(root) if row["tool"] == "grim")
-            if grims != sorted(runs) or data[:8] != b"\x89PNG\r\n\x1a\n" or struct.unpack(">II", data[16:24]) != size:
+            if tool_calls(root, "grim") or not data.startswith(b"\x89PNG\r\n\x1a\n") or png_rows(data) != fixture_crop(geometry, outputs, scale):
                 return False
         return True
     assert scaled_rows_hold(HELPER), "a selection on a scaled output"
@@ -868,12 +945,12 @@ def screenshot_choices(base, source):
         if processing == "save":
             (root / "bin/wl-copy").unlink()
         assert choice_holds(root, HELPER, payload, cursor=cursor, processing=processing, selection=False), name
-    # A selection's cursor is drawn where it stood at the press, in the one
-    # grim run before the selector.
+    # A selection's cursor setting asks the core for the pointer in the held
+    # frame the selection is cropped from.
     root = world("cursor-area")
     payload = request(root, "screenshot-area")
     payload["cursor"] = True
-    assert choice_holds(root, HELPER, payload, geometry="10,20 80x60", cursor=True), "the cursor option reaches the selection's grim run"
+    assert choice_holds(root, HELPER, payload, geometry="10,20 80x60", cursor=True), "the cursor option reaches the freeze's still"
     root = world("copy-ignores-save-folder")
     payload = request(root, "screenshot")
     payload.update(processing="copy", folder="relative")
@@ -909,9 +986,9 @@ def screenshot_choices(base, source):
         payload["delay"] = 1
         assert delay_holds(root, payload, HELPER if acknowledge else quick, cancel=cancel, acknowledge=acknowledge,
                            cancel_after_hidden=cancel_after_hidden), name
-    for action in ("screenshot", "screenshot-area"):
-        root = world("timeout-" + action, grimHold=True)
-        assert timeout_holds(root, quick, action), action
+    # A held grim run; a selection runs none.
+    root = world("timeout-screenshot", grimHold=True)
+    assert timeout_holds(root, quick, "screenshot"), "screenshot"
     # A cancel while a screenshot's file is written.
     for kind, (action, call) in HELD_CANCELS.items():
         root = world(kind, grimHeldCall=call)
@@ -926,13 +1003,11 @@ def screenshot_choices(base, source):
         ("display-boxes", 'boxes = outputs\n', 'boxes = windows\n', "display"),
         ("all-bounds", 'args = ["grim", "-g", f"{left},{top} {right - left}x{bottom - top}"]', 'args = ["grim", "-o", request["output"]]', "all"),
         ("no-scale", 'width = round(output["width"] / output["scale"])', 'width = round(output["width"])', "scale"),
-        # Every output's frame taken at the greatest scale.
-        ("one-scale-frame", '([] if scale == greatest else ["-s", repr(scale)])', '[]', "scaled"),
         # Every output read at scale 1.
         ("unscaled-crop", '"scale": mode / width}', '"scale": 1.0}', "scaled"),
         ("no-rotation", 'if output["transform"] in (1, 3, 5, 7):', 'if False:', "rotation"),
         ("no-cursor", 'args = args + (["-c"] if request.get("cursor", False) else [])', 'args = args', "cursor"),
-        ("no-still-cursor", 'self.still(request["outputs"], cursor=request.get("cursor", False))', 'self.still(request["outputs"])', "still-cursor"),
+        ("no-still-cursor", 'outputs=outputs, cursor=request.get("cursor", False)', 'outputs=outputs', "still-cursor"),
         ("copy-saves", 'if processing == "copy":', 'if False:', "copy"),
         ("save-copies", 'if processing != "save":', 'if True:', "save"),
         ("no-delay", 'if not self.countdown(delay):', 'if False:', "delay"),
@@ -956,8 +1031,8 @@ def screenshot_choices(base, source):
             payload[setting] = value
             holds = refusal_holds(root, helper, payload, kind)
         elif kind.startswith("empty-"):
-            # A window selection with no window refuses before any tool runs,
-            # the still frame of the outputs included.
+            # A window selection with no window refuses before any tool runs
+            # or any freeze is asked.
             if kind == "empty-selection":
                 payload.update(action="screenshot-window", windows=[])
             else:
@@ -1024,7 +1099,7 @@ def screenshot_choices(base, source):
 
 TUI = HELPER.parent.parent / "tui/install-languages.sh"
 # The action and grim run a held cancel arrives in: a screenshot file's own
-# run. A selection's one run comes before the freeze, which reads a cancel.
+# run. A selection runs no grim.
 HELD_CANCELS = {"written-cancel": ("screenshot", 1)}
 WEBCAM = ";halign=end;valign=end;x=-48;y=-48;width=22%;height=22%;camera_fps=30"
 OUTPUTS = [{"x": -160, "y": -40, "width": 160, "height": 240, "name": "LEFT", "scale": 1, "transform": 0},
@@ -1251,7 +1326,7 @@ def capture_sequence(root, helper=HELPER, output="NESTED"):
         config = json.loads((root / "config.json").read_text())
         proc = subprocess.Popen([sys.executable, str(helper), json.dumps(payload)], env=environment(root, config),
                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        answer_freeze(proc.stdin.fileno(), payload)
+        answer_freeze(proc.stdin.fileno(), payload, root)
         lines, observed, completed, grims_before = Lines(proc.stdout), [], None, None
         try:
             deadline = time.monotonic() + 8
@@ -1911,12 +1986,15 @@ def recording_functions(base, source):
             "notice-unstyled,notice-imageless,notice-buttonless,notice-pathless")
 
 
-def freeze_wait(root, helper, answer):
-    """One area capture whose freeze ask gets ANSWER, bytes, None for none,
-    or b"" for EOF, once the worker has asked and before it runs any tool:
-    (asked first, exit, event names), or None for a worker still running
-    after 5 s."""
+def freeze_wait(root, helper, answer, outputs=None):
+    """One area capture whose freeze ask gets ANSWER, bytes in which
+    `{still}` stands for the still line of the capture's outputs, None for
+    none, or b"" for EOF, once the worker has asked and before it runs any
+    tool: (asked first, exit, event names), or None for a worker still
+    running after 5 s. OUTPUTS replaces the request's outputs."""
     payload = request(root, "screenshot-area")
+    if outputs is not None:
+        payload["outputs"] = outputs
     (root / "clipboard").write_bytes(b"previous clipboard")
     control, writer = os.pipe()
     proc = subprocess.Popen([sys.executable, str(helper), json.dumps(payload)], env=environment(root, json.loads((root / "config.json").read_text())),
@@ -1932,7 +2010,7 @@ def freeze_wait(root, helper, answer):
             os.close(writer)
             writer = None
         elif answer is not None:
-            os.write(writer, answer)
+            os.write(writer, answer.replace(b"{still}", still_line(root, payload["outputs"])) if b"{still}" in answer else answer)
         while not lines.closed and time.monotonic() < deadline:
             names += [message["event"] for message in lines.read(0.05)]
         if not lines.closed:
@@ -1947,10 +2025,67 @@ def freeze_wait(root, helper, answer):
         proc.communicate(timeout=5)
 
 
+def pipe_drained(writer, deadline):
+    """Whether the reader took every byte written to the pipe WRITER before
+    DEADLINE: Linux answers FIONREAD on either end of a pipe with the bytes
+    it holds (pipe(7))."""
+    held = bytearray(4)
+    while time.monotonic() < deadline:
+        fcntl.ioctl(writer, termios.FIONREAD, held)
+        if int.from_bytes(held, sys.byteorder) == 0:
+            return True
+        time.sleep(0.01)
+    return False
+
+
+def still_timing_holds(root, helper, when):
+    """An area capture whose still line comes WHEN: `pick`, read while the
+    selector runs, proved by the pipe draining before the selector is
+    released, after which the box is saved from that line's frames; or
+    `cancel`, never, with a cancel once the selection ended, which ends
+    the capture with no file."""
+    payload = request(root, "screenshot-area")
+    (root / "clipboard").write_bytes(b"previous clipboard")
+    control, writer = os.pipe()
+    proc = subprocess.Popen([sys.executable, str(helper), json.dumps(payload)], env=environment(root, json.loads((root / "config.json").read_text())),
+                            stdin=control, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    os.close(control)
+    try:
+        lines, names = Lines(proc.stdout), []
+        deadline = time.monotonic() + 5
+        os.write(writer, b"frozen\n")
+        wait_for(root / "slurp-ready", proc)
+        if when == "pick":
+            os.write(writer, still_line(root, payload["outputs"]))
+            if not pipe_drained(writer, deadline):
+                return False
+        (root / "slurp-release").touch()
+        while not lines.closed and time.monotonic() < deadline:
+            names += [message["event"] for message in lines.read(0.05)]
+            if when == "cancel" and names[-1:] == ["selection-ended"]:
+                os.write(writer, b"cancel\n")
+                when = "cancelled"
+        if not lines.closed:
+            return False
+        proc.wait(timeout=5)
+        pictures = list((root / "pictures").glob("*.png"))
+        if when == "pick":
+            return (proc.returncode == 0 and names == ["freeze", "selection-ended", "thaw", "saved"] and len(pictures) == 1
+                    and png_rows(pictures[0].read_bytes()) == fixture_crop("10,20 80x60", payload["outputs"]))
+        return (proc.returncode == 0 and names == ["freeze", "selection-ended", "thaw", "cancelled"] and not pictures
+                and (root / "clipboard").read_bytes() == b"previous clipboard")
+    finally:
+        os.close(writer)
+        if proc.poll() is None:
+            proc.kill()
+        proc.communicate(timeout=5)
+
+
 def freeze_cases(base, world):
     """The worker's side of the freeze handshake: it asks before the selector
     runs, starts the selector only after `frozen` and the service's freeze
-    layer mapped on every output, and ends the hold on every path."""
+    layer mapped on every output, crops from the held frame whenever its
+    `still` line came, and ends the hold on every path."""
     source = HELPER.read_text()
     bound = "FREEZE_TIMEOUT = 10\n"
     assert source.count(bound) == 1, "freeze bound"
@@ -1959,129 +2094,184 @@ def freeze_cases(base, world):
     shown = ["freeze", "selection-ended", "thaw", "saved"]
     ended = ["freeze", "selection-ended", "thaw", "cancelled"]
     failed = ["freeze", "thaw", "selection-ended", "error"]
+    unwritten = ["freeze", "selection-ended", "thaw", "error"]
+    nested = request(base, "screenshot-area")["outputs"]
+    other = dict(nested[0], name="OTHER", x=320)
+    # name: (answer, layer, exit, events, outputs); `{still}` is the still
+    # line, here during frozen()'s layer wait or before `frozen`.
     cases = {
-        "frozen": (b"frozen\n", "mapped", 0, shown),
-        "refused": (b"freeze-refused refused: freeze=busy holder=acme.freeze\n", "mapped", 1, failed),
-        "cancel": (b"cancel\n", "mapped", 0, ended),
-        "frozen-cancel": (b"frozen\ncancel\n", "mapped", 0, ended),
-        "unmapped-cancel": (b"frozen\ncancel\n", "unmapped", 0, ended),
-        "eof": (b"", "mapped", 0, ended),
-        "unanswered": (None, "mapped", 1, failed),
-        "unmapped": (b"frozen\n", "unmapped", 1, failed),
-        "absent": (b"frozen\n", "absent", 1, failed),
+        "frozen": (b"frozen\n{still}", "mapped", 0, shown, None),
+        "still-first": (b"{still}frozen\n", "mapped", 0, shown, None),
+        "refused": (b"freeze-refused refused: freeze=busy holder=acme.freeze\n", "mapped", 1, failed, None),
+        "cancel": (b"cancel\n", "mapped", 0, ended, None),
+        "frozen-cancel": (b"frozen\ncancel\n", "mapped", 0, ended, None),
+        "unmapped-cancel": (b"frozen\ncancel\n", "unmapped", 0, ended, None),
+        "eof": (b"", "mapped", 0, ended, None),
+        "unanswered": (None, "mapped", 1, failed, None),
+        "unmapped": (b"frozen\n", "unmapped", 1, failed, None),
+        "absent": (b"frozen\n", "absent", 1, failed, None),
+        "still-failed": (b"frozen\nstill-failed size\n", "mapped", 1, unwritten, None),
+        "unwritten": (b"frozen\n", "mapped", 1, unwritten, None),
     }
+    selected = ("frozen", "still-first", "still-failed", "unwritten")
     def holds(name, text, label):
-        answer, layer, code, wanted = cases[name]
+        answer, layer, code, wanted, outputs = cases[name]
         helper = base / f"freeze-{label}.py"
         helper.write_text(text)
         root = world(f"freeze-{label}", freezeLayer=layer)
-        result = freeze_wait(root, helper, answer)
+        result = freeze_wait(root, helper, answer, outputs)
         if result is None:
             return False
         asked, exit_code, names = result
         pictures = list((root / "pictures").glob("*.png"))
-        delivered = pictures[0].read_bytes() if name == "frozen" and len(pictures) == 1 else b"previous clipboard"
-        return (asked and exit_code == code and names == wanted and bool(tool_calls(root, "slurp")) == (name == "frozen")
-                and len(pictures) == (name == "frozen") and (root / "clipboard").read_bytes() == delivered)
+        delivered = pictures[0].read_bytes() if wanted == shown and len(pictures) == 1 else b"previous clipboard"
+        return (asked and exit_code == code and names == wanted and bool(tool_calls(root, "slurp")) == (name in selected)
+                and len(pictures) == (wanted == shown) and (root / "clipboard").read_bytes() == delivered)
     for name in cases:
         assert holds(name, quick, name), name
+    # A still that holds no frame of an output the box meets fails the capture.
+    root = world("freeze-missing-output")
+    payload_outputs = [nested[0], other]
+    line = still_line(root, payload_outputs, drop=nested[0]["name"])
+    result = freeze_wait(root, base / "freeze-frozen.py", b"frozen\n" + line, payload_outputs)
+    assert result is not None and result[1:] == (1, unwritten) and not list((root / "pictures").glob("*.png")), "missing output"
+    for when in ("pick", "cancel"):
+        assert still_timing_holds(world(f"still-{when}", slurpRelease=True), base / "freeze-frozen.py", when), when
     for name, case, before, after in [
         # The selector starts without the service's answer.
-        ("unawaited-freeze", "unanswered", "self.choose(request, args, boxes, mode) if self.frozen() else None", 'emit("freeze") or self.choose(request, args, boxes, mode)'),
+        ("unawaited-freeze", "unanswered", "self.choose(request, args, boxes, mode) if self.frozen(outputs is not None, cursor) else None", 'emit("freeze") or self.choose(request, args, boxes, mode)'),
         # A listed layer that never mapped read as the freeze.
         ("listed-freeze", "unmapped", ' and layer["alpha"] > 0', ""),
         # Another mapped layer read as the freeze.
         ("any-layer-freeze", "absent", 'layer["namespace"] == FREEZE_LAYER and ', ""),
+        # A still line read during the freeze's layer wait dropped.
+        ("dropped-still", "frozen", "            self.still_answer = line\n", "            pass\n"),
     ]:
         assert quick.count(before) == 1, name
         assert not holds(case, quick.replace(before, after), name), f"control did not fail: {name}"
+    dropping = base / "dropped-still-pick.py"
+    dropping.write_text(quick.replace("            self.still_answer = line\n", "            pass\n"))
+    assert not still_timing_holds(world("dropped-still-pick", slurpRelease=True), dropping, "pick"), "control did not fail: dropped-still-pick"
 
 
 def crop_holds(source):
-    """Still.crop and png give the image `grim -g BOX` writes, from frames
-    sized as grim 1.5.0 sizes a whole-layout run, (int)(extent * scale):
-    each box comes from the frame at the greatest scale of the outputs it
-    meets, at its offset from the layout times that scale rounded half up,
-    kept inside the frame when the box lies inside the layout, and a part
-    no output covers, inside the layout or past its edge, is transparent.
-    Each layout's outputs come through output_rectangles from Hyprland's
-    reading, so the scale it derives is the one grim renders at. A frame's
-    pixel at x,y is (x, y, its mark)."""
+    """Still.crop and png give the image `grim -g BOX` writes, from the band
+    files the core writes for each output, cut as FreezeBands.js cuts them:
+    each box comes at the greatest scale of the outputs it meets, each
+    output's part from its frame at that scale placed at its offset from the
+    box times that scale rounded half up, and a part no output covers,
+    inside the layout or past its edge, is transparent. Each layout's
+    outputs come through output_rectangles from Hyprland's reading, so the
+    scale it derives is the one grim renders at. A frame's pixel at x,y is
+    (x, y, its mark). A band whose file disagrees with the answer is
+    refused."""
     helper = runpy.run_path(str(source))
-    def frame(width, height, mark):
-        red = bytes(x % 256 for x in range(width))
-        rows = []
-        for y in range(height):
-            row = bytearray(width * 3)
-            row[0::3] = red
-            row[1::3] = bytes([y % 256]) * width
-            row[2::3] = bytes([mark]) * width
-            rows.append(bytes(row))
-        return width, height, b"".join(rows)
     def monitor(name, x, y, width, height, scale):
         return {"name": name, "x": x, "y": y, "width": width, "height": height, "scale": scale, "transform": 0}
     # Mixed scales with a gap: A 100x50 at scale 1, B 50x25 at scale 2 lower
-    # right. A 1366x768 panel at 1 beside a 1920x1200 one at 1.25, whose
-    # frame is int(2902 * 1.25) = 3627 wide. A 2560x1440 panel at the scale
-    # Hyprland prints for 2560/1920, 1.3333334.
+    # right. A 1366x768 panel at 1 beside a 1920x1200 one at 1.25, so the
+    # panel also has a frame at 1.25, int(1366 * 1.25 + 0.5) = 1708 wide. A
+    # 2560x1440 panel at the scale Hyprland prints for 2560/1920, 1.3333334.
+    # Each mark tells the outputs apart.
     layouts = {
-        "mixed": ([monitor("A", 0, 0, 100, 50, 1), monitor("B", 100, 10, 100, 50, 2)], {1: (150, 50, 1), 2: (300, 100, 2)}),
-        "fractional": ([monitor("eDP-1", 0, 0, 1366, 768, 1), monitor("DP-1", 1366, 0, 1920, 1200, 1.25)], {1: (2902, 960, 1), 1.25: (3627, 1200, 5)}),
-        "snapped": ([monitor("A", 0, 0, 2560, 1440, 1.3333334)], {2560 / 1920: (2560, 1440, 4)}),
+        "mixed": [monitor("A", 0, 0, 100, 50, 1), monitor("B", 100, 10, 100, 50, 2)],
+        "fractional": [monitor("eDP-1", 0, 0, 1366, 768, 1), monitor("DP-1", 1366, 0, 1920, 1200, 1.25)],
+        "snapped": [monitor("A", 0, 0, 2560, 1440, 1.3333334)],
     }
-    # layout, box, frame scale, pixel offset, size, opaque spans by row
-    # range [(first row, end row, [(first column, end column)...])], None
-    # when every pixel is opaque.
+    marks = {"A": 1, "B": 2, "eDP-1": 3, "DP-1": 5}
+    # layout, box, size, pieces [(output, frame's x and y in the box)],
+    # opaque spans by row range [(first row, end row, [(first column, end
+    # column)...])], None when every pixel is opaque.
     cases = [
-        ("mixed", "10,5 20x10", 1, (10, 5), (20, 10), None),
-        ("mixed", "110,15 20x10", 2, (220, 30), (40, 20), None),
-        ("mixed", "90,20 20x10", 2, (180, 40), (40, 20), None),
-        ("mixed", "90,0 20x15", 2, (180, 0), (40, 30), [(0, 20, [(0, 20)]), (20, 30, [(0, 40)])]),
+        ("mixed", "10,5 20x10", (20, 10), [("A", -10, -5)], None),
+        ("mixed", "110,15 20x10", (40, 20), [("B", -20, -10)], None),
+        ("mixed", "90,20 20x10", (40, 20), [("A", -180, -40), ("B", 20, -20)], None),
+        ("mixed", "90,0 20x15", (40, 30), [("A", -180, 0), ("B", 20, 20)], [(0, 20, [(0, 20)]), (20, 30, [(0, 40)])]),
         # Past the layout's right edge, and past its left and top edges.
-        ("mixed", "140,15 30x10", 2, (280, 30), (60, 20), [(0, 20, [(0, 20)])]),
-        ("mixed", "-10,-5 20x10", 1, (-10, -5), (20, 10), [(0, 5, []), (5, 10, [(10, 20)])]),
-        # The whole 1.25 display, whose offset 1707.5 rounds past the frame.
-        ("fractional", "1366,0 1536x960", 1.25, (1707, 0), (1920, 1200), None),
-        # An offset whose scaled value rounds up: 1367 * 1.25 = 1708.75.
-        ("fractional", "1367,1 100x100", 1.25, (1709, 1), (125, 125), None),
-        ("snapped", "0,0 1920x1080", 2560 / 1920, (0, 0), (2560, 1440), None),
-        ("snapped", "1000,500 920x580", 2560 / 1920, (1333, 667), (1226, 773), None),
+        ("mixed", "140,15 30x10", (60, 20), [("B", -80, -10)], [(0, 20, [(0, 20)])]),
+        ("mixed", "-10,-5 20x10", (20, 10), [("A", 10, 5)], [(0, 5, []), (5, 10, [(10, 20)])]),
+        # The whole 1.25 display, at the layout's right edge.
+        ("fractional", "1366,0 1536x960", (1920, 1200), [("DP-1", 0, 0)], None),
+        # An offset whose scaled value rounds: -1 * 1.25 = -1.25 to -1.
+        ("fractional", "1367,1 100x100", (125, 125), [("DP-1", -1, -1)], None),
+        # Over both panels at 1.25: the 1366 panel's frame at that scale,
+        # whose right edge 1708 - 1625 = 83 meets DP-1's offset 66 * 1.25.
+        ("fractional", "1300,100 100x50", (125, 62), [("eDP-1", -1625, -125), ("DP-1", 83, -125)], None),
+        ("snapped", "0,0 1920x1080", (2560, 1440), [("A", 0, 0)], None),
+        ("snapped", "1000,500 920x580", (1226, 773), [("A", -1333, -667)], None),
     ]
-    stills = {}
-    for name, (monitors, frames) in layouts.items():
-        rects = helper["output_rectangles"](monitors)
-        stills[name] = (helper["Still"](rects, {scale: frame(*size) for scale, size in frames.items()}), frames)
-    for name, box, scale, (ox, oy), (w, h), spans in cases:
-        still, frames = stills[name]
-        fw, fh, _ = frames[scale]
-        data = still.frames[scale][2]
+    with tempfile.TemporaryDirectory(prefix="capture-crop-") as temp:
+        folder = Path(temp)
+        stills, sizes = {}, {}
+        for name, monitors in layouts.items():
+            rects = helper["output_rectangles"](monitors)
+            core = core_screens(monitors)
+            ratios = sorted({screen[5] for screen in core})
+            screens = []
+            for output, x, y, width, height, own in core:
+                frames = []
+                for at, plan in zip([a for a in ratios if a >= own], band_plans([(width, height, own, a) for a in ratios if a >= own])):
+                    mark, columns = marks[output], plan["width"]
+                    red = bytes(c % 256 for c in range(columns))
+                    def row(y, red=red, mark=mark, columns=columns):
+                        line = bytearray(columns * 3)
+                        line[0::3] = red
+                        line[1::3] = bytes([y % 256]) * columns
+                        line[2::3] = bytes([mark]) * columns
+                        return bytes(line)
+                    frames.append(write_frame(folder, name + "-" + output, at, plan, row))
+                    sizes[name, output, at] = (plan["width"], plan["height"])
+                screens.append({"name": output, "x": x, "y": y, "width": width, "height": height, "frames": frames})
+            stills[name] = (rects, {"screens": screens})
+        for name, box, (w, h), pieces, spans in cases:
+            rects, answer = stills[name]
+            ratio = max(screen[5] for screen in core_screens(layouts[name]) if screen[0] in [p[0] for p in pieces])
+            try:
+                width, height, rows, alphas = helper["Still"](rects, answer).crop(box)
+            except (RuntimeError, KeyError, ValueError):
+                return False
+            want = [bytearray(w * 3) for _ in range(h)]
+            for output, dx, dy in pieces:
+                fw, fh = sizes[name, output, ratio]
+                x0, x1 = max(0, dx), min(w, dx + fw)
+                red = bytes((x - dx) % 256 for x in range(x0, x1))
+                for y in range(max(0, dy), min(h, dy + fh)):
+                    part = bytearray((x1 - x0) * 3)
+                    part[0::3] = red
+                    part[1::3] = bytes([(y - dy) % 256]) * (x1 - x0)
+                    part[2::3] = bytes([marks[output]]) * (x1 - x0)
+                    want[y][x0 * 3:x1 * 3] = part
+            want = [bytes(row) for row in want]
+            want_alpha = None
+            if spans is not None:
+                want_alpha = []
+                for first, last, columns in spans:
+                    row = bytearray(w)
+                    for c0, c1 in columns:
+                        row[c0:c1] = b"\xff" * (c1 - c0)
+                    want_alpha += [bytes(row)] * (last - first)
+            if (width, height, rows, alphas) != (w, h, want, want_alpha):
+                return False
+            if w * h > 10000:
+                continue
+            decoded = png_rows(helper["png"](width, height, rows, alphas))
+            if want_alpha is None:
+                wanted = (w, h, 3, want)
+            else:
+                wanted = (w, h, 4, [bytes(v for x in range(w) for v in (*row[x * 3:x * 3 + 3], alpha[x])) for row, alpha in zip(want, want_alpha)])
+            if decoded != wanted:
+                return False
+        # A band whose file holds fewer rows than the answer names.
+        rects, answer = stills["mixed"]
+        short = json.loads(json.dumps(answer))
+        band = short["screens"][0]["frames"][0]["bands"][0]
+        Path(band["path"]).write_bytes(Path(band["path"]).read_bytes()[:-3])
         try:
-            width, height, rows, alphas = still.crop(box)
-        except (RuntimeError, KeyError):
-            return False
-        # The frame's pixels at the offset, black where the box leaves it.
-        x0, x1 = max(0, ox), min(fw, ox + w)
-        want = [bytes((x0 - ox) * 3) + data[(y * fw + x0) * 3:(y * fw + x1) * 3] + bytes((ox + w - x1) * 3) if 0 <= y < fh else bytes(w * 3) for y in range(oy, oy + h)]
-        want_alpha = None
-        if spans is not None:
-            want_alpha = []
-            for first, last, columns in spans:
-                row = bytearray(w)
-                for c0, c1 in columns:
-                    row[c0:c1] = b"\xff" * (c1 - c0)
-                want_alpha += [bytes(row)] * (last - first)
-        if (width, height, rows, alphas) != (w, h, want, want_alpha):
-            return False
-        if w * h > 10000:
-            continue
-        decoded = png_rows(helper["png"](width, height, rows, alphas))
-        if want_alpha is None:
-            wanted = (w, h, 3, want)
-        else:
-            wanted = (w, h, 4, [bytes(v for x in range(w) for v in (*row[x * 3:x * 3 + 3], alpha[x])) for row, alpha in zip(want, want_alpha)])
-        if decoded != wanted:
-            return False
-    return True
+            helper["Still"](rects, short).crop("10,5 20x10")
+        except RuntimeError:
+            return True
+        return False
+
 
 def hyprctl_records(base):
     """The hyprctl stand-in's log holds a call record for every call and,
@@ -2159,6 +2349,14 @@ def main():
         live.write_text(HELPER.read_text().replace(before, "path, child = self.deliver(request, args)"))
         root = world("live-grab")
         assert not area_holds(root, request(root, "screenshot-area"), live), "control: a live grim run after the selection fails the area capture"
+        # The control puts back VGS-2232's first fix: a whole-layout grim run
+        # before the freeze is asked.
+        before = "        ended = False\n        frame = None\n"
+        assert HELPER.read_text().count(before) == 1
+        early = base / "grim-before-freeze.py"
+        early.write_text(HELPER.read_text().replace(before, '        if outputs is not None:\n            self.run(["grim", "-t", "ppm", "-"], timeout=CAPTURE_TIMEOUT, stdout=subprocess.PIPE, stderr=subprocess.PIPE)\n' + before))
+        root = world("grim-before-freeze")
+        assert not area_holds(root, request(root, "screenshot-area"), early), "control: a grim run before the freeze fails the area capture"
         cancels = ("cancel", "escape", "second-press", "record-second-press", "eof")
         for name, action, extra, line, event in [
             ("cancel", "screenshot-area", {"cancel": True}, None, "cancelled"),
@@ -2188,7 +2386,8 @@ def main():
                 assert "fixture failure" in err, "native provider failure reaches Service stderr"
             if name == "text":
                 assert (root / "clipboard").read_bytes() == b"Nested capture text"
-                assert [c["args"] for c in calls(root) if c["tool"] == "grim"] == [["-t", "ppm", "-"]], "text crops the selection from one grim run before it"
+                assert not tool_calls(root, "grim"), "text crops the selection from the held frame, with no grim run"
+                assert messages[0] == {"event": "freeze", "still": True, "cursor": False}, "text asks for the held frame without the pointer"
             if name == "empty-text":
                 assert (root / "clipboard").read_bytes() == b"previous clipboard"
             if name == "ocr-failure":
@@ -2219,13 +2418,17 @@ def main():
             # The layout's greatest scale in place of the box's.
             ("layout-scale", 'scale = max(o["scale"] for o in met)', 'scale = max(o["scale"] for o in self.outputs)'),
             # A part no output covers drawn opaque.
-            ("opaque-gap", "return cw, ch, rows, None if opaque else alphas", "return cw, ch, rows, None"),
-            # A box that leaves the layout refused, as before this crop held it.
-            ("bounds-refusal", "        # The part of the box inside the frame, the rest transparent.\n", "        if ox < 0 or oy < 0 or ox + cw > width or oy + ch > height:\n            raise RuntimeError(\"The selection leaves the captured screen\")\n"),
-            # A box at the layout's edge left a rounded pixel past the frame.
-            ("unclamped", "            ox = min(ox, width - cw)\n", "            pass\n"),
+            ("opaque-gap", "return cw, ch, [bytes(row) for row in rows], None if opaque else [bytes(alpha) for alpha in alphas]", "return cw, ch, [bytes(row) for row in rows], None"),
+            # A box that leaves the layout refused, as before VGS-2232's crop held it.
+            ("bounds-refusal", "        if not met:\n", "        if not met or x < min(o[\"x\"] for o in self.outputs) or y < min(o[\"y\"] for o in self.outputs):\n"),
             # The logical size truncated from Hyprland's printed scale.
             ("truncated-logical", 'width = round(output["width"] / output["scale"])', 'width = int(output["width"] / output["scale"])'),
+            # Every row read from the first band.
+            ("band-order", "index = bisect.bisect_right(self.starts, y) - 1", "index = 0"),
+            # Each output's own frame placed at the box's greater scale.
+            ("own-ratio-crop", "frame = self.frame(output, ratio)", 'frame = self.frame(output, round(output["scale"] * 120))'),
+            # A band file read whatever its header says.
+            ("unchecked-band", 'if match is None or (int(match.group(1)), int(match.group(2))) != (self.width, band["rows"]) or len(data) != match.end() + self.width * band["rows"] * 3:', "if match is None:"),
         ]:
             assert crop_source.count(before) == 1, name
             mutant = base / (name + ".py")
@@ -2306,7 +2509,7 @@ def main():
         # A service teardown kills its helper: no recorder survives that owner.
         root = world("teardown")
         proc = subprocess.Popen([sys.executable, str(HELPER), json.dumps(request(root, "record"))], env=environment(root, {}), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        answer_freeze(proc.stdin.fileno(), request(root, "record"))
+        answer_freeze(proc.stdin.fileno(), request(root, "record"), root)
         deadline = time.monotonic() + 5
         while not (root / "recorder-ready").exists() and proc.poll() is None and time.monotonic() < deadline:
             time.sleep(0.01)
@@ -2342,7 +2545,7 @@ def main():
         assert not killed_owner_holds(root, request(root, "record"), config, helper), "control did not fail: unowned child"
     if unmeasured is None:
         recording_controls += ",no-trim"
-    controls = ("capture-sequence,waiting-clipboard,second-grim,live-grab,layout-scale,opaque-gap,bounds-refusal,unclamped,truncated-logical,provider-completion,exit-keeps-freeze,delay-field-drawn,delay-unsaved,delay-saved-elsewhere,save-unsent,delay-unread,delay-overwritten,timeout-sent,delay-unchecked,undrawn-windows,drawn-window-delegate,model-windows,old-special-id-0.57-empty,raw-ocr-error,no-output,no-clipboard,hard-stop,inherited-stdin,unawaited-freeze,listed-freeze,any-layer-freeze,unowned-child,invalid-delay-accepted,invalid-processing-accepted,empty-selection-accepted,empty-displays-accepted,smart-snap,window-boxes,display-boxes,all-bounds,no-scale,one-scale-frame,unscaled-crop,no-rotation,no-cursor,no-still-cursor,copy-saves,save-copies,no-delay,delay-ignores-cancel,no-timeout,written-ignores-cancel,selector-ignores-cancel,geometry-over-cancel,late-answer-error,no-selection-end," + recording_controls + "," + notification_controls)
+    controls = ("capture-sequence,waiting-clipboard,second-grim,live-grab,grim-before-freeze,layout-scale,opaque-gap,bounds-refusal,truncated-logical,band-order,own-ratio-crop,unchecked-band,provider-completion,exit-keeps-freeze,delay-field-drawn,delay-unsaved,delay-saved-elsewhere,save-unsent,delay-unread,delay-overwritten,timeout-sent,delay-unchecked,undrawn-windows,drawn-window-delegate,model-windows,old-special-id-0.57-empty,raw-ocr-error,no-output,no-clipboard,hard-stop,inherited-stdin,unawaited-freeze,listed-freeze,any-layer-freeze,dropped-still,dropped-still-pick,unowned-child,invalid-delay-accepted,invalid-processing-accepted,empty-selection-accepted,empty-displays-accepted,smart-snap,window-boxes,display-boxes,all-bounds,no-scale,unscaled-crop,no-rotation,no-cursor,no-still-cursor,copy-saves,save-copies,no-delay,delay-ignores-cancel,no-timeout,written-ignores-cancel,selector-ignores-cancel,geometry-over-cancel,late-answer-error,no-selection-end," + recording_controls + "," + notification_controls)
     if unmeasured is not None:
         # The rest passed, but the real post-process could not run: not a pass.
         print(f"test-capture: status=not-measured cause={unmeasured}; controls={controls}")

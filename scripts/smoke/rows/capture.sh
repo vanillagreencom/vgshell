@@ -7,19 +7,40 @@
 # shell.json's restore at the end puts it back as found.
 # SUPER+SHIFT+S is typed on the bind hyprland-consent's wired layer holds.
 # Every selection runs over the core's freeze surface, which the service
-# holds for the worker. With a second output turned a quarter (transform 1,
-# as cachy's DP-2 is), an area selection on each output saves the picked
-# region of the screen as it stood, upright and unstretched, and the
-# clipboard holds the saved bytes; a helper copy that crops a box 40 pixels
-# off fails the turned output's region. A selection is cropped from one grim
-# run taken before the freeze, so a layer the layers fixture shows once the
-# selector maps, its orb animating, stays out of the box saved round it; a
-# helper copy that grims the live screen after the selection, as the helper
-# did before VGS-2232, saves the orb. The shell's hyprctl is the real one
+# holds for the worker, and is cropped from the frames the core writes of
+# that freeze (D118), so no grim runs before or after the selector. At the
+# owner's layout, a 6016x3384 output at scale 2 beside a 5120x2880 one at
+# scale 2 turned a quarter (cachy's DP-1 and DP-2), an area selection on
+# each output saves the picked region of the screen as it stood, upright
+# and unstretched, at scale 2, matching a bare `grim -g BOX` within 1%, and
+# the clipboard holds the saved bytes. A layer the layers fixture shows
+# once the selector maps, its orb animating, stays out of the box saved
+# round it, and so does the selector's wash. Controls: a helper copy that
+# crops a box 40 pixels off, one that grims the live screen after the
+# selection, as the helper did before VGS-2232, and grim's own read of the
+# box under the selector's wash each fail the match; a tree whose turned
+# view is turned twice fails the turned output's region.
+# Each output's written frame, its bands joined, matches grim's read of the
+# output during a still hold; a tree that never moves a band's source
+# rectangle fails it. With the cursor setting on, the saved image holds
+# the pointer where it stood at the press, as `grim -c -g BOX` read it; a
+# tree that reads a pointer frame before it is captured fails the saved
+# image. Nested Hyprland draws the pointer into every capture, so the row
+# cannot show that the drawn freeze holds no still pointer.
+# The GUI busy span while the bands are written is the longest gap between
+# two turns of the shell's GUI event loop, read by the layers fixture's
+# probe (Date.now(), 1 ms), against a ceiling of one frame of the fastest
+# output, 16.7 ms at the nested outputs' 60 Hz, at any CPU pressure, with
+# the pressure and the load printed beside the reading; a tree that saves
+# a whole output in one band exceeds it. Measured on cachy, NVIDIA, nested
+# Hyprland 0.57.0 (VGS-2232 run notes). The row also records the render
+# loop QSG_INFO names, each band's read-back and save, and the time from
+# the press's IPC call to the selector's first buffer, from slurp's
+# libwayland stamps. The shell's hyprctl is the real one
 # again before the end-of-row plugin disables, so no reload they owe runs
 # on the capture stand-in; a control disables capture with the stand-in
 # still in place.
-# inputs: shell/shell.qml shell/Core/ScreenFreeze.qml shell/Hosts/FreezeHost.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.bar/*.qml shell/plugins/vgs.capture/* shell/plugins/vgs.notifications/* shell/plugins/vgs.sysmon/* shell/plugins/vgs.launcher/* shell/Core/HyprlandLayer.* scripts/smoke/rows/hyprland-consent.sh shell/Core/NotificationHub.qml shell/Core/Layers.qml shell/Core/Capabilities.qml shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/IpcRegistry.qml shell/Core/Lifetime.js shell/Core/MonitorLogic.js shell/Core/MonitorState.qml shell/Core/Notices.qml shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Plugins.qml shell/Core/PluginStatus.qml shell/Core/Registry.qml shell/Core/ServiceGate.qml shell/Core/ShortcutRegistry.qml shell/Core/Notifier.qml shell/Core/TuiRecords.qml shell/Core/TuiRunner.qml bin/vgshell-tui shell/Hosts/BarHost.qml shell/Hosts/NoticeHost.qml shell/Hosts/OverlaySurface.qml shell/Hosts/AppWindow.qml shell/Hosts/PluginSlot.qml shell/Hosts/ServiceHost.qml shell/Hosts/Summon* shell/Ui/* shell/Commons/* bin/vgshell-scan bin/lib/check-manifests.js bin/lib/qml-library.js scripts/test-capture.py scripts/smoke/fixtures/capture/* scripts/smoke/rows/layers.sh scripts/smoke/fixtures/plugins/acme.layers/* shell/Hosts/LayerHost.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/ListField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml bin/lib/dbus_wire.py
+# inputs: shell/shell.qml shell/Core/ScreenFreeze.qml shell/Core/FreezeBands.js shell/Hosts/FreezeHost.qml scripts/smoke/fixtures/plugins/acme.freeze/* shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.bar/*.qml shell/plugins/vgs.capture/* shell/plugins/vgs.notifications/* shell/plugins/vgs.sysmon/* shell/plugins/vgs.launcher/* shell/Core/HyprlandLayer.* scripts/smoke/rows/hyprland-consent.sh shell/Core/NotificationHub.qml shell/Core/Layers.qml shell/Core/Capabilities.qml shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/IpcRegistry.qml shell/Core/Lifetime.js shell/Core/MonitorLogic.js shell/Core/MonitorState.qml shell/Core/Notices.qml shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Plugins.qml shell/Core/PluginStatus.qml shell/Core/Registry.qml shell/Core/ServiceGate.qml shell/Core/ShortcutRegistry.qml shell/Core/Notifier.qml shell/Core/TuiRecords.qml shell/Core/TuiRunner.qml bin/vgshell-tui shell/Hosts/BarHost.qml shell/Hosts/NoticeHost.qml shell/Hosts/OverlaySurface.qml shell/Hosts/AppWindow.qml shell/Hosts/PluginSlot.qml shell/Hosts/ServiceHost.qml shell/Hosts/Summon* shell/Ui/* shell/Commons/* bin/vgshell-scan bin/lib/check-manifests.js bin/lib/qml-library.js scripts/test-capture.py scripts/smoke/fixtures/capture/* scripts/smoke/rows/layers.sh scripts/smoke/fixtures/plugins/acme.layers/* shell/Hosts/LayerHost.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/ListField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml bin/lib/dbus_wire.py
 # Expected rectangles come from Hyprland. Disposable copies remove each
 # screenshot choice and the owned tool deadline, and
 # the options window's mode and target choices, its press, its opening focus and its
@@ -302,9 +323,8 @@ capture_selecting() {
   echo False
 }
 # capture_area_png: the saved PNG's size, whether the clipboard holds its
-# bytes, and `still` when the capture's last grim run was the whole layout
-# before the selector, so none ran after it (else that run's arguments)
-# and whether the clipboard holds the same bytes.
+# bytes, and `held` when the capture ran no grim, so it was cropped from
+# the freeze's held frame (else its last grim run's arguments).
 capture_area_png() { python3 - "$capture_state" "$(capture_path)" <<'PY'
 import json, pathlib, struct, sys
 root, path = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
@@ -312,7 +332,7 @@ rows = [json.loads(line) for line in (root / "calls.jsonl").read_text().splitlin
 grims = [row["args"] for row in rows if row["tool"] == "grim"]
 data = path.read_bytes() if path.is_file() else b""
 size = "%dx%d" % struct.unpack(">II", data[16:24]) if data[:8] == b"\x89PNG\r\n\x1a\n" else "none"
-print(size, "clipboard=%s" % ((root / "clipboard").read_bytes() == data), "still" if grims and grims[-1][-3:] == ["-t", "ppm", "-"] else grims[-1:])
+print(size, "clipboard=%s" % ((root / "clipboard").read_bytes() == data), "held" if not grims else grims[-1:])
 PY
 }
 # capture_area_saved: capture_area_png's size and clipboard alone.
@@ -334,9 +354,9 @@ capture_setting() {
   expect_poll "capture setting $1 reaches its service" "$2" capture_setting_value "$1"
 }
 # capture_image_box BOX: True when the last capture saved and copied BOX:
-# screenshot-all hands grim BOX; a selection, cropped from its grim run
-# before the selector, the last, holds the pixels grim reads in BOX now, the screen
-# being at rest, within capture_region_match's 1% bound.
+# screenshot-all hands grim BOX; a selection, which runs no grim, cropped
+# from the freeze's held frame, holds the pixels grim reads in BOX now, the
+# screen being at rest, within capture_region_match's 1% bound.
 capture_image_box() {
   local reference="$capture_state/box-reference.png"
   rm -f -- "${reference:?}"
@@ -354,7 +374,7 @@ size = tuple(map(int, expected.split()[1].split("x")))
 saved = data[:8] == b"\x89PNG\r\n\x1a\n" and struct.unpack(">II", data[16:24]) == size and (root / "clipboard").read_bytes() == data
 if "-g" in args:
     print(saved and args[args.index("-g") + 1] == expected)
-elif not (saved and args[-3:] == ["-t", "ppm", "-"] and reference.is_file()):
+elif grims or not (saved and reference.is_file()):
     print(False)
 else:
     from PIL import Image, ImageChops
@@ -843,9 +863,10 @@ expect "capture takes the focused output" ok ipc vgs.capture invoke screenshot '
 expect_poll "capture finishes the screenshot" idle capture_phase
 expect_poll "screenshot equals the output mode and clipboard bytes" True capture_png
 expect_poll "the completed screenshot keeps its clipboard provider alive" True capture_workers
+: >"$capture_state/calls.jsonl"
 expect "capture takes the selected area" ok ipc vgs.capture invoke screenshot-area ''
 expect_poll "capture finishes the selected area" idle capture_phase
-expect "the area is cropped from the grim run before the selection" "80x60 clipboard=True still" capture_area_png
+expect "the area is cropped from the freeze's held frame, with no grim run" "80x60 clipboard=True held" capture_area_png
 # A background group tab remains mapped and unhidden. Only the drawn tab
 # may reach the selector, even though both tabs have the same rectangle.
 open_toplevel "$sandbox/capture-group-one.log" smoke.capture-group "Capture group one" || fail "capture: the first group tab did not map"
@@ -947,7 +968,7 @@ expect "capture starts a real area selection" ok ipc vgs.capture invoke screensh
 expect "the selection maps above the freeze" True capture_selecting
 drag 100 100 300 250 || fail "capture: the area drag failed"
 expect_poll "the dragged area finishes" idle capture_phase
-expect_poll "the dragged box is saved and copied" "201x151 clipboard=True still" capture_area_png
+expect_poll "the dragged box is saved and copied" "201x151 clipboard=True held" capture_area_png
 expect_poll "the dragged area leaves no selector or freeze" 0 capture_left
 expect_poll "the dragged area unmaps the selection" 0 layer_count selection
 capture_before="$(capture_counts)"
@@ -999,7 +1020,7 @@ capture_press || fail "capture: SUPER+SHIFT+S could not be typed"
 expect "SUPER+SHIFT+S opens a selector after the cancels" True capture_selecting
 drag 100 100 300 250 || fail "capture: the area drag after the cancels failed"
 expect_poll "the capture after the cancels finishes" idle capture_phase
-expect_poll "the capture after the cancels saves its box" "201x151 clipboard=True still" capture_area_png
+expect_poll "the capture after the cancels saves its box" "201x151 clipboard=True held" capture_area_png
 capture_before="$(capture_counts)"
 expect "earlier capture notices expire before the right-click control" 0 capture_wait_cards
 capture_press || fail "capture: SUPER+SHIFT+S could not be typed for the right-click control"
@@ -1238,15 +1259,18 @@ rescan "the restored clipboard command is rescanned"
 expect_poll "the service finds the restored clipboard command" False capture_missing_clipboard
 capture_setting processing '"save-copy"'
 capture_config geometry "\"$capture_target_cx,$capture_target_cy 1x1\""
+: >"$capture_state/calls.jsonl"
 expect "smart capture accepts a tiny selected point" ok ipc vgs.capture invoke screenshot-area ''
 expect_poll "smart capture finishes the selected point" idle capture_phase
 expect "smart capture expands a tiny point to its window" True capture_image_box "$capture_target_box"
 capture_setting smart false
+: >"$capture_state/calls.jsonl"
 expect "plain area capture accepts the same tiny point" ok ipc vgs.capture invoke screenshot-area ''
 expect_poll "plain area capture finishes the selected point" idle capture_phase
 expect "plain area capture keeps the tiny geometry" True capture_image_box "$capture_target_cx,$capture_target_cy 1x1"
 capture_setting smart true
 capture_config geometry "\"$capture_display_x,$capture_display_y 1x1\""
+: >"$capture_state/calls.jsonl"
 expect "smart capture accepts a point outside all windows" ok ipc vgs.capture invoke screenshot-area ''
 expect_poll "smart capture finishes the output point" idle capture_phase
 expect "smart capture expands an empty desktop point to its output" True capture_image_box "$capture_display_box"
@@ -1718,7 +1742,7 @@ changes = {
     "delay": ('if not self.countdown(delay):', 'if False:', 1),
     "cancel-delay": ('if self.cancelled(max(0, deadline - time.monotonic())):\n                    return False', 'if self.read_control(max(0, deadline - time.monotonic())) == "":\n                    return False', 1),
     "cursor": ('args = args + (["-c"] if request.get("cursor", False) else [])', 'args = args', 1),
-    "shifted-crop": ('ox, oy = edge(x - self.left), edge(y - self.top)', 'ox, oy = edge(x - self.left) + 40, edge(y - self.top)', 1),
+    "shifted-crop": ('dx, dy = edge(output["x"] - x), edge(output["y"] - y)', 'dx, dy = edge(output["x"] - x) + 40, edge(output["y"] - y)', 1),
     "live-grab": ('path, child = self.deliver(request, image=png(*frame.crop(picked[0])))', 'path, child = self.deliver(request, args)', 1),
     "copy-only": ('if processing == "copy":', 'if False:', 1),
     "save-only": ('if processing != "save":', 'if True:', 1),
@@ -2345,30 +2369,49 @@ rescan "the original stopped-event service is rescanned"
 expect "capture enables the restored stopped-event service" ok ipc shell setPluginEnabled vgs.capture true
 expect_poll "the restored stopped-event service is built" True record_exists vgs.capture
 expect_poll "the restored service is idle" idle capture_phase
-# The turned layout: a second output right of the first, turned a quarter.
-# A nested Wayland output takes a rule only once it exists, and a reload
-# drops a rule eval alone applied, so the rule also goes in the file and
-# each poll applies it again (screen-freeze sets its output up the same
-# way). A floating mark window on each output gives each picked region an
-# edge, so a frame turned on its output moves the mark out of the region.
+# The owner's layout (VGS-2232): the first output held at 6016x3384 scale 2
+# (cachy's DP-1) and a second at 5120x2880 scale 2 turned a quarter
+# (transform 1, cachy's DP-2) to its right. A nested Wayland output takes a
+# rule only once it exists, and a reload drops a rule eval alone applied, so
+# the rule also goes in the file and each poll applies it again
+# (screen-freeze sets its output up the same way). A floating mark window
+# on each output gives each picked region an edge, so a frame turned on its
+# output moves the mark out of the region. The shell starts again under
+# QSG_INFO=1, so its log names the scene graph's render loop.
 capture_turned=VGS-CAPTURE-TURNED
 capture_first="$(first_name)"
-capture_first_w="$(first_width)"
-capture_turn_rule="hl.monitor({ output = \"$capture_turned\", mode = \"1920x1080@60\", position = \"${capture_first_w}x0\", scale = 1, transform = 1 })"
+read -r capture_first_mode capture_first_scale < <(hypr -j monitors | py_reply 'import json,sys; m=next(m for m in json.load(sys.stdin) if m["name"]==sys.argv[1]); print("%dx%d" % (m["width"], m["height"]), "%g" % m["scale"])' "$capture_first")
+hold_mode "the first output takes the owner's DP-1 mode" "$capture_first" 6016x3384 2
+capture_turn_rule="hl.monitor({ output = \"$capture_turned\", mode = \"5120x2880@60\", position = \"3008x0\", scale = 2, transform = 1 })"
 capture_turned_taken() {
   local reply
   reply="$(hypr eval "$capture_turn_rule")" || { echo eval-failed; return; }
   [[ $reply == ok ]] || { echo eval-refused; return; }
-  hypr -j monitors | py_reply 'import json,sys; m=[o for o in json.load(sys.stdin) if o["name"]==sys.argv[1]]; print("%dx%d@%d,%d transform=%d" % (m[0]["width"], m[0]["height"], m[0]["x"], m[0]["y"], m[0]["transform"]) if m else "absent")' "$capture_turned"
+  hypr -j monitors | py_reply 'import json,sys; m=[o for o in json.load(sys.stdin) if o["name"]==sys.argv[1]]; print("%dx%d@%d,%d transform=%d scale=%g" % (m[0]["width"], m[0]["height"], m[0]["x"], m[0]["y"], m[0]["transform"], m[0]["scale"]) if m else "absent")' "$capture_turned"
 }
 hypr_lua_save capture-turned
 printf '%s\n' "$capture_turn_rule" >>"$home/.config/hypr/hyprland.lua"
 expect "the nested compositor adds the turned output" ok hypr output create wayland "$capture_turned"
-expect_poll "the turned output stands at transform 1 right of the first" "1920x1080@$capture_first_w,0 transform=1" capture_turned_taken
+expect_poll "the turned output stands at transform 1 right of the first" "5120x2880@3008,0 transform=1 scale=2" capture_turned_taken
 capture_turned_outputs=("$capture_first" "$capture_turned")
 capture_turned_names="$(printf '%s\n' "${capture_turned_outputs[@]}" | sort | py_reply 'import json,sys; print(json.dumps(sys.stdin.read().split()))')"
 capture_service_outputs() { capture_read outputs | py_reply 'import json,sys; rows=json.load(sys.stdin) or []; print(json.dumps(sorted(r["name"] for r in rows if not r["disabled"])))'; }
-expect_poll "the capture service lists both outputs" "$capture_turned_names" capture_service_outputs
+# capture_restart TREE NAME [NAME=VALUE...]: the shell started again from
+# TREE, its log NAME, with capture built and idle.
+capture_restart() {
+  local tree="$1" log="$2"
+  shift 2
+  stop_shell || :
+  start_shell "$tree" "$capture_state/$log-shell.log" bar "$@"
+  expect_poll "$log: capture is built again" True record_exists vgs.capture
+  expect_poll "$log: the capture service lists both outputs" "$capture_turned_names" capture_service_outputs
+  expect_poll "$log: capture is idle" idle capture_phase
+}
+capture_restart "$repo" qsg QSG_INFO=1
+capture_render_loop="$({ grep -a -o -m1 'qt.scenegraph.general: [a-z]* render loop' -- "$instance_log" || :; } | sed 's/.*: //')"
+capture_render_loop="${capture_render_loop:-unread}"
+expect "the restarted shell's log names the render loop" True python3 -c 'import sys; print(sys.argv[1] in ("threaded render loop", "basic render loop"))' "$capture_render_loop"
+ok "capture figure: render-loop=[$capture_render_loop] read once from QSG_INFO=1 in the shell's log"
 expect "the mark windows' rule applies" ok hypr eval 'hl.window_rule({ name = "vgs-capture-mark", match = { class = "^smoke\\.capture-mark$" }, float = true, size = { 360, 480 }, move = { 40, 200 } })'
 capture_marks_on() { python3 - "$(hypr -j clients)" "$(hypr -j monitors)" <<'PY'
 import json, sys
@@ -2402,11 +2445,11 @@ x, y, cw, ch = c["at"][0] - 20, c["at"][1] - 20, c["size"][0] + 40, c["size"][1]
 print("%d %d %d %d" % (x, y, cw, ch) if m["x"] <= x and x + cw <= m["x"] + w and m["y"] <= y and y + ch <= m["y"] + h else "outside")
 PY
 }
-# capture_region_match NAME: True when the last saved image and reference
-# NAME have one size and at most 1% of their pixels differ by more than 32
-# in a channel, screen-freeze's frame bound; the mark moved out of its
-# region changes most of it.
-capture_region_match() { python3 - "$(capture_path)" "$capture_state/turned-$1.png" <<'PY'
+# capture_region_match NAME [IMAGE]: True when IMAGE, by default the last
+# saved image, and reference NAME have one size and at most 1% of their
+# pixels differ by more than 32 in a channel, screen-freeze's frame bound;
+# the mark moved out of its region changes most of it.
+capture_region_match() { python3 - "${2:-$(capture_path)}" "$capture_state/turned-$1.png" <<'PY'
 import sys
 from PIL import Image, ImageChops
 one, two = (Image.open(p).convert("RGB") for p in sys.argv[1:])
@@ -2418,12 +2461,40 @@ changed = ImageChops.lighter(ImageChops.lighter(r, g), b).point(lambda v: 255 if
 print(changed <= one.size[0] * one.size[1] // 100)
 PY
 }
-# capture_turned_case TREE OUTPUT: grim's image of OUTPUT's mark box as
-# the screen stands, then a real area selection dragged over that box,
-# saved and copied, with no selector or freeze left. The caller judges the
-# saved image against the reference, turned-TREE-OUTPUT.png.
+# The selector's first buffer: a slurp wrapper that runs the real slurp
+# with WAYLAND_DEBUG=client, its debug lines in slurp-debug, whose
+# libwayland prints each request with the UTC time of day in microseconds.
+python3 - "$capture_state/slurp-timed" "$capture_real_slurp" "$capture_state/slurp-debug" <<'PY'
+import os, shlex, sys
+wrapper, slurp, debug = sys.argv[1:]
+with open(wrapper, "w") as script:
+    script.write("#!/usr/bin/env bash\nWAYLAND_DEBUG=client exec %s \"$@\" 2>%s\n" % (shlex.quote(slurp), shlex.quote(debug)))
+os.chmod(wrapper, 0o755)
+PY
+# capture_first_buffer PRESSED: milliseconds from PRESSED, an
+# $EPOCHREALTIME read before the press's IPC call, to slurp's first buffer
+# on the last of its surfaces, or `unread`.
+capture_first_buffer() { python3 - "$capture_state/slurp-debug" "$1" <<'PY'
+import re, sys
+debug, pressed = sys.argv[1], float(sys.argv[2])
+day = pressed - pressed % 86400
+first = {}
+for line in open(debug, errors="replace"):
+    m = re.search(r"\[(\d\d):(\d\d):(\d\d)\.(\d{6})\].*-> (wl_surface#\d+)\.attach\(", line)
+    if m:
+        t = day + int(m.group(1)) * 3600 + int(m.group(2)) * 60 + int(m.group(3)) + int(m.group(4)) / 1e6
+        first.setdefault(m.group(5), t if t >= pressed - 43200 else t + 86400)
+print("%.0f" % ((max(first.values()) - pressed) * 1000) if first else "unread")
+PY
+}
+# capture_turned_case TREE OUTPUT [wash]: grim's image of OUTPUT's mark box
+# as the screen stands, then a real area selection dragged over that box,
+# saved and copied at the output's scale, with no selector or freeze left.
+# With `wash`, grim also reads the box while the selector is mapped, into
+# turned-TREE-OUTPUT-wash.png. The caller judges the saved image against
+# the reference, turned-TREE-OUTPUT.png.
 capture_turned_case() {
-  local box x y w h
+  local box x y w h pressed
   box="$(capture_turned_box "$2")" || return 1
   [[ $box != outside ]] || { fail "capture: the mark box leaves $2"; return 1; }
   read -r x y w h <<<"$box"
@@ -2432,24 +2503,31 @@ capture_turned_case() {
   nested_input_check "$capture_real_grim" || return 1
   "${shell_env[@]}" "$capture_real_grim" -g "$box" "$capture_state/turned-$1-$2.png" || { fail "capture: the $1 $2 reference failed"; return 1; }
   : >"$capture_state/calls.jsonl"
+  pressed=$EPOCHREALTIME
   expect "$1: capture starts an area selection on $2" ok ipc vgs.capture invoke screenshot-area ''
   expect "$1: the $2 selector maps over the freeze on every output" True capture_selecting
+  ok "capture figure: tree=$1 output=$2 press-to-selector-first-buffer-ms=$(capture_first_buffer "$pressed") (from the row's IPC call, about 21 ms before the service's invoke in the round-2 trace; slurp's libwayland stamps; the round-2 median 453 ms from the invoke)"
+  if [[ ${3:-} == wash ]]; then
+    "${shell_env[@]}" "$capture_real_grim" -g "$box" "$capture_state/turned-$1-$2-wash.png" || { fail "capture: the $1 $2 grim under the selector failed"; return 1; }
+  fi
   drag "$x" "$y" "$((x + w - 1))" "$((y + h - 1))" || fail "capture: the $1 drag over $2 failed"
   expect_poll "$1: the $2 selection finishes" idle capture_phase
-  expect_poll "$1: the $2 box is saved and copied whole" "${w}x$h clipboard=True" capture_area_saved
+  expect_poll "$1: the $2 box is saved and copied whole at scale 2" "$((w * 2))x$((h * 2)) clipboard=True" capture_area_saved
   expect_poll "$1: the $2 selection leaves no selector or freeze" 0 capture_left
 }
-capture_config real "{\"grim\": \"$capture_real_grim\", \"slurp\": \"$capture_real_slurp\"}"
-for capture_turned_output in "${capture_turned_outputs[@]}"; do
-  capture_turned_case turned "$capture_turned_output"
-  expect "the saved $capture_turned_output region is the screen there, upright and unstretched" True capture_region_match "turned-$capture_turned_output"
-done
+capture_config real "{\"grim\": \"$capture_real_grim\", \"slurp\": \"$capture_state/slurp-timed\"}"
+capture_turned_case turned "$capture_first"
+expect "the saved $capture_first region is the screen there" True capture_region_match "turned-$capture_first"
+capture_turned_case turned "$capture_turned" wash
+expect "the saved $capture_turned region is the screen there, upright and unstretched" True capture_region_match "turned-$capture_turned"
+expect "control: grim's read of the box under the selector's wash fails the region" False capture_region_match "turned-$capture_turned" "$capture_state/turned-turned-$capture_turned-wash.png"
 # The overlay box: 160 by 160 round the centre of the first output's
 # unreserved area, which the layers fixture's surface covers (LayerHost.qml)
 # and where its 96-pixel orb (voiceOrb.size) draws. The orb changes about
-# 1000 of the box's pixels (the VGS-2232 trace, nested, 2026-11-02), past
-# capture_region_match's 1% bound. Notifications cards are layers too, so
-# the fixture's own windows are counted.
+# 1000 of the box's pixels at scale 1 (the VGS-2232 trace, nested,
+# 2026-11-02), past capture_region_match's 1% bound, and four times that at
+# scale 2. Notifications cards are layers too, so the fixture's own windows
+# are counted.
 leak_plugin_setup acme.layers true || fail "capture: the layers fixture could not be enabled"
 read -r capture_above_x capture_above_y < <(hypr -j monitors | py_reply 'import json,sys
 m = next(m for m in json.load(sys.stdin) if m["name"] == sys.argv[1])
@@ -2475,15 +2553,203 @@ capture_above_case() {
   expect_poll "$1: the fixture's layer presents its orb" '[true]' layer_presented
   drag "$capture_above_x" "$capture_above_y" "$((capture_above_x + 159))" "$((capture_above_y + 159))" || fail "capture: the $1 drag over the overlay box failed"
   expect_poll "$1: the overlay box selection finishes" idle capture_phase
-  expect_poll "$1: the overlay box is saved and copied whole" "160x160 clipboard=True" capture_area_saved
+  expect_poll "$1: the overlay box is saved and copied whole" "320x320 clipboard=True" capture_area_saved
   expect "$1: the fixture's orb stops" ok layered voice 0
   expect "$1: the fixture's layer leaves" ok layered undraw
   expect_poll "$1: no fixture layer is mapped after the overlay box" 0 capture_fixture_layers
 }
 capture_above_case turned
 expect "a layer shown during the selection stays out of the saved box" True capture_region_match "turned-above"
+# Whole frames: the freeze fixture holds the freeze with the still and no
+# selector, grim reads each output, which shows the freeze, during the
+# hold, and each output's written frame, its bands joined, must match it.
+capture_freeze_plugin="$home/.config/vgshell/plugins/acme.freeze"
+mkdir -p -- "$capture_freeze_plugin"
+cp -R -- "$repo/scripts/smoke/fixtures/plugins/acme.freeze/." "$capture_freeze_plugin/"
+rescan "the freeze fixture enters the registry for the whole frames"
+leak_plugin_setup acme.freeze true || fail "capture: the freeze fixture could not be enabled"
+expect_poll "the freeze fixture's service is built" True record_exists acme.freeze
+capture_stills() { ipc smoke readInstance service acme.freeze stills | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
+# capture_frame_match TREE OUTPUT: whether OUTPUT's newest written frame at
+# its own scale, its bands joined, matches whole-TREE-OUTPUT.png within
+# capture_region_match's bound.
+capture_frame_match() { python3 - "$(ipc smoke readInstance service acme.freeze stills)" "$(hypr -j monitors)" "$2" "$capture_state/whole-$1-$2.png" <<'PY'
+import json, re, sys
+from PIL import Image, ImageChops
+stills, monitors, name, grabbed = json.loads(sys.argv[1]), json.loads(sys.argv[2]), sys.argv[3], sys.argv[4]
+m = next(m for m in monitors if m["name"] == name)
+w = m["height"] if m["transform"] % 2 else m["width"]
+ratio = round(w / round(w / m["scale"]) * 120)
+frame = next(f for s in stills[-1]["screens"] if s["name"] == name for f in s["frames"] if f["ratio"] == ratio)
+pixels = bytearray()
+for band in frame["bands"]:
+    data = open(band["path"], "rb").read()
+    pixels += data[re.match(rb"P6\s\d+\s\d+\s255\s", data).end():]
+one, two = Image.frombytes("RGB", (frame["width"], frame["height"]), bytes(pixels)), Image.open(grabbed).convert("RGB")
+if one.size != two.size:
+    print("size=%dx%d/%dx%d" % (*one.size, *two.size))
+    sys.exit()
+r, g, b = ImageChops.difference(one, two).split()
+changed = ImageChops.lighter(ImageChops.lighter(r, g), b).point(lambda v: 255 if v > 32 else 0).histogram()[255]
+print(changed <= one.size[0] * one.size[1] // 100)
+PY
+}
+# capture_whole_case TREE WANT: a still hold of the freeze fixture, each
+# output read by grim during it, and the written frame matched against it:
+# WANT, True or False.
+capture_whole_case() {
+  local output count
+  count="$(capture_stills)" || return 1
+  expect "$1: the freeze fixture holds the freeze with the still" ok ipc acme.freeze invoke freeze-still ''
+  expect_poll "$1: the freeze fixture's still answers" "$((count + 1))" capture_stills
+  for output in "${capture_turned_outputs[@]}"; do
+    "${shell_env[@]}" "$capture_real_grim" -o "$output" "$capture_state/whole-$1-$output.png" || { fail "capture: the $1 grim of $output failed"; return 1; }
+    expect "$1: $output's written frame is the frozen screen read whole: $2" "$2" capture_frame_match "$1" "$output"
+  done
+  expect "$1: the freeze fixture thaws" ok ipc acme.freeze invoke thaw ''
+  expect_poll "$1: the thaw unmaps every freeze surface" 0 layer_count vgs:freeze
+}
+capture_whole_case whole True
+# The pointer: the bar's flat hand-cursor fixture (capture_cursor_setup)
+# gives a pointer shape every capture draws and a flat colour under it.
+# P1 and P2 lie 40 apart in a 100-wide box over the fixture, as tall as
+# the bar. With the cursor setting on, the image saved after a press with
+# the pointer at P1 holds it there, as `grim -c -g BOX` reads it before
+# the press, though the drag moves it. Nested Hyprland 0.57.0 draws the
+# pointer into every capture, `grim` without -c and a view without
+# paintCursor included (the VGS-2232 run notes, pointer-probe), so a
+# freeze there always shows the pointer where it stood at the hold, and
+# the row cannot show that the drawn freeze holds no still pointer.
+capture_point_setup() {
+  local rect x y w h capture_width capture_height
+  # capture_cursor_setup checks its crop against these, the held mode.
+  read -r capture_width capture_height < <(hypr -j monitors | py_reply 'import json,sys; m=next(m for m in json.load(sys.stdin) if m["name"]==sys.argv[1]); print(m["width"], m["height"])' "$capture_first")
+  capture_cursor_setup || return 1
+  rect="$(capture_cursor_geometry)" || return 1
+  read -r x y w h < <(python3 -c 'import json,sys; print(*json.loads(sys.argv[1]))' "$rect")
+  capture_point_x=$((x + 4)) capture_point_y=$y capture_point_h=$h
+  capture_point_box="$capture_point_x,$capture_point_y 100x$h"
+}
+# capture_point_grim NAME [-c]: grim's image of the pointer box as
+# turned-NAME.png.
+capture_point_grim() {
+  nested_input_check "$capture_real_grim" || return 1
+  "${shell_env[@]}" "$capture_real_grim" ${2:+"$2"} -g "$capture_point_box" "$capture_state/turned-$1.png" || { fail "capture: grim of the pointer box as $1 failed"; return 1; }
+}
+# capture_cursor_case TREE: the saved image's pointer at the press; the
+# caller judges cursor-TREE, the saved image against its reference.
+capture_cursor_case() {
+  expect "$1: earlier capture notices expire before the pointer box" 0 capture_wait_cards
+  capture_cursor_position "$capture_cursor_inside" || fail "capture: parking the pointer at P1 failed"
+  capture_point_grim "cursor-$1" -c || return 1
+  : >"$capture_state/calls.jsonl"
+  expect "$1: capture starts an area selection with the pointer in the box" ok ipc vgs.capture invoke screenshot-area ''
+  expect "$1: the pointer box's selector maps over the freeze" True capture_selecting
+  drag "$capture_point_x" "$capture_point_y" "$((capture_point_x + 99))" "$((capture_point_y + capture_point_h - 1))" || fail "capture: the $1 drag over the pointer box failed"
+  expect_poll "$1: the pointer box selection finishes" idle capture_phase
+  expect_poll "$1: the pointer box is saved and copied whole" "200x$((capture_point_h * 2)) clipboard=True" capture_area_saved
+  cp -- "$(capture_path)" "$capture_state/saved-cursor-$1.png"
+}
+capture_point_setup || fail "capture: the pointer fixture could not be set up"
+capture_point_grim cursorless || fail "capture: the pointer box's cursorless reference failed"
+capture_cursor_case turned
+expect "the pointer at P1 shows in the box grim reads with the cursor" False capture_region_match "cursorless" "$capture_state/turned-cursor-turned.png"
+expect "the saved image holds the pointer where it stood at the press" True capture_region_match "cursor-turned" "$capture_state/saved-cursor-turned.png"
+capture_cursor_release
+capture_setting cursor false
+# The GUI busy span while the bands are written: the layers fixture's GUI
+# probe runs once each turn of the shell's GUI event loop from before the
+# press, and keeps each gap of 4 ms or more between two of its runs
+# (Date.now(), 1 ms), the length of the turn between them; its orb animates
+# on every output meanwhile. The longest gap during the band chain is the
+# longest GUI busy span, which must not exceed one frame of the fastest
+# output. A reading over the frame while the host's CPU pressure from the
+# press to the written still is above latency_pressure_limit is not
+# measured (docs/architecture/validation.md § Latency budgets); a reading
+# within it passes at any pressure. The chain's span and each band's
+# read-back (grab request to
+# callback) and save are the core's own Date.now() stamps in the lending
+# record, read once the still reads written (polled every 200 ms; the
+# stamps do not depend on the poll).
+capture_still_state() { ipc shell lent | py_reply 'import json,sys; s=json.load(sys.stdin)["freeze"]["still"]; print("none" if s is None else s["state"])'; }
+# capture_busy_read TREE: the lending record's still and the probe's
+# reading, into busy-TREE.json.
+capture_busy_read() { python3 - "$(ipc shell lent)" "$(ipc smoke readInstance service acme.layers probe)" "$(hypr -j monitors)" "$capture_state/busy-$1.json" <<'PY2'
+import json, sys
+lent, probe, monitors, out = sys.argv[1:]
+json.dump({"still": json.loads(lent)["freeze"]["still"], "probe": json.loads(probe), "period": 1000 / max(m["refreshRate"] for m in json.loads(monitors))}, open(out, "w"))
+PY2
+}
+# capture_busy_within TREE: `within` when the longest GUI busy span during
+# the chain is at most one frame of the fastest output, else `over`;
+# `uncovered` when the probe did not run across the whole chain.
+capture_busy_within() { python3 - "$capture_state/busy-$1.json" <<'PY2'
+import json, math, sys
+doc = json.load(open(sys.argv[1]))
+bands, (first, last, gaps), period = doc["still"]["bands"], doc["probe"], doc["period"]
+start, end = min(b["askedAt"] for b in bands), max(b["askedAt"] + b["readbackMs"] + b["saveMs"] for b in bands)
+spans = [b - a for a, b in gaps if b > start and a < end]
+# The probe reads whole milliseconds, so the frame is compared in whole
+# ticks, rounded up (validation.md § Latency budgets).
+print(("within" if max(spans, default=0) <= math.ceil(period) else "over") if first and first <= start and last >= end else "uncovered")
+PY2
+}
+capture_busy_figures() { python3 - "$capture_state/busy-$1.json" "$1" <<'PY2'
+import json, statistics, sys
+doc, tree = json.load(open(sys.argv[1])), sys.argv[2]
+bands, (first, last, gaps), period = doc["still"]["bands"], doc["probe"], doc["period"]
+start, end = min(b["askedAt"] for b in bands), max(b["askedAt"] + b["readbackMs"] + b["saveMs"] for b in bands)
+spans = [b - a for a, b in gaps if b > start and a < end]
+for b in bands:
+    print("  ok    capture figure: tree=%s band screen=%s frame=%s rows=%d read-back-ms=%d save-ms=%d" % (tree, b["screen"], b["frame"], b["rows"], b["readbackMs"], b["saveMs"]))
+# Each gap of 8 ms or more from the probe's start to the chain's end, as
+# its start from the chain's start, its length, and the band whose save
+# ran in it, or `-`.
+saves = [(b["askedAt"] + b["readbackMs"], b["askedAt"] + b["readbackMs"] + b["saveMs"], i) for i, b in enumerate(bands)]
+long = [(a - start, b - a, next((str(i) for s, e, i in saves if s < b and e > a), "-")) for a, b in gaps if b - a >= 8 and a < end]
+print("  ok    capture figure: tree=%s gaps-of-8ms-or-more (start from chain start ms, length ms, band)=%s" % (tree, long))
+print("  ok    capture figure: tree=%s bands=%d chain-ms=%d read-back-ms median=%g max=%d save-ms median=%g max=%d longest-gui-busy-ms=%s gaps-of-4ms-or-more=%d frame-ms=%.1f probe-covers-chain=%s (Date.now() stamps, 1 ms)" % (
+    tree, len(bands), end - start, statistics.median(b["readbackMs"] for b in bands), max(b["readbackMs"] for b in bands),
+    statistics.median(b["saveMs"] for b in bands), max(b["saveMs"] for b in bands),
+    max(spans) if spans else "under-4", len(spans), period, bool(first) and first <= start and last >= end))
+PY2
+}
+# capture_busy_case TREE: one area selection, the orb animating from before
+# the press; read once the still is written, then the selection finishes.
+capture_busy_case() {
+  local pressure_us pressed_ms
+  expect "$1: earlier capture notices expire before the busy reading" 0 capture_wait_cards
+  expect "$1: the fixture's orb animates for the probe" ok layered voice 1
+  expect "$1: the fixture shows its layer for the probe" ok layered draw
+  expect_poll "$1: the probe's layer presents its orb" '[true]' layer_presented
+  expect "$1: the probe stamps each swap" ok layered probe 1
+  : >"$capture_state/calls.jsonl"
+  pressure_us="$(cpu_some_us)"
+  pressed_ms="$(now_ms)"
+  expect "$1: capture starts an area selection for the busy reading" ok ipc vgs.capture invoke screenshot-area ''
+  expect "$1: the busy reading's selector maps over the freeze" True capture_selecting
+  expect_poll "$1: the still reads written" written capture_still_state
+  capture_busy_pressure="$(cpu_some_pct "$pressure_us" "$(cpu_some_us)" "$(( $(now_ms) - pressed_ms ))")"
+  ok "capture figure: tree=$1 cpu_some_pct=$capture_busy_pressure load=$(cut -d' ' -f1-3 /proc/loadavg) from the press to the still read written"
+  capture_busy_read "$1" || fail "capture: the $1 busy reading failed"
+  capture_busy_figures "$1" || fail "capture: the $1 busy figures failed"
+  drag "$capture_above_x" "$capture_above_y" "$((capture_above_x + 159))" "$((capture_above_y + 159))" || fail "capture: the $1 busy drag failed"
+  expect_poll "$1: the busy reading's selection finishes" idle capture_phase
+  expect "$1: the probe stops" ok layered probe 0
+  expect "$1: the probe's orb stops" ok layered voice 0
+  expect "$1: the probe's layer leaves" ok layered undraw
+  expect_poll "$1: no probe layer is mapped after the busy reading" 0 capture_fixture_layers
+}
+capture_busy_case turned
+capture_busy_verdict="$(capture_busy_within turned)" || capture_busy_verdict=unread
+case "$capture_busy_verdict:$(latency_pressure_verdict 0 "$capture_busy_pressure" 0)" in
+  within:*) ok "no GUI turn of the band chain runs past one frame of the fastest output" ;;
+  over:unmeasured) not_measured capture "band-chain-gui-busy-cpu_some_pct=$capture_busy_pressure-above-$latency_pressure_limit" ;;
+  *) fail "a GUI turn of the band chain ran past one frame of the fastest output, or went unread: busy=$capture_busy_verdict cpu_some_pct=$capture_busy_pressure" ;;
+esac
 # The controls edit the helper the service runs, its current snapshot.
 capture_helper="$(capture_read helperPath | py_reply 'import json,sys; print(json.load(sys.stdin))')"
+python3 -c 'import pathlib,sys; h=pathlib.Path(sys.argv[1]).resolve(); assert any(h.is_relative_to(pathlib.Path(r).resolve()) for r in sys.argv[2:]), "capture control must stay inside the sandbox or its private runtime"' "$capture_helper" "$sandbox" "$rt_dir"
 cmp -s -- "$capture_state/helper-original.py" "$capture_helper" || fail "capture: the helper before the turned controls differs from the original"
 capture_mutate shifted-crop
 capture_turned_case control "$capture_turned"
@@ -2492,11 +2758,51 @@ capture_mutate live-grab
 capture_above_case control
 expect "control: a live grim run after the selection saves the layer shown during it" False capture_region_match "control-above"
 cp -- "$capture_state/helper-original.py" "$capture_helper"
+# Disposable trees, each a shell of its own. unturned: the turned output's
+# view turned a second time, as screen-freeze's control does, and a whole
+# output in one band.
+copy_tree capture-unturned
+edit_tree capture-unturned shell/Hosts/FreezeHost.qml \
+  $'                anchors.fill: parent\n                captureSource: surface.modelData' \
+  $'                readonly property bool turned: surface.modelData.name === "'"$capture_turned"$'"\n                anchors.centerIn: parent\n                width: turned ? parent.height : parent.width\n                height: turned ? parent.width : parent.height\n                rotation: turned ? 90 : 0\n                captureSource: surface.modelData'
+edit_tree capture-unturned shell/Core/FreezeBands.js 'var BAND_PIXELS = 2000000;' 'var BAND_PIXELS = 1000000000;'
+capture_restart "$sandbox/tree-capture-unturned" unturned
+rest_pointer || fail "capture: parking the pointer failed"
+capture_turned_case unturned "$capture_turned"
+expect "control: a frame turned twice fails the turned output's saved region" False capture_region_match "unturned-$capture_turned"
+capture_busy_case unturned
+expect "control: a whole output saved in one turn runs past one frame" over capture_busy_within unturned
+# unmoved: every band's source rectangle left at the frame's top.
+copy_tree capture-unmoved
+edit_tree capture-unmoved shell/Hosts/FreezeHost.qml \
+  'band.sourceRect = Qt.rect(0, job.band.y, surface.screen.width, job.band.rows);' \
+  'band.sourceRect = Qt.rect(0, 0, surface.screen.width, job.band.rows);'
+capture_restart "$sandbox/tree-capture-unmoved" unmoved
+capture_whole_case unmoved False
+# early-cursor: a screen framed by its plain view alone, the pointer view
+# capturing only once the still is written, so the chain reads it empty.
+copy_tree capture-early-cursor
+edit_tree capture-early-cursor shell/Hosts/FreezeHost.qml \
+  'readonly property bool hasFrame: view.hasContent && (!host.cursor || cursorView.hasContent)' \
+  'readonly property bool hasFrame: view.hasContent'
+edit_tree capture-early-cursor shell/Hosts/FreezeHost.qml \
+  'captureSource: host.cursor ? surface.modelData : null' \
+  'captureSource: host.cursor && ScreenFreeze.still !== null && ScreenFreeze.still.state === "written" ? surface.modelData : null'
+capture_restart "$sandbox/tree-capture-early-cursor" early-cursor
+capture_point_setup || fail "capture: the early-cursor tree's pointer fixture could not be set up"
+capture_cursor_case early-cursor
+expect "control: a pointer frame read before it is captured fails the saved image" False capture_region_match "cursor-early-cursor" "$capture_state/saved-cursor-early-cursor.png"
+capture_setting cursor false
+capture_restart "$repo" restored
+leak_plugin_setup acme.freeze false || fail "capture: the freeze fixture could not be disabled"
+rm -rf -- "${capture_freeze_plugin:?}"
+rescan "the freeze fixture leaves the registry"
 leak_plugin_setup acme.layers false || fail "capture: the layers fixture could not be disabled"
 capture_config real "{\"grim\": \"$capture_real_grim\"}"
 for capture_mark_pid in "${capture_mark_pids[@]}"; do close_toplevel "$capture_mark_pid" "a mark window closes"; done
 expect "the nested compositor removes the turned output" ok hypr output remove "$capture_turned"
 hypr_lua_restore capture-turned
+release_mode "the first output returns to its mode" "$capture_first" "$capture_first_mode" "$capture_first_scale"
 expect_poll "the capture service lists the first output alone" "[\"$capture_first\"]" capture_service_outputs
 expect_poll "the restored service is idle after the turned layout" idle capture_phase
 # A rescan publishes a new snapshot, so later helper controls edit its copy.

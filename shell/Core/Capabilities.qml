@@ -168,7 +168,7 @@ Singleton {
         }),
         screencopy: ctx => ({
             preview: screencopyPreview,
-            freeze: done => ScreenFreeze.freeze(ctx, done),
+            freeze: (done, options) => ScreenFreeze.freeze(ctx, done, options),
             thaw: () => ScreenFreeze.thaw(ctx)
         }),
         shortcut: shortcuts.provider,

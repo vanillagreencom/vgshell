@@ -20,7 +20,14 @@
 # getManagedSession), so the second hold reads a mirror only its damage
 # tracking refreshed. A disposable tree whose surfaces outlive the thaw
 # keeps the first hold's frame and fails the check on both outputs.
-# inputs: scripts/smoke/fixtures/plugins/acme.freeze/* shell/Core/ScreenFreeze.qml shell/Hosts/FreezeHost.qml shell/Core/Capabilities.qml shell/Core/HyprlandLayer.js shell/Core/HyprlandLayer.qml shell/shell.qml themes/catalog/flexoki-light/theme.json
+# A hold that asks for the still gets every output's frame written once it
+# shows: PPM bands of at most 2 MP, each output's device size, in a
+# directory of its own under $XDG_RUNTIME_DIR/vgshell/freeze, mode 0700,
+# which a thaw and a disable remove. A thaw at the hold's done, before any
+# frame is written, gets no still answer, and malformed options are
+# refused. The control tree's end() skips the removal, and the first hold's
+# directory stays.
+# inputs: scripts/smoke/fixtures/plugins/acme.freeze/* shell/Core/ScreenFreeze.qml shell/Core/FreezeBands.js shell/Hosts/FreezeHost.qml shell/Core/Capabilities.qml shell/Core/HyprlandLayer.js shell/Core/HyprlandLayer.qml shell/shell.qml themes/catalog/flexoki-light/theme.json
 set -euo pipefail
 freeze_world="$sandbox/screen-freeze"
 freeze_socket="$(shot_socket "$rt_dir" "$nested_socket")"
@@ -66,6 +73,57 @@ print(json.dumps(sorted(rows)))'; }
 freeze_on_overlay() { hypr -j layers | py_reply 'import json,sys; print(sum(1 for m in json.load(sys.stdin).values() for l in m["levels"].get("3", []) if l["namespace"]=="vgs:freeze" and l["pid"]!=-1))'; }
 freeze_lent() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["freeze"], sort_keys=True))'; }
 freeze_answers() { ipc smoke readInstance service acme.freeze answers | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)))'; }
+# The still: the core owns $XDG_RUNTIME_DIR/vgshell/freeze and makes one
+# directory a hold in it (ScreenFreeze.qml).
+freeze_root="$rt_dir/vgshell/freeze"
+freeze_stills() { ipc smoke readInstance service acme.freeze stills; }
+freeze_still_count() { freeze_stills | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
+freeze_still_dir() { freeze_stills | py_reply 'import json,os,sys; s=json.load(sys.stdin)[-1]; print(os.path.dirname(s["screens"][0]["frames"][0]["bands"][0]["path"]) if isinstance(s, dict) else "answer=" + s)'; }
+freeze_dir_state() { if [[ -e $1 ]]; then echo present; else echo gone; fi; }
+freeze_still_lent() { python3 - "$(ipc shell lent)" "$(freeze_still_dir)" <<'PY'
+import json, sys
+still = json.loads(sys.argv[1])["freeze"]["still"]
+print("absent" if still is None else "%s cursor=%s newest=%s" % (still["state"], still["cursor"], still["dir"] == sys.argv[2]))
+PY
+}
+# freeze_still_files: `ok` when the newest still answer holds, for every
+# output Hyprland lists, a frame at its own scale of its device size, upright,
+# cut into PPM bands of at most 2 MP whose headers match the answer, in one
+# directory of the runtime root that only the shell's user can open; else
+# the first fault.
+freeze_still_files() { python3 - "$(freeze_stills)" "$(hypr -j monitors)" "$freeze_root" <<'PY'
+import json, os, re, stat, sys
+stills, monitors, root = json.loads(sys.argv[1]), json.loads(sys.argv[2]), sys.argv[3]
+answer = stills[-1]
+if not isinstance(answer, dict):
+    sys.exit(print("answer=" + answer))
+screens = {s["name"]: s for s in answer["screens"]}
+paths = [b["path"] for s in answer["screens"] for f in s["frames"] for b in f["bands"]]
+folders = {os.path.dirname(p) for p in paths}
+if len(folders) != 1 or os.path.dirname(next(iter(folders))) != root:
+    sys.exit(print("folders=" + json.dumps(sorted(folders))))
+for folder in (root, next(iter(folders))):
+    info = os.stat(folder)
+    if stat.S_IMODE(info.st_mode) != 0o700 or info.st_uid != os.getuid():
+        sys.exit(print("mode=%o uid=%d path=%s" % (stat.S_IMODE(info.st_mode), info.st_uid, folder)))
+for m in monitors:
+    w, h = (m["height"], m["width"]) if m["transform"] % 2 else (m["width"], m["height"])
+    ratio = round(w / round(w / m["scale"]) * 120)
+    frame = next((f for f in screens.get(m["name"], {"frames": []})["frames"] if f["ratio"] == ratio), None)
+    if frame is None or (frame["width"], frame["height"]) != (w, h):
+        sys.exit(print("frame=%s want=%dx%d" % (m["name"], w, h)))
+    rows = 0
+    for band in frame["bands"]:
+        data = open(band["path"], "rb").read()
+        head = re.match(rb"P6\s(\d+)\s(\d+)\s255\s", data)
+        if head is None or (int(head.group(1)), int(head.group(2))) != (w, band["rows"]) or len(data) != head.end() + w * band["rows"] * 3 or w * band["rows"] > 2000000:
+            sys.exit(print("band=" + band["path"]))
+        rows += band["rows"]
+    if rows != h:
+        sys.exit(print("rows=%s %d/%d" % (m["name"], rows, h)))
+print("ok")
+PY
+}
 # freeze_grab NAME: every output as NAME-<output>.png.
 freeze_grab() {
   local output
@@ -164,7 +222,7 @@ expect "the freeze fixture enables" ok ipc shell setPluginEnabled acme.freeze tr
 expect_poll "the freeze fixture's service is built" True record_exists acme.freeze
 freeze_theme_to vgs
 expect "no freeze surface exists before a hold" 0 layer_count vgs:freeze
-expect "the lending record lists no freeze" '{"holder": null, "screens": [], "shown": false}' freeze_lent
+expect "the lending record lists no freeze" '{"holder": null, "screens": [], "shown": false, "still": null}' freeze_lent
 freeze_fresh_holds fresh '["ok"]' '["ok", "ok"]'
 for output in "${freeze_outputs[@]}"; do
   expect "$output's second frame holds none of the first" none freeze_window_share fresh-second "$output"
@@ -198,7 +256,7 @@ expect "the fixture holds the freeze" ok ipc acme.freeze invoke freeze ''
 expect_poll "the hold's done hears ok once every output shows its frame" '["ok", "ok", "ok"]' freeze_answers
 expect "one freeze surface covers each whole output" "$(freeze_rects)" layers_of vgs:freeze
 expect "every freeze surface is on the overlay layer" 2 freeze_on_overlay
-expect "the lending record lists the hold, shown on both outputs" "{\"holder\": \"acme.freeze\", \"screens\": $freeze_names, \"shown\": true}" freeze_lent
+expect "the lending record lists the hold, shown on both outputs" "{\"holder\": \"acme.freeze\", \"screens\": $freeze_names, \"shown\": true, \"still\": null}" freeze_lent
 freeze_grab dark-frozen
 for output in "${freeze_outputs[@]}"; do
   expect "$output's frozen frame matches its live frame, upright and unstretched" True freeze_match dark-live dark-frozen "$output"
@@ -211,40 +269,79 @@ done
 expect "a second hold is refused" 'refused: freeze=busy holder=acme.freeze' ipc acme.freeze invoke freeze ''
 expect "the fixture thaws" ok ipc acme.freeze invoke thaw ''
 expect_poll "the thaw unmaps every freeze surface" 0 layer_count vgs:freeze
-expect "the lending record lists no freeze after the thaw" '{"holder": null, "screens": [], "shown": false}' freeze_lent
+expect "the lending record lists no freeze after the thaw" '{"holder": null, "screens": [], "shown": false, "still": null}' freeze_lent
 expect "a thaw with no hold is refused" 'refused: freeze=unheld' ipc acme.freeze invoke thaw ''
+for freeze_form in "options:options not-an-object" "still:still not-a-function" "cursor:cursor not-a-boolean" "lone-cursor:cursor without-still"; do
+  expect "malformed options of form ${freeze_form%%:*} are refused" "refused: freeze=${freeze_form#*:}" ipc acme.freeze invoke refuse "${freeze_form%%:*}"
+done
+expect "a refused hold maps no freeze surface" 0 layer_count vgs:freeze
+# The written frames: the still answers with every output's frame at its
+# own scale, in band files under the hold's own directory.
+expect "the fixture holds the freeze with the still" ok ipc acme.freeze invoke freeze-still ''
+expect_poll "the still's hold shows" '["ok", "ok", "ok", "ok"]' freeze_answers
+expect_poll "the still answers once" 1 freeze_still_count
+freeze_still_first="$(freeze_still_dir)"
+expect "the frames are each output's device size in bands of at most 2 MP, in a 0700 directory of the runtime root" ok freeze_still_files
+expect "the fixture thaws the still's hold" ok ipc acme.freeze invoke thaw ''
+expect_poll "the thaw removes the hold's frame directory" gone freeze_dir_state "$freeze_still_first"
+# A thaw at the hold's done comes before any frame is written; the next
+# hold's answer, which comes only after its own frames are written, shows
+# that the first hold's still was never called.
+expect "the fixture holds the freeze and thaws at its done" ok ipc acme.freeze invoke freeze-early ''
+expect_poll "the early hold's done hears ok" '["ok", "ok", "ok", "ok", "ok"]' freeze_answers
+expect_poll "the early thaw unmaps every freeze surface" 0 layer_count vgs:freeze
 freeze_grab light-live
 for output in "${freeze_outputs[@]}"; do
   expect "$output shows the theme change once thawed" False freeze_match dark-live light-live "$output"
 done
-expect "the fixture holds the freeze in the light theme" ok ipc acme.freeze invoke freeze ''
-expect_poll "the light hold's done hears ok" '["ok", "ok", "ok", "ok"]' freeze_answers
+# The light hold asks for the pointer in its written frames, and its
+# freeze shows the same frame as one without.
+expect "the fixture holds the freeze in the light theme with the cursor" ok ipc acme.freeze invoke freeze-cursor ''
+expect_poll "the light hold's done hears ok" '["ok", "ok", "ok", "ok", "ok", "ok"]' freeze_answers
 freeze_grab light-frozen
 for output in "${freeze_outputs[@]}"; do
   expect "$output's light frozen frame matches its live frame" True freeze_match light-live light-frozen "$output"
 done
+expect_poll "the lending record names the cursor hold's written still, the newest answer" "written cursor=True newest=True" freeze_still_lent
+expect "the cursor hold's still answers, the early hold's never" 2 freeze_still_count
+expect "the cursor hold's frames stand in their own directory" ok freeze_still_files
+freeze_still_last="$(freeze_still_dir)"
 expect "the freeze fixture disables" ok ipc shell setPluginEnabled acme.freeze false
 expect_poll "the disable unmaps every freeze surface" 0 layer_count vgs:freeze
-expect "the lending record lists no freeze after the disable" '{"holder": null, "screens": [], "shown": false}' freeze_lent
+expect "the lending record lists no freeze after the disable" '{"holder": null, "screens": [], "shown": false, "still": null}' freeze_lent
+expect_poll "the disable removes the hold's frame directory" gone freeze_dir_state "$freeze_still_last"
 
 # The control: the turned output's frame turned a second time. The same
-# match fails on that output and holds on the other.
+# match fails on that output and holds on the other. The same tree's end()
+# skips the frame directory's removal: removals and makes run in order, so
+# once a second hold's still is answered the first hold's directory reads
+# present.
 copy_tree screen-freeze-control
 edit_tree screen-freeze-control shell/Hosts/FreezeHost.qml \
   $'                anchors.fill: parent\n                captureSource: surface.modelData' \
   $'                readonly property bool turned: surface.modelData.name === "'"$freeze_turned"$'"\n                anchors.centerIn: parent\n                width: turned ? parent.height : parent.width\n                height: turned ? parent.width : parent.height\n                rotation: turned ? 90 : 0\n                captureSource: surface.modelData'
+edit_tree screen-freeze-control shell/Core/ScreenFreeze.qml \
+  '        if (entry.dir !== "") queue({ kind: "remove", entry: entry });' \
+  ''
 stop_shell || :
 start_shell "$sandbox/tree-screen-freeze-control" "$freeze_world/control-shell.log"
 expect "the freeze fixture enables in the control tree" ok ipc shell setPluginEnabled acme.freeze true
 expect_poll "the control tree's freeze fixture is built" True record_exists acme.freeze
 rest_pointer || fail "screen-freeze: parking the pointer failed"
 freeze_grab control-live
-expect "the control tree's fixture holds the freeze" ok ipc acme.freeze invoke freeze ''
+expect "the control tree's fixture holds the freeze with the still" ok ipc acme.freeze invoke freeze-still ''
 expect_poll "the control tree's hold shows" '["ok"]' freeze_answers
 freeze_grab control-frozen
 expect "control: a frame turned twice fails the turned output's match" False freeze_match control-live control-frozen "$freeze_turned"
 expect "control: the unturned output still matches" True freeze_match control-live control-frozen "$freeze_first"
+expect_poll "the control tree's still answers" 1 freeze_still_count
+freeze_still_kept="$(freeze_still_dir)"
+expect "the control tree's fixture thaws" ok ipc acme.freeze invoke thaw ''
+expect "the control tree's fixture holds the freeze with the still again" ok ipc acme.freeze invoke freeze-still ''
+expect_poll "the control tree's second still answers" 2 freeze_still_count
+expect "control: an end() that skips the removal leaves the first hold's frame directory" present freeze_dir_state "$freeze_still_kept"
 expect "the control tree's fixture disables" ok ipc shell setPluginEnabled acme.freeze false
+rm -rf -- "${freeze_root:?}"
 stop_shell || :
 close_toplevel "$freeze_mark_pid" "the mark window closes"
 
@@ -253,11 +350,11 @@ close_toplevel "$freeze_mark_pid" "the mark window closes"
 # check fails on both outputs.
 copy_tree screen-freeze-stale
 edit_tree screen-freeze-stale shell/Hosts/FreezeHost.qml \
-  'model: ScreenFreeze.holding ? Quickshell.screens : []' \
-  'model: ScreenFreeze.serial > 0 ? Quickshell.screens : []'
+  'const next = ScreenFreeze.holding ? Quickshell.screens.slice() : [];' \
+  'const next = ScreenFreeze.serial > 0 ? Quickshell.screens.slice() : [];'
 edit_tree screen-freeze-stale shell/Hosts/FreezeHost.qml \
-  'function onHoldingChanged() { host.framed = false; }' \
-  'function onHoldingChanged() { host.framed = ScreenFreeze.holding && host.allFramed; }'
+  '            host.framed = false;' \
+  '            host.framed = ScreenFreeze.holding && host.allFramed;'
 start_shell "$sandbox/tree-screen-freeze-stale" "$freeze_world/stale-shell.log"
 expect "the freeze fixture enables in the stale tree" ok ipc shell setPluginEnabled acme.freeze true
 expect_poll "the stale tree's freeze fixture is built" True record_exists acme.freeze
