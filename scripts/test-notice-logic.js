@@ -601,6 +601,10 @@ function suite(ctx, check) {
     const mixedHeld = { ran: mixedRetryView.run, run: "8-1", result: { code: 1, reason: null, package: mixedOutcome } };
     const mixedFailure = ctx.noticePackageFailure(mixedRetryView, mixedHeld, ctx.tuiRuns([Object.assign({}, retryRecord, { key: "core/requirements-update", package: mixedOutcome })]), true);
     check("noticeAction: mixed install/update retries only its failed update", ctx.noticeAction(mixedRetryView, mixedFailure), { manager: "pacman", action: "retry", args: ["8-1"], installs: [], updates: ["old"] });
+    const mixedConsumed = Object.assign({}, mixedOutcome, { retry: { originRun: "8-1", state: "consumed" } });
+    const mixedRetryHeld = { ran: ctx.noticeAction(mixedRetryView, mixedFailure), run: "8-2", result: { code: 1, reason: null, package: mixedConsumed } };
+    const mixedReturned = ctx.noticeCompletionView(mixedRetryView, mixedRetryHeld, ctx.tuiRuns([Object.assign({}, retryRecord, { key: "core/requirements-retry", run: "8-2", package: mixedConsumed })]), true);
+    check("noticeCompletionView: a consumed single-target return keeps the batch remainder ordinary", [mixedReturned.packageFailure, mixedReturned.action, mixedReturned.drawn.map(entry => [entry.chip, entry.later])], [{ kind: "package-check-failed", manager: "pacman", package: "old", retry: { originRun: "8-1", state: "consumed" } }, mixedRetryView.run, [["old", false], ["one", false]]]);
     const remaining = ctx.noticeView(floored, ["vgs-one"], { "vgs-old": "2.0.0", "vgs-far": "1.2.0" }, three, ARCH);
     check("noticeCompletionView: a retry names only its target as this press's work", ctx.noticeCompletionView(mixedRetryView, mixedHeld, ctx.tuiRuns([Object.assign({}, retryRecord, { key: "core/requirements-update", package: mixedOutcome })]), true).drawn.map(entry => [entry.chip, entry.later]), [["old", false], ["one", true]]);
     check("noticeCompletionView: no outcome preserves ordinary batch presentation", ctx.noticeCompletionView(mixedRetryView, null, retryRecords, true).drawn, mixedRetryView.drawn);
@@ -775,6 +779,7 @@ const CONTROLS = [
     ["a kept failure's key fits its packages", "&& (e.key === NOTICE_RUN_KEYS[e.updates.length === 0 ? \"install\" : \"update\"] || e.key === NOTICE_RUN_KEYS.retry)\n", "\n"],
     ["a failed rescan lends no retry", "if (!scanned || held === null || view.satisfied)", "if (held === null || view.satisfied)"],
     ["consumed authority cannot skip tests twice", "failure.retry.state !== \"available\"", "false"],
+    ["a consumed single-target return can leave its batch owed", "if (ran.action === \"retry\") {", "if (false) {"],
     ["a retry presents other batch targets as later", "{ later: true }); }));", "{ later: false }); }));"],
     ["a kept failure holds only its fields", "isPlainObject(e) && Object.keys(e).length === 8", "isPlainObject(e)"],
     ["a kept failure's lines are judged", "(e.state === \"failed\" && PackageReview.failureLinesValid(e.lines))", "e.state === \"failed\""],

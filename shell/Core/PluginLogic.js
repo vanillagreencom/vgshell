@@ -2921,8 +2921,12 @@ function noticePackageFailure(view, held, runs, scanned) {
         || outcome.manager !== ran.manager) return null;
     var names = ran.updates.concat(ran.installs);
     var owed = view.rows.filter(function (row) { return row.package !== null && row.package.manager === ran.manager; });
-    if (names.indexOf(outcome.package) === -1 || !owed.some(function (row) { return row.package.name === outcome.package; })
-        || owed.some(function (row) { return names.indexOf(row.package.name) === -1; })) return null;
+    if (names.indexOf(outcome.package) === -1 || !owed.some(function (row) { return row.package.name === outcome.package; })) return null;
+    // The owner retries one target. Its consumed return can leave other
+    // names of the original batch owed, but can lend no further retry.
+    if (ran.action === "retry") {
+        if (outcome.retry !== null && outcome.retry.state !== "consumed") return null;
+    } else if (owed.some(function (row) { return names.indexOf(row.package.name) === -1; })) return null;
     var origin = ran.action === "retry" ? ran.args[0] : held.run;
     if (outcome.retry !== null && outcome.retry.originRun !== origin) return null;
     return { kind: "package-check-failed", manager: outcome.manager, package: outcome.package, retry: outcome.retry };
