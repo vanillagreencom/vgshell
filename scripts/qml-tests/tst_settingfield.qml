@@ -372,6 +372,30 @@ Item {
         }
     }
 
+    // A plugin's Details Tools section as PluginPage draws it: requirement
+    // rows a Repeater places in a Section.
+    Component {
+        id: coveredTools
+        Rectangle {
+            property alias rows: toolRows
+            anchors.fill: parent
+            z: 1
+            color: Theme.color.surface
+            Section {
+                id: toolRows
+                width: 420
+                title: "Tools"
+                Repeater {
+                    model: [
+                        { name: "snapper", title: "Snapper", bus: null, state: "present", badge: { text: "Present", tone: "success" }, optional: true, purpose: "Takes a snapshot before each update" },
+                        { name: "timeshift", title: "Timeshift", bus: null, state: "missing", badge: { text: "Optional", tone: "info" }, optional: true, purpose: "Takes a snapshot before each update" }
+                    ]
+                    RequirementRow { required property var modelData; width: toolRows.width; requirement: modelData }
+                }
+            }
+        }
+    }
+
     // A column of bare key/value rows, as the Displays, Capture and Sound
     // panes draw them: a select, a level slider, a level meter, a slider
     // with its reading, a slider, a segmented control, switches, one with a
@@ -1183,6 +1207,30 @@ Item {
             verify(renderedFrame(cover));
             const gap = gapOver(grabImage(root), first(), cover.rows.width);
             verify(Math.abs(gap - Theme.stack.page) <= 1, "the list's first row stands " + Theme.stack.page + " blank rows under the row above the list: " + gap);
+        }
+
+        // Two requirement rows of a Details Tools section stand one
+        // `stack.page` of blank rows apart, as FormRow spaces any two rows,
+        // and a theme's step moves it. Each wrapped in a Column of its own,
+        // the control in scripts/test-qml-unit.sh, a row finds no row above
+        // it and stands by its column's spacing whatever the step: 16 blank
+        // rows on the Updates page, 21 here (VGS-2253).
+        function test_requirement_rows_stand_one_step_apart_by_ink_data() {
+            return [
+                { tag: "the default step", step: 0 },
+                { tag: "a theme's step", step: 32 }
+            ];
+        }
+
+        function test_requirement_rows_stand_one_step_apart_by_ink(data) {
+            if (data.step > 0) compare(UnitTheme.override({ stack: { page: data.step } }), "ok");
+            const cover = createTemporaryObject(coveredTools, root);
+            verify(cover !== null);
+            const second = () => descendants(cover.rows).find(item => item.label === "Timeshift" && item.keyValueRow === true);
+            tryVerify(() => second() !== undefined && second().height > 0, 2000, "the section draws its second tool");
+            verify(renderedFrame(cover));
+            const gap = gapOver(grabImage(root), second(), cover.rows.width);
+            verify(Math.abs(gap - Theme.stack.page) <= 1, "the second tool stands " + Theme.stack.page + " blank rows under the first: " + gap);
         }
 
         // Each shown key/value row of COLUMN, in its children's order, the

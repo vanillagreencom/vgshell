@@ -12,21 +12,20 @@ import qs.Ui
 // needs, optional or not, since an installed tool the plugin calls fails
 // below that version. Details lists the optional tools with it, by the
 // requirement's title, its command or its D-Bus label; the row draws no
-// step of its own, and the section's Review action installs them.
-Column {
+// step of its own, and the section's Review action installs them. The row
+// is the Field its column places, so it stands under the row above it as
+// any key/value row does (FormRow `rowAbove`).
+Field {
     id: row
 
     // One entry of a manager row's `requirements`.
     required property var requirement
 
-    Field {
-        width: row.width
-        label: row.requirement.title
-        inline: true
-        hint: row.requirement.purpose
-        Item {
-            implicitHeight: chip.height
-            Badge { id: chip; text: row.requirement.badge.text; tone: row.requirement.badge.tone }
-        }
+    label: row.requirement.title
+    inline: true
+    hint: row.requirement.purpose
+    Item {
+        implicitHeight: chip.height
+        Badge { id: chip; text: row.requirement.badge.text; tone: row.requirement.badge.tone }
     }
 }

@@ -1371,6 +1371,7 @@ mutations=(
   "a write of an offered value keeps the custom editor open|controls/SettingField.qml|if (multiple ? knownSelection : offerIndex(value) >= 0) customChosen = false;|if (multiple ? knownSelection : false) customChosen = false;|tst_settingfield.qml"
   "an appearing custom editor stays under the view's edge|controls/SettingField.qml|at.reveal(customField);|at.reveal(null);|tst_settingfield.qml"
   "a field stands by its box|controls/Field.qml|    topPadding: controlRow.inkTop|    topPadding: 0|tst_settingfield.qml"
+  "a requirement row stands in a column of its own|../plugins/vgs.settings/RequirementRow.qml|Field {|Column { property alias label: inner.label; property alias inline: inner.inline; property alias hint: inner.hint; default property alias content: inner.control; Field { id: inner; width: parent.width }|tst_settingfield.qml"
   "a bare row stands by its box|controls/FormRow.qml|    readonly property real shift: placed === root ? inkTop : 0|    readonly property real shift: 0|tst_settingfield.qml"
   "a row moved under others keeps the row above it had|controls/FormRow.qml|            void at.Positioner.index;|            void at;|tst_settingfield.qml"
   "a row under two that swap keeps the row above it had|controls/FormRow.qml|                    void item.Positioner.index;|                    void item;|tst_settingfield.qml"
