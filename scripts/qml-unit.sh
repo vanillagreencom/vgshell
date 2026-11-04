@@ -30,7 +30,8 @@
 # Quickshell.Io a FileView and Process the test finishes by hand, since the real
 # modules' plugins do not load outside the shell. qs/Core holds the shipped
 # core files the tests drive, the Config singleton among them, whose two
-# files are read through those stand-in views, beside stand-in Registry,
+# files are read through those stand-in views, and the PluginStatus
+# singleton, beside stand-in Registry,
 # Capabilities, Notices and Compositor singletons, the last recording the key
 # capture's requests, and
 # a stand-in Quickshell.Hyprland supplies GlobalShortcut and a Hyprland
@@ -196,7 +197,7 @@ done
 cp -- "$tests/stand-ins/ThemeSource.qml" "$imports/qs/Commons/ThemeSource.qml"
 cp -- "$tests/stand-ins/Time.qml" "$imports/qs/Commons/Time.qml"
 printf 'module qs.Commons\nsingleton Theme 1.0 Theme.qml\ninternal ThemeSource ThemeSource.qml\nsingleton Time 1.0 Time.qml\nInset 1.0 Inset.js\nSettingValues 1.0 SettingValues.js\nSessionLockState 1.0 SessionLockState.js\nClearingInset 1.0 ClearingInset.qml\nWatchedFile 1.0 WatchedFile.qml\nAnchorTracker 1.0 AnchorTracker.qml\nsingleton Paths 1.0 Paths.qml\nDesktopLaunch 1.0 DesktopLaunch.js\nAccountDirectories 1.0 AccountDirectories.js\nReply 1.0 Reply.js\nPageReference 1.0 PageReference.js\nDuration 1.0 Duration.js\nTimestamp 1.0 Timestamp.js\n' >"$imports/qs/Commons/qmldir"
-for file in Config.qml TuiRecords.qml SystemSteps.qml ThemeRunner.qml SessionLock.qml ShortcutRegistry.qml KeyCapture.qml HyprlandLayer.qml HyprlandState.qml HyprlandState.js HyprctlReader.qml PluginLogic.js ConfigLogic.js Pads.js PackageManagers.js PackageReview.js MonitorLogic.js HyprlandLayer.js Dispatch.js; do
+for file in Config.qml PluginStatus.qml TuiRecords.qml SystemSteps.qml ThemeRunner.qml SessionLock.qml ShortcutRegistry.qml KeyCapture.qml HyprlandLayer.qml HyprlandState.qml HyprlandState.js HyprctlReader.qml PluginLogic.js ConfigLogic.js Pads.js PackageManagers.js PackageReview.js MonitorLogic.js HyprlandLayer.js Dispatch.js; do
   [[ -f $core/$file ]] || { printf 'qml-unit: refused: missing=%s\n' "$core/$file" >&2; exit 2; }
   ln -s -- "$core/$file" "$imports/qs/Core/$file"
 done
@@ -204,7 +205,7 @@ cp -- "$tests/stand-ins/ShortcutRegistryInputs.qml" "$imports/qs/Core/Registry.q
 cp -- "$tests/stand-ins/ShortcutCapabilities.qml" "$imports/qs/Core/Capabilities.qml"
 cp -- "$tests/stand-ins/KeyCaptureCompositor.qml" "$imports/qs/Core/Compositor.qml"
 cp -- "$tests/stand-ins/Notices.qml" "$imports/qs/Core/Notices.qml"
-printf 'module qs.Core\nsingleton Config 1.0 Config.qml\nTuiRecords 1.0 TuiRecords.qml\nSystemSteps 1.0 SystemSteps.qml\nThemeRunner 1.0 ThemeRunner.qml\nSessionLock 1.0 SessionLock.qml\nShortcutRegistry 1.0 ShortcutRegistry.qml\nKeyCapture 1.0 KeyCapture.qml\nHyprlandState 1.0 HyprlandState.qml\nHyprctlReader 1.0 HyprctlReader.qml\nsingleton Registry 1.0 Registry.qml\nsingleton Capabilities 1.0 Capabilities.qml\nsingleton Compositor 1.0 Compositor.qml\nsingleton Notices 1.0 Notices.qml\nPluginLogic 1.0 PluginLogic.js\nConfigLogic 1.0 ConfigLogic.js\nPackageManagers 1.0 PackageManagers.js\nMonitorLogic 1.0 MonitorLogic.js\nHyprlandLayer 1.0 HyprlandLayer.qml\nLayerLogic 1.0 HyprlandLayer.js\nDispatch 1.0 Dispatch.js\n' >"$imports/qs/Core/qmldir"
+printf 'module qs.Core\nsingleton Config 1.0 Config.qml\nsingleton PluginStatus 1.0 PluginStatus.qml\nTuiRecords 1.0 TuiRecords.qml\nSystemSteps 1.0 SystemSteps.qml\nThemeRunner 1.0 ThemeRunner.qml\nSessionLock 1.0 SessionLock.qml\nShortcutRegistry 1.0 ShortcutRegistry.qml\nKeyCapture 1.0 KeyCapture.qml\nHyprlandState 1.0 HyprlandState.qml\nHyprctlReader 1.0 HyprctlReader.qml\nsingleton Registry 1.0 Registry.qml\nsingleton Capabilities 1.0 Capabilities.qml\nsingleton Compositor 1.0 Compositor.qml\nsingleton Notices 1.0 Notices.qml\nPluginLogic 1.0 PluginLogic.js\nConfigLogic 1.0 ConfigLogic.js\nPackageManagers 1.0 PackageManagers.js\nMonitorLogic 1.0 MonitorLogic.js\nHyprlandLayer 1.0 HyprlandLayer.qml\nLayerLogic 1.0 HyprlandLayer.js\nDispatch 1.0 Dispatch.js\n' >"$imports/qs/Core/qmldir"
 cp -- "$tests/stand-ins/UnitTheme.qml" "$tests/stand-ins/UnitCase.qml" "$imports/qs/Unit/"
 # Where the module under test is, for the test that reads its qmldir.
 printf '.pragma library\nvar UI_DIR = %s;\n' "$(python3 -c 'import json, sys; print(json.dumps("file://" + sys.argv[1]))' "$ui")" >"$imports/qs/Unit/UnitPaths.js"

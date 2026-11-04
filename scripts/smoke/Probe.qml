@@ -353,7 +353,7 @@ Scope {
     }
     Connections {
         target: PluginStatus
-        function onRecordsChanged() { root.traceRun("status-write", PluginStatus.serial); }
+        function onSerialChanged() { root.traceRun("status-write", PluginStatus.serial); }
     }
     Connections {
         target: Capabilities.tuis
@@ -506,6 +506,13 @@ Scope {
     // A plugin instance's status provider, kept past the instance, so a row
     // writes through it once the core has retired the instance.
     property var heldStatus: null
+    // How often the manager listing every plugin shares has changed, which
+    // statusWriteReach reads around one status write.
+    property int managerListingChanges: 0
+    Connections {
+        target: Registry
+        function onManagerListingChanged() { root.managerListingChanges += 1; }
+    }
     // A copy of the core's ThemeRunner built from a file for a control, and
     // what each of its members' callbacks received: verb -> { count,
     // result }. The copy's context is never torn down.
@@ -771,10 +778,7 @@ Scope {
             result = PluginLogic.statusWrite(manifest, result.values, key, values[key]);
             if (!result.ok) return result.error;
         }
-        PluginStatus.serial += 1;
-        const next = Object.assign({}, PluginStatus.records);
-        next["acme.status"] = Object.freeze({ revision: manifest.__revision, serial: PluginStatus.serial, values: result.values, bytes: result.bytes });
-        PluginStatus.records = next;
+        PluginStatus.store("acme.status", manifest.__revision, result);
         return "ok";
     }
 
@@ -2199,7 +2203,7 @@ Scope {
         function statusValues(id: string): string { return JSON.stringify(PluginStatus.valuesOf(id)); }
         function settingsCredentialBegin(): string {
             if (root.credentialRecordSaved) return "already-held";
-            root.credentialOriginalRecord = PluginStatus.records["acme.status"] || null;
+            root.credentialOriginalRecord = PluginStatus.recordOf("acme.status");
             root.credentialRecordSaved = true;
             root.credentialIdEditor = null;
             return "ok";
@@ -2241,8 +2245,8 @@ Scope {
         }
         function settingsCredentialRestore(): string {
             if (!root.credentialRecordSaved) return "not-held";
-            const next = Object.assign({}, PluginStatus.records), saved = root.credentialOriginalRecord;
-            if (saved === null) delete next["acme.status"];
+            const saved = root.credentialOriginalRecord;
+            if (saved === null) PluginStatus.drop(["acme.status"]);
             else {
                 const manifest = Registry.manifests["acme.status"];
                 if (manifest === undefined) return "fixture-unavailable";
@@ -2251,10 +2255,8 @@ Scope {
                     result = PluginLogic.statusWrite(manifest, result.values, key, saved.values[key]);
                     if (!result.ok) return result.error;
                 }
-                PluginStatus.serial += 1;
-                next["acme.status"] = Object.freeze({ revision: manifest.__revision, serial: PluginStatus.serial, values: result.values, bytes: result.bytes });
+                PluginStatus.store("acme.status", manifest.__revision, result);
             }
-            PluginStatus.records = next;
             root.credentialIdEditor = null;
             root.credentialOriginalRecord = null;
             root.credentialRecordSaved = false;
@@ -2728,6 +2730,20 @@ Scope {
             if (item === null || item.shell === null || item.shell.status === undefined) return "absent";
             root.heldStatus = item.shell.status;
             return "held";
+        }
+        // Publish VALUE_JSON under KEY through an instance's own `status`
+        // provider, answering as JSON its reply, how often the shared
+        // manager listing changed during the write, and the value the
+        // manager's row of the plugin then shows for KEY, or `absent`.
+        function statusWriteReach(hostKey: string, id: string, key: string, valueJson: string): string {
+            const item = root.instance(hostKey, id);
+            if (item === null || item.shell === null || item.shell.status === undefined) return "absent";
+            const before = root.managerListingChanges;
+            const reply = item.shell.status.set(key, JSON.parse(valueJson));
+            const changes = root.managerListingChanges - before;
+            const row = Registry.managerRows().find(plugin => plugin.id === id);
+            const entry = row === undefined ? undefined : row.status.find(shown => shown.key === key);
+            return root.json([reply, changes, entry === undefined ? null : entry.value]);
         }
         // The `sudo` capability of an instance: a grant of DURATION with no
         // `done`, answering its reply, or `absent` while the instance holds

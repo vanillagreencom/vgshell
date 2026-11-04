@@ -47,6 +47,7 @@ A lock descriptor the shell inherits is held by every child the shell starts, so
 - Never walk the disk per keystroke; keep one index and cancel a stale query. Review holds it.
 - Do watch a set of paths that grows with user data through one inotify owner, never one `FileView` per path: each `FileView` with `watchChanges` opens an inotify instance of its own, and past the user's instance limit Qt falls back to polling. `scripts/smoke/rows/themes.sh` counts the Themes service's instances; review holds the rest.
 - Never sleep unconditionally on an apply path; read, then skip the write when nothing changes. Review holds it.
+- Never fold core state a hot path changes into a binding that nothing reads, or that reads every plugin: a QML binding re-runs on each change of an input whether or not anything reads it. One plugin's status write notifies only that plugin's readers, and the manager's rows join the status on read. `scripts/qml-tests/tst_plugin_status.qml` and `scripts/smoke/rows/status.sh` pin both; review holds the rest.
 - Do build no service before the first bar frame. `scripts/smoke/rows/start-order.sh` pins it.
 - Do name the tool and the run behind every figure a document or a comment states; a budget without its measurement is a defect. Review holds it.
 

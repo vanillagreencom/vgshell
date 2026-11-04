@@ -73,9 +73,9 @@ Scope {
     }
 
     function providerRevision() {
-        // Reads Registry.menu and PluginStatus.records, so bindings refresh
-        // after either provider membership or its published rows change.
-        void PluginStatus.records;
+        // Reads Registry.menu and each provider's status record, so bindings
+        // refresh after either provider membership or its published rows
+        // change, and not after another plugin's status write.
         return Registry.menu.rows.filter(row => row.provider).map(row => row.plugin + ":" + PluginStatus.revisionOf(row.plugin)).join("|");
     }
 

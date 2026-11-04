@@ -404,6 +404,8 @@ mutations=(
   "late hold press accepts a missing key|../Core/ShortcutRegistry.qml|key === undefined|false|tst_shortcutregistry.qml"
   "hold disposal loses its release|../Core/ShortcutRegistry.qml|shortcut.finish(\"disposed\");|shortcut.stroke = { kind: \"disposed\" };|tst_shortcutregistry.qml"
   "hold disposal keeps native objects|../Core/ShortcutRegistry.qml|finally { shortcut.destroy(); }|finally {}|tst_shortcutregistry.qml"
+  "a status write re-runs every plugin's status readers|../Core/PluginStatus.qml|            holders[id].record = record;|            holders[id].record = record; holders = Object.assign({}, holders);|tst_plugin_status.qml"
+  "a plugin's first status record passes through createObject's properties|../Core/PluginStatus.qml|            holder.record = record;|            holder.record = holderComponent.createObject(root, { record: record }).record;|tst_plugin_status.qml"
   "hold release callback is unchecked|../Core/ShortcutRegistry.qml|if (onReleased !== undefined && typeof onReleased !== \"function\")|if (false)|tst_shortcutregistry.qml"
   "shortcut press callback is unchecked|../Core/ShortcutRegistry.qml|if (typeof onPressed !== \"function\")|if (false)|tst_shortcutregistry.qml"
   "shortcut duplicate replaces its owner|../Core/ShortcutRegistry.qml|if (Logic.hasOwn(shortcuts, key))|if (false)|tst_shortcutregistry.qml"

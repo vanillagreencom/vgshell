@@ -173,7 +173,13 @@ Singleton {
         }),
         shortcut: shortcuts.provider,
         manager: ctx => ({
-            get plugins() { return Registry.managerRows; },
+            // Joins every plugin's status on each read, inside the reader's
+            // binding, so the join re-runs on a status write only while a
+            // manager view that reads it exists. A shared binding re-runs on
+            // every input change with no reader: on px13 (VGS-2239 profile
+            // 2, qmlprofiler) a Registry binding over every plugin's status
+            // re-ran inside each status write with no manager view open.
+            get plugins() { return Registry.managerRows(); },
             get packageReview() { return Logic.frozenJson(Config.effective.packages?.review || {}); },
             get packageReviewAgents() { return PackageReview.reviewChoices(PackageReview.REVIEW_AGENTS.map(agent => agent.id)); },
             setPackageReview: (key, value) => root.managerPackageReview(key, value),
