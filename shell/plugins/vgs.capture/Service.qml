@@ -50,6 +50,8 @@ Item {
         "record-portal": ["gpu-screen-recorder", "ffmpeg", "wl-copy"],
         "text": ["slurp", "grim", "tesseract", "wl-copy"]
     })
+    // The actions whose selector holds the keyboard, which it gives back.
+    readonly property var selections: ["screenshot-area", "screenshot-window", "screenshot-display", "record", "record-window", "record-display"]
     readonly property var descriptions: ({
         "screenshot": "Screenshot this screen",
         "screenshot-area": "Capture an area",
@@ -191,9 +193,11 @@ Item {
         }
         phase = "capturing";
         action = name;
-        // The window boxes come from Hyprland's own reply: Quickshell's
-        // Hyprland.toplevels can keep a closed window.
-        if (name === "screenshot-window" || name === "record-window" || ((name === "screenshot-area" || name === "record") && shell.settings.smart)) {
+        // A selection reads the windows first, for the window it gives the
+        // keyboard back to and, where it offers them, the window boxes. They
+        // come from Hyprland's own reply: Quickshell's Hyprland.toplevels can
+        // keep a closed window.
+        if (selections.indexOf(name) >= 0) {
             const asked = windowsAsked + 1;
             windowsAsked = asked;
             windowDeadline.restart();
@@ -201,7 +205,7 @@ Item {
             publish();
             return "ok";
         }
-        return launch(name, output, []);
+        return launch(name, output, [], "");
     }
 
     function windowsRead(asked, state) {
@@ -212,7 +216,28 @@ Item {
             windowsUnread();
             return;
         }
-        launch(action, "", windowRectangles(state.clients, state.monitors));
+        const boxes = action === "screenshot-window" || action === "record-window" || ((action === "screenshot-area" || action === "record") && shell.settings.smart);
+        launch(action, "", boxes ? windowRectangles(state.clients, state.monitors) : [], restoreTarget(state.clients));
+    }
+
+    // The Capture options window, which a press in it closes, so no
+    // selection offers it or gives it the keyboard back. It is the shell's
+    // app-id, `org.vgs.shell`, titled with this plugin's name, as the window
+    // host titles it.
+    function optionsWindow(client) { return client.class === "org.vgs.shell" && client.title === shell.manifest.name; }
+
+    // The window a selection gives the keyboard back to: the active one, or,
+    // when that is the options window or a window already gone, the one
+    // Hyprland focused last among the rest. None while no window has the
+    // keyboard. A client's address carries the `0x` a toplevel's lacks.
+    function restoreTarget(clients) {
+        const active = Hyprland.activeToplevel;
+        if (active === null) return "";
+        const mapped = clients.filter(client => client.mapped);
+        const current = mapped.find(client => client.address === "0x" + active.address);
+        if (current !== undefined && !optionsWindow(current)) return active.address;
+        const rest = mapped.filter(client => !optionsWindow(client) && client.focusHistoryID >= 0).sort((a, b) => a.focusHistoryID - b.focusHistoryID);
+        return rest.length === 0 ? "" : rest[0].address.replace(/^0x/, "");
     }
 
     function windowsUnread() {
@@ -224,22 +249,21 @@ Item {
     }
 
     function windowRectangles(clients, monitors) {
-        return clients.filter(window => window.mapped && !window.hidden && shell.compositor.onScreen(window, monitors) && window.size[0] > 0 && window.size[1] > 0).map(window => ({ x: window.at[0], y: window.at[1], width: window.size[0], height: window.size[1], address: window.address, focus: window.focusHistoryID }));
+        return clients.filter(window => window.mapped && !window.hidden && !optionsWindow(window) && shell.compositor.onScreen(window, monitors) && window.size[0] > 0 && window.size[1] > 0).map(window => ({ x: window.at[0], y: window.at[1], width: window.size[0], height: window.size[1], address: window.address, focus: window.focusHistoryID }));
     }
 
     function outputRectangles() {
         return outputs === null ? [] : outputs.filter(output => !output.disabled).map(output => ({ name: output.name, x: output.x, y: output.y, width: output.width, height: output.height, scale: output.scale, transform: output.transform }));
     }
 
-    // WINDOWS holds the window boxes a selection offers, from windowsRead.
-    function launch(name, output, windows) {
-        const selection = ["screenshot-area", "screenshot-window", "screenshot-display", "record", "record-window", "record-display"].indexOf(name) >= 0;
-        const focused = selection ? Hyprland.activeToplevel : null;
+    // WINDOWS holds the window boxes a selection offers and FOCUS the window
+    // it gives the keyboard back to, both from windowsRead.
+    function launch(name, output, windows, focus) {
         const s = shell.settings;
         const request = { action: name, output: output, folder: s.folder, recordFolder: s.recordFolder, audio: s.audio, smart: s.smart, delay: s.delay, cursor: s.cursor, processing: s.processing,
             quality: s.quality, frameRate: s.frameRate, codec: s.codec, constantFrameRate: s.constantFrameRate, recordCursor: s.recordCursor, audioSources: s.audioSources, webcam: s.webcam, webcamDevice: s.webcamDevice,
             postProcess: s.postProcess, ocrLanguages: s.ocrLanguages, editor: s.editor, viewer: s.viewer, player: s.player, browser: s.browser, stateDir: Paths.stateDir, windows: windows, outputs: outputRectangles() };
-        const job = workerComponent.createObject(root, { actionName: name, focusAddress: focused === null ? "" : focused.address, command: ["python3", helperPath, JSON.stringify(request)] });
+        const job = workerComponent.createObject(root, { actionName: name, focusAddress: focus, command: ["python3", helperPath, JSON.stringify(request)] });
         if (job === null) {
             phase = "idle";
             action = "";

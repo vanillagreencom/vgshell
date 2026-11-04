@@ -69,12 +69,14 @@ def release_deadline():
 
 
 def window_source():
-    """The service's windowRectangles body and the compositor provider that answers its onScreen."""
+    """The service's windowRectangles body, led by the optionsWindow it calls, and the compositor provider that answers its onScreen."""
     service = (HELPER.parent.parent / "Service.qml").read_text()
     capabilities = (REPO / "shell/Core/Capabilities.qml").read_text()
+    options = [line.strip() for line in service.splitlines() if line.startswith("    function optionsWindow(client) {")]
+    assert len(options) == 1, "options window function boundary"
     start, end = "    function windowRectangles(clients, monitors) {\n", "\n    }\n\n    function outputRectangles()"
     assert service.count(start) == service.count(end) == 1, "window rectangle function boundary"
-    body = service.split(start)[1].split(end)[0]
+    body = options[0] + "\n" + service.split(start)[1].split(end)[0]
     start, end = "        compositor: ctx => {\n", "\n        },\n        configure:"
     assert capabilities.count(start) == capabilities.count(end) == 1, "compositor provider boundary"
     return body, capabilities.split(start)[1].split(end)[0]
@@ -93,6 +95,9 @@ def service_rectangles():
     before = "return clients.filter("
     assert body.count(before) == 1, "service window reply control"
     from_model = body.replace(before, "return Hyprland.toplevels.values.map(t => t.lastIpcObject).filter(")
+    before = " && !optionsWindow(window)"
+    assert body.count(before) == 1, "service options window control"
+    options_offered = body.replace(before, "")
     program = r'''
 const path = require("path");
 const input = JSON.parse(process.argv[1]);
@@ -109,6 +114,10 @@ const clients = [
     { ...base, address: "hidden", hidden: true },
     { ...base, address: "zero-width", size: [0, 60] },
     { ...base, address: "zero-height", size: [80, 0] },
+    // The Capture options window a press in it closes; another shell window
+    // stays a choice.
+    { ...base, address: "capture-options", class: "org.vgs.shell", title: "Capture" },
+    { ...base, address: "shell-settings", class: "org.vgs.shell", title: "Plugins" },
 ];
 const monitors = [
     { id: 0, activeWorkspace: { id: 1, name: "1" }, specialWorkspace: { id: 0, name: "" } },
@@ -118,24 +127,72 @@ const monitors = [
 const Hyprland = { toplevels: { values: [...clients, { ...base, address: "closed" }].map(lastIpcObject => ({ lastIpcObject })) } };
 function addresses(body, factory) {
     const compositor = new Function("Dispatch", "Compositor", "ctx", factory)(Dispatch, {}, { active: true });
-    return new Function("clients", "monitors", "shell", "Hyprland", body)(clients, monitors, { compositor }, Hyprland).map(window => window.address);
+    return new Function("clients", "monitors", "shell", "Hyprland", body)(clients, monitors, { compositor, manifest: { name: "Capture" } }, Hyprland).map(window => window.address);
 }
-const expected = JSON.stringify(["shown", "shown-special"]);
+const expected = JSON.stringify(["shown", "shown-special", "shell-settings"]);
 console.log(JSON.stringify([
     addresses(input.body, input.factory),
     JSON.stringify(addresses(input.no_query, input.factory)) === expected,
     JSON.stringify(addresses(input.body, input.no_delegate)) === expected,
     JSON.stringify(addresses(input.from_model, input.factory)) === expected,
+    JSON.stringify(addresses(input.options_offered, input.factory)) === expected,
 ]));
 '''
-    payload = dict(repo=str(REPO), body=body, factory=factory, no_query=no_query, no_delegate=no_delegate, from_model=from_model)
+    payload = dict(repo=str(REPO), body=body, factory=factory, no_query=no_query, no_delegate=no_delegate, from_model=from_model, options_offered=options_offered)
     result = subprocess.run(["node", "-e", program, json.dumps(payload)], stdin=subprocess.DEVNULL, capture_output=True, text=True, env={"PATH": os.defpath, "LC_ALL": "C"}, timeout=10)
     assert result.returncode == 0, result.stderr
-    actual, query_control, delegate_control, model_control = json.loads(result.stdout)
-    assert actual == ["shown", "shown-special"], ("drawn screenshot windows", actual)
+    actual, query_control, delegate_control, model_control, options_control = json.loads(result.stdout)
+    assert actual == ["shown", "shown-special", "shell-settings"], ("drawn screenshot windows", actual)
     assert not query_control, "omitting the drawn-window query must fail the same candidate readback"
     assert not delegate_control, "bypassing Dispatch.onScreen must fail the same candidate readback"
     assert not model_control, "reading Hyprland.toplevels must fail the same candidate readback"
+    assert not options_control, "offering the Capture options window must fail the same candidate readback"
+
+
+def restore_target():
+    """The window a selection gives the keyboard back to, from Hyprland's clients.
+
+    A press in the Capture options window makes it the active toplevel and
+    then closes it, so the target is the window Hyprland focused before it.
+    Each row: the active toplevel's address or None, and the target.
+    """
+    service = (HELPER.parent.parent / "Service.qml").read_text()
+    options = [line.strip() for line in service.splitlines() if line.startswith("    function optionsWindow(client) {")]
+    assert len(options) == 1, "options window function boundary"
+    body = options[0] + "\n" + service_function(service, "restoreTarget")
+    clients = [
+        {"address": "0xoptions", "class": "org.vgs.shell", "title": "Capture", "mapped": True, "focusHistoryID": 0},
+        {"address": "0xuser", "class": "app", "title": "Editor", "mapped": True, "focusHistoryID": 1},
+        {"address": "0xsettings", "class": "org.vgs.shell", "title": "Plugins", "mapped": True, "focusHistoryID": 2},
+        {"address": "0xunmapped", "class": "app", "title": "Gone", "mapped": False, "focusHistoryID": -1},
+    ]
+    rows = [
+        ("the user's window is active", "user", "user"),
+        ("another shell window is active", "settings", "settings"),
+        ("the options window is active", "options", "user"),
+        ("the active window is gone", "closed", "user"),
+        ("no window is active", None, ""),
+    ]
+    program = r'''
+const input = JSON.parse(process.argv[1]);
+const run = (body, active, clients) => new Function("shell", "Hyprland", body + "; return restoreTarget;")({ manifest: { name: "Capture" } }, { activeToplevel: active === null ? null : { address: active } })(clients);
+console.log(JSON.stringify([
+    input.rows.map(([, active]) => run(input.body, active, input.clients)),
+    input.rows.map(([, active]) => run(input.control, active, input.clients)),
+    run(input.body, "options", input.clients.filter(c => c.address === "0xoptions")),
+]));
+'''
+    before = "if (current !== undefined && !optionsWindow(current)) return active.address;"
+    assert body.count(before) == 1, "restore target control"
+    control = body.replace(before, "return active.address;")
+    payload = dict(body=body, control=control, clients=clients, rows=rows)
+    result = subprocess.run(["node", "-e", program, json.dumps(payload)], stdin=subprocess.DEVNULL, capture_output=True, text=True, env={"PATH": os.defpath, "LC_ALL": "C"}, timeout=10)
+    assert result.returncode == 0, result.stderr
+    actual, controlled, alone = json.loads(result.stdout)
+    for (name, _, want), got in zip(rows, actual):
+        assert got == want, (name, got)
+    assert alone == "", ("only the options window", alone)
+    assert controlled != [want for _, _, want in rows], "a target read from the active toplevel must fail the same table"
 
 
 WINDOW_REPLIES = REPO / "scripts/fixtures/capture/hyprland-windows.json"
@@ -170,7 +227,7 @@ fs.writeFileSync(path.join(input.scratch, "Dispatch.js"), input.control);
 const old = loadFrom(path.join(input.scratch, "Dispatch.js"));
 function addresses(Dispatch, clients, monitors) {
     const compositor = new Function("Dispatch", "Compositor", "ctx", input.factory)(Dispatch, {}, { active: true });
-    return new Function("clients", "monitors", "shell", input.body)(clients, monitors, { compositor }).map(window => window.address);
+    return new Function("clients", "monitors", "shell", input.body)(clients, monitors, { compositor, manifest: { name: "Capture" } }).map(window => window.address);
 }
 const out = {};
 for (const [version, reply] of Object.entries(input.replies)) {
@@ -263,7 +320,7 @@ const requests = [];
 const workerComponent = { createObject: (parent, properties) => { requests.push(JSON.parse(properties.command[2])); return {}; } };
 const launch = new Function("shell", "Hyprland", "Paths", "outputRectangles", "workerComponent", "root", "helperPath", "publish", "jobs", "activeJob", input.body + "; return launch;")(
     { settings: input.settings }, { activeToplevel: null }, { stateDir: "/state" }, () => [], workerComponent, {}, "/helper", () => {}, [], null);
-console.log(JSON.stringify([launch("screenshot", "NESTED", []), requests]));
+console.log(JSON.stringify([launch("screenshot", "NESTED", [], ""), requests]));
 """
     def launched(source):
         reply, requests = run(start, {"body": service_function(source, "launch"), "settings": {**manifest["settings"], "delay": 7, "timeout": 30, "browser": "fixture-browser --select %f"}})
@@ -2021,6 +2078,7 @@ def main():
         config = {"real": {"grim": real}, "display": display, "runtime": runtime}
         dimensions = (int(width), int(height))
     service_rectangles()
+    restore_target()
     recorded_windows()
     service_completion()
     delay_choice()

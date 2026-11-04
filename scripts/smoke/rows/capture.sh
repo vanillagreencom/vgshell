@@ -1541,6 +1541,83 @@ expect "control: a delay choice the options window drops fails the kept-delay re
 expect "capture closes the delay copy's options window" ok ipc vgs.capture invoke toggle ''
 expect_poll "the delay copy's options window unmaps" absent capture_options
 capture_options_plant original
+# A selection started from the options window gives the keyboard back to
+# the window the options opened over, not to the options window, which the
+# press closes. Area waits on the windows read Smart selection takes;
+# Display reads the windows only for the window to restore. The second
+# window takes the keyboard during each held selection.
+# capture_options_selection CASE: the target focused, the options opened
+# over it, CASE's selection pressed in them and held, the second window
+# focused, and the selection released.
+capture_options_selection() { # area | display
+  rm -f -- "${capture_state:?}/slurp-ready" "${capture_state:?}/slurp-release"
+  expect "options $1: the target receives focus" ok hypr dispatch "hl.dsp.focus({ window = \"address:$capture_target_address\" })"
+  expect_poll "options $1: the target has the keyboard" "$capture_target_address" capture_active_address
+  expect "options $1: the toggle opens the options" ok ipc vgs.capture invoke toggle ''
+  expect_poll "options $1: the options window has the keyboard" "[\"$shell_class\", \"Capture\"]" active_window
+  expect_poll "options $1: the options open on their primary action" Button capture_focus_type
+  if [[ $1 == display ]]; then
+    capture_back
+    expect_poll "options display: Shift+Tab reaches the target tiles" TileGroup capture_focus_type
+    capture_key Right
+    capture_key Right
+    expect_poll "options display: Right twice chooses Display" 2 capture_choice TileGroup
+    capture_key Tab
+    expect_poll "options display: Tab returns to the primary action" screenshot-display capture_primary
+  fi
+  capture_key Return
+  expect_poll "options $1: the held selector is ready" True capture_marker slurp-ready
+  expect_poll "options $1: the press closes the options window" 0 window_count Capture
+  expect "options $1: the second window takes focus" ok hypr dispatch "hl.dsp.focus({ window = \"address:$capture_disturbance_address\" })"
+  expect_poll "options $1: the second window has the keyboard" "$capture_disturbance_address" capture_active_address
+  touch -- "$capture_state/slurp-release"
+  expect_poll "options $1: the held selection finishes" idle capture_phase
+}
+capture_config slurpRelease true
+for capture_restore_case in area display; do
+  capture_options_selection "$capture_restore_case"
+  expect_poll "options $capture_restore_case: selection restores the window the options opened over" "$capture_target_address" capture_active_address
+done
+# A copy that takes the window to restore from the active toplevel, as
+# before, hands the keyboard back to the closed options window from
+# Display's immediate launch, so the second window keeps it.
+capture_restore_service="$repo/shell/plugins/vgs.capture/Service.qml"
+capture_restore_plant() { # active | original
+  expect "capture stops before the $1 restore copy" ok ipc shell setPluginEnabled vgs.capture false
+  expect_poll "the $1 restore copy releases the service" False record_exists vgs.capture
+  python3 - "$capture_restore_service" "$sandbox" "$capture_state/restore-service-original.qml" "$1" <<'PY'
+from pathlib import Path
+import sys
+service, sandbox, original, control = sys.argv[1:]
+service, original = Path(service), Path(original)
+assert service.resolve().is_relative_to(Path(sandbox).resolve()), "restore control must stay inside the sandbox"
+if not original.exists():
+    original.write_text(service.read_text())
+source = original.read_text()
+changes = {
+    "active": [
+        ("if (selections.indexOf(name) >= 0) {", "if (name === \"screenshot-window\" || name === \"record-window\" || ((name === \"screenshot-area\" || name === \"record\") && shell.settings.smart)) {"),
+        ("return launch(name, output, [], \"\");", "return launch(name, output, [], selections.indexOf(name) >= 0 && Hyprland.activeToplevel !== null ? Hyprland.activeToplevel.address : \"\");"),
+        ("restoreTarget(state.clients));", "Hyprland.activeToplevel === null ? \"\" : Hyprland.activeToplevel.address);"),
+    ],
+    "original": [],
+}
+changed = source
+for before, after in changes[control]:
+    assert changed.count(before) == 1, control + ": " + before
+    changed = changed.replace(before, after)
+assert control == "original" or changed != source, control
+service.write_text(changed)
+PY
+  rescan "the $1 restore copy is rescanned"
+  expect "capture enables the $1 restore copy" ok ipc shell setPluginEnabled vgs.capture true
+  expect_poll "the $1 restore copy's service is built" True record_exists vgs.capture
+}
+capture_restore_plant active
+capture_options_selection display
+expect_poll "control: a restore read from the active toplevel leaves the second window the keyboard" "$capture_disturbance_address" capture_active_address
+capture_restore_plant original
+capture_config slurpRelease false
 # The Settings page draws a field for each schema entry: none for the delay
 # or a time limit. The manifest copy declares both again.
 capture_field() {
