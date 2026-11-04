@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- With the VGS theme, the tmux status line draws the theme preview's colours: an orange session label, grey inactive windows and right-side status, and a blue current window. With any theme, grey muted text in tmux stays grey wherever the terminal palette has a readable grey that is dimmer than the text and apart from it, instead of taking a nearby colour.
+
 - When an app asks to share your screen, VGS's own picker opens, with no setup step. VGS sets it up when Capture starts, keeps every other line of your screen sharing settings, and waits while an app shares your screen, since setup restarts screen sharing. Turning Capture off gives screen sharing its own picker back once no app shares your screen, and a notification says so when it cannot. The picker's preview stays in place while its list scrolls, and the row you select scrolls into view under it.
 
 - Agent Debug is a new plugin. When one of your programs crashes or a VGS setup task fails, it shows a notification with Diagnose, which opens the agent you choose, Claude Code, Codex, Copilot, Pi or OpenCode, in a floating terminal with the facts of the failure and a read-only diagnose skill. It notifies at most once a minute per program or task, only after you choose an agent, and a crash notification offers Mute, which the Settings tab's Muted programs list undoes.

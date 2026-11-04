@@ -457,7 +457,7 @@ function checkTargets(base, defaults) {
 // accepted `vgs` verdict with terminal slots, whatever a package curates.
 function renderDefault(judged, defaults) {
     return render.renderTarget(logic, tokens, judged.verdict.target, judged.templates,
-        { values: defaults.values, slots: defaults.terminal, curated: new Map(), installed: false });
+        { values: defaults.values, slots: defaults.terminal, curated: new Map(), installed: false, tmuxAuthored: defaults.tmuxAuthored });
 }
 
 // --- gum-default
@@ -647,11 +647,12 @@ function checkCatalog(dirArg) {
 // by an installed package of its name, which is never read. `palette` is
 // the resolved palette group of an accepted package and `displayName` the
 // name its document states for views, else null. `files`, `values`, the
-// judge's resolved tokens, `terminal`, its slots or null, and `backgrounds`,
-// its image name map, stay in this process.
+// judge's resolved tokens, `terminal`, its slots or null, `tmuxAuthored`,
+// the tmux roles its terminal.json draws in its own colours, and
+// `backgrounds`, its image name map, stay in this process.
 function packageRow(base, name, source) {
     const dir = path.join(base, name);
-    const row = { name, source, path: dir, state: "refused", reason: null, displayName: null, palette: null, files: null, values: null, terminal: null, backgrounds: null };
+    const row = { name, source, path: dir, state: "refused", reason: null, displayName: null, palette: null, files: null, values: null, terminal: null, tmuxAuthored: null, backgrounds: null };
     let judged;
     try {
         judged = readPackage(dir, source === "shipped");
@@ -669,6 +670,7 @@ function packageRow(base, name, source) {
     row.values = judged.verdict.values;
     row.palette = row.values.palette;
     row.terminal = judged.verdict.terminal;
+    row.tmuxAuthored = judged.verdict.tmuxAuthored;
     row.backgrounds = judged.verdict.backgrounds;
     return row;
 }
@@ -1010,7 +1012,7 @@ function planTarget(dir, row, slots, font, disabled, configHome, live) {
     }, failed);
     if (!curated.ok) return curated.entry;
     const rendered = render.renderTarget(logic, tokens, target, judged.value.templates,
-        { values: row.values, slots, curated: curated.value.files, installed: row.source === "installed", terminalFont: font });
+        { values: row.values, slots, tmuxAuthored: row.tmuxAuthored, curated: curated.value.files, installed: row.source === "installed", terminalFont: font });
     if (!rendered.ok) return failed(rendered.reason, render.refusalLine(name, rendered));
     const selectionValues = rendered.selectionValues;
     if (target.select !== undefined && editors === undefined) {
