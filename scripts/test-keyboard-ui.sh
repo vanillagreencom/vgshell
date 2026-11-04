@@ -23,8 +23,10 @@ cases = [
     ('source-limit', 'KeyboardLogic.js', 'if (rows.length >= SOURCE_MAX) return { ok: false, reason: "source-limit" };', 'if (false) return { ok: false, reason: "source-limit" };', 'test_fifth_source_keeps_saved_sources'),
     ('reset-variants', 'KeyboardControls.qml', 'root.shell.configure.unset("variants")', '"ok"', 'test_system_layout_unsets_both_values'),
     ('reset-layouts', 'KeyboardControls.qml', 'root.shell.configure.unset("layouts")', '"ok"', 'test_system_layout_unsets_both_values'),
-    ('modifier-preset', 'KeyboardControls.qml', 'root.setValue("options", presets[index].value)', '({})', 'test_modifier_preset_and_custom_commit'),
-    ('modifier-custom', 'KeyboardControls.qml', 'onEditingFinished: root.setValue("options", text)', 'onEditingFinished: ({})', 'test_modifier_preset_and_custom_commit'),
+    ('modifier-save', 'KeyboardControls.qml', 'onApply: value => root.setValue("options", value)', 'onApply: value => {}', 'test_modifier_preset_and_custom_commit'),
+    ('modifier-blur', 'Ui/controls/SettingField.qml', '        onAccepted: field.save()', '        onEditingFinished: field.save()', 'test_modifier_preset_and_custom_commit'),
+    ('pane-modifier-footer', 'Pane.qml', 'readonly property Item footer: controls.footer', 'readonly property Item footer: null', 'test_modifier_footer_owns_draft_actions'),
+    ('panel-modifier-footer', 'Panel.qml', 'footer: controls.footer', 'footer: []', 'test_modifier_footer_owns_draft_actions'),
     ('widget-snapshot', 'Widget.qml', 'shell.status.revision', '(shell.status.values, shell.status.revision)', 'test_status_ignores_other_plugins_and_keeps_models'),
     ('editor-snapshot', 'KeyboardControls.qml', 'shell.status.revision', '(shell.status.values, shell.status.revision)', 'test_status_ignores_other_plugins_and_keeps_models'),
     ('catalog-model', 'KeyboardControls.qml', 'if (key === catalogKey) return;', 'if (false) return;', 'test_status_ignores_other_plugins_and_keeps_models'),
@@ -42,7 +44,11 @@ for name, file, needle, replacement, assertion in [('base', '', '', '', '')] + c
     (case / 'tests').mkdir()
     (case / 'tests/tst_keyboard.qml').write_text(test)
     if file:
-        path = case / 'plugin' / file
+        if file.startswith('Ui/'):
+            shutil.copytree(repo / 'shell/Ui', case / 'ui')
+            path = case / 'ui' / file.removeprefix('Ui/')
+        else:
+            path = case / 'plugin' / file
         original = path.read_text()
         assert original.count(needle) == 1, name
         changed = original.replace(needle, replacement)
@@ -54,7 +60,9 @@ PY
 "$repo/scripts/qml-unit.sh" "$TMP_ROOT/base/tests/tst_keyboard.qml"
 while IFS=$'\t' read -r name assertion; do
   status=0
-  "$repo/scripts/qml-unit.sh" "$TMP_ROOT/$name/tests/tst_keyboard.qml" >"$TMP_ROOT/$name.log" 2>&1 || status=$?
+  args=()
+  [[ ! -d $TMP_ROOT/$name/ui ]] || args=(--ui "$TMP_ROOT/$name/ui")
+  "$repo/scripts/qml-unit.sh" "${args[@]}" "$TMP_ROOT/$name/tests/tst_keyboard.qml" >"$TMP_ROOT/$name.log" 2>&1 || status=$?
   if [[ $status == 1 ]] && grep -qE "^FAIL!.*keyboard-ui::$assertion\\(" "$TMP_ROOT/$name.log"; then
     printf '  ok    control: %s fails its Keyboard behavior assertion\n' "$name"
   else

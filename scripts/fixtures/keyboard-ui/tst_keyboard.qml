@@ -2,6 +2,7 @@ import QtQuick
 import QtTest
 import Quickshell.Hyprland
 import qs.Core
+import qs.Ui as Ui
 
 // Test the shipped Keyboard components through the normal QML test
 // stand-ins. The provider counts snapshot reads, without timing them.
@@ -40,7 +41,7 @@ Item {
                 }
             },
             settings: { layouts: "us", variants: "", options: "", repeatRate: 25, repeatDelay: 600, numlockByDefault: false },
-            manifest: { schema: { options: { presets: [{ label: "Default", value: "" }, { label: "Caps to Escape", value: "caps:escape" }] } }, hyprland: { options: {} } },
+            manifest: { schema: { options: { type: "string", allowCustom: true, presets: [{ label: "Default", value: "" }, { label: "Caps to Escape", value: "caps:escape" }] } }, hyprland: { options: {} } },
             hyprland: { devices: root.devices, overridden: [] },
             configure: {
                 set: (key, value) => root.configure("set", key, value),
@@ -61,7 +62,7 @@ Item {
         return source;
     }
     function descendant(item, name) {
-        if (item.objectName === name) return item;
+        if (typeof name === "function" ? name(item) : item.objectName === name) return item;
         for (const child of item.children || []) {
             const found = descendant(child, name);
             if (found !== null) return found;
@@ -138,15 +139,47 @@ Item {
         }
         function test_modifier_preset_and_custom_commit() {
             buildEditor();
-            const picker = root.descendant(editor, "modifierPicker");
+            const setting = root.descendant(editor, item => item instanceof Ui.SettingField && item.key === "options");
+            const picker = root.descendant(setting, item => item instanceof Ui.Select);
             picker.activated(1);
             compare(root.fixtureShell.settings.options, "caps:escape");
             picker.activated(2);
-            const field = root.descendant(editor, "customOptions");
-            verify(field.parent.visible);
+            verify(setting.customVisible);
+            const field = root.descendant(setting, item => item instanceof Ui.TextField && item.visible);
+            verify(field !== null);
             field.text = "ctrl:swapcaps,compose:ralt";
             field.editingFinished();
+            compare(root.fixtureShell.settings.options, "caps:escape", "a draft must survive focus loss without writing");
+            field.forceActiveFocus();
+            keyClick(Qt.Key_Escape);
+            compare(field.text, "caps:escape", "Escape must restore the saved value");
+            field.text = "ctrl:swapcaps,compose:ralt";
+            field.accepted();
             compare(root.changes, [["set", "options", "caps:escape"], ["set", "options", "ctrl:swapcaps,compose:ralt"]]);
+        }
+        function test_modifier_footer_owns_draft_actions_data() {
+            return [{ tag: "pane", name: "Pane" }, { tag: "panel", name: "Panel" }];
+        }
+        function test_modifier_footer_owns_draft_actions(row) {
+            const saved = "caps:super,ctrl:swap_lalt_lctl,ctrl:swap_ralt_rctl";
+            root.fixtureShell = Object.assign({}, root.fixtureShell, { settings: Object.assign({}, root.fixtureShell.settings, { options: saved }) });
+            editor = root.component(row.name).createObject(root, { shell: Qt.binding(() => root.fixtureShell), width: 900 });
+            verify(editor !== null);
+            const pane = row.name === "Pane" ? null : root.descendant(editor, item => item instanceof Ui.Pane);
+            const footer = pane === null ? editor.footer : Array.from(pane.footer).find(item => item instanceof Ui.SaveBar);
+            verify(footer instanceof Ui.SaveBar, "the consumer must publish the modifier footer");
+            const field = root.descendant(editor, item => item instanceof Ui.TextField && item.visible && item.escapeReverts);
+            verify(field !== null);
+            field.text = "caps:escape";
+            compare(footer.dirty, true);
+            footer.discard();
+            compare(field.text, saved);
+            compare(root.changes, []);
+            compare(footer.dirty, false);
+            field.text = "compose:ralt,ctrl:swapcaps";
+            footer.save();
+            compare(root.changes, [["set", "options", "compose:ralt,ctrl:swapcaps"]]);
+            compare(footer.dirty, false);
         }
         function test_status_ignores_other_plugins_and_keeps_models() {
             widget = root.component("Widget").createObject(root, { shell: Qt.binding(() => root.fixtureShell) });

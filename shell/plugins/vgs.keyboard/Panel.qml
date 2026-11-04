@@ -18,6 +18,7 @@ Item {
         fitToContent: true
         maximumHeight: Theme.size.panel.maxHeight
         title: "Keyboard"
+        footer: controls.footer
         KeyboardControls { id: controls; width: layout.contentWidth; shell: root.shell }
     }
 }

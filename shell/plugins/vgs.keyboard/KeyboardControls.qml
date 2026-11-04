@@ -7,7 +7,6 @@ Column {
     id: root
     property var shell: null
     property string problem: ""
-    property bool customOptions: false
     property int layoutChoice: 0
     property int variantChoice: 0
     readonly property int statusRevision: shell === null ? 0 : shell.status.revision
@@ -17,6 +16,15 @@ Column {
     readonly property var sources: shell === null ? [] : Logic.sources(layoutSource.shownValue || "", variantSource.shownValue || "", shell.hyprland.devices)
     readonly property var variants: catalog.length === 0 ? [] : [{ code: "", name: "Default" }].concat(catalog[Math.min(layoutChoice, catalog.length - 1)].variants)
     readonly property Item firstFocus: sourceList.count > 0 ? sourceList : layoutPicker
+    readonly property Item footer: SaveBar {
+        width: parent === null ? root.width : parent.width
+        dirty: modifierEditor.edited
+        onSave: {
+            modifierEditor.save();
+            if (!modifierEditor.edited) confirm();
+        }
+        onDiscard: modifierEditor.discard()
+    }
     spacing: Theme.stack.group
     onStatusRevisionChanged: refreshStatus()
     onShellChanged: refreshStatus()
@@ -91,11 +99,10 @@ Column {
         onOpenHyprlandConfig: root.openHyprlandConfig()
     }
 
-    SectionHeader { width: parent.width; text: "Input Sources"; description: "Add a layout and choose its variant. The list sets the switch order." }
-
-    Column {
+    Section {
         width: parent.width
-        spacing: Theme.stack.row
+        title: "Input Sources"
+        description: "Add a layout and choose its variant. The list sets the switch order."
         KeyboardRow {
             id: layoutSource
             setting: "layouts"
@@ -133,6 +140,7 @@ Column {
             wrapMode: Text.Wrap
         }
         Card {
+            border.color: Theme.textField.borderColor
             SectionHeader { width: parent.width; text: "Add input source" }
             FormRow {
                 width: parent.width
@@ -178,12 +186,12 @@ Column {
         }
     }
 
-    SectionHeader { width: parent.width; text: "Key Repeat"; description: "Set how a held key repeats." }
     // Reserve the widest supported value so both slider tracks stay aligned.
     Label { id: repeatColumn; visible: false; role: "value"; text: "2000 ms" }
-    Column {
+    Section {
         width: parent.width
-        spacing: Theme.stack.row
+        title: "Key Repeat"
+        description: "Set how a held key repeats."
         Repeater {
             model: [{ key: "repeatRate", label: "Repeat rate", maximum: 200, unit: "/s" }, { key: "repeatDelay", label: "Repeat delay", maximum: 2000, unit: "ms" }]
             KeyboardRow {
@@ -209,42 +217,29 @@ Column {
                 }
             }
         }
-        TextField { objectName: "repeatTest"; width: parent.width; placeholderText: "Hold a key here to try repeat"; Accessible.name: "Test key repeat" }
+        FormRow {
+            width: parent.width
+            label: "Try repeat"
+            TextField { objectName: "repeatTest"; width: parent.width; placeholderText: "Hold a key here to try repeat"; Accessible.name: "Test key repeat" }
+        }
     }
 
-    SectionHeader { width: parent.width; text: "Modifier Options"; description: "Change modifier keys and the startup number pad." }
-    Column {
+    Section {
         width: parent.width
-        spacing: Theme.stack.row
+        title: "Modifier Options"
+        description: "Change modifier keys and the startup number pad."
         KeyboardRow {
             id: optionsSource
             setting: "options"
             label: "Modifier keys"
-            Select {
-                objectName: "modifierPicker"
-                readonly property var presets: root.shell === null ? [] : root.shell.manifest.schema.options.presets
-                model: presets.concat([{ label: "Custom…", value: null }])
-                textRole: "label"
-                currentIndex: {
-                    const found = presets.findIndex(row => root.shell !== null && row.value === optionsSource.shownValue);
-                    return found < 0 ? presets.length : found;
-                }
-                onActivated: index => {
-                    root.customOptions = index === presets.length;
-                    if (!root.customOptions) root.setValue("options", presets[index].value);
-                }
-            }
-        }
-        Field {
-            visible: root.customOptions || (root.shell !== null && !root.shell.manifest.schema.options.presets.some(row => row.value === optionsSource.shownValue))
-            width: parent.width
-            label: "Custom options"
-            hint: "Separate XKB option names with commas."
-            TextField {
-                objectName: "customOptions"
+            labelColumn: false
+            SettingField {
+                id: modifierEditor
                 width: parent.width
-                text: root.shell === null ? "" : optionsSource.shownValue
-                onEditingFinished: root.setValue("options", text)
+                key: "options"
+                spec: root.shell === null ? ({}) : Object.assign({}, root.shell.manifest.schema.options, { label: "Modifier keys", description: "Separate XKB option names with commas." })
+                value: optionsSource.shownValue
+                onApply: value => root.setValue("options", value)
             }
         }
         KeyboardRow {
@@ -261,13 +256,15 @@ Column {
                 }
             }
         }
-        Button {
-            text: "Keyboard Shortcuts…"
-            iconName: "keyboard"
-            variant: "tertiary"
-            onClicked: {
-                const reply = root.shell.run.detached(["vgshell", "ipc", "call", "shell", "summon", "window", "vgs.keyhints", "{}"]);
-                if (reply !== "ok") root.problem = "VGS could not open Keyboard Shortcuts.";
+        FormRow {
+            width: parent.width
+            label: "Shortcuts"
+            RowAction {
+                text: "Keyboard Shortcuts…"
+                onClicked: {
+                    const reply = root.shell.run.detached(["vgshell", "ipc", "call", "shell", "summon", "window", "vgs.keyhints", "{}"]);
+                    if (reply !== "ok") root.problem = "VGS could not open Keyboard Shortcuts.";
+                }
             }
         }
     }

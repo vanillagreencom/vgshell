@@ -5,6 +5,7 @@ FocusScope {
     id: root
     property var shell: null
     readonly property Item initialFocus: controls.firstFocus
+    readonly property Item footer: controls.footer
     function open(payloadJson) {}
     function close() {}
     implicitWidth: Theme.size.window.width

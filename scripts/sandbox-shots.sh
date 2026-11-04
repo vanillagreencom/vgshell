@@ -6476,7 +6476,7 @@ keyboard_shot_modifier_list() {
   read -r x y < <(at_centre "window:System Settings" "$box") || return 1
   hover "$((x - 1))" "$y" && click "$x" "$y"
 }
-keyboard_shot_modifier_open() { ipc smoke readMatchingDescendant window vgs.keyboard Select objectName modifierPicker listOpen; }
+keyboard_shot_modifier_open() { ipc smoke readMatchingDescendant window vgs.keyboard Select textRole label listOpen; }
 keyboard_shot_panel_sources() { ipc smoke readDescendant panel vgs.keyboard KeyboardControls sources | py_reply 'import json,sys; print(json.dumps([[r["code"], r["variant"]] for r in json.load(sys.stdin)]))'; }
 keyboard_shot_source_menu() { ipc smoke menus panel vgs.keyboard | py_reply 'import json,sys; menus=json.load(sys.stdin); print(any(m["opened"] and m["entries"] == ["Move down", "Remove"] for m in menus))'; }
 keyboard_shot_reveal() {

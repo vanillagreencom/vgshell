@@ -65,7 +65,7 @@ print(json.dumps([r.get(sys.argv[1], "absent") for r in entries]))' "$1"
 }
 keyboard_focus() {
   for _ in $(seq 1 40); do
-    [[ $(ipc smoke readMatchingDescendant window vgs.keyboard "$1" objectName "$2" activeFocus) == true ]] && return 0
+    [[ $(ipc smoke readMatchingDescendant window vgs.keyboard "$1" "${3:-objectName}" "$2" activeFocus) == true ]] && return 0
     keyboard_editor_keys -k Tab || return 1
   done
   fail "keyboard-input: status=control-unreachable type=$1 object=$2"
@@ -75,12 +75,12 @@ keyboard_focus() {
 # requested entry; Home and Down activate its normal user handlers.
 keyboard_pick() {
   local index keyboard_index
-  index="$(ipc smoke readMatchingDescendant window vgs.keyboard Select objectName "$1" model | py_reply 'import json,sys
+  index="$(ipc smoke readMatchingDescendant window vgs.keyboard Select "${4:-objectName}" "$1" model | py_reply 'import json,sys
 rows=json.load(sys.stdin)
-want=None if sys.argv[2] == "__custom" else sys.argv[2]
+want=sys.argv[2]
 print(next((i for i,row in enumerate(rows) if row.get(sys.argv[1]) == want), "absent"))' "$2" "$3")" || { fail "keyboard-input: status=choices-unreadable control=$1"; return 1; }
   [[ $index =~ ^[0-9]+$ ]] || { fail "keyboard-input: status=choice-absent control=$1 value=$3"; return 1; }
-  keyboard_focus Select "$1" || return 1
+  keyboard_focus Select "$1" "${4:-objectName}" || return 1
   keyboard_editor_keys -k Home || return 1
   for ((keyboard_index=0; keyboard_index<index; keyboard_index++)); do keyboard_editor_keys -k Down || return 1; done
 }
@@ -259,16 +259,52 @@ expect_poll "reset removes the saved layout value" '["absent"]' keyboard_saved_v
 expect_poll "reset removes the saved variant value" '["absent"]' keyboard_saved_value variants
 expect_poll "reset restores the compositor's system layout" "$keyboard_system_layout" keyboard_option input:kb_layout str
 expect_poll "reset restores the compositor's system variant" "$keyboard_system_variant" keyboard_option input:kb_variant str
-keyboard_pick modifierPicker value caps:escape || { keyboard_restore; return 0; }
+keyboard_custom_check() {
+keyboard_pick label value caps:escape textRole || return 1
 expect_poll "the modifier preset is saved" '["caps:escape"]' keyboard_saved_value options
 expect_poll "the modifier preset reaches Hyprland" '"caps:escape"' keyboard_option input:kb_options str
-keyboard_pick modifierPicker value __custom || { keyboard_restore; return 0; }
-keyboard_focus TextField customOptions || { keyboard_restore; return 0; }
-keyboard_editor_keys -M ctrl -k a -m ctrl || { keyboard_restore; return 0; }
-keyboard_editor_keys 'compose:ralt,grp:alt_shift_toggle' || { keyboard_restore; return 0; }
-keyboard_editor_keys -k Return || { keyboard_restore; return 0; }
+keyboard_focus Select label textRole || return 1
+# End reaches Custom directly; stepping through presets would save each.
+keyboard_editor_keys -k End || return 1
+keyboard_focus DraftField true escapeReverts || return 1
+keyboard_editor_keys -M ctrl -k a -m ctrl || return 1
+keyboard_editor_keys 'compose:ralt,grp:alt_shift_toggle' || return 1
+keyboard_editor_keys -k Tab || return 1
+expect "leaving custom modifiers keeps the saved preset" '["caps:escape"]' keyboard_saved_value options
+keyboard_focus DraftField true escapeReverts || return 1
+keyboard_editor_keys -k Escape || return 1
+expect "Escape restores the saved custom modifier text" '"caps:escape"' ipc smoke readDescendant window vgs.keyboard DraftField text
+keyboard_editor_keys -M ctrl -k a -m ctrl || return 1
+keyboard_editor_keys 'compose:ralt,grp:alt_shift_toggle' || return 1
+keyboard_editor_keys -k Return || return 1
 expect_poll "custom modifiers are saved" '["compose:ralt,grp:alt_shift_toggle"]' keyboard_saved_value options
 expect_poll "custom modifiers reach Hyprland" '"compose:ralt,grp:alt_shift_toggle"' keyboard_option input:kb_options str
+}
+keyboard_custom_check || { keyboard_restore; return 0; }
+keyboard_pointer_modifiers() {
+  local host="$1" owner="$2" origin="$3" wanted="$4" before before_text label
+  before="$(keyboard_saved_value options)" || return 1
+  before_text="$(ipc smoke readDescendant "$host" vgs.keyboard DraftField text)" || return 1
+  label="$(py_reply 'import json,sys; print(json.load(sys.stdin))' <<<"$before_text")" || return 1
+  ipc smoke revealText "$host" "$owner" DraftField "$label" >/dev/null || return 1
+  click_in "$origin" "$host" vgs.keyboard DraftField "$label" || return 1
+  expect_poll "the $host modifier editor takes pointer focus" true ipc smoke readDescendant "$host" vgs.keyboard DraftField activeFocus
+  type_keys -M ctrl -k a -m ctrl || return 1
+  type_keys 'caps:escape' || return 1
+  expect_poll "the $host modifier draft offers its footer" true ipc smoke readDescendant "$host" "$owner" SaveBar dirty
+  click_scoped_in "$origin" "$host" "$owner" SaveBar 'Unsaved changes' Button Discard || return 1
+  expect "pointer Discard keeps the $host saved modifiers" "$before" keyboard_saved_value options
+  expect "pointer Discard restores the $host modifier text" "$before_text" ipc smoke readDescendant "$host" vgs.keyboard DraftField text
+  click_in "$origin" "$host" vgs.keyboard DraftField "$label" || return 1
+  type_keys -M ctrl -k a -m ctrl || return 1
+  type_keys "$wanted" || return 1
+  expect_poll "the $host second modifier draft offers its footer" true ipc smoke readDescendant "$host" "$owner" SaveBar dirty
+  click_scoped_in "$origin" "$host" "$owner" SaveBar 'Unsaved changes' Button Save || return 1
+  expect_poll "pointer Save writes the $host modifiers" "[\"$wanted\"]" keyboard_saved_value options
+  expect_poll "pointer Save applies the $host modifiers" "\"$wanted\"" keyboard_option input:kb_options str
+  expect_poll "pointer Save clears the $host modifier draft" false ipc smoke readDescendant "$host" "$owner" SaveBar dirty
+}
+keyboard_pointer_modifiers window vgs.system 'window:System Settings' 'compose:ralt,ctrl:swapcaps' || { fail "the Keyboard page modifier footer did not complete"; keyboard_restore; return 0; }
 # The same checks must reject a row whose action leaves the VGS value saved.
 keyboard_source_row() { ipc smoke readMatchingDescendant window vgs.keyboard KeyboardRow setting repeatRate "$1"; }
 # Shared rows each construct a hidden action. Follow the actual focus item,
@@ -389,6 +425,7 @@ expect "the Keyboard pane reopens after its source control" ok ipc shell summon 
 expect "the Keyboard pane closes before the control" ok ipc shell hide window vgs.system
 expect "the Keyboard panel opens" ok ipc shell summon panel vgs.keyboard '{}'
 expect_poll "the Keyboard panel is built" 1 keyboard_panels
+keyboard_pointer_modifiers panel vgs.keyboard vgs:panel 'compose:ralt,grp:alt_shift_toggle' || { fail "the Keyboard panel modifier footer did not complete"; keyboard_restore; return 0; }
 expect "the Keyboard panel closes" ok ipc shell hide panel vgs.keyboard
 expect_poll "the Keyboard panel is gone" 0 keyboard_panels
 expect "disabling Keyboard before its control is allowed" ok ipc shell setPluginEnabled vgs.keyboard false
