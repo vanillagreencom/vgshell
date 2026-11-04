@@ -70,7 +70,8 @@ FocusScope {
 
         ScrollArea {
             width: parent.width
-            height: Math.min(implicitHeight, Theme.size.panel.md)
+            // A Flickable sets no implicitHeight; its contentHeight follows the content.
+            height: Math.min(contentHeight, Theme.size.panel.md)
             keyboardScroll: true
 
             Column {

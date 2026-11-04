@@ -11,9 +11,11 @@
 # pointer-speed label at the user's value and the keys on the row's slider,
 # waits
 # for Hyprland devices before checking the no-touchpad view and published
-# status, clicks the bar widget to open the flyout through surfaces, changes
+# status, reads the Try it area drawn with its Click target inside it,
+# clicks the bar widget to open the flyout through surfaces, changes
 # the same slider from the keyboard, and installs a disposable vgs.mouse copy
-# whose pane writes sensitivity with hyprctl instead of configure.set.
+# whose pane writes sensitivity with hyprctl instead of configure.set and
+# sizes its Try it area from the Flickable's implicitHeight, which is 0.
 #
 # Control run on 2026-10-05, host cachy, through this row with
 # hyprland-consent: the disposable vgs.mouse copy removed hyprland.options for
@@ -141,6 +143,19 @@ mouse_control_option() {
   [[ $got == '[0.5, true]' ]] && echo ok || printf 'option=%s\n' "$got"
 }
 mouse_panel_built() { ipc shell built | py_reply 'import json,sys; print(sum(1 for r in json.load(sys.stdin).get("panel", []) if r["id"] == "vgs.mouse"))'; }
+# The Try it area around the Click target: [its height above zero, the
+# target shown and inside the area's box], `absent` without either.
+mouse_try_it() { ipc smoke descendantGeometry window vgs.mouse | py_reply '
+import json, sys
+items = json.load(sys.stdin)
+target = next((n for n, i in enumerate(items) if i["type"] == "Button" and str(i.get("text") or "").startswith("Click target")), -1)
+area = target
+while area >= 0 and items[area]["type"] != "ScrollArea":
+    area = items[area]["parent"]
+if target < 0 or area < 0:
+    print("absent"); sys.exit(0)
+a, t = items[area]["box"], items[target]["box"]
+print(json.dumps([a[3] > 0, items[target]["visible"] and t[3] > 0 and t[1] >= a[1] and t[1] + t[3] <= a[1] + a[3]]))'; }
 
 expect "enabling the System window is allowed" ok ipc shell setPluginEnabled vgs.system true
 expect "enabling Mouse is allowed" ok ipc shell setPluginEnabled vgs.mouse true
@@ -150,6 +165,7 @@ expect_poll "the Mouse pane is mounted" '["vgs.mouse"]' window_panes
 expect_poll "Hyprland devices are read before Mouse checks touchpads" true ipc smoke readInstance service vgs.mouse devicesRead
 expect_poll "the sandbox has no touchpad section" 0 mouse_text_count SectionHeader Touchpad
 expect_poll "the Mouse service publishes its status value" ok mouse_status_published
+expect_poll "the Try it area draws with its Click target inside it" '[true, true]' mouse_try_it
 
 # System Settings supplies the real parent-width bindings. The same reader
 # must reject a visible slider whose width the probe sets past its token.
@@ -301,12 +317,18 @@ new = '''    function setValue(key, value) {
     }'''
 assert text.count(old) == 1, old
 open(controls, "w").write(text.replace(old, new))
+pane = os.path.join(root, "Pane.qml")
+text = open(pane).read()
+old = "height: Math.min(contentHeight, Theme.size.panel.md)"
+assert text.count(old) == 1, old
+open(pane, "w").write(text.replace(old, "height: Math.min(implicitHeight, Theme.size.panel.md)"))
 PY
 rescan "rescan discovers the bad Mouse control copy"
 expect "enabling the bad Mouse control copy is allowed" ok ipc shell setPluginEnabled vgs.mouse true
 expect_poll "the bad Mouse control copy is enabled" True plugin_enabled vgs.mouse
 expect "the bad Mouse pane opens for the control" ok ipc shell summon window vgs.system '{"pane":"vgs.mouse"}'
 expect_poll "the bad Mouse pane is mounted for the control" '["vgs.mouse"]' window_panes
+expect_poll "control: the bad copy's Try it area draws at zero height around a hidden target" '[false, false]' mouse_try_it
 read -r cx cy < <(mouse_slider_point 0.75) || fail "the bad Mouse pointer-speed slider has no box"
 hover "$cx" "$cy" || fail "hovering the bad Mouse pointer-speed slider failed"
 click "$cx" "$cy" || fail "clicking the bad Mouse pointer-speed slider failed"
