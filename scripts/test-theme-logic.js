@@ -1028,6 +1028,29 @@ function verify(judge) {
         assert.equal(result.token, token, JSON.stringify(files));
     }
 
+    // The optional `tmux` object of terminal.json: the roles a package draws
+    // in its own colours in tmux, each one of TMUX_ROLES once.
+    const withTmux = tmux => judge.acceptTerminal(JSON.stringify(Object.assign({ schemaVersion: 1, slots: TERMINAL_SLOTS }, tmux === undefined ? {} : { tmux })));
+    assert.deepEqual(plain(withTmux(undefined).tmuxAuthored), []);
+    assert.deepEqual(plain(packageWithoutTerminal.tmuxAuthored), []);
+    assert.deepEqual(plain(withTmux({ authored: ["bar.active", "color.textMuted"] }).tmuxAuthored), ["bar.active", "color.textMuted"]);
+    for (const [label, tmux, reason, token, detail] of [
+        ["not an object", ["bar.active"], "terminal-tmux", "terminal.tmux", 'got=["bar.active"]'],
+        ["unknown key", { authored: ["bar.active"], colours: {} }, "terminal-tmux", "terminal.tmux", "key=colours"],
+        ["missing list", {}, "terminal-tmux", "terminal.tmux", "key=authored"],
+        ["empty list", { authored: [] }, "terminal-tmux", "terminal.tmux.authored", "got=[]"],
+        ["not a list", { authored: "bar.active" }, "terminal-tmux", "terminal.tmux.authored", 'got="bar.active"'],
+        ["not a string", { authored: [7] }, "terminal-tmux-role", "terminal.tmux.authored", "role=7"],
+        ["unknown role", { authored: ["color.success"] }, "terminal-tmux-role", "terminal.tmux.authored", 'role="color.success"'],
+        ["a slot", { authored: ["terminal.color1"] }, "terminal-tmux-role", "terminal.tmux.authored", 'role="terminal.color1"'],
+        ["duplicate", { authored: ["color.info", "color.info"] }, "terminal-tmux-role", "terminal.tmux.authored", "duplicate=color.info"]
+    ]) {
+        const result = withTmux(tmux);
+        assert.deepEqual([result.ok, result.reason, result.token, result.detail], [false, reason, token, detail], label);
+        const accepted = judge.acceptPackage(TOKENS, { directoryName: "probe", themeJson: document({}), terminalJson: JSON.stringify({ schemaVersion: 1, slots: TERMINAL_SLOTS, tmux }), shipped: false });
+        assert.equal(accepted.reason, reason, label + " through the package judge");
+    }
+
     for (const name of ["targets", "catalog"]) {
         const result = judge.acceptPackage(TOKENS, { directoryName: name, themeJson: JSON.stringify({ schemaVersion: 1, name, tokens: {} }), shipped: true });
         assert.equal(result.ok, false, name);

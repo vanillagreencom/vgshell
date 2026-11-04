@@ -17,5 +17,6 @@
     "color13": "#c084fc",
     "color14": "#22d3ee",
     "color15": "#ffffff"
-  }
+  },
+  "tmux": { "authored": ["bar.active", "color.info", "color.textMuted"] }
 }
