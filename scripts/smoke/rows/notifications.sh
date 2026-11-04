@@ -36,7 +36,7 @@
 # `bar,hyprland-consent,plugins,capabilities,session,status,notifications,
 # device-fakes,start-order,auth-sentinel`. `--rows notifications` alone
 # lacks the server and plugins earlier rows build.
-# inputs: scripts/fixtures/notifications/* scripts/smoke/fixtures/notifications/DelayedAppSounds.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/fixtures/notifications/state-v3.json bin/lib/qml-library.js shell/Commons/PageReference.js shell/Ui/foundation/ImageText* shell/Core/Sounds.qml shell/assets/sounds/* scripts/smoke/fixtures/plugins/acme.sounds/* scripts/smoke/devices.sh scripts/smoke/fixtures/devices/* shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Core/HyprlandLayer.js shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/fixtures/ai-usage/edit.py shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/overlay/Tooltip.qml shell/Ui/controls/Select.qml shell/Core/Plugins.qml shell/Commons/Tokens.js shell/Ui/layout/Section.qml shell/Ui/layout/Pane.qml shell/Ui/controls/RowAction.qml shell/Commons/Theme.qml shell/plugins/vgs.themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/vgs/* shell/Commons/ThemeLogic.js themes/catalog/flexoki-light/theme.json shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js
+# inputs: scripts/fixtures/notifications/* scripts/smoke/fixtures/notifications/DelayedAppSounds.qml scripts/smoke/fixtures/notifications/AppSoundTrace.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/fixtures/notifications/state-v3.json bin/lib/qml-library.js shell/Commons/PageReference.js shell/Ui/foundation/ImageText* shell/Core/Sounds.qml shell/assets/sounds/* scripts/smoke/fixtures/plugins/acme.sounds/* scripts/smoke/devices.sh scripts/smoke/fixtures/devices/* shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Core/HyprlandLayer.js shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/fixtures/ai-usage/edit.py shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/overlay/Tooltip.qml shell/Ui/controls/Select.qml shell/Core/Plugins.qml shell/Commons/Tokens.js shell/Ui/layout/Section.qml shell/Ui/layout/Pane.qml shell/Ui/controls/RowAction.qml shell/Commons/Theme.qml shell/plugins/vgs.themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/vgs/* shell/Commons/ThemeLogic.js themes/catalog/flexoki-light/theme.json shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js
 set -euo pipefail
 # The row measures a row whose image is missing and the synthetic latency
 # controls refuse; a card measured while it is destroyed logs its settle.
@@ -5643,6 +5643,48 @@ else: print("faint ms=%d" % heard)' "$1"
   # chime it held. Once the shell runs again it starts a new writer, holds
   # the chime again, writes the hold under the new pid, and a later chime
   # is held.
+  expect "the re-hold record loads on the real notification service" ok ipc smoke popupLoad app-sound-record "$repo/scripts/smoke/fixtures/notifications/AppSoundTrace.qml" service vgs.notifications '{"service":"@instance"}'
+  expect "the re-hold record finds the real app sound owner" '"attached"' ipc smoke popupRead app-sound-record attachmentStatus
+  app_rehold_level() { # SINK
+    local started ended result status=0 offset capture
+    started="$(now_ms)"
+    result="$(app_level "$1")" || status=$?
+    ended="$(now_ms)"
+    printf '%s:%s\n' "$status" "$result" >"$note_audio_evidence/rehold-result" || return 1
+    if [[ $status != 0 || $result != silent ]]; then
+      # Capture immediately after this unsuccessful audio read. Reading only
+      # after the poll exhausts would lose a claim that expired meanwhile.
+      # The timestamps expose sequential sampling, not an atomic snapshot.
+      offset="$(stat -c %s -- "$instance_log")" || offset=-1
+      capture="$(ipc smoke popupCall app-sound-record capture)" || capture=ipc-failed
+      if ! "${shell_env[@]}" python3 "$note_hold_fixture/hold-native.py" rehold-record "$instance_log" "$offset" "$capture" "$started" "$ended" "$result" "$status" >"$note_audio_evidence/rehold-last.json"; then
+        printf '%s\n' '{"status":"unavailable","error":"record-command-failed"}' >"$note_audio_evidence/rehold-last.json"
+      fi
+      if [[ ! -e $note_audio_evidence/rehold-first.json ]]; then
+        cp -- "$note_audio_evidence/rehold-last.json" "$note_audio_evidence/rehold-first.json" || return 1
+      fi
+      if [[ $result == heard && ! -e $note_audio_evidence/rehold-first-heard.json ]]; then
+        cp -- "$note_audio_evidence/rehold-last.json" "$note_audio_evidence/rehold-first-heard.json" || return 1
+      fi
+    fi
+    printf '%s\n' "$result"
+    return "$status"
+  }
+  app_rehold_check() {
+    local last
+    expect_poll "the shell holds its chime again under the new writer" silent app_rehold_level vgs-smoke-speakers
+    last="$(cat -- "$note_audio_evidence/rehold-result")" || { fail "the re-hold audio result is unavailable"; return; }
+    if [[ $last != 0:silent ]]; then
+      printf 'notifications: rehold-first-failed-read='
+      cat -- "$note_audio_evidence/rehold-first.json"
+      if [[ -e $note_audio_evidence/rehold-first-heard.json ]]; then
+        printf 'notifications: rehold-first-heard-read='
+        cat -- "$note_audio_evidence/rehold-first-heard.json"
+      fi
+      printf 'notifications: rehold-last-failed-read='
+      cat -- "$note_audio_evidence/rehold-last.json"
+    fi
+  }
   notify "Smoke Ping" 0 "Ping before the writer goes" "" '[]' '{"desktop-entry": <"smoke-ping">}' 0 >/dev/null || fail "the notification before the writer goes was not sent"
   app_play_ping() { spawn "$sandbox/$1.log" "${shell_env[@]}" pw-cat --playback --target vgs-smoke-speakers --volume 0.5 -P "{ application.name = \"Smoke Ping\" node.name = \"$1\" }" "$app_tone"; }
   app_play_ping smoke-ping-held
@@ -5658,7 +5700,8 @@ else: print("faint ms=%d" % heard)' "$1"
   app_new_writer() { rule_meta hold | py_reply 'import json,sys; h = json.load(sys.stdin); print("new" if isinstance(h, dict) and str(h.get("pid")) != sys.argv[1] else "old")' "$1"; }
   expect_poll "the shell starts a new writer and writes the hold under its pid" new app_new_writer "$app_writer"
   expect_poll "the new writer's hold names Smoke Ping" '[true, "pw-cli", true, ["notification", "event"]]' rule_holds "smoke ping"
-  expect_poll "the shell holds its chime again under the new writer" silent app_level vgs-smoke-speakers
+  app_rehold_check
+  expect "the re-hold record drops after the target reading" ok ipc smoke popupDrop app-sound-record
   kill -- "-$app_ping_held" 2>/dev/null || true
   notify "Smoke Ping" 0 "Ping after the writer came back" "" '[]' '{"desktop-entry": <"smoke-ping">}' 0 >/dev/null || fail "the notification after the writer came back was not sent"
   app_play_ping smoke-ping-later

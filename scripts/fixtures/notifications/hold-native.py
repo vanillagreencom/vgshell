@@ -155,6 +155,67 @@ def writer(action, shell_pid):
         os.close(fd)
 
 
+def rehold_record(log, offset, capture_status, started, ended, result, status):
+    """Record state next to an unsuccessful audio read, never a later retry."""
+    def serial(props):
+        value = props.get("object.serial")
+        return str(value) if value is not None else None
+
+    record = {"audio": {"startMs": int(started), "endMs": int(ended),
+                        "result": result, "status": int(status)}}
+    try:
+        with open(log, "rb") as source:
+            source.seek(int(offset))
+            lines = source.read().decode("utf-8").splitlines()
+        samples = [json.loads(line.split("VGS_APP_SOUND_READ ", 1)[1])
+                   for line in lines if "VGS_APP_SOUND_READ " in line]
+        if capture_status != "ok" or len(samples) != 1:
+            raise ValueError("capture=" + capture_status + " records=" + str(len(samples)))
+        record["shell"] = samples[0]
+    except (OSError, ValueError, UnicodeError) as error:
+        record["shell"] = {"status": "unavailable", "error": str(error)}
+    native = {"startMs": time.time_ns() // 1000000}
+    try:
+        objects = graph()
+        native["endMs"] = time.time_ns() // 1000000
+        native["status"] = "available"
+        for field, store, key in (("exact", "vgs-notification-hold", "hold"),
+                                  ("effectiveStreams", "vgs-notification-sounds", "held")):
+            try:
+                native[field] = metadata(objects, store, key)
+            except AssertionError as error:
+                native[field] = {"status": "unavailable", "error": str(error)}
+        hold = native["exact"]
+        if isinstance(hold, dict) and "pid" in hold:
+            native["visibleHolder"] = [
+                {"id": o["id"], "pid": o["info"]["props"].get("pipewire.sec.pid"),
+                 "serial": serial(o["info"]["props"])}
+                for o in objects if o.get("type") == "PipeWire:Interface:Client"
+                and str(o.get("info", {}).get("props", {}).get("pipewire.sec.pid")) == str(hold["pid"])]
+        else:
+            native["visibleHolder"] = {"status": "unavailable", "error": "no holder pid"}
+        nodes = {o["id"]: o.get("info", {}).get("props", {}) for o in objects
+                 if o.get("type") == "PipeWire:Interface:Node"}
+        target_ids = [node_id for node_id, props in nodes.items()
+                      if props.get("node.name") == "smoke-ping-held"]
+        native["stream"] = [{"id": node_id, "serial": serial(nodes[node_id])}
+                            for node_id in target_ids]
+        native["muteRoute"] = {
+            "targets": targets(objects, "smoke-ping-held"),
+            "muteNodes": [{"id": node_id, "serial": serial(props)}
+                          for node_id, props in nodes.items()
+                          if props.get("node.name") == "vgs-notification-mute-hold"],
+            "links": [{"id": o["id"], "state": o.get("info", {}).get("state"),
+                       "output": o["info"]["props"].get("link.output.node"),
+                       "input": o["info"]["props"].get("link.input.node")}
+                      for o in objects if o.get("type") == "PipeWire:Interface:Link"
+                      and o.get("info", {}).get("props", {}).get("link.output.node") in target_ids]}
+    except (AssertionError, OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError) as error:
+        native.update(status="unavailable", error=str(error), endMs=time.time_ns() // 1000000)
+    record["native"] = native
+    print(json.dumps(record, separators=(",", ":")))
+
+
 def stream(mode, tone, evidence):
     name = "vgs-revision2-" + mode
     started = time.monotonic()
@@ -386,6 +447,8 @@ if __name__ == "__main__":
             deadline_judge_controls()
         elif sys.argv[1] in ("kill-writer", "writer"):
             writer(sys.argv[1], sys.argv[2])
+        elif sys.argv[1] == "rehold-record":
+            rehold_record(*sys.argv[2:])
         else:
             stream(*sys.argv[1:])
     except (AssertionError, OSError, subprocess.SubprocessError, ValueError, KeyError) as error:
