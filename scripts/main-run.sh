@@ -218,13 +218,13 @@ cutoff = int(started) - 7 * 86400
 begin = time.monotonic()
 
 def read(command, data=None):
-    return subprocess.run(command, cwd=checkout, input=data, text=True,
-                          stdout=subprocess.PIPE, check=True, timeout=600).stdout
+    return subprocess.run(["timeout", "--kill-after=5", "600", *command], cwd=checkout,
+                          input=data, text=True, stdout=subprocess.PIPE, check=True).stdout
 
 try:
     linear = os.path.join(checkout, ".agents/skills/linear/scripts/linear.sh")
     source = "issues"
-    issues = json.loads(read([linear, "issues", "list", "--all-projects", "--max"]))
+    issues = json.loads(read([linear, "issues", "list", "--all-projects", "--include-archived", "--max"]))
     if not isinstance(issues, list):
         raise ValueError("issues-not-list")
     opened = {}
@@ -248,10 +248,17 @@ try:
             texts.append(row["body"])
     mail = os.path.join(checkout, ".agents/skills/mailbox/scripts/lane-mail")
     source = "owner-asks"
-    texts.append(read([mail, "pending", "--item", "overseer", "--to", "owner"]))
+    os.stat(os.path.join(tmp, "lane-mail", "overseer"))
+    for line in read([mail, "pending", "--item", "overseer", "--to", "owner"]).splitlines():
+        ask = json.loads(line)
+        if not isinstance(ask["text"], str):
+            raise ValueError("owner-ask-text")
+        texts.append(ask["text"])
     patterns = set()
     for text in texts:
         patterns.update(p.rstrip("/.,;:)") for p in re.findall(r"tmp/([^\s`\"<>]+)", text))
+        patterns.update(p.split("tmp/", 1)[1].rstrip("/")
+                        for p in re.findall(r"`([^`\n]+)`", text) if "tmp/" in p)
         patterns.update(p.rstrip("/") for p in re.findall(r"`([^`\n]+)`", text)
                         if "tmp/" not in p and not re.search(r"[\s/]", p))
     patterns = [p.split("/") for p in patterns if p and not p.startswith("../")]
@@ -281,7 +288,9 @@ try:
                      and intersects(record + "/" + entry.name)]
     # Package state and the fleet's live helper roots have another owner.
     owned = ("lane-archive", "lane-mail", "progress-reports", "handoffs", "nested-slot.sh",
-             "nested-slots", "oversee-watch", "oversee-watch.*", "waiter.*", "workflow-state-*")
+             "nested-slots", "oversee-watch", "oversee-watch.*", "waiter.*", "workflow-state-*",
+             "dev-validate-*", ".dev-validate-runs.*", "validation-runs", "dev-round-*", "dev-return-*",
+             "round-recovered-*", "cycle-state", "container-close*", "lane-wake-*", "lane-status-*")
     def visit(fd, relative=""):
         with os.scandir(fd) as entries:
             entries = list(entries)

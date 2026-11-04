@@ -95,6 +95,7 @@ mkdir -p "$clone/.agents/skills/orch/scripts/lib"
 cp -- "$repo/.agents/skills/orch/scripts/orch-env" "$clone/.agents/skills/orch/scripts/orch-env"
 cp -- "$repo/.agents/skills/orch/scripts/lib/kendex-env.sh" "$clone/.agents/skills/orch/scripts/lib/kendex-env.sh"
 mkdir -p "$clone/.agents/skills/linear/scripts" "$clone/.agents/skills/mailbox/scripts" "$TMP_ROOT/kept"
+mkdir -p "$records/lane-mail/overseer"
 printf '[]\n' >"$TMP_ROOT/kept/issues"
 printf '{}\n' >"$TMP_ROOT/kept/comments"
 : >"$TMP_ROOT/kept/asks"
@@ -530,7 +531,7 @@ case_expiry() {
   plant_run "$root" referenced 11 'origin/main^' unit
   : >"$root/${planted[referenced]}/evidence"
   mkdir -p "$records/$base/kept" "$records/$base/comment" "$records/$base/ask" "$records/$base/mixed"
-  for path in kept/file comment/file ask/file expired mixed/old; do : >"$records/$base/$path"; done
+  for path in kept/file 'kept/file with space' comment/file ask/file expired mixed/old; do : >"$records/$base/$path"; done
   python3 - "$records/$base" <<'PY'
 import os, sys, time
 for parent, dirs, files in os.walk(sys.argv[1], topdown=False):
@@ -540,29 +541,33 @@ os.utime(sys.argv[1], (time.time() - 10 * 86400,) * 2)
 PY
   : >"$records/$base/mixed/new"
   printf '[{"id":"VGS-2127","state":"Verifying","description":"tmp/%s/kept/file"},{"id":"VGS-1","state":"Done","description":"tmp/%s/expired"},{"id":"VGS-2","state":"Canceled","description":"tmp/%s/mixed/old"}]\n' "$base" "$base" "$base" >"$TMP_ROOT/kept/issues"
-  printf '{"VGS-2127":[{"body":"tmp/%s/comment/file tmp/%s/%s/evidence"}]}\n' "$base" "$1" "${planted[referenced]}" >"$TMP_ROOT/kept/comments"
-  printf 'tmp/%s/ask/file\n' "$base" >"$TMP_ROOT/kept/asks"
-  mkdir -p "$records/VGS-2127-focused-$1" "$records/lane-archive" "$records/waiter.$1"
-  for path in "VGS-2127-focused-$1/file" "lane-archive/$1" "waiter.$1/file"; do
+  printf '{"VGS-2127":[{"body":"tmp/%s/comment/file tmp/%s/%s/evidence `tmp/%s/kept/file with space`"}]}\n' "$base" "$1" "${planted[referenced]}" "$base" >"$TMP_ROOT/kept/comments"
+  printf '{"kind":"ask","to":"owner","text":"Read tmp/%s/ask/file\\nKeep the evidence."}\n' "$base" >"$TMP_ROOT/kept/asks"
+  local package_paths=("lane-archive/$1" "waiter.$1/file" "dev-validate-old/record" "validation-runs" "cycle-state/state.json" "container-close.lock")
+  mkdir -p "$records/VGS-2127-focused-$1" "$records/lane-archive" "$records/waiter.$1" "$records/dev-validate-old" "$records/cycle-state"
+  for path in "VGS-2127-focused-$1/file" "${package_paths[@]}"; do
     touch -d '10 days ago' "$records/$path"
   done
   case "$mode" in
     complete) ;;
     invalid-issues) printf '{}\n' >"$TMP_ROOT/kept/issues" ;;
     invalid-comments) printf '{"VGS-2127":null}\n' >"$TMP_ROOT/kept/comments" ;;
+    invalid-asks) printf '{"text":null}\n' >"$TMP_ROOT/kept/asks" ;;
+    missing-asks) mv -- "$records/lane-mail/overseer" "$records/lane-mail/held" ;;
     *) : >"$TMP_ROOT/kept/fail-$mode" ;;
   esac
   areas 'unit 0'
   main --root "$root" unit
+  [[ $mode != missing-asks ]] || mv -- "$records/lane-mail/held" "$records/lane-mail/overseer"
   rm -f -- "$TMP_ROOT/kept/fail-$mode"
   printf '[]\n' >"$TMP_ROOT/kept/issues"
   printf '{}\n' >"$TMP_ROOT/kept/comments"
   : >"$TMP_ROOT/kept/asks"
   [[ $status -eq 0 ]] || problems+=("exit=$status")
-  for path in kept/file comment/file ask/file mixed/new; do
+  for path in kept/file 'kept/file with space' comment/file ask/file mixed/new; do
     [[ -f $records/$base/$path ]] || problems+=("removed=$path")
   done
-  for path in "VGS-2127-focused-$1/file" "lane-archive/$1" "waiter.$1/file"; do
+  for path in "VGS-2127-focused-$1/file" "${package_paths[@]}"; do
     [[ -f $records/$path ]] || problems+=("removed=$path")
   done
   for path in expired mixed/old; do
@@ -583,7 +588,7 @@ PY
   [[ ${#problems[@]} -eq 0 ]]
 }
 if case_expiry r-expiry; then ok "expiry keeps referenced evidence, open item families and package state, and removes expired siblings"; else fail "expiry: ${problems[*]}"; fi
-for unread in issues comments asks invalid-issues invalid-comments; do
+for unread in issues comments asks invalid-issues invalid-comments invalid-asks missing-asks; do
   if case_expiry "r-expiry-$unread" "$unread"; then ok "an unread $unread kept set removes nothing"; else fail "expiry $unread: ${problems[*]}"; fi
 done
 
