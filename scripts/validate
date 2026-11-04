@@ -60,7 +60,9 @@
 #   its secs line print whole in table order; with more than one job, a
 #   row not marked `@alone` prints its stderr there on stdout: the run
 #   loop below.
-#   A diff-scoped run that selects the nested smoke passes it the rows the
+#   A diff-scoped run selects the nested smoke when its own inputs match a
+#   changed path or one reaches a smoke row, whatever table row owns it
+#   (smoke_table_reach), and passes it the rows the
 #   change reaches as `scripts/qml-smoke.sh --rows <row>,...`, or no --rows
 #   for every row, and prints `validate: smoke-rows=some selected=<n>
 #   total=<m>` or `validate: smoke-rows=all reason=<reason>` and the
@@ -1662,6 +1664,27 @@ smoke_rows_selected() { # CHANGED_PATH...
   done
 }
 
+# smoke_table_reach: mark the nested smoke table row affected when its own
+# inputs match no changed path but one reaches a smoke row (smoke_path_reach
+# against the change base). A path another table row owns is no unknown
+# input, so without this the smoke rows whose input line names it never
+# run. A read that cannot list the rows reaches none, as before. Self-check
+# lines are dropped here; smoke_rows_selected reads again and prints them.
+smoke_table_reach() {
+  local i path row_area command
+  for i in "${!rows[@]}"; do
+    IFS='|' read -r row_area _ command _ <<<"${rows[i]}"
+    [[ $command == scripts/qml-smoke.sh ]] || continue
+    [[ ${affected[i]} != true && ( $area == all || $area == "$row_area" ) ]] || return 0
+    smoke_rows_read 2>/dev/null
+    for path in "${changed_paths[@]}"; do
+      smoke_path_reach "$change_base" "$path"
+      if [[ -n $smoke_reach ]]; then affected[i]=true; return 0; fi
+    done
+    return 0
+  done
+}
+
 # smoke_close NAME: add to the associative array NAME each row a row in it
 # reads, as smoke_rows_read last read them, and theirs in turn: a row that
 # runs brings them.
@@ -1963,6 +1986,7 @@ if [[ -n $change_base ]]; then
     else
       export VGS_VALIDATE_CHANGED="$paths_file"
       smoke_scoped=true
+      smoke_table_reach
     fi
   fi
 fi

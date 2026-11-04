@@ -1546,6 +1546,14 @@ smoke_fixture() { # DIR [VARIANT]
   if [[ $variant == unreadable-load ]]; then
     printf '\377\n' >"$dir/shell/Core/Unreadable.qml"
   fi
+  # The VPN decisions table row owns scripts/fixtures/vpn/*; the nested
+  # smoke table row does not, and the vpn row's input line names it.
+  if [[ $variant == table-owned ]]; then
+    mkdir -p "$dir/scripts/fixtures/vpn"
+    printf 'details\n' >"$dir/scripts/fixtures/vpn/details.txt"
+    printf '# inputs: scripts/fixtures/vpn/*\n' >"$dir/scripts/smoke/rows/vpn.sh"
+    sed -i 's/^start-order$/vpn\nstart-order/' "$dir/scripts/smoke/rows.list"
+  fi
   if [[ $variant == failed-load ]]; then
     printf 'raise RuntimeError("planted")\n' >>"$dir/scripts/qml_source.py"
   fi
@@ -1700,6 +1708,8 @@ smoke_cases=(
   "control: an unknown input no longer runs every row|shell/plugins/acme.launcher/Panel.qml new-source.bin|changed|$smoke_launcher|unknown|rows"
   "--full runs every row|shell/plugins/acme.launcher/Panel.qml|full|scripts/qml-smoke.sh||rows"
   "control: --full no longer runs every row|shell/plugins/acme.launcher/Panel.qml|full|$smoke_none|full|rows"
+  "a path another table row owns selects the smoke rows that name it|scripts/fixtures/vpn/details.txt|changed|scripts/qml-smoke.sh --rows $smoke_core,$smoke_always,vpn,$smoke_tail||table-owned"
+  "control: a path another table row owns no longer selects the nested smoke|scripts/fixtures/vpn/details.txt|changed||table-reach|table-owned"
   "a change to a row's own file selects that row|scripts/smoke/rows/launcher.sh|changed|$smoke_launcher||rows"
   "control: a change to a row's own file no longer selects that row|scripts/smoke/rows/launcher.sh|changed|$smoke_none|own-file|rows"
 )
@@ -1719,7 +1729,8 @@ declare -A smoke_mutant_old=(
   [runner]='smoke_harness_inputs=(scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/harness.sh "${smoke_globs[@]}")'
   [reader]='smoke_harness_inputs=(scripts/qml-smoke.sh scripts/smoke/row-inputs.sh scripts/smoke/harness.sh "${smoke_globs[@]}")'
   [harness-line]='    smoke_read_fault=harness-line-unreadable'
-  [unknown]=$'      export VGS_VALIDATE_CHANGED="$paths_file"\n      smoke_scoped=true\n    fi'
+  [unknown]=$'      export VGS_VALIDATE_CHANGED="$paths_file"\n      smoke_scoped=true\n      smoke_table_reach\n    fi'
+  [table-reach]=$'      smoke_scoped=true\n      smoke_table_reach\n'
   [full]=$'smoke_scoped=false\naffected=()'
   [own-file]='for glob in "$file" "${smoke_globs[@]}"; do'
   [loads]='    smoke_load_reach "$2"'
@@ -1745,7 +1756,8 @@ declare -A smoke_mutant_new=(
   [runner]='smoke_harness_inputs=(scripts/smoke/row-inputs.sh scripts/smoke/harness.sh "${smoke_globs[@]}")'
   [reader]='smoke_harness_inputs=(scripts/qml-smoke.sh scripts/smoke/harness.sh "${smoke_globs[@]}")'
   [harness-line]='    :'
-  [unknown]=$'      export VGS_VALIDATE_CHANGED="$paths_file"\n    fi\n    smoke_scoped=true'
+  [unknown]=$'      export VGS_VALIDATE_CHANGED="$paths_file"\n      smoke_table_reach\n    fi\n    smoke_scoped=true'
+  [table-reach]=$'      smoke_scoped=true\n'
   [full]=$'smoke_scoped=true\naffected=()'
   [own-file]='for glob in "${smoke_globs[@]}"; do'
   [loads]='    :'
