@@ -2,18 +2,18 @@ import QtQuick
 import qs.Commons
 import qs.Ui
 
-// The mode switch picks what to capture, the tiles pick its target, and one
-// primary action runs it; a few options follow, and Settings holds the
-// rest. Every action, including a setting change, goes through the
-// service's IPC.
+// The Capture options, the plugin window's content while no app asks to
+// share the screen. The mode switch picks what to capture, the tiles pick
+// its target, and one primary action runs it; a few options follow, and
+// Settings holds the rest. Every action, including a setting change, goes
+// through the service's IPC.
 Item {
     id: root
     property var shell: null
-    property string surfaceKind: "panel"
     property Item initialFocus: primaryAction
     property string problem: ""
     property string mode: "Screenshot"
-    // Each mode's own target, kept while the panel is open.
+    // Each mode's own target, kept while the window is open.
     property int screenshotTargetIndex: 0
     property int recordTargetIndex: 0
     readonly property var capture: shell === null || shell.status.values.capture === undefined ? ({ phase: "idle", available: {} }) : shell.status.values.capture
@@ -48,7 +48,7 @@ Item {
     readonly property var qualityChoices: choices("quality")
     // Every target stays choosable and pressable while a tool it needs is
     // missing: the press reaches the service, which offers the install
-    // notice, and the panel says why the action did not start.
+    // notice, and the window says why the action did not start.
     readonly property var screenshotTargets: [
         { text: "Area", icon: "scan", action: "screenshot-area" },
         { text: "Window", icon: "app-window", action: "screenshot-window" },
@@ -77,7 +77,7 @@ Item {
     function invoke(name) {
         const reply = shell.ipc.call(name, "");
         problem = reply === "ok" ? "" : reply.indexOf("capture=missing") >= 0 ? "Install the missing tools to use this action." : "Capture is busy. Wait for it to finish.";
-        if (reply === "ok") shell.surfaces.hide(surfaceKind);
+        if (reply === "ok") shell.surfaces.hide("window");
         return reply;
     }
     function installLanguages() { return shell.status.act("languages"); }
@@ -100,15 +100,60 @@ Item {
         targetTiles.currentIndex = Qt.binding(() => root.currentTargetIndex);
     }
 
-    implicitWidth: Theme.size.panel.md
+    // Hyprland owns a mapped window's size, so a change of the options'
+    // height, such as another mode's options or the reason a press did not
+    // start, resizes the shown window to it as Settings does
+    // (vgs.settings Window.qml `fitWindow`): one placeWindow request keeps
+    // the client's top and width, up to the cap of the screen it is on
+    // (OverlayState.windowRoom) and the bottom of that screen's room. The
+    // window is the one client of the shell's app-id, `org.vgs.shell`,
+    // titled with this plugin's name, as the window host titles it.
+    // callLater runs one fit for the changes of one turn
+    // (https://doc.qt.io/qt-6/qml-qtqml-qt.html#callLater-method).
+    onImplicitHeightChanged: if (root.Window.window !== null && root.Window.window.visible) Qt.callLater(fitWindow)
+    function fitWindow() {
+        shell.compositor.readWindows(state => {
+            if (root.Window.window === null || !root.Window.window.visible) return;
+            if (!state.ok) {
+                console.warn("capture: resize " + state.error);
+                return;
+            }
+            const own = state.clients.filter(c => c.class === "org.vgs.shell" && c.title === shell.manifest.name && c.mapped);
+            if (own.length !== 1) {
+                console.warn("capture: resize clients=" + own.length);
+                return;
+            }
+            const client = own[0];
+            // A tiled or fullscreen window is the user's layout choice.
+            if (client.floating !== true || client.fullscreen !== 0) return;
+            const monitors = state.monitors.filter(m => m.id === client.monitor);
+            // Read by index, as Compositor.focusedScreen reads
+            // Quickshell.screens.
+            const all = shell.screens.all;
+            let screen = null;
+            for (let i = 0; i < all.length; i++)
+                if (monitors.length === 1 && all[i].name === monitors[0].name) screen = all[i];
+            if (screen === null) {
+                console.warn("capture: resize screen=none monitor=" + client.monitor);
+                return;
+            }
+            // A ShellScreen's y is its output's logical position, the space
+            // of a client's `at`.
+            const room = OverlayState.room(screen);
+            const bottom = Math.floor(screen.y + room.y + room.height);
+            const height = Math.min(Math.ceil(root.implicitHeight), OverlayState.windowRoom(screen).height, bottom - client.at[1]);
+            if (height < 1 || client.size[1] === height) return;
+            const placed = shell.compositor.placeWindow(client.address, client.at[0], client.at[1], client.size[0], height);
+            if (!Reply.isOk(placed)) console.warn("capture: place " + placed);
+        });
+    }
+
+    implicitWidth: Theme.size.panel.lg
     implicitHeight: layout.implicitHeight
-    Surface { anchors.fill: parent }
     Pane {
         id: layout
         anchors.fill: parent
-        container: "panel"
-        fitToContent: true
-        maximumHeight: Theme.size.panel.maxHeight
+        container: "window"
         title: "Capture"
         Column {
             width: layout.contentWidth

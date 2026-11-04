@@ -94,8 +94,8 @@
 # problem sentences from three fixture records at default and narrow sizes
 # and checks that an empty source fails its entry check; clipboard is the clipboard history over copies made on the
 # nested instance's own clipboard, taken only when named; capture is
-# Capture's widget, panel and Settings page at the Recording section, taken
-# only when named; voice is Voice's
+# Capture's widget, options window in each mode and Settings page at the
+# Recording section, taken only when named; voice is Voice's
 # on-screen display while dictating, its plasma orb fed by stand-ins for
 # voxtype's status stream and audio bridge, so no audio device opens, taken
 # only when named; voice-setup is the requirement notice Voice's
@@ -3130,7 +3130,8 @@ scene_panels() { # MODE
   scene_themes_panel "$1"
 }
 
-# Capture's idle widget, options panel and Settings page Recording section.
+# Capture's idle widget, options window in each mode and Settings page
+# Recording section.
 # No action or recorder is started.
 scene_capture() { # MODE
   expect "Capture is placed for its widget image" ok ipc shell setPluginPlaced vgs.capture true
@@ -3138,10 +3139,23 @@ scene_capture() { # MODE
   park_pointer
   take "capture-$1-widget"
   click_centre "$(bar_key)" vgs.capture || fail "opening Capture from its widget failed"
-  expect_poll "Capture opens its options panel" false ipc smoke readInstance panel vgs.capture recording
+  expect_poll "Capture opens its options window" false ipc smoke readDescendant window vgs.capture Options recording
+  expect_poll "Capture's options window has the keyboard" "[\"$shell_class\", \"Capture\"]" active_window
   park_pointer
-  take "capture-$1-panel"
-  expect "Capture's panel hides" ok ipc shell hide panel vgs.capture
+  take "capture-$1-options"
+  # Record and Text, chosen on the mode switch by keys.
+  type_keys -M shift -k Tab -m shift || fail "the first Shift+Tab to Capture's tiles failed"
+  type_keys -M shift -k Tab -m shift || fail "the second Shift+Tab to Capture's mode switch failed"
+  expect_poll "Shift+Tab reaches Capture's mode switch" true ipc smoke readDescendant window vgs.capture SegmentedControl activeFocus
+  type_keys -k Right || fail "Right to Capture's Record failed"
+  expect_poll "Capture shows its Record options" 1 ipc smoke readDescendant window vgs.capture SegmentedControl currentIndex
+  park_pointer
+  take "capture-$1-options-record"
+  type_keys -k Right || fail "Right to Capture's Text failed"
+  expect_poll "Capture shows its Text options" 2 ipc smoke readDescendant window vgs.capture SegmentedControl currentIndex
+  park_pointer
+  take "capture-$1-options-text"
+  expect "Capture's options window hides" ok ipc shell hide window vgs.capture
   expect "the Settings window opens for the Capture page" ok ipc shell summon "$settings_kind" vgs.settings '{}'
   expect_poll "the Settings window maps for the Capture page" 1 settings_count
   expect "the window opens the Capture page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.capture

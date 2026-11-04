@@ -17,7 +17,7 @@ Each action is a shortcut `vgs.capture:<name>` and an IPC function of the same n
 | `record-output` | Starts or stops recording the focused display | None |
 | `record-portal` | Starts or stops recording what the screen picker shares | None |
 | `text` | Copies text from a selected area | Super+Ctrl+Print |
-| `toggle` | Opens or closes the Capture panel | Super+Ctrl+Shift+S |
+| `toggle` | Opens or closes the Capture options window; does nothing while the screen sharing picker waits for a choice | Super+Ctrl+Shift+S |
 
 The IPC form, with the action's name in place of `screenshot-area`:
 
@@ -35,4 +35,4 @@ The next capture can start while Capture finishes the saved recording. A recordi
 
 Capture lists the audio sources and cameras PipeWire offers without opening them. A camera that is switched on but not connected stops the recording before it starts.
 
-Fedora shows recording as unavailable when gpu-screen-recorder is absent. Text recognition reads English unless other languages are chosen. When Tesseract is absent, the Arch install notice installs `tesseract-data-eng`, which also installs Tesseract. When a chosen language's data is missing, the Text languages status offers Install languages in Plugins and in the Capture panel; on Arch, Fedora and Debian it installs that data, and on NixOS it names the languages to add to the system configuration. If Tesseract cannot read a chosen language's data, Capture shows that error and keeps the clipboard.
+Fedora shows recording as unavailable when gpu-screen-recorder is absent. Text recognition reads English unless other languages are chosen. When Tesseract is absent, the Arch install notice installs `tesseract-data-eng`, which also installs Tesseract. When a chosen language's data is missing, the Text languages status offers Install languages in Plugins and in the Capture options; on Arch, Fedora and Debian it installs that data, and on NixOS it names the languages to add to the system configuration. If Tesseract cannot read a chosen language's data, Capture shows that error and keeps the clipboard.

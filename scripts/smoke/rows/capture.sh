@@ -19,10 +19,10 @@
 # again before the end-of-row plugin disables, so no reload they owe runs
 # on the capture stand-in; a control disables capture with the stand-in
 # still in place.
-# inputs: shell/shell.qml shell/Core/ScreenFreeze.qml shell/Hosts/FreezeHost.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.bar/*.qml shell/plugins/vgs.capture/* shell/plugins/vgs.notifications/* shell/plugins/vgs.sysmon/* shell/plugins/vgs.launcher/* shell/Core/HyprlandLayer.* scripts/smoke/rows/hyprland-consent.sh shell/Core/NotificationHub.qml shell/Core/Layers.qml shell/Core/Capabilities.qml shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/IpcRegistry.qml shell/Core/Lifetime.js shell/Core/MonitorLogic.js shell/Core/MonitorState.qml shell/Core/Notices.qml shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Plugins.qml shell/Core/PluginStatus.qml shell/Core/Registry.qml shell/Core/ServiceGate.qml shell/Core/ShortcutRegistry.qml shell/Core/Notifier.qml shell/Core/TuiRecords.qml shell/Core/TuiRunner.qml bin/vgshell-tui shell/Hosts/BarHost.qml shell/Hosts/NoticeHost.qml shell/Hosts/OverlaySurface.qml shell/Hosts/PluginSlot.qml shell/Hosts/ServiceHost.qml shell/Hosts/Summon* shell/Ui/* shell/Commons/* bin/vgshell-scan bin/lib/check-manifests.js bin/lib/qml-library.js scripts/test-capture.py scripts/smoke/fixtures/capture/* scripts/smoke/rows/layers.sh scripts/smoke/fixtures/plugins/acme.layers/* shell/Hosts/LayerHost.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/ListField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml bin/lib/dbus_wire.py
+# inputs: shell/shell.qml shell/Core/ScreenFreeze.qml shell/Hosts/FreezeHost.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.bar/*.qml shell/plugins/vgs.capture/* shell/plugins/vgs.notifications/* shell/plugins/vgs.sysmon/* shell/plugins/vgs.launcher/* shell/Core/HyprlandLayer.* scripts/smoke/rows/hyprland-consent.sh shell/Core/NotificationHub.qml shell/Core/Layers.qml shell/Core/Capabilities.qml shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/IpcRegistry.qml shell/Core/Lifetime.js shell/Core/MonitorLogic.js shell/Core/MonitorState.qml shell/Core/Notices.qml shell/Core/PackageManagers.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Plugins.qml shell/Core/PluginStatus.qml shell/Core/Registry.qml shell/Core/ServiceGate.qml shell/Core/ShortcutRegistry.qml shell/Core/Notifier.qml shell/Core/TuiRecords.qml shell/Core/TuiRunner.qml bin/vgshell-tui shell/Hosts/BarHost.qml shell/Hosts/NoticeHost.qml shell/Hosts/OverlaySurface.qml shell/Hosts/AppWindow.qml shell/Hosts/PluginSlot.qml shell/Hosts/ServiceHost.qml shell/Hosts/Summon* shell/Ui/* shell/Commons/* bin/vgshell-scan bin/lib/check-manifests.js bin/lib/qml-library.js scripts/test-capture.py scripts/smoke/fixtures/capture/* scripts/smoke/rows/layers.sh scripts/smoke/fixtures/plugins/acme.layers/* shell/Hosts/LayerHost.qml shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/ListField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml bin/lib/dbus_wire.py
 # Expected rectangles come from Hyprland. Disposable copies remove each
 # screenshot choice and the owned tool deadline, and
-# the panel's mode and target choices, its press, its opening focus and its
+# the options window's mode and target choices, its press, its opening focus and its
 # kept delay; a manifest copy declares the delay and time limit fields.
 # Readbacks use the harness's state poll; the sequence below also checks
 # the issue's one-second clipboard requirement.
@@ -57,8 +57,10 @@ capture_read() { ipc smoke readInstance service vgs.capture "$1"; }
 capture_phase() { capture_read phase | py_reply 'import json,sys; print(json.load(sys.stdin))'; }
 capture_outputs() { capture_read outputs | py_reply 'import json,sys; rows=json.load(sys.stdin); print(rows is not None and any(r["name"] == sys.argv[1] and not r["disabled"] for r in rows))' "$capture_output"; }
 capture_path() { capture_read lastPath | py_reply 'import json,sys; print(json.load(sys.stdin))'; }
-capture_panel() { ipc smoke readInstance panel vgs.capture recording; }
-capture_panel_geometry() { layers_of vgs:panel | py_reply 'import json,sys; rows=json.load(sys.stdin); print(len(rows) == 1 and rows[0][2] > 0 and rows[0][3] > 0)'; }
+capture_options() { ipc smoke readDescendant window vgs.capture Options recording; }
+# The options are a toplevel: Hyprland lists one mapped client of the
+# shell's class titled with the plugin's name (AppWindow), with a size.
+capture_options_window() { one_window Capture | py_reply 'import json,sys; s=sys.stdin.read().strip(); print(s.startswith("[") and json.loads(s)[2] > 0 and json.loads(s)[3] > 0)'; }
 capture_status() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["status"].get("vgs.capture")))'; }
 capture_bar_read() { ipc smoke readInstance "$(bar_key)" vgs.capture "$1"; }
 capture_bar_button() { ipc smoke readDescendant "$(bar_key)" vgs.capture BarItem "$1"; }
@@ -1376,36 +1378,41 @@ expect_poll "clicking the recording widget stops capture" idle capture_phase
 expect_poll "the widget stop finalizes the owned recorder's file" True capture_recorded
 expect "the widget stop leaves no recorder" False capture_recorder_left
 expect "the widget clears its recording indicator after finalization" false ipc smoke readInstance "$(bar_key)" vgs.capture recording
-# The panel opens on its primary action. Shift+Tab reaches the target tiles
-# and then the mode switch; an arrow choice on either changes the action the
-# primary button hands the service, and the mode its text. A press starts
-# the panel's action, which a delay holds in its countdown until the same
-# action cancels it. Each panel copy below plants the defects its readings
-# must fail on and is rebuilt as the service copies above are.
+# The options window opens on its primary action. Shift+Tab reaches the
+# target tiles and then the mode switch; an arrow choice on either changes
+# the action the primary button hands the service, and the mode its text.
+# A press starts the window's action, which a delay holds in its countdown
+# until the same action cancels it. Each options copy below plants the
+# defects its readings must fail on and is rebuilt as the service copies
+# above are.
 # capture_is READER EXPECTED: True when READER prints EXPECTED.
 capture_is() { [[ "$($1)" == "$2" ]] && echo True || echo False; }
-capture_focus() { ipc smoke focused panel vgs.capture | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)))'; }
-capture_focus_type() { ipc smoke focused panel vgs.capture | py_reply 'import json,sys; print(json.load(sys.stdin)[0])'; }
-capture_primary() { ipc smoke readInstance panel vgs.capture primaryActionName | py_reply 'import json,sys; print(json.load(sys.stdin))'; }
-capture_choice() { ipc smoke readDescendant panel vgs.capture "$1" currentIndex; }
+capture_focus() { ipc smoke focused window vgs.capture | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)))'; }
+capture_focus_type() { ipc smoke focused window vgs.capture | py_reply 'import json,sys; print(json.load(sys.stdin)[0])'; }
+capture_primary() { ipc smoke readDescendant window vgs.capture Options primaryActionName | py_reply 'import json,sys; print(json.load(sys.stdin))'; }
+capture_choice() { ipc smoke readDescendant window vgs.capture "$1" currentIndex; }
 capture_action() { capture_read action | py_reply 'import json,sys; print(json.load(sys.stdin))'; }
-capture_back() { type_keys -M shift -k Tab -m shift || fail "capture: sending Shift+Tab to the panel failed"; }
-capture_key() { type_keys -k "$1" || fail "capture: sending $1 to the panel failed"; }
+capture_back() { type_keys -M shift -k Tab -m shift || fail "capture: sending Shift+Tab to the options window failed"; }
+capture_key() { type_keys -k "$1" || fail "capture: sending $1 to the options window failed"; }
+# capture_unscrolled: True when the window's shown body holds all of the
+# open mode's options unscrolled: the window resizes to them (Options.qml
+# fitWindow).
+capture_unscrolled() { ipc smoke itemValues window vgs.capture ScrollArea visible,contentY,contentHeight,height | py_reply 'import json,sys; s=[r for r in json.load(sys.stdin) if r["visible"]]; print(len(s) == 1 and s[0]["contentY"] == 0 and s[0]["contentHeight"] <= s[0]["height"] + 1)'; }
 capture_shot_initial='["Button", "Take screenshot", false, false, true]'
 capture_shot_focus='["Button", "Take screenshot", true, true, true]'
 capture_record_focus='["Button", "Start recording", true, true, true]'
-capture_panel_file="$repo/shell/plugins/vgs.capture/Panel.qml"
-capture_panel_plant() { # walk | focus | delay | original
-  expect "capture stops before the $1 panel copy" ok ipc shell setPluginEnabled vgs.capture false
-  expect_poll "the $1 panel copy releases the service" False record_exists vgs.capture
-  python3 - "$capture_panel_file" "$sandbox" "$rt_dir" "$capture_state/panel-original.qml" "$1" <<'PY'
+capture_options_file="$repo/shell/plugins/vgs.capture/Options.qml"
+capture_options_plant() { # walk | focus | delay | original
+  expect "capture stops before the $1 options copy" ok ipc shell setPluginEnabled vgs.capture false
+  expect_poll "the $1 options copy releases the service" False record_exists vgs.capture
+  python3 - "$capture_options_file" "$sandbox" "$rt_dir" "$capture_state/options-original.qml" "$1" <<'PY'
 from pathlib import Path
 import sys
-panel, sandbox, runtime, original, control = sys.argv[1:]
-panel, original = Path(panel), Path(original)
-assert any(panel.resolve().is_relative_to(Path(root).resolve()) for root in (sandbox, runtime)), "panel control must stay inside the sandbox or its private runtime"
+options, sandbox, runtime, original, control = sys.argv[1:]
+options, original = Path(options), Path(original)
+assert any(options.resolve().is_relative_to(Path(root).resolve()) for root in (sandbox, runtime)), "options control must stay inside the sandbox or its private runtime"
 if not original.exists():
-    original.write_text(panel.read_text())
+    original.write_text(options.read_text())
 source = original.read_text()
 changes = {
     "walk": [
@@ -1413,7 +1420,10 @@ changes = {
         ("onActivated: index => root.chooseTarget(index)", "onActivated: index => {}"),
         ("onClicked: root.invoke(root.primaryActionName)", 'onClicked: root.invoke("screenshot")'),
     ],
-    "focus": [("property Item initialFocus: primaryAction", "property Item initialFocus: modeSwitch")],
+    "focus": [
+        ("property Item initialFocus: primaryAction", "property Item initialFocus: modeSwitch"),
+        ("onImplicitHeightChanged: if (", "onImplicitHeightChanged: if (false && "),
+    ],
     "delay": [('root.save("delay", root.delayChoices[index].value);', "")],
     "original": [],
 }
@@ -1422,15 +1432,15 @@ for before, after in changes[control]:
     assert changed.count(before) == 1, control + ": " + before
     changed = changed.replace(before, after)
 assert control == "original" or changed != source, control
-panel.write_text(changed)
+options.write_text(changed)
 PY
-  rescan "the $1 panel copy is rescanned"
-  expect "capture enables the $1 panel copy" ok ipc shell setPluginEnabled vgs.capture true
-  expect_poll "the $1 panel copy's service is built" True record_exists vgs.capture
+  rescan "the $1 options copy is rescanned"
+  expect "capture enables the $1 options copy" ok ipc shell setPluginEnabled vgs.capture true
+  expect_poll "the $1 options copy's service is built" True record_exists vgs.capture
 }
 # The Delay select is the second option under the primary action. Its
-# choice is kept in the plugin's row, counts down the panel's next shot and
-# shows again in a panel built later.
+# choice is kept in the plugin's row, counts down the window's next shot
+# and shows again in an options window built later.
 capture_row_delay() { python3 -c 'import json,sys; rows=[r for r in json.load(open(sys.argv[1])).get("plugins", []) if r["id"] == "vgs.capture"]; print(json.dumps(rows[0].get("delay", "absent")) if rows else "no-row")' "$home/.config/vgshell/shell.json"; }
 capture_delay_kept() { capture_setting_value delay; }
 capture_delay_choose() { # LABEL: Tab, Tab, Down from the primary action, and back
@@ -1442,10 +1452,10 @@ capture_delay_choose() { # LABEL: Tab, Tab, Down from the primary action, and ba
   capture_back
   expect_poll "$1Shift+Tab returns to the primary action" Button capture_focus_type
 }
-expect "capture opens its panel" ok ipc vgs.capture invoke toggle ''
-expect_poll "capture panel maps" false capture_panel
-expect_poll "capture panel has a drawn layer with geometry" True capture_panel_geometry
-expect_poll "the panel opens on Take screenshot without its ring" "$capture_shot_initial" capture_focus
+expect "capture opens its options window" ok ipc vgs.capture invoke toggle ''
+expect_poll "capture options window maps" false capture_options
+expect_poll "the toggle opens the options as one toplevel Capture client" True capture_options_window
+expect_poll "the options window opens on Take screenshot without its ring" "$capture_shot_initial" capture_focus
 expect "the primary action screenshots an area" screenshot-area capture_primary
 capture_delay_choose ""
 expect_poll "Down on the Delay select keeps 3 seconds" 3 capture_delay_kept
@@ -1459,6 +1469,7 @@ capture_back
 expect_poll "Shift+Tab reaches the mode switch" SegmentedControl capture_focus_type
 capture_key Right
 expect_poll "Right chooses Record" 1 capture_choice SegmentedControl
+expect_poll "the window holds every Record option unscrolled" True capture_unscrolled
 expect "Record makes the primary action an area recording" record capture_primary
 capture_key Tab
 capture_key Tab
@@ -1478,51 +1489,135 @@ expect_poll "Tab reaches the primary action" Button capture_focus_type
 capture_pressed="$(capture_primary)"
 capture_key Return
 expect_poll "the pressed primary action reaches its countdown" delaying capture_phase
-expect "the shot counts down the delay the panel kept" True capture_countdown
-expect "the press starts the panel's own action" "$capture_pressed" capture_action
-expect_poll "the started action closes the panel" absent capture_panel
-expect "the same action cancels the panel's countdown" ok ipc vgs.capture invoke "$(capture_action)" ''
+expect "the shot counts down the delay the options window kept" True capture_countdown
+expect "the press starts the options window's own action" "$capture_pressed" capture_action
+expect_poll "the started action closes the options window" absent capture_options
+expect_poll "the started action leaves no Capture client" 0 window_count Capture
+expect "the same action cancels the options window's countdown" ok ipc vgs.capture invoke "$(capture_action)" ''
 expect_poll "the cancelled countdown leaves capture idle" idle capture_phase
-capture_panel_plant walk
-expect "capture opens the walk copy's panel" ok ipc vgs.capture invoke toggle ''
+capture_options_plant walk
+expect "capture opens the walk copy's options window" ok ipc vgs.capture invoke toggle ''
 expect_poll "control: the walk copy opens on Take screenshot" "$capture_shot_initial" capture_focus
-expect "a panel built later shows the kept delay" 1 ipc smoke readMatchingDescendant panel vgs.capture Select currentText "3 seconds" currentIndex
+expect "an options window built later shows the kept delay" 1 ipc smoke readMatchingDescendant window vgs.capture Select currentText "3 seconds" currentIndex
 capture_back
 expect_poll "control: Shift+Tab reaches the walk copy's tiles" TileGroup capture_focus_type
 capture_key Right
 expect_poll "control: Right moves the walk copy's tiles" 1 capture_choice TileGroup
-expect "control: a tile choice the panel drops fails the window-screenshot readback" False capture_is capture_primary screenshot-window
+expect "control: a tile choice the options window drops fails the window-screenshot readback" False capture_is capture_primary screenshot-window
 capture_back
 expect_poll "control: Shift+Tab reaches the walk copy's mode switch" SegmentedControl capture_focus_type
 capture_key Right
 expect_poll "control: Right moves the walk copy's mode switch" 1 capture_choice SegmentedControl
-expect "control: a mode choice the panel drops fails the area-recording readback" False capture_is capture_primary record
+expect "control: a mode choice the options window drops fails the area-recording readback" False capture_is capture_primary record
 capture_key Tab
 capture_key Tab
 expect_poll "control: Tab returns to the walk copy's primary action" Button capture_focus_type
-expect "control: a mode choice the panel drops fails the Start recording readback" False capture_is capture_focus "$capture_record_focus"
+expect "control: a mode choice the options window drops fails the Start recording readback" False capture_is capture_focus "$capture_record_focus"
 capture_pressed="$(capture_primary)"
 capture_key Return
 expect_poll "control: the walk copy's press reaches a countdown" delaying capture_phase
 expect "control: a press of another action fails the pressed-action readback" False capture_is capture_action "$capture_pressed"
 expect "control: the walk copy's action cancels its countdown" ok ipc vgs.capture invoke "$(capture_action)" ''
 expect_poll "control: the walk copy's countdown leaves capture idle" idle capture_phase
-expect_poll "control: the walk copy's panel closes" absent capture_panel
-capture_panel_plant focus
-expect "capture opens the focus copy's panel" ok ipc vgs.capture invoke toggle ''
+expect_poll "control: the walk copy's options window closes" absent capture_options
+capture_options_plant focus
+expect "capture opens the focus copy's options window" ok ipc vgs.capture invoke toggle ''
 expect_poll "control: the focus copy opens on the mode switch" SegmentedControl capture_focus_type
+capture_key Right
+expect_poll "control: Right chooses the focus copy's Record" 1 capture_choice SegmentedControl
+expect_poll "control: a window that keeps its Screenshot height fails the unscrolled Record readback" False capture_unscrolled
+capture_key Left
+expect_poll "control: Left returns the focus copy to Screenshot" 0 capture_choice SegmentedControl
 expect "control: opening on the mode switch fails the Take screenshot readback" False capture_is capture_focus "$capture_shot_initial"
-expect "capture closes the focus copy's panel" ok ipc vgs.capture invoke toggle ''
-expect_poll "the focus copy's panel unmaps" absent capture_panel
+expect "capture closes the focus copy's options window" ok ipc vgs.capture invoke toggle ''
+expect_poll "the focus copy's options window unmaps" absent capture_options
+expect_poll "the toggle pressed again leaves no Capture client" 0 window_count Capture
 capture_setting delay 0
-capture_panel_plant delay
-expect "capture opens the delay copy's panel" ok ipc vgs.capture invoke toggle ''
+capture_options_plant delay
+expect "capture opens the delay copy's options window" ok ipc vgs.capture invoke toggle ''
 expect_poll "control: the delay copy opens on Take screenshot" "$capture_shot_initial" capture_focus
 capture_delay_choose "control: "
-expect "control: a delay choice the panel drops fails the kept-delay readback" False capture_is capture_delay_kept 3
-expect "capture closes the delay copy's panel" ok ipc vgs.capture invoke toggle ''
-expect_poll "the delay copy's panel unmaps" absent capture_panel
-capture_panel_plant original
+expect "control: a delay choice the options window drops fails the kept-delay readback" False capture_is capture_delay_kept 3
+expect "capture closes the delay copy's options window" ok ipc vgs.capture invoke toggle ''
+expect_poll "the delay copy's options window unmaps" absent capture_options
+capture_options_plant original
+# A selection started from the options window gives the keyboard back to
+# the window the options opened over, not to the options window, which the
+# press closes. Area waits on the windows read Smart selection takes;
+# Display reads the windows only for the window to restore. The second
+# window takes the keyboard during each held selection.
+# capture_options_selection CASE: the target focused, the options opened
+# over it, CASE's selection pressed in them and held, the second window
+# focused, and the selection released.
+capture_options_selection() { # area | display
+  rm -f -- "${capture_state:?}/slurp-ready" "${capture_state:?}/slurp-release"
+  expect "options $1: the target receives focus" ok hypr dispatch "hl.dsp.focus({ window = \"address:$capture_target_address\" })"
+  expect_poll "options $1: the target has the keyboard" "$capture_target_address" capture_active_address
+  expect "options $1: the toggle opens the options" ok ipc vgs.capture invoke toggle ''
+  expect_poll "options $1: the options window has the keyboard" "[\"$shell_class\", \"Capture\"]" active_window
+  expect_poll "options $1: the options open on their primary action" Button capture_focus_type
+  if [[ $1 == display ]]; then
+    capture_back
+    expect_poll "options display: Shift+Tab reaches the target tiles" TileGroup capture_focus_type
+    capture_key Right
+    capture_key Right
+    expect_poll "options display: Right twice chooses Display" 2 capture_choice TileGroup
+    capture_key Tab
+    expect_poll "options display: Tab returns to the primary action" screenshot-display capture_primary
+  fi
+  capture_key Return
+  expect_poll "options $1: the held selector is ready" True capture_marker slurp-ready
+  expect_poll "options $1: the press closes the options window" 0 window_count Capture
+  expect "options $1: the second window takes focus" ok hypr dispatch "hl.dsp.focus({ window = \"address:$capture_disturbance_address\" })"
+  expect_poll "options $1: the second window has the keyboard" "$capture_disturbance_address" capture_active_address
+  touch -- "$capture_state/slurp-release"
+  expect_poll "options $1: the held selection finishes" idle capture_phase
+}
+capture_config slurpRelease true
+for capture_restore_case in area display; do
+  capture_options_selection "$capture_restore_case"
+  expect_poll "options $capture_restore_case: selection restores the window the options opened over" "$capture_target_address" capture_active_address
+done
+# A copy that takes the window to restore from the active toplevel, as
+# before, hands the keyboard back to the closed options window from
+# Display's immediate launch, so the second window keeps it.
+capture_restore_service="$repo/shell/plugins/vgs.capture/Service.qml"
+capture_restore_plant() { # active | original
+  expect "capture stops before the $1 restore copy" ok ipc shell setPluginEnabled vgs.capture false
+  expect_poll "the $1 restore copy releases the service" False record_exists vgs.capture
+  python3 - "$capture_restore_service" "$sandbox" "$capture_state/restore-service-original.qml" "$1" <<'PY'
+from pathlib import Path
+import sys
+service, sandbox, original, control = sys.argv[1:]
+service, original = Path(service), Path(original)
+assert service.resolve().is_relative_to(Path(sandbox).resolve()), "restore control must stay inside the sandbox"
+if not original.exists():
+    original.write_text(service.read_text())
+source = original.read_text()
+changes = {
+    "active": [
+        ("if (selections.indexOf(name) >= 0) {", "if (name === \"screenshot-window\" || name === \"record-window\" || ((name === \"screenshot-area\" || name === \"record\") && shell.settings.smart)) {"),
+        ("return launch(name, output, [], \"\");", "return launch(name, output, [], selections.indexOf(name) >= 0 && Hyprland.activeToplevel !== null ? Hyprland.activeToplevel.address : \"\");"),
+        ("restoreTarget(state.clients, state.monitors));", "Hyprland.activeToplevel === null ? \"\" : Hyprland.activeToplevel.address);"),
+    ],
+    "original": [],
+}
+changed = source
+for before, after in changes[control]:
+    assert changed.count(before) == 1, control + ": " + before
+    changed = changed.replace(before, after)
+assert control == "original" or changed != source, control
+service.write_text(changed)
+PY
+  rescan "the $1 restore copy is rescanned"
+  expect "capture enables the $1 restore copy" ok ipc shell setPluginEnabled vgs.capture true
+  expect_poll "the $1 restore copy's service is built" True record_exists vgs.capture
+}
+capture_restore_plant active
+capture_options_selection display
+expect_poll "control: a restore read from the active toplevel leaves the second window the keyboard" "$capture_disturbance_address" capture_active_address
+capture_restore_plant original
+capture_config slurpRelease false
 # The Settings page draws a field for each schema entry: none for the delay
 # or a time limit. The manifest copy declares both again.
 capture_field() {
@@ -1569,28 +1664,30 @@ expect "control: a manifest that declares the time limit field fails the absent 
 settings_page_close vgs.capture
 capture_manifest_plant original
 capture_setting delay 0
-expect_poll "capture panel leaves no layer" 0 layer_count vgs:panel
+expect_poll "the Capture options leave no window" 0 window_count Capture
 rm -f -- "${shim:?}/tesseract"
 rescan "the missing OCR command is rescanned"
 expect_poll "only OCR is unavailable" True capture_missing
 # A press on an action whose tool is missing still reaches the service,
-# which raises the install notice, and the panel names the cause. The panel
-# closes before the notice's Escape below, so the key reaches the notice.
-expect "capture opens its panel without OCR" ok ipc vgs.capture invoke toggle ''
-expect_poll "the panel without OCR opens on its primary action" Button capture_focus_type
+# which raises the install notice, and the options window names the cause.
+# The window closes before the notice's Escape below, so the key reaches
+# the notice.
+expect "capture opens its options window without OCR" ok ipc vgs.capture invoke toggle ''
+expect_poll "the options window without OCR opens on its primary action" Button capture_focus_type
 capture_back
 capture_back
 expect_poll "Shift+Tab reaches the mode switch without OCR" SegmentedControl capture_focus_type
 capture_key End
 expect_poll "End chooses Text" 2 capture_choice SegmentedControl
+expect_poll "the window holds every Text option unscrolled" True capture_unscrolled
 capture_key Tab
 expect_poll "Tab from the mode switch reaches Copy text, past the hidden tiles" '["Button", "Copy text", true, true, true]' capture_focus
 capture_key Return
-expect_poll "a press without OCR names the missing tools in the panel" '"Install the missing tools to use this action."' ipc smoke readInstance panel vgs.capture problem
-expect_poll "the panel's press raises the core install notice" tesseract capture_notice
+expect_poll "a press without OCR names the missing tools in the options window" '"Install the missing tools to use this action."' ipc smoke readDescendant window vgs.capture Options problem
+expect_poll "the options window's press raises the core install notice" tesseract capture_notice
 expect "the refused press runs no capture" idle capture_phase
-expect "capture closes its panel over the install notice" ok ipc vgs.capture invoke toggle ''
-expect_poll "the panel over the install notice unmaps" absent capture_panel
+expect "capture closes its options window over the install notice" ok ipc vgs.capture invoke toggle ''
+expect_poll "the options window over the install notice unmaps" absent capture_options
 expect "missing OCR refuses capture before running tools" 'refused: capture=missing tesseract' ipc vgs.capture invoke text ''
 expect_poll "missing OCR raises the core install notice" tesseract capture_notice
 type_keys -k Escape || fail "capture: closing the install notice failed"
@@ -1775,8 +1872,8 @@ clipboard, path = Path(sys.argv[1]), Path(sys.argv[2])
 print(path.is_file() and path.read_bytes() == b"finalized" and clipboard.read_bytes() == (path.as_uri() + "\r\n").encode())
 PY
 }
-capture_choices() { ipc smoke readInstance panel vgs.capture values | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([v.get("audioSources"), v.get("cameras")]))'; }
-capture_languages() { ipc smoke readInstance panel vgs.capture languagesRow | py_reply 'import json,sys; r=json.load(sys.stdin); print("absent" if r is None or r["action"] is None else json.dumps([r["tone"], r["action"]["offered"]]))'; }
+capture_choices() { ipc smoke readDescendant window vgs.capture Options values | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([v.get("audioSources"), v.get("cameras")]))'; }
+capture_languages() { ipc smoke readDescendant window vgs.capture Options languagesRow | py_reply 'import json,sys; r=json.load(sys.stdin); print("absent" if r is None or r["action"] is None else json.dumps([r["tone"], r["action"]["offered"]]))'; }
 # The published Language data value: [available, carries a hint].
 capture_languages_unavailable() { ipc smoke statusValues vgs.capture | py_reply 'import json,sys; v=json.load(sys.stdin).get("languages") or {}; print(json.dumps([v.get("available", True), bool(v.get("hint"))]))'; }
 capture_titles() { capture_cards | py_reply 'import json,sys; print(json.load(sys.stdin).count(sys.argv[1]))' "$1"; }
@@ -2079,15 +2176,24 @@ capture_record record-output "failed processing"
 expect_poll "a failed post-process still notices the saved recording" 1 capture_titles "Recording saved"
 expect "a failed post-process keeps the recording as recorded" True capture_uri
 capture_config ffmpegFail false
-expect "capture opens its panel for its choices" ok ipc vgs.capture invoke toggle ''
-expect_poll "the panel maps for its choices" false capture_panel
+expect "capture opens its options window for its choices" ok ipc vgs.capture invoke toggle ''
+expect_poll "the options window maps for its choices" false capture_options
 capture_offered='[[{"label": "Fixture microphone", "value": "device:fixture-mic"}, {"label": "Monitor of Fixture speaker", "value": "device:fixture-speaker.monitor"}], [{"label": "Fixture camera", "value": "/dev/video7"}]]'
-expect_poll "the panel offers the fixture's audio sources and camera" "$capture_offered" capture_choices
+expect_poll "the options window offers the fixture's audio sources and camera" "$capture_offered" capture_choices
 capture_setting ocrLanguages '"deu+eng"'
 expect_poll "a missing chosen language offers Install languages" '["warning", true]' capture_languages
 capture_config languages '["eng", "deu", "osd"]'
 forget_record
-expect "Install languages answers ok" ok ipc smoke invokeInstance panel vgs.capture installLanguages '{}'
+capture_back
+capture_back
+expect_poll "Shift+Tab reaches the mode switch for Install languages" SegmentedControl capture_focus_type
+# capture_key reads notification keys from here on, so the keys go
+# through type_keys.
+type_keys -k End || fail "capture: sending End to the options window failed"
+expect_poll "End chooses Text for Install languages" 2 capture_choice SegmentedControl
+type_keys -k Tab -k Tab -k Tab || fail "capture: sending Tab to the options window failed"
+expect_poll "Tab reaches Install languages past Copy text and the language select" RowAction capture_focus_type
+type_keys -k Return || fail "capture: sending Return to Install languages failed"
 expect_poll "the terminal is handed the language TUI" "$(words vgs.capture/install-languages tui/install-languages.sh)" recorded_tail
 expect_poll "the ended TUI run reads the languages again" '["success", false]' capture_languages
 capture_setting ocrLanguages '"fra+eng"'
@@ -2103,9 +2209,9 @@ capture_setting ocrLanguages '"eng"'
 expect_poll "control: the choices copy probes again" '[[{"label": "Monitor of Fixture speaker", "value": "device:fixture-speaker.monitor"}], [{"label": "Fixture camera", "value": "/dev/video7"}]]' capture_choices
 expect "control: dropping a source fails the offered choices" False capture_is capture_choices "$capture_offered"
 cp -- "$capture_state/helper-original.py" "$capture_helper"
-expect "capture closes its panel after its choices" ok ipc vgs.capture invoke toggle ''
-expect_poll "the choices panel unmaps" absent capture_panel
-# A camera plugged in while the panel is closed shows when it opens again.
+expect "capture closes its options window after its choices" ok ipc vgs.capture invoke toggle ''
+expect_poll "the choices options window unmaps" absent capture_options
+# A camera plugged in while the options window is closed shows when it opens again.
 capture_plugged() { python3 - "$capture_state/config.json" "$1" <<'PY'
 import json, os, sys
 path, plugged = sys.argv[1], sys.argv[2] == "in"
@@ -2127,10 +2233,10 @@ PY
 }
 capture_cameras() { capture_choices | py_reply 'import json,sys; print(json.dumps([c["value"] for c in json.load(sys.stdin)[1]]))'; }
 capture_plugged in
-expect "capture opens its panel after a camera is plugged in" ok ipc vgs.capture invoke toggle ''
-expect_poll "the opened panel offers the plugged-in camera" '["/dev/video7", "/dev/video8"]' capture_cameras
-expect "capture closes its panel after the plugged-in camera" ok ipc vgs.capture invoke toggle ''
-expect_poll "the plugged-in camera's panel unmaps" absent capture_panel
+expect "capture opens its options window after a camera is plugged in" ok ipc vgs.capture invoke toggle ''
+expect_poll "the opened options window offers the plugged-in camera" '["/dev/video7", "/dev/video8"]' capture_cameras
+expect "capture closes its options window after the plugged-in camera" ok ipc vgs.capture invoke toggle ''
+expect_poll "the plugged-in camera's options window unmaps" absent capture_options
 capture_plugged out
 # Text in a language whose data is missing names the cause in its notice.
 capture_config languages '["eng", "osd"]'
