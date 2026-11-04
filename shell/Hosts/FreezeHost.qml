@@ -92,7 +92,14 @@ Scope {
     // A screen that leaves while its bands are written takes its window,
     // and the grab result parented to its band, with it, so its callback
     // never comes (Qt 6.12 qquickitemgrabresult.cpp create parents the
-    // result to the item).
+    // result to the item); the chain ends here with screen-gone. The
+    // leaving surface's window is hidden before this runs: Hyprland closes
+    // the output's layer surfaces first and Quickshell closes the window on
+    // that (quickshell 2b4501a src/wayland/wlr_layershell/surface.cpp
+    // zwlr_layer_surface_v1_closed), as the nested screen-freeze row read
+    // on Hyprland 0.57.0 (VGS-2232 fix-round run notes, run 2); rebuild()
+    // hides it too. That row's control without this cancel leaves the
+    // still unanswered.
     Connections {
         target: Quickshell
         function onScreensChanged() {
@@ -105,29 +112,12 @@ Scope {
         }
     }
 
-    // Each screen writes a frame at its own ratio and at every greater one
-    // in the layout, keyed by the ratio in 120ths, so a box over screens of
-    // mixed scales is cropped at the greatest scale it meets, as `grim -g`
-    // renders one.
+    // FreezeBands.plan holds the frames each screen writes and their bands.
     function startStill() {
-        const shown = surfaces.instances.slice().sort((a, b) => a.screen.name < b.screen.name ? -1 : a.screen.name > b.screen.name ? 1 : 0);
-        // wp-fractional-scale-v1 gives the ratio in 120ths.
-        const ratios = shown.map(surface => Math.round(surface.devicePixelRatio * 120));
-        const all = ratios.filter((ratio, i) => ratios.indexOf(ratio) === i).sort((a, b) => a - b);
-        const run = { serial: ScreenFreeze.serial, jobs: [], screens: [], done: false };
+        const planned = Bands.plan(surfaces.instances.map(surface => ({ name: surface.screen.name, x: surface.screen.x, y: surface.screen.y,
+            width: surface.screen.width, height: surface.screen.height, ratio: surface.ratio })), ScreenFreeze.frameDir);
+        const run = { serial: ScreenFreeze.serial, jobs: planned.jobs, screens: planned.screens, done: false };
         chain = run;
-        for (let i = 0; i < shown.length; i += 1) {
-            const screen = shown[i].screen;
-            const entry = { name: screen.name, x: screen.x, y: screen.y, width: screen.width, height: screen.height, frames: [] };
-            run.screens.push(entry);
-            for (const at of all.filter(ratio => ratio >= ratios[i])) {
-                const plan = Bands.frame(screen.width, screen.height, ratios[i], at);
-                const frame = { ratio: at, width: plan.width, height: plan.height, bands: [] };
-                entry.frames.push(frame);
-                plan.bands.forEach((band, k) => run.jobs.push({ screen: screen.name, own: ratios[i], logical: [screen.width, screen.height], frame: frame, band: band,
-                    targetWidth: plan.targetWidth, path: ScreenFreeze.frameDir + "/" + i + "-" + at + "-" + k + ".ppm" }));
-            }
-        }
         grab(run, 0);
     }
 
@@ -140,7 +130,7 @@ Scope {
             stillFailed(run, "screen-gone");
             return;
         }
-        if (Math.round(surface.devicePixelRatio * 120) !== job.own || surface.screen.width !== job.logical[0] || surface.screen.height !== job.logical[1]) {
+        if (surface.ratio !== job.own || surface.screen.width !== job.logical[0] || surface.screen.height !== job.logical[1]) {
             stillFailed(run, "size");
             return;
         }
@@ -168,7 +158,6 @@ Scope {
             stillFailed(run, "save");
             return;
         }
-        job.frame.bands.push({ path: job.path, rows: job.band.height });
         ScreenFreeze.noteBand(run.serial, { screen: job.screen, ratio: job.frame.ratio, frame: job.frame.width + "x" + job.frame.height, rows: job.band.height,
             askedAt: asked, readbackMs: back - asked, saveMs: done - back });
         if (!last || run.done) return;
@@ -200,6 +189,9 @@ Scope {
             // A frame swapped while the still frame was drawn.
             property bool framePresented: false
             readonly property bool presented: view.visible && backingWindowVisible && framePresented
+            // The window's ratio in 120ths, as wp-fractional-scale-v1 sends
+            // it (FreezeBands.js frame).
+            readonly property int ratio: Math.round(devicePixelRatio * 120)
 
             screen: modelData
             anchors { top: true; bottom: true; left: true; right: true }

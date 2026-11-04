@@ -22,18 +22,27 @@
 # view is turned twice fails the turned output's region.
 # Each output's written frame, its bands joined, matches grim's read of the
 # output during a still hold; a tree that never moves a band's source
-# rectangle fails it. With the cursor setting on, the saved image holds
-# the pointer where it stood at the press, as `grim -c -g BOX` read it; a
-# tree that reads a pointer frame before it is captured fails the saved
-# image. Nested Hyprland draws the pointer into every capture, so the row
-# cannot show that the drawn freeze holds no still pointer.
+# rectangle fails it. With the cursor setting on, the hold asks the core
+# for the pointer in its saved frames, as the lending record reads during
+# the selection, and off it asks for none; a helper that drops the
+# setting from its freeze fails that read. The saved image matches
+# `grim -c -g BOX` read with the pointer where it stood at the press.
+# Nested Hyprland draws the pointer into every capture, a frame without
+# the pointer view included, so there that match shows only that the
+# pointer stays where it stood at the press, and the row cannot show that
+# the drawn freeze holds no still pointer; a tree that reads a pointer
+# frame before it is captured fails the saved image.
 # The GUI busy span while the bands are written is the longest gap between
 # two turns of the shell's GUI event loop, read by the layers fixture's
 # probe (Date.now(), 1 ms), against a ceiling of one frame of the fastest
-# output, 16.7 ms at the nested outputs' 60 Hz, at any CPU pressure, with
-# the pressure and the load printed beside the reading; a tree that saves
-# a whole output in one band exceeds it. Measured on cachy, NVIDIA, nested
-# Hyprland 0.57.0 (VGS-2232 run notes). The row also records the render
+# output, 16.7 ms at the nested outputs' 60 Hz. A reading within it
+# passes at any CPU pressure; a reading over it fails while cpu_some_pct
+# from the press to the written still is at or below harness.sh's
+# latency_pressure_limit, and is not measured above it. The pressure and
+# the load print beside the reading; a tree that saves a whole output in
+# one band exceeds the ceiling. Calibrated on cachy, NVIDIA, nested
+# Hyprland 0.57.0, at cpu_some_pct 0.5-1.0 (VGS-2232 run notes, runs 6, 9
+# and 10). The row also records the render
 # loop QSG_INFO names, each band's read-back and save, and the time from
 # the press's IPC call to the selector's first buffer, from slurp's
 # libwayland stamps. The shell's hyprctl is the real one
@@ -1742,8 +1751,9 @@ changes = {
     "delay": ('if not self.countdown(delay):', 'if False:', 1),
     "cancel-delay": ('if self.cancelled(max(0, deadline - time.monotonic())):\n                    return False', 'if self.read_control(max(0, deadline - time.monotonic())) == "":\n                    return False', 1),
     "cursor": ('args = args + (["-c"] if request.get("cursor", False) else [])', 'args = args', 1),
-    "shifted-crop": ('dx, dy = edge(output["x"] - x), edge(output["y"] - y)', 'dx, dy = edge(output["x"] - x) + 40, edge(output["y"] - y)', 1),
+    "shifted-crop": ('edge = lambda value: math.floor(value * scale + 0.5)', 'edge = lambda value: math.floor(value * scale + 0.5) - 40', 1),
     "live-grab": ('path, child = self.deliver(request, image=png(*frame.crop(picked[0])))', 'path, child = self.deliver(request, args)', 1),
+    "no-still-cursor": ('outputs=outputs, cursor=request.get("cursor", False)) as (picked, frame):', 'outputs=outputs) as (picked, frame):', 1),
     "copy-only": ('if processing == "copy":', 'if False:', 1),
     "save-only": ('if processing != "save":', 'if True:', 1),
     "focus": ('emit("selection-ended")', 'pass', 2),
@@ -2636,15 +2646,22 @@ capture_point_grim() {
   nested_input_check "$capture_real_grim" || return 1
   "${shell_env[@]}" "$capture_real_grim" ${2:+"$2"} -g "$capture_point_box" "$capture_state/turned-$1.png" || { fail "capture: grim of the pointer box as $1 failed"; return 1; }
 }
+# capture_still_cursor: whether the held freeze's still carries the
+# pointer, as the lending record lists it, or `none`.
+capture_still_cursor() { ipc shell lent | py_reply 'import json,sys; s=json.load(sys.stdin)["freeze"]["still"]; print("none" if s is None else s["cursor"])'; }
 # capture_cursor_case TREE: the saved image's pointer at the press; the
 # caller judges cursor-TREE, the saved image against its reference.
 capture_cursor_case() {
+  local pressed
   expect "$1: earlier capture notices expire before the pointer box" 0 capture_wait_cards
   capture_cursor_position "$capture_cursor_inside" || fail "capture: parking the pointer at P1 failed"
   capture_point_grim "cursor-$1" -c || return 1
   : >"$capture_state/calls.jsonl"
+  pressed=$EPOCHREALTIME
   expect "$1: capture starts an area selection with the pointer in the box" ok ipc vgs.capture invoke screenshot-area ''
   expect "$1: the pointer box's selector maps over the freeze" True capture_selecting
+  ok "capture figure: tree=$1 cursor=on press-to-selector-first-buffer-ms=$(capture_first_buffer "$pressed") (from the row's IPC call; slurp's libwayland stamps; each screen also captures its pointer view before the freeze shows)"
+  expect "$1: the hold asks the core for the pointer in its saved frames" True capture_still_cursor
   drag "$capture_point_x" "$capture_point_y" "$((capture_point_x + 99))" "$((capture_point_y + capture_point_h - 1))" || fail "capture: the $1 drag over the pointer box failed"
   expect_poll "$1: the pointer box selection finishes" idle capture_phase
   expect_poll "$1: the pointer box is saved and copied whole" "200x$((capture_point_h * 2)) clipboard=True" capture_area_saved
@@ -2728,6 +2745,7 @@ capture_busy_case() {
   pressed_ms="$(now_ms)"
   expect "$1: capture starts an area selection for the busy reading" ok ipc vgs.capture invoke screenshot-area ''
   expect "$1: the busy reading's selector maps over the freeze" True capture_selecting
+  expect "$1: with the cursor setting off the hold asks for no pointer in its saved frames" False capture_still_cursor
   expect_poll "$1: the still reads written" written capture_still_state
   capture_busy_pressure="$(cpu_some_pct "$pressure_us" "$(cpu_some_us)" "$(( $(now_ms) - pressed_ms ))")"
   ok "capture figure: tree=$1 cpu_some_pct=$capture_busy_pressure load=$(cut -d' ' -f1-3 /proc/loadavg) from the press to the still read written"
@@ -2757,6 +2775,15 @@ expect "control: a box cropped 40 pixels off fails the turned output's region" F
 capture_mutate live-grab
 capture_above_case control
 expect "control: a live grim run after the selection saves the layer shown during it" False capture_region_match "control-above"
+capture_mutate no-still-cursor
+capture_setting cursor true
+: >"$capture_state/calls.jsonl"
+expect "control: capture starts an area selection with the cursor setting on" ok ipc vgs.capture invoke screenshot-area ''
+expect "control: the cursor control's selector maps over the freeze" True capture_selecting
+expect "control: a helper that drops the cursor from its freeze asks the core for no pointer" False capture_still_cursor
+drag "$capture_above_x" "$capture_above_y" "$((capture_above_x + 159))" "$((capture_above_y + 159))" || fail "capture: the cursor control's drag failed"
+expect_poll "control: the cursor control's selection finishes" idle capture_phase
+capture_setting cursor false
 cp -- "$capture_state/helper-original.py" "$capture_helper"
 # Disposable trees, each a shell of its own. unturned: the turned output's
 # view turned a second time, as screen-freeze's control does, and a whole

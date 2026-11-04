@@ -58,9 +58,13 @@ Singleton {
     // still frame. A screen whose capture never delivers a frame leaves it
     // uncalled: Quickshell 0.3.1's ScreencopyView reports no failed or
     // stopped capture (view.cpp emits no `stopped`), so the holder bounds
-    // its wait. `options.still(answer)`, when given, is called once with
-    // the written frames or `failed: still=<reason>`, never after the hold
-    // ends; `options.cursor` puts the pointer in the written frames.
+    // its wait. `options.still(answer)`, when given, is called at most once,
+    // never after the hold ends, with the written frames or
+    // `failed: still=<reason>`. A hold whose frame never shows leaves it
+    // uncalled as it leaves `done`, and so does a band grab that never
+    // returns, a window that stops rendering among them (FreezeHost.qml),
+    // so the holder bounds this wait too. `options.cursor` puts the pointer
+    // in the written frames.
     // Answers `ok` once held.
     function freeze(ctx, done, options) {
         if (done !== undefined && typeof done !== "function") throw new Error("refused: freeze=done not-a-function");
@@ -201,15 +205,21 @@ Singleton {
     // `exited` only for a process that ran, and `runningChanged` after it
     // or alone for one that failed to start (src/io/process.cpp
     // onFinished, onErrorOccurred), so the step ends on runningChanged.
+    // onFinished calls the collector's streamEnded before either signal, so
+    // its text then is the step's own error (a full runtime tmpfs, a
+    // directory that exists, a permission fault).
     Process {
         id: files
         property var completion: null
+        stderr: StdioCollector { id: filesErrors }
         onExited: (code, status) => { completion = { code: code, status: status }; }
         onRunningChanged: {
             if (running) return;
             const done = completion;
             completion = null;
-            root.stepDone(done !== null && done.code === 0, done === null ? "start=failed" : "status=" + done.code);
+            const error = done === null ? "" : filesErrors.text.trim();
+            root.stepDone(done !== null && done.code === 0,
+                (done === null ? "start=failed" : "status=" + done.code) + (error === "" ? "" : " stderr=" + JSON.stringify(error)));
         }
     }
 }

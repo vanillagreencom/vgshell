@@ -6,9 +6,11 @@ An error's optional reason language-data-unavailable selects its notice title.
 A selection asks the service to hold the screen still with freeze, then
 reads `frozen` or `freeze-refused <reply>` on stdin; thaw ends the hold.
 A freeze with `still` true also gets `still <frames JSON>`, the held frame the
-core wrote, or `still-failed <reason>`, at any point of the hold; a screenshot
-or text selection crops its image from those frames, and `cursor` puts the
-pointer in them.
+core wrote, or `still-failed <reason>`, at any point of the hold; an undelayed
+screenshot or a text selection asks for it and crops its image from those
+frames, and `cursor` puts the pointer in them. A delayed screenshot and a
+recording ask for no still, and a delayed screenshot runs grim after its
+countdown.
 While the freeze is awaited, an area is selected or the still is awaited, and
 until a screenshot's file is written, one `cancel` line or stdin EOF ends the
 capture with no file and emits cancelled.
@@ -1075,6 +1077,13 @@ class Still:
         ratio = round(scale * 120)
         edge = lambda value: math.floor(value * scale + 0.5)
         cw, ch = int(w * scale), int(h * scale)
+        if len(met) == 1:
+            # A box inside one output, as every display and window box and
+            # most areas are, is that frame's rows as they stand.
+            frame = self.frame(met[0], ratio)
+            dx, dy = edge(met[0]["x"] - x), edge(met[0]["y"] - y)
+            if dx <= 0 and dy <= 0 and dx + frame.width >= cw and dy + frame.height >= ch:
+                return cw, ch, [frame.pixels(r - dy, -dx, cw - dx) for r in range(ch)], None
         rows = [bytearray(cw * 3) for _ in range(ch)]
         alphas = [bytearray(cw) for _ in range(ch)]
         for output in met:

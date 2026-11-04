@@ -26,7 +26,10 @@
 # which a thaw and a disable remove. A thaw at the hold's done, before any
 # frame is written, gets no still answer, and malformed options are
 # refused. The control tree's end() skips the removal, and the first hold's
-# directory stays.
+# directory stays. A screen removed while its bands are written ends the
+# still with `failed: still=screen-gone` and the shell lives on; a tree
+# that does not cancel the chain on a screen change leaves the still
+# unanswered.
 # inputs: scripts/smoke/fixtures/plugins/acme.freeze/* shell/Core/ScreenFreeze.qml shell/Core/FreezeBands.js shell/Hosts/FreezeHost.qml shell/Core/Capabilities.qml shell/Core/HyprlandLayer.js shell/Core/HyprlandLayer.qml shell/shell.qml themes/catalog/flexoki-light/theme.json
 set -euo pipefail
 freeze_world="$sandbox/screen-freeze"
@@ -364,11 +367,67 @@ for output in "${freeze_outputs[@]}"; do
 done
 expect "the stale tree's fixture disables" ok ipc shell setPluginEnabled acme.freeze false
 stop_shell || :
+
+# A screen that leaves while the still's bands are written. A disposable
+# tree whose bands hold 20000 device pixels makes the turned output's
+# frame about 107 bands, one per frame, so the removal lands while a band
+# grab of the leaving output's surface is pending. The chain ends with
+# `failed: still=screen-gone`, the leaving output's surface goes, and the
+# shell lives on. Once the shell lists the first output alone, it has run
+# the screen change: Quickshell updates `screens` and emits its change in
+# the one call (quickshell 2b4501a src/core/qmlglobal.cpp updateScreens),
+# so a tree that drops the chain's cancel on a screen change reads the
+# still unanswered there and fails.
+freeze_shell_screens() { ipc smoke perScreenLayers | py_reply 'import json,sys; print(json.dumps(sorted({r["screen"] for r in json.load(sys.stdin)})))'; }
+# freeze_leave_chain: `on-turned` while the still is written and its last
+# written band is the turned output's, else the state.
+freeze_leave_chain() { ipc shell lent | py_reply 'import json,sys
+s = json.load(sys.stdin)["freeze"]["still"]
+print("none" if s is None else "on-turned" if s["state"] == "writing" and s["bands"] and s["bands"][-1]["screen"] == sys.argv[1] else s["state"])' "$freeze_turned"; }
+freeze_lent_dir() { ipc shell lent | py_reply 'import json,sys; print(json.load(sys.stdin)["freeze"]["still"]["dir"])'; }
+freeze_lent_still_state() { ipc shell lent | py_reply 'import json,sys; s=json.load(sys.stdin)["freeze"]["still"]; print(json.dumps(None if s is None else s["state"]))'; }
+freeze_stills_json() { freeze_stills | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)))'; }
+# freeze_leave TREE: a still hold in TREE, the turned output removed while
+# its bands are written; the shell then lists the first output alone.
+freeze_leave() {
+  start_shell "$sandbox/tree-screen-freeze-$1" "$freeze_world/$1-shell.log"
+  expect "the freeze fixture enables in the $1 tree" ok ipc shell setPluginEnabled acme.freeze true
+  expect_poll "the $1 tree's freeze fixture is built" True record_exists acme.freeze
+  expect "the $1 tree's fixture holds the freeze with the still" ok ipc acme.freeze invoke freeze-still ''
+  expect_poll "the $1 tree's hold shows" '["ok"]' freeze_answers
+  expect_poll "the $1 tree's chain writes the turned output's bands" on-turned freeze_leave_chain
+  freeze_leave_dir="$(freeze_lent_dir)"
+  expect "the nested compositor removes the turned output while its bands are written" ok hypr output remove "$freeze_turned"
+  expect_poll "the $1 tree's shell lists the first output alone" "[\"$freeze_first\"]" freeze_shell_screens
+}
+copy_tree screen-freeze-leave
+edit_tree screen-freeze-leave shell/Core/FreezeBands.js 'var BAND_PIXELS = 2000000;' 'var BAND_PIXELS = 20000;'
+freeze_leave leave
+expect "the still answers that a screen left" '["failed: still=screen-gone"]' freeze_stills_json
+expect "the lending record names the failed still" '"failed: still=screen-gone"' freeze_lent_still_state
+expect_poll "one freeze surface stands, on the output that stayed" 1 layer_count vgs:freeze
+expect "the leave tree's fixture thaws" ok ipc acme.freeze invoke thaw ''
+expect_poll "the thaw unmaps the freeze surface" 0 layer_count vgs:freeze
+expect_poll "the thaw removes the hold's frame directory" gone freeze_dir_state "$freeze_leave_dir"
+expect "the leave tree's fixture disables" ok ipc shell setPluginEnabled acme.freeze false
+stop_shell || :
+expect "the nested compositor adds the turned output again" ok hypr output create wayland "$freeze_turned"
+expect_poll "the turned output stands at transform 1 right of the first again" "1920x1080@$freeze_first_w,0 transform=1" freeze_turned_taken
+# The control: no cancel on a screen change, so the chain waits on a grab
+# whose callback went with the leaving surface.
+copy_tree screen-freeze-uncancelled
+edit_tree screen-freeze-uncancelled shell/Core/FreezeBands.js 'var BAND_PIXELS = 2000000;' 'var BAND_PIXELS = 20000;'
+edit_tree screen-freeze-uncancelled shell/Hosts/FreezeHost.qml \
+  '                if (run.screens.some(screen => names.indexOf(screen.name) < 0)) host.stillFailed(run, "screen-gone");' \
+  ''
+freeze_leave uncancelled
+expect "control: a chain not cancelled on a screen change leaves the still unanswered" '[]' freeze_stills_json
+expect "the uncancelled tree's fixture disables" ok ipc shell setPluginEnabled acme.freeze false
+stop_shell || :
 start_shell "$repo" "$freeze_world/restored-shell.log"
 
 if [[ -e $freeze_world/theme-found.json ]]; then cp -- "$freeze_world/theme-found.json" "$freeze_theme"; else rm -f -- "${freeze_theme:?}"; fi
 expect_poll "the theme goes back as the row found it" "$freeze_theme_found" ipc smoke themeName
 rm -rf -- "${freeze_plugin:?}"
 rescan "the freeze fixture leaves the registry"
-expect "the nested compositor removes the turned output" ok hypr output remove "$freeze_turned"
 hypr_lua_restore screen-freeze

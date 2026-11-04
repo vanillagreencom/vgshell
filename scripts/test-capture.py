@@ -38,28 +38,28 @@ STILLS = ("screenshot-area", "screenshot-window", "screenshot-display", "text")
 PLANS = {}
 
 
-def band_plans(asks):
-    """FreezeBands.frame(width, height, own, at) for each ask, from the
-    core's own file under node, so each frame here is cut into the bands
-    the core writes."""
-    missing = [ask for ask in dict.fromkeys(asks) if ask not in PLANS]
-    if missing:
-        script = "const {load} = require(process.argv[1]); const bands = load(process.argv[2]); console.log(JSON.stringify(JSON.parse(process.argv[3]).map(ask => bands.frame(...ask))));"
-        done = subprocess.run(["node", "-e", script, str(LIBRARY), str(BANDS), json.dumps(missing)], capture_output=True, text=True, timeout=30, check=True)
-        PLANS.update(zip(missing, json.loads(done.stdout)))
-    return [PLANS[ask] for ask in asks]
+def still_plan(screens, folder):
+    """FreezeBands.plan for SCREENS, core_screens tuples, writing into
+    FOLDER, from the core's own file under node: the still answer's screens
+    with the frames each writes and their band files, as the core plans
+    them. A plan is read once per layout, for the directory `@DIR@`, which
+    each copy names FOLDER in place of."""
+    key = json.dumps(screens)
+    if key not in PLANS:
+        script = ("const {load} = require(process.argv[1]); const bands = load(process.argv[2]);"
+                  " console.log(JSON.stringify(bands.plan(JSON.parse(process.argv[3]).map(([name, x, y, width, height, ratio]) => ({ name, x, y, width, height, ratio })), '@DIR@').screens));")
+        done = subprocess.run(["node", "-e", script, str(LIBRARY), str(BANDS), key], capture_output=True, text=True, timeout=30, check=True)
+        PLANS[key] = done.stdout
+    return json.loads(PLANS[key].replace("@DIR@", json.dumps(str(folder))[1:-1]))
 
 
-def write_frame(folder, name, ratio, plan, row):
-    """One frame as the core writes it: PLAN's bands as PPM files under
-    FOLDER, ROW(y) giving device row y's RGB bytes. Its still answer entry."""
-    bands, top = [], 0
-    for index, band in enumerate(plan["bands"]):
-        path = folder / f"{name}-{ratio}-{index}.ppm"
-        path.write_bytes(b"P6\n%d %d\n255\n" % (plan["width"], band["height"]) + b"".join(row(y) for y in range(top, top + band["height"])))
-        bands.append({"path": str(path), "rows": band["height"]})
-        top += band["height"]
-    return {"ratio": ratio, "width": plan["width"], "height": plan["height"], "bands": bands}
+def write_frame(frame, row):
+    """FRAME of a still answer written as the core writes it: each band a
+    PPM file at its path, ROW(y) giving device row y's RGB bytes."""
+    top = 0
+    for band in frame["bands"]:
+        Path(band["path"]).write_bytes(b"P6\n%d %d\n255\n" % (frame["width"], band["rows"]) + b"".join(row(y) for y in range(top, top + band["rows"])))
+        top += band["rows"]
 
 
 def layout_row(x, y, width):
@@ -84,26 +84,19 @@ def core_screens(outputs):
 def still_line(root, outputs, drop=None):
     """The service's `still` line for OUTPUTS, Hyprland's readings as the
     service sends them, with the band files the core would write under
-    ROOT/frames: each output's frame at its own ratio and at every greater
-    one in the layout, its pixels the fixture layout's at that ratio, so a
-    crop of it holds the pixels fixture_crop names. DROP names an output
-    the answer leaves out."""
+    ROOT/frames, as FreezeBands.plan plans them, their pixels the fixture
+    layout's at each frame's ratio, so a crop of them holds the pixels
+    fixture_crop names. DROP names an output the answer leaves out."""
     rects = core_screens(outputs)
     left, top = min(r[1] for r in rects), min(r[2] for r in rects)
-    ratios = sorted({r[5] for r in rects})
-    plans = iter(band_plans([(w, h, own, at) for _, _, _, w, h, own in rects for at in ratios if at >= own]))
     folder = root / "frames"
     folder.mkdir(parents=True, exist_ok=True)
-    screens = []
-    for name, x, y, width, height, own in rects:
-        frames = []
-        for at in [ratio for ratio in ratios if ratio >= own]:
-            plan = next(plans)
-            ox, oy = (math.floor(v * at / 120 + 0.5) for v in (x - left, y - top))
-            frames.append(write_frame(folder, name, at, plan, lambda row, ox=ox, oy=oy, width=plan["width"]: layout_row(ox, oy + row, width)))
-        if name != drop:
-            screens.append({"name": name, "x": x, "y": y, "width": width, "height": height, "frames": frames})
-    return b"still " + json.dumps({"screens": screens}).encode() + b"\n"
+    screens = still_plan(rects, folder)
+    for screen in screens:
+        for frame in screen["frames"]:
+            ox, oy = (math.floor(v * frame["ratio"] / 120 + 0.5) for v in (screen["x"] - left, screen["y"] - top))
+            write_frame(frame, lambda row, ox=ox, oy=oy, width=frame["width"]: layout_row(ox, oy + row, width))
+    return b"still " + json.dumps({"screens": [screen for screen in screens if screen["name"] != drop]}).encode() + b"\n"
 
 
 def release_deadline_holds(helper):
@@ -2156,7 +2149,7 @@ def freeze_cases(base, world):
 
 def crop_holds(source):
     """Still.crop and png give the image `grim -g BOX` writes, from the band
-    files the core writes for each output, cut as FreezeBands.js cuts them:
+    files the core writes for each output, as FreezeBands.plan plans them:
     each box comes at the greatest scale of the outputs it meets, each
     output's part from its frame at that scale placed at its offset from the
     box times that scale rounded half up, and a part no output covers,
@@ -2205,13 +2198,11 @@ def crop_holds(source):
         stills, sizes = {}, {}
         for name, monitors in layouts.items():
             rects = helper["output_rectangles"](monitors)
-            core = core_screens(monitors)
-            ratios = sorted({screen[5] for screen in core})
-            screens = []
-            for output, x, y, width, height, own in core:
-                frames = []
-                for at, plan in zip([a for a in ratios if a >= own], band_plans([(width, height, own, a) for a in ratios if a >= own])):
-                    mark, columns = marks[output], plan["width"]
+            (folder / name).mkdir()
+            screens = still_plan(core_screens(monitors), folder / name)
+            for screen in screens:
+                for frame in screen["frames"]:
+                    mark, columns = marks[screen["name"]], frame["width"]
                     red = bytes(c % 256 for c in range(columns))
                     def row(y, red=red, mark=mark, columns=columns):
                         line = bytearray(columns * 3)
@@ -2219,9 +2210,8 @@ def crop_holds(source):
                         line[1::3] = bytes([y % 256]) * columns
                         line[2::3] = bytes([mark]) * columns
                         return bytes(line)
-                    frames.append(write_frame(folder, name + "-" + output, at, plan, row))
-                    sizes[name, output, at] = (plan["width"], plan["height"])
-                screens.append({"name": output, "x": x, "y": y, "width": width, "height": height, "frames": frames})
+                    write_frame(frame, row)
+                    sizes[name, screen["name"], frame["ratio"]] = (frame["width"], frame["height"])
             stills[name] = (rects, {"screens": screens})
         for name, box, (w, h), pieces, spans in cases:
             rects, answer = stills[name]
@@ -2271,6 +2261,33 @@ def crop_holds(source):
         except RuntimeError:
             return True
         return False
+
+
+def bands_hold(source):
+    """FreezeBands.frame, from SOURCE under node, cuts each frame of a
+    table of screens into bands of at most BAND_PIXELS device pixels that
+    abut on whole logical rows and sum to the frame, each band but the last
+    exactly its device rows with a whole target: the owner's 3008x1692 at
+    2, a turned 1080x1920 at 1, a 1366x768 panel at 1 written at 1.25, and
+    a 3600x2025 screen at 1.0667 written at its own scale and at 1.25 and
+    1.75."""
+    asks = [(3008, 1692, 240, 240), (1080, 1920, 120, 120), (1366, 768, 120, 150), (3600, 2025, 128, 128), (3600, 2025, 128, 150), (3600, 2025, 128, 210)]
+    script = ("const {load} = require(process.argv[1]); const bands = load(process.argv[2]);"
+              " console.log(JSON.stringify({ limit: bands.BAND_PIXELS, frames: JSON.parse(process.argv[3]).map(ask => bands.frame(...ask)) }));")
+    done = subprocess.run(["node", "-e", script, str(LIBRARY), str(source), json.dumps(asks)], capture_output=True, text=True, timeout=30, check=True)
+    read = json.loads(done.stdout)
+    for (width, height, own, at), frame in zip(asks, read["frames"]):
+        bands = frame["bands"]
+        if sum(band["height"] for band in bands) != frame["height"] or sum(band["rows"] for band in bands) != height:
+            return False
+        y = 0
+        for index, band in enumerate(bands):
+            if band["y"] != y or band["y"] != int(band["y"]) or band["height"] * frame["width"] > read["limit"]:
+                return False
+            if index + 1 < len(bands) and (band["height"] * 120 != band["rows"] * at or band["targetHeight"] * own != band["height"] * 120):
+                return False
+            y += band["rows"]
+    return True
 
 
 def hyprctl_records(base):
@@ -2425,6 +2442,8 @@ def main():
             ("truncated-logical", 'width = round(output["width"] / output["scale"])', 'width = int(output["width"] / output["scale"])'),
             # Every row read from the first band.
             ("band-order", "index = bisect.bisect_right(self.starts, y) - 1", "index = 0"),
+            # A box inside one output read from the frame's top-left.
+            ("inside-offset", "frame.pixels(r - dy, -dx, cw - dx) for r in range(ch)", "frame.pixels(r, 0, cw) for r in range(ch)"),
             # Each output's own frame placed at the box's greater scale.
             ("own-ratio-crop", "frame = self.frame(output, ratio)", 'frame = self.frame(output, round(output["scale"] * 120))'),
             # A band file read whatever its header says.
@@ -2434,6 +2453,16 @@ def main():
             mutant = base / (name + ".py")
             mutant.write_text(crop_source.replace(before, after))
             assert not crop_holds(mutant), "control did not fail: " + name
+        assert bands_hold(BANDS), "the core cuts each frame into bands of at most BAND_PIXELS on whole rows"
+        bands_source = BANDS.read_text()
+        # Round 1's cut, whole multiples of the logical step at which the
+        # target is whole too, which made 5.4 MP bands at 1.0667 written at 1.25.
+        before = "    const unit = lcm(own / gcd(own, 120), at / gcd(at, 120));\n    const rows = Math.max(unit, Math.floor(BAND_PIXELS / deviceWidth / unit) * unit) * 120 / at;\n"
+        after = "    const step = lcm(lcm(120 / gcd(own, 120), 120 / gcd(at, 120)), own / gcd(own, at));\n    const rows = Math.max(step, Math.floor(BAND_PIXELS / deviceWidth * 120 / at / step) * step);\n"
+        assert bands_source.count(before) == 1, "step-cut"
+        mutant = base / "step-cut.js"
+        mutant.write_text(bands_source.replace(before, after))
+        assert not bands_hold(mutant), "control did not fail: step-cut"
         root = world("record")
         assert record_holds(root, request(root, "record"), HELPER), "record SIGINT finalization"
         root = world("freeze-released", clipboardHold=True)
@@ -2545,7 +2574,7 @@ def main():
         assert not killed_owner_holds(root, request(root, "record"), config, helper), "control did not fail: unowned child"
     if unmeasured is None:
         recording_controls += ",no-trim"
-    controls = ("capture-sequence,waiting-clipboard,second-grim,live-grab,grim-before-freeze,layout-scale,opaque-gap,bounds-refusal,truncated-logical,band-order,own-ratio-crop,unchecked-band,provider-completion,exit-keeps-freeze,delay-field-drawn,delay-unsaved,delay-saved-elsewhere,save-unsent,delay-unread,delay-overwritten,timeout-sent,delay-unchecked,undrawn-windows,drawn-window-delegate,model-windows,old-special-id-0.57-empty,raw-ocr-error,no-output,no-clipboard,hard-stop,inherited-stdin,unawaited-freeze,listed-freeze,any-layer-freeze,dropped-still,dropped-still-pick,unowned-child,invalid-delay-accepted,invalid-processing-accepted,empty-selection-accepted,empty-displays-accepted,smart-snap,window-boxes,display-boxes,all-bounds,no-scale,unscaled-crop,no-rotation,no-cursor,no-still-cursor,copy-saves,save-copies,no-delay,delay-ignores-cancel,no-timeout,written-ignores-cancel,selector-ignores-cancel,geometry-over-cancel,late-answer-error,no-selection-end," + recording_controls + "," + notification_controls)
+    controls = ("capture-sequence,waiting-clipboard,second-grim,live-grab,grim-before-freeze,layout-scale,opaque-gap,bounds-refusal,truncated-logical,band-order,inside-offset,own-ratio-crop,unchecked-band,step-cut,provider-completion,exit-keeps-freeze,delay-field-drawn,delay-unsaved,delay-saved-elsewhere,save-unsent,delay-unread,delay-overwritten,timeout-sent,delay-unchecked,undrawn-windows,drawn-window-delegate,model-windows,old-special-id-0.57-empty,raw-ocr-error,no-output,no-clipboard,hard-stop,inherited-stdin,unawaited-freeze,listed-freeze,any-layer-freeze,dropped-still,dropped-still-pick,unowned-child,invalid-delay-accepted,invalid-processing-accepted,empty-selection-accepted,empty-displays-accepted,smart-snap,window-boxes,display-boxes,all-bounds,no-scale,unscaled-crop,no-rotation,no-cursor,no-still-cursor,copy-saves,save-copies,no-delay,delay-ignores-cancel,no-timeout,written-ignores-cancel,selector-ignores-cancel,geometry-over-cancel,late-answer-error,no-selection-end," + recording_controls + "," + notification_controls)
     if unmeasured is not None:
         # The rest passed, but the real post-process could not run: not a pass.
         print(f"test-capture: status=not-measured cause={unmeasured}; controls={controls}")
