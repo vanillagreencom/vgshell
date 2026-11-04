@@ -209,6 +209,9 @@ widget-hide
 # tail rows that do the same; its stand-in tray apps run on the sandbox's
 # private bus and stop before it ends.
 tray
+# Its control restarts the shell, so it runs with the tail rows that do
+# the same.
+remote-desktop
 # After every row that opens a TUI: the stand-in terminal ran no plugin
 # script but a fixture's.
 tui-guard

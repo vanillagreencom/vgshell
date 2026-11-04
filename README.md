@@ -93,6 +93,7 @@ VGS starts with Hyprland and draws the bar, panels and windows on each screen. E
 | [Polkit](shell/plugins/vgs.polkit/README.md) | Enter your password when an app needs administrator access. |
 | [Power](shell/plugins/vgs.power/README.md) | Show battery level, choose the power profile, see what happens while you are away and open the power menu. |
 | [Printers](shell/plugins/vgs.printers/README.md) | Add, choose and remove your printers. |
+| [Remote desktop](shell/plugins/vgs.remote-desktop/README.md) | Use your other computers from this one, and see when someone uses this one. |
 | [Scratchpads](shell/plugins/vgs.scratchpads/README.md) | Show and hide an app with one key. |
 | [Screensaver](shell/plugins/vgs.screensaver/README.md) | Show animated text art when the desktop is inactive. |
 | [Plugins](shell/plugins/vgs.settings/README.md) | Manage your plugins, settings and shortcuts. |

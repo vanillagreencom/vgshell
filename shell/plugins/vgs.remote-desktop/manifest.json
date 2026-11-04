@@ -1,0 +1,312 @@
+{
+  "schemaVersion": 1,
+  "id": "vgs.remote-desktop",
+  "name": "Remote desktop",
+  "version": "0.1.0",
+  "author": "VanillaGreen",
+  "description": "Use your other computers from this one, and see when someone uses this one.",
+  "license": "MIT",
+  "icon": "screen-share",
+  "kinds": [
+    "service",
+    "bar-widget",
+    "pane"
+  ],
+  "entryPoints": {
+    "service": "Service.qml",
+    "bar-widget": "Widget.qml",
+    "pane": "Pane.qml"
+  },
+  "capabilities": [
+    "compositor",
+    "configure",
+    "hyprland",
+    "ipc",
+    "notify",
+    "requirements",
+    "run",
+    "shortcut",
+    "status",
+    "surfaces",
+    "system",
+    "tui"
+  ],
+  "capabilityKinds": {
+    "compositor": ["service"],
+    "configure": ["service"],
+    "hyprland": ["service"],
+    "ipc": ["service", "pane"],
+    "notify": ["service"],
+    "requirements": ["service"],
+    "run": ["service"],
+    "shortcut": ["service"],
+    "surfaces": ["bar-widget", "pane"],
+    "system": ["service"],
+    "tui": ["pane"]
+  },
+  "defaultSection": "right",
+  "pane": {
+    "group": "Connectivity",
+    "order": 25
+  },
+  "settings": {
+    "hosting": true,
+    "profiles": [],
+    "seeded": false
+  },
+  "schema": {
+    "hosting": {
+      "type": "boolean",
+      "label": "Hosting",
+      "description": "When off, other computers cannot open a remote desktop to this one; SSH stays as it is",
+      "info": "Hosting lets your other computers open this desktop with Remote desktop over SSH.\nThe other computer needs key sign-in to this one: use Set up sign-in in its own Remote desktop section.\nA window your Hyprland configuration marks no_screen_share stays hidden in every screen capture, a remote session included.",
+      "problem": "hostingProblem"
+    },
+    "profiles": {
+      "type": "list",
+      "label": "Computers",
+      "description": "Each computer gets a Connect entry in the launcher",
+      "items": {
+        "host": {
+          "type": "string",
+          "label": "Computer",
+          "info": "The computer's name in your SSH settings, or user@address.",
+          "optionsFrom": "hosts",
+          "placeholder": "Choose a computer",
+          "allowCustom": true
+        },
+        "screen": {
+          "type": "enum",
+          "label": "Screen",
+          "options": [
+            { "value": "active", "label": "Its active screen" },
+            { "value": "one", "label": "One screen" },
+            { "value": "private", "label": "Private screen" }
+          ]
+        },
+        "output": {
+          "type": "string",
+          "label": "Screen name",
+          "description": "Used with One screen",
+          "presets": [
+            { "value": "", "label": "None" },
+            { "value": "eDP-1" },
+            { "value": "DP-1" },
+            { "value": "DP-2" },
+            { "value": "HDMI-A-1" }
+          ],
+          "allowCustom": true
+        },
+        "window": {
+          "type": "enum",
+          "label": "Window",
+          "options": [
+            { "value": "window", "label": "In a window" },
+            { "value": "fullscreen", "label": "Full screen" }
+          ]
+        },
+        "video": {
+          "type": "enum",
+          "label": "Video",
+          "info": "Graphics card uses less power and works on AMD and Intel graphics. Processor works on every computer.",
+          "options": [
+            { "value": "auto", "label": "Automatic" },
+            { "value": "gpu", "label": "Graphics card" },
+            { "value": "cpu", "label": "Processor" }
+          ]
+        },
+        "picture": {
+          "type": "enum",
+          "label": "Picture",
+          "options": [
+            { "value": "auto", "label": "Adapt to the link" },
+            { "value": "low-bandwidth", "label": "Low bandwidth" },
+            { "value": "full-chroma", "label": "Full colour on the processor" }
+          ]
+        },
+        "bitrate": {
+          "type": "number",
+          "label": "Bitrate limit",
+          "presets": [
+            { "value": 0, "label": "Automatic" },
+            { "value": 10, "label": "10 Mbit/s" },
+            { "value": 20, "label": "20 Mbit/s" },
+            { "value": 50, "label": "50 Mbit/s" },
+            { "value": 100, "label": "100 Mbit/s" }
+          ]
+        },
+        "capture": {
+          "type": "enum",
+          "label": "Capture",
+          "info": "Read back frames works where Automatic shows a black picture, such as on a virtual machine.",
+          "options": [
+            { "value": "auto", "label": "Automatic" },
+            { "value": "dmabuf", "label": "Graphics memory" },
+            { "value": "shm", "label": "Read back frames" }
+          ]
+        },
+        "clipboard": {
+          "type": "boolean",
+          "label": "Share clipboard"
+        },
+        "releaseKey": {
+          "type": "enum",
+          "label": "Release keys",
+          "info": "These keys give your keyboard back to this computer while the remote desktop has it.",
+          "options": [
+            { "value": "shift+escape", "label": "Shift+Esc" },
+            { "value": "ctrl+alt+q", "label": "Ctrl+Alt+Q" },
+            { "value": "super+escape", "label": "Super+Esc" },
+            { "value": "double-escape", "label": "Esc twice" },
+            { "value": "none", "label": "None" }
+          ]
+        }
+      },
+      "defaults": {
+        "host": "",
+        "screen": "active",
+        "output": "",
+        "window": "window",
+        "video": "auto",
+        "picture": "auto",
+        "bitrate": 0,
+        "capture": "auto",
+        "clipboard": true,
+        "releaseKey": "shift+escape"
+      }
+    }
+  },
+  "requirements": [
+    {
+      "command": "gliff",
+      "packages": {
+        "verified-file": "gliff"
+      },
+      "optional": true,
+      "purpose": "Opens the desktop of your other computers",
+      "floor": "0.4.1"
+    },
+    {
+      "command": "gliff-server",
+      "packages": {
+        "verified-file": "gliff"
+      },
+      "optional": true,
+      "purpose": "Lets your other computers open this desktop"
+    },
+    {
+      "command": "ssh",
+      "packages": {
+        "pacman": "openssh",
+        "apt": "openssh-client",
+        "dnf": "openssh-clients",
+        "nix": "openssh"
+      },
+      "optional": true,
+      "purpose": "Signs in to your other computers"
+    },
+    {
+      "command": "ssh-keygen",
+      "packages": {
+        "pacman": "openssh",
+        "apt": "openssh-client",
+        "dnf": "openssh-clients",
+        "nix": "openssh"
+      },
+      "optional": true,
+      "purpose": "Makes the key Set up sign-in uses"
+    },
+    {
+      "command": "ssh-copy-id",
+      "packages": {
+        "pacman": "openssh",
+        "apt": "openssh-client",
+        "dnf": "openssh-clients",
+        "nix": "openssh"
+      },
+      "optional": true,
+      "purpose": "Copies your key to another computer for Set up sign-in"
+    },
+    {
+      "command": "sshd",
+      "packages": {
+        "pacman": "openssh"
+      },
+      "optional": true,
+      "purpose": "Lets your other computers sign in to this one"
+    }
+  ],
+  "tui": {
+    "sign-in": {
+      "script": "tui/sign-in.sh",
+      "title": "Set up sign-in",
+      "requires": [
+        "ssh",
+        "ssh-keygen",
+        "ssh-copy-id"
+      ]
+    }
+  },
+  "systemSteps": [
+    "service-sshd"
+  ],
+  "status": {
+    "session": {
+      "type": "data",
+      "label": "Remote session"
+    },
+    "hosts": {
+      "type": "choices",
+      "label": "Computers in your SSH settings"
+    },
+    "connectRows": {
+      "type": "launcherRows",
+      "label": "Launcher rows"
+    },
+    "hostingProblem": {
+      "type": "text",
+      "label": "Hosting",
+      "hidden": true
+    },
+    "ssh": {
+      "type": "state",
+      "label": "SSH on this computer",
+      "setup": "optional",
+      "action": {
+        "label": "Turn on SSH",
+        "system": "service-sshd"
+      }
+    }
+  },
+  "menu": {
+    "remote-desktop": {
+      "label": "Remote desktop",
+      "icon": "screen-share",
+      "aliases": [
+        "gliff",
+        "remote",
+        "connect"
+      ],
+      "provider": "connectRows",
+      "shortcut": "connect"
+    }
+  },
+  "hyprland": {
+    "binds": [
+      {
+        "shortcut": "connect-first",
+        "key": null,
+        "info": "Connects to the first computer in your list."
+      }
+    ],
+    "permissions": {
+      "deny": [
+        "gliff-server"
+      ],
+      "enforceWhen": {
+        "setting": "hosting",
+        "is": false
+      }
+    }
+  }
+}

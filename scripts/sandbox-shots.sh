@@ -21,7 +21,7 @@
 #
 
 # SCENE is gallery, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
-# notifications, bar, panels, devtools, system, network, tailscale, tailscale-starting, tailscale-locked, tailscale-flyout, vpn, vpn-locked, bluetooth, power, dialog, by-hand, reset, lock, polkit,
+# notifications, bar, panels, devtools, system, network, tailscale, tailscale-starting, tailscale-locked, tailscale-flyout, vpn, vpn-locked, remote-desktop, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, automation-failure, googledrive, tooltips, screensaver-lock, capture, capture-notifications,
 # info-dialog, keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, package-review-terminal, packages, jarvis-console, jarvis-history, jarvis-setup, elevenlabs-voices, jarvis-fleet, outdated, jarvis-causes, jarvis-restart, plugin-messages, page-links, tooltip-link, traffic, ai-usage, ai-usage-states, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice, displays-override or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
@@ -61,7 +61,10 @@
 # connect that found no OpenVPN plugin and no profile, and the password
 # prompt in the flyout with its field empty, with masked typed text and
 # with its retry line, and in the section, over the nmcli
-# stand-in and the fixtures of scripts/fixtures/vpn/; vpn-locked, taken only when named, is the
+# stand-in and the fixtures of scripts/fixtures/vpn/; remote-desktop, taken only
+# when named, is the Remote desktop indicator idle, connected and hovered,
+# its System Settings section and its Settings page with hosting on and
+# off, over the remote-desktop row's stand-ins; vpn-locked, taken only when named, is the
 # VPN dropdown while Tailscale's access step is offered: at rest, its
 # header switch under the pointer and under keyboard focus, the switch's
 # unlock mark under keyboard focus, and Sign in under the pointer over a
@@ -436,7 +439,7 @@ while [[ $# -gt 0 ]]; do
     --title-inventory) title_inventory=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    link-icons|sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|capture-notifications|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|package-review-terminal|packages|voice-keys|jarvis-console|jarvis-history|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|jarvis-restart|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|tailscale-flyout|tailscale-section|vpn|vpn-locked|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|automation-failure|googledrive|tooltips|screensaver|screensaver-lock|theme-previews|setup-tab|updates|clone-voice|displays-override) scenes+=("$1"); shift ;;
+    link-icons|sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|capture-notifications|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|package-review-terminal|packages|voice-keys|jarvis-console|jarvis-history|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|jarvis-restart|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|tailscale-flyout|tailscale-section|vpn|vpn-locked|remote-desktop|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|automation-failure|googledrive|tooltips|screensaver|screensaver-lock|theme-previews|setup-tab|updates|clone-voice|displays-override) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -621,6 +624,7 @@ scene_ships() {
     vpn-locked) ships_plugin vgs.vpn && ! ships_plugin vgs.tailscale ;;
     bluetooth) ships_plugin vgs.system vgs.bluetooth ;;
     printers) ships_plugin vgs.system vgs.printers ;;
+    remote-desktop) ships_plugin vgs.system vgs.remote-desktop ;;
     power) ships_plugin vgs.power ;;
     theme-browser|wallpaper-browser) ships_plugin vgs.themes ;;
     theme-previews) ships_plugin vgs.themes vgs.system vgs.displays vgs.network vgs.bluetooth vgs.sound vgs.ai-usage vgs.agent-warden vgs.updates ;;
@@ -3135,6 +3139,90 @@ scene_capture() { # MODE
   expect_poll "the Capture page shows Settings" 0 settings_tab
   jarvis_anchor_shot "capture-settings-$1-recording" SectionHeader Recording
   settings_close
+}
+
+# Remote desktop over stand-ins of its own, built as the remote-desktop
+# smoke row builds its: `gliff`, a `gliff-server` session from 192.0.2.10
+# raised by one grim frame, and SSH off, as the fakes' systemctl answers
+# for sshd.service. Shots: the indicator, its tooltip, System Settings ›
+# Remote desktop and the plugin's Settings tab while the session runs, the
+# bar idle and the pane with nobody viewing once it ended, then Settings
+# with hosting off while the core reads pending-restart. No gliff runs;
+# the session ends and the plugin is turned off after.
+rd_shot_set() {
+  python3 - "$home/.config/vgshell/shell.json" "$1" "$2" <<'PY'
+import json, os, sys
+path, key, value = sys.argv[1], sys.argv[2], json.loads(sys.argv[3])
+d = json.load(open(path))
+row = next(p for p in d["plugins"] if p["id"] == "vgs.remote-desktop")
+row[key] = value
+json.dump(d, open(path + ".next", "w"))
+os.replace(path + ".next", path)
+PY
+  expect "the shell reads the remote desktop $1 change" ok ipc shell reloadConfig
+  expect_poll "the shell has read the remote desktop $1 change" true ipc smoke configSettled
+}
+# rd_shot_page NAME: the Settings window on Remote desktop's Settings tab.
+rd_shot_page() {
+  expect "the Settings window opens for $1" ok ipc shell summon "$settings_kind" vgs.settings '{}'
+  expect_poll "the Settings window maps for $1" 1 settings_count
+  expect "the window opens the Remote desktop page for $1" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.remote-desktop
+  expect_poll "the Remote desktop page is shown for $1" '"vgs.remote-desktop"' settings_page
+  settings_tab_click Settings || fail "the click on the Settings tab failed for $1"
+  expect_poll "the Remote desktop page shows Settings for $1" 0 settings_tab
+  take "$1"
+  settings_close
+}
+scene_remote-desktop() { # MODE
+  local dir="$sandbox/remote-desktop-shots" python pid
+  python="$(command -v python3)" || { fail "remote desktop shots: python3 is unavailable"; return; }
+  mkdir -p -- "$dir" "$home/.ssh"
+  printf 'Host px13\n  HostName 192.0.2.10\nHost jarvis\n  HostName 192.0.2.20\n' >"$home/.ssh/config"
+  printf 'px13 ssh-ed25519 AAAA\njarvis ssh-ed25519 AAAA\n' >"$home/.ssh/known_hosts"
+  printf '#!/usr/bin/env bash\n[[ ${1:-} == --version ]] && echo "gliff 0.4.1"\n' >"$shim/gliff"
+  printf '#!%s\nimport time\nwhile True: time.sleep(3600)\n' "$python" >"$shim/gliff-server"
+  chmod 755 "$shim/gliff" "$shim/gliff-server"
+  if devices_ready remote-desktop; then
+    device_reply systemctl 3 "" is-active --quiet sshd.service
+    device_reply systemctl 0 loaded show --property=LoadState --value sshd.service
+  fi
+  rescan "a rescan after the remote desktop stand-ins answers ok"
+  expect "enabling Remote desktop for its shots is allowed" ok ipc shell setPluginEnabled vgs.remote-desktop true
+  expect_poll "the Remote desktop service is built" True record_exists vgs.remote-desktop
+  expect "Remote desktop is placed for its widget" ok ipc shell setPluginPlaced vgs.remote-desktop true
+  expect_poll "idle, the indicator is hidden" false ipc smoke readInstance "$(bar_key)" vgs.remote-desktop shown
+  spawn "$dir/server.log" env SSH_CONNECTION='192.0.2.10 52814 192.0.2.2 22' "$shim/gliff-server"
+  pid="$spawn_pid"
+  shot_grim "$SHOT_SOCKET" "$rt_dir" -t ppm "$dir/frame.ppm" 2>>"$sandbox/grim.log" || fail "the remote desktop capture frame failed"
+  expect_poll "a session shows the indicator" true ipc smoke readInstance "$(bar_key)" vgs.remote-desktop shown
+  take "remote-desktop-$1-bar-connected"
+  if hover_widget "the pointer rests on the remote desktop indicator" vgs.remote-desktop; then
+    expect_poll "the remote desktop tooltip opens" true tooltip_opened vgs.remote-desktop
+    take_posed "remote-desktop-$1-bar-tooltip"
+  fi
+  park_pointer
+  expect "System Settings opens Remote desktop" ok ipc shell summon window vgs.system '{"pane":"vgs.remote-desktop"}'
+  expect_poll "System Settings mounts Remote desktop" '["vgs.remote-desktop"]' window_panes
+  take "remote-desktop-$1-pane"
+  expect "System Settings closes after Remote desktop" ok ipc shell hide window vgs.system
+  rd_shot_page "remote-desktop-$1-settings"
+  kill -TERM -- "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  # Idle draws nothing, so the bar reads as it did before the session.
+  expect_poll "the indicator clears after the session ends" false ipc smoke readInstance "$(bar_key)" vgs.remote-desktop shown
+  take "remote-desktop-$1-bar-idle"
+  expect "System Settings opens Remote desktop with nobody viewing" ok ipc shell summon window vgs.system '{"pane":"vgs.remote-desktop"}'
+  expect_poll "System Settings mounts Remote desktop with nobody viewing" '["vgs.remote-desktop"]' window_panes
+  take "remote-desktop-$1-pane-idle"
+  expect "System Settings closes with nobody viewing" ok ipc shell hide window vgs.system
+  rd_shot_set hosting false
+  expect_poll "hosting off reads pending-restart" '"pending-restart"' ipc smoke readInstance service vgs.remote-desktop permission
+  rd_shot_page "remote-desktop-$1-settings-hosting-off"
+  rd_shot_set hosting true
+  expect "disabling Remote desktop after its shots is allowed" ok ipc shell setPluginEnabled vgs.remote-desktop false
+  rm -f -- "${shim:?}/gliff" "${shim:?}/gliff-server"
+  rm -rf -- "${home:?}/.ssh"
+  device_reply_clear systemctl
 }
 
 # The shipped Capture producer, with the existing confined tool fixture.

@@ -730,6 +730,14 @@ f share/vgshell/shell/plugins/vgs.printers/ipp/default.test
 f share/vgshell/shell/plugins/vgs.printers/ipp/renew.test
 f share/vgshell/shell/plugins/vgs.printers/ipp/subscribe.test
 f share/vgshell/shell/plugins/vgs.printers/manifest.json
+f share/vgshell/shell/plugins/vgs.remote-desktop/Pane.qml
+f share/vgshell/shell/plugins/vgs.remote-desktop/Remote.js
+f share/vgshell/shell/plugins/vgs.remote-desktop/Service.qml
+f share/vgshell/shell/plugins/vgs.remote-desktop/Widget.qml
+f share/vgshell/shell/plugins/vgs.remote-desktop/helper/hosts.py
+f share/vgshell/shell/plugins/vgs.remote-desktop/helper/sessions.py
+f share/vgshell/shell/plugins/vgs.remote-desktop/manifest.json
+f share/vgshell/shell/plugins/vgs.remote-desktop/tui/sign-in.sh
 f share/vgshell/shell/plugins/vgs.scratchpads/Background.qml
 f share/vgshell/shell/plugins/vgs.scratchpads/Service.qml
 f share/vgshell/shell/plugins/vgs.scratchpads/manifest.json
