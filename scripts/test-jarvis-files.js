@@ -919,16 +919,31 @@ world(async () => {
         fs.writeFileSync(path.join(folder, name), text);
     }
     fs.symlinkSync(daemonHome, path.join(daemonLinked, "skills"));
+    // A home that offers fleet.request on the main: its own repository, the
+    // kendex mail tool, which logs any run, and the Jarvis session's
+    // mailbox; and the package stand-in as its session command, whose
+    // status names no main, so the forward is unavailable.
+    const fleetHome = path.join(home, "fleet-home"), fleetMail = path.join(process.env.JARVIS_TEST_ROOT, "fleet-mail.log");
+    for (const [name, text] of [["AGENTS.md", "home knowledge\n"], ["state/handoff.md", "handoff\n"],
+        [".agents/skills/mailbox/scripts/lane-mail", "#!/bin/bash\nprintf '%s\\n' \"$*\" >>" + JSON.stringify(fleetMail) + "\n"]]) {
+        fs.mkdirSync(path.dirname(path.join(fleetHome, name)), { recursive: true });
+        fs.writeFileSync(path.join(fleetHome, name), text);
+    }
+    fs.chmodSync(path.join(fleetHome, ".agents/skills/mailbox/scripts/lane-mail"), 0o755);
+    for (const folder of [".git", "tmp/lane-mail/overseer", ".agents/skills/jarvis/scripts"]) fs.mkdirSync(path.join(fleetHome, folder), { recursive: true });
+    fs.copyFileSync(path.join(tree, "scripts/fixtures/jarvis/satellite-package.py"), path.join(fleetHome, ".agents/skills/jarvis/scripts/jarvis-session"));
+    fs.chmodSync(path.join(fleetHome, ".agents/skills/jarvis/scripts/jarvis-session"), 0o755);
     const UNHELD = ["ChainedEngine.js", "        plan = held.plan;\n", ""];
     // The daemon's install root is the plugin directory it runs from: a
     // disposable copy beside HOME, so a read inside it is outside HOME
     // unless the producer protects it. EDITS are [backend file, needle,
     // replacement]; HOME_SETTING is the hello's home and REFUSED the cause
-    // the daemon logs for it.
+    // the daemon logs for it; a MAIN_HOST names a main and asks for a
+    // fleet.request too.
     // The driver publishes results.jsonl whole, so every line parses.
     const driverRows = file => fs.existsSync(file)
         ? fs.readFileSync(file, "utf8").trim().split("\n").map(line => JSON.parse(line)) : [];
-    async function daemon(name, edits = [], homeSetting = "~/daemon-home", refused = null) {
+    async function daemon(name, edits = [], homeSetting = "~/daemon-home", refused = null, mainHost = "") {
         const folder = path.join(process.env.JARVIS_TEST_ROOT, "plugin-" + name);
         fs.mkdirSync(folder);
         fs.writeFileSync(path.join(folder, "VERSION"), "beta protected secret\n");
@@ -966,10 +981,11 @@ world(async () => {
             ["explicit", path.join(daemonExplicit, "notes")], ["hand", path.join(daemonHand, "notes")],
             ["config", path.join(roots.config, "vgshell", "shell.json")], ["install", path.join(folder, "VERSION")],
             ["home-agents", path.join(named, "AGENTS.md")], ["home-state", path.join(named, "state/handoff.md")]]
-            .map(([id, target]) => [id, "files.read", { path: target }]).concat([["home-skill", "help", { topic: "own/alpha" }]]);
+            .map(([id, target]) => [id, "files.read", { path: target }]).concat([["home-skill", "help", { topic: "own/alpha" }]])
+            .concat(mainHost === "" ? [] : [["fleet", "fleet.request", { text: "Rebase the lanes." }]]);
         try {
             child.stdin.write(JSON.stringify({ v: 1, type: "hello", gen: 0, revision: "a".repeat(64), locked: false,
-                settings: { home: homeSetting, sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", privateWindows: "" },
+                settings: { home: homeSetting, sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "", cloudVision: "ask", privateWindows: "", mainHost },
                 directories: { state, data: path.join(process.env.JARVIS_TEST_ROOT, name + "-data"),
                     runtime: path.join(process.env.JARVIS_TEST_ROOT, name + "-run") },
                 keys: { talk: "SUPER+code:44", mute: "SUPER+SHIFT+code:44", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C", "voice-mute": "SUPER+ALT+code:44" } }) + "\n");
@@ -981,7 +997,8 @@ world(async () => {
                     assert.ok(wait < 1000 && child.exitCode === null, name + " " + id + " answers: " + stderr);
                     // Polls the driver's result file; the driver polls every 10 ms.
                     await new Promise(resolve => setTimeout(resolve, 10));
-                    outcomes[id] = driverRows(path.join(driver, "results.jsonl")).find(row => row.id === id && row.outcome !== undefined);
+                    // A call held for the owner answers with its route alone.
+                    outcomes[id] = driverRows(path.join(driver, "results.jsonl")).find(row => row.id === id && (row.outcome !== undefined || row.route === "held"));
                 }
             }
             child.stdin.end();
@@ -1045,9 +1062,26 @@ world(async () => {
     // Each control drops the home on one line of its way to the help tool.
     for (const [control, edit] of [
         ["help-home-daemon", ["jarvisd.js", 'home: () => homeFolder.state.kind === "ready" ? homeFolder.state.path : null });', "home: () => null });"]],
-        ["help-home-browser", ["Browser.js", "        } }, home, environment);\n", "        } }, undefined, environment);\n"]]]) {
+        ["help-home-browser", ["Browser.js", "        } }, home, environment, main);\n", "        } }, undefined, environment, main);\n"]]]) {
         const dropped = await daemon(control, [edit]);
         assert.throws(() => skillRead(dropped["home-skill"]), assert.AssertionError, control + " control turns red");
+        controls++;
+    }
+    // A computer whose Main Jarvis host names a main hands no request to
+    // its own session's mailbox, its forward unavailable or not: the daemon
+    // hands help the role gate. Each control drops that gate on one line of
+    // its way to help.
+    const fleetWithheld = outcomes => {
+        assert.equal(outcomes.fleet.outcome, "not-offered", "a computer naming a main offers no fleet.request: " + JSON.stringify(outcomes.fleet));
+        assert.equal(fs.existsSync(fleetMail), false, "no lane-mail run");
+    };
+    fleetWithheld(await daemon("satellite-fleet", [], "~/fleet-home", null, "cachy"));
+    cases++;
+    for (const [control, edit] of [
+        ["fleet-gate-daemon", ["jarvisd.js", 'environment: process.env, main: () => context.settings.mainHost === "",', "environment: process.env,"]],
+        ["fleet-gate-browser", ["Browser.js", "        } }, home, environment, main);\n", "        } }, home, environment);\n"]]]) {
+        const dropped = await daemon(control, [edit], "~/fleet-home", null, "cachy");
+        assert.throws(() => fleetWithheld(dropped), assert.AssertionError, control + " control turns red");
         controls++;
     }
 

@@ -454,6 +454,34 @@ function statusLine(value, max) {
     return typeof value === "string" && value.length >= 1 && value.length <= max && !STATUS_UNPRINTABLE.test(value);
 }
 
+// The Main Jarvis host setting: "" for this computer, else the main's host
+// with an optional ":/path" to its home, which the Jarvis package judges;
+// the wire holds it to one line of at most 512 characters.
+function mainHostSetting(value) {
+    return typeof value === "string" && /^[^\x00-\x1f\x7f]{0,512}$/.test(value);
+}
+
+// What stops a forward before the main is read (Satellite.js): a block of
+// the home's session command (SessionCommand.place), a package older than
+// the satellite contract, which lacks its verbs, or one that did not answer
+// as expected.
+var MAIN_REACH_UNAVAILABLE = ["no-home", "package", "vgs-package", "home-link", "home-kind", "home-unreadable", "package-old", "package-unread"];
+
+// The `main-reach` message's reading of the main Jarvis (Satellite.js),
+// each but this computer's with the host the Main Jarvis host setting names:
+// this computer is the main; a satellite whose package names that main,
+// whether the package last reached it (null before its first call) and the
+// cause the Now line names; or the forward route unavailable and why.
+function mainReach(value) {
+    if (!object(value)) return false;
+    if (value.kind === "main") return Object.keys(value).length === 1;
+    if (!mainHostSetting(value.host)) return false;
+    if (value.kind === "unavailable")
+        return Object.keys(value).sort().join(",") === "cause,host,kind" && MAIN_REACH_UNAVAILABLE.indexOf(value.cause) !== -1;
+    return value.kind === "satellite" && Object.keys(value).sort().join(",") === "cause,host,kind,reachable"
+        && [true, false, null].indexOf(value.reachable) !== -1 && ["", "main-unreachable", "setting-invalid"].indexOf(value.cause) !== -1;
+}
+
 // The `personality` message's section for TEXT, Guidance.personality's: each
 // non-blank line with what the status judge refuses as spaces, cut at a space into
 // pieces of at most PERSONALITY_CHARS, the first PERSONALITY_LINES of them;
@@ -487,7 +515,7 @@ function accept(line, direction) {
     case "hello":
         if (direction !== "shell") fail("direction-hello");
         keys(message, ["v", "type", "gen", "settings", "directories", "revision", "locked", "keys"], "hello");
-        keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation"], "settings");
+        keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation", "mainHost"], "settings");
         if (!["local", "realtime", "gemini", "elevenlabs"].includes(message.settings.voiceProvider) || typeof message.settings.voiceAccount !== "string"
                 || !/^[^\x00-\x1f\x7f]{0,200}$/.test(message.settings.voiceAccount)) fail("voice-settings");
         if (!printable(message.settings.voice, 0, 200)) fail("voice-setting");
@@ -515,6 +543,8 @@ function accept(line, direction) {
         // Home.js judges the folder the text names; the wire bounds the text.
         if (typeof message.settings.home !== "string"
                 || !/^[^\x00-\x1f\x7f]{0,4096}$/.test(message.settings.home)) fail("home-setting");
+        // The Jarvis package judges the host it names (Satellite.js).
+        if (!mainHostSetting(message.settings.mainHost)) fail("main-host-setting");
         for (var setting of ["microphone", "speaker"])
             if (typeof message.settings[setting] !== "string"
                     || !/^[^\x00-\x1f\x7f]{0,200}$/.test(message.settings[setting])) fail("device-setting");
@@ -581,6 +611,11 @@ function accept(line, direction) {
             // button; the engine plays it only if its voice offers it.
             keys(message, fields.concat(["voice"]), "preview");
             if (!printable(message.voice, 1, 128)) fail("preview-voice");
+        } else if (message.intent === "main-host") {
+            // The setting the user chose, which decides whether an empty
+            // Main Jarvis host is handed on (Satellite.choose).
+            keys(message, fields.concat(["chosen"]), "main-host-intent");
+            if (["mainHost", "home"].indexOf(message.chosen) === -1) fail("main-host-intent");
         } else {
             keys(message, fields, "intent");
             if (["talk-down", "talk-up", "mute", "voice-mute", "stop", "voice-check", "owner-asks-refresh"].indexOf(message.intent) === -1) fail("intent");
@@ -638,6 +673,11 @@ function accept(line, direction) {
         if (direction !== "daemon") fail("direction-owner-ask-answer");
         keys(message, ["v", "type", "gen", "revision", "result"], "owner-ask-answer");
         ownerAskAnswer(message.result, null, true);
+        break;
+    case "main-reach":
+        if (direction !== "daemon") fail("direction-main-reach");
+        keys(message, ["v", "type", "gen", "revision", "reach"], "main-reach");
+        if (!mainReach(message.reach)) fail("main-reach");
         break;
     case "task-list":
         if (direction !== "daemon") fail("direction-task-list");

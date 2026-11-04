@@ -69,6 +69,12 @@ const TABLE = {
     // the router admits one a turn. A request starts work elsewhere, as a
     // task does.
     "fleet.request": { sentence: "Put this request in the mailbox of your Jarvis session:\n{text}", effect: "exec", executor: "guidance", command: null, once: true, schema: { text: text } },
+    // On a satellite, a machine whose Main Jarvis host names the main, the
+    // package's forward route hands the request to the main Jarvis
+    // (Satellite.js). external: the owner confirms it at every safety
+    // level. confirmation: the router hands the executor the audit row of
+    // the confirmed start and how the owner confirmed it.
+    "fleet.forward": { sentence: "Forward this request to your main Jarvis? It and its answer show in your Slack channel:\n{text}", effect: "external", executor: "satellite", command: null, once: true, confirmation: true, schema: { text: text } },
     "windows.list": { sentence: "List windows", effect: "read", executor: "windows", command: "hyprctl", schema: {} },
     "windows.focus": { sentence: "Focus window {window}", effect: "reversible", executor: "compositor", command: "hyprctl", schema: { window: windowTarget }, heard: [[["focus {name}", "focus on {name}"], { window: "class:{name}" }]] },
     "windows.reveal": { sentence: "Reveal window {window}", effect: "reversible", executor: "compositor", command: "hyprctl", schema: { window: windowTarget } },

@@ -1673,7 +1673,7 @@ world(async () => {
         try {
             send({ type: "hello", settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain, model: "fixture-model", effort: "",
                 fallbacks: only === "failover" ? [{ name: "backup", brain, model: "fixture-model" }] : [], taskTerminal: "auto",
-                cloudVision: "ask", privateWindows: "", voiceProvider: P.setting, voiceAccount: live, voice: only === "preview" ? P.previewVoice : "", clonedVoice: false, dictation: "" }, directories, locked: false,
+                cloudVision: "ask", privateWindows: "", mainHost: "", voiceProvider: P.setting, voiceAccount: live, voice: only === "preview" ? P.previewVoice : "", clonedVoice: false, dictation: "" }, directories, locked: false,
                 keys: { talk: "SUPER+code:44", mute: "SUPER+SHIFT+code:44", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C", "voice-mute": "SUPER+ALT+code:44" } });
             if (only === "wrong-key") {
                 const looked = lookups(), connected = main.conns.length;
@@ -2705,7 +2705,7 @@ world(async () => {
             ["daemon-gemini-audit-before-send", 'const result = audit.before(releaseEvent(c, identity, item.labels, "send", "pending"), start);',
                 `if (item.content.startsWith('{"clientContent"')) return start();\n        const result = audit.before(releaseEvent(c, identity, item.labels, "send", "pending"), start);`, "action", GEMINI],
             ["daemon-commentary", "c.live.commentary(turn.delegation, item);", "void item;", "action"],
-            ["daemon-router-tools", "tools: router.offer()", "tools: []", "action"],
+            ["daemon-router-tools", "c.brain.start({ instructions: c.guidance.instructions, tools });", "c.brain.start({ instructions: c.guidance.instructions, tools: [] });", "action"],
             ["daemon-router-approval", "router.route(call, { gen: turn.gen, op: turn.op });", "void call;", "action"],
             ["daemon-speakable", "const sentences = text.push(event.text);", "const sentences = [event.text];", "action"],
             ["daemon-recipient-provider", 'provider: resolved.provider, account: resolved.id, origin: Net.endpoint(provider.base).origin',

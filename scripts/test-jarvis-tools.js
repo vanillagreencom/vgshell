@@ -17,6 +17,7 @@ world(() => {
         ["memory.propose", { id: "facts/new.md", text: "Remember this." }, "reversible"],
         ["memory.replace", { id: "facts/new.md", text: "Remember this.", hash: "a".repeat(64) }, "persistent"],
         ["fleet.request", { text: "Rebase the lanes.\nThen report." }, "exec"],
+        ["fleet.forward", { text: "Rebase the lanes.\nThen report." }, "external"],
         ["windows.list", {}, "read"], ["windows.focus", { window }, "reversible"],
         // A change may name the focused window or a class; the executor resolves it.
         ["windows.focus", { window: "class:org.Chromium_1-x" }, "reversible"],

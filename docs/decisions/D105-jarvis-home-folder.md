@@ -4,7 +4,7 @@
 
 **Date**: 2026-10-09
 
-**Status**: Active
+**Status**: Active (the one program of a home a brain's action starts → D120)
 
 **Research**: the Jarvis plan attached to [VGS-1194](https://linear.app/vanillagreen/issue/VGS-1194)
 

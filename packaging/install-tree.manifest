@@ -551,6 +551,7 @@ f share/vgshell/shell/plugins/vgs.jarvis/backend/Providers.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Realtime.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Redact.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Sandbox.js
+f share/vgshell/shell/plugins/vgs.jarvis/backend/Satellite.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Screen.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/Secrets.js
 f share/vgshell/shell/plugins/vgs.jarvis/backend/SessionCommand.js

@@ -169,7 +169,9 @@ esac
         const w = make(implementation);
         const mail = fleetHome();
         let chosen = mail.folder;
-        w.router.register("guidance", Help.create(undefined, null, () => chosen, mail.environment));
+        // Whether this computer runs the main Jarvis: Main Jarvis host is empty.
+        let main = true;
+        w.router.register("guidance", Help.create(undefined, null, () => chosen, mail.environment, () => main));
         const offered = () => w.router.offer().some(row => row.id === "fleet.request");
         let at = 0;
         // The call, then the user's Confirm key once the draw guard has passed.
@@ -200,6 +202,19 @@ esac
         assert.equal(offered(), false, "no mailbox yet: no Jarvis session has read this folder's mail");
         mail.mailbox();
         assert.equal(offered(), true, "the home's mail tool and the Jarvis session's mailbox offer the row");
+        // A computer whose Main Jarvis host names a main hands a request to
+        // it, through fleet.forward or not at all: no row, whether or not its
+        // forward is available, and one held from before goes nowhere.
+        main = false;
+        assert.equal(offered(), false, "a computer naming a main offers no fleet.request");
+        main = true;
+        ask("Held before the main was named.");
+        main = false;
+        assert.deepEqual(await confirmed(), ["failed", "fleet-request:satellite"], "a request held while Main Jarvis host was set");
+        assert.deepEqual(mail.calls(), [], "it never reaches the mailbox");
+        main = true;
+        turn();
+        assert.equal(offered(), true, "this computer offers the row again once Main Jarvis host is empty");
         const [outcome, content] = await hand("Rebase the lanes.\nThen report.");
         assert.equal(outcome, "completed");
         assert.deepEqual(mail.rows(), ["row-1"]);
@@ -920,6 +935,26 @@ esac
             router.register("input", { commands: ["wtype"], timeoutMs: 10, cancellable: false, start() {} });
             assert.equal(router.route({ kind: "tool-call", id: "model", tool: "input.text", arguments: text },
                 { gen: w.runner.state.turn.gen, op: w.runner.state.turn.op }).reason, "input-target");
+        }],
+        // A forward to the main Jarvis is held for the owner at the most
+        // trusting level, its executor receives the start's own audit row
+        // and how the owner confirmed it, and a turn forwards one.
+        ["fleet-forward", (implementation, _folder, session = Session) => {
+            const w = make(implementation, session, { profile: "trusted" });
+            const confirmations = [];
+            w.router.register("satellite", { commands: [], timeoutMs: 1000, cancellable: false, available: () => true,
+                start: (call, done, authorize, origin, confirmation) => {
+                    confirmations.push(confirmation);
+                    done({ outcome: "completed", content: "Completed: forwarded." });
+                } });
+            assert.ok(w.router.offer().some(row => row.id === "fleet.forward"));
+            assert.equal(w.call("fleet.forward", { text: "Rebase the lanes." }).kind, "held", "a forward waits for the owner at every level");
+            w.show(); w.time(700); w.confirm();
+            const row = w.rows().filter(entry => entry.tool === "fleet.forward" && entry.outcome === "pending").at(-1);
+            assert.equal(row.confirmed, "physical");
+            assert.deepEqual(confirmations.map(value => ({ ...value })), [{ ref: "vgs-audit:" + row.time + "#" + row.gen + ":" + row.op,
+                at: row.time, method: "physical" }], "the forward cites its own start row and how the owner confirmed it");
+            assert.deepEqual(w.call("fleet.forward", { text: "And another." }), { kind: "refuse", reason: "turn-limit" }, "a second forward in one turn");
         }]
     ];
     try {
@@ -968,6 +1003,7 @@ esac
             ["result-size", "bytes.length <= RESULT_BYTES", "true", "result-size"],
             ["home-whole", 'labels.includes("home") || bytes.length <= RESULT_BYTES', "bytes.length <= RESULT_BYTES", "home-help"],
             ["fleet-offer", '(id !== "fleet.request" || fleet === undefined || fleet() === true)', "true", "fleet-request"],
+            ["forward-own-row", '"#" + value.turn.gen + ":" + value.turn.op', '"#" + value.turn.gen + ":0"', "fleet-forward"],
             ["once-limit", 'if (row.once === true && spent.has(turn.gen + ":" + turn.op + ":" + value.call.id)) return refuse(value, "turn-limit");', "", "fleet-request"],
             ["once-failed", ' && e.outcome !== "failed")', ")", "fleet-request"],
             ["once-turn", [['spent.has(turn.gen + ":" + turn.op + ":" + value.call.id)', "spent.has(value.call.id)"],
@@ -1020,7 +1056,11 @@ esac
             ["request-file-private", "ComputerHelp.js", '{ mode: 0o600, flag: "wx" }', '{ mode: 0o644, flag: "wx" }', "ComputerHelp.js", "fleet-request"],
             ["request-bound", "ComputerHelp.js", "deadline: MAIL_MS, group: true", "deadline: 60000, group: true", "ComputerHelp.js", "fleet-request-bound"],
             ["request-once", "Tools.js", "command: null, once: true, schema: { text: text } }", "command: null, schema: { text: text } }", "ToolRouter.js", "fleet-request"],
-            ["request-confirmed", "Tools.js", 'effect: "exec", executor: "guidance"', 'effect: "reversible", executor: "guidance"', "ToolRouter.js", "fleet-request"]
+            ["request-confirmed", "Tools.js", 'effect: "exec", executor: "guidance"', 'effect: "reversible", executor: "guidance"', "ToolRouter.js", "fleet-request"],
+            ["forward-confirmed", "Tools.js", 'effect: "external", executor: "satellite"', 'effect: "exec", executor: "satellite"', "ToolRouter.js", "fleet-forward"],
+            ["forward-once", "Tools.js", 'executor: "satellite", command: null, once: true,', 'executor: "satellite", command: null,', "ToolRouter.js", "fleet-forward"],
+            ["request-satellite-offer", "ComputerHelp.js", "            if (!main()) return false;\n", "", "ComputerHelp.js", "fleet-request"],
+            ["request-satellite-start", "ComputerHelp.js", '        if (!main()) return failed("satellite");\n', "", "ComputerHelp.js", "fleet-request"]
         ]) {
             await mutant(path.join(backend, source), name, needle, replacement,
                 consumer === "ToolRouter.js" ? byName(row) : help => byName(row)(Router, null, help), consumer);

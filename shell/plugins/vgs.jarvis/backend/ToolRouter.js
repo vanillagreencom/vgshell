@@ -173,6 +173,9 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
      * The guidance executor's optional topics() lists the help topics it can
      * read now, each one the help row's own rule admits, and its optional
      * fleet() must return literal true at offer for the fleet.request row.
+     * A row marked confirmation receives a fifth argument, {ref, at,
+     * method}: its start's audit reference and time, and how the user
+     * confirmed it ("none", "voice" or "physical").
      */
     function register(id, executor) {
         if (closed || registry.has(id) || !Object.values(Tools.TABLE).some(row => row.executor === id)
@@ -337,12 +340,18 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
         value.action = { gen: e.gen, op: e.op };
         const admitted = audit.before({ kind: "action", gen: value.turn.gen, op: value.turn.op,
             tool: value.call.id, args: value.call.args, effect: fresh.effect, decision: prior.kind,
-            confirmed: value.confirmed, outcome: "pending", ...proposer(value) }, () => {
+            confirmed: value.confirmed, outcome: "pending", ...proposer(value) }, recorded => {
             if (accepted && prior.scope !== undefined) grants.add(prior.scope);
             try {
                 const origin = Tools.TABLE[value.call.id].origin === true
                     ? Object.freeze({ labels: Policy.labels([...conversationLabels]),
                         tainted: Policy.TAINT_SOURCES.some(label => conversationLabels.has(label)) })
+                    : undefined;
+                // A confirmation row cites this start's own audit row, as
+                // vgs-audit:<time>#<gen>:<op>, and how the user confirmed it.
+                const confirmation = Tools.TABLE[value.call.id].confirmation === true
+                    ? Object.freeze({ ref: "vgs-audit:" + recorded.time + "#" + value.turn.gen + ":" + value.turn.op,
+                        at: recorded.time, method: value.confirmed })
                     : undefined;
                 value.executor.start(value.call, answer => {
                     if (closed) return;
@@ -357,7 +366,7 @@ function create({ session, state, dispatch, context, audit, result, routed = () 
                     const answer = authorize(value, e, decide(value, input));
                     if (answer.kind === "refuse") value.refusal = answer.reason;
                     return answer;
-                }, origin);
+                }, origin, confirmation);
             } catch (error) {
                 value.answer = { outcome: "failed", content: "executor-failed" };
                 done("failed");

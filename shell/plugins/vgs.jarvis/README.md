@@ -19,7 +19,7 @@ Jarvis is a voice assistant for your desktop. Talk or type to the AI model you c
 - Use a private browser that asks before it submits.
 - Read conversations, coding tasks and refused actions in the Console.
 - Share your instructions, skills and memory notes with every answering AI model.
-- Start or resume your Jarvis session and send it confirmed agent fleet requests.
+- Start or resume your Jarvis session and send it confirmed agent fleet requests. On another computer, forward them to your main Jarvis.
 - Keep provider keys in your desktop keyring and mute Jarvis across restarts.
 - Mute Jarvis's voice and read its replies on screen.
 
@@ -48,7 +48,7 @@ flowchart TD
     check -- "mail request, after you confirm" --> session
 ```
 
-Jarvis turns your words into text and asks your chosen AI model to answer. The model uses your instructions and reads skills or memory notes when it needs them. Jarvis checks an action before it runs and checks the result before it calls the action done. A request for your agent fleet goes to your Jarvis session after you confirm it; that session works through its mail.
+Jarvis turns your words into text and asks your chosen AI model to answer. The model uses your instructions and reads skills or memory notes when it needs them. Jarvis checks an action before it runs and checks the result before it calls the action done. A request for your agent fleet goes to your Jarvis session after you confirm it; that session works through its mail. On a computer whose Main Jarvis host names another computer, Jarvis forwards the request to the main Jarvis there after you confirm it, and the answer comes in your Slack channel.
 
 Your request goes to the AI model you choose, over the network when that model runs elsewhere. Local voice keeps speech on your computer. OpenAI Realtime sends speech to OpenAI, with the words your dictation replacements produce, so it spells them as you do; Gemini Live sends speech to Google. With ElevenLabs, Local voice hears you on your computer. ElevenLabs receives the reply text and turns it into speech. ElevenLabs may keep request history and use data for model training. To stop new data being used for training, open Terms and privacy → Data use in your account ([ElevenLabs help](https://elevenlabs.io/docs/help-center/legal/is-my-data-used-to-improve-eleven-labs-ai-models)).
 
@@ -75,6 +75,7 @@ The Settings tab holds these choices. Each setting's information button explains
 | Home folder | Where Jarvis keeps your instructions, skills and notes. On Setup, use Edit beside Personality for your instructions or the Home folder link to open the folder. |
 | Screen to cloud and Private windows | Choose Ask, Allow or Never for sending screen images or text outside your computer. Choose which windows Jarvis paints black before it sends a screenshot; titles do not reliably identify private browsing. |
 | Start Jarvis at boot and Session at boot | Start your chosen app in your Home folder when you sign in, resuming its saved conversation or starting a new one. Voice and chat work without this session. |
+| Main Jarvis host | This computer on the computer that runs your main Jarvis. On every other computer, the name of that computer, such as cachy. |
 
 Use Optional tools on Setup for missing tools. For agent fleet requests, use Install mail tool on the Agent fleet step and start your Jarvis session from its Setup row. With GitHub Copilot, turn Copilot Memory off in [GitHub Copilot settings](https://github.com/settings/copilot/features); Details links to that account setting too.
 

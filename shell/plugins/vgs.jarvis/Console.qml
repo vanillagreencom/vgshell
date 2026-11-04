@@ -327,6 +327,36 @@ FocusScope {
         return state === "problem" || state === "off" ? Theme.color.warning : Theme.color.textMuted;
     }
 
+    // The Now line for REACH, the daemon's reading of the main Jarvis
+    // (Satellite.js), or "" before the first. Each reading but this
+    // computer's names the host Main Jarvis host names. An unavailable
+    // route links where it is fixed, as the session row's blocks do
+    // (SetupGate.SESSION_BLOCKS): a missing session program to its Repair,
+    // a block of the home to the Home folder. A package that is older or
+    // did not answer has no fix in VGS, so its line links nothing.
+    function reachText(reach) {
+        if (reach === undefined || reach === null) return "";
+        if (reach.kind === "main") return "This computer runs your main Jarvis.";
+        if (reach.kind === "unavailable" && reach.cause === "no-home")
+            return "Jarvis cannot forward requests until you choose a [Home folder](page:vgs.jarvis/Settings/home).";
+        const blocked = "Jarvis cannot forward to " + reach.host + ": ";
+        if (reach.cause === "package-old")
+            return blocked + "the Jarvis package in your home folder is older than the version that forwards requests. A newer Jarvis package is necessary.";
+        if (reach.cause === "package-unread")
+            return blocked + "the Jarvis package in your home folder did not answer as expected.";
+        if (reach.cause === "package")
+            return blocked + "the Jarvis package in your home folder has no session program. [Repair it in Setup](page:vgs.jarvis/Setup/sessionStart).";
+        if (reach.cause === "vgs-package")
+            return blocked + "VGS made this Home folder without the Jarvis package. [Choose a Kendex Jarvis home](page:vgs.jarvis/Settings/home).";
+        if (reach.kind === "unavailable")
+            return blocked + "the Jarvis package in your [Home folder](page:vgs.jarvis/Settings/home) cannot be opened.";
+        if (reach.cause === "setting-invalid")
+            return "Jarvis cannot reach your main Jarvis: [Main Jarvis host](page:vgs.jarvis/Settings/mainHost) is not a computer name.";
+        if (reach.reachable === true) return "Your main Jarvis on " + reach.host + " is reachable.";
+        if (reach.reachable === false) return "Your main Jarvis on " + reach.host + " did not answer. Forwarded requests wait here.";
+        return "Jarvis has not sent a request to your main Jarvis on " + reach.host + " yet.";
+    }
+
     function rows() {
         const result = conversation.slice();
         if (livePartial.trim() !== "") result.push({ gen: state.gen, role: "user", text: livePartial, stage: "partial" });
@@ -490,6 +520,21 @@ FocusScope {
                 currentIndex: root.tab
                 KeyNavigation.tab: root.tab === 0 ? root.composerFocus : root.tab === 1 ? asksBody : historySearch
                 onCurrentIndexChanged: root.tab = currentIndex
+            }
+            // The main Jarvis's reachability, in the fixed header so a long
+            // conversation never scrolls it away.
+            LinkText {
+                objectName: "mainReachLine"
+                visible: root.tab === 0 && text !== ""
+                width: parent.width
+                role: "hint"
+                text: root.reachText(root.values.mainReach)
+                // A route that cannot forward, or a main that did not answer,
+                // stops a forward: the warning tone (design-system.md).
+                color: root.values.mainReach && (root.values.mainReach.kind === "unavailable"
+                    || root.values.mainReach.kind === "satellite" && root.values.mainReach.cause !== "") ? Theme.color.warning : Theme.color.textMuted
+                wrapMode: Text.Wrap
+                onPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
             }
             Row {
                 visible: root.tab === 2

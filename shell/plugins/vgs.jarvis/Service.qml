@@ -175,6 +175,14 @@ Item {
                 const choices = shell.status.handleChoice(key, (value, previous) => voiceChosen(key, value, previous));
                 if (choices !== "ok") console.warn("jarvis: choice=" + key + " " + choices);
             }
+            // A choice of Main Jarvis host, or of the Home folder, hands the
+            // setting to that home's Jarvis package; a config-file edit or a
+            // reload hands nothing (handleChoice). Only a choice of Main
+            // Jarvis host hands an empty one (Satellite.choose).
+            for (const key of ["mainHost", "home"]) {
+                const choices = shell.status.handleChoice(key, () => mainHostChosen(key));
+                if (choices !== "ok") console.warn("jarvis: choice=" + key + " " + choices);
+            }
             // The Edit action's screen opens the file this answers.
             shell.ipc.handle("personality-file", () => personalityFile());
             shell.ipc.handle("memory-confirm", text => memoryIntent("memory-confirm", text));
@@ -347,6 +355,9 @@ Item {
         if (!shell.status.isOk(emptyConversation)) throw new Error("jarvis: " + emptyConversation);
         const asks = StatusPublication.write(shell.status, "ownerAsks", { kind: "reading" });
         if (!shell.status.isOk(asks)) throw new Error("jarvis: " + asks);
+        // The new daemon reads the main again; until then no line shows.
+        const reach = StatusPublication.write(shell.status, "mainReach", null);
+        if (!shell.status.isOk(reach)) throw new Error("jarvis: " + reach);
         if (!publishInput({ tone: "warning", text: "Input tools unavailable", action: true })) return;
         if (!publishSetup({ kind: "checking" })) return;
         if (!shellStatus({ kind: "checking" })) return;
@@ -554,6 +565,26 @@ Item {
             Protocol.accept(wire, "shell");
             child.write(wire + "\n");
         } catch (error) { broken(error.message); }
+    }
+
+    // The user's choice of Main Jarvis host or of the Home folder, KEY,
+    // which the daemon hands, as the settings read, to the ready home's
+    // Jarvis package. One choice made while the daemon is not ready waits
+    // for it; a pending choice of Main Jarvis host outranks a later Home
+    // choice, since only it hands an empty field (Satellite.choose). The new
+    // settings' hello goes first: the core hands the plugin the written
+    // settings, and onShellChanged sends them, before it calls the choice
+    // handler (Capabilities.managerChoose) or configure.set answers.
+    property string mainHostPending: ""
+    function mainHostChosen(key) {
+        if (mainHostPending !== "mainHost") mainHostPending = key;
+        deliverMainHost();
+    }
+    function deliverMainHost() {
+        if (mainHostPending === "" || lifetime.kind !== "ready" || cause !== "" || !child.running) return;
+        const chosen = mainHostPending;
+        mainHostPending = "";
+        send({ type: "intent", intent: "main-host", chosen: chosen });
     }
 
     // The local voice's release for a setup-local run, which its window asks
@@ -1106,7 +1137,7 @@ Item {
             console.warn("jarvis: home-setting " + reply);
             notice({ title: "Jarvis home not changed", message: "The Home folder setting could not be saved.",
                 tone: "danger", icon: "folder" });
-        }
+        } else mainHostChosen("home");
         return reply;
     }
 
@@ -1256,6 +1287,12 @@ Item {
                     if (!publishOwnerAsks(message)) return;
                     continue;
                 }
+                if (message.type === "main-reach") {
+                    const reach = StatusPublication.write(shell.status, "mainReach", message.reach);
+                    if (!shell.status.isOk(reach)) throw new Error("jarvis: " + reach);
+                    if (reach !== "ok") return;
+                    continue;
+                }
                 if (message.type === "transcript") {
                     // A caption from an ended conversation never replaces the current one.
                     if (sessionState !== null && message.gen === sessionState.gen) {
@@ -1299,6 +1336,7 @@ Item {
                 sendTuiState();
                 Qt.callLater(() => sendIndicator(indicatorPresented));
                 refreshShell();
+                deliverMainHost();
             }
         } catch (error) { broken(error.message); }
     }
@@ -1401,6 +1439,9 @@ Item {
             WAYLAND_DISPLAY: Quickshell.env("WAYLAND_DISPLAY"),
             DBUS_SESSION_BUS_ADDRESS: Quickshell.env("DBUS_SESSION_BUS_ADDRESS"),
             YDOTOOL_SOCKET: Quickshell.env("YDOTOOL_SOCKET"),
+            // The Jarvis package's forward signs its SSH call with the
+            // user's agent (Satellite.js hands it to that command alone).
+            SSH_AUTH_SOCK: Quickshell.env("SSH_AUTH_SOCK"),
             // A test run's marker and its trace path: under both, and only
             // then, the engine writes what the brain wrote (ChainedEngine.js).
             VGS_TEST_RUN: Quickshell.env("VGS_TEST_RUN"), VGS_JARVIS_TRACE: Quickshell.env("VGS_JARVIS_TRACE"),

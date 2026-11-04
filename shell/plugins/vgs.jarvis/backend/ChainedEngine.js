@@ -594,7 +594,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         // late holds at most one call: the router runs one action at a time.
         // relay is the held prompt the user's next words answer, or null;
         // retried is that prompt once it was asked again after unjudged words.
-        const c = { gen, plan: activePlan, entry: 0, recipients, net, retired: new Set(), speech: null, spoken: null, liveOpen: null, brain: null, guidance: null, owner: null, grants: [], heard: null, relay: null, retried: null, unmatched: null,
+        const c = { gen, plan: activePlan, entry: 0, recipients, net, retired: new Set(), speech: null, spoken: null, liveOpen: null, brain: null, guidance: null, owner: null, fleet: "", grants: [], heard: null, relay: null, retried: null, unmatched: null,
             decisions: new Set(), releasePending: null, late: new Map(), results: [], turn: null, last: null,
             feedback: null, collection: null, unbound: null, rev: 0, quiet: Promise.resolve(), live: null, stream: null };
         try {
@@ -1216,9 +1216,17 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             model: c.plan.brain.model, effort: c.plan.brain.effort, net: c.net, recipients: c.recipients, key: c.plan.brain.key,
             account: c.plan.brain.account, gen: c.gen, harness,
             modelFallback: c.entry + 1 === c.plan.entries.length, modelUsed });
-        c.brain.start({ instructions: c.guidance.instructions, tools: router.offer() });
+        const tools = router.offer();
+        c.fleet = fleetRoute(tools);
+        c.brain.start({ instructions: c.guidance.instructions, tools });
         c.owner = owner;
         return true;
+    }
+
+    // The fleet tools an offer holds, which Main Jarvis host and the
+    // satellite's reading choose between (ComputerHelp, Satellite.js).
+    function fleetRoute(tools) {
+        return tools.filter(tool => tool.id.startsWith("fleet.")).map(tool => tool.id).join(",");
     }
 
     async function requestRelease(c, identity, labels) {
@@ -1437,7 +1445,8 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     // arrives, whatever the brain then says; any other result is the
     // brain's to state. A wire brain's call arrives at outcome, a harness
     // program's at bridged. Answers false when saying it failed the turn.
-    const CALL_LINES = { "fleet.request": { completed: "Asking Jarvis's session." } };
+    const CALL_LINES = { "fleet.request": { completed: "Asking Jarvis's session." },
+        "fleet.forward": { completed: "Forwarding to your main Jarvis." } };
     function callLine(c, turn, tool, outcome) {
         const text = CALL_LINES[tool]?.[outcome];
         if (text === undefined) return true;
@@ -1614,6 +1623,14 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 fastTurn(c, e, done, call);
                 return;
             }
+            // A brain keeps the tools it started with, as every driver takes
+            // them at start: a turn after the fleet route changed opens a new
+            // brain, whose history starts again.
+            if (c.brain !== null && c.owner === e.owner && fleetRoute(router.offer()) !== c.fleet) {
+                c.brain.close();
+                c.brain = null;
+                c.owner = null;
+            }
             if (c.brain === null) {
                 // The home text is read at each conversation's first turn, so
                 // the user's last edit is the one a brain gets. A text that
@@ -1668,16 +1685,18 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             if (turn.phase === "fast" && turn.routing !== null) c.late.set(turn.routing.id, { call: turn.routing, op: turn.op, fast: turn.fast });
             // A queued or relay turn owns no adapter request. Its prior cancellation
             // still blocks the next turn and this cancellation's acknowledgement.
-            c.quiet = (turn.phase === "fast" || turn.phase === "queued" || turn.phase === "relay" || c.brain === null ? c.quiet : c.brain.cancel()).then(() => {
+            const cancelled = c.brain;
+            c.quiet = (turn.phase === "fast" || turn.phase === "queued" || turn.phase === "relay" || cancelled === null ? c.quiet : cancelled.cancel()).then(() => {
+                // A running call's real outcome follows on a later turn,
+                // whichever brain asks next: a fleet-route change may have
+                // replaced this one since.
+                const running = routing ? turn.calls.find(call => turn.routing === call) : undefined;
+                if (running !== undefined) c.late.set(running.id, { call: running, op: turn.op });
                 // Every call in history gets an answer, so the next request is
-                // valid. A running call's real outcome follows on a later turn.
-                if (routing && c.brain !== null) c.brain.record({ kind: "tool-results", results: turn.calls.map(call => {
+                // valid; a brain closed since keeps no history.
+                if (routing && cancelled !== null && c.brain === cancelled) cancelled.record({ kind: "tool-results", results: turn.calls.map(call => {
                     if (turn.answers.has(call.id)) return { id: call.id, ...turn.answers.get(call.id) };
-                    if (turn.routing === call) {
-                        c.late.set(call.id, { call, op: turn.op });
-                        return router.interrupted(call, "running");
-                    }
-                    return router.interrupted(call, "not-started");
+                    return router.interrupted(call, turn.routing === call ? "running" : "not-started");
                 }) });
                 done();
             });

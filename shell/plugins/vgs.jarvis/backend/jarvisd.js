@@ -49,6 +49,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     const Denied = require("./Denied.js");
     const Home = require("./Home.js");
     const OwnerAsks = require("./OwnerAsks.js");
+    const Satellite = require("./Satellite.js");
     const FleetSetup = require("./fleet-setup.js");
     const Guidance = require("./Guidance.js");
     const { load } = require(path.join(process.argv[3], "bin/lib/qml-library.js"));
@@ -73,6 +74,11 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     let memory = null;
     let ownerAsks = null;
     let ownerAsksClosed = Promise.resolve();
+    let satellite = null;
+    let satelliteClosed = Promise.resolve();
+    // The Main Jarvis host setting and the ready home the last reading was
+    // for: a hello that changes either reads the main again.
+    let satelliteKey = null;
     let memoryReconcileHome = null;
     let memoryReconcileQueued = false;
     let files = null;
@@ -165,6 +171,11 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     function judgeSetup() {
         homeFolder = judgeHome(context.settings.home);
         if (ownerAsks !== null) ownerAsks.setHome(homeFolder.state.kind === "ready" ? homeFolder.state.path : null);
+        const key = context.settings.mainHost + "\n" + (homeFolder.state.kind === "ready" ? homeFolder.state.path : "");
+        if (satellite !== null && key !== satelliteKey) {
+            satelliteKey = key;
+            satellite.refresh();
+        }
         rememberHome();
         publishHomes();
         publishPersonality();
@@ -194,6 +205,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     function teardown() {
         fleetController.abort();
         if (ownerAsks !== null) ownerAsksClosed = ownerAsks.close();
+        if (satellite !== null) satelliteClosed = satellite.close();
         if (voice !== null) voice.close();
         // The bridge ends its connections while the router can still drop their results.
         if (bridge !== null) bridge.close();
@@ -519,6 +531,15 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                     else ownerAsks.refresh();
                     continue;
                 }
+                // The user's choice of Main Jarvis host or of the Home
+                // folder, named by the setting chosen: the ready home takes
+                // the setting as the last hello carried it, which the
+                // service sent first.
+                if (message.type === "intent" && message.intent === "main-host") {
+                    intentIdentity(message);
+                    void satellite.choose(message.chosen);
+                    continue;
+                }
                 if (message.type === "intent" && message.intent === "task-open") {
                     intentIdentity(message);
                     void (context.locked ? Promise.resolve("session-locked") : tasks.open(message.task)).then(answer => {
@@ -702,8 +723,15 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                         if (record.commands.length > 0)
                             write({ v: 1, type: "input-ready", gen: runner.state.gen, revision: context.revision, commands: record.commands });
                     });
-                    browser = Browser.install({ router, environment: process.env,
+                    browser = Browser.install({ router, environment: process.env, main: () => context.settings.mainHost === "",
                         home: () => homeFolder.state.kind === "ready" ? homeFolder.state.path : null });
+                    satellite = Satellite.create({ environment: process.env,
+                        home: () => homeFolder.state.kind === "ready" ? homeFolder.state.path : null,
+                        mainHost: () => context.settings.mainHost, log: line => process.stderr.write(line + "\n"),
+                        publish: reach => {
+                            if (!ending) write({ v: 1, type: "main-reach", gen: runner.state.gen, revision: context.revision, reach });
+                        } });
+                    router.register("satellite", satellite.executor);
                     files = Files.install({ router, denied, clock });
                     memory = Memory.install({ router, directory: path.join(context.directories.state, "memory"),
                         home: () => homeFolder.state.kind === "ready" ? homeFolder.state.path : null,
@@ -815,7 +843,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         refuse(74, "jarvis: " + channel + "=" + error.code);
         // Node's standard output can retain a blocked write after destroy.
         // Audio exits first; a failed pipe cannot keep the daemon alive.
-        void Promise.all([released, fleetSetup, ownerAsksClosed]).then(() => process.exit(74));
+        void Promise.all([released, fleetSetup, ownerAsksClosed, satelliteClosed]).then(() => process.exit(74));
     }
     process.stdout.on("error", error => ioFailed("stdout", error));
     process.stdin.on("error", error => ioFailed("stdin", error));
@@ -824,7 +852,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         if (ending) return;
         ending = true;
         teardown();
-        void Promise.all([audio.close("lease"), fleetSetup, ownerAsksClosed]).then(() => process.exit(process.exitCode ?? 0));
+        void Promise.all([audio.close("lease"), fleetSetup, ownerAsksClosed, satelliteClosed]).then(() => process.exit(process.exitCode ?? 0));
     }
     process.once("SIGTERM", terminate);
     process.once("SIGINT", terminate);

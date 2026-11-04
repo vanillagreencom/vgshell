@@ -11,7 +11,7 @@ const { freshSuite } = require("./fixtures/jarvis/prepare.js");
 const file = path.join(__dirname, "../shell/plugins/vgs.jarvis/JarvisProtocol.js");
 const Protocol = load(file);
 const hello = { v: 1, type: "hello", gen: 0, settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "",
-    cloudVision: "ask", privateWindows: "bitwarden, incognito" }, directories: {
+    cloudVision: "ask", privateWindows: "bitwarden, incognito", mainHost: "" }, directories: {
     state: "/private/state", data: "/private/data", runtime: "/private/runtime"
 }, revision: "a".repeat(64), locked: false,
 keys: { talk: "SUPER+code:44", mute: "SUPER+SHIFT+code:44", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C", "voice-mute": "SUPER+ALT+code:44" } };
@@ -110,7 +110,22 @@ delete inputReady.causes;
 delete inputReady.cautions;
 const fallback = { v: 1, type: "model-fallback", gen: 0, revision: hello.revision, saved: "claude-opus-5.5", used: "claude-fable-5-1" };
 for (const used of ["", fallback.used]) assert.equal(JSON.stringify(Protocol.accept(changed(fallback, { used }), "daemon")), JSON.stringify({ ...fallback, used }));
+// The daemon's reading of the main Jarvis, each shape the Now line draws.
+const mainReach = { v: 1, type: "main-reach", gen: 0, revision: hello.revision, reach: { kind: "satellite", host: "cachy", reachable: null, cause: "" } };
+for (const reach of [{ kind: "main" }, mainReach.reach, { kind: "satellite", host: "cachy", reachable: false, cause: "main-unreachable" },
+    { kind: "satellite", host: "not a host", reachable: null, cause: "setting-invalid" },
+    ...["no-home", "package", "vgs-package", "home-link", "home-kind", "home-unreadable", "package-old", "package-unread"].map(cause => ({ kind: "unavailable", host: "cachy", cause }))])
+    assert.equal(JSON.stringify(Protocol.accept(changed(mainReach, { reach }), "daemon").reach), JSON.stringify(reach));
+// The choice's hand-off names the setting chosen; the daemon reads both settings itself.
+for (const chosen of ["mainHost", "home"])
+    assert.equal(Protocol.accept(JSON.stringify({ ...intent, intent: "main-host", chosen }), "shell").chosen, chosen);
 const cases = [
+    ["main-reach-direction", JSON.stringify(mainReach), "shell", "direction-main-reach"],
+    ["main-reach-kind", changed(mainReach, { reach: { kind: "other" } }), "daemon", "main-reach"],
+    ["main-reach-host", changed(mainReach, { reach: { ...mainReach.reach, host: "a\nb" } }), "daemon", "main-reach"],
+    ["main-reach-unavailable-host", changed(mainReach, { reach: { kind: "unavailable", cause: "package" } }), "daemon", "main-reach"],
+    ["main-reach-cause", changed(mainReach, { reach: { kind: "unavailable", host: "cachy", cause: "other" } }), "daemon", "main-reach"],
+    ["main-host-setting", changed(hello, { settings: { ...hello.settings, mainHost: 1 } }), "shell", "main-host-setting"],
     ["model-fallback-direction", JSON.stringify(fallback), "shell", "direction-model-fallback"],
     ...[{ saved: "" }, { used: null }, { saved: 1 }].map(fields =>
         ["model-fallback-shape", changed(fallback, fields), "daemon", "model-fallback"]),
@@ -268,6 +283,8 @@ const cases = [
     ["intent-shape", changed(intent, { extra: true }), "shell", "shape-intent"],
     ["voice-mute-shape", changed(intent, { intent: "voice-mute", muted: true }), "shell", "shape-intent"],
     ["intent-name", changed(intent, { intent: "approve" }), "shell", "intent"],
+    ["main-host-unnamed", changed(intent, { intent: "main-host" }), "shell", "shape-main-host-intent"],
+    ["main-host-other", changed(intent, { intent: "main-host", chosen: "voice" }), "shell", "main-host-intent"],
     ["preview-without-voice", changed(intent, { intent: "preview" }), "shell", "shape-preview"],
     ["preview-empty-voice", changed(intent, { intent: "preview", voice: "" }), "shell", "preview-voice"],
     ["say-shape", changed(say, { extra: true }), "shell", "shape-say"],
@@ -686,6 +703,8 @@ try {
             'if (false) fail("direction-intent");', "intent-direction"],
         ["intent-name", 'if (["talk-down", "talk-up", "mute", "voice-mute", "stop", "voice-check", "owner-asks-refresh"].indexOf(message.intent) === -1) fail("intent");',
             'if (false) fail("intent");', "intent-name"],
+        ["main-host-chosen", 'if (["mainHost", "home"].indexOf(message.chosen) === -1) fail("main-host-intent");',
+            'if (false) fail("main-host-intent");', "main-host-other"],
         ["preview-voice-required", '} else if (message.intent === "preview") {',
             '} else if (message.intent === "preview" && message.voice !== undefined) {', "preview-without-voice"],
         ["preview-voice-text", 'if (!printable(message.voice, 1, 128)) fail("preview-voice");', "", "preview-empty-voice"],
@@ -742,8 +761,8 @@ try {
         ["hello-direction", 'if (direction !== "shell") fail("direction-hello");', 'if (false) fail("direction-hello");', "hello-direction"],
         ["status-direction", 'if (direction !== "daemon") fail("direction-status");', 'if (false) fail("direction-status");', "status-direction"],
         ["shape", 'fail("shape-" + name);', ';', "hello-shape"],
-        ["settings-name", 'keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation"], "settings");',
-            'if (false) keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation"], "settings");', "extra-setting"],
+        ["settings-name", 'keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation", "mainHost"], "settings");',
+            'if (false) keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation", "mainHost"], "settings");', "extra-setting"],
         ["brain-type", 'typeof message.settings.brain !== "string"', 'false', "brain-setting"],
         ["model-type", 'typeof message.settings.model !== "string" || ', '', "model-type"],
         ["effort-type", ' || typeof message.settings.effort !== "string"', '', "effort-type"],
@@ -838,8 +857,8 @@ try {
         assert.equal(logic.memoryInboxEntries(Array(9).fill({ ...memoryEntry, text: "x".repeat(16 * 1024) })).length, 7));
     control("memory-inbox-filter-invalid", "if (!memoryEntryAccepted(entry)) continue;", "", logic =>
         assert.equal(logic.memoryInboxEntries([{ ...memoryEntry, problem: "other" }, memoryEntry]).length, 1));
-    control("unsupported-echo", 'keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation"], "settings");',
-        'if (false) keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation"], "settings");',
+    control("unsupported-echo", 'keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation", "mainHost"], "settings");',
+        'if (false) keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "fallbacks", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "voice", "clonedVoice", "home", "dictation", "mainHost"], "settings");',
         logic => {
             for (const row of cases.filter(row => row[0].startsWith("echo-setting-"))) rejected(logic, row);
         });
