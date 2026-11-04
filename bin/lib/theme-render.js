@@ -898,17 +898,20 @@ function tmuxColors(logic, input) {
     if (!readable(inactive) || !distinct(inactive)) {
         chosen = null;
         let distance = Infinity;
-        // RGB distance ignores chroma, and a grey on the text colour reads as
-        // text: a grey muted text takes a grey slot that also stands apart
-        // from the text while one exists, else the pick is as before. By RGB
-        // distance alone vgs's #aaaaab took the green #c7d98f.
+        // RGB distance ignores chroma, so a grey muted text can take a green
+        // slot, and a grey on or past the text colour reads as text: a grey
+        // muted text takes a grey slot that stands apart from the text and
+        // lies between the page and the text while one exists, else the
+        // pick is as before.
         const text = logic.parseColor("#" + hex6(input.values.palette.foreground, input.values.color.background));
+        const textContrast = logic.contrastRatio(text, background);
         const usable = name => {
             const candidate = logic.parseColor(input.slots[name]);
             return readable(candidate) && distinct(candidate);
         };
         const greySlot = name => usable(name) && oklch(hex6(input.slots[name], input.values.color.background)).c < GREY_CHROMA &&
-            separation(logic.parseColor(input.slots[name]), text) >= 55.65;
+            separation(logic.parseColor(input.slots[name]), text) >= 55.65 &&
+            logic.contrastRatio(logic.parseColor(input.slots[name]), background) < textContrast;
         const greyOnly = oklch(hex6(input.values.color.textMuted, input.values.color.background)).c < GREY_CHROMA &&
             logic.terminalSlotNames().some(greySlot);
         for (const [index, name] of logic.terminalSlotNames().entries()) {

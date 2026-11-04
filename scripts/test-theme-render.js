@@ -2982,17 +2982,18 @@ function tmuxStyle(text, option) {
 // The muted slots the grey qualification moved (VGS-2291), [before, after],
 // measured against origin/main's renderer over every shipped and catalog
 // package on 2026-11-04; no other package's tmux include changed. Each
-// muted text here is grey, and each after slot is grey and stands 55.65
-// channels or more from the text.
+// muted text here is grey, and each after slot is grey, stands 55.65
+// channels or more from the text and lies between the page and the text.
 const MUTED_MOVES = {
-    vgs: ["colour10", "colour15"], "arc-blueberry": ["colour7", "colour15"], ayu: ["colour7", "colour15"],
-    fireside: ["colour14", "colour2"], harbordark: ["colour7", "colour13"], oxford: ["colour14", "colour7"],
-    pmndrs: ["colour1", "colour7"], soho: ["colour15", "colour7"]
+    fireside: ["colour14", "colour2"], harbordark: ["colour7", "colour13"], soho: ["colour15", "colour7"]
 };
-// Grey muted texts whose every qualifying grey slot sits within 55.65
-// channels of the text, so the pick stays as before rather than drawing
-// muted text in the text colour.
-const MUTED_KEPT = { "rose-pine-moon": "colour5", kanagawa: "colour7", "horizon-light": "colour2" };
+// Grey muted texts with no grey slot that qualifies, so the pick stays as
+// before rather than drawing muted text on the text colour (rose-pine-moon,
+// kanagawa, horizon-light) or brighter than it (the rest).
+const MUTED_KEPT = {
+    "rose-pine-moon": "colour5", kanagawa: "colour7", "horizon-light": "colour2",
+    vgs: "colour10", "arc-blueberry": "colour7", ayu: "colour7", oxford: "colour14", pmndrs: "colour1"
+};
 function verifyAppStyles(render, changedTemplates = {}) {
     const targets = Object.fromEntries(["tmux", "neovim", "ghostty"].map(name => {
         const dir = path.join(repo, "themes", "targets", name);
@@ -4736,7 +4737,8 @@ const CONTROLS = [
     ["tmux readability", 'const readable = color => color.a === 1 && logic.contrastRatio(color, background) >= logic.READABILITY_FLOOR;', 'const readable = color => true;', verifyAppStyles],
     ["tmux distinction", 'const distinct = color => separation(color, active) >= 55.65;', 'const distinct = color => true;', verifyAppStyles],
     ["tmux grey muted slot", "if (!(greyOnly ? greySlot(name) : usable(name))) continue;", "if (!usable(name)) continue;", verifyAppStyles],
-    ["tmux grey muted slot off the text", "&&\n            separation(logic.parseColor(input.slots[name]), text) >= 55.65;", ";", verifyAppStyles],
+    ["tmux grey muted slot off the text", "separation(logic.parseColor(input.slots[name]), text) >= 55.65 &&\n", "\n", verifyAppStyles],
+    ["tmux grey muted slot dimmer than the text", " &&\n            logic.contrastRatio(logic.parseColor(input.slots[name]), background) < textContrast;", ";", verifyAppStyles],
     ["tmux authored roles", "for (const role of input.tmuxAuthored) {", "for (const role of []) {", render => verifyTmuxPalette(tmuxPaletteTemplate, render)],
     ["hex6 encoder", "hex6: (hex, background) => hex6(hex, background)", "hex6: hex => hex.slice(1, 7)"],
     ["hex8 encoder", "hex8: hex => hex.slice(1, 9)", "hex8: hex => hex.slice(1, 7)"],
