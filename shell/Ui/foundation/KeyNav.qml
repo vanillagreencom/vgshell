@@ -132,7 +132,8 @@ Item {
         // A ScrollArea fades its content at an edge with content beyond, so
         // reveal clear of that band, as the notification panel's revealRow does.
         const margin = flickable.fadeExtent === undefined ? 0 : flickable.fadeExtent;
-        const y = Logic.revealY(item.y, item.height, flickable.contentY, flickable.height, margin);
+        const at = item.mapToItem(flickable.contentItem, 0, 0);
+        const y = Logic.revealY(at.y, item.height, flickable.contentY, flickable.height, margin);
         flickable.contentY = Math.max(0, Math.min(flickable.contentHeight - flickable.height, y));
     }
 
