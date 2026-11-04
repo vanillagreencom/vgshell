@@ -1,12 +1,12 @@
 # Login screen
 
-`vgs.greeter` logs you in on a screen that uses your VGS theme and background. It is for a computer that starts VGS at boot.
+Login screen logs you in with your VGS theme and background. It is for a computer that starts VGS at boot.
 
 ![The login screen: the time, the account, the password field and the session picker](../../../docs/images/plugins/vgs.greeter-screen.webp)
 
 ## Features
 
-- Shows the time, your accounts and a password field on every screen, in your theme over your background.
+- Shows the time on every screen, in your theme over your background. The active screen shows your accounts and a password field.
 - Lists every installed session: Hyprland, Hyprland (uwsm-managed), GNOME, Plasma and any other Wayland or X11 session.
 - Chooses Hyprland (uwsm-managed) on the first login, then remembers your last account and each account's last session.
 - Unlocks your login keyring with your password, so apps that use the keyring start signed in.

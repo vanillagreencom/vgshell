@@ -18,4 +18,4 @@ Fonts sets the font of the shell and the font of your terminals. It is for anyon
 | Interface | The font of the shell's text. Code, key names, the launcher and notifications keep their own fonts. |
 | Terminal | The font of Kitty and Ghostty. Without a font here, each terminal keeps the font from its own config. |
 
-VGS writes the terminal font into the theme files each terminal reads as soon as you choose it. Kitty changes at once. In Ghostty, open a new window if the font does not change. A font your own Kitty config sets after the VGS line stays in effect.
+Apply a theme in Themes to use the terminal font. After that, choosing a font updates the terminals' theme files. Kitty changes at once. In Ghostty, open a new window if the font does not change. A font your own Kitty config sets after the VGS line stays in effect.

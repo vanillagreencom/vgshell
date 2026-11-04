@@ -8,7 +8,7 @@ VGS Components previews the controls and states of the current theme. It is for 
 
 - One section per group of components: surfaces, typography, buttons, choices, inputs, groups, feedback, dialogs, cards, the carousel, titles and scrolling, and lists.
 - Every example follows the applied theme, so applying another theme restyles the whole window at once.
-- Send a notification sends a real system notification, which Notifications draws. VGS has no toast of its own.
+- Send a notification shows a system notification in the current theme.
 - Escape or your close key closes the window.
 
 ## Setup

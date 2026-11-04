@@ -17,7 +17,9 @@ Automations runs your commands on a schedule. It keeps each run's output and sen
 
 ## Setup
 
-Automations ships with VGS and is on by default. Scheduled runs stop when you log out, except where your crontab runs them because no systemd user manager answers. To keep them running, use Enable while logged out on the plugin's Setup tab or Run automations while logged out in the launcher. Either opens a floating terminal that asks, then turns it on.
+Automations ships with VGS and is on by default. With the system scheduler, scheduled runs stop when you log out unless you enable them while logged out. Runs scheduled through cron continue after logout.
+
+To enable runs while logged out, select Enable while logged out on the plugin's Setup tab or Run automations while logged out in the launcher. Either opens a floating terminal that asks, then turns it on.
 
 <details><summary>Show command</summary>
 

@@ -14,18 +14,17 @@ Agent Debug tells you when a program crashes or a VGS setup task fails, and offe
 
 ## How it works
 
-Agent Debug notifies you only after you choose an agent on its Settings tab. It reads the crash records systemd-coredump writes to the system journal for your own programs, and the failed setup tasks VGS keeps.
+Agent Debug notifies you only after you choose an agent on its Settings tab. It checks your programs' crash records and failed VGS tool installs and updates.
 
-The agent gets only facts: the program or task, the time, the signal and where the record of the failure is. It never gets the content of a log. The agent also gets the `vgs-diagnose` skill, which tells it to read the records on this computer, change nothing, and keep what it proved apart from what it thinks. VGS copies the skill into the agent's own skills folder when you press Diagnose, and never writes over a skill file it did not write.
+Diagnose gives the agent the facts of the failure and asks it to read the records on this computer. It asks for an explanation without changes, with proved facts kept apart from possible causes.
 
 At the end of a crash diagnosis the agent asks whether to mute that program, and mutes it only when you say yes.
 
 ## Setup
 
-Choose an agent on the Settings tab. The select lists the agents installed on this computer. The Setup tab offers to install an agent or the system journal tool when one is missing.
+Choose an agent on the Settings tab. The list shows the agents installed on this computer. The Tools step on the Setup tab offers to install missing tools.
 
 | Setting | What it changes |
 | --- | --- |
-| Enabled | Turns Agent Debug on or off. It is on by default. |
 | Agent | The agent Diagnose opens. Until you choose one, Agent Debug shows no notification. |
 | Muted programs | The programs whose crashes do not notify you. Unmute asks before it removes a program from the list. |

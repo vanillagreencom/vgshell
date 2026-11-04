@@ -10,7 +10,7 @@ VGS keeps Google Drive folders on this computer and in Google Drive. It runs eve
 - Sync every hour while you are logged in, and at once with Sync now.
 - Google Docs, Sheets, Slides and Drawings arrive as Word, Excel, PowerPoint and SVG files.
 - Nothing is deleted. A file removed on one side comes back from the other side.
-- When both sides changed, the older copy is kept. When Google Drive was newer, VGS keeps the older local copy in its records for 30 days. When this computer was newer, Google Drive keeps the older Drive copy in the file version history for 30 days.
+- When both sides changed, VGS keeps the older local copy for 30 days if Google Drive was newer. If this computer was newer, the older Drive copy enters Google Drive's version history. Google may remove it after 30 days or 100 newer versions. To retain it, select Keep forever in [Manage versions](https://support.google.com/drive/answer/2409045).
 - Editor temporary files, unfinished downloads, Git folders, keys and credential files are never copied.
 - A bar icon and its flyout show the sync state and the files that need you, with the fix one click away where VGS can run it.
 - A notification when Google Drive needs you: a sign-in, a failed sync or a file that needs you.
@@ -30,7 +30,7 @@ The Settings tab lists your folder pairs. Remove beside a pair stops its sync af
 
 ## Get your Google Drive keys
 
-Google Drive needs a Client ID and a Client secret from your own Google account. They are free, and the six steps take about 5 minutes. Use the Google account whose Drive you sync in every step.
+Google Drive needs a Client ID and a Client secret from your own Google account. Use the Google account whose Drive you sync in every step.
 
 1. **[Make a project](https://console.cloud.google.com/projectcreate).** Name it VGS and select Create.
 2. **[Turn on the Google Drive API](https://console.cloud.google.com/flows/enableapi?apiid=drive.googleapis.com).** Choose the VGS project if Google asks for one, then select Enable.

@@ -6,7 +6,7 @@ AI Usage shows how much of your Claude Code, Codex and Copilot plan limits you h
 
 ## Features
 
-- One number in the bar for your accounts, in the warning colour from 80 % used.
+- One number in the bar for your accounts, with optional warning colour from 80 % used.
 - A card for every Claude Code, Codex and Copilot account on this computer, with each limit and the time left until it resets.
 - Credits the providers report: Claude Code extra usage, the Codex credit balance and Copilot AI credits.
 - A compact view with one line per limit, and a full view with meters and provider details.
@@ -34,6 +34,7 @@ codex login
 | View | Compact or Full. |
 | Bar number | How the bar figures one number from your accounts: Average, Most left or Most used. |
 | Bar shows | The share used or the share left. |
+| Colour by usage | Uses the warning colour from 80 % used. |
 | Providers | Show or hide Claude Code, Codex and Copilot. |
 | Hidden accounts | Accounts left out of the panel and the bar number. |
 
