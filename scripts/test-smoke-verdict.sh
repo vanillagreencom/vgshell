@@ -286,13 +286,21 @@ done
 # row's window; a cut leaves that row open with a partial record and runs
 # no later row. The window `-` plants a call from a process in the
 # attempt's process groups as the teardown's TERM ends it, which only the
-# closing reading, taken after the groups end, reads.
+# closing reading, taken after the groups end, reads. `killed` ends the
+# attempt with no teardown, as a SIGKILL of its world leaves it; every
+# other attempt ends by the teardown and must leave the closing reading.
 # scripts/smoke/row-inputs.sh's smoke_attempt_judged judges the readings.
-run_judged() { # HARNESS TEARDOWN ROW
-  local harness="$1" teardown="$2" label defect window cut want dir out status=0
-  IFS='|' read -r label defect window cut want <<<"$3"
+# The files run are judge_harness, judge_teardown and judge_inputs, the
+# shipped ones unless a control names a copy.
+judge_harness="$repo/scripts/smoke/harness.sh"
+judge_teardown="$repo/scripts/smoke/teardown.sh"
+judge_inputs="$repo/scripts/smoke/row-inputs.sh"
+run_judged() { # ROW
+  local label defect window cut want end dir out status=0 closed=no want_closed=yes
+  IFS='|' read -r label defect window cut want end <<<"$1"
+  [[ $end != killed ]] || want_closed=no
   dir="$(mktemp -d "$tmp/judged.XXXXXX")" || return 1
-  python3 - "$dir/judges.sh" "$harness" "$teardown" "$repo/scripts/qml-smoke.sh" <<'PYEXTRACT' || return 1
+  python3 - "$dir/judges.sh" "$judge_harness" "$judge_teardown" "$repo/scripts/qml-smoke.sh" <<'PYEXTRACT' || return 1
 import pathlib,sys
 out,harness,teardown,smoke=map(pathlib.Path,sys.argv[1:])
 def body(text,name):
@@ -311,9 +319,9 @@ parts.append(body(smoke.read_text(),'qml_smoke_judge_reading'))
 parts.append(body(teardown.read_text(),'cleanup'))
 out.write_text('\n'.join(parts)+'\n')
 PYEXTRACT
-  out="$(env -i PATH="$PATH" "$BASH" -c '
+  local script='
 set -euo pipefail
-checkout="$1" sandbox="$2" defect="$3" window="$4" cut="$5"
+sandbox="$1" defect="$2" window="$3" cut="$4" end="$5"
 shim="$sandbox/shim" repo="$sandbox/repo" source_repo="$sandbox/shipped"
 auth_log="$sandbox/auth-sentinel.calls" tui_refused="$sandbox/tui-refused.calls" sentinels_stood="$sandbox/sentinels.stood"
 tui_terminal="$shim/xdg-terminal-exec" tui_terminal_written="$sandbox/xdg-terminal-exec.harness"
@@ -372,19 +380,22 @@ for row in w x tui-guard auth-sentinel; do
   qml_smoke_judge_reading "$row" end
   printf "0\0" >"$a/results/$row"
 done
-cleanup
-source "$checkout/scripts/smoke/row-inputs.sh"
-if smoke_attempt_judged "$a"; then echo proved; else echo unproved; fi
-' _ "$repo" "$dir" "$defect" "$window" "$cut")" || status=$?
-  [[ $status == 0 && $out == "$want" ]] && return 0
-  printf '        %s: status=%s got=%s want=%s readings:\n' "$label" "$status" "$out" "$want"
+[[ $end == killed ]] || cleanup
+'
+  env -i PATH="$PATH" "$BASH" -c "$script" _ "$dir" "$defect" "$window" "$cut" "$end" || status=$?
+  if grep -q '^- close ' "$dir/attempt/judge-readings" 2>/dev/null; then closed=yes; fi
+  out="$(set -euo pipefail; source "$judge_inputs"; if smoke_attempt_judged "$dir/attempt"; then echo proved; else echo unproved; fi)" || out=judge-failed
+  [[ $status == 0 && $out == "$want" && $closed == "$want_closed" ]] && return 0
+  printf '        %s: status=%s got=%s want=%s close=%s want=%s readings:\n' "$label" "$status" "$out" "$want" "$closed" "$want_closed"
   sed 's/^/          /' "$dir/attempt/judge-readings" 2>/dev/null || true
   return 1
 }
 # Rows: label | the defect | the row in whose window it lands, `-` for a
 # call a process makes as the teardown ends it | empty when every row
 # ends, else the failure count of that row's partial record, the attempt
-# cut in that row | proved or unproved.
+# cut in that row | proved or unproved | killed when no teardown ends the
+# attempt, else empty.
+judged_killed="an attempt whose world was killed before its teardown has no closing reading and proves nothing|none|x||unproved|killed"
 judged=(
   "readings that show nothing prove the attempt|none|x||proved"
   "an authentication call in a row's window voids the attempt|call|x||unproved"
@@ -405,9 +416,10 @@ judged=(
   "a judge row left open with a failure voids the attempt|none|tui-guard|1|unproved"
   "a call in auth-sentinel's window, cut before its end reading, voids the attempt|call|auth-sentinel|0|unproved"
   "a refusal in tui-guard's window, cut before its end reading, voids the attempt|unshipped|tui-guard|0|unproved"
+  "$judged_killed"
 )
 for row in "${judged[@]}"; do
-  if run_judged "$repo/scripts/smoke/harness.sh" "$repo/scripts/smoke/teardown.sh" "$row"; then ok "${row%%|*}"; else fail "${row%%|*}"; fi
+  if run_judged "$row"; then ok "${row%%|*}"; else fail "${row%%|*}"; fi
 done
 
 # mutate OLD NEW OUT [FILE]: a copy of FILE, the verdict by default, with
@@ -426,26 +438,34 @@ mutate() {
   return 0
 }
 
-# The judges' readings' control: a harness whose reading pins the calls to
-# 0 must leave the call case green no longer.
-mutant="$tmp/mutant-harness.sh"
-if ! mutate "printf '%s %s %s\\n' \"\$((calls))\" \"\$refused\" \"\$state\"" "printf '%s %s %s\\n' 0 \"\$refused\" \"\$state\"" "$mutant" "$repo/scripts/smoke/harness.sh"; then
-  fail "control: a reading that pins the calls to 0"
-elif run_judged "$mutant" "$repo/scripts/smoke/teardown.sh" "${judged[1]}" >/dev/null; then
-  fail "control: a reading that pins the calls to 0 left '${judged[1]%%|*}' green"
-else
-  ok "control: a reading that pins the calls to 0"
-fi
-# The closing reading's control: a teardown that takes no closing reading
-# must leave the teardown call case green no longer.
-mutant="$tmp/mutant-teardown.sh"
-if ! mutate "if declare -F qml_smoke_judge_reading >/dev/null; then qml_smoke_judge_reading - close; fi" ":" "$mutant" "$repo/scripts/smoke/teardown.sh"; then
-  fail "control: a teardown that takes no closing reading"
-elif run_judged "$repo/scripts/smoke/harness.sh" "$mutant" "${judged[15]}" >/dev/null; then
-  fail "control: a teardown that takes no closing reading left '${judged[15]%%|*}' green"
-else
-  ok "control: a teardown that takes no closing reading"
-fi
+# The judges' controls, each a copy of one file run in its place, the
+# file's judge_ variable naming it: label | variable | text | replacement
+# | the row that must go red | what its diagnostic must show, empty for
+# any. A field holds no `|`.
+judged_controls=(
+  "a reading that pins the calls to 0|judge_harness|printf '%s %s %s\\n' \"\$((calls))\" \"\$refused\" \"\$state\"|printf '%s %s %s\\n' 0 \"\$refused\" \"\$state\"|${judged[1]}|"
+  "a teardown that takes no closing reading|judge_teardown|if declare -F qml_smoke_judge_reading >/dev/null; then qml_smoke_judge_reading - close; fi|:|${judged[15]}|"
+  "a judgement that does not require the closing reading|judge_inputs|  [[ \$closed == true ]]|  :|$judged_killed|got=proved want=unproved"
+)
+for control in "${judged_controls[@]}"; do
+  IFS='|' read -r label variable old new row_label row_defect row_window row_cut row_want row_end want_shown <<<"$control"
+  row="$row_label|$row_defect|$row_window|$row_cut|$row_want|$row_end"
+  case "$variable" in
+    judge_harness) original="$judge_harness" ;;
+    judge_teardown) original="$judge_teardown" ;;
+    judge_inputs) original="$judge_inputs" ;;
+    *) fail "control: $label names no file: $variable"; continue ;;
+  esac
+  mutant="$tmp/mutant-$variable.sh"
+  if ! mutate "$old" "$new" "$mutant" "$original"; then fail "control: $label"; continue; fi
+  if shown="$(printf -v "$variable" '%s' "$mutant"; run_judged "$row")"; then
+    fail "control: $label left '$row_label' green"
+  elif [[ $shown != *"$want_shown"* ]]; then
+    fail "control: $label turned '$row_label' red without $want_shown"; printf '%s\n' "$shown"
+  else
+    ok "control: $label"
+  fi
+done
 
 # Rows: label | text | replacement | the case label that must go red. A
 # field holds no `|`, the separator.

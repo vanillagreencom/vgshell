@@ -4,11 +4,11 @@
 #
 # Ignore repeat stop signals while closing producers and the recorder.
 # SIGKILL is handled by the world's PID namespace and after-namespace copy.
-# A stop that TERMs the world's bubblewrap monitor too, as a systemd unit's
-# stop TERMs every process of the unit, ends the namespace before this
-# cleanup finishes (gpu-fence.sh's --die-with-parent): a probe of a world
-# command's EXIT trap under `systemctl --user stop` on 2026-11-02 found it
-# cut off, and finished when the command alone got the TERM.
+# A stop that TERMs every process of the world, as a systemd unit's stop
+# does, reaches this cleanup and every process it ends at once. The world's
+# bubblewrap monitor ignores it (gpu-fence.sh), so the namespace outlives
+# this cleanup, and the cleanup outlives a dead reader of its output, so it
+# still takes its closing reading.
 set -euo pipefail
 if ! "${source_repo:-${repo:-${BASH_SOURCE[0]%/scripts/smoke/teardown.sh}}}/scripts/smoke/gpu-fence.sh" --check; then
   printf 'qml-smoke: status=not-measured missing=gpu-fence\n'
@@ -18,6 +18,14 @@ fi
 cleanup() {
   local original_status=$?
   trap '' TERM INT HUP
+  # A stop that signals every process of the world, as a unit's stop does,
+  # also ends what this output runs through: a row's output filter
+  # (harness.sh's smoke_row) and the driver's log reader (qml-smoke.sh). A
+  # line written to them is lost, and neither its SIGPIPE nor its failed
+  # write may end this cleanup before its closing reading. Every step below
+  # handles its own failure.
+  trap '' PIPE
+  set +e
   local pg
   if [[ -n ${display_record_pid:-} ]]; then
     if ! display_record_close "$original_status" cleanup; then

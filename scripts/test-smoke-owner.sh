@@ -144,7 +144,7 @@ fi
 
 # Commands used by the real world and the stand-in harness.
 mkdir -p "$TMP_ROOT/bin"
-for tool in bash bwrap chmod git mkdir mktemp readlink realpath rm sed seq setsid sh sleep stat true; do
+for tool in bash bwrap chmod env git mkdir mktemp readlink realpath rm sed seq setsid sh sleep stat true; do
   tool_path="$(type -P "$tool")" || { echo "test-smoke-owner: missing=$tool" >&2; exit 1; }
   ln -s -- "$tool_path" "$TMP_ROOT/bin/$tool"
 done

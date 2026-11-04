@@ -63,18 +63,19 @@ smoke_inputs_rows() { # ROW
 # harness.sh's smoke_judge_reading gives at each row's start and end, then
 # `- close ...` as teardown.sh ends the attempt, read every sentinel and
 # the stand-in terminal intact, and no authentication call or refusal of a
-# script no shipped plugin holds from the sandbox's start to the last
-# reading, the close where there is one, but the judge's own field
-# (smoke_judges), whose controls plant it, from a judge row's start
-# reading to its own end reading. The close excuses no field: a judge cut
-# before its end reading may have counted nothing of what changed in its
-# window, so any change the close reads voids the attempt. A call a row's
-# background process makes after the row ended lands in a later window, so
-# a call anywhere voids every pass of the attempt rather than one row's.
-# An attempt whose world was killed before its teardown, as a unit's stop
-# kills it, has no close, and what its processes did after its last
-# reading is not seen. Sets smoke_attempt_ended[ROW] for each row the
-# readings saw end.
+# script no shipped plugin holds from the sandbox's start to the close but
+# the judge's own field (smoke_judges), whose controls plant it, from a
+# judge row's start reading to its own end reading. The close excuses no
+# field: a judge cut before its end reading may have counted nothing of
+# what changed in its window, so any change the close reads voids the
+# attempt. A call a row's background process makes after the row ended
+# lands in a later window, so a call anywhere voids every pass of the
+# attempt rather than one row's.
+# The close is required: without it what the attempt's processes did after
+# its last reading is not seen. A stop that TERMs every process of the
+# world, as a unit's stop does, still lets the teardown take it
+# (gpu-fence.sh, teardown.sh); a world killed before its teardown leaves
+# none. Sets smoke_attempt_ended[ROW] for each row the readings saw end.
 smoke_attempt_judged() { # ATTEMPT
   local attempt="$1" row edge calls refused state judge record own open="" previous="" closed=false
   local -a fields
@@ -107,6 +108,7 @@ smoke_attempt_judged() { # ATTEMPT
       *) return 1 ;;
     esac
   done <"$attempt/judge-readings" || return 1
+  [[ $closed == true ]]
 }
 
 # smoke_record_verdict FILE: read one of a row's records, its

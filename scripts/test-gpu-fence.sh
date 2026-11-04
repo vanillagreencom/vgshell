@@ -19,7 +19,10 @@
 # while the command waits on a foreground command that exits 0, which bash
 # carries on from, then TERM, which must end the run. The terminal case
 # runs the fence from a real terminal, where a command that changes the
-# terminal's mode or reads it must not stop. A SIGKILL of the fence must end every
+# terminal's mode or reads it must not stop. The held cases stop the fence
+# while its run waits before the command starts, in bubblewrap's setup or
+# in the proof, with the stops ignored: no process of the world may
+# outlive the fence. A SIGKILL of the fence must end every
 # process its command started, one in another session and one stopped
 # included. The cases that can leave a process run in a PID namespace of
 # their own that util-linux unshare makes, whose end ends what a defect
@@ -96,6 +99,29 @@ if real_bwrap="$(type -P bwrap)" && "$real_bwrap" --dev-bind / / --unshare-pid -
   namespace=true
   ln -s -- "$real_bwrap" "$TMP_ROOT/bin-real/bwrap"
 fi
+# The held cases' trees: bin-real but for one stand-in that holds the run
+# before CMD starts, on the fifo `hold`, which nothing writes. In
+# bin-setup bubblewrap's run, the one that writes --info-fd 3, blocks its
+# namespace's init in bubblewrap's own setup (--block-fd, read before its
+# setsid and its fork of CMD). In bin-proof the run's proof env, the one
+# that gives the stops back (the probe's ends in `true`), marks that it
+# waits, then waits with them ignored.
+mkfifo -- "$TMP_ROOT/hold"
+real_env="$(type -P env)"
+for bin in setup proof; do
+  mkdir -- "$TMP_ROOT/bin-$bin"
+  for tool in "$TMP_ROOT"/bin-real/*; do ln -s -- "$(readlink -- "$tool")" "$TMP_ROOT/bin-$bin/${tool##*/}"; done
+done
+if [[ $namespace == true ]]; then
+  rm -- "$TMP_ROOT/bin-setup/bwrap"
+  printf '#!/bin/sh\ncase " $* " in *" --info-fd 3 "*) exec 8<>%q; exec %q --block-fd 8 "$@" ;; esac\nexec %q "$@"\n' \
+    "$TMP_ROOT/hold" "$real_bwrap" "$real_bwrap" >"$TMP_ROOT/bin-setup/bwrap"
+  chmod +x "$TMP_ROOT/bin-setup/bwrap"
+fi
+rm -- "$TMP_ROOT/bin-proof/env"
+printf '#!/bin/sh\nfor last; do :; done\nif [ "$1" = --default-signal=TERM,INT,HUP ] && [ "$last" != true ]; then : >%q; exec 8<>%q; read -r line <&8; fi\nexec %q "$@"\n' \
+  "$TMP_ROOT/proof-waits" "$TMP_ROOT/hold" "$real_env" >"$TMP_ROOT/bin-proof/env"
+chmod +x "$TMP_ROOT/bin-proof/env"
 own_pidns="$(readlink /proc/self/ns/pid)" || { echo "test-gpu-fence: pidns=unreadable" >&2; exit 1; }
 
 # The paths of the device tree, by what the namespace must do with each.
@@ -468,6 +494,70 @@ int_then_term() {
   [[ $status -eq 143 && "$(<"$log")" == "started"$'\n'"carried-on" ]]
 # The shell reports on stderr a job a signal ended; the status says it.
 } 2>/dev/null
+# world_left NS: the processes still in PID namespace NS, one per line.
+world_left() {
+  python3 -c 'import os, sys
+for pid in filter(str.isdigit, os.listdir("/proc")):
+    try:
+        if os.readlink(f"/proc/{pid}/ns/pid") == sys.argv[1]:
+            print(pid)
+    except OSError:
+        pass' "$1"
+}
+# held_stop FILE HOLD: the fence's run waits before CMD starts, in
+# bubblewrap's setup (`setup`) or in the proof's env (`proof`), with the
+# stops ignored, and the fence gets TERM, as qml_smoke_cancel and validate's
+# stop_rows send it. The fence must return 143 within 10 s, CMD must never
+# run, and no process of the world's PID namespace may outlive the fence.
+# A process left behind is ended here by its namespace's init.
+held_stop() {
+  local file="$1" hold="$2" fenced monitor="" init="" ns="" i left=""
+  roots amd
+  rm -f -- "$TMP_ROOT/cmd-ran" "$TMP_ROOT/proof-waits"
+  status=0
+  set -m
+  (cd -- "$TMP_ROOT/cwd" && exec env -i PATH="$TMP_ROOT/bin-$hold" HOME="${TMP_ROOT}-home" "$BASH" "$file" "${at[@]}" sh -c ': >"$1"; sleep 30' sh "$TMP_ROOT/cmd-ran") \
+    >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" &
+  set +m
+  fenced=$!
+  # A bound on the wait for the reported state, not a reading. The run's
+  # monitor is the fence's child whose bubblewrap writes --info-fd; the
+  # probe's comes first.
+  for ((i = 0; i < 200; i++)); do
+    monitor="" init="" ns=""
+    read -r monitor _ 2>/dev/null <"/proc/$fenced/task/$fenced/children" || true
+    if [[ -n $monitor ]] && tr '\0' ' ' <"/proc/$monitor/cmdline" 2>/dev/null | grep -q -- ' --info-fd 3 '; then
+      read -r init _ 2>/dev/null <"/proc/$monitor/task/$monitor/children" || true
+      [[ -z $init ]] || ns="$(readlink -- "/proc/$init/ns/pid" 2>/dev/null)" || ns=""
+    fi
+    if [[ -n $ns && $ns != "$own_pidns" && ( $hold == setup || -e $TMP_ROOT/proof-waits ) ]]; then break; fi
+    ns=""
+    sleep 0.05
+  done
+  [[ -n $ns ]] || { kill -KILL -- "-$fenced" 2>/dev/null; wait "$fenced"; return 1; }
+  kill -s TERM -- "$fenced"
+  for ((i = 0; i < 200; i++)); do
+    kill -0 -- "$fenced" 2>/dev/null || break
+    sleep 0.05
+  done
+  if kill -0 -- "$fenced" 2>/dev/null; then
+    status=fence-running
+  else
+    wait "$fenced" || status=$?
+    # A real wait: the kernel ends a namespace within milliseconds.
+    for ((i = 0; i < 40; i++)); do
+      left="$(world_left "$ns")" || left=unreadable
+      [[ -n $left ]] || break
+      sleep 0.05
+    done
+  fi
+  if [[ $status == fence-running || -n $left ]]; then
+    kill -KILL -- "$init" "-$fenced" 2>/dev/null || true
+    wait "$fenced" 2>/dev/null || true
+  fi
+  [[ $status == 143 && -z $left && ! -e $TMP_ROOT/cmd-ran ]] || { printf '        status=%s left=[%s] cmd-ran=%s\n' "$status" "${left//$'\n'/ }" "$([[ -e $TMP_ROOT/cmd-ran ]] && echo yes || echo no)"; return 1; }
+# The shell reports on stderr a job a signal ended; the status says it.
+} 2>/dev/null
 # on_terminal FILE: the fence runs tty.sh from a real terminal, and a line
 # is typed into it. In a background group of the terminal's own session the
 # command would stop on its mode change or its read.
@@ -753,6 +843,8 @@ cases=(
   "TERM to the fence's process group reaches the command once|yes|stops_once group TERM 43"
   "two TERMs at once to the fence reach the command once|yes|stops_once twice TERM 43"
   "a TERM after an INT the command carried on from ends the run|yes|int_then_term"
+  "a TERM while bubblewrap sets up the world ends every process of it before the fence returns|yes|held_stop setup"
+  "a TERM while the proof still ignores the stops ends the world before the command runs|yes|held_stop proof"
   "a command run from a terminal changes its mode and reads it|yes|on_terminal"
   "a host with no bubblewrap starts nothing|no|no_bwrap"
   "a namespace bubblewrap cannot make starts nothing|no|no_namespace"
@@ -880,6 +972,18 @@ controls=(
   'trap '"'"'forward TERM 143'"'"' TERM'
   :
   'TERM to the fence reaches the command once and its exit trap ends before the fence returns'
+  'the command keeps the signals bubblewrap'"'"'s monitor ignores'
+  'proof=(-- env --default-signal=TERM,INT,HUP "$BASH"'
+  'proof=(-- "$BASH"'
+  'TERM to the fence reaches the command once and its exit trap ends before the fence returns'
+  'a stop before the command starts KILLs the monitor alone'
+  'end_world "$monitor"'
+  'kill -s KILL -- "$monitor"'
+  'a TERM while bubblewrap sets up the world ends every process of it before the fence returns'
+  'a stop goes to the namespace'"'"'s first child whether or not it has the stops back'
+  'if [[ -e $fence_dir/stops-restored ]]; then'
+  'if true; then'
+  'a TERM while the proof still ignores the stops ends the world before the command runs'
   'INT is not handed on'
   'trap '"'"'forward INT 130'"'"' INT'
   :
@@ -912,11 +1016,6 @@ forward() {
   'while ours "$monitor"; do'
   'for _ in 1 2; do'
   'TERM to the fence reaches the command once and its exit trap ends before the fence returns'
-  'bubblewrap runs in the caller'"'"'s process group'
-  '    set -m
-    "${fence[@]}"'
-  '    "${fence[@]}"'
-  'TERM to the fence'"'"'s process group reaches the command once'
   'the command stays in the caller'"'"'s terminal session'
   '--die-with-parent --new-session'
   --die-with-parent

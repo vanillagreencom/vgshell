@@ -45,8 +45,12 @@
 # inside a test world. Other entry points reuse the world they already have.
 #
 # The fence remains bubblewrap's parent. TERM, INT and HUP each go to CMD
-# once. The PID namespace and --die-with-parent end every descendant after
-# CMD ends, including children in other sessions and stopped children.
+# once; bubblewrap's monitor ignores them, so a stop that signals every
+# process, as a systemd unit's stop does, ends CMD by its own exit handling
+# before the namespace ends. A stop that comes before the proof has given
+# them back to CMD ends the world at once. The PID namespace and
+# --die-with-parent end every descendant after CMD ends, including children
+# in other sessions and stopped children.
 # Its /proc exposes no outside process or descriptor.
 #
 # Before CMD starts inside the namespace, the proof stats every path, with
@@ -448,6 +452,9 @@ inside() {
   (($#)) || { note "refused: argument=--inside"; exit 2; }
   for line in "${proof[@]}"; do note "$line"; done
   [[ $broken == false ]] || exit 77
+  # The proof's env has given back the stops bubblewrap's monitor ignores;
+  # from here a stop forward hands this process ends it or reaches CMD.
+  : >"$VGSHELL_WORLD_ROOT/stops-restored"
   exec "$@"
 }
 
@@ -463,8 +470,12 @@ ours() {
 # child of the namespace's init, which is the monitor's one child, and drop
 # a repeat of that kind, so CMD's exit handling gets each kind once. A
 # signal can run this again inside a run of it, so the count is read and
-# raised in one command. Before the monitor starts nothing has, and the fence exits with
-# STATUS. Before CMD has started, the monitor's group holds what has.
+# raised in one command. Before the monitor starts nothing has, and the
+# fence exits with STATUS. Until the proof has given the stops back
+# (stops-restored in the root), every process the monitor has started
+# ignores SIGNAL and no part of CMD needs its exit, so the fence ends the
+# world (end_world) and exits with STATUS.
+stop_status=""
 declare -A forwarded=()
 forward() {
   ((forwarded[$1]++ == 0)) || return 0
@@ -472,13 +483,49 @@ forward() {
   # The EXIT trap's release must not be cut short by another kind.
   [[ -n $monitor ]] || { trap '' TERM INT HUP; exit "$2"; }
   ours "$monitor" || return 0
-  read -r init _ 2>/dev/null <"/proc/$monitor/task/$monitor/children" || true
-  [[ -z $init ]] || read -r child _ 2>/dev/null <"/proc/$init/task/$init/children" || true
-  if [[ -n $child ]]; then
-    kill -s "$1" -- "$child" 2>/dev/null || true
+  if [[ -e $fence_dir/stops-restored ]]; then
+    read -r init _ 2>/dev/null <"/proc/$monitor/task/$monitor/children" || true
+    [[ -z $init ]] || read -r child _ 2>/dev/null <"/proc/$init/task/$init/children" || true
+    [[ -z $child ]] || kill -s "$1" -- "$child" 2>/dev/null || true
   else
-    kill -s "$1" -- "-$monitor" 2>/dev/null || true
+    stop_status=$2
+    end_world "$monitor"
   fi
+}
+
+# end_world MONITOR: KILL the namespace's init and then MONITOR, and wait
+# for the namespace to end. The init sets no parent-death signal until its
+# own setup has forked CMD (bubblewrap 0.13.1, do_init) and leaves the
+# monitor's process group at its setsid, so MONITOR's death alone can leave
+# it running; a KILL from this, its parent namespace, ends it and every
+# process in it (pid_namespaces(7)). MONITOR is stopped first, so it starts
+# no init after its children are read.
+end_world() {
+  local line state="" tick init ns
+  local -a inits=() spaces=()
+  kill -s STOP -- "$1" 2>/dev/null || true
+  # A real wait on the state the kernel reports; a stop takes effect at
+  # the monitor's next return from the kernel.
+  for ((tick = 0; tick < 100; tick++)); do
+    read -r line 2>/dev/null <"/proc/$1/stat" || break
+    line="${line##*) }"
+    state="${line%% *}"
+    [[ $state != [TtZX] ]] || break
+    sleep 0.01
+  done
+  read -r -a inits 2>/dev/null <"/proc/$1/task/$1/children" || true
+  for init in "${inits[@]}"; do
+    ns="$(readlink -- "/proc/$init/ns/pid" 2>/dev/null)" && spaces+=("$init $ns")
+    kill -s KILL -- "$init" 2>/dev/null || true
+  done
+  kill -s KILL -- "$1" 2>/dev/null || true
+  # A real wait: the kernel ends a namespace within milliseconds.
+  for line in "${spaces[@]}"; do
+    for ((tick = 0; tick < 100; tick++)); do
+      [[ "$(readlink -- "/proc/${line%% *}/ns/pid" 2>/dev/null)" == "${line#* }" ]] || break
+      sleep 0.05
+    done
+  done
 }
 
 case "$mode" in
@@ -635,13 +682,19 @@ case "$mode" in
     # bubblewrap --help: ro-bind is nodev; dev-bind restores device access.
     # The private runtime's child uses root-owned backing storage so the
     # after-namespace copier can still read logs after tmpfs disappears.
-    fence=(bwrap "${root_mounts[@]}" --dev-bind /dev /dev
+    # bubblewrap's monitor ignores the signals the fence forwards. A unit's
+    # stop (systemd.kill(5), KillMode=control-group) TERMs every process of
+    # the unit, the monitor too, and bubblewrap 0.13.1 sets no handler: the
+    # monitor would die, and --die-with-parent would kill the namespace
+    # before CMD's exit trap ends. The disposition is inherited through
+    # bubblewrap's exec, so the proof puts it back before CMD starts.
+    fence=(env --ignore-signal=TERM,INT,HUP bwrap "${root_mounts[@]}" --dev-bind /dev /dev
       --tmpfs /dev/shm --tmpfs /tmp --perms 0700 --tmpfs "$world_runtime"
       "${parent_mounts[@]}" --bind "$fence_dir" "$fence_dir"
       --bind "$fence_dir/runtime" "$world_runtime/owned"
       "${mounts[@]}" "${rebuild[@]}" "${network[@]}" --unshare-pid --proc /proc --die-with-parent --new-session
       "${environment[@]}" --remount-ro /)
-    proof=(-- "$BASH" "$self" --inside "${hidden[@]}" -- "${kept[@]}" --)
+    proof=(-- env --default-signal=TERM,INT,HUP "$BASH" "$self" --inside "${hidden[@]}" -- "${kept[@]}" --)
     status=0
     probe="$(
       # Bash keeps coprocess descriptors in command substitutions alone.
@@ -654,6 +707,8 @@ case "$mode" in
       77) printf '%s\n' "$probe" >&2; exit 77 ;;
       *) fault namespace-failed "exit=$status"; printf '%s\n' "$probe" >&2; exit 77 ;;
     esac
+    # The probe's proof wrote it; the run's own proof writes it again.
+    rm -f -- "$fence_dir/stops-restored"
     if ((${#skipped_service_masks[@]})); then
       skipped_service_names="$(IFS=,; printf '%s' "${skipped_service_masks[*]}")"
       note "service-masks skipped=$skipped_service_names"
@@ -661,7 +716,9 @@ case "$mode" in
     # bubblewrap's monitor forwards no signal, so the fence stays its parent.
     # The monitor gets a process group of its own: `set -m` makes it in
     # parent and child before `&` returns. A signal to the caller's group
-    # then reaches the fence alone.
+    # then reaches the fence alone, a terminal's stop included. Without job
+    # control bash would start the monitor with INT and QUIT ignored, and
+    # CMD would inherit QUIT ignored.
     trap 'forward TERM 143' TERM
     trap 'forward INT 130' INT
     trap 'forward HUP 129' HUP
@@ -676,5 +733,6 @@ case "$mode" in
     done
     status=0
     wait "$monitor" || status=$?
+    [[ -z $stop_status ]] || status=$stop_status
     exit "$status" ;;
 esac

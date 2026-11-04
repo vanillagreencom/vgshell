@@ -7,7 +7,8 @@
 # --case resume runs that existing recovery case alone; --case cancellation
 # sends INT, TERM and HUP to the public PID in initial and resumed worlds.
 # --case producer checks the controller's recorded bare executable form.
-# --case completion checks acknowledged lifecycle boundaries without QML.
+# --case completion checks acknowledged lifecycle boundaries without QML,
+# and that a unit's stop mid-row leaves the attempt's closing reading.
 # --case late-exit stops real initial and resumed worlds during EXIT.
 # Each cancellation case has the private PID namespace and 60 s readiness /
 # 30 s stop bounds of test-smoke-owner.sh --live. A world still starting at
@@ -146,7 +147,7 @@ driver = change(driver, 'exec env --default-signal=INT,QUIT tee "$qml_smoke_atte
                 'env --default-signal=INT,QUIT tee "$qml_smoke_attempt/run.log"; completion_barrier reader-only "$qml_smoke_attempt"')
 harness = (repo / 'scripts/smoke/harness.sh').read_text()
 functions = []
-for name in ('spawn', 'display_record_call', 'display_record_close', 'display_record_finish', 'display_record_arm'):
+for name in ('spawn', 'display_record_call', 'display_record_close', 'display_record_finish', 'display_record_arm', 'sink_alive'):
     match = re.search(r'^' + name + r'\(\) \{.*?^}\n', harness, re.M | re.S)
     assert match, name
     functions.append(match.group())
@@ -170,11 +171,16 @@ printf '%s\\0' "$VGSHELL_WORLD_ROOT" "$sandbox" "$display_record_dir" "$qml_smok
 display_record_program >"$display_record_dir/recorder.py"
 display_record_arm "$display_record_dir" env -i PATH="$PATH" python3 -u "$display_record_dir/recorder.py" serve "$display_record_dir" "$qml_smoke_completion"
 spawn "$sandbox/producer.log" sleep 300
+# A stand-in sink: a world process a unit's stop also ends, whose exit the
+# teardown reports on its output before the closing reading.
+spawn "$sandbox/sink.log" sleep 300
+sink_pid="$spawn_pid" sink_exit=""
 leak_seq=0
 ok() { :; }
 compositor_logs_on() { :; }
 smoke_row() { source "$repo/scripts/smoke/rows/$1.sh" >"$sandbox/rows/$1.out" 2>&1; }
 smoke_finish() { exit "$failures"; }
+smoke_judge_reading() { printf '0 0 intact\\n'; }
 '''
 for old, phase in [
     ('  for group in "${pgids[@]}"; do\n', 'producer-joins'),
@@ -335,6 +341,78 @@ for phase, attempt_stop, worlds, native in cases:
                     child.wait()
     for line in log_path.read_text().splitlines():
         print('  CONTROL  ' + line)
+# A unit's stop: TERM to the driver and every process under it at once, as
+# systemd stops a unit (systemd.kill(5), KillMode=control-group), the way
+# dev-validate-run's unit ends a run at its bound. The attempt waits inside
+# a row whose output runs through a filter the stop also ends, as
+# harness.sh's smoke_row does; the row has lost its sink, as the stop ends
+# it, so the teardown writes the sink's exit to that dead filter before its
+# closing reading. The teardown must still take the reading. Each control
+# restores one half of the old stop order, bubblewrap's monitor dying of
+# the TERM or the teardown dying of its write, and must lose the reading.
+stop_harness = change(mini, 'smoke_row() { source "$repo/scripts/smoke/rows/$1.sh" >"$sandbox/rows/$1.out" 2>&1; }',
+                      'smoke_row() { source "$repo/scripts/smoke/rows/$1.sh" > >(exec cat >"$sandbox/rows/$1.out") 2>&1; }')
+def tree_of(pid):
+    found, queue = [], [pid]
+    while queue:
+        current = queue.pop()
+        found.append(current)
+        for task in pathlib.Path(f'/proc/{current}/task').glob('*'):
+            try:
+                queue += [int(word) for word in (task / 'children').read_text().split()]
+            except OSError:
+                pass
+    return found
+def unit_stop(label, fence_source, teardown_source, want_close):
+    output = scratch / ('unit-stop-' + label)
+    output.mkdir()
+    (tree / 'completion-phase').write_text('mid-row\n')
+    (tree / 'scripts/smoke/rows/stop-here.sh').write_text('# inputs: scripts/smoke/harness.sh\nkill "$sink_pid"\nwait "$sink_pid" || :\ncompletion_barrier mid-row\n')
+    (tree / 'scripts/smoke/rows.list').write_text('\n'.join(core + ['stop-here']) + '\n')
+    (tree / 'scripts/qml-smoke.sh').write_text(driver)
+    (tree / 'scripts/smoke/harness.sh').write_text(stop_harness)
+    (tree / 'scripts/smoke/gpu-fence.sh').write_text(fence_source)
+    (tree / 'scripts/smoke/teardown.sh').write_text(teardown_source)
+    log_path = output / 'log'
+    with log_path.open('wb') as stream:
+        child = subprocess.Popen(['env', '--default-signal=INT,QUIT', str(tree / 'scripts/qml-smoke.sh'), '--log-dir', str(output / 'evidence')], stdout=stream, stderr=subprocess.STDOUT)
+        try:
+            deadline = time.monotonic() + 60
+            attempt = None
+            while child.poll() is None and time.monotonic() < deadline:
+                announced = re.findall(r'^qml-smoke: attempt=(\S+) targets=', log_path.read_text(), re.M)
+                if announced and (pathlib.Path(announced[-1]) / 'phase-ready').exists():
+                    attempt = pathlib.Path(announced[-1])
+                    break
+                time.sleep(0.01)
+            assert attempt, ('mid-row-not-ready', label)
+            for pid in tree_of(child.pid):
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+            child.wait(timeout=30)
+            readings = (attempt / 'judge-readings').read_text().splitlines()
+            assert readings[:len(core) * 2] == [f'{row} {edge} 0 0 intact' for row in core for edge in ('start', 'end')], readings
+            assert readings[len(core) * 2] == 'stop-here start 0 0 intact', readings
+            closed = readings[len(core) * 2 + 1:] == ['- close 0 0 intact']
+            assert closed == want_close, ('closing-reading', label, readings)
+        except BaseException:
+            print(log_path.read_text(), file=sys.stderr)
+            raise
+        finally:
+            if child.poll() is None:
+                for pid in tree_of(child.pid):
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                child.wait()
+    print(json.dumps(dict(case='unit-stop-' + label, closed=closed, result='pass')), flush=True)
+unit_stop('shipped', fence, teardown, True)
+unit_stop('control-monitor-dies', change(fence, 'fence=(env --ignore-signal=TERM,INT,HUP bwrap', 'fence=(bwrap'), teardown, False)
+unit_stop('control-teardown-write-ends-it', fence, change(teardown, "  trap '' PIPE\n  set +e\n", ''), False)
+(tree / 'scripts/smoke/rows/stop-here.sh').unlink()
 PY
   timeout -k 2 1500 unshare --user --map-current-user --pid --fork --kill-child --mount-proc \
     python3 "$TMP_ROOT/completion-case.py" "$repo" "$tree" "$TMP_ROOT"
