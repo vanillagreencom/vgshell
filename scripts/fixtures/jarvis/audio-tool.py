@@ -17,7 +17,18 @@ name = sys.argv[1]
 with (home / "audio-argv").open("a") as log:
     log.write(json.dumps({"command": name, "argv": sys.argv[2:], "env": dict(os.environ)}) + "\n")
 if name == "pw-dump":
-    if (home / "audio-flood").exists():
+    one_shot = "--monitor" not in sys.argv
+    # A monitor delta that lands during this read: the running monitor
+    # prints it before this read prints.
+    if one_shot and (home / "read-delta").exists():
+        (home / "read-delta").rename(home / "monitor-delta")
+        while (home / "monitor-delta").exists():
+            time.sleep(0.01)
+    if one_shot and (home / "huge-read").exists():
+        print('["' + "a" * 1048576 + '"]')
+    elif one_shot and (home / "no-objects").exists():
+        pass  # pw-dump prints nothing when no object matches.
+    elif (home / "audio-flood").exists():
         snapshot = [{"id": i, "type": "PipeWire:Interface:Node", "info": {"props":
             {"media.class": "Audio/Source", "node.name": str(i) + "a" * 190,
              "node.description": "Fixture microphone " + "b" * 35}}} for i in range(32)]
@@ -58,6 +69,9 @@ if name == "pw-dump":
             if (home / "monitor-malformed").exists():
                 (home / "monitor-malformed").unlink()
                 print("{}", flush=True)
+            if (home / "monitor-delta").exists():
+                print((home / "monitor-delta").read_text(), flush=True)
+                (home / "monitor-delta").unlink()
             if (home / "remove-device").exists():
                 print('[{"id":91,"info":null}]', flush=True)
                 (home / "remove-device").unlink()
@@ -84,11 +98,12 @@ if name == "pw-record":
         while True:
             os.write(1, b"\0" * 65536)
     try:
-        while True:
+        while not (home / "capture-ends").exists():
             os.write(1, (b"\0\0" if (home / "capture-silent").exists() else b"\0\x40") * 240)
             time.sleep(0.01)  # Synthetic PCM clock, never a real audio device.
     except BrokenPipeError:
         sys.exit(0)
+    sys.exit(1)  # The stream ended under an open capture.
 elif name == "pw-cat":
     if (home / "playback-exits").exists():
         sys.exit(1)

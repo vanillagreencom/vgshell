@@ -88,6 +88,9 @@ class Audio {
         this.devices = { microphones: [], speakers: [] };
         this.discovery = { kind: "idle", retries: 0 };
         this.nodes = new Map();
+        // One record per full read in flight of what monitor deltas touched
+        // during it: the object ids they named and whether the defaults moved.
+        this.reads = new Set();
         this.defaults = noDefaults(null);
         this.capture = null;
         this.playback = null;
@@ -156,8 +159,9 @@ class Audio {
                 ? resolve() : reject(new Error("audio-readiness")));
             closed.then(() => reject(new Error("audio-child: " + owner.diagnostic.trim())));
         });
+        // A failed start stops only this child; its caller owns the rest.
         try { await ready; }
-        catch (error) { await this.teardown("start-failed", [kind]); throw error; }
+        catch (error) { await this.stop(owner); throw error; }
         if (owner.stopping || this.lifetime.kind === "closed") throw new Error("audio-ended");
         return owner;
     }
@@ -257,21 +261,27 @@ class Audio {
                     }
                 } catch (error) { failed(error); }
             });
+            // Only the lease end stops the monitor quietly. Any other end
+            // retires discovery, so the next read starts a new monitor.
             owner.closed.then(() => {
-                if (owner.stopping) reject(new Error("discovery-ended"));
+                if (this.lifetime.kind === "closed") reject(new Error("discovery-ended"));
                 else failed(new Error("discovery-exit: " + owner.diagnostic.trim()));
             });
         });
     }
 
-    snapshot(snapshot, mode = "delta") {
+    // OVERLAP is a full read's record of what monitor deltas touched while
+    // it ran; null means none came.
+    snapshot(snapshot, mode = "delta", overlap = null) {
         if (!Array.isArray(snapshot) || snapshot.length > 4096) throw new Error("discovery-shape");
+        const held = { nodes: this.nodes, defaults: this.defaults };
         if (mode === "full") {
-            this.nodes.clear();
+            this.nodes = new Map();
             this.defaults = noDefaults(null);
         }
         for (const node of snapshot) {
             if (!Number.isSafeInteger(node.id)) throw new Error("discovery-id");
+            if (mode === "delta") for (const read of this.reads) read.ids.add(node.id);
             if (node.info === null) {
                 this.nodes.delete(node.id);
                 if (node.id === this.defaults.id) this.defaults = noDefaults(null);
@@ -308,6 +318,19 @@ class Audio {
                 // another client can add or remove indefinitely.
                 this.nodes.set(node.id, { group, label: label.slice(0, 60), value });
             }
+        }
+        if (mode === "delta" && this.defaults !== held.defaults)
+            for (const read of this.reads) read.defaults = true;
+        // What a delta named during the read keeps the monitor's state. The
+        // delta may be newer than the read, and the monitor prints any later
+        // change to that object as a further delta: a removal at once, any
+        // other change after its sync (pw-dump.c registry_event_global_remove,
+        // on_core_done).
+        if (overlap !== null) {
+            for (const id of overlap.ids)
+                if (held.nodes.has(id)) this.nodes.set(id, held.nodes.get(id));
+                else this.nodes.delete(id);
+            if (overlap.defaults) this.defaults = held.defaults;
         }
         const devices = { microphones: [], speakers: [] };
         for (const { group, label, value } of this.nodes.values()) {
@@ -453,21 +476,26 @@ class Audio {
             capture.failed(this.devices.microphones.some(item => item.value === capture.target)
                 ? "capture-exit-" + (owner.exit.signal || owner.exit.code) : this.lost("microphones", capture));
         } catch (error) {
-            this.nodes.clear();
-            this.devices = { microphones: [], speakers: [] };
-            this.offers(this.devices);
+            // The monitor's list stands: a failed read stopped only its own child.
             this.fault("device-probe: " + error.message);
             if (this.session.live(this.state, capture.e, "capture", ["opening", "open"]))
                 capture.failed("device-probe: " + error.message);
         }
     }
 
+    // A full read replaces the held list except where a monitor delta came
+    // during it; snapshot() keeps the monitor's state there.
     async refreshDevices() {
-        this.snapshot(await this.dump([]), "full");
+        const overlap = { ids: new Set(), defaults: false };
+        this.reads.add(overlap);
+        let read;
+        try { read = await this.dump([]); }
+        finally { this.reads.delete(overlap); }
+        this.snapshot(read, "full", overlap);
     }
 
     // One pw-dump read of the objects ARGS match, a one-shot child of the
-    // discovery owner.
+    // discovery owner. A failed read stops only this child.
     async dump(args) {
         const owner = await this.spawn("discovery", "pw-dump", args);
         const chunks = [];
@@ -476,7 +504,7 @@ class Audio {
             bytes += data.length;
             if (bytes > DISCOVERY_BYTES) {
                 overflow = true;
-                void this.teardown("discovery-overflow", ["discovery"]);
+                void this.stop(owner);
             } else chunks.push(data);
         });
         await owner.closed;
@@ -723,16 +751,20 @@ class Audio {
         void this.teardown("playback-failed", ["playback"]).then(() => playback.failed(reason));
     }
 
-    // The only release path. Mark owners before closing pipes so callbacks
-    // cannot treat requested teardown as a device failure or reopen capture.
+    // Mark an owner before closing its pipes so its callbacks cannot treat a
+    // requested stop as a device failure or reopen capture.
+    stop(owner) {
+        owner.stopping = true;
+        owner.child.stdio[3].end();
+        owner.child.stdin.destroy();
+        return owner.closed;
+    }
+
+    // The release path for every owner of KINDS and the state they feed.
     teardown(reason, kinds) {
         const owners = [...this.children.values()].filter(owner => kinds.includes(owner.kind));
         const feeds = [];
-        for (const owner of owners) {
-            owner.stopping = true;
-            owner.child.stdio[3].end();
-            owner.child.stdin.destroy();
-        }
+        for (const owner of owners) this.stop(owner);
         if (kinds.includes("capture")) {
             this.levels.capture = 0;
             if (this.capture !== null && this.capture.kind !== "failed") this.capture.kind = "retired";

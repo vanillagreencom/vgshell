@@ -187,8 +187,11 @@ async function inside() {
             await w.audio.discover();
             fs.writeFileSync(path.join(process.env.HOME, "no-default-source"), "");
             w.audio.snapshot(store([]));
+            const offered = w.offers.length;
             await assert.rejects(w.audio.selected("microphones", "microphone"),
                 { message: 'device-lost target=null from=default microphones=1["fixture.mic"]' });
+            // jarvisd re-reads its check source on each offer.
+            assert.equal(w.offers.length, offered + 1, "a read that moves the default microphone re-sends the offers");
             w.audio.snapshot([usb, ...named("fixture.usb")]);
             assert.equal(await microphone(w), "fixture.usb", "Jarvis follows the default the store names");
             fs.rmSync(path.join(process.env.HOME, "no-default-source"));
@@ -197,10 +200,15 @@ async function inside() {
             w.audio.snapshot(named("fixture.usb"));
             assert.deepEqual([await read, w.audio.defaults.microphones], ["fixture.usb", "fixture.usb"],
                 "a read naming fixture.mic never replaces a newer delta");
+            // No store at all: pw-dump prints nothing, and no default is named.
+            fs.writeFileSync(path.join(process.env.HOME, "no-objects"), "");
+            w.audio.snapshot(store([]));
+            assert.equal(await microphone(w), 'device-lost target=null from=default microphones=2["fixture.mic","fixture.usb"]');
         } finally {
             w.runner.close();
             await w.audio.close("test-end");
-            fs.rmSync(path.join(process.env.HOME, "no-default-source"), { force: true });
+            for (const name of ["no-default-source", "no-objects"])
+                fs.rmSync(path.join(process.env.HOME, name), { force: true });
         }
     }
     await defaultRemoval();
@@ -565,6 +573,101 @@ async function inside() {
     }
     await discoveryClose();
 
+    // A failed child start or one-shot read stops only its own child: the
+    // monitor keeps the list and keeps reporting. A row's fail returns the
+    // reason its caller reports. A start fails with no setpriv on the child's
+    // PATH, where Node looks a command up:
+    // https://nodejs.org/api/child_process.html#child_processspawncommand-args-options
+    const reported = w => until(() => w.published.some(fault => fault.kind === "error"), "the failure is published")
+        .then(() => w.published.find(fault => fault.kind === "error").reason);
+    const read = w => w.audio.refreshDevices().then(() => "read", error => error.message);
+    const talk = w => { w.dispatch("talk-down"); return reported(w); };
+    const oneShotRows = [
+        { name: "read-overflow", markers: ["huge-read"], fail: read, reason: "discovery-overflow" },
+        { name: "read-start", start: "fails", fail: read, reason: "audio-child: spawn-ENOENT" },
+        { name: "exit-read", markers: ["huge-read", "capture-exits"], fail: talk, reason: "device-probe: discovery-overflow" },
+        { name: "capture-start", start: "fails", fail: talk, reason: "audio-start: audio-child: spawn-ENOENT" },
+        { name: "playback-start", start: "fails", sounds: true, fail: talk, reason: "audio-child: spawn-ENOENT" }
+    ];
+    async function oneShotFailure(Implementation = Audio, rows = oneShotRows) {
+        for (const row of rows) {
+            const w = setup(Implementation);
+            const markers = [...(row.markers || []), "remove-device"].map(name => path.join(process.env.HOME, name));
+            const PATH = w.audio.environment.PATH;
+            try {
+                if (row.sounds) w.dispatch("snapshot", { locked: false, engine: "chained", configured: true,
+                    settings: { microphone: "", speaker: "", sounds: true } });
+                await w.audio.discover();
+                const calls = monitorCalls(), offered = w.offers.length;
+                for (const marker of markers.slice(0, -1)) fs.writeFileSync(marker, "");
+                if (row.start === "fails") w.audio.environment.PATH = path.join(process.env.HOME, "no-commands");
+                assert.equal(await row.fail(w), row.reason, row.name);
+                w.audio.environment.PATH = PATH;
+                assert.deepEqual(w.audio.devices.microphones.map(item => item.value), ["fixture.mic"],
+                    row.name + " keeps the monitor's list");
+                fs.writeFileSync(markers.at(-1), "");
+                await until(() => w.offers.at(-1).microphones.length === 0, row.name + ": the monitor still reports");
+                // A retired monitor offers an empty list; the monitor's
+                // removal keeps the speaker.
+                assert.ok(w.offers.slice(offered).every(offer => offer.speakers.length === 1),
+                    row.name + " never empties the list");
+                assert.equal(monitorCalls(), calls, row.name + " keeps the first monitor");
+            } finally {
+                w.audio.environment.PATH = PATH;
+                w.runner.close();
+                await w.audio.close("test-end");
+                for (const marker of markers) fs.rmSync(marker, { force: true });
+            }
+        }
+    }
+    await oneShotFailure();
+
+    // A monitor delta during a full read: what the delta named keeps the
+    // monitor's state, and the read stands for the rest. The fixture's
+    // monitor prints DELTA before the read prints. A row's drive returns what
+    // its caller sees: the list and default a read leaves, or the reason a
+    // capture exit reports.
+    const mic = (id, name) => ({ id, type: "PipeWire:Interface:Node",
+        info: { props: { "media.class": "Audio/Source", "node.name": name } } });
+    const held = w => w.audio.refreshDevices()
+        .then(() => [w.audio.devices.microphones.map(item => item.value), w.audio.defaults.microphones]);
+    const exits = async w => {
+        await capture(w);
+        fs.writeFileSync(path.join(process.env.HOME, "capture-ends"), "");
+        await until(() => w.published.length !== 0, "the exit is published");
+        return w.published[0];
+    };
+    const overlapRows = [
+        { name: "recreated", markers: ["no-devices"], delta: [{ id: 91, info: null }, mic(92, "fixture.mic")],
+            drive: held, seen: [["fixture.mic"], null] },
+        { name: "default-moved", markers: [], delta: [mic(93, "fixture.usb"), ...store([{ subject: 0,
+            key: "default.audio.source", type: "Spa:String:JSON", value: { name: "fixture.usb" } }])],
+            drive: held, seen: [["fixture.mic", "fixture.usb"], "fixture.usb"] },
+        // The exiting pw-record's own stream node goes before the monitor
+        // reports the microphone's removal, which the read already shows.
+        // Session retries only a device-lost exit.
+        { name: "recorder-exit", markers: ["no-devices"], delta: [{ id: 77, info: null }], drive: exits,
+            seen: { kind: "retrying", reason: 'device-lost target="fixture.mic" from=default microphones=0[]', retry: 1 } }
+    ];
+    async function readOverlap(Implementation = Audio, rows = overlapRows) {
+        for (const row of rows) {
+            const w = setup(Implementation);
+            const markers = [...row.markers, "read-delta", "capture-ends"].map(name => path.join(process.env.HOME, name));
+            try {
+                await w.audio.discover();
+                for (const marker of markers.slice(0, -2)) fs.writeFileSync(marker, "");
+                fs.writeFileSync(markers.at(-2), JSON.stringify(row.delta));
+                assert.deepEqual(await row.drive(w), row.seen, row.name);
+            } finally {
+                w.runner.close();
+                await w.audio.close("test-end");
+                for (const marker of [...markers, path.join(process.env.HOME, "monitor-delta")])
+                    fs.rmSync(marker, { force: true });
+            }
+        }
+    }
+    await readOverlap();
+
     const lost = setup();
     try {
         await capture(lost);
@@ -677,6 +780,21 @@ async function inside() {
                 await assert.rejects(w.audio.discover(), { message: "audio-start-refused" });
             } finally { await w.audio.close("test-end"); }
         });
+    await control("one-shot-stop", "void this.stop(owner);",
+        'void this.teardown("discovery-overflow", ["discovery"]);', impl => oneShotFailure(impl, oneShotRows.slice(0, 1)));
+    await control("start-stop", "catch (error) { await this.stop(owner); throw error; }",
+        'catch (error) { await this.teardown("start-failed", [kind]); throw error; }',
+        impl => oneShotFailure(impl, oneShotRows.slice(1, 2)));
+    await control("exit-read-list", 'this.fault("device-probe: " + error.message);',
+        'this.nodes.clear(); this.devices = { microphones: [], speakers: [] }; this.fault("device-probe: " + error.message);',
+        impl => oneShotFailure(impl, oneShotRows.slice(2, 3)));
+    await control("overlap-nodes", "for (const id of overlap.ids)", "for (const id of [])",
+        impl => readOverlap(impl, overlapRows.slice(0, 1)));
+    await control("overlap-defaults", "if (overlap.defaults) this.defaults = held.defaults;",
+        "if (false) this.defaults = held.defaults;", impl => readOverlap(impl, overlapRows.slice(1, 2)));
+    await control("default-offer", "if (read.microphones !== before.microphones) this.offers(this.devices);",
+        "if (false) this.offers(this.devices);", defaultRemoval);
+    await control("empty-read", 'text.trim() === "" ? [] : JSON.parse(text)', "JSON.parse(text)", defaultRemoval);
     console.log("test-jarvis-audio: ok triggers=6 controls=" + controls);
 }
 
