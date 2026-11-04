@@ -822,9 +822,17 @@ function slackWorkspaceIcon(teams, workspace) {
 
 // Two copies of one message, one from the sender's own client and one from
 // its web client in a browser, arrive within DUPLICATE_WINDOW milliseconds
-// of each other; the last DUPLICATES_MAX messages a rule read within the
-// window are remembered to find them.
+// of each other; two copies from one client, such as two running instances
+// of the desktop app signed into the same workspaces, within
+// SAME_CLIENT_WINDOW. The last DUPLICATES_MAX messages a rule read within
+// DUPLICATE_WINDOW are remembered to find them.
 var DUPLICATE_WINDOW = 10000;
+// About three times the largest gap between two Slack desktop instances'
+// copies: 41 pairs 65-322 ms apart in cachy's stored notification history
+// of 100 entries, read with python3 on 2026-11-03 at 15:15 PT for VGS-2283.
+// Well under the time a person takes to send one text twice in one
+// conversation, which stays two messages.
+var SAME_CLIENT_WINDOW = 1000;
 var DUPLICATES_MAX = 32;
 
 // A notification a rule reads, as the message it carries: { key, rule,
@@ -848,25 +856,27 @@ function messageOf(entry) {
 }
 
 // The remembered message `message` is another copy of, or null: the same
-// rule from the other client, the same conversation, sender and text, the
-// same workspace or one of the two naming none, within DUPLICATE_WINDOW.
-// Two copies from the same client are two messages.
+// rule, the same conversation, sender and text, the same workspace or one
+// of the two naming none, within DUPLICATE_WINDOW from the other client or
+// SAME_CLIENT_WINDOW from the same one.
 function duplicateOf(recent, message) {
     for (var i = recent.length - 1; i >= 0; i--) {
         var r = recent[i];
-        if (r.rule === message.rule && r.source !== message.source && r.conversation === message.conversation
+        var within = r.source === message.source ? SAME_CLIENT_WINDOW : DUPLICATE_WINDOW;
+        if (r.rule === message.rule && r.conversation === message.conversation
             && r.sender === message.sender && r.text === message.text
             && (r.workspace === message.workspace || r.workspace === "" || message.workspace === "")
-            && Math.abs(message.at - r.at) <= DUPLICATE_WINDOW) return r;
+            && Math.abs(message.at - r.at) <= within) return r;
     }
     return null;
 }
 
 // Which copy stays when `message` repeats `prior`: `message` when it is the
-// sender's own client's, which names the workspace, and prior's card is
-// still on screen to give way; `prior`, the first recorded, otherwise.
+// sender's own client's, which names the workspace, after a browser copy
+// whose card is still on screen to give way; `prior`, the first recorded,
+// otherwise, and always for two copies from one client, which are alike.
 function duplicateKept(prior, message, priorOnScreen) {
-    return message.source === "desktop" && priorOnScreen ? "message" : "prior";
+    return message.source === "desktop" && prior.source !== "desktop" && priorOnScreen ? "message" : "prior";
 }
 
 // The remembered messages with `message` added, those older than
