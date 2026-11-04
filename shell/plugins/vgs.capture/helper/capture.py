@@ -1056,14 +1056,18 @@ class Still:
 
     def crop(self, geometry):
         """GEOMETRY's box as (width, height, RGB rows, alpha rows or None),
-        the image `grim -g GEOMETRY` writes. grim 1.5.0 renders a box that
+        with grim's edge coverage over the held frame's colours. grim
+        1.5.0 renders a box that
         meets an output at the greatest scale of the outputs it meets
         (main.c), sized (int)(width * scale) by (int)(height * scale), each
         output placed at its offset from the box times the scale (render.c
         render), here rounded half up, as a nested run matched a box at
-        scale 1.5 (the VGS-2232 round notes). Each output's part comes from
-        its frame at that scale. Where no output lies, the image is
-        transparent, so grim writes RGBA (write_png.c)."""
+        scale 1.5 (the VGS-2232 round notes). Each output's colours come from
+        its frame at that scale. Coverage follows grim's bilinear filter
+        over native pixels, with OP_OVER at shared edges, and its PNG
+        writer's unpremultiplication (grim 1.5.0 render.c, write_png.c;
+        VGS-2265 nested references). Qt's resampled colours can differ
+        from grim's on nonuniform content."""
         match = re.fullmatch(r"(-?\d+),(-?\d+) (\d+)x(\d+)", geometry)
         if match is None:
             raise RuntimeError("Invalid selection geometry")
@@ -1077,7 +1081,31 @@ class Still:
         ratio = round(scale * 120)
         edge = lambda value: math.floor(value * scale + 0.5)
         cw, ch = int(w * scale), int(h * scale)
-        if len(met) == 1:
+
+        def coverage(origin, extent, native, count):
+            # pixman transforms use 16.16 coordinates and the bilinear
+            # filter's seven fractional bits (pixman-private.h). Keep the
+            # transform relative to grim's floored composite destination:
+            # rounding a whole-layout offset changes its sampling phase.
+            left = math.floor(origin)
+            step = math.floor(native / extent * 65536 + 0.5)
+            offset = math.floor((left - origin) * native / extent * 65536 + 0.5)
+            values = [0] * count
+            for pos in range(max(0, left), min(count, math.ceil(origin + extent))):
+                sample = (pos - left) * step + step // 2 + offset - 32768
+                pixel, fraction = sample // 65536, ((sample >> 9) & 127) * 2
+                values[pos] = ((256 - fraction) if 0 <= pixel < native else 0) + (fraction if 0 <= pixel + 1 < native else 0)
+            return values
+
+        def parts(output):
+            self.frame(output, ratio)
+            own = round(output["scale"] * 120)
+            native = next(f for f in self.screens[output["name"]]["frames"] if f["ratio"] == own)
+            return (coverage((output["x"] - x) * scale, output["width"] * scale, native["width"], cw),
+                    coverage((output["y"] - y) * scale, output["height"] * scale, native["height"], ch))
+
+        masks = [parts(output) for output in met]
+        if len(met) == 1 and all(a == 256 for axis in masks[0] for a in axis):
             # A box inside one output, as every display and window box and
             # most areas are, is that frame's rows as they stand.
             frame = self.frame(met[0], ratio)
@@ -1086,17 +1114,47 @@ class Still:
                 return cw, ch, [frame.pixels(r - dy, -dx, cw - dx) for r in range(ch)], None
         rows = [bytearray(cw * 3) for _ in range(ch)]
         alphas = [bytearray(cw) for _ in range(ch)]
-        for output in met:
+        edges = set()
+        for output, (horizontal, vertical) in zip(met, masks):
             frame = self.frame(output, ratio)
             dx, dy = edge(output["x"] - x), edge(output["y"] - y)
-            x0, x1 = max(0, dx), min(cw, dx + frame.width)
-            if x0 >= x1:
+            columns = [i for i, a in enumerate(horizontal) if a]
+            if not columns:
                 continue
-            covered = b"\xff" * (x1 - x0)
-            for r in range(max(0, dy), min(ch, dy + frame.height)):
-                rows[r][x0 * 3:x1 * 3] = frame.pixels(r - dy, x0 - dx, x1 - dx)
-                alphas[r][x0:x1] = covered
-        opaque = all(alpha.count(0) == 0 for alpha in alphas)
+            x0, x1 = columns[0], columns[-1] + 1
+            full = [i for i in columns if horizontal[i] == 256]
+            partial = [i for i in columns if horizontal[i] < 256]
+            for r, ay in enumerate(vertical):
+                if not ay:
+                    continue
+                sy = min(max(r - dy, 0), frame.height - 1)
+                line = (frame.pixels(sy, 0, 1) * max(0, dx - x0)
+                        + frame.pixels(sy, max(0, x0 - dx), min(frame.width, x1 - dx))
+                        + frame.pixels(sy, frame.width - 1, frame.width) * max(0, x1 - dx - frame.width))
+                if ay == 256 and full:
+                    first, last = full[0], full[-1] + 1
+                    rows[r][first * 3:last * 3] = line[(first - x0) * 3:(last - x0) * 3]
+                    alphas[r][first:last] = b"\xff" * (last - first)
+                for column in (columns if ay < 256 else partial):
+                    edges.add((r, column))
+                    weight = horizontal[column] * ay
+                    alpha = (255 * weight) >> 16
+                    inverse = 255 - alpha
+                    for channel in range(3):
+                        at = column * 3 + channel
+                        old = rows[r][at] * inverse + 128
+                        rows[r][at] = (line[(column - x0) * 3 + channel] * weight >> 16) + ((old + (old >> 8)) >> 8)
+                    old = alphas[r][column] * inverse + 128
+                    alphas[r][column] = alpha + ((old + (old >> 8)) >> 8)
+        opaque = all(alpha.count(255) == cw for alpha in alphas)
+        if not opaque:
+            for r, column in edges:
+                value = alphas[r][column]
+                if value not in (0, 255):
+                    inverse = (255 << 16) // value
+                    for channel in range(3):
+                        at = column * 3 + channel
+                        rows[r][at] = min(255, rows[r][at] * inverse >> 16)
         return cw, ch, [bytes(row) for row in rows], None if opaque else [bytes(alpha) for alpha in alphas]
 
 

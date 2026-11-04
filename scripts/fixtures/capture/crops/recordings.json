@@ -1,0 +1,1085 @@
+{
+  "unit": "VGS-2265-guarded-1793827836",
+  "reference": "shot_socket / shot_dir_under / shot_grim -g BOX before freeze",
+  "fixture": "acme.freeze background #336699/#cc8844, plus 7px stripes for patterned; disposable NoticeHost omitted, bar hidden",
+  "layouts": [
+    {
+      "name": "solid/mixed2",
+      "monitors": [
+        {
+          "name": "WAYLAND-1",
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080,
+          "scale": 1,
+          "transform": 0
+        },
+        {
+          "name": "CROP-SECOND",
+          "x": 1920,
+          "y": 0,
+          "width": 1920,
+          "height": 1080,
+          "scale": 2,
+          "transform": 0
+        }
+      ],
+      "answer": {
+        "screens": [
+          {
+            "name": "CROP-SECOND",
+            "x": 1920,
+            "y": 0,
+            "width": 960,
+            "height": 540,
+            "frames": [
+              {
+                "ratio": 240,
+                "width": 1920,
+                "height": 1080,
+                "bands": [
+                  {
+                    "path": "solid/mixed2/mixed2-0-240-0.ppm",
+                    "rows": 1040,
+                    "image": "solid/mixed2/mixed2-0-240-0.png"
+                  },
+                  {
+                    "path": "solid/mixed2/mixed2-0-240-1.ppm",
+                    "rows": 40,
+                    "image": "solid/mixed2/mixed2-0-240-1.png"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "name": "WAYLAND-1",
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 1080,
+            "frames": [
+              {
+                "ratio": 120,
+                "width": 1920,
+                "height": 1080,
+                "bands": [
+                  {
+                    "path": "solid/mixed2/mixed2-1-120-0.ppm",
+                    "rows": 1041,
+                    "image": "solid/mixed2/mixed2-1-120-0.png"
+                  },
+                  {
+                    "path": "solid/mixed2/mixed2-1-120-1.ppm",
+                    "rows": 39,
+                    "image": "solid/mixed2/mixed2-1-120-1.png"
+                  }
+                ]
+              },
+              {
+                "ratio": 240,
+                "width": 3840,
+                "height": 2160,
+                "bands": [
+                  {
+                    "path": "solid/mixed2/mixed2-1-240-0.ppm",
+                    "rows": 520,
+                    "image": "solid/mixed2/mixed2-1-240-0.png"
+                  },
+                  {
+                    "path": "solid/mixed2/mixed2-1-240-1.ppm",
+                    "rows": 520,
+                    "image": "solid/mixed2/mixed2-1-240-1.png"
+                  },
+                  {
+                    "path": "solid/mixed2/mixed2-1-240-2.ppm",
+                    "rows": 520,
+                    "image": "solid/mixed2/mixed2-1-240-2.png"
+                  },
+                  {
+                    "path": "solid/mixed2/mixed2-1-240-3.ppm",
+                    "rows": 520,
+                    "image": "solid/mixed2/mixed2-1-240-3.png"
+                  },
+                  {
+                    "path": "solid/mixed2/mixed2-1-240-4.ppm",
+                    "rows": 80,
+                    "image": "solid/mixed2/mixed2-1-240-4.png"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "cases": [
+        {
+          "box": "1860,100 100x100",
+          "expected": "solid/mixed2/0.png",
+          "compare": "rgba"
+        }
+      ]
+    },
+    {
+      "name": "solid/mixed15",
+      "monitors": [
+        {
+          "name": "WAYLAND-1",
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080,
+          "scale": 1,
+          "transform": 0
+        },
+        {
+          "name": "CROP-SECOND",
+          "x": 1920,
+          "y": 0,
+          "width": 1920,
+          "height": 1080,
+          "scale": 1.5,
+          "transform": 0
+        }
+      ],
+      "answer": {
+        "screens": [
+          {
+            "name": "CROP-SECOND",
+            "x": 1920,
+            "y": 0,
+            "width": 1280,
+            "height": 720,
+            "frames": [
+              {
+                "ratio": 180,
+                "width": 1920,
+                "height": 1080,
+                "bands": [
+                  {
+                    "path": "solid/mixed15/mixed15-0-180-0.ppm",
+                    "rows": 1041,
+                    "image": "solid/mixed15/mixed15-0-180-0.png"
+                  },
+                  {
+                    "path": "solid/mixed15/mixed15-0-180-1.ppm",
+                    "rows": 39,
+                    "image": "solid/mixed15/mixed15-0-180-1.png"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "name": "WAYLAND-1",
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 1080,
+            "frames": [
+              {
+                "ratio": 120,
+                "width": 1920,
+                "height": 1080,
+                "bands": [
+                  {
+                    "path": "solid/mixed15/mixed15-1-120-0.ppm",
+                    "rows": 1041,
+                    "image": "solid/mixed15/mixed15-1-120-0.png"
+                  },
+                  {
+                    "path": "solid/mixed15/mixed15-1-120-1.ppm",
+                    "rows": 39,
+                    "image": "solid/mixed15/mixed15-1-120-1.png"
+                  }
+                ]
+              },
+              {
+                "ratio": 180,
+                "width": 2880,
+                "height": 1620,
+                "bands": [
+                  {
+                    "path": "solid/mixed15/mixed15-1-180-0.ppm",
+                    "rows": 693,
+                    "image": "solid/mixed15/mixed15-1-180-0.png"
+                  },
+                  {
+                    "path": "solid/mixed15/mixed15-1-180-1.ppm",
+                    "rows": 693,
+                    "image": "solid/mixed15/mixed15-1-180-1.png"
+                  },
+                  {
+                    "path": "solid/mixed15/mixed15-1-180-2.ppm",
+                    "rows": 234,
+                    "image": "solid/mixed15/mixed15-1-180-2.png"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "cases": [
+        {
+          "box": "1860,100 100x100",
+          "expected": "solid/mixed15/0.png",
+          "compare": "rgba"
+        }
+      ]
+    },
+    {
+      "name": "solid/single15",
+      "monitors": [
+        {
+          "name": "WAYLAND-1",
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080,
+          "scale": 1.5,
+          "transform": 0
+        }
+      ],
+      "answer": {
+        "screens": [
+          {
+            "name": "WAYLAND-1",
+            "x": 0,
+            "y": 0,
+            "width": 1280,
+            "height": 720,
+            "frames": [
+              {
+                "ratio": 180,
+                "width": 1920,
+                "height": 1080,
+                "bands": [
+                  {
+                    "path": "solid/single15/single15-0-180-0.ppm",
+                    "rows": 1041,
+                    "image": "solid/single15/single15-0-180-0.png"
+                  },
+                  {
+                    "path": "solid/single15/single15-0-180-1.ppm",
+                    "rows": 39,
+                    "image": "solid/single15/single15-0-180-1.png"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "cases": [
+        {
+          "box": "1201,100 100x100",
+          "expected": "solid/single15/0.png",
+          "compare": "rgba"
+        },
+        {
+          "box": "100,701 100x100",
+          "expected": "solid/single15/1.png",
+          "compare": "rgba"
+        }
+      ]
+    },
+    {
+      "name": "solid/single125",
+      "monitors": [
+        {
+          "name": "WAYLAND-1",
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080,
+          "scale": 1.25,
+          "transform": 0
+        }
+      ],
+      "answer": {
+        "screens": [
+          {
+            "name": "WAYLAND-1",
+            "x": 0,
+            "y": 0,
+            "width": 1536,
+            "height": 864,
+            "frames": [
+              {
+                "ratio": 150,
+                "width": 1920,
+                "height": 1080,
+                "bands": [
+                  {
+                    "path": "solid/single125/single125-0-150-0.ppm",
+                    "rows": 1040,
+                    "image": "solid/single125/single125-0-150-0.png"
+                  },
+                  {
+                    "path": "solid/single125/single125-0-150-1.ppm",
+                    "rows": 40,
+                    "image": "solid/single125/single125-0-150-1.png"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "cases": [
+        {
+          "box": "1530,100 100x100",
+          "expected": "solid/single125/0.png",
+          "compare": "rgba"
+        }
+      ]
+    },
+    {
+      "name": "solid/fractional",
+      "monitors": [
+        {
+          "name": "WAYLAND-1",
+          "x": 0,
+          "y": 0,
+          "width": 1366,
+          "height": 768,
+          "scale": 1,
+          "transform": 0
+        },
+        {
+          "name": "CROP-SECOND",
+          "x": 1366,
+          "y": 0,
+          "width": 1920,
+          "height": 1200,
+          "scale": 1.25,
+          "transform": 0
+        }
+      ],
+      "answer": {
+        "screens": [
+          {
+            "name": "CROP-SECOND",
+            "x": 1366,
+            "y": 0,
+            "width": 1536,
+            "height": 960,
+            "frames": [
+              {
+                "ratio": 150,
+                "width": 1920,
+                "height": 1200,
+                "bands": [
+                  {
+                    "path": "solid/fractional/fractional-0-150-0.ppm",
+                    "rows": 1040,
+                    "image": "solid/fractional/fractional-0-150-0.png"
+                  },
+                  {
+                    "path": "solid/fractional/fractional-0-150-1.ppm",
+                    "rows": 160,
+                    "image": "solid/fractional/fractional-0-150-1.png"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "name": "WAYLAND-1",
+            "x": 0,
+            "y": 0,
+            "width": 1366,
+            "height": 768,
+            "frames": [
+              {
+                "ratio": 120,
+                "width": 1366,
+                "height": 768,
+                "bands": [
+                  {
+                    "path": "solid/fractional/fractional-1-120-0.ppm",
+                    "rows": 768,
+                    "image": "solid/fractional/fractional-1-120-0.png"
+                  }
+                ]
+              },
+              {
+                "ratio": 150,
+                "width": 1708,
+                "height": 960,
+                "bands": [
+                  {
+                    "path": "solid/fractional/fractional-1-150-0.ppm",
+                    "rows": 960,
+                    "image": "solid/fractional/fractional-1-150-0.png"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "cases": [
+        {
+          "box": "1370,1 100x100",
+          "expected": "solid/fractional/0.png",
+          "compare": "rgba"
+        },
+        {
+          "box": "1372,1 100x100",
+          "expected": "solid/fractional/1.png",
+          "compare": "rgba"
+        },
+        {
+          "box": "1300,100 100x50",
+          "expected": "solid/fractional/2.png",
+          "compare": "rgba"
+        }
+      ]
+    },
+    {
+      "name": "solid/stacked",
+      "monitors": [
+        {
+          "name": "WAYLAND-1",
+          "x": 0,
+          "y": 0,
+          "width": 1680,
+          "height": 1050,
+          "scale": 1,
+          "transform": 0
+        },
+        {
+          "name": "CROP-SECOND",
+          "x": 0,
+          "y": 1050,
+          "width": 1920,
+          "height": 1200,
+          "scale": 1.25,
+          "transform": 0
+        }
+      ],
+      "answer": {
+        "screens": [
+          {
+            "name": "CROP-SECOND",
+            "x": 0,
+            "y": 1050,
+            "width": 1536,
+            "height": 960,
+            "frames": [
+              {
+                "ratio": 150,
+                "width": 1920,
+                "height": 1200,
+                "bands": [
+                  {
+                    "path": "solid/stacked/stacked-0-150-0.ppm",
+                    "rows": 1040,
+                    "image": "solid/stacked/stacked-0-150-0.png"
+                  },
+                  {
+                    "path": "solid/stacked/stacked-0-150-1.ppm",
+                    "rows": 160,
+                    "image": "solid/stacked/stacked-0-150-1.png"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "name": "WAYLAND-1",
+            "x": 0,
+            "y": 0,
+            "width": 1680,
+            "height": 1050,
+            "frames": [
+              {
+                "ratio": 120,
+                "width": 1680,
+                "height": 1050,
+                "bands": [
+                  {
+                    "path": "solid/stacked/stacked-1-120-0.ppm",
+                    "rows": 1050,
+                    "image": "solid/stacked/stacked-1-120-0.png"
+                  }
+                ]
+              },
+              {
+                "ratio": 150,
+                "width": 2100,
+                "height": 1313,
+                "bands": [
+                  {
+                    "path": "solid/stacked/stacked-1-150-0.ppm",
+                    "rows": 950,
+                    "image": "solid/stacked/stacked-1-150-0.png"
+                  },
+                  {
+                    "path": "solid/stacked/stacked-1-150-1.ppm",
+                    "rows": 363,
+                    "image": "solid/stacked/stacked-1-150-1.png"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "cases": [
+        {
+          "box": "100,1050 100x960",
+          "expected": "solid/stacked/0.png",
+          "compare": "rgba"
+        },
+        {
+          "box": "100,1950 100x100",
+          "expected": "solid/stacked/1.png",
+          "compare": "rgba"
+        }
+      ]
+    },
+    {
+      "name": "pattern/mixed2",
+      "monitors": [
+        {
+          "name": "WAYLAND-1",
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080,
+          "scale": 1,
+          "transform": 0
+        },
+        {
+          "name": "CROP-SECOND",
+          "x": 1920,
+          "y": 0,
+          "width": 1920,
+          "height": 1080,
+          "scale": 2,
+          "transform": 0
+        }
+      ],
+      "answer": {
+        "screens": [
+          {
+            "name": "CROP-SECOND",
+            "x": 1920,
+            "y": 0,
+            "width": 960,
+            "height": 540,
+            "frames": [
+              {
+                "ratio": 240,
+                "width": 1920,
+                "height": 1080,
+                "bands": [
+                  {
+                    "path": "pattern/mixed2/mixed2-0-240-0.ppm",
+                    "rows": 1040,
+                    "image": "pattern/mixed2/mixed2-0-240-0.png"
+                  },
+                  {
+                    "path": "pattern/mixed2/mixed2-0-240-1.ppm",
+                    "rows": 40,
+                    "image": "pattern/mixed2/mixed2-0-240-1.png"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "name": "WAYLAND-1",
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 1080,
+            "frames": [
+              {
+                "ratio": 120,
+                "width": 1920,
+                "height": 1080,
+                "bands": [
+                  {
+                    "path": "pattern/mixed2/mixed2-1-120-0.ppm",
+                    "rows": 1041,
+                    "image": "pattern/mixed2/mixed2-1-120-0.png"
+                  },
+                  {
+                    "path": "pattern/mixed2/mixed2-1-120-1.ppm",
+                    "rows": 39,
+                    "image": "pattern/mixed2/mixed2-1-120-1.png"
+                  }
+                ]
+              },
+              {
+                "ratio": 240,
+                "width": 3840,
+                "height": 2160,
+                "bands": [
+                  {
+                    "path": "pattern/mixed2/mixed2-1-240-0.ppm",
+                    "rows": 520,
+                    "image": "pattern/mixed2/mixed2-1-240-0.png"
+                  },
+                  {
+                    "path": "pattern/mixed2/mixed2-1-240-1.ppm",
+                    "rows": 520,
+                    "image": "pattern/mixed2/mixed2-1-240-1.png"
+                  },
+                  {
+                    "path": "pattern/mixed2/mixed2-1-240-2.ppm",
+                    "rows": 520,
+                    "image": "pattern/mixed2/mixed2-1-240-2.png"
+                  },
+                  {
+                    "path": "pattern/mixed2/mixed2-1-240-3.ppm",
+                    "rows": 520,
+                    "image": "pattern/mixed2/mixed2-1-240-3.png"
+                  },
+                  {
+                    "path": "pattern/mixed2/mixed2-1-240-4.ppm",
+                    "rows": 80,
+                    "image": "pattern/mixed2/mixed2-1-240-4.png"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "cases": [
+        {
+          "box": "1860,100 100x100",
+          "expected": "pattern/mixed2/0.png",
+          "compare": "alpha"
+        }
+      ]
+    },
+    {
+      "name": "pattern/mixed15",
+      "monitors": [
+        {
+          "name": "WAYLAND-1",
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080,
+          "scale": 1,
+          "transform": 0
+        },
+        {
+          "name": "CROP-SECOND",
+          "x": 1920,
+          "y": 0,
+          "width": 1920,
+          "height": 1080,
+          "scale": 1.5,
+          "transform": 0
+        }
+      ],
+      "answer": {
+        "screens": [
+          {
+            "name": "CROP-SECOND",
+            "x": 1920,
+            "y": 0,
+            "width": 1280,
+            "height": 720,
+            "frames": [
+              {
+                "ratio": 180,
+                "width": 1920,
+                "height": 1080,
+                "bands": [
+                  {
+                    "path": "pattern/mixed15/mixed15-0-180-0.ppm",
+                    "rows": 1041,
+                    "image": "pattern/mixed15/mixed15-0-180-0.png"
+                  },
+                  {
+                    "path": "pattern/mixed15/mixed15-0-180-1.ppm",
+                    "rows": 39,
+                    "image": "pattern/mixed15/mixed15-0-180-1.png"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "name": "WAYLAND-1",
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 1080,
+            "frames": [
+              {
+                "ratio": 120,
+                "width": 1920,
+                "height": 1080,
+                "bands": [
+                  {
+                    "path": "pattern/mixed15/mixed15-1-120-0.ppm",
+                    "rows": 1041,
+                    "image": "pattern/mixed15/mixed15-1-120-0.png"
+                  },
+                  {
+                    "path": "pattern/mixed15/mixed15-1-120-1.ppm",
+                    "rows": 39,
+                    "image": "pattern/mixed15/mixed15-1-120-1.png"
+                  }
+                ]
+              },
+              {
+                "ratio": 180,
+                "width": 2880,
+                "height": 1620,
+                "bands": [
+                  {
+                    "path": "pattern/mixed15/mixed15-1-180-0.ppm",
+                    "rows": 693,
+                    "image": "pattern/mixed15/mixed15-1-180-0.png"
+                  },
+                  {
+                    "path": "pattern/mixed15/mixed15-1-180-1.ppm",
+                    "rows": 693,
+                    "image": "pattern/mixed15/mixed15-1-180-1.png"
+                  },
+                  {
+                    "path": "pattern/mixed15/mixed15-1-180-2.ppm",
+                    "rows": 234,
+                    "image": "pattern/mixed15/mixed15-1-180-2.png"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "cases": [
+        {
+          "box": "1860,100 100x100",
+          "expected": "pattern/mixed15/0.png",
+          "compare": "alpha"
+        }
+      ]
+    },
+    {
+      "name": "pattern/single15",
+      "monitors": [
+        {
+          "name": "WAYLAND-1",
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080,
+          "scale": 1.5,
+          "transform": 0
+        }
+      ],
+      "answer": {
+        "screens": [
+          {
+            "name": "WAYLAND-1",
+            "x": 0,
+            "y": 0,
+            "width": 1280,
+            "height": 720,
+            "frames": [
+              {
+                "ratio": 180,
+                "width": 1920,
+                "height": 1080,
+                "bands": [
+                  {
+                    "path": "pattern/single15/single15-0-180-0.ppm",
+                    "rows": 1041,
+                    "image": "pattern/single15/single15-0-180-0.png"
+                  },
+                  {
+                    "path": "pattern/single15/single15-0-180-1.ppm",
+                    "rows": 39,
+                    "image": "pattern/single15/single15-0-180-1.png"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "cases": [
+        {
+          "box": "1201,100 100x100",
+          "expected": "pattern/single15/0.png",
+          "compare": "alpha"
+        },
+        {
+          "box": "100,701 100x100",
+          "expected": "pattern/single15/1.png",
+          "compare": "alpha"
+        }
+      ]
+    },
+    {
+      "name": "pattern/single125",
+      "monitors": [
+        {
+          "name": "WAYLAND-1",
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080,
+          "scale": 1.25,
+          "transform": 0
+        }
+      ],
+      "answer": {
+        "screens": [
+          {
+            "name": "WAYLAND-1",
+            "x": 0,
+            "y": 0,
+            "width": 1536,
+            "height": 864,
+            "frames": [
+              {
+                "ratio": 150,
+                "width": 1920,
+                "height": 1080,
+                "bands": [
+                  {
+                    "path": "pattern/single125/single125-0-150-0.ppm",
+                    "rows": 1040,
+                    "image": "pattern/single125/single125-0-150-0.png"
+                  },
+                  {
+                    "path": "pattern/single125/single125-0-150-1.ppm",
+                    "rows": 40,
+                    "image": "pattern/single125/single125-0-150-1.png"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "cases": [
+        {
+          "box": "1530,100 100x100",
+          "expected": "pattern/single125/0.png",
+          "compare": "alpha"
+        }
+      ]
+    },
+    {
+      "name": "pattern/fractional",
+      "monitors": [
+        {
+          "name": "WAYLAND-1",
+          "x": 0,
+          "y": 0,
+          "width": 1366,
+          "height": 768,
+          "scale": 1,
+          "transform": 0
+        },
+        {
+          "name": "CROP-SECOND",
+          "x": 1366,
+          "y": 0,
+          "width": 1920,
+          "height": 1200,
+          "scale": 1.25,
+          "transform": 0
+        }
+      ],
+      "answer": {
+        "screens": [
+          {
+            "name": "CROP-SECOND",
+            "x": 1366,
+            "y": 0,
+            "width": 1536,
+            "height": 960,
+            "frames": [
+              {
+                "ratio": 150,
+                "width": 1920,
+                "height": 1200,
+                "bands": [
+                  {
+                    "path": "pattern/fractional/fractional-0-150-0.ppm",
+                    "rows": 1040,
+                    "image": "pattern/fractional/fractional-0-150-0.png"
+                  },
+                  {
+                    "path": "pattern/fractional/fractional-0-150-1.ppm",
+                    "rows": 160,
+                    "image": "pattern/fractional/fractional-0-150-1.png"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "name": "WAYLAND-1",
+            "x": 0,
+            "y": 0,
+            "width": 1366,
+            "height": 768,
+            "frames": [
+              {
+                "ratio": 120,
+                "width": 1366,
+                "height": 768,
+                "bands": [
+                  {
+                    "path": "pattern/fractional/fractional-1-120-0.ppm",
+                    "rows": 768,
+                    "image": "pattern/fractional/fractional-1-120-0.png"
+                  }
+                ]
+              },
+              {
+                "ratio": 150,
+                "width": 1708,
+                "height": 960,
+                "bands": [
+                  {
+                    "path": "pattern/fractional/fractional-1-150-0.ppm",
+                    "rows": 960,
+                    "image": "pattern/fractional/fractional-1-150-0.png"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "cases": [
+        {
+          "box": "1370,1 100x100",
+          "expected": "pattern/fractional/0.png",
+          "compare": "alpha"
+        },
+        {
+          "box": "1372,1 100x100",
+          "expected": "pattern/fractional/1.png",
+          "compare": "alpha"
+        },
+        {
+          "box": "1300,100 100x50",
+          "expected": "pattern/fractional/2.png",
+          "compare": "alpha"
+        }
+      ]
+    },
+    {
+      "name": "pattern/stacked",
+      "monitors": [
+        {
+          "name": "WAYLAND-1",
+          "x": 0,
+          "y": 0,
+          "width": 1680,
+          "height": 1050,
+          "scale": 1,
+          "transform": 0
+        },
+        {
+          "name": "CROP-SECOND",
+          "x": 0,
+          "y": 1050,
+          "width": 1920,
+          "height": 1200,
+          "scale": 1.25,
+          "transform": 0
+        }
+      ],
+      "answer": {
+        "screens": [
+          {
+            "name": "CROP-SECOND",
+            "x": 0,
+            "y": 1050,
+            "width": 1536,
+            "height": 960,
+            "frames": [
+              {
+                "ratio": 150,
+                "width": 1920,
+                "height": 1200,
+                "bands": [
+                  {
+                    "path": "pattern/stacked/stacked-0-150-0.ppm",
+                    "rows": 1040,
+                    "image": "pattern/stacked/stacked-0-150-0.png"
+                  },
+                  {
+                    "path": "pattern/stacked/stacked-0-150-1.ppm",
+                    "rows": 160,
+                    "image": "pattern/stacked/stacked-0-150-1.png"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "name": "WAYLAND-1",
+            "x": 0,
+            "y": 0,
+            "width": 1680,
+            "height": 1050,
+            "frames": [
+              {
+                "ratio": 120,
+                "width": 1680,
+                "height": 1050,
+                "bands": [
+                  {
+                    "path": "pattern/stacked/stacked-1-120-0.ppm",
+                    "rows": 1050,
+                    "image": "pattern/stacked/stacked-1-120-0.png"
+                  }
+                ]
+              },
+              {
+                "ratio": 150,
+                "width": 2100,
+                "height": 1313,
+                "bands": [
+                  {
+                    "path": "pattern/stacked/stacked-1-150-0.ppm",
+                    "rows": 950,
+                    "image": "pattern/stacked/stacked-1-150-0.png"
+                  },
+                  {
+                    "path": "pattern/stacked/stacked-1-150-1.ppm",
+                    "rows": 363,
+                    "image": "pattern/stacked/stacked-1-150-1.png"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "cases": [
+        {
+          "box": "100,1050 100x960",
+          "expected": "pattern/stacked/0.png",
+          "compare": "alpha"
+        },
+        {
+          "box": "100,1950 100x100",
+          "expected": "pattern/stacked/1.png",
+          "compare": "alpha"
+        }
+      ]
+    }
+  ]
+}

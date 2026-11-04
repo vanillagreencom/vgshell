@@ -910,14 +910,14 @@ def screenshot_choices(base, source):
         assert choice_holds(root, HELPER, payload, geometry=expected, selection=False), name
     # A selection on a scaled output: no grim run, and an image at the
     # box's size times the greatest scale of the outputs it meets, each
-    # output's part from its frame at that scale.
+    # output's part from its frame at that scale. Mixed-output edges use
+    # crop_holds' grim recordings rather than fixture_crop's opaque model.
     def scaled_rows_hold(helper):
         left = {"x": -320, "y": 0, "width": 640, "height": 480, "scale": 2, "transform": 0, "name": "LEFT"}
         nested = {"x": 0, "y": 0, "width": 320, "height": 240, "scale": 1, "transform": 0, "name": "NESTED"}
         for name, outputs, geometry, scale in [
             ("mixed-scaled", [left, nested], "-300,20 80x60", 2),
             ("mixed-plain", [left, nested], "10,20 80x60", 1),
-            ("mixed-spanning", [left, nested], "-20,20 40x30", 2),
             ("scaled", [dict(left, x=0)], "10,20 80x60", 2),
         ]:
             root = world(name + "-" + Path(helper).stem, geometry=geometry)
@@ -2147,17 +2147,13 @@ def freeze_cases(base, world):
     assert not still_timing_holds(world("dropped-still-pick", slurpRelease=True), dropping, "pick"), "control did not fail: dropped-still-pick"
 
 
-def crop_holds(source):
-    """Still.crop and png give the image `grim -g BOX` writes, from the band
-    files the core writes for each output, as FreezeBands.plan plans them:
-    each box comes at the greatest scale of the outputs it meets, each
-    output's part from its frame at that scale placed at its offset from the
-    box times that scale rounded half up, and a part no output covers,
-    inside the layout or past its edge, is transparent. Each layout's
-    outputs come through output_rectangles from Hyprland's reading, so the
-    scale it derives is the one grim renders at. A frame's pixel at x,y is
-    (x, y, its mark). A band whose file disagrees with the answer is
-    refused."""
+def crop_holds(source, recordings):
+    """Crops match recorded grim RGBA on solid backgrounds and alpha on
+    striped backgrounds. Native/core sampling may differ in RGB (D118).
+    Synthetic gradients also pin inside-frame placement, half-up ties,
+    band ordering and the lower output's row bound without a compositor.
+    The fixtures hold lossless PNGs of core PPM bands and pre-freeze grim PNGs from
+    nested unit VGS-2265-guarded-1793827836, plus its monitor readings."""
     helper = runpy.run_path(str(source))
     def monitor(name, x, y, width, height, scale):
         return {"name": name, "x": x, "y": y, "width": width, "height": height, "scale": scale, "transform": 0}
@@ -2170,6 +2166,7 @@ def crop_holds(source):
         "mixed": [monitor("A", 0, 0, 100, 50, 1), monitor("B", 100, 10, 100, 50, 2)],
         "fractional": [monitor("eDP-1", 0, 0, 1366, 768, 1), monitor("DP-1", 1366, 0, 1920, 1200, 1.25)],
         "snapped": [monitor("A", 0, 0, 2560, 1440, 1.3333334)],
+        "stacked": [monitor("A", 0, 0, 1680, 1050, 1), monitor("B", 0, 1050, 1920, 1200, 1.25)],
     }
     marks = {"A": 1, "B": 2, "eDP-1": 3, "DP-1": 5}
     # layout, box, size, pieces [(output, frame's x and y in the box)],
@@ -2178,8 +2175,6 @@ def crop_holds(source):
     cases = [
         ("mixed", "10,5 20x10", (20, 10), [("A", -10, -5)], None),
         ("mixed", "110,15 20x10", (40, 20), [("B", -20, -10)], None),
-        ("mixed", "90,20 20x10", (40, 20), [("A", -180, -40), ("B", 20, -20)], None),
-        ("mixed", "90,0 20x15", (40, 30), [("A", -180, 0), ("B", 20, 20)], [(0, 20, [(0, 20)]), (20, 30, [(0, 40)])]),
         # Past the layout's right edge, and past its left and top edges.
         ("mixed", "140,15 30x10", (60, 20), [("B", -80, -10)], [(0, 20, [(0, 20)])]),
         ("mixed", "-10,-5 20x10", (20, 10), [("A", 10, 5)], [(0, 5, []), (5, 10, [(10, 20)])]),
@@ -2187,9 +2182,10 @@ def crop_holds(source):
         ("fractional", "1366,0 1536x960", (1920, 1200), [("DP-1", 0, 0)], None),
         # An offset whose scaled value rounds: -1 * 1.25 = -1.25 to -1.
         ("fractional", "1367,1 100x100", (125, 125), [("DP-1", -1, -1)], None),
-        # Over both panels at 1.25: the 1366 panel's frame at that scale,
-        # whose right edge 1708 - 1625 = 83 meets DP-1's offset 66 * 1.25.
-        ("fractional", "1300,100 100x50", (125, 62), [("eDP-1", -1625, -125), ("DP-1", 83, -125)], None),
+        # -6 * 1.25 = -7.5: half-up is -7, banker's rounding is -8.
+        ("fractional", "1372,1 100x100", (125, 125), [("DP-1", -7, -1)], None),
+        ("stacked", "100,1050 100x960", (125, 1200), [("B", -125, 0)], None),
+        ("stacked", "100,1950 100x100", (125, 125), [("B", -125, -1125)], [(0, 75, [(0, 125)]), (75, 125, [])]),
         ("snapped", "0,0 1920x1080", (2560, 1440), [("A", 0, 0)], None),
         ("snapped", "1000,500 920x580", (1226, 773), [("A", -1333, -667)], None),
     ]
@@ -2251,6 +2247,49 @@ def crop_holds(source):
                 wanted = (w, h, 4, [bytes(v for x in range(w) for v in (*row[x * 3:x * 3 + 3], alpha[x])) for row, alpha in zip(want, want_alpha)])
             if decoded != wanted:
                 return False
+        # Interior samples hold common-scale RGB frame selection and the
+        # layout gap separately from the recorded edge-coverage oracle.
+        rects, answer = stills["mixed"]
+        width, height, rows, alphas = helper["Still"](rects, answer).crop("90,0 20x15")
+        if (width, height) != (40, 30) or alphas is None:
+            return False
+        for column, row, pixel in [(0, 10, (180, 10, 1, 255)), (30, 10, (0, 0, 0, 0)), (30, 25, (10, 5, 2, 255))]:
+            if (*rows[row][column * 3:column * 3 + 3], alphas[row][column]) != pixel:
+                return False
+
+        def rgba(data):
+            width, height, channels, decoded = png_rows(data)
+            if channels == 3:
+                joined = []
+                for row in decoded:
+                    line = bytearray(b"\xff" * (width * 4))
+                    for channel in range(3):
+                        line[channel::4] = row[channel::3]
+                    joined.append(bytes(line))
+                decoded = joined
+            return width, height, decoded
+
+        recorded = json.loads((recordings / "recordings.json").read_text())
+        for layout in recorded["layouts"]:
+            answer = json.loads(json.dumps(layout["answer"]))
+            for screen in answer["screens"]:
+                for frame in screen["frames"]:
+                    for band in frame["bands"]:
+                        band["path"] = str(recordings / band["path"])
+            still = helper["Still"](helper["output_rectangles"](layout["monitors"]), answer)
+            for case in layout["cases"]:
+                try:
+                    actual = rgba(helper["png"](*still.crop(case["box"])))
+                except (RuntimeError, KeyError, ValueError, IndexError):
+                    return False
+                expected = rgba((recordings / case["expected"]).read_bytes())
+                if actual[:2] != expected[:2]:
+                    return False
+                got, want = actual[2], expected[2]
+                if case["compare"] == "alpha":
+                    got, want = [r[3::4] for r in got], [r[3::4] for r in want]
+                if got != want:
+                    return False
         # A band whose file holds fewer rows than the answer names.
         rects, answer = stills["mixed"]
         short = json.loads(json.dumps(answer))
@@ -2429,7 +2468,24 @@ def main():
             helper.write_text(original.replace(before, after))
             assert not late_answer_holds(helper), f"control did not fail: {name}"
         freeze_cases(base, world)
-        assert crop_holds(HELPER), "a selection's crop is grim's image of its box"
+        recordings = base / "crop-recordings"
+        fixtures = REPO / "scripts/fixtures/capture/crops"
+        recorded = json.loads((fixtures / "recordings.json").read_text())
+        for layout in recorded["layouts"]:
+            for screen in layout["answer"]["screens"]:
+                for frame in screen["frames"]:
+                    frame_rows = []
+                    for band in frame["bands"]:
+                        width, height, channels, rows = png_rows((fixtures / band["image"]).read_bytes())
+                        assert (width, height, channels) == (frame["width"], band["rows"], 3), band["image"]
+                        frame_rows.extend(rows)
+                        band["path"] = str(recordings / band["path"])
+                        Path(band["path"]).parent.mkdir(parents=True, exist_ok=True)
+                    write_frame(frame, frame_rows.__getitem__)
+            for case in layout["cases"]:
+                case["expected"] = str(fixtures / case["expected"])
+        (recordings / "recordings.json").write_text(json.dumps(recorded))
+        assert crop_holds(HELPER, recordings), "a crop has grim's coverage and its pixels on solid backgrounds"
         crop_source = HELPER.read_text()
         for name, before, after in [
             # The layout's greatest scale in place of the box's.
@@ -2444,6 +2500,9 @@ def main():
             ("band-order", "index = bisect.bisect_right(self.starts, y) - 1", "index = 0"),
             # A box inside one output read from the frame's top-left.
             ("inside-offset", "frame.pixels(r - dy, -dx, cw - dx) for r in range(ch)", "frame.pixels(r, 0, cw) for r in range(ch)"),
+            ("half-pixel", "edge = lambda value: math.floor(value * scale + 0.5)", "edge = lambda value: round(value * scale)"),
+            ("vertical-coverage", 'coverage((output["y"] - y) * scale, output["height"] * scale, native["height"], ch)', '[256] * ch'),
+            ("edge-over", "inverse = 255 - alpha", "inverse = 0"),
             # Each output's own frame placed at the box's greater scale.
             ("own-ratio-crop", "frame = self.frame(output, ratio)", 'frame = self.frame(output, round(output["scale"] * 120))'),
             # A band file read whatever its header says.
@@ -2452,7 +2511,7 @@ def main():
             assert crop_source.count(before) == 1, name
             mutant = base / (name + ".py")
             mutant.write_text(crop_source.replace(before, after))
-            assert not crop_holds(mutant), "control did not fail: " + name
+            assert not crop_holds(mutant, recordings), "control did not fail: " + name
         assert bands_hold(BANDS), "the core cuts each frame into bands of at most BAND_PIXELS on whole rows"
         bands_source = BANDS.read_text()
         # Round 1's cut, whole multiples of the logical step at which the
@@ -2574,7 +2633,7 @@ def main():
         assert not killed_owner_holds(root, request(root, "record"), config, helper), "control did not fail: unowned child"
     if unmeasured is None:
         recording_controls += ",no-trim"
-    controls = ("capture-sequence,waiting-clipboard,second-grim,live-grab,grim-before-freeze,layout-scale,opaque-gap,bounds-refusal,truncated-logical,band-order,inside-offset,own-ratio-crop,unchecked-band,step-cut,provider-completion,exit-keeps-freeze,delay-field-drawn,delay-unsaved,delay-saved-elsewhere,save-unsent,delay-unread,delay-overwritten,timeout-sent,delay-unchecked,undrawn-windows,drawn-window-delegate,model-windows,old-special-id-0.57-empty,raw-ocr-error,no-output,no-clipboard,hard-stop,inherited-stdin,unawaited-freeze,listed-freeze,any-layer-freeze,dropped-still,dropped-still-pick,unowned-child,invalid-delay-accepted,invalid-processing-accepted,empty-selection-accepted,empty-displays-accepted,smart-snap,window-boxes,display-boxes,all-bounds,no-scale,unscaled-crop,no-rotation,no-cursor,no-still-cursor,copy-saves,save-copies,no-delay,delay-ignores-cancel,no-timeout,written-ignores-cancel,selector-ignores-cancel,geometry-over-cancel,late-answer-error,no-selection-end," + recording_controls + "," + notification_controls)
+    controls = ("capture-sequence,waiting-clipboard,second-grim,live-grab,grim-before-freeze,layout-scale,opaque-gap,bounds-refusal,truncated-logical,band-order,inside-offset,half-pixel,vertical-coverage,edge-over,own-ratio-crop,unchecked-band,step-cut,provider-completion,exit-keeps-freeze,delay-field-drawn,delay-unsaved,delay-saved-elsewhere,save-unsent,delay-unread,delay-overwritten,timeout-sent,delay-unchecked,undrawn-windows,drawn-window-delegate,model-windows,old-special-id-0.57-empty,raw-ocr-error,no-output,no-clipboard,hard-stop,inherited-stdin,unawaited-freeze,listed-freeze,any-layer-freeze,dropped-still,dropped-still-pick,unowned-child,invalid-delay-accepted,invalid-processing-accepted,empty-selection-accepted,empty-displays-accepted,smart-snap,window-boxes,display-boxes,all-bounds,no-scale,unscaled-crop,no-rotation,no-cursor,no-still-cursor,copy-saves,save-copies,no-delay,delay-ignores-cancel,no-timeout,written-ignores-cancel,selector-ignores-cancel,geometry-over-cancel,late-answer-error,no-selection-end," + recording_controls + "," + notification_controls)
     if unmeasured is not None:
         # The rest passed, but the real post-process could not run: not a pass.
         print(f"test-capture: status=not-measured cause={unmeasured}; controls={controls}")
