@@ -715,6 +715,7 @@ mutations=(
   "the Jarvis daemon loses the Hyprland session|../plugins/vgs.jarvis/Service.qml|            HYPRLAND_INSTANCE_SIGNATURE: Quickshell.env(\"HYPRLAND_INSTANCE_SIGNATURE\"),||tst_jarvis_service.qml"
   "a retired Jarvis setup reader throws on its refused write|../Core/PluginLogic.js|if (STATUS_KEY_PATTERN.test(match[1])) return statusRefusal(match[1], \"retired\") === reply;|if (STATUS_KEY_PATTERN.test(match[1])) return false;|tst_jarvis_local_runtime.qml"
   "the power card shows on every screen|../plugins/vgs.jarvis/PowerCard.qml|screen.name === wait.focusedOutput|true|tst_jarvis_power_card.qml"
+  "the overlay's fault card draws its action through a plain label|../plugins/vgs.jarvis/Bubble.qml|LinkText {|Label { signal pageActivated(string page, string tab); textFormat: Text.PlainText;|tst_jarvis_bubble.qml"
   "the power card's button does not proceed|../plugins/vgs.jarvis/PowerCard.qml|onClicked: root.wait.proceedNow()|onClicked: {}|tst_jarvis_power_card.qml"
   "the power wait's bound only hides the card|../plugins/vgs.jarvis/PowerWait.qml|            root.proceedNow();|            root.end();|tst_jarvis_power_card.qml"
   "the power wait's bound goes with the helper's|../plugins/vgs.jarvis/PowerWait.qml|interval: root.waitMs + root.fallbackMarginMs|interval: root.waitMs|tst_jarvis_power_card.qml"
