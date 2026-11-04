@@ -17,6 +17,7 @@ The review directory is `{review_dir}`. The files below are in it. Read and writ
   - `server <repository> <url>`: one server of that repository.
   - `siglevel <repository> <level>`: the signature level pacman applies to it.
   - `install <package> <state>`: how the update changes the AUR package's install script against the installed package's: `none` (the update has no install script), `new` (the installed package has none), `unchanged`, `changed`, or `unread` (the update could not find or read the script).
+  - `unknown <cause>`: evidence the update could not establish. `dependencies=unresolved name=<package>` is the fixed limit that an AUR build may add dependencies no review can know before the build. It does not mean the listed package's review failed. Review the gathered package files normally; that limit alone needs no flag. Other causes name failed evidence reads, which the installer shows before asking whether to continue without a review.
 - `build/<folder>/` holds each AUR package's build files, which the update fetched for you. The folder is the package base, which for a split package differs from the package's name.
 - `install/<package>.diff` is the diff of a `changed` install script against the installed one.
 - `verdict` is the file you write last.
@@ -40,3 +41,5 @@ The review directory is `{review_dir}`. The files below are in it. Read and writ
 5. Show one line per package with what you found. Then tell the user: "The review is done. Exit the agent to return to the package installer."
 
 The user can talk to you in this terminal. Answer their questions. Change the verdict only when they show you that a concern is wrong.
+
+The review authorizes the gathered package plan. Updates keeps one receipt for its system and AUR steps. The AUR step rechecks pending names and old/new versions, origins and gathered recipes. It refuses a change and names the field. Replacing the helper, a pacman Include or repository candidate metadata during the system step does not change that AUR authorization. Transaction, parent process, command path, action, targets, config path, ignores and single-use step authority still apply. An unrecognized custom command keeps its stricter binding and requires explicit consent for unavailable evidence.

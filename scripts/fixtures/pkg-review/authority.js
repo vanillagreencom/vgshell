@@ -3,8 +3,8 @@
 // Each test changes one source input between those production entry calls.
 "use strict";
 const fs=require("node:fs"),path=require("node:path"),cp=require("node:child_process");
-const [root,change="none",manager="pacman"]=process.argv.slice(2);
-const owner=path.resolve(__dirname,"../../../bin/vgshell-pkg");
+const [root,change="none",manager="pacman",ownerOverride]=process.argv.slice(2);
+const owner=ownerOverride||path.resolve(__dirname,"../../../bin/vgshell-pkg");
 const created=cp.spawnSync(process.execPath,[owner,"review-transaction"],{env:process.env,encoding:"utf8"});
 if(created.status!==0)throw Error(created.stderr);
 const env={...process.env,VGS_PACKAGE_TRANSACTION:created.stdout.trim()};
@@ -12,6 +12,12 @@ const config=path.join(root,"pacman.conf"),other=path.join(root,"aur.conf");fs.c
 const linkedConfig=manager==="pacman"?config:other;
 if(change==="config-link"||change==="config-link-changed"){fs.renameSync(linkedConfig,linkedConfig+".source");fs.symlinkSync(linkedConfig+".source",linkedConfig);}
 const request={version:1,mode:"upgrade",action:"upgrade",groups:[{manager:"pacman",names:[],installs:[],ignored:["input-ignore"],config},{manager:"aur",names:[],installs:[],ignored:[],config:other}],sources:["pacman","aur"],rebuild:["aurpkg"],config:other,customAurArgv:null};
+fs.writeFileSync(path.join(root,"aur-pending"),"");
+if(change==="after-system-candidate")fs.unlinkSync(path.join(root,"aur-pending"));
+const sequential=change.startsWith("after-system-");
+if(sequential)request.rebuild=[];
+if(change.startsWith("after-system-recognized-"))request.customAurArgv=["paru","-Sua"];
+if(change.startsWith("after-system-custom-"))request.customAurArgv=["paru","--devel"];
 if(change==="recipe")request.rebuild=["foreign"];
 if(change==="origin-read-failed")fs.writeFileSync(path.join(root,"server-empty"),"");
 if(change==="custom-origin-read-failed"){
@@ -26,7 +32,12 @@ const reply=JSON.parse(fs.readFileSync(result));
 if(reply.decision!=="proceed")process.exit(81);
 let args=["run","upgrade","--manager",manager,"--review-receipt",reply.receipt,"--config",manager==="pacman"?config:other,...(manager==="pacman"?["--ignore","input-ignore"]:[])];
 const replace=(needle,value)=>{const at=args.indexOf(needle);if(at<0)throw Error(needle);args[at]=value;};
-switch(change){
+if(sequential){
+ if(run(["run","upgrade","--manager","pacman","--review-receipt",reply.receipt,"--config",config,"--ignore","input-ignore"])!==0)process.exit(86);
+ if(change.startsWith("after-system-custom-"))args=["review-custom-consume",reply.receipt,JSON.stringify(request.customAurArgv)];
+}
+const changed=sequential?change.replace(/^after-system-(?:recognized-|custom-)?/,""):change;
+switch(changed){
  case"none":case"config-link":case"origin-read-failed":break;
  case"custom-origin-read-failed":args=["review-custom-consume",reply.receipt,JSON.stringify(request.customAurArgv)];break;
  case"config-link-changed":fs.copyFileSync(linkedConfig,linkedConfig+".new");fs.appendFileSync(linkedConfig+".new","# changed\n");fs.unlinkSync(linkedConfig);fs.symlinkSync(linkedConfig+".new",linkedConfig);break;
@@ -39,11 +50,20 @@ switch(change){
  case"action":replace("upgrade","reinstall");args.push("widget");break;
  case"targets":replace("upgrade","install");args.push("widget");break;
  case"config":fs.appendFileSync(manager==="pacman"?config:other,"# changed\n");break;
- case"include":fs.appendFileSync(path.join(root,"included.conf"),"# changed\n");break;
+ case"include":{
+  const file=path.join(root,"included.conf");
+  if(sequential){fs.copyFileSync(file,file+".new");fs.appendFileSync(file+".new","# changed\n");fs.renameSync(file+".new",file);}
+  else fs.appendFileSync(file,"# changed\n");
+  break;
+ }
  case"config-path":replace(manager==="pacman"?config:other,path.join(root,"other.conf"));break;
  case"ignore":if(manager==="aur")args.push("--ignore");args.push("new-ignore");break;
- case"origin":fs.writeFileSync(path.join(root,"origin-changed"),"");break;
+ case"origin":fs.writeFileSync(path.join(root,manager==="aur"?"sync-extra":"origin-changed"),manager==="aur"?"custom foreign 2":"");break;
  case"pending":fs.writeFileSync(path.join(root,"pending-changed"),"");break;
+ case"pending-old":fs.writeFileSync(path.join(root,"pending-old-changed"),"");break;
+ case"pending-name":fs.writeFileSync(path.join(root,"pending-name-changed"),"");break;
+ case"candidate":fs.writeFileSync(path.join(root,"candidate-changed"),"");break;
+ case"aur-recipe":fs.appendFileSync(path.join(env.VGS_PACKAGE_TRANSACTION,path.dirname(reply.receipt),"evidence/build/foreign/PKGBUILD"),"# changed\n");break;
  case"binary":fs.unlinkSync(path.join(root,"tools",manager==="pacman"?"pacman":"paru"));fs.copyFileSync(path.join(__dirname,"command.js"),path.join(root,"tools",manager==="pacman"?"pacman":"paru"));fs.appendFileSync(path.join(root,"tools",manager==="pacman"?"pacman":"paru"),"\n// changed\n");fs.chmodSync(path.join(root,"tools",manager==="pacman"?"pacman":"paru"),0o755);break;
  case"transaction":env.VGS_PACKAGE_TRANSACTION=path.join(root,"run/foreign");fs.mkdirSync(env.VGS_PACKAGE_TRANSACTION,{mode:0o700});break;
  case"missing":replace(reply.receipt,reply.receipt.replace(/[a-f0-9]{48}$/,"a".repeat(48)));break;
