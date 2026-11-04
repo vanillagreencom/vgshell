@@ -35,11 +35,7 @@ function refuse(first) {
 // FILE's body, with each import line blanked so the body keeps its line
 // numbers, and its imports in order: { name, file } for a path import and
 // { name, module } for a bound module import. Only the header is cut into
-// lines: with every line of shell/Core/PluginLogic.js and its six imports
-// cut and joined again that load took 16.45, 17.40 and 16.95 ms, and with
-// the header alone 14.00, 14.25 and 14.65 ms (the median of 40 loads, each
-// in a new node 26.10.0 process, the two readers taking turns, three
-// rounds, cachy at load 21.3 to 22.6, 2026-10-13).
+// lines, to avoid splitting and joining the whole library on every load.
 function read(file, modules) {
     let source;
     try {

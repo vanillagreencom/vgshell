@@ -595,8 +595,8 @@ async function terminalRun(argv, rescan = true) {
 // when this process ends; no notice holds its retry. The tree is under the
 // temporary directory, as mktemp -d makes one, and not under the runtime
 // directory, whose tmpfs logind sizes at 10% of RAM by default
-// (logind.conf(5) RuntimeDirectorySize): paru 2.2.0's cargo build leaves a
-// 481M target (du after its makepkg build, VGS-2083 review, 2026-11-01).
+// (logind.conf(5) RuntimeDirectorySize): the helper's cargo build artifacts
+// can exceed that runtime-directory limit.
 async function bootstrapHelper() {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vgshell-helper-"));
     const tree = path.join(dir, "paru");

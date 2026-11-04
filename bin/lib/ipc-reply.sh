@@ -52,8 +52,7 @@ vgs_ipc_failure_rows=(
 # Pure Bash, so it forks nothing and cannot fail. A one-line reply, the
 # common one, is returned after one scan for a newline. `${TEXT##*$'\n'}`
 # says the same and is not used: bash matches that pattern against every
-# prefix, which took 0.19 s for one 32 KiB reply and grows with the square
-# (bash 5.3.20, host cachy, 2026-10-04).
+# prefix, so its cost grows quadratically with the reply's length.
 vgs_ipc_last_line_into() { # TEXT
   local head
   if [[ $1 != *$'\n'* ]]; then

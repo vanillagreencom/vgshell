@@ -909,10 +909,7 @@ const PARTIAL_STATUS = 3;
 // ConfigLogic.effectiveConfig, each judged by configError first. A layer
 // the judge refuses refuses the apply, since no target's enablement can
 // then be known. ConfigLogic is loaded here, once, by the commands that
-// read shell.json, and by no other: its load() took 3.14, 3.12 and 3.19 ms
-// against 14.47, 14.11 and 14.32 ms for PluginLogic.js (the median of 40
-// loads, each in a new node 26.10.0 process, the two libraries taking
-// turns, three rounds, cachy at load 26.3 to 34.2, 2026-10-12).
+// read shell.json, so other commands pay no configuration-load cost.
 let configLogic;
 function shellConfig(configDir, key) {
     configLogic ??= load(path.join(repo, "shell", "Core", "ConfigLogic.js"));
@@ -1776,9 +1773,7 @@ function applyTo(result, failures, configDir, stateDir, lock, name, keepBackgrou
     const shortfalls = row.source === "installed" && installOrigin(row.path, key).origin !== "catalog"
         ? userReadability(row.values) : null;
     // The shipped defaults lend their slots only to a package with none, so
-    // only that apply reads and judges them: the judgment took a median of
-    // 5.02, 4.79 and 4.88 ms over 13 applies a round (hrtime around the
-    // call, node 26.10.0 on cachy at load 13.6 to 15.7, 2026-10-13).
+    // only that apply pays the cost of reading and judging them.
     let source = render.terminalSource(row, null);
     if (source === null) {
         const defaults = packageRow(SHIPPED, logic.DEFAULT_NAME, "shipped");
@@ -2015,8 +2010,7 @@ function writePending(stateDir, names, before, key) {
 }
 
 // The order of two wiring records, by code unit: a process's first
-// localeCompare builds the collator, 3.9 ms in every theme command that
-// reads the records (node 26.10.0 on cachy, 2026-10-12).
+// localeCompare builds a collator that these locale-independent keys do not need.
 function wiredRecordCompare(a, b) {
     const order = (x, y) => x < y ? -1 : x > y ? 1 : 0;
     return order(a.target, b.target) || order(a.file, b.file) || order(a.line, b.line) || order(a.section || "", b.section || "");

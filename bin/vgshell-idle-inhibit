@@ -47,8 +47,7 @@ DO_NOT_QUEUE = 4
 PRIMARY_OWNER = 1
 FIRST_COOKIE = 1337
 # Each live cookie is one entry another application asked for
-# (docs/architecture/runtime.md § Memory). A browser holds one or two per
-# playing tab: Firefox 159 asked twice for one video in the nested trace.
+# (docs/architecture/runtime.md § Memory).
 LIVE_CEILING = 256
 # Connecting and the name request together, and each write after.
 SETUP_SECONDS = 5.0

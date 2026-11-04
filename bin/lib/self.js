@@ -64,7 +64,7 @@ const GIT_PACKAGE_PATTERN = /^[0-9]+\.[0-9]+\.[0-9]+(?:\.r|\^)[0-9]+\.g(?:it)?([
 const PACKAGES = ["vgshell", "vgshell-git"];
 const API = "https://api.github.com";
 // The seconds the release query may take, and the seconds and bytes one
-// download may take. The release archive was 5.5 MB at 0.1.0.
+// download may take.
 const API_TIMEOUT = 10;
 const DOWNLOAD_TIMEOUT = 120;
 const MAX_ARCHIVE = 128 * 1024 * 1024;
@@ -353,8 +353,8 @@ function engineRun(manager, source, root, payload) {
     if (!engineInstalled(engineFacts())) refuse("engine=not-installed package=vgshell-quickshell");
 }
 
-// apt depends on sqv (forky apt 3.3.3, VGS-1999 verifier probe). sqv
-// returns the validated primary fingerprint; no user keyring is consulted.
+// Debian forky's apt 3.3.3 depends on sqv, which returns the validated
+// primary fingerprint without consulting the user's keyring.
 function verifyEngine(directory) {
     const key = path.join(directory, "release-key.asc"), sums = path.join(directory, "SHA256SUMS");
     const signer = run(["sqv", "--keyring", key, path.join(directory, "SHA256SUMS.asc"), sums], {}, "signature=bad").trim();
@@ -421,9 +421,8 @@ async function migrateEngine(source = path.join(__dirname, "..", ".."), origin =
     } finally { if (scratch) fs.rmSync(scratch, { recursive: true, force: true }); }
 }
 
-// The previous curl updater already produces this layout. Recognizing its
-// complete transaction reaches the migration on its first new release,
-// without turning package recipe staging into a host package operation.
+// Require the curl updater's complete transaction layout so package recipe
+// staging cannot trigger a host package operation.
 async function migrateCurlStage(source, dest, prefix) {
     if (prefix !== "/vgshell") return;
     const data = real(path.join(process.env.XDG_DATA_HOME || path.join(process.env.HOME, ".local", "share"), "vgshell"));

@@ -404,8 +404,7 @@ vgs_tui_cancelled() { # TEXT
 # GUM_PAGER_HELP_FOREGROUND, or the terminal's own text colour without one.
 # gum erases its whole view, prompt included, once the question is
 # answered, and nothing gum draws can go below the buttons: its first write
-# erases the screen from the cursor down. Checked in private tmux runs of
-# gum 2.0.2 for VGS-1492 on 2026-10-12.
+# erases the screen from the cursor down.
 vgs_tui_confirm() { # QUESTION [GUM_FLAG...]
   local question="$1" flag previous="" yes=Yes no=No help lines=() margin
   shift
@@ -422,22 +421,20 @@ vgs_tui_confirm() { # QUESTION [GUM_FLAG...]
   printf -v help '\033[22m%s←→ choose • Enter confirm • y %s • n %s\033[0m' \
     "$(vgs_tui_sgr "${GUM_PAGER_HELP_FOREGROUND:-}" 39)" "$yes" "$no"
   # gum 2.0.2 cuts a question wider than the terminal at its last column,
-  # seen in a script(1) run for VGS-1521 on 2026-10-12, so it is wrapped
-  # here to the content edges.
+  # so wrap it to the content edges.
   _vgs_tui_lines lines "$(_vgs_tui_width)" "$question"
   printf -v question '%s\n' "${lines[@]}"
   margin="0 0 0 $_vgs_tui_edge"
   # gum 2.0.2 accepts these margin keys though `gum confirm --help` omits
-  # them; checked in a private tmux run for VGS-1475 on 2026-10-12. The
-  # same left margin on both buttons puts Yes at the edge and keeps No
-  # that far from it.
+  # them. The same left margin on both buttons puts Yes at the edge and
+  # keeps No that far from it.
   GUM_CONFIRM_SHOW_HELP=false _vgs_tui_ask confirm --prompt.margin "$margin" --selected.margin "$margin" --unselected.margin "$margin" "$@" -- "$question"$'\n'"$help"
 }
 
 # Every question: the blank row, gum KIND, then the mark, keeping gum's
 # status. gum 2.0.2 erases an answered question but the blank row above it
 # and leaves the cursor under that row, filter's alternate screen
-# included: read in private tmux runs for VGS-2116 on 2026-10-31.
+# included.
 _vgs_tui_ask() { # KIND [GUM_ARG...]
   local kind="$1" answer=0
   _vgs_tui_terminal "$kind" || return
@@ -662,16 +659,12 @@ _vgs_tui_rerun() { # LOG_FD [ARG...]
 
 # The OSC number of the marks around a command's output: one no terminal
 # handles, so the terminal draws nothing for them and the log's cleaner
-# drops them. Checked against the OSC tables of foot (osc.c
-# osc_dispatch), kitty (vt-parser.c dispatch_osc) and Ghostty
-# (terminal/osc.zig) on 2026-10-17: each discards an unknown OSC, and
+# drops them. The OSC tables of foot (osc.c osc_dispatch), kitty
+# (vt-parser.c dispatch_osc) and Ghostty (terminal/osc.zig) discard unknown OSCs;
 # kitty also logs it as an unknown escape code.
 _vgs_tui_mark_osc=8913
 # How long an end mark may take to reach the transcript after the command
-# exits, in seconds: a ceiling far above the wait measured with
-# vgs_tui_interval_cut's tail and awk under vgs_tui_log, 200 marks each
-# after 48 KiB of output, p50 5.7 ms, p99 17 ms, max 18.7 ms (a scratch
-# timing run on the development host, 2026-10-17).
+# exits, in seconds: bound the wait if the transcript writer stalls.
 _vgs_tui_mark_ceiling=10
 vgs_tui_interval_from="" vgs_tui_interval_nonce="" vgs_tui_unread=""
 

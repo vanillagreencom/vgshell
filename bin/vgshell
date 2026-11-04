@@ -860,11 +860,9 @@ scratch_open() { # COUNT
 # name a refusal carries, the version it needs, the extended regex whose
 # first group reads the version from the probe's output, and the probe.
 # `present` needs only a version the regex reads. The floor:
-# docs/architecture/runtime.md § Process. The node floor was measured on
-# cachy on 2026-09-28: node 18.0.0, 18.20.8, 20.20.2, 22.23.3 and 24.21.0 pass
-# every runtime suite, each run first on PATH in a node:18-bookworm container;
-# node 16.20.2 fails scripts/test-vgshell-reload.sh because its
-# fs.rmSync(file, { force: true }) returns on EACCES. The judges stay one file
+# docs/architecture/runtime.md § Process. Node 16.20.2's
+# fs.rmSync(file, { force: true }) returns on EACCES, so reload needs a
+# higher floor to detect a failed removal. The judges stay one file
 # the shell loads: docs/decisions/D009-one-manifest-judge-under-node.md.
 # scripts/check-packaging.js reads the first two columns, so a raised floor
 # fails that check until the package recipes' constraints follow.
@@ -939,10 +937,8 @@ nix_host_check() {
 # Only the probe's stdout is read, so a warning a tool prints on stderr
 # ahead of its version never hides it; hyprctl prints its connection error
 # on stdout. Every probe on PATH starts at once, each writing to its own
-# scratch file, because the shell starts only after the preflight: on host
-# cachy, `vgshell run` up to its exec of a stub qs took 30 to 38 ms with the
-# probes one after another and 20 to 31 ms with them together, twelve
-# runs each.
+# scratch file, so independent probes do not add their waits before the
+# shell can start.
 preflight() {
   nix_host_check
   local tool need pattern probe i fd have quickshell_version="" engine_report engine_status=0
@@ -1066,9 +1062,7 @@ rescan_if_running() { # [CALL...]
 # The process `restart` sends TERM to for the shell PID: its parent when
 # that parent holds the instance lock on descriptor 9, the runner, which
 # passes TERM to the shell and exits with no relaunch; PID itself when its
-# parent holds no lock, as under a runner from before D053 that execed qs
-# in place and so holds the lock in the shell's own process, which a
-# `vgshell self update` restart meets while such a runner still runs.
+# parent holds no lock, so restart can stop the shell in either case.
 shell_stop_target() { # PID
   local parent held lock_path target="$1"
   if parent="$(awk '$1 == "PPid:" { print $2 }' "/proc/$1/status" 2>/dev/null)" && [[ $parent =~ ^[0-9]+$ ]] \
@@ -1227,8 +1221,8 @@ installed_dir() { # ID
 # The git URL `plugin add` or `theme add` clones when the command line
 # names none: on a terminal, the line the user types into gum input, the
 # floating TUI's prompt, trimmed of surrounding blanks. With no terminal on
-# stdin it is the bad-invocation refusal url=missing, exit 2, as before any prompt
-# existed; an empty answer is url=missing too, a cancelled prompt
+# stdin it is the bad-invocation refusal url=missing, exit 2;
+# an empty answer is url=missing too, a cancelled prompt
 # cancelled=url, and a system without gum gum=missing. KIND, `plugin` or
 # `theme`, names what the URL is of. Print the URL.
 ask_url() { # KIND
@@ -2367,9 +2361,7 @@ restore_step() {
 # refusal back, while the shell queues `theme follow` at the end of every
 # scan, its first at start; so it waits for another theme command's hold
 # as long as restart waits for the shell to stop, and refuses as KEY
-# reason=busy only past that. In scripts/smoke/rows/reset.sh on host cachy
-# on 2026-10-06, at load 13.6, the restarted shell's first follow ended
-# 0.76 s after its scan and 0.43 s before the row pressed Restore.
+# reason=busy only past that.
 reset_lock_wait_s=10
 reset_run() { # KEY STEP
   local status=0
@@ -2524,9 +2516,7 @@ shell_launch() {
 # `run` after it took the lock: start the shell, wait on it, and start it
 # again after an exit as the supervision table decides; exits with the last
 # shell's status (docs/decisions/D069-runner-supervises-the-shell.md).
-# Quickshell 0.3.1 execs itself again in the same pid after a crash signal
-# once it has run 10 s, so only the exits it leaves reach this wait: a
-# crash sooner, SIGKILL, and Qt's _exit when the Wayland connection fails.
+# The VGS engine exits on a crash signal so this runner owns replacement.
 #
 # bash starts a background job with INT and QUIT ignored, so every stop
 # signal reaches the shell as TERM. A trapped signal ends `wait` early with

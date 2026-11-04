@@ -73,8 +73,7 @@ def route_package(detected):
 def supervise(role, argv):
     # A changed-state follower emits small JSON records; allow startup bursts,
     # but refuse a continuous writer. One-shot inventories/transcripts get a
-    # separate total ceiling. VGS-1998's nested before/after run measures the
-    # shell cost of crossing these bounds, not a presumed daemon log rate.
+    # separate total ceiling.
     environment = route_environment()
     if role == "daemon":
         check_route(environment)
@@ -86,8 +85,8 @@ def supervise(role, argv):
     # ALSA_CONFIG_PATH replaces libasound's global configuration. Exposing
     # only PipeWire prevents rodio's all-device retry from selecting raw HDMI
     # when the default is unavailable (voxtype 1.1.1, rodio 0.19 stream.rs).
-    # This is the config exercised by VGS-1998's nested null-sink run. A memfd
-    # keeps it private to this child, without a pathname or cleanup lifetime.
+    # A memfd keeps it private to this child, without a pathname or cleanup
+    # lifetime.
     alsa = b'''pcm.!default {
         type pipewire
         playback_node "-1"

@@ -890,7 +890,7 @@ function tmuxColors(logic, input) {
     }
     const active = logic.parseColor(input.slots["color" + colors["color.info"].slice("colour".length)]);
     const inactive = logic.parseColor(input.slots.color8);
-    // Channel-distance floor from tmp/tmux-block-role-probe.json, 2026-10-07.
+    // Keep inactive marks distinct from active marks in terminal RGB space.
     const separation = (color, from) => 255 * Math.hypot(color.r - from.r, color.g - from.g, color.b - from.b);
     const distinct = color => separation(color, active) >= 55.65;
     const muted = logic.parseColor(input.values.color.textMuted);
@@ -902,7 +902,7 @@ function tmuxColors(logic, input) {
         // slot, and a grey on or past the text colour reads as text: a grey
         // muted text takes a grey slot that stands apart from the text and
         // lies between the page and the text while one exists, else the
-        // pick is as before.
+        // pick uses RGB distance.
         const text = logic.parseColor("#" + hex6(input.values.palette.foreground, input.values.color.background));
         const textContrast = logic.contrastRatio(text, background);
         const usable = name => {
@@ -1239,8 +1239,8 @@ function extensionFolder(id, version) {
 }
 
 // Whether ID is an extension id an extension target whose ids start with
-// BASE renders: BASE and a stamp. BASE alone is the id a release before
-// stamped ids registered, so the next apply or disable removes it too.
+// BASE renders: BASE and a stamp. Apply and disable also remove the
+// unstamped BASE id so it cannot leave a second registered theme.
 function isStampedId(id, base) {
     return id === base || (id.startsWith(base + "-") && /^[0-9]+$/.test(id.slice(base.length + 1)));
 }

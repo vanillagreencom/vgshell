@@ -513,9 +513,7 @@ def watch_core(directory):
             os.close(fd)
 
 
-# One version read: a bound on a stalled program, not a latency budget. On
-# host cachy, 2026-10-10, `time` gave 0.30 s for `pi --version` (Pi 1.1.0)
-# and 0.04 s for `agent-browser --version` (0.38.2).
+# One version read: a bound on a stalled program, not a latency budget.
 VERSION_SECONDS = 10
 VERSION_LINE_MAX = 256
 VERSION_HEAD_BYTES = 4096

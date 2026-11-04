@@ -182,9 +182,8 @@ function interactive(argv, options = {}) {
 // A question left without an answer is cancelled, and reports the status
 // of a cancel, 128 or more, as PackageReview.packageOutcome judges it: its
 // signal's, else 130, the user's cancel status fzf and gum give Ctrl-C.
-// gum 2.0.2's choose exits 1 for Esc and 130 for Ctrl-C (a pty run of
-// `gum choose a b`, 2026-11-01), and a question that could not be asked
-// consents to nothing either.
+// gum 2.0.2's choose exits 1 for Esc and 130 for Ctrl-C, and a question
+// that could not be asked consents to nothing either.
 async function ui(kind, ...args) {
     const result = await interactive([commandFile("bash"), path.join(__dirname, "pkg-review.sh"), kind, ...args], { output: true });
     if (result.error) refuse("review=ui-unavailable");
@@ -212,7 +211,7 @@ function requestError(request) {
 }
 function effectiveConfig(request, binary) {
     if (request.config !== null) return request.config;
-    // Reuse Updates' effective helper-config adapter, now package-owned.
+    // Reuse the package owner's effective helper-config adapter.
     const r = query([process.execPath, path.join(__dirname, "pkg-config.js"), binary]);
     if (r.error || r.status !== 0) throw new Error("config=helper-unreadable");
     return JSON.parse(r.stdout).config;
