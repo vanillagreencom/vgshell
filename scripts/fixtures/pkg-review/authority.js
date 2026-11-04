@@ -12,6 +12,8 @@ const config=path.join(root,"pacman.conf"),other=path.join(root,"aur.conf");fs.c
 const linkedConfig=manager==="pacman"?config:other;
 if(change==="config-link"||change==="config-link-changed"){fs.renameSync(linkedConfig,linkedConfig+".source");fs.symlinkSync(linkedConfig+".source",linkedConfig);}
 const request={version:1,mode:"upgrade",action:"upgrade",groups:[{manager:"pacman",names:[],installs:[],ignored:["input-ignore"],config},{manager:"aur",names:[],installs:[],ignored:[],config:other}],sources:["pacman","aur"],rebuild:["aurpkg"],config:other,customAurArgv:null};
+const engine=change.startsWith("engine-");
+if(engine){request.groups=request.groups.filter(g=>g.manager==="aur");request.sources=["aur"];request.rebuild=["vgshell-git"];}
 fs.writeFileSync(path.join(root,"aur-pending"),"");
 if(change==="after-system-candidate")fs.unlinkSync(path.join(root,"aur-pending"));
 const sequential=change.startsWith("after-system-");
@@ -37,7 +39,19 @@ if(sequential){
  if(change.startsWith("after-system-custom-"))args=["review-custom-consume",reply.receipt,JSON.stringify(request.customAurArgv)];
 }
 const changed=sequential?change.replace(/^after-system-(?:recognized-|custom-)?/,""):change;
+if(engine){
+ if(run(args)!==0)process.exit(87);
+ const file=path.join(root,"dependency-world.json"),world=JSON.parse(fs.readFileSync(file));
+ if(change==="engine-drop")world.missing=[];
+ else if(change==="engine-new"){world.info["vgshell-git"]["Depends On"]="newdep";world.missing.push("newdep");world.satisfiers.newdep="custom newdep";}
+ else if(change==="engine-origin")world.satisfiers["vgshell-quickshell>=2"]="custom vgshell-quickshell";
+ else if(change==="engine-official")world.satisfiers["vgshell-quickshell>=2"]="core vgshell-quickshell";
+ else throw Error(change);
+ fs.writeFileSync(file,JSON.stringify(world));
+ args=["run","reinstall","--manager","aur","--review-receipt",reply.receipt,"--config",other,"vgshell-git"];
+}
 switch(changed){
+ case"engine-drop":case"engine-new":case"engine-origin":case"engine-official":break;
  case"none":case"config-link":case"origin-read-failed":break;
  case"custom-origin-read-failed":args=["review-custom-consume",reply.receipt,JSON.stringify(request.customAurArgv)];break;
  case"config-link-changed":fs.copyFileSync(linkedConfig,linkedConfig+".new");fs.appendFileSync(linkedConfig+".new","# changed\n");fs.unlinkSync(linkedConfig);fs.symlinkSync(linkedConfig+".new",linkedConfig);break;

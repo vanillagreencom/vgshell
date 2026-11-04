@@ -240,8 +240,63 @@ function publishedPackages() {
     } catch (e) { return { names: null, cause: e.code || "read" }; }
     return names.length ? { names, cause: null } : { names: null, cause: "empty" };
 }
+// Paru's pending -Si metadata, not the installed publisher recipes, holds
+// these fields: github.com/Morganamilo/paru/blob/v2.1.0/src/info.rs.
+function aurDependencies(text, name) {
+    const fields = new Map();
+    let key = null;
+    for (const line of text.split(/\r?\n/)) {
+        const field = /^([^\s:][^:]*?)\s*:\s*(.*)$/.exec(line);
+        if (field) {
+            key = field[1].trim();
+            if (fields.has(key)) throw new Error("dependency=metadata-duplicate name=" + name);
+            fields.set(key, field[2].trim());
+        } else if (/^\s+\S/.test(line) && key !== null) fields.set(key, fields.get(key) + " " + line.trim());
+    }
+    if (fields.get("Repository") !== "aur" || fields.get("Name") !== name) throw new Error("dependency=metadata-identity name=" + name);
+    return ["Depends On", "Make Deps", "Check Deps"].flatMap(field => {
+        if (!fields.has(field) || !fields.get(field)) throw new Error("dependency=metadata-missing name=" + name);
+        return fields.get(field) === "None" ? [] : fields.get(field).split(/\s+/);
+    });
+}
+function dependencyName(entry) {
+    const match = /^([A-Za-z0-9@_+.-]+)(?:(?:[<>]=?|=)[^\s\x00-\x1f\x7f]+)?$/.exec(entry);
+    if (!match || !managers.validName(match[1])) throw new Error("dependency=entry-invalid");
+    return match[1];
+}
+function missingDependencies(entries, config) {
+    if (!entries.length) return [];
+    entries.forEach(dependencyName);
+    const r = query(["pacman", "--config", config, "-T", "--", ...entries]);
+    const missing = (r.stdout || "").trim().split(/\r?\n/).filter(Boolean);
+    if (r.error || r.signal || ![0, 127].includes(r.status) || r.stderr || (r.status === 0) !== (missing.length === 0)
+        || missing.some(entry => !entries.includes(entry))) throw new Error("dependency=installed-query");
+    return [...new Set(missing)];
+}
+function resolveDependency(entry, config, binary) {
+    const name = dependencyName(entry);
+    // sync.c passes the full target to alpm_find_dbs_satisfier before the
+    // -dd transaction checks: gitlab.archlinux.org/pacman/pacman, v7.1.0.
+    const r = query(["pacman", "--config", config, "-Sddp", "--print-format", "%r %n", "--", entry]);
+    if (!r.error && !r.signal && r.status === 0 && !r.stderr) {
+        const row = /^(\S+) ([A-Za-z0-9@_+.-]+)\n?$/.exec(r.stdout);
+        if (!row || !managers.validName(row[2])) throw new Error("dependency=satisfier-malformed entry=" + entry);
+        return { target: row[2], origin: row[1], viaAur: false };
+    }
+    if (r.error || r.signal || r.status !== 1 || r.stdout || r.stderr !== "error: target not found: " + entry + "\n")
+        throw new Error("dependency=satisfier-failed entry=" + entry);
+    // -Si is a literal metadata lookup. -Po invokes the helper resolver;
+    // no -d, which would disable versions (paru v2.1.0 src/resolver.rs).
+    const order = output([binary, "--config", config, "-Po", "--", entry]);
+    const targets = order.split(/\r?\n/).filter(line => /^AUR TARGET(?:\s|$)/.test(line));
+    const target = targets.length === 1 && /^AUR TARGET ([A-Za-z0-9@_+.-]+) ([A-Za-z0-9@_+.-]+)$/.exec(targets[0]);
+    // order.rs has no install provider-choice callback. A differently named
+    // provider cannot establish the later interactive install's selection.
+    if (!target || target[2] !== name || /^MISSING(?:\s|$)/m.test(order)) throw new Error("dependency=helper-unresolved entry=" + entry);
+    return { target: target[2], origin: "aur", viaAur: true };
+}
 function gather(request) {
-    const state = { steps: [], packages: [], unknown: [], lines: [], recipes: [] };
+    const state = { steps: [], packages: [], unknown: [], lines: [], recipes: [], dependents: Object.create(null) };
     const recipes = publishedPackages();
     let repositoryData = null;
     function repositories(config) {
@@ -279,19 +334,25 @@ function gather(request) {
             } else targets = [...group.names, ...group.installs].map(n => ({ target: n, old: null, next: null }));
             step.binding = binding;
             const repos = request.mode === "bootstrap" ? { rows: [], order: [] } : repositories(config);
+            const expanded = new Set(), metadata = new Map();
+            const infoFor = name => {
+                if (!metadata.has(name)) metadata.set(name, output([found.binary, "--config", config, "-Si", "--", name]));
+                return metadata.get(name);
+            };
             for (const target of targets) {
                 const qualified = /^([^/]+)\/([^/]+)$/.exec(target.target);
                 const [qualifier, name] = qualified === null ? [null, target.target] : [qualified[1], qualified[2]];
-                const matches = repos.rows.filter(row => row.name === name && (qualifier === null || qualifier === row.repository));
+                const matches = target.neededBy === undefined ? repos.rows.filter(row => row.name === name && (qualifier === null || qualifier === row.repository)) : [];
                 // viaAur is set only where the owner itself resolved the AUR:
                 // a pacman repository may be named `aur`.
                 let origin, viaAur = false;
-                if (request.mode === "bootstrap") { origin = "aur"; viaAur = true; }
+                if (target.neededBy !== undefined) { origin = target.origin; viaAur = target.viaAur; }
+                else if (request.mode === "bootstrap") { origin = "aur"; viaAur = true; }
                 else if (target.origin === "aur" && matches.length > 0) { state.unknown.push("origin=aur-repository-collision name=" + name); origin = "unknown"; }
                 else if (matches.length === 1) origin = matches[0].repository;
                 else if (matches.length > 1) { state.unknown.push("origin=ambiguous name=" + name); origin = "unknown"; }
                 else if (group.manager === "aur" || request.mode === "bootstrap") {
-                    const info = output([found.binary, "--config", config, "-Si", "--", name]);
+                    const info = infoFor(name);
                     const identity = /^Name\s*:\s*(\S+)\s*$/m.exec(info);
                     if (!/^Repository\s*:\s*aur\s*$/m.test(info) || identity === null || identity[1] !== name) throw new Error("origin=unresolved name=" + name);
                     origin = "aur"; viaAur = true;
@@ -300,8 +361,13 @@ function gather(request) {
                     // a VGS package's included.
                     state.unknown.push("dependencies=unresolved name=" + name);
                 } else { state.unknown.push("origin=unresolved name=" + name); origin = "unknown"; }
-                binding.origins.push({ target: target.target, origin, candidates: matches.map(row => ({ repository: row.repository, version: row.version })) });
+                binding.origins.push({ target: target.target, origin, candidates: matches.map(row => ({ repository: row.repository, version: row.version })),
+                    ...(target.neededBy === undefined ? {} : { entry: target.entry, neededBy: target.neededBy, aur: viaAur }) });
                 if (judge.officialRepository(origin)) continue;
+                if (target.neededBy !== undefined) {
+                    if (!Object.hasOwn(state.dependents, name)) state.dependents[name] = [];
+                    if (!state.dependents[name].includes(target.neededBy)) state.dependents[name].push(target.neededBy);
+                }
                 const publisher = judge.publisher(name, viaAur, recipes.names);
                 if (publisher === "unread") {
                     const cause = "vgs-packages=unreadable cause=" + recipes.cause;
@@ -314,7 +380,14 @@ function gather(request) {
                 // known before the build.
                 const pkg = { name, origin, aur: viaAur, published: publisher === "vgs", old: target.old, next: target.next, manager: group.manager, binary: found.binary, config };
                 if (!state.packages.some(p => p.name === name && p.origin === origin && p.aur === viaAur)) state.packages.push(pkg);
-                if (pkg.published) continue;
+                if (pkg.published) {
+                    if (!expanded.has(name)) {
+                        expanded.add(name);
+                        for (const entry of missingDependencies(aurDependencies(infoFor(name), name), config))
+                            targets.push({ ...resolveDependency(entry, config, found.binary), entry, neededBy: name, old: null, next: null });
+                    }
+                    continue;
+                }
                 state.lines.push(viaAur ? `aur ${name} ${target.old || "?"} ${target.next || "?"}` : `repo ${origin} ${name} ${target.old || "?"} ${target.next || "?"}`);
                 if (!viaAur && origin !== "unknown") {
                     const servers = output(["pacman-conf", "--config", config, "--repo", origin, "Server"]).trim().split("\n").filter(Boolean);
@@ -530,6 +603,9 @@ async function reviewRequest(request, storage) {
                 if (answer.value === "Skip") result.skipped.push(name);
                 else if (answer.value !== "Install anyway") refuse("review=choice-invalid");
             }
+            for (let i = 0; i < result.skipped.length; i++)
+                for (const dependent of Object.hasOwn(state.dependents, result.skipped[i]) ? state.dependents[result.skipped[i]] : [])
+                    if (!result.skipped.includes(dependent)) result.skipped.push(dependent);
         } else refuse("review=choice-invalid");
     }
     if (request.customAurArgv !== null && customMode(request.customAurArgv) === "unknown") {
@@ -565,7 +641,12 @@ function bindingChange(step, current, contentOnly = false) {
     // sync metadata. The AUR review binds package content, not those bytes.
     const fields = contentOnly ? ["pending", "origins"] : ["binary", "config", "pending", "origins"];
     for (const field of fields) {
-        const project = binding => contentOnly && field === "origins" ? binding.origins.map(({ target, origin }) => ({ target, origin })) : binding[field];
+        if (contentOnly && field === "origins") {
+            const dependencies = binding => binding.origins.filter(row => row.neededBy !== undefined).map(({ target, origin, entry, neededBy, aur }) => ({ target, origin, entry, neededBy, aur }));
+            const reviewed = dependencies(step.binding);
+            if (!dependencies(current.binding).every(row => reviewed.some(prior => same(row, prior)))) return field;
+        }
+        const project = binding => contentOnly && field === "origins" ? binding.origins.filter(row => row.neededBy === undefined).map(({ target, origin }) => ({ target, origin })) : binding[field];
         if (!same(project(current.binding), project(step.binding))) return field;
     }
     return null;

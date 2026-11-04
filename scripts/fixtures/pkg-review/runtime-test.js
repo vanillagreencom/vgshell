@@ -7,7 +7,7 @@ const only=process.argv.includes("--cancel-control");
 const surfaceAt=process.argv.indexOf("--surface"),surface=surfaceAt<0?"all":process.argv[surfaceAt+1];
 const select=name=>surface==="all"||surface===name;
 const caseAt=process.argv.indexOf("--case"),caseName=caseAt<0?null:process.argv[caseAt+1];
-assert.ok(["all","direct","routes","choices","authority","aur-authority","review-result","review-result-control","aur-authority-control","availability","evidence","updates","bootstrap","settings","protocol","origin","workspace","control","origin-control","customize","customize-control","retry","retry-held","retry-held-control","publisher","publisher-control"].includes(surface));
+assert.ok(["all","direct","routes","choices","authority","aur-authority","review-result","review-result-control","aur-authority-control","availability","evidence","updates","bootstrap","settings","protocol","origin","workspace","control","origin-control","customize","customize-control","retry","retry-held","retry-held-control","publisher","publisher-control","dependencies","dependency-authority","dependency-control","dependency-official-control"].includes(surface));
 if(only)assert.ok(["all","direct"].includes(surface));
 const overrideAt=process.argv.indexOf("--owner"),ownerOverride=overrideAt<0?null:process.argv[overrideAt+1];
 const scratch=fs.mkdtempSync(path.join(os.tmpdir(),"package-review-runtime-"));
@@ -23,7 +23,7 @@ function tty(w,args){
 // EDITS, [file, needle, replacement], applied to its one match; the rest
 // links to the tree under test. Without recipes it has no packaging/arch.
 function ownerTree(name,edits=[],{recipes=true}={}){
- const source=ownerOverride?path.resolve(path.dirname(ownerOverride),".."):path.resolve(__dirname,"../../.."),copy=path.join(scratch,name);
+ const source=ownerOverride?path.resolve(path.dirname(ownerOverride),".."):path.resolve(__dirname,"../../.."),copy=path.join(scratch,"owners",name);
  const copied=new Set(["bin/vgshell-pkg","bin/lib/pkg-review.js","bin/lib/pkg-retry.js",...edits.map(edit=>edit[0])]);
  fs.mkdirSync(path.join(copy,"bin/lib"),{recursive:true});
  for(const entry of ["shell","config","VERSION","bin/vgshell",...(recipes?["packaging"]:[])])fs.symlinkSync(path.join(source,entry),path.join(copy,entry));
@@ -172,6 +172,83 @@ try{
   control("publisher-repository-aur","publisher",[[owner,"judge.publisher(name, viaAur, recipes.names)",'judge.publisher(name, origin === "aur", recipes.names)']],/repository-named-aur: the offer is shown/);
   control("saved-decline","choices",[[owner,"if (!judge.initialChoice(settings, foundAgents(settings)).ask) {","if (false) {"]],/saved-off:/);
  }
+ // Resolver answers are canned by full entry, independently of VGS's
+ // origin index. Paired order worlds keep that index identical.
+ const dependencyCases=[
+  {label:"version",entry:"hyprland>=0.57.0",satisfiers:{"hyprland>=0.57.0":"custom hyprland",hyprland:"core hyprland"},listed:"repo custom hyprland ? ?"},
+  {label:"provider",entry:"virtual-engine>=2",satisfiers:{"virtual-engine>=2":"custom concrete-engine"},listed:"repo custom concrete-engine ? ?"},
+  {label:"custom-first",entry:"cmake",satisfiers:{cmake:"custom cmake"},listed:"repo custom cmake ? ?",repos:["custom","core"]},
+  {label:"official-first",entry:"cmake",satisfiers:{cmake:"core cmake"},absent:"repo custom cmake ? ?",repos:["core","custom"]},
+  {label:"aur-version",entry:"cpptrace>=2",order:{"cpptrace>=2":"AUR TARGET cpptrace cpptrace"},listed:"aur cpptrace ? ?"},
+  {label:"aur-provider",entry:"virtual-engine>=2",order:{"virtual-engine>=2":"AUR TARGET engine engine-git"},failed:true},
+  {label:"aur-missing",entry:"unavailable>=2",failed:true},
+  {label:"aur-ambiguous",entry:"cpptrace",order:{cpptrace:"AUR TARGET cpptrace cpptrace\nAUR TARGET other other"},failed:true},
+  {label:"pacman-malformed",entry:"cmake",satisfiers:{cmake:"core cmake\ncustom cmake"},failed:true},
+  {label:"pacman-empty",entry:"cmake",satisfiers:{cmake:""},failed:true},
+  {label:"pacman-failed",entry:"cmake",satisfiers:{cmake:{error:"error: failed to prepare transaction (invalid or corrupted database)\n"}},failed:true},
+  {label:"metadata-missing",entry:"cmake",info:{"Check Deps":null},failed:true},
+  {label:"wrapped",entry:"cmake\n                cpptrace>=2",missing:["cmake","cpptrace>=2"],satisfiers:{cmake:"core cmake"},order:{"cpptrace>=2":"AUR TARGET cpptrace cpptrace"},listed:"aur cpptrace ? ?"},
+  {label:"satisfied",entry:"cmake>=2",missing:[],absent:"repo custom cmake ? ?"},
+  {label:"shared-root-skip",entry:"vgshell-quickshell>=2",roots:["vgshell-git","vgshell"],missing:["vgshell-quickshell>=2","cpptrace"],order:{"vgshell-quickshell>=2":"AUR TARGET vgshell-quickshell vgshell-quickshell",cpptrace:"AUR TARGET cpptrace cpptrace"},extraInfo:{"vgshell-quickshell":{"Make Deps":"cpptrace"}},listed:"aur cpptrace ? ?",flag:"cpptrace"},
+  {label:"prototype-root-skip",entry:"__proto__",satisfiers:{["__proto__"]:"custom __proto__"},listed:"repo custom __proto__ ? ?",flag:"__proto__"},
+  {label:"cycle",entry:"vgshell-quickshell",missing:["vgshell-quickshell","vgshell-git"],order:{"vgshell-quickshell":"AUR TARGET vgshell-quickshell vgshell-quickshell","vgshell-git":"AUR TARGET vgshell-git vgshell-git"},extraInfo:{"vgshell-quickshell":{"Depends On":"vgshell-git"}}}
+ ];
+ if(!only&&select("dependencies"))for(const row of dependencyCases){
+  if(caseName!==null&&caseName!==row.label)continue;
+  const choices=row.failed?["Review","Use Claude Code","No"]:row.flag?["Review","Use Claude Code","Skip"]:["Review","Use Claude Code"];
+  const w=create(path.join(scratch,"dependency-"+row.label),{choices});
+  const roots=row.roots||["vgshell-git"],model={missing:row.missing||[row.entry],satisfiers:row.satisfiers||{},order:row.order||{},flag:row.flag,info:{...Object.fromEntries(roots.map(root=>[root,{"Depends On":row.entry,...row.info}])),...row.extraInfo}};
+  fs.writeFileSync(path.join(w.root,"dependency-world.json"),JSON.stringify(model));
+  fs.writeFileSync(path.join(w.root,"sync-extra"),"core hyprland 0.56.0\ncustom hyprland 0.57.0\ncore cmake 2\ncustom cmake 2");
+  if(row.repos)fs.writeFileSync(w.include,row.repos.map(repo=>"["+repo+"]\nServer=https://packages.example.org").join("\n")+"\n");
+  const r=tty(w,["run","reinstall","--manager","aur","--config",w.config,"foreign",...roots]),calls=w.calls(),agent=calls.find(c=>c.kind==="agent"),packages=agent?.packages||[];
+  assert.equal(r.status,0,row.label+": "+r.stdout+r.stderr);
+  if(row.listed)assert.ok(packages.includes(row.listed),row.label+": listed "+JSON.stringify(packages));
+  if(row.absent)assert.ok(!packages.includes(row.absent),row.label+": absent "+JSON.stringify(packages));
+  const unavailable=calls.filter(c=>c.kind==="offer"&&c.offered.includes("Yes"));
+  assert.equal(unavailable.length,row.failed?1:0,row.label+": unavailable");
+  if(row.failed){assert.equal(unavailable[0].selected,"No",row.label);assert.ok(!calls.some(c=>c.kind==="mutation"||c.kind==="credential"),row.label);}
+  else assert.ok(calls.some(c=>c.kind==="mutation"),row.label+": installs");
+  if(row.flag)for(const root of roots)assert.ok(!calls.filter(c=>c.kind==="mutation").some(c=>c.args.includes(root)),row.label+": skips root "+root);
+  for(const call of calls.filter(c=>c.args.includes("-Sddp")||c.args.includes("-Po"))){
+   assert.deepEqual(call.args.slice(0,2),["--config",w.config],row.label+": effective config");
+   assert.ok(model.missing.includes(call.args.at(-1)),row.label+": full entry");
+   assert.equal(call.args.at(-2),"--",row.label+": argument boundary");
+  }
+  if(row.label==="pacman-failed")assert.ok(!calls.some(c=>c.args.includes("-Po")),"pacman-failed: no helper on database failure");
+  console.log("package-dependency-proof: "+JSON.stringify({label:row.label,packages,unavailable:unavailable.length}));
+ }
+ if(!only&&select("dependency-authority"))for(const change of ["drop","new","origin","official"]){
+  if(caseName!==null&&caseName!==change)continue;
+  const w=create(path.join(scratch,"authority-engine-"+change),{choices:["Review","Use Claude Code"]});
+  const model={pending:"vgshell-quickshell",missing:["vgshell-quickshell>=2","cpptrace"],order:{"vgshell-quickshell>=2":"AUR TARGET vgshell-quickshell vgshell-quickshell",cpptrace:"AUR TARGET cpptrace cpptrace"},satisfiers:{},info:{"vgshell-git":{"Depends On":"vgshell-quickshell>=2"},"vgshell-quickshell":{"Make Deps":"cpptrace"}}};
+  fs.writeFileSync(path.join(w.root,"dependency-world.json"),JSON.stringify(model));
+  const argv=[process.execPath,path.join(__dirname,"authority.js"),w.root,"engine-"+change,"aur",ownerOverride||w.owner];
+  const r=cp.spawnSync("/usr/bin/script",["-qec",argv.map(q).join(" "),"/dev/null"],{env:{...w.env,SHELL:"/usr/bin/bash"},encoding:"utf8",timeout:30000});
+  assert.equal(r.status,0,change+": engine authority "+r.stdout+r.stderr);
+  const result=JSON.parse(fs.readFileSync(path.join(w.root,"authority-result.json"))),calls=w.calls(),mutations=calls.filter(c=>c.kind==="mutation");
+  assert.ok(calls.find(c=>c.kind==="agent")?.packages.includes("aur cpptrace ? ?"),change+": cpptrace reviewed");
+  assert.ok(!calls.some(c=>c.kind==="offer"&&c.offered.includes("Yes")),change+": no unavailable override");
+  assert.ok(calls.some(c=>c.args.includes("-Po")&&c.args.at(-1)==="vgshell-quickshell>=2"),change+": full constrained helper resolution");
+  assert.equal(result.before,1,change+": AUR upgrade consumed");
+  assert.equal(result.code===0,change==="drop",change+": engine admission "+r.stdout);
+  assert.equal(mutations.length,change==="drop"?2:1,change+": engine mutations");
+  if(change!=="drop")assert.match(r.stdout,/review=authority-binding-changed field=origins/,change+": origins guard");
+  console.log("package-engine-proof: "+JSON.stringify({change,result,mutations}));
+ }
+ if(!only&&(select("control")||surface==="dependency-control")){
+  const owner="bin/lib/pkg-review.js";
+  control("dependency-version","dependencies",[[owner,'"%r %n", "--", entry','"%r %n", "--", name']],/version: listed/,"version");
+  control("dependency-provider","dependencies",[[owner,'target: row[2], origin: row[1]','target: name, origin: row[1]']],/provider: listed/,"provider");
+  control("dependency-order","dependencies",[[owner,'target: row[2], origin: row[1]','target: row[2], origin: "core"']],/custom-first: listed/,"custom-first");
+  control("dependency-helper","dependency-authority",[[owner,'"-Po", "--", entry','"-Si", "--", entry']],/drop: engine authority/,"drop");
+  control("dependency-root-skip","dependencies",[[owner,'if (!result.skipped.includes(dependent)) result.skipped.push(dependent);','if (false) result.skipped.push(dependent);']],/shared-root-skip: skips root/,"shared-root-skip");
+  control("dependency-prototype-skip","dependencies",[[owner,'dependents: Object.create(null)','dependents: {}']],/prototype-root-skip: skips root/,"prototype-root-skip");
+  control("dependency-drop","dependency-authority",[[owner,'if (!dependencies(current.binding).every(row => reviewed.some(prior => same(row, prior)))) return field;','if (!same(dependencies(current.binding), reviewed)) return field;']],/drop: engine admission/,"drop");
+  for(const change of ["new","origin"])control("dependency-"+change,"dependency-authority",[[owner,'if (!dependencies(current.binding).every(row => reviewed.some(prior => same(row, prior)))) return field;','if (false) return field;']],new RegExp(change+": engine admission"),change);
+ }
+ if(!only&&(select("control")||surface==="dependency-control"||surface==="dependency-official-control"))
+  control("dependency-official","dependency-authority",[["bin/lib/pkg-review.js",'binding.origins.push({ target: target.target, origin,','if (target.neededBy !== undefined && judge.officialRepository(origin)) continue;\n                binding.origins.push({ target: target.target, origin,']],/official: engine admission/,"official");
 
 
  // A review run through Customize, with one edit view opened and left, keeps

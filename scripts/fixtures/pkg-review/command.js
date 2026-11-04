@@ -40,6 +40,7 @@ function build(){
  return step.status;
 }
 const configAt=args.indexOf("--config");if(configAt>=0)args.splice(configAt,2);
+const dependencyFile=path.join(root,"dependency-world.json"),dependencies=fs.existsSync(dependencyFile)?JSON.parse(fs.readFileSync(dependencyFile)):{};
 if(name==="pacman-conf"){
  if(fs.existsSync(path.join(root,"query-failed")))process.exit(7);
  if(args.includes("--repo-list"))console.log("core\ncustom"+(fs.existsSync(path.join(root,"repo-aur"))?"\naur":""));
@@ -50,12 +51,33 @@ if(name==="pacman-conf"){
  process.exit(0);
 }
 if(name==="checkupdates"||args.includes("-Qua")||args.includes("-Qu")){
- const target=args.includes("-Qua")&&fs.existsSync(path.join(root,"aur-pending"))?"foreign":"widget";
+ const target=args.includes("-Qua")&&fs.existsSync(path.join(root,"aur-pending"))?(dependencies.pending||"foreign"):"widget";
  console.log((fs.existsSync(path.join(root,"pending-name-changed"))?"another":target)+" "+(fs.existsSync(path.join(root,"pending-old-changed"))?"0":"1")+" -> "+(fs.existsSync(path.join(root,"pending-changed"))?"3":"2"));process.exit(0);
 }
 if(name==="pacman"||name==="paru"||name==="yay"){
+ if(args.includes("-T")){
+  const missing=args.slice(args.indexOf("--")+1).filter(entry=>(dependencies.missing||[]).includes(entry));
+  if(missing.length)console.log(missing.join("\n"));process.exit(missing.length?127:0);
+ }
+ if(args.includes("-Sddp")){
+  const entry=args.at(-1),row=dependencies.satisfiers?.[entry];
+  if(row?.error){process.stderr.write(row.error);process.exit(1);}
+  if(row!==undefined){process.stdout.write(row+"\n");process.exit(0);}
+  process.stderr.write("error: target not found: "+entry+"\n");process.exit(1);
+ }
+ if(args.includes("-Po")){
+  const row=dependencies.order?.[args.at(-1)];
+  if(row===undefined){console.log("MISSING "+args.at(-1));process.exit(1);}
+  console.log(row);process.exit(0);
+ }
  if(args.includes("-Sl")){console.log("core official 1\n"+(fs.existsSync(path.join(root,"origin-changed"))?"core":"custom")+" widget "+(fs.existsSync(path.join(root,"candidate-changed"))?"3":"2")+"\ncustom aurpkg 2"+(fs.existsSync(path.join(root,"sync-extra"))?"\n"+fs.readFileSync(path.join(root,"sync-extra"),"utf8").trim():""));process.exit(0);}
- if(args.includes("-Si")){if(fs.existsSync(path.join(root,"info-failed")))process.exit(1);console.log("Repository : aur\nName : "+(fs.existsSync(path.join(root,"provider-ambiguous"))?"provider":args.at(-1)));process.exit(0);}
+ if(args.includes("-Si")){
+  const pkg=args.at(-1);if(fs.existsSync(path.join(root,"info-failed"))||/[<>=]/.test(pkg))process.exit(1);
+  console.log("Repository : aur\nName : "+(fs.existsSync(path.join(root,"provider-ambiguous"))?"provider":pkg));
+  const fields=dependencies.info?.[pkg]||{};
+  for(const key of ["Depends On","Make Deps","Check Deps"])if(fields[key]!==null)console.log(key+" : "+(fields[key]||"None"));
+  process.exit(0);
+ }
  if(args.includes("-Qoq")){console.log("vgshell-git");process.exit(0);}
  if(args.includes("-Qtdq"))process.exit(1);
  if(args.includes("-Q")){console.log(args.includes("--")?args.at(-1)+" 1-1":"widget 1-1\nvgshell-git 1-1");process.exit(0);}
@@ -98,7 +120,7 @@ if(name==="claude"||name==="codex"){
  console.log("Reviewing package origin and build files as your user.");
  if(!fs.existsSync(path.join(root,"agent-no-verdict"))){
   const flagged=fs.existsSync(path.join(root,"agent-concern"));
-  fs.writeFileSync(path.join(match[1],"verdict"),fs.existsSync(path.join(root,"agent-dependency"))?"verdict flagged\nflag dependency Further verification required.\n":fs.existsSync(path.join(root,"agent-malformed"))?"verdict clean\nflag widget conflict\n":flagged?"verdict flagged\nflag widget A source requires further verification.\n":"verdict clean\n",{mode:0o600});
+  fs.writeFileSync(path.join(match[1],"verdict"),dependencies.flag?"verdict flagged\nflag "+dependencies.flag+" Further verification required.\n":fs.existsSync(path.join(root,"agent-dependency"))?"verdict flagged\nflag dependency Further verification required.\n":fs.existsSync(path.join(root,"agent-malformed"))?"verdict clean\nflag widget conflict\n":flagged?"verdict flagged\nflag widget A source requires further verification.\n":"verdict clean\n",{mode:0o600});
   if(fs.existsSync(path.join(root,"agent-unsafe")))fs.chmodSync(path.join(match[1],"verdict"),0o644);
   if(fs.existsSync(path.join(root,"agent-unreadable")))fs.chmodSync(path.join(match[1],"verdict"),0o000);
   console.log(flagged?"Review complete: one concern requires your choice.":"Review complete: no concern in the listed packages.");
