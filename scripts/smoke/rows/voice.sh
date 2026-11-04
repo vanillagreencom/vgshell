@@ -83,7 +83,10 @@
 # the Voice client above. States and frames poll once per IPC round trip;
 # no latency budget is claimed. The install reading prints the presenter's
 # end stamp, the core's record read, status writes, scan completion and IPC
-# observer window in milliseconds. Date.now has millisecond resolution;
+# observer window in milliseconds, from the ended record of the run the
+# row's Install launched, found by that run's id; its control: an earlier
+# run's ended record, alone in its folder, gives a later run none.
+# Date.now has millisecond resolution;
 # endedAt precedes the presenter's atomic rename. Host load and CPU pressure
 # cover the idle observer. The ceiling and poll interval are harness.sh's.
 # Dictation sounds, the manifest's held sound event, whose value voxtype's
@@ -1221,6 +1224,50 @@ settings_setup
 expect_poll "the Voice page offers no dictation action without voxtype" '[]' voice_offered_actions
 expect_poll "the Tools step still offers its install text link" '[[["To do", "warning"]], ["Review all missing or outdated tools"]]' voice_tools_step
 
+# voice_launched_run KEY: the run id the core chose for the launch the
+# terminal was handed last, when that launch is KEY's, else nothing.
+voice_launched_run() {
+  python3 -c '
+import os, sys
+w = open(sys.argv[1]).read().split("\n") if os.path.exists(sys.argv[1]) else []
+if "--record" in w and "--run" in w and w[w.index("--record") + 1] == sys.argv[2]:
+    print(w[w.index("--run") + 1])' "$tui_record" "$1"
+}
+# voice_run_end_stages DIR RUN TRACE START END PCT LOADAVG: the stages of
+# the end of core/requirements-install's run RUN, from RUN's own ended
+# record in DIR, which the rows of one run share, and the run trace TRACE.
+# No run, or no ended record of it, is unreadable: another run's record is
+# never read in its place.
+voice_run_end_stages() {
+  python3 - "$@" <<'PY_STAGES'
+import datetime, json, sys
+try:
+    if not sys.argv[2]:
+        raise ValueError("install-run-unavailable")
+    try:
+        record = json.load(open(sys.argv[1] + "/core@requirements-install@" + sys.argv[2] + ".ended.json"))
+    except FileNotFoundError:
+        raise ValueError("ended-record-unavailable") from None
+    ended = round(datetime.datetime.fromisoformat(record["endedAt"].replace("Z", "+00:00")).timestamp() * 1000)
+    events = json.loads(sys.argv[3])
+    if not any(event["stage"] == "core-read" and event["value"]["endedAt"] == record["endedAt"] and not event["value"]["running"] for event in events):
+        raise ValueError("core-ended-stage-unavailable")
+    stages = [{"stage": event["stage"], "after_end_ms": event["at"] - ended, "value": event["value"]} for event in events]
+    print("  run_end_stages=" + json.dumps({"run": record["run"], "presenter_end_ms": ended,
+        "observer_start_after_end_ms": int(sys.argv[4]) - ended, "observer_end_after_end_ms": int(sys.argv[5]) - ended, "stages": stages}))
+    print("  run_end_contention=" + json.dumps({"cpu_some_pct": None if sys.argv[6] == "unmeasured" else float(sys.argv[6]), "loadavg": sys.argv[7].split()[:3]}))
+except (OSError, ValueError, TypeError, KeyError) as error:
+    print("run-end-stages: unreadable=" + str(error), file=sys.stderr)
+    sys.exit(1)
+PY_STAGES
+}
+# voice_run_end_refused DIR RUN TRACE: `read` when voice_run_end_stages
+# reads RUN's stages, else the key it refused with.
+voice_run_end_refused() {
+  local out
+  if out="$(voice_run_end_stages "$1" "$2" "$3" 0 0 unmeasured "0 0 0" 2>&1)"; then echo read; else echo "${out#run-end-stages: unreadable=}"; fi
+}
+
 # Install all missing without voxtype: the notice installs voxtype and its
 # bridge, and the install opens no screen after it.
 forget_record
@@ -1231,6 +1278,7 @@ expect_poll "the Install all missing notice holds the keyboard for Install" true
 hold_runs
 type_keys -k Return || fail "sending Return to the Install all missing notice failed"
 expect_poll "Install hands the terminal voxtype-bin through the AUR helper" "$(core_words core/requirements-install "Install requirements" org.vgs.tui pkg run install --manager aur voxtype-bin)" recorded
+voice_install_run="$(voice_launched_run core/requirements-install)" || fail "the install's launch record is unreadable"
 expect_poll "the notice records its install running" '["vgs.voice", ["voxtype", "voxtype-audio-bridge"], ["voxtype", "voxtype-audio-bridge"], true]' notice_shown
 voice_forget
 voice_engine_installed
@@ -1245,27 +1293,19 @@ voice_idle_pct="$(cpu_some_pct "$voice_idle_cpu_start" "$(cpu_some_us)" "$((voic
 expect_poll "the scan after the install closes the notice" null notice_shown
 expect_poll "Voice sees voxtype after the install" true ipc smoke readInstance service vgs.voice voxtypePresent
 voice_idle_trace="$(ipc smoke endRunTrace)" || fail "the install stages are unreadable"
-if ! python3 - "$rt_dir/vgshell/tui" "$voice_idle_trace" "$voice_idle_start" "$voice_idle_end" "$voice_idle_pct" "$(cat /proc/loadavg)" <<'PY_STAGES'
-import datetime, glob, json, sys
-try:
-    records = glob.glob(sys.argv[1] + "/core@requirements-install@*.ended.json")
-    if len(records) != 1:
-        raise ValueError("ended-record-unavailable")
-    else:
-        record = json.load(open(records[0]))
-        ended = round(datetime.datetime.fromisoformat(record["endedAt"].replace("Z", "+00:00")).timestamp() * 1000)
-        events = json.loads(sys.argv[2])
-        if not any(event["stage"] == "core-read" and event["value"]["endedAt"] == record["endedAt"] and not event["value"]["running"] for event in events):
-            raise ValueError("core-ended-stage-unavailable")
-        stages = [{"stage": event["stage"], "after_end_ms": event["at"] - ended, "value": event["value"]} for event in events]
-        print("  run_end_stages=" + json.dumps({"run": record["run"], "presenter_end_ms": ended,
-            "observer_start_after_end_ms": int(sys.argv[3]) - ended, "observer_end_after_end_ms": int(sys.argv[4]) - ended, "stages": stages}))
-    print("  run_end_contention=" + json.dumps({"cpu_some_pct": None if sys.argv[5] == "unmeasured" else float(sys.argv[5]), "loadavg": sys.argv[6].split()[:3]}))
-except (OSError, ValueError, TypeError, KeyError) as error:
-    print("run-end-stages: unreadable=" + str(error), file=sys.stderr)
-    sys.exit(1)
-PY_STAGES
-then fail "the install stages could not be read"; fi
+if ! voice_run_end_stages "$rt_dir/vgshell/tui" "$voice_install_run" "$voice_idle_trace" "$voice_idle_start" "$voice_idle_end" "$voice_idle_pct" "$(cat /proc/loadavg)"; then
+  fail "the install stages could not be read"
+fi
+# Control: in a folder whose one ended record is an earlier run's, with a
+# trace that read that run's end, a later run has no stages and the earlier
+# run has its own.
+voice_stages_control="$sandbox/voice-stages-control"
+mkdir -p -- "$voice_stages_control"
+printf '%s\n' '{"key": "core/requirements-install", "run": "1-1", "state": "ended", "code": 0, "startedAt": "2026-01-01T00:00:00Z", "endedAt": "2026-01-01T00:00:01Z", "window": {"appId": "org.vgs.tui", "title": "VGS · Install requirements"}}' \
+  >"$voice_stages_control/core@requirements-install@1-1.ended.json"
+voice_stages_control_trace='[{"stage": "core-read", "at": 1767225601000, "value": {"running": false, "code": 0, "endedAt": "2026-01-01T00:00:01Z"}}]'
+expect "control: an earlier run's ended record gives a later run no install stages" ended-record-unavailable voice_run_end_refused "$voice_stages_control" 2-1 "$voice_stages_control_trace"
+expect "control: the earlier run's own ended record gives it its install stages" read voice_run_end_refused "$voice_stages_control" 1-1 "$voice_stages_control_trace"
 expect "the terminal is handed nothing once the install ended" absent recorded
 # Voice has the core start its daemon once voxtype is found: the one that
 # failed without it never ran.
