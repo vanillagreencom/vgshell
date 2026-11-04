@@ -95,7 +95,8 @@ Item {
     // Waiting for the word shows no words: a reply left on screen could
     // stand there until the next request, however long that is. A fault
     // shows its action (faultAction) in their place.
-    readonly property string words: state === null || root.hold !== null || phase === "armed" || fault !== null ? ""
+    readonly property string words: state === null || root.hold !== null || phase === "armed" ? ""
+        : fault !== null ? ""
         : state.turn.kind === "collecting" ? state.turn.partial
         : caption !== null && caption.gen === state.gen ? caption.text : ""
 
