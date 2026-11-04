@@ -589,6 +589,38 @@ for share_mode in dark light; do
 done
 unset SHOT_CHROME_READER SHOT_CHROME_REQUIRE
 python3 "$share_fixture/sheets.py" "$share_evidence" || fail "share-picker: picture labels failed"
+# Capture's Settings page reads the sharing picker under Details, with no
+# Setup step: pictured Ready and in the hinted state a portal that stays
+# failed after its restart reads, dark and light. Opening the page sets up
+# again (ShareSession.pageViewed), so the planted portal state decides
+# which the page shows.
+share_settings_evidence="$(mktemp -d "$smoke_log_dir/tmp/share-picker-settings.XXXXXX")"
+SHOT_DIR="$(shot_dir_under "$smoke_log_dir" "$share_settings_evidence")"
+share_portal_show=(--user show --property=LoadState --property=ActiveState xdg-desktop-portal-hyprland.service)
+share_sharing_shot() { # MODE NAME TONE TEXT
+  expect "Settings opens Capture's page for its $2 picture" ok ipc shell summon window vgs.settings '{"plugin":"vgs.capture"}'
+  expect_poll "Settings shows Capture's page for its $2 picture" '"vgs.capture"' ipc smoke readInstance window vgs.settings page
+  expect_poll "the sharing picker reads $4" "[\"$3\", \"$4\"]" share_sharing_status
+  settings_details
+  expect_poll "Details reads the sharing picker $4" "\"$4\"" ipc smoke readMatchingDescendant window vgs.settings StatusLine label "Sharing picker" text
+  rest_pointer || fail "share-picker: parking the $2 Settings pointer failed"
+  shot "settings-$2-$1" || fail "share-picker: Settings $2 $1 failed"
+  expect "Settings hides after its $2 picture" ok ipc shell hide window vgs.settings
+  expect_poll "the Settings window is gone after its $2 picture" 0 window_count Plugins
+}
+for share_mode in dark light; do
+  if [[ $share_mode == dark ]]; then
+    printf '{"schemaVersion":1,"name":"vgs","tokens":{}}\n' >"$share_theme.next"; share_theme_name=vgs
+  else
+    cp -- "$repo/themes/catalog/flexoki-light/theme.json" "$share_theme.next"; share_theme_name=flexoki-light
+  fi
+  mv -T -- "$share_theme.next" "$share_theme"
+  expect_poll "the $share_mode Settings theme publishes" "$share_theme_name" ipc smoke themeName
+  device_reply systemctl 0 $'LoadState=loaded\nActiveState=failed' "${share_portal_show[@]}"
+  share_sharing_shot "$share_mode" relogin warning "Ready after you log in again"
+  device_reply systemctl 0 $'LoadState=loaded\nActiveState=active' "${share_portal_show[@]}"
+  share_sharing_shot "$share_mode" ready ok Ready
+done
 # share_preview_in_body FILE: in a disposable tree's Window.qml, the hint
 # and the preview moved from the pane's fixed header back into the body
 # that scrolls, as before the header held them.
@@ -596,14 +628,19 @@ share_preview_in_body() {
   python3 - "$1" <<'PY'
 import pathlib,sys
 p=pathlib.Path(sys.argv[1]); assert not p.is_symlink(); s=p.read_text()
-head='            Column {\n                width: pane.contentWidth\n                topPadding: Theme.stack.group\n'
+head='            Column {\n                width: pane.contentWidth\n                topPadding: Theme.stack.section\n'
 body='        Column {\n            width: pane.contentWidth\n            spacing: Theme.stack.group\n'
 assert s.count(head)==1 and s.count(body)==1
 start=s.index(head); end=s.index('\n        }\n\n'+body, start)
-block=s[start:end].replace('topPadding: Theme.stack.group','topPadding: 0',1)
+block=s[start:end].replace('topPadding: Theme.stack.section','topPadding: 0',1)
 s=s[:start]+s[end:]
 at=s.index(body)+len(body)
 s=s[:at]+block+'\n'+s[at:]
+# The body's height, as before: the pane's gap under the tabs and a
+# group gap under the hint and under the preview.
+old='Theme.stack.section + hintRoom + Theme.stack.group + 2 * stickyGap'
+assert s.count(old)==1
+s=s.replace(old,'hintRoom + 2 * Theme.stack.group + 2 * stickyGap',1)
 assert s!=p.read_text(); p.write_text(s)
 PY
 }

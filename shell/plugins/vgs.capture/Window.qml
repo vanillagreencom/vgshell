@@ -42,11 +42,12 @@ FocusScope {
     // its body and its footer (Pane.bodyGap, Pane.footerGap).
     readonly property real stickyGap: Math.max(pane.gap, pane.stickyGap)
     // The pane's height outside the preview, the list and Area's controls:
-    // its insets, the title, the header's tabs and hint with a group gap
-    // under each, the sticky gaps around the body, and the footer, as
-    // Pane.headerHeight and Pane.bodyRoom add them up. It reads no Pane
-    // height the preview feeds, so no binding loops.
-    readonly property real bodyChrome: 2 * pane.contentInset + pane.titleBlockHeight + Theme.stack.titleSpace + tabs.implicitHeight + hintRoom + 2 * Theme.stack.group + 2 * stickyGap + pane.footerHeight
+    // its insets, the title, the header's tabs with `stack.section` under
+    // them and its hint with a group gap under it, the sticky gaps around
+    // the body, and the footer, as Pane.headerHeight and Pane.bodyRoom add
+    // them up. It reads no Pane height the preview feeds, so no binding
+    // loops.
+    readonly property real bodyChrome: 2 * pane.contentInset + pane.titleBlockHeight + Theme.stack.titleSpace + tabs.implicitHeight + Theme.stack.section + hintRoom + Theme.stack.group + 2 * stickyGap + pane.footerHeight
     readonly property real hintRoom: Math.max(hint.implicitHeight, otherHint.implicitHeight)
     readonly property real sourcesRoom: Math.max(sources.height, Math.max(screens.length, request.windows.length) * Theme.listItem.twoLineHeight)
     readonly property real choicesHeight: bodyChrome + sourcesRoom + Theme.stack.group
@@ -131,11 +132,13 @@ FocusScope {
                 currentIndex: root.tab
                 onCurrentIndexChanged: if (currentIndex !== root.tab) root.switchTab(currentIndex)
             }
-            // The tabs' gap to the hint is the hint's to the preview, so
-            // the list keeps the place it had when the body held them.
+            // A tab page starts `stack.section` under its tab strip
+            // (design-system.md § Layout), as the hint did when the body
+            // held it; the sticky header then holds the list that gap less
+            // a group gap lower, the room its divider needs.
             Column {
                 width: pane.contentWidth
-                topPadding: Theme.stack.group
+                topPadding: Theme.stack.section
                 spacing: Theme.stack.group
                 Label {
                     id: hint
