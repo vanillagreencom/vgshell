@@ -4,8 +4,9 @@
 # Usage: scripts/readme-install.sh [--export DIR] [--channel NAME]...
 #
 # --channel selects named channels: aur, fedora, curl, nix, checkout,
-# curl-debian and curl-nixos. Without it every channel runs. The last two
-# repeat the README's curl block on Debian forky and the NixOS fixture.
+# curl-debian, curl-nixos and curl-fedora. Without it every channel runs.
+# The last three repeat the README's curl block on Debian forky, the NixOS
+# fixture and Fedora 44.
 #
 # --export copies each version-checked install's resolved runtime tree to
 # DIR/line-<n>-<channel>. Nix exports the installed command's store closure
@@ -32,15 +33,16 @@
 # A probe that fails is not measured either, never read as unpublished.
 #
 # Each bash fence of the section runs top to bottom in one fresh container,
-# in the home directory. Commands of the aur, curl, checkout, curl-debian
-# and curl-nixos channels run in a pseudo-terminal the answer feeder below
-# owns, and each prompt there takes its default answer from Enter, a CR:
+# in the home directory. Commands of the aur, curl, checkout, curl-debian,
+# curl-nixos and curl-fedora channels run in a pseudo-terminal the answer
+# feeder below owns, and each prompt there takes its default answer from
+# Enter, a CR:
 #   - A prompt on that terminal gets its CR once it waits and never
 #     earlier. A gum question reads the terminal raw, where a CR typed ahead
 #     would arrive as LF, ctrl+j, Down, and move its choice. paru's prompts,
 #     when paru runs on that terminal, read a line, which the CR ends as
 #     the newline the terminal makes of it.
-#   - sudo, which runs pacman and apt-get, and pkg-run.sh's transcript,
+#   - sudo, which runs pacman, apt-get and dnf, and pkg-run.sh's transcript,
 #     which runs paru in the curl channel, relay that terminal raw into one
 #     of their own. A relay gets one CR each second for as long as it runs.
 #     Behind it each CR waits as an empty line that answers a later line
@@ -69,6 +71,12 @@
 #     sudo inside the container alone. The commands run as `user`, with the
 #     same HOME and XDG_RUNTIME_DIR. dnf's prompts default to no, so every
 #     prompt there gets `y`, the answer the README tells the user to give.
+#   - curl-fedora commands in that prepared Fedora image plus the curl
+#     installer's floor, made once per run: hyprland from the
+#     sdegler/hyprland COPR, nodejs, python3, git and util-linux, as the
+#     Arch image carries its own. The feeder types only Enter, which dnf's
+#     `Is this ok [y/N]` reads as no, so this image's dnf.conf sets
+#     assumeyes=True: dnf takes the `y` the fedora channel types.
 # A command passes on exit 0. A command whose vgshell arguments are `start`
 # passes when it exits 69 refusing `hyprland=unreachable`, since no Hyprland
 # session runs in a container.
@@ -146,7 +154,7 @@ commands_out="$(node "$repo/scripts/check-readme.js" --commands)" || refuse 1 "c
 rows_out="$(node -e '
 const commands = require("fs").readFileSync(0, "utf8").split("\n").filter(Boolean).map(JSON.parse);
 let next = Math.max(...commands.map(c => c.block));
-for (const channel of ["curl-debian", "curl-nixos"]) {
+for (const channel of ["curl-debian", "curl-nixos", "curl-fedora"]) {
     const blocks = new Map();
     for (const c of commands.filter(c => c.channel === "curl")) {
         if (!blocks.has(c.block)) blocks.set(c.block, ++next);
@@ -181,12 +189,14 @@ scratch="$repo/tmp/readme-install.$$"
 cache="$repo/tmp/readme-install-cache"
 prepared="localhost/vgs-readme-install:$$"
 fedora_prepared="localhost/vgs-readme-install-fedora:$$"
+fedora_curl_prepared="localhost/vgs-readme-install-fedora-curl:$$"
 debian_prepared="localhost/vgs-readme-install-debian:$$"
 nixos_prepared="localhost/vgs-readme-install-nixos:$$"
 containers=()
 declare -A exported=()
 prepared_made=false
 fedora_prepared_made=false
+fedora_curl_prepared_made=false
 debian_prepared_made=false
 nixos_prepared_made=false
 nixos_volume=""
@@ -199,6 +209,7 @@ cleanup() {
   for name in "${containers[@]}"; do podman rm "${remove_args[@]}" -- "$name" >/dev/null 2>&1 || true; done
   [[ $prepared_made == false ]] || podman rmi -f -- "$prepared" >/dev/null 2>&1 || true
   [[ $fedora_prepared_made == false ]] || podman rmi -f -- "$fedora_prepared" >/dev/null 2>&1 || true
+  [[ $fedora_curl_prepared_made == false ]] || podman rmi -f -- "$fedora_curl_prepared" >/dev/null 2>&1 || true
   [[ $debian_prepared_made == false ]] || podman rmi -f -- "$debian_prepared" >/dev/null 2>&1 || true
   [[ $nixos_prepared_made == false ]] || podman rmi -f -- "$nixos_prepared" >/dev/null 2>&1 || true
   [[ -z $nixos_volume ]] || podman volume rm -- "$nixos_volume" >/dev/null 2>&1 || true
@@ -257,8 +268,8 @@ if (pkg === "") {
   esac
 }
 
-# Each block's image, `nix`, `fedora` or `arch`; a fence that mixes them is
-# refused before anything runs.
+# Each block's image, `nix`, `fedora`, `fedora-curl`, `debian`, `nixos` or
+# `arch`; a fence that mixes them is refused before anything runs.
 declare -A block_image=()
 declare -A block_commands=()
 arch_helper=""
@@ -268,6 +279,7 @@ for row in "${rows[@]}"; do
     nix|fedora) image="$channel" ;;
     curl-debian) image=debian ;;
     curl-nixos) image=nixos ;;
+    curl-fedora) image=fedora-curl ;;
     *) image=arch ;;
   esac
   [[ ${block_image[$block]:-$image} == "$image" ]] ||
@@ -344,6 +356,33 @@ PREPARE
     not_measured "container-setup image=$fedora_image" "$(tail -n 20 -- "$scratch/prepare-fedora.log")"
   podman commit -q -- "$name" "$fedora_prepared" >/dev/null || not_measured "container-setup step=commit"
   fedora_prepared_made=true
+  podman rm -f -t 0 -- "$name" >/dev/null
+}
+
+# The Fedora image the curl-fedora block starts from: the fedora image plus
+# the curl installer's floor, made once.
+prepare_fedora_curl() {
+  [[ $fedora_curl_prepared_made == false ]] || return 0
+  prepare_fedora
+  cat >"$scratch/prepare-fedora-curl.sh" <<'PREPARE'
+#!/usr/bin/env bash
+# Runs as root in the preparing container, on the prepared Fedora image.
+set -euo pipefail
+# The answer feeder types only Enter, which dnf's [y/N] reads as no.
+printf 'assumeyes=True\n' >>/etc/dnf/dnf.conf
+dnf install dnf5-plugins
+dnf copr enable sdegler/hyprland
+dnf install hyprland nodejs python3 git util-linux
+dnf clean all
+PREPARE
+  chmod 755 "$scratch/prepare-fedora-curl.sh"
+  local name="vgs-readme-install-prepare-fedora-curl.$$"
+  containers+=("$name")
+  podman run --name "$name" -v "$scratch/prepare-fedora-curl.sh:/prepare-fedora-curl.sh:ro" \
+    "$fedora_prepared" /prepare-fedora-curl.sh >"$scratch/prepare-fedora-curl.log" 2>&1 ||
+    not_measured "container-setup image=$fedora_prepared" "$(tail -n 20 -- "$scratch/prepare-fedora-curl.log")"
+  podman commit -q -- "$name" "$fedora_curl_prepared" >/dev/null || not_measured "container-setup step=commit"
+  fedora_curl_prepared_made=true
   podman rm -f -t 0 -- "$name" >/dev/null
 }
 
@@ -434,6 +473,9 @@ run_block_start() { # BLOCK
   if [[ ${block_image[$1]} == fedora ]]; then
     prepare_fedora
     image="$fedora_prepared" user=user
+  elif [[ ${block_image[$1]} == fedora-curl ]]; then
+    prepare_fedora_curl
+    image="$fedora_curl_prepared" user=user
   elif [[ ${block_image[$1]} == debian ]]; then
     prepare_debian
     image="$debian_prepared" user=user
@@ -560,12 +602,13 @@ export_tree() { # VERSION_COMMAND
   exported[$block]=true
 }
 
-# The arch, debian and nixos images' terminal and answers: python3 -c
-# "$answer_feeder" SECONDS COMMAND runs `timeout SECONDS bash -o pipefail -c
-# COMMAND` as the session leader of a pseudo-terminal it owns, echo off,
-# copies the terminal's output to stdout and exits with the command's
-# status. It types CR, the byte Enter sends, only while a reader waits, at
-# most once a second and only while nothing it typed is still unread:
+# The arch, debian, nixos and fedora-curl images' terminal and answers:
+# python3 -c "$answer_feeder" SECONDS COMMAND runs `timeout SECONDS bash -o
+# pipefail -c COMMAND` as the session leader of a pseudo-terminal it owns,
+# echo off, copies the terminal's output to stdout and exits with the
+# command's status. It types CR, the byte Enter sends, only while a reader
+# waits, at most once a second and only while nothing it typed is still
+# unread:
 #   - a reader of the raw terminal, with ICANON and ICRNL off: a gum
 #     question, which waits in epoll rather than in read(2), so the mode
 #     alone shows it. sudo, while it runs pacman or apt-get in a
@@ -706,7 +749,7 @@ for row in "${rows[@]}"; do
   started=$SECONDS
   status=0
   case "${block_image[$block]}" in
-    arch|debian|nixos) printf -v wrapper 'exec python3 -c %q "$1" "$2"' "$answer_feeder" ;;
+    arch|debian|nixos|fedora-curl) printf -v wrapper 'exec python3 -c %q "$1" "$2"' "$answer_feeder" ;;
     fedora) wrapper='yes y | timeout "$1" bash -o pipefail -c "$2"' ;;
     *) wrapper='yes "" | timeout "$1" bash -o pipefail -c "$2"' ;;
   esac
@@ -726,7 +769,7 @@ for row in "${rows[@]}"; do
   case "$channel" in
     aur) version_command='vgshell --version' ;;
     fedora) [[ $command != *' dnf install '* ]] || version_command='vgshell --version' ;;
-    curl|curl-debian|curl-nixos) [[ $command == *--uninstall* ]] || version_command='~/.local/bin/vgshell --version' ;;
+    curl|curl-debian|curl-nixos|curl-fedora) [[ $command == *--uninstall* ]] || version_command='~/.local/bin/vgshell --version' ;;
     nix) version_command="${command% -- *} -- --version" ;;
     checkout) [[ $vgshell == - ]] || version_command='vgshell/bin/vgshell --version' ;;
   esac

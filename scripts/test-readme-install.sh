@@ -8,7 +8,8 @@
 # no podman, an AUR probe that fails or answers no result list, a COPR
 # probe that fails or answers neither 200 nor 404, a COPR package with no
 # succeeded build, a release probe that fails, a curl download that fails
-# with no output, each fence in its own container, dnf answered `y`, a
+# with no output, each fence in its own container, curl-fedora's curl block
+# in its Fedora curl image under the answer feeder, dnf answered `y`, a
 # raw-mode question after a step that reads nothing kept at its default by
 # Enter, a line read answered, and curl run with SIGPIPE and SIGXFSZ at
 # their defaults.
@@ -21,8 +22,9 @@
 # fail the download row, one that answers dnf with the default must fail
 # the `y` row, a feeder that types while nothing reads or types LF must fail
 # the raw-mode row, one that answers only the raw terminal must fail the
-# line row, and one that passes on Python's ignored signals must fail the
-# signal row.
+# line row, one that passes on Python's ignored signals must fail the
+# signal row, and one that runs curl-fedora without the feeder or in another
+# image must fail the curl-fedora row.
 set -euo pipefail
 
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
@@ -100,6 +102,7 @@ case "$1" in
     shift
     [[ $1 == -d ]] || { printf 'prepare %s\n' "${@: -1}" >>"$STUB_RECORD"; exit 0; }
     printf 'start %s\n' "$3" >>"$STUB_RECORD"
+    printf 'image %s %s\n' "$3" "${@: -3:1}" >>"$STUB_RECORD"
     if [[ $* == *'vgs-validate-nix-2.35.2:/nix'* ]]; then
       printf 'vgs-validate-nix-2.35.2\n' >"$STUB_RECORD.$3.volume"
     else
@@ -115,7 +118,7 @@ case "$1" in
     done
     container="$2"
     case "$container" in
-      vgs-readme-install-3.*|vgs-readme-install-5.*|vgs-readme-install-6.*|vgs-readme-install-7.*) export STUB_VERSION="${STUB_CHECKOUT_VERSION:-$STUB_VERSION}" ;;
+      vgs-readme-install-3.*|vgs-readme-install-5.*|vgs-readme-install-6.*|vgs-readme-install-7.*|vgs-readme-install-8.*) export STUB_VERSION="${STUB_CHECKOUT_VERSION:-$STUB_VERSION}" ;;
       *) export STUB_VERSION="${STUB_PACKAGE_VERSION:-$STUB_VERSION}" ;;
     esac
     shift 2
@@ -305,10 +308,10 @@ row "malformed commands fail syntax before an install starts" 1 "readme-install:
 row "the published commands run" 0 "readme-install: ok line=${aur_first%%:*} channel=aur exit=0 seconds=*" "${published[@]}" --
 # Each command the record names, after its fence's number in the README.
 fence_want=$'1 paru -S vgshell-git\n1 vgshell --version\n2 sudo dnf copr enable vanillagreen/vgshell\n2 sudo dnf install vgshell\n2 vgshell --version\n3 '"$curl_command"$'\n3 ~/.local/bin/vgshell --version\n3 ~/.local/bin/vgshell version --json\n4 nix run github:vanillagreencom/vgshell -- start\n4 nix run github:vanillagreencom/vgshell -- --version\n5 git clone https://github.com/vanillagreencom/vgshell\n5 vgshell/bin/vgshell start\n5 vgshell/bin/vgshell --version\n5 vgshell/bin/vgshell version --json'
-for block in 6 7; do fence_want+=$'\n'"$block $curl_command"$'\n'"$block ~/.local/bin/vgshell --version"$'\n'"$block ~/.local/bin/vgshell version --json"; done
+for block in 6 7 8; do fence_want+=$'\n'"$block $curl_command"$'\n'"$block ~/.local/bin/vgshell --version"$'\n'"$block ~/.local/bin/vgshell version --json"; done
 fence_have="$(sed -n -E 's/^exec vgs-readme-install-([0-9]+)\.[0-9]+ /\1 /p' -- "$record")"
 fence_starts="$(sed -n -E 's/^start vgs-readme-install-([0-9]+)\.[0-9]+$/\1/p' -- "$record")"
-if [[ $fence_have == "$fence_want" && $fence_starts == $'1\n2\n3\n4\n5\n6\n7' ]]; then
+if [[ $fence_have == "$fence_want" && $fence_starts == $'1\n2\n3\n4\n5\n6\n7\n8' ]]; then
   ok "each fence runs in its own container"
 else
   fail "each fence runs in its own container"
@@ -341,13 +344,30 @@ for line in sys.argv[2].splitlines():
     if channel == "curl-nixos":
         assert len(list((tree / ".engines").iterdir())) == 1
         assert (tree / "nix/store/engine/bin/qs").is_file()
-assert set(trees) == {"aur", "fedora", "curl", "checkout", "nix", "curl-debian", "curl-nixos"}, trees
+assert set(trees) == {"aur", "fedora", "curl", "checkout", "nix", "curl-debian", "curl-nixos", "curl-fedora"}, trees
 PY
   then ok "each installed block exports once, without installed documentation"; else fail "installed tree/store exports differ"; fi
 }
 export_row
 row "selected added channels reuse only their curl blocks" 0 "readme-install: ok line=$curl_line channel=curl-debian exit=0 seconds=*" "${published[@]}" -- --channel curl-debian --channel curl-nixos
 if [[ $(sed -n -E 's/^start vgs-readme-install-([0-9]+)\.[0-9]+$/\1/p' -- "$record") == $'6\n7' ]]; then ok "selection starts no completed channel"; else fail "selection started another channel"; fi
+# curl-fedora's plan: the prepared Fedora image, the curl floor on it, then
+# the curl block alone in that image under the answer feeder, the one
+# wrapper that answers STUB_REQUIRE_LINE's read of the terminal. One verdict
+# per run, so a control that breaks either half fails it once.
+curl_fedora_row() {
+  local before=$failures plan
+  row "curl-fedora runs the curl block under the answer feeder" 0 "readme-install: ok line=$curl_line channel=curl-fedora exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_REQUIRE_LINE=1 -- --channel curl-fedora
+  ((failures == before)) || return 0
+  if plan="$(sed -n -E '/^(prepare|start|image) /p' -- "$record")" &&
+    [[ $plan == "prepare /prepare-fedora.sh"$'\n'"prepare /prepare-fedora-curl.sh"$'\n'"start vgs-readme-install-8."[0-9]*$'\n'"image vgs-readme-install-8."[0-9]*" localhost/vgs-readme-install-fedora-curl:"[0-9]* &&
+    $row_output == *"readme-install: version line=$curl_line channel=curl-fedora value=vgshell $version"* ]]; then
+    ok "curl-fedora starts block 8 alone in the Fedora curl image"
+  else
+    fail "curl-fedora plan: [$plan]"
+  fi
+}
+curl_fedora_row
 row "both NixOS routes run as their nonroot user with a private writable store" 0 "readme-install: ok line=* channel=nix exit=69 seconds=*" "${published[@]}" STUB_REQUIRE_NONROOT=1 -- --channel nix --channel curl-nixos
 if python3 - "$record" <<'PY'
 from pathlib import Path
@@ -455,7 +475,8 @@ row "a failed release probe is not measured" 77 "readme-install: status=not-meas
 
 # --- controls ---------------------------------------------------------------
 # control NAME OLD NEW ROW_ARGS...: the row, run on a runner copy with OLD
-# replaced by NEW once, must fail.
+# replaced by NEW once, must fail. With `-f FUNCTION` in place of ROW_ARGS,
+# FUNCTION's one verdict must fail.
 control() {
   local name="$1" old="$2" new="$3" before=$failures
   shift 3
@@ -468,7 +489,7 @@ if text.count(old) != 1:
     raise SystemExit(f"runner edit: matches={text.count(old)}")
 path.write_text(text.replace(old, new))
 PY
-  row "$@" >/dev/null
+  if [[ $1 == -f ]]; then "$2"; else row "$@"; fi >/dev/null
   cp -p -- "$tmp/readme-install.sh.orig" "$tree/scripts/readme-install.sh"
   if ((failures == before + 1)); then
     failures=$before
@@ -538,12 +559,14 @@ enter_row=("enter" 0 "readme-install: ok line=$curl_line channel=curl exit=0 sec
 control "a feeder that sends LF" 'os.write(master, b"\r")' 'os.write(master, b"\n")' "${enter_row[@]}"
 # main's feeder before VGS-2277: a CR every second, read or not.
 IFS= read -r blind_feeder <<'EOF' || :
-    arch|debian|nixos) wrapper='printf -v argv "%q " timeout "$1" bash -o pipefail -c "$2"; exec 3< <(while printf "\\r"; do sleep 1; done 2>/dev/null); feeder=$!; script -qE never -ec "$argv" /dev/null <&3 3<&-; status=$?; kill "$feeder"; exit "$status"' ;;
+    arch|debian|nixos|fedora-curl) wrapper='printf -v argv "%q " timeout "$1" bash -o pipefail -c "$2"; exec 3< <(while printf "\\r"; do sleep 1; done 2>/dev/null); feeder=$!; script -qE never -ec "$argv" /dev/null <&3 3<&-; status=$?; kill "$feeder"; exit "$status"' ;;
 EOF
 # shellcheck disable=SC2016
-control "a feeder that types while nothing reads" '    arch|debian|nixos) printf -v wrapper '"'"'exec python3 -c %q "$1" "$2"'"'"' "$answer_feeder" ;;' "$blind_feeder" "${enter_row[@]}"
+control "a feeder that types while nothing reads" '    arch|debian|nixos|fedora-curl) printf -v wrapper '"'"'exec python3 -c %q "$1" "$2"'"'"' "$answer_feeder" ;;' "$blind_feeder" "${enter_row[@]}"
 control "a feeder that answers only the raw terminal" 'if raw or lflag & termios.ICANON and line_reader():' 'if raw:' \
   "line" 0 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_REQUIRE_LINE=1 -- --channel curl
+control "curl-fedora without the answer feeder" '    arch|debian|nixos|fedora-curl) printf -v wrapper' '    arch|debian|nixos) printf -v wrapper' -f curl_fedora_row
+control "curl-fedora in another image" '    curl-fedora) image=fedora-curl ;;' '    curl-fedora) image=debian ;;' -f curl_fedora_row
 control "a feeder that passes on Python's ignored signals" 'signal.signal(number, signal.SIG_DFL)' 'pass' \
   "signals" 0 "readme-install: ok line=$curl_line channel=curl exit=0 seconds=*" "$stubbed" STUB_PODMAN_WORKS=1 STUB_REQUIRE_SIGNALS=1 -- --channel curl
 # shellcheck disable=SC2016
