@@ -47,6 +47,11 @@
 # newest run of each area set its result.txt's first line names. It prints
 # `main-run: removed run=<id>`, or `main-run: remove-failed run=<id>`, to
 # run.log; a failed removal leaves the exit to the verdict.
+# Before pruning, one complete Linear issue/comment read and owner-ask read
+# protects cited paths, open-item artifact groups and live fleet/package state.
+# An unread kept set deletes nothing. Other VGS tmp files expire after seven
+# days, without following links or removing newer siblings. The batch logs
+# kept-set-read-secs and every removed file. See runtime.md Temporary artifacts.
 #
 # The run is green only when every area exits 0: exit 77, which says a row
 # could not run, makes it red like any other non-zero status. Exit 0 green,
@@ -194,10 +199,152 @@ exec >"$out/run.log" 2>&1
 
 # prune: the retention the header states, judged against this run's start.
 # Run ids are fixed-width UTC times, so their digits compare as numbers.
+expire_tmp() {
+  python3 - "$checkout" "$root" "$started" <<'PY'
+import errno
+import fnmatch
+import json
+import os
+import re
+import stat
+import subprocess
+import sys
+import time
+
+checkout, root, started = sys.argv[1:]
+tmp = os.path.join(checkout, "tmp")
+record = os.path.relpath(root, tmp)
+cutoff = int(started) - 7 * 86400
+begin = time.monotonic()
+
+def read(command, data=None):
+    return subprocess.run(["timeout", "--kill-after=5", "600", *command], cwd=checkout,
+                          input=data, text=True, stdout=subprocess.PIPE, check=True).stdout
+
+try:
+    linear = os.path.join(checkout, ".agents/skills/linear/scripts/linear.sh")
+    source = "issues"
+    issues = json.loads(read([linear, "issues", "list", "--select", "owed",
+                              "--all-projects", "--include-archived", "--max"]))
+    if not isinstance(issues, list):
+        raise ValueError("issues-not-list")
+    opened = {}
+    for issue in issues:
+        description = issue["description"]
+        if description is None:
+            description = ""
+        if not all(isinstance(issue[key], str) for key in ("id", "state")) or not isinstance(description, str):
+            raise ValueError("issue-fields")
+        if issue["state"] not in ("Done", "Canceled"):
+            opened[issue["id"]] = description
+    source = "comments"
+    comments = json.loads(read([linear, "comments", "bulk-list", "--stdin"],
+                              "\n".join(opened) + "\n")) if opened else {}
+    if not isinstance(comments, dict) or set(comments) != set(opened):
+        raise ValueError("comments-incomplete")
+    texts = list(opened.values())
+    for rows in comments.values():
+        if not isinstance(rows, list):
+            raise ValueError("comments-not-list")
+        for row in rows:
+            if not isinstance(row["body"], str):
+                raise ValueError("comment-body")
+            texts.append(row["body"])
+    mail = os.path.join(checkout, ".agents/skills/mailbox/scripts/lane-mail")
+    source = "owner-asks"
+    os.stat(os.path.join(tmp, "lane-mail", "overseer"))
+    for line in read([mail, "pending", "--item", "overseer", "--to", "owner"]).splitlines():
+        ask = json.loads(line)
+        if not isinstance(ask["text"], str):
+            raise ValueError("owner-ask-text")
+        texts.append(ask["text"])
+    patterns = set()
+    for text in texts:
+        patterns.update(p.rstrip("/.,;:)") for p in re.findall(r"tmp/([^\s`\"<>]+)", text))
+        patterns.update(p.split("tmp/", 1)[1].rstrip("/")
+                        for p in re.findall(r"`([^`\n]+)`", text) if "tmp/" in p)
+        patterns.update(p.rstrip("/") for p in re.findall(r"`([^`\n]+)`", text)
+                        if "tmp/" not in p and not re.search(r"[\s/]", p))
+    # A writer root in prose names no artifact; a path below it does.
+    output_roots = {record.split("/")[0], "main-run", "qml-smoke", "display-record", "sandbox-shots",
+                    "readme-shots", "theme-previews", "shader-cost", "selftest-records",
+                    "arch-packages-cache", "readme-install-cache"}
+    patterns = [p.split("/") for p in patterns if p and not p.startswith("../") and p not in output_roots]
+    groups = {identifier.lower().replace("-", "") for identifier in opened}
+except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError) as error:
+    print(f"main-run: expiry=skipped cause=kept-set-unreadable source={source} error={type(error).__name__}", file=sys.stderr)
+    sys.exit(1)
+finally:
+    print(f"main-run: kept-set-read-secs={time.monotonic() - begin:.3f}", file=sys.stderr)
+
+def intersects(relative):
+    parts = relative.split("/")
+    return any(all(fnmatch.fnmatchcase(part, pattern) for part, pattern in zip(parts, ref))
+               for ref in patterns)
+
+def kept(relative):
+    parts = relative.split("/")
+    group = re.match(r"(?i)^([a-z]+)-?(\d+)(?:[^0-9]|$)", parts[0])
+    return (group is not None and "".join(group.groups()).lower() in groups) or any(
+        len(ref) <= len(parts) and all(fnmatch.fnmatchcase(part, pattern)
+                                    for part, pattern in zip(parts, ref)) for ref in patterns)
+
+protected = []
+try:
+    with os.scandir(root) as runs:
+        protected = [entry.name for entry in runs if re.fullmatch(r"\d{8}T\d{6}Z", entry.name)
+                     and intersects(record + "/" + entry.name)]
+    # Package state and the fleet's live helper roots have another owner.
+    owned = ("lane-archive", "lane-mail", "progress-reports", "handoffs", "nested-slot.sh",
+             "nested-slots", "oversee-watch", "oversee-watch.*", "waiter.*", "workflow-state-*",
+             "dev-validate-*", ".dev-validate-runs.*", "validation-runs", "dev-round-*", "dev-return-*",
+             "round-recovered-*", "cycle-state", "container-close*", "lane-wake-*", "lane-status-*")
+    def visit(fd, relative=""):
+        with os.scandir(fd) as entries:
+            entries = list(entries)
+        for entry in entries:
+            path = relative + "/" + entry.name if relative else entry.name
+            if (not relative and any(fnmatch.fnmatchcase(entry.name, p) for p in owned)) or kept(path):
+                continue
+            # The old batch policy owns this root, using the same kept snapshot.
+            if path == record or record.startswith(path + "/"):
+                continue
+            try:
+                info = entry.stat(follow_symlinks=False)
+                if stat.S_ISDIR(info.st_mode):
+                    child = os.open(entry.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                    try:
+                        visit(child, path)
+                    finally:
+                        os.close(child)
+                    if info.st_mtime < cutoff:
+                        try:
+                            os.rmdir(entry.name, dir_fd=fd)
+                        except OSError as error:
+                            if error.errno not in (errno.ENOTEMPTY, errno.EEXIST):
+                                raise
+                elif info.st_mtime < cutoff and (stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode)):
+                    os.unlink(entry.name, dir_fd=fd)
+                    print(f"main-run: expired path=tmp/{path}", file=sys.stderr)
+            except OSError as error:
+                print(f"main-run: expiry-failed path=tmp/{path} error={error.errno}", file=sys.stderr)
+    fd = os.open(tmp, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        visit(fd)
+    finally:
+        os.close(fd)
+except OSError as error:
+    print(f"main-run: expiry-failed error={error.errno}", file=sys.stderr)
+    sys.exit(1)
+print("\n".join(protected))
+PY
+}
+
 prune() {
-  local dir name line areaset green= sha cut
+  local dir name line areaset green= sha cut protected
   local -a runs=()
   local -A newest=() keep=()
+  protected="$(expire_tmp)" || return 0
   cut="$(date -u -d "@$((started - retention * 86400))" +%Y%m%d%H%M%S)" ||
     { echo 'main-run: remove-failed cause=cutoff-unreadable'; return 0; }
   [[ ! -f $root/last-green ]] || read -r green <"$root/last-green" || :
@@ -215,6 +362,7 @@ prune() {
   keep[$id]=1
   for name in "${runs[@]}"; do
     (( 10#${name//[TZ]/} < 10#$cut )) && [[ -z ${keep[$name]-} ]] || continue
+    [[ $'\n'$protected$'\n' != *$'\n'"$name"$'\n'* ]] || continue
     sha=
     [[ ! -f $root/$name/sha ]] || read -r sha <"$root/$name/sha" || :
     [[ -z $green || $sha != "$green" ]] || continue
