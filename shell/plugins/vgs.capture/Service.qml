@@ -216,9 +216,12 @@ Item {
             windowsUnread();
             return;
         }
-        const boxes = action === "screenshot-window" || action === "record-window" || ((action === "screenshot-area" || action === "record") && shell.settings.smart);
-        launch(action, "", boxes ? windowRectangles(state.clients, state.monitors) : [], restoreTarget(state.clients));
+        launch(action, "", offersWindows(action) ? windowRectangles(state.clients, state.monitors) : [], restoreTarget(state.clients, state.monitors));
     }
+
+    // Whether the selection NAME offers window boxes, which need Hyprland's
+    // reply.
+    function offersWindows(name) { return name === "screenshot-window" || name === "record-window" || ((name === "screenshot-area" || name === "record") && shell.settings.smart); }
 
     // The Capture options window, which a press in it closes, so no
     // selection offers it or gives it the keyboard back. It is the shell's
@@ -226,22 +229,26 @@ Item {
     // host titles it.
     function optionsWindow(client) { return client.class === "org.vgs.shell" && client.title === shell.manifest.name; }
 
-    // The window a selection gives the keyboard back to: the active one, or,
-    // when that is the options window or a window already gone, the one
-    // Hyprland focused last among the rest. None while no window has the
-    // keyboard. A client's address carries the `0x` a toplevel's lacks.
-    function restoreTarget(clients) {
-        const active = Hyprland.activeToplevel;
-        if (active === null) return "";
-        const mapped = clients.filter(client => client.mapped);
-        const current = mapped.find(client => client.address === "0x" + active.address);
-        if (current !== undefined && !optionsWindow(current)) return active.address;
-        const rest = mapped.filter(client => !optionsWindow(client) && client.focusHistoryID >= 0).sort((a, b) => a.focusHistoryID - b.focusHistoryID);
-        return rest.length === 0 ? "" : rest[0].address.replace(/^0x/, "");
+    // The window a selection gives the keyboard back to, from one reply: the
+    // one Hyprland focused last among the windows the focused monitor draws,
+    // the options window left out. Hyprland's focus history spans every
+    // workspace, so a monitor that draws no other window, such as an empty
+    // workspace, gets none, and a restore never moves to another workspace.
+    // A client's address carries the `0x` a restore drops.
+    function restoreTarget(clients, monitors) {
+        const focused = monitors.filter(monitor => monitor.focused === true);
+        const shown = clients.filter(client => client.mapped && !client.hidden && !optionsWindow(client) && client.focusHistoryID >= 0 && shell.compositor.onScreen(client, focused)).sort((a, b) => a.focusHistoryID - b.focusHistoryID);
+        return shown.length === 0 ? "" : shown[0].address.replace(/^0x/, "");
     }
 
+    // A selection that offers window boxes cannot start without Hyprland's
+    // reply; any other starts with no window to give the keyboard back to.
     function windowsUnread() {
         windowsAsked += 1;
+        if (!offersWindows(action)) {
+            launch(action, "", [], "");
+            return;
+        }
         phase = "idle";
         action = "";
         notice("Capture failed", "Window information could not be read");

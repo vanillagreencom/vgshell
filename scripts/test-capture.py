@@ -150,50 +150,97 @@ console.log(JSON.stringify([
 
 
 def restore_target():
-    """The window a selection gives the keyboard back to, from Hyprland's clients.
+    """The window a selection gives the keyboard back to, from one Hyprland reply.
 
-    A press in the Capture options window makes it the active toplevel and
-    then closes it, so the target is the window Hyprland focused before it.
-    Each row: the active toplevel's address or None, and the target.
+    A press in the Capture options window then closes it, so the target is
+    the window Hyprland focused last among those the focused monitor draws,
+    the options window left out. Hyprland's focus history spans every
+    workspace: a monitor that draws no other window gets none, so a restore
+    never switches workspace. Each row: its clients by focus history, the
+    monitors, and the target. Dispatch.onScreen judges what a monitor draws,
+    through the compositor capability, as the service calls it.
     """
     service = (HELPER.parent.parent / "Service.qml").read_text()
     options = [line.strip() for line in service.splitlines() if line.startswith("    function optionsWindow(client) {")]
     assert len(options) == 1, "options window function boundary"
     body = options[0] + "\n" + service_function(service, "restoreTarget")
-    clients = [
-        {"address": "0xoptions", "class": "org.vgs.shell", "title": "Capture", "mapped": True, "focusHistoryID": 0},
-        {"address": "0xuser", "class": "app", "title": "Editor", "mapped": True, "focusHistoryID": 1},
-        {"address": "0xsettings", "class": "org.vgs.shell", "title": "Plugins", "mapped": True, "focusHistoryID": 2},
-        {"address": "0xunmapped", "class": "app", "title": "Gone", "mapped": False, "focusHistoryID": -1},
-    ]
+    _, factory = window_source()
+    def client(address, ws, history, **extra):
+        return {"address": "0x" + address, "class": "app", "title": address, "mapped": True, "hidden": False, "visible": True, "monitor": 0,
+                "workspace": {"id": ws, "name": str(ws)}, "focusHistoryID": history, **extra}
+    options_window = client("options", 1, 0, **{"class": "org.vgs.shell", "title": "Capture"})
+    monitor = {"id": 0, "focused": True, "activeWorkspace": {"id": 1, "name": "1"}, "specialWorkspace": {"id": 0, "name": ""}}
     rows = [
-        ("the user's window is active", "user", "user"),
-        ("another shell window is active", "settings", "settings"),
-        ("the options window is active", "options", "user"),
-        ("the active window is gone", "closed", "user"),
-        ("no window is active", None, ""),
+        ("a press in the options window", [options_window, client("user", 1, 1), client("elsewhere", 2, 2)], [monitor], "user"),
+        ("the options window is already gone", [client("user", 1, 0), client("elsewhere", 2, 1)], [monitor], "user"),
+        ("another shell window was focused", [client("settings", 1, 0, **{"class": "org.vgs.shell", "title": "Plugins"}), client("user", 1, 1)], [monitor], "settings"),
+        ("the only other window is on another workspace", [options_window, client("elsewhere", 2, 1)], [monitor], ""),
+        ("an empty workspace with no options window", [client("elsewhere", 2, 0)], [monitor], ""),
+        ("the shown special workspace", [options_window, client("scratch", -98, 1, workspace={"id": -98, "name": "special:term"}), client("user", 1, 2)],
+         [{**monitor, "specialWorkspace": {"id": -98, "name": "special:term"}}], "scratch"),
+        ("the other monitor's window", [options_window, client("beside", 3, 1, monitor=1)],
+         [monitor, {"id": 1, "focused": False, "activeWorkspace": {"id": 3, "name": "3"}, "specialWorkspace": {"id": 0, "name": ""}}], ""),
+        ("no monitor is focused", [options_window, client("user", 1, 1)], [{**monitor, "focused": False}], ""),
+        ("an unmapped or hidden window", [options_window, client("gone", 1, 1, mapped=False), client("tab", 1, 2, hidden=True)], [monitor], ""),
     ]
     program = r'''
+const path = require("path");
 const input = JSON.parse(process.argv[1]);
-const run = (body, active, clients) => new Function("shell", "Hyprland", body + "; return restoreTarget;")({ manifest: { name: "Capture" } }, { activeToplevel: active === null ? null : { address: active } })(clients);
-console.log(JSON.stringify([
-    input.rows.map(([, active]) => run(input.body, active, input.clients)),
-    input.rows.map(([, active]) => run(input.control, active, input.clients)),
-    run(input.body, "options", input.clients.filter(c => c.address === "0xoptions")),
-]));
+const Dispatch = require(path.join(input.repo, "bin/lib/qml-library.js")).load(path.join(input.repo, "shell/Core/Dispatch.js"));
+const compositor = new Function("Dispatch", "Compositor", "ctx", input.factory)(Dispatch, {}, { active: true });
+const run = (body, clients, monitors) => new Function("shell", body + "; return restoreTarget;")({ compositor, manifest: { name: "Capture" } })(clients, monitors);
+console.log(JSON.stringify([input.rows.map(([, clients, monitors]) => run(input.body, clients, monitors)), input.rows.map(([, clients, monitors]) => run(input.control, clients, monitors))]));
 '''
-    before = "if (current !== undefined && !optionsWindow(current)) return active.address;"
+    before = " && shell.compositor.onScreen(client, focused)"
     assert body.count(before) == 1, "restore target control"
-    control = body.replace(before, "return active.address;")
-    payload = dict(body=body, control=control, clients=clients, rows=rows)
+    control = body.replace(before, "")
+    payload = dict(repo=str(REPO), body=body, control=control, factory=factory, rows=rows)
     result = subprocess.run(["node", "-e", program, json.dumps(payload)], stdin=subprocess.DEVNULL, capture_output=True, text=True, env={"PATH": os.defpath, "LC_ALL": "C"}, timeout=10)
     assert result.returncode == 0, result.stderr
-    actual, controlled, alone = json.loads(result.stdout)
-    for (name, _, want), got in zip(rows, actual):
+    actual, controlled = json.loads(result.stdout)
+    for (name, _, _, want), got in zip(rows, actual):
         assert got == want, (name, got)
-    assert alone == "", ("only the options window", alone)
-    assert controlled != [want for _, _, want in rows], "a target read from the active toplevel must fail the same table"
+    wrong = {name for (name, _, _, want), got in zip(rows, controlled) if got != want}
+    assert "the only other window is on another workspace" in wrong, ("a target from the whole focus history must fail the other-workspace row", sorted(wrong))
 
+
+def unread_windows():
+    """A failed or late windows read ends only a selection that offers window boxes.
+
+    Display, and Area or Record without Smart, need Hyprland's reply only for
+    the window they give the keyboard back to, so they start without one.
+    Each row: the action, Smart, and whether it starts or fails.
+    """
+    service = (HELPER.parent.parent / "Service.qml").read_text()
+    body = "\n".join(service_function(service, name) for name in ("offersWindows", "windowsUnread"))
+    rows = [("screenshot-display", True, "starts"), ("record-display", True, "starts"), ("screenshot-area", False, "starts"), ("record", False, "starts"),
+            ("screenshot-area", True, "fails"), ("record", True, "fails"), ("screenshot-window", True, "fails"), ("record-window", False, "fails")]
+    program = r'''
+const input = JSON.parse(process.argv[1]);
+const run = (body, action, smart) => {
+    const seen = [];
+    const root = { windowsAsked: 0, phase: "capturing", action: action, shell: { settings: { smart: smart } } };
+    const scope = new Function("root", "launch", "notice", "publish", "with (root) { " + body + "; return windowsUnread; }");
+    scope(root, (...args) => { seen.push(["launch", ...args]); return "ok"; }, (title) => seen.push(["notice", title]), () => {})();
+    return [root.windowsAsked, seen];
+};
+console.log(JSON.stringify([input.rows.map(([action, smart]) => run(input.body, action, smart)), input.rows.map(([action, smart]) => run(input.control, action, smart))]));
+'''
+    before = "        if (!offersWindows(action)) {\n            launch(action, \"\", [], \"\");\n            return;\n        }\n"
+    assert body.count(before) == 1, "unread windows control"
+    control = body.replace(before, "")
+    payload = dict(body=body, control=control, rows=rows)
+    result = subprocess.run(["node", "-e", program, json.dumps(payload)], stdin=subprocess.DEVNULL, capture_output=True, text=True, env={"PATH": os.defpath, "LC_ALL": "C"}, timeout=10)
+    assert result.returncode == 0, result.stderr
+    actual, controlled = json.loads(result.stdout)
+    def outcome(action, reading):
+        asked, seen = reading
+        if asked == 1 and seen == [["launch", action, "", [], ""]]: return "starts"
+        if asked == 1 and seen == [["notice", "Capture failed"]]: return "fails"
+        return json.dumps(reading)
+    for (action, smart, want), reading in zip(rows, actual):
+        assert outcome(action, reading) == want, (action, smart, reading)
+    assert [outcome(action, r) for (action, _, _), r in zip(rows, controlled)] != [want for _, _, want in rows], "a read failure that ends every selection must fail the same table"
 
 WINDOW_REPLIES = REPO / "scripts/fixtures/capture/hyprland-windows.json"
 
@@ -2079,6 +2126,7 @@ def main():
         dimensions = (int(width), int(height))
     service_rectangles()
     restore_target()
+    unread_windows()
     recorded_windows()
     service_completion()
     delay_choice()

@@ -1598,7 +1598,7 @@ changes = {
     "active": [
         ("if (selections.indexOf(name) >= 0) {", "if (name === \"screenshot-window\" || name === \"record-window\" || ((name === \"screenshot-area\" || name === \"record\") && shell.settings.smart)) {"),
         ("return launch(name, output, [], \"\");", "return launch(name, output, [], selections.indexOf(name) >= 0 && Hyprland.activeToplevel !== null ? Hyprland.activeToplevel.address : \"\");"),
-        ("restoreTarget(state.clients));", "Hyprland.activeToplevel === null ? \"\" : Hyprland.activeToplevel.address);"),
+        ("restoreTarget(state.clients, state.monitors));", "Hyprland.activeToplevel === null ? \"\" : Hyprland.activeToplevel.address);"),
     ],
     "original": [],
 }
