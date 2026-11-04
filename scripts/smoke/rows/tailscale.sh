@@ -847,7 +847,7 @@ expect "the service publishes this device" '{"name": "desk", "address": "100.64.
 expect "the service publishes the exit node in use" '{"id": "nFIXTURE0013CNTRL", "name": "Zurich, Switzerland"}' tailscale_value exit
 expect_poll "the service publishes both accounts" '["a1b2", "c3d4"]' tailscale_account_ids
 expect_poll "Tailscale's widget is placed" True tailscale_placed
-expect_poll "the widget draws the exit node from the shared record" '"earth-lock"' ipc smoke readDescendant "$(bar_key)" vgs.tailscale BarItem iconName
+expect_poll "the widget draws the exit node from the shared record" '"earth"' ipc smoke readDescendant "$(bar_key)" vgs.tailscale BarItem iconName
 expect_poll "the running Tailscale backend shows its widget" true tailscale_widget
 tailscale_no_exit="$(python3 -c 'import json,sys
 status = json.load(open(sys.argv[1]))
@@ -860,7 +860,7 @@ expect_poll "the tailnet publishes no selected exit node" null tailscale_value e
 expect_poll "the tailnet without an exit node draws route" '"route"' tailscale_icon
 tailscale_use mullvad.json
 expect "a refresh restores the exit node" ok tailscale_refresh
-expect_poll "the exit node draws earth-lock" '"earth-lock"' tailscale_icon
+expect_poll "the exit node draws earth" '"earth"' tailscale_icon
 expect "the poll waits the setting's 30 s while no view is open" 30000 tailscale_interval
 
 # Access denied: no operator, so the step reads needed and Allow is offered.

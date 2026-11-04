@@ -816,7 +816,7 @@ function accountReason(tailscale, step, kind) {
 function barView(tailscale) {
     if (!isPlain(tailscale) || tailscale.state === "missing" || tailscale.backendPresent === false)
         return { shown: false, icon: "route-off", spinning: false, warning: false, tooltip: "Tailscale" };
-    return { shown: true, icon: tailscale.state === "running" ? (tailscale.exit === null ? "route" : "earth-lock") : "route-off",
+    return { shown: true, icon: tailscale.state === "running" ? (tailscale.exit === null ? "route" : "earth") : "route-off",
         spinning: tailscale.state === "starting" || tailscale.action !== "" || tailscale.login !== "idle",
         warning: tailscale.tone === "warning" || !tailscale.writable,
         tooltip: "Tailscale: " + tailscale.text };

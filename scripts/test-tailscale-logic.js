@@ -421,7 +421,7 @@ function suite(logic, service = serviceSource) {
     assert.equal(plain(logic.unread()).state, "checking");
     for (const [tailscale, want] of [
         [null, { shown: false }], [plain(logic.published(true, running, ready, live)), { shown: false }],
-        [shown, { shown: true, icon: "earth-lock" }],
+        [shown, { shown: true, icon: "earth" }],
         [plain(logic.published(false, Object.assign({}, running, { exit: null }), ready, live)), { shown: true, icon: "route" }],
         [plain(logic.published(false, stopped, ready, live)), { shown: true, icon: "route-off" }],
         [plain(logic.published(false, logic.emptySnapshot("service-off"), ready, live)), { shown: true, icon: "route-off" }]
@@ -711,7 +711,7 @@ try {
         ["only an https sign-in page opens", "/https:\\/\\/[^\\s\"'<>]+/", "/[a-z]+:\\/\\/[^\\s\"'<>]+/"],
         ["a drawn line holds no markup start", "\\u007f<]/g", "\\u007f]/g"],
         ["absent service hides", ' || tailscale.backendPresent === false', ''],
-        ["exit node uses a distinct icon", '(tailscale.exit === null ? "route" : "earth-lock")', '"route"'],
+        ["exit node uses a distinct icon", '(tailscale.exit === null ? "route" : "earth")', '"route"'],
         ["starting spins", 'tailscale.state === "starting" || ', ''],
         ["access needed warns", ' || !tailscale.writable', ''],
         ["a starting state polls fast", 'return open || state === "starting" ? FAST_POLL_MS', 'return open ? FAST_POLL_MS'],
