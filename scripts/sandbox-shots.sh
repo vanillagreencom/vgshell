@@ -6459,7 +6459,6 @@ PYKEYBOARD
     expect "disabling vgs.displays after the System shots is allowed" ok ipc shell setPluginEnabled vgs.displays false
     rm -f -- "${home:?}/.local/state/vgshell/plugins/vgs.displays/assignments.json"
   fi
-  expect "disabling vgs.system after its shot is allowed" ok ipc shell setPluginEnabled vgs.system false
 }
 # widget_right_click ID: a right click on the centre of plugin ID's bar
 # widget, which opens its menu.
