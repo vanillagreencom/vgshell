@@ -23,7 +23,11 @@
 # row stops the shell rows/read-only-prefix.sh started, starts the copy
 # through harness.sh's start_shell and leaves it running for
 # rows/hidpi.sh, which stops it.
-# inputs: shell/Core/Plugins.qml shell/Core/Notices.qml shell/Core/TuiRunner.qml shell/Core/TuiRecords.qml scripts/smoke/fixtures/plugins/acme.needs/* scripts/smoke/fixtures/failing-install.js scripts/smoke/rows/notices.sh
+# Its NoticeHost also restores the guard that hid a later launch refusal
+# beside a retained classified result. The same Retry press and drawing
+# reader as notices.sh must then find the refusal missing, while its typed
+# cause, trade and synchronous launcher-missing remain.
+# inputs: shell/Core/Plugins.qml shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Core/TuiRunner.qml shell/Core/TuiRecords.qml scripts/smoke/fixtures/plugins/acme.needs/* scripts/smoke/fixtures/failing-install.js scripts/smoke/rows/notices.sh
 set -euo pipefail
 expected_errors+=('notices: installed=acme[.]needs unknown: acme[.]needs')
 mutant="$sandbox/notice-mutant"
@@ -77,7 +81,7 @@ else
   fail "the control copy could not drop the rest record from $notices_qml"
 fi
 
-failed_close='            if (notice !== undefined) close(notice);
+failed_close='            if (!ended && id !== Logic.CORE_OWNER && classified === null && notice !== undefined) root.close(notice);
 '
 cp -- "$notices_qml" "$sandbox/notice-mutant-Notices.qml.rest"
 if python3 -c '
@@ -86,10 +90,24 @@ path, needle = sys.argv[1:]
 text = open(path).read()
 if text.count(needle) != 1:
     sys.exit("the failed install close occurs %d times" % text.count(needle))
-open(path, "w").write(text.replace(needle, ""))' "$notices_qml" "$failed_close" && ! cmp -s -- "$notices_qml" "$sandbox/notice-mutant-Notices.qml.rest"; then
+open(path, "w").write(text.replace(needle, needle.replace("if (!ended", "if (false && !ended")))' "$notices_qml" "$failed_close" && ! cmp -s -- "$notices_qml" "$sandbox/notice-mutant-Notices.qml.rest"; then
   ok "the control copy keeps a failed install's notice, the close occurring once"
 else
   fail "the control copy could not drop the failed install close from $notices_qml"
+fi
+
+host_qml="$mutant/shell/Hosts/NoticeHost.qml"
+cp -- "$host_qml" "$sandbox/notice-mutant-NoticeHost.qml.orig"
+if python3 -c '
+import pathlib,sys
+p=pathlib.Path(sys.argv[1]); text=p.read_text()
+needle="visible: win.consentMode ? win.consent.failure !== \"\" : Notices.failure !== null\n"
+if text.count(needle) != 1:
+    sys.exit("the generic failure visibility occurs %d times" % text.count(needle))
+p.write_text(text.replace(needle, needle.rstrip("\n") + " && win.shown.packageFailure === null\n"))' "$host_qml" && ! cmp -s -- "$host_qml" "$sandbox/notice-mutant-NoticeHost.qml.orig"; then
+  ok "the control copy restores the guard that hides a refusal beside a package failure"
+else
+  fail "the control copy could not restore the failure visibility guard in $host_qml"
 fi
 
 # acme.needs sits in the user plugin directory before the copy starts, so
@@ -196,6 +214,39 @@ cp -- "$sandbox/notice-control-terminal-before" "$tui_terminal"
 
 expect "the notice control disables its row-only fixture" ok ipc shell setPluginEnabled acme.needs false
 expect_poll "the notice control releases its fixture service" False record_exists acme.needs
+
+# Reuse the already prepared floor fixture and safe presenter bridge from
+# notices.sh. The control copy's delayed scan callback needs the same
+# second scan as its ordinary-failure check above.
+cp -R -- "$sandbox/notice-floor-fixture" "$home/.config/vgshell/plugins/acme.floor"
+old_version 1.9.0 || fail "the refusal control's outdated version fixture is not written"
+pkg_stub '{"primary":{"id":"pacman","binary":"pacman"},"overlays":[{"id":"aur","binary":"paru"}],"sources":[]}' aur
+cp -- "$sandbox/vgshell-pkg.stub" "$mutant/bin/vgshell-pkg.next" && mv -T -- "$mutant/bin/vgshell-pkg.next" "$mutant/bin/vgshell-pkg"
+cp -- "$pkg_real" "$repo/bin/vgshell-pkg.next" && mv -T -- "$repo/bin/vgshell-pkg.next" "$repo/bin/vgshell-pkg"
+cp -- "$sandbox/notice-check-terminal" "$tui_terminal"
+printf '%s\n' available >"$notice_check_mode"
+rescan "the refusal control discovers its floor fixture"
+expect_poll "the refusal control finds acme.floor" True plugin_known acme.floor
+expect "the refusal control enables its floor fixture" ok ipc shell setPluginEnabled acme.floor true
+expect_poll "the refusal control reads the outdated command" '["outdated"]' floor_state
+expect_poll "the refusal control builds the floor service" True record_exists acme.floor
+expect "the refusal control raises its typed-result notice" ok floor_plugin offer vgs-smoke-old
+expect_poll "the refusal control's notice holds the keyboard" true ipc smoke noticeFocused
+type_keys -k Return || fail "sending Return for the refusal control's classified attempt failed"
+expect_run_end "the refusal control's classified attempt ends" core/requirements-update
+rescan "the refusal control's second scan settles its classified result"
+expect_poll "the refusal control retains an available retry" '["aur", "vgs-smoke-old-aur", "available"]' notice_package_state
+expect_poll "the refusal control's classified attempt settles" settled install_settled
+expect "the refusal control clears superseded generic failure" null notice_failure
+notice_retry_refusal "$mutant" false 'control retained retry refusal'
+expect_poll "the refusal control keeps the keyboard after refusal" true ipc smoke noticeFocused
+type_keys -k Escape || fail "sending Escape to the refusal control's notice failed"
+expect_poll "Escape closes the refusal control's notice" null notice_shown
+expect "the refusal control disables acme.floor" ok ipc shell setPluginEnabled acme.floor false
+expect_poll "the refusal control releases acme.floor" False record_exists acme.floor
+rm -rf -- "${home:?}/.config/vgshell/plugins/acme.floor"
+rm -f -- "$notice_check_mode" "${shim:?}/vgs-smoke-old"
+cp -- "$sandbox/notice-control-terminal-before" "$tui_terminal"
 
 rm -rf -- "${home:?}/.config/vgshell/plugins/acme.needs"
 rescan "a rescan removes notices-control's disabled row-only fixtures"

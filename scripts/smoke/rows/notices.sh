@@ -56,7 +56,7 @@
 # its notice and offers one origin-only retry. A consumed return offers
 # the ordinary batch action; a successful retry settles only its target
 # and leaves the other package for an ordinary install.
-# inputs: scripts/smoke/fixtures/plugins/acme.needs/* scripts/smoke/fixtures/failing-install.js scripts/smoke/fixtures/package-check-install.js scripts/fixtures/pkg/check-failure/paru-check-only.out bin/lib/qml-library.js bin/lib/pkg-retry.js bin/lib/pkg-outcome.js shell/Core/TuiRunner.qml shell/Core/TuiRecords.qml shell/plugins/vgs.settings/* shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/foundation/Scrim.qml shell/Ui/feedback/Badge.qml shell/Ui/foundation/Divider.qml shell/Ui/layout/GroupList.qml shell/Ui/controls/Field.qml shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/fixtures/plugins/acme.layers/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/rows/layers.sh scripts/smoke/rows/manager.sh scripts/smoke/rows/settings.sh bin/vgshell-tui bin/vgshell-scan shell/Core/Registry.qml shell/Core/Capabilities.qml scripts/fixtures/pkg-review/* bin/lib/pkg-review.js bin/lib/pkg-review.sh bin/lib/pkg-review-settings.sh bin/lib/pkg-config.js bin/lib/judge-files.js shell/Core/PackageReview.js config/shell.json bin/lib/dbus_wire.py
+# inputs: scripts/smoke/fixtures/plugins/acme.needs/* scripts/smoke/fixtures/failing-install.js scripts/smoke/fixtures/package-check-install.js scripts/fixtures/pkg/check-failure/paru-check-only.out bin/lib/qml-library.js bin/lib/pkg-retry.js bin/lib/pkg-outcome.js shell/Core/TuiRunner.qml shell/Core/TuiRecords.qml shell/plugins/vgs.settings/* shell/Core/Notices.qml shell/Hosts/NoticeHost.qml shell/Ui/foundation/Scrim.qml shell/Ui/feedback/Badge.qml shell/Ui/foundation/Divider.qml shell/Ui/layout/GroupList.qml shell/Ui/controls/Field.qml shell/Core/PackageManagers.js bin/vgshell-pkg bin/vgshell shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/fixtures/plugins/acme.layers/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/rows/tui.sh scripts/smoke/rows/layers.sh scripts/smoke/rows/manager.sh scripts/smoke/rows/settings.sh bin/vgshell-tui bin/vgshell-scan shell/Core/Registry.qml shell/Core/Capabilities.qml scripts/fixtures/pkg-review/* bin/lib/pkg-review.js bin/lib/pkg-review.sh bin/lib/pkg-review-settings.sh bin/lib/pkg-config.js bin/lib/judge-files.js shell/Core/PackageReview.js config/shell.json bin/lib/dbus_wire.py
 set -euo pipefail
 leak_plugin_setup acme.layers false || { fail "notices: fixture precondition failed"; return 1; }
 needs_src="$sandbox/src/acme.needs"
@@ -104,6 +104,7 @@ fi
 '''
 p.write_text(text.replace(needle,addition+needle,1))
 PY_NOTICE
+cp -- "$tui_terminal" "$sandbox/notice-check-terminal"
 pkg_stub '{"primary":{"id":"pacman","binary":"pacman"},"overlays":[{"id":"aur","binary":"paru"}],"sources":[]}'
 
 # Whether plugin ID's own offers rest, in the notices core's lending record.
@@ -508,6 +509,7 @@ for old, new in edits:
         sys.exit("%s occurs %d times" % (old, text.count(old)))
     text = text.replace(old, new)
 open(path, "w").write(text)' "$floor_dir/manifest.json"; then ok "acme.floor is acme.needs under another id, with a floor on its command"; else fail "acme.floor's manifest could not be derived from acme.needs"; fi
+cp -R -- "$floor_dir" "$sandbox/notice-floor-fixture"
 old_version() { # VERSION
   printf '#!/bin/sh\necho "vgs-smoke-old %s"\n' "$1" >"$shim/vgs-smoke-old.next" && chmod 755 "$shim/vgs-smoke-old.next" && mv -T -- "$shim/vgs-smoke-old.next" "$shim/vgs-smoke-old"
 }
@@ -715,6 +717,38 @@ retry_words() {
   words --app-id=org.vgs.tui "--title=VGS · Retry requirements without tests" -- "$tui_self" present --presentation full \
     --record core/requirements-retry --run RUN --record-dir "$rt_dir/vgshell/tui" --app-id org.vgs.tui --window-title "VGS · Retry requirements without tests" -- "$core_vgshell" pkg retry "$1"
 }
+# The same private exit69 boundary as tui.sh: an unrelated listed launch
+# caches missing before the retained Retry is pressed. The control shell
+# uses this exact state and drawing reader with its visibility guard restored.
+notice_retry_refusal() { # TREE DRAWN LABEL
+  local tree=$1 visible=$2 label=$3
+  cp -- "$tree/bin/vgshell-tui" "$sandbox/notice-launcher.real"
+  printf '#!/bin/sh\nprintf '"'"'vgshell-tui: refused: terminal=missing\\n'"'"' >&2\nexit 69\n' >"$sandbox/notice-launcher.missing"
+  chmod 755 "$sandbox/notice-launcher.missing"
+  cp -- "$sandbox/notice-launcher.missing" "$tree/bin/vgshell-tui.next" && mv -T -- "$tree/bin/vgshell-tui.next" "$tree/bin/vgshell-tui"
+  expected_errors+=('tui: refused: tui=core/doctor reason=launcher-missing')
+  expected_errors+=('notices: install=acme[.]floor refused: tui=core/requirements-retry reason=launcher-missing$')
+  expect "$label: the unrelated listed launch starts while the launcher was present" ok ipc shell openTui core/doctor
+  expect_log "$label: the unrelated launch reports launcher-missing" 1 'tui: refused: tui=core/doctor reason=launcher-missing'
+  expect_poll "$label: the unrelated launcher finishes" '[]' lent tui.launching
+  expect_poll "$label: exit69 caches launcher missing" '"missing"' lent tui.launcher
+  expect_poll "$label: the retained retry holds the keyboard" true ipc smoke noticeFocused
+  forget_record
+  type_keys -k Return || fail "$label: sending Return for the retained retry failed"
+  expect_poll "$label: Retry records the synchronous launcher-missing refusal" '{"kind": "failed", "reason": "refused: tui=core/requirements-retry reason=launcher-missing"}' notice_failure
+  expect "$label: the refused retry starts no launcher" '[]' lent tui.launching
+  expect "$label: the refused retry reaches no terminal" none record_state
+  expect_poll "$label: the refusal probe ends" false lent tui.probing
+  expect "$label: the failed probe keeps missing cached" '"missing"' lent tui.launcher
+  expect "$label: the available package result stays retained" '["aur", "vgs-smoke-old-aur", "available"]' notice_package_state
+  expect "$label: the retry action stays available" '["Retry without tests", "Not now"]' drawn actions
+  expect "$label: the drawn classified cause stays" true notice_message_holds 'vgs-smoke-old-aur failed its package tests. This build was not installed.'
+  expect "$label: the drawn dependency-test trade stays" true notice_message_holds 'including tests for any dependency the helper builds. It does not turn off source checks.'
+  expect "$label: the drawing reader detects the retry launch refusal" "$visible" line_holds 'The retry could not start:' 'reason=launcher-missing'
+  cp -- "$sandbox/notice-launcher.real" "$tree/bin/vgshell-tui.next" && mv -T -- "$tree/bin/vgshell-tui.next" "$tree/bin/vgshell-tui"
+  expect "$label: the restored launcher is still missing before its probe" 'refused: tui=core/doctor reason=launcher-missing' ipc shell openTui core/doctor
+  expect_poll "$label: the restored private launcher probes present" '"present"' lent tui.launcher
+}
 printf '%s\n' available >"$notice_check_mode"
 forget_record
 type_keys -k Return || fail "sending Return for the package-check fixture failed"
@@ -723,6 +757,8 @@ expect_run_end "the package-check attempt returns" core/requirements-update
 expect_poll "the check-only result settles on its still-owed notice" '["aur", "vgs-smoke-old-aur", "available"]' notice_package_state
 expect_poll "the returned check-only notice holds the keyboard" true ipc smoke noticeFocused
 expect "the available retry is the notice's single primary action" '["Retry without tests", "Not now"]' drawn actions
+expect "classified settlement clears the superseded generic failure" null notice_failure
+notice_retry_refusal "$repo" true 'retained retry refusal'
 notice_origin="$(notice_check_origin)" || fail "the check-only origin is unreadable"
 hold_runs
 forget_record

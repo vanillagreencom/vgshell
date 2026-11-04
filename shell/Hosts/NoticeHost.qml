@@ -75,6 +75,7 @@ Scope {
     function failureLine(shown, failure) {
         switch (failure.kind) {
         case "failed":
+            if (shown.action !== null && shown.action.action === "retry") return "The retry could not start: " + failure.reason;
             return "The last " + step(shown).toLowerCase() + " did not finish: " + failure.reason;
         case "unchanged":
             return failure.left.map(entry => leftLine(shown, entry)).join(" ");
@@ -303,7 +304,7 @@ Scope {
                     role: Theme.dialog.bodyRole
                     width: parent.width
                     wrapMode: Text.Wrap
-                    visible: win.consentMode ? win.consent.failure !== "" : Notices.failure !== null && win.shown.packageFailure === null
+                    visible: win.consentMode ? win.consent.failure !== "" : Notices.failure !== null
                     text: win.consentMode ? "The last connection did not finish: " + win.consent.failure : win.shown !== null && Notices.failure !== null ? host.failureLine(win.shown, Notices.failure) : ""
                 }
             }

@@ -573,7 +573,8 @@ Singleton {
             root.settle();
             if (root.current === null || root.current.id !== id) return;
             root.packageCompletion = classified === null ? null : held;
-            if (ended)
+            if (classified !== null) root.failure = null;
+            else if (ended)
                 root.failure = Logic.noticeUnchanged(Registry.requirementOwners[id], root.missingOf(id), Registry.commandVersions, root.current, root.managers, ran);
         };
         afterVersions(() => {
