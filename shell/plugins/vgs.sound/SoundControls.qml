@@ -132,9 +132,9 @@ Column {
             width: parent.width
             role: "hint"
             wrapMode: Text.Wrap
-            visible: root.audio !== null && ["pending", "unreadable", "missing", "unknown"].indexOf(root.audio.currentInput.availability) !== -1
+            visible: root.audio !== null && Logic.showInputAvailabilityHint(root.audio.currentInput.availability)
             text: root.audio !== null && root.audio.currentInput.availability === "pending"
-                ? "Checking input availability…" : "Input availability is not reported. You can still choose an input."
+                ? "Checking input availability…" : "Input availability could not be read. You can still choose an input."
         }
         FormRow {
             width: parent.width

@@ -268,6 +268,10 @@ function currentInputRead(ending, connected, readGeneration, generation) {
     return !ending && connected && readGeneration === generation;
 }
 
+function showInputAvailabilityHint(availability) {
+    return availability === "pending" || availability === "unreadable";
+}
+
 function inputRouteEvent(line) {
     var event;
     try { event = JSON.parse(line); } catch (e) { return "unreadable"; }

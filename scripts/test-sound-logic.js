@@ -33,7 +33,14 @@ function node(name, kind, extra) {
     return Object.assign({ name, app: "", linkGroup: "" }, kinds[kind], extra || {});
 }
 
+const hintStates = [
+    ["pending", true], ["unreadable", true], ["missing", false],
+    ["unknown", false], ["available", false], ["unavailable", false]
+];
+
 function verify(logic) {
+    for (const [availability, visible] of hintStates)
+        assert.equal(logic.showInputAvailabilityHint(availability), visible, "input availability hint: " + availability);
     // Source JSON and card JSON follow the installed pactl producer.
     const source = (name, port, availability, extra = {}) => Object.assign({
         name, description: "Audio Coprocessor " + port,
@@ -237,6 +244,11 @@ function verify(logic) {
 verify(load(file));
 
 const CONTROLS = [
+    ...hintStates.map(([availability, visible]) => [
+        "input hint " + availability,
+        'return availability === "pending" || availability === "unreadable";',
+        `return availability === "${availability}" ? ${!visible} : availability === "pending" || availability === "unreadable";`
+    ]),
     ["only explicit unavailability excludes", 'selectable: availability !== "unavailable"', 'selectable: availability === "available"'],
     ["stale selection uses current metadata", 'selectable: availability !== "unavailable"', 'selectable: true'],
     ["unknown availability stays unknown", 'case "availability unknown": return "unknown";', 'case "availability unknown": return "unavailable";'],
