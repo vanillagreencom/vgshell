@@ -1,139 +1,72 @@
-# Every stage of the idle path has one owner and counts from the last input
+# Every idle stage has one owner
 
-Read before touching the idle path, a stage of dim, screensaver, display off, lock or sleep, a wake from sleep, an inhibitor, an energy setting, a wake source, the power button or the lid.
+Read before touching idle stages, inhibitors, sleep, wake, energy settings, the power key or the lid.
 
 ## The approach
 
-The idle path is a set of stages. Each stage has one owner, and each owner holds its own watch on the core's idle source, `shell/Core/IdleRegistry.qml`, lent through capability `idle` ([D062](../decisions/D062-native-lock-and-polkit-plugins.md)). A watch counts from the later of the last input the seat saw and the watch's own creation, since Hyprland starts a notification's timer when the shell creates it. No owner reads another owner's setting, so any order of values has a defined result. `vgs.power` is the one energy plugin. The choice is [D109](../decisions/D109-idle-path-one-owner-per-stage.md).
-
-Today the code holds the idle source, its pause with Stay awake, the dim, the screensaver, the lock, the lock before sleep, display off, sleep after idle, session Sleep and Hibernate actions, disk sleep, wake sources and Wake on LAN. Every other row below is designed: the named child item adds its code and its pin, and until then no code holds it.
-
-| Stage | Owner | What it does | State |
-|---|---|---|---|
-| Idle source | core `IdleRegistry` | one `IdleMonitor` per watch, inhibitors obeyed | holds |
-| Pause | core `IdleRegistry` | disables every watch while a pause source holds, which each stage owner reads as input; each watch counts again from the pause's end. Its sources are `screensaver`, while an `org.freedesktop.ScreenSaver` inhibit is live, and `stayAwake`, while a plugin's Stay awake hold through `shell.idle.stayAwake` is, which `vgs.power` takes | holds |
-| Stage record | core | the stages in order with each one's time, read-only | VGS-1902 |
-| Dim | `vgs.displays` | lowers each panel's brightness, puts it back on input | holds |
-| Screensaver | `vgs.screensaver` | shows the Cover on each screen, on a layer surface, or held inside the lock when an idle lock finds it running; never over another lock and never while the panels are off | holds |
-| Lock | `vgs.lock` | locks once; input does not unlock; an idle lock keeps a running screensaver over it until the first input | holds |
-| Lock before sleep | `vgs.lock` | holds a logind delay inhibitor and locks on `PrepareForSleep` | holds |
-| Display off | `vgs.power` | turns every panel off after idle, and sooner while locked | holds |
-| Sleep after idle | `vgs.power` | asks logind to suspend, hibernate or suspend then hibernate | holds |
-| Resume | `vgs.power` | turns the panels on and restarts its own watches after a wake from sleep | VGS-1906 |
-| Session Sleep and Hibernate actions | `vgs.power` | launcher rows, offered only while logind answers yes | holds |
-| Power button and lid | logind, set by `vgs.power` through system steps | the action the key or the lid takes | VGS-1909 |
-| Wake sources | `vgs.power` through a system step and BlueZ | keyboards, pointers, the power button and USB connection changes can wake the machine | holds |
-| Wake on LAN | `vgs.power` through NetworkManager | on or off per wired connection | holds |
-| Disk sleep | `vgs.power` through a system step | spins down idle rotational disks | holds |
-| Power profiles, battery alerts | `vgs.power` | as today | holds |
-
-The greeter's Suspend button is a separate surface before login, outside the user session and outside this path. `vgs.greeter` owns it.
-
-Each owner's manifest schema holds its settings, defaults and ranges. Designed in VGS-1902: a plugin declares the stage it owns and the setting that holds its time in its manifest, and the core lends the stages as one read-only record, `shell.idle.stages`, in the fixed order dim, screensaver, lock, display off, sleep. Each entry names the owner, the setting and the time, Never included, and the earlier stages it fires before. The core reads the times from the effective configuration, so no plugin reads another plugin.
-
-The `vgs.power` pane in System Settings > Hardware holds its own fields and shows the whole idle timeline from `shell.idle.stages`; `scripts/smoke/rows/power.sh` pins it. Each row shows its stage's time, links to the owner's field with a page reference, and says so on the row when the stage fires before an earlier one, such as a lock before the screensaver or display off before the dim. This applies the overseer's ruling on ask 1792375461-2156217-9760: the pane links to each owner's field and shows every time in one place.
-
-A plugin cannot call `Hyprland.dispatch`; every runtime request goes through the core `Compositor` queue, built and judged by `shell/Core/Dispatch.js`, and a plugin reaches it only through the dispatchers capability `compositor` lends ([hyprland.md](hyprland.md) § Dispatch). Designed in VGS-1903:
-
-- Display power is a new dispatcher, `displayPower(state)`, `off` or `on`, with no output named, so both connectors of a tiled Pro Display XDR change together. For `on`, the core reads the outputs first and sends nothing while every output reads on, since a DPMS on that changes nothing makes a panel modeset again.
-- The core's Hyprland layer sets `misc.key_press_enables_dpms` and `misc.mouse_move_enables_dpms`, so a key press or a pointer move turns every panel on with no shell work, while the shell is down too.
-- The core lends a read-only fact, `shell.session.displaysOff` ([D056](../decisions/D056-read-only-session-state.md)): true from a `displayPower("off")` the outputs confirm until the next input or `displayPower("on")`. One core input observer lives from the queued off through confirmation until the fact clears; input after the observer arms and before confirmation invalidates the pending request.
-
-The Apple panels' HID brightness has no power control: 0 % is the lowest backlight, not off. Display off is therefore DPMS.
-
-A wake from sleep has one owner, `vgs.power`, designed in VGS-1906. On logind's `PrepareForSleep(false)` it asks `displayPower("on")` and creates its own watches again, so each counts from the wake. The panels light at a wake whether or not the waking key press, pointer move or power button reaches Hyprland as input. While the session stays locked with no input, the locked display-off watch turns them off again.
-
-Every root change of this path is a row of the closed table in `bin/vgshell-system` ([commands-are-data.md](commands-are-data.md) § System steps). Designed in VGS-1909: a step may take one value from a closed set its table row names. The power button and the lid act through logind, which keeps working while the shell is down.
-
-### Window events and the idle count
-
-Hyprland restarts every inhibitor-obeying idle notification each time a window maps, unmaps or takes keyboard focus. It recomputes the inhibitor state at each of these events and resets the notifications without comparing the result with the previous state. `IdleMonitor` with `respectInhibitors: true` asks for exactly those notifications, so a window that opens, closes or takes focus counts as input for every VGS stage and ends a dim or a screensaver that has started. Layer surfaces do not trigger it, so the Cover and the lock surface do not restart a watch. hypridle uses the same notification by default and behaves the same.
-
-VGS does no work on this behaviour. It keeps `respectInhibitors: true`, because a watch that ignores inhibitors would let a playing video dim, blank and lock the screen. It ships no patched Hyprland and builds no inhibitor reader of its own. A nested test compositor on the live desktop was one such window source; VGS-1898 removes it, so a test run puts no window on the live desktop.
+Each stage owns its watch through core `IdleRegistry.qml`. Watches count from the later of seat input and watch creation. Each owner uses its own settings; the core's read-only stage record supplies cross-stage times and order ([D062](../decisions/D062-native-lock-and-polkit-plugins.md), [D109](../decisions/D109-idle-path-one-owner-per-stage.md)). `vgs.power` owns energy features, including display power, sleep, wake, profiles and battery alerts. Display brightness and dim remain with `vgs.displays`.
 
 ## Why
 
-Omarchy runs one idle monitor and timers for later stages, because its screensaver is a terminal window and mapping it restarts the count. The VGS Cover and lock are layer surfaces, so separate watches stay correct and need no cycle state to keep.
-
-A plugin cannot read another plugin ([overview.md](overview.md)), so stage order cannot be a check across owners. Counting each stage on its own gives every order a defined result: a screensaver due after the lock never starts, because it refuses while locked; one due at the lock's own time starts with the lock, from the lock's idle event, since two watches created at different times can notify in either order; panels off before the lock stay off until input; a sleep before the lock still locks first through the delay inhibitor while Lock before sleep is on. The core already holds every plugin's effective settings, so the one place that can show the order without one plugin reading another is a core record built from what each plugin declares.
-
-Keep energy features in `vgs.power`, including power profiles and battery alerts, under [D109](../decisions/D109-idle-path-one-owner-per-stage.md).
-
-DPMS is one compositor state for the whole session, with no per-panel backend in VGS. `vgs.displays` keeps brightness and the dim. Once the wake options are written, Hyprland wakes the panels on input before any shell code runs, so the shell sends DPMS on only at a wake from sleep, where the waking event may never reach Hyprland as input. A plugin cannot read the lock's password check, so the locked delay is longer than a check takes instead of a guard on it.
-
-An idle notification's timer runs on the compositor's monotonic clock, which stops during suspend, so a watch that had partly run can fire soon after a wake unless input reset it. That is the case Omarchy's re-arm of its frozen blank timer covers. `vgs.power` covers it by creating its watches again at the wake. For the other stages an early fire after a wake does no harm: the lock already holds, the screensaver refuses while locked, and the dim ends on the next input.
-
-A Cover left running behind dark panels would keep a `ttfx` process and a frame timer per screen busy for as long as the user is away. The screensaver cannot read `vgs.power`, so the core, which sends the DPMS request, lends the fact that the panels are off, and the screensaver stops on it.
-
-logind is the one judge of what the system can do: it answers `CanSuspend`, `CanHibernate` and `CanSuspendThenHibernate`, and it applies sleep inhibitors and the lock's delay to every request that goes through it. Omarchy's own hibernate check reads an Omarchy-written file and repeats part of what logind checks.
-
-The power button and the lid must act while the shell is down: a laptop closed into a bag must still sleep. A shell bind with logind told to ignore the key would fail there.
+Independent stage watches give every ordering a defined result without plugin dependencies. Layer-surface covers and locks do not themselves restart the idle count. logind owns sleep capability and inhibitors, so every sleep request follows the same safety boundary even when it comes from outside VGS.
 
 ## Rules
 
 ### Idle source and stages
 
-- Do create every idle watch through `shell.idle.watch`, and release it through the disposer it returns. A plugin cannot import `Quickshell.Wayland`, which `scripts/check-plugin-boundary.py` refuses; `scripts/smoke/rows/capability-release.sh` pins the release.
-- Do keep `respectInhibitors: true` on every idle stage watch, as § Window events and the idle count sets out. A watch that clears a fact on input and starts no stage ignores inhibitors. Review holds it.
-- Never read another stage owner's setting or status; read another stage's time only from `shell.idle.stages`. The screensaver's `lockOrder` reading uses the record's lock time and `before` verdict; `scripts/smoke/rows/screensaver.sh` pins it.
-- Do judge stage order in one place, the core record; the pane and the screensaver show its verdict and never compute their own. Designed: VGS-1902.
-- Do take a stage owner's own watch through `shell.idle.watchStage`, which the core refuses to any other plugin. Each idle notification carries a ticket; input, the watch's disposal and a change of the stage's owner or time revoke it. An idle lock request carries the lock stage's ticket and a screensaver start the screensaver stage's, so only an idle event the core saw brings a cover into the lock. `scripts/test-plugin-logic.js`, `scripts/test-session-lock.sh` and `scripts/smoke/rows/capabilities.sh` pin the refusals.
-- Do keep a running screensaver over an idle lock: the core takes the lock first, then moves the same Cover instance, its frame and its effect into the lock surface, and builds no lock screen under it. Manual, sleep and restore locks end it and show the lock screen. `scripts/smoke/rows/secure-cover.sh` and `scripts/smoke/rows/screensaver.sh` pin it.
-- Do start the screensaver with the lock from the lock's own idle event when both times are equal and positive, whichever watch notifies first. Recreate no watch for it and move no deadline: an edit of the screensaver's time never recreates the lock's watch. A later screensaver notification of the same idle period changes nothing, and one over an established lock starts nothing. `scripts/smoke/rows/secure-cover.sh` pins both orders and the lock's deadline.
-- Do end a cover held in the lock only on the first real input, a move of more than four pixels, a press, a scroll or a key, which the core's barrier takes so it reaches neither the lock screen nor PAM, or on display off, a failure the owner reports, its owner going, its last cover instance going, an unlock or a superseding lock. The lock stays. A cover that has no built instance, because its build failed or was refused, starts no presentation, so the lock screen shows at once. `scripts/smoke/rows/secure-cover.sh` pins each.
-- Do keep the Cover and the lock surface on layer surfaces, so showing them does not restart another watch. `scripts/smoke/rows/screensaver.sh` checks the lock's deadline while the Cover runs.
-- Do stop the Cover and its effect while `shell.session.displaysOff` is true, and start none while it is. The core's cover presentation owns it. `scripts/smoke/rows/screensaver.sh` and `scripts/smoke/rows/secure-cover.sh` pin it.
-- Never create an idle inhibitor or an idle pause in a plugin. The pause is core-owned, and it has two sources: the core's `org.freedesktop.ScreenSaver` answer below, and `stayAwake`, a hold the core lends through capability `idle` as `shell.idle.stayAwake(seconds, onEnd)`, which returns the hold, `{ endsAt, end }`. The core owns each hold's end, one wall-clock time the holder shows, and its timer, which checks that time at least once a minute, so a hold whose end passed during a suspend ends within a minute of the wake. The hold belongs to the holder's instance lifetime: its end, `end()`, a disable or a rebuild ends it, and nothing stores it, so a shell restart ends it too. `vgs.power` takes the one Stay awake hold from its flyout and its section, ends it at the battery reading that sends the critical notice, and writes no idle or sleep setting for it. `scripts/smoke/rows/stay-awake.sh` pins the hold, each release, the timer's re-check every step and its end after a wake, `scripts/test-plugin-logic.js` the wait before each check, and `scripts/smoke/rows/power.sh` pins `vgs.power`'s start, timer end, End, critical end and unchanged settings file.
-- Do honour Wayland idle inhibitors, through Hyprland, and Hyprland's own `idle_inhibit` window rules, which the user writes. VGS ships no such rule. Review holds it.
-- Do answer `org.freedesktop.ScreenSaver` only through the core's helper, `bin/vgshell-idle-inhibit`, which `IdleRegistry` runs while an enabled plugin owns a stage that can fire, and pause every watch while one of its inhibits is live ([D116](../decisions/D116-screensaver-inhibits-answered-by-a-core-helper.md)). The helper leaves the name to an owner it finds, and the core logs that once. A shell or helper restart drops every live inhibit, so the idle path fails open until the application asks again. VGS does not answer `org.freedesktop.PowerManagement` or the portal's `Inhibit`, and does not read logind idle inhibitors. `scripts/smoke/rows/idle-inhibit.sh` pins the hold, both releases and the owner left in place.
+- Create and release watches through capability `idle`. Keep every stage watch inhibitor-obeying; only an input observer that starts no stage ignores inhibitors. `scripts/check-plugin-boundary.py` refuses direct Wayland imports, and `scripts/smoke/rows/capability-release.sh` checks disposal.
+- Accept Hyprland's inhibitor-obeying notification resets on window mapping, unmapping and keyboard focus. Keep no separate inhibitor reader and ship no Hyprland patch to change this behavior. Review holds this boundary.
+- Read another stage's time only through `shell.idle.stages`, never its owner's settings or status. Judge order once in the core. The Power pane links to each owner's field and shows every time, including an earlier stage overtaken by a later one. `PluginLogic.idleStages` owns the record; `scripts/smoke/rows/power.sh` checks its use.
+- Take stage-owned watches through `shell.idle.watchStage`. Only that stage's owner can take its watch. Carry its core-issued ticket into idle lock and screensaver requests; input, disposal and owner or time changes revoke it. `scripts/test-plugin-logic.js` and `scripts/test-session-lock.sh` check authorization.
+- Keep Cover and lock on layer surfaces. During idle lock, take the lock first and move the same running Cover into it, without building a lock screen underneath. Manual, sleep and restore locks end Cover. `scripts/smoke/rows/secure-cover.sh` checks presentation ownership.
+- When lock and screensaver times are equal and positive, start from the lock's idle event regardless of notification order. Recreate no watch and move no deadline. Editing the screensaver time must not recreate the lock watch. A later notification starts nothing over an established lock. `scripts/smoke/rows/secure-cover.sh` checks the boundary.
+- End a held Cover on real input through the core barrier, so that input reaches neither the lock screen nor PAM. Also end it on display off, owner-reported failure, loss of owner or last instance, unlock or superseding lock. Keep the lock. A cover with no built instance starts no presentation. `scripts/smoke/rows/secure-cover.sh` checks these boundaries.
+- Stop Cover and its effect while `shell.session.displaysOff` is true and start none. The core cover-presentation owner enforces it; `scripts/smoke/rows/screensaver.sh` checks it.
+
+### Pause ownership
+
+- Create no plugin-owned idle inhibitor or pause. The core owns ScreenSaver inhibits and Stay awake holds. `shell.idle.stayAwake` lends an instance-bound hold with one end time; release, disable, rebuild and shell exit end it. Keep the wall-clock recheck at least once a minute so suspend cannot prolong an expired hold beyond a minute after wake. `scripts/smoke/rows/stay-awake.sh` checks lifetime; `PluginLogic.stayAwakeWait` owns the timer bound.
+- Keep `vgs.power`'s Stay awake hold independent of idle and sleep settings. End it at the critical-battery notice. `scripts/smoke/rows/power.sh` checks release and saved settings.
+- Honor Wayland inhibitors through Hyprland and user-written `idle_inhibit` rules. VGS ships no such rule. Review holds it.
+- Answer `org.freedesktop.ScreenSaver` only through `bin/vgshell-idle-inhibit`, while an enabled plugin has a stage that can fire ([D116](../decisions/D116-screensaver-inhibits-answered-by-a-core-helper.md)). Leave an existing bus owner in place and log that fact once. Pause all watches while any inhibit is live. Shell or helper restart drops inhibits and fails open until applications ask again. VGS answers neither PowerManagement nor portal Inhibit and reads no logind idle inhibitors. `scripts/smoke/rows/idle-inhibit.sh` checks this boundary.
 
 ### Display off and resume
 
-- Do change panel power only through `shell.compositor.displayPower`, one request with no output named. Designed: VGS-1903 adds it with its rows in `scripts/test-dispatch.js` and its readback in `scripts/smoke/rows/compositor-dispatchers.sh`.
-- Never turn off one connector of a physical monitor. Designed: the dispatcher takes no output argument, pinned by `scripts/test-dispatch.js` in VGS-1903.
-- Do send DPMS on only from `vgs.power` at a wake from sleep; input wakes the panels through Hyprland's options. Designed: VGS-1903 writes the options, pinned by `scripts/test-hyprland-layer.js`, and VGS-1906 pins the wake in `scripts/smoke/rows/power.sh`.
-- Do turn the panels off while locked a fixed short time after the lock or the last input, whichever is later, and never while the display-off setting is Never. A live inhibit holds the locked watch too, as hypridle's does. `vgs.power/Service.qml` owns both watches; `scripts/smoke/rows/power.sh` pins their timers and release.
+- Change panel power only through `shell.compositor.displayPower`, with no output argument. Never power off just one connector of a physical monitor. Use DPMS rather than brightness as power control. `scripts/test-dispatch.js` checks the request grammar.
+- Keep redundant-on suppression and off confirmation in the core queue. Arm the input observer before dispatching off; input after arming invalidates the pending request. Publish `shell.session.displaysOff` only after output confirmation and clear it on input or on. `scripts/smoke/rows/compositor-dispatchers.sh` checks effects ([D056](../decisions/D056-read-only-session-state.md)).
+- Let Hyprland's key and pointer options wake panels on input, including while the shell is down. Send DPMS on from `vgs.power` only at resume from sleep and recreate its own watches then. A wake need not reach Hyprland as input. `scripts/test-hyprland-layer.js` and `scripts/smoke/rows/power.sh` check these paths.
+- While locked, count the short display-off delay from the later of lock and input. Respect inhibitors and the Never setting. `vgs.power/Service.qml` owns the watches; `scripts/smoke/rows/power.sh` checks them.
 
-### Sleep
+### Sleep and power actions
 
-- Do default sleep after idle to Never. `scripts/smoke/rows/power.sh` pins the disabled watch and absence of requests.
-- Do suspend and hibernate only through logind, so the lock's delay inhibitor and every block inhibitor apply. `scripts/smoke/rows/power.sh` pins the request through the shared stand-in in `scripts/smoke/power-fakes.sh`.
-- Do offer Hibernate and Suspend then hibernate only while logind answers yes. `scripts/test-power-logic.js` and `scripts/smoke/rows/power.sh` pin the setting choices. `vgs.power` owns the dynamic Sleep and Hibernate rows under System > Sleep through its `launcherRows` provider, offering each only while logind answers yes. Both use the existing supported-method judge and request owner; explicit Sleep requests Suspend regardless of the saved idle choice. `scripts/smoke/rows/launcher.sh` checks these offers and one noninteractive Suspend request through the shared logind stand-in.
-- Never run a check that suspends or hibernates a real machine. Sandbox rows use a stand-in for logind, as `scripts/smoke/rows/lock.sh` does today. Review holds it.
-
-### Power actions
-
-- Do run the power menu's six actions, the launcher's System Log out, Reboot and Shut down rows, and the Updates run's Reboot through `vgshell power`, with one fixed argument: `logout`, `suspend`, `hibernate`, `reboot`, `poweroff` or `switch-user`. `bin/vgshell-power` owns each verb's route and refusals; `scripts/test-vgshell-power.sh` pins each verb's call and its failure. The launcher's System > Sleep rows, the `sleep` shortcut and sleep after idle stay on `vgs.power`'s own noninteractive logind request, under § Sleep.
-- Do offer a power menu action only where `vgs.power`'s service reads that the system can do it: logind's Can method answers yes, the user has a graphical session for Log out, and LightDM's seat answers CanSwitch true for Switch user. The menu fires an action only after 2000 ms of continuous hold. `scripts/test-power-logic.js` pins the offers and the hold over injected time, and `scripts/smoke/rows/power-menu.sh` drives them on the nested seat.
-- Do run `suspend` and `hibernate` as `systemctl suspend` and `systemctl hibernate`, which ask logind, so the rule above holds. They ask Jarvis nothing, since sleep loses no work; `reboot` and `poweroff` ask it first.
-- Do lock the session before `switch-user` asks LightDM's seat, named by `XDG_SEAT_PATH`, to show its greeter. A failed lock switches nothing. `scripts/test-vgshell-power.sh` pins the order.
+- Default idle sleep to Never. Suspend and hibernate only through logind so block and lock-delay inhibitors apply. Offer sleep methods only while logind answers yes. `scripts/test-power-logic.js` checks the method judge; `scripts/smoke/rows/power.sh` checks requests.
+- Keep explicit launcher Sleep, the sleep shortcut and idle sleep on `vgs.power`'s noninteractive request owner. Explicit Sleep requests Suspend independently of the saved idle action. `scripts/smoke/rows/launcher.sh` checks the launcher route.
+- Run power-menu actions, launcher Log out, Reboot and Shut down, and Updates Reboot through `bin/vgshell-power`'s fixed verbs. Offer only available actions and retain the continuous confirmation hold. `scripts/test-vgshell-power.sh` and `scripts/test-power-logic.js` check routing and admission; the code owns the verb set and hold duration.
+- Keep suspend and hibernate on logind's systemctl route without a Jarvis question. Reboot and poweroff ask Jarvis first. Lock before asking LightDM to switch user; a failed lock permits no switch. `scripts/test-vgshell-power.sh` checks ordering.
+- Never test with a real suspend or hibernate request. Nested rows use the shared logind stand-in. Review holds this host-safety boundary.
 
 ### Keys, wake and storage
 
-- Do set the power button and the lid as logind drop-ins written by a system step, never as a shell bind over a key logind ignores. Designed: VGS-1909 adds a step that takes one value from the closed set its row in `bin/vgshell-system` names, the one owner of that set, pinned by `scripts/test-vgshell-system.sh`.
-- Never restart `systemd-logind` to apply a drop-in. Designed: VGS-1909 states the reload route it measured.
-- Do enable USB wake on devices with a HID boot keyboard or mouse interface, every USB hub including root hubs, and Bluetooth controllers. Disable it on other wake-capable USB devices. `config/system/udev/90-vgs-wake.rules` writes only `power/wakeup`, with no helper or topology reconciliation. The `wake-sources` system step probes the live attributes, reloads the rule and triggers USB change events on apply and undo. `scripts/test-vgshell-system.sh` pins the probe and ownership refusal; `scripts/smoke/rows/system-steps.sh` reads the step in the fake system tree.
-- Do accept that connecting a device to any USB port during sleep can wake the machine. Linux v6.17 [hub.c, lines 3992–4001](https://github.com/torvalds/linux/blob/v6.17/drivers/usb/core/hub.c#L3992-L4001) arms connect and disconnect wake for every superspeed hub port; [xhci-hub.c, lines 1731 and 1795–1807](https://github.com/torvalds/linux/blob/v6.17/drivers/usb/host/xhci-hub.c#L1795-L1807) applies the root hub's wake permission to port connection events. A device's own remote wake permission is separate: [driver.c, lines 1548–1572](https://github.com/torvalds/linux/blob/v6.17/drivers/usb/core/driver.c#L1548-L1572) reads `device_may_wakeup`, and [hub.c, lines 3509–3517](https://github.com/torvalds/linux/blob/v6.17/drivers/usb/core/hub.c#L3509-L3517) enables device remote wake accordingly. OTG wake signals can bypass that permission, as the same code notes. Hardware acceptance remains the owner's live check after the hold ends.
-- Do allow Bluetooth wake only on paired keyboards and pointers, through BlueZ's per-device `WakeAllowed`, written by `vgs.power` once the wake step reads ready. `scripts/smoke/rows/power.sh` pins the writes over stand-in devices on the private bus.
-- Do set Wake on LAN on the NetworkManager connection, which reapplies it at each activation; never through `ethtool`. On is `magic` and off is `none`, which NetworkManager applies as Wake on LAN off; `ignore` makes no change and leaves the card armed. Write no connection until the user sets the switch, read each wired connection first and write only one that holds another value, and count only wired devices NetworkManager manages. Persist the first pass's chosen marker through `configure`, so either value reaches connections added later, including after a restart, while the untouched default writes nothing. The value stays on the connections when Power is disabled; the user turns the switch off first. A pass that fails shows its problem under the switch in System Settings → Power and Power's Settings tab, through the schema's `problem` key. `PowerLogic.wakeObserved` holds the rule, `scripts/test-power-logic.js` pins it, and `scripts/smoke/rows/power.sh` pins the writes with a stand-in `nmcli`.
-- Do offer disk sleep only while a rotational disk exists; the step's probe reads `absent` without one. `scripts/test-vgshell-system.sh` pins the probe and `scripts/smoke/rows/power.sh` pins the offer.
+- Keep power-button and lid authority in logind through closed system steps, never a shell bind over an ignored logind key. Restart no `systemd-logind` to apply a drop-in. Review holds this design boundary; the power-button and lid step is not implemented.
+- Enable USB wake for HID boot keyboards and mice, hubs including root hubs, and Bluetooth controllers. Disable other wake-capable USB devices. Keep the udev rule limited to `power/wakeup`, without a helper or topology reconciliation. The `wake-sources` system step owns probing, rule reload and change events. `scripts/test-vgshell-system.sh` checks that ownership.
+- Accept connection and disconnection wake while hubs are armed. Device remote-wake permission does not control every port event or OTG wake. The implementation sources are the Linux [USB hub](https://github.com/torvalds/linux/blob/v6.17/drivers/usb/core/hub.c), [xHCI hub](https://github.com/torvalds/linux/blob/v6.17/drivers/usb/host/xhci-hub.c) and [USB driver](https://github.com/torvalds/linux/blob/v6.17/drivers/usb/core/driver.c). Hardware acceptance remains the owner's live check.
+- Permit Bluetooth wake only for paired keyboards and pointers through per-device BlueZ `WakeAllowed`, after the wake step is ready. `scripts/smoke/rows/power.sh` checks writes on stand-ins.
+- Set Wake on LAN through NetworkManager connections, never ethtool. Read each managed wired connection and change only differing values. Preserve explicit user intent across later connections and restart; an untouched default writes nothing. Disabling Power leaves connection values intact, so the user turns the switch off first. `PowerLogic.wakeObserved` owns the decision; `scripts/smoke/rows/power.sh` checks writes and reported failures.
+- Offer disk sleep only when the system step finds a rotational disk. `scripts/test-vgshell-system.sh` checks absence; `scripts/smoke/rows/power.sh` checks the offer.
 
-- Do permit temporary lock release only after the sleep hook confirms that logind is not preparing to sleep, while Lock before sleep is on. Clear that readiness before a sleep lock and on hook start or stop; a secure lock acknowledgement never restores it. A sleep request ends any active release before acknowledging the lock. A relock that ends a release for any other reason, expiry, revocation, a sleep hook that stops or owner disposal, takes lock cause `release-end`, which shows the lock screen; an idle lock during a release keeps its idle cause and the screensaver rule. A hook that cannot read whether logind is preparing keeps its inhibitor and grants no readiness. [D114](../decisions/D114-bounded-delegate-unlock.md) governs temporary release; `scripts/smoke/rows/lock.sh` holds the ordering.
+### Temporary lock release
+
+- Grant a release with Lock before sleep on only after the sleep hook confirms logind is not preparing to sleep. Clear readiness before a sleep lock and on hook start or stop; secure-lock acknowledgement grants no readiness. An unread sleep state keeps the inhibitor and grants nothing.
+- End a release before acknowledging a sleep lock. A non-idle relock on expiry, revocation, hook loss or disposal uses cause `release-end` and shows the lock screen. An idle lock retains its idle cause and Cover rule. [D114](../decisions/D114-bounded-delegate-unlock.md) owns the grant; `scripts/smoke/rows/lock.sh` checks ordering.
 
 ## The canonical example
 
-`watchIdle()` in `shell/plugins/vgs.lock/Service.qml`: it disposes the previous watch and takes the lock stage's own watch, which the core holds at the stage's time and drops while it is Never. Copy it for a new stage.
+Copy `watchIdle()` in `shell/plugins/vgs.lock/Service.qml`: dispose the old watch and take the owner's stage watch through the core.
 
 ## Revisit when
 
-- Hyprland compares the inhibitor state before it resets idle notifications, or the owner asks VGS to act on the window-event restart.
-- Quickshell can export a D-Bus object, so the core answers `org.freedesktop.ScreenSaver` itself and the helper goes.
-- A stage must draw a window, which would restart every watch, or must know another stage's state beyond the stage record.
-- A panel stays dark, or goes dark again over an unlocked session, after a wake from sleep; or an Apple panel stays lit under DPMS off.
-- A device connected or disconnected during sleep wakes the machine often enough that the owner asks to stop it.
-- A measured time from a sleep request to a secure lock nears the delay budget `vgs.lock` reads from logind.
-- VGS targets a laptop's keyboard backlight, a display on a connector logind does not count for the lid, or a game that a gamepad keeps busy while the seat reads idle.
+Hyprland changes idle-reset behavior, Quickshell can answer ScreenSaver D-Bus directly, a stage must map a window or needs cross-stage state beyond the record, panels fail to wake or stay off, or device connection wake becomes unacceptable. Revisit sleep locking if measured secure-lock time approaches logind's delay budget, and revisit hardware policy for keyboard backlights, lid-excluded outputs or gamepad-only activity.
 
 ## Not governed
 
-What each stage draws and its own tests, which are its plugin's README and rows. The lock's PAM stack and unlock path, which are [D062](../decisions/D062-native-lock-and-polkit-plugins.md) and `vgs.lock`. The greeter's buttons, which are `vgs.greeter`. Brightness backends and the Apple panels' HID protocol, which are `shell/plugins/vgs.displays/helper/brightness.py`. The system step mechanics, which are [commands-are-data.md](commands-are-data.md). The dispatch queue and the Hyprland layer, which are [hyprland.md](hyprland.md). The nested sandbox, which is [validation.md](validation.md).
+Each stage's drawing and local behavior belong to its plugin. `vgs.greeter` owns pre-login actions. PAM and unlock belong to [D062](../decisions/D062-native-lock-and-polkit-plugins.md). Brightness protocol belongs to `vgs.displays/helper/brightness.py`; system-step execution belongs to [commands-are-data.md](commands-are-data.md), compositor transport to [hyprland.md](hyprland.md), and sandbox execution to [validation.md](validation.md).

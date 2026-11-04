@@ -1,37 +1,39 @@
 # A secret reaches only the native call that needs it
 
-Read before touching a password field, a stored token, a clipboard reader, a probe of a credential, or any text that could carry a secret.
+Read before touching a password field, a stored token, a clipboard reader, a credential probe or text that could carry a secret.
 
 ## The approach
 
-A secret the user types, a Wi-Fi password, a lock password, a polkit answer, reaches only the native call that needs it: no VGS IPC call, argv, status record, configuration file or log line. A stored secret, a Slack token, is looked up by account through `secret-tool` and never printed, logged or placed in argv or a file; its presence, never its value, enters status. A clipboard copy marked secret is never read, and a run with no `CLIPBOARD_STATE` is refused. A probe reads a credential's presence without unlocking the store. The choices are [D061](../decisions/D061-no-manual-commands.md), [D098](../decisions/D098-networkmanager-only-secrets.md) and [D037](../decisions/D037-plugin-status.md).
+A typed secret reaches only the native call that needs it. A stored secret is looked up by account and never printed, logged or placed in argv or a file. Status carries presence alone. Probes do not unlock the store. Clipboard readers refuse secret-marked data and a run without `CLIPBOARD_STATE`.
+
+The authority boundaries are [D061](../decisions/D061-no-manual-commands.md), [D098](../decisions/D098-networkmanager-only-secrets.md) and [D037](../decisions/D037-plugin-status.md).
 
 ## Why
 
-An argument sits in every process list, an IPC reply in the shell's log, a status value in every instance's memory, and a configuration file in the user's backups. Only `wl-paste` ties the secret mark to the data on stdin; without the variable, the next copy's types could pass for this one's. `secret-tool` reads a non-terminal stdin to its end, so the writer closes stdin after the secret.
+Process arguments, IPC, status and configuration expose values beyond the operation that needs them. Closing stdin after a secret is also part of delivery: a non-terminal reader can wait for EOF before acting.
 
 ## Rules
 
-- Do send a scanned personal Wi-Fi password straight to `WifiNetwork.connectWithPsk`. Hidden and enterprise Wi-Fi deliver their password through the plugin helper's stdin. The IPC action carries the network identity alone. `scripts/smoke/rows/network.sh` reads the joined PSK absent from status, configuration and logs.
-- Do send a VPN password from the prompt's masked field through `VpnLogic.submitConnect`, a direct local call, to `nmcli connection up uuid <uuid> passwd-file /dev/stdin`: one escaped `vpn.secrets.password:` line on stdin, then stdin closed, since nmcli reads the file to its end before it connects. No IPC action carries it; the uuid alone crosses IPC. `scripts/test-vpn-logic.js` and `scripts/smoke/rows/vpn.sh` pin it, the second reading the planted password absent from status, configuration, logs and every recorded argv.
-- Never put a shared profile's password in argv or a file; feed `qrencode` on stdin. `scripts/test-network-share.py` pins it.
-- Never log, publish or answer a lock or polkit password over IPC. `scripts/test-lock-model.js` and `scripts/test-polkit-model.js` pin it.
-- Never put a secret on an argv, in a log line, a reply or a status value; it reaches `secret-tool` on stdin alone. `scripts/test-plugin-status.js` pins it with a copy that puts it on the argv.
-- Never read a token in a probe; `secret-tool search` without `--unlock`, stdout to `/dev/null`. `scripts/test-notifications-token-status.sh` pins it, and a `secret-tool` failure names the account only.
-- Do check both clipboard secret marks before reading any data, and refuse a run with no `CLIPBOARD_STATE`. `scripts/test-clipboard.py` and `scripts/smoke/rows/clipboard.sh` pin it.
-- Never put copied data in a log line or an IPC refusal; print its length alone. Gap: no check reads the logs or refusals for copied data.
-- Never carry a mirror's or a proxy's password, or a token, in a failed install's last lines; `PackageReview.failureLines` masks each shape it knows, and the lines come from the step's own output, which never echoes a password typed at its prompt. `scripts/fixtures/pkg-review/failure-test.js` pins the masks, and `scripts/smoke/rows/notices.sh` reads a planted password absent from every status the shell lends. Gap: no pattern recognizes an arbitrary password in the output.
-- Never log a Bluetooth code, passkey, PIN or answer; log an unknown prompt with every digit run as `#`. `scripts/test-bluetooth-agent.js` pins it.
-- Never run a real PAM, polkit, sudo or keyring step in a test; the one exception is the stored key the Jarvis self-test reads, under [validation.md § Jarvis self-test](validation.md#jarvis-self-test). `scripts/smoke/rows/auth-sentinel.sh` pins it.
+- Send personal Wi-Fi passwords directly to `WifiNetwork.connectWithPsk`; hidden and enterprise Wi-Fi use the helper's stdin. IPC carries network identity alone. `scripts/smoke/rows/network.sh` checks secret isolation.
+- Send VPN prompt passwords through the local `VpnLogic.submitConnect` call to nmcli's stdin, then close it. Never carry the password through IPC. `scripts/test-vpn-logic.js` checks transport.
+- Feed shared-profile passwords to `qrencode` on stdin. `scripts/test-network-share.py` checks this boundary.
+- Never log, publish or return lock or polkit passwords through IPC. `scripts/test-lock-model.js` and `scripts/test-polkit-model.js` check their models.
+- Send stored secrets to `secret-tool` on stdin alone. `scripts/test-plugin-status.js` checks that no secret enters argv, replies, logs or status.
+- Probe presence with `secret-tool search` without `--unlock`, with stdout sent to `/dev/null`. A failure names only the account. `scripts/test-notifications-token-status.sh` checks the probe.
+- Check both clipboard secret marks before reading data. Refuse a missing `CLIPBOARD_STATE`. `scripts/test-clipboard.py` checks these conditions.
+- Never include copied data in logs or IPC refusals; report length alone. Review holds this rule; no check reads those outputs for copied data.
+- Mask credentials in package failure output through `PackageReview.failureLines`, and never echo prompt passwords in the producing step. `scripts/fixtures/pkg-review/failure-test.js` checks recognized forms. Arbitrary passwords have no general masking pattern; review holds that limit.
+- Never log Bluetooth codes, passkeys, PINs or answers. Mask digit runs in unknown prompts. `scripts/test-bluetooth-agent.js` checks this boundary.
+- Never run real PAM, polkit, sudo or keyring actions in tests. The sole exception is the stored key read by the [Jarvis self-test](validation.md#jarvis-self-test). `scripts/smoke/rows/auth-sentinel.sh` checks isolation.
 
 ## The canonical example
 
-`shell/Core/SecretWriter.qml`, the one writer for masked fields. Copy its shape for a new secret. For an OAuth round trip, `google-drive authorize` in `shell/plugins/vgs.google-drive/bin/` is the writer: the token goes from rclone's stdout to the stdin of `secret-tool store`, which `scripts/test-google-drive-runner.js` pins.
+Copy `shell/Core/SecretWriter.qml` for a masked-field writer. For OAuth, follow `shell/plugins/vgs.google-drive/bin/google-drive`: authorization output goes to `secret-tool store` through stdin. `scripts/test-google-drive-runner.js` checks that transport.
 
 ## Revisit when
 
-A second secret store is needed, or a step needs an OAuth round trip no masked field can carry.
+A second secret store is needed, or an OAuth round trip cannot use the existing writer.
 
 ## Not governed
 
-Where a setup step's button sits and what it may run, which is [D061](../decisions/D061-no-manual-commands.md) and the vgs-plugin skill's [`references/api.md`](../../.agents/skills/vgs-plugin/references/api.md); NetworkManager's own store, which [D098](../decisions/D098-networkmanager-only-secrets.md) leaves to it.
+Setup placement and execution belong to [commands-are-data.md](commands-are-data.md) and the vgs-plugin [API reference](../../.agents/skills/vgs-plugin/references/api.md). NetworkManager owns its secret store under [D098](../decisions/D098-networkmanager-only-secrets.md).

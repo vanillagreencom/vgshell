@@ -4,62 +4,58 @@ Read before touching the configuration files, their merge, their judge or a writ
 
 ## The approach
 
-The shell's configuration is two layers of `shell.json`, the shipped layer and the user layer, and `ConfigLogic.effectiveConfig` is the one merge ([D006](../decisions/D006-two-configuration-layers.md)). `shell/Core/Config.qml` is the one reader of both layers and the one writer of the user layer, and it never writes a file it has not read. The theme file, `theme.json`, is the applied package's document with no layer over it ([D025](../decisions/D025-no-theme-override-layer.md)), except the user's Appearance values in shell.json `appearance` ([D104](../decisions/D104-appearance-values-over-the-theme.md)).
+`ConfigLogic.effectiveConfig` merges the shipped and user `shell.json` layers ([D006](../decisions/D006-two-configuration-layers.md)). `shell/Core/Config.qml` owns their reads and the user layer's writes. It never replaces a file it could not read.
+
+The applied `theme.json` has no user layer ([D025](../decisions/D025-no-theme-override-layer.md)). The user's Appearance values in `shell.json` are the exception ([D104](../decisions/D104-appearance-values-over-the-theme.md)).
 
 ## Why
 
-One file stops delivering shipped defaults the moment a user edits it, and a deep merge makes the effective value unreadable; merging by id keeps what is running readable from two files. A write over a file the shell could not read replaces the user's hand edit with the shell's last value, and the user loses work they never saw fail. A second writer, or a theme overlay merged over the package, makes every value the product of two sources that must agree.
+Separate shipped defaults let an update reach values the user has not changed. One merge and one writer keep precedence and write failures consistent. Refusing a write after a failed read protects edits the shell has not seen.
 
 ## Rules
 
-### Layers
+### Layers and settings
 
-- Do merge only through `ConfigLogic.effectiveConfig`. `scripts/test-plugin-logic.js` pins each merge rule and the seeding of the user `bar` key.
-- Do start an enable or disable edit from the effective disabled list, so a user file with no list keeps the shipped exclusions; an explicit empty user list still overrides them. `scripts/test-plugin-logic.js` pins it.
-- Do read `welcome.keys` and `manager.id` from the shipped layer alone, as the shell reads the default bar; they name the product's own surfaces, not a user preference.
+- Merge only through `ConfigLogic.effectiveConfig`. Start enable and disable edits from the effective disabled list; an explicit empty user list still overrides the shipped list. `scripts/test-plugin-logic.js` checks these rules.
+- Read product surface identities, including `welcome.keys`, `manager.id` and the default bar, from the shipped layer alone. Review holds this boundary.
+- Keep a plugin's settings in its `plugins[]` row for every instance and the Settings page. A `bar.layout` entry places a widget and holds only its id. `ConfigLogic.configError` judges the shape; `PluginLogic.settingsFor` owns the runtime settings.
+- Declare a value kept by a plugin surface in `settings`, even when it has no Settings field. Use `configure` to write it. `PluginLogic.settingRefusal` checks its JSON type; the plugin owns its range check.
+- Pass control values through `PluginLogic.settingRefusal`, `withSetting`, `keyRefusal` and `withKey`. Their `controlValue` conversion handles values delivered through QML signals. Never add a page-specific conversion.
+- Keep joined program choices in the existing string setting. Declare atomic presets and their separator. `SettingField` preserves unknown tokens and their order, and opening the field writes nothing. `scripts/qml-tests/tst_settingfield.qml` checks the control.
+- Omit undeclared saved settings from runtime settings and the row a normal setting write updates. Preserve reserved `keys`. Keep undiscovered plugin ids in the user file and report them through `PluginLogic.unknownIds`; removal of a plugin must not erase its saved configuration. `scripts/test-plugin-logic.js` checks these rules.
 
-### Plugin settings
+### Migrations
 
-- Do keep every setting of a plugin in its `plugins[]` row, the one place every instance of the plugin, a bar widget included, and the Settings page read it from (`PluginLogic.settingsFor`). A `bar.layout` entry places a widget and holds its `id` alone; `ConfigLogic.configError` refuses any other key. `scripts/test-plugin-logic.js` pins both, and `scripts/smoke/rows/settings-unsaved.sh` reads a row written outside the page on the page and the widget.
-- Do declare a value the plugin keeps from one of its own surfaces in `settings` with no `schema` entry: the plugin writes it through `configure`, the Settings tab draws no field for it, and `PluginLogic.settingRefusal` takes a value of its default's JSON type, so the plugin checks the range. `scripts/test-plugin-logic.js` pins the write rule.
-- Do judge and write a Settings or Keys control's value through `PluginLogic.settingRefusal`, `withSetting`, `keyRefusal` and `withKey` as the signal delivered it: each makes an array or object plain first (`controlValue`), since on Qt 6.12 an array sent through a `var` signal argument arrives as a list wrapper that `Array.isArray` refuses. `scripts/qml-tests/tst_listfield.qml` pins `settingRefusal` and `withSetting`, `scripts/qml-tests/tst_bindfield.qml` `keyRefusal` and `withKey`.
-- Do keep a program's joined choice string in its existing string setting. Declare atomic presets and their `separator` for independent ticks; `PluginLogic.schemaError` judges that declaration. `SettingField` changes only the chosen token and preserves unknown tokens and their order. Opening the field writes nothing, so a saved custom string remains intact.
-- Do run retained configuration converters in order where the user file is read: `Config.qml` runs `ConfigLogic.migrateConfig` before the current judge and writes once; every `bin/` reader uses the same conversion in memory ([D107](../decisions/D107-format-change-ships-its-migration.md)). Keep each converter and its required shipped context usable across skipped releases. The layout conversion moves widget settings into their plugin row before the package review transfer reads that row. `scripts/test-plugin-logic.js` holds both conversion chains.
-- Do supply the package review transfer's source identity from shipped `packageReviewSettingsSource` alone. A user key cannot redirect it. The fixed converter transfers the old preference, agent and command field by field to `packages.review` and removes their source fields. Destination presence wins, including false and empty strings. An absent saved preference stays absent; a manifest default creates no saved preference. Invalid source types refuse the conversion. Updates can be disabled or absent because no scan or service participates.
-- Do edit shared package review choices through `ConfigLogic.withPackageReview`. The inline editor and the core Settings tool use the same operation. Config confirms a live write after comparing the editor's original bytes with a fresh disk read and its own read state. Without a running shell, the package owner uses `judge-files`' guarded writer. An unconfirmed live reply never permits an offline retry; a refusal leaves the editor's choices open.
+- Run retained format converters at the user-file read boundary through `ConfigLogic.migrateConfig`, before the current judge ([D107](../decisions/D107-format-change-ships-its-migration.md)). `Config.qml` writes the conversion once; `bin/` readers use it in memory. Keep converters and their shipped context usable across skipped releases.
+- Take migration source identities from the shipped layer alone. The package review transfer uses `packageReviewSettingsSource`, runs after layout conversion and preserves destination presence, including false and empty strings. Never invent a saved preference from a manifest default. Invalid source types refuse conversion. `ConfigLogic.migratePackageReview` and `scripts/test-plugin-logic.js` own these semantics.
+- Edit shared package review choices through `ConfigLogic.withPackageReview`. Confirm a live write against fresh disk bytes and the writer's read state. An unconfirmed live reply never authorizes an offline retry. Without a shell, use the guarded writer in `bin/lib/judge-files.js`.
+- Rename former plugin ids before publishing the scan, through `PluginLogic.formerIdClaims`, `Config.adoptRenames` and `ConfigLogic.renamePlugins` ([D108](../decisions/D108-renamed-plugin-declares-former-ids.md)). Only bundled claims grant rename authority; exclude a claim on a scanned plugin's id. Preserve settings, disablement and placement, and keep the converted value in memory if disk refuses it. `scripts/qml-tests/tst_config_writes.qml` checks writes; review holds publication order.
+- Apply bundled splits after renames, before scan publication and on later user-file reads ([D110](../decisions/D110-tailscale-and-vpn-split.md)). `ConfigLogic.splitPlugins` copies only declared target settings and preserves an already referenced target. Record each new target so later user edits cannot repeat the split. A first write of an absent file records targets without copying that new edit. Installed claims grant no split authority.
 
-- Do rename a plugin's former id where the user file is read: a plugin that changes its id lists the old one in its manifest's `formerIds`, the scan's map (`PluginLogic.formerIdClaims`), built from bundled plugins' claims alone (an installed plugin's `formerIds` is logged once and renames nothing) and leaving out a claim of a scanned plugin's id, reaches `Config.adoptRenames` before the registry publishes the manifests, and `ConfigLogic.renamePlugins` gives its `plugins[]` row, its `disabledPlugins` entry and its layout entries the new id; `Config.qml` writes the result once, and keeps it in memory when the disk refuses ([D108](../decisions/D108-renamed-plugin-declares-former-ids.md)). No build and no first presence reads the former id, so a plugin its user disabled stays off. `scripts/test-plugin-logic.js` and `scripts/qml-tests/tst_config_writes.qml` pin the rename, and `scripts/smoke/rows/configuration.sh` the start-up order. Gap: the `bin/` readers of the user file do not rename, so `vgshell doctor`, `plugin settings` and `plugin requirements` read the former id, and `plugin add` writes the file back with it, until the shell has started once after the update.
-
-- Do inherit a bundled split's saved configuration through the rename path before publishing the scan, then on every user-file read: `splitFrom` copies the source's disable, an entry before each source placement, and only the source settings the target declares, after renaming ([D110](../decisions/D110-tailscale-and-vpn-split.md)). A target named in `plugins[]`, `disabledPlugins` or `bar.layout` is unchanged. Every new target gets a `plugins[]` row, even without saved source settings, so a later enable or hide cannot repeat the split. An absent user file's first write records bare target rows without copying the new edit. Installed claims copy nothing and are logged once per changed scan. `scripts/test-plugin-logic.js`, `scripts/qml-tests/tst_config_writes.qml` and `scripts/smoke/rows/configuration.sh` hold the rule. Gap: the `bin/` readers do not apply splits until the shell has read and written the user file.
+The `bin/` readers do not apply plugin renames or splits. They can read and write former ids until the shell has read and written the user file. Keep this limitation explicit when changing an offline reader.
 
 ### Reads and writes
 
-- Do judge each layer with `ConfigLogic.configError` after every parse. A file that fails keeps its last good value, and the log names the defect.
-- Never build anything before the configuration is ready: the shipped file has loaded once and the user file has settled, so a bar never draws from the user file alone. Gap: no row starts the shell with the user file unsettled.
-- Never write the user file unless it is `loaded` or `absent`, so an unparseable, unreadable or malformed file is never overwritten unread. After the disk refuses a write, refuse every write until the file is read again.
-- Do answer `ok` only once the file holds the edit. `scripts/smoke/rows/style.sh` stops the shell as a toggle answers and reads the file.
-- Keep unrelated keys untouched in each write. `scripts/test-plugin-logic.js` pins it for the `PluginLogic` edit functions; gap: nothing checks a write outside them.
-- Do read a file again when an edit lands during a read, through `WatchedFile`, so the last edit is the one the configuration holds. `scripts/qml-tests/tst_watched_file.qml` pins it.
-
-### Unknown ids
-
-- Silently omit saved settings the plugin manifest does not declare from runtime settings and from the row the next normal setting write updates, while keeping the row's reserved `keys` in the file.
-- Do keep an id that `plugins` or `disabledPlugins` lists and no discovered plugin has, as a removed plugin leaves behind, in the file, and report it through `PluginLogic.unknownIds`. `scripts/test-plugin-logic.js`, `scripts/test-vgshell-plugin-list.sh` and `scripts/smoke/rows/configuration.sh` pin it.
+- Judge each parsed layer with `ConfigLogic.configError`. Log a refusal and keep the last good value.
+- Build nothing until the shipped file has loaded and the user file has settled. Review holds this startup boundary; no row starts with an unsettled user file.
+- Write the user file only in `loaded` or `absent` state. After a disk refusal, block writes until another read. Answer `ok` only when the file holds the edit. `scripts/qml-tests/tst_config_writes.qml` checks the writer.
+- Preserve unrelated keys. `scripts/test-plugin-logic.js` checks the edit functions; review holds other writes.
+- Use `WatchedFile` to read an edit that arrives during a read. `scripts/qml-tests/tst_watched_file.qml` checks this boundary.
 
 ### Theme file
 
-- Do judge `theme.json` with `ThemeLogic.accept` alone. An absent file publishes the defaults; a file that becomes unreadable or that the judge refuses is logged and leaves the last accepted theme.
-- Never merge a user layer over the applied theme. A lasting change is an edited copy installed as its own package ([D025](../decisions/D025-no-theme-override-layer.md)). The one exception is shell.json `appearance`: corner radius, border width, control radius, motion, the glass choice, window glass and window glow, never a colour, which `ThemeLogic.withAppearance` resolves over the theme ([D104](../decisions/D104-appearance-values-over-the-theme.md)). `scripts/test-theme-logic.js` pins it.
-- Do write `appearance` only through capability `appearance`, after `ThemeLogic.appearanceRefusal` judges the value; `ConfigLogic.configError` judges the key's shape alone, so one bad member shows as Set by theme and blocks no other key. `scripts/test-plugin-logic.js` and `scripts/smoke/rows/appearance.sh` pin both.
+- Judge `theme.json` only through `ThemeLogic.accept`. Absence publishes defaults; a later unreadable or refused file keeps the last accepted theme.
+- Make a lasting theme change as its own package. Resolve only the allowed Appearance values over it, through `ThemeLogic.withAppearance`; never accept a colour override.
+- Write Appearance values only through capability `appearance`, after `ThemeLogic.appearanceRefusal`. The configuration judge checks shape alone; a bad member must not block unrelated keys. `scripts/test-theme-logic.js` and `scripts/test-plugin-logic.js` check these boundaries.
 
 ## The canonical example
 
-`writeUser` in `shell/Core/Config.qml`: the state check before any write, the held disk error, and `ok` only once the file holds the value. Copy its shape for any file the shell writes on the user's behalf.
+Copy `writeUser` in `shell/Core/Config.qml` for a file written on the user's behalf: check read state, hold disk errors and confirm persistence before success.
 
 ## Revisit when
 
-A third system-wide layer under `/etc` is needed, a shipped default must override a user value, or users need a local theme change that follows upstream updates of an installed package.
+A system-wide layer under `/etc` is needed, a shipped default must override a user value, or a local theme change must follow upstream package updates.
 
 ## Not governed
 
-Each key's shape, which `ConfigLogic.configError` judges; the tokens, which are `shell/Commons/Tokens.js` and [design-system.md](design-system.md); what `vgshell theme apply` writes and when, which is [themes.md](themes.md).
+Key shapes belong to `ConfigLogic.configError`. Drawing rules belong to [design-system.md](design-system.md); theme installation and apply belong to [themes.md](themes.md).

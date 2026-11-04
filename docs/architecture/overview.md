@@ -4,59 +4,50 @@ Read before structural work, before writing a plugin, a host or a capability pro
 
 ## The approach
 
-Every surface a user sees and every background service is a plugin: one directory under `shell/plugins/` or `~/.config/vgshell/plugins/`, with one `manifest.json`. The core is what has to exist before any plugin can run and keep running when one breaks.
+Every visible surface and background service is a plugin: one directory with a manifest. The core holds what must exist before plugins run and keep working when a plugin fails ([D003](../decisions/D003-everything-is-a-plugin.md)).
 
-A plugin reaches the core in two ways only. A host gives it a surface to draw inside, one per kind its manifest declares. The scoped `shell` object hands it the capabilities its manifest gives that instance's kind, made for that instance and released with it. A manifest declares what the plugin fills and what it uses, never another plugin. A kind whose host is absent is not built, and the plugin's other kinds are.
-
-The choices are [D003](../decisions/D003-everything-is-a-plugin.md), [D005](../decisions/D005-kinds-are-surfaces-no-dependencies.md), [D010](../decisions/D010-facade-scope-not-sandbox.md) and [D012](../decisions/D012-core-owns-lent-objects.md).
+A host gives each declared kind a place to draw. Each instance receives a scoped `shell` object with its declared capabilities, released with that instance ([D005](../decisions/D005-kinds-are-surfaces-no-dependencies.md), [D012](../decisions/D012-core-owns-lent-objects.md)). A missing host prevents that kind from building without disabling the plugin's other kinds. This boundary is scoped authority and static import checking, not a process sandbox ([D010](../decisions/D010-facade-scope-not-sandbox.md)).
 
 ## Why
 
-A core that holds features lets a change to one surface break another, and grows past what one agent holds in context. A small core changes rarely. A plugin change cannot reach another plugin, so the review scope of a change is the plugin.
-
-A dependency between plugins brings a load order and refusals to explain. A plugin that depends only on hosts and capabilities keeps working when part of it has nowhere to draw.
-
-The boundary is a static import check plus the scoped object, not a process sandbox ([D010](../decisions/D010-facade-scope-not-sandbox.md)).
+A small core limits the effect of feature changes. Hosts and capabilities let plugins share infrastructure without introducing plugin dependencies or a load order.
 
 ## Rules
 
 ### Plugins
 
-- Do put a new surface or service in a plugin, with its own directory and manifest. Review checks it.
-- Never let a plugin import another plugin or a core file: a plugin imports only the allowed module prefixes, `qs.Commons` and `qs.Ui` among them, and its own files. `scripts/check-plugin-boundary.py` refuses the rest.
-- Never create a surface, instantiate an object the core lends, or call `Hyprland.dispatch` in a plugin. `scripts/check-plugin-boundary.py` refuses each.
-- Do judge every status reply through `shell.status.isOk`, which accepts the refusal a retired instance's write gets, before comparing it with `ok`. `scripts/check-plugin-boundary.py` refuses a literal comparison, before `isOk`, of a reply bound with `const` or `let` or compared at its `status.set` call; review holds a reply that leaves its binding.
-- Never declare a dependency on another plugin, and never name a plugin in `requirements`. `PluginLogic.validateManifest` refuses an unknown key, `requires` and a requirement spelt as a plugin id; `scripts/test-plugin-logic.js` pins each.
-- Do declare a NetworkManager VPN requirement with `nmVpn: { service, label }`. The service names its `.name` file's `[VPN Connection]` service in `/usr/lib/NetworkManager/VPN` or `/etc/NetworkManager/VPN`; an idle plugin need not own its bus name. `PluginLogic.requirementsError` judges the form, and the existing scan and requirement notice probe and install it.
-- Do declare everything a plugin asks of the core as data in its manifest, never code, Lua or a command string ([D011](../decisions/D011-native-manifest-no-cross-shell-compatibility.md)). `bin/lib/check-manifests.js` judges every bundled manifest; review catches code inside a string value.
+- Put a new surface or service in its own plugin directory and manifest. Review holds this boundary.
+- Import only modules `scripts/check-plugin-boundary.py` permits and files inside the plugin. Never import another plugin or a core file, create a surface, instantiate a lent object or call `Hyprland.dispatch`. That checker enforces these boundaries.
+- Judge status replies through `shell.status.isOk` before a literal comparison. `scripts/check-plugin-boundary.py` checks direct comparisons and local `const` or `let` bindings; review holds replies that leave that binding.
+- Declare no plugin dependency and name no plugin in requirements. `PluginLogic.validateManifest` and `requirementsError` refuse them. A NetworkManager VPN requirement names the service from its installed `.name` file; it need not hold a live bus name while idle.
+- Declare requests to the core as manifest data, never Lua, code or command strings ([D011](../decisions/D011-native-manifest-no-cross-shell-compatibility.md)). `bin/lib/check-manifests.js` judges bundled manifests; review catches code inside string values.
 
 ### Core
 
-- Never name a plugin id in the core, or import a plugin directory from a core file; `config/shell.json` names the default bar. `scripts/check-plugin-boundary.py` refuses a first-party `vgs.` id and a plugin import; review catches any other id.
-- Never add a kind for a widget a plugin draws inside its own surface; register it as a built-in through capability `builtins`. Review checks it.
-- Do add a capability as a general core API, with a fixture consumer under `scripts/smoke/fixtures/plugins/`, before the plugin that needs it. Review checks it.
-- Do make every decision about a manifest in `shell/Core/PluginLogic.js`, the one judge, and add a manifest key there with its refusal row in `scripts/test-plugin-logic.js` ([D009](../decisions/D009-one-manifest-judge-under-node.md)). `bin/lib/check-manifests.js` and `vgshell plugin validate` load the same file; review catches a second validator.
-- Do keep the plugin manager's mechanism in the core, because it must run before any plugin and keep running when one breaks; its user interface is a plugin that reaches it through capability `manager` ([D032](../decisions/D032-settings-plugin-and-manifest-settings-convention.md)). Review checks it.
-- Do keep a disabled bundled plugin's migration separate from its service, so disabling the plugin cannot leave its former service running. The optional executable root `migrate` follows the vgs-plugin API's [startup migration contract](../../.agents/skills/vgs-plugin/references/api.md#startup-migrations). Review checks this boundary.
+- Name no plugin id in the core and import no plugin directory. `config/shell.json` names the default bar. `scripts/check-plugin-boundary.py` catches first-party id literals and plugin imports; review holds other ids.
+- Add no kind for a widget drawn inside a plugin's existing surface. Register a built-in through capability `builtins`. Review holds this choice.
+- Add a capability as a general core API, with a fixture consumer, before adding its product consumer. Review holds this order.
+- Judge manifests only in `shell/Core/PluginLogic.js` ([D009](../decisions/D009-one-manifest-judge-under-node.md)). Add a refusal test with each manifest key. CLI and shell readers use the same judge; review catches a second validator.
+- Keep the plugin manager's mechanism in core and its interface in a plugin using capability `manager` ([D032](../decisions/D032-settings-plugin-and-manifest-settings-convention.md)).
+- Keep a disabled bundled plugin's startup migration independent of its service. Follow the vgs-plugin API's [startup migration contract](../../.agents/skills/vgs-plugin/references/api.md#startup-migrations), so disabling a plugin cannot leave a former service running.
 
 ### Hosts and capabilities
 
-- Do hand a plugin only the capabilities its manifest names. `Capabilities.providersFor` builds one provider per named capability, and `scripts/smoke/rows/capabilities.sh` checks that a plugin that does not name one does not hold it.
-- Do give a capability only to the kinds that read it. `capabilities` lists what the plugin uses; `capabilityKinds` names the kinds that hold a capability only some kinds read, and every kind holds the rest. A kind that holds a capability it never reads keeps the core's work for it running while that instance lives. `PluginLogic.instanceCapabilities` decides, `PluginLogic.validateManifest` refuses a malformed `capabilityKinds`, and `scripts/test-plugin-logic.js` pins both. The Hyprland layer publisher also holds `hyprland` through `Capabilities.acquire` and releases it when destroyed, so global keymap facts follow reloads and layout changes without a plugin holder. `scripts/smoke/rows/hyprland-options.sh` checks that disabled fixture instances release their holds while the publisher keeps the reads active.
-- Do tell a service that its user turned it off only through its optional `turnedOff()`, which `Plugins.setEnabled` calls on a disable; a reload, a rescan and a shell exit destroy it without that call. `scripts/smoke/rows/plugins.sh` pins it.
-- Do return a disposer from every registration a provider makes, or a hold whose `end` is its disposer, as `shell.idle.stayAwake` returns `{ endsAt, end }`, so that disabling a plugin releases everything it held. `shell/Core/Lifetime.js` releases them with the instance; `scripts/test-lifetime.js` and `scripts/smoke/rows/capability-release.sh` pin it.
-- Never let a plugin own a session-wide object; the core owns it and lends it through a capability. `scripts/check-plugin-boundary.py` refuses a lent type in a plugin.
-- Never lend authority with a reading: a read-only capability exposes state without the power to change it ([D056](../decisions/D056-read-only-session-state.md), [D090](../decisions/D090-core-input-facts.md)). `scripts/smoke/rows/session.sh` and `scripts/test-input-facts.js` pin it.
-- Do keep a system section as its own `pane` plugin. One enabled window holds the exclusive `panes` capability and mounts one pane at a time with that pane plugin's own scoped `shell`. A holder's scope would give the pane the wrong settings and capabilities. Separate plugins let each section keep its widget, flyout and service and be enabled or updated alone. `scripts/smoke/rows/panes.sh` pins the mount.
+- Lend only declared capabilities through `Capabilities.providersFor`. Give each kind only what it reads, through `PluginLogic.instanceCapabilities`; an unnecessary hold keeps core work active. `PluginLogic.validateManifest` judges `capabilityKinds`, and `scripts/test-plugin-logic.js` checks it. The Hyprland layer publisher holds and releases its own `hyprland` capability for global keymap facts.
+- Tell a service that the user disabled it only through optional `turnedOff()`. Reload, rescan and exit destroy it without that call. `scripts/smoke/rows/plugins.sh` checks this distinction.
+- Return a disposer for every registration, or a hold whose `end` disposes it. `shell/Core/Lifetime.js` releases instance registrations; `scripts/test-lifetime.js` checks teardown.
+- Keep session-wide objects core-owned and lend them through capabilities. `scripts/check-plugin-boundary.py` refuses lent types in plugins.
+- Lend state without mutation authority through read-only capabilities ([D056](../decisions/D056-read-only-session-state.md), [D090](../decisions/D090-core-input-facts.md)). Review holds this API boundary.
+- Keep each system section in its own `pane` plugin. One enabled window holds exclusive capability `panes` and mounts one pane at a time with that pane's own scoped `shell`. Never give it the holder's settings or authority. `scripts/smoke/rows/panes.sh` checks mounting.
 
 ## The canonical example
 
-`scripts/smoke/fixtures/plugins/acme.status/`: a manifest that declares its kinds and the capabilities it uses, a service that publishes through capability `status`, a widget and a panel that read it through their own `shell`, and no import beyond `QtQuick` and `qs.Ui`. Copy it.
+Copy `scripts/smoke/fixtures/plugins/acme.status/`: its service, widget and panel use their declared capabilities without importing the core or another plugin.
 
 ## Revisit when
 
-A feature needs a surface no host can give without a core rewrite, a plugin cannot work without another plugin's service and no capability can carry it, or the resident-size budgets are measured against a process-per-plugin design and it fits. Two enabled windows must host the same pane set, or a pane must outlive its holder.
+A feature needs a surface no host can provide, a dependency cannot be carried through a capability, or measured process-per-plugin costs fit the resource budgets. Revisit pane ownership if two enabled windows must host the same pane set or a pane must outlive its holder.
 
 ## Not governed
 
-What a plugin does inside its surface, which is its own tests and README. Each kind, capability member and manifest key, which is the vgs-plugin skill's [`references/api.md`](../../.agents/skills/vgs-plugin/references/api.md). Requirements and the requirement notice, which are [commands-are-data.md](commands-are-data.md) and `PluginLogic.noticeRequest`. The configuration files, which are [configuration.md](configuration.md).
+A plugin's internal behavior belongs to its code and tests. Kind, capability and manifest contracts belong to the vgs-plugin [API reference](../../.agents/skills/vgs-plugin/references/api.md). Requirement execution belongs to [commands-are-data.md](commands-are-data.md); saved settings belong to [configuration.md](configuration.md).
