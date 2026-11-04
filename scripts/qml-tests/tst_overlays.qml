@@ -282,19 +282,24 @@ Item {
             verify(lua.argv[2].includes("address:0xab"));
             verify(!lua.argv[2].includes("address:0xcd"));
             verify(lua.argv[2].includes("hl.get_cursor_pos()"));
+            verify(lua.argv[2].includes('hl.dsp.window.alter_zorder({ mode = "top", window = "address:0xab" })'));
+            verify(lua.argv[2].includes("if not raised.ok then return raised end"));
             const classic = Dispatch.activationRequest(state, 42, "Window", false);
             verify(classic.ok);
-            compare(classic.argv, ["hyprctl", "--batch", "dispatch focuswindow address:0xab ; dispatch movecursor 10 923"]);
+            compare(classic.argv, ["hyprctl", "--batch", "dispatch focuswindow address:0xab ; dispatch alterzorder top,address:0xab ; dispatch movecursor 10 923"]);
             verify(!Dispatch.activationRequest(state, 41, "Window", true).ok);
             verify(!Dispatch.activationRequest(state, 42, "Other", true).ok);
+            compare(Dispatch.activationRequest("[]\n\n\n{}", 42, "Window", true).pending, true);
             verify(!Dispatch.activationRequest("unread", 42, "Window", true).ok);
             const duplicate = JSON.stringify([clients[0], clients[0]]) + "\n\n\n{}";
             verify(!Dispatch.activationRequest(duplicate, 42, "Window", true).ok);
+            verify(Dispatch.activationRequest(duplicate, 42, "Window", true).pending !== true);
             const badCursor = JSON.stringify(clients) + '\n\n\n{"x":"bad","y":923}';
             verify(!Dispatch.activationRequest(badCursor, 42, "Window", false).ok);
             compare(Dispatch.activationAnswer("ok", true), "ok");
-            compare(Dispatch.activationAnswer("ok\n\n\nok", false), "ok");
-            verify(Dispatch.activationAnswer("ok\n\n\nrefused", false) !== "ok");
+            compare(Dispatch.activationAnswer("ok\n\n\nok\n\n\nok", false), "ok");
+            verify(Dispatch.activationAnswer("ok\n\n\nrefused\n\n\nok", false) !== "ok");
+            verify(Dispatch.activationAnswer("ok\n\n\nok", false) !== "ok");
             verify(Dispatch.activationAnswer("exit=1", true) !== "ok");
         }
 

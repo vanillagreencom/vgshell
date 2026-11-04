@@ -397,25 +397,32 @@ var ACTIVATION_STATE_REQUEST = "j/clients;j/cursorpos";
 // Verified by the VGS-1969 nested Bluetooth trigger/Escape probe, 2026-10-21:
 // real Down/Return work with the cursor unchanged at (10, 923).
 // https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/shared/actions/ConfigActions.cpp
+// Focus does not raise an already focused floating window (VGS-2246
+// Capture Settings-link screenshots, cachy, 2026-11-04). Stack it explicitly:
+// https://wiki.hypr.land/configuring/core/dispatchers/#window
+// https://wiki.hypr.land/0.54.0/Configuring/Dispatchers/
 function activationRequest(text, pid, title, usingLua) {
     var read = jsonReplies(text, [["clients", "array"], ["cursor", "object"]], "activation state");
     if (!read.ok) return read;
     var clients = read.values[0].filter(function (c) { return c && c.mapped && c.pid === pid && c.title === title; });
+    if (clients.length === 0) return { ok: false, pending: true, error: "refused: activation=unmapped" };
     if (clients.length !== 1) return { ok: false, error: "refused: activation=windows count=" + clients.length };
     var focus = request("focusWindow", [clients[0].address], usingLua);
     if (!focus.ok) return focus;
     var cursor = read.values[1];
     var cursorMove = request("moveCursor", [cursor.x, cursor.y], usingLua);
     if (!cursorMove.ok) return cursorMove;
-    if (!usingLua) return { ok: true, argv: ["hyprctl", "--batch", "dispatch " + focus.request + " ; dispatch " + cursorMove.request] };
+    var raise = usingLua ? "hl.dsp.window.alter_zorder({ mode = \"top\", window = \"address:" + clients[0].address + "\" })" : "alterzorder top,address:" + clients[0].address;
+    if (!usingLua) return { ok: true, argv: ["hyprctl", "--batch", "dispatch " + focus.request + " ; dispatch " + raise + " ; dispatch " + cursorMove.request] };
     return { ok: true, argv: ["hyprctl", "dispatch", "function() if hl.get_window(\"address:" + clients[0].address
         + "\") == nil then return end; local p = hl.get_cursor_pos(); local r = hl.dispatch(" + focus.request
-        + "); local moved = hl.dispatch(hl.dsp.cursor.move({ x = p.x, y = p.y })); if not r.ok then return r end; return moved end"] };
+        + "); local raised = hl.dispatch(" + raise
+        + "); local moved = hl.dispatch(hl.dsp.cursor.move({ x = p.x, y = p.y })); if not r.ok then return r end; if not raised.ok then return raised end; return moved end"] };
 }
 
 function activationAnswer(answer, usingLua) {
     if (usingLua && answer === "ok") return "ok";
-    var replies = batchReplies(answer, 2, "activation");
+    var replies = batchReplies(answer, 3, "activation");
     if (!usingLua && replies.ok && replies.parts.every(function (part) { return part === "ok"; })) return "ok";
     return "refused: activation=" + JSON.stringify(String(answer));
 }

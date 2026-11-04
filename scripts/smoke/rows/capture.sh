@@ -2930,3 +2930,108 @@ if capture_hyprctl_exits; then rm -f -- "$capture_hyprctl_log"; fi
 cp -- "$capture_saved" "$home/.config/vgshell/shell.json.next" && mv -T -- "$home/.config/vgshell/shell.json.next" "$home/.config/vgshell/shell.json"
 rescan "the capture fixture cleanup is rescanned"
 expect_poll "the notifications service is as the row found it" "$capture_notes_found" record_exists vgs.notifications
+
+# VGS-2246: Settings must draw above Capture after its real Settings link,
+# including when Settings already exists below it. The overlap's pixels
+# are compared with Settings alone: focus history is not a stacking index.
+capture_settings_dir="$sandbox/capture-settings"
+mkdir -p "$capture_settings_dir"
+capture_settings_enabled="$(plugin_enabled vgs.capture)" || return 1
+capture_settings_link='More options are in [Settings](page:vgs.capture/Settings).'
+capture_settings_pixels() {
+  local socket
+  socket="$(shot_socket "$rt_dir" "$nested_socket")" || return 1
+  shot_grim "$socket" "$rt_dir" -s 1 -g "$capture_settings_crop" -t ppm - | sha256sum | cut -d' ' -f1
+}
+capture_settings_covered() {
+  local pixels
+  pixels="$(capture_settings_pixels)" || return 1
+  [[ $pixels == "$capture_settings_reference" ]] && echo False || echo True
+}
+capture_settings_raise_check() {
+  render expect_poll "Settings draws above Capture across their overlap" False capture_settings_covered
+}
+capture_settings_raise_control() {
+  (failures=0 behaviour_failures=0
+   capture_settings_raise_check >"$capture_settings_dir/no-raise-check.log"
+   echo "$failures")
+}
+capture_settings_click() {
+  local paragraph words point x y failed_before="$failures"
+  paragraph="$(ipc smoke windowGeometry window vgs.capture LinkText "$capture_settings_link")" || return 1
+  words="$(ipc smoke readMatchingDescendant window vgs.capture LinkText text "$capture_settings_link" linkBox)" || return 1
+  point="$(python3 -c 'import json,sys; p=json.loads(sys.argv[1]); w=json.loads(sys.argv[2]); assert w["width"] > 0 and w["height"] > 0; print(json.dumps([p[0]+w["x"],p[1]+w["y"],w["width"],w["height"]]))' "$paragraph" "$words")" || return 1
+  point="$(at_centre window:Capture "$point")" || return 1
+  read -r x y <<<"$point"
+  hover "$((x - 6))" "$y" || return 1
+  hover "$x" "$y" || return 1
+  expect_poll "the pointer reaches Capture's actual Settings link" true ipc smoke readMatchingDescendant window vgs.capture LinkText text "$capture_settings_link" hoveredLink
+  [[ $failures -eq $failed_before ]] || return 1
+  click "$x" "$y"
+}
+capture_settings_case() {
+  local name="$1" want="$2" capture_box settings_box settings_address
+  expect "$name: Capture starts hidden" ok ipc shell hide window vgs.capture
+  expect "$name: Settings starts hidden" ok ipc shell hide window vgs.settings
+  expect "$name: Settings opens on Capture's page before the overlap" ok ipc shell summon window vgs.settings '{"plugin":"vgs.capture"}'
+  expect_poll "$name: Settings shows Capture's page" '"vgs.capture"' ipc smoke readInstance window vgs.settings page
+  expect_poll "$name: Settings maps before Capture" 1 window_count Plugins
+  expect "$name: Capture opens over the existing Settings window" ok ipc shell summon window vgs.capture '{}'
+  expect_poll "$name: Capture maps over Settings" 1 window_count Capture
+  capture_box="$(one_window Capture)" || return 1
+  settings_box="$(one_window Plugins)" || return 1
+  capture_settings_crop="$(python3 -c '
+import json,sys
+a,b=map(json.loads,sys.argv[1:])
+x,y=max(a[0],b[0])+24,max(a[1],b[1])+24
+w,h=min(400,min(a[0]+a[2],b[0]+b[2])-x-24),min(120,min(a[1]+a[3],b[1]+b[3])-y-24)
+assert w >= 100 and h >= 60, "Capture and Settings need a visible overlap"
+print("%d,%d %dx%d" % (x,y,w,h))' "$capture_box" "$settings_box")" || return 1
+  expect "$name: Capture hides for the Settings pixel reference" ok ipc shell hide window vgs.capture
+  settings_address="$(window_of Plugins address | py_reply 'import json,sys; print(json.load(sys.stdin)[0])')" || return 1
+  expect "$name: the reference gives Settings native focus" ok hypr dispatch "hl.dsp.focus({ window = \"address:$settings_address\" })"
+  rest_pointer || return 1
+  expect_poll "$name: Settings is focused for its reference" "[\"$shell_class\", \"Plugins\"]" active_window
+  capture_settings_reference="$(capture_settings_pixels)" || return 1
+  expect_poll "$name: the Settings reference pixels settle" "$capture_settings_reference" capture_settings_pixels
+  expect "$name: Capture reopens over the preexisting Settings window" ok ipc shell summon window vgs.capture '{}'
+  expect_poll "$name: Capture has native focus before the link" "[\"$shell_class\", \"Capture\"]" active_window
+  expect_poll "$name: Capture visibly covers the reference before the link" True capture_settings_covered
+  capture_settings_click || return 1
+  rest_pointer || return 1
+  if [[ $want == raised ]]; then
+    expect_poll "$name: the actual Settings link gives Settings native focus" "[\"$shell_class\", \"Plugins\"]" active_window
+    capture_settings_raise_check
+  else
+    expect "$name: removing the shared raise fails the same overlap assertion" 1 capture_settings_raise_control
+  fi
+  expect "$name: Capture closes after the overlap reading" ok ipc shell hide window vgs.capture
+  expect "$name: Settings closes after the overlap reading" ok ipc shell hide window vgs.settings
+}
+expect "Capture is enabled for its Settings link" ok ipc shell setPluginEnabled vgs.capture true
+expect_poll "Capture builds for its Settings link" True record_exists vgs.capture
+capture_settings_case shared raised || fail "the shared Settings raise case could not complete"
+# The calendar uses the panel route already read by this row. A refused
+# window open must preserve it; a successful same-screen open must yield it.
+expect "the calendar opens before the refused window route" ok ipc shell summon panel vgs.bar '{}'
+expect_poll "the calendar panel presents before the refused window route" drawn ipc smoke windowDrawn panel vgs.bar
+expect "an unknown window route is refused" 'unknown: vgs.capture-missing' ipc shell summon window vgs.capture-missing '{}'
+expect "the refused window route keeps the calendar mapped" 1 layer_count vgs:panel
+expect "Settings opens over the calendar on the same screen" ok ipc shell summon window vgs.settings '{"plugin":"vgs.capture"}'
+expect_poll "a successful window open removes the covering calendar layer" 0 layer_count vgs:panel
+expect_poll "Settings takes focus after the panel yields" "[\"$shell_class\", \"Plugins\"]" active_window
+expect "Settings closes after the panel yield reading" ok ipc shell hide window vgs.settings
+copy_tree capture-settings-no-raise
+edit_tree capture-settings-no-raise shell/Core/Dispatch.js \
+  'var raise = usingLua ? "hl.dsp.window.alter_zorder({ mode = \"top\", window = \"address:" + clients[0].address + "\" })" : "alterzorder top,address:" + clients[0].address;' \
+  'var raise = cursorMove.request; // control: var raise = usingLua ? "hl.dsp.window.alter_zorder({ mode = \"top\", window = \"address:" + clients[0].address + "\" })" : "alterzorder top,address:" + clients[0].address;'
+stop_shell || :
+start_shell "$sandbox/tree-capture-settings-no-raise" "$capture_settings_dir/no-raise-shell.log" bar
+expect_poll "control: Capture builds without the shared raise" True record_exists vgs.capture
+capture_settings_case control covered || fail "the Settings raise control could not complete"
+stop_shell || :
+start_shell "$repo" "$capture_settings_dir/restored-shell.log" bar
+expect_poll "the shared raise is restored with Capture built" True record_exists vgs.capture
+rm -rf -- "${sandbox:?}/tree-capture-settings-no-raise"
+expect "Capture enablement is restored after its Settings link" ok ipc shell setPluginEnabled vgs.capture "${capture_settings_enabled,,}"
+expect_poll "Capture's service returns to its prior enablement" "$capture_settings_enabled" record_exists vgs.capture

@@ -123,14 +123,13 @@ assert text.count(marker) == 1, "smokeButtonGeometry must occur once"
 text = text.replace(marker, "    function smokeSwatchGeometry() { const p = smokeSwatch.mapToGlobal(0, 0); return JSON.stringify([p.x, p.y, smokeSwatch.width, smokeSwatch.height]); }\n" + marker, 1)
 # The page reference line is drawn only while a payload asks for it, so
 # every other check reads the card and its Tab chain without it. It sits
-# after the Next button, the next Tab stop, and its reply is kept for the
-# row to read.
+# after the Next button, the next Tab stop.
 marker = "        sizing = payload.sizing === true;\n"
 assert text.count(marker) == 1, "the sizing read must occur once"
 text = text.replace(marker, marker + "        smokePageLink = payload.pageLink === true;\n", 1)
 marker = "    function geometry() {"
 assert text.count(marker) == 1, "geometry must occur once"
-text = text.replace(marker, '    property bool smokePageLink: false\n    property string smokePageReply: ""\n    function smokeOpenPage(page) { return shell.surfaces.openPage(page, ""); }\n' + marker, 1)
+text = text.replace(marker, '    property bool smokePageLink: false\n    function smokeOpenPage(page) { return shell.surfaces.openPage(page, ""); }\n' + marker, 1)
 marker = "    Item {\n        id: container\n"
 insert = '''    FormRow {
         visible: root.smokePageLink
@@ -138,7 +137,7 @@ insert = '''    FormRow {
         labelColumn: false
         warning: "[Probe page](page:acme.probe) holds the probe."
         warningTone: "muted"
-        onWarningPageActivated: (page, tab) => { root.smokePageReply = root.shell.surfaces.openPage(page, tab); }
+        onWarningPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
     }
 '''
 assert text.count(marker) == 1, "the menu anchor container must occur once"
@@ -1431,12 +1430,11 @@ expect_poll "the actual ModalDialog surface closes" 0 layer_count vgs:dialog
 
 # A page reference in the panel's FormRow message opens the Settings window
 # on the page it names through shell.surfaces.openPage, by a click on its
-# words and by Tab then Enter, the Tab after the Next button. The reply
-# the fixture keeps is read beside the window's page. A page no plugin has
-# answers unknown and logs one line. The control, at the row's end, is a
-# shell whose FormRow forwards no page reference.
+# words and by Tab then Enter, the Tab after the Next button. The panel
+# yields to the opened window. A page no plugin has answers unknown and
+# logs one line. The control, at the row's end, is a shell whose FormRow
+# forwards no page reference.
 page_ref_text='[Probe page](page:acme.probe) holds the probe.'
-page_ref_reply() { ipc smoke readInstance panel acme.surfaces smokePageReply; }
 page_ref_page() { ipc smoke readInstance window vgs.settings page; }
 # page_ref_click: a press on the reference's words, 8 px into the message
 # line, once the link reads the pointer on them.
@@ -1451,7 +1449,7 @@ page_ref_click() {
   click "$x" "$y"
 }
 page_ref_opened() {
-  expect_poll "the page reference's openPage answers ok" '"ok"' page_ref_reply
+  expect_poll "the panel yields to the referenced Settings window" 0 layer_count vgs:panel
   expect_poll "the Settings window shows the referenced page" '"acme.probe"' page_ref_page
 }
 # page_ref_summon: the panel built afresh with its page reference line.

@@ -102,6 +102,15 @@ Scope {
         return "ok";
     }
 
+    // Panels and bar flyouts sit above application windows. A successful
+    // window open dismisses them on its screen through their normal close
+    // path, preserving plugin close() and anchored-popup motion.
+    function yieldToWindow(screen) {
+        for (const id of openIds.slice()) {
+            if (requests[id].screen === screen) hide(id);
+        }
+    }
+
     // Call one instance's open(); "" when it returned, else the error, logged.
     function callOpen(id, instance, payloadJson) {
         try {
