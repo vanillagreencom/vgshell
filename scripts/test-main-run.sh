@@ -64,7 +64,7 @@ xenv=(env -i PATH="$PATH" HOME="$TMP_ROOT/home" LC_ALL=C
   GIT_CONFIG_NOSYSTEM=1 GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.invalid
   GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.invalid
   MAIN_RUN_TEST_TABLE="$table" MAIN_RUN_TEST_CALLS="$calls" MAIN_RUN_TEST_PATHS="$paths"
-  MAIN_RUN_TEST_LOG="$report_lines")
+  MAIN_RUN_TEST_LOG="$report_lines" MAIN_RUN_TEST_KEPT="$TMP_ROOT/kept")
 g() { "${xenv[@]}" git "$@"; }
 mkdir -p "$TMP_ROOT/home"
 
@@ -94,6 +94,26 @@ cp -- "$repo/scripts/main-run.sh" "$runner"
 mkdir -p "$clone/.agents/skills/orch/scripts/lib"
 cp -- "$repo/.agents/skills/orch/scripts/orch-env" "$clone/.agents/skills/orch/scripts/orch-env"
 cp -- "$repo/.agents/skills/orch/scripts/lib/kendex-env.sh" "$clone/.agents/skills/orch/scripts/lib/kendex-env.sh"
+mkdir -p "$clone/.agents/skills/linear/scripts" "$clone/.agents/skills/mailbox/scripts" "$TMP_ROOT/kept"
+printf '[]\n' >"$TMP_ROOT/kept/issues"
+printf '{}\n' >"$TMP_ROOT/kept/comments"
+: >"$TMP_ROOT/kept/asks"
+cat >"$clone/.agents/skills/linear/scripts/linear.sh" <<'EOF'
+#!/usr/bin/env bash
+case "$1 $2" in
+  'issues list') file=issues ;;
+  'comments bulk-list') file=comments ;;
+  *) exit 1 ;;
+esac
+[[ ! -f $MAIN_RUN_TEST_KEPT/fail-$file ]] || exit 1
+cat -- "$MAIN_RUN_TEST_KEPT/$file"
+EOF
+cat >"$clone/.agents/skills/mailbox/scripts/lane-mail" <<'EOF'
+#!/usr/bin/env bash
+[[ ! -f $MAIN_RUN_TEST_KEPT/fail-asks ]] || exit 1
+cat -- "$MAIN_RUN_TEST_KEPT/asks"
+EOF
+chmod +x "$clone/.agents/skills/linear/scripts/linear.sh" "$clone/.agents/skills/mailbox/scripts/lane-mail"
 
 cat >"$TMP_ROOT/slot" <<'EOF'
 #!/usr/bin/env bash
@@ -502,6 +522,71 @@ case_retention_bound() {
 }
 if case_retention_bound; then ok "a retention past 99999 days refuses and runs nothing"; else fail "retention bound: ${problems[*]}"; fi
 
+# Every case reaches the production expiry through a real scratch batch.
+case_expiry() {
+  problems=()
+  local root="$records/$1" base="expiry-$1" path mode="${2:-complete}" dirs
+  plant_run "$root" old 10 'origin/main^' unit
+  plant_run "$root" referenced 11 'origin/main^' unit
+  : >"$root/${planted[referenced]}/evidence"
+  mkdir -p "$records/$base/kept" "$records/$base/comment" "$records/$base/ask" "$records/$base/mixed"
+  for path in kept/file comment/file ask/file expired mixed/old; do : >"$records/$base/$path"; done
+  python3 - "$records/$base" <<'PY'
+import os, sys, time
+for parent, dirs, files in os.walk(sys.argv[1], topdown=False):
+    for name in files + dirs:
+        os.utime(os.path.join(parent, name), (time.time() - 10 * 86400,) * 2)
+os.utime(sys.argv[1], (time.time() - 10 * 86400,) * 2)
+PY
+  : >"$records/$base/mixed/new"
+  printf '[{"id":"VGS-2127","state":"Verifying","description":"tmp/%s/kept/file"},{"id":"VGS-1","state":"Done","description":"tmp/%s/expired"},{"id":"VGS-2","state":"Canceled","description":"tmp/%s/mixed/old"}]\n' "$base" "$base" "$base" >"$TMP_ROOT/kept/issues"
+  printf '{"VGS-2127":[{"body":"tmp/%s/comment/file tmp/%s/%s/evidence"}]}\n' "$base" "$1" "${planted[referenced]}" >"$TMP_ROOT/kept/comments"
+  printf 'tmp/%s/ask/file\n' "$base" >"$TMP_ROOT/kept/asks"
+  mkdir -p "$records/VGS-2127-focused-$1" "$records/lane-archive" "$records/waiter.$1"
+  for path in "VGS-2127-focused-$1/file" "lane-archive/$1" "waiter.$1/file"; do
+    touch -d '10 days ago' "$records/$path"
+  done
+  case "$mode" in
+    complete) ;;
+    invalid-issues) printf '{}\n' >"$TMP_ROOT/kept/issues" ;;
+    invalid-comments) printf '{"VGS-2127":null}\n' >"$TMP_ROOT/kept/comments" ;;
+    *) : >"$TMP_ROOT/kept/fail-$mode" ;;
+  esac
+  areas 'unit 0'
+  main --root "$root" unit
+  rm -f -- "$TMP_ROOT/kept/fail-$mode"
+  printf '[]\n' >"$TMP_ROOT/kept/issues"
+  printf '{}\n' >"$TMP_ROOT/kept/comments"
+  : >"$TMP_ROOT/kept/asks"
+  [[ $status -eq 0 ]] || problems+=("exit=$status")
+  for path in kept/file comment/file ask/file mixed/new; do
+    [[ -f $records/$base/$path ]] || problems+=("removed=$path")
+  done
+  for path in "VGS-2127-focused-$1/file" "lane-archive/$1" "waiter.$1/file"; do
+    [[ -f $records/$path ]] || problems+=("removed=$path")
+  done
+  for path in expired mixed/old; do
+    if [[ $mode == complete ]]; then
+      [[ ! -e $records/$base/$path ]] || problems+=("kept=$path")
+    else
+      [[ -f $records/$base/$path ]] || problems+=("removed-on-unread=$path")
+    fi
+  done
+  [[ -f $root/${planted[referenced]}/evidence ]] || problems+=(batch-reference=removed)
+  if [[ $mode == complete ]]; then
+    [[ ! -e $root/${planted[old]} ]] || problems+=(batch-old=kept)
+  else
+    [[ -d $root/${planted[old]} ]] || problems+=(batch-unread=removed)
+  fi
+  dirs=("$root"/[0-9]*T*Z)
+  grep -q '^main-run: kept-set-read-secs=' "${dirs[-1]}/run.log" || problems+=(duration=missing)
+  [[ ${#problems[@]} -eq 0 ]]
+}
+if case_expiry r-expiry; then ok "expiry keeps referenced evidence, open item families and package state, and removes expired siblings"; else fail "expiry: ${problems[*]}"; fi
+for unread in issues comments asks invalid-issues invalid-comments; do
+  if case_expiry "r-expiry-$unread" "$unread"; then ok "an unread $unread kept set removes nothing"; else fail "expiry $unread: ${problems[*]}"; fi
+done
+
 # A held lock: exit 75, no run directory, and --due answers running.
 busy_root="$records/r-busy"
 mkdir -p "$busy_root"
@@ -575,6 +660,8 @@ control "a symlink judged as a run" '&& -d $dir && ! -L $dir ]]' '&& -d $dir ]]'
 control "the retention not read from the ladder" '.agents/skills/orch/scripts/orch-env ORCH_RECORD_RETENTION_DAYS 5)' \
   'echo 5)' case_retention "$records/c-ladder" 7
 control "a root outside tmp/ accepted" '[[ $root == "$tmp"/?* ]] ||' ': ||' case_outside "$TMP_ROOT/c-outside" run "$TMP_ROOT/c-outside"
+control "referenced evidence not kept" 'or kept(path):' 'or False:' case_expiry c-expiry-kept
+control "expired files not removed" 'os.unlink(entry.name, dir_fd=fd)' 'pass' case_expiry c-expiry-remove
 cp -- "$repo/scripts/main-run.sh" "$runner"
 
 if [[ $failures -gt 0 ]]; then

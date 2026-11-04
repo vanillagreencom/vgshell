@@ -35,7 +35,7 @@ A Hyprland desktop shell built on Quickshell 0.3.1. Its small fixed core starts 
 - Before structural work, writing a plugin, a host or a capability provider, or adding a kind, a capability or a manifest key: `docs/architecture/overview.md`.
 - Before touching the configuration files or their judge: `docs/architecture/configuration.md`.
 - Before touching a token, the theme judge, `Theme`, a component of `qs.Ui`, a plugin-owned look, a pointer, keyboard or focus path, a Settings field, text a user reads, or any value a surface draws with: `docs/architecture/design-system.md`.
-- Before touching anything that starts, stops, measures or talks to the shell, or adding a watcher, a poller, a cache or a subprocess: `docs/architecture/runtime.md`.
+- Before work on shell lifecycle, IPC, measurements, watchers, pollers, caches, subprocesses or lane scratch: `docs/architecture/runtime.md`. Scratch stays in its lane worktree.
 - Before touching the Hyprland layer, a dispatch, `Compositor`, `Dispatch.js` or a shortcut: `docs/architecture/hyprland.md`.
 - Before touching the `tui` capability, a floating TUI, a package step, a system step, or any place text could become a command: `docs/architecture/commands-are-data.md`.
 - Before touching a password field, a stored token or any text that could carry a secret: `docs/architecture/secrets.md`.

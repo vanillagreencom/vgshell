@@ -40,6 +40,12 @@ A lock descriptor the shell inherits is held by every child the shell starts, so
 - Never state a growth rate over a span shorter than the sampler's floor, and never append a sample to a log whose last row names another session. `scripts/test-sample-shell-memory.sh` pins both.
 - Never let the sampler signal, restart or drive the shell; it reads `/proc` alone. Attribution to a C++ class needs a profiled start, which `scripts/attribute-heap-profile.py` explains in its header.
 
+### Temporary artifacts
+
+- Do keep a lane's scratch under its own worktree, which ends with the worktree. Never make ad hoc scratch directories in the base checkout's `tmp/`; that directory belongs to the main batch and fleet owners. Review holds this ownership rule.
+- Do expire unused VGS artifacts through `scripts/main-run.sh`, beside its existing batch pruning. Preserve paths named by open items and their comments, open owner asks, and live fleet files. Read the complete kept set before deleting anything; an unread kept set deletes nothing. `scripts/test-main-run.sh` holds expiry and retention.
+- Never delete package-owned state through VGS expiry. Its package owns its retention.
+
 ### Performance
 
 - Never let two components poll one source; the owner publishes, the rest read. Review holds it.
