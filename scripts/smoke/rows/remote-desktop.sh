@@ -22,8 +22,12 @@
 # against smoke-sshd with the bootstrap key in an ssh-agent standing in
 # for the typed password and an askpass for the typed passphrase, makes a
 # key, installs it and signs in with it, keeps a key whose .pub is missing,
-# refuses a passphrase key while no agent runs and loads it into the agent
-# when one does; with hosting off, the service ends a
+# signs in with a 0644 key that has no passphrase, with no agent, and
+# makes it readable only by its owner, refuses a lone
+# .pub and leaves it as it was, refuses a passphrase key while no agent
+# runs with only an `ssh-add -L` call, which a copy of the script without
+# its no-agent guard, the control, also loads the key with, and loads it
+# into the agent when one does; with hosting off, the service ends a
 # new session by SIGTERM, and while the core reads `pending-restart` the
 # Hosting field has its text. The control, a tree whose poll never runs,
 # restarts the shell: the widget stays shown after the viewer left.
@@ -114,15 +118,19 @@ rd_capture() { shot_grim "$(shot_socket "$rt_dir" "$nested_socket")" "$rt_dir" -
 rd_gone() { if [[ -e /proc/$1 && $(cut -d' ' -f3 "/proc/$1/stat" 2>/dev/null) != Z ]]; then echo running; else echo gone; fi; }
 rd_status() { rd_exit=0; wait "$1" || rd_exit=$?; }
 rd_listening() { python3 -c 'import socket,sys; socket.create_connection(("127.0.0.1", int(sys.argv[1])), 1).close(); print("up")' "$rd_port" 2>/dev/null || echo down; }
-# rd_sign_in [none]: the sign-in script against smoke-sshd, with the
-# row's agent, or with none.
+# rd_sign_in [none] [SCRIPT]: the sign-in script, or SCRIPT, against
+# smoke-sshd, with the row's agent, or with none. Each run starts a new
+# record of its ssh-add calls.
 rd_sign_in() {
-  local agent=(SSH_AUTH_SOCK="$rd_dir/agent.sock")
+  local agent=(SSH_AUTH_SOCK="$rd_dir/agent.sock") script="${2:-$repo/shell/plugins/vgs.remote-desktop/tui/sign-in.sh}"
   [[ ${1:-} != none ]] || agent=()
+  rm -f -- "$rd_dir/ssh-add.argv"
   env -i PATH="$rd_dir/bin:$PATH" HOME="$home" USER="$(id -un)" TERM=dumb "${agent[@]}" SSH_ASKPASS="$rd_dir/askpass" SSH_ASKPASS_REQUIRE=force \
-    VGS_TUI_LIB="$repo/bin/lib/tui.sh" VGS_TUI_UNATTENDED=1 bash "$repo/shell/plugins/vgs.remote-desktop/tui/sign-in.sh" smoke-sshd </dev/null >>"$rd_dir/sign-in.log" 2>&1 && echo ok || echo "failed: $(tail -n 4 -- "$rd_dir/sign-in.log" | tr '\n' '|') sshd: $(tail -n 4 -- "$rd_dir/sshd.log" | tr '\n' '|')"
+    VGS_TUI_LIB="$repo/bin/lib/tui.sh" VGS_TUI_UNATTENDED=1 bash "$script" smoke-sshd </dev/null >>"$rd_dir/sign-in.log" 2>&1 && echo ok || echo "failed: $(tail -n 4 -- "$rd_dir/sign-in.log" | tr '\n' '|') sshd: $(tail -n 4 -- "$rd_dir/sshd.log" | tr '\n' '|')"
 }
-rd_refused() { [[ $(rd_sign_in none) == failed:* ]] && echo refused || echo ran; }
+rd_refused() { [[ $(rd_sign_in "$@") == failed:* ]] && echo refused || echo ran; }
+# rd_agent_calls: the last run's ssh-add argv lists, one JSON list each.
+rd_agent_calls() { if [[ -f $rd_dir/ssh-add.argv ]]; then paste -sd' ' -- "$rd_dir/ssh-add.argv"; else echo none; fi; }
 rd_new_key_signs_in() { SSH_AUTH_SOCK="$rd_dir/agent.sock" "$rd_dir/bin/ssh" -o BatchMode=yes -o IdentitiesOnly=yes -i "$home/.ssh/id_ed25519" smoke-sshd true </dev/null && echo yes || echo no; }
 rd_restore() {
   local pid
@@ -182,8 +190,9 @@ expect_poll "Set up sign-in hands the terminal the sign-in script and the first 
 expect "System Settings closes" ok ipc shell hide window vgs.system
 
 # The script against the test sshd: a key made, installed and used; a
-# private key with no .pub kept, its .pub derived; a passphrase key with no
-# agent refused before anything runs, and with one loaded into it.
+# private key with no .pub kept, its .pub derived; a 0644 key made private
+# and used with no agent; a lone .pub kept; a passphrase key with no agent
+# refused before anything runs, and with one loaded into it.
 if [[ -z $rd_sshd_bin ]]; then
   not_measured remote-desktop-sign-in "no sshd on PATH"
 else
@@ -191,6 +200,10 @@ else
   rd_sshd_pid="$spawn_pid"
   spawn "$rd_dir/agent.log" ssh-agent -D -a "$rd_dir/agent.sock"
   rd_agent_pid="$spawn_pid"
+  # The script's ssh-add records each argv, then runs the real one.
+  printf '#!/usr/bin/env bash\npython3 -c %q "$@" >>%q\nexec %q "$@"\n' \
+    'import json,sys; print(json.dumps(sys.argv[1:]))' "$rd_dir/ssh-add.argv" "$(command -v ssh-add)" >"$rd_dir/bin/ssh-add"
+  chmod 755 "$rd_dir/bin/ssh-add"
   expect_poll "the test sshd listens" up rd_listening
   expect_poll "the agent takes the bootstrap key" ok bash -c 'SSH_AUTH_SOCK="$1" ssh-add -q "$2" 2>/dev/null && echo ok' _ "$rd_dir/agent.sock" "$rd_dir/bootstrap"
   expect "Set up sign-in ends with sign-in working" ok rd_sign_in
@@ -201,11 +214,27 @@ else
   expect "Set up sign-in with a key and no .pub ends with sign-in working" ok rd_sign_in
   expect "a key with no .pub stays as it was" "$rd_key_sum" bash -c 'sha256sum <"$1"' _ "$home/.ssh/id_ed25519"
   expect "the derived .pub adds no key line" 2 bash -c 'grep -c . "$1"' _ "$rd_remote/.ssh/authorized_keys"
-  rm -f -- "${home:?}/.ssh/id_ed25519" "${home:?}/.ssh/id_ed25519.pub"
+  chmod 644 -- "$home/.ssh/id_ed25519"
+  expect "Set up sign-in with a 0644 key and no agent ends with sign-in working" ok rd_sign_in none
+  expect "the 0644 key becomes readable only by its owner" 600 stat -L -c %a -- "$home/.ssh/id_ed25519"
+  rm -f -- "${home:?}/.ssh/id_ed25519"
+  rd_pub_sum="$(sha256sum <"$home/.ssh/id_ed25519.pub")"
+  expect "a .pub with no private key is refused" refused rd_refused
+  expect "the refused run leaves the .pub as it was" "$rd_pub_sum" bash -c 'sha256sum <"$1"' _ "$home/.ssh/id_ed25519.pub"
+  rm -f -- "${home:?}/.ssh/id_ed25519.pub"
   ssh-keygen -q -t ed25519 -N smoke-pass -f "$home/.ssh/id_ed25519" </dev/null || fail "the passphrase key could not be made"
   rd_key_sum="$(sha256sum <"$home/.ssh/id_ed25519")"
-  expect "a passphrase key with no agent is refused" refused rd_refused
+  expect "a passphrase key with no agent is refused" refused rd_refused none
+  expect "the refused run only asks the agent for its keys" "$(words -L)" rd_agent_calls
   expect "the refused run copies no key" 2 bash -c 'grep -c . "$1"' _ "$rd_remote/.ssh/authorized_keys"
+  # Control: without the no-agent guard, the refused run asks the agent to
+  # load the key, and the assertion above fails.
+  mkdir -p -- "$sandbox/tree-remote-desktop-no-guard"
+  cp -- "$repo/shell/plugins/vgs.remote-desktop/tui/sign-in.sh" "$sandbox/tree-remote-desktop-no-guard/sign-in.sh"
+  if edit_tree remote-desktop-no-guard sign-in.sh 'if [[ $agent == 2 ]]; then' 'if false; then'; then
+    rd_refused none "$sandbox/tree-remote-desktop-no-guard/sign-in.sh" >/dev/null
+    expect "control: with no guard, the run asks the agent for more than its keys" "$(words -L) $(words "$home/.ssh/id_ed25519")" rd_agent_calls
+  fi
   expect "Set up sign-in loads a passphrase key into the agent and signs in" ok rd_sign_in
   expect "the passphrase key stays as it was" "$rd_key_sum" bash -c 'sha256sum <"$1"' _ "$home/.ssh/id_ed25519"
   expect "the passphrase key alone signs in through the agent" yes rd_new_key_signs_in

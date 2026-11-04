@@ -23,11 +23,12 @@ Both computers need gliff, and the computer you connect to needs SSH on. gliff s
 | Optional tools | gliff or SSH is missing | Installs them. gliff comes from Omarchy's package repository as one file, whose signature VGS checks against Omarchy's key. |
 | SSH on this computer | Hosting is on and the SSH server is off | Starts the SSH server and keeps it on after a restart. |
 
-Set up sign-in, on each computer's row in System Settings › Remote desktop, makes key sign-in to that computer work. It opens a terminal that uses your first key of `~/.ssh/id_ed25519`, `id_ecdsa` and `id_rsa`, or makes one when you have none, then copies the key to the other computer. A key with a passphrase goes into your SSH agent first, since Remote desktop cannot type the passphrase. You type your password on that computer, and any passphrase, into the terminal; VGS does not see or keep them.
+Set up sign-in, on each computer's row in System Settings › Remote desktop, makes key sign-in to that computer work. It opens a terminal that uses your first key of `~/.ssh/id_ed25519`, `id_ecdsa` and `id_rsa`, or makes one when you have none, then copies the key to the other computer. When you have only `~/.ssh/id_ed25519.pub`, because an SSH agent or a security key holds its private key, it stops and leaves that file as it is. A key other accounts on this computer can read is made readable only by you, since ssh will not use it otherwise. A key with a passphrase goes into your SSH agent first, since Remote desktop cannot type the passphrase; when no SSH agent runs, Set up sign-in stops before it changes anything, and Remote desktop cannot use that key. You type your password on that computer, and any passphrase, into the terminal; VGS does not see or keep them.
 
 <details><summary>Show command</summary>
 
 ```bash
+chmod 600 ~/.ssh/<your key>                              # only when other accounts can read it
 ssh-keygen -t ed25519 -N '' -f ~/.ssh/id_ed25519        # only when none of the three keys exists
 ssh-keygen -y -f ~/.ssh/<your key> > ~/.ssh/<your key>.pub   # only when its .pub is missing
 ssh-add ~/.ssh/<your key>                                # only for a key with a passphrase the agent does not hold
