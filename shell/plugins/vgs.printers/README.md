@@ -12,7 +12,7 @@ Printers adds, chooses and removes your printers. It has a Printers section in t
 - Find printers lists the printers on this computer and your network. A printer that needs a driver opens Print Settings to choose one.
 - Adds a network printer by its name or address, such as `printer.local`.
 - Print Settings opens the full printer settings for drivers, paper size, two-sided printing and quality.
-- Each change asks your permission in the system's password prompt. VGS never sees the password.
+- Printer changes use the system's permission checks. When a password is needed, type it in the system's prompt.
 
 ## Setup
 

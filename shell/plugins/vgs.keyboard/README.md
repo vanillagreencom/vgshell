@@ -6,7 +6,7 @@ Choose keyboard layouts, set their order, and adjust how a held key repeats.
 
 ## Features
 
-- Add input sources and choose their variants in System → Keyboard.
+- Add input sources and choose their variants in System Settings → Keyboard.
 - Move a source with Ctrl+Up or Ctrl+Down. Delete removes the selected source.
 - Open a source's menu with Shift+F10 to move or remove it.
 - Try repeat rate and delay in the test field.

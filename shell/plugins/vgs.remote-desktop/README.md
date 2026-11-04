@@ -1,6 +1,6 @@
 # Remote desktop
 
-Remote desktop opens the desktop of your other computers in a window, and shows in the bar when another computer views this one. It uses [gliff](https://github.com/omacom/gliff) over SSH: no account, no pairing and no open port beyond SSH.
+Remote desktop opens the desktop of your other computers in a window, and shows in the bar when another computer views this one. It connects over SSH with no separate account or pairing.
 
 ![System Settings › Remote desktop: Hosting says SSH is off, and two computers to connect to](../../../docs/images/plugins/vgs.remote-desktop-pane.webp)
 
@@ -16,25 +16,10 @@ A window your Hyprland configuration marks `no_screen_share` stays hidden in eve
 
 ## Setup
 
-Both computers need gliff, and the computer you connect to needs SSH on. gliff signs in with an SSH key and cannot ask for a password. On the plugin's Setup tab:
+Both computers need gliff, and the computer you connect to needs SSH on. Open Settings → Plugins → Remote desktop → Setup to install missing tools under Optional tools. SSH on this computer starts the SSH server and keeps it on after a restart when you allow hosting.
 
-| Step | When | What it does |
-| --- | --- | --- |
-| Optional tools | gliff or SSH is missing | Installs them. gliff comes from Omarchy's package repository as one file, whose signature VGS checks against Omarchy's key. |
-| SSH on this computer | Hosting is on and the SSH server is off | Starts the SSH server and keeps it on after a restart. |
+In System Settings → Remote desktop, select Set up sign-in beside a computer. The setup window asks before it prepares an SSH key and copies it to that computer. Type the other computer's password and any key passphrase there. VGS does not see or keep them.
 
-Set up sign-in, on each computer's row in System Settings › Remote desktop, makes key sign-in to that computer work. It opens a terminal that uses your first key of `~/.ssh/id_ed25519`, `id_ecdsa` and `id_rsa`, or makes one when you have none, then copies the key to the other computer. When you have only `~/.ssh/id_ed25519.pub`, because an SSH agent or a security key holds its private key, it stops and leaves that file as it is. A key other accounts on this computer can read is made readable only by you, since ssh will not use it otherwise. A key with a passphrase goes into your SSH agent first, since Remote desktop cannot type the passphrase; when no SSH agent runs, Set up sign-in stops before it changes anything, and Remote desktop cannot use that key. You type your password on that computer, and any passphrase, into the terminal; VGS does not see or keep them.
-
-<details><summary>Show command</summary>
-
-```bash
-chmod 600 ~/.ssh/<your key>                              # only when other accounts can read it
-ssh-keygen -t ed25519 -N '' -f ~/.ssh/id_ed25519        # only when none of the three keys exists
-ssh-keygen -y -f ~/.ssh/<your key> > ~/.ssh/<your key>.pub   # only when its .pub is missing
-ssh-add ~/.ssh/<your key>                                # only for a key with a passphrase the agent does not hold
-ssh-copy-id -i ~/.ssh/<your key>.pub -- <computer>
-```
-
-</details>
+Remote desktop cannot ask for a password or key passphrase when it connects. A key with a passphrase needs an SSH agent running in your session; Set up sign-in stops without changing anything if none runs. The setup also stops if only the public half of your default key exists, so it does not replace a key held by an agent or security device.
 
 Connect also offers to install gliff while it is missing. The first time the plugin is on, Hosting off takes full effect after you sign in again, because Hyprland reads its screen capture rules only when it starts. Until then, VGS ends each session it finds while hosting is off.

@@ -34,17 +34,17 @@ The keys are under Keys on the plugin's Settings page. The Tools step on Setup l
 
 ### App sounds
 
-To mute an app's own notification sound, VGS adds a small rule to WirePlumber, the part of your system that routes sound. VGS installs it when the plugin starts. Your audio services load a new or updated rule the next time they start, at the latest when you restart the computer; signing out may leave them running. VGS never restarts them, so calls and other sound continue. Until then, System Settings → Notifications shows that muting starts after a restart. If your audio services start with the rule and do not load it, it shows that notification sound muting is unavailable.
+VGS prepares app sound muting when Notifications starts. A new or updated setup takes effect when your audio services next start, at the latest after you restart the computer. Signing out may leave them running. VGS keeps calls and other audio running during setup. Check System Settings → Notifications for whether muting is ready, needs a restart or is unavailable.
 
 While Sound is off or Do Not Disturb is on, a call or media that an app starts plays silent for its first second. If a notification from that app comes in that second, it stays silent until it pauses, at most 15 seconds. Sounds that VGS plays itself still play. Turning the plugin off removes the rule.
 
 ### Slack photos
 
-Turn on Slack photos in Settings to add sender photos, workspace icons and custom emoji. Each workspace you are signed in to in the Slack desktop app has its own row under Slack photos, and each needs its own User OAuth Token.
+Open Settings → Plugins → Notifications → Settings and turn on Slack photos. Each workspace you are signed in to in the Slack desktop app has a row and needs its own User OAuth Token.
 
-Select Create Slack app on the workspace's row. It opens the row's masked field, ready for the token, and the guide for that workspace. The guide explains the permissions before you select Open Slack. VGS fills the Slack app details in your browser. Follow the numbered steps to choose the workspace, create and install the app, then copy its User OAuth Token. If the browser does not open, select Retry opening, Continue in browser to keep reading the steps, or Cancel. App approval needed explains what to ask your workspace administrator.
+Select Create Slack app on the workspace's row. The guide explains the permissions and takes you through creating and installing the app in Slack. Copy its User OAuth Token, then select Return to Notifications. If your workspace needs administrator approval, the guide explains what to request.
 
-Select Return to Notifications. Paste the token into the workspace's masked field and select Save. VGS stores it in your keyring, and the row reads Saved. Saved means the token is stored, not that Slack accepted it: the photos load after each token change. If you already have the token, paste it without opening the guide. Replace beside a saved token replaces it, and Remove removes it. If no workspace row appears, sign in to the workspace in the Slack desktop app, then turn Notifications off and on.
+Paste the token into the workspace's masked field and select Save. VGS stores it in your keyring. Saved confirms storage; photos load after the token changes. You can also paste an existing token, replace a saved one or remove it. If no workspace row appears, sign in to the workspace in the Slack desktop app, then turn Notifications off and on.
 
 The app requests read-only access to sender photos, workspace details and custom emoji. It does not request message or channel access. The guide takes no token. Cancel leaves your settings and saved tokens unchanged.
 

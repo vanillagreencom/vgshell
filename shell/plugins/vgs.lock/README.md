@@ -29,20 +29,4 @@ Each request lasts 1 through 60 seconds and cannot extend an active request. The
 
 VGS must stay running and responsive to lock again. If VGS crashes or stops while deliberately unlocked, the desktop stays unlocked until VGS starts again, which locks it at once. A stall can delay expiry. With Lock before sleep off, sleep can extend access beyond the requested time.
 
-## Script integration
-
-A tool that uses temporary access must wait until both lock readings report unlocked before it uses the desktop, and must finish its work within the time it asked for. When its step ends, even after an error, it must request a lock and wait until both readings confirm the lock. A refusal or a missed transition ends the step. The tool must not ask for another grant on its own or restart VGS to recover.
-
-<details>
-<summary>Show command</summary>
-
-```sh
-vgshell lock
-vgshell ipc call vgs.lock invoke delegate-unlock '{"seconds":60}'
-vgshell ipc call vgs.lock invoke status ''
-vgshell ipc call vgs.lock invoke lock ''
-```
-
-`seconds` is a whole number from 1 through 60. Wait for `locked:false` and `secure:false` before the step, then for `locked:true` and `secure:true` after the final lock call.
-
-</details>
+Script authors: [Use temporary desktop access](../../../docs/runbook.md#use-temporary-desktop-access).

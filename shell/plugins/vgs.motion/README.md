@@ -14,9 +14,4 @@ Motion sets how the shell and your windows move. It is for anyone who wants fast
 
 ## Setup
 
-| Value | What it changes |
-| --- | --- |
-| Motion | Turns all animations on or off. |
-| Style | Smooth or Snappy: how each animation slows at its end. |
-| Speed | How fast animations play, from 0.5× to 2×. |
-| Window animations | Moves your windows with the Motion, Style and Speed above. |
+Open System Settings → Appearance → Motion. Turn Motion off to stop animations, choose how they slow at the end with Style, and adjust how fast they play with Speed. Turn on Window animations to apply these choices to your windows too.
