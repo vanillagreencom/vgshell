@@ -60,6 +60,30 @@ Item {
             }
         }
     }
+    Flickable {
+        id: keyNavView
+        x: 140; y: 350; width: 100; height: 60
+        clip: true
+        contentWidth: width
+        contentHeight: 160
+
+        Column {
+            width: keyNavView.contentWidth
+            Item { width: parent.width; height: 100 }
+            Item {
+                id: keyNavSection
+                width: parent.width
+                height: 40
+                Rectangle { id: keyNavRow; y: 20; width: parent.width; height: 20; color: "transparent" }
+            }
+        }
+    }
+    KeyNav {
+        id: keyNav
+        count: 1
+        flickable: keyNavView
+        itemAt: index => keyNavRow
+    }
     Button { id: afterKeyboard; y: 350; text: "After" }
     Item {
         id: hideParent
@@ -494,6 +518,19 @@ Item {
             compare(keyboard.contentY, Math.min(keyboard.contentHeight - keyboard.height, Theme.row.height + keyboard.bar.height));
             keyClick(Qt.Key_Home);
             compare(keyboard.contentY, 0);
+        }
+
+        function test_keynav_reveals_a_section_row_in_the_flickable() {
+            keyNavView.contentY = 0;
+            compare(keyNavRow.y, 20);
+            compare(keyNavRow.parent, keyNavSection);
+            verify(keyNavRow.mapToItem(keyNavView, 0, 0).y > keyNavView.height, "the row starts below the viewport");
+
+            keyNav.moveTo(0, false);
+
+            const top = keyNavRow.mapToItem(keyNavView, 0, 0).y;
+            verify(top >= 0, "the revealed row starts inside the viewport");
+            verify(top + keyNavRow.height <= keyNavView.height, "the revealed row ends inside the viewport");
         }
 
         function test_reveal_uses_the_content_clip_and_stays_in_scroll_range_data() {

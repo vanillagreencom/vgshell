@@ -589,6 +589,7 @@ mutations=(
   "the shared row text shrinks with the menu|../Commons/Tokens.js|item: role(\"sans\", 1, 400|item: role(\"sans\", 0.93, 400|tst_overlays.qml"
   "the shared row hint shrinks with the menu|../Commons/Tokens.js|itemHint: role(\"sans\", 0.87, 400|itemHint: role(\"sans\", 0.8, 400|tst_overlays.qml"
   "a menu entry's icon stands taller than its text's capitals|../Commons/Tokens.js|icon: length(\"mul({text.menuItem.size}, 0.8)\"),|icon: length(\"{icon.size.md}\"),|tst_overlays.qml"
+  "a key navigation reveal uses the row's position in Flickable content|foundation/KeyNav.qml|const y = Logic.revealY(at.y, item.height, flickable.contentY, flickable.height, margin);|const y = Logic.revealY(item.y, item.height, flickable.contentY, flickable.height, margin);|tst_scroll.qml"
   "the scroll area keeps its gutter under the bar over rows|layout/ScrollArea.qml|contentWidth: width - 2 * focusInset - (barOverContent ? 0 : rightInset)|contentWidth: width - rightInset|tst_overlays.qml"
   "the scroll area leaves no gutter|layout/ScrollArea.qml|contentWidth: width - 2 * focusInset - (barOverContent ? 0 : rightInset)|contentWidth: width|tst_scroll.qml"
   "the scroll area's gutter comes and goes with the overflow|layout/ScrollArea.qml|contentWidth: width - 2 * focusInset - (barOverContent ? 0 : rightInset)|contentWidth: overflowing ? width - rightInset : width|tst_scroll.qml"
