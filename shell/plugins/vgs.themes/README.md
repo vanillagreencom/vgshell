@@ -28,9 +28,6 @@ vgshell theme browser-policy install
 
 </details>
 
-| Setting | What it changes |
-| --- | --- |
-| Panel position | Where the panel opens when you use its shortcut. |
-| No window gaps | Removes the space around and between tiled windows on every workspace. |
+Open Plugins > Themes to change the panel position, window gaps and shortcuts.
 
 Window corners, borders and animations are on the Windows and Motion pages under Settings > Appearance.

@@ -8,17 +8,18 @@ While it is on, any program running as you can run anything as root without a pa
 
 ## Features
 
-- A closed lock while passwordless sudo is off. An open lock in the warning colour while it is on. The tooltip tells until when.
-- A question mark when VGS cannot read whether it is on. On NixOS, a snowflake: your system configuration holds the rule, and VGS cannot read it.
-- Click the closed lock to turn it on. A terminal opens and asks how long: 15 minutes, 1 hour, 1 day or Indefinitely, starting on your default. It shows the risk and asks you to confirm. Indefinitely asks a second time.
-- The first time, the same terminal also sets up the part of passwordless sudo that runs as root. Sudo asks for your password once.
-- A timed grant ends by itself at its time, and at the next restart if the computer restarts first.
-- Indefinitely stays on, also after a restart, until you turn it off.
-- Click the open lock to turn it off. It asks nothing, and its terminal closes by itself.
-- A notification each time you turn it on or off. The notification for on tells how long it stays on.
+- A closed lock means off. An open lock in the warning colour means on; its tooltip shows when it ends.
+- A question mark means VGS cannot read the state.
+- Click the closed lock to choose a duration in a terminal and confirm the risk. Indefinitely asks for a second confirmation.
+- Click the open lock to turn it off without a confirmation.
+- Notifications tell you when you turn it on or off.
 
 ## Setup
 
-| Setting | What it changes |
-| --- | --- |
-| Default duration | The duration the question selects first when you turn passwordless sudo on: 15 minutes, 1 hour, 1 day or Indefinitely. |
+Open Plugins > Passwordless Sudo to choose the Default duration. Each time you turn it on, you can choose 15 minutes, 1 hour, 1 day or Indefinitely.
+
+The first use also sets up passwordless sudo in the same terminal. Sudo asks for your password.
+
+A timed grant ends at its deadline, or at the next restart if that comes first. Indefinitely stays on after a restart until you turn it off.
+
+On NixOS, the icon is a snowflake. Your system configuration controls passwordless sudo; VGS cannot read or change that rule.

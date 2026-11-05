@@ -13,6 +13,4 @@ UI sets the corner radius of buttons, text fields and segmented controls. It is 
 
 ## Setup
 
-| Value | What it changes |
-| --- | --- |
-| Corner radius | The corners of buttons, text fields and segmented controls, from 0 to 16 px. |
+Open System Settings > Appearance > UI. Move Corner radius to change the controls, or choose Use theme value to restore the theme's corners.

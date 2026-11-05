@@ -10,18 +10,13 @@ Updates checks your system, VGS, plugins, themes and developer tools for updates
 - A bar icon with the count of waiting updates, and a warning when a check fails.
 - A window on `SUPER+CTRL+U` or a click on the icon, with one row per source. Update installs one source, and Update everything installs all of them.
 - Open last log shows the log of the last update run.
-- A system snapshot with Snapper or Timeshift before an update, when one is installed.
-- An optional AI review of each package before it installs. A flagged package lets you skip it or install it anyway. Package review settings opens General > Packages in System Settings.
+- A system snapshot before updates when Snapper or Timeshift is installed and set up.
+- An optional AI review of Arch system and AUR packages before installation. A flagged package lets you skip it or install it anyway.
 
 ## Setup
 
-| Setting | What it changes |
-| --- | --- |
-| Check interval | Time between automatic update checks, 1 to 48 hours. |
-| Hide when up to date | Hides the bar icon when a recent check finds no updates. |
-| AUR command | How AUR packages update: Automatic, or a paru or yay command of your own. |
-| System snapshot | Saves a system snapshot before updates when a snapshot tool is available. |
-| Trust plugin and theme updates | Applies plugin and theme changes without asking first. |
-| Reboot notice | On CachyOS, whether CachyOS also shows its restart notices for updates outside VGS. VGS asks once after an update that needs a restart either way. |
+Open Plugins > Updates to change the check interval, icon visibility and update options. System snapshot can turn snapshots off. Trust plugin and theme updates applies those changes without asking first.
 
-[developer.md](developer.md) states the checks, the bar icon and the steps of an update run.
+Package review settings in the Updates window opens System Settings > General > Packages, where you choose how AI reviews packages.
+
+On CachyOS, Reboot notice controls whether CachyOS also shows restart notices for updates outside VGS. VGS asks once after an update that needs a restart with either choice.

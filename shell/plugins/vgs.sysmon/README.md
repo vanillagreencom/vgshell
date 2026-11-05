@@ -14,6 +14,6 @@ System Monitor shows CPU, memory and graphics card use in the bar. Its flyout sh
 
 ## Setup
 
-Open Settings, Shell & Plugins, System Monitor. Readings sets how the bar lays out and labels its readings, the refresh interval and the temperature unit. CPU, Memory and GPU each turn their bar value on or off. Graphics card, under GPU, selects the card when the computer has more than one.
+Open Plugins > System Monitor to choose the bar readings, layout, refresh interval and temperature unit. Under GPU, Graphics card selects the card when the computer has more than one.
 
 If See all is missing, select Setup on the same page. Under Optional tools, select Review all missing or outdated tools to add btop for the process list.
