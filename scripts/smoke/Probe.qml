@@ -2449,6 +2449,37 @@ Scope {
             win.update();
             return entry[2].toString();
         }
+        // Observe the actual typed activation reference without keeping it
+        // alive. A layer owner can be present without a toplevel title.
+        function windowActivationState(): string {
+            const win = Compositor.activationWindow;
+            return root.json({
+                activationWindow: win === null || win.title === undefined ? null : String(win.title),
+                activationWindowPresent: win !== null,
+                activationEpoch: Compositor.activationEpoch,
+                activationWaiting: Compositor.activationWaiting,
+                grabs: Ui.OverlayState.grabs
+            });
+        }
+        // QsWindow.window is the shell proxy, not Qt's backing QWindow.
+        // backingWindowVisible observes native hide; it does not acknowledge
+        // compositor processing or establish native keyboard delivery.
+        // https://quickshell.org/docs/v0.3.1/types/Quickshell/QsWindow/
+        function summonWindowState(hostKey: string, id: string): string {
+            const item = root.instance(hostKey, id);
+            if (item === null) return root.json({ state: "absent" });
+            const win = item.QsWindow.window;
+            if (win === null) return root.json({ state: "no-window" });
+            return root.json({
+                state: "present",
+                type: root.typeName(win),
+                visible: win.visible,
+                backingWindowVisible: win.backingWindowVisible,
+                closing: win.closing === undefined ? null : win.closing,
+                motionProgress: win.motionProgress === undefined ? null : win.motionProgress,
+                grabCounted: win.grabCounted === undefined ? null : win.grabCounted
+            });
+        }
         // Every item under an instance, the instance first, breadth first:
         // its type name as typeName writes it, its objectName, its box in screen
         // coordinates, its implicit size, the index of its parent in the
