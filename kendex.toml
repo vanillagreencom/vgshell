@@ -345,10 +345,6 @@ enabled = false
 source = "kendex"
 enabled = true
 
-[hooks.block-worktree-refresh]
-source = "kendex"
-enabled = true
-
 [hooks.session-drift-check]
 source = "kendex"
 enabled = true
