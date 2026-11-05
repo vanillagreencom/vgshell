@@ -32,16 +32,19 @@
 # pointer stays where it stood at the press, and the row cannot show that
 # the drawn freeze holds no still pointer; a tree that reads a pointer
 # frame before it is captured fails the saved image.
-# The GUI busy span while the bands are written is the longest gap between
-# two turns of the shell's GUI event loop, read by the layers fixture's
-# probe (Date.now(), 1 ms), against a ceiling of one frame of the fastest
-# output, 16.7 ms at the nested outputs' 60 Hz. A reading within it
+# GUI work while the bands are written is the gap between two turns of
+# the shell's GUI event loop, less its complete measured Qt render-sync
+# waits. The layers fixture's probe reads the gap (Date.now(), 1 ms), and
+# Qt's GUI render-loop log reads blockedForSync (floored ms). A wait is
+# subtracted only with both Qt frame records inside that same gap. The
+# remainder is compared against one frame of the fastest output, 16.7 ms
+# at the nested outputs' 60 Hz. A reading within it
 # passes at any CPU pressure; a reading over it fails while cpu_some_pct
 # from the press to the written still is at or below harness.sh's
 # latency_pressure_limit, and is not measured above it. The pressure and
 # the load print beside the reading; a tree that saves a whole output in
-# one band exceeds the ceiling. Calibrated on cachy, NVIDIA, nested
-# Hyprland 0.57.0, at cpu_some_pct 0.5-1.0 (VGS-2232 run notes, runs 6, 9
+# one band must do real GUI save work past the ceiling. Calibrated on cachy,
+# NVIDIA, nested Hyprland 0.57.0, at cpu_some_pct 0.5-1.0 (VGS-2232 run notes, runs 6, 9
 # and 10). The row also records the render
 # loop QSG_INFO names, each band's read-back and save, and the time from
 # the press's IPC call to the selector's first buffer, from slurp's
@@ -567,9 +570,19 @@ stopped = root / "signal"
 print(sum(row["tool"] == "gpu-screen-recorder" for row in rows) == 1 and stopped.exists() and stopped.read_text() == str(signal.SIGINT) and path.is_file() and path.read_bytes() == b"finalized")
 PY
 }
+# The test-only producer must be usable before each disable. Its bounded
+# snapshot lives at ipc_call_last's unchanged timeout owner, before cleanup.
+capture_stage_arm() { expect "capture teardown-stage producer arms" armed ipc smoke captureStageProbe true; }
+capture_enable() {
+  if [[ $1 == false ]]; then
+    expect_poll "capture teardown-stage producer is ready before disable" ready ipc smoke captureStageReady >&2 || return 1
+  fi
+  ipc shell setPluginEnabled vgs.capture "$1"
+}
+capture_stage_arm
 read -r capture_output capture_width capture_height < <(hypr -j monitors | py_reply 'import json,sys; rows=json.load(sys.stdin); m=next(m for m in rows if m["focused"]); print(m["name"],m["width"],m["height"])')
 rescan "capture stand-ins are found after rescan"
-expect "capture service is enabled" ok ipc shell setPluginEnabled vgs.capture true
+expect "capture service is enabled" ok capture_enable true
 expect "capture widget is placed" ok ipc shell setPluginPlaced vgs.capture true
 capture_notes_found="$(record_exists vgs.notifications)"
 expect_poll "capture service is built" True record_exists vgs.capture
@@ -856,10 +869,10 @@ close_toplevel "$capture_focus_pid" "the frame-withdrawal keyboard client closes
 click_centre "$(bar_key)" vgs.capture || fail "the recording indicator after a placement transition could not be clicked"
 expect_poll "the transitioned recording ends" idle capture_phase
 expect_poll "the transitioned recording hides its indicator" '[1, "center", false, false]' capture_bar_mount
-expect "unplaced capture disables after its recording" ok ipc shell setPluginEnabled vgs.capture false
+expect "unplaced capture disables after its recording" ok capture_enable false
 expect_poll "disabling unplaced capture releases its mount" '[0]' capture_bar_mount
 expect_poll "disabling unplaced capture releases its service" False record_exists vgs.capture
-expect "unplaced capture enables again" ok ipc shell setPluginEnabled vgs.capture true
+expect "unplaced capture enables again" ok capture_enable true
 expect_poll "enabling capture restores visible placement in its default section" True capture_bar_placed
 expect "the enabled capture is unplaced again" ok ipc shell setPluginPlaced vgs.capture false
 expect_poll "removing restored placement rebuilds one hidden center mount" '[1, "center", false, false]' capture_bar_mount
@@ -914,7 +927,7 @@ for capture_group_action in screenshot-area screenshot-window; do
   expect "the $capture_group_action leaves the group tab unchanged" True capture_group_state
 done
 capture_group_service="$repo/shell/plugins/vgs.capture/Service.qml"
-expect "capture stops before the group-tab visibility control" ok ipc shell setPluginEnabled vgs.capture false
+expect "capture stops before the group-tab visibility control" ok capture_enable false
 expect_poll "the group-tab control releases the original service" False record_exists vgs.capture
 python3 - "$capture_group_service" "$sandbox" "$capture_state/group-service-original.qml" <<'PY'
 from pathlib import Path
@@ -930,7 +943,7 @@ assert changed != source
 service.write_text(changed)
 PY
 rescan "the dropped group-tab visibility check is rescanned"
-expect "capture enables the group-tab visibility control" ok ipc shell setPluginEnabled vgs.capture true
+expect "capture enables the group-tab visibility control" ok capture_enable true
 expect_poll "the group-tab visibility control is built" True record_exists vgs.capture
 for capture_group_action in screenshot-area screenshot-window; do
   expect "control: the background tab remains a mapped hidden-false tab" True capture_group_state
@@ -940,11 +953,11 @@ for capture_group_action in screenshot-area screenshot-window; do
   expect "control: advertising the background tab fails the $capture_group_action rectangle readback" False capture_group_advertised
   expect "control: the $capture_group_action keeps the same group tab current" True capture_group_state
 done
-expect "capture stops after the group-tab visibility control" ok ipc shell setPluginEnabled vgs.capture false
+expect "capture stops after the group-tab visibility control" ok capture_enable false
 expect_poll "the group-tab visibility control releases its service" False record_exists vgs.capture
 cp -- "$capture_state/group-service-original.qml" "$capture_group_service"
 rescan "the original group-tab visibility check is rescanned"
-expect "capture enables the restored group-tab service" ok ipc shell setPluginEnabled vgs.capture true
+expect "capture enables the restored group-tab service" ok capture_enable true
 expect_poll "the restored group-tab service is built" True record_exists vgs.capture
 close_toplevel "$capture_group_two_pid" "capture's current group tab closes"
 close_toplevel "$capture_group_one_pid" "capture's background group tab closes"
@@ -1436,7 +1449,7 @@ capture_shot_focus='["Button", "Take screenshot", true, true, true]'
 capture_record_focus='["Button", "Start recording", true, true, true]'
 capture_options_file="$repo/shell/plugins/vgs.capture/Options.qml"
 capture_options_plant() { # walk | focus | delay | original
-  expect "capture stops before the $1 options copy" ok ipc shell setPluginEnabled vgs.capture false
+  expect "capture stops before the $1 options copy" ok capture_enable false
   expect_poll "the $1 options copy releases the service" False record_exists vgs.capture
   python3 - "$capture_options_file" "$sandbox" "$rt_dir" "$capture_state/options-original.qml" "$1" <<'PY'
 from pathlib import Path
@@ -1468,7 +1481,7 @@ assert control == "original" or changed != source, control
 options.write_text(changed)
 PY
   rescan "the $1 options copy is rescanned"
-  expect "capture enables the $1 options copy" ok ipc shell setPluginEnabled vgs.capture true
+  expect "capture enables the $1 options copy" ok capture_enable true
   expect_poll "the $1 options copy's service is built" True record_exists vgs.capture
 }
 # The Delay select is the second option under the primary action. Its
@@ -1616,7 +1629,7 @@ done
 # Display's immediate launch, so the second window keeps it.
 capture_restore_service="$repo/shell/plugins/vgs.capture/Service.qml"
 capture_restore_plant() { # active | original
-  expect "capture stops before the $1 restore copy" ok ipc shell setPluginEnabled vgs.capture false
+  expect "capture stops before the $1 restore copy" ok capture_enable false
   expect_poll "the $1 restore copy releases the service" False record_exists vgs.capture
   python3 - "$capture_restore_service" "$sandbox" "$capture_state/restore-service-original.qml" "$1" <<'PY'
 from pathlib import Path
@@ -1643,7 +1656,7 @@ assert control == "original" or changed != source, control
 service.write_text(changed)
 PY
   rescan "the $1 restore copy is rescanned"
-  expect "capture enables the $1 restore copy" ok ipc shell setPluginEnabled vgs.capture true
+  expect "capture enables the $1 restore copy" ok capture_enable true
   expect_poll "the $1 restore copy's service is built" True record_exists vgs.capture
 }
 capture_restore_plant active
@@ -1660,7 +1673,7 @@ capture_field() {
 }
 capture_manifest_file="$repo/shell/plugins/vgs.capture/manifest.json"
 capture_manifest_plant() { # fields | original
-  expect "capture stops before the $1 manifest copy" ok ipc shell setPluginEnabled vgs.capture false
+  expect "capture stops before the $1 manifest copy" ok capture_enable false
   expect_poll "the $1 manifest copy releases the service" False record_exists vgs.capture
   python3 - "$capture_manifest_file" "$sandbox" "$rt_dir" "$capture_state/manifest-original.json" "$1" <<'PY'
 from pathlib import Path
@@ -1681,7 +1694,7 @@ else:
     manifest.write_text(original.read_text())
 PY
   rescan "the $1 manifest copy is rescanned"
-  expect "capture enables the $1 manifest copy" ok ipc shell setPluginEnabled vgs.capture true
+  expect "capture enables the $1 manifest copy" ok capture_enable true
   expect_poll "the $1 manifest copy's service is built" True record_exists vgs.capture
 }
 settings_page_open vgs.capture
@@ -1868,10 +1881,10 @@ for capture_control in smart window display all cursor copy-only save-only delay
       expect_poll "control: the held tool crosses the worker's deadline" True capture_grim_past_limit
       expect "control: dropping the deadline fails the bounded cleanup readback" False capture_timeout_clean
       cp -- "$capture_state/helper-original.py" "$capture_helper"
-      expect "control: disabling capture ends the unbounded tool" ok ipc shell setPluginEnabled vgs.capture false
+      expect "control: disabling capture ends the unbounded tool" ok capture_enable false
       expect_poll "control: the unbounded tool is gone" 0 capture_grim_left
       capture_config grimHold false
-      expect "capture is enabled after the timeout control" ok ipc shell setPluginEnabled vgs.capture true
+      expect "capture is enabled after the timeout control" ok capture_enable true
       expect_poll "capture is idle after the timeout control" idle capture_phase
       ;;
   esac
@@ -2117,19 +2130,19 @@ capture_waiting() { # LABEL
   expect_poll "$1: the screenshot finishes" idle capture_phase
   expect_poll "$1: one Capture sender run waits" 1 capture_notify_left
   expect_poll "$1: vgs.notifications holds its notification" 1 capture_held_count
-  expect "$1: capture is disabled" ok ipc shell setPluginEnabled vgs.capture false
+  expect "$1: capture is disabled" ok capture_enable false
   expect_poll "$1: the disabled service is released" False record_exists vgs.capture
   expect_poll "$1: no Capture sender run is left" 0 capture_notify_left
 }
 capture_waiting "disabled capture"
 expect_poll "disabling capture closes its notification" 0 capture_held_count
-expect "capture is enabled after its notification closes" ok ipc shell setPluginEnabled vgs.capture true
+expect "capture is enabled after its notification closes" ok capture_enable true
 expect_poll "capture is built after its notification closes" True record_exists vgs.capture
 # Disposable Service copies: one without the buttons, one that closes no
 # notification when it goes.
 capture_notice_service="$repo/shell/plugins/vgs.capture/Service.qml"
 capture_notice_control() { # NAME
-  expect "capture stops before the $1 control" ok ipc shell setPluginEnabled vgs.capture false
+  expect "capture stops before the $1 control" ok capture_enable false
   expect_poll "the $1 control releases the original service" False record_exists vgs.capture
   python3 - "$capture_notice_service" "$sandbox" "$capture_state/notice-service-original.qml" "$1" <<'PY'
 from pathlib import Path
@@ -2150,17 +2163,17 @@ assert changed != source
 service.write_text(changed)
 PY
   rescan "the $1 control service is rescanned"
-  expect "capture enables the $1 control" ok ipc shell setPluginEnabled vgs.capture true
+  expect "capture enables the $1 control" ok capture_enable true
   expect_poll "the $1 control is built" True record_exists vgs.capture
   capture_helper="$(capture_read helperPath | py_reply 'import json,sys; print(json.load(sys.stdin))')"
   python3 -c 'import pathlib,sys; h=pathlib.Path(sys.argv[1]).resolve(); assert any(h.is_relative_to(pathlib.Path(r).resolve()) for r in sys.argv[2:]), "capture control must stay inside the sandbox or its private runtime"' "$capture_helper" "$sandbox" "$rt_dir"
 }
 capture_notice_restore() { # NAME
-  expect "capture stops after the $1 control" ok ipc shell setPluginEnabled vgs.capture false
+  expect "capture stops after the $1 control" ok capture_enable false
   expect_poll "the $1 control releases its service" False record_exists vgs.capture
   cp -- "$capture_state/notice-service-original.qml" "$capture_notice_service"
   rescan "the original service is rescanned after the $1 control"
-  expect "capture enables the restored service after the $1 control" ok ipc shell setPluginEnabled vgs.capture true
+  expect "capture enables the restored service after the $1 control" ok capture_enable true
   expect_poll "the restored service is built after the $1 control" True record_exists vgs.capture
   capture_helper="$(capture_read helperPath | py_reply 'import json,sys; print(json.load(sys.stdin))')"
   python3 -c 'import pathlib,sys; h=pathlib.Path(sys.argv[1]).resolve(); assert any(h.is_relative_to(pathlib.Path(r).resolve()) for r in sys.argv[2:]), "capture control must stay inside the sandbox or its private runtime"' "$capture_helper" "$sandbox" "$rt_dir"
@@ -2178,7 +2191,7 @@ capture_waiting "control: no close"
 expect "control: a notification the copy left open stays held" 1 capture_held_count
 cp -- "$capture_state/notice-service-original.qml" "$capture_notice_service"
 rescan "the original service is rescanned after the no-close control"
-expect "capture enables the restored service after the no-close control" ok ipc shell setPluginEnabled vgs.capture true
+expect "capture enables the restored service after the no-close control" ok capture_enable true
 expect_poll "the restored service is built after the no-close control" True record_exists vgs.capture
 capture_helper="$(capture_read helperPath | py_reply 'import json,sys; print(json.load(sys.stdin))')"
 python3 -c 'import pathlib,sys; h=pathlib.Path(sys.argv[1]).resolve(); assert any(h.is_relative_to(pathlib.Path(r).resolve()) for r in sys.argv[2:]), "capture control must stay inside the sandbox or its private runtime"' "$capture_helper" "$sandbox" "$rt_dir"
@@ -2368,7 +2381,7 @@ else:
 # The stand-in is still the shell's hyprctl here, so this disable's reload
 # is the control for the end-of-row check that reads `real`.
 capture_hyprctl_mark="$(wc -l <"$capture_hyprctl_log")"
-expect "capture stops before the stopped-event control" ok ipc shell setPluginEnabled vgs.capture false
+expect "capture stops before the stopped-event control" ok capture_enable false
 expect_poll "control: a capture disable on the stand-in reads stand-in" stand-in capture_layer_reload false "$capture_hyprctl_mark"
 expect_poll "the stopped-event control releases the original service" False record_exists vgs.capture
 python3 - "$capture_stopped_service" "$sandbox" "$capture_state/stopped-service-original.qml" <<'PY'
@@ -2385,14 +2398,14 @@ assert changed != source
 service.write_text(changed)
 PY
 rescan "the stopped-event control service is rescanned"
-expect "capture enables the stopped-event control" ok ipc shell setPluginEnabled vgs.capture true
+expect "capture enables the stopped-event control" ok capture_enable true
 expect_poll "the stopped-event control is built" True record_exists vgs.capture
 capture_held "control: stopped releases the action early" ok
-expect "capture stops after the stopped-event control" ok ipc shell setPluginEnabled vgs.capture false
+expect "capture stops after the stopped-event control" ok capture_enable false
 expect_poll "the stopped-event control releases its service" False record_exists vgs.capture
 cp -- "$capture_state/stopped-service-original.qml" "$capture_stopped_service"
 rescan "the original stopped-event service is rescanned"
-expect "capture enables the restored stopped-event service" ok ipc shell setPluginEnabled vgs.capture true
+expect "capture enables the restored stopped-event service" ok capture_enable true
 expect_poll "the restored stopped-event service is built" True record_exists vgs.capture
 expect_poll "the restored service is idle" idle capture_phase
 # The owner's layout (VGS-2232): the first output held at 6016x3384 scale 2
@@ -2428,7 +2441,10 @@ capture_restart() {
   local tree="$1" log="$2"
   shift 2
   stop_shell || :
-  start_shell "$tree" "$capture_state/$log-shell.log" bar "$@"
+  # Qt's timestamped GUI start/prepared records and Date.now share UTC.
+  # Only the existing render-loop timing category is needed by the reader.
+  start_shell "$tree" "$capture_state/$log-shell.log" bar TZ=UTC "QT_LOGGING_RULES=qt.scenegraph.time.renderloop=true" "$@"
+  capture_stage_arm
   expect_poll "$log: capture is built again" True record_exists vgs.capture
   expect_poll "$log: the capture service lists both outputs" "$capture_turned_names" capture_service_outputs
   expect_poll "$log: capture is idle" idle capture_phase
@@ -2690,13 +2706,15 @@ expect "the pointer at P1 shows in the box grim reads with the cursor" False cap
 expect "the saved image holds the pointer where it stood at the press" True capture_region_match "cursor-turned" "$capture_state/saved-cursor-turned.png"
 capture_cursor_release
 capture_setting cursor false
-# The GUI busy span while the bands are written: the layers fixture's GUI
+# GUI work while the bands are written: the layers fixture's GUI
 # probe runs once each turn of the shell's GUI event loop from before the
 # press, and keeps each gap of 4 ms or more between two of its runs
 # (Date.now(), 1 ms), the length of the turn between them; its orb animates
-# on every output meanwhile. The longest gap during the band chain is the
-# longest GUI busy span, which must not exceed one frame of the fastest
-# output. A reading over the frame while the host's CPU pressure from the
+# on every output meanwhile. Each gap during the band chain, less
+# complete measured blockedForSync spans, must not
+# exceed one frame of the fastest output. The existing test-capture.py
+# reader owns that subtraction and refuses incomplete/overlapping timing.
+# A reading over the frame while the host's CPU pressure from the
 # press to the written still is above latency_pressure_limit is not
 # measured (docs/architecture/validation.md § Latency budgets); a reading
 # within it passes at any pressure. The chain's span and each band's
@@ -2707,27 +2725,17 @@ capture_setting cursor false
 capture_still_state() { ipc shell lent | py_reply 'import json,sys; s=json.load(sys.stdin)["freeze"]["still"]; print("none" if s is None else s["state"])'; }
 # capture_busy_read TREE: the lending record's still and the probe's
 # reading, into busy-TREE.json.
-capture_busy_read() { python3 - "$(ipc shell lent)" "$(ipc smoke readInstance service acme.layers probe)" "$(hypr -j monitors)" "$capture_state/busy-$1.json" <<'PY2'
+capture_busy_read() { python3 - "$(ipc shell lent)" "$(ipc smoke readInstance service acme.layers probe)" "$(hypr -j monitors)" "$capture_state/busy-$1.json" <<'PY2' || return 1
 import json, sys
 lent, probe, monitors, out = sys.argv[1:]
 json.dump({"still": json.loads(lent)["freeze"]["still"], "probe": json.loads(probe), "period": 1000 / max(m["refreshRate"] for m in json.loads(monitors))}, open(out, "w"))
 PY2
+python3 "$source_repo/scripts/test-capture.py" --gui-work annotate "$capture_state/busy-$1.json" "$instance_log"
 }
-# capture_busy_within TREE: `within` when the longest GUI busy span during
-# the chain is at most one frame of the fastest output, else `over`;
-# `uncovered` when the probe did not run across the whole chain.
-capture_busy_within() { python3 - "$capture_state/busy-$1.json" <<'PY2'
-import json, math, sys
-doc = json.load(open(sys.argv[1]))
-bands, (first, last, gaps), period = doc["still"]["bands"], doc["probe"], doc["period"]
-start, end = min(b["askedAt"] for b in bands), max(b["askedAt"] + b["readbackMs"] + b["saveMs"] for b in bands)
-spans = [b - a for a, b in gaps if b > start and a < end]
-# The probe reads whole milliseconds, so the frame is compared in whole
-# ticks, rounded up (validation.md § Latency budgets).
-print(("within" if max(spans, default=0) <= math.ceil(period) else "over") if first and first <= start and last >= end else "uncovered")
-PY2
-}
-capture_busy_figures() { python3 - "$capture_state/busy-$1.json" "$1" <<'PY2'
+# capture_busy_within TREE: the annotated GUI-work verdict, `uncovered`
+# when the probe misses the chain, or `unread` for unavailable Qt timing.
+capture_busy_within() { python3 "$source_repo/scripts/test-capture.py" --gui-work verdict "$capture_state/busy-$1.json"; }
+capture_busy_figures() { python3 - "$capture_state/busy-$1.json" "$1" <<'PY2' || return 1
 import json, statistics, sys
 doc, tree = json.load(open(sys.argv[1])), sys.argv[2]
 bands, (first, last, gaps), period = doc["still"]["bands"], doc["probe"], doc["period"]
@@ -2741,11 +2749,12 @@ for b in bands:
 saves = [(b["askedAt"] + b["readbackMs"], b["askedAt"] + b["readbackMs"] + b["saveMs"], i) for i, b in enumerate(bands)]
 long = [(a - start, b - a, next((str(i) for s, e, i in saves if s < b and e > a), "-")) for a, b in gaps if b - a >= 8 and a < end]
 print("  ok    capture figure: tree=%s gaps-of-8ms-or-more (start from chain start ms, length ms, band)=%s" % (tree, long))
-print("  ok    capture figure: tree=%s bands=%d chain-ms=%d read-back-ms median=%g max=%d save-ms median=%g max=%d longest-gui-busy-ms=%s gaps-of-4ms-or-more=%d frame-ms=%.1f probe-covers-chain=%s (Date.now() stamps, 1 ms)" % (
+print("  ok    capture figure: tree=%s bands=%d chain-ms=%d read-back-ms median=%g max=%d save-ms median=%g max=%d longest-gui-wall-gap-ms=%s gaps-of-4ms-or-more=%d frame-ms=%.1f probe-covers-chain=%s (Date.now() stamps, 1 ms)" % (
     tree, len(bands), end - start, statistics.median(b["readbackMs"] for b in bands), max(b["readbackMs"] for b in bands),
     statistics.median(b["saveMs"] for b in bands), max(b["saveMs"] for b in bands),
     max(spans) if spans else "under-4", len(spans), period, bool(first) and first <= start and last >= end))
 PY2
+python3 "$source_repo/scripts/test-capture.py" --gui-work figures "$capture_state/busy-$1.json"
 }
 # capture_busy_case TREE: one area selection, the orb animating from before
 # the press; read once the still is written, then the selection finishes.
@@ -2777,9 +2786,9 @@ capture_busy_case() {
 capture_busy_case turned
 capture_busy_verdict="$(capture_busy_within turned)" || capture_busy_verdict=unread
 case "$capture_busy_verdict:$(latency_pressure_verdict 0 "$capture_busy_pressure" 0)" in
-  within:*) ok "no GUI turn of the band chain runs past one frame of the fastest output" ;;
+  within:*) ok "GUI work in each band-chain turn stays within one frame of the fastest output" ;;
   over:unmeasured) not_measured capture "band-chain-gui-busy-cpu_some_pct=$capture_busy_pressure-above-$latency_pressure_limit" ;;
-  *) fail "a GUI turn of the band chain ran past one frame of the fastest output, or went unread: busy=$capture_busy_verdict cpu_some_pct=$capture_busy_pressure" ;;
+  *) fail "GUI work in a band-chain turn ran past one frame of the fastest output, or went unread: busy=$capture_busy_verdict cpu_some_pct=$capture_busy_pressure" ;;
 esac
 # The controls edit the helper the service runs, its current snapshot.
 capture_helper="$(capture_read helperPath | py_reply 'import json,sys; print(json.load(sys.stdin))')"
@@ -2808,13 +2817,14 @@ copy_tree capture-unturned
 edit_tree capture-unturned shell/Hosts/FreezeHost.qml \
   $'                anchors.fill: parent\n                captureSource: surface.modelData' \
   $'                readonly property bool turned: surface.modelData.name === "'"$capture_turned"$'"\n                anchors.centerIn: parent\n                width: turned ? parent.height : parent.width\n                height: turned ? parent.width : parent.height\n                rotation: turned ? 90 : 0\n                captureSource: surface.modelData'
-edit_tree capture-unturned shell/Core/FreezeBands.js 'var BAND_PIXELS = 500000;' 'var BAND_PIXELS = 1000000000;'
+edit_tree capture-unturned shell/Core/FreezeBands.js 'var BAND_PIXELS = 2000000;' 'var BAND_PIXELS = 1000000000;'
 capture_restart "$sandbox/tree-capture-unturned" unturned
 rest_pointer || fail "capture: parking the pointer failed"
 capture_turned_case unturned "$capture_turned"
 expect "control: a frame turned twice fails the turned output's saved region" False capture_region_match "unturned-$capture_turned"
 capture_busy_case unturned
-expect "control: a whole output saved in one turn runs past one frame" over capture_busy_within unturned
+expect "control: a whole output's real GUI save work runs past one frame" True python3 -c 'import json,math,sys; d=json.load(open(sys.argv[1])); print(max(b["saveMs"] for b in d["still"]["bands"]) > math.ceil(d["period"]))' "$capture_state/busy-unturned.json"
+expect "control: a whole output's adjusted GUI work runs past one frame" over capture_busy_within unturned
 # unmoved: every band's source rectangle left at the frame's top.
 copy_tree capture-unmoved
 edit_tree capture-unmoved shell/Hosts/FreezeHost.qml \
@@ -2904,7 +2914,7 @@ shim_hyprctl real
 capture_hyprctl_mark="$(wc -l <"$capture_hyprctl_log")"
 expect "notifications are disabled after the row" ok ipc shell setPluginEnabled vgs.notifications false
 expect_poll "the notifications service is released after the row" False record_exists vgs.notifications
-expect "capture is disabled after the row" ok ipc shell setPluginEnabled vgs.capture false
+expect "capture is disabled after the row" ok capture_enable false
 expect_poll "disabled capture releases its service" False record_exists vgs.capture
 expect_poll "disabling capture ends a held selection's selector and freeze" 0 capture_left
 expect_poll "disabled capture releases its status" null capture_status
@@ -3008,7 +3018,7 @@ print("%d,%d %dx%d" % (x,y,w,h))' "$capture_box" "$settings_box")" || return 1
   expect "$name: Capture closes after the overlap reading" ok ipc shell hide window vgs.capture
   expect "$name: Settings closes after the overlap reading" ok ipc shell hide window vgs.settings
 }
-expect "Capture is enabled for its Settings link" ok ipc shell setPluginEnabled vgs.capture true
+expect "Capture is enabled for its Settings link" ok capture_enable true
 expect_poll "Capture builds for its Settings link" True record_exists vgs.capture
 capture_settings_case shared raised || fail "the shared Settings raise case could not complete"
 # The calendar uses the panel route already read by this row. A refused
@@ -3027,11 +3037,15 @@ edit_tree capture-settings-no-raise shell/Core/Dispatch.js \
   'var raise = usingLua ? "hl.dsp.no_op()" : "nop"; // control: var raise = usingLua ? "hl.dsp.window.alter_zorder({ mode = \"top\", window = \"address:" + clients[0].address + "\" })" : "alterzorder top,address:" + clients[0].address;'
 stop_shell || :
 start_shell "$sandbox/tree-capture-settings-no-raise" "$capture_settings_dir/no-raise-shell.log" bar
+capture_stage_arm
 expect_poll "control: Capture builds without the shared raise" True record_exists vgs.capture
 capture_settings_case control covered || fail "the Settings raise control could not complete"
 stop_shell || :
 start_shell "$repo" "$capture_settings_dir/restored-shell.log" bar
+capture_stage_arm
 expect_poll "the shared raise is restored with Capture built" True record_exists vgs.capture
 rm -rf -- "${sandbox:?}/tree-capture-settings-no-raise"
-expect "Capture enablement is restored after its Settings link" ok ipc shell setPluginEnabled vgs.capture "${capture_settings_enabled,,}"
+expect "Capture enablement is restored after its Settings link" ok capture_enable "${capture_settings_enabled,,}"
 expect_poll "Capture's service returns to its prior enablement" "$capture_settings_enabled" record_exists vgs.capture
+
+expect "capture teardown-stage producer disarms after restoration" off ipc smoke captureStageProbe false

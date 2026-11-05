@@ -249,7 +249,7 @@ class Capture:
             self.exit_if_signalled()
             return output
 
-    def read_control(self, timeout=0, *, include_still=False):
+    def read_control(self, timeout=0):
         """One control line, EOF as an empty string, or None after TIMEOUT.
 
         Service.qml can write an acknowledgement and cancel together. Keep
@@ -258,8 +258,7 @@ class Capture:
         The service writes the held frame's `still` or `still-failed` line
         whenever the core wrote it, during the freeze wait or the selection
         as well, so that line is set aside in still_answer and never handed
-        to a phase that reads only its own lines. The still wait includes
-        that line so its arrival completes the wait without another message.
+        to a phase that reads only its own lines.
         """
         deadline = time.monotonic() + timeout
         while True:
@@ -281,8 +280,6 @@ class Capture:
             if not line.startswith(("still ", "still-failed ")):
                 return line
             self.still_answer = line
-            if include_still:
-                return line
 
     def cancelled(self, timeout=0):
         """Whether a `cancel` line or stdin EOF arrives within TIMEOUT seconds."""
@@ -439,13 +436,11 @@ class Capture:
         frame, never (ScreenFreeze.qml)."""
         deadline = time.monotonic() + FREEZE_TIMEOUT
         while self.still_answer is None:
-            line = self.read_control(max(0, deadline - time.monotonic()), include_still=True)
+            line = self.read_control(max(0, deadline - time.monotonic()))
             if line is None:
                 raise CaptureFailure("timeout", "The frozen screen was not written")
             if line in ("", "cancel"):
                 return None
-            if self.still_answer is not None:
-                break
             raise RuntimeError(f"Unexpected still answer: {line}")
         kind, _, body = self.still_answer.partition(" ")
         if kind == "still-failed":

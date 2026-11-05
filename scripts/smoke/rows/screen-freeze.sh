@@ -21,7 +21,7 @@
 # tracking refreshed. A disposable tree whose surfaces outlive the thaw
 # keeps the first hold's frame and fails the check on both outputs.
 # A hold that asks for the still gets every output's frame written once it
-# shows: PPM bands of at most 0.5 MP, each output's device size, in a
+# shows: PPM bands of at most 2 MP, each output's device size, in a
 # directory of its own under $XDG_RUNTIME_DIR/vgshell/freeze, mode 0700,
 # which a thaw and a disable remove. A thaw at the hold's done, before any
 # frame is written, gets no still answer, and malformed options are
@@ -91,7 +91,7 @@ PY
 }
 # freeze_still_files: `ok` when the newest still answer holds, for every
 # output Hyprland lists, a frame at its own scale of its device size, upright,
-# cut into PPM bands of at most 0.5 MP whose headers match the answer, in one
+# cut into PPM bands of at most 2 MP whose headers match the answer, in one
 # directory of the runtime root that only the shell's user can open; else
 # the first fault.
 freeze_still_files() { python3 - "$(freeze_stills)" "$(hypr -j monitors)" "$freeze_root" <<'PY'
@@ -119,7 +119,7 @@ for m in monitors:
     for band in frame["bands"]:
         data = open(band["path"], "rb").read()
         head = re.match(rb"P6\s(\d+)\s(\d+)\s255\s", data)
-        if head is None or (int(head.group(1)), int(head.group(2))) != (w, band["rows"]) or len(data) != head.end() + w * band["rows"] * 3 or w * band["rows"] > 500000:
+        if head is None or (int(head.group(1)), int(head.group(2))) != (w, band["rows"]) or len(data) != head.end() + w * band["rows"] * 3 or w * band["rows"] > 2000000:
             sys.exit(print("band=" + band["path"]))
         rows += band["rows"]
     if rows != h:
@@ -284,7 +284,7 @@ expect "the fixture holds the freeze with the still" ok ipc acme.freeze invoke f
 expect_poll "the still's hold shows" '["ok", "ok", "ok", "ok"]' freeze_answers
 expect_poll "the still answers once" 1 freeze_still_count
 freeze_still_first="$(freeze_still_dir)"
-expect "the frames are each output's device size in bands of at most 0.5 MP, in a 0700 directory of the runtime root" ok freeze_still_files
+expect "the frames are each output's device size in bands of at most 2 MP, in a 0700 directory of the runtime root" ok freeze_still_files
 expect "the fixture thaws the still's hold" ok ipc acme.freeze invoke thaw ''
 expect_poll "the thaw removes the hold's frame directory" gone freeze_dir_state "$freeze_still_first"
 # A thaw at the hold's done comes before any frame is written; the next
@@ -401,7 +401,7 @@ freeze_leave() {
   expect_poll "the $1 tree's shell lists the first output alone" "[\"$freeze_first\"]" freeze_shell_screens
 }
 copy_tree screen-freeze-leave
-edit_tree screen-freeze-leave shell/Core/FreezeBands.js 'var BAND_PIXELS = 500000;' 'var BAND_PIXELS = 20000;'
+edit_tree screen-freeze-leave shell/Core/FreezeBands.js 'var BAND_PIXELS = 2000000;' 'var BAND_PIXELS = 20000;'
 freeze_leave leave
 expect "the still answers that a screen left" '["failed: still=screen-gone"]' freeze_stills_json
 expect "the lending record names the failed still" '"failed: still=screen-gone"' freeze_lent_still_state
@@ -417,7 +417,7 @@ expect_poll "the turned output stands at transform 1 right of the first again" "
 # and a surviving callback's next grab finding no surface. Either callback
 # lifetime then leaves the chain unanswered.
 copy_tree screen-freeze-uncancelled
-edit_tree screen-freeze-uncancelled shell/Core/FreezeBands.js 'var BAND_PIXELS = 500000;' 'var BAND_PIXELS = 20000;'
+edit_tree screen-freeze-uncancelled shell/Core/FreezeBands.js 'var BAND_PIXELS = 2000000;' 'var BAND_PIXELS = 20000;'
 edit_tree screen-freeze-uncancelled shell/Hosts/FreezeHost.qml \
   '                if (run.screens.some(screen => names.indexOf(screen.name) < 0)) host.stillFailed(run, "screen-gone");' \
   ''

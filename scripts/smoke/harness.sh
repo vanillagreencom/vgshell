@@ -1712,6 +1712,43 @@ ipc_call_last() {
     printf -v out 'ipc-timeout: target=%s function=%s bound_s=%s' "$1" "$2" "$ipc_call_bound_s"
     printf '%s\n' "$out" >>"$ipc_timeout_log"
     printf '%s\n' "$out" >&2
+    # Capture's opt-in Probe observes lifetime drain and passive stages.
+    # Retain them before row restoration, without another call to the server.
+    # This does not prove typed IPC entry or deferred native destruction.
+    if [[ $1 == shell && $2 == setPluginEnabled && ${3:-} == vgs.capture && ${4:-} == false ]]; then
+      timeout --signal=KILL 5 python3 - "$sandbox" "$rt_dir" "$ipc_timeout_log" "$instance_log" "$shell_log" "$ipc_call_bound_s" <<'CAPTURE_STAGE_SNAPSHOT' || printf 'capture-stage: unavailable cause=snapshot-command-failed-or-bound-5s\n' >&2
+import json, os, stat, sys, tempfile, time
+from pathlib import Path
+sandbox, runtime, latch, instance, launcher = map(Path, sys.argv[1:6])
+row = latch.name.removesuffix('.ipc-timeout.log')
+assert row and all(c in 'abcdefghijklmnopqrstuvwxyz0123456789-.' for c in row)
+target = Path(tempfile.mkdtemp(prefix=row + '.ipc-stage.', dir=sandbox / 'rows'))
+record = dict(at=time.time(), target='shell', function='setPluginEnabled', plugin='vgs.capture', enabled=False,
+              bound_s=float(sys.argv[6]), capture_bound_s=5, sources=[],
+              limits='lifetime-drain/passive-stage logs; typed-IPC-entry and deferred native destruction unavailable')
+for name, path in [('instance', instance), ('launcher', launcher)]:
+    entry = dict(kind=name, path=str(path), status='unavailable')
+    try:
+        assert path.is_relative_to(runtime) or path.is_relative_to(sandbox), 'log outside owned nested runtime/sandbox'
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+        with os.fdopen(fd, 'rb') as stream:
+            info = os.fstat(stream.fileno())
+            assert stat.S_ISREG(info.st_mode), 'log is not regular'
+            retained = min(info.st_size, 1024 * 1024)
+            stream.seek(info.st_size - retained)
+            data = stream.read(retained)
+        stages = b'\n'.join(line for line in data.splitlines() if b'VGS_SMOKE_CAPTURE_STAGE ' in line)
+        (target / (name + '.stages.log')).write_bytes(stages + (b'\n' if stages else b''))
+        entry.update(status='present' if stages else 'unavailable',
+                     cause=None if stages else 'no-stage-marker-in-bounded-log-tail', source_bytes=info.st_size,
+                     read_bytes=len(data), clipped=info.st_size > retained, stage_lines=len(stages.splitlines()))
+    except (OSError, AssertionError) as error:
+        entry['cause'] = str(error)
+    record['sources'].append(entry)
+(target / 'capture.json').write_text(json.dumps(record) + '\n')
+print('capture-stage: retained=' + str(target), file=sys.stderr, flush=True)
+CAPTURE_STAGE_SNAPSHOT
+    fi
     return 124
   fi
   vgs_ipc_last_line_into "$out"

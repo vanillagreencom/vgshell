@@ -2,17 +2,15 @@
 
 // What a hold's still writes (D118): each screen's frames and how each is
 // cut into the bands FreezeHost writes.
-// Each band bounds both the native render/readback and the GUI-thread
-// ItemGrabResult.saveToFile. The GUI can wait for the render thread: a
-// 6016x332 band's QQuickItemGrabResult::render took 21.863410 ms before its
-// 5 ms save (nested sandbox, NVIDIA, Qt 6.12.0, threaded render loop;
-// VGS-2310 Run 6, unit VGS-2310-main-trace4-1793870400). Quartering the
-// per-grab work leaves more headroom for that synchronization; scheduling
-// another GUI turn cannot split one native grab. A band holds at most
-// BAND_PIXELS device pixels, save the one case `frame` names;
-// scripts/smoke/rows/capture.sh measures the chain's longest GUI busy span
-// against one frame, including render synchronization and saving.
-var BAND_PIXELS = 500000;
+// Each band is one ItemGrabResult.saveToFile on the GUI thread, which has no
+// thread of its own: a whole 6016x3384 frame took 29-43 ms and a whole
+// 2880x5120 one 23-26 ms there, past a 16.7 ms frame (nested sandbox,
+// NVIDIA, Qt 6.12.0, threaded render loop; VGS-2232 run notes, unit
+// VGS-2232-measure-1793759881). A band holds at most BAND_PIXELS device
+// pixels, save the one case `frame` names, so one GUI turn saves at most
+// that much; scripts/smoke/rows/capture.sh reads the longest GUI busy span
+// the chain leaves.
+var BAND_PIXELS = 2000000;
 
 function gcd(a, b) {
     while (b !== 0) {
@@ -46,7 +44,7 @@ function lcm(a, b) {
 // on a whole logical row. The unit is at most 112 device rows over the
 // ratios of 1, 1.0667, 1.25, 1.3333, 1.5, 1.6, 1.75, 2, 2.5 and 3, so a band
 // holds at most BAND_PIXELS unless a frame is wider than BAND_PIXELS over
-// its unit (4464 device pixels at 112); such a band is one unit. At a
+// its unit (17857 device pixels at 112); such a band is one unit. At a
 // ratio where the screen's size is not whole, the last band and with it
 // the frame can be a pixel larger or smaller than grim draws that screen
 // at that scale; the helper composes the frame it gets.

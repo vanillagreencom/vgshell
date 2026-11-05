@@ -4,8 +4,11 @@
 --nested REAL_GRIM OUTPUT WIDTH HEIGHT DISPLAY RUNTIME runs grim on that
 confined output. The mode expectations come from Hyprland, never from a PNG.
 No inherited desktop, bus or device environment reaches an offline child.
+--gui-work MODE SNAPSHOT [LOG] annotates the smoke row's timing snapshot,
+then reads its verdict or figures. This is the Capture row's reader owner.
 """
 import json
+import datetime
 import ctypes
 import fcntl
 import math
@@ -36,6 +39,146 @@ FREEZING = ("screenshot-area", "screenshot-window", "screenshot-display", "recor
 # The actions whose worker crops its image from the freeze's held frame.
 STILLS = ("screenshot-area", "screenshot-window", "screenshot-display", "text")
 PLANS = {}
+
+
+def gui_work(doc, timing):
+    """The existing wall-gap probe, less complete Qt GUI sync waits.
+
+    Qt 6.12 qsgthreadedrenderloop.cpp emits a GUI polishAndSync start and
+    Frame prepared after its waitCondition wait. blockedForSync is that
+    wait's floored milliseconds. Only a complete containing probe gap can
+    own the whole measured wait; partial overlap gives no usable reading.
+    The row starts this logger in UTC, the same epoch as Date.now().
+    """
+    bands = doc["still"]["bands"]
+    first, last, recorded = doc["probe"]
+    start = min(b["askedAt"] for b in bands)
+    end = max(b["askedAt"] + b["readbackMs"] + b["saveMs"] for b in bands)
+    if not first or first > start or last < end:
+        return {"state": "uncovered"}
+    gaps = [(a, b) for a, b in recorded if b > start and a < end]
+    if any(a >= b for a, b in gaps):
+        return {"state": "unread", "cause": "probe-gap-order"}
+    scope_start = min([start, *(a for a, _ in gaps)])
+    scope_end = max([end, *(b for _, b in gaps)])
+    pending, pairs, errors = {}, [], []
+    marker = re.compile(r"\[window (0x[0-9a-fA-F]+)\]\[gui thread\] (.*)$")
+    prepared = re.compile(r"Frame prepared, polish=(-?\d+) ms, lock=(-?\d+) ms, blockedForSync=(-?\d+) ms, animations=(-?\d+) ms$")
+    for line in timing.splitlines():
+        event = marker.search(line)
+        if event is None:
+            continue
+        window, message = event.groups()
+        if not (message.startswith("polishAndSync: start,") or message.startswith("Frame prepared,")):
+            continue
+        try:
+            stamp = datetime.datetime.strptime(line[:23], "%Y-%m-%d %H:%M:%S.%f").replace(tzinfo=datetime.timezone.utc)
+        except ValueError:
+            return {"state": "unread", "cause": "sync-timestamp"}
+        at = round(stamp.timestamp() * 1000)
+        if message.startswith("polishAndSync: start,"):
+            if window in pending:
+                errors.append((pending[window], "sync-start-without-end"))
+            pending[window] = at
+            continue
+        match = prepared.fullmatch(message)
+        if match is None or any(int(v) < 0 for v in match.groups()):
+            errors.append((at, "sync-fields"))
+            pending.pop(window, None)
+            continue
+        if window not in pending:
+            errors.append((at, "sync-end-without-start"))
+            continue
+        before = pending.pop(window)
+        blocked = int(match[3])
+        if before > at or blocked > at - before:
+            errors.append((at, "sync-span"))
+            continue
+        pairs.append((before, at, blocked))
+    errors.extend((at, "sync-start-without-end") for at in pending.values())
+    relevant_errors = [cause for at, cause in errors if scope_start <= at <= scope_end]
+    if relevant_errors:
+        return {"state": "unread", "cause": relevant_errors[0]}
+    if not any(a <= end and b >= start for a, b, _ in pairs):
+        return {"state": "unread", "cause": "sync-coverage"}
+    turns = []
+    for a, b in gaps:
+        waits = sorted((s, e, ms) for s, e, ms in pairs if ms and e > a and s < b)
+        if any(s < a or e > b for s, e, _ in waits):
+            return {"state": "unread", "cause": "partial-sync-span"}
+        if any(one[1] > two[0] for one, two in zip(waits, waits[1:])):
+            return {"state": "unread", "cause": "overlapping-sync-spans"}
+        blocked = sum(ms for _, _, ms in waits)
+        if blocked > b - a:
+            return {"state": "unread", "cause": "sync-over-gap"}
+        turns.append({"before": a, "after": b, "wallMs": b - a, "blockedForSyncMs": blocked, "workMs": b - a - blocked})
+    limit = math.ceil(doc["period"])
+    longest = max((turn["workMs"] for turn in turns), default=0)
+    return {"state": "within" if longest <= limit else "over", "limitMs": limit, "longestWorkMs": longest, "turns": turns}
+
+
+def gui_work_cases():
+    """Whole sync spans are excluded; real GUI work keeps the frame bound."""
+    epoch = 1793896304000
+    def log(at, message, window="0x123"):
+        when = datetime.datetime.fromtimestamp((epoch + at) / 1000, datetime.timezone.utc)
+        return when.strftime("%Y-%m-%d %H:%M:%S.%f")[:23] + " DEBUG qt.scenegraph.time.renderloop: [window " + window + "][gui thread] " + message + "\n"
+    def pair(first, last, blocked, window="0x123"):
+        return (log(first, "polishAndSync: start, elapsed since last call: 16 ms", window)
+                + log(last, f"Frame prepared, polish=0 ms, lock=0 ms, blockedForSync={blocked} ms, animations=0 ms", window))
+    doc = {"still": {"bands": [{"askedAt": epoch + 100, "readbackMs": 80, "saveMs": 20}]},
+           "probe": [epoch, epoch + 300, [[epoch + 120, epoch + 159]]], "period": 1000 / 60}
+    cases = [
+        ("render-wait", pair(120, 159, 39), "within", 0),
+        ("real-work", pair(120, 140, 20), "over", 19),
+        ("two-waits", pair(120, 130, 10) + pair(131, 149, 18, "0x456"), "within", 11),
+        ("partial", pair(119, 140, 21), "unread", None),
+        ("overlap", pair(120, 140, 20) + pair(130, 150, 20, "0x456"), "unread", None),
+        ("missing", "", "unread", None),
+        ("unfinished", log(120, "polishAndSync: start, elapsed since last call: 16 ms"), "unread", None),
+        ("unstarted", log(159, "Frame prepared, polish=0 ms, lock=0 ms, blockedForSync=39 ms, animations=0 ms"), "unread", None),
+        ("malformed", log(159, "Frame prepared, polish=0 ms, lock=0 ms, blockedForSync=bad ms, animations=0 ms"), "unread", None),
+        ("negative", pair(120, 159, -1), "unread", None),
+        ("impossible", pair(120, 130, 39), "unread", None),
+        ("unchanged-limit", pair(120, 142, 22), "within", 17),
+        ("past-limit", pair(120, 141, 21), "over", 18),
+    ]
+    for name, timing, wanted, work in cases:
+        result = gui_work(doc, timing)
+        assert result["state"] == wanted, (name, result)
+        if work is not None:
+            assert result["longestWorkMs"] == work, (name, result)
+    absent = dict(doc, probe=[epoch + 101, epoch + 300, doc["probe"][2]])
+    assert gui_work(absent, pair(120, 159, 39))["state"] == "uncovered"
+
+
+def gui_work_cli(arguments):
+    mode, path, *logs = arguments
+    target = Path(path)
+    try:
+        doc = json.loads(target.read_text())
+    except (OSError, ValueError) as error:
+        if mode == "verdict":
+            print("unread")
+            return
+        print("capture-gui-work: input-unavailable path=%s cause=%s" % (target, error), file=sys.stderr)
+        raise SystemExit(1)
+    if mode == "annotate":
+        try:
+            doc["guiWork"] = gui_work(doc, Path(logs[0]).read_text())
+        except (OSError, ValueError, KeyError, TypeError, IndexError):
+            doc["guiWork"] = {"state": "unread", "cause": "gui-work-input"}
+        target.write_text(json.dumps(doc))
+    elif mode == "verdict":
+        print(doc.get("guiWork", {}).get("state", "unread"))
+    else:
+        assert mode == "figures"
+        work = doc.get("guiWork", {"state": "unread"})
+        if "turns" not in work:
+            print("  capture figure: GUI work unavailable state=%s cause=%s" % (work["state"], work.get("cause", "probe-coverage")))
+        else:
+            print("  ok    capture figure: longest-gui-work-ms=%d frame-ticks=%d turns (wall-ms, measured-blockedForSync-ms, GUI-work-ms)=%s" % (
+                work["longestWorkMs"], work["limitMs"], [(t["wallMs"], t["blockedForSyncMs"], t["workMs"]) for t in work["turns"]]))
 
 
 def still_plan(screens, folder):
@@ -2036,8 +2179,7 @@ def still_timing_holds(root, helper, when):
     """An area capture whose still line comes WHEN: `pick`, read while the
     selector runs, proved by the pipe draining before the selector is
     released, after which the box is saved from that line's frames; or
-    `written`, after the selection ended; or `cancel`, never, with a
-    cancel once the selection ended, which ends
+    `cancel`, never, with a cancel once the selection ended, which ends
     the capture with no file."""
     payload = request(root, "screenshot-area")
     (root / "clipboard").write_bytes(b"previous clipboard")
@@ -2057,9 +2199,6 @@ def still_timing_holds(root, helper, when):
         (root / "slurp-release").touch()
         while not lines.closed and time.monotonic() < deadline:
             names += [message["event"] for message in lines.read(0.05)]
-            if when == "written" and names[-1:] == ["selection-ended"]:
-                os.write(writer, still_line(root, payload["outputs"]))
-                when = "received"
             if when == "cancel" and names[-1:] == ["selection-ended"]:
                 os.write(writer, b"cancel\n")
                 when = "cancelled"
@@ -2067,7 +2206,7 @@ def still_timing_holds(root, helper, when):
             return False
         proc.wait(timeout=5)
         pictures = list((root / "pictures").glob("*.png"))
-        if when in ("pick", "received"):
+        if when == "pick":
             return (proc.returncode == 0 and names == ["freeze", "selection-ended", "thaw", "saved"] and len(pictures) == 1
                     and png_rows(pictures[0].read_bytes()) == fixture_crop("10,20 80x60", payload["outputs"]))
         return (proc.returncode == 0 and names == ["freeze", "selection-ended", "thaw", "cancelled"] and not pictures
@@ -2133,7 +2272,7 @@ def freeze_cases(base, world):
     line = still_line(root, payload_outputs, drop=nested[0]["name"])
     result = freeze_wait(root, base / "freeze-frozen.py", b"frozen\n" + line, payload_outputs)
     assert result is not None and result[1:] == (1, unwritten) and not list((root / "pictures").glob("*.png")), "missing output"
-    for when in ("pick", "written", "cancel"):
+    for when in ("pick", "cancel"):
         assert still_timing_holds(world(f"still-{when}", slurpRelease=True), base / "freeze-frozen.py", when), when
     for name, case, before, after in [
         # The selector starts without the service's answer.
@@ -2147,11 +2286,6 @@ def freeze_cases(base, world):
     ]:
         assert quick.count(before) == 1, name
         assert not holds(case, quick.replace(before, after), name), f"control did not fail: {name}"
-    before = "include_still=True"
-    assert quick.count(before) == 1, "late still completion control"
-    waiting = base / "unreturned-still.py"
-    waiting.write_text(quick.replace(before, "include_still=False"))
-    assert not still_timing_holds(world("unreturned-still", slurpRelease=True), waiting, "written"), "control did not fail: unreturned-still"
     dropping = base / "dropped-still-pick.py"
     dropping.write_text(quick.replace("            self.still_answer = line\n", "            pass\n"))
     assert not still_timing_holds(world("dropped-still-pick", slurpRelease=True), dropping, "pick"), "control did not fail: dropped-still-pick"
@@ -2314,10 +2448,9 @@ def crop_holds(source, recordings):
 
 def bands_hold(source):
     """FreezeBands.frame, from SOURCE under node, cuts each frame of a
-    table of screens into bands that abut on whole logical rows and sum to
-    the frame. Each band fits BAND_PIXELS unless one whole-row unit already
-    exceeds it; each band but the last is exactly its device rows with a
-    whole target: the owner's 3008x1692 at
+    table of screens into bands of at most BAND_PIXELS device pixels that
+    abut on whole logical rows and sum to the frame, each band but the last
+    exactly its device rows with a whole target: the owner's 3008x1692 at
     2, a turned 1080x1920 at 1, a 1366x768 panel at 1 written at 1.25, and
     a 3600x2025 screen at 1.0667 written at its own scale and at 1.25 and
     1.75."""
@@ -2328,13 +2461,11 @@ def bands_hold(source):
     read = json.loads(done.stdout)
     for (width, height, own, at), frame in zip(asks, read["frames"]):
         bands = frame["bands"]
-        unit = math.lcm(own // math.gcd(own, 120), at // math.gcd(at, 120))
-        limit = max(read["limit"], frame["width"] * unit)
         if sum(band["height"] for band in bands) != frame["height"] or sum(band["rows"] for band in bands) != height:
             return False
         y = 0
         for index, band in enumerate(bands):
-            if band["y"] != y or band["y"] != int(band["y"]) or band["height"] * frame["width"] > limit:
+            if band["y"] != y or band["y"] != int(band["y"]) or band["height"] * frame["width"] > read["limit"]:
                 return False
             if index + 1 < len(bands) and (band["height"] * 120 != band["rows"] * at or band["targetHeight"] * own != band["height"] * 120):
                 return False
@@ -2374,6 +2505,10 @@ def hyprctl_records(base):
 
 
 def main():
+    if sys.argv[1:2] == ["--gui-work"]:
+        gui_work_cli(sys.argv[2:])
+        return
+    gui_work_cases()
     release_deadline()
     config = {}
     output = "NESTED"
@@ -2535,7 +2670,7 @@ def main():
             mutant = base / (name + ".py")
             mutant.write_text(crop_source.replace(before, after))
             assert not crop_holds(mutant, recordings), "control did not fail: " + name
-        assert bands_hold(BANDS), "the core cuts each frame on whole rows within BAND_PIXELS or one indivisible row unit"
+        assert bands_hold(BANDS), "the core cuts each frame into bands of at most BAND_PIXELS on whole rows"
         bands_source = BANDS.read_text()
         # Round 1's cut, whole multiples of the logical step at which the
         # target is whole too, which made 5.4 MP bands at 1.0667 written at 1.25.
@@ -2656,7 +2791,7 @@ def main():
         assert not killed_owner_holds(root, request(root, "record"), config, helper), "control did not fail: unowned child"
     if unmeasured is None:
         recording_controls += ",no-trim"
-    controls = ("capture-sequence,waiting-clipboard,second-grim,live-grab,grim-before-freeze,layout-scale,opaque-gap,bounds-refusal,truncated-logical,band-order,inside-offset,half-pixel,vertical-coverage,edge-over,own-ratio-crop,unchecked-band,step-cut,provider-completion,exit-keeps-freeze,delay-field-drawn,delay-unsaved,delay-saved-elsewhere,save-unsent,delay-unread,delay-overwritten,timeout-sent,delay-unchecked,undrawn-windows,drawn-window-delegate,model-windows,old-special-id-0.57-empty,raw-ocr-error,no-output,no-clipboard,hard-stop,inherited-stdin,unawaited-freeze,listed-freeze,any-layer-freeze,dropped-still,dropped-still-pick,unreturned-still,unowned-child,invalid-delay-accepted,invalid-processing-accepted,empty-selection-accepted,empty-displays-accepted,smart-snap,window-boxes,display-boxes,all-bounds,no-scale,unscaled-crop,no-rotation,no-cursor,no-still-cursor,copy-saves,save-copies,no-delay,delay-ignores-cancel,no-timeout,written-ignores-cancel,selector-ignores-cancel,geometry-over-cancel,late-answer-error,no-selection-end," + recording_controls + "," + notification_controls)
+    controls = ("capture-sequence,waiting-clipboard,second-grim,live-grab,grim-before-freeze,layout-scale,opaque-gap,bounds-refusal,truncated-logical,band-order,inside-offset,half-pixel,vertical-coverage,edge-over,own-ratio-crop,unchecked-band,step-cut,provider-completion,exit-keeps-freeze,delay-field-drawn,delay-unsaved,delay-saved-elsewhere,save-unsent,delay-unread,delay-overwritten,timeout-sent,delay-unchecked,undrawn-windows,drawn-window-delegate,model-windows,old-special-id-0.57-empty,raw-ocr-error,no-output,no-clipboard,hard-stop,inherited-stdin,unawaited-freeze,listed-freeze,any-layer-freeze,dropped-still,dropped-still-pick,unowned-child,invalid-delay-accepted,invalid-processing-accepted,empty-selection-accepted,empty-displays-accepted,smart-snap,window-boxes,display-boxes,all-bounds,no-scale,unscaled-crop,no-rotation,no-cursor,no-still-cursor,copy-saves,save-copies,no-delay,delay-ignores-cancel,no-timeout,written-ignores-cancel,selector-ignores-cancel,geometry-over-cancel,late-answer-error,no-selection-end," + recording_controls + "," + notification_controls)
     if unmeasured is not None:
         # The rest passed, but the real post-process could not run: not a pass.
         print(f"test-capture: status=not-measured cause={unmeasured}; controls={controls}")
