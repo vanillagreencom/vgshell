@@ -320,7 +320,7 @@ jarvis_bubble_flip_mode() {
   printf '{"schemaVersion":1,"name":"jarvis-bubble-motion-off","tokens":{"scheme":{"mode":"%s"},"motion":{"scale":0}}}\n' "$mode" >"${home:?}/.config/vgshell/theme.json.tmp" &&
     mv -T -- "${home:?}/.config/vgshell/theme.json.tmp" "${home:?}/.config/vgshell/theme.json"
 }
-jarvis_bubble_voice_key() { hold_send "down 133" "down 64" "down 44" "up 44" "up 64" "up 133"; }
+jarvis_bubble_voice_key() { hold_send "down 133" "down 37" "down 58" "up 58" "up 37" "up 133"; }
 jarvis_bubble_buttons() { ipc smoke layerItemsWith vgs.jarvis RowButton label "$1"; }
 # The words a visible Words view has revealed, `none` with none shown.
 jarvis_bubble_shown() {
@@ -551,7 +551,7 @@ try {
 JS
 }
 jarvis_bubble_confirm_key() {
-  hold_send "down 133" "down 64" "down 29" "up 29" "up 64" "up 133"
+  hold_send "down 133" "down 37" "down 29" "up 29" "up 37" "up 133"
   jarvis_key_state approval
 }
 jarvis_bubble_answer_button() { # BUTTON

@@ -32,7 +32,7 @@ Item {
         property var consoleBox: null
         property string consoleKey: ""
         property string heldKey: ""
-        property var effectiveKeys: ({ stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y" })
+        property var effectiveKeys: ({ stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y" })
         property var shell: ({ status: { values: {} }, surfaces: { openPage: () => {} } })
         function attachBubble(item) {}
         function detachBubble(item) {}

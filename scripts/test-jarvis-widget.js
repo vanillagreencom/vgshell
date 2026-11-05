@@ -33,7 +33,7 @@ const MANIFEST_KEYS = Object.fromEntries(JSON.parse(fs.readFileSync(path.join(__
 const copy = value => JSON.parse(JSON.stringify(value));
 // Audio's device loss names what was missing and what its read held.
 const LOST = 'device-lost target="fixture.mic" from=default microphones=0[]';
-const KEYS = { talk: "Super+J", mute: "Super+Shift+J", stop: "Super+Alt+Period", confirm: "Super+Alt+Y", console: "Super+Alt+C" };
+const KEYS = { talk: "Super+J", mute: "Super+Shift+J", stop: "Super+Ctrl+X", confirm: "Super+Ctrl+Y", console: "Super+Alt+C" };
 const UNBOUND = { talk: null, mute: null, stop: null, confirm: null, console: null };
 // The Voice widget's icon, which no Jarvis look takes.
 const VOICE_ICON = /iconName: "([a-z0-9-]+)"/.exec(fs.readFileSync(path.join(__dirname, "..", "shell", "plugins", "vgs.voice", "Widget.qml"), "utf8"))[1];
@@ -87,8 +87,8 @@ const up = (regions, extra) => Object.assign({ daemon: READY, audio: DEVICES, de
 const CLICK = "Click or press Super+Alt+C to open the console.";
 const UNMUTE = "Press Super+Shift+J to unmute.";
 const HOLD = "Tap or hold Super+J, then speak.";
-const STOP = "Press Super+Alt+Period to stop.";
-const CONFIRM = "Confirm on screen, or press Super+Alt+Y.";
+const STOP = "Press Super+Ctrl+X to stop.";
+const CONFIRM = "Confirm on screen, or press Super+Ctrl+Y.";
 const fault = kind => v => v.FAULT_TEXT[kind];
 const retrying = v => v.RETRYING;
 const audioText = v => v.AUDIO_TEXT;

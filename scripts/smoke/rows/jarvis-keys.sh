@@ -178,7 +178,7 @@ jarvis_key_tap_judged() { # FUNCTION
    echo "$failures")
 }
 jarvis_key_mute() { hold_send "down 133" "down 50" "down 44" "up 44" "up 50" "up 133"; }
-jarvis_key_stop() { hold_send "down 133" "down 64" "down 60" "up 60" "up 64" "up 133"; }
+jarvis_key_stop() { hold_send "down 133" "down 37" "down 53" "up 53" "up 37" "up 133"; }
 jarvis_key_commit() { expect_poll "release commits the scripted utterance" thinking jarvis_key_state phase; }
 jarvis_key_commit_control() {
   (failures=0 behaviour_failures=0
@@ -453,7 +453,7 @@ for planted in '{"kind":"retry","pendingMute":["waiting","waiting"]}' '{"kind":"
 done
 jarvis_shortcut_assertion
 expect_poll "the service reads the effective default key map" \
-  '{"talk":"SUPER+code:44","mute":"SUPER+SHIFT+code:44","voice-mute":"SUPER+ALT+code:44","stop":"SUPER+ALT+PERIOD","confirm":"SUPER+ALT+Y","console":"SUPER+ALT+C"}' \
+  '{"talk":"SUPER+code:44","mute":"SUPER+SHIFT+code:44","voice-mute":"SUPER+CTRL+M","stop":"SUPER+CTRL+X","confirm":"SUPER+CTRL+Y","console":"SUPER+ALT+C"}' \
   ipc smoke readInstance service vgs.jarvis effectiveKeys
 : >"$jarvis_gate"
 jarvis_key_muted

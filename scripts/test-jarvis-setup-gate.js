@@ -3146,7 +3146,7 @@ function verifyOneReadiness(gate) {
         ...Object.keys(gate.DICTATION), "speech=local-loading", "speech=dictation-starting", "speech=elevenlabs-voices-reading"];
     assert.equal(daemonCauses.includes(shellCause), false, "the shell's cause is no daemon cause");
     const sets = [[], [shellCause], ...daemonCauses.map(cause => [cause]), ...daemonCauses.map(cause => [shellCause, cause])];
-    const keys = { talk: "Super+J", mute: "Super+Shift+J", stop: "Super+Alt+Period", confirm: "Super+Alt+Y", console: "Super+Alt+C" };
+    const keys = { talk: "Super+J", mute: "Super+Shift+J", stop: "Super+Ctrl+X", confirm: "Super+Ctrl+Y", console: "Super+Alt+C" };
     for (const causes of sets) {
         const status = plain(readiness(gate, { kind: "answered", causes }));
         const configured = causes.every(cause => cause === shellCause || cause === "speech=local-loading");
@@ -3164,7 +3164,7 @@ function verifyOneReadiness(gate) {
 // failed start (the bar tooltip, the desktop notices and the Setup values)
 // words its state; the service log keeps the keyed cause.
 function verifyWordedText(gate) {
-    const keys = { talk: "Super+J", mute: "Super+Shift+J", stop: "Super+Alt+Period", confirm: "Super+Alt+Y", console: "Super+Alt+C" };
+    const keys = { talk: "Super+J", mute: "Super+Shift+J", stop: "Super+Ctrl+X", confirm: "Super+Ctrl+Y", console: "Super+Alt+C" };
     const state = Object.assign(plain(session.initial()), { gate: { kind: "down", reason: "unconfigured" } });
     const up = { daemon: { tone: "info", text: "Jarvis is ready; microphone is off" }, audio: { tone: "ok", text: "Device list ready" },
         detail: { phase: session.phaseOf(state), seq: 1, state } };

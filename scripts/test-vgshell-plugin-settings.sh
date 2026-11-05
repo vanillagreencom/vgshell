@@ -18,7 +18,7 @@ cp -R -- "$repo/bin" "$tree/"
 cp -- "$repo/shell/Core/PluginLogic.js" "$repo/shell/Core/ConfigLogic.js" "$repo/shell/Core/PackageManagers.js" "$repo/shell/Core/PackageReview.js" "$repo/shell/Core/HyprlandLayer.js" "$repo/shell/Core/MonitorLogic.js" "$repo/shell/Core/Pads.js" "$tree/shell/Core/"
 cp -- "$repo/shell/Commons/SettingValues.js" "$repo/shell/Commons/PageReference.js" "$tree/shell/Commons/"
 cp -- "$repo/shell/Ui/icons/Lucide.js" "$repo/shell/Ui/icons/Own.js" "$tree/shell/Ui/icons/"
-printf '{ "version": 4, "plugins": [], "disabledPlugins": [] }\n' >"$tree/config/shell.json"
+printf '{ "version": 5, "plugins": [], "disabledPlugins": [] }\n' >"$tree/config/shell.json"
 
 cfg="$tmp/cfg"
 probe="$cfg/vgshell/plugins/acme.probe"

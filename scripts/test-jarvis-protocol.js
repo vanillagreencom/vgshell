@@ -14,7 +14,7 @@ const hello = { v: 1, type: "hello", gen: 0, settings: { home: "", sounds: false
     cloudVision: "ask", privateWindows: "bitwarden, incognito", mainHost: "" }, directories: {
     state: "/private/state", data: "/private/data", runtime: "/private/runtime"
 }, revision: "a".repeat(64), locked: false,
-keys: { talk: "SUPER+code:44", mute: "SUPER+SHIFT+code:44", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C", "voice-mute": "SUPER+ALT+code:44" } };
+keys: { talk: "SUPER+code:44", mute: "SUPER+SHIFT+code:44", stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y", console: "SUPER+ALT+C", "voice-mute": "SUPER+CTRL+M" } };
 const intent = { v: 1, type: "intent", gen: 0, revision: hello.revision, intent: "talk-down" };
 const id = "11111111-1111-4111-8111-111111111111";
 const confirm = { ...intent, intent: "confirm", id, digest: "a".repeat(64), source: "key" };
@@ -50,9 +50,9 @@ assert.equal(manifest.hyprland.binds.every(bind => typeof bind.info === "string"
 assert.deepEqual(manifest.hyprland.binds.map(({ info, ...bind }) => bind), [
     { shortcut: "talk", key: "SUPER+code:44", hold: true },
     { shortcut: "mute", key: "SUPER+SHIFT+code:44" },
-    { shortcut: "voice-mute", key: "SUPER+ALT+code:44" },
-    { shortcut: "stop", key: "SUPER+ALT+PERIOD" },
-    { shortcut: "confirm", key: "SUPER+ALT+Y" },
+    { shortcut: "voice-mute", key: "SUPER+CTRL+M" },
+    { shortcut: "stop", key: "SUPER+CTRL+X" },
+    { shortcut: "confirm", key: "SUPER+CTRL+Y" },
     { shortcut: "console", key: "SUPER+ALT+C" }
 ]);
 assert.equal(manifest.capabilities.includes("shortcut") && manifest.capabilities.includes("surfaces"), true);

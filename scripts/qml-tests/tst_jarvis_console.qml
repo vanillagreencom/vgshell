@@ -31,7 +31,7 @@ Item {
             status: { values: values },
             session: { locked: false },
             settings: { mode: "hold", voiceProvider: "gemini", home: "" },
-            shortcut: { keys: { talk: "SUPER+code:44", mute: "SUPER+SHIFT+code:44", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C" } },
+            shortcut: { keys: { talk: "SUPER+code:44", mute: "SUPER+SHIFT+code:44", stop: "SUPER+CTRL+X", confirm: "SUPER+CTRL+Y", console: "SUPER+ALT+C" } },
             ipc: { handle: (name, fn) => {}, call: (name, arg) => "ok" },
             surfaces: { openPage: (page, tab) => {} }
         };

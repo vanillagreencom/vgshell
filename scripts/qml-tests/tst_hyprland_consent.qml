@@ -10,7 +10,7 @@ import qs.Unit
 Item {
     id: root
     property var scene: null
-    readonly property string configText: JSON.stringify({ version: 4,
+    readonly property string configText: JSON.stringify({ version: 5,
         welcome: { keys: [{ id: "acme.core", shortcut: "talk", text: "Talk" }] } })
 
     Component {
