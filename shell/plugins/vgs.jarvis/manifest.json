@@ -41,7 +41,7 @@
   },
   "sounds": {
     "feedback": { "label": "Feedback sounds", "own": "Jarvis tones", "default": "own",
-      "description": "A sound tells you when the AI is still working. With the local voice, the dictation tones you set in Voice tell you when to speak." }
+      "description": "Soft tones mark conversation start, stop and work in progress. Local recordings also play the dictation tones set in [Voice](page:vgs.voice)." }
   },
   "hyprland": {
     "binds": [

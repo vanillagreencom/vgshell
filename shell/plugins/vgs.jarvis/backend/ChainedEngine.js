@@ -77,13 +77,21 @@ const PROGRESS_AFTER_MS = 4000;
 const PREVIEW_LINE = "This is how I sound when I answer you.";
 
 function earcon(kind) {
-    const frames = PCM_RATE * (kind === "start" ? 80 : 120) / 1000;
+    const conversation = kind === "start" || kind === "stop";
+    const frames = PCM_RATE * (conversation ? kind === "start" ? 150 : 170 : 120) / 1000;
     const pcm = Buffer.alloc(frames * 2);
     const edge = PCM_RATE * 5 / 1000;
-    const frequency = kind === "start" ? 880 : 440;
+    const from = kind === "start" ? 180 : 255;
+    const to = kind === "start" ? 255 : 180;
     for (let frame = 0; frame < frames; frame++) {
-        const envelope = Math.min(1, frame / edge, (frames - frame - 1) / edge);
-        pcm.writeInt16LE(Math.round(3900 * envelope * Math.sin(2 * Math.PI * frequency * frame / PCM_RATE)), frame * 2);
+        const position = frame / (frames - 1);
+        // A raised-cosine envelope has no abrupt attack or release. The
+        // integrated pitch glide keeps the phase continuous through it.
+        const envelope = conversation ? Math.sin(Math.PI * position) ** 2
+            : Math.min(1, frame / edge, (frames - frame - 1) / edge);
+        const phase = conversation ? (from * frame + (to - from) * frame * position / 2) / PCM_RATE
+            : 440 * frame / PCM_RATE;
+        pcm.writeInt16LE(Math.round((conversation ? 2600 : 3900) * envelope * Math.sin(2 * Math.PI * phase)), frame * 2);
     }
     return pcm;
 }
@@ -412,6 +420,9 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     const brainText = tracer(trace);
     let plan = unconfigured("engine=starting");
     let conversation = null;
+    // Conversation cues outlive only their playback operation. A stop cue
+    // must never reopen the brain, network transport or microphone.
+    let cue = null;
     let retired = null;
     let closed = false;
     let idleAt = null;
@@ -596,7 +607,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         // retried is that prompt once it was asked again after unjudged words.
         const c = { gen, plan: activePlan, entry: 0, recipients, net, retired: new Set(), speech: null, spoken: null, liveOpen: null, brain: null, guidance: null, owner: null, fleet: "", grants: [], heard: null, relay: null, retried: null, unmatched: null,
             decisions: new Set(), releasePending: null, late: new Map(), results: [], turn: null, last: null,
-            feedback: null, collection: null, unbound: null, rev: 0, quiet: Promise.resolve(), live: null, stream: null };
+            collection: null, unbound: null, rev: 0, quiet: Promise.resolve(), live: null, stream: null };
         try {
             const duplex = duplexOf(plan.speech.id);
             if (duplex !== null) {
@@ -641,7 +652,6 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         if (c.last !== null) unheard(c, c.last);
         if (c.turn !== null) stop(c.turn);
         if (c.last !== null) c.last.speech?.end();
-        c.feedback?.readable.destroy();
         for (const utterance of [c.collection?.utterance, c.unbound])
             if (utterance) utterance.abort();
         const brain = c.brain;
@@ -1939,11 +1949,16 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 conversation.collection.utterance?.abort();
                 conversation.collection = null;
             }
-            if (s.playback.kind === "feedback") {
+            const conversationCue = s.playback.kind === "feedback" && ["start", "stop"].includes(s.playback.cue);
+            if (cue !== null && (!conversationCue || cue.gen !== s.gen || cue.source !== s.playback.source)) {
+                cue.readable.destroy();
+                cue = null;
+            }
+            if (conversationCue && cue === null)
+                cue = { gen: s.gen, source: s.playback.source, readable: Readable.from([earcon(s.playback.cue)],
+                    { objectMode: true, highWaterMark: SPEECH_CHUNKS }) };
+            if (s.playback.kind === "feedback" && !conversationCue) {
                 const c = current(s.gen);
-                if (s.playback.cue === "start" && c.feedback === null)
-                    c.feedback = { source: s.playback.source, readable: Readable.from([earcon("start")],
-                        { objectMode: true, highWaterMark: SPEECH_CHUNKS }) };
                 if (s.playback.cue === "working" && c.turn !== null && c.turn.op === s.playback.source
                         && c.turn.speech === null) {
                     c.turn.speech = speech(c);
@@ -1952,9 +1967,6 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 }
                 if (s.playback.cue === "line" && c.turn !== null && c.turn.op === s.playback.source
                         && c.turn.lineStream === null) lineAdmitted(c, c.turn);
-            } else if (conversation?.feedback !== null && conversation?.feedback !== undefined) {
-                conversation.feedback.readable.destroy();
-                conversation.feedback = null;
             }
             // A line has played once Session's playback is idle again or
             // plays the reply it held; the waiting line then asks for its own.
@@ -2042,10 +2054,10 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             }
             c.unbound = null;
         },
-        // Audio's {readable, spoken}: a start sound and a voice preview are
+        // Audio's {readable, spoken}: conversation cues and a voice preview are
         // not Jarvis's spoken words, so voice mute leaves them audible.
         playbackSource(op) {
-            if (conversation?.feedback?.source === op) return { readable: conversation.feedback.readable, spoken: false };
+            if (cue?.source === op) return { readable: cue.readable, spoken: false };
             if (conversation?.live !== null && conversation?.live !== undefined) return conversation.live.playbackSource(op);
             const turn = conversation?.last;
             if (!turn || turn.op !== op) return null;
@@ -2058,8 +2070,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             return { readable: turn.speech.readable, spoken: turn.preview !== true };
         },
         playback, brain,
-        // Session's engine word: a dictation row's recording sounds its own
-        // tones, so Session plays no start sound for it.
+        // Session's engine word chooses its capture and speech paths.
         engine() {
             if (plan.kind === "ready" && duplexOf(plan.speech.id) !== null) return "duplex";
             return plan.speech?.kind === "ready" && plan.speech.dictation === true ? "dictation" : "chained";
@@ -2106,6 +2117,8 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         },
         close() {
             end();
+            cue?.readable.destroy();
+            cue = null;
             closed = true;
             cancelModels();
             voiceList.net?.close();

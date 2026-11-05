@@ -3,7 +3,7 @@
 // or changes a default device. Session admits half-duplex only.
 // playbackSource(op) answers null or {readable, spoken}: spoken is true when
 // the readable carries Jarvis's spoken words, which voice mute silences, and
-// false for a start sound or a voice preview. A packet {pcm, tone: true} is
+// false for a conversation start/stop sound or a voice preview. A packet {pcm, tone: true} is
 // a tone the engine pushes into a spoken source, the working sound, and
 // stays audible; voice mute silences every other packet of a spoken source.
 "use strict";

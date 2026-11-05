@@ -1190,7 +1190,7 @@ async function cases(kit, server, only = null, mutation = false) {
         release(w);
         await playOut(w);
         assert.equal(w.s().capture.kind, "closed", "an early release opens no microphone");
-        assert.equal(w.audio.lastPlayback.writtenFrames, 1920, "the whole start sound is played");
+        assert.equal(w.audio.lastPlayback.writtenFrames, 3600, "the whole start sound is played");
         assert.equal(w.audio.lastPlayback.heardText, "", "a local sound is not assistant words");
         assert.deepEqual(w.captions, []);
         assert.deepEqual(control.spoken, [], "no cue text reaches the speech provider");
@@ -1207,6 +1207,7 @@ async function cases(kit, server, only = null, mutation = false) {
                 engine: "chained", settings: w.s().settings });
             else if (trigger === "settings") w.configure({ ...w.s().settings, brain: "changed" });
             else w.runner.dispatch({ type: trigger });
+            if (trigger === "stop" || trigger === "mute") await playOut(w);
             await until(() => w.s().playback.kind === "idle", "cue teardown is acknowledged");
             w.advanceRunner(1);
             w.runner.dispatch({ type: "played", gen: owner.gen, op: owner.op });
@@ -2627,16 +2628,24 @@ async function cases(kit, server, only = null, mutation = false) {
         await until(() => w.s().turn.kind === "none", "the turn completes");
     }, dictating);
 
-    // voxtype's tones, set in Voice, are the recording's cue: with Jarvis's
-    // sounds on, Talk opens the capture with no sound of Jarvis's own.
-    await run("dictation-no-cue", async w => {
+    // The local dictation voice gets the same conversation cues. Its core
+    // recording can also play voxtype's globally configured tones.
+    await run("dictation-conversation-cues", async w => {
         control.utterances.push(utterance("Hello."));
         w.runner.dispatch({ type: "talk-down" });
-        assert.equal(w.s().playback.kind, "idle", "no start sound is queued");
-        await until(() => w.s().capture.kind === "open", "the capture opens at once");
-        assert.deepEqual(w.writes, [], "Jarvis played nothing before the recording");
+        assert.deepEqual([w.s().playback.kind, w.s().playback.cue], ["feedback", "start"]);
+        assert.equal(w.s().capture.kind, "closed");
+        await playOut(w);
+        await until(() => w.s().capture.kind === "open", "the capture opens after the start cue");
+        assert.ok(w.writes.some(write => write.pcm.some(byte => byte !== 0)));
         w.runner.dispatch({ type: "stop" });
         await until(() => w.s().capture.kind === "closed", "stop ends the capture");
+        assert.equal(w.s().conversation.kind, "ended");
+        await until(() => w.s().playback.kind === "feedback", "stop cue starts after capture closes");
+        assert.equal(w.s().playback.cue, "stop");
+        await playOut(w);
+        assert.equal(w.audio.lastPlayback.writtenFrames, 4080);
+        assert.equal(w.audio.capture, null, "the stop cue keeps no capture alive");
     }, { ...dictating, sounds: true });
 
     // Each end that drops the utterance cancels its recording: no stop, and
@@ -3329,6 +3338,53 @@ function tracePaths(Engine) {
     assert.equal(fs.statSync(path.join(folder, "made")).mode & 0o777, 0o600, "the trace is the owner's alone");
 }
 
+// The engine's cue consumer needs no configured provider or conversation.
+// Session owns admission; this boundary proves that stop cannot reopen one.
+async function conversationCues(Engine) {
+    let s = { gen: 1, conversation: { kind: "ended" }, playback: { kind: "idle" },
+        settings: { sounds: true }, approval: { kind: "none" }, voiceMute: { kind: "on" } };
+    const engine = Engine.create({ captionLimit: 1, state: () => s });
+    const cues = [];
+    try {
+        for (const [kind, source] of [["start", 1], ["stop", 2]]) {
+            s = { ...s, playback: { kind: "feedback", cue: kind, source } };
+            engine.observe(s);
+            const offered = engine.playbackSource(source);
+            assert.notEqual(offered, null, kind + " has a source with no live conversation");
+            assert.equal(offered.spoken, false, kind + " stays audible under voice mute");
+            engine.observe(s);
+            assert.equal(engine.playbackSource(source).readable, offered.readable, kind + " observation does not replay it");
+            const packets = [];
+            for await (const packet of offered.readable) packets.push(packet);
+            const pcm = Buffer.concat(packets);
+            const frames = pcm.length / 2;
+            assert.ok(frames >= 2880 && frames <= 4320, kind + " lasts 120 to 180 ms at 24 kHz");
+            let peak = 0, edges = 0, crossings = 0;
+            for (let frame = 0; frame < frames; frame++) {
+                const value = pcm.readInt16LE(frame * 2);
+                peak = Math.max(peak, Math.abs(value));
+                if (frame < 120 || frame >= frames - 120) edges = Math.max(edges, Math.abs(value));
+                if (frame > 0 && value >= 0 && pcm.readInt16LE((frame - 1) * 2) < 0) crossings++;
+            }
+            assert.ok(peak > 1000 && peak <= 3000, kind + " is a soft audible tone");
+            assert.ok(edges < 100, kind + " fades in and out smoothly");
+            const frequency = crossings * 24000 / frames;
+            assert.ok(frequency >= 140 && frequency <= 300, kind + " stays in a low register");
+            cues.push(pcm);
+            s = { ...s, playback: { kind: "idle" } };
+            engine.observe(s);
+            assert.equal(engine.playbackSource(source), null, kind + " source retires with playback");
+        }
+        assert.equal(cues[0].equals(cues[1]), false, "start and stop are distinct");
+        s = { ...s, playback: { kind: "feedback", cue: "stop", source: 3 } };
+        engine.observe(s);
+        const pending = engine.playbackSource(3).readable;
+        engine.close();
+        assert.equal(pending.destroyed, true, "daemon teardown destroys a pending cue");
+        assert.equal(engine.playbackSource(3), null);
+    } finally { engine.close(); }
+}
+
 // The real engine with only its sidecar boundary replaced. No child,
 // device or brain starts; final detector completion follows sink close.
 async function checkFailures(file) {
@@ -3473,6 +3529,16 @@ async function groupSelection(root, server) {
     let controls = 0;
     // Without local setup's marker the stock table's local row is the cause.
     const stock = require(path.join(tree, "shell/plugins/vgs.jarvis/backend/ChainedEngine.js"));
+    await conversationCues(stock);
+    for (const [name, needle, replacement] of [
+        ["conversation-cue-high-beep", "earcon(s.playback.cue)", 'earcon("working")'],
+        ["conversation-cue-muted", 'if (cue?.source === op) return { readable: cue.readable, spoken: false };',
+            'if (cue?.source === op) return { readable: cue.readable, spoken: true };']]) {
+        const { Engine } = Fixture.copy(root, [[needle, replacement]]);
+        await assert.rejects(() => conversationCues(Engine), assert.AssertionError, name + " must turn red");
+        console.log("control=" + name + " detected");
+        controls++;
+    }
     const bare = fs.mkdtempSync(path.join(root, "stock-"));
     assert.deepEqual(stock.create({ accounts: () => ({ secrets: null, choose: () => ({ kind: "refused", cause: "account-unavailable" }) }),
         captionLimit: 1, directories: { state: bare, data: bare, runtime: bare } }).configure({ brain: "a" }),
@@ -3723,7 +3789,7 @@ async function groupPlants(root, server) {
     let controls = 0;
     // Each control plants one defect in a disposable engine copy.
     const plants = [
-        ["start-earcon-silenced", 'pcm.writeInt16LE(Math.round(3900 * envelope * Math.sin(2 * Math.PI * frequency * frame / PCM_RATE)), frame * 2);',
+        ["start-earcon-silenced", 'pcm.writeInt16LE(Math.round((conversation ? 2600 : 3900) * envelope * Math.sin(2 * Math.PI * phase)), frame * 2);',
             'pcm.writeInt16LE(0, frame * 2);', "feedback-start"],
         ["working-earcon-silenced", 'c.turn.speech.readable.push({ pcm: earcon("working"), tone: true });',
             'c.turn.speech.readable.push({ pcm: Buffer.alloc(5760), tone: true });', "feedback-working"],

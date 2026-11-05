@@ -115,7 +115,7 @@ async function daemonLease(ending, removeClose = false) {
                     gen: 1, nextOp: 1, stale: 0, settings: hello.settings,
                     gate: { kind: "down", reason: "unconfigured" },
                     mute: { kind: "off" }, voiceMute: { kind: "off" }, capture: { kind: "closed" }, turn: { kind: "none" }, brain: { kind: "closed" },
-                    playback: { kind: "idle" }, action: { kind: "none" }, approval: { kind: "none" }, fault: { kind: "none" },
+                    playback: { kind: "idle" }, cue: { kind: "none" }, action: { kind: "none" }, approval: { kind: "none" }, fault: { kind: "none" },
                     conversation: { kind: "ended" }, input: { kind: "released" }, followUp: { kind: "none" },
                     indicator: { kind: "gone" },
                     duplex: { kind: "half" }, toggleAt: null,

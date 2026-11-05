@@ -1886,10 +1886,10 @@ function pendingFeedbackReply(logic) {
 // A dictation engine records each utterance through the core: its capture's
 // sink sends dictation.start (ChainedEngine captureSink), so capture-open is
 // the one effect that can start a recording, and only once the indicator
-// is presented. voxtype's tones are the recording's cue: Jarvis plays none.
+// is presented. Cue ordering is checked separately below.
 table.push(["dictation-start-admission", logic => {
     for (const mode of ["hold", "toggle", "always"]) {
-        let s = step(logic, logic.initial(), snapshot({ engine: "dictation", settings: { mode, sounds: true } })).state;
+        let s = step(logic, logic.initial(), snapshot({ engine: "dictation", settings: { mode, sounds: false } })).state;
         assert.equal(logic.validate(s), true);
         if (mode === "always") {
             assert.deepEqual(kinds(step(logic, s, event("talk-down", 1))), [], "always: no capture before the indicator");
@@ -1903,21 +1903,86 @@ table.push(["dictation-start-admission", logic => {
         assert.equal(kinds(asked).includes("capture-open"), false, mode + ": the intent alone starts no recording");
         const shown = step(logic, asked.state, event("indicator", 11, { shown: true }));
         assert.deepEqual(kinds(shown), ["capture-open", "collect"], mode + ": the presented indicator admits the recording");
-        assert.equal(shown.state.playback.kind, "idle", mode + ": no start sound of Jarvis's own");
+        assert.equal(shown.state.playback.kind, "idle", mode + ": feedback is disabled");
     }
-}], ["dictation-no-cue", logic => {
-    for (const [engine, cued] of [["dictation", false], ["chained", true]]) {
-        const s = step(logic, ready(logic), snapshot({ engine, settings: { sounds: true } })).state;
-        const pressed = step(logic, s, event("talk-down", 10));
-        assert.equal(pressed.state.playback.kind === "feedback" && pressed.state.playback.cue === "start", cued, engine + ": the start sound");
-        assert.equal(kinds(pressed).includes("capture-open"), !cued, engine + ": the capture opens at once");
-        let armed = step(logic, step(logic, logic.initial(), snapshot({ engine, settings: { mode: "always", sounds: true } })).state,
-            event("indicator", 1, { shown: true })).state;
-        armed = step(logic, armed, callback("capture-opened", armed.capture, 2)).state;
-        assert.equal(logic.phaseOf(armed), "armed", engine + ": Always mode listens for the word");
-        const woke = step(logic, armed, callback("wake", armed.capture, 3)).state;
-        assert.equal(woke.playback.kind === "feedback", cued, engine + ": the word is answered by the start sound");
+}], ["conversation-cues", logic => {
+    for (const engine of ["chained", "dictation", "duplex"]) {
+        for (const sounds of [true, false]) {
+            let s = step(logic, ready(logic), snapshot({ engine, settings: { mode: "toggle", sounds } })).state;
+            s = step(logic, s, event("voice-mute", 2)).state;
+            const pressed = step(logic, s, event("talk-down", 10));
+            s = pressed.state;
+            assert.equal(s.playback.kind, sounds ? "feedback" : "idle", engine + ": Sounds controls the opening tone");
+            if (sounds) {
+                assert.equal(s.playback.cue, "start", engine + ": the conversation opens with a tone even under voice mute");
+                assert.deepEqual(kinds(pressed), ["playback-start"]);
+                s = step(logic, s, callback("played", s.playback, 11)).state;
+            }
+            s = step(logic, s, callback("capture-opened", s.capture, 12)).state;
+            const closing = step(logic, s, event("talk-down", 300));
+            assert.deepEqual([closing.state.conversation.kind, closing.state.input.kind, closing.state.capture.kind,
+                closing.state.speech.kind, closing.state.fault.kind], ["ended", "released", "closing", "closed", "none"]);
+            assert.equal(kinds(closing).includes("playback-start"), false, "the microphone closes before the stop tone");
+            const closed = step(logic, closing.state, callback("capture-closed", closing.state.capture, 301));
+            s = closed.state;
+            assert.equal(s.playback.kind, sounds ? "feedback" : "idle", engine + ": Sounds controls the closing tone");
+            if (sounds) {
+                assert.equal(s.playback.cue, "stop");
+                assert.equal(logic.validate(s), true, "the stop tone crosses the state wire");
+                assert.deepEqual(kinds(closed), ["playback-start"]);
+                assert.equal(logic.indicatorWanted(s), false, "a stop tone holds no capture indicator");
+                const done = step(logic, s, callback("played", s.playback, 302));
+                assert.deepEqual([done.state.capture.kind, done.state.conversation.kind, done.state.playback.kind], ["closed", "ended", "idle"]);
+                assert.deepEqual(kinds(done), []);
+                s = done.state;
+            }
+            assert.deepEqual(kinds(step(logic, s, event("stop", 400))), [], "a repeated close has no second tone");
+        }
     }
+}], ["conversation-cue-cleanup", logic => {
+    const start = startFeedback(logic).state;
+    const closing = step(logic, start, event("stop", 11));
+    assert.equal(closing.state.conversation.kind, "ended");
+    assert.equal(closing.state.cue.cue, "stop");
+    assert.deepEqual(kinds(closing), ["playback-flush"]);
+    const late = step(logic, closing.state, callback("played", start.playback, 12));
+    assert.equal(late.state.stale, closing.state.stale + 1);
+    assert.deepEqual(kinds(late), []);
+    const flushed = step(logic, late.state, callback("flushed", closing.state.playback, 13));
+    assert.equal(flushed.state.playback.cue, "stop");
+    assert.deepEqual(kinds(flushed), ["playback-start"]);
+    const failed = step(logic, flushed.state, callback("playback-failed", flushed.state.playback, 14, { reason: "playback=failed" }));
+    assert.deepEqual([failed.state.conversation.kind, failed.state.capture.kind, failed.state.playback.kind, failed.state.fault.kind],
+        ["ended", "closed", "idle", "none"], "a failed stop tone cannot create a fault after close");
+    const expired = step(logic, flushed.state, callback("deadline", flushed.state.playback, flushed.state.playback.deadline));
+    assert.deepEqual([expired.state.conversation.kind, expired.state.capture.kind, expired.state.playback.kind, expired.state.fault.kind],
+        ["ended", "closed", "flushing", "none"], "a stalled stop tone flushes without a fault after close");
+    const reply = step(logic, speaking(logic), snapshot({ at: 41, settings: { sounds: true } })).state;
+    const stoppedReply = step(logic, reply, event("stop", 42));
+    assert.deepEqual([stoppedReply.state.conversation.kind, stoppedReply.state.playback.kind], ["ended", "flushing"]);
+    assert.equal(stoppedReply.state.cue.cue, "stop");
+    const afterReply = step(logic, stoppedReply.state, callback("flushed", stoppedReply.state.playback, 43));
+    assert.equal(afterReply.state.playback.cue, "stop", "a reply is flushed before the closing tone");
+    assert.deepEqual(kinds(afterReply), ["playback-start"]);
+    for (const trigger of [event("lease-ended", 12), snapshot({ at: 12, locked: true, settings: { sounds: true } }),
+        snapshot({ at: 12, settings: { sounds: false } })]) {
+        const cancelled = step(logic, closing.state, trigger).state;
+        const ack = step(logic, cancelled, callback("flushed", cancelled.playback, 13));
+        assert.equal(ack.state.playback.kind, "idle", trigger.type + ": pending stop tone is cancelled");
+        assert.deepEqual(kinds(ack), []);
+    }
+}], ["conversation-cue-continuation", logic => {
+    let s = step(logic, between(logic), snapshot({ at: 41, settings: { sounds: true } })).state;
+    const next = step(logic, s, event("talk-down", 42));
+    assert.equal(next.state.playback.kind, "idle", "another input in the same conversation has no start tone");
+    assert.deepEqual(kinds(next), ["capture-open", "collect"]);
+    s = step(logic, duplexReady(logic), snapshot({ engine: "duplex", settings: { sounds: true } })).state;
+    s = step(logic, s, event("toggle", 10)).state;
+    s = step(logic, s, callback("played", s.playback, 11)).state;
+    s = step(logic, s, callback("capture-opened", s.capture, 12)).state;
+    const closed = step(logic, s, event("speech-idle", 20, { gen: s.speech.gen, op: s.speech.op }));
+    assert.equal(closed.state.playback.cue, "stop", "a quiet provider end has a stop tone");
+    assert.equal(closed.state.conversation.kind, "ended");
 }]);
 table.push(["feedback-start", logic => {
     const started = startFeedback(logic);
@@ -1955,7 +2020,7 @@ table.push(["feedback-start", logic => {
     const busy = { ...speaking(logic), settings: { sounds: true } };
     assert.equal(step(logic, busy, event("talk-down", 50)).state.playback.kind, "flushing", "interrupt cannot replace an unfinished flush with a cue");
     const duplex = step(logic, ready(logic), snapshot({ engine: "duplex", settings: { sounds: true } })).state;
-    assert.equal(step(logic, duplex, event("talk-down")).state.playback.kind, "idle");
+    assert.equal(step(logic, duplex, event("talk-down")).state.playback.cue, "start");
 }], ["feedback-working", logic => {
     let s = thinking(logic);
     s = step(logic, s, snapshot({ at: 35, settings: { sounds: true } })).state;
@@ -2095,6 +2160,7 @@ const shapes = [
     ["engine-tag", s => { s.engine = { kind: "unknown" }; }],
     ["follow-up-gen", s => { s.followUp.gen = -1; }, logic => ({ ...copy(logic.initial()), followUp: { kind: "asked", gen: 1 } })],
     ["feedback-cue", s => { s.playback.cue = "unknown"; }, logic => startFeedback(logic).state],
+    ["pending-cue", s => { s.cue.cue = "unknown"; }, logic => step(logic, startFeedback(logic).state, event("stop", 11)).state],
     ...[
         ["shape", r => { r.extra = true; }], ["gen", r => { r.gen = -1; }],
         ["source", r => { r.source = 0; }], ["interruptible", r => { r.interruptible = "yes"; }],
@@ -2406,11 +2472,13 @@ try {
         ["talk clears voice mute", 'case "talk-down":\n', 'case "talk-down":\n        s.voiceMute = { kind: "off" };\n', "voice-mute", "talk-down keeps voice mute"],
         ["collect-limit", 's.turn.kind === "collecting" && s.turn.deadline !== null && at >= s.turn.deadline', 'false && s.turn.kind === "collecting" && s.turn.deadline !== null && at >= s.turn.deadline', "collection-deadline"],
         ["playback-limit", '["playing", "feedback"].indexOf(s.playback.kind) !== -1 && s.playback.deadline !== null && at >= s.playback.deadline', 'false && ["playing", "feedback"].indexOf(s.playback.kind) !== -1 && s.playback.deadline !== null && at >= s.playback.deadline', "playback-deadline"],
-        ["feedback-start-sounds", 's.settings.sounds === true && s.engine.kind === "chained"', 'true && s.engine.kind === "chained"', "feedback-start"],
-        ["feedback-start-engine", 's.settings.sounds === true && s.engine.kind === "chained"', 's.settings.sounds === true', "feedback-start"],
-        ["feedback-start-approval", '&& s.playback.kind === "idle" && s.approval.kind === "none") {', '&& s.playback.kind === "idle") {', "feedback-start"],
-        ["feedback-start-busy", '&& s.playback.kind === "idle" && s.approval.kind === "none") {', '&& s.approval.kind === "none") {', "feedback-start"],
-        ["feedback-cue-shape", 'if (region === "playback" && r.kind === "feedback" && ["start", "working", "line"].indexOf(r.cue) === -1) return false;', 'void region;', "wire-feedback-cue"],
+        ["conversation-start-sounds", 'if (s.settings.sounds === true) s.cue = { kind: "pending", cue: "start" };', 's.cue = { kind: "pending", cue: "start" };', "conversation-cues"],
+        ["conversation-start-engine", 'if (s.settings.sounds === true) s.cue = { kind: "pending", cue: "start" };', 'if (s.settings.sounds === true && s.engine.kind === "chained") s.cue = { kind: "pending", cue: "start" };', "conversation-cues"],
+        ["conversation-stop", 's.cue = soundedClose ? { kind: "pending", cue: "stop" } : { kind: "none" };', 's.cue = { kind: "none" };', "conversation-cues"],
+        ["conversation-stop-cleanup", 'if (s.cue.kind === "pending" && s.playback.kind === "idle") {', 'if (s.cue.kind === "pending") {', "conversation-cue-cleanup"],
+        ["conversation-stop-failure", 'if (s.playback.kind === "feedback" && s.playback.cue === "stop") {', 'if (false) {', "conversation-cue-cleanup"],
+        ["feedback-cue-shape", 'if (region === "playback" && r.kind === "feedback" && ["start", "stop", "working", "line"].indexOf(r.cue) === -1) return false;', 'void region;', "wire-feedback-cue"],
+        ["pending-cue-shape", 'if (region === "cue" && r.kind === "pending" && ["start", "stop"].indexOf(r.cue) === -1) return false;', 'void region;', "wire-pending-cue"],
         ["feedback-disable", 'if (s.settings.sounds !== true && s.playback.kind === "feedback" && s.playback.cue !== "line") flushPlayback(s, effects);', 'void s;', "feedback-start"],
         ["feedback-working-sounds", 'cue !== "line" && s.settings.sounds !== true', 'false', "feedback-working"],
         ["feedback-working-busy", 'if (s.playback.kind !== "idle") break;', 'if (false) break;', "feedback-working"],
@@ -2527,7 +2595,6 @@ try {
             'if (false) end(s, effects, e.at, "playback-failed", false);', "playback-fault"],
         ["indicator", 's.indicator.kind === "shown"', '(true || s.indicator.kind === "shown")', "indicator-gate"],
         ["dictation-intent-start", 's.indicator.kind === "shown"', '(true || s.indicator.kind === "shown")', "dictation-start-admission"],
-        ["dictation-cue", 's.settings.sounds === true && s.engine.kind === "chained"', 's.settings.sounds === true && s.engine.kind !== "duplex"', "dictation-no-cue"],
         ["indicator-demand", 'return canEngage(s) && (s.input.kind === "armed"\n        || s.conversation.kind !== "ended" && s.input.kind !== "released");',
             'return false;', "indicator-gate"],
         ["hold", 'if (s.input.kind === "held") break;',

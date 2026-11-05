@@ -6,7 +6,7 @@
 // identity across stop; content callbacks do not. A duplex engine owns one
 // speech session per conversation; its callbacks carry the session's gen/op.
 // A dictation engine is the chained engine whose final words come from the
-// core's dictation recording (D064), whose tones are the recording's cue.
+// core's dictation recording (D064).
 var SESSION_SETTINGS = ["mode", "voiceProvider", "voice", "clonedVoice", "language", "brain", "model", "effort", "fallbacks", "customBaseUrl", "home", "policy", "cloudVision", "account", "voiceAccount"];
 // A thinking turn's bound on a stalled brain: a running tool call holds it
 // past the call's own limit and a finished one starts a fresh interval, so a
@@ -51,7 +51,7 @@ function initial() {
         gate: { kind: "down", reason: "starting" },
         mute: { kind: "off" }, voiceMute: { kind: "off" }, capture: { kind: "closed" },
         turn: { kind: "none" }, brain: { kind: "closed" }, playback: { kind: "idle" },
-        action: { kind: "none" }, approval: { kind: "none" }, fault: { kind: "none" },
+        action: { kind: "none" }, approval: { kind: "none" }, fault: { kind: "none" }, cue: { kind: "none" },
         conversation: { kind: "ended" }, input: { kind: "released" }, followUp: { kind: "none" },
         indicator: { kind: "gone" }, duplex: { kind: "half" }, toggleAt: null,
         engine: { kind: "chained" }, speech: { kind: "closed" }, check: { kind: "unavailable" }, checkSource: null
@@ -156,6 +156,9 @@ function requestToolCancel(s, effects) {
 }
 
 function end(s, effects, at, reason, stopTool) {
+    var soundedClose = s.conversation.kind !== "ended" && s.settings.sounds === true && s.fault.kind === "none"
+        && ["lease", "gate", "settings", "voice-unavailable"].indexOf(reason) === -1;
+    s.cue = soundedClose ? { kind: "pending", cue: "stop" } : { kind: "none" };
     if (["waiting", "recording", "finishing"].indexOf(s.check.kind) !== -1) s.check = { kind: "ready" };
     if (s.conversation.kind !== "ended") {
         s.gen++;
@@ -186,7 +189,7 @@ function canCapture(s) {
     var checking = s.input.kind === "check" && (s.gate.kind === "up" || s.gate.reason === "unconfigured")
         && s.fault.kind === "none" && s.mute.kind === "off" && ["waiting", "recording"].indexOf(s.check.kind) !== -1;
     return (canEngage(s) || checking) && s.indicator.kind === "shown"
-        && s.playback.kind === "idle" && s.turn.kind !== "cancelling" && s.input.kind !== "released"
+        && s.playback.kind === "idle" && s.cue.kind === "none" && s.turn.kind !== "cancelling" && s.input.kind !== "released"
         && (s.conversation.kind !== "ended" || s.input.kind === "armed" || checking);
 }
 
@@ -292,6 +295,14 @@ function canSpeak(s) {
 }
 
 function reconcile(s, effects, at) {
+    // Conversation cues wait for capture cleanup and the old player.
+    // The stop cue owns only playback; the conversation is already ended.
+    if (s.cue.kind === "pending" && s.playback.kind === "idle") {
+        var cue = operation(s);
+        s.playback = { kind: "feedback", gen: s.gen, op: cue, source: cue, cue: s.cue.cue,
+            admission: { kind: "waiting" }, deadline: at + PLAYBACK_TIMEOUT_MS, reply: { kind: "none" } };
+        s.cue = { kind: "none" };
+    }
     // The window opens only as the reply ends. A turn that ends while
     // something else holds Jarvis, such as a tool past its limit, drops it,
     // so it never opens later with no reply just spoken.
@@ -342,19 +353,11 @@ function start(s, effects, mode, at) {
     if (s.conversation.kind === "ended") {
         s.gen++;
         s.conversation = { kind: "active" };
+        if (s.settings.sounds === true) s.cue = { kind: "pending", cue: "start" };
     } else if (s.conversation.kind === "interrupted") s.conversation = { kind: "active" };
     // A wake capture feeds the spotter, not a transcription.
     closeArmed(s, effects);
     s.input = mode === "held" ? { kind: "held", since: at } : { kind: mode };
-    // Half duplex: the start sound drains before the microphone opens.
-    // A held approval's answer starts capture without another prompt sound,
-    // and a dictation recording sounds voxtype's own start tone.
-    if (s.settings.sounds === true && s.engine.kind === "chained"
-            && s.playback.kind === "idle" && s.approval.kind === "none") {
-        var cue = operation(s);
-        s.playback = { kind: "feedback", gen: s.gen, op: cue, source: cue, cue: "start",
-            admission: { kind: "waiting" }, deadline: at + PLAYBACK_TIMEOUT_MS, reply: { kind: "none" } };
-    }
     reconcile(s, effects, at);
 }
 
@@ -476,8 +479,11 @@ function expire(s, effects, at) {
         }
     }
     if (["playing", "feedback"].indexOf(s.playback.kind) !== -1 && s.playback.deadline !== null && at >= s.playback.deadline) {
-        s.fault = { kind: "error", reason: "playback-timeout", retry: 0 };
-        end(s, effects, at, "playback-timeout", false);
+        if (s.playback.kind === "feedback" && s.playback.cue === "stop") flushPlayback(s, effects);
+        else {
+            s.fault = { kind: "error", reason: "playback-timeout", retry: 0 };
+            end(s, effects, at, "playback-timeout", false);
+        }
     }
     if (s.turn.kind === "thinking" && s.approval.kind !== "held" && at >= s.turn.deadline) {
         dropApproval(s, effects, "thinking-timeout", at);
@@ -542,6 +548,7 @@ function reduce(state, e) {
             s.fault = { kind: "none" };
         }
         s.settings = JSON.parse(JSON.stringify(e.settings));
+        if (s.settings.sounds !== true) s.cue = { kind: "none" };
         if (s.settings.sounds !== true && s.playback.kind === "feedback" && s.playback.cue !== "line") flushPlayback(s, effects);
         s.engine = { kind: e.engine };
         if (e.locked !== false || !e.configured) {
@@ -849,6 +856,11 @@ function reduce(state, e) {
         break;
     case "playback-failed":
         if (!live(s, e, "playback", ["playing", "feedback"])) { stale(s); break; }
+        // A failed closing tone cannot reopen the closed conversation's UI.
+        if (s.playback.kind === "feedback" && s.playback.cue === "stop") {
+            s.playback = { kind: "idle" };
+            break;
+        }
         s.fault = { kind: "error", reason: e.reason, retry: 0 };
         end(s, effects, e.at, "playback-failed", false);
         break;
@@ -1008,7 +1020,7 @@ var REGIONS = {
     brain: { closed: "", acquired: "gen op" },
     playback: { idle: "", playing: "gen op source interruptible admission deadline",
         feedback: "gen op source cue admission deadline reply", flushing: "gen op reply" },
-    action: { none: "", running: "gen op tool brain limit cancellation" },
+    action: { none: "", running: "gen op tool brain limit cancellation" }, cue: { none: "", pending: "cue" },
     approval: { none: "", held: "purpose gen op id digest deadline shownAt physical text tool timeoutMs cancellable brain" },
     fault: { none: "", error: "reason retry", retrying: "reason retry" }, conversation: { ended: "", active: "", interrupted: "" },
     input: { released: "", stopped: "", held: "since", tapped: "deadline", conversation: "", "follow-up": "", armed: "", woken: "", check: "" },
@@ -1075,7 +1087,8 @@ function validate(s) {
         if (region === "capture" && fields.indexOf("mode") !== -1
                 && ["hold", "conversation", "follow-up", "armed", "check"].indexOf(r.mode) === -1) return false;
         if (region === "check" && (r.kind === "done" || r.kind === "kept") && ["ready", "silent", "not-heard"].indexOf(r.result) === -1) return false;
-        if (region === "playback" && r.kind === "feedback" && ["start", "working", "line"].indexOf(r.cue) === -1) return false;
+        if (region === "playback" && r.kind === "feedback" && ["start", "stop", "working", "line"].indexOf(r.cue) === -1) return false;
+        if (region === "cue" && r.kind === "pending" && ["start", "stop"].indexOf(r.cue) === -1) return false;
         if (region === "gate" && r.kind === "down"
                 && ["starting", "unconfigured", "node", "lock-unknown", "locked"].indexOf(r.reason) === -1) return false;
     }
