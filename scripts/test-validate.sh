@@ -387,6 +387,7 @@ runtime_cases=(
   'scripts under another name|shell/plugins/acme.p/Run.qml|untracked|0|property url run: Qt.resolvedUrl("helpers/scripts/run.sh")'
   'outside bin and shell|scripts/tool.sh|untracked|0|. "$root/scripts/lib.sh"'
 )
+test_args=(--full)
 for spec in "${runtime_cases[@]}"; do
   IFS='|' read -r name file state want text <<<"$spec"
   d="$tmp/runtime-${name// /-}"; fresh "$d"
@@ -403,6 +404,7 @@ for spec in "${runtime_cases[@]}"; do
     row "a $name under $file passes" "$d" 0 "" "validate: the runtime loads nothing under scripts/"
   fi
 done
+test_args=()
 
 d="$tmp/runtime-unreadable"; fresh "$d"; mkdir -p "$d/bin"; printf 'x\n' >"$d/bin/locked"; chmod 000 "$d/bin/locked"
 row "a file under bin/ the boundary check cannot read is an error, not a pass" "$d" 1 "" \
@@ -479,6 +481,7 @@ key_cases=(
   'line naming the pattern|notes.txt|untracked|0|[A-Z ]*PRIVATE KEY( BLOCK)?|block'
   'git-ignored private key|tmp/key.pem|ignored|0|PRIVATE KEY|block'
 )
+test_args=(--full)
 for spec in "${key_cases[@]}"; do
   IFS='|' read -r name file state want type shape <<<"$spec"
   d="$tmp/key-${name// /-}"; fresh "$d"
@@ -506,6 +509,7 @@ for spec in "${key_cases[@]}"; do
     row "a $name in $file passes" "$d" 0 "" "validate: no private key in the tree"
   fi
 done
+test_args=()
 
 d="$tmp/key-unreadable"; fresh "$d"; printf 'x\n' >"$d/locked.pem"; chmod 000 "$d/locked.pem"
 row "a file the private-key check cannot read is an error, not a pass" "$d" 1 "" \
@@ -550,13 +554,13 @@ test_args=()
 # Selection is checked through the command the caller will run. Expected
 # plans name consumers independently of the dependency table under test.
 repo_plan=$'whitespace_check\nrows_cover_tests\nruntime_reads_no_scripts\nruntime_writes_monitor_rule_once\nprivate_keys_check\nmd_refs_check'
+text_plan=$'python3 scripts/check-user-commands.py\nwhitespace_check\nmd_refs_check\ndoc_limits_check'
 install_plan=$'scripts/test-install-tree.sh\n'"$repo_plan"
 installer_plan=$'scripts/test-install-tree.sh\nnode scripts/check-packaging.js\nnode scripts/test-check-packaging.js\nscripts/test-vgshell-self.sh\nscripts/test-install-sh.sh\nscripts/test-release.sh\n'"$repo_plan"
 # The README check reads VERSION, bin/vgshell, install.sh, the Arch recipes,
 # the plugins, README.md and docs/architecture/runtime.md.
 readme_rows=$'node scripts/test-check-readme.js\nscripts/test-readme-install.sh\n'
 readme_rows_trimmed="${readme_rows%$'\n'}"
-readme_plan="$readme_rows$repo_plan"
 curl_installer_plan=$'node scripts/check-packaging.js\nnode scripts/test-check-packaging.js\n'"$readme_rows"$'scripts/test-install-sh.sh\nscripts/test-release.sh\nscripts/test-publish-aur.sh\n'"$repo_plan"
 heap_plan=$'python3 scripts/test-attribute-heap-profile.py\n'"$repo_plan"
 jarvis_local_rows=$'python3 scripts/test-jarvis-local.py\nscripts/check-jarvis-local.sh\n'
@@ -624,7 +628,7 @@ cases=(
   "screensaver-manifest|shell/plugins/vgs.screensaver/manifest.json|logic|node scripts/test-plugin-logic.js"$'\nnode scripts/test-screensaver-logic.js'
   "duration-shared|shell/Commons/Duration.js|logic|node scripts/test-duration.js"$'\nnode scripts/test-timestamp.js\nnode scripts/test-updates-logic.js\nnode scripts/test-automations-logic.js\nnode scripts/test-automations-view-logic.js\nnode scripts/test-agent-warden-view.js\nnode scripts/test-agent-warden-notices.js\nnode scripts/test-google-drive-logic.js'
   "nmcli-shared|shell/Commons/Nmcli.js|logic|node scripts/test-network-logic.js"$'\nnode scripts/test-vpn-logic.js'
-  "vpn-fixture|scripts/fixtures/vpn/list.txt|logic|node scripts/test-vpn-logic.js"
+  "vpn-fixture|scripts/fixtures/vpn/list.txt|logic|text:"
   "vpn-import|shell/plugins/vgs.vpn/tui/import.sh|cli|scripts/test-vpn-import.sh"$'\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"$'\nscripts/test-tui-gum-colours.sh'
   "network-logic|shell/plugins/vgs.network/NetworkLogic.js|logic|node scripts/test-network-logic.js"
   "network-body|shell/plugins/vgs.network/NetworkBody.qml|logic|node scripts/test-network-logic.js"
@@ -663,12 +667,15 @@ cases=(
   "keyboard-protocol|scripts/smoke/keyboard/virtual-keyboard-unstable-v1.xml|all|$keyboard_plan"
   "device-fakes-harness|scripts/smoke/devices.sh|all|python3 scripts/check-smoke-readers.py"$'\npython3 scripts/test-check-smoke-readers.py\nsmoke_reads_named\nscripts/test-sandbox-shots.sh\nscripts/test-jarvis-selftest.sh\n'"$repo_plan"$'\nscripts/qml-smoke.sh\nscripts/measure-shader.sh'
   "device-fakes-fixture|scripts/smoke/fixtures/devices/stand-in.py|all|python3 scripts/test-displays-brightness.py"$'\n'"$fixture_plan"$'\nscripts/measure-shader.sh'
-  "docs|docs/architecture/overview.md|offline|$repo_plan"$'\ndoc_limits_check'
-  "runtime-doc|docs/architecture/runtime.md|offline|$readme_plan"$'\ndoc_limits_check'
+  "docs|docs/architecture/overview.md|offline|text:$text_plan"
+  "runtime-doc|docs/architecture/runtime.md|offline|text:$text_plan"
   "docs-html|docs/guide.html|offline|$repo_plan"$'\ndoc_limits_check'
-  "root-markdown|NOTES.md|offline|$repo_plan"$'\ndoc_limits_check'
+  "root-markdown|NOTES.md|offline|text:$text_plan"
+  "real-root-readme|README.md|all|text:$text_plan"
+  "real-plugin-readme|shell/plugins/vgs.keyboard/README.md|all|text:$text_plan"
+  "real-displayed-text|shell/plugins/vgs.screensaver/logo.txt|all|text:python3 scripts/check-user-commands.py"$'\nwhitespace_check\nmd_refs_check'
   "version|VERSION|offline|$version_plan"
-  "licence|LICENSE|all|$install_plan"
+  "licence|LICENSE|all|text:python3 scripts/check-user-commands.py"$'\nwhitespace_check\nmd_refs_check'
   "flake|flake.nix|all|node scripts/check-packaging.js"$'\nnode scripts/test-check-packaging.js\nnode scripts/check-packaging.js --engine-availability\nnode scripts/test-engine-availability.js\nscripts/test-publish-aur.sh\n'"$repo_plan"$'\nscripts/test-flake.sh'
   "flake-offline|flake.nix|offline|node scripts/check-packaging.js"$'\nnode scripts/test-check-packaging.js\nnode scripts/test-engine-availability.js\nscripts/test-publish-aur.sh\n'"$repo_plan"
   "installer|packaging/install-system.sh|offline|$installer_plan"
@@ -750,12 +757,12 @@ cases=(
   "jarvis-browser-setup-suite|scripts/test-jarvis-browser-setup.js|offline|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-browser-setup.js"$'\n'"$repo_plan"
   "jarvis-input-owner|shell/plugins/vgs.jarvis/backend/Input.js|cli|node scripts/test-jarvis-input.js"$'\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
   "jarvis-computer-help|shell/plugins/vgs.jarvis/backend/ComputerHelp.js|cli|node scripts/test-jarvis-router.js"$'\nnode scripts/test-jarvis-input.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-browser-setup.js\nnode scripts/test-jarvis-shell.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
-  "jarvis-input-help|shell/plugins/vgs.jarvis/backend/skills/computer/input.md|cli|node scripts/test-jarvis-router.js"$'\nnode scripts/test-jarvis-input.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-shell.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
+  "jarvis-input-help|shell/plugins/vgs.jarvis/backend/skills/computer/input.md|cli|text:"
   "jarvis-browser-input|shell/plugins/vgs.jarvis/backend/Browser.js|cli|node scripts/test-jarvis-router.js"$'\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-browser-setup.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
   "jarvis-browser-setup-input|shell/plugins/vgs.jarvis/backend/browser-setup.js|cli|node scripts/test-jarvis-files.js"$'\n'"node scripts/test-jarvis-browser.js"$'\n'"node scripts/test-jarvis-browser-setup.js"$'\nnode scripts/test-jarvis-daemon.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
   "jarvis-browser-fixture|scripts/fixtures/jarvis/browser.py|offline|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-router.js"$'\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-browser-setup.js\nnode scripts/test-jarvis-daemon.js\n'"$repo_plan"
   "jarvis-words-scanned-test|scripts/test-jarvis-setup.py|logic|node scripts/check-jarvis-words.js"
-  "jarvis-words-scanned-doc|docs/architecture/jarvis.md|logic|node scripts/check-jarvis-words.js"
+  "jarvis-words-scanned-doc|docs/architecture/jarvis.md|logic|text:"
   "jarvis-tools-suite|scripts/test-jarvis-tools.js|offline|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-tools.js"$'\n'"$repo_plan"
   "jarvis-policy-suite|scripts/test-jarvis-policy.js|offline|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-policy.js"$'\n'"$repo_plan"
   "jarvis-release-suite|scripts/test-jarvis-release.js|offline|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-release.js"$'\n'"$repo_plan"
@@ -787,7 +794,7 @@ cases=(
   "jarvis-owner-asks-suite|scripts/test-jarvis-owner-asks.js|offline|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-owner-asks.js"$'\n'"$repo_plan"
   "jarvis-audit-suite|scripts/test-jarvis-audit.js|offline|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-audit.js"$'\n'"$repo_plan"
   "jarvis-shell-input|shell/plugins/vgs.jarvis/backend/Shell.js|cli|node scripts/test-jarvis-files.js"$'\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-shell.js'$'\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
-  "jarvis-computer-reference|shell/plugins/vgs.jarvis/backend/skills/computer/shell.md|cli|node scripts/test-jarvis-router.js"$'\nnode scripts/test-jarvis-input.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-shell.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
+  "jarvis-computer-reference|shell/plugins/vgs.jarvis/backend/skills/computer/shell.md|cli|text:"
   "jarvis-shell-suite|scripts/test-jarvis-shell.js|offline|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-shell.js"$'\n'"$repo_plan"
   "jarvis-router-suite|scripts/test-jarvis-router.js|offline|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-router.js"$'\n'"$repo_plan"
   "jarvis-router-input|shell/plugins/vgs.jarvis/backend/ToolRouter.js|cli|node scripts/test-jarvis-live.js"$'\nnode scripts/test-jarvis-memory.js\nnode scripts/test-jarvis-router.js'$'\nnode scripts/test-jarvis-input.js\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-browser.js\nnode scripts/test-jarvis-bridge.js\nnode scripts/test-jarvis-claude.js\nnode scripts/test-jarvis-codex.js\nnode scripts/test-jarvis-copilot.js\nnode scripts/test-jarvis-pi.js\nnode scripts/test-jarvis-desktop-tools.js\nnode scripts/test-jarvis-vision.js\nnode scripts/test-jarvis-shell.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nnode scripts/test-jarvis-task-runner.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
@@ -843,7 +850,7 @@ cases=(
   "compositor-reveal-barrier-suite|scripts/test-compositor-reveal.py|tools|python3 scripts/test-compositor-reveal.py"
   "smoke-configuration-restore-suite|scripts/test-smoke-user-config.py|tools|python3 scripts/test-smoke-user-config.py"
   "smoke-anr-isolation-suite|scripts/test-smoke-anr.py|tools|python3 scripts/test-smoke-anr.py"
-  "jarvis-poll-harness|scripts/smoke/harness.sh|all|node scripts/test-jarvis-daemon.js"$'\nscripts/test-smoke-verdict.sh\nscripts/test-smoke-hypr-bound.sh\nscripts/test-mode-hold.sh\npython3 scripts/check-smoke-readers.py\npython3 scripts/test-smoke-dumps.py\npython3 scripts/test-check-smoke-readers.py\npython3 scripts/test-compositor-reveal.py\nscripts/test-secret-tool-stand-in.sh\nscripts/test-smoke-input-guard.sh\nscripts/test-smoke-xwayland.sh\nsmoke_reads_named\nscripts/test-smoke-teardown.sh\npython3 scripts/test-smoke-persisted-inputs.py\npython3 scripts/test-smoke-evidence.py\nscripts/test-smoke-display-record.sh\npython3 scripts/test-smoke-anr.py\nscripts/test-smoke-sink.sh\npython3 scripts/test-smoke-user-config.py\nscripts/test-sandbox-shots.sh\nscripts/test-gpu-fence.sh\nnode scripts/test-jarvis-env.js\nscripts/test-jarvis-selftest.sh\n'"$repo_plan"$'\nscripts/qml-smoke.sh\nscripts/measure-shader.sh'
+  "jarvis-poll-harness|scripts/smoke/harness.sh|all|node scripts/test-jarvis-daemon.js"$'\nscripts/test-smoke-verdict.sh\nscripts/test-smoke-hypr-bound.sh\nscripts/test-mode-hold.sh\npython3 scripts/check-smoke-readers.py\npython3 scripts/test-smoke-dumps.py\npython3 scripts/test-check-smoke-readers.py\npython3 scripts/test-compositor-reveal.py\nscripts/test-secret-tool-stand-in.sh\nscripts/test-smoke-input-guard.sh\nscripts/test-smoke-xwayland.sh\nsmoke_reads_named\nscripts/test-smoke-teardown.sh\npython3 scripts/test-smoke-persisted-inputs.py\npython3 scripts/test-smoke-evidence.py\nscripts/test-smoke-display-record.sh\npython3 scripts/test-smoke-anr.py\nscripts/test-smoke-sink.sh\npython3 scripts/test-smoke-user-config.py\nscripts/test-sandbox-shots.sh\nscripts/test-gpu-fence.sh\nnode scripts/test-jarvis-env.js\nscripts/test-jarvis-selftest.sh\n'"$repo_plan"$'\nscripts/test-validate.sh\nscripts/qml-smoke.sh\nscripts/measure-shader.sh'
   "smoke-persisted-input-suite|scripts/test-smoke-persisted-inputs.py|tools|python3 scripts/test-smoke-persisted-inputs.py"
   "smoke-persisted-input-owner|scripts/smoke/persisted-inputs.py|tools|python3 scripts/test-smoke-dumps.py"$'\nsmoke_reads_named\npython3 scripts/test-smoke-persisted-inputs.py\npython3 scripts/test-smoke-evidence.py\npython3 scripts/test-smoke-anr.py'
   "shortcut-provider|shell/Core/ShortcutRegistry.qml|unit|scripts/test-keyboard-ui.sh"$'\nscripts/qml-unit.sh\nscripts/test-qml-unit.sh'
@@ -979,13 +986,20 @@ plan_consumer_case() { # SPEC
   name="${spec%%|*}"; rest="${spec#*|}"
   file="${rest%%|*}"; rest="${rest#*|}"
   area="${rest%%|*}"; wanted="${rest#*|}"
-  if ! wanted="$(with_daemon_consumers "$file" "$area" "$wanted")"; then
+  if [[ $wanted == text:* ]]; then
+    wanted="${wanted#text:}"
+  elif ! wanted="$(with_daemon_consumers "$file" "$area" "$wanted")"; then
     fail "$name expected consumer plan could not be built"
     return
   fi
   d="$tmp/plan-$name"; fresh "$d"
   mkdir -p -- "$d/$(dirname -- "$file")"
-  printf 'changed\n' >"$d/$file"
+  if [[ $name == real-* ]]; then
+    cp -- "$repo/$file" "$d/$file"
+    printf '\nchanged\n' >>"$d/$file"
+  else
+    printf 'changed\n' >"$d/$file"
+  fi
   for state in untracked staged committed deleted; do
     case "$state" in
       staged) "${base_env[@]}" git -C "$d" add -- "$file" ;;
@@ -1008,6 +1022,64 @@ plan_consumer_case() { # SPEC
   done
 }
 parallel_cases plan_consumer_case plan-case "${cases[@]}"
+
+# plant FILE OLD NEW: replace the one occurrence of OLD in FILE, a copy of a
+# script under test, with NEW; a count other than one stops the suite.
+plant() {
+  python3 - "$@" <<'PY'
+from pathlib import Path
+import sys
+path, old, new = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+source = path.read_text()
+assert source.count(old) == 1, old
+path.write_text(source.replace(old, new))
+PY
+}
+# commit DIR MESSAGE: commit every change in DIR.
+commit() {
+  "${base_env[@]}" git -C "$1" add -A
+  "${base_env[@]}" git -C "$1" commit -q -m "$2"
+}
+
+# A displayed plugin README reaches product rows through their real input
+# patterns. Mixed changes keep that reach; a text-only change suppresses it.
+for variant in text mixed control full unreadable; do
+  d="$tmp/readme-scope-$variant"; fresh "$d"
+  file=shell/plugins/vgs.keyboard/README.md
+  mkdir -p "$d/shell/plugins/vgs.keyboard"
+  cp -- "$repo/$file" "$d/$file"
+  commit "$d" readme
+  if [[ $variant == control ]]; then
+    plant "$d/scripts/validate" 'if [[ $pass_tree != unreadable && ${#changed_paths[@]} -gt 0 ]]; then' 'if false; then'
+    commit "$d" control
+  fi
+  printf '\nchanged\n' >>"$d/$file"
+  [[ $variant != mixed ]] || printf '# mixed change\n' >>"$d/kendex.settings.toml"
+  [[ $variant != unreadable ]] || chmod 000 "$d/$file"
+  test_area=all test_args=(--changed HEAD --list)
+  [[ $variant != full ]] || test_args=(--full --list)
+  case "$variant" in
+    text)
+      row "a displayed README selects only text checks" "$d" 0 "" \
+        'python3 scripts/check-user-commands.py' whitespace_check md_refs_check doc_limits_check \
+        '!scripts/test-keyboard-ui.sh' '!scripts/qml-unit.sh' '!scripts/qml-smoke.sh' '!scripts/measure-shader.sh'
+      test_area=qml
+      row "a README-only diff selects no nested row in the explicit qml area" "$d" 0 "" '!scripts/' ;;
+    control)
+      if (failures=0; row "README text-only guarantee" "$d" 0 "" '!scripts/test-keyboard-ui.sh'; ((failures == 0))) >"$tmp/readme-text-control.log"; then
+        fail "control: the old README over-selection leaves the text-only assertion green"
+      elif grep -qF 'exit=0 want=0 missing= present=[scripts/test-keyboard-ui.sh]' "$tmp/readme-text-control.log"; then
+        ok "control: the old README over-selection fails the text-only assertion"
+      else
+        cat -- "$tmp/readme-text-control.log"
+        fail "control: the README assertion failed for another cause"
+      fi ;;
+    mixed|full|unreadable)
+      row "$variant README selection retains product coverage" "$d" 0 "" \
+        'scripts/test-keyboard-ui.sh' 'scripts/qml-smoke.sh' ;;
+  esac
+done
+test_args=()
 
 # The same selector/required-command assertion must fail when a directly
 # consumed notification source loses its edge. Mutate only the scratch
@@ -1839,6 +1911,9 @@ PY
   for file in $files; do
     if [[ $file == -* ]]; then rm -- "${d:?}/${file#-}"; else printf '# changed\n' >>"$d/$file"; fi
   done
+  # This case proves ordinary input reach. The text-only exception has its
+  # own real-README cases above, so keep this fixture a mixed change.
+  [[ $variant != table-owned ]] || printf '# mixed change\n' >>"$d/kendex.settings.toml"
   scope_args=(--changed HEAD)
   [[ $scope == changed ]] || scope_args=(--full)
   status=0
@@ -1889,9 +1964,9 @@ smoke_both="scripts/qml-smoke.sh --rows $smoke_core,launcher,notifications,notif
 # name~base (lane or old-main)~wanted plan~mutant old~mutant new
 rebase_cases=(
   "a fix round after a rebase selects the lane's own paths~lane~$smoke_launcher~~"
-  "control: a rebased base no longer narrows~lane~$smoke_both~  [[ \$status -eq 1 ]] || return 0~  return 0"
+  "control: a rebased base no longer narrows~lane~$smoke_both~  [[ \$status -eq 1 ]] || return \"\$status\"~  return 0"
   "a base HEAD holds selects every path since~old-main~$smoke_both~~"
-  "control: a base HEAD holds narrows too~old-main~$smoke_launcher~  [[ \$status -eq 1 ]] || return 0~  :"
+  "control: a base HEAD holds narrows too~old-main~$smoke_launcher~  [[ \$status -eq 1 ]] || return \"\$status\"~  :"
 )
 for spec in "${rebase_cases[@]}"; do
   IFS='~' read -r name base_kind wanted old new <<<"$spec"
@@ -2006,23 +2081,116 @@ printf 'changed\n' >>"$d/shell/plugins/acme.launcher/Panel.qml"
 row "the smoke input self-check names a harness with no input line" "$d" 0 "" \
   "validate: smoke-input harness=scripts/smoke/harness.sh missing; add to the leading comment block of scripts/smoke/harness.sh: # inputs: GLOB [GLOB...]" \
   "validate: smoke-rows=all reason=harness-line-unreadable"
-# plant FILE OLD NEW: replace the one occurrence of OLD in FILE, a copy of a
-# script under test, with NEW; a count other than one stops the suite.
-plant() {
-  python3 - "$@" <<'PY'
-from pathlib import Path
-import sys
-path, old, new = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
-source = path.read_text()
-assert source.count(old) == 1, old
-path.write_text(source.replace(old, new))
-PY
+# A real row and its real shared helpers, without starting their runtime.
+# The fixture keeps the row's whole source and declared inputs. Only the
+# changed helper, hunk shape or incoming commit varies; expected plans do
+# not come from the reach reader.
+function_fixture() { # DIR harness|library
+  local dir="$1" location="$2"
+  smoke_fixture "$dir"
+  python3 - "$repo" "$dir" "$location" <<'PYFUNCTION'
+import fnmatch, pathlib, re, subprocess, sys
+repo, target = map(pathlib.Path, sys.argv[1:3])
+location = sys.argv[3]
+source = (repo / "scripts/smoke/rows/gallery.sh").read_text()
+inputs = re.findall(r"^# inputs: (.+)$", source, re.M)
+assert len(inputs) == 1
+tracked = subprocess.check_output(["git", "-C", str(repo), "ls-files", "-z"]).decode().split("\0")
+for pattern in inputs[0].split():
+    matches = [path for path in tracked if path and fnmatch.fnmatchcase(path, pattern)]
+    assert matches, pattern
+    for path in matches:
+        destination = target / path
+        if not destination.exists():
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text("# neutral input\n" if path.endswith(".sh") else "")
+(target / "scripts/smoke/rows/gallery.sh").write_text(source)
+row_list = target / "scripts/smoke/rows.list"
+text = row_list.read_text()
+assert text.count("start-order\n") == 1
+row_list.write_text(text.replace("start-order\n", "gallery\nstart-order\n"))
+text = (repo / "scripts/smoke/harness.sh").read_text()
+start, end = "# Property readback is separate", "# qs_list ARG"
+assert text.count(start) == text.count(end) == 1
+helpers = text.split(start)[1].split("\n", 1)[1].split(end)[0]
+harness = target / "scripts/smoke/harness.sh"
+if location == "library":
+    (target / "scripts/smoke/helper/orbs.sh").write_text("# Orb readers\n" + helpers)
+    with harness.open("a") as out:
+        out.write('source "$repo/scripts/smoke/helper/orbs.sh"\n')
+else:
+    with harness.open("a") as out:
+        out.write("# Orb readers\n" + helpers)
+PYFUNCTION
+  commit "$dir" real-gallery
 }
-# commit DIR MESSAGE: commit every change in DIR.
-commit() {
-  "${base_env[@]}" git -C "$1" add -A
-  "${base_env[@]}" git -C "$1" commit -q -m "$2"
-}
+smoke_gallery="scripts/qml-smoke.sh --rows $smoke_core,$smoke_always,gallery,$smoke_tail"
+test_area=qml
+test_args=(--changed HEAD --list)
+for function_case in harness library transitive-control top-level shared-line unreadable; do
+  d="$tmp/function-reach-$function_case"
+  location=harness; [[ $function_case != library ]] || location=library
+  function_fixture "$d" "$location"
+  function_file="$d/scripts/smoke/harness.sh"
+  [[ $location != library ]] || function_file="$d/scripts/smoke/helper/orbs.sh"
+  if [[ $function_case == transitive-control ]]; then
+    plant "$d/scripts/validate" '            reached |= callers' '            break'
+    commit "$d" control
+  fi
+  case "$function_case" in
+    top-level) printf '# top-level edit\n' >>"$function_file"; wanted=scripts/qml-smoke.sh ;;
+    shared-line)
+      plant "$function_file" 'gallery_orb_offset() {' 'true; gallery_orb_offset() {'
+      wanted=scripts/qml-smoke.sh ;;
+    unreadable) printf "'\n" >>"$function_file"; wanted=scripts/qml-smoke.sh ;;
+    *)
+      plant "$function_file" $'orbs=json.load(sys.stdin)\nindex=int(sys.argv[1])' $'orbs=json.load(sys.stdin)\nindex=int(sys.argv[1])+0'
+      wanted="$smoke_gallery"
+      [[ $function_case != transitive-control ]] || wanted="scripts/qml-smoke.sh" ;;
+  esac
+  row "function reach $function_case uses the real Gallery row, never launcher" "$d" 0 "" "$wanted"
+done
+
+# These are actual incoming commits and a rebase, not an injected path list.
+# Gallery's own file stays unchanged across restack. Its unchanged helper is
+# an input even though the branch never edited that helper's pathname.
+for incoming in unrelated helper core own-fix input-reach-control; do
+  d="$tmp/restack-input-$incoming"; function_fixture "$d" harness
+  "${base_env[@]}" git -C "$d" branch -q -f trunk HEAD
+  "${base_env[@]}" git -C "$d" update-ref refs/remotes/origin/trunk HEAD
+  if [[ $incoming == input-reach-control ]]; then
+    plant "$d/scripts/validate" 'then reached=true; restack_qml_reached=true; fi' 'then :; fi'
+    commit "$d" control
+    "${base_env[@]}" git -C "$d" branch -q -f trunk HEAD
+    "${base_env[@]}" git -C "$d" update-ref refs/remotes/origin/trunk HEAD
+  fi
+  printf '// branch\n' >>"$d/shell/plugins/vgs.gallery/Window.qml"
+  commit "$d" lane
+  lane="$("${base_env[@]}" git -C "$d" rev-parse HEAD)"
+  "${base_env[@]}" git -C "$d" checkout -q trunk
+  case "$incoming" in
+    helper|input-reach-control)
+      plant "$d/scripts/smoke/harness.sh" $'orbs=json.load(sys.stdin)\nindex=int(sys.argv[1])' $'orbs=json.load(sys.stdin)\nindex=int(sys.argv[1])+0'
+      wanted="$smoke_gallery"
+      [[ $incoming != input-reach-control ]] || wanted="" ;;
+    core) printf '// incoming\n' >>"$d/shell/Core/Session.qml"; wanted="$smoke_none" ;;
+    *) printf '// incoming\n' >>"$d/shell/plugins/acme.notify/Panel.qml"; wanted="" ;;
+  esac
+  commit "$d" incoming
+  "${base_env[@]}" git -C "$d" update-ref refs/remotes/origin/trunk HEAD
+  "${base_env[@]}" git -C "$d" checkout -q feature
+  "${base_env[@]}" git -C "$d" rebase -q trunk
+  if [[ $incoming == own-fix ]]; then
+    printf '// fix\n' >>"$d/shell/plugins/vgs.gallery/Window.qml"
+    wanted="$smoke_gallery"
+  fi
+  test_args=(--changed "$lane" --list)
+  if [[ -z $wanted ]]; then
+    row "restack $incoming intersects incoming reach with the real Gallery inputs" "$d" 0 "" "!scripts/qml-smoke.sh"
+  else
+    row "restack $incoming intersects incoming reach with the real Gallery inputs" "$d" 0 "" "$wanted" "!scripts/qml-smoke.sh --rows $smoke_core,launcher,"
+  fi
+done
 
 # Keys owns the unlisted bubble row, whose diagnostics source needs the
 # listed caller's input declaration even without a direct symbol read.
@@ -2597,7 +2765,7 @@ d="$tmp/base-rebase-control"; passed_fixture "$d" '    [[ $tree == "$recorded" ]
 row "control: a commit that does not hold the recorded tree is still the base" "$d" 0 "" \
   "validate: base=$("${base_env[@]}" git -C "$d" rev-parse HEAD) source=last-pass"
 
-# A selector change after the pass: docs/selector.txt changes before the
+# A selector change after the pass: docs/selector.dat changes before the
 # logic pass, which selects no row for it, and a later commit maps it to the
 # plugin status judge row. The run reads the whole branch again and runs
 # that row. The control drops the selector check and takes the pass as its
@@ -2605,12 +2773,12 @@ row "control: a commit that does not hold the recorded tree is still the base" "
 for variant in real control; do
   d="$tmp/base-selector-$variant"; fresh "$d"
   [[ $variant == real ]] || plant "$d/scripts/validate" '  git diff --quiet "$commit" -- scripts/validate || status=$?' '  status=0'
-  mkdir -p "$d/docs"; printf 'selector\n' >"$d/docs/selector.txt"
+  mkdir -p "$d/docs"; printf 'selector\n' >"$d/docs/selector.dat"
   commit "$d" path
   test_area=logic test_args=()
   row_re "the $variant selector fixture's logic pass records its tree" "$d" 0 "" \
     "~validate: selected=0 area=logic" "validate: last-pass=recorded area=logic tree=$("${base_env[@]}" git -C "$d" rev-parse 'HEAD^{tree}')"
-  plant "$d/scripts/validate" '"logic|plugin status judge|node scripts/test-plugin-status.js|' '"logic|plugin status judge|node scripts/test-plugin-status.js|docs/selector.txt '
+  plant "$d/scripts/validate" '"logic|plugin status judge|node scripts/test-plugin-status.js|' '"logic|plugin status judge|node scripts/test-plugin-status.js|docs/selector.dat '
   commit "$d" selector
 done
 test_args=(--list)
@@ -3019,6 +3187,8 @@ for owner in 'audio-daemon|Jarvis audio daemon lifetime' 'browser|Jarvis browser
     d="$tmp/plan-$suite-edge-$(basename -- "$file")"; fresh "$d"
     mkdir -p -- "$d/$(dirname -- "$file")"
     printf 'changed\n' >"$d/$file"
+    # This dependency assertion covers the ordinary mixed-change path.
+    [[ $file != shell/plugins/vgs.jarvis/backend/skills/computer/input.md ]] || printf '# mixed change\n' >>"$d/kendex.settings.toml"
     out="$(cd -- "$d" && "${base_env[@]}" bash scripts/validate cli --changed HEAD --list 2>"$tmp/plan.err")"
     if grep -qxF "$consumer" <<<"$out"; then
       ok "$suite selects dependency $file"
@@ -3421,21 +3591,21 @@ import re
 import sys
 path = Path(sys.argv[1])
 source = path.read_text()
-row = '  "tools|changed list echo|scripts/changed-list.sh|changed.txt"'
+row = '  "tools|changed list echo|scripts/changed-list.sh|changed.dat"'
 source, count = re.subn(r'rows=\(\n.*?\n\)\n', 'rows=(\n' + row + '\n)\n', source, count=1, flags=re.S)
 assert count == 1
 path.write_text(source)
 PY
 "${base_env[@]}" git -C "$d" add -A
 "${base_env[@]}" git -C "$d" commit -q -m changed-list-row
-printf 'changed\n' >"$d/changed.txt"
+printf 'changed\n' >"$d/changed.dat"
 test_area=tools
 test_args=(--changed HEAD)
 row_re "a diff-scoped run exports the changed path list to rows" "$d" 0 "" \
-  "~changed-env=" "changed-path=changed.txt" "~validate: secs=" "validate: ok"
+  "~changed-env=" "changed-path=changed.dat" "~validate: secs=" "validate: ok"
 test_args=(--full)
 row "a full run unsets the changed path list inherited from the caller" "$d" 0 "VGS_VALIDATE_CHANGED=/x" \
-  "changed-env=unset" "!changed-path=changed.txt" "validate: ok"
+  "changed-env=unset" "!changed-path=changed.dat" "validate: ok"
 test_area=offline
 test_args=()
 

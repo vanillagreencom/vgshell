@@ -1,6 +1,14 @@
 # Sourced by qml-smoke.sh; owns the sandbox and shared readers.
-# inputs: scripts/smoke/user-config.sh scripts/smoke/verdict.sh scripts/smoke/mode-hold.sh scripts/smoke/tree.sh scripts/smoke/shot.sh scripts/smoke/app-window.sh scripts/smoke/display-record.sh scripts/smoke/socket_ends.py scripts/smoke/leaks.sh scripts/smoke/persisted-inputs.py bin/lib/ipc-reply.sh scripts/smoke/teardown.sh scripts/smoke/evidence.py scripts/smoke/hypr-call.sh scripts/smoke/devices.sh scripts/smoke/gpu-fence.sh scripts/smoke/Probe.qml scripts/smoke/pointer/* scripts/smoke/toplevel/* scripts/smoke/sink/* scripts/smoke/lock/* scripts/smoke/keyboard/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/devices/stand-in.py scripts/smoke/fixtures/devices/rfkill.json scripts/fixtures/jarvis/prepare.js scripts/fixtures/jarvis/audio.js scripts/fixtures/jarvis/keys-world.js scripts/fixtures/jarvis/accounts-world.js scripts/lib/jarvis-env.sh
+# inputs: scripts/smoke/user-config.sh scripts/smoke/verdict.sh scripts/smoke/mode-hold.sh scripts/smoke/tree.sh scripts/smoke/shot.sh scripts/smoke/app-window.sh scripts/smoke/display-record.sh scripts/smoke/socket_ends.py scripts/smoke/leaks.sh scripts/smoke/persisted-inputs.py bin/lib/ipc-reply.sh scripts/smoke/teardown.sh scripts/smoke/evidence.py scripts/smoke/hypr-call.sh scripts/smoke/devices.sh scripts/smoke/gpu-fence.sh scripts/smoke/Probe.qml scripts/smoke/pointer/* scripts/smoke/toplevel/* scripts/smoke/sink/* scripts/smoke/keyboard/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/devices/stand-in.py scripts/smoke/fixtures/devices/rfkill.json scripts/fixtures/jarvis/prepare.js scripts/fixtures/jarvis/audio.js scripts/fixtures/jarvis/keys-world.js scripts/fixtures/jarvis/accounts-world.js scripts/lib/jarvis-env.sh
 set -euo pipefail
+smoke_harness_started_us="${EPOCHREALTIME/./}"
+# Reports must not become a reader's stdout or stderr inside $() or a
+# must-fail fixture. This descriptor belongs to the harness's run log.
+exec {smoke_check_fd}>&1
+if [[ -n ${qml_smoke_attempt:-} && -r $qml_smoke_attempt/started-us ]]; then
+  read -r smoke_world_started_us <"$qml_smoke_attempt/started-us"
+  printf 'qml-smoke: fixed-us phase=world-start us=%s\n' "$((smoke_harness_started_us - smoke_world_started_us))"
+fi
 source "$repo/scripts/smoke/verdict.sh"
 source "$repo/scripts/smoke/mode-hold.sh"
 source "$repo/scripts/smoke/tree.sh"
@@ -89,7 +97,7 @@ expected_errors=()
 # start, and the daemon reads failed. A row that turns Voice on with no
 # stand-in for voxtype adds them to expected_errors.
 dictation_absent_errors=('WARN qml: dictation: probe code=127 ' 'WARN qml: dictation: daemon=failed reason=probe code=127$')
-ok() { printf '  ok    %s\n' "$*"; }
+ok() { printf '  ok    %s\n' "$*"; smoke_check_secs pass "$*"; }
 # control_output LOG copies a must-fail control's log into the run log with
 # each line marked, so a reader never takes a planted FAIL for a real one.
 control_output() { sed 's/^/  CONTROL  /' -- "$1"; }
@@ -480,8 +488,6 @@ shell_start_words=(MALLOC_CONF=junk:free PATH="$shell_start_path" VGS_NOTIFICATI
 # click: one click through the nested compositor's virtual pointer
 # protocol. toplevel: one xdg toplevel with a given app-id, so a row reads
 # back how the nested compositor places a window of that class.
-# lock-client: a second session-lock client, which rows/lock.sh starts and
-# stops by pid in place of another locker; it runs no authentication.
 # keyboard: physical keycodes with explicit modifier transitions.
 # build_helper NAME KEY SOURCE PROTOCOL_XML... [PACKAGES...]: each argument
 # after SOURCE that ends in .xml is a protocol file, every other one a
@@ -514,7 +520,6 @@ build_helper() {
 }
 build_helper click pointer "$repo/scripts/smoke/pointer/click.c" "$repo/scripts/smoke/pointer/wlr-virtual-pointer-unstable-v1.xml"
 build_helper toplevel toplevel "$repo/scripts/smoke/toplevel/toplevel.c" "$repo/scripts/smoke/toplevel/xdg-shell.xml"
-build_helper lock-client lock-client "$repo/scripts/smoke/lock/lock-client.c" "$repo/scripts/smoke/lock/ext-session-lock-v1.xml"
 build_helper keyboard keyboard "$repo/scripts/smoke/keyboard/keyboard.c" "$repo/scripts/smoke/keyboard/virtual-keyboard-unstable-v1.xml" xkbcommon
 # sink: the compositor the nested Hyprland draws to (scripts/smoke/sink/sink.c),
 # over the xdg-shell file the toplevel helper uses and the system's
@@ -2057,7 +2062,7 @@ theme_idle() { # [IPC_FN]
 # spawn's setsid does not fork, as a background job is no process group
 # leader, so the runner is spawn_pid itself.
 start_shell() { # TREE LOG [BAR [NAME=VALUE...]]
-  local tree="$1" log="$2" bar="${3:-bar}" start_cpu_some_us start_ms layers_text
+  local tree="$1" log="$2" bar="${3:-bar}" start_cpu_some_us start_ms layers_text status=0
   shift $(( $# < 3 ? $# : 3 ))
   [[ $bar == bar || $bar == no-bar ]] || { fail "start_shell: refused: bar=$bar want=bar|no-bar"; return 1; }
   instance_log=""
@@ -2088,7 +2093,9 @@ start_shell() { # TREE LOG [BAR [NAME=VALUE...]]
       sleep 0.01
     done
   fi
-  shell_answers "$tree" "$log"
+  shell_answers "$tree" "$log" || status=$?
+  printf 'qml-smoke: fixed-us phase=shell-start us=%s exit=%s log=%q\n' "$(( ($(now_ms) - start_ms) * 1000 ))" "$status" "$log"
+  return "$status"
 }
 # shell_answers TREE LOG: the tail start_shell and adopt_shell share. It
 # waits, every 200 ms for up to timeout_s, for the shell to answer ping
@@ -2870,6 +2877,7 @@ if [[ -n ${shell_output_size:-} || $shell_output_scale == 2 ]]; then
 fi
 # The shader-cost runner uses this sandbox without loading product services.
 if [[ ${harness_scene_only:-false} != true ]]; then
+  printf 'qml-smoke: fixed-us phase=harness-start us=%s\n' "$(( ${EPOCHREALTIME/./} - smoke_harness_started_us ))"
   start_shell "$repo" "$sandbox/qs.log" || exit 1
 fi
 # The one live layer with a namespace as [x, y, w, h], or layers=<n>.
@@ -3902,6 +3910,7 @@ smoke_row() { # NAME [DIR]
   local smoke_row_children smoke_row_owner=$BASHPID smoke_row_child smoke_row_active_jobs smoke_row_source_status=0 smoke_row_abandon_status=0
   local smoke_row_fault="$sandbox/rows/$1.command" smoke_row_faults=() smoke_row_abandon_faults=()
   local smoke_row_command smoke_row_abandon_command smoke_row_top=false
+  local smoke_check_previous="${EPOCHREALTIME/./}"
   local smoke_row_failures="$failures" smoke_row_original_status=0 smoke_row_failed=false leak_end leak_verdicts="" smoke_row_crashed_report="" smoke_row_crash_expected=""
   smoke_row_marker="qml-smoke: row-end $1 $$ $SRANDOM"
   mkdir -p -- "$sandbox/rows"

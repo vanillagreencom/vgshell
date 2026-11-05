@@ -31,7 +31,7 @@ A run that must outlive a tool call starts detached with HUP, INT and QUIT at th
 
 Keep temporary scripts under `tmp/`: an untracked file under `scripts/` is an unmapped input and selects the full area. A copy of `scripts/sandbox-shots.sh` under `tmp/` pins its `repo=` line to the checkout, since the script finds the checkout from its own path.
 
-Two GitHub workflows run on `main`, never on a push or a pull request. `.github/workflows/nightly.yml` runs `scripts/validate --full` on a schedule while the repository variable `NIGHTLY` is `on`, and reports only. `.github/workflows/kendex-refresh.yml` takes kendex package updates on each kendex release, every 6 hours and by hand: it opens the `kendex/refresh` pull request, which merges at once because `main` has no merge requirements. Kendex owns that file's bytes; it changes only through kendex's `refresh/adopt-refresh.sh`, which refuses a hand edit.
+Two GitHub workflows run on `main`, never on a push or a pull request. `.github/workflows/nightly.yml` runs `scripts/validate --full` on a schedule while the repository variable `NIGHTLY` is `on`, and reports only. `.github/workflows/kendex-refresh.yml` takes kendex package updates on each kendex release, hourly and by hand: it opens the `kendex/refresh` pull request, which merges at once because `main` has no merge requirements. Kendex owns that file's bytes; it changes only through kendex's `refresh/adopt-refresh.sh`, which refuses a hand edit.
 
 ## Debug
 

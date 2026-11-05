@@ -31,11 +31,9 @@
 # Control run on 2026-10-20, host cachy, through this row on the tree at
 # 6dda32697, the production files before VGS-1950: "not one 1 ms window of
 # Smoke Knock's 50 chimes is heard" failed, reading heard ms=1741.
-# A scoped retry runs `scripts/qml-smoke.sh --rows <row-list>`, where
-# <row-list> is
-# `bar,hyprland-consent,plugins,capabilities,session,status,notifications,
-# device-fakes,start-order,auth-sentinel`. `--rows notifications` alone
-# lacks the server and plugins earlier rows build.
+# A scoped retry names `scripts/qml-smoke.sh --rows notifications`. The
+# existing input reader adds the core and declared producer rows:
+# docs/architecture/validation.md § Selection.
 # inputs: scripts/fixtures/notifications/* scripts/smoke/fixtures/notifications/DelayedAppSounds.qml scripts/smoke/fixtures/notifications/AppSoundTrace.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/fixtures/notifications/state-v3.json bin/lib/qml-library.js shell/Commons/PageReference.js shell/Ui/foundation/ImageText* shell/Core/Sounds.qml shell/assets/sounds/* scripts/smoke/fixtures/plugins/acme.sounds/* scripts/smoke/devices.sh scripts/smoke/fixtures/devices/* shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/manifest.json shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.settings/ListPage.qml shell/plugins/vgs.settings/PluginPage.qml shell/plugins/vgs.settings/PageHeader.qml shell/plugins/vgs.settings/EditSet.qml shell/plugins/vgs.settings/Steps.js shell/Ui/controls/SettingField.qml shell/plugins/vgs.settings/KeyField.qml shell/plugins/vgs.settings/StatusRow.qml shell/plugins/vgs.settings/StatusLine.qml shell/plugins/vgs.settings/RequirementRow.qml shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Core/HyprlandLayer.js shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/fixtures/ai-usage/edit.py shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/overlay/Tooltip.qml shell/Ui/controls/Select.qml shell/Core/Plugins.qml shell/Commons/Tokens.js shell/Ui/layout/Section.qml shell/Ui/layout/Pane.qml shell/Ui/controls/RowAction.qml shell/Commons/Theme.qml shell/plugins/vgs.themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/vgs/* shell/Commons/ThemeLogic.js themes/catalog/flexoki-light/theme.json shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js
 set -euo pipefail
 # The row measures a row whose image is missing and the synthetic latency
@@ -48,6 +46,26 @@ cp -p -- "$home/.config/vgshell/shell.json" "$note_row_config"
 note_audio_backup=""
 note_audio_profile=""
 note_audio_shell_stopped=no
+note_geometry_keys=()
+# Geometry reads may outlive a toast's sender timeout. Use the same
+# per-card hold the inbox uses, without changing urgency or painted hover.
+notification_geometry_note() {
+  local summary="$3" key
+  notify "$@" >/dev/null || return 1
+  expect_poll "the geometry fixture $summary is published" True has_row live "$summary"
+  key="$(key_of "$summary")" || return 1
+  [[ $key != none ]] || return 1
+  expect "the geometry fixture $summary is held for measurement" ok notes hover "{\"key\":\"$key\",\"on\":true}"
+  note_geometry_keys+=("$key")
+  expect_poll "the geometry fixture $summary acknowledges its paused clock" paused clock_state "$summary"
+}
+notification_geometry_release() {
+  local key
+  for key in "${note_geometry_keys[@]}"; do
+    expect "the geometry measurement releases its card hold" ok notes hover "{\"key\":\"$key\",\"on\":false}"
+  done
+  note_geometry_keys=()
+}
 note_audio_paths=(
   "$home/.config/wireplumber/wireplumber.conf.d/90-vgs-smoke.conf"
   "$home/.config/wireplumber/wireplumber.conf.d/90-vgs-notification-sounds.conf"
@@ -124,6 +142,7 @@ notifications_abandon() {
     note_audio_shell_stopped=no
   fi
   notifications_restore_standins
+  notification_geometry_release
   ipc shell hide window vgs.settings >/dev/null
   cp -p -- "$note_row_config" "$home/.config/vgshell/shell.json.next"
   mv -T -- "$home/.config/vgshell/shell.json.next" "$home/.config/vgshell/shell.json"
@@ -1252,7 +1271,7 @@ fi
 # Images: a sender's file is copied for the stored entry; a missing one is
 # skipped and the card draws no image.
 python3 -c 'import base64,sys; open(sys.argv[1], "wb").write(base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="))' "$home/avatar.png"
-notify smoke-chat 0 "Pictured" "" '[]' "{\"image-path\": <\"$home/avatar.png\">}" 30000 >/dev/null
+notification_geometry_note smoke-chat 0 "Pictured" "" '[]' "{\"image-path\": <\"$home/avatar.png\">}" 30000
 expect_poll "a toast with an image shows" True has_row live "Pictured"
 pictured_key="$(key_of Pictured)"
 expect_poll "the sender's image was copied for the stored entry" True test_file "$note_images/$pictured_key-image"
@@ -1283,7 +1302,7 @@ expect "the icon is the copy out of Slack's cache" "$(file_url_json "$slack_icon
 expect "the copy is the cached image's body" "370 89504e470d0a1a0a" bash -c 'printf "%s %s\n" "$(stat -c %s -- "$1")" "$(od -An -tx1 -N8 -- "$1" | tr -d " ")"' _ "$slack_icon"
 expect "the workspace's name gives way to its icon" '"from Ada Lovelace"' card_value "[acme] from Ada Lovelace" title
 expect "a direct message shows its sender's face" '{"rule": "slack", "source": "desktop", "workspace": "acme", "title": "from Ada Lovelace", "faces": ["Ada Lovelace"], "more": 0}' card_value "[acme] from Ada Lovelace" enrichment
-notify Slack 0 "[acme] in ada, grace, alan, edsger, barbara" "alan: lunch at noon?" '[]' '{"desktop-entry": <"slack">}' 30000 >/dev/null
+notification_geometry_note Slack 0 "[acme] in ada, grace, alan, edsger, barbara" "alan: lunch at noon?" '[]' '{"desktop-entry": <"slack">}' 30000
 expect_poll "a group message reads four people, its sender first, and the rest as more" '{"rule": "slack", "source": "desktop", "workspace": "acme", "title": "in ada, grace, alan, edsger, barbara", "faces": ["alan", "ada", "grace", "edsger"], "more": 1}' card_value "[acme] in ada, grace, alan, edsger, barbara" enrichment
 expect "the group message's card draws its faces" true card_value "[acme] in ada, grace, alan, edsger, barbara" showsFaces
 # The group draws three faces and a chip past four people: alan, ada and
@@ -1564,13 +1583,13 @@ grab_glass() { # LABEL SUMMARY PNG
   render expect "the $1 card's slot is grabbed" grabbing ipc smoke grabLayerItem vgs.notifications CardSlot summary "$2" "$3"
   render expect_poll "the grab of the $1 card's slot is saved" "saved $3" ipc smoke grabbed
 }
-notify smoke-app 0 "Even one" "" '[]' '{}' 0 >/dev/null
-notify smoke-app 0 "Even two" "One line of body text" '[]' '{}' 0 >/dev/null
-notify smoke-app 0 "Even multi" $'The first line of the body\nthe second line\nand the third' '[]' '{}' 0 >/dev/null
-notify "Google Chrome" 0 "Weekly eStaff" $'calendar.google.com\n\n10:30am – 11:30am' '[]' '{}' 0 >/dev/null
-notify "" 0 "New message in master-operator" $'app.slack.com\n\nada: the deployment note is in the channel.' '[]' '{}' 0 >/dev/null
-notify smoke-app 0 "Even max" "$(printf 'A body long enough to run past every line the card may show. %.0s' $(seq 1 12))" '[]' '{}' 0 >/dev/null
-notify smoke-chat 0 "Hover geometry" "Pick one" '["default", "Open", "reply", "Reply"]' '{}' 30000 >/dev/null
+notification_geometry_note smoke-app 0 "Even one" "" '[]' '{}' 0
+notification_geometry_note smoke-app 0 "Even two" "One line of body text" '[]' '{}' 0
+notification_geometry_note smoke-app 0 "Even multi" $'The first line of the body\nthe second line\nand the third' '[]' '{}' 0
+notification_geometry_note "Google Chrome" 0 "Weekly eStaff" $'calendar.google.com\n\n10:30am – 11:30am' '[]' '{}' 0
+notification_geometry_note "" 0 "New message in master-operator" $'app.slack.com\n\nada: the deployment note is in the channel.' '[]' '{}' 0
+notification_geometry_note smoke-app 0 "Even max" "$(printf 'A body long enough to run past every line the card may show. %.0s' $(seq 1 12))" '[]' '{}' 0
+notification_geometry_note smoke-chat 0 "Hover geometry" "Pick one" '["default", "Open", "reply", "Reply"]' '{}' 30000
 expect_poll "the hover geometry card shows" True has_row live "Hover geometry"
 rest_on_card "Hover geometry" || fail "the pointer never rested on the hover geometry toast"
 expect_poll "the hover geometry card shows actions" '["Open", "Reply", "Dismiss"]' shown_pills "Hover geometry"
@@ -1756,6 +1775,7 @@ note_card_reading "hover action card geometry measured" "Hover geometry"
 note_card_reading "image avatar card geometry measured" Pictured
 note_card_reading "Slack faces card geometry measured" "[acme] in ada, grace, alan, edsger, barbara"
 note_header_reading
+notification_geometry_release
 expect "the inbox closes after header geometry" ok notes close
 
 # The media slot: every card, of one line or more, draws one slot the
@@ -5576,41 +5596,41 @@ CONF
   kill -- "-$app_call_pid" 2>/dev/null || true
   # The rule, without the shell: a chime 0.6 s long from Smoke Ping, an app
   # no earlier notification named, arrives with its notification while
-  # Sound is off. The speakers are recorded for 5 s from before the
-  # notification; once the hold names the app, the shell is stopped with
+  # Sound is off. The speakers are recorded from before the notification
+  # until the player drains; once the hold names the app, the shell is stopped with
   # SIGSTOP until the chime ends, so nothing but the rule can quiet it. A
   # take counts a 1 ms window heard when a sample in it passes 100.
   app_short="$sandbox/app-sound-chime.wav"
   python3 -c 'import math,struct,sys,wave
 w = wave.open(sys.argv[1], "wb"); w.setnchannels(1); w.setsampwidth(2); w.setframerate(48000)
 w.writeframes(b"".join(struct.pack("<h", int(8000 * math.sin(2 * math.pi * 440 * i / 48000))) for i in range(28800)))' "$app_short" || fail "the chime could not be written"
-  # app_take_heard WAV: `silent` for a take of at least 4.5 s with no
+  # app_take_heard WAV: `silent` for a take covering the whole chime with no
   # window heard, `heard` for one with at least 500 ms heard, else what
   # it read.
   app_take_heard() { # WAV
-    python3 -c 'import struct,sys
+    python3 -c 'import struct,sys,wave
 d = open(sys.argv[1], "rb").read()[44:]
 n = len(d) // 2
 x = struct.unpack("<%dh" % n, d[:n * 2])
 heard = sum(1 for i in range(n // 48) if max(abs(v) for v in x[i * 48:(i + 1) * 48]) > 100)
-if n < 4.5 * 48000: print("short samples=%d" % n)
+with wave.open(sys.argv[2], "rb") as chime: required = chime.getnframes()
+if n < required: print("short samples=%d" % n)
 elif heard == 0: print("silent")
 elif heard >= 500: print("heard")
-else: print("faint ms=%d" % heard)' "$1"
+else: print("faint ms=%d" % heard)' "$1" "$app_short"
   }
   app_recording() { "${shell_env[@]}" pw-dump | py_reply 'import json,sys; print(any(o.get("type") == "PipeWire:Interface:Node" and (o["info"].get("props") or {}).get("node.name") == "app-take-recorder" for o in json.load(sys.stdin)))'; }
   # app_take_start NAME: the recording starts, then Smoke Ping's
   # notification is sent.
   app_take_start() { # NAME
     app_take_file="$sandbox/app-take-$1.wav"
-    app_take_ms="$(now_ms)"
     spawn "$sandbox/app-take-$1.log" "${shell_env[@]}" pw-record --target vgs-smoke-speakers -P '{ node.name = "app-take-recorder" stream.capture.sink = true }' --channels 1 --format s16 --rate 48000 "$app_take_file"
     app_take_rec="$spawn_pid"
     expect_poll "$1: the recording runs" True app_recording
     notify "Smoke Ping" 0 "Ping $1" "" '[]' '{"desktop-entry": <"smoke-ping">}' 0 >/dev/null || fail "$1: the notification was not sent"
   }
   # app_take_chime NAME: the shell stopped, the chime played to its end,
-  # the shell continued, and the recording stopped 5 s after it started.
+  # the shell continued, and the recording stopped after the player's drain.
   # app_take_props is every distinct [mute, softMute] reading of the chime
   # stream while it plays, sorted, `none` when no reading found it, and
   # app_take_status the chime player's exit status. The first reading may
@@ -5633,7 +5653,6 @@ else: print("faint ms=%d" % heard)' "$1"
     app_take_status=0
     wait "$chime_pid" || app_take_status=$?
     kill -CONT "$shell_qs_pid" || fail "$1: the SIGCONT to the shell failed"
-    while (( $(now_ms) - app_take_ms < 5000 )); do sleep 0.1; done
     kill -INT -- "-$app_take_rec" 2>/dev/null || true
     for _ in $(seq 1 30); do kill -0 "$app_take_rec" 2>/dev/null || break; sleep 0.1; done
   }
