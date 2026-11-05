@@ -1112,6 +1112,19 @@ expect "the shortcut opens the themes panel" ok hypr dispatch 'hl.dsp.global("vg
 expect_poll "the reopened panel shows the apply's result" '[["dawn", "installed", "Displayed"], ["dawn", "shipped", "Hidden by another copy"]]' theme_row dawn
 expect "the theme changed while the panel was closed" dawn ipc smoke themeName
 
+# The panel can display the retained result before its opening read ends.
+# Read pending first: readData clears it synchronously before another read,
+# so the final reading=false also excludes a newly pending read.
+themes_browser_read_state() {
+  local pending reading
+  pending="$(ipc smoke readInstance service vgs.themes dataPending)" || return
+  reading="$(ipc smoke readInstance service vgs.themes readingData)" || return
+  printf '%s %s\n' "$pending" "$reading"
+}
+themes_read_failures=$failures
+expect_poll "the panel's opening read ends before the held apply baseline" 'false false' themes_browser_read_state
+((failures == themes_read_failures)) || return 1
+
 # A panel reopened while its apply runs reads the apply from last, and the
 # result it waits for carries a target state no code of the panel names.
 # The same gate holds the stand-in.
