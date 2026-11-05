@@ -843,7 +843,7 @@ cases=(
   "compositor-reveal-barrier-suite|scripts/test-compositor-reveal.py|tools|python3 scripts/test-compositor-reveal.py"
   "smoke-configuration-restore-suite|scripts/test-smoke-user-config.py|tools|python3 scripts/test-smoke-user-config.py"
   "smoke-anr-isolation-suite|scripts/test-smoke-anr.py|tools|python3 scripts/test-smoke-anr.py"
-  "jarvis-poll-harness|scripts/smoke/harness.sh|all|node scripts/test-jarvis-daemon.js"$'\nscripts/test-smoke-verdict.sh\nscripts/test-smoke-hypr-bound.sh\nscripts/test-mode-hold.sh\npython3 scripts/check-smoke-readers.py\npython3 scripts/test-smoke-dumps.py\npython3 scripts/test-check-smoke-readers.py\npython3 scripts/test-compositor-reveal.py\nscripts/test-secret-tool-stand-in.sh\nscripts/test-smoke-input-guard.sh\nscripts/test-smoke-xwayland.sh\nsmoke_reads_named\nscripts/test-smoke-teardown.sh\npython3 scripts/test-smoke-persisted-inputs.py\npython3 scripts/test-smoke-evidence.py\nscripts/test-smoke-display-record.sh\npython3 scripts/test-smoke-anr.py\nscripts/test-smoke-sink.sh\npython3 scripts/test-smoke-user-config.py\nscripts/test-sandbox-shots.sh\nscripts/test-gpu-fence.sh\nnode scripts/test-jarvis-env.js\nscripts/test-jarvis-selftest.sh\n'"$repo_plan"$'\nscripts/qml-smoke.sh\nscripts/measure-shader.sh'
+  "jarvis-poll-harness|scripts/smoke/harness.sh|all|node scripts/test-jarvis-daemon.js"$'\nscripts/test-smoke-verdict.sh\nscripts/test-smoke-hypr-bound.sh\nscripts/test-mode-hold.sh\npython3 scripts/check-smoke-readers.py\npython3 scripts/test-smoke-dumps.py\npython3 scripts/test-check-smoke-readers.py\npython3 scripts/test-compositor-reveal.py\nscripts/test-secret-tool-stand-in.sh\nscripts/test-smoke-input-guard.sh\nscripts/test-smoke-xwayland.sh\nsmoke_reads_named\nscripts/test-smoke-teardown.sh\npython3 scripts/test-smoke-persisted-inputs.py\npython3 scripts/test-smoke-evidence.py\nscripts/test-smoke-display-record.sh\npython3 scripts/test-smoke-anr.py\nscripts/test-smoke-sink.sh\npython3 scripts/test-smoke-user-config.py\nscripts/test-sandbox-shots.sh\nscripts/test-gpu-fence.sh\nnode scripts/test-jarvis-env.js\nscripts/test-jarvis-selftest.sh\n'"$repo_plan"$'\nscripts/test-validate.sh\nscripts/qml-smoke.sh\nscripts/measure-shader.sh'
   "smoke-persisted-input-suite|scripts/test-smoke-persisted-inputs.py|tools|python3 scripts/test-smoke-persisted-inputs.py"
   "smoke-persisted-input-owner|scripts/smoke/persisted-inputs.py|tools|python3 scripts/test-smoke-dumps.py"$'\nsmoke_reads_named\npython3 scripts/test-smoke-persisted-inputs.py\npython3 scripts/test-smoke-evidence.py\npython3 scripts/test-smoke-anr.py'
   "shortcut-provider|shell/Core/ShortcutRegistry.qml|unit|scripts/test-keyboard-ui.sh"$'\nscripts/qml-unit.sh\nscripts/test-qml-unit.sh'
@@ -1889,9 +1889,9 @@ smoke_both="scripts/qml-smoke.sh --rows $smoke_core,launcher,notifications,notif
 # name~base (lane or old-main)~wanted plan~mutant old~mutant new
 rebase_cases=(
   "a fix round after a rebase selects the lane's own paths~lane~$smoke_launcher~~"
-  "control: a rebased base no longer narrows~lane~$smoke_both~  [[ \$status -eq 1 ]] || return 0~  return 0"
+  "control: a rebased base no longer narrows~lane~$smoke_both~  [[ \$status -eq 1 ]] || return \"\$status\"~  return 0"
   "a base HEAD holds selects every path since~old-main~$smoke_both~~"
-  "control: a base HEAD holds narrows too~old-main~$smoke_launcher~  [[ \$status -eq 1 ]] || return 0~  :"
+  "control: a base HEAD holds narrows too~old-main~$smoke_launcher~  [[ \$status -eq 1 ]] || return \"\$status\"~  :"
 )
 for spec in "${rebase_cases[@]}"; do
   IFS='~' read -r name base_kind wanted old new <<<"$spec"
@@ -2023,6 +2023,117 @@ commit() {
   "${base_env[@]}" git -C "$1" add -A
   "${base_env[@]}" git -C "$1" commit -q -m "$2"
 }
+
+# A real row and its real shared helpers, without starting their runtime.
+# The fixture keeps the row's whole source and declared inputs. Only the
+# changed helper, hunk shape or incoming commit varies; expected plans do
+# not come from the reach reader.
+function_fixture() { # DIR harness|library
+  local dir="$1" location="$2"
+  smoke_fixture "$dir"
+  python3 - "$repo" "$dir" "$location" <<'PYFUNCTION'
+import fnmatch, pathlib, re, subprocess, sys
+repo, target = map(pathlib.Path, sys.argv[1:3])
+location = sys.argv[3]
+source = (repo / "scripts/smoke/rows/gallery.sh").read_text()
+inputs = re.findall(r"^# inputs: (.+)$", source, re.M)
+assert len(inputs) == 1
+tracked = subprocess.check_output(["git", "-C", str(repo), "ls-files", "-z"]).decode().split("\0")
+for pattern in inputs[0].split():
+    matches = [path for path in tracked if path and fnmatch.fnmatchcase(path, pattern)]
+    assert matches, pattern
+    for path in matches:
+        destination = target / path
+        if not destination.exists():
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text("# neutral input\n" if path.endswith(".sh") else "")
+(target / "scripts/smoke/rows/gallery.sh").write_text(source)
+row_list = target / "scripts/smoke/rows.list"
+text = row_list.read_text()
+assert text.count("start-order\n") == 1
+row_list.write_text(text.replace("start-order\n", "gallery\nstart-order\n"))
+text = (repo / "scripts/smoke/harness.sh").read_text()
+start, end = "# Property readback is separate", "# qs_list ARG"
+assert text.count(start) == text.count(end) == 1
+helpers = text.split(start)[1].split("\n", 1)[1].split(end)[0]
+harness = target / "scripts/smoke/harness.sh"
+if location == "library":
+    (target / "scripts/smoke/helper/orbs.sh").write_text("# Orb readers\n" + helpers)
+    with harness.open("a") as out:
+        out.write('source "$repo/scripts/smoke/helper/orbs.sh"\n')
+else:
+    with harness.open("a") as out:
+        out.write("# Orb readers\n" + helpers)
+PYFUNCTION
+  commit "$dir" real-gallery
+}
+smoke_gallery="scripts/qml-smoke.sh --rows $smoke_core,$smoke_always,gallery,$smoke_tail"
+test_area=qml
+test_args=(--changed HEAD --list)
+for function_case in harness library transitive-control top-level shared-line unreadable; do
+  d="$tmp/function-reach-$function_case"
+  location=harness; [[ $function_case != library ]] || location=library
+  function_fixture "$d" "$location"
+  function_file="$d/scripts/smoke/harness.sh"
+  [[ $location != library ]] || function_file="$d/scripts/smoke/helper/orbs.sh"
+  if [[ $function_case == transitive-control ]]; then
+    plant "$d/scripts/validate" '            reached |= callers' '            break'
+    commit "$d" control
+  fi
+  case "$function_case" in
+    top-level) printf '# top-level edit\n' >>"$function_file"; wanted=scripts/qml-smoke.sh ;;
+    shared-line)
+      plant "$function_file" 'gallery_orb_offset() {' 'true; gallery_orb_offset() {'
+      wanted=scripts/qml-smoke.sh ;;
+    unreadable) printf "'\n" >>"$function_file"; wanted=scripts/qml-smoke.sh ;;
+    *)
+      plant "$function_file" $'orbs=json.load(sys.stdin)\nindex=int(sys.argv[1])' $'orbs=json.load(sys.stdin)\nindex=int(sys.argv[1])+0'
+      wanted="$smoke_gallery"
+      [[ $function_case != transitive-control ]] || wanted="scripts/qml-smoke.sh" ;;
+  esac
+  row "function reach $function_case uses the real Gallery row, never launcher" "$d" 0 "" "$wanted"
+done
+
+# These are actual incoming commits and a rebase, not an injected path list.
+# Gallery's own file stays unchanged across restack. Its unchanged helper is
+# an input even though the branch never edited that helper's pathname.
+for incoming in unrelated helper core own-fix input-reach-control; do
+  d="$tmp/restack-input-$incoming"; function_fixture "$d" harness
+  "${base_env[@]}" git -C "$d" branch -q -f trunk HEAD
+  "${base_env[@]}" git -C "$d" update-ref refs/remotes/origin/trunk HEAD
+  if [[ $incoming == input-reach-control ]]; then
+    plant "$d/scripts/validate" 'then reached=true; restack_qml_reached=true; fi' 'then :; fi'
+    commit "$d" control
+    "${base_env[@]}" git -C "$d" branch -q -f trunk HEAD
+    "${base_env[@]}" git -C "$d" update-ref refs/remotes/origin/trunk HEAD
+  fi
+  printf '// branch\n' >>"$d/shell/plugins/vgs.gallery/Window.qml"
+  commit "$d" lane
+  lane="$("${base_env[@]}" git -C "$d" rev-parse HEAD)"
+  "${base_env[@]}" git -C "$d" checkout -q trunk
+  case "$incoming" in
+    helper|input-reach-control)
+      plant "$d/scripts/smoke/harness.sh" $'orbs=json.load(sys.stdin)\nindex=int(sys.argv[1])' $'orbs=json.load(sys.stdin)\nindex=int(sys.argv[1])+0'
+      wanted="$smoke_gallery"
+      [[ $incoming != input-reach-control ]] || wanted="" ;;
+    core) printf '// incoming\n' >>"$d/shell/Core/Session.qml"; wanted="$smoke_none" ;;
+    *) printf '// incoming\n' >>"$d/shell/plugins/acme.notify/Panel.qml"; wanted="" ;;
+  esac
+  commit "$d" incoming
+  "${base_env[@]}" git -C "$d" update-ref refs/remotes/origin/trunk HEAD
+  "${base_env[@]}" git -C "$d" checkout -q feature
+  "${base_env[@]}" git -C "$d" rebase -q trunk
+  if [[ $incoming == own-fix ]]; then
+    printf '// fix\n' >>"$d/shell/plugins/vgs.gallery/Window.qml"
+    wanted="$smoke_gallery"
+  fi
+  test_args=(--changed "$lane" --list)
+  if [[ -z $wanted ]]; then
+    row "restack $incoming intersects incoming reach with the real Gallery inputs" "$d" 0 "" "!scripts/qml-smoke.sh"
+  else
+    row "restack $incoming intersects incoming reach with the real Gallery inputs" "$d" 0 "" "$wanted" "!scripts/qml-smoke.sh --rows $smoke_core,launcher,"
+  fi
+done
 
 # Keys owns the unlisted bubble row, whose diagnostics source needs the
 # listed caller's input declaration even without a direct symbol read.

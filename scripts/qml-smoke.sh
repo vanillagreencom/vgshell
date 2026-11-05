@@ -507,6 +507,7 @@ PY
     exec {qml_smoke_log_fd}> >(exec env --default-signal=INT,QUIT tee "$qml_smoke_attempt/run.log")
     qml_smoke_log_pid=$!
     if ((qml_smoke_cancel_status == 0)); then
+      printf '%s\n' "${EPOCHREALTIME/./}" >"$qml_smoke_attempt/started-us"
       env --default-signal=INT,QUIT "$repo/scripts/smoke/gpu-fence.sh" --fresh "${world_args[@]}" --out "$qml_smoke_attempt" \
         "$BASH" -c 'qml_smoke_attempt=$1; qml_smoke_completion=$2; shift 2; source "$@"' "$self" "$qml_smoke_attempt" "$qml_smoke_completion" "$self" \
         "${argv[@]}" --rows "$qml_smoke_next" --log-dir "$smoke_log_dir" >&"$qml_smoke_log_fd" 2>&1 {qml_smoke_log_fd}>&- &

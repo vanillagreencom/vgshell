@@ -30,6 +30,19 @@ mode_hold_run_base=false
 # The row stops there and every other row still runs; a run with no
 # failure and any such row is not measured, never a pass.
 not_measured_rows=()
+# Each interval includes the action and setup since the previous check report,
+# not just its final read. EPOCHREALTIME is Bash's clock: reporting forks no
+# process per check. A row and each subshell keep their own reporting clock.
+smoke_check_previous="${EPOCHREALTIME/./}"
+smoke_check_secs() { # OUTCOME LABEL
+  # Standalone verdict fixtures have no row log. Only the harness owns it.
+  [[ -n ${smoke_check_fd:-} ]] || return 0
+  local ended="${EPOCHREALTIME/./}" elapsed
+  elapsed=$((ended - smoke_check_previous))
+  printf 'qml-smoke: check-secs row=%s secs=%d.%06d outcome=%s depth=%s check=%q\n' \
+    "${smoke_row_name:-setup}" "$((elapsed / 1000000))" "$((elapsed % 1000000))" "$1" "$BASH_SUBSHELL" "$2" >&"$smoke_check_fd"
+  smoke_check_previous="$ended"
+}
 # qml-smoke's driver reads the last partial outcome if this row fatals.
 # Planted controls reset their own counters; neither a subshell nor a
 # nested row may replace the containing row's projection.
@@ -57,6 +70,7 @@ smoke_outcome_journal() {
 not_measured() {
   not_measured_rows+=("$1:$2")
   printf '  SKIP  %s: not measured: %s\n' "$1" "$2"
+  smoke_check_secs unmeasured "$1:$2"
   smoke_outcome_journal
 }
 # fail MESSAGE: one failed row, counted by its class and printed.
@@ -64,6 +78,7 @@ fail() {
   failures=$((failures + 1))
   [[ $row_class == geometry || $row_class == render ]] || behaviour_failures=$((behaviour_failures + 1))
   printf '  FAIL  %s\n' "$*"
+  smoke_check_secs fail "$*"
   smoke_outcome_journal
 }
 # read_count VAR LABEL CMD...: VAR takes CMD's last stdout line when CMD

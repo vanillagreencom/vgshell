@@ -5,6 +5,7 @@
 set -euo pipefail
 note_hold_active=no
 note_hold_delivery_backup=""
+note_hold_deadline_backup=""
 note_hold_fixture=$repo/scripts/fixtures/notifications
 
 notification_hold_install() {
@@ -36,9 +37,15 @@ notification_hold_install() {
 }
 
 notification_hold_restore_delivery() {
-  [[ -n $note_hold_delivery_backup ]] || return 0
-  node "$note_hold_fixture/held-delivery.js" restore-held "$repo/shell/plugins/vgs.notifications/Service.qml" "$note_hold_delivery_backup"
-  note_hold_delivery_backup=""
+  [[ -n $note_hold_delivery_backup || -n $note_hold_deadline_backup ]] || return 0
+  if [[ -n $note_hold_delivery_backup ]]; then
+    node "$note_hold_fixture/held-delivery.js" restore-held "$repo/shell/plugins/vgs.notifications/Service.qml" "$note_hold_delivery_backup" || return 1
+    note_hold_delivery_backup=""
+  fi
+  if [[ -n $note_hold_deadline_backup ]]; then
+    node "$note_hold_fixture/held-delivery.js" restore-deadline "$repo/shell/plugins/vgs.notifications/NotificationLogic.js" "$note_hold_deadline_backup" || return 1
+    note_hold_deadline_backup=""
+  fi
   rescan "the row restores the actual rule-held delivery"
 }
 
@@ -49,14 +56,24 @@ notification_hold_cases() {
   expect "unsupported bootstrap publishes the Settings requirement" True notification_hold_notice
   for mode in restart lease deadline; do
     if [[ $mode == deadline ]]; then
+      expect_poll "the published policy has its acquired writer before the timer fixture" acquired notification_hold_writer
+      expect "the published hold keeps the production duration" 15000 python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["deadlineMs"])' "$sandbox/notification-writer.json"
       note_hold_delivery_backup="$sandbox/notification-held-delivery"
+      note_hold_deadline_backup="$sandbox/notification-short-deadline"
       node "$note_hold_fixture/held-delivery.js" suppress-held "$repo/shell/plugins/vgs.notifications/Service.qml" "$note_hold_delivery_backup"
+      # This exercises the same real timeout callback, not fifteen seconds
+      # of policy already held by test-notifications-logic.js. The native
+      # reader takes its duration from the published deadlineMs.
+      node "$note_hold_fixture/held-delivery.js" short-deadline "$repo/shell/plugins/vgs.notifications/NotificationLogic.js" "$note_hold_deadline_backup"
       rescan "the native missed-frame case omits the actual rule-held delivery"
     fi
     for variant in actual control; do
       notification_hold_install
       expect "Sound turns off before the native hold case" off notes sound off
       expect_poll "the native hold entry has an acquired shell writer" acquired notification_hold_writer
+      if [[ $mode == deadline ]]; then
+        expect "the real timer reads the fixture's short published duration" 1000 python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["deadlineMs"])' "$sandbox/notification-writer.json"
+      fi
       if [[ $variant == control ]]; then
         python3 "$note_hold_fixture/hold-rule-control.py" "$mode" "$repo/shell/plugins/vgs.notifications/wireplumber/vgs-notification-sounds.lua" "$home/.local/share/wireplumber/scripts/vgs-notification-sounds.lua"
       fi

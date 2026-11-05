@@ -17,6 +17,7 @@ fi
 
 cleanup() {
   local original_status=$?
+  local teardown_started_us="${EPOCHREALTIME/./}"
   trap '' TERM INT HUP
   # A stop that signals every process of the world, as a unit's stop does,
   # also ends what this output runs through: a row's output filter
@@ -51,5 +52,6 @@ cleanup() {
       printf 'qml-smoke: cleanup=recorder-finalization-failed path=%s\n' "${display_record_dir:-unavailable}" >&2
     fi
   fi
+  printf 'qml-smoke: fixed-us phase=teardown us=%s\n' "$(( ${EPOCHREALTIME/./} - teardown_started_us ))"
 }
 trap cleanup EXIT

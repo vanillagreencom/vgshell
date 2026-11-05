@@ -348,6 +348,48 @@ smoke_row_secs empty 3000 ""
         "qml-smoke: row-secs row=empty secs=0 cpu_some_pct=unmeasured load1=unmeasured",
     ], result.stdout
 
+    check_ok = root / "ok.sh"
+    check_ok.write_text(function("ok"))
+    verdict = HARNESS.with_name("verdict.sh")
+
+    def check_reporting(path):
+        result = subprocess.run([BASH, "-c", '''set -euo pipefail
+source "$1"
+source "$2"
+exec {smoke_check_fd}>&1
+smoke_row_name=example
+smoke_check_previous=0
+ok first
+fail second
+not_measured example fixture
+captured="$(ok captured 2>"$3")"
+[[ $captured == '  ok    captured' && ! -s $3 ]]
+printf 'counts=%s,%s,%s\\n' "$failures" "$behaviour_failures" "${#not_measured_rows[@]}"
+''', "_", str(path), str(check_ok), str(root / "reader-stderr")], env=ENV, capture_output=True, text=True, timeout=30)
+        assert result.returncode == 0, result.stderr
+        # Structured timing is an instrument, not an outcome that can make a
+        # failed or unavailable check pass. No real wait is needed here.
+        readings = re.findall(r"(?m)^qml-smoke: check-secs row=example secs=([0-9]+\.[0-9]{6}) "
+                              r"outcome=(pass|fail|unmeasured) depth=[01] check=(.+)$", result.stdout)
+        assert [row[1:] for row in readings] == [
+            ("pass", "first"), ("fail", "second"), ("unmeasured", "example:fixture"), ("pass", "captured"),
+        ], result.stdout
+        assert "counts=1,1,1" in result.stdout, result.stdout
+        assert float(readings[0][0]) > 0, "elapsed-interval-missing"
+
+    check_reporting(verdict)
+    control = root / "no-check-interval.sh"
+    text = verdict.read_text()
+    before = "elapsed=$((ended - smoke_check_previous))"
+    assert text.count(before) == 1
+    control.write_text(text.replace(before, "elapsed=0"))
+    try:
+        check_reporting(control)
+    except AssertionError as error:
+        assert str(error) == "elapsed-interval-missing", error
+    else:
+        raise AssertionError("check-interval control survived")
+
     for case in cases:
         ipc_case(production, case)
         print("smoke-ipc: bounded-row=" + case[0])

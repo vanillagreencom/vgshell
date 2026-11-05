@@ -1309,9 +1309,11 @@ class Lines:
 def capture_sequence(root, helper=HELPER, output="NESTED"):
     """The reported order, with a real control-pipe countdown and clipboard bytes.
 
-    The one-second issue requirement covers completion to bytes, with 10 ms
-    unsuccessful polls. The fixture provider exits here; freeze_released_holds
-    separately proves the foreground provider retains the capture PID.
+    The nested capture row owns the one-second completion-to-clipboard
+    reading with the real provider. This fixture owns order and exact bytes:
+    timing its observer measured host scheduling instead (VGS-2156,
+    loaded-clock comment baf87a46). The fixture provider exits here;
+    freeze_released_holds separately proves it retains the capture PID.
     """
     for index, action in enumerate(("screenshot", "record", "screenshot-area", "screenshot-area", "screenshot-area")):
         payload = request(root, action)
@@ -1342,11 +1344,10 @@ def capture_sequence(root, helper=HELPER, output="NESTED"):
                 return False
             saved = observed[-1]
             wanted = ((Path(saved["path"]).as_uri() + "\r\n").encode() if action == "record" else Path(saved["path"]).read_bytes())
-            while time.monotonic() - completed <= 1:
-                if (root / "clipboard").exists() and (root / "clipboard").read_bytes() == wanted and proc.poll() is not None:
-                    break
-                time.sleep(0.01)
-            if time.monotonic() - completed > 1 or proc.poll() != 0 or (root / "clipboard").read_bytes() != wanted:
+            # Completion of the owned provider is the acknowledgement that
+            # the fixture wrote its clipboard. The timeout bounds a stuck
+            # child; it is not a performance assertion on the parent reader.
+            if proc.wait(timeout=5) != 0 or not (root / "clipboard").is_file() or (root / "clipboard").read_bytes() != wanted:
                 return False
             if grims_before is not None and len(tool_calls(root, "grim")) != grims_before + 1:
                 return False
@@ -2384,7 +2385,17 @@ def main():
             return root
         hyprctl_records(base)
         root = world("reported-sequence")
-        assert capture_sequence(root, output=output), "reported capture sequence delivers each result within one second"
+        # Reproduce the loaded parent without a real scheduling wait. The
+        # worker runs unchanged; only the observer's clock advances after a
+        # saved event is already readable. The former one-second guard fails.
+        observed_clock, observed_read, offset = time.monotonic, Lines.read, [0]
+        def late_read(reader, timeout):
+            messages = observed_read(reader, timeout)
+            if any(message["event"] == "saved" for message in messages):
+                offset[0] += 2
+            return messages
+        with patch.object(Lines, "read", late_read), patch.object(time, "monotonic", lambda: observed_clock() + offset[0]):
+            assert capture_sequence(root, output=output), "reported capture sequence delivers exact results in completion order after a delayed observer"
         before = '            path, child = self.deliver(request, args)\n        if path is None:'
         assert HELPER.read_text().count(before) == 1
         second = base / "second-grim.py"

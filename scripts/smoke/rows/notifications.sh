@@ -5576,41 +5576,41 @@ CONF
   kill -- "-$app_call_pid" 2>/dev/null || true
   # The rule, without the shell: a chime 0.6 s long from Smoke Ping, an app
   # no earlier notification named, arrives with its notification while
-  # Sound is off. The speakers are recorded for 5 s from before the
-  # notification; once the hold names the app, the shell is stopped with
+  # Sound is off. The speakers are recorded from before the notification
+  # until the player drains; once the hold names the app, the shell is stopped with
   # SIGSTOP until the chime ends, so nothing but the rule can quiet it. A
   # take counts a 1 ms window heard when a sample in it passes 100.
   app_short="$sandbox/app-sound-chime.wav"
   python3 -c 'import math,struct,sys,wave
 w = wave.open(sys.argv[1], "wb"); w.setnchannels(1); w.setsampwidth(2); w.setframerate(48000)
 w.writeframes(b"".join(struct.pack("<h", int(8000 * math.sin(2 * math.pi * 440 * i / 48000))) for i in range(28800)))' "$app_short" || fail "the chime could not be written"
-  # app_take_heard WAV: `silent` for a take of at least 4.5 s with no
+  # app_take_heard WAV: `silent` for a take covering the whole chime with no
   # window heard, `heard` for one with at least 500 ms heard, else what
   # it read.
   app_take_heard() { # WAV
-    python3 -c 'import struct,sys
+    python3 -c 'import struct,sys,wave
 d = open(sys.argv[1], "rb").read()[44:]
 n = len(d) // 2
 x = struct.unpack("<%dh" % n, d[:n * 2])
 heard = sum(1 for i in range(n // 48) if max(abs(v) for v in x[i * 48:(i + 1) * 48]) > 100)
-if n < 4.5 * 48000: print("short samples=%d" % n)
+with wave.open(sys.argv[2], "rb") as chime: required = chime.getnframes()
+if n < required: print("short samples=%d" % n)
 elif heard == 0: print("silent")
 elif heard >= 500: print("heard")
-else: print("faint ms=%d" % heard)' "$1"
+else: print("faint ms=%d" % heard)' "$1" "$app_short"
   }
   app_recording() { "${shell_env[@]}" pw-dump | py_reply 'import json,sys; print(any(o.get("type") == "PipeWire:Interface:Node" and (o["info"].get("props") or {}).get("node.name") == "app-take-recorder" for o in json.load(sys.stdin)))'; }
   # app_take_start NAME: the recording starts, then Smoke Ping's
   # notification is sent.
   app_take_start() { # NAME
     app_take_file="$sandbox/app-take-$1.wav"
-    app_take_ms="$(now_ms)"
     spawn "$sandbox/app-take-$1.log" "${shell_env[@]}" pw-record --target vgs-smoke-speakers -P '{ node.name = "app-take-recorder" stream.capture.sink = true }' --channels 1 --format s16 --rate 48000 "$app_take_file"
     app_take_rec="$spawn_pid"
     expect_poll "$1: the recording runs" True app_recording
     notify "Smoke Ping" 0 "Ping $1" "" '[]' '{"desktop-entry": <"smoke-ping">}' 0 >/dev/null || fail "$1: the notification was not sent"
   }
   # app_take_chime NAME: the shell stopped, the chime played to its end,
-  # the shell continued, and the recording stopped 5 s after it started.
+  # the shell continued, and the recording stopped after the player's drain.
   # app_take_props is every distinct [mute, softMute] reading of the chime
   # stream while it plays, sorted, `none` when no reading found it, and
   # app_take_status the chime player's exit status. The first reading may
@@ -5633,7 +5633,6 @@ else: print("faint ms=%d" % heard)' "$1"
     app_take_status=0
     wait "$chime_pid" || app_take_status=$?
     kill -CONT "$shell_qs_pid" || fail "$1: the SIGCONT to the shell failed"
-    while (( $(now_ms) - app_take_ms < 5000 )); do sleep 0.1; done
     kill -INT -- "-$app_take_rec" 2>/dev/null || true
     for _ in $(seq 1 30); do kill -0 "$app_take_rec" 2>/dev/null || break; sleep 0.1; done
   }
