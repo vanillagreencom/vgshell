@@ -7,6 +7,7 @@ Item {
     property var shell: null
     property bool registered: false
     property string action: "pending"
+    property string delivery: "pending"
     property int completed: 0
     onShellChanged: {
         if (shell === null || registered) return;
@@ -14,8 +15,10 @@ Item {
         shell.ipc.handle("notify", arg => root.shell.notify.send(JSON.parse(arg)));
         shell.ipc.handle("notify-actions", arg => {
             root.action = "pending";
-            return root.shell.notify.send(JSON.parse(arg), action => {
+            root.delivery = "pending";
+            return root.shell.notify.send(JSON.parse(arg), (action, delivery) => {
                 root.action = action;
+                root.delivery = delivery;
                 root.completed += 1;
             });
         });

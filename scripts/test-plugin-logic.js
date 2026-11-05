@@ -2192,8 +2192,11 @@ function suite(ctx, configLogic, check) {
     // settingRefusal rows: [name, key, value, want]
     // notifyOptions: one row per rule. A refusal row names the key its
     // error starts with.
+    const actions = [{ id: "diagnose", label: "Diagnose" }, { id: "default", label: "Mute" }];
     const notifyRows = [
         ["a title alone", { title: "Saved" }, { ok: true, value: { title: "Saved", message: "", tone: "", icon: "", urgency: "normal", transient: false, actions: [] } }],
+        ["ordinary public actions", { title: "Crash", message: "<b>&", actions }, { ok: true, value: { title: "Crash", message: "<b>&", tone: "", icon: "", urgency: "normal", transient: false, actions } }],
+        ["explicit empty actions", { title: "t", actions: [] }, { ok: true, value: { title: "t", message: "", tone: "", icon: "", urgency: "normal", transient: false, actions: [] } }],
         ["every key", { title: "Saved", message: "to disk", tone: "success", icon: "circle-check", urgency: "low", transient: true }, { ok: true, value: { title: "Saved", message: "to disk", tone: "success", icon: "circle-check", urgency: "low", transient: true, actions: [] } }],
         ["a message at the ceiling", { title: "t", message: "x".repeat(600) }, { ok: true, value: { title: "t", message: "x".repeat(600), tone: "", icon: "", urgency: "normal", transient: false, actions: [] } }],
         ["an action at both ceilings", { title: "t", actions: [{ id: "i".repeat(64), label: "l".repeat(120) }] }, { ok: true, value: { title: "t", message: "", tone: "", icon: "", urgency: "normal", transient: false, actions: [{ id: "i".repeat(64), label: "l".repeat(120) }] } }],
@@ -2248,9 +2251,7 @@ function suite(ctx, configLogic, check) {
         const judged = ctx.notifyOptions(raw);
         check("notifyArgv: " + name, judged.ok ? ctx.notifyArgv("acme.probe", "Acme", judged.value) : judged.error, want);
     }
-    const actions = [{ id: "diagnose", label: "Diagnose" }, { id: "default", label: "Mute" }];
     const actionOptions = ctx.notifyOptions({ title: "Crash", message: "<b>&", actions });
-    check("notify options keep public actions", actionOptions.value.actions, actions);
     check("notify actions use ordered transport ids and keep escaped body and plugin hint", ctx.notifyArgv("acme.probe", "Probe", actionOptions.value),
         ["notify-send", "--app-name=Probe", "--urgency=normal", "--hint=string:x-vgs-plugin:acme.probe", "--action=default=Diagnose", "--action=1=Mute", "--", "Crash", "&lt;b&gt;&amp;"]);
     const actionPageOptions = ctx.notifyOptions({ title: "Crash", message: "Open [Voice](page:vgs.voice).", actions });
@@ -2258,7 +2259,6 @@ function suite(ctx, configLogic, check) {
         ["notify-send", "--app-name=Probe", "--urgency=normal", "--hint=string:x-vgs-plugin:acme.probe", "--action=default=Diagnose", "--action=1=Mute", "--wait", "--", "Crash", "Open Voice."]);
     for (const [stdout, want] of [["default\n", "diagnose"], ["1\n", "default"], ["", ""], ["2", ""], ["default\n1", ""], ["0", ""]])
         check("notify action stdout " + JSON.stringify(stdout), ctx.notifyAction(actionOptions.value.actions, stdout), want);
-    check("empty actions send no action", ctx.notifyOptions({ title: "t", actions: [] }).value.actions, []);
     check("the notify run ceiling is a whole number above zero", Number.isInteger(ctx.NOTIFY_RUNS_MAX) && ctx.NOTIFY_RUNS_MAX > 0, true);
     check("notify is a capability", ctx.CAPABILITIES.indexOf("notify") !== -1, true);
     check("theme is a capability", ctx.CAPABILITIES.indexOf("theme") !== -1, true);

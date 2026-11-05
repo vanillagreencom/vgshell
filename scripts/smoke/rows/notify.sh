@@ -119,6 +119,7 @@ expect_poll "the notifier fixture is discovered" True plugin_known acme.notifier
 expect "enabling the notifier fixture is allowed" ok ipc shell setPluginEnabled acme.notifier true
 expect_poll "the notifier fixture service is built" True record_exists acme.notifier
 notify_action() { ipc smoke readInstance service acme.notifier action; }
+notify_delivery() { ipc smoke readInstance service acme.notifier delivery; }
 notify_completed() { ipc smoke readInstance service acme.notifier completed; }
 notify_card_present() { plugin_cards Notifier | py_reply 'import json,sys; print(any(r[0] == sys.argv[1] for r in json.load(sys.stdin)))' "$1"; }
 expect "duplicate public action ids are refused before sending" 'refused: notify=actions want=unique nonblank id (at most 64) and label (at most 120)' ipc acme.notifier invoke notify-actions '{"title":"Notifier refused","actions":[{"id":"open","label":"Open"},{"id":"open","label":"Again"}]}'
@@ -129,12 +130,14 @@ expect "the callback waits for the press" '"pending"' notify_action
 click_item vgs:layer vgs.notifications NotificationCard summary "Notifier action" 24 - || fail "notify: the action card click failed"
 expect_poll "the card press reaches done with the first declared id" '"open"' notify_action
 expect "done runs once for the press" 1 notify_completed
+expect "a pressed card reports delivered" '"delivered"' notify_delivery
 expect "a notification waiting for dismissal starts" ok ipc acme.notifier invoke notify-actions '{"title":"Notifier dismiss","urgency":"critical"}'
 expect_poll "the dismiss card arrives" True notify_card_present "Notifier dismiss"
 expect "done waits for dismissal without actions" '"pending"' notify_action
 notes_clear "notify: callback dismissal"
 expect_poll "dismissal reaches done with an empty id" '""' notify_action
 expect "done runs once for dismissal" 2 notify_completed
+expect "dismissal reports delivered" '"delivered"' notify_delivery
 expect_poll "the completed sends release the core runs" 0 ipc smoke themeNoticeRuns
 expect "a callback can wait while its consumer is enabled" ok ipc acme.notifier invoke notify-actions '{"title":"Notifier teardown","urgency":"critical","actions":[{"id":"open","label":"Open"}]}'
 expect_poll "the core holds the waiting send" 1 ipc smoke themeNoticeRuns
@@ -215,6 +218,7 @@ expect_poll "no plugin keeps the notification server up" False notify_server
 layers_before="$(layer_count vgs:layer)" || layers_before=unread
 expect "a message nothing draws answers ok" ok ipc acme.notifier invoke notify-actions '{"title": "Notifier dropped"}'
 expect "a dropped message reports an empty action" '""' notify_action
+expect "a dropped message reports failed delivery" '"failed"' notify_delivery
 expect "a dropped message invokes done once" 1 notify_completed
 expect_log "the core logs the dropped message" 1 'notify: unsent plugin=acme\.notifier reason=no-drawer'
 expect "the core logs it once" 1 log_lines 'notify: unsent plugin=acme\.notifier '

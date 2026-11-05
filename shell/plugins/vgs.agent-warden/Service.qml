@@ -120,14 +120,18 @@ Item {
         for (const notice of Notices.notices(result.opened, mode, vsys, now)) send(notice);
     }
 
-    // One notice through the core. A refused notice is forgotten, so the
-    // next status sends it again.
+    // One notice through the core. A refusal or failed delivery forgets
+    // its episodes, so the next status retries even a notice with no action.
     function send(notice) {
-        const reply = shell.notify.send(Notices.shellOptions(notice), notice.action ? action => {
+        const reply = shell.notify.send(Notices.shellOptions(notice), (action, delivery) => {
+            if (delivery === "failed") {
+                episodes = Notices.forget(episodes, notice.keys);
+                return;
+            }
             if (action !== Notices.ACTION) return;
             const opened = shell.tui.run("vsys");
             if (!ViewLogic.handedOff(opened)) console.error("agent-warden: action=open " + opened);
-        } : undefined);
+        });
         if (reply !== "ok") {
             console.error("agent-warden: notice=" + notice.kind + " " + reply);
             episodes = Notices.forget(episodes, notice.keys);

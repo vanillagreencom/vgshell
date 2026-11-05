@@ -25,15 +25,15 @@ Singleton {
 
     // Send OPTIONS for the instance CTX belongs to, as APP_NAME, past HUB,
     // the core's NotificationHub. Answers "ok" once the run is handed to
-    // Quickshell or the message is dropped. DONE receives the chosen id,
-    // or an empty string for dismissal or failed delivery.
+    // Quickshell or the message is dropped. DONE receives the chosen id
+    // (empty on dismissal or failure), then "delivered" or "failed".
     function send(ctx, appName, options, hub, done) {
         if (done !== undefined && typeof done !== "function") return "refused: notify=done want=function";
         const judged = Logic.notifyOptions(options);
         if (!judged.ok) return "refused: notify=" + judged.error;
         if (hub.holdsName && !hub.active) {
             console.warn("notify: unsent plugin=" + ctx.id + " reason=no-drawer");
-            if (done !== undefined) complete(ctx.id, done, "");
+            if (done !== undefined) complete(ctx.id, done, "", "failed");
             return "ok";
         }
         if (runs.length >= Logic.NOTIFY_RUNS_MAX) return "refused: notify=busy limit=" + Logic.NOTIFY_RUNS_MAX;
@@ -42,12 +42,12 @@ Singleton {
         const run = runComponent.createObject(root, { pluginId: ctx.id });
         if (run === null) {
             console.warn("notify: unsent plugin=" + ctx.id + " exit=null process");
-            if (done !== undefined) complete(ctx.id, done, "");
+            if (done !== undefined) complete(ctx.id, done, "", "failed");
             return "ok";
         }
         run.command = Logic.notifyArgv(ctx.id, appName, judged.value, done !== undefined);
         run.actions = judged.value.actions;
-        run.done = done === undefined ? null : action => { if (ctx.active) done(action); };
+        run.done = done === undefined ? null : (action, delivery) => { if (ctx.active) done(action, delivery); };
         // Only a waiting send borrows an instance lifetime. Core messages
         // and fire-and-forget sends retain the singleton's short run.
         if (judged.value.actions.length > 0 || done !== undefined) {
@@ -71,11 +71,11 @@ Singleton {
         const done = run.done;
         if (run.release !== null) run.release();
         Qt.callLater(() => run.destroy());
-        if (done !== null) complete(run.pluginId, done, failed ? "" : Logic.notifyAction(run.actions, stdout));
+        if (done !== null) complete(run.pluginId, done, failed ? "" : Logic.notifyAction(run.actions, stdout), failed ? "failed" : "delivered");
     }
 
-    function complete(pluginId, done, action) {
-        try { done(action); }
+    function complete(pluginId, done, action, delivery) {
+        try { done(action, delivery); }
         catch (error) { console.warn("notify: callback plugin=" + pluginId + " " + error); }
     }
 

@@ -252,12 +252,14 @@ function verify(n) {
     assert.throws(() => n.notices([{ key: "odd:s", kind: "odd" }], "everything", true, NOW), /episode kind="odd" unknown/);
 
     // Each notice uses the core, with buttons only when vsys is available.
-    const [tasks] = n.notices([COPY[0][1][0]], "problems", true, NOW);
-    same(n.shellOptions(tasks), { title: COPY[0][3], message: COPY[0][4], urgency: "normal", transient: false, actions: [{ id: "open", label: "Open vsys" }] });
-    const [cleanup] = n.notices([{ key: "reaped:s", kind: "reaped", processes: 2 }], "problems", true, NOW);
-    same(n.shellOptions(cleanup).actions, []);
-    const [moved] = n.notices([{ key: "moved:s", kind: "moved", tools: ["claude"] }], "everything", true, NOW);
-    same(n.shellOptions(moved), { title: "Moved an agent back into its limits", message: "claude was running without limits. Agent Warden applied limits to keep your computer responsive.", tone: "info", icon: "shield-check", urgency: "low", transient: true, actions: [] });
+    for (const [label, episode, want] of [
+        ["tasks", COPY[0][1][0], { title: COPY[0][3], message: COPY[0][4], urgency: "normal", transient: false, actions: [{ id: "open", label: "Open vsys" }] }],
+        ["cleanup", { key: "reaped:s", kind: "reaped", processes: 2 }, { title: "Cleaned up after a finished agent", message: "A finished agent left 2 processes running. Agent Warden stopped them.", urgency: "low", transient: false, actions: [] }],
+        ["moved", { key: "moved:s", kind: "moved", tools: ["claude"] }, { title: "Moved an agent back into its limits", message: "claude was running without limits. Agent Warden applied limits to keep your computer responsive.", tone: "info", icon: "shield-check", urgency: "low", transient: true, actions: [] }]
+    ]) {
+        const [notice] = n.notices([episode], "everything", true, NOW);
+        same(n.shellOptions(notice), want, label);
+    }
     assert.equal(n.HEARTBEAT_MS, 60000, "the heartbeat is touched well inside the warden's 120 s");
 
     // No notice names a scope unit or a process id of its status.

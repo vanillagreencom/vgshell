@@ -117,9 +117,11 @@ PY
 # primary transport action when the row presses Open vsys.
 warden_sent="$sandbox/warden-notify-send"
 warden_press="$sandbox/warden-press"
+warden_delivery_fails="$sandbox/warden-delivery-fails"
 cat >"$shim/notify-send" <<EOF
 #!/usr/bin/env bash
 python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "\$@" >>"$warden_sent"
+if [[ -e "$warden_delivery_fails" ]]; then exit 17; fi
 if [[ -e "$warden_press" ]]; then echo default; fi
 EOF
 chmod 755 "$shim/notify-send"
@@ -168,6 +170,7 @@ PY
 # The scan's answer for one of the plugin's requirement commands.
 warden_requirement() { ipc shell listPlugins | py_reply 'import json,sys; p=[p for p in json.load(sys.stdin)["plugins"] if p["id"]=="vgs.agent-warden"][0]; print([r["state"] for r in p["requirements"] if r["name"]==sys.argv[1]][0])' "$1"; }
 expected_errors+=('agent-warden: status=unreadable cause=json ' 'agent-warden: status=schema schema=2\.0 ' 'agent-warden: summary=failed ' 'plugins: hidden by a higher-precedence plugin with the same id: vgs\.agent-warden' 'agent-warden: notice=(tasks|memory) refused: notify=busy')
+expected_errors+=('notify: unsent plugin=vgs\.agent-warden exit=\{"code":17,"status":0\}')
 
 rescan "a rescan after the notify-send stand-in arrives starts"
 expect "enabling the agent warden is allowed" ok ipc shell setPluginEnabled vgs.agent-warden true
@@ -604,6 +607,38 @@ expect_poll "a partial move sends one notice" '[["normal", "Some agent processes
 warden_put reaped 0 >/dev/null
 expect_poll "a cleanup sends one quiet notice without the button" '[["low", "Cleaned up after a finished agent", false], ["normal", "Some agent processes still have no limits", true]]' warden_notices_since "$((warden_mark + 2))"
 
+# A failed notify-send completion forgets both actionable and action-free
+# episodes. The next real status tick retries; successful dismissal keeps
+# the episodes, so a further tick sends nothing.
+warden_retry_state() {
+  local runs episodes
+  runs="$(ipc smoke themeNoticeRuns)" || return
+  episodes="$(ipc smoke readInstance service vgs.agent-warden episodes)" || return
+  python3 -c 'import json,sys; print(json.dumps([int(sys.argv[1]), len(json.loads(sys.argv[2]))]))' "$runs" "$episodes"
+}
+while read -r warden_retry_fixture warden_retry_age warden_retry_count; do
+  warden_put calm 0 >/dev/null
+  expect_poll "${warden_retry_fixture}: calm clears the retry episodes" '[0, 0]' warden_retry_state
+  warden_mark="$(warden_sent_count)"
+  touch -- "$warden_delivery_fails"
+  at="$(warden_put "$warden_retry_fixture" "$warden_retry_age")"
+  expect_poll "${warden_retry_fixture}: the failed-delivery status is read" "$((at * 1000))" warden_value lastCheck
+  expect_poll "${warden_retry_fixture}: the core attempts each notice" "$((warden_mark + warden_retry_count))" warden_sent_count
+  expect_poll "${warden_retry_fixture}: failed completion releases its runs and episodes" '[0, 0]' warden_retry_state
+  rm -f -- "$warden_delivery_fails"
+  at="$(warden_put "$warden_retry_fixture" "$((warden_retry_age + 1))")"
+  expect_poll "${warden_retry_fixture}: the next status tick is read" "$((at * 1000))" warden_value lastCheck
+  expect_poll "${warden_retry_fixture}: the next status retries each failed notice" "$((warden_mark + 2 * warden_retry_count))" warden_sent_count
+  expect_poll "${warden_retry_fixture}: successful dismissal retains the episodes" "[0, $warden_retry_count]" warden_retry_state
+  at="$(warden_put "$warden_retry_fixture" "$((warden_retry_age + 2))")"
+  expect_poll "${warden_retry_fixture}: a further status tick is read" "$((at * 1000))" warden_value lastCheck
+  expect "${warden_retry_fixture}: delivered episodes send no duplicate" "$((warden_mark + 2 * warden_retry_count))" warden_sent_count
+done <<'RETRIES'
+near-limit 0 2
+reaped 0 1
+calm 600 1
+RETRIES
+
 # A press on Open vsys opens the vsys TUI.
 forget_record
 touch -- "$warden_press"
@@ -798,6 +833,15 @@ warden_repeated() { warden_notices_since "$1" | py_reply 'import json,sys; print
 warden_mark="$(warden_sent_count)"
 warden_ticks
 expect_poll "the memory control sends the lane's first notice again on the next tick" True warden_repeated "$warden_mark"
+warden_uncontrol
+
+# Control: the same completion arriving at a service that ignores failed
+# delivery retains the episode, which the retry-state reader distinguishes.
+warden_control Service.qml 'if (delivery === "failed") {' 'if (false) {'
+touch -- "$warden_delivery_fails"
+warden_put near-limit 0 >/dev/null
+expect_poll "the failed-delivery control retains both failed episodes" '[0, 2]' warden_retry_state
+rm -f -- "$warden_delivery_fails"
 warden_uncontrol
 
 rm -f -- "$shim/vsys" "$shim/notify-send"
