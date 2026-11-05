@@ -1,7 +1,5 @@
 # VG Shell (VGS)
 
-> It's like Omarchy, but can go on whatever distro you want. And for me, I like it better. A lot of inspiration was drawn from various quickshell projects, and Omarchy. I think where VGS shines is the design polish, plugin architecture, and intuitive UX and settings (where every other project falls apart a bit for me)-but you tell me. Actively developed, feel free to contribute. Give it a try!
-
 A desktop shell for Hyprland, built on Quickshell. It draws the bar, panels and windows on each screen, and every part of it is a plugin you can turn on or off.
 
 ![VGS: the bar and the theme browser on the desktop](docs/images/plugins/vgs.themes-browser.webp)
@@ -10,52 +8,74 @@ A desktop shell for Hyprland, built on Quickshell. It draws the bar, panels and 
 
 - A Plugins window on SUPER+PERIOD holds every plugin's settings, shortcuts and on/off switch.
 - System Settings on SUPER+COMMA holds Sound, Displays, Bluetooth, Network, Tailscale, VPN, Mouse and Keyboard.
-- Ships the [plugins](#plugins) listed below.
 - Themes change the colours, wallpaper and window borders in one click.
-- Updates installs system, VGS, plugin and theme updates, and an AI agent can review third-party packages before they install.
+- The Updates window installs system, VGS, plugin and theme updates. An AI agent can review third-party packages before installation.
 - Plugins do not depend on each other: turn one off and the others keep running.
 
 ## Install
 
 VGS installs on Arch Linux, Fedora 44, Debian 14 (forky) and NixOS.
 
-Debian 14 and NixOS need Hyprland 0.57.0, which they do not ship yet; until they do, the installer refuses on them.
+Debian 14 and NixOS need Hyprland 0.57.0 with Lua configuration. The installer refuses an older Hyprland.
 
 Arch Linux:
+
+<details>
+<summary>Show command</summary>
 
 ```bash
 paru -S vgshell-git
 ```
 
-On Arch, the curl install and checkout need an installed AUR helper: paru or yay.
+</details>
 
 Fedora 44:
+
+<details>
+<summary>Show command</summary>
 
 ```bash
 sudo dnf copr enable vanillagreen/vgshell
 sudo dnf install vgshell
 ```
 
+</details>
+
 Debian 14 (forky), or a copy in your home directory on Arch Linux or Fedora 44:
+
+<details>
+<summary>Show command</summary>
+
+On Arch, the curl install and checkout need an installed AUR helper: paru or yay.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/vanillagreencom/vgshell/main/install.sh | bash -s -- --git
 ```
 
+</details>
+
 NixOS:
+
+<details>
+<summary>Show command</summary>
 
 ```bash
 nix run github:vanillagreencom/vgshell -- start
 ```
 
+</details>
+
 From a checkout:
+
+<details>
+<summary>Show command</summary>
 
 ```bash
 git clone https://github.com/vanillagreencom/vgshell
 vgshell/bin/vgshell start
 ```
 
-More install options: [docs/architecture/distribution.md](docs/architecture/distribution.md).
+</details>
 
 ## How it works
 
@@ -116,15 +136,21 @@ VGS starts with Hyprland and draws the bar, panels and windows on each screen. E
 
 ## Setup
 
-The Arch and Fedora packages start VGS after install. They start it at login in a uwsm session, and in any session once Connect in the welcome wires `hyprland.lua`. For a curl, Nix or checkout install, add this line to `~/.config/hypr/hyprland.lua`:
+The Arch and Fedora packages start VGS after installation. They start it at login in a uwsm session, or after you choose Connect in the welcome screen.
+
+For a curl, Nix or checkout install, add the startup line to `~/.config/hypr/hyprland.lua`:
+
+<details>
+<summary>Show command</summary>
 
 ```lua
 hl.on("hyprland.start", function () hl.exec_cmd("vgshell start") end)
 ```
 
+</details>
 ## Writing a plugin
 
-Read [docs/architecture/overview.md](docs/architecture/overview.md). An agent loads the `vgs-plugin` skill, which scaffolds a plugin from templates and checks it.
+Read the [plugin architecture](docs/architecture/overview.md) and [developer guide](DEVELOPMENT.md). An agent uses the `vgs-plugin` skill to scaffold and check a plugin.
 
 ## Licence
 

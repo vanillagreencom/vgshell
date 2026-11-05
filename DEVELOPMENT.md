@@ -1,6 +1,6 @@
 # VGS development
 
-Quickshell 0.3.1, Hyprland with Lua configuration, node 18 and python3; `vgshell run` checks the floor before it starts, and `scripts/check-packaging.js` holds the recipes to it.
+Use Linux with the runtime dependencies declared in [`bin/vgshell`](bin/vgshell). The runner checks them before starting. Package dependencies come from the recipes under [`packaging/`](packaging/).
 
 ## Run
 
@@ -10,7 +10,7 @@ scripts/qml-smoke.sh --rows bar,launcher     # the shell inside the nested sandb
 scripts/sandbox-shots.sh gallery settings    # PNGs of named scenes from the sandbox, under tmp/
 ```
 
-Never start a second shell against the live session, and never kill Quickshell processes by name. Anything that starts a compositor, the shell, `qmltestrunner` or a browser goes through `scripts/smoke/gpu-fence.sh`, as `scripts/qml-smoke.sh` does.
+Follow [runtime.md § Process](docs/architecture/runtime.md#process) for live-session safety and [validation.md § Test isolation](docs/architecture/validation.md#test-isolation) for sandbox entry.
 
 ## Test
 
@@ -23,15 +23,21 @@ scripts/validate package                     # the Arch recipes in a rootless po
 scripts/smoke/gpu-fence.sh -- scripts/test-x.sh # one test in its own world
 ```
 
-Exit 77 means a check could not run and is not a pass. The `qml` area is the nested sandbox and needs `XDG_RUNTIME_DIR` and a render node that is not AMD's, and no `WAYLAND_DISPLAY`; `scripts/qml-smoke.sh` runs it alone. A new check is a row in `scripts/validate` with its must-fail control beside it.
+Exit 77 means a check could not run and is not a pass. The [nested sandbox](docs/architecture/validation.md#nested-sandbox) needs `XDG_RUNTIME_DIR`, a non-AMD render node and no `WAYLAND_DISPLAY`. Before adding or changing a check, read [scripts/AGENTS.md](scripts/AGENTS.md) and [validation.md](docs/architecture/validation.md).
 
-Every validate row runs in the world that `scripts/smoke/gpu-fence.sh` owns, with a read-only checkout and private home, XDG directories and scratch. Package and nix use their own containers. `scripts/test-gpu-fence.sh` runs outside the world to test that boundary. Validate itself keeps selection, last-pass and row records outside the row worlds; a run cut off keeps the results of the rows it ended for the next run, as [validation.md § Selection](docs/architecture/validation.md#selection) sets out.
+[`scripts/validate`](scripts/validate) owns check selection and result reuse. [validation.md § Selection](docs/architecture/validation.md#selection) states the boundary.
 
-A run that must outlive a tool call starts detached with HUP, INT and QUIT at their defaults and records its own pid: `setsid env --default-signal=HUP,INT,QUIT bash -c 'echo $$ >tmp/run.pid; exec scripts/validate offline' </dev/null >tmp/run.log 2>&1 &`. Under `nohup` or a bare `&` those signals start ignored, and the signal rows of `scripts/test-gpu-fence.sh` and `scripts/test-vgshell-tui.sh` fail. Wait with `tail --pid=PID -f /dev/null` on the recorded pid, never on `$!`, which `setsid` can leave at once, and never on a `pgrep -f` hit, which can match the caller's own shell.
+For detached validation outside an agent harness, keep HUP, INT and QUIT at their defaults so the signal tests receive them:
+
+```sh
+setsid env --default-signal=HUP,INT,QUIT bash -c 'echo $$ >tmp/run.pid; exec scripts/validate offline' </dev/null >tmp/run.log 2>&1 &
+```
+
+Wait with `tail --pid=PID -f /dev/null` on the recorded PID, not `$!` or a process-name match. `setsid` can return before the validation process ends.
 
 Keep temporary scripts under `tmp/`: an untracked file under `scripts/` is an unmapped input and selects the full area. A copy of `scripts/sandbox-shots.sh` under `tmp/` pins its `repo=` line to the checkout, since the script finds the checkout from its own path.
 
-Two GitHub workflows run on `main`, never on a push or a pull request. `.github/workflows/nightly.yml` runs `scripts/validate --full` on a schedule while the repository variable `NIGHTLY` is `on`, and reports only. `.github/workflows/kendex-refresh.yml` takes kendex package updates on each kendex release, hourly and by hand: it opens the `kendex/refresh` pull request, which merges at once because `main` has no merge requirements. Kendex owns that file's bytes; it changes only through kendex's `refresh/adopt-refresh.sh`, which refuses a hand edit.
+The [nightly workflow](.github/workflows/nightly.yml) runs reporting-only validation on `main` while the repository variable `NIGHTLY` is `on`. Neither it nor the [kendex refresh workflow](.github/workflows/kendex-refresh.yml) runs on a push or pull request. The refresh workflow owns package updates; adopt it through kendex rather than edit it. Use [`scripts/main-run.sh`](scripts/main-run.sh) for the main-checkout batch, including checks that need a local graphics device.
 
 ## Debug
 
@@ -41,30 +47,30 @@ scripts/qml-smoke.sh --keep --rows <row>     # keep the sandbox after the row; t
 scripts/sample-shell-memory.sh               # sample the live shell's memory until interrupted, read-only
 ```
 
-Quickshell links jemalloc, so glibc's `MALLOC_PERTURB_` does nothing. Start a shell with `MALLOC_CONF=junk:free`, as the smoke harness does, to make a use-after-free crash at its reader, and symbolize the crash with `gdb -iex 'set debuginfod enabled on'`.
+The [smoke harness](scripts/smoke/harness.sh) sets `MALLOC_CONF=junk:free` for Quickshell's jemalloc allocator. Use the same setting when reproducing a memory fault, then symbolize the crash with `gdb -iex 'set debuginfod enabled on'`.
 
 ## Smoke rows and shots
 
-- Run a row through `scripts/validate qml --changed <base>` or name it to `scripts/qml-smoke.sh --rows`. Both add the core rows `bar`, `hyprland-consent`, `session`, `start-order` and `auth-sentinel`, and the rows the input lines of the rows in the run name: without `hyprland-consent` the first-start notice keeps the keyboard, and without `bar` the device fakes never start and `share-picker` waits on `pw-dump` with no bound.
-- Rows share one bash shell within each world; fatal Bash errors restart the world for independent remaining rows. Give a new row's helpers a prefix no other row uses.
-- Enabling `vgs.jarvis` raises the requirement notice, which takes the keyboard, because the sandbox hides `tesseract`. A Jarvis row that reads focus or pixels calls `jarvis_setup_requirements` from `scripts/smoke/rows/jarvis.sh` before it enables the plugin.
-- `diagnostics` reads the log of the last shell a row started, and `jarvis-input` and `hyprland` restart the shell before it in a full run. A warning an earlier row logs can fail a scoped run and never a full one; compare the instance-log paths the rows print.
-- A scripted edit of a row or of `scripts/smoke/harness.sh` goes in a file run with `python3 FILE`. An inline here-document ends at the row's own `PY` line, and bash runs the rest as commands.
+- Run a row through `scripts/validate qml --changed <base>` or name it to `scripts/qml-smoke.sh --rows`. The runner adds its core rows and the rows those read; do not invoke row files directly.
+- Give a new row's helpers a prefix no other row uses, since rows share a Bash shell.
+- Before enabling Jarvis in a row that reads focus or pixels, call `jarvis_setup_requirements` from `scripts/smoke/rows/jarvis.sh`. This supplies required command stand-ins so the requirement notice does not take focus.
+- Compare the printed instance-log paths when scoped and full runs disagree. `diagnostics` reads the current shell's log; a shell restart changes which warnings it sees.
+- Put scripted edits in a separate file so their quoting cannot end at a delimiter inside the edited script.
 - Never edit a script while a run is reading it: bash reads a script as it runs.
 - Name the before tree of `sandbox-shots.sh --rev` by the change's parent, `<change>^`. `origin/main` becomes the after tree once the change lands.
 - A screenshot sheet's index and each caption state the capture mode (live shell, sandbox capture of the real page on the branch, or prototype stand-in), the viewport width and every known difference from the production page. A prototype that composes its own page header draws the real page frame or names the difference.
-- Two runs of one tree differ in a few dozen glyph-edge pixels. A pixel-for-pixel proof reports a same-tree run's count beside the base-to-HEAD count: `magick A B -compose difference -composite -colorspace gray -threshold 0 -format '%[fx:round(mean*w*h)]' info:`.
-- A grim capture can trail a probe reading by a frame or two. Take a motion frame from its own pixels, or the last frame after a settled reading that equals the frame before it.
-- The fixture `acme.probe` draws an empty 10 px widget. Shoot a real plugin's widget.
+- For a pixel comparison, report a same-tree control beside the base-to-HEAD comparison: `magick A B -compose difference -composite -colorspace gray -threshold 0 -format '%[fx:round(mean*w*h)]' info:`.
+- Take a motion frame from its own pixels. For a settled frame, require the probe reading to settle and the image to match the preceding frame.
+- Shoot a real plugin's widget, not the empty `acme.probe` fixture.
 - `bin/vgshell-system` reads the device fakes' tree in the sandbox, so a system step that probes a host file finds it absent. The scene plants that file under `$devices_system_root` before it enables the plugin.
 - The stand-in terminal starts no terminal. A floating TUI shot starts `kitty` with the presenter's argv in its scene, one theme per run, and copies in only the `gum` target: the `kitty` target's reload signals every kitty the user runs.
 
 ## Jarvis self-test
 
-`scripts/jarvis-selftest.sh` runs one real Jarvis turn in the nested sandbox, with a real AI model and the local or the realtime voice, and writes one JSON record. Its header holds the options, the record and the exit codes; [validation.md § Jarvis self-test](docs/architecture/validation.md#jarvis-self-test) holds its rules. `scripts/validate` never runs it.
+Use [`scripts/jarvis-selftest.sh`](scripts/jarvis-selftest.sh) for a real Jarvis turn in the nested sandbox. Its header owns the inputs and record format; [validation.md § Jarvis self-test](docs/architecture/validation.md#jarvis-self-test) owns the rules. `scripts/validate` does not run it.
 
 ```sh
-# Once: a local voice setup under a scratch HOME, made by the plugin's own setup. The small tier holds the voice --tts speaks with.
+# Prepare the local voice under a scratch HOME. The small tier supplies the --tts voice.
 env -u XDG_STATE_HOME -u XDG_DATA_HOME HOME="$PWD/tmp/jarvis-local" python3 -I shell/plugins/vgs.jarvis/setup-local install small
 export JARVIS_LOCAL_MODELS="$PWD/tmp/jarvis-local/.local/share/vgshell/jarvis/local/models"
 export JARVIS_LOCAL_PYTHON="$PWD/tmp/jarvis-local/.local/share/vgshell/jarvis/local/venv/bin/python"
@@ -76,20 +82,21 @@ scripts/jarvis-selftest.sh --type "What time is it?" --brain <id>               
 scripts/jarvis-selftest.sh --suite volume --brain <id>                                       # one acceptance case
 ```
 
-- The record goes under `tmp/selftest-records/` unless `--out` names a file. The last line of the run is `selftest=<key>`, and exit 77 means the run could not run.
-- A sign-in brain runs its installed program under the sandbox's HOME. The run resolves that program through `mise which` when mise is installed, otherwise through the caller's command lookup, and links it into the harness's command shim under its command name. A failed lookup ends the run with exit 77 before the sandbox starts.
-- The run needs what `scripts/qml-smoke.sh` needs, and `pipewire`, `wireplumber` and `python-dbusmock` for the device fakes.
-- A brain that is a saved key, and `--voice realtime`, read that key from your keyring through a filtered bus, which needs `xdg-dbus-proxy`. A locked keyring or a key that is not stored ends the run with exit 77; the run never asks you to unlock.
+Choose the account id from the `sign-in-folders` output. Prepare local voice inputs before the self-test; it reads that setup rather than installing it. Its header names the additional device-fake and filtered-bus dependencies.
 
 ## Regenerate
 
 ```sh
-node scripts/check-readme.js --write-plugins   # README § Plugins, after a plugin is added, removed or renamed
-scripts/readme-shots.sh                        # every plugin README image, after its row is added to docs/images/plugins/shots.tsv
-packaging/install-system.sh                    # into a scratch DESTDIR and PREFIX, then:
-scripts/check-install-tree.sh --write DESTDIR PREFIX   # packaging/install-tree.manifest, after a shipped file is added
+node scripts/check-readme.js --write-plugins   # README § Plugins
+scripts/readme-shots.sh                        # README images from docs/images/plugins/shots.tsv
+DESTDIR="$PWD/tmp/install-tree" PREFIX=/usr packaging/install-system.sh
+scripts/check-install-tree.sh --write "$PWD/tmp/install-tree" /usr   # after a shipped file is added
 scripts/measure-shader.sh --calibrate scripts/shader/ceilings.json --runs 3   # the shader ceilings
 ```
+
+The plugin table comes from the manifests, including their descriptions. Regenerate it when a plugin is added, removed, renamed or its description changes. The root README uses the Themes browser image from the same screenshot table as the plugin READMEs. Regenerate affected scenes with `scripts/readme-shots.sh SCENE`; do not hand-edit the generated plugin table or rendered images. [`scripts/check-readme.js`](scripts/check-readme.js) and [`scripts/check-readme-images.py`](scripts/check-readme-images.py) check consistency.
+
+Use a fresh scratch `DESTDIR` for install-tree staging.
 
 ## Containers
 
@@ -104,39 +111,40 @@ Each needs podman and the network, and exits 77 when it cannot run. Run `scripts
 
 ## Write a plugin
 
-Read `docs/architecture/overview.md`, then load the `vgs-plugin` skill, which scaffolds a plugin from its templates and checks it. A plugin lands with its row under `scripts/smoke/rows/` in the same change.
+Read the [plugin architecture](docs/architecture/overview.md), then load the `vgs-plugin` skill for scaffolding and validation.
 
 ## Release
 
-The maintainer cuts every release from their own machine, with their own gpg key, GitHub login and AUR SSH key. VGS has no CI workflow for releases or package publication: [D040](docs/decisions/D040-one-shared-install-tree.md). The package recipes live beside the source under `packaging/`, so one checkout both tags the release and publishes the recipes that build it. Two scripts do the work. Their headers, which `--help` prints, state every refusal, output line and exit status.
+The maintainer cuts every release from their own machine, with their own gpg key, GitHub login and AUR SSH key. VGS has no CI workflow for releases or package publication: [D040](docs/decisions/D040-one-shared-install-tree.md).
 
-- `scripts/release X.Y.Z` makes the GitHub release `vX.Y.Z` from the pushed tag: the source archive `vgshell-X.Y.Z.tar.gz`, `install.sh`, the amd64 Debian forky engine built by `scripts/debian-packages.sh`, the existing signing key's public-only `release-key.asc`, `SHA256SUMS` and its detached signature `SHA256SUMS.asc`, written to `dist/`.
-- `scripts/publish-aur.sh vgshell-quickshell vgshell vgshell-git` pushes the recipes under `packaging/arch/` to the AUR. Publish the engine before the shell packages that depend on it. The publisher holds `vgshell` back until the release asset's sha256 is the one the recipe pins.
-
-Both take `--dry-run`, which makes every check and changes nothing outside `dist/`. The release dry run builds the Debian asset in rootless podman and exports only the public key; signing and publication remain with Jarvis. `scripts/test-release.sh` and `scripts/test-publish-aur.sh` prove them with stub `gh`, `gpg` and `ssh`, in the `cli` area of `scripts/validate`.
+[`scripts/release`](scripts/release) owns GitHub release assets; [`scripts/publish-aur.sh`](scripts/publish-aur.sh) owns AUR publication. Their `--help` output defines prerequisites, dry-run behavior and refusals. Agents use `--dry-run` only; signing and publication remain with Jarvis.
 
 At each landing on `main` that changes `packaging/arch/vgshell-git/`, the overseer publishes `vgshell-git` to the AUR through `scripts/publish-aur.sh` on the maintainer's machine. The landing notice names the AUR commit or the refusal. A refusal leaves the publication acceptance box open.
 
-The overseer also publishes `vgshell-quickshell` when its recipe or local sources change. Keep the engine's upstream pin and patches consistent across AUR, COPR, Debian and the Nix flake. Before raising the engine floor on `main`, commit a coherent candidate and push its revision without advancing `main`. Run the offline recipe check, publish the AUR engine from that checkout, and build the COPR engine from that exact public revision for every target in `packaging/fedora/copr-project`. Wait for the RPMs to appear in repository metadata. The public candidate must also contain the matching flake lock and shared patches.
+The overseer also publishes `vgshell-quickshell` when its recipe or local sources change. Follow [distribution.md § Quickshell engine](docs/architecture/distribution.md#quickshell-engine) for the shared pin, patches and channel boundary. Before raising the engine floor on `main`, commit a coherent candidate and push its revision without advancing `main`. Run the offline recipe check, publish the AUR engine from that checkout, and build the COPR engine from that exact public revision for every target in `packaging/fedora/copr-project`. Wait for the RPMs to appear in repository metadata. The public candidate must also contain the matching flake lock and shared patches.
 
-Debian checkout installation and checkout update run the incoming tree's engine preparer, which requests the exact Debian asset from that tree's `VERSION` tag. Publish that asset with its signature and checksum assets through the normal signed release before landing a floor those consumers cannot install. Tagged release installers use the engine declaration in their own archive; an older tag does not inherit `main`'s floor. AUR `vgshell` and Fedora `vgshell` receive the dependency at the next VGS release tag containing the change.
+For Debian checkout consumers, publish the engine asset for the candidate tree's exact `VERSION` tag, with its signature and checksum assets, through the signed release before landing a new floor. Tagged installers retain their own archive's engine declaration. AUR `vgshell` and Fedora `vgshell` receive the dependency at the next VGS release tag containing the change.
 
-Have the fleet owner install the published engine on every executor that will run nested validation. Check the actual executable and package ownership; an installer exit alone does not prove replacement. Then run `node scripts/check-packaging.js --engine-availability --source-ref <candidate revision>` against the final candidate and `node scripts/check-packaging.js --installed-engine` on each executor. An unreadable publication state exits 77. A refusal names the channel, required engine and publication or installation step. These checks install nothing. Only after availability and installation pass does the landing workflow advance `main`. The default `node scripts/check-packaging.js` stays offline, including when the AUR publisher calls it before publication.
+Have the fleet owner install the published engine on every executor that will run nested validation. Check the actual executable and package ownership; an installer exit alone does not prove replacement. Then run the read-only checks:
 
-Jarvis cuts a patch release (`X.Y.Z`, `Z > 0`) or a minor release for the owner when the work needs it, after one clean main batch run with measured timings. The release runs on the maintainer's machine. Only an `x.0` release waits for the owner. Group any steps that need the owner's own hand, such as a passphrase or a sign-in, into one question to the owner. Keep the Fedora release tag check in `packaging/fedora/srpm.sh`. [distribution.md § Quickshell engine](docs/architecture/distribution.md#quickshell-engine) holds the channel gaps and retirement rule.
+```sh
+node scripts/check-packaging.js --engine-availability --source-ref <candidate revision> # final candidate
+node scripts/check-packaging.js --installed-engine                                    # each executor
+```
 
-### Before the first release
+Only after both checks pass does the landing workflow advance `main`. Exit 77 leaves publication or installation unverified. The default `node scripts/check-packaging.js` stays offline, including when the AUR publisher calls it before publication.
 
-- Set `release_key` in `install.sh` to the full upper-case fingerprint of the release signing key, the `fpr` value `gpg --list-keys --with-colons` prints. The release signs `SHA256SUMS` with that key, and the curl installer verifies the signature against the same value. `scripts/release` refuses while it is empty.
-- Log in with `gh auth login`, as an account that may create releases in `vanillagreencom/vgshell`.
-- Register an RSA SSH public key with the AUR account that maintains `vgshell-quickshell`, `vgshell` and `vgshell-git`. The publisher reads the private key from `AUR_SSH_KEY_FILE` and nothing under `~/.ssh`. It pins the AUR's host keys in `packaging/aur-known-hosts`.
+Jarvis cuts a patch release (`X.Y.Z`, `Z > 0`) or a minor release for the owner when the work needs it, after one clean main batch run with measured timings. Only an `x.0` release waits for the owner. Group steps that need the owner's hand, such as a passphrase or sign-in, into one question.
+
+### Credentials
+
+Use the signing key whose fingerprint `install.sh` declares and a GitHub account that may create releases in `vanillagreencom/vgshell`. Register the AUR account's RSA public key before publication; give the publisher its private-key path through `AUR_SSH_KEY_FILE`. The publisher uses the pinned host keys in `packaging/aur-known-hosts`, not the maintainer's SSH configuration.
 
 ### Versions
 
 - `VERSION` holds the release's SemVer version, and the tag is `v` followed by it: [distribution.md § Version](docs/architecture/distribution.md#version).
 - While VGS is at 0.x, a minor bump marks a breaking change to `shell.json`, the plugin API, the manifest or the theme package format. A patch bump marks fixes only.
 - Plugin manifest versions change independently of `VERSION`.
-- The archive name carries no architecture.
 
 ### Flow
 
@@ -165,7 +173,7 @@ Jarvis cuts a patch release (`X.Y.Z`, `Z > 0`) or a minor release for the owner 
 
    The tag must be on `main`'s history: `bin/vgshell --version` in a checkout prints the newest release tag reachable from it. If you cut the release from an older commit, merge the release branch into `main` with `git merge -s ours --no-ff origin/release/vX.Y.Z` and push it. This merge keeps `main`'s tree unchanged. `git diff HEAD^1 HEAD` prints nothing, and `git merge-base --is-ancestor vX.Y.Z HEAD` exits 0. The release lane pushes this merge before its finish notice.
 
-4. Make the release. The last lines name the archive's sha256.
+4. Make the release:
 
    ```bash
    scripts/release --dry-run X.Y.Z
@@ -181,7 +189,7 @@ Jarvis cuts a patch release (`X.Y.Z`, `Z > 0`) or a minor release for the owner 
    git commit -am "packaging: pin the vgshell X.Y.Z tarball" && git push origin main
    ```
 
-6. Publish the engine, then both shell recipes. Exit 75 means a package was held back; its `deferred` line names the reason.
+6. Publish the engine, then both shell recipes. A deferred package leaves publication incomplete.
 
    ```bash
    scripts/publish-aur.sh --dry-run vgshell-quickshell vgshell vgshell-git
@@ -193,7 +201,7 @@ Jarvis cuts a patch release (`X.Y.Z`, `Z > 0`) or a minor release for the owner 
 
 ### Fedora
 
-The COPR project `vanillagreen/vgshell` holds `vgshell` from a release tag, `vgshell-git` from `main`, and `vgshell-quickshell` from its pinned upstream recipe. The engine needs `cpptrace-devel` to build and `libcpptrace.so.1` to run. Keep `errornointernet/quickshell` as both a build repository and a runtime repository dependency. The Hyprland COPR also remains a runtime repository dependency. These commands, run with a COPR API token, set up the project and its packages, and recreate them:
+Use the project, build targets and additional repositories in [`packaging/fedora/copr-project`](packaging/fedora/copr-project). Keep both the cpptrace and Hyprland COPRs as runtime repository dependencies. With a COPR API token, create or recreate the project and its engine package:
 
 ```bash
 copr-cli create vgshell --chroot fedora-44-x86_64 --chroot fedora-44-aarch64 \
@@ -211,14 +219,14 @@ For a new engine candidate, set the engine package's SCM committish to its exact
 copr-cli add-package-scm vgshell --name vgshell-git --clone-url https://github.com/vanillagreencom/vgshell.git \
   --commit main --spec packaging/fedora/vgshell-git.spec --method make_srpm --webhook-rebuild on
 copr-cli add-package-scm vgshell --name vgshell --clone-url https://github.com/vanillagreencom/vgshell.git \
-  --commit v0.1.0 --spec packaging/fedora/vgshell.spec --method make_srpm
+  --commit vX.Y.Z --spec packaging/fedora/vgshell.spec --method make_srpm
 copr-cli build-package vgshell --name vgshell
 copr-cli build-package vgshell --name vgshell-git
 ```
 
-`packaging/fedora/srpm.sh` fetches the engine's pinned upstream archive and puts the patches from `packaging/arch/vgshell-quickshell/` into its source RPM. The overseer publishes the engine after changes to that spec or its shared sources. For an existing COPR project, add the engine package through the project settings. Both shell specs require `vgshell-quickshell`, so repository priority cannot select the stock engine.
+For an existing COPR project, add the engine package through the project settings. [`packaging/fedora/srpm.sh`](packaging/fedora/srpm.sh) owns source-RPM preparation and the release-tag check. The shell specs require the VGS engine.
 
-Add the repository's GitHub webhook for `vgshell-git` only after the `v0.1.0` tag exists: `packaging/fedora/srpm.sh` builds `vgshell-git` without a release tag, so a webhook added earlier publishes a pre-tag build whose version sorts above the first builds after the tag, and a user who installed it gets no update. A user installs with `sudo dnf copr enable vanillagreen/vgshell`, then `sudo dnf install vgshell`. Once the first build installs in a clean container from the published project, the README gains a Fedora install command.
+Enable the repository's GitHub webhook for `vgshell-git` only after the first release tag exists, so pre-tag RPM versions do not sort above tagged builds. Prove a new published install route in a clean container before adding it to the README.
 
 ### Verification
 
@@ -256,7 +264,7 @@ podman run --rm -e NIX_CONFIG='experimental-features = nix-command flakes' docke
   nix run github:vanillagreencom/vgshell/vX.Y.Z -- --version
 ```
 
-Packaged installs print `vgshell X.Y.Z`; checkout installs report `X.Y.Z` in `version --json` and print that report's `describe` value when present. The README runner checks Nix commands in its NixOS identity fixture; that proves installation and version, not graphics. The export command above and this loop start each installed tree through the [nested sandbox](docs/architecture/validation.md#nested-sandbox). Nix requires a NixOS graphics host, through the exported NixOS curl tree or a NixOS-host flake install. An exported store alone supplies no host driver setup. On another host `qml-smoke.sh --nix-store` reports `nixos-graphics-required`, exit 77, before entry; record that startup proof as unavailable in the release result. Nix uses the exported store in the world's private `/nix`: [D113](docs/decisions/D113-world-root-from-host-mounts.md). Its references to the real host's driver root must remain usable; an unmeasured NixOS start is never a pass.
+Use the export above and this loop to check installed-tree startup in the [nested sandbox](docs/architecture/validation.md#nested-sandbox). The README runner's NixOS identity fixture proves installation and version, not graphics. Nix startup needs a NixOS graphics host, through an exported NixOS curl tree or a NixOS-host flake install. Its exported store enters the world's private `/nix` ([D113](docs/decisions/D113-world-root-from-host-mounts.md)); the host driver paths must remain usable. On another host the runner reports `nixos-graphics-required`, exit 77. Record that startup proof as unavailable, never as a pass.
 
 ```bash
 for tree in tmp/release-installs/*; do
@@ -268,4 +276,4 @@ done
 
 ## Licence
 
-VGS is under the MIT licence, `LICENSE`. The bundled fonts, Inter and JetBrains Mono, are under the SIL Open Font License 1.1 (`shell/assets/fonts/*-OFL.txt`), the Lucide icons under ISC (`shell/Ui/icons/LICENSE`), and the browser discovery stub under Apache-2.0 (`shell/plugins/vgs.jarvis/backend/skills/browser/LICENSE`). The package recipes hold the package licence expression.
+VGS is under the [MIT licence](LICENSE). The bundled fonts, Inter and JetBrains Mono, use SIL Open Font License 1.1: [Inter](shell/assets/fonts/InterVariable-OFL.txt), [JetBrains Mono](shell/assets/fonts/JetBrainsMono-OFL.txt). [Lucide icons](shell/Ui/icons/LICENSE) use ISC, and the [browser discovery stub](shell/plugins/vgs.jarvis/backend/skills/browser/LICENSE) uses Apache-2.0. [distribution.md § Licence](docs/architecture/distribution.md#licence) owns the combined package licence expression.
