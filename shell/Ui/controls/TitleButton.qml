@@ -28,9 +28,7 @@ T.AbstractButton {
     width: Math.max(minimumWidth, Math.min(maximumWidth, implicitWidth))
     InputWidth { target: root }
 
-    // The typography role of the title, a group of `Theme.text`.
     property string role: "h3"
-    // The menu the title opens; null opens nothing.
     property Item menu: null
     readonly property bool menuOpen: menu !== null && menu.opened
     readonly property color foreground: hovered || menuOpen ? Theme.titleButton.hover : Theme.titleButton.foreground

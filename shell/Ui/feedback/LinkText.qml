@@ -129,9 +129,7 @@ T.Control {
     // nearest glyph first: as many narrow no-break spaces, glue the line
     // never breaks at, as the room there is short of `ringRoom`. A word
     // space there is room, and no glyph or a line break past it needs
-    // none. One such space is 2.4 px at 13 px, which a word space of 3.7 px
-    // there is short by (FontMetrics.advanceWidth, Inter Variable, under
-    // scripts/qml-unit.sh on 2026-10-13). Styled text reads a run of spaces
+    // none. Styled text reads a run of spaces
     // of any kind as one plain space and keeps a space only as an entity
     // (Qt 6.11 qquickstyledtext.cpp, parse and parseEntity), which
     // `htmlEscaped` writes.
@@ -179,9 +177,8 @@ T.Control {
     // the label's font, width, wrap and alignment gives the words' x and
     // line; Text and TextEdit break lines through the same QTextLayout.
     // The box is on whole pixels, as the ring round it draws. Its top is
-    // floored: the highest ink draws on the floor's row (the capital's top
-    // row on scripts/sandbox-shots.sh tooltip-link, Inter Variable 13 px,
-    // on 2026-10-13). Words that wrap take their lines' full width.
+    // floored so the ring clears the first pixel row of ink. Words that wrap
+    // take their lines' full width.
     function wordsBox(twinWidth, twinHeight, twinLines) {
         const from = twin.positionToRectangle(run[0]);
         const first = lineOf(from, twinHeight, twinLines);

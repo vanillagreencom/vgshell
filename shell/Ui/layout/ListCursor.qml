@@ -62,9 +62,7 @@ Item {
     property Item background: Rectangle { color: root.pressed ? root.pressedColor : root.color; radius: root.radius }
     // The row that holds the selection; null for none.
     readonly property alias target: state.target
-    // The row under the pointer that took the plate; null for none.
     readonly property alias hovered: state.hovered
-    // The row the plate sits on.
     readonly property Item placed: state.hovered !== null ? state.hovered : state.target
     // Whether a hover moves the selection: the pointer has moved since the
     // last `disarm()` or `rebuilt()`.

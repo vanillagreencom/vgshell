@@ -38,11 +38,8 @@ Item {
     id: root
 
     default property alias entries: column.data
-    // The menu's PopupWindow, null until the first open. Built with the
-    // menu, it cost a device list about 10 ms a row, each row holding an
-    // overflow menu: 100 DeviceList rows took 1215-1341 ms with the window
-    // built with each row and 105-126 ms with it built on the first open,
-    // in qmltestrunner offscreen runs (VGS-1929, 2026-10-21).
+    // Build the PopupWindow on first open so each unopened overflow menu
+    // costs no window or content tree in a device list.
     readonly property var surface: built.window
     readonly property bool opened: surface !== null && surface.visible
     readonly property Item anchorItem: parent
@@ -155,7 +152,6 @@ Item {
         return nav.typeAhead(letter);
     }
 
-    // Scroll the highlighted entry into view.
     function reveal() {
         const all = items();
         if (currentIndex < 0 || currentIndex >= all.length) return;
@@ -166,11 +162,8 @@ Item {
     // shows, by the bar's own half-pixel test (ScrollBar.needed). It is read
     // from the entries' heights, not from the scroll area: the list takes
     // the window's size only after the window shows and overflows until
-    // then. Read from the scroll area, a menu that fits opened a strip
-    // wider than it settled (scripts/qml-unit.sh, 2026-10-10: 112 px, then
-    // 104), and an entry that fits, its text wrapping by the strip, opened
-    // a line taller than it settled (scripts/qml-unit.sh tst_overlays.qml,
-    // 2026-10-22: Settings on 2 lines, then 1).
+    // then. Reading the scroll area would add a temporary bar strip and
+    // change the entries' wrapping as the menu opens.
     readonly property bool overflows: column.implicitHeight - maxHeight >= 0.5
 
     // The widest entry by its own content, before the column sets every
@@ -275,7 +268,7 @@ Item {
             color: "transparent"
             // As wide as the widest entry, rounded up to the whole pixel the
             // window takes, never wider than `menu.maxWidth` or the output
-            // allows; a longer entry elides.
+            // allows; a longer entry wraps.
             implicitWidth: Math.min(OverlayState.widthFor(root.anchorItem, Theme.menu.maxWidth), Math.max(Theme.menu.minWidth, Math.ceil(root.widest) + 2 * Theme.border.thin))
             implicitHeight: Math.max(1, Math.min(column.implicitHeight, root.maxHeight) + 2 * root.listInset)
             onVisibleChanged: root.share(visible)

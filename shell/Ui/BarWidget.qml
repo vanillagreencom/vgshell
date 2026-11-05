@@ -72,7 +72,6 @@ Item {
     // Whether the core holds this widget for a drag: it parents the held
     // widget to the bar until the drop, a cancel or a release that asks.
     readonly property bool dragHeld: frameDragging && bar !== null && parent === bar
-    // The held widget draws nothing while its drag image shows.
     opacity: dragHeld && dragImage.item !== null && dragImage.item.visible ? 0 : 1
 
     // A held drag takes a share of OverlayState, as an open menu does, so

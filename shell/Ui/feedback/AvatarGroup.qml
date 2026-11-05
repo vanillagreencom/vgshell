@@ -29,7 +29,6 @@ Item {
     property int initialsWeight: Theme.avatarGroup.weight
 
     readonly property int total: people.length + Math.max(0, more)
-    // The faces drawn, and whether a chip counts the rest.
     readonly property int faces: Math.min(people.length, total > 4 ? 3 : 4)
     readonly property bool chipShown: total > faces
     readonly property int places: faces + (chipShown ? 1 : 0)

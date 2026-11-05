@@ -219,7 +219,6 @@ Item {
         throw new Error("Tooltip: side=" + JSON.stringify(name) + " unexpected");
     }
 
-    // The overlap of two boxes, null where they share no area.
     function cut(a, b) {
         const x = Math.max(a.x, b.x), y = Math.max(a.y, b.y);
         const width = Math.min(a.x + a.width, b.x + b.width) - x;
@@ -237,9 +236,8 @@ Item {
     // it declares repeatsReason), an Image or an
     // Icon of this module an "image"; anything else, another Shape such as
     // a card's background too, draws no obstacle of its own. A Qt Quick
-    // Controls control sets activeFocusOnTab from its focusPolicy: a
-    // qml-unit run of tst_reasontip.qml read it true on Button and
-    // IconButton (2026-10-13).
+    // Controls control sets activeFocusOnTab from its focusPolicy
+    // (tst_reasontip.qml).
     function obstacleKind(item) {
         if (item.activeFocusOnTab === true) return "control";
         if (typeof item.text === "string" && item.contentWidth !== undefined && item.font !== undefined) return item.repeatsReason === true ? "repeat" : "text";
@@ -432,7 +430,6 @@ Item {
         onTriggered: root.shown = false
     }
 
-    // Another overlay opening closes a tooltip already shown.
     Connections {
         target: OverlayState
         function onOpenChanged() { if (OverlayState.open > 0) root.shown = false; }

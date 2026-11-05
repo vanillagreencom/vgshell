@@ -31,8 +31,8 @@ import "LineBreak.js" as LineBreak
 // top, so controls sharing the reading do not round the centre first.
 // A true `link` centres a single mixed-case line between its highest ink
 // and baseline, excluding descenders. FontMetrics.tightBoundingRect is
-// relative to the baseline (Qt 6.12.0, qml-unit run actual-font-metrics,
-// VGS-1966). Empty, capitals and wrapped lines keep
+// relative to the baseline (Qt FontMetrics.tightBoundingRect).
+// Empty, capitals and wrapped lines keep
 // their existing reading, so a link never changes a block's placement.
 // `capTop()` is how far below the label top the first line's capitals
 // start, `inkAbove()` how far below it the first line's ink starts, its

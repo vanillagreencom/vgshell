@@ -15,7 +15,6 @@ function entry(desktopEntry) {
     return desktopEntry.runInTerminal === true ? ["xdg-terminal-exec"].concat(argv) : argv;
 }
 
-// open(TARGET): a file, folder or URL opened with its default application.
 function open(target) {
     return ["gio", "open", target];
 }

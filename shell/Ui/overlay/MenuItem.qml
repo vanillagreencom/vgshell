@@ -65,13 +65,10 @@ T.MenuItem {
     // Under a rounded theme the side padding grows until the content
     // clears the drawn corner (Theme.menuItemCorner). It is read from a
     // one-line entry's first line, where a wrapped entry's first line also
-    // stands: read from the entry's own height, it moved the line breaks
-    // that set that height, a binding loop on the text's width when a
-    // hidden menu took a rounded theme (qmltestrunner, Qt 6.12.0,
-    // 2026-10-31).
+    // stands. Reading the entry's own height would feed the line breaks
+    // back into the width that sets them.
     readonly property real sidePadding: Theme.controlPadding(Theme.menu.item.paddingX, Theme.menuItemCorner, Theme.menu.item.height, title.lineBox)
     leftPadding: sidePadding
-    // The check mark or the chevron stands at the end.
     readonly property bool endMark: checked ? true : opensSubmenu
     rightPadding: sidePadding + barRoom + (endMark ? Theme.menu.item.icon + spacing : 0)
     spacing: Theme.menu.item.gap
@@ -102,7 +99,6 @@ T.MenuItem {
     contentItem: Item {
         readonly property real lead: icon.visible ? icon.width + root.spacing : 0
         readonly property real tail: hint.visible ? hint.implicitWidth + 2 * root.spacing : 0
-        // The text's width on one line, which its line breaks never change.
         implicitWidth: lead + oneLine.advanceWidth + tail
         implicitHeight: Math.max(icon.visible ? icon.height : 0, title.implicitHeight, hint.visible ? hint.implicitHeight : 0)
 

@@ -95,8 +95,8 @@ FormRow {
     }
 
     warning: messageText(messageKind)
-    // Each message draws 1 px under `hint`, in the 12 px sans role, so the
-    // line naming the user's own value fits beside its actions (VGS-1130).
+    // The smaller message role leaves room for the user's value beside its
+    // actions.
     warningRole: "tooltip"
     warningTone: messageKind === "config" || messageKind === "overridden" ? "warning" : "muted"
     warningLink: messageKind === "config" || messageKind === "overridden" || messageKind === "hyprland" ? "Hyprland config" : ""

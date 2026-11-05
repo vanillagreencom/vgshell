@@ -22,8 +22,8 @@ import qs.Ui
 // the mark's place in that scope and takes the keyboard from no one, so
 // the keyboard is on the toggle when the user comes back. Qt hands a
 // window that comes back the ActiveWindowFocusReason, so no control shows
-// a ring then until the next key moves the focus (a qml-unit run,
-// 2026-10-13). The mark is a toggle's own part, so an IconButton, which
+// a ring then until the next key moves the focus. The mark is a toggle's
+// own part, so an IconButton, which
 // extends Button, holds none: Button cannot contain its own kind.
 Loader {
     id: root

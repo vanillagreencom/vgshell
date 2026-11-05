@@ -107,8 +107,7 @@ Rectangle {
         // The corner figures take the bar role at the stacked size, with
         // the role's tracking at that size, as a stacked bar reading does.
         // Each reads the size, not font.pixelSize: a font sub-property
-        // read inside the font group's own binding loops (qmltestrunner,
-        // Qt 6.11, 2026-11-02).
+        // read inside the font group's own binding loops (Qt 6.11).
         readonly property real size: root.corner ? Theme.bar.stacked.size : typography.size
         font.pixelSize: size
         font.letterSpacing: typography.letterSpacing * size

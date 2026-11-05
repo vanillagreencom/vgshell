@@ -17,7 +17,6 @@ QtObject {
     // this false.
     property bool closeOnHide: true
     signal anchorHidden()
-    // Each anchor update.
     signal followed()
 
     // The anchor and every ancestor up to the window's content item.

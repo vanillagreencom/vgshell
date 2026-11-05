@@ -2,8 +2,8 @@ import QtQuick
 import QtQuick.Window
 import qs.Commons
 
-// A passive voice-level ring with no pointer handler: a passive layer takes no
-// input (D026), so every action a consumer needs sits beside the ring.
+// A decorative voice-level ring takes no input (D026), so every action a
+// consumer needs sits beside the ring.
 // Item.visible includes hidden ancestors; Window covers an unmapped host.
 Item {
     id: root

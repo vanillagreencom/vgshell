@@ -7,8 +7,8 @@
 //
 // A resolved value is portable: a colour is the string `#rrggbbaa`, lower
 // case with alpha last, and every other value is a JSON number, boolean or
-// string. Theme.qml converts a colour once; no colour string reaches a QML
-// property, because Qt reads eight digits with alpha first.
+// string. Theme.qml moves a colour's alpha to the front before handing it
+// to a QML colour property, because Qt reads eight digits with alpha first.
 
 var SCHEMA_VERSION = 1;
 
@@ -344,8 +344,8 @@ var READABILITY_SURFACES = [
     "color.surfaceSunken"
 ];
 var READABILITY_FLOOR = 4.5;
-// Pillow native-pixel fixed-stem medians on 9ebf4e75f (2026-10-13,
-// VGS-1658): Tray hint and Network bodyStrong danger in dracula and
+// Pillow native-pixel fixed-stem medians on 9ebf4e75f (2026-10-13):
+// Tray hint and Network bodyStrong danger in dracula and
 // flexoki-light fit these coverages without exceeding either capture.
 // Medium (500) uses the regular fit; bold (600/700) uses bodyStrong's.
 var TEXT_STROKE_COVERAGE = { regular: 0.966, bold: 1.000 };
@@ -738,10 +738,8 @@ function readValue(leaf, raw) {
 // `overrides`, a map of dotted token path to raw value. Answers
 // { ok: true, values } with `values` a tree in the table's shape, or one
 // refusal. Each token is resolved once; a reference to a token on the
-// current path is a cycle. The table's leaves are listed once and found by
-// path from then on: a walk of the table for every token and reference was
-// 6.3 to 7.3 ms of the 16.0 to 17.1 ms three judgments took in one apply
-// (node --cpu-prof at 100 us, three applies on cachy, 2026-10-12).
+// current path is a cycle. Index the table's leaves once so resolving
+// each token and reference needs no repeated table walk.
 function resolve(tokens, overrides) {
     var resolved = {};
     var visiting = [];

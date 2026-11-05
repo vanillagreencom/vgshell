@@ -80,7 +80,6 @@ Item {
     onCurrentIndexChanged: internal.follow()
     activeFocusOnTab: !tabSteps
 
-    // Move `delta` cards from the current one, wrapping at either end.
     function step(delta) {
         nav.moveBy(delta);
     }

@@ -121,7 +121,6 @@ function step(index, count, delta, wrap, reachable) {
     return reachableAt(reachable, index) ? index : edge(count, reachable, delta < 0);
 }
 
-// Return the first or last reachable index.
 function edge(count, reachable, toLast) {
     if (count <= 0) return -1;
     if (toLast) {
@@ -132,7 +131,6 @@ function edge(count, reachable, toLast) {
     return -1;
 }
 
-// Return the number of whole rows visible in a page, with one as the floor.
 function pageRows(viewHeight, rowHeight) {
     if (viewHeight <= 0 || rowHeight <= 0) return 1;
     return Math.max(1, Math.floor(viewHeight / rowHeight));
@@ -228,7 +226,7 @@ function focusInitial(target, window) {
 }
 
 // Accepted navigation can leave an already focused Qt Control's reason
-// unchanged (native-key probe, VGS-1111 review). Update Qt's own reason;
+// unchanged. Update Qt's own reason so its visualFocus shows navigation;
 // never take focus from another receiver or mark a programmatic move.
 function focusNavigation(target) {
     if (target !== null && target !== undefined && target.activeFocus && "focusReason" in target)

@@ -44,7 +44,7 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // ring on the square would leave its right part empty. The hit target
 // cannot be a `containmentMask` centred on the mark: on Qt 6.11.2 a press,
 // click or hover inside a mask but outside the item's bounds reaches
-// nothing (a qml-unit probe, 2026-10-17).
+// nothing.
 // `glyphEnd` is, as IconButton's is, the distance from the control's right
 // edge to the lone mark's painted ink: a row that puts the ink, not the
 // square, on its control edge shifts the action by it. An action with
@@ -68,13 +68,12 @@ T.Button {
     property string disabledReason: ""
     // The Lucide name of a danger action's mark, "" for the trash mark. It
     // is not `icon`: AbstractButton's is FINAL, and a RowAction declaring
-    // one fails to load (a qml-unit run, 2026-10-17).
+    // one fails to load.
     property string markName: ""
     property bool removesItem: false
     readonly property DisabledReason lock: lockState
     readonly property var tokens: toneOf(removesItem ? "danger" : tone)
     readonly property color foreground: down ? tokens.pressed : hovered ? tokens.hover : tokens.foreground
-    // Whether the danger mark draws: before the text, or alone.
     readonly property bool marked: removesItem || tone === "danger"
     readonly property real glyphEnd: removesItem ? width - contentItem.x - mark.x - mark.painted[2] : 0
 
@@ -110,7 +109,6 @@ T.Button {
     Keys.onPressed: event => { event.accepted = lockState.takeKey(event); }
 
     contentItem: Item {
-        // How far under the baseline the underline starts.
         readonly property real drop: Math.max(Theme.rowAction.underlineGap, Inset.underlineTop(DescenderInk.depth(label.font), Screen.devicePixelRatio))
         // Half the box: from the capital centre up to the label's top, or
         // down to the underline's foot, whichever is further.

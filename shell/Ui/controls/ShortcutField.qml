@@ -119,7 +119,6 @@ FocusScope {
     // an edit there too.
     readonly property alias typing: entry.open
     readonly property bool edited: typing && entry.text.trim() !== key
-    // The modifiers held while capturing, in the order a key writes them.
     property var held: []
     property string notice: ""
     // The seconds Hyprland's pass-through has left, counted from the moment
@@ -570,7 +569,7 @@ FocusScope {
                     visible: root.editable; checked: root.typing
                     onClicked: root.typing ? root.stopTyping() : root.startTyping()
                 }
-                // Hidden at opacity 0, so its place stays in the Row.
+                // Opacity preserves the tool's slot when it is hidden.
                 ToolSlot {
                     readonly property bool shown: root.key !== "" && !root.typing
                     iconName: "x"

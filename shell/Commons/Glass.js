@@ -4,15 +4,9 @@
 // plugin's own look takes, which ThemeLogic.acceptAppearance judges and
 // Theme publishes once as `Theme.glass`. Every surface that draws VGlass
 // draws it from here through GlassSurface of qs.Ui, handing only its own
-// fill, rounding and elevation. The values are the Spotlight launcher's and
-// notification stack's (px13 dotfiles, spotlight/Theme.qml, GlassSurface.qml
-// and hooks/theme-set.d/spotlight-menu-tokens.sh), which the two drew alike;
-// the default fill is the theme's raised surface at the notification
-// toast's alpha. `window` holds what Hyprland draws its own windows with
-// while window glass is on. The active theme reaches this table through
-// three inputs alone, `palette.accent`, `color.surfaceRaised` and
-// `motion.scale`, plus its `scheme.mode`, which applies LIGHT; no other
-// theme value can.
+// fill, rounding and elevation. `window` holds what Hyprland draws its own
+// windows with while window glass is on. Only declared appearance inputs
+// reach this table (ThemeLogic.acceptAppearance); `scheme.mode` picks LIGHT.
 
 function color(value) { return { type: "color", value: value }; }
 function length(value) { return { type: "length", value: value }; }
@@ -43,7 +37,6 @@ var TOKENS = {
     },
 
     text: {
-        // The hook's own neutral for a dark theme.
         foreground: color("#e8e8e8")
     },
 
@@ -82,8 +75,6 @@ var TOKENS = {
     }
 };
 
-// Light mode: the hook's light glass and neutral, and the reference's light
-// alphas.
 var LIGHT = {
     text: {
         foreground: "#2a2a2a"

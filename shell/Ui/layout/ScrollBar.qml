@@ -37,7 +37,6 @@ Item {
     opacity: active ? 1 : Theme.scrollArea.idleOpacity
     Behavior on opacity { NumberAnimation { duration: Theme.scrollArea.fade; easing.type: Theme.motion.easing.standard } }
 
-    // Move the content to `y`, held inside it.
     function scrollTo(y) { flickable.contentY = Math.max(0, Math.min(maxY, y)); }
     // One view up for a negative `direction`, down for a positive one.
     function page(direction) { scrollTo(flickable.contentY + (direction < 0 ? -1 : 1) * flickable.height); }

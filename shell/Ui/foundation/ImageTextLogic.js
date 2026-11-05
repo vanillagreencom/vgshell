@@ -30,7 +30,6 @@ function escape(text) {
     return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-// The unique drawable image URLs of `segments`, in order.
 function imageUrls(segments) {
     var out = [];
     for (var i = 0; i < segments.length; i++) {
@@ -98,7 +97,6 @@ function cuts(list) {
     return out;
 }
 
-// The first `count` tokens, then the ellipsis.
 function cut(list, count) {
     return join(list, count) + ELLIPSIS;
 }

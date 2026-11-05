@@ -68,8 +68,8 @@ T.TextField {
         color: Theme.textField.background
         border.width: Theme.textField.border
         border.color: root.outline
-        // A retained error transition can still contain its old keyboard
-        // colour after Other focus (VGS-1111 rendered reset probe). Snap it.
+        // Do not animate the outline: a focus reset must clear the keyboard
+        // colour immediately.
 
         Icon {
             visible: root.leadingIcon !== ""

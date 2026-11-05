@@ -46,11 +46,8 @@ function listInset(radius, border, rowRadius) {
 // ceil(B + depth) - 1; one clear row between them for every B needs
 // t >= depth + 1.5. A row the ink reaches by less than an eighth of a
 // device pixel reads as clear, `SEEN_INK`: the depth is read to a pixel of
-// a large size, rounded outward (DescenderInk): Inter Variable's g, j, p,
-// q and y at 15 px read 3.25 px at 64 times the size and, at 256 times,
-// past the 3.25 that 8 device px at 2x allow (scripts/qml-unit.sh,
-// 2026-10-19). In Inter Variable the line starts 5 px under the baseline
-// at 1x and 8 device px at 2x, at 13 and at 15 px. Jarvis decision
+// a large size, rounded outward (DescenderInk), so this tolerance avoids
+// adding a row for that rounding alone. Jarvis decision
 // 1792451829-3591639-28142. Qt Quick draws a link's or `<u>`'s underline
 // at the font's underline position, which a descender meets (Qt 6.11
 // qquicktextnodeengine.cpp, addTextDecorations).

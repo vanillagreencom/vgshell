@@ -231,18 +231,13 @@ Item {
     // In the row box's frame, as are the label's and the control's tops
     // and the places that read them.
     readonly property real underText: textBelow ? slotTop + slot.height + Theme.field.gap : warning !== "" ? messageTop : -1
-    // Whether the explainer, centred on the label's box, ends above that line.
     readonly property bool besideClear: underText < 0 ? true : (labelBox + besideHeight) / 2 <= underText
     readonly property bool explainBeside: besideWrap > 0 && besideHeight <= labelBox + 2 * Theme.stack.row && besideClear
-    // Where the label's focus ring ends: it draws outside the label's box.
     readonly property real ringBottom: labelTop + labelText.height + labelRing.extent
-    // Whether that ring reaches the first line under the value.
     readonly property bool ringAtUnderText: underText >= 0 && ringBottom + Theme.tooltip.gap > underText
-    // Where the explainer starts under the row, clear of that ring.
     readonly property real underX: ringAtUnderText ? valueX : 0
     // The box a one-line label centres on, whatever the label's own lines.
     readonly property real oneLineBox: controlFirstLine > 0 ? controlFirstLine : Math.max(Theme.row.height, slot.childrenRect.height)
-    // Whether the row has a line under its value.
     readonly property bool underLine: textBelow || warning !== ""
     // Whether the explainer has room past the control beside a label of any
     // line count, and ends above a line under the value: less a pixel, which
@@ -272,7 +267,6 @@ Item {
     // Where the label and the control start in the row box.
     readonly property real labelTop: labelText.lineCount > 1 ? Math.round((boxHeight - labelText.implicitHeight) / 2) : labelText.topForCapCenter(labelBox)
     readonly property real slotTop: labelColumn ? Math.round((boxHeight - slot.height) / 2) : 0
-    // The box a one-line label and its info button centre on.
     readonly property real labelBox: labelText.lineCount > 1 || controlFirstLine === 0 ? boxHeight : controlFirstLine
     // The first line of a control that wraps into lines, 0 beside a control of one box.
     readonly property real controlFirstLine: {

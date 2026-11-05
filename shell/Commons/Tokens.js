@@ -5,10 +5,8 @@
 // document against this table and resolves it, and states the expression
 // grammar.
 //
-// A value is a literal, a reference `{group.token}`, or one call of `mix`,
-// `alpha`, `contrast` or `mul`. A component token derives from its own
-// component first, so a theme that sets one fill keeps the text on it
-// readable.
+// A component token derives from its own component first, so a theme that
+// sets one fill keeps the text on it readable.
 
 function color(value) { return { type: "color", value: value }; }
 function length(value, min, max) {
@@ -25,19 +23,14 @@ function flag(value) { return { type: "flag", value: value }; }
 function easing(value) { return { type: "easing", value: value }; }
 function number(value, min, max) { return { type: "number", value: value, min: min, max: max }; }
 
-// A share of one, such as an opacity.
 function share(value) { return number(value, 0, 1); }
 
-// A step of the spacing scale, in units of `space.unit`.
 function step(units) { return length("mul({space.unit}, " + units + ")"); }
 
-// A font size, as a multiple of `font.size`.
 function scaled(factor) { return length("mul({font.size}, " + factor + ")"); }
 
-// A neutral between the background and the foreground.
 function neutral(amount) { return color("mix({palette.background}, {palette.foreground}, " + amount + ")"); }
 
-// A text colour between the foreground and the background.
 function faded(amount) { return color("mix({palette.foreground}, {palette.background}, " + amount + ")"); }
 
 // One typography role. `face` is `sans`, `mono` or `caps`, the family of
@@ -83,8 +76,6 @@ function variant(path, background, fontWeight, hoverToward, pressedToward) {
 // toward black or white, whichever the background contrasts with, as its
 // text, so the text holds the readability floor on the fill over every
 // resting surface (ThemeLogic.READABILITY_PAIRS) and stays near the role.
-// On 2026-10-10 the judge's ratios over the shipped and every catalog
-// theme held from 0.26, least 4.58 at 0.28.
 function tone(role) {
     return { background: color("{color." + role + "Subtle}"), foreground: color("mix({color." + role + "}, contrast({palette.background}), 0.28)") };
 }
@@ -778,11 +769,9 @@ var TOKENS = {
     // `wordMargin`, `capMargin` and `valueMargin` are the token contrast a
     // hint word, a hint's 11 px key name and a field's 12 px value key are
     // solved to, here and in ThemeLogic.keyHintInk: room over the 4.5:1
-    // drawn floor for each role's rendering loss. The key name keeps 5.1,
-    // since at 4.65 the Automations editor's Ctrl S drew 4.32 dark and 4.21
-    // light (VGS-2180 native line readings, 2026-11-02); the value key keeps
-    // 4.65, which every theme reaches on a field's selection mark (kurayami
-    // reaches 4.693 at most there).
+    // drawn floor for each role's rendering loss. Hint key names need more
+    // margin than larger value keys; the value margin must remain reachable
+    // on a field's selection mark.
     kbd: {
         radius: length("{radius.sm}"),
         border: length(0),
@@ -857,11 +846,8 @@ var TOKENS = {
     // as far as it must to read 4.75:1 on the plate over the raised surface
     // lifted toward white by Glass.js's dark `solidLift`, 0.05; only a plate
     // of luminance 0.17 to 0.19, on which no text reads 4.75:1, refuses the
-    // theme. The judge reads a regular weight's
-    // drawn ink (ThemeLogic.drawnTextRatio), up to 5% under the plain
-    // ratio: at 4.7, artzen, catppuccin-frappe and everforest read 4.47 to
-    // 4.49:1, and at 4.75 every theme passes, 19 dark catalog themes moved
-    // (scripts/check-theme-contrast.js on the catalog, 2026-10-18).
+    // theme. The margin accounts for the judge's sampled regular-weight
+    // ink rather than the plain colour ratio (ThemeLogic.drawnTextRatio).
     listItem: {
         height: length("{row.height}"),
         twoLineHeight: length("{row.twoLineHeight}"),
@@ -933,11 +919,8 @@ var TOKENS = {
         glass: color("mix({tooltip.background}, #ffffff, 0.05)"),
         // The title draws the theme's text where it reads 4.5:1 on that
         // fill, else black or white. A detail line draws the faint text,
-        // else the muted text, else the title's colour: on solid glass the
-        // faint text read 4.14:1 in vgs and 3.84:1 in mechanoonna, the
-        // muted 3.86:1 in pmndrs, and moon-orbit's text 4.12:1
-        // (scripts/check-theme-contrast.js on the catalog with the
-        // theme's own text in both lines, 2026-10-13).
+        // else the muted text, else the title's colour, so solid glass
+        // cannot leave either line below the readability floor.
         foreground: color("readable({color.text}, {tooltip.glass}, contrast({tooltip.glass}))"),
         detail: color("readable({color.textFaint}, {tooltip.glass}, readable({color.textMuted}, {tooltip.glass}, {tooltip.foreground}))")
     },
@@ -954,7 +937,7 @@ var TOKENS = {
         radius: length("{radius.md}"),
         gap: length("{space.xs}"),
         // A menu never grows wider than `maxWidth`, nor wider than its
-        // output less `size.window.gutter` a side; a longer entry elides.
+        // output less `size.window.gutter` a side; a longer entry wraps.
         maxWidth: length("{size.panel.md}"),
         background: color("{color.surfaceRaised}"),
         border: color("{color.borderStrong}"),
@@ -1070,19 +1053,15 @@ var TOKENS = {
     // 0.6 opacity, made opaque. A chosen word or an open tab draws
     // `hintActive`, the white or black that contrasts more with that
     // backdrop, 4.58:1 or more on any colour; other text draws `hint`,
-    // that colour moved 0.06 toward the theme's text, at least 4.66:1 in
-    // every catalog theme, where the theme's own text read 1.80:1 in
-    // rose-pine (ThemeLogic.contrastRatio on the resolved catalog themes,
-    // node, 2026-10-13). A failure line beside the rail rests on
+    // that colour moved 0.06 toward the theme's text. A failure line beside
+    // the rail rests on
     // `failurePlate`, the theme's surface drawn solid, not on the scrim, so
     // no wallpaper reaches it. Its words and its leading danger mark draw
     // `hintDanger`: the theme's danger where it reads 4.5:1 on the plate,
-    // as in every catalog theme, 4.68:1 or more (the same reading), and the
-    // theme's text colour where it does not. The search line, the empty
+    // and the theme's text colour where it does not. The search line, the empty
     // rail's line and the scope words sit on the scrim with the tabs, by
     // the owner's choice (Slack 1792263064), though no one colour reads
-    // 4.5:1 there over both a white and a black wallpaper: nord's
-    // `hintActive` reads 3.91:1 over white (the same reading). The scope
+    // 4.5:1 there over both a white and a black wallpaper. The scope
     // line's Apply to: label and its slash draw `hint` at
     // `scopeLabelOpacity`, and its words at `scopeOpacity`. The open tab's
     // indicator draws `tabIndicator`: the theme's accent where it reads
@@ -1226,9 +1205,8 @@ var TOKENS = {
         },
         // A gap or a separator the user adds from the bar's menu: the gap's
         // empty width, the room either side of the separator's line, and
-        // the line's height and colour. The owner set 15 and 5 px, the line
-        // about 30% shorter than the bar's 16 px icon, which the 4 px grid
-        // makes 12, and its colour at 20% of the bar's text.
+        // the line's height and colour. The separator is shorter and fainter
+        // than the bar's icons so it divides without reading as a widget.
         spacer: {
             gap: length(15),
             inset: length(5),

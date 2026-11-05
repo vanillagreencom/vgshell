@@ -7,10 +7,8 @@ import QtQuick
 // entry stays, idle, so the next holder of the same image draws it at once;
 // the pool destroys an idle entry when `idleCeiling` newer releases push it
 // out, and an entry whose load failed, at its last release or at the next
-// `acquire` of a load that failed while idle. A re-created
-// entry decodes its image again: in the notifications row's emoji toast
-// (scripts/qml-smoke.sh, host cachy, 2026-10-10) that decode held the
-// toast's first frame 42-79 ms after its text, against 27 ms for a held one.
+// `acquire` of a load that failed while idle. Keeping idle entries avoids
+// decoding the same image again for the next holder.
 //
 // The entry is what makes the inline image load off the GUI thread. A
 // StyledText `<img>` loads its image synchronously, and first looks for it

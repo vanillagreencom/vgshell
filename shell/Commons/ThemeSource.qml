@@ -5,7 +5,7 @@ import "Tokens.js" as Tokens
 import "ThemeLogic.js" as ThemeLogic
 
 // The theme file and the last document it accepted. Theme holds the one
-// instance; this file is absent from qmldir, so no plugin can name it. The
+// instance; qmldir marks this type internal, so no plugin can name it. The
 // file is read the way Config reads shell.json: an absent file is the
 // expected case and publishes the defaults, so a file removed while the
 // shell runs draws what a fresh start without it would. A file that is

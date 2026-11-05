@@ -12,7 +12,7 @@ import qs.Ui
 // KeyNav; Enter, Return, Space and a click run the row's action, and so
 // does its RowAction. A busy row shows a Spinner in the action slot and
 // emits no action. Shift+F10 and the Menu key open a row's overflow menu.
-// With `removable`, Delete asks to remove the selected row (K9).
+// With `removable`, Delete asks to remove the selected row.
 // The selection shows while the list holds the keyboard or the pointer is
 // over it, so two lists of one page never both show one. The selected row
 // holds the scope's focus, so a removed row's place takes the keyboard. A
@@ -77,13 +77,11 @@ FocusScope {
     readonly property bool navigable: !(lockState.locked && !opensAny)
     readonly property bool engaged: navigable && (activeFocus || hover.hovered)
     readonly property bool visualFocus: activeFocus && Window.activeFocusItem !== null && Window.activeFocusItem.visualFocus === true && !(current >= 0 && current < rows.length && rows[current].opens === true)
-    // Each row's place in `rows` by its key.
     readonly property var placeOf: {
         const out = {};
         rows.forEach((row, index) => { out[String(row.key)] = index; });
         return out;
     }
-    // The key of the row that holds the selection, which the rows read.
     property string selectedKey: ""
     // Whether the user chose the selected row: true once the list takes
     // the keyboard or its selection moves while it holds it, and false
@@ -140,7 +138,6 @@ FocusScope {
     // The row item at INDEX, or null.
     function rowAt(index) { return repeater.itemAt(index); }
 
-    // Give the keyboard to the selected row.
     function focusCurrent(reason) {
         const row = rowAt(current);
         if (row !== null) row.forceActiveFocus(reason === undefined ? Qt.TabFocusReason : reason);
@@ -258,7 +255,7 @@ FocusScope {
                     Repeater {
                         // Keyed by the actions' keys alone: Repeater keeps
                         // its delegates while a new model array equals the
-                        // last (a qml-unit run, Qt 6.12, 2026-10-31), so an
+                        // last (Qt 6.12), so an
                         // action whose icon or label changes, as a copy's to
                         // Copied, keeps its button, its hover and its open
                         // tooltip.

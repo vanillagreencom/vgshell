@@ -284,9 +284,8 @@ T.AbstractButton {
                 // The highlighted entry, which a key and a hover move. It is
                 // not the view's currentIndex: a ListView scrolls to keep a
                 // new current item in view as its highlight moves there, so
-                // a hover over an entry part way past the bottom scrolled
-                // the list (scripts/qml-unit.sh tst_overlays.qml,
-                // 2026-10-16: contentY 0 to 18; design-system.md § Pointer).
+                // a hover over an entry part way past the bottom would scroll
+                // the list (design-system.md § Pointer).
                 // Only a key move, through openNav, and an opening scroll an
                 // entry into view.
                 property int highlightIndex: -1
@@ -352,9 +351,8 @@ T.AbstractButton {
                     // The view gives its current item the focus, and a
                     // MenuItem takes Return and Enter as its own click, so an
                     // entry hands every key to the list's navigation first,
-                    // which chooses the highlighted entry (layers,
-                    // automations and network smoke rows, 2026-10-18:
-                    // Return chose the view's current entry instead).
+                    // which chooses the highlighted entry rather than the
+                    // view's current entry.
                     Keys.forwardTo: [entries]
 
                     // The entry action's button, in the strip the entry keeps

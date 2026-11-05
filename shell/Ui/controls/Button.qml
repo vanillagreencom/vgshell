@@ -105,11 +105,9 @@ T.Button {
     Keys.onPressed: event => { event.accepted = lockState.takeKey(event); }
 
     contentItem: Row {
-        // False while no shimmer is loaded.
         readonly property bool shimmering: shine.item !== null && shine.item.running
         spacing: root.spacing
         opacity: lockState.fade
-        // The shadow blurs the content's layer (TextShadow).
         layer.enabled: root.shadow !== null
         layer.effect: TextShadow { shadow: root.shadow }
         Icon {

@@ -73,14 +73,11 @@ T.AbstractButton {
     // empty sample, or a hidden reading, holds nothing. An unshown Text
     // measures the sample, not TextMetrics: a Text's width counts a last
     // glyph's ink past its advance, which TextMetrics.advanceWidth leaves
-    // out ("100%" in the bar role lays out 33.56 px wide against an advance
-    // of 32.56 px, read under scripts/qml-unit.sh on 2026-10-08), so an
-    // advance would hold a pixel less than the sample shown takes. A
+    // out, so an advance can hold less room than the sample shown takes. A
     // `stacked` reading is one of two lines in the item: the bar role at
     // `bar.stacked.size`, centred in a box `bar.stacked.lineHeight` tall.
     // The box sets the line, not the Text's own height: a Text one line
-    // tall is never shorter than its font's line box, 14 px for the 10 px
-    // text in a 12 px line, read under scripts/qml-unit.sh on 2026-10-09.
+    // tall is never shorter than its font's line box.
     component Reading: Label {
         id: reading
         property string sample: ""
@@ -105,8 +102,7 @@ T.AbstractButton {
 
     // A stacked line's icon, centred in the line's box. A Row lays out
     // only visible children, so a hidden icon leaves no gap before its
-    // value (tst_baritem.qml test_stacked_lines_draw_their_own_icons,
-    // detail-without-icon, under scripts/qml-unit.sh on 2026-10-09).
+    // value.
     component LineIcon: Icon {
         size: Theme.bar.stacked.icon
         stroke: Theme.bar.stacked.iconStroke
@@ -126,9 +122,7 @@ T.AbstractButton {
     // item's foreground whatever level its values draw in, `iconGap` from
     // what follows. It takes room in the row; "" draws none.
     property string leadingIconName: ""
-    // The detail line's icon in the stacked layout.
     property string detailIconName: ""
-    // The second reading, beside the text or under it when stacked.
     property string detail: ""
     // The corner badge's whole number, "" for none.
     property string count: ""
@@ -136,7 +130,6 @@ T.AbstractButton {
     property string textSample: ""
     property string detailSample: ""
     property string caption: ""
-    // The detail line's label in the stacked layout.
     property string detailCaption: ""
     property string separator: ""
     // Draw text and detail on two lines; with one of them shown it is one.
@@ -170,7 +163,6 @@ T.AbstractButton {
     function levelColor(value) {
         return value === "danger" ? Theme.color.danger : value === "warning" ? Theme.color.warning : foreground;
     }
-    // Each value's colour, on one line or stacked.
     readonly property color textColor: levelColor(textLevel)
     readonly property color detailColor: levelColor(detailLevel)
 
@@ -188,8 +180,7 @@ T.AbstractButton {
     // The tooltip takes a key first, so a key on its current link opens the
     // link's page and does not click the item. Keys emits `pressed` only
     // for a key none of its own handlers took, and before the button reads
-    // Space (tst_baritem.qml test_a_tooltip_link_opens_its_page_from_the_keys
-    // under scripts/qml-unit.sh, Qt 6.11.2, on 2026-10-13).
+    // Space (Qt 6.11.2, tst_baritem.qml).
     Keys.onReturnPressed: event => { if (!tip.takeKey(event)) KeyNavLogic.activate(root); }
     Keys.onEnterPressed: event => { if (!tip.takeKey(event)) KeyNavLogic.activate(root); }
     Keys.onPressed: event => { event.accepted = tip.takeKey(event); }

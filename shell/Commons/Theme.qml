@@ -188,12 +188,8 @@ Singleton {
     // caller that names its fill reads no ancestor. Glass, a drawn
     // surface's (GlassSurface.hintGround) or an application window's, reads
     // as the theme judge reads list text on glass (ThemeLogic
-    // GLASS_PLATE_PAIRS): made opaque. Over
-    // clear glass on a white wallpaper no key ink meets every theme: a
-    // selected row's own title reads about 3.2:1 there in dracula,
-    // everforest and catppuccin-frappe (ThemeLogic.contrastRatio, VGS-2180,
-    // 2026-11-02), so a hint judged harder than the text beside it would be
-    // inconsistent.
+    // GLASS_PLATE_PAIRS): made opaque, so hints and the text beside them
+    // are judged against the same ground.
     function hintContext(given, ground) {
         let fill = given === null ? undefined : given.fill;
         if (fill === undefined) {

@@ -10,7 +10,7 @@ import qs.Ui
 // clicks nothing, and `takeKey` takes Space, Return and Enter, the keys
 // the control hands it first. `KeyNavLogic.activate` refuses a locked
 // control too, since a `Keys.onReturnPressed` handler runs before
-// `Keys.onPressed` and stops it (a qml-unit run, 2026-10-13). The control
+// `Keys.onPressed` and stops it. The control
 // draws no hover or press while locked. Its drawn parts fade while the
 // control itself stays opaque, so an unlock mark it holds (UnlockMark)
 // draws at full strength: a part that holds the control's FocusRing draws
@@ -60,7 +60,7 @@ Item {
     // keyboard-path: the control keeps its focus and its keys, which takeKey refuses while locked
     // Hidden while unlocked too: Qt takes a cursor from the topmost item
     // under the pointer, and the shield's arrow would hide the control's
-    // hand (a gallery smoke run, 2026-10-13).
+    // hand.
     MouseArea {
         anchors.fill: parent
         visible: root.shielded

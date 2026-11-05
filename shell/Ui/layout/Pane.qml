@@ -144,9 +144,8 @@ Item {
     // children's laid-out boxes: read through `childrenRect`, a header of
     // implicit width and a footer bound to `contentWidth` each moved the
     // other's box, which fed `implicitWidth` back into itself.
-    // Qt clears the Pane id before removing the slot's children, as the
-    // assembled System check reaches. Keep the binding in the slot so
-    // child removal does not call the destroyed Pane.
+    // Qt clears the Pane id before removing the slot's children. Keep the
+    // binding in the slot so child removal does not call the destroyed Pane.
     component Slot: Item {
         property Item contentItem: this
         implicitHeight: contentItem === null ? 0 : (contentItem === this ? childrenRect.height : contentItem.implicitHeight)
@@ -377,9 +376,8 @@ Item {
     // another tab's bar, takes no room and the shown bar keeps equal
     // padding. A Column lays out no hidden child
     // (https://doc.qt.io/qt-6/qml-qtquick-column.html); `childrenRect`
-    // counts one, and a binding that reads each child's `height` instead
-    // logs a binding loop on the body's measured height (qmltestrunner,
-    // Qt 6.12, tst_pane.qml, 2026-11-02).
+    // counts one. Reading each child's `height` instead feeds the body's
+    // measured height back into its layout (Qt 6.12, tst_pane.qml).
     Slot {
         id: footerSlot
         x: root.contentInset

@@ -187,8 +187,8 @@ Column {
         readonly property real linesHeight: root.lines.length > 0 || root.output.length > 0 ? subLines.implicitHeight + (hintLine.text !== "" ? Theme.field.gap : 0) : 0
         readonly property real textBottom: textTop + linesHeight + (hintLine.text !== "" ? hintLine.implicitHeight : 0)
         // A following row can measure a disappearing hint before subText
-        // clears: reproduced under Quickshell 0.3.1 in VGS-2077. Select the
-        // actual text here; no line leaves the control as the lowest part.
+        // clears. Select the actual text here so the control is the lowest
+        // part when no line remains.
         function lastTextLine() {
             if (hintLine.text !== "") return hintLine;
             const lines = Array.from(subLines.children).filter(child => child instanceof Label && child.visible);

@@ -9,10 +9,8 @@ import "IconBounds.js" as IconBounds
 // so a 14 pixel icon and a 24 pixel icon carry the same line weight: the
 // shape is drawn in the data's box and scaled as an item, and the stroke
 // width is divided by the same factor. The item transform, not the path's
-// own `scale`, is what keeps a stroke under one unit visible: measured
-// with qmltestrunner on Qt 6.11.2 on 2026-09-26, a 0.75 unit stroke on a
-// path scaled by 2 drew nothing, and the same stroke under an item scale
-// drew its two rows. A name the data lacks is logged and draws nothing.
+// own `scale`, keeps sub-unit strokes visible with Qt 6.11.2's curve
+// renderer. A name the data lacks is logged and draws nothing.
 Item {
     id: root
 

@@ -17,13 +17,10 @@ Item {
 
     // The Qt control that already holds this composite's keyboard.
     property Item focusTarget: null
-    // Number of rows or entries in the composite.
     property int count: 0
-    // The owner's current row or entry index.
     property int currentIndex: -1
     // `vertical`, `horizontal` or `both` for arrow intent.
     property string orientation: "vertical"
-    // Whether movement wraps at the ends.
     property bool wrap: true
     // Whether a text field currently owns caret keys.
     property bool textEntry: false
@@ -52,7 +49,6 @@ Item {
     property var flickable: null
     // Optional callback: `itemAt(index)` for reveal.
     property var itemAt: null
-    // The active type-ahead buffer.
     property string typed: ""
     // Milliseconds before type-ahead starts again.
     property int typeAheadDelay: Theme.menu.typeahead
@@ -72,32 +68,26 @@ Item {
 
     property Timer typing: Timer { interval: root.typeAheadDelay; onTriggered: root.typed = "" }
 
-    // Whether index is reachable.
     function canReach(index) {
         return reachable === null || reachable === undefined ? true : reachable(index);
     }
 
-    // Label used by type-ahead at index.
     function label(index) {
         return labelAt === null || labelAt === undefined ? "" : labelAt(index);
     }
 
-    // Move by a signed delta through the roving list.
     function moveBy(delta, keyboard) {
         return moveTo(Logic.step(currentIndex, count, delta, wrap, canReach), keyboard);
     }
 
-    // Move to the first reachable item.
     function first(keyboard) {
         return moveTo(Logic.edge(count, canReach, false), keyboard);
     }
 
-    // Move to the last reachable item.
     function last(keyboard) {
         return moveTo(Logic.edge(count, canReach, true), keyboard);
     }
 
-    // Move by one page.
     function pageBy(delta, keyboard) {
         const rows = pageSize > 0 ? pageSize : Logic.pageRows(viewHeight, rowHeight);
         return moveTo(Logic.step(currentIndex, count, delta * rows, false, canReach), keyboard);
@@ -124,7 +114,6 @@ Item {
         return true;
     }
 
-    // Reveal an index in the configured flickable.
     function reveal(index) {
         if (flickable === null || flickable === undefined || itemAt === null || itemAt === undefined) return;
         const item = itemAt(index);

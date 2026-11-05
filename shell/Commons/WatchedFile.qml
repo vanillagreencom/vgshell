@@ -37,7 +37,6 @@ Scope {
     signal loadFailed(var error)
     signal saved()
     signal saveFailed(var error)
-    // The file changed while no read was in flight.
     signal changed()
 
     // Read the file now, or again once the read in flight ends.
