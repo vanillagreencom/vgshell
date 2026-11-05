@@ -55,8 +55,7 @@
   },
   "requirements": [
     { "command": "vsys", "packages": { "aur": "vsys" }, "optional": false, "purpose": "Shows your agents and provides Agent Warden" },
-    { "command": "systemctl", "optional": false, "purpose": "Restarts Agent Warden checks", "packages": { "pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd" } },
-    { "command": "notify-send", "packages": { "pacman": "libnotify", "apt": "libnotify-bin", "dnf": "libnotify", "nix": "libnotify" }, "optional": false, "purpose": "Sends Agent Warden alerts" }
+    { "command": "systemctl", "optional": false, "purpose": "Restarts Agent Warden checks", "packages": { "pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd" } }
   ],
   "status": {
     "warden": {"type": "state", "label": "Warden", "info": "Shows whether Agent Warden watches your agents and whether any needs your attention."},

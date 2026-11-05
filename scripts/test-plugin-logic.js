@@ -2193,9 +2193,10 @@ function suite(ctx, configLogic, check) {
     // notifyOptions: one row per rule. A refusal row names the key its
     // error starts with.
     const notifyRows = [
-        ["a title alone", { title: "Saved" }, { ok: true, value: { title: "Saved", message: "", tone: "", icon: "", urgency: "normal", transient: false } }],
-        ["every key", { title: "Saved", message: "to disk", tone: "success", icon: "circle-check", urgency: "low", transient: true }, { ok: true, value: { title: "Saved", message: "to disk", tone: "success", icon: "circle-check", urgency: "low", transient: true } }],
-        ["a message at the ceiling", { title: "t", message: "x".repeat(600) }, { ok: true, value: { title: "t", message: "x".repeat(600), tone: "", icon: "", urgency: "normal", transient: false } }],
+        ["a title alone", { title: "Saved" }, { ok: true, value: { title: "Saved", message: "", tone: "", icon: "", urgency: "normal", transient: false, actions: [] } }],
+        ["every key", { title: "Saved", message: "to disk", tone: "success", icon: "circle-check", urgency: "low", transient: true }, { ok: true, value: { title: "Saved", message: "to disk", tone: "success", icon: "circle-check", urgency: "low", transient: true, actions: [] } }],
+        ["a message at the ceiling", { title: "t", message: "x".repeat(600) }, { ok: true, value: { title: "t", message: "x".repeat(600), tone: "", icon: "", urgency: "normal", transient: false, actions: [] } }],
+        ["an action at both ceilings", { title: "t", actions: [{ id: "i".repeat(64), label: "l".repeat(120) }] }, { ok: true, value: { title: "t", message: "", tone: "", icon: "", urgency: "normal", transient: false, actions: [{ id: "i".repeat(64), label: "l".repeat(120) }] } }],
         ["not an object", "Saved", "options"],
         ["an unknown key", { title: "Saved", duration: 0 }, "duration"],
         ["a missing title", { message: "x" }, "title"],
@@ -2209,7 +2210,14 @@ function suite(ctx, configLogic, check) {
         ["an icon outside the Lucide grammar", { title: "t", icon: "Camera" }, "icon"],
         ["an icon past the ceiling", { title: "t", icon: "a".repeat(65) }, "icon"],
         ["an unknown urgency", { title: "t", urgency: "high" }, "urgency"],
-        ["a transient that is not a boolean", { title: "t", transient: "yes" }, "transient"]
+        ["a transient that is not a boolean", { title: "t", transient: "yes" }, "transient"],
+        ...[
+            ["not a list", {}], ["not an object", ["open"]], ["missing id", [{ label: "Open" }]],
+            ["blank id", [{ id: " ", label: "Open" }]], ["long id", [{ id: "x".repeat(65), label: "Open" }]],
+            ["missing label", [{ id: "open" }]], ["blank label", [{ id: "open", label: " " }]],
+            ["long label", [{ id: "open", label: "x".repeat(121) }]], ["unknown key", [{ id: "open", label: "Open", extra: true }]],
+            ["duplicate ids", [{ id: "open", label: "Open" }, { id: "open", label: "Again" }]]
+        ].map(([name, actions]) => ["actions " + name, { title: "t", actions }, "actions"])
     ];
     for (const [name, raw, want] of notifyRows) {
         const got = ctx.notifyOptions(raw);
@@ -2240,6 +2248,17 @@ function suite(ctx, configLogic, check) {
         const judged = ctx.notifyOptions(raw);
         check("notifyArgv: " + name, judged.ok ? ctx.notifyArgv("acme.probe", "Acme", judged.value) : judged.error, want);
     }
+    const actions = [{ id: "diagnose", label: "Diagnose" }, { id: "default", label: "Mute" }];
+    const actionOptions = ctx.notifyOptions({ title: "Crash", message: "<b>&", actions });
+    check("notify options keep public actions", actionOptions.value.actions, actions);
+    check("notify actions use ordered transport ids and keep escaped body and plugin hint", ctx.notifyArgv("acme.probe", "Probe", actionOptions.value),
+        ["notify-send", "--app-name=Probe", "--urgency=normal", "--hint=string:x-vgs-plugin:acme.probe", "--action=default=Diagnose", "--action=1=Mute", "--", "Crash", "&lt;b&gt;&amp;"]);
+    const actionPageOptions = ctx.notifyOptions({ title: "Crash", message: "Open [Voice](page:vgs.voice).", actions });
+    check("notify actions take priority over page navigation and a callback waits", ctx.notifyArgv("acme.probe", "Probe", actionPageOptions.value, true),
+        ["notify-send", "--app-name=Probe", "--urgency=normal", "--hint=string:x-vgs-plugin:acme.probe", "--action=default=Diagnose", "--action=1=Mute", "--wait", "--", "Crash", "Open Voice."]);
+    for (const [stdout, want] of [["default\n", "diagnose"], ["1\n", "default"], ["", ""], ["2", ""], ["default\n1", ""], ["0", ""]])
+        check("notify action stdout " + JSON.stringify(stdout), ctx.notifyAction(actionOptions.value.actions, stdout), want);
+    check("empty actions send no action", ctx.notifyOptions({ title: "t", actions: [] }).value.actions, []);
     check("the notify run ceiling is a whole number above zero", Number.isInteger(ctx.NOTIFY_RUNS_MAX) && ctx.NOTIFY_RUNS_MAX > 0, true);
     check("notify is a capability", ctx.CAPABILITIES.indexOf("notify") !== -1, true);
     check("theme is a capability", ctx.CAPABILITIES.indexOf("theme") !== -1, true);
@@ -3423,8 +3442,8 @@ const CONTROLS = [
     ["notify options are an object", "if (!isPlainObject(raw))\n        return { ok: false, error: \"options want=object\" };", "if (false)\n        return { ok: false, error: \"options want=object\" };"],
     ["notify refuses an unknown key", "if (NOTIFY_KEYS.indexOf(keys[i]) === -1)", "if (false)"],
     ["a notice body holds a page reference's words", "var message = reference.text.replace(", "var message = judged.message.replace("],
-    ["a page reference rides in x-vgs-page", 'if (reference.page !== "") argv.push(', 'if (false) argv.push('],
-    ["a reference to no page adds no hint", 'if (reference.page !== "") argv.push(', 'if (reference.reference !== "") argv.push('],
+    ["a page reference rides in x-vgs-page", 'if (reference.page !== "" && judged.actions.length === 0) argv.push(', 'if (false) argv.push('],
+    ["a reference to no page adds no hint", 'if (reference.page !== "" && judged.actions.length === 0) argv.push(', 'if (reference.reference !== "" && judged.actions.length === 0) argv.push('],
     ["a notify title is a string", 'if (typeof raw.title !== "string" || raw.title.trim()', 'if (typeof raw.title === "planted" || raw.title.trim'],
     ["a notify title is not blank", 'raw.title.trim() === "" || raw.title.length > NOTIFY_TITLE_MAX', 'raw.title.length > NOTIFY_TITLE_MAX'],
     ["a notify title has a ceiling", '|| raw.title.length > NOTIFY_TITLE_MAX)', ')'],
@@ -3436,11 +3455,14 @@ const CONTROLS = [
     ["a notify icon is a Lucide name", "&& NOTIFY_ICON.test(raw.icon)))", "))"],
     ["a notify urgency is known", "if (raw.urgency !== undefined && NOTIFY_URGENCIES.indexOf(raw.urgency) === -1)", "if (false)"],
     ["notify transient is a boolean", 'if (raw.transient !== undefined && typeof raw.transient !== "boolean")', "if (false)"],
-    ["a notify click only dismisses", '"--hint=string:x-vgs-click:none", ', ''],
+    ["a notify without actions only dismisses", 'if (judged.actions.length === 0) argv.splice(3, 0, "--hint=string:x-vgs-click:none");', ''],
+    ["notify refuses duplicate action ids", '|| actions.some(function (other) { return other.id === action.id; })', '|| false', "notifyOptions: actions"],
+    ["notify returns the public action id", 'if (chosen === notifyActionKey(i)) return actions[i].id;', 'if (chosen === notifyActionKey(i)) return chosen;', "notify action stdout"],
+    ["notify makes the first action primary", 'return index === 0 ? "default" : String(index);', 'return String(index);', "notify actions"],
     ["a notify names its plugin", ', "--hint=string:x-vgs-plugin:" + pluginId];', '];'],
     ["a notify tone is a hint", 'if (judged.tone !== "") argv.push("--hint=string:x-vgs-tone:" + judged.tone);', ''],
     ["a notify icon is a hint", 'if (judged.icon !== "") argv.push("--hint=string:x-vgs-icon:" + judged.icon);', ''],
-    ["a transient notify skips History", 'if (judged.transient) argv.push("--transient");', ''],
+    ["a transient notify carries the hint", 'if (judged.transient) argv.push("--transient");', ''],
     ["a notify message escapes &", '.replace(/&/g, "&amp;")', ''],
     ["a notify message escapes <", '.replace(/</g, "&lt;")', ''],
     ["a notify message escapes >", '.replace(/>/g, "&gt;");', ';'],

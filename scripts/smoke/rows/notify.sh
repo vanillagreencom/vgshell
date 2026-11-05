@@ -109,6 +109,41 @@ expect_poll "the page link card leaves on its click" '"none"' probe_page "Probe 
 expect "Settings is hidden after the page link" ok ipc shell hide window vgs.settings
 expect_poll "the Settings window is gone after the page link" 0 window_count Plugins
 
+# A consumer that holds no server receives the public action id, including
+# a later id named default that must not replace the first primary action.
+notifier_dir="$home/.config/vgshell/plugins/acme.notifier"
+mkdir -p -- "$notifier_dir"
+cp -R "$repo/scripts/smoke/fixtures/plugins/acme.notifier/." "$notifier_dir/"
+rescan "rescan after adding the notifier fixture answers ok"
+expect_poll "the notifier fixture is discovered" True plugin_known acme.notifier
+expect "enabling the notifier fixture is allowed" ok ipc shell setPluginEnabled acme.notifier true
+expect_poll "the notifier fixture service is built" True record_exists acme.notifier
+notify_action() { ipc smoke readInstance service acme.notifier action; }
+notify_completed() { ipc smoke readInstance service acme.notifier completed; }
+notify_card_present() { plugin_cards Notifier | py_reply 'import json,sys; print(any(r[0] == sys.argv[1] for r in json.load(sys.stdin)))' "$1"; }
+expect "duplicate public action ids are refused before sending" 'refused: notify=actions want=unique nonblank id (at most 64) and label (at most 120)' ipc acme.notifier invoke notify-actions '{"title":"Notifier refused","actions":[{"id":"open","label":"Open"},{"id":"open","label":"Again"}]}'
+expect "a refused action send invokes no callback" 0 notify_completed
+expect "an action notification starts" ok ipc acme.notifier invoke notify-actions '{"title":"Notifier action","urgency":"critical","actions":[{"id":"open","label":"Open"},{"id":"default","label":"Other"}]}'
+expect_poll "the action card arrives" True notify_card_present "Notifier action"
+expect "the callback waits for the press" '"pending"' notify_action
+click_item vgs:layer vgs.notifications NotificationCard summary "Notifier action" 24 - || fail "notify: the action card click failed"
+expect_poll "the card press reaches done with the first declared id" '"open"' notify_action
+expect "done runs once for the press" 1 notify_completed
+expect "a notification waiting for dismissal starts" ok ipc acme.notifier invoke notify-actions '{"title":"Notifier dismiss","urgency":"critical"}'
+expect_poll "the dismiss card arrives" True notify_card_present "Notifier dismiss"
+expect "done waits for dismissal without actions" '"pending"' notify_action
+notes_clear "notify: callback dismissal"
+expect_poll "dismissal reaches done with an empty id" '""' notify_action
+expect "done runs once for dismissal" 2 notify_completed
+expect_poll "the completed sends release the core runs" 0 ipc smoke themeNoticeRuns
+expect "a callback can wait while its consumer is enabled" ok ipc acme.notifier invoke notify-actions '{"title":"Notifier teardown","urgency":"critical","actions":[{"id":"open","label":"Open"}]}'
+expect_poll "the core holds the waiting send" 1 ipc smoke themeNoticeRuns
+expect "disabling a consumer with a waiting send is allowed" ok ipc shell setPluginEnabled acme.notifier false
+expect_poll "consumer teardown releases the waiting core run" 0 ipc smoke themeNoticeRuns
+notes_clear "notify: consumer teardown"
+expect "the notifier fixture enables again" ok ipc shell setPluginEnabled acme.notifier true
+expect_poll "the notifier fixture builds again" True record_exists acme.notifier
+
 # Refusals, one per option, each naming its key.
 expect "options that are no object are refused" options notify_refused_key '"Probe"'
 expect "an unknown option is refused" duration notify_refused_key '{"title": "t", "duration": 0}'
@@ -174,18 +209,13 @@ expect "the delivered message logs no unsent line" 0 log_lines 'notify: unsent p
 # delivered message above, which logged no line, is this reading's
 # counterpart.
 expected_errors+=('notify: unsent plugin=acme\.notifier ')
-notifier_dir="$home/.config/vgshell/plugins/acme.notifier"
-mkdir -p -- "$notifier_dir"
-cp -R "$repo/scripts/smoke/fixtures/plugins/acme.notifier/." "$notifier_dir/"
-rescan "rescan after adding the notifier fixture answers ok"
-expect_poll "the notifier fixture is discovered" True plugin_known acme.notifier
 expect "disabling the fixture for the undrawn message is allowed" ok ipc shell setPluginEnabled acme.probe false
 expect_poll "the fixture service is gone" False record_exists acme.probe
-expect "enabling the notifier fixture is allowed" ok ipc shell setPluginEnabled acme.notifier true
-expect_poll "the notifier fixture service is built" True record_exists acme.notifier
 expect_poll "no plugin keeps the notification server up" False notify_server
 layers_before="$(layer_count vgs:layer)" || layers_before=unread
-expect "a message nothing draws answers ok" ok ipc acme.notifier invoke notify '{"title": "Notifier dropped"}'
+expect "a message nothing draws answers ok" ok ipc acme.notifier invoke notify-actions '{"title": "Notifier dropped"}'
+expect "a dropped message reports an empty action" '""' notify_action
+expect "a dropped message invokes done once" 1 notify_completed
 expect_log "the core logs the dropped message" 1 'notify: unsent plugin=acme\.notifier reason=no-drawer'
 expect "the core logs it once" 1 log_lines 'notify: unsent plugin=acme\.notifier '
 expect "the dropped message draws no surface" "$layers_before" layer_count vgs:layer

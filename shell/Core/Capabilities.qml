@@ -231,7 +231,7 @@ Singleton {
         // The sender's name on the notification is the plugin's manifest
         // name, read at each send.
         notify: ctx => ({
-            send: options => Notifier.send(ctx, Registry.manifests[ctx.id].name, options, notifications)
+            send: (options, done) => !ctx.active ? "refused: notify=released" : Notifier.send(ctx, Registry.manifests[ctx.id].name, options, notifications, done)
         }),
         layers: ctx => ({
             show: component => Layers.show(ctx, component)
