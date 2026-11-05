@@ -197,6 +197,7 @@ Item {
             shell.ipc.handle("console", () => { summonConsole(); return "ok"; });
             shell.ipc.handle("say", text => say(text));
             shell.ipc.handle("stop", () => { intent("stop"); return "ok"; });
+            shell.ipc.handle("new-conversation", () => newConversation());
             shell.ipc.handle("check-microphone", () => {
                 if (locked || !Session.canCheck(sessionState)) return "refused: microphone-check=unavailable";
                 intent("voice-check");
@@ -486,6 +487,18 @@ Item {
             return;
         }
         sendIntent(name);
+    }
+
+    function newConversation() {
+        if (shell === null || lifetime.kind !== "ready" || cause !== "" || !child.running || sessionState === null)
+            return "refused: jarvis=not-ready";
+        sendIntent("new-conversation");
+        return "ok";
+    }
+
+    function conversationChanged(previous, current) {
+        if (current.history.kind !== "reset" || previous !== null && previous.history.epoch === current.history.epoch) return;
+        notice(View.conversationResetNotice(current.history.reason));
     }
 
     function displayedApproval() {
@@ -1316,7 +1329,7 @@ Item {
                         if (!shell.status.isOk(reply)) throw new Error("jarvis: " + reply);
                         if (reply !== "ok") return;
                         const segment = { gen: message.gen, role: message.role, text: message.text, stage: message.stage,
-                            at: Date.now(), session: childSerial + ":" + message.gen };
+                            at: Date.now(), session: childSerial + ":" + sessionState.history.epoch };
                         conversationLog = Conversation.update(conversationLog, segment);
                         const history = StatusPublication.write(shell.status, "conversation", conversationLog);
                         if (!shell.status.isOk(history)) throw new Error("jarvis: " + history);
@@ -1331,9 +1344,12 @@ Item {
                     const fault = message.state.fault;
                     if (fault.kind !== "none" && (sessionState === null || JSON.stringify(sessionState.fault) !== JSON.stringify(fault)))
                         console.warn("jarvis: fault=" + fault.reason + " kind=" + fault.kind);
+                    const previousState = sessionState;
                     sessionState = message.state;
+                    conversationChanged(previousState, sessionState);
                     if (!publishShellSetup()) return;
-                    const result = StatusPublication.write(shell.status, "detail", { phase: message.phase, seq: message.seq, state: message.state, brain: message.brain });
+                    const result = StatusPublication.write(shell.status, "detail", { phase: message.phase, seq: message.seq, state: message.state,
+                        brain: message.brain, conversationId: childSerial + ":" + message.state.history.epoch });
                     if (!shell.status.isOk(result)) throw new Error("jarvis: " + result);
                     if (result !== "ok") return;
                     continue;

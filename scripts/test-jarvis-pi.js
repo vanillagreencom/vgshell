@@ -166,6 +166,19 @@ world(async () => {
         .map(name => path.join(directory, name)).filter(file => fs.lstatSync(file).isFile()).map(file => fs.readFileSync(file, "utf8"));
 
     const CASES = {
+        async suspendResume(folder) {
+            scenario({ turns: [[chunk("First."), { stop: "stop" }], [chunk("Second."), { stop: "stop" }]] });
+            const w = make(folder);
+            assert.deepEqual(await drain(w.say("remember this")), [{ kind: "text", text: "First." }, { kind: "done", reason: "stop" }]);
+            const child = program();
+            await w.brain.suspend();
+            assert.throws(() => w.say("while closed"), { message: "jarvis: brain=pi-suspended" });
+            w.brain.resume({ gen: w.runner.state.gen, recipients: w.recipients });
+            assert.deepEqual(await drain(w.say("continue")), [{ kind: "text", text: "Second." }, { kind: "done", reason: "stop" }]);
+            assert.deepEqual(program(), child, "resume keeps the exact native process history");
+            assert.equal(read("pi-calls").filter(call => call.args.includes("--mode")).length, 1);
+            validWrites();
+        },
         // A Jarvis home folder that names its own MCP server reaches no
         // program: Pi runs in its private folder, reads the bridge's entry
         // alone, and no tool but the bridge's starts.
@@ -323,11 +336,15 @@ world(async () => {
             // An assertion below may leave this read pending; its own failure is not the finding.
             rest.catch(() => {});
             let timer;
-            await Promise.race([w.brain.cancel(), new Promise((resolve, reject) => {
+            const cancellation = w.brain.suspend();
+            assert.throws(() => w.brain.resume({ gen: w.runner.state.gen, recipients: w.recipients }),
+                { message: "jarvis: brain=pi-busy" }, "resume waits for Pi to settle the cancelled run");
+            await Promise.race([cancellation, new Promise((resolve, reject) => {
                 timer = setTimeout(() => reject(new assert.AssertionError({ message: "cancel never acknowledged" })), 5000);
             })]).finally(() => clearTimeout(timer));
             assert.equal(received("abort").length, 1);
             await assert.rejects(rest, { message: "jarvis: brain=cancelled" });
+            w.brain.resume({ gen: w.runner.state.gen, recipients: w.recipients });
             assert.deepEqual(await drain(w.say("next")), [{ kind: "text", text: "b" }, { kind: "done", reason: "stop" }]);
             validWrites();
         },

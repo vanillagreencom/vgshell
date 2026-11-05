@@ -495,8 +495,15 @@ rejected(Protocol, ["state-speech-reply", JSON.stringify({ ...dueState, state: {
         ["silent-device", { sound: { kind: "silent", device: "" } }], ["quiet-time", { quiet: { ...s.quiet, deadline: -1 } }]])
         rejected(Protocol, [name, JSON.stringify({ ...silent, state: { ...silent.state, ...patch } }), "daemon", "state"]);
 }
-for (const name of ["talk-down", "talk-up", "voice-mute", "stop", "voice-check"])
+for (const name of ["talk-down", "talk-up", "voice-mute", "stop", "new-conversation", "voice-check"])
     assert.equal(Protocol.accept(changed(intent, { intent: name }), "shell").intent, name);
+rejected(Protocol, ["new-conversation-extra", changed(intent, { intent: "new-conversation", text: "discarded" }), "shell", "shape-intent"]);
+for (const history of [{ kind: "current", epoch: 7 }, { kind: "reset", epoch: 8, reason: "requested" }, { kind: "reset", epoch: 9, reason: "turn-limit" }]) {
+    const wire = { ...state, state: { ...state.state, history } };
+    assert.deepEqual(JSON.parse(JSON.stringify(Protocol.accept(JSON.stringify(wire), "daemon"))).state.history, history);
+}
+for (const history of [{ kind: "current", epoch: -1 }, { kind: "reset", epoch: 1 }, { kind: "reset", epoch: 1, reason: "unknown" }])
+    rejected(Protocol, ["history-shape", JSON.stringify({ ...state, state: { ...state.state, history } }), "daemon", "state"]);
 // The conversation owns preview purpose. The speech owner carries no
 // second preview discriminator on the daemon-to-shell wire.
 {
@@ -752,7 +759,7 @@ try {
         ["key-type", 'fail("key-" + shortcut);', ';', "key-type"],
         ["intent-direction", 'if (direction !== "shell") fail("direction-intent");',
             'if (false) fail("direction-intent");', "intent-direction"],
-        ["intent-name", 'if (["talk-down", "talk-up", "voice-mute", "stop", "voice-check", "owner-asks-refresh"].indexOf(message.intent) === -1) fail("intent");',
+        ["intent-name", 'if (["talk-down", "talk-up", "voice-mute", "stop", "new-conversation", "voice-check", "owner-asks-refresh"].indexOf(message.intent) === -1) fail("intent");',
             'if (false) fail("intent");', "intent-name"],
         ["main-host-chosen", 'if (["mainHost", "home"].indexOf(message.chosen) === -1) fail("main-host-intent");',
             'if (false) fail("main-host-intent");', "main-host-other"],

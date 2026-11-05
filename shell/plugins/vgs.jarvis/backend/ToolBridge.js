@@ -36,12 +36,13 @@ function digest(token) { return crypto.createHash("sha256").update(token).digest
  * release; a suite without an engine leaves it out. Creation touches no
  * file; open() starts one session.
  */
-function create({ router, state, audit, directory, release, answered = () => {}, clock = { set: setTimeout, clear: clearTimeout } }) {
+function create({ router, state, audit, directory, release, answered = () => {}, sent = () => {}, clock = { set: setTimeout, clear: clearTimeout } }) {
     if (typeof directory !== "string" || !path.isAbsolute(directory)) fail("directory");
     const socketPath = path.join(directory, "tools.sock");
     // Router call id -> {connection, request, tool, recipients, answered}.
     // The one judge of whether a router result belongs to the bridge.
     const pending = new Map();
+    const releasing = new Set();
     let session = null;
     let lifetime = "open";
 
@@ -74,7 +75,8 @@ function create({ router, state, audit, directory, release, answered = () => {},
         const offered = { names, tools: [...names.keys()].map((name, index) => ({
             name, description: offers[index].description, inputSchema: offers[index].parameters,
             annotations: Mcp.toolAnnotations(offers[index].id) })) };
-        const current = { gen, recipients, offered, digest: digest(token), connections: new Set(), server: null };
+        const current = { gen, recipients, offered, digest: digest(token), connections: new Set(), server: null,
+            active: true, binding: 0 };
         current.server = net.createServer(socket => accept(current, socket));
         session = current;
         try {
@@ -94,6 +96,26 @@ function create({ router, state, audit, directory, release, answered = () => {},
             env: Object.freeze({ VGS_JARVIS_TOOLS_SOCKET: socketPath, VGS_JARVIS_TOOLS_TOKEN: token }),
             // The MCP tools this session serves, for a harness that judges its program's reports.
             tools: offered.tools,
+            suspend() {
+                current.active = false;
+                current.binding++;
+                // Answer calls before waiting for the native cancellation:
+                // a vendor can be waiting on precisely this MCP result.
+                for (const entry of new Set([...pending.values(), ...releasing])) {
+                    if (entry.connection.current !== current || entry.delivered) continue;
+                    entry.answered = true;
+                    entry.delivered = true;
+                    write(entry.connection, Mcp.content(entry.request,
+                        JSON.stringify({ kind: "refuse", reason: "stale-turn" }), true));
+                }
+            },
+            resume({ gen: nextGen, recipients: nextRecipients }) {
+                if (session !== current) fail("closed");
+                Policy.assertRecipients(nextRecipients);
+                current.gen = nextGen;
+                current.recipients = nextRecipients;
+                current.active = true;
+            },
             close: () => end(current)
         });
     }
@@ -194,13 +216,14 @@ function create({ router, state, audit, directory, release, answered = () => {},
         if (!names.has(act.name)) { write(connection, Mcp.error(act.id, Mcp.CODES.params, "Unknown tool")); return; }
         // The session serves one conversation generation's live thinking turn.
         const s = state();
-        if (s.gen !== current.gen || s.turn.kind !== "thinking") {
+        if (!current.active || s.gen !== current.gen || s.turn.kind !== "thinking") {
             write(connection, Mcp.content(act.id, JSON.stringify({ kind: "refuse", reason: "stale-turn" }), true));
             return;
         }
         const id = "bridge-" + crypto.randomUUID();
         // Registered first: the router delivers a refusal before route returns.
-        pending.set(id, { connection, request: act.id, tool: names.get(act.name), recipients: current.recipients, answered: false });
+        pending.set(id, { connection, request: act.id, tool: names.get(act.name), recipients: current.recipients,
+            binding: current.binding, answered: false, delivered: false });
         router.route({ kind: "tool-call", id, tool: names.get(act.name), arguments: act.arguments },
             { gen: s.turn.gen, op: s.turn.op });
     }
@@ -218,15 +241,18 @@ function create({ router, state, audit, directory, release, answered = () => {},
         if (value.final) pending.delete(answer.id);
         if (entry.answered || entry.connection.closed) return true;
         entry.answered = true;
+        releasing.add(entry);
         answered(value, entry.tool);
         void release.prepare(value, entry.recipients).then(grants => {
-            if (grants === null || entry.connection.closed) return;
+            if (grants === null || entry.connection.closed || !entry.connection.current.active
+                    || entry.binding !== entry.connection.current.binding) return;
             deliverReleased(value, answer, entry, grants);
-        }).catch(() => refuse(entry.connection, "release"));
+        }).catch(() => refuse(entry.connection, "release")).finally(() => releasing.delete(entry));
         return true;
     }
 
     function deliverReleased(value, answer, entry, grants) {
+        entry.delivered = true;
         const released = Policy.release(answer.item, entry.recipients, grants);
         // The router labels an image as its text, so one decision covers both.
         const pictured = answer.image === undefined ? null : Policy.release(answer.image.item, entry.recipients, grants);
@@ -240,8 +266,10 @@ function create({ router, state, audit, directory, release, answered = () => {},
         const decision = released.kind === "ask" ? "withhold" : released.kind;
         const admitted = audit.before({ kind: "release", gen: value.gen, op: value.op, tool: "release",
             args: { labels: released.labels, recipients }, effect: null, decision,
-            confirmed: "none", outcome: "pending" }, () => write(entry.connection,
-            Mcp.content(entry.request, released.content.toString(), value.outcome !== "completed", image)));
+            confirmed: "none", outcome: "pending" }, () => {
+            if (released.kind === "send") sent(value, released.labels);
+            write(entry.connection, Mcp.content(entry.request, released.content.toString(), value.outcome !== "completed", image));
+        });
         if (admitted.kind === "refuse")
             write(entry.connection, Mcp.content(entry.request, JSON.stringify({ kind: "refuse", reason: admitted.reason }), true));
     }

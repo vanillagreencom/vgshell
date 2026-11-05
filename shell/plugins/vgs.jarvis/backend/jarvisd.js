@@ -697,7 +697,8 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                     // until one is selected no socket exists.
                     bridge = ToolBridge.create({ router, state: () => runner.state, audit,
                         directory: context.directories.runtime, release: { prepare: (value, recipients) => engine.release.prepare(value, recipients) },
-                        answered: (value, tool) => engine.brain.bridged(value, tool) });
+                        answered: (value, tool) => engine.brain.bridged(value, tool),
+                        sent: (value, labels) => engine.brain.retained(value, labels) });
                     gate = HarnessGate.create({ router, state: () => runner.state });
                     router.register("harness", gate.executor);
                     // Executor owners register only after their real probes.

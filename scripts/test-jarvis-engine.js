@@ -1444,6 +1444,34 @@ async function cases(kit, server, only = null, mutation = false) {
         assert.deepEqual(w.faults, []);
     }, { fixture: { recipients: [{ kind: "network", provider: "scripted-voice", account: "fixture", origin: "http://192.0.2.1:9" }] } });
 
+    await run("history-resume-release", async w => {
+        const first = await say(w, utterance("Read my clipboard."));
+        server.replies.push(calls({ id: "retained_clipboard", name: "clipboard_read", arguments: {} }), text(""));
+        async function grant() {
+            await w.observed(() => w.s().approval.kind === "held", "retained content waits for consent");
+            const held = w.s().approval;
+            w.runner.dispatch({ type: "shown", gen: held.gen, op: held.op, id: held.id });
+            w.advanceRunner(1000);
+            w.runner.dispatch({ type: "confirm", gen: held.gen, id: held.id, digest: held.digest, source: "button" });
+        }
+        await grant();
+        await requested(w, first + 2, "the originally granted result");
+        await until(() => w.s().turn.kind === "none", "first request completes");
+        await playOut(w);
+        const epoch = w.s().history.epoch;
+        w.runner.dispatch({ type: "toggle" });
+        await until(() => w.s().brain.kind === "closed", "ordinary close settles");
+        const before = await say(w, utterance("What did the clipboard say?"));
+        await w.observed(() => w.s().approval.kind === "held", "resume asks again for retained clipboard content");
+        assert.equal(server.requests.length, before, "old consent sends no resumed inference");
+        assert.equal(w.s().history.epoch, epoch, "ordinary close keeps the conversation identity");
+        server.replies.push(text(""));
+        await grant();
+        const body = await requested(w, before + 1, "resumed inference after fresh consent");
+        assert.equal(body.messages.find(message => message.role === "tool").content, "clipboard words",
+            "exact tool history survives the close");
+    }, { fixture: { recipients: [{ kind: "network", provider: "scripted-voice", account: "fixture", origin: "http://192.0.2.1:9" }] } });
+
     // Talk while a reply waits behind a line: the line is cut and the reply
     // was heard not at all, which the brain's next request says.
     await run("line-held-reply-interrupt", async w => {
@@ -2075,8 +2103,8 @@ async function cases(kit, server, only = null, mutation = false) {
         await playOut(w);
     });
 
-    // Conversation end closes brain, transport and speech adapters; the next
-    // conversation starts with fresh history and a new recipient set.
+    // Ordinary close releases transport and speech, while the next Talk
+    // keeps the cancelled request and its explicit unheard-reply account.
     await run("conversation-end", async w => {
         const first = await say(w, utterance("Count to ten."));
         await requested(w, first + 1, "first request");
@@ -2093,8 +2121,28 @@ async function cases(kit, server, only = null, mutation = false) {
         const second = await say(w, utterance("Hello again."));
         server.replies.push(text(""));
         const body = await requested(w, second + 1, "the next conversation");
-        assert.deepEqual(user(body), ["Hello again."], "a new conversation has fresh history");
+        assert.deepEqual(user(body), ["Count to ten.", INTERRUPTED + "\n\nHello again."],
+            "Talk resumes exact history after the cancelled turn settles");
         assert.notEqual(control.opened[1].recipients, old.recipients);
+    });
+
+    for (const closed of [false, true]) await run("history-reset-" + (closed ? "closed" : "open"), async w => {
+        const first = await say(w, utterance("Remember the blue door."));
+        server.replies.push(text(""));
+        await requested(w, first + 1, "remembered request");
+        await until(() => w.s().turn.kind === "none", "remembered request completes");
+        await playOut(w);
+        const epoch = w.s().history.epoch;
+        if (closed) {
+            w.runner.dispatch({ type: "toggle" });
+            await until(() => w.s().capture.kind === "closed" && w.s().brain.kind === "closed", "close settles");
+        }
+        w.runner.dispatch({ type: "new-conversation" });
+        assert.equal(w.s().history.epoch, epoch + 1);
+        assert.equal(w.s().conversation.kind, closed ? "ended" : "active");
+        const next = await say(w, utterance("Which door?"));
+        server.replies.push(text(""));
+        assert.deepEqual(user(await requested(w, next + 1, "request after explicit reset")), ["Which door?"]);
     });
 
     // A session-setting change ends the conversation and drops its context
@@ -2415,21 +2463,26 @@ async function cases(kit, server, only = null, mutation = false) {
             "no reply text is captioned without its release");
     });
 
-    // The plan's context bound: the fortieth turn is sent, the next fails.
+    // The fortieth turn retains all context. The next starts fresh and
+    // preserves the attempted message under the new transcript epoch.
     await run("context-bound", async w => {
         for (let index = 1; index <= 40; index++) {
             const before = await say(w, utterance("turn " + index));
             server.replies.push(text(""));
-            await requested(w, before + 1, "turn " + index);
+            const body = await requested(w, before + 1, "turn " + index);
+            assert.equal(user(body).length, index, "context survives through the allowed turn");
             await until(() => w.s().turn.kind === "none", "turn " + index + " completes");
         }
+        const epoch = w.s().history.epoch;
         const before = await say(w, utterance("one more"));
-        await until(() => w.s().conversation.kind === "ended", "the bound ends the conversation");
-        assert.equal(w.s().fault.kind, "none", "the bound leaves no fault");
-        assert.equal(server.requests.length, before, "no request past the bound");
-        const fresh = await say(w, utterance("A new start."));
         server.replies.push(text(""));
-        assert.deepEqual(user(await requested(w, fresh + 1, "the next conversation")), ["A new start."]);
+        const body = await requested(w, before + 1, "attempted turn after automatic reset");
+        assert.deepEqual(user(body), ["one more"], "only the attempted next turn reaches the fresh brain");
+        assert.equal(w.s().conversation.kind, "active");
+        assert.equal(w.s().fault.kind, "none", "the bound leaves no fault");
+        assert.deepEqual(w.s().history, { kind: "reset", epoch: epoch + 1, reason: "turn-limit" });
+        assert.equal(w.captions.filter(row => row[1] === "user" && row[2] === "final" && row[4] === "one more").length, 2,
+            "the reset republishes the attempted user turn");
     });
 
     // Playback backpressure pauses the brain stream; no sentence is dropped.
@@ -3244,7 +3297,7 @@ function tracePaths(Engine) {
 // The engine's cue consumer needs no configured provider or conversation.
 // Session owns admission; a closing cue acquires no conversation resources.
 async function conversationCues(Engine) {
-    let s = { gen: 1, conversation: { kind: "ended" }, playback: { kind: "idle" },
+    let s = { gen: 1, history: { kind: "current", epoch: 0 }, conversation: { kind: "ended" }, playback: { kind: "idle" },
         settings: { sounds: true }, approval: { kind: "none" }, voiceMute: { kind: "on" } };
     const engine = Engine.create({ captionLimit: 1, state: () => s });
     const cues = [];
@@ -3713,7 +3766,7 @@ async function groupPlants(root, server) {
         ["voice-idle-across-playback", 'if (s.playback.kind !== "idle") idleAt = null;',
             'if (false) idleAt = null;', "voice-after-playback"],
         ["release-refusal-record", 'refusal: e.reason });', 'refusal: undefined });', "release-refusal"],
-        ["router-offers", "c.brain.start({ instructions: c.guidance.instructions, tools });", "c.brain.start({ instructions: c.guidance.instructions, tools: [] });", "turn-loop"],
+        ["router-offers", "c.brainOwner.value.start({ instructions: c.guidance.instructions, tools });", "c.brainOwner.value.start({ instructions: c.guidance.instructions, tools: [] });", "turn-loop"],
         ["heard-omitted", "if (c.heard !== null) items.push(heardItem(c.heard));", "", "barge-in"],
         ["heard-once", "            c.heard = null;\n", "", "barge-in"],
         ["full-reply-heard", 'heard(c, turn, report === null || flushedLine ? "" : withoutLinePrefix(turn, report.heardText));',
@@ -3727,9 +3780,9 @@ async function groupPlants(root, server) {
             'return { value: Policy.item(chunk, ["desktop"]), done: false };', "turn-loop"],
         ["result-identity", 'if (turn !== null && turn.op === value.op && turn.phase === "routing" && turn.routing?.id === id) {',
             "if (turn !== null) {", "stale-outcome"],
-        ["interrupted-answers", "if (routing && cancelled !== null && c.brain === cancelled) cancelled.record(", "if (false) cancelled.record(", "stale-outcome"],
+        ["interrupted-answers", "if (routing && cancelled !== null && c.brainOwner.value === cancelled) cancelled.record(", "if (false) cancelled.record(", "stale-outcome"],
         ["not-started", 'return router.interrupted(call, turn.routing === call ? "running" : "not-started");', 'return router.interrupted(call, "running");', "stale-outcome"],
-        ["late-replaced-brain", "if (running !== undefined) c.late.set(", "if (running !== undefined && c.brain === cancelled) c.late.set(", "stale-outcome-replaced"],
+        ["late-replaced-brain", "if (running !== undefined) c.late.set(", "if (running !== undefined && c.brainOwner.value === cancelled) c.late.set(", "stale-outcome-replaced"],
         ["late-result", "c.results.push(lateItem(late.call, value.outcome, item));", "void lateItem;", "stale-outcome"],
         ["fleet-line-absent", '"fleet.request": { completed: "Asking Jarvis\'s session." },', "", "fleet-request-completed-silent"],
         ["fleet-route-kept", "fleetRoute(router.offer()) !== c.fleet", "false", "fleet-route"],
@@ -3752,7 +3805,7 @@ async function groupPlants(root, server) {
             'if (event.reason === "tool-calls") next(c, turn);\n                    else {\n                        clearProgress(turn);\n                        turn.phase = "done";\n                        c.turn = null;\n                        turn.speech?.end();\n                        await new Promise(resolve => turn.speech.readable.once("close", resolve));\n                        concluded(c, turn);', "long-speech"],
         ["net-not-closed", "        c.retired.clear();\n        c.net.close();\n        retired = { gen: c.gen, closed: quiet };",
             "        c.retired.clear();\n        retired = { gen: c.gen, closed: quiet };", "conversation-end"],
-        ["observe-teardown", "if (conversation !== null && (s.gen !== conversation.gen || s.conversation.kind === \"ended\")) end();", "void s;", "settings-change"],
+        ["observe-teardown", "if (conversation !== null && (s.gen !== conversation.gen || s.conversation.kind === \"ended\")) end(!changedHistory);", "void s;", "settings-change"],
         ["collection-abort", '                conversation.collection.utterance?.abort();\n                conversation.collection = null;',
             '                conversation.collection = null;', "stop-capture"],
         ["tap-empty-invented-speech", 'else utterance.collection?.done("final", text);',
@@ -3760,8 +3813,11 @@ async function groupPlants(root, server) {
         ["after-tool-rule", "...(after === null ? {} : { instructions: after }),", "", "tool-round"],
         ["image-answer", "turn.answers.set(id, image === undefined ? { item } : { item, image });", "turn.answers.set(id, { item });", "screen-image"],
         ["images-ready", 'return current.kind === "ready" && current.brain.provider.images;', "return true;", "screen-image"],
-        ["context-clean-end", 'turn.done(reason === "brain=context-limit" ? "brain-ended" : "brain-failed", { reason });',
-            'turn.done("brain-failed", { reason });', "context-bound"],
+        ["context-rollover-disabled", "c.turns >= HISTORY_TURNS", "false", "context-bound"],
+        ["context-rollover-early", "const HISTORY_TURNS = 40;", "const HISTORY_TURNS = 39;", "context-bound"],
+        ["history-retention-disabled", "end(!changedHistory);", "end(false);", "conversation-end"],
+        ["history-reset-retained", "function forgetBrain() {\n", "function forgetBrain() {\n        return;\n", "history-reset-closed"],
+        ["history-consent-skipped", "if (c.historyLabels.size !== 0) {", "if (false) {", "history-resume-release"],
         ["readable-backpressure", "if (!readable.push(step.value)) await wanted.wait();", "readable.push(step.value);", "backpressure"],
         ["partial-revision", "event.rev <= rev", "false", "partial-revision"],
         ["end-aborts-transcription", "            if (utterance) utterance.abort();", "            void utterance;", "close-capture"],

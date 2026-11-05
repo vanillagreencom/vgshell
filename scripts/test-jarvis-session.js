@@ -87,6 +87,92 @@ function pendingReply(logic) {
 }
 
 const table = [
+    ["history-resume", logic => {
+        for (const engine of ["chained", "dictation", "duplex"]) {
+            const s = listening(logic, false, engine);
+            const closed = step(logic, s, event("toggle", 400));
+            assert.deepEqual(closed.state.history, s.history, engine + ": ordinary close retains context identity");
+            let next = step(logic, closed.state, callback("capture-closed", closed.state.capture, 401)).state;
+            next = step(logic, next, event("talk-down", 700)).state;
+            assert.deepEqual(next.history, s.history, engine + ": Talk resumes the same history across live generations");
+            assert.ok(next.gen > s.gen);
+            assert.equal(next.conversation.kind, "active");
+            const quiet = listening(logic, false, engine);
+            assert.deepEqual(step(logic, quiet, callback("deadline", quiet.quiet, quiet.quiet.deadline)).state.history, quiet.history);
+            for (const boundary of [event("lease-ended", 710), snapshot({ at: 710, engine, settings: { ...next.settings, model: "changed" } })]) {
+                const reset = step(logic, next, boundary).state;
+                assert.deepEqual(reset.history, { kind: "current", epoch: next.history.epoch + 1 });
+            }
+        }
+    }],
+    ["new-conversation", logic => {
+        const rows = [
+            [ready(logic), false, "released"],
+            [listening(logic, false), true, "conversation"],
+            [listening(logic, false, "chained", { sounds: true }), true, "conversation"],
+            [listening(logic, true), true, "held"],
+            [between(logic), true, "released"],
+            [speaking(logic), true, "released"],
+            [acting(logic), true, "released"],
+            [held(logic), true, "released"],
+            [duplexListening(logic, false), true, "conversation"],
+            [duplexReleased(logic), true, "released"],
+            [duplexSpeaking(logic), true, "released"]
+        ];
+        for (const [s, open, input] of rows) {
+            const reset = step(logic, s, event("new-conversation", 1000));
+            assert.deepEqual(reset.state.history, { kind: "reset", epoch: s.history.epoch + 1, reason: "requested" });
+            assert.equal(reset.state.gen, s.gen + 1);
+            assert.equal(reset.state.conversation.kind, open ? "active" : "ended");
+            assert.equal(reset.state.input.kind, input);
+            assert.equal(reset.state.cue.kind, "none");
+            assert.equal(reset.state.fault.kind, "none");
+            assert.equal(reset.state.approval.kind, "none");
+            assert.equal(reset.effects.filter(e => e.kind === "brain-reset").length, 1);
+            assert.equal(has(reset, "capture-open"), false, "old resources close before a reset opens capture");
+            assert.equal(has(reset, "playback-start"), false, "reset adds no conversation cue");
+            if (s.speech.kind === "open") {
+                assert.equal(reset.effects.find(e => e.kind === "speech-close").target, s.speech.op);
+                const late = step(logic, reset.state, callback("transcript", s.speech, 1001,
+                    { role: "assistant", text: "old", stage: "final", rev: 1 }));
+                assert.equal(has(late, "transcript"), false, "old speech cannot repopulate fresh history");
+            }
+            if (s.turn.kind === "thinking") {
+                assert.equal(reset.effects.find(e => e.kind === "brain-cancel").target, s.turn.op);
+                assert.equal(reset.effects.find(e => e.kind === "brain-close").target, s.brain.op);
+                const late = step(logic, reset.state, callback("brain-done", s.turn, 1001));
+                assert.equal(late.state.stale, reset.state.stale + 1);
+            }
+            if (s.action.kind === "running") assert.equal(has(reset, "tool-cancel"), true);
+        }
+        const s = listening(logic, false);
+        const reset = step(logic, s, event("new-conversation", 1000));
+        const cleaned = step(logic, reset.state, callback("capture-closed", reset.state.capture, 1001));
+        assert.equal(cleaned.state.capture.kind, "opening", "automatic capture resumes only after old recorder acknowledgment");
+        assert.equal(cleaned.effects.find(e => e.kind === "capture-open").gen, reset.state.gen);
+    }],
+    ["turn-limit-reset", logic => {
+        const s = thinking(logic);
+        const text = "Keep this attempted message";
+        for (const extra of [{}, { gen: s.turn.gen + 1 }, { op: s.turn.op + 1 }]) {
+            const result = step(logic, s, callback("conversation-reset", s.turn, 40, { reason: "turn-limit", text, ...extra }));
+            const live = Object.keys(extra).length === 0;
+            assert.equal(result.state.history.epoch, s.history.epoch + (live ? 1 : 0));
+            assert.deepEqual(result.state.turn, s.turn, "the attempted thinking operation survives");
+            assert.equal(result.state.gen, s.gen);
+            assert.equal(result.state.conversation.kind, "active");
+            assert.equal(result.state.fault.kind, "none");
+            assert.equal(result.state.cue.kind, "none");
+            assert.equal(has(result, "brain-close"), false);
+            assert.equal(has(result, "speech-close"), false);
+            assert.equal(has(result, "playback-start"), false);
+            const transcript = result.effects.find(e => e.kind === "transcript");
+            if (live) {
+                assert.equal(result.state.history.reason, "turn-limit");
+                assert.deepEqual([transcript.role, transcript.text, transcript.stage], ["user", text, "final"]);
+            } else assert.equal(transcript, undefined);
+        }
+    }],
     ["default-talk", logic => {
         for (const settings of [{}, { holdToTalk: false }]) {
             const s = ready(logic, settings);
@@ -510,8 +596,6 @@ const table = [
             assert.equal(closed.effects.find(effect => effect.kind === "brain-close").target, first.brain.op);
             assert.equal(has(step(logic, closed.state, e), "brain-close"), false);
         }
-        const ended = step(logic, first, callback("brain-ended", first.turn, 40, { reason: "brain=context-limit" }));
-        assert.deepEqual([ended.state.conversation.kind, ended.state.fault.kind], ["ended", "none"]);
     }],
     ["cancel-and-lease", logic => {
         const s = thinking(logic);
@@ -955,6 +1039,9 @@ const shapeCases = [
     ["held-missing-heard", listening, s => { delete s.input.heard; }],
     ["conversation-purpose", listening, s => { s.conversation.purpose = "unknown"; }],
     ["conversation-missing-purpose", listening, s => { delete s.conversation.purpose; }],
+    ["history-epoch", listening, s => { s.history.epoch = -1; }],
+    ["history-reset-reason", listening, s => { s.history = { kind: "reset", epoch: 1, reason: "unknown" }; }],
+    ["history-reset-missing-reason", listening, s => { s.history = { kind: "reset", epoch: 1 }; }],
     ["speech-provisional-preview", duplexListening, s => { s.speech.preview = true; }],
     ["playback-admission", speaking, s => { s.playback.admission = { kind: "unknown" }; }],
     ["tool-cancel", acting, s => { s.action.cancellation = { kind: "unknown" }; }],
@@ -978,7 +1065,7 @@ for (const required of ["talk-down", "talk-up", "stop", "capture-opened", "captu
     assert.equal(events.includes(required), true, required);
 const owners = {
     "capture-opened": "capture", "capture-closed": "capture", "capture-failed": "capture", "input-silent": "capture", "input-sound": "capture",
-    partial: "turn", final: "turn", "collect-failed": "turn", "brain-done": "turn", "brain-failed": "turn", "brain-ended": "turn", cancelled: "turn", play: "turn", feedback: "turn",
+    partial: "turn", final: "turn", "collect-failed": "turn", "brain-done": "turn", "brain-failed": "turn", "conversation-reset": "turn", cancelled: "turn", play: "turn", feedback: "turn",
     "playback-failed": "playback", played: "playback", flushed: "playback", tool: "turn", "tool-done": "action", approval: "turn", shown: "approval", confirm: "approval", "approval-cancel": "approval",
     speak: "speech", "speech-due": "speech", transcript: "speech", "speech-idle": "speech", "speech-failed": "speech", delegation: "speech", "speech-input-ended": "speech",
     "voice-checked": "check", "voice-check-failed": "check", deadline: "quiet"
@@ -987,7 +1074,7 @@ function fixture(type, s, at) {
     const owner = s[owners[type]] || {};
     return event(type, at, { gen: owner.gen ?? s.gen, op: owner.op ?? 99999,
         locked: false, configured: true, engine: s.engine.kind, settings: s.settings, shown: true,
-        text: "fixture", reason: "fixture", outcome: "completed", tool: "fixture", timeoutMs: 100, cancellable: true,
+        text: "fixture", reason: type === "conversation-reset" ? "turn-limit" : "fixture", outcome: "completed", tool: "fixture", timeoutMs: 100, cancellable: true,
         interruptible: true, id: s.approval.id || "fixture", digest: s.approval.digest || "a".repeat(64), physical: true,
         source: "key", role: "user", stage: "partial", rev: 1, ask: null, due: true,
         result: "ready", device: "fixture.mic", capture: s.input.source || s.capture.op || 1, empty: false, speech: true, voice: "VoiceA" });
@@ -1061,6 +1148,8 @@ try {
         ["approval-draw", 'e.at - approval.shownAt < APPROVAL_DRAW_MS', 'false', "approval-identity"],
         ["stop-tool-cancel", 's.action.cancellation.kind !== "available"', 'false', "tool-lifetime"],
         ["brain-retain", 'if (s.brain.kind === "closed") s.brain =', 'if (true) s.brain =', "brain-lifetime"],
+        ["history-reset-epoch", 'epoch: s.history.epoch + 1, reason: reason', 'epoch: s.history.epoch, reason: reason', "new-conversation"],
+        ["history-attempted-message", 'userTranscript(s, effects, e.text, 1);', 'void e.text;', "turn-limit-reset"],
         ["stale-op", 'e.op === owner.op', 'true', "stale-callbacks"],
         ["fault-stop", 'if (faulted) s.input = { kind: "stopped" };', 'if (false) s.input = { kind: "stopped" };', "fault-stop"],
         ["phase-priority", 'if (s.approval.kind === "held") return "confirming";', 'if (false) return "confirming";', "phase-priority"],

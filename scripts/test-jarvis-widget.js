@@ -105,11 +105,12 @@ function verify(view) {
     for (const mic of [null, false, true])
         for (const voice of [false, true]) {
             const menu = view.menuEntries(mic, voice);
-            assert.deepEqual(copy(menu.map(row => row.intent || row.page)), ["voice-mute", "microphone-mute", "stop", "vgs.jarvis"]);
+            assert.deepEqual(copy(menu.map(row => row.intent || row.page)), ["voice-mute", "microphone-mute", "stop", "new-conversation", "vgs.jarvis"]);
             assert.equal(menu[1].disabledReason !== "", mic === null);
             assert.equal(menu[0].label.startsWith("Unmute"), voice);
             assert.equal(menu[1].label.startsWith("Unmute"), mic === true);
-            assert.equal(menu[3].tab, "Settings/Keys");
+            assert.ok(Object.hasOwn(Lucide.ICONS, menu[3].icon));
+            assert.equal(menu[4].tab, "Settings/Keys");
         }
     const faultKinds = [
         ["thinking-timeout", "slow"], ["device-lost target=fixture", "device"],
@@ -154,6 +155,34 @@ function verify(view) {
 }
 const source = fs.readFileSync(path.join(dir, "WidgetView.js"), "utf8");
 verify(load(path.join(dir, "WidgetView.js")));
+// Execute the service's reset notification owner. Repeated state snapshots
+// cannot repeat the explanation, while a later reset has its own identity.
+{
+    const service = fs.readFileSync(path.join(dir, "Service.qml"), "utf8");
+    const matches = [...service.matchAll(/^    function conversationChanged\(previous, current\) \{\n[\s\S]*?^    \}/gm)];
+    assert.equal(matches.length, 1);
+    const notices = [];
+    const ctx = vm.createContext({ View: load(path.join(dir, "WidgetView.js")), notice: value => notices.push(value) });
+    const deliver = vm.runInContext("(" + matches[0][0] + ")", ctx);
+    let previous = { history: { kind: "current", epoch: 1 } };
+    deliver(null, previous);
+    assert.equal(notices.length, 0, "startup is not a reset");
+    for (const [epoch, reason] of [[2, "requested"], [3, "turn-limit"]]) {
+        const current = { history: { kind: "reset", epoch, reason } };
+        deliver(previous, current);
+        const expected = notices.length;
+        deliver(current, current);
+        assert.equal(notices.length, expected, "a repeated state keeps one explanation");
+        previous = current;
+    }
+    assert.equal(notices.length, 2);
+    for (const notice of notices) {
+        assert.equal(notice.tone, "info");
+        assert.ok(notice.message.length > 0);
+        assert.ok(Object.hasOwn(Lucide.ICONS, notice.icon));
+    }
+    assert.notEqual(notices[0].message, notices[1].message, "automatic reset explains its different cause");
+}
 const controls = [
     ["bar loses recovery", '(state === "problem" || state === "off")', 'false'],
     ["microphone guessed unmuted", 'if (value === undefined) return null;', 'if (value === undefined) return false;'],

@@ -279,6 +279,7 @@ function conversation({ directory, model, effort = "", recipients, bridge, gen, 
     let launch = null;
     let workdir = null;
     let active = null;
+    let suspended = false;
     let sent = 0;
     // null while open; once closing, the one promise every close returns.
     let closing = null;
@@ -332,6 +333,8 @@ function conversation({ directory, model, effort = "", recipients, bridge, gen, 
         workdir = privateFolder(parent);
         const cwd = path.join(workdir, "cwd");
         if (context.offered.size !== 0) launch = await bridge.open({ gen, recipients, tools: context.tools });
+        if (suspended) launch?.suspend();
+        else launch?.resume({ gen, recipients });
         // close() ran while the session opened; it could not close it then.
         if (closing !== null) { launch?.close(); fail("closed"); }
         const config = path.join(workdir, "mcp.json");
@@ -426,6 +429,7 @@ function conversation({ directory, model, effort = "", recipients, bridge, gen, 
 
     function send(turn, grants = []) {
         usable();
+        if (suspended) fail("suspended");
         if (context === null) fail("not-started");
         if (process_.kind === "ended") fail("harness-ended");
         const request = encode(turn, grants);
@@ -672,7 +676,21 @@ function conversation({ directory, model, effort = "", recipients, bridge, gen, 
         return closing;
     }
 
-    return Object.freeze({ start, send, cancel, close });
+    return Object.freeze({ start, send, cancel, close,
+        suspend() {
+            suspended = true;
+            launch?.suspend();
+            return cancel();
+        },
+        resume(next) {
+            usable();
+            Policy.assertRecipients(next.recipients);
+            gen = next.gen;
+            recipients = next.recipients;
+            launch?.resume({ gen, recipients });
+            suspended = false;
+        }
+    });
 }
 
 /**

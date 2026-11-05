@@ -74,7 +74,7 @@ world(async () => {
         const root = path.join(process.env.JARVIS_TEST_ROOT, "b" + ++serial);
         fs.mkdirSync(root);
         let at = 0, locked = false, transcript;
-        const starts = [], answers = [], brain = [], preparations = [];
+        const starts = [], answers = [], brain = [], preparations = [], sent = [];
         const timers = new Map();
         const helloTimers = new Set();
         const audit = Audit.create({ state: path.join(root, "state"), now: () => Date.UTC(2026, 9, 1) });
@@ -111,13 +111,13 @@ world(async () => {
         bridge = Bridge.create({ router, state: () => runner.state, audit, release: { prepare: async (value, recipients) => {
             preparations.push({ value, recipients });
             return options.prepare === undefined ? [] : options.prepare(value, recipients);
-        } }, directory: runtime, clock: {
+        } }, sent: (value, labels) => sent.push({ value, labels, audit: rows().at(-1) }), directory: runtime, clock: {
             set: (fn, ms) => { const timer = { fn, ms }; helloTimers.add(timer); return timer; },
             clear: timer => helloTimers.delete(timer) } });
         owners.push(() => { bridge.close(); audit.close(); });
         const open = () => bridge.open({ gen: runner.state.gen, recipients });
         const launch = options.open === false ? null : await open();
-        const w = { runner, router, bridge, rows, starts, answers, brain, preparations, launch, runtime, root, recipients, open,
+        const w = { runner, router, bridge, audit, rows, starts, answers, brain, preparations, sent, launch, runtime, root, recipients, open, Policy,
             helloTimers, newTurn, dispatch: e => runner.dispatch(e), lock: value => { locked = value; },
             time: value => { at = value; },
             show: () => runner.dispatch({ type: "shown", gen: runner.state.gen, op: runner.state.approval.op, id: runner.state.approval.id }),
@@ -316,7 +316,7 @@ world(async () => {
             const w = await make(folder);
             const c = await w.ready();
             const gen = w.runner.state.gen;
-            w.dispatch({ type: "stop" }); w.newTurn();
+            w.dispatch({ type: "toggle" }); w.newTurn();
             assert.notEqual(w.runner.state.gen, gen);
             assert.equal(w.runner.state.turn.kind, "thinking", "a newer conversation has a live turn");
             c.send(call(40, "windows_list", {}));
@@ -332,19 +332,87 @@ world(async () => {
             assert.equal(w.starts.length + idle.starts.length, 0);
             assert.deepEqual([...w.rows(), ...idle.rows()].filter(row => row.kind !== "cleanup"), [], "nothing was routed");
         }],
+        ["suspend-resume", async folder => {
+            const w = await make(folder);
+            const c = await w.ready();
+            c.send(call(42, "windows_list", {}));
+            c.send(ping(43));
+            assert.equal((await c.next()).id, 43, "the original request reached the bridge");
+            assert.equal(w.starts.length, 1);
+            w.launch.suspend();
+            tool(await c.next(), 42, refusal("stale-turn"), true);
+            c.send(call(44, "windows_list", {}));
+            tool(await c.next(), 44, refusal("stale-turn"), true);
+            assert.equal(w.starts.length, 1, "a closed history owner admits no tool call");
+            // The router still owns the real completion. Its old bridge result
+            // must neither answer twice nor attach to the next generation.
+            w.answers[0]({ outcome: "completed", content: "old result" });
+            w.dispatch({ type: "toggle" });
+            w.newTurn();
+            const recipients = w.Policy.recipients({ ...w.recipients, conversation: "resumed" });
+            w.launch.resume({ gen: w.runner.state.gen, recipients });
+            c.send(ping(45));
+            assert.equal((await c.next()).id, 45, "the late old result produced no duplicate response");
+            c.send(call(46, "windows_list", {}));
+            c.send(ping(47));
+            assert.equal((await c.next()).id, 47);
+            assert.equal(w.starts.length, 2, "the retained MCP connection serves the new generation");
+            w.answers[1]({ outcome: "completed", content: "new result" });
+            tool(await c.next(), 46, "new result", false);
+            assert.equal(w.preparations.at(-1).recipients, recipients, "the resumed result uses the new recipient set");
+            assert.deepEqual(w.brain, [], "old completions stay with their bridge request");
+        }],
+        ["suspended-release", async folder => {
+            let release;
+            const w = await make(folder, { prepare: () => new Promise(resolve => { release = resolve; }) });
+            const c = await w.ready();
+            c.send(call(48, "windows_list", {}));
+            c.send(ping(49));
+            assert.equal((await c.next()).id, 49);
+            w.answers[0]({ outcome: "completed", content: "held old result" });
+            await until(() => release !== undefined, "the old release preparation is pending");
+            w.launch.suspend();
+            tool(await c.next(), 48, refusal("stale-turn"), true);
+            w.launch.resume({ gen: w.runner.state.gen, recipients: w.recipients });
+            release([]);
+            // Re-entering the bridge after the preparation microtask proves
+            // that the old release cannot write under the resumed binding.
+            await Promise.resolve();
+            c.send(ping(52));
+            assert.equal((await c.next()).id, 52);
+            assert.deepEqual(w.rows().filter(row => row.kind === "release"), [], "a stale release sends no content");
+            assert.deepEqual(w.sent, [], "a stale binding adds no labels to retained brain history");
+        }],
         ["release", async folder => {
             const file = path.join(fixtures.project, "existing");
-            for (const [network, text, decision] of [[true, "[withheld: file text]", "withhold"], [false, "private file text", "send"]]) {
-                const w = await make(folder, { network });
+            for (const row of [
+                { network: true, source: "file", decision: "withhold", text: "[withheld: file text]" },
+                { network: false, source: "file", decision: "send", text: "private file text" },
+                { network: true, source: "screen", cloudVision: "never", decision: "withhold", text: "[withheld: screen content]" },
+                { network: false, source: "file", auditRefused: true, text: refusal("audit-write") }
+            ]) {
+                const w = await make(folder, { network: row.network, vision: row.source === "screen", cloudVision: row.cloudVision,
+                    prepare: () => { if (row.auditRefused) w.audit.close(); return []; } });
                 const c = await w.ready();
-                c.send(call(50, "files_read", { path: file }));
+                c.send(row.source === "screen" ? call(50, "vision_screen", {}) : call(50, "files_read", { path: file }));
                 c.send(ping(51));
                 await c.next();
                 w.answers[0]({ outcome: "completed", content: "private file text" });
-                tool(await c.next(), 50, text, false);
+                tool(await c.next(), 50, row.text, row.auditRefused === true);
+                assert.deepEqual(w.sent.map(event => event.labels), row.decision === "send" ? [[row.source]] : [],
+                    "retained history receives only labels of content actually sent");
+                if (row.auditRefused) {
+                    assert.deepEqual(w.rows().filter(event => event.kind === "release"), [], "the refused audit sends no tool content");
+                    continue;
+                }
                 const released = w.rows().at(-1);
                 assert.deepEqual([released.kind, released.decision, released.args],
-                    ["release", decision, { labels: "[redacted]", recipients: "[redacted]" }]);
+                    ["release", row.decision, { labels: "[redacted]", recipients: "[redacted]" }]);
+                if (row.decision === "send") {
+                    assert.equal(w.sent[0].value, w.preparations[0].value, "retained labels belong to the released tool result");
+                    assert.deepEqual([w.sent[0].audit.kind, w.sent[0].audit.decision], ["release", "send"],
+                        "the audit precedes retained history admission");
+                }
             }
         }],
         // A released image is an MCP image block; a withheld one, its marker.
@@ -595,7 +663,11 @@ world(async () => {
                 "deliver({ gen: s.gen, op: s.turn.op, outcome: \"completed\", results: [{ id, item: Policy.item(\"bypassed\", [\"desktop\"]) }] });", "allow"],
             ["brain-results", "if (entry === undefined) return false;", "if (entry === undefined) return true;", "allow"],
             ["gen-binding", "s.gen !== current.gen || ", "", "stale"],
+            ["suspended-admission", "!current.active || ", "", "suspend-resume"],
+            ["suspended-release-answer", "new Set([...pending.values(), ...releasing])", "new Set(pending.values())", "suspended-release"],
+            ["release-binding", "\n                    || entry.binding !== entry.connection.current.binding", "", "suspended-release"],
             ["release", "Policy.release(answer.item, entry.recipients, grants)", "({ kind: \"send\", ...answer.item })", "release"],
+            ["retained-release", 'if (released.kind === "send") sent(value, released.labels);', 'sent(value, released.labels);', "release"],
             ["image-release", "Policy.release(answer.image.item, entry.recipients, grants)", "({ kind: released.kind, content: answer.image.item.content })", "image"],
             ["image-delivered", "Mcp.content(entry.request, released.content.toString(), value.outcome !== \"completed\", image)",
                 "Mcp.content(entry.request, released.content.toString(), value.outcome !== \"completed\")", "image"],

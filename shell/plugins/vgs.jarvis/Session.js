@@ -26,10 +26,10 @@ var TRANSCRIPT_CHARS = 4096;
 var EVENTS = [
     "snapshot", "indicator", "talk-down", "talk-up", "toggle", "voice-mute", "voice-mute-toggle",
     "stop", "cancel", "interrupt", "capture-opened", "capture-closed", "capture-failed", "playback-failed", "partial",
-    "final", "say", "collect-failed", "brain-done", "brain-failed", "brain-ended", "cancelled", "play", "played",
+    "final", "say", "collect-failed", "brain-done", "brain-failed", "cancelled", "play", "played",
     "flushed", "tool", "tool-done", "approval", "shown", "confirm", "approval-cancel", "deadline", "lease-ended",
     "speak", "speech-due", "transcript", "speech-idle", "speech-failed", "feedback", "delegation", "relay", "voice-check", "voice-checked", "voice-check-failed", "input-silent", "input-sound",
-    "preview", "speech-input-ended"
+    "preview", "speech-input-ended", "new-conversation", "conversation-reset"
 ];
 
 function initial() {
@@ -39,7 +39,8 @@ function initial() {
         voiceMute: { kind: "off" }, capture: { kind: "closed" },
         turn: { kind: "none" }, brain: { kind: "closed" }, playback: { kind: "idle" },
         action: { kind: "none" }, approval: { kind: "none" }, fault: { kind: "none" }, cue: { kind: "none" },
-        conversation: { kind: "ended" }, input: { kind: "released" }, quiet: { kind: "none" }, sound: { kind: "none" },
+        conversation: { kind: "ended" }, history: { kind: "current", epoch: 0 },
+        input: { kind: "released" }, quiet: { kind: "none" }, sound: { kind: "none" },
         indicator: { kind: "gone" }, duplex: { kind: "half" }, toggleAt: null,
         engine: { kind: "chained" }, speech: { kind: "closed" }, check: { kind: "unavailable" }, checkSource: null
     };
@@ -109,6 +110,13 @@ function closeBrain(s, effects) {
     if (s.brain.kind === "closed") return;
     effect(s, effects, "brain-close", { gen: s.brain.gen, target: s.brain.op });
     s.brain = { kind: "closed" };
+}
+
+// Live generations expire on close. The history identity survives an ordinary
+// close so the engine can retain context after voice and grants end.
+function resetHistory(s, reason) {
+    s.history = reason === null ? { kind: "current", epoch: s.history.epoch + 1 }
+        : { kind: "reset", epoch: s.history.epoch + 1, reason: reason };
 }
 
 function flushPlayback(s, effects) {
@@ -496,6 +504,7 @@ function reduce(state, e) {
             end(s, effects, e.at, "settings", false);
             if (s.gen === before) s.gen++;
             s.fault = { kind: "none" };
+            if (settingsChanged) resetHistory(s, null);
         }
         s.settings = JSON.parse(JSON.stringify(e.settings));
         if (s.settings.sounds !== true) s.cue = { kind: "none" };
@@ -569,6 +578,33 @@ function reduce(state, e) {
     case "toggle":
         toggle(s, effects, e.at);
         break;
+    case "new-conversation": {
+        var open = s.conversation.kind !== "ended" && !previewConversation(s);
+        var heldInput = s.input.kind === "held";
+        var priorGen = s.gen;
+        end(s, effects, e.at, "new-conversation", true);
+        if (s.gen === priorGen) s.gen++;
+        closeBrain(s, effects);
+        resetHistory(s, "requested");
+        effect(s, effects, "brain-reset", {});
+        s.cue = { kind: "none" };
+        s.fault = { kind: "none" };
+        s.input = { kind: "released" };
+        if (open) {
+            s.conversation = { kind: "active", purpose: "conversation" };
+            s.input = heldInput ? { kind: "held", since: e.at, heard: false } : releasedInput(s);
+            activity(s, e.at);
+        }
+        break;
+    }
+    case "conversation-reset":
+        if (!live(s, e, "turn", ["thinking"])) { stale(s); break; }
+        if (e.reason !== "turn-limit" || typeof e.text !== "string" || e.text.trim() === "")
+            throw new Error("jarvis: session=conversation-reset");
+        resetHistory(s, e.reason);
+        userTranscript(s, effects, e.text, 1);
+        activity(s, e.at);
+        break;
     // Voice mute changes no other region: Audio's paced write reads it and
     // sends silence, so the reply, its playback and its deadline run as when
     // heard. Only these two events change it; talk, stop and a new
@@ -600,6 +636,7 @@ function reduce(state, e) {
         break;
     case "lease-ended":
         end(s, effects, e.at, "lease", true);
+        resetHistory(s, null);
         // EOF is teardown, not an interactive cancellation. No adapter may
         // retain the daemon while waiting for an acknowledgment.
         closeBrain(s, effects);
@@ -710,12 +747,6 @@ function reduce(state, e) {
         s.turn = { kind: "none" };
         s.fault = { kind: "error", reason: e.reason, retry: 0 };
         end(s, effects, e.at, "collect-failed", false);
-        break;
-    // The brain ends the conversation without a fault: the next one may start.
-    case "brain-ended":
-        if (!live(s, e, "turn", ["thinking"])) { stale(s); break; }
-        s.turn = { kind: "none" };
-        end(s, effects, e.at, e.reason, false);
         break;
     case "brain-done":
     case "brain-failed":
@@ -969,6 +1000,7 @@ var REGIONS = {
     action: { none: "", running: "gen op tool brain limit cancellation" }, cue: { none: "", pending: "cue" },
     approval: { none: "", held: "purpose gen op id digest deadline shownAt physical text tool timeoutMs cancellable brain" },
     fault: { none: "", error: "reason retry", retrying: "reason retry" }, conversation: { ended: "", active: "purpose", interrupted: "purpose" },
+    history: { current: "epoch", reset: "epoch reason" },
     input: { released: "", stopped: "", held: "since heard", conversation: "", check: "", "closing-tap": "source" },
     quiet: { none: "", waiting: "gen op deadline" }, sound: { none: "", silent: "device" },
     indicator: { gone: "", shown: "" }, duplex: { half: "" },
@@ -994,7 +1026,7 @@ function validate(s) {
         var fields = REGIONS[region][r.kind] === "" ? [] : REGIONS[region][r.kind].split(" ");
         if (!exact(r, ["kind"].concat(fields))) return false;
         for (var f of fields) {
-            if (["gen", "op", "brain", "source", "retry"].indexOf(f) !== -1) {
+            if (["gen", "op", "brain", "source", "retry", "epoch"].indexOf(f) !== -1) {
                 if (!Number.isSafeInteger(r[f]) || r[f] < (["op", "brain", "source"].indexOf(f) !== -1 ? 1 : 0)) return false;
             } else if (f === "device") {
                 if (r[f] !== null && typeof r[f] !== "string") return false;
@@ -1031,6 +1063,7 @@ function validate(s) {
         }
         if (region === "approval" && r.kind === "held" && ["action", "release"].indexOf(r.purpose) === -1) return false;
         if (region === "conversation" && r.kind !== "ended" && ["conversation", "preview"].indexOf(r.purpose) === -1) return false;
+        if (region === "history" && r.kind === "reset" && ["requested", "turn-limit"].indexOf(r.reason) === -1) return false;
         if (region === "capture" && fields.indexOf("mode") !== -1
                 && ["hold", "conversation", "check"].indexOf(r.mode) === -1) return false;
         if (region === "sound" && r.kind === "silent" && (typeof r.device !== "string" || r.device === "")) return false;

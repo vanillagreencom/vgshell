@@ -125,6 +125,7 @@ function create({ provider, model, recipients, account, gen, harness }) {
     let turns = 0;
     let active = null;
     let closed = false;
+    let suspended = false;
     let ended = null;
 
     function usable() {
@@ -143,6 +144,8 @@ function create({ provider, model, recipients, account, gen, harness }) {
     function ensure() {
         if (opening === null) opening = (async () => {
             launch = await bridge.open({ gen, recipients });
+            if (suspended) launch.suspend();
+            else launch.resume({ gen, recipients });
             // A close during the open found no launch to end.
             if (closed) { launch.close(); fail("closed"); }
             const opened = await open({ program: p, directory: account.directory, env, runtime: runtime(), model,
@@ -224,6 +227,7 @@ function create({ provider, model, recipients, account, gen, harness }) {
 
     function send(turn, grants = []) {
         usable();
+        if (suspended) fail("suspended");
         if (instructions === null) fail("not-started");
         const { text, labels, release } = Harness.release(turn, recipients, grants, fail);
         if (turns >= TURNS) throw new Error("jarvis: brain=context-limit");
@@ -270,6 +274,19 @@ function create({ provider, model, recipients, account, gen, harness }) {
         /** A harness turn is never answered by tool results. */
         record() { fail("record"); },
         cancel() { return active === null ? Promise.resolve() : active.cancel(); },
+        suspend() {
+            suspended = true;
+            launch?.suspend();
+            return active === null ? Promise.resolve() : active.cancel();
+        },
+        resume(next) {
+            usable();
+            Policy.assertRecipients(next.recipients);
+            gen = next.gen;
+            recipients = next.recipients;
+            launch?.resume({ gen, recipients });
+            suspended = false;
+        },
         close() {
             if (closed) return;
             closed = true;

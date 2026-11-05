@@ -22,7 +22,7 @@ Item {
     function values(regions) {
         const s = Object.assign(JSON.parse(JSON.stringify(Session.initial())), { gate: { kind: "up" } }, regions);
         return { daemon: { tone: "info", text: "Jarvis is ready; microphone is off" }, audio: { tone: "ok", text: "Device list ready" },
-            detail: { phase: Session.phaseOf(s), seq: 1, state: s, brain: "Claude Opus 5.5" } };
+            detail: { phase: Session.phaseOf(s), seq: 1, state: s, brain: "Claude Opus 5.5", conversationId: "fixture:" + s.history.epoch } };
     }
 
     function shellWith(values) {
@@ -193,6 +193,42 @@ Item {
             composerControls().send.clicked();
             compare(sent.length, 3);
             compare(sent[2], "Deliberate button press");
+        }
+
+        function test_new_conversation_uses_the_shared_keyboard_action() {
+            const shell = root.shellWith(root.values({}));
+            const calls = [];
+            shell.ipc.call = (name, arg) => { calls.push([name, arg]); return "ok"; };
+            jarvisConsole.shell = shell;
+            const controls = composerControls();
+            const action = collect(jarvisConsole, n => n.objectName === "newConversationAction", [])[0];
+            verify(action !== undefined);
+            controls.entry.text = "Unsent draft";
+            action.forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Return);
+            compare(JSON.stringify(calls), '[["new-conversation",""]]');
+            compare(controls.entry.text, "");
+            compare(jarvisConsole.problem, "");
+            verify(action.activeFocus, "reset leaves its keyboard target available");
+            jarvisConsole.shell = root.shellWith({});
+            verify(action.disabledReason !== "");
+        }
+
+        function test_now_uses_resumed_history_and_fresh_resets_keep_the_archive() {
+            const values = root.values({ history: { kind: "current", epoch: 4 } });
+            values.conversation = [
+                { gen: 2, role: "user", text: "Earlier context", stage: "final", session: "fixture:3", at: 1000, startedAt: 1000 },
+                { gen: 4, role: "user", text: "First open", stage: "final", session: "fixture:4", at: 2000, startedAt: 2000 },
+                { gen: 6, role: "assistant", text: "Resumed answer", stage: "final", session: "fixture:4", at: 3000, startedAt: 2000 }
+            ];
+            jarvisConsole.shell = root.shellWith(values);
+            compare(JSON.stringify(jarvisConsole.transcriptRows.map(row => row.text)), '["First open","Resumed answer"]');
+            compare(jarvisConsole.historyGroups.length, 2, "history keeps the older context");
+            const reset = root.values({ history: { kind: "reset", epoch: 5, reason: "requested" } });
+            reset.conversation = values.conversation;
+            jarvisConsole.shell = root.shellWith(reset);
+            compare(jarvisConsole.transcriptRows.length, 0, "fresh Now contains none of the old model context");
+            compare(jarvisConsole.historyGroups.length, 2, "reset erases no history rows");
         }
 
         function test_ask_recovery_survives_console_recreation_data() {
@@ -390,9 +426,14 @@ Item {
         function test_tabs_enter_visible_composer(data) {
             setRegions({ engine: { kind: data.kind } });
             const controls = composerControls();
+            const action = collect(jarvisConsole, n => n.objectName === "newConversationAction", [])[0];
             controls.tabs.forceActiveFocus(Qt.TabFocusReason);
             keyClick(Qt.Key_Tab);
+            tryCompare(action, "activeFocus", true);
+            keyClick(Qt.Key_Tab);
             tryCompare(controls[data.control], "activeFocus", true);
+            keyClick(Qt.Key_Backtab);
+            tryCompare(action, "activeFocus", true);
             keyClick(Qt.Key_Backtab);
             tryCompare(controls.tabs, "activeFocus", true);
         }

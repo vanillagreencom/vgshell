@@ -121,13 +121,14 @@ Item {
                 { tag: "Mute microphone", index: 1, calls: '[["microphone-mute",""]]', pages: "[]" },
                 { tag: "Mute Jarvis's voice", index: 0, calls: '[["voice-mute",""]]', pages: "[]" },
                 { tag: "Stop Jarvis", index: 2, calls: '[["stop",""]]', pages: "[]" },
-                { tag: "Key hints", index: 3, calls: "[]", pages: '[["vgs.jarvis","Settings/Keys"]]' }
+                { tag: "New conversation", index: 3, calls: '[["new-conversation",""]]', pages: "[]" },
+                { tag: "Key hints", index: 4, calls: "[]", pages: '[["vgs.jarvis","Settings/Keys"]]' }
             ];
         }
         function test_the_menu_holds_the_jarvis_menu(data) {
             let framePages = [];
             widget.frame = { hide: () => "ok", openPage: (page, tab) => { framePages = framePages.concat([[page, tab]]); return "ok"; } };
-            compare(JSON.stringify(widget.frameActions.map(row => row.label)), JSON.stringify(["Mute Jarvis's voice", "Mute microphone", "Stop Jarvis", "Key hints"]));
+            compare(JSON.stringify(widget.frameActions.map(row => row.label)), JSON.stringify(["Mute Jarvis's voice", "Mute microphone", "Stop Jarvis", "New conversation", "Key hints"]));
             widget.frameActions[data.index].action();
             compare(JSON.stringify(root.calls), data.calls);
             compare(JSON.stringify(root.pages), data.pages);

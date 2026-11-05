@@ -265,7 +265,7 @@ FocusScope {
     function handleBacktab(event) {
         const backward = event.key === Qt.Key_Backtab || (event.key === Qt.Key_Tab && (event.modifiers & Qt.ShiftModifier));
         if (!backward || (event.modifiers & Qt.ControlModifier)) return false;
-        consoleTabs.forceActiveFocus(Qt.BacktabFocusReason);
+        (tab === 0 ? newConversationAction : consoleTabs).forceActiveFocus(Qt.BacktabFocusReason);
         event.accepted = true;
         return true;
     }
@@ -364,7 +364,7 @@ FocusScope {
     }
 
     function rows() {
-        const result = conversation.slice();
+        const result = detail === null ? [] : conversation.filter(row => row.session === detail.conversationId);
         if (livePartial.trim() !== "") result.push({ gen: state.gen, role: "user", text: livePartial, stage: "partial" });
         return result;
     }
@@ -405,6 +405,16 @@ FocusScope {
         if (reply !== "ok") {
             problem = "Jarvis did not stop";
             console.warn("jarvis console: " + reply);
+        }
+    }
+
+    function newConversation() {
+        if (shell === null) return;
+        const reply = shell.ipc.call("new-conversation", "");
+        problem = reply === "ok" ? "" : "Jarvis is not ready to start a new conversation";
+        if (reply === "ok") {
+            draft = "";
+            entryField.text = "";
         }
     }
 
@@ -490,8 +500,20 @@ FocusScope {
                 model: ["Now", "Needs you", "History"]
                 unreadCounts: root.asksReady && root.asksState.activeCount > 0 ? ({ "Needs you": root.asksState.activeCount }) : ({})
                 currentIndex: root.tab
-                KeyNavigation.tab: root.tab === 0 ? root.composerFocus : root.tab === 1 ? asksBody : historySearch
+                KeyNavigation.tab: root.tab === 0 ? newConversationAction : root.tab === 1 ? asksBody : historySearch
                 onCurrentIndexChanged: root.tab = currentIndex
+            }
+            RowAction {
+                id: newConversationAction
+                objectName: "newConversationAction"
+                visible: root.tab === 0
+                text: "New conversation"
+                disabledReason: root.state === null ? "Wait for Jarvis to be ready." : ""
+                // Explicit reverse navigation keeps the header action between
+                // tabs and composer: https://doc.qt.io/qt-6/qml-qtquick-keynavigation.html
+                KeyNavigation.backtab: consoleTabs
+                KeyNavigation.tab: root.composerFocus
+                onClicked: root.newConversation()
             }
             // The main Jarvis's reachability, in the fixed header so a long
             // conversation never scrolls it away.

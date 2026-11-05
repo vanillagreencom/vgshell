@@ -280,8 +280,17 @@ function menuEntries(micMuted, voiceMuted) {
         { label: micMuted === true ? "Unmute microphone" : "Mute microphone", icon: micMuted === true ? "mic-off" : "mic", intent: "microphone-mute",
             disabledReason: micMuted === null ? "Connect a microphone or choose one in Sound" : "" },
         { label: "Stop Jarvis", icon: "square", intent: "stop" },
+        { label: "New conversation", icon: "message-circle-plus", intent: "new-conversation" },
         { label: "Key hints", icon: "keyboard", page: "vgs.jarvis", tab: "Settings/Keys" }
     ];
+}
+
+function conversationResetNotice(reason) {
+    if (["requested", "turn-limit"].indexOf(reason) === -1) refuse("conversation-reset", reason);
+    return { title: "New conversation", tone: "info", icon: "message-circle-plus",
+        message: reason === "turn-limit"
+            ? "Jarvis reached this conversation's memory limit and started fresh. Your new message is still being answered. Earlier messages remain in the console's History."
+            : "Jarvis started a fresh conversation. Earlier messages remain in the console's History." };
 }
 
 var RESUME_TITLE = "Resume Jarvis from before the restart";

@@ -370,7 +370,7 @@ world(async () => {
         const secrets = { lookup: reference => { const value = store.lookup(reference); handed.push(value); return value; } };
         const reference = kit.Secrets.ownReference("fixture", "test", first);
         const before = lookups();
-        const { brain } = open(kit, { base: first + "/text", voice: second, key: { secrets, reference } });
+        const { brain, recipients } = open(kit, { base: first + "/text", voice: second, key: { secrets, reference } });
         const turn = brain.send(user(kit));
         assert.equal(lookups(), before, "no lookup before the first request leaves");
         await drain(turn);
@@ -379,8 +379,22 @@ world(async () => {
         assert.equal(last().headers.authorization, "Bearer " + KEY);
         assert.equal(records.some(record => record.host === "127.0.0.1" && record.url.startsWith("/") && record.headers.host === new URL(second).host), false,
             "the speech origin never receives a request");
+        await brain.suspend();
+        assert.ok(handed[0].every(byte => byte === 0), "suspend zeroes the cached key while history stays in memory");
+        assert.throws(() => brain.send(user(kit)), { message: "jarvis: brain=suspended" });
+        doors.at(-1).close();
+        const resumed = kit.Policy.recipients({ conversation: "resumed", profile: "standard", cloudVision: "ask",
+            brain: recipients.brain, speech: recipients.speech });
+        const door = kit.Net.create(resumed);
+        doors.push(door);
+        brain.resume({ net: door, recipients: resumed });
+        assert.equal(lookups(), before + 1, "resume alone reads no key");
+        await drain(brain.send(user(kit, speech(kit, "After Talk reopened"))));
+        assert.equal(lookups(), before + 2, "the next inference obtains a fresh key");
+        assert.deepEqual(last().body.messages.filter(message => message.role === "user").map(message => message.content),
+            ["What time is it?", "What time is it?", "After Talk reopened"], "the same wire brain retains exact user history on its fresh network owner");
         brain.close();
-        assert.ok(handed.length === 1 && handed[0].every(byte => byte === 0), "close zeroes the looked-up key");
+        assert.ok(handed.length === 2 && handed.every(value => value.every(byte => byte === 0)), "close zeroes the new key too");
         assert.throws(() => brain.send(user(kit)), { message: "jarvis: brain=closed" });
         const count = records.length;
         const looked = lookups();

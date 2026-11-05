@@ -59,6 +59,7 @@ class SessionRunner {
             this.ports.brain.cancel(e, () => this.dispatch({ type: "cancelled", gen: e.gen, op: e.target }));
             break;
         case "brain-close": this.ports.brain.close(e); break;
+        case "brain-reset": this.ports.brain.reset(e); break;
         case "playback-start": this.ports.playback.start(e, () => done("played"),
             reason => done("playback-failed", { reason })); break;
         case "playback-flush": this.ports.playback.flush(e, () => done("flushed")); break;
@@ -121,7 +122,7 @@ function unavailable() {
     function refuse() { throw new Error("jarvis: session=adapter-unavailable"); }
     return {
         capture: { open: refuse, close: (e, done) => done(), collect: refuse },
-        brain: { send: refuse, cancel: (e, done) => done(), close: () => {}, outcome: refuse },
+        brain: { send: refuse, cancel: (e, done) => done(), close: () => {}, reset: () => {}, outcome: refuse },
         playback: { start: refuse, flush: (e, done) => done() },
         tools: { start: refuse, cancel: refuse, outcome: refuse, sync: () => {}, close: () => {} },
         approval: { show: refuse, end: () => {}, refused: refuse },

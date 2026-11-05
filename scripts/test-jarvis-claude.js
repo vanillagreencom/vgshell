@@ -171,6 +171,16 @@ world(async () => {
     const say = text => [{ text }];
 
     const cases = [
+        ["suspend-resume", async folder => {
+            const w = await make(folder, { turns: [[{ text: "First." }], [{ text: "Second." }]] });
+            assert.deepEqual(await w.read(w.say("remember this")), { texts: ["First."], reason: "stop" });
+            const child = w.account.calls()[0];
+            await bounded(w.harness.suspend(), "suspend idle brain");
+            assert.throws(() => w.say("while closed"), { message: "jarvis: brain=suspended" });
+            w.harness.resume({ gen: w.runner.state.gen, recipients: w.recipients });
+            assert.deepEqual(await w.read(w.say("continue")), { texts: ["Second."], reason: "stop" });
+            assert.deepEqual(w.account.calls(), [child], "resume keeps the exact native process history");
+        }],
         ["streaming", async folder => {
             const gate = path.join(process.env.JARVIS_TEST_ROOT, "stream-" + ++serial);
             const parts = ["First. ", "Second."];
@@ -334,9 +344,12 @@ world(async () => {
             const reply = w.say("long answer");
             assert.deepEqual(await w.read(reply, texts => texts.length === 1), { texts: ["partial"], reason: null });
             // The caller reads on while the turn is cancelling.
-            const cancelled = w.harness.cancel();
+            const cancelled = w.harness.suspend();
+            assert.throws(() => w.harness.resume({ gen: w.runner.state.gen, recipients: w.recipients }),
+                { message: "jarvis: brain=busy" }, "resume waits for the native interrupt result");
             await assert.rejects(() => bounded(reply.events.next(), "cancelled read"), /brain=cancelled/, "queued text never reaches the caller");
             await bounded(cancelled, "cancel acknowledgement");
+            w.harness.resume({ gen: w.runner.state.gen, recipients: w.recipients });
             const interrupt = w.account.events().find(event => event.kind === "interrupt");
             assert.ok(interrupt, "the interrupt control request reached the program");
             const request = w.account.events().filter(event => event.kind === "input").at(-1).value;
@@ -516,7 +529,7 @@ world(async () => {
             const outcome = reply.events.next().then(() => null, error => error.message);
             await w.until(() => opened !== undefined, "the session open");
             const closing = late.close();
-            opened({ command: process.execPath, args: [], env: {}, close: () => { closedSessions++; } });
+            opened({ command: process.execPath, args: [], env: {}, suspend() {}, resume() {}, close: () => { closedSessions++; } });
             assert.equal(await bounded(outcome, "the late turn"), "jarvis: brain=cancelled");
             await bounded(closing, "late close");
             assert.equal(closedSessions, 1, "the late session is closed");

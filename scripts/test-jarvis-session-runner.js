@@ -42,7 +42,8 @@ function world(implementation = Owner, synchronous = false, session = Session) {
                 connection.kind = "closed";
                 port("brain-close")(e);
             },
-            outcome: port("outcome")
+            outcome: port("outcome"),
+            reset: port("brain-reset")
         },
         playback: { start: port("play"), flush: port("flush") },
         tools: { start: port("tool"), cancel: port("tool-cancel"), outcome: port("outcome"), sync: () => {}, close: () => {} },
@@ -87,6 +88,18 @@ function thinking(w) {
     assert.equal(w.runner.state.turn.kind, "thinking");
 }
 const tests = [
+    ["closed-history-reset", impl => {
+        const w = world(impl);
+        const epoch = w.runner.state.history.epoch;
+        w.dispatch("new-conversation");
+        assert.equal(w.runner.state.conversation.kind, "ended");
+        assert.equal(w.runner.state.history.epoch, epoch + 1);
+        const reset = w.calls.find(call => call.name === "brain-reset");
+        assert.ok(reset, "reset reaches the backend while no brain connection is active");
+        assert.equal(reset.e.gen, w.runner.state.gen);
+        assert.equal(w.calls.some(call => call.name === "open" || call.name === "send" || call.name === "play"), false);
+        w.runner.close();
+    }],
     ...["start", "working"].map(cue => ["feedback-deadline-" + cue, (impl, session = Session) => {
         const w = world(impl, false, session);
         if (cue === "working") thinking(w);
@@ -479,6 +492,7 @@ const source = fs.readFileSync(file, "utf8");
 let controls = 0;
 try {
     const mutants = [
+        ["closed history reset", "this.ports.brain.reset(e);", "void e;", "closed-history-reset"],
         ["check timer scheduled", 'this.state.approval, this.state.check, this.state.quiet, toolDeadline', 'this.state.approval, this.state.quiet, toolDeadline', "check-timer"],
         ["quiet timer scheduled", "this.state.check, this.state.quiet, toolDeadline", "this.state.check, toolDeadline", "quiet-timer"],
         ["delegation-identity", 'delegation: task => done("delegation", task),', 'delegation: task => done("delegation", { ...task, id: "changed" }),', "delegation-identity"],

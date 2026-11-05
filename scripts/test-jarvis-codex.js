@@ -160,6 +160,20 @@ world(async () => {
     fs.renameSync(path.join(fixtures.project, "existing"), existing);
 
     const CASES = {
+        async suspendResume(folder) {
+            scenario({ turns: [[delta("First."), { complete: "completed" }], [delta("Second."), { complete: "completed" }]] });
+            const w = make(folder);
+            assert.deepEqual(await drain(w.say("remember this")), [{ kind: "text", text: "First." }, { kind: "done", reason: "stop" }]);
+            const child = program();
+            await w.brain.suspend();
+            assert.throws(() => w.say("while closed"), { message: "jarvis: brain=codex-suspended" });
+            w.brain.resume({ gen: w.runner.state.gen, recipients: w.recipients });
+            assert.deepEqual(await drain(w.say("continue")), [{ kind: "text", text: "Second." }, { kind: "done", reason: "stop" }]);
+            assert.deepEqual(program(), child, "resume keeps the same native child and private working folder");
+            assert.equal(received("thread/start").length, 1, "resume keeps the exact native thread");
+            assert.deepEqual(received("turn/start").map(message => message.params.input[0].text), ["remember this", "continue"]);
+            validWrites();
+        },
         async completedText(folder) {
             const complete = { notify: "item/completed", params: { threadId: "$THREAD", turnId: "$TURN", completedAtMs: 1,
                 item: { type: "agentMessage", id: "m1", text: "Fixture.", phase: null, memoryCitation: null, delivery: null, questions: null } } };
@@ -388,10 +402,13 @@ world(async () => {
             assert.deepEqual((await iterator.next()).value, { kind: "text", text: "a" });
             const pending = assert.rejects(iterator.next(), { message: "jarvis: brain=cancelled" });
             let cancelled = false;
-            const cancellation = w.brain.cancel().then(() => { cancelled = true; });
+            const cancellation = w.brain.suspend().then(() => { cancelled = true; });
+            assert.throws(() => w.brain.resume({ gen: w.runner.state.gen, recipients: w.recipients }),
+                { message: "jarvis: brain=codex-busy" }, "resume waits for the native cancellation acknowledgement");
             await pending;
             await until(() => cancelled, "Codex completion settles cancellation after the reader rejects");
             await cancellation;
+            w.brain.resume({ gen: w.runner.state.gen, recipients: w.recipients });
             assert.equal(received("turn/interrupt").length, 1);
             validWrites();
         },
@@ -763,6 +780,7 @@ world(async () => {
             ["directory-removal", "backend/CodexHarness.js", [["    await session.program.close();\n    fs.rmSync(session.cwd, { recursive: true, force: true });",
                 "    await session.program.close();"]], "close"],
             ["context-limit", "backend/CodexHarness.js", [['if (turns >= TURNS) throw new Error("jarvis: brain=context-limit");', ""]], "limit"],
+            ["suspended-send", "backend/CodexHarness.js", [['if (suspended) fail("suspended");', ""]], "suspendResume"],
             ["context-key", "backend/CodexHarness.js", [['throw new Error("jarvis: brain=context-limit");', 'fail("context-limit");']], "limit"],
             ["opening-close", "backend/CodexHarness.js", [['if (closed) { launch.close(); fail("closed"); }', 'if (closed) fail("closed");']], "opening"],
             ["probe-observed", "backend/CodexHarness.js", [["done.catch(() => {});", "void done;"]], "verify"],

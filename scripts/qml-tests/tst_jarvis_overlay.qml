@@ -250,7 +250,8 @@ Item {
                 { tag: "Mute microphone", index: 1, intents: '["microphone-mute"]', pages: "[]" },
                 { tag: "Mute Jarvis's voice", index: 0, intents: '["voice-mute"]', pages: "[]" },
                 { tag: "Stop Jarvis", index: 2, intents: '["stop"]', pages: "[]" },
-                { tag: "Key hints", index: 3, intents: "[]", pages: '["vgs.jarvis/Settings/Keys"]' }
+                { tag: "New conversation", index: 3, intents: '["new-conversation"]', pages: "[]" },
+                { tag: "Key hints", index: 4, intents: "[]", pages: '["vgs.jarvis/Settings/Keys"]' }
             ];
         }
 
@@ -262,8 +263,8 @@ Item {
             verify(open !== null, "the menu is built");
             tryCompare(open, "opened", true);
             compare(bubble.menuOpened, true);
-            compare(JSON.stringify(bubble.menuTexts), JSON.stringify(["Mute Jarvis's voice", "Mute microphone", "Stop Jarvis", "Key hints"]));
-            compare(JSON.stringify(open.items().map(entry => entry.iconName)), JSON.stringify(["volume-x", "mic", "square", "keyboard"]));
+            compare(JSON.stringify(bubble.menuTexts), JSON.stringify(["Mute Jarvis's voice", "Mute microphone", "Stop Jarvis", "New conversation", "Key hints"]));
+            compare(JSON.stringify(open.items().map(entry => entry.iconName)), JSON.stringify(["volume-x", "mic", "square", "message-circle-plus", "keyboard"]));
             open.items()[data.index].triggered();
             compare(JSON.stringify(root.intents), data.intents);
             compare(JSON.stringify(root.pages), data.pages);

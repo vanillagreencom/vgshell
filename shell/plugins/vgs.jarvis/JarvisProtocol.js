@@ -621,7 +621,7 @@ function accept(line, direction) {
             if (["mainHost", "home"].indexOf(message.chosen) === -1) fail("main-host-intent");
         } else {
             keys(message, fields, "intent");
-            if (["talk-down", "talk-up", "voice-mute", "stop", "voice-check", "owner-asks-refresh"].indexOf(message.intent) === -1) fail("intent");
+            if (["talk-down", "talk-up", "voice-mute", "stop", "new-conversation", "voice-check", "owner-asks-refresh"].indexOf(message.intent) === -1) fail("intent");
         }
         break;
     case "shown":

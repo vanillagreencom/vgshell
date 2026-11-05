@@ -195,6 +195,19 @@ world(async () => {
     ] });
 
     const CASES = {
+        async suspendResume(folder) {
+            scenario({ turns: [[chunk("First."), { stop: "end_turn" }], [chunk("Second."), { stop: "end_turn" }]] });
+            const w = make(folder);
+            assert.deepEqual(await drain(w.say("remember this")), [{ kind: "text", text: "First." }, { kind: "done", reason: "stop" }]);
+            const child = program();
+            await w.brain.suspend();
+            assert.throws(() => w.say("while closed"), { message: "jarvis: brain=copilot-suspended" });
+            w.brain.resume({ gen: w.runner.state.gen, recipients: w.recipients });
+            assert.deepEqual(await drain(w.say("continue")), [{ kind: "text", text: "Second." }, { kind: "done", reason: "stop" }]);
+            assert.deepEqual(program(), child, "resume keeps the same native child and private working folder");
+            assert.equal(received("session/new").length, 1, "resume keeps the exact native ACP session");
+            validWrites();
+        },
         // The lockdown argv, the scrubbed environment, the bridge as the only
         // configured MCP server in a private file, none in session/new, and
         // the instructions leading the first prompt only.
@@ -486,7 +499,10 @@ world(async () => {
             rest.catch(() => {});
             await until(() => w.runner.state.approval.kind === "held", "the approval is held");
             let timer;
-            await Promise.race([w.brain.cancel(), new Promise((resolve, reject) => {
+            const cancellation = w.brain.suspend();
+            assert.throws(() => w.brain.resume({ gen: w.runner.state.gen, recipients: w.recipients }),
+                { message: "jarvis: brain=copilot-busy" }, "resume waits for the cancelled prompt stop reason");
+            await Promise.race([cancellation, new Promise((resolve, reject) => {
                 timer = setTimeout(() => reject(new assert.AssertionError({ message: "cancel never acknowledged" })), 5000);
             })]).finally(() => clearTimeout(timer));
             assert.deepEqual(outcomes("session/request_permission"), [{ outcome: "cancelled" }]);
@@ -494,6 +510,7 @@ world(async () => {
             assert.ok(log.findIndex(row => row.message.result?.outcome?.outcome === "cancelled")
                 < log.findIndex(row => row.message.method === "session/cancel"), "the request is answered before the cancel");
             await assert.rejects(rest, { message: "jarvis: brain=cancelled" });
+            w.brain.resume({ gen: w.runner.state.gen, recipients: w.recipients });
             validWrites();
         },
         // close ends the program, the bridge session and the private directory.
