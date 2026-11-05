@@ -181,7 +181,7 @@ run_world() {
     }
     nested_socket=wayland-1 rt_dir="$CASE_DIR/rt" signature=nested-instance sandbox="$CASE_DIR/sandbox" home="$CASE_DIR"
     mon_w=100 mon_h=100 pointer_at="" failures=0
-    layout_size() { echo 100 100; }
+    layout_size() { echo 0 0 100 100; }
     dir="$sandbox" shader=fixture base_path="$PATH"
     share_world="$sandbox" traffic_dir="$sandbox" lc_class=smoke.leak shell_reporter_class=smoke.reporter
     lc_toplevel_log="$sandbox/leak-plant-toplevel.log" leak_seq=1

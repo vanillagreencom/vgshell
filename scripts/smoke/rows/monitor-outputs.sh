@@ -88,6 +88,26 @@ fi
 if [[ -n ${outputs_first:-} ]]; then
   expect "the nested compositor adds an output while the support is held" ok create_output "$support_output"
   expect_poll "the held support reads the output that came" "hdr=False chroma=False bt2020=False modes=srgb" support_read "$support_output"
+  # Exercise the shared pointer owner against Hyprland's actual mapping,
+  # both on the negative output and on the original output at 0,0.
+  # cursorpos floors the floating-point position; normalized motion can
+  # reconstruct an integer just below itself, so allow one logical pixel.
+  # https://github.com/hyprwm/Hyprland/blob/v0.57.0/src/ipc/s1/Commands.cpp#L1383-L1395
+  outputs_pointer() { hypr -j cursorpos | py_reply 'import json,sys; p=json.load(sys.stdin); x,y=map(int,sys.argv[1:]); print("landed" if abs(p["x"]-x)<=1 and abs(p["y"]-y)<=1 else "%d %d" % (p["x"],p["y"]))' "$1" "$2"; }
+  outputs_position() { hypr -j monitors | py_reply 'import json,sys; m=next(m for m in json.load(sys.stdin) if m["name"]==sys.argv[1]); print(m["x"], m["y"])' "$support_output"; }
+  expect "the extra output accepts a negative origin" ok output_mode "$support_output" 1440x900 1 "" -1440x-620
+  expect_poll "the extra output reports its negative origin" '-1440 -620' outputs_position
+  outputs_pointer_moves() {
+    local point x y
+    for point in '-1000 -400' '101 202'; do
+      read -r x y <<<"$point" || return 1
+      hover "$x" "$y" || return 1
+      expect_poll "the pointer lands at logical $x $y with a negative layout origin" landed outputs_pointer "$x" "$y" || return 1
+    done
+    drag 101 202 -1000 -400 || return 1
+    expect_poll "a drag lands at its negative logical endpoint" landed outputs_pointer -1000 -400
+  }
+  coordinate_observation "negative-origin pointer mapping" outputs_pointer_moves
   expect "the nested compositor removes that output" ok hypr output remove "$support_output"
   expect_poll "the support drops the output that went" absent support_read "$support_output"
   expect "the fixture releases the panel support" ok invoke_monitors releaseSupport

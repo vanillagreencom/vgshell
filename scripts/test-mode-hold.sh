@@ -514,6 +514,8 @@ elif [[ $stub_phase == wallpaper ]]; then
   held_json='\''[{"name":"WAYLAND-1","width":3510,"height":1866,"scale":2,"transform":0,"x":0,"y":0},{"name":"FAR","width":1920,"height":1080,"scale":1,"transform":0,"x":1755,"y":0}]'\''
 elif [[ $stub_phase == rotated ]]; then
   held_json='\''[{"name":"WAYLAND-1","width":3510,"height":1866,"scale":2,"transform":0,"x":0,"y":0},{"name":"FAR","width":1920,"height":1080,"scale":1,"transform":1,"x":1755,"y":0}]'\''
+elif [[ $stub_phase == negative ]]; then
+  held_json='\''[{"name":"WAYLAND-1","width":3510,"height":1866,"scale":2,"transform":0,"x":0,"y":0},{"name":"FAR","width":1440,"height":900,"scale":1,"transform":0,"x":-1440,"y":-620}]'\''
 fi
 reset_json='\''[{"name":"WAYLAND-1","width":1250,"height":720,"scale":1,"transform":0,"x":0,"y":0},{"name":"FAR","width":800,"height":600,"scale":1,"transform":0,"x":1755,"y":0}]'\''
 printf "%s\n" "$held_json" >"$stub_dir/monitors"
@@ -634,6 +636,8 @@ coordinate_cases=(
   'single|click|direct|0|1|0|1|101 202 1755 933'
   'wallpaper|click|direct|0|1|0|1|101 202 3675 1080'
   'rotated|drag|direct|0|1|0|1|101 202 2835 1920 drag 301 302'
+  'negative|hover|direct|0|1|0|1|1541 822 3195 1553 move'
+  'negative|drag|direct|0|1|0|1|1541 822 3195 1553 drag 1741 922'
   'held|click|direct|0|1|0|1|101 202 2555 933'
   'held|hover|direct|0|1|0|1|101 202 2555 933 move'
   'held|right_click|direct|0|1|0|1|101 202 2555 933 right'
@@ -697,9 +701,9 @@ python3 - "$repo/scripts/smoke/harness.sh" "$tmp/first-monitor-harness.sh" <<'PY
 import pathlib,sys
 source,out=map(pathlib.Path,sys.argv[1:])
 text=source.read_text()
-old='  read -r w h < <(layout_size) || return 1\n'
+old='  read -r ox oy w h < <(layout_size) || return 1\n'
 assert text.count(old)==1
-out.write_text(text.replace(old,'  w="$mon_w" h="$mon_h"\n'))
+out.write_text(text.replace(old,'  ox=0 oy=0 w="$mon_w" h="$mon_h"\n'))
 PYMUTATE
 if coordinate_case "$subject" "$tmp/first-monitor-harness.sh" "$repo/scripts/smoke/rows/surfaces.sh" 'wallpaper|click|direct|0|1|0|1|101 202 3675 1080' >/dev/null; then
   fail 'control: first-monitor extents redirect a click after hotplug'

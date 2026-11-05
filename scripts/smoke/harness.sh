@@ -1411,22 +1411,34 @@ coordinate_observation() {
   fi
   return 0
 }
-# layout_size: the layout's width and height, its origin at 0,0.
+# layout_size: the layout's origin x y and width height in logical pixels.
 # An unbound virtual pointer maps its normalized point across every output
-# (Hyprland v0.57.0, src/pointer/PointerManager.cpp, warpAbsolute), so a
-# first-monitor extent redirects a point when a sized output is added.
+# (Hyprland v0.57.0, warpAbsolute), including the bounding box's origin:
+# https://github.com/hyprwm/Hyprland/blob/v0.57.0/src/pointer/PointerManager.cpp#L847-L931
+# The protocol normalizes each point by the supplied extent:
+# https://github.com/hyprwm/Hyprland/blob/v0.57.0/src/protocols/VirtualPointer.cpp#L23-L30
 # Monitor mode dimensions are untransformed; odd transforms swap their
 # logical sides, as MonitorLogic.logicalSize and capture's turned layout read.
-layout_size() { hypr -j monitors | py_reply 'import json,sys; ms=json.load(sys.stdin); assert all(m["x"] >= 0 and m["y"] >= 0 for m in ms); print(max(m["x"] + round((m["height"] if m["transform"] % 2 else m["width"]) / m["scale"]) for m in ms), max(m["y"] + round((m["width"] if m["transform"] % 2 else m["height"]) / m["scale"]) for m in ms))'; }
+layout_size() { hypr -j monitors | py_reply 'import json,sys; ms=json.load(sys.stdin); x=min(m["x"] for m in ms); y=min(m["y"] for m in ms); print(x, y, max(m["x"] + round((m["height"] if m["transform"] % 2 else m["width"]) / m["scale"]) for m in ms)-x, max(m["y"] + round((m["width"] if m["transform"] % 2 else m["height"]) / m["scale"]) for m in ms)-y)'; }
 # pointer_dispatch X Y [ACTION...]: one shared delivery owner.
 # A step whose held mode no longer stands is refused (coordinate_mode_check
 # in mode-hold.sh), since the caller sampled its coordinates under the hold.
 pointer_dispatch() {
-  local x="$1" y="$2" w h
+  local x="$1" y="$2" ox oy w h
   shift 2
   coordinate_mode_check || return 1
   nested_input_check "$sandbox/click" || return 1
-  read -r w h < <(layout_size) || return 1
+  read -r ox oy w h < <(layout_size) || return 1
+  x=$((x - ox)) y=$((y - oy))
+  if [[ ${1:-} == drag ]]; then
+    local -a action=(drag)
+    shift
+    while (( $# >= 2 )); do
+      action+=("$(($1 - ox))" "$(($2 - oy))")
+      shift 2
+    done
+    set -- "${action[@]}" "$@"
+  fi
   "${shell_env[@]}" "$sandbox/click" "$x" "$y" "$w" "$h" "$@" >/dev/null || return 1
 }
 click() { pointer_dispatch "$1" "$2" || return $?; pointer_at="$1 $2"; }
