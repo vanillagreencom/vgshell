@@ -293,7 +293,8 @@ Singleton {
     // such as a `Label` or a `FormRow`, answers for itself; a Column starts
     // where the first child it lays out does, below its top padding, a Row
     // or a Flow where its highest shown child does, and a Loader where its
-    // item does; any other item draws from its edge. A Row places its
+    // item does. Controls and wrappers follow the same content and painted
+    // box rules as inkBelow, so a divider reads both ends alike. A Row places its
     // children along x alone, so a child's `y` is its own
     // (https://doc.qt.io/qt-6/qml-qtquick-row.html), and a Flow's first
     // line stands at its top.
@@ -301,9 +302,11 @@ Singleton {
         if (item === null || item === undefined) return 0;
         if (typeof item.inkAbove === "function") return item.inkAbove();
         if (item instanceof Loader) return item.item instanceof Item ? inkAbove(item.item) : 0;
+        if (item instanceof Rectangle || (item.background instanceof Item && item.background.visible)) return 0;
+        const content = item.contentItem;
+        if (content instanceof Item && content !== item) return content.y + inkAbove(content);
         const shown = item.children.filter(child => child.visible && child.width > 0 && child.height > 0);
-        if (item instanceof Row || item instanceof Flow) return shown.length === 0 ? 0 : Math.min(...shown.map(child => child.y + inkAbove(child)));
-        if (!(item instanceof Column)) return 0;
+        if (!(item instanceof Column)) return shown.length === 0 ? 0 : Math.min(...shown.map(child => child.y + inkAbove(child)));
         return shown.length === 0 ? 0 : item.topPadding + inkAbove(shown[0]);
     }
 
