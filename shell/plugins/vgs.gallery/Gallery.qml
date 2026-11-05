@@ -499,6 +499,20 @@ Item {
                         }
                     }
                     ProgressBar { indeterminate: true }
+                    Column {
+                        spacing: Theme.row.lineGap
+                        Label { role: "label"; text: "Gradient" }
+                        ProgressBar {
+                            value: 0.8
+                            trackColor: Theme.inputMeter.track
+                            fillGradient: Gradient {
+                                orientation: Gradient.Horizontal
+                                GradientStop { position: 0; color: Theme.inputMeter.low }
+                                GradientStop { position: 0.5; color: Theme.inputMeter.good }
+                                GradientStop { position: 1; color: Theme.inputMeter.high }
+                            }
+                        }
+                    }
                 }
                 Flow {
                     width: parent.width

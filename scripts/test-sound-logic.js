@@ -39,6 +39,26 @@ const hintStates = [
 ];
 
 function verify(logic) {
+    const colors = { low: { r: 1, g: 214 / 255, b: 0 }, good: { r: 0, g: 230 / 255, b: 118 / 255 }, high: { r: 1, g: 59 / 255, b: 48 / 255 } };
+    const colorHex = color => "#" + [color.r, color.g, color.b].map(channel => Math.round(channel * 255).toString(16).padStart(2, "0")).join("");
+    // Adjacent representable peaks keep the continuous colour at each limit.
+    for (const [peak, color] of [
+        [0, "#ffd600"], [Number.MIN_VALUE, "#ffd600"],
+        [0.0009999999999999998, "#ffd600"], [0.001, "#ffd600"], [0.0010000000000000002, "#ffd600"],
+        [0.031622776601683784, "#00e676"], [0.03162277660168379, "#00e676"], [0.0316227766016838, "#00e676"],
+        [0.5011872336272721, "#ff3b30"], [0.5011872336272722, "#ff3b30"], [0.5011872336272723, "#ff3b30"],
+        [0.01, "#55e14f"], [0.1, "#6a9f59"], [1, "#ff3b30"]
+    ]) {
+        assert.equal(colorHex(logic.inputLevel(peak, colors).color), color, "input colour at " + peak);
+    }
+    // Decade steps have independent rational positions on the log scale.
+    for (const [peak, position] of [[0, 0], [0.0001, 0], [0.001, 0], [0.01, 1 / 3], [0.1, 2 / 3], [1, 1]])
+        assert.ok(Math.abs(logic.inputLevel(peak, colors).position - position) < 1e-12, "input position at " + peak);
+    assert.ok(logic.inputLevel(0.0010000000000000002, colors).position > 0, "the first level above the display floor draws");
+    const middle = logic.inputLevel(0.1, colors);
+    assert.ok(Math.abs(middle.lowStop - 0.75) < 1e-12, "the green stop stays fixed on the whole track");
+    assert.equal(middle.highStop, 1, "the current colour ends a partial span");
+    same(middle.middleColor, colors.good, "a reached green stop keeps its colour");
     for (const [availability, visible] of hintStates)
         assert.equal(logic.showInputAvailabilityHint(availability), visible, "input availability hint: " + availability);
     // Source JSON and card JSON follow the installed pactl producer.
@@ -244,6 +264,10 @@ function verify(logic) {
 verify(load(file));
 
 const CONTROLS = [
+    ["the input colour keeps the approved low boundary", "var INPUT_LEVEL_LOW = 0.03162277660168379;", "var INPUT_LEVEL_LOW = 0.1;"],
+    ["the input colour keeps the approved high boundary", "var INPUT_LEVEL_HIGH = 0.5011872336272722;", "var INPUT_LEVEL_HIGH = 0.9;"],
+    ["the input gradient stays fixed on the whole track", "Math.min(1, low / position)", "low"],
+    ["input display maps the logarithmic range", "/ Math.log(1 / INPUT_LEVEL_FLOOR)", "/ 1"],
     ...hintStates.map(([availability, visible]) => [
         "input hint " + availability,
         'return availability === "pending" || availability === "unreadable";',

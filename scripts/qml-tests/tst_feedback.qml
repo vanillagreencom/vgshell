@@ -35,6 +35,23 @@ Item {
         id: scaledWindow
         Window { width: 640; height: 240; color: "black" }
     }
+    Component {
+        id: gradientProgress
+        ProgressBar {
+            id: gradientBar
+            width: 200
+            value: 1
+            readonly property color middle: Theme.inputMeter.good
+            trackColor: Theme.inputMeter.track
+            fillGradient: Gradient {
+                orientation: Gradient.Horizontal
+                GradientStop { position: 0; color: Theme.inputMeter.low }
+                // Sound sends the shared converter a derived RGBA record.
+                GradientStop { position: 0.5; color: Theme.toColor({ r: gradientBar.middle.r, g: gradientBar.middle.g, b: gradientBar.middle.b, a: 1 }) }
+                GradientStop { position: 1; color: Theme.inputMeter.high }
+            }
+        }
+    }
 
     UnitCase {
         name: "feedback"
@@ -96,6 +113,71 @@ Item {
             mirroredBar.value = 0;
             fuzzyCompare(fill(mirroredBar).width, 0, 1);
             mirroredBar.value = 0.25;
+        }
+
+        function test_progress_draws_its_gradient_data() {
+            const rows = [];
+            for (const theme of ["vgs", "catalog/flexoki-light"])
+                for (const state of [
+                    { name: "partial", value: 0.5 },
+                    { name: "full", value: 1 },
+                    { name: "mirrored partial", value: 0.5, mirrored: true },
+                    { name: "mirrored full", value: 1, mirrored: true },
+                    { name: "indeterminate", value: 1, indeterminate: true }
+                ])
+                    rows.push({ tag: theme + " " + state.name, theme: theme, state: state });
+            return rows;
+        }
+
+        function pixelMatches(image, x, y, color) {
+            return Math.abs(image.red(x, y) - color.r * 255) <= 6
+                && Math.abs(image.green(x, y) - color.g * 255) <= 6
+                && Math.abs(image.blue(x, y) - color.b * 255) <= 6
+                && image.alpha(x, y) === 255;
+        }
+
+        // Read the shipped drawing, not a colour model: the complete filled
+        // span keeps opaque track above and below it, even at full value.
+        // Padding adds ground without reducing the original four-pixel ink.
+        function test_progress_draws_its_gradient(data) {
+            const request = new XMLHttpRequest();
+            request.open("GET", Qt.resolvedUrl("../../themes/" + data.theme + "/theme.json"), false);
+            request.send();
+            const tokens = JSON.parse(request.responseText).tokens;
+            tokens.motion = { scale: 0 };
+            compare(UnitTheme.override(tokens), "ok");
+            // A separate opaque window keeps the other feedback fixtures
+            // out of the grab and gives rounded edges the actual card ground.
+            const window = createTemporaryObject(scaledWindow, null, { color: Theme.color.surfaceRaised, visible: true });
+            const bar = createTemporaryObject(gradientProgress, window.contentItem, { x: 8, y: 8 });
+            bar.value = data.state.value;
+            bar.LayoutMirroring.enabled = data.state.mirrored === true;
+            bar.indeterminate = data.state.indeterminate === true;
+            const ink = fill(bar);
+            compare(ink.height, Theme.progress.height, "the gradient keeps the default stroke thickness");
+            const track = Qt.color(Theme.inputMeter.track);
+            compare(bar.background.color, track);
+            renderedFrame(bar);
+            const image = grabImage(bar);
+            const start = bar.contentItem.x + ink.x;
+            const middleY = Math.floor(bar.height / 2);
+            for (let x = Math.ceil(start + 6); x < start + ink.width - 6; x++) {
+                verify(pixelMatches(image, x, 0, track), "track above filled pixel " + x);
+                verify(pixelMatches(image, x, image.height - 1, track), "track below filled pixel " + x);
+            }
+            verify(bar.contentItem.x > 0, "ground before the full fill");
+            verify(bar.contentItem.x + bar.contentItem.width < bar.width, "ground after the full fill");
+            const green = Qt.color(Theme.inputMeter.good);
+            verify(pixelMatches(image, Math.floor(start + ink.width / 2), middleY, green), "the gradient still draws its middle colour");
+            if (!bar.indeterminate) {
+                fuzzyCompare(ink.width, bar.contentItem.width * bar.position, 1);
+                fuzzyCompare(ink.x, bar.mirrored ? bar.contentItem.width - ink.width : 0, 1);
+            }
+            bar.fillGradient = null;
+            compare(bar.height, Theme.progress.height, "removing the gradient restores the ordinary height");
+            compare(bar.contentItem.x, 0);
+            compare(bar.contentItem.y, 0);
+            compare(ink.height, bar.height);
         }
 
         // expected-log: ProgressBar: no tone named "loud"; drawing accent -- the test names an unknown tone on purpose

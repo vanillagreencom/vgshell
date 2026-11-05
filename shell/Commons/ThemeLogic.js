@@ -870,6 +870,8 @@ function resolve(tokens, overrides) {
     // The portable value of an evaluated token, checked against its type's
     // range or options, or undefined after fail().
     function settle(leaf, value, token) {
+        if (token.indexOf("inputMeter.") === 0 && hasOwn(overrides, token))
+            return fail("fixed-color", token, "group=inputMeter");
         // The cover and the text effect must share an opaque black canvas.
         if (leaf.type === "color" && token === "screensaver.background" && (value.r !== 0 || value.g !== 0 || value.b !== 0 || value.a !== 1))
             return fail("fixed-background", token, "want=opaque-black");

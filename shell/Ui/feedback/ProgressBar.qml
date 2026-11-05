@@ -13,6 +13,9 @@ T.ProgressBar {
     id: root
 
     property string tone: "accent"
+    property color trackColor: Theme.progress.track
+    // Stops are relative to the filled span, which changes with value.
+    property Gradient fillGradient: null
 
     function toneColor(name) {
         if (name === "accent") return Theme.progress.fill;
@@ -23,11 +26,15 @@ T.ProgressBar {
     }
 
     implicitWidth: Theme.size.panel.sm / 2
-    implicitHeight: Theme.progress.height
+    // Control padding insets only the content, not the background (Qt 6
+    // Control Layout: https://doc.qt.io/qt-6/qml-qtquick-controls-control.html).
+    // Keep the gradient's track visible on every side without thinning its ink.
+    padding: root.fillGradient === null ? 0 : Theme.border.thin
+    implicitHeight: Theme.progress.height + topPadding + bottomPadding
 
     background: Rectangle {
         radius: Theme.progress.radius
-        color: Theme.progress.track
+        color: root.trackColor
     }
 
     contentItem: Item {
@@ -40,6 +47,7 @@ T.ProgressBar {
             height: parent.height
             radius: Theme.progress.radius
             color: root.toneColor(root.tone)
+            gradient: root.fillGradient
             SequentialAnimation on x {
                 running: root.indeterminate && Theme.progress.duration > 0
                 loops: Animation.Infinite
