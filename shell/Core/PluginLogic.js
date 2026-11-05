@@ -2902,7 +2902,61 @@ function noticeRun(manager, primary, installs, updates) {
 }
 
 // The keys of the requirement notice's runs, by noticeRun's `action`.
-var NOTICE_RUN_KEYS = { install: "core/requirements-install", update: "core/requirements-update" };
+var NOTICE_RUN_KEYS = { install: "core/requirements-install", update: "core/requirements-update", retry: "core/requirements-retry" };
+
+// The exact completion HELD, { ran, run, result }, may explain VIEW only
+// after a successful rescan/version settlement. TuiRecords already judged
+// its package outcome. Keep that decision at its owner: this only binds
+// the result to the latest ended record and the still-owed request.
+function noticePackageFailure(view, held, runs, scanned) {
+    if (!scanned || held === null || view.satisfied) return null;
+    var ran = held.ran;
+    var key = NOTICE_RUN_KEYS[ran.action];
+    var slot = hasOwn(runs.keys, key) ? runs.keys[key] : null;
+    if (slot === null || slot.running !== null || slot.ended === null || slot.ended.run !== held.run) return null;
+    var record = slot.ended;
+    var outcome = record.package;
+    if (record.key !== key || record.code === null || record.code !== held.result.code
+        || outcome === null || outcome.kind !== "package-check-failed" || !PackageReview.sameJson(outcome, held.result.package)
+        || outcome.manager !== ran.manager) return null;
+    var names = ran.updates.concat(ran.installs);
+    var owed = view.rows.filter(function (row) { return row.package !== null && row.package.manager === ran.manager; });
+    if (names.indexOf(outcome.package) === -1 || !owed.some(function (row) { return row.package.name === outcome.package; })) return null;
+    // The owner retries one target. Its consumed return can leave other
+    // names of the original batch owed, but can lend no further retry.
+    if (ran.action === "retry") {
+        if (outcome.retry !== null && outcome.retry.state !== "consumed") return null;
+    } else if (owed.some(function (row) { return names.indexOf(row.package.name) === -1; })) return null;
+    var origin = ran.action === "retry" ? ran.args[0] : held.run;
+    if (outcome.retry !== null && outcome.retry.originRun !== origin) return null;
+    return { kind: "package-check-failed", manager: outcome.manager, package: outcome.package, retry: outcome.retry };
+}
+
+// One press: an owner-held available retry carries only its origin run to
+// the closed core TUI. Every other press keeps the ordinary tests-enabled
+// notice plan. A retry covers one target, never its original batch.
+function noticeAction(view, failure) {
+    if (failure === null || failure.kind !== "package-check-failed" || failure.retry === null || failure.retry.state !== "available") return view.run;
+    var target = failure.package;
+    var row = view.rows.filter(function (entry) { return entry.package !== null && entry.package.manager === failure.manager && entry.package.name === target; })[0];
+    return { manager: row.package.manager, action: "retry", args: [failure.retry.originRun],
+        installs: row.state === "outdated" ? [] : [target], updates: row.state === "outdated" ? [target] : [] };
+}
+
+// Draw only the retry's failed target as this press's work. The rest of
+// the original batch remains owed through ordinary tests-enabled steps,
+// including another package of the same manager.
+function noticeCompletionView(view, held, runs, scanned) {
+    var failure = noticePackageFailure(view, held, runs, scanned);
+    var action = noticeAction(view, failure);
+    var drawn = view.drawn;
+    if (action !== null && action.action === "retry") {
+        var target = function (entry) { return entry.manager === failure.manager && entry.chip === failure.package; };
+        drawn = drawn.filter(target).map(function (entry) { return Object.assign({}, entry, { later: false }); })
+            .concat(drawn.filter(function (entry) { return !target(entry); }).map(function (entry) { return Object.assign({}, entry, { later: true }); }));
+    }
+    return Object.assign({}, view, { packageFailure: failure, action: action, drawn: drawn });
+}
 
 // What Notices keeps for a plugin from the press that started RAN,
 // noticeView's `run`, as RUN, the run's id, until the next attempt: the
@@ -2912,7 +2966,7 @@ var NOTICE_RUN_KEYS = { install: "core/requirements-install", update: "core/requ
 // shell, as a restart during an install leaves it, is settled from its
 // ended record by the next shell (installFailuresSettle).
 function installAttempt(ran, run) {
-    return { state: "pending", key: NOTICE_RUN_KEYS[ran.action], run: run, manager: ran.manager, primary: ran.args[0] !== "--manager",
+    return { state: "pending", key: NOTICE_RUN_KEYS[ran.action], run: run, manager: ran.manager, primary: ran.action !== "retry" && ran.args[0] !== "--manager",
         installs: ran.installs.slice(), updates: ran.updates.slice(), lines: [] };
 }
 
@@ -2979,7 +3033,7 @@ function installFailuresRead(text) {
             && ((e.state === "failed" && e.run === null) || (typeof e.run === "string" && TUI_RUN_PATTERN.test(e.run)))
             && typeof e.manager === "string" && PackageManagers.managerRow(e.manager) !== null && typeof e.primary === "boolean"
             && names(e.installs) && names(e.updates) && e.installs.length + e.updates.length > 0
-            && e.key === NOTICE_RUN_KEYS[e.updates.length === 0 ? "install" : "update"]
+            && (e.key === NOTICE_RUN_KEYS[e.updates.length === 0 ? "install" : "update"] || e.key === NOTICE_RUN_KEYS.retry)
             && Array.isArray(e.lines) && (e.lines.length === 0 || (e.state === "failed" && PackageReview.failureLinesValid(e.lines)));
         if (!valid) return { ok: false, error: "entry=" + tuiLabel(id) };
         failures[id] = { state: e.state, key: e.key, run: e.run, manager: e.manager, primary: e.primary, installs: e.installs.slice(), updates: e.updates.slice(), lines: e.lines.slice() };
@@ -3304,7 +3358,7 @@ var TUI_RUN_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 // rest as a normalized manifest `tui` entry has them. coreTuiTable judges
 // the table when this file loads. The package pickers run in the default
 // size.
-// `edit`, `requirements-install`, `requirements-update`, `dictation-setup`, `system`,
+// `edit`, `requirements-install`, `requirements-update`, `requirements-retry`, `dictation-setup`, `system`,
 // `plugin-update`, `plugin-remove` and `sudo-revoke` are not listed. The
 // first opens a cited file from a surface, the requirement notice opens the
 // install and update rows with
@@ -3376,6 +3430,13 @@ var CORE_TUIS = coreTuiTable({
     "requirements-update": {
         argv: ["vgshell", "pkg", "run", "update"],
         title: "Update requirements",
+        size: "default",
+        presentation: "full",
+        entry: null
+    },
+    "requirements-retry": {
+        argv: ["vgshell", "pkg", "retry"],
+        title: "Retry requirements without tests",
         size: "default",
         presentation: "full",
         entry: null

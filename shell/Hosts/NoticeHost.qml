@@ -63,12 +63,19 @@ Scope {
         return shown.run.installs.length === 0 ? "Update" : "Install and update";
     }
 
+    function actionLabel(shown) {
+        if (shown.action !== null && shown.action.action === "retry") return "Retry without tests";
+        const normal = step(shown);
+        return normal === "Install" && ((Notices.failure !== null && Notices.failure.kind === "failed") || shown.packageFailure !== null) ? "Install again" : normal;
+    }
+
     // The line under SHOWN's entries for FAILURE, Notices.failure: why its
     // last run did not finish, or what a run that finished left as it was,
     // one leftLine for each package it left.
     function failureLine(shown, failure) {
         switch (failure.kind) {
         case "failed":
+            if (shown.action !== null && shown.action.action === "retry") return Reply.line(failure.reason);
             return "The last " + step(shown).toLowerCase() + " did not finish: " + failure.reason;
         case "unchanged":
             return failure.left.map(entry => leftLine(shown, entry)).join(" ");
@@ -93,7 +100,16 @@ Scope {
     // its requirements when no manager here installs them. The line under
     // each later entry names its manager, so the message names none.
     function message(shown) {
-        if (step(shown) !== "") return step(shown) + " opens a terminal. The package manager asks for your password there.";
+        if (shown.packageFailure !== null) {
+            const available = shown.packageFailure.retry !== null && shown.packageFailure.retry.state === "available";
+            const consumed = shown.packageFailure.retry !== null && shown.packageFailure.retry.state === "consumed";
+            return (consumed ? "The retry without tests for " + shown.packageFailure.package + " failed."
+                : shown.packageFailure.package + " failed its package tests.") + " This build was not installed.\n"
+                + (available ? "This retry skips package tests, including tests for any dependency the helper builds. It does not turn off source checks."
+                    : shown.packageFailure.retry !== null ? "The retry without tests was used. It skipped package and dependency tests. Source checks stayed on. Install or update again to run the tests."
+                    : "No retry without tests is available. Install or update again to run package tests and source checks.");
+        }
+        if (step(shown) !== "") return actionLabel(shown) + " opens a terminal. The package manager asks for your password there.";
         if (shown.byHand.length > 0) return "Add these packages to the system configuration: " + shown.byHand.map(g => g.manager + " " + g.names.join(" ")).join(", ") + ".";
         if (Notices.detection === "failed") return "VGS could not detect this system's package manager. Install these requirements by hand.";
         return "No package manager here provides these requirements. Install them by hand.";
@@ -159,7 +175,7 @@ Scope {
                 width: implicitWidth
                 title: win.consentMode ? win.consent.title : win.shown.title
                 message: win.consentMode ? win.consent.message : host.message(win.shown)
-                actions: win.consentMode ? win.consent.actions : host.step(win.shown) !== "" ? [{ label: host.step(win.shown), role: "accept" }, { label: "Not now", role: "cancel" }] : [{ label: "Close", role: "cancel" }]
+                actions: win.consentMode ? win.consent.actions : host.step(win.shown) !== "" ? [{ label: host.actionLabel(win.shown), role: "accept" }, { label: "Not now", role: "cancel" }] : [{ label: "Close", role: "cancel" }]
                 busy: win.consentMode && win.consent.busy
                 tabItems: card.tabStops()
                 onAccepted: {

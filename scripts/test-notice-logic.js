@@ -557,6 +557,60 @@ function suite(ctx, check) {
     check("welcomeStep: a second read is refused", throws(() => ctx.welcomeStep("seen", { type: "read", seen: false })), "welcomeStep");
     check("welcomeStep: Close on a seen welcome is refused", throws(() => ctx.welcomeStep("seen", { type: "answer", answer: "close" })), "welcomeStep");
 
+    // PackageReview's judged completion, as TuiRecords delivers it, binds
+    // only the exact latest requirement run to its still-owed target.
+    const retryNotice = { commands: ["vgs-two"], required: ["vgs-two"] };
+    const retryView = ctx.noticeView(needs, ["vgs-two"], {}, retryNotice, ARCH);
+    const retryRan = retryView.run;
+    const checkOutcome = { kind: "package-check-failed", manager: "aur", helper: "paru", package: "two-git", status: 1, retry: { originRun: "8-1", state: "available" } };
+    const retryResult = { code: 1, reason: null, package: checkOutcome };
+    const retryHeld = { ran: retryRan, run: "8-1", result: retryResult };
+    const retryRecord = { key: "core/requirements-install", run: "8-1", state: "ended", code: 1, startedAt: "08", endedAt: "09", package: checkOutcome };
+    const retryRecords = ctx.tuiRuns([retryRecord]);
+    const bound = { kind: "package-check-failed", manager: "aur", package: "two-git", retry: checkOutcome.retry };
+    const retryCases = [
+        ["the exact ended run and owed target", retryView, retryHeld, retryRecords, true, bound],
+        ["a failed rescan", retryView, retryHeld, retryRecords, false, null],
+        ["a changed target", Object.assign({}, retryView, { rows: [{ package: { manager: "aur", name: "different" } }] }), retryHeld, retryRecords, true, null],
+        ["a changed manager", Object.assign({}, retryView, { rows: [{ package: { manager: "pacman", name: "two-git" } }] }), retryHeld, retryRecords, true, null],
+        ["a newly added target in the manager request", Object.assign({}, retryView, { rows: retryView.rows.concat([{ package: { manager: "aur", name: "new" } }]) }), retryHeld, retryRecords, true, null],
+        ["satisfied requirements", Object.assign({}, retryView, { satisfied: true }), retryHeld, retryRecords, true, null],
+        ["an unrelated run", retryView, Object.assign({}, retryHeld, { run: "other" }), retryRecords, true, null],
+        ["a wrong key", retryView, retryHeld, ctx.tuiRuns([Object.assign({}, retryRecord, { key: "core/requirements-update" })]), true, null],
+        ["a newer ended run", retryView, retryHeld, ctx.tuiRuns([retryRecord, Object.assign({}, retryRecord, { run: "new", startedAt: "10", package: null })]), true, null],
+        ["a newer live run", retryView, retryHeld, ctx.tuiRuns([retryRecord, Object.assign({}, retryRecord, { run: "new", state: "running", startedAt: "10", endedAt: null, code: null, package: null })]), true, null],
+        ["a vanished presenter", retryView, retryHeld, ctx.tuiRuns([Object.assign({}, retryRecord, { code: null, package: null })]), true, null],
+        ["an ordinary result", retryView, Object.assign({}, retryHeld, { result: { code: 1, reason: null, package: null } }), ctx.tuiRuns([Object.assign({}, retryRecord, { package: null })]), true, null],
+        ["a changed origin", retryView, retryHeld, ctx.tuiRuns([Object.assign({}, retryRecord, { package: Object.assign({}, checkOutcome, { retry: { originRun: "other", state: "consumed" } }) })]), true, null],
+    ];
+    for (const [name, view, held, records, scanned, want] of retryCases)
+        check("noticePackageFailure: " + name, ctx.noticePackageFailure(view, held, records, scanned), want);
+    const retryPress = ctx.noticeAction(retryView, bound);
+    check("noticeAction: one target and only originRun reaches the retry TUI", retryPress, { manager: "aur", action: "retry", args: ["8-1"], installs: ["two-git"], updates: [] });
+    const retryAttempt = ctx.installAttempt(retryPress, "8-2");
+    check("installAttempt: retry keeps its key and explicit manager for ordinary Setup Try again", [retryAttempt.key, retryAttempt.primary, ctx.installFailuresRead(JSON.stringify({ "acme.needs": retryAttempt })).ok], ["core/requirements-retry", false, true]);
+    for (const failure of [null, Object.assign({}, bound, { retry: null }), Object.assign({}, bound, { retry: { originRun: "8-1", state: "consumed" } })])
+        check("noticeAction: no available authority keeps the ordinary tests-enabled plan", ctx.noticeAction(retryView, failure), retryRan);
+    const consumed = Object.assign({}, checkOutcome, { retry: { originRun: "8-1", state: "consumed" } });
+    const consumedHeld = { ran: retryPress, run: "8-2", result: { code: 1, reason: null, package: consumed } };
+    const consumedFailure = ctx.noticePackageFailure(retryView, consumedHeld, ctx.tuiRuns([Object.assign({}, retryRecord, { key: "core/requirements-retry", run: "8-2", package: consumed })]), true);
+    check("noticePackageFailure: the retry return keeps its consumed origin", consumedFailure, Object.assign({}, bound, { retry: consumed.retry }));
+    check("noticeAction: a consumed retry cannot skip tests twice", ctx.noticeAction(retryView, consumedFailure), retryRan);
+    const mixedRetryView = ctx.noticeView(floored, ["vgs-one"], below, three, ARCH);
+    const mixedOutcome = Object.assign({}, checkOutcome, { manager: "pacman", package: "old" });
+    const mixedHeld = { ran: mixedRetryView.run, run: "8-1", result: { code: 1, reason: null, package: mixedOutcome } };
+    const mixedFailure = ctx.noticePackageFailure(mixedRetryView, mixedHeld, ctx.tuiRuns([Object.assign({}, retryRecord, { key: "core/requirements-update", package: mixedOutcome })]), true);
+    check("noticeAction: mixed install/update retries only its failed update", ctx.noticeAction(mixedRetryView, mixedFailure), { manager: "pacman", action: "retry", args: ["8-1"], installs: [], updates: ["old"] });
+    const mixedConsumed = Object.assign({}, mixedOutcome, { retry: { originRun: "8-1", state: "consumed" } });
+    const mixedRetryHeld = { ran: ctx.noticeAction(mixedRetryView, mixedFailure), run: "8-2", result: { code: 1, reason: null, package: mixedConsumed } };
+    const mixedReturned = ctx.noticeCompletionView(mixedRetryView, mixedRetryHeld, ctx.tuiRuns([Object.assign({}, retryRecord, { key: "core/requirements-retry", run: "8-2", package: mixedConsumed })]), true);
+    check("noticeCompletionView: a consumed single-target return keeps the batch remainder ordinary", [mixedReturned.packageFailure, mixedReturned.action, mixedReturned.drawn.map(entry => [entry.chip, entry.later])], [{ kind: "package-check-failed", manager: "pacman", package: "old", retry: { originRun: "8-1", state: "consumed" } }, mixedRetryView.run, [["old", false], ["one", false]]]);
+    const remaining = ctx.noticeView(floored, ["vgs-one"], { "vgs-old": "2.0.0", "vgs-far": "1.2.0" }, three, ARCH);
+    check("noticeCompletionView: a retry names only its target as this press's work", ctx.noticeCompletionView(mixedRetryView, mixedHeld, ctx.tuiRuns([Object.assign({}, retryRecord, { key: "core/requirements-update", package: mixedOutcome })]), true).drawn.map(entry => [entry.chip, entry.later]), [["old", false], ["one", true]]);
+    check("noticeCompletionView: no outcome preserves ordinary batch presentation", ctx.noticeCompletionView(mixedRetryView, null, retryRecords, true).drawn, mixedRetryView.drawn);
+    check("noticeAction: one retry target succeeding leaves the batch remainder ordinary", [remaining.satisfied, ctx.noticeAction(remaining, null)], [false, { manager: "pacman", action: "install", args: ["one"], installs: ["one"], updates: [] }]);
+    check("noticeSettle: finding the retry target closes a satisfied notice", ctx.noticeSettle([Object.assign({ id: "acme.needs" }, retryNotice)], { "acme.needs": needs }, { "acme.needs": [] }, {}, ""), []);
+
     // An install attempt: what Notices keeps of a press's run from the
     // press, how its end settles it, through the run's `done` or its ended
     // record after a restart, what it reads back from its file, and what
@@ -722,7 +776,11 @@ const CONTROLS = [
     ["a pending run settles from its ended record", "var result = entry.state === \"pending\" ? tuiRunDone(runs, entry.run) : null;", "var result = null;"],
     ["a suggestion after a failed install is refused", "    if (trigger === \"suggested\" && failed.indexOf(id) !== -1)\n", "    if (false)\n"],
     ["a kept failure's packages are judged", "&& names(e.installs) && names(e.updates) &&", "&&"],
-    ["a kept failure's key fits its packages", "&& e.key === NOTICE_RUN_KEYS[e.updates.length === 0 ? \"install\" : \"update\"]\n", "\n"],
+    ["a kept failure's key fits its packages", "&& (e.key === NOTICE_RUN_KEYS[e.updates.length === 0 ? \"install\" : \"update\"] || e.key === NOTICE_RUN_KEYS.retry)\n", "\n"],
+    ["a failed rescan lends no retry", "if (!scanned || held === null || view.satisfied)", "if (held === null || view.satisfied)"],
+    ["consumed authority cannot skip tests twice", "failure.retry.state !== \"available\"", "false"],
+    ["a consumed single-target return can leave its batch owed", "if (ran.action === \"retry\") {", "if (false) {"],
+    ["a retry presents other batch targets as later", "{ later: true }); }));", "{ later: false }); }));"],
     ["a kept failure holds only its fields", "isPlainObject(e) && Object.keys(e).length === 8", "isPlainObject(e)"],
     ["a kept failure's lines are judged", "(e.state === \"failed\" && PackageReview.failureLinesValid(e.lines))", "e.state === \"failed\""],
     ["a pending attempt shows no failure", "    if (entry.state !== \"failed\") return null;\n", ""],
