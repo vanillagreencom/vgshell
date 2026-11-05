@@ -3024,7 +3024,7 @@ expect "Settings closes after the panel yield reading" ok ipc shell hide window 
 copy_tree capture-settings-no-raise
 edit_tree capture-settings-no-raise shell/Core/Dispatch.js \
   'var raise = usingLua ? "hl.dsp.window.alter_zorder({ mode = \"top\", window = \"address:" + clients[0].address + "\" })" : "alterzorder top,address:" + clients[0].address;' \
-  'var raise = cursorMove.request; // control: var raise = usingLua ? "hl.dsp.window.alter_zorder({ mode = \"top\", window = \"address:" + clients[0].address + "\" })" : "alterzorder top,address:" + clients[0].address;'
+  'var raise = usingLua ? "hl.dsp.no_op()" : "nop"; // control: var raise = usingLua ? "hl.dsp.window.alter_zorder({ mode = \"top\", window = \"address:" + clients[0].address + "\" })" : "alterzorder top,address:" + clients[0].address;'
 stop_shell || :
 start_shell "$sandbox/tree-capture-settings-no-raise" "$capture_settings_dir/no-raise-shell.log" bar
 expect_poll "control: Capture builds without the shared raise" True record_exists vgs.capture
